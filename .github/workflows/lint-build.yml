@@ -1,0 +1,28 @@
+name: Lint and Dry Run Build
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  lint-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Install golint
+        run: go install golang.org/x/lint/golint@latest
+      - name: Run go vet
+        run: go vet ./...
+      - name: Run golint
+        run: golint ./...
+      - name: Dry run build
+        run: go build -o /dev/null ./...
