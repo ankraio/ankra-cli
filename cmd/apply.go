@@ -151,33 +151,35 @@ func buildStack(sm map[string]interface{}, baseDir string) (client.Stack, error)
 		return client.Stack{}, errors.New("stack.name is required")
 	}
 	desc, _ := sm["description"].(string)
-
-	// Manifests
+	
 	var manifests []client.Manifest
-	for i, mi := range sm["manifests"].([]interface{}) {
-		mm, ok := mi.(map[string]interface{})
-		if !ok {
-			return client.Stack{}, fmt.Errorf("manifest[%d] invalid", i)
+	if rawMan, ok := sm["manifests"].([]interface{}); ok {
+		for i, mi := range rawMan {
+			mm, ok := mi.(map[string]interface{})
+			if !ok {
+				return client.Stack{}, fmt.Errorf("manifest[%d] invalid", i)
+			}
+			m, err := buildManifest(mm, baseDir)
+			if err != nil {
+				return client.Stack{}, fmt.Errorf("manifest[%d]: %w", i, err)
+			}
+			manifests = append(manifests, m)
 		}
-		m, err := buildManifest(mm, baseDir)
-		if err != nil {
-			return client.Stack{}, fmt.Errorf("manifest[%d]: %w", i, err)
-		}
-		manifests = append(manifests, m)
 	}
 
-	// Add-ons
 	var addons []client.Addon
-	for i, ai := range sm["addons"].([]interface{}) {
-		am, ok := ai.(map[string]interface{})
-		if !ok {
-			return client.Stack{}, fmt.Errorf("addon[%d] invalid", i)
+	if rawAdd, ok := sm["addons"].([]interface{}); ok {
+		for i, ai := range rawAdd {
+			am, ok := ai.(map[string]interface{})
+			if !ok {
+				return client.Stack{}, fmt.Errorf("addon[%d] invalid", i)
+			}
+			a, err := buildAddon(am, baseDir)
+			if err != nil {
+				return client.Stack{}, fmt.Errorf("addon[%d]: %w", i, err)
+			}
+			addons = append(addons, a)
 		}
-		a, err := buildAddon(am, baseDir)
-		if err != nil {
-			return client.Stack{}, fmt.Errorf("addon[%d]: %w", i, err)
-		}
-		addons = append(addons, a)
 	}
 
 	return client.Stack{

@@ -156,8 +156,8 @@ type Manifest struct {
 type Stack struct {
 	Name        string     `json:"name"`
 	Description string     `json:"description,omitempty"`
-	Manifests   []Manifest `json:"manifests"`
-	Addons      []Addon    `json:"addons"`
+	Manifests   []Manifest `json:"manifests,omitempty"`
+	Addons      []Addon    `json:"addons,omitempty"`
 }
 
 type GitRepository struct {
@@ -186,6 +186,14 @@ type ImportResponse struct {
 }
 
 func ApplyCluster(ctx context.Context, token, baseURL string, req CreateImportClusterRequest) (*ImportResponse, error) {
+	for i := range req.Spec.Stacks {
+		if req.Spec.Stacks[i].Manifests == nil {
+			req.Spec.Stacks[i].Manifests = make([]Manifest, 0)
+		}
+		if req.Spec.Stacks[i].Addons == nil {
+			req.Spec.Stacks[i].Addons = make([]Addon, 0)
+		}
+	}
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -199,7 +207,7 @@ func ApplyCluster(ctx context.Context, token, baseURL string, req CreateImportCl
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+token)
 
-	client := &http.Client{Timeout: 0} // rely on ctx for timeouts
+	client := &http.Client{Timeout: 0}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
