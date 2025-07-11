@@ -43,6 +43,7 @@ jobs:
           files: |
             dist/ankra-cli-*
             dist/install.sh
+          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -139,5 +140,6 @@ jobs:
             dist/install-macos-${{ matrix.goarch }}.sh
             dist/install-one-liner-${{ matrix.goarch }}.sh
             dist/install.sh
+          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
