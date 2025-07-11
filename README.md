@@ -357,3 +357,25 @@ go test ./...
 For issues and questions:
 - Create an issue in the [GitLab repository](https://cicd.infra.ankra.cloud/ankra/cli/-/issues)
 - Contact the Ankra team
+
+## Security Notice
+
+⚠️ **macOS Users**: You may encounter a security warning when running the downloaded binary:
+
+> "Apple cannot verify "ankra" is free of malware..."
+
+**Quick Fix**: Use our installation script that automatically handles the security bypass:
+```bash
+# For Intel Macs
+curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/install-macos-amd64.sh | bash
+
+# For Apple Silicon Macs
+curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/install-macos-arm64.sh | bash
+```
+
+**Alternative**: Remove the quarantine attribute manually:
+```bash
+xattr -d com.apple.quarantine /path/to/ankra-cli
+```
+
+See [SECURITY.md](SECURITY.md) for more details and alternative methods.

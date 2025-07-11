@@ -43,7 +43,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-macos:
-    name: Build macOS
+    name: Build and Sign macOS
     runs-on: macos-latest
     strategy:
       matrix:
@@ -60,47 +60,33 @@ jobs:
       - name: Build binary
         run: |
           mkdir -p dist
-          # Build with the same flags as local development
-          CGO_ENABLED=0 GOOS=darwin GOARCH=${{ matrix.goarch }} go build -ldflags="-w -s" -o dist/ankra-cli-darwin-${{ matrix.goarch }}
-          # Make executable
-          chmod +x dist/ankra-cli-darwin-${{ matrix.goarch }}
-      - name: Create installation script
+          GOOS=darwin GOARCH=${{ matrix.goarch }} go build -o dist/ankra-cli-darwin-${{ matrix.goarch }}
+      - name: Import Code-Signing Certificates
+        if: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
+        uses: Apple-Actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      - name: Sign macOS binary
+        if: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
         run: |
-          cat > dist/install-macos-${{ matrix.goarch }}.sh << 'EOF'
-          #!/bin/bash
-          set -e
-
-          BINARY_NAME="ankra-cli-darwin-${{ matrix.goarch }}"
-          INSTALL_PATH="/usr/local/bin/ankra"
-
-          echo "Installing Ankra CLI for macOS..."
-
-          # Remove quarantine attribute if present
-          if command -v xattr >/dev/null 2>&1; then
-              xattr -d com.apple.quarantine "$BINARY_NAME" 2>/dev/null || true
-          fi
-
-          # Make executable
-          chmod +x "$BINARY_NAME"
-
-          # Install to /usr/local/bin
-          if [ -w "/usr/local/bin" ]; then
-              cp "$BINARY_NAME" "$INSTALL_PATH"
-              echo "✅ Installed to $INSTALL_PATH"
-          else
-              echo "🔐 Installing to $INSTALL_PATH (requires sudo)..."
-              sudo cp "$BINARY_NAME" "$INSTALL_PATH"
-              echo "✅ Installed to $INSTALL_PATH"
-          fi
-
-          echo "🎉 Installation complete! Run 'ankra' to get started."
-          EOF
-          chmod +x dist/install-macos-${{ matrix.goarch }}.sh
+          codesign --force --options runtime --sign "${{ secrets.APPLE_SIGNING_IDENTITY }}" dist/ankra-cli-darwin-${{ matrix.goarch }}
+      - name: Notarize macOS binary
+        if: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
+        run: |
+          # Create a ZIP file for notarization
+          zip -j dist/ankra-cli-darwin-${{ matrix.goarch }}.zip dist/ankra-cli-darwin-${{ matrix.goarch }}
+          # Submit for notarization
+          xcrun notarytool submit dist/ankra-cli-darwin-${{ matrix.goarch }}.zip \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --wait
+          # Remove the ZIP file as we'll upload the original binary
+          rm dist/ankra-cli-darwin-${{ matrix.goarch }}.zip
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/ankra-cli-darwin-${{ matrix.goarch }}
-            dist/install-macos-${{ matrix.goarch }}.sh
+          files: dist/ankra-cli-darwin-${{ matrix.goarch }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
