@@ -25,7 +25,10 @@ var applyCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(applyCmd)
 	applyCmd.Flags().StringP("file", "f", "", "Path to the ImportCluster YAML file to apply")
-	applyCmd.MarkFlagRequired("file")
+	if err := applyCmd.MarkFlagRequired("file"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error marking flag as required: %s\n", err)
+		os.Exit(1)
+	}
 }
 
 func runApply(cmd *cobra.Command, _ []string) {
@@ -36,7 +39,9 @@ func runApply(cmd *cobra.Command, _ []string) {
 	}
 	if filePath == "" {
 		fmt.Fprintln(os.Stderr, "--file is required")
-		cmd.Usage()
+		if err := cmd.Usage(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error displaying usage: %s\n", err)
+		}
 		os.Exit(1)
 	}
 	if apiToken == "" {

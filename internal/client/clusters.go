@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -90,7 +91,11 @@ func DeleteCluster(ctx context.Context, token, baseURL, name string) error {
 	if err != nil {
 		return fmt.Errorf("sending DELETE to %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	body := strings.TrimSpace(string(bodyBytes))
@@ -223,7 +228,11 @@ func ApplyCluster(ctx context.Context, token, baseURL string, req CreateImportCl
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
 
 	body, _ := io.ReadAll(resp.Body)
 	bodyStr := string(body)

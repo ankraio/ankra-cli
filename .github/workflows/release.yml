@@ -60,9 +60,7 @@ jobs:
       - name: Build binary
         run: |
           mkdir -p dist
-          # Build with the same flags as local development
           CGO_ENABLED=0 GOOS=darwin GOARCH=${{ matrix.goarch }} go build -ldflags="-w -s" -o dist/ankra-cli-darwin-${{ matrix.goarch }}
-          # Make executable
           chmod +x dist/ankra-cli-darwin-${{ matrix.goarch }}
       - name: Create installation script
         run: |
@@ -71,19 +69,14 @@ jobs:
           set -e
 
           BINARY_NAME="ankra-cli-darwin-${{ matrix.goarch }}"
-          INSTALL_PATH="/usr/local/bin/ankra"
-
-          echo "Installing Ankra CLI for macOS..."
-
-          # Remove quarantine attribute if present
+          INSTALL_PATH="/usr/local/bin/ankra"          echo "Installing Ankra CLI for macOS..."
+          
           if command -v xattr >/dev/null 2>&1; then
               xattr -d com.apple.quarantine "$BINARY_NAME" 2>/dev/null || true
           fi
-
-          # Make executable
+          
           chmod +x "$BINARY_NAME"
-
-          # Install to /usr/local/bin
+          
           if [ -w "/usr/local/bin" ]; then
               cp "$BINARY_NAME" "$INSTALL_PATH"
               echo "✅ Installed to $INSTALL_PATH"

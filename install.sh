@@ -1,10 +1,8 @@
+
 #!/bin/bash
-# Ankra CLI Installation Script
-# Professional installer for the Ankra platform CLI tool
 
 set -e
 
-# Colors and formatting
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[1;33m'
@@ -12,15 +10,12 @@ readonly BLUE='\033[0;34m'
 readonly PURPLE='\033[0;35m'
 readonly CYAN='\033[0;36m'
 readonly WHITE='\033[1;37m'
-readonly NC='\033[0m' # No Color
+readonly NC='\033[0m'
 readonly BOLD='\033[1m'
 
-# Configuration
 readonly BINARY_NAME="ankra"
 readonly INSTALL_DIR="/usr/local/bin"
 readonly DOWNLOAD_URL="https://artifact.infra.ankra.cloud/repository/ankra-install-public/cli/ankra"
-
-# Helper functions
 print_header() {
     echo -e "${CYAN}${BOLD}"
     echo "╔══════════════════════════════════════════════════════════════╗"
@@ -50,14 +45,14 @@ print_info() {
     echo -e "${PURPLE}${BOLD}ℹ${NC} $1"
 }
 
-# Main installation function
+
 main() {
     print_header
 
     print_step "Starting Ankra CLI installation..."
     echo
 
-    # Check if already installed
+
     if command -v "$BINARY_NAME" &> /dev/null; then
         current_version=$("$BINARY_NAME" --version 2>/dev/null | head -1 || echo "installed")
         print_warning "Ankra CLI is already installed ($current_version)"
@@ -71,7 +66,7 @@ main() {
         echo
     fi
 
-    # Download binary
+
     print_step "Downloading Ankra CLI binary..."
     if ! curl -sSL "$DOWNLOAD_URL" -o "$BINARY_NAME"; then
         print_error "Failed to download binary from artifact repository"
@@ -80,18 +75,18 @@ main() {
     fi
     print_success "Binary downloaded successfully"
 
-    # Verify download
+
     if [[ ! -f "$BINARY_NAME" ]] || [[ ! -s "$BINARY_NAME" ]]; then
         print_error "Downloaded file is empty or corrupted"
         exit 1
     fi
 
-    # Make executable
+
     print_step "Setting executable permissions..."
     chmod +x "$BINARY_NAME"
     print_success "Permissions set"
 
-    # Install binary
+
     print_step "Installing to $INSTALL_DIR..."
     if [[ ! -w "$INSTALL_DIR" ]]; then
         print_warning "Administrator privileges required for installation"
@@ -107,7 +102,7 @@ main() {
     fi
     print_success "Ankra CLI installed to $INSTALL_DIR/$BINARY_NAME"
 
-    # Verify installation
+
     print_step "Verifying installation..."
     if command -v "$BINARY_NAME" &> /dev/null; then
         version=$("$BINARY_NAME" --version 2>/dev/null || "$BINARY_NAME" version 2>/dev/null || echo "installed")
@@ -122,7 +117,7 @@ main() {
     print_success "Ankra CLI installation completed successfully!"
     echo
 
-    # Configuration instructions
+
     echo -e "${WHITE}${BOLD}🚀 NEXT STEPS${NC}"
     echo -e "${CYAN}─────────────────────────────────────────────────────────────${NC}"
     echo
@@ -164,16 +159,16 @@ main() {
     echo
 }
 
-# Cleanup function
+
 cleanup() {
     if [[ -f "$BINARY_NAME" ]]; then
         rm -f "$BINARY_NAME"
     fi
 }
 
-# Set trap for cleanup
+
 trap cleanup EXIT
 
-# Run main installation
+
 main "$@"
 

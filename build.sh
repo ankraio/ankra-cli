@@ -1,28 +1,21 @@
 #!/bin/bash
 
-# Local development script for ankra-cli
-# This script builds the binary and handles macOS code signing for local development
-
 set -e
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Default values
 BINARY_NAME="ankra-cli"
 OUTPUT_DIR="./dist"
 GOOS=${GOOS:-$(go env GOOS)}
 GOARCH=${GOARCH:-$(go env GOARCH)}
 
-# Create output directory
 mkdir -p "$OUTPUT_DIR"
 
 echo -e "${GREEN}Building ankra-cli for ${GOOS}/${GOARCH}...${NC}"
 
-# Build the binary
 if [ "$GOOS" = "windows" ]; then
     BINARY_PATH="$OUTPUT_DIR/${BINARY_NAME}.exe"
 else
@@ -33,24 +26,20 @@ CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build -ldflags="-w -s" -o "$BINAR
 
 echo -e "${GREEN}Binary built: $BINARY_PATH${NC}"
 
-# Handle macOS-specific tasks
 if [ "$GOOS" = "darwin" ]; then
     echo -e "${YELLOW}Handling macOS-specific tasks...${NC}"
 
-    # Remove quarantine attribute if present
     if xattr -l "$BINARY_PATH" 2>/dev/null | grep -q com.apple.quarantine; then
         echo -e "${YELLOW}Removing quarantine attribute...${NC}"
         xattr -d com.apple.quarantine "$BINARY_PATH"
     fi
 
-    # Add execute permissions
     chmod +x "$BINARY_PATH"
 
-    # Try to sign if developer certificate is available
     if security find-identity -v -p codesigning | grep -q "Developer ID Application"; then
         echo -e "${YELLOW}Found Developer ID certificate, attempting to sign...${NC}"
         SIGNING_IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
-
+        
         if codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$BINARY_PATH" 2>/dev/null; then
             echo -e "${GREEN}Binary signed successfully${NC}"
         else
@@ -60,21 +49,20 @@ if [ "$GOOS" = "darwin" ]; then
         echo -e "${YELLOW}No Developer ID certificate found - binary will not be signed${NC}"
         echo -e "${YELLOW}Users may see a security warning when running the binary${NC}"
     fi
-
+    
     echo -e "${GREEN}macOS binary ready: $BINARY_PATH${NC}"
     echo -e "${YELLOW}If you get a security warning, right-click and select 'Open'${NC}"
 fi
 
 echo -e "${GREEN}Build complete!${NC}"
 
-# Optionally install to /usr/local/bin
 if [ "$1" = "--install" ]; then
     echo -e "${YELLOW}Installing to /usr/local/bin...${NC}"
     if [ "$GOOS" = "windows" ]; then
         echo -e "${RED}Cannot install Windows binary on non-Windows system${NC}"
         exit 1
     fi
-
+    
     sudo cp "$BINARY_PATH" "/usr/local/bin/${BINARY_NAME}"
     echo -e "${GREEN}Installed to /usr/local/bin/${BINARY_NAME}${NC}"
 fi

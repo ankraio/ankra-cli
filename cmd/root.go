@@ -1,4 +1,3 @@
-// cmd/root.go
 package cmd
 
 import (
@@ -58,13 +57,16 @@ func initConfig() {
 		viper.SetConfigType("yaml")
 	}
 	viper.AutomaticEnv()
-	viper.BindEnv("token", "ANKRA_API_TOKEN")
-	viper.BindEnv("base-url", "ANKRA_BASE_URL")
+	if err := viper.BindEnv("token", "ANKRA_API_TOKEN"); err != nil {
+		fmt.Printf("Warning: Could not bind token environment variable: %v\n", err)
+	}
+	if err := viper.BindEnv("base-url", "ANKRA_BASE_URL"); err != nil {
+		fmt.Printf("Warning: Could not bind base-url environment variable: %v\n", err)
+	}
 	if err := viper.ReadInConfig(); err == nil {
 		viper.ConfigFileUsed()
 	}
 
-	// Skip token validation for version and help commands
 	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "--version" || os.Args[1] == "-v" || os.Args[1] == "--help" || os.Args[1] == "-h") {
 		return
 	}

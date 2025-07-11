@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/manifoldco/promptui"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,7 +58,6 @@ var selectClusterCmd = &cobra.Command{
 	},
 }
 
-// clearSelectionCmd clears the stored active cluster.
 var clearSelectionCmd = &cobra.Command{
 	Use:   "clear",
 	Short: "Clear the active cluster selection",
@@ -93,7 +91,7 @@ func saveSelectedCluster(cluster client.ClusterListItem) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0644)
 }
 
 func loadSelectedCluster() (client.ClusterListItem, error) {
@@ -102,7 +100,7 @@ func loadSelectedCluster() (client.ClusterListItem, error) {
 	if err != nil {
 		return cluster, err
 	}
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return cluster, err
 	}

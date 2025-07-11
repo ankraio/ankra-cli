@@ -33,7 +33,6 @@ var getAddonsCmd = &cobra.Command{
 			return
 		}
 
-		// If user passed a single addon name, show detailed view
 		if len(args) == 1 {
 			name := strings.TrimSpace(args[0])
 			var found *client.ClusterAddonListItem
@@ -66,7 +65,6 @@ var getAddonsCmd = &cobra.Command{
 			return
 		}
 
-		// Otherwise, render a table of all addons
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
