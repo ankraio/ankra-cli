@@ -370,23 +370,10 @@ For issues and questions:
 - Create an issue in the [GitLab repository](https://cicd.infra.ankra.cloud/ankra/cli/-/issues)
 - Contact the Ankra team
 
-## Security Notice
-
-⚠️ **macOS & Linux Users**: You may encounter a security warning when running the downloaded binary on macOS:
-
-> "Apple cannot verify \"ankra-cli-darwin-arm64\" is free of malware..."
-
 **Recommended Installation (Universal):**
 ```bash
 bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
 ```
 
-**Manual Fix (macOS only):**
-```bash
-# After downloading the binary (replace with your actual filename)
-xattr -d com.apple.quarantine ankra-cli-darwin-arm64
-chmod +x ankra-cli-darwin-arm64
-sudo mv ankra-cli-darwin-arm64 /usr/local/bin/ankra
-```
 
 See [SECURITY.md](SECURITY.md) for more details and alternative methods.
