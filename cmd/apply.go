@@ -29,13 +29,12 @@ func init() {
 }
 
 func runApply(cmd *cobra.Command, _ []string) {
-	// 1) Fetch and validate flags
-	file, err := cmd.Flags().GetString("file")
+	filePath, err := cmd.Flags().GetString("file")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading --file: %s\n", err)
 		os.Exit(1)
 	}
-	if file == "" {
+	if filePath == "" {
 		fmt.Fprintln(os.Stderr, "--file is required")
 		cmd.Usage()
 		os.Exit(1)
@@ -45,39 +44,44 @@ func runApply(cmd *cobra.Command, _ []string) {
 		os.Exit(1)
 	}
 
-	// 2) Build request payload
-	req, err := buildImportRequest(file)
+	importRequest, err := buildImportRequest(filePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error preparing request: %s\n", err)
 		os.Exit(1)
 	}
 
-	// 3) Call API with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	resp, err := client.ApplyCluster(ctx, apiToken, baseURL, req)
+	importResponse, err := client.ApplyCluster(ctx, apiToken, baseURL, importRequest)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error applying cluster: %s\n", err)
 		os.Exit(1)
 	}
 
-	// 4) Success output with flattened import command
-	if resp.ImportCommand == "" {
-		fmt.Printf("Cluster '%s' has been updated!\n\n", resp.Name)
-	} else {
-		fmt.Printf("Cluster '%s' imported!\n\n", resp.Name)
-		fmt.Println("To install the Ankra agent, run:")
-
-		// flatten any multi-line command into a single string
-		importCommandParts := strings.Fields(resp.ImportCommand)
-		importCommand := strings.Join(importCommandParts, " ")
-		fmt.Println(importCommand)
+	if len(importResponse.Errors) > 0 {
+		fmt.Fprintln(os.Stderr, "Import failed with the following issues:")
+		for _, resourceError := range importResponse.Errors {
+			fmt.Fprintf(os.Stderr, "- %s %q:\n", resourceError.Kind, resourceError.Name)
+			for _, detail := range resourceError.Errors {
+				fmt.Fprintf(os.Stderr, "    • %s: %s\n", detail.Key, detail.Message)
+			}
+		}
+		os.Exit(1)
 	}
 
-	// 5) UI link
+	if importResponse.ImportCommand == "" {
+		fmt.Printf("Cluster '%s' has been updated!\n\n", importResponse.Name)
+	} else {
+		fmt.Printf("Cluster '%s' imported!\n\n", importResponse.Name)
+		fmt.Println("To install the Ankra agent, run:")
+		commandParts := strings.Fields(importResponse.ImportCommand)
+		flattenedCommand := strings.Join(commandParts, " ")
+		fmt.Println(flattenedCommand)
+	}
+
 	fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-		strings.TrimRight(baseURL, "/"), resp.ClusterId)
+		strings.TrimRight(baseURL, "/"), importResponse.ClusterId)
 }
 
 func buildImportRequest(path string) (client.CreateImportClusterRequest, error) {
@@ -99,20 +103,20 @@ func buildImportRequest(path string) (client.CreateImportClusterRequest, error) 
 	if !ok {
 		return client.CreateImportClusterRequest{}, errors.New("metadata missing or invalid")
 	}
-	name, _ := meta["name"].(string)
-	if name == "" {
+	clusterName, _ := meta["name"].(string)
+	if clusterName == "" {
 		return client.CreateImportClusterRequest{}, errors.New("metadata.name is required")
 	}
-	desc, _ := meta["description"].(string)
+	clusterDescription, _ := meta["description"].(string)
 
 	spec, ok := raw["spec"].(map[string]interface{})
 	if !ok {
 		return client.CreateImportClusterRequest{}, errors.New("spec missing or invalid")
 	}
 
-	var gitRepo *client.GitRepository
+	var gitRepository *client.GitRepository
 	if gr, ok := spec["git_repository"].(map[string]interface{}); ok {
-		gitRepo = &client.GitRepository{
+		gitRepository = &client.GitRepository{
 			Provider:       fmt.Sprint(gr["provider"]),
 			CredentialName: fmt.Sprint(gr["credential_name"]),
 			Branch:         fmt.Sprint(gr["branch"]),
@@ -120,26 +124,26 @@ func buildImportRequest(path string) (client.CreateImportClusterRequest, error) 
 		}
 	}
 
-	baseDir := filepath.Dir(path)
-	rawStacks, _ := spec["stacks"].([]interface{})
-	stacks := make([]client.Stack, 0, len(rawStacks))
-	for i, si := range rawStacks {
-		sm, ok := si.(map[string]interface{})
+	baseDirectory := filepath.Dir(path)
+	rawStackItems, _ := spec["stacks"].([]interface{})
+	stacks := make([]client.Stack, 0, len(rawStackItems))
+	for index, rawStack := range rawStackItems {
+		stackMap, ok := rawStack.(map[string]interface{})
 		if !ok {
-			return client.CreateImportClusterRequest{}, fmt.Errorf("stack[%d] invalid", i)
+			return client.CreateImportClusterRequest{}, fmt.Errorf("stack[%d] invalid", index)
 		}
-		stack, err := buildStack(sm, baseDir)
+		builtStack, err := buildStack(stackMap, baseDirectory)
 		if err != nil {
-			return client.CreateImportClusterRequest{}, fmt.Errorf("stack[%d]: %w", i, err)
+			return client.CreateImportClusterRequest{}, fmt.Errorf("stack[%d]: %w", index, err)
 		}
-		stacks = append(stacks, stack)
+		stacks = append(stacks, builtStack)
 	}
 
 	return client.CreateImportClusterRequest{
-		Name:        name,
-		Description: desc,
+		Name:        clusterName,
+		Description: clusterDescription,
 		Spec: client.CreateResourceSpec{
-			GitRepository: gitRepo,
+			GitRepository: gitRepository,
 			Stacks:        stacks,
 		},
 	}, nil
@@ -151,7 +155,7 @@ func buildStack(sm map[string]interface{}, baseDir string) (client.Stack, error)
 		return client.Stack{}, errors.New("stack.name is required")
 	}
 	desc, _ := sm["description"].(string)
-	
+
 	var manifests []client.Manifest
 	if rawMan, ok := sm["manifests"].([]interface{}); ok {
 		for i, mi := range rawMan {

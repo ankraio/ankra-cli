@@ -178,11 +178,22 @@ type CreateImportClusterRequest struct {
 	Spec        CreateResourceSpec `json:"spec"`
 }
 
+type ImportResponseErrorItem struct {
+	Key     string `json:"key"`
+	Message string `json:"message"`
+}
+
+type ImportResponseResourceError struct {
+	Name   string                    `json:"name"`
+	Kind   string                    `json:"kind"`
+	Errors []ImportResponseErrorItem `json:"errors"`
+}
+
 type ImportResponse struct {
-	Name          string   `json:"name"`
-	ClusterId     string   `json:"cluster_id"`
-	ImportCommand string   `json:"import_command"`
-	Errors        []string `json:"errors"`
+	Name          string                        `json:"name"`
+	ClusterId     string                        `json:"cluster_id"`
+	ImportCommand string                        `json:"import_command"`
+	Errors        []ImportResponseResourceError `json:"errors,omitempty"`
 }
 
 func ApplyCluster(ctx context.Context, token, baseURL string, req CreateImportClusterRequest) (*ImportResponse, error) {
