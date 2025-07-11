@@ -360,34 +360,21 @@ For issues and questions:
 
 ## Security Notice
 
-⚠️ **macOS Users**: You may encounter a security warning when running the downloaded binary:
+⚠️ **macOS & Linux Users**: You may encounter a security warning when running the downloaded binary on macOS:
 
-> "Apple cannot verify "ankra-cli-darwin-arm64" is free of malware..."
+> "Apple cannot verify \"ankra-cli-darwin-arm64\" is free of malware..."
 
-**Quick Fix - One-liner installation (Recommended):**
+**Recommended Installation (Universal):**
 ```bash
-# For Intel Macs (x86_64)
-curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/install-one-liner-amd64.sh | bash
-
-# For Apple Silicon Macs (ARM64)
-curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/install-one-liner-arm64.sh | bash
+bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
 ```
 
-**Manual Fix:**
+**Manual Fix (macOS only):**
 ```bash
 # After downloading the binary (replace with your actual filename)
 xattr -d com.apple.quarantine ankra-cli-darwin-arm64
 chmod +x ankra-cli-darwin-arm64
 sudo mv ankra-cli-darwin-arm64 /usr/local/bin/ankra
-```
-
-**Alternative**: Use the installation script:
-```bash
-# For Intel Macs
-curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/install-macos-amd64.sh | bash
-
-# For Apple Silicon Macs
-curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/install-macos-arm64.sh | bash
 ```
 
 See [SECURITY.md](SECURITY.md) for more details and alternative methods.

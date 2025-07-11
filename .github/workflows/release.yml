@@ -139,6 +139,6 @@ jobs:
             dist/install-macos-${{ matrix.goarch }}.sh
             dist/install-one-liner-${{ matrix.goarch }}.sh
             dist/install.sh
-          overwrite: true
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

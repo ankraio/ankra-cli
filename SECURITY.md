@@ -14,21 +14,17 @@ This warning appears because the binary is downloaded from the internet and not 
 Download and run the installation script that automatically handles the security bypass:
 
 ```bash
-# For Intel Macs (amd64)
-curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/install-macos-amd64.sh | bash
-
-# For Apple Silicon Macs (arm64)
-curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/install-macos-arm64.sh | bash
+curl -sSL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh | bash
 ```
 
 ### Method 2: Manual Installation with Security Bypass
 1. Download the binary for your architecture:
    ```bash
    # For Intel Macs
-   curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/ankra-cli-darwin-amd64 -o ankra
+   curl -sSL https://github.com/ankraio/ankra-cli/releases/latest/download/ankra-cli-darwin-amd64 -o ankra
 
    # For Apple Silicon Macs
-   curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/ankra-cli-darwin-arm64 -o ankra
+   curl -sSL https://github.com/ankraio/ankra-cli/releases/latest/download/ankra-cli-darwin-arm64 -o ankra
    ```
 
 2. Remove the quarantine attribute:
@@ -60,7 +56,7 @@ curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/install
 If you prefer to build from source to avoid security warnings entirely:
 
 ```bash
-git clone https://github.com/your-org/ankra-cli.git
+git clone https://github.com/ankraio/ankra-cli.git
 cd ankra-cli
 go build -o ankra
 sudo mv ankra /usr/local/bin/
