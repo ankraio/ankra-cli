@@ -1,0 +1,49 @@
+# Binaries
+ankra
+ankra.exe
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary
+testdata/
+
+# Go build artifacts
+*.test
+*.prof
+*.out
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Dependencies
+vendor/
+
+# Coverage reports
+coverage.txt
+coverage.html
+
+# Configuration files (may contain sensitive data)
+.ankra.yaml
+.ankra.yml
+config.yaml
+config.yml
+
+# Build directories
+build/
+dist/
+release/
