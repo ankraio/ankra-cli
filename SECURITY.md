@@ -1,13 +1,5 @@
 # Security and Code Signing
 
-## macOS Security Warning
-
-When downloading and running the `ankra-cli` binary on macOS, you may encounter a security warning:
-
-> "Apple cannot verify "ankra" is free of malware that may harm your Mac or compromise your privacy."
-
-This warning appears because the binary is downloaded from the internet and not code-signed by Apple. This is normal for open-source CLI tools.
-
 ## Recommended Installation Methods
 
 ### Method 1: Use the Installation Script (Easiest)
@@ -37,37 +29,6 @@ bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/in
    chmod +x ankra
    sudo mv ankra /usr/local/bin/
    ```
-
-## Alternative Bypass Methods
-
-### Option 1: System Preferences Override
-1. Try to run the binary - you'll get the security warning
-2. Go to **System Preferences** → **Security & Privacy** → **General**
-3. Click **"Allow Anyway"** next to the blocked app message
-4. Try running the binary again and click **"Open"** when prompted
-
-### Option 2: Right-click Method
-1. Right-click the `ankra-cli` binary in Finder
-2. Select **"Open"** from the context menu
-3. Click **"Open"** in the security dialog
-
-## Building from Source (No Security Warnings)
-
-If you prefer to build from source to avoid security warnings entirely:
-
-```bash
-git clone https://github.com/ankraio/ankra-cli.git
-cd ankra-cli
-go build -o ankra
-sudo mv ankra /usr/local/bin/
-```
-
-## Why This Happens
-
-- **Local builds**: When you build with `go build`, macOS doesn't apply quarantine attributes
-- **Downloaded binaries**: Binaries downloaded from the internet get quarantine attributes
-- **Code signing**: Apple Developer Program membership ($99/year) is required for proper code signing
-- **Workaround**: The `xattr` command removes the quarantine attribute, making the binary trusted
 
 ## Future Plans
 
