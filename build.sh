@@ -39,7 +39,7 @@ if [ "$GOOS" = "darwin" ]; then
     if security find-identity -v -p codesigning | grep -q "Developer ID Application"; then
         echo -e "${YELLOW}Found Developer ID certificate, attempting to sign...${NC}"
         SIGNING_IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
-        
+
         if codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$BINARY_PATH" 2>/dev/null; then
             echo -e "${GREEN}Binary signed successfully${NC}"
         else
@@ -49,7 +49,7 @@ if [ "$GOOS" = "darwin" ]; then
         echo -e "${YELLOW}No Developer ID certificate found - binary will not be signed${NC}"
         echo -e "${YELLOW}Users may see a security warning when running the binary${NC}"
     fi
-    
+
     echo -e "${GREEN}macOS binary ready: $BINARY_PATH${NC}"
     echo -e "${YELLOW}If you get a security warning, right-click and select 'Open'${NC}"
 fi
@@ -62,7 +62,7 @@ if [ "$1" = "--install" ]; then
         echo -e "${RED}Cannot install Windows binary on non-Windows system${NC}"
         exit 1
     fi
-    
+
     sudo cp "$BINARY_PATH" "/usr/local/bin/${BINARY_NAME}"
     echo -e "${GREEN}Installed to /usr/local/bin/${BINARY_NAME}${NC}"
 fi

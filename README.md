@@ -362,20 +362,32 @@ For issues and questions:
 
 ⚠️ **macOS Users**: You may encounter a security warning when running the downloaded binary:
 
-> "Apple cannot verify "ankra" is free of malware..."
+> "Apple cannot verify "ankra-cli-darwin-arm64" is free of malware..."
 
-**Quick Fix**: Use our installation script that automatically handles the security bypass:
+**Quick Fix - One-liner installation (Recommended):**
+```bash
+# For Intel Macs (x86_64)
+curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/install-one-liner-amd64.sh | bash
+
+# For Apple Silicon Macs (ARM64)
+curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/install-one-liner-arm64.sh | bash
+```
+
+**Manual Fix:**
+```bash
+# After downloading the binary (replace with your actual filename)
+xattr -d com.apple.quarantine ankra-cli-darwin-arm64
+chmod +x ankra-cli-darwin-arm64
+sudo mv ankra-cli-darwin-arm64 /usr/local/bin/ankra
+```
+
+**Alternative**: Use the installation script:
 ```bash
 # For Intel Macs
 curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/install-macos-amd64.sh | bash
 
 # For Apple Silicon Macs
 curl -sSL https://github.com/your-org/ankra-cli/releases/latest/download/install-macos-arm64.sh | bash
-```
-
-**Alternative**: Remove the quarantine attribute manually:
-```bash
-xattr -d com.apple.quarantine /path/to/ankra-cli
 ```
 
 See [SECURITY.md](SECURITY.md) for more details and alternative methods.

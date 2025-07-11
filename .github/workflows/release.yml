@@ -35,10 +35,14 @@ jobs:
           else
             GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o dist/ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}
           fi
+      - name: Copy universal install.sh
+        run: cp install.sh dist/install.sh
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/ankra-cli-*
+          files: |
+            dist/ankra-cli-*
+            dist/install.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -62,6 +66,12 @@ jobs:
           mkdir -p dist
           CGO_ENABLED=0 GOOS=darwin GOARCH=${{ matrix.goarch }} go build -ldflags="-w -s" -o dist/ankra-cli-darwin-${{ matrix.goarch }}
           chmod +x dist/ankra-cli-darwin-${{ matrix.goarch }}
+          # Remove quarantine attribute for local testing (no effect on CI, but helps users)
+          if command -v xattr >/dev/null 2>&1; then
+            xattr -d com.apple.quarantine dist/ankra-cli-darwin-${{ matrix.goarch }} 2>/dev/null || true
+          fi
+          # Ad-hoc sign to reduce Gatekeeper warnings (not notarized, but better than unsigned)
+          codesign --force --sign - dist/ankra-cli-darwin-${{ matrix.goarch }}
       - name: Create installation script
         run: |
           cat > dist/install-macos-${{ matrix.goarch }}.sh << 'EOF'
@@ -69,14 +79,28 @@ jobs:
           set -e
 
           BINARY_NAME="ankra-cli-darwin-${{ matrix.goarch }}"
-          INSTALL_PATH="/usr/local/bin/ankra"          echo "Installing Ankra CLI for macOS..."
-          
+          INSTALL_PATH="/usr/local/bin/ankra"
+
+          echo "Installing Ankra CLI for macOS..."
+
+          if [ ! -f "$BINARY_NAME" ]; then
+              echo "❌ Binary file $BINARY_NAME not found!"
+              echo "Please ensure you've downloaded both the binary and this installation script."
+              exit 1
+          fi
+
+          echo "🔧 Removing quarantine attribute..."
           if command -v xattr >/dev/null 2>&1; then
               xattr -d com.apple.quarantine "$BINARY_NAME" 2>/dev/null || true
+              echo "✅ Quarantine attribute removed"
+          else
+              echo "⚠️  xattr command not found, skipping quarantine removal"
           fi
-          
+
+          echo "🔧 Making binary executable..."
           chmod +x "$BINARY_NAME"
-          
+
+          echo "📦 Installing to $INSTALL_PATH..."
           if [ -w "/usr/local/bin" ]; then
               cp "$BINARY_NAME" "$INSTALL_PATH"
               echo "✅ Installed to $INSTALL_PATH"
@@ -87,13 +111,33 @@ jobs:
           fi
 
           echo "🎉 Installation complete! Run 'ankra' to get started."
+          echo ""
+          echo "To verify installation:"
+          echo "  ankra --help"
           EOF
           chmod +x dist/install-macos-${{ matrix.goarch }}.sh
+      - name: Create one-liner installation script
+        run: |
+          cat > dist/install-one-liner-${{ matrix.goarch }}.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          ARCH="${{ matrix.goarch }}"
+          BINARY_URL="https://github.com/your-org/ankra-cli/releases/latest/download/ankra-cli-darwin-$ARCH"
+          echo "🚀 Installing Ankra CLI for macOS ($ARCH)..."
+          curl -sSL "$BINARY_URL" -o ankra-cli-darwin-$ARCH
+          xattr -d com.apple.quarantine ankra-cli-darwin-$ARCH 2>/dev/null || true
+          chmod +x ankra-cli-darwin-$ARCH
+          sudo mv ankra-cli-darwin-$ARCH /usr/local/bin/ankra
+          echo "✅ Installation complete! Run 'ankra --help' to get started."
+          EOF
+          chmod +x dist/install-one-liner-${{ matrix.goarch }}.sh
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/ankra-cli-darwin-${{ matrix.goarch }}
             dist/install-macos-${{ matrix.goarch }}.sh
+            dist/install-one-liner-${{ matrix.goarch }}.sh
+            dist/install.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
