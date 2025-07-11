@@ -6,81 +6,72 @@ on:
       - 'v*'
 
 jobs:
-  build-linux-windows:
-    name: Build Linux and Windows
-    runs-on: ubuntu-latest
+  build-and-release:
+    name: Build and Release
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
-          - goos: linux
+          - os: ubuntu-latest
+            goos: linux
             goarch: amd64
-          - goos: linux
+          - os: ubuntu-latest
+            goos: linux
             goarch: arm64
-          - goos: windows
+          - os: ubuntu-latest
+            goos: windows
             goarch: amd64
-          - goos: windows
+          - os: ubuntu-latest
+            goos: windows
+            goarch: arm64
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+          - os: macos-latest
+            goos: darwin
             goarch: arm64
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+
       - name: Build binary
         run: |
           mkdir -p dist
           if [ "${{ matrix.goos }}" = "windows" ]; then
-            GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o dist/ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}.exe
+            CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="-w -s" -o dist/ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}.exe
           else
-            GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o dist/ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}
+            CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="-w -s" -o dist/ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}
           fi
-      - name: Copy universal install.sh
-        run: cp install.sh dist/install.sh
-      - name: Upload Release Asset
+
+      - name: Sign macOS binary
+        if: matrix.goos == 'darwin'
+        run: |
+          chmod +x dist/ankra-cli-darwin-${{ matrix.goarch }}
+          # Remove quarantine attribute for local testing
+          if command -v xattr >/dev/null 2>&1; then
+            xattr -d com.apple.quarantine dist/ankra-cli-darwin-${{ matrix.goarch }} 2>/dev/null || true
+          fi
+          # Ad-hoc sign to reduce Gatekeeper warnings
+          codesign --force --sign - dist/ankra-cli-darwin-${{ matrix.goarch }}
+
+      - name: Upload binaries
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/ankra-cli-*
-            dist/install.sh
+          files: dist/ankra-cli-*
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build-macos:
-    name: Build macOS
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        include:
-          - goarch: amd64
-          - goarch: arm64
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-      - name: Build binary
-        run: |
-          mkdir -p dist
-          CGO_ENABLED=0 GOOS=darwin GOARCH=${{ matrix.goarch }} go build -ldflags="-w -s" -o dist/ankra-cli-darwin-${{ matrix.goarch }}
-          chmod +x dist/ankra-cli-darwin-${{ matrix.goarch }}
-          # Remove quarantine attribute for local testing (no effect on CI, but helps users)
-          if command -v xattr >/dev/null 2>&1; then
-            xattr -d com.apple.quarantine dist/ankra-cli-darwin-${{ matrix.goarch }} 2>/dev/null || true
-          fi
-          # Ad-hoc sign to reduce Gatekeeper warnings (not notarized, but better than unsigned)
-          codesign --force --sign - dist/ankra-cli-darwin-${{ matrix.goarch }}
-      - name: Copy universal install.sh
-        run: cp install.sh dist/install.sh
-      - name: Upload Release Asset
+      - name: Upload install script (once)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/ankra-cli-darwin-${{ matrix.goarch }}
-            dist/install.sh
+          files: install.sh
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

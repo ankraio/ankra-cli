@@ -14,7 +14,7 @@ This warning appears because the binary is downloaded from the internet and not 
 Download and run the installation script that automatically handles the security bypass:
 
 ```bash
-curl -sSL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh | bash
+bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
 ```
 
 ### Method 2: Manual Installation with Security Bypass

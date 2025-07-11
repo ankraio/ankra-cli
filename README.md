@@ -13,7 +13,44 @@ A command-line interface for the Ankra platform that allows you to manage Kubern
 
 ## Installation
 
-### Quick Install (GitLab) - Option 1
+### Quick Install (Recommended)
+
+For **macOS** and **Linux**, use the universal installer:
+
+```bash
+bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
+```
+
+This script will:
+- Auto-detect your OS and architecture
+- Download the correct binary
+- Handle macOS security attributes
+- Install to `/usr/local/bin`
+
+### Manual Installation
+
+1. **Download the binary** for your platform from the [latest release](https://github.com/ankraio/ankra-cli/releases/latest):
+   - `ankra-cli-darwin-amd64` (macOS Intel)
+   - `ankra-cli-darwin-arm64` (macOS Apple Silicon)
+   - `ankra-cli-linux-amd64` (Linux x86_64)
+   - `ankra-cli-linux-arm64` (Linux ARM64)
+   - `ankra-cli-windows-amd64.exe` (Windows x86_64)
+   - `ankra-cli-windows-arm64.exe` (Windows ARM64)
+
+2. **Make it executable and install**:
+   ```bash
+   chmod +x ankra-cli-*
+   sudo mv ankra-cli-* /usr/local/bin/ankra
+   ```
+
+3. **For macOS**: Remove quarantine attribute to avoid security warnings:
+   ```bash
+   xattr -d com.apple.quarantine /usr/local/bin/ankra
+   ```
+
+### Alternative: GitLab Installation
+
+If you prefer to install from GitLab CI/CD:
 
 ```bash
 # Download and run the installation script
@@ -21,31 +58,6 @@ curl -sSL https://cicd.infra.ankra.cloud/ankra/cli/-/raw/minimal/install-gitlab.
 chmod +x install-gitlab.sh
 ./install-gitlab.sh
 ```
-
-### Quick Install (GitLab) - Option 2
-
-If the above doesn't work, try building from source:
-
-```bash
-# Clone and build
-git clone https://cicd.infra.ankra.cloud/ankra/cli.git
-cd cli
-go build -o ankra
-sudo mv ankra /usr/local/bin/
-```
-
-### Manual Installation
-
-1. **Download the binary** directly:
-   ```bash
-   curl -sSL https://cicd.infra.ankra.cloud/ankra/cli/-/raw/minimal/ankra?ref_type=heads&inline=false -o ankra
-   ```
-
-2. **Make it executable and install**:
-   ```bash
-   chmod +x ankra
-   sudo mv ankra /usr/local/bin/
-   ```
 
 ### Build from Source
 
