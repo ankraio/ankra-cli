@@ -1,12 +1,6 @@
 # Ankra CLI
 
-A command-line interface for the [Ankra Platform](https://ankra.io) that allows you to man2. **Config file** (`~/.ankra.yaml`):
-   ```yaml
-   token: your_api_token_here
-   base-url: https://platform.ankra.io
-   ```
-
-> **Get your API token**: Sign up or log in at [ankra.io](https://ankra.io) to generate your API token from the dashboard.ubernetes clusters, operations, stacks, manifests, addons—and tap into platform-wide insights, interactive builders, and multi-cluster & multi-organization workflows.
+A command-line interface for the [Ankra Platform](https://ankra.io) that allows you to manage Kubernetes clusters, operations, stacks, manifests, addons—and tap into platform-wide insights, interactive builders, and multi-cluster & multi-organization workflows.
 
 ## Features
 
@@ -112,8 +106,9 @@ Set your API token (or use OIDC login):
 2. **Config file** (`~/.ankra.yaml`):
    ```yaml
    token: your_api_token_here
-   base-url: https://platform.ankra.app
    ```
+
+> **Get your API token**: Sign up or log in at [ankra.io](https://ankra.io) to generate your API token from the dashboard.
 
 3. **CLI flag**:
    ```bash
