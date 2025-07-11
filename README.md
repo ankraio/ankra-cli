@@ -119,35 +119,23 @@ Set your API token (or use OIDC login):
 
 ### Basic Workflow
 
-1. **Authenticate / login** (if using OIDC):
-   ```bash
-   ankra login
-   ```
 
-2. **Select a cluster** (interactive across all orgs):
+1. **Select a cluster** (interactive across all orgs):
    ```bash
    ankra select cluster
    ```
 
-3. **Browse resources**:
+2. **Browse resources**:
    ```bash
    ankra get clusters         # list all clusters by org
    ankra get operations       # track operations platform-wide
    ankra get stacks           # list stacks in active cluster
    ankra get addons           # list addons in active cluster
-   ankra get metrics --cpu    # fetch CPU metrics for active cluster
    ```
 
-4. **Interactive builder**:
+4. **Apply Clusters**:
    ```bash
-   ankra builder start        # launch guided manifest/chart builder
-   ankra builder preview      # preview rendered output
-   ankra builder apply        # apply to selected cluster
-   ```
-
-5. **Multi-cluster operations**:
-   ```bash
-   ankra multi run --clusters cluster-a,cluster-b -- command-to-run
+   ankra apply -f cluster.yaml
    ```
 
 ### Command Reference
@@ -159,63 +147,16 @@ ankra get clusters
 
 # Select an active cluster
 ankra select cluster
-
-# Switch organization context
-ankra select organization
 ```
 
 #### Operations & Insight
 ```bash
-# List all operations (filter by org or cluster)
-ankra get operations --organization AcmeCorp
+ankra get operations
 
 # Show operation details and logs
-ankra get operations 1234abcd
-
-# Stream live logs for an operation
-ankra logs operation 1234abcd --follow
-
-# Fetch CPU & memory metrics
-ankra get metrics --cpu --memory
+ankra get operations <uuid>
 ```
 
-#### Interactive Builder
-```bash
-# Start builder wizard
-ankra builder start
-
-# Preview generated manifest
-ankra builder preview --output yaml
-
-# Apply built resources
-ankra builder apply
-```
-
-#### Multi-Cluster & Multi-Org
-```bash
-# Run a command across multiple clusters
-ankra multi run --clusters cluster1,cluster2 -- kubectl get pods
-
-# Export stack definitions from all clusters in an org
-ankra multi export stacks --organization DevTeam
-```
-
-## Examples
-
-```bash
-# Log in with OIDC
-ankra login
-
-# Select cluster in AcmeCorp
-ankra select organization   # choose AcmeCorp
-ankra select cluster        # choose production-cluster
-
-# Deploy an addon to multiple clusters
-ankra multi run   --clusters prod,staging   -- ankra apply addon cert-manager
-
-# Build & apply a new NGINX stack interactively
-ankra builder start   --name nginx-stack   --namespace web   --image nginx:1.24   && ankra builder apply
-```
 
 ## Troubleshooting
 
