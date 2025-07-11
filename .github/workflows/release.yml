@@ -23,10 +23,22 @@ jobs:
       - name: Build binary
         run: |
           mkdir -p dist
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o dist/ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          BIN_NAME=ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BIN_NAME="$BIN_NAME.exe"
+          fi
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags "-X main.version=${{ github.ref_name }}" -o dist/$BIN_NAME
+          # Compress the binary
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip dist/$BIN_NAME.zip dist/$BIN_NAME
+          else
+            tar -czvf dist/$BIN_NAME.tar.gz -C dist $BIN_NAME
+          fi
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          files: |
+            dist/ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+            dist/ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

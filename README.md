@@ -348,12 +348,8 @@ go test ./...
 4. Add tests if applicable
 5. Submit a pull request
 
-## License
-
-[Add your license information here]
-
 ## Support
 
 For issues and questions:
-- Create an issue in the [GitLab repository](https://cicd.infra.ankra.cloud/ankra/cli/-/issues)
-- Contact the Ankra team
+- Create an issue in the [GitLab repository](https://github.com/ankraio/ankra-cli)
+- Join the Slack: [Ankra Community Slack](https://join.slack.com/t/ankra-community/shared_invite/zt-30r96vykz-BGBKQ_W0F_wQdMeklRuVSg)
