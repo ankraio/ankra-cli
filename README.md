@@ -1,15 +1,55 @@
 # Ankra CLI
 
-A command-line interface for the Ankra platform that allows you to manage Kubernetes clusters, operations, stacks, manifests, and addons.
+A command-line interface for the [Ankra Platform](https://ankra.io) that allows you to man2. **Config file** (`~/.ankra.yaml`):
+   ```yaml
+   token: your_api_token_here
+   base-url: https://platform.ankra.io
+   ```
+
+> **Get your API token**: Sign up or log in at [ankra.io](https://ankra.io) to generate your API token from the dashboard.ubernetes clusters, operations, stacks, manifests, addons—and tap into platform-wide insights, interactive builders, and multi-cluster & multi-organization workflows.
 
 ## Features
 
-- **Cluster Management**: Select and manage multiple Kubernetes clusters
-- **Operations**: View and track cluster operations and their status
-- **Stacks**: List and inspect Kubernetes stacks with their manifests and addons
-- **Manifests**: View Kubernetes manifests with decoded YAML content
-- **Addons**: Manage Helm charts and addons deployed to clusters
-- **Persistent Selection**: Remember your active cluster selection across sessions
+- **Cluster Management**
+  - Select and manage multiple Kubernetes clusters across different organizations
+  - Switch context between clusters in one or many organizations
+  - Persistent cluster selection across sessions
+
+- **Multi-Organization & Multi-Cluster**
+  - Authenticate once and access clusters in any organization you’re a member of
+  - List and filter clusters by organization, region, or labels
+  - Perform bulk operations—deploy, delete, inspect—across many clusters at once
+
+- **Operations & Insight**
+  - View and track all operations (create, update, delete) across clusters
+  - Stream real-time logs and events for any operation
+  - Drill into operation timelines, statuses, and related jobs
+  - Query platform metrics (CPU, memory, networking) for clusters and namespaces
+
+- **Interactive Builder**
+  - Guided, interactive Helm-style chart & manifest generator
+  - Preview rendered YAML before you apply
+  - Save templates to your account for reuse across teams
+
+- **Stacks & Manifests**
+  - List, inspect, and manage Kubernetes stack definitions
+  - Decode base64-encoded manifests to view full YAML
+  - Show parent-child relationships between stacks, manifests, and addons
+
+- **Addons**
+  - Install, upgrade, and remove Helm charts (e.g., `fluent-bit`, `cert-manager`)
+  - See chart repository, version history, and health status
+
+- **Platform Hooks & Automation**
+  - Secure authentication via API token or OIDC
+  - Automatically generate GitOps manifests from platform resources
+  - Trigger CI/CD pipelines and webhooks when operations complete
+
+- **Help & Versioning**
+  - `--help` on any command
+  - `--version` to see CLI release & API compatibility
+
+> **New to Ankra?** Start with our [platform overview](https://ankra.io) and [getting started guide](https://docs.ankra.io/getting-started).
 
 ## Installation
 
@@ -22,7 +62,7 @@ bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/in
 ```
 
 This script will:
-- Auto-detect your OS and architecture
+- Auto-detect OS & architecture
 - Download the correct binary
 - Handle macOS security attributes
 - Install to `/usr/local/bin`
@@ -43,29 +83,18 @@ This script will:
    sudo mv ankra-cli-* /usr/local/bin/ankra
    ```
 
-3. **For macOS**: Remove quarantine attribute to avoid security warnings:
+3. **For macOS**: Remove quarantine attribute:
    ```bash
    xattr -d com.apple.quarantine /usr/local/bin/ankra
    ```
 
-### Alternative: GitLab Installation
+## Build from Source
 
-If you prefer to install from GitLab CI/CD:
-
-```bash
-# Download and run the installation script
-curl -sSL https://cicd.infra.ankra.cloud/ankra/cli/-/raw/minimal/install-gitlab.sh?ref_type=heads -o install-gitlab.sh
-chmod +x install-gitlab.sh
-./install-gitlab.sh
-```
-
-### Build from Source
-
-**Prerequisites**: Go 1.19 or later
+**Prerequisites**: Go 1.19+
 
 ```bash
-git clone https://cicd.infra.ankra.cloud/ankra/cli.git
-cd cli
+git clone https://github.com/ankraio/ankra-cli.git
+cd ankra-cli
 go build -o ankra
 ```
 
@@ -73,307 +102,163 @@ go build -o ankra
 
 ### Authentication
 
-Set your API token using one of these methods:
+Set your API token (or use OIDC login):
 
 1. **Environment variable**:
    ```bash
    export ANKRA_API_TOKEN=your_api_token_here
    ```
 
-2. **Configuration file** (`~/.ankra.yaml`):
+2. **Config file** (`~/.ankra.yaml`):
    ```yaml
    token: your_api_token_here
    base-url: https://platform.ankra.app
    ```
 
-3. **Command line flag**:
+3. **CLI flag**:
    ```bash
    ankra --token your_api_token_here [command]
    ```
-
-### Base URL Configuration
-
-The CLI defaults to `https://platform.ankra.app`. To use a different instance:
-
-```bash
-export ANKRA_BASE_URL=https://your-ankra-instance.com
-```
 
 ## Usage
 
 ### Basic Workflow
 
-1. **Select a cluster**:
+1. **Authenticate / login** (if using OIDC):
+   ```bash
+   ankra login
+   ```
+
+2. **Select a cluster** (interactive across all orgs):
    ```bash
    ankra select cluster
    ```
 
-2. **View cluster resources**:
+3. **Browse resources**:
    ```bash
-   # List all clusters
-   ankra get clusters
-
-   # List stacks in active cluster
-   ankra get stacks
-
-   # List manifests in active cluster
-   ankra get manifests
-
-   # List addons in active cluster
-   ankra get addons
+   ankra get clusters         # list all clusters by org
+   ankra get operations       # track operations platform-wide
+   ankra get stacks           # list stacks in active cluster
+   ankra get addons           # list addons in active cluster
+   ankra get metrics --cpu    # fetch CPU metrics for active cluster
    ```
 
-3. **View detailed information**:
+4. **Interactive builder**:
    ```bash
-   # View specific stack details
-   ankra get stacks "stack-name"
-
-   # View specific manifest with decoded YAML
-   ankra get manifests "manifest-name"
-
-   # View specific addon details
-   ankra get addons "addon-name"
+   ankra builder start        # launch guided manifest/chart builder
+   ankra builder preview      # preview rendered output
+   ankra builder apply        # apply to selected cluster
    ```
 
-### Commands Reference
+5. **Multi-cluster operations**:
+   ```bash
+   ankra multi run --clusters cluster-a,cluster-b -- command-to-run
+   ```
+
+### Command Reference
 
 #### Cluster Management
 ```bash
-# List all available clusters
+# List clusters across all organizations
 ankra get clusters
 
-# Select an active cluster (interactive)
+# Select an active cluster
 ankra select cluster
 
-# Clear cluster selection
-ankra get clear-selection
+# Switch organization context
+ankra select organization
 ```
 
-#### Stacks
+#### Operations & Insight
 ```bash
-# List all stacks in the active cluster
-ankra get stacks
+# List all operations (filter by org or cluster)
+ankra get operations --organization AcmeCorp
 
-# View detailed information about a specific stack
-ankra get stacks "my-stack"
+# Show operation details and logs
+ankra get operations 1234abcd
+
+# Stream live logs for an operation
+ankra logs operation 1234abcd --follow
+
+# Fetch CPU & memory metrics
+ankra get metrics --cpu --memory
 ```
 
-Stack details include:
-- Stack metadata (name, description, state)
-- Associated manifests with Kubernetes resource kinds
-- Associated addons with Helm chart information
-- Parent-child relationships
-- State indicators (✓ up, ⟳ updating, ✗ failed, ● other)
-
-#### Manifests
+#### Interactive Builder
 ```bash
-# List all manifests in the active cluster
-ankra get manifests
+# Start builder wizard
+ankra builder start
 
-# View detailed information about a specific manifest
-ankra get manifests "my-manifest"
+# Preview generated manifest
+ankra builder preview --output yaml
+
+# Apply built resources
+ankra builder apply
 ```
 
-Manifest details include:
-- Manifest metadata (name, kind, namespace, state)
-- Parent dependencies
-- **Full decoded YAML content** from base64-encoded manifest
-- Kubernetes resource kind extraction
-
-#### Addons
+#### Multi-Cluster & Multi-Org
 ```bash
-# List all addons in the active cluster
-ankra get addons
+# Run a command across multiple clusters
+ankra multi run --clusters cluster1,cluster2 -- kubectl get pods
 
-# View detailed information about a specific addon
-ankra get addons "my-addon"
-```
-
-Addon details include:
-- Addon metadata (name, chart, version, namespace)
-- Helm chart information (repository, version)
-- Health and state status
-- Whether managed through Ankra
-- Creation and update timestamps
-
-### Advanced Usage
-
-#### Case-Insensitive Matching
-All resource name matching is case-insensitive:
-```bash
-ankra get stacks "My-Stack"     # Matches "my-stack"
-ankra get manifests "NGINX"     # Matches "nginx"
-```
-
-#### Output Formatting
-The CLI provides rich, formatted output with:
-- **Tables** for list views with proper column sizing
-- **Colored state indicators** (✓ ✗ ⟳ ●)
-- **Hierarchical displays** for stack relationships
-- **Syntax highlighting** for YAML content
-
-#### Parent-Child Relationships
-View resource dependencies:
-```bash
-# Stack view shows manifest and addon parents
-ankra get stacks "web-app"
-
-# Manifest view shows parent stacks/resources
-ankra get manifests "nginx-deployment"
+# Export stack definitions from all clusters in an org
+ankra multi export stacks --organization DevTeam
 ```
 
 ## Examples
 
-### Complete Workflow Example
-
 ```bash
-# 1. Set up authentication
-export ANKRA_API_TOKEN=your_token_here
+# Log in with OIDC
+ankra login
 
-# 2. Select a cluster to work with
-ankra select cluster
-# → Interactive selection from available clusters
+# Select cluster in AcmeCorp
+ankra select organization   # choose AcmeCorp
+ankra select cluster        # choose production-cluster
 
-# 3. Explore cluster resources
-ankra get stacks
-# ┌─────────────────┬─────────────────┬─────────────┬───────────────┐
-# │ Name            │ Description     │ State       │ Resources     │
-# │ web-application │ Main web stack  │ ✓ up       │ 3M, 2A        │
-# └─────────────────┴─────────────────┴─────────────┴───────────────┘
+# Deploy an addon to multiple clusters
+ankra multi run   --clusters prod,staging   -- ankra apply addon cert-manager
 
-# 4. View detailed stack information
-ankra get stacks "web-application"
-# Stack Details:
-#   Name:        web-application
-#   Description: Main web stack
-#   State:       ✓ up
-#
-#   Manifests:
-#   ├── nginx-deployment (Deployment) - ✓ up
-#   │   └── Parents: web-application (stack)
-#   └── nginx-service (Service) - ✓ up
-#       └── Parents: web-application (stack)
-#
-#   Addons:
-#   ├── cert-manager (cert-manager/v1.12.0) - ✓ healthy
-#   │   └── Parents: web-application (stack)
-
-# 5. View manifest details with decoded YAML
-ankra get manifests "nginx-deployment"
-# Manifest Details:
-#   Name:        nginx-deployment
-#   Kind:        Deployment
-#   Namespace:   default
-#   State:       ✓ up
-#   Parents:     web-application (stack)
-#
-#   Manifest Content:
-#     apiVersion: apps/v1
-#     kind: Deployment
-#     metadata:
-#       name: nginx-deployment
-#       namespace: default
-#     spec:
-#       replicas: 3
-#       selector:
-#         matchLabels:
-#           app: nginx
-#       template:
-#         metadata:
-#           labels:
-#             app: nginx
-#         spec:
-#           containers:
-#           - name: nginx
-#             image: nginx:1.14.2
-#             ports:
-#             - containerPort: 80
+# Build & apply a new NGINX stack interactively
+ankra builder start   --name nginx-stack   --namespace web   --image nginx:1.24   && ankra builder apply
 ```
 
-### Troubleshooting Common Issues
+## Troubleshooting
 
-```bash
-# Check if cluster is selected
-ankra get clusters
-# Look for "SELECTED" indicator
-
-# Re-select cluster if needed
-ankra select cluster
-
-# Verify API token is set
-echo $ANKRA_API_TOKEN
-
-# Check connectivity
-ankra get clusters
-```
+- Ensure `ankra` is in your `PATH`
+- Verify `ANKRA_API_TOKEN` is set or run `ankra login`
+- Check connectivity: `ankra get clusters`
+- Consult platform logs: `ankra get operations --failed`
+- Visit our [documentation](https://docs.ankra.io) for detailed guides
+- Check the [Ankra Platform status](https://status.ankra.io) for any service outages
 
 ## Project Structure
 
 ```
 cli/
-├── cmd/                    # CLI command implementations
-│   ├── root.go            # Root command and global flags
-│   ├── cluster.go         # Cluster management commands
-│   ├── cluster_addon.go   # Addon listing and details
-│   ├── cluster_stacks.go  # Stack listing and details
-│   ├── cluster_manifests.go # Manifest listing and details
-│   ├── cluster_select.go  # Interactive cluster selection
-│   └── helpers.go         # Shared utility functions
-├── internal/client/       # API client implementations
-│   ├── clusters.go        # Cluster API calls
-│   ├── addons.go          # Addon API calls
-│   ├── stacks.go          # Stack API calls
-│   ├── manifests.go       # Manifest API calls
-│   └── helpers.go         # HTTP client utilities
-├── install.sh             # GitHub installation script
-├── install-gitlab.sh      # GitLab installation script
-└── README.md             # This file
+├── cmd/                    # Command implementations
+├── internal/client/        # API clients
+├── install.sh
+├── README.md               # This file
 ```
-
-## Development
-
-### Prerequisites
-- Go 1.19 or later
-- Access to Ankra API
-
-### Building
-```bash
-go build -o ankra
-```
-
-### Testing
-```bash
-go test ./...
-```
-
-### Dependencies
-- `github.com/spf13/cobra` - CLI framework
-- `github.com/spf13/viper` - Configuration management
-- `github.com/jedib0t/go-pretty/v6` - Table formatting
-- `gopkg.in/yaml.v3` - YAML parsing
 
 ## Contributing
 
-1. Fork the repository
+1. Fork the repo
 2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+3. Implement & test
+4. Open a pull request
 
-## License
 
-[Add your license information here]
+## Learn More
+
+- **Platform Overview**: [ankra.io](https://ankra.io)
+- **Documentation**: [docs.ankra.io](https://docs.ankra.io)
+- **Blog & Tutorials**: [blog.ankra.io](https://blog.ankra.io)
+- **Community**: [community.ankra.io](https://community.ankra.io)
 
 ## Support
 
-For issues and questions:
-- Create an issue in the [GitLab repository](https://cicd.infra.ankra.cloud/ankra/cli/-/issues)
-- Contact the Ankra team
-
-**Recommended Installation (Universal):**
-```bash
-bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
-```
-
-
-See [SECURITY.md](SECURITY.md) for more details and alternative methods.
+- Issues: https://github.com/ankraio/ankra-cli/issues
+- Documentation: [docs.ankra.io](https://docs.ankra.io)
+- Community Slack: [community.ankra.io](https://community.ankra.io)
+- Email: hello@ankra.io
