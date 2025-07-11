@@ -43,7 +43,6 @@ jobs:
           files: |
             dist/ankra-cli-*
             dist/install.sh
-          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
