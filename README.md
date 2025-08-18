@@ -34,6 +34,12 @@ A command-line interface for the [Ankra Platform](https://ankra.io) that allows 
   - Install, upgrade, and remove Helm charts (e.g., `fluent-bit`, `cert-manager`)
   - See chart repository, version history, and health status
 
+- **Cluster Cloning & Templates**
+  - Clone stack configurations from existing clusters or remote repositories
+  - Support for local files and HTTP/HTTPS URLs (including GitHub raw URLs)
+  - Smart conflict resolution with merge, clean, and force options
+  - Automatic file downloading and directory structure creation
+
 - **Platform Hooks & Automation**
   - Secure authentication via API token or OIDC
   - Automatically generate GitOps manifests from platform resources
@@ -96,7 +102,7 @@ go build -o ankra
 
 ### Authentication
 
-Set your API token (or use OIDC login):
+Set your API token:
 
 1. **Environment variable**:
    ```bash
@@ -138,6 +144,17 @@ Set your API token (or use OIDC login):
    ankra apply -f cluster.yaml
    ```
 
+5. **Clone existing configurations**:
+   ```bash
+   ankra clone existing.yaml new-cluster.yaml    # copy stacks to new cluster
+   ankra clone https://github.com/user/repo/raw/main/cluster.yaml local.yaml
+   ```
+
+6. **Multi-cluster operations**:
+   ```bash
+   ankra multi run --clusters cluster-a,cluster-b -- command-to-run
+   ```
+
 ### Command Reference
 
 #### Cluster Management
@@ -157,11 +174,78 @@ ankra get operations
 ankra get operations <uuid>
 ```
 
+#### Interactive Builder
+```bash
+# Start builder wizard
+ankra builder start
+
+# Preview generated manifest
+ankra builder preview --output yaml
+
+# Apply built resources
+ankra builder apply
+```
+
+#### Multi-Cluster & Multi-Org
+```bash
+# Run a command across multiple clusters
+ankra multi run --clusters cluster1,cluster2 -- kubectl get pods
+
+# Export stack definitions from all clusters in an org
+ankra multi export stacks --organization DevTeam
+```
+
+#### Cluster Cloning
+```bash
+# Clone stacks from a local cluster file
+ankra clone existing-cluster.yaml new-cluster.yaml
+
+# Clone from a GitHub repository (or any URL)
+ankra clone https://github.com/user/repo/raw/main/cluster.yaml new-cluster.yaml
+
+# Clean copy (replace all stacks in target)
+ankra clone source.yaml target.yaml --clean
+
+# Force merge (override conflicts)
+ankra clone source.yaml target.yaml --force
+
+# Copy missing files even from skipped stacks
+ankra clone source.yaml target.yaml --copy-missing
+
+# Combine flags for complete replacement
+ankra clone source.yaml target.yaml --clean --force
+```
+
+## Examples
+
+```bash
+# Log in with OIDC
+ankra login
+
+# Select cluster in AcmeCorp
+ankra select organization   # choose AcmeCorp
+ankra select cluster        # choose production-cluster
+
+# Deploy an addon to multiple clusters
+ankra multi run   --clusters prod,staging   -- ankra apply addon cert-manager
+
+# Build & apply a new NGINX stack interactively
+ankra builder start   --name nginx-stack   --namespace web   --image nginx:1.24   && ankra builder apply
+
+# Clone a cluster configuration from GitHub
+ankra clone https://github.com/ankraio/ankra-gitops-examples/raw/main/clusters/monitoring-stack/cluster.yaml ./my-cluster.yaml
+
+# Clone and merge with existing cluster (skip conflicts)
+ankra clone production.yaml staging.yaml
+
+# Clone with force override
+ankra clone production.yaml staging.yaml --force --copy-missing
+```
 
 ## Troubleshooting
 
 - Ensure `ankra` is in your `PATH`
-- Verify `ANKRA_API_TOKEN` is set or run `ankra login`
+- Verify `ANKRA_API_TOKEN` is set
 - Check connectivity: `ankra get clusters`
 - Consult platform logs: `ankra get operations --failed`
 - Visit our [documentation](https://docs.ankra.io) for detailed guides
