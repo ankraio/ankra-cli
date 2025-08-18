@@ -2,6 +2,44 @@
 
 A command-line interface for the [Ankra Platform](https://ankra.io) that allows you to manage Kubernetes clusters, operations, stacks, manifests, addons—and tap into platform-wide insights.
 
+## Installation
+
+### Quick Install (Recommended)
+
+For **macOS** and **Linux**, use the universal installer:
+
+```bash
+bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
+```
+
+This script will:
+- Auto-detect OS & architecture
+- Download the correct binary
+- Handle macOS security attributes
+- Install to `/usr/local/bin`
+
+### Manual Installation
+
+1. **Download the binary** for your platform from the [latest release](https://github.com/ankraio/ankra-cli/releases/latest):
+   - `ankra-cli-darwin-amd64` (macOS Intel)
+   - `ankra-cli-darwin-arm64` (macOS Apple Silicon)
+   - `ankra-cli-linux-amd64` (Linux x86_64)
+   - `ankra-cli-linux-arm64` (Linux ARM64)
+   - `ankra-cli-windows-amd64.exe` (Windows x86_64)
+   - `ankra-cli-windows-arm64.exe` (Windows ARM64)
+
+2. **Make it executable and install**:
+   ```bash
+   chmod +x ankra-cli-*
+   sudo mv ankra-cli-* /usr/local/bin/ankra
+   ```
+
+3. **For macOS**: Remove quarantine attribute:
+   ```bash
+   xattr -d com.apple.quarantine /usr/local/bin/ankra
+   ```
+
+
 ## Features
 
 - **Cluster Management**
@@ -41,42 +79,6 @@ A command-line interface for the [Ankra Platform](https://ankra.io) that allows 
 
 > **New to Ankra?** Start with our [platform overview](https://ankra.io) and [getting started guide](https://docs.ankra.io/getting-started).
 
-## Installation
-
-### Quick Install (Recommended)
-
-For **macOS** and **Linux**, use the universal installer:
-
-```bash
-bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
-```
-
-This script will:
-- Auto-detect OS & architecture
-- Download the correct binary
-- Handle macOS security attributes
-- Install to `/usr/local/bin`
-
-### Manual Installation
-
-1. **Download the binary** for your platform from the [latest release](https://github.com/ankraio/ankra-cli/releases/latest):
-   - `ankra-cli-darwin-amd64` (macOS Intel)
-   - `ankra-cli-darwin-arm64` (macOS Apple Silicon)
-   - `ankra-cli-linux-amd64` (Linux x86_64)
-   - `ankra-cli-linux-arm64` (Linux ARM64)
-   - `ankra-cli-windows-amd64.exe` (Windows x86_64)
-   - `ankra-cli-windows-arm64.exe` (Windows ARM64)
-
-2. **Make it executable and install**:
-   ```bash
-   chmod +x ankra-cli-*
-   sudo mv ankra-cli-* /usr/local/bin/ankra
-   ```
-
-3. **For macOS**: Remove quarantine attribute:
-   ```bash
-   xattr -d com.apple.quarantine /usr/local/bin/ankra
-   ```
 
 ## Build from Source
 
