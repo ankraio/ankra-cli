@@ -1,18 +1,12 @@
 # Ankra CLI
 
-A command-line interface for the [Ankra Platform](https://ankra.io) that allows you to manage Kubernetes clusters, operations, stacks, manifests, addons—and tap into platform-wide insights, interactive builders, and multi-cluster & multi-organization workflows.
+A command-line interface for the [Ankra Platform](https://ankra.io) that allows you to manage Kubernetes clusters, operations, stacks, manifests, addons—and tap into platform-wide insights.
 
 ## Features
 
 - **Cluster Management**
-  - Select and manage multiple Kubernetes clusters across different organizations
-  - Switch context between clusters in one or many organizations
+  - Switch context between clusters in one
   - Persistent cluster selection across sessions
-
-- **Multi-Organization & Multi-Cluster**
-  - Authenticate once and access clusters in any organization you’re a member of
-  - List and filter clusters by organization, region, or labels
-  - Perform bulk operations—deploy, delete, inspect—across many clusters at once
 
 - **Operations & Insight**
   - View and track all operations (create, update, delete) across clusters
@@ -20,10 +14,6 @@ A command-line interface for the [Ankra Platform](https://ankra.io) that allows 
   - Drill into operation timelines, statuses, and related jobs
   - Query platform metrics (CPU, memory, networking) for clusters and namespaces
 
-- **Interactive Builder**
-  - Guided, interactive Helm-style chart & manifest generator
-  - Preview rendered YAML before you apply
-  - Save templates to your account for reuse across teams
 
 - **Stacks & Manifests**
   - List, inspect, and manage Kubernetes stack definitions
@@ -150,11 +140,6 @@ Set your API token:
    ankra clone https://github.com/user/repo/raw/main/cluster.yaml local.yaml
    ```
 
-6. **Multi-cluster operations**:
-   ```bash
-   ankra multi run --clusters cluster-a,cluster-b -- command-to-run
-   ```
-
 ### Command Reference
 
 #### Cluster Management
@@ -174,26 +159,6 @@ ankra get operations
 ankra get operations <uuid>
 ```
 
-#### Interactive Builder
-```bash
-# Start builder wizard
-ankra builder start
-
-# Preview generated manifest
-ankra builder preview --output yaml
-
-# Apply built resources
-ankra builder apply
-```
-
-#### Multi-Cluster & Multi-Org
-```bash
-# Run a command across multiple clusters
-ankra multi run --clusters cluster1,cluster2 -- kubectl get pods
-
-# Export stack definitions from all clusters in an org
-ankra multi export stacks --organization DevTeam
-```
 
 #### Cluster Cloning
 ```bash
@@ -225,12 +190,6 @@ ankra login
 # Select cluster in AcmeCorp
 ankra select organization   # choose AcmeCorp
 ankra select cluster        # choose production-cluster
-
-# Deploy an addon to multiple clusters
-ankra multi run   --clusters prod,staging   -- ankra apply addon cert-manager
-
-# Build & apply a new NGINX stack interactively
-ankra builder start   --name nginx-stack   --namespace web   --image nginx:1.24   && ankra builder apply
 
 # Clone a cluster configuration from GitHub
 ankra clone https://github.com/ankraio/ankra-gitops-examples/raw/main/clusters/monitoring-stack/cluster.yaml ./my-cluster.yaml
