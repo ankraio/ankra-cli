@@ -178,4 +178,3 @@ cleanup() {
 }
 trap cleanup EXIT
 main "$@"
-
