@@ -148,10 +148,8 @@ fi
     echo -e "${WHITE}3.${NC} ${BOLD}Add to shell profile for persistence:${NC}"
     if [[ "$SHELL" == *"zsh"* ]]; then
         echo -e "   ${GRAY}echo 'export ANKRA_API_TOKEN=your-token' >> ~/.zshrc${NC}"
-        echo -e "   ${GRAY}echo 'export ANKRA_BASE_URL=https://platform.ankra.app' >> ~/.zshrc${NC}"
     else
         echo -e "   ${GRAY}echo 'export ANKRA_API_TOKEN=your-token' >> ~/.bashrc${NC}"
-        echo -e "   ${GRAY}echo 'export ANKRA_BASE_URL=https://platform.ankra.app' >> ~/.bashrc${NC}"
     fi
     echo
     echo -e "${WHITE}4.${NC} ${BOLD}Reload your shell profile:${NC}"
@@ -163,10 +161,6 @@ fi
     echo
     echo -e "${WHITE}5.${NC} ${BOLD}Select a cluster:${NC}"
     echo -e "   ${CYAN}ankra cluster select${NC}"
-    echo
-    echo -e "${WHITE}6.${NC} ${BOLD}Deploy addons:${NC}"
-    echo -e "   ${CYAN}ankra apply fluent-bit${NC}"
-    echo -e "   ${CYAN}ankra apply cert-manager${NC}"
     echo
     echo -e "${WHITE}7.${NC} ${BOLD}Get started:${NC}"
     echo -e "   ${CYAN}ankra --help${NC}"
