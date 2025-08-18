@@ -499,11 +499,11 @@ func writeClusterFile(path string, cluster *ImportClusterConfig) error {
 
 	// Create a buffer to write YAML to
 	var buf strings.Builder
-	
+
 	// Create YAML encoder with consistent indentation
 	encoder := yaml.NewEncoder(&buf)
 	encoder.SetIndent(2) // Use 2-space indentation consistently
-	
+
 	if err := encoder.Encode(cluster); err != nil {
 		return fmt.Errorf("failed to marshal cluster YAML: %w", err)
 	}
