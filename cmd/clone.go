@@ -497,12 +497,19 @@ func writeClusterFile(path string, cluster *ImportClusterConfig) error {
 		return fmt.Errorf("failed to create directory %q: %w", dir, err)
 	}
 
-	data, err := yaml.Marshal(cluster)
-	if err != nil {
+	// Create a buffer to write YAML to
+	var buf strings.Builder
+	
+	// Create YAML encoder with consistent indentation
+	encoder := yaml.NewEncoder(&buf)
+	encoder.SetIndent(2) // Use 2-space indentation consistently
+	
+	if err := encoder.Encode(cluster); err != nil {
 		return fmt.Errorf("failed to marshal cluster YAML: %w", err)
 	}
+	encoder.Close()
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, []byte(buf.String()), 0644); err != nil {
 		return fmt.Errorf("failed to write cluster file: %w", err)
 	}
 
