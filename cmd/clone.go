@@ -14,9 +14,10 @@ import (
 )
 
 var (
-	cleanFlag      bool
-	forceFlag      bool
+	cleanFlag       bool
+	forceFlag       bool
 	copyMissingFlag bool
+	stackFlag       []string
 )
 
 var cloneCmd = &cobra.Command{
@@ -29,11 +30,13 @@ The source can be either a local file path or a URL (http/https).
 Examples:
   ankra clone cluster.yaml new-cluster.yaml
   ankra clone https://github.com/user/repo/raw/main/cluster.yaml new-cluster.yaml
+  ankra clone cluster.yaml new-cluster.yaml --stack "monitoring" --stack "networking"
 
 Flags:
   --clean: Replace all stacks in the new cluster with those from the existing cluster
   --force: Force merge even when stack/addon/manifest names conflict
   --copy-missing: Copy missing files even for skipped stacks
+  --stack: Clone only specific stacks by name (can be used multiple times)
 
 Without flags: Merge stacks, skipping any with conflicting names`,
 	Args: cobra.ExactArgs(2),
@@ -44,6 +47,7 @@ func init() {
 	cloneCmd.Flags().BoolVar(&cleanFlag, "clean", false, "Replace all stacks in the new cluster")
 	cloneCmd.Flags().BoolVar(&forceFlag, "force", false, "Force merge even when names conflict")
 	cloneCmd.Flags().BoolVar(&copyMissingFlag, "copy-missing", false, "Copy missing files even for skipped stacks")
+	cloneCmd.Flags().StringSliceVar(&stackFlag, "stack", []string{}, "Clone only specific stacks by name (can be used multiple times)")
 	rootCmd.AddCommand(cloneCmd)
 }
 
@@ -83,6 +87,28 @@ func runClone(cmd *cobra.Command, args []string) error {
 
 	if existingCluster.Kind != "ImportCluster" {
 		return fmt.Errorf("existing file is not an ImportCluster (kind: %s)", existingCluster.Kind)
+	}
+
+	if len(stackFlag) > 0 {
+		availableStacks := make(map[string]bool)
+		for _, stack := range existingCluster.Spec.Stacks {
+			availableStacks[stack.Name] = true
+		}
+
+		var missingStacks []string
+		for _, requestedStack := range stackFlag {
+			if !availableStacks[requestedStack] {
+				missingStacks = append(missingStacks, requestedStack)
+			}
+		}
+
+		if len(missingStacks) > 0 {
+			fmt.Printf("Available stacks in source cluster:\n")
+			for i, stack := range existingCluster.Spec.Stacks {
+				fmt.Printf("  %d. %s\n", i+1, stack.Name)
+			}
+			return fmt.Errorf("requested stacks not found: %s", strings.Join(missingStacks, ", "))
+		}
 	}
 
 	// Read or create new cluster
@@ -251,7 +277,6 @@ func downloadFileFromURL(baseURL, relPath, dstPath string) error {
 	}
 	defer dstFile.Close()
 
-	// Copy the downloaded content to the file
 	if _, err := io.Copy(dstFile, resp.Body); err != nil {
 		return fmt.Errorf("failed to write file content: %w", err)
 	}
@@ -262,22 +287,33 @@ func downloadFileFromURL(baseURL, relPath, dstPath string) error {
 
 func cloneStacks(existing, new *ImportClusterConfig, existingBaseDir, newBaseDir string, fromURL bool) error {
 	if cleanFlag {
-		// Replace all stacks
 		new.Spec.Stacks = []StackConfig{}
 	}
 
-	// Build name maps for conflict detection
 	existingStackNames := getStackNames(new.Spec.Stacks)
+
+	var requestedStacks map[string]bool
+	if len(stackFlag) > 0 {
+		requestedStacks = make(map[string]bool)
+		for _, stackName := range stackFlag {
+			requestedStacks[stackName] = true
+		}
+		fmt.Printf("Filtering to clone only specific stacks: %s\n", strings.Join(stackFlag, ", "))
+	}
 
 	stacksAdded := 0
 	stacksSkipped := 0
+	stacksFiltered := 0
 
 	for _, existingStack := range existing.Spec.Stacks {
-		// Check for stack name conflicts
+		if len(stackFlag) > 0 && !requestedStacks[existingStack.Name] {
+			fmt.Printf("Filtering out stack %q - not in requested list\n", existingStack.Name)
+			stacksFiltered++
+			continue
+		}
 		if _, exists := existingStackNames[existingStack.Name]; exists && !forceFlag {
 			fmt.Printf("Skipping stack %q - name already exists (use --force to override)\n", existingStack.Name)
 
-			// If copy-missing flag is set, still copy missing files from this stack
 			if copyMissingFlag {
 				fmt.Printf("Copying missing files from skipped stack %q due to --copy-missing flag\n", existingStack.Name)
 				if err := copyStackFiles(existingStack, existingBaseDir, newBaseDir, true, fromURL); err != nil {
@@ -289,7 +325,6 @@ func cloneStacks(existing, new *ImportClusterConfig, existingBaseDir, newBaseDir
 			continue
 		}
 
-		// Check for manifest/addon conflicts within the stack
 		if !forceFlag {
 			manifestConflicts, addonConflicts := checkStackConflicts(existingStack, new.Spec.Stacks)
 			if len(manifestConflicts) > 0 || len(addonConflicts) > 0 {
@@ -301,7 +336,6 @@ func cloneStacks(existing, new *ImportClusterConfig, existingBaseDir, newBaseDir
 					fmt.Printf("  Addon conflicts: %s\n", strings.Join(addonConflicts, ", "))
 				}
 
-				// If copy-missing flag is set, still copy missing files from this stack
 				if copyMissingFlag {
 					fmt.Printf("Copying missing files from skipped stack %q due to --copy-missing flag\n", existingStack.Name)
 					if err := copyStackFiles(existingStack, existingBaseDir, newBaseDir, true, fromURL); err != nil {
@@ -314,17 +348,13 @@ func cloneStacks(existing, new *ImportClusterConfig, existingBaseDir, newBaseDir
 			}
 		}
 
-		// Clone the stack
 		clonedStack := existingStack
 
-		// Copy files and update paths for manifests and addons
 		if err := copyStackFiles(clonedStack, existingBaseDir, newBaseDir, false, fromURL); err != nil {
 			return fmt.Errorf("failed to copy files for stack %q: %w", clonedStack.Name, err)
 		}
 
-		// Add or replace the stack
 		if forceFlag && existingStackNames[existingStack.Name] {
-			// Replace existing stack
 			for i, stack := range new.Spec.Stacks {
 				if stack.Name == existingStack.Name {
 					new.Spec.Stacks[i] = clonedStack
@@ -332,14 +362,17 @@ func cloneStacks(existing, new *ImportClusterConfig, existingBaseDir, newBaseDir
 				}
 			}
 		} else {
-			// Add new stack
 			new.Spec.Stacks = append(new.Spec.Stacks, clonedStack)
 		}
 
 		stacksAdded++
 	}
 
-	fmt.Printf("Clone completed: %d stacks added, %d stacks skipped\n", stacksAdded, stacksSkipped)
+	if len(stackFlag) > 0 {
+		fmt.Printf("Clone completed: %d stacks added, %d stacks skipped, %d stacks filtered out\n", stacksAdded, stacksSkipped, stacksFiltered)
+	} else {
+		fmt.Printf("Clone completed: %d stacks added, %d stacks skipped\n", stacksAdded, stacksSkipped)
+	}
 	return nil
 }
 
@@ -540,6 +573,9 @@ func printCloneSummary(existingFile, newFile string, newClusterExists bool, exis
 	}
 	if copyMissingFlag {
 		flags = append(flags, "--copy-missing")
+	}
+	if len(stackFlag) > 0 {
+		flags = append(flags, fmt.Sprintf("--stack=%s", strings.Join(stackFlag, ",")))
 	}
 	if len(flags) == 0 {
 		fmt.Printf("none\n")
