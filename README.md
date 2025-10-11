@@ -186,11 +186,6 @@ ankra clone source.yaml target.yaml --clean --force
 ## Examples
 
 ```bash
-# Log in with OIDC
-ankra login
-
-# Select cluster in AcmeCorp
-ankra select organization   # choose AcmeCorp
 ankra select cluster        # choose production-cluster
 
 # Clone a cluster configuration from GitHub
