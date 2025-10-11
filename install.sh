@@ -26,29 +26,33 @@ case "$ARCH" in
 esac
 
 
-BASE_URL="https://github.com/ankraio/ankra-cli/releases/latest/download"
-if [[ "$OS" == "darwin" ]]; then
-    if [[ "$ARCH" == "arm64" ]]; then
-        DOWNLOAD_URL="$BASE_URL/ankra-cli-darwin-arm64"
-    elif [[ "$ARCH" == "amd64" ]]; then
-        DOWNLOAD_URL="$BASE_URL/ankra-cli-darwin-amd64"
+
+
+set_download_url() {
+    BASE_URL="https://github.com/ankraio/ankra-cli/releases/$VERSION/download"
+    if [[ "$OS" == "darwin" ]]; then
+        if [[ "$ARCH" == "arm64" ]]; then
+            DOWNLOAD_URL="$BASE_URL/ankra-cli-darwin-arm64"
+        elif [[ "$ARCH" == "amd64" ]]; then
+            DOWNLOAD_URL="$BASE_URL/ankra-cli-darwin-amd64"
+        else
+            echo -e "${RED}${BOLD}✗ Unsupported architecture: $ARCH${NC}"
+            exit 1
+        fi
+    elif [[ "$OS" == "linux" ]]; then
+        if [[ "$ARCH" == "arm64" ]]; then
+            DOWNLOAD_URL="$BASE_URL/ankra-cli-linux-arm64"
+        elif [[ "$ARCH" == "amd64" ]]; then
+            DOWNLOAD_URL="$BASE_URL/ankra-cli-linux-amd64"
+        else
+            echo -e "${RED}${BOLD}✗ Unsupported architecture: $ARCH${NC}"
+            exit 1
+        fi
     else
-        echo -e "${RED}${BOLD}✗ Unsupported architecture: $ARCH${NC}"
+        echo -e "${RED}${BOLD}✗ Unsupported OS: $OS${NC}"
         exit 1
     fi
-elif [[ "$OS" == "linux" ]]; then
-    if [[ "$ARCH" == "arm64" ]]; then
-        DOWNLOAD_URL="$BASE_URL/ankra-cli-linux-arm64"
-    elif [[ "$ARCH" == "amd64" ]]; then
-        DOWNLOAD_URL="$BASE_URL/ankra-cli-linux-amd64"
-    else
-        echo -e "${RED}${BOLD}✗ Unsupported architecture: $ARCH${NC}"
-        exit 1
-    fi
-else
-    echo -e "${RED}${BOLD}✗ Unsupported OS: $OS${NC}"
-    exit 1
-fi
+}
 
 readonly BINARY_NAME="ankra"
 readonly INSTALL_DIR="/usr/local/bin"
@@ -69,6 +73,16 @@ print_error() { echo -e "${RED}${BOLD}✗${NC} $1"; }
 print_info() { echo -e "${PURPLE}${BOLD}ℹ${NC} $1"; }
 
 main() {
+    VERSION="latest"
+    if [[ "$1" == "--version" || "$1" == "-v" ]]; then
+        if [[ -n "$2" ]]; then
+            VERSION="$2"
+        else
+            print_error "No version specified after $1"
+            exit 1
+        fi
+    fi
+    set_download_url
     print_header
     print_step "Starting Ankra CLI installation..."
     echo
