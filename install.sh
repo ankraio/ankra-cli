@@ -30,7 +30,7 @@ esac
 
 set_download_url() {
     if [[ "$VERSION" == "latest" ]]; then
-      BASE_URL="https://github.com/ankraio/ankra-cli/releases/download"
+      BASE_URL="https://github.com/ankraio/ankra-cli/releases/latest/download"
     else
       BASE_URL="https://github.com/ankraio/ankra-cli/releases/download/$VERSION"
     fi
