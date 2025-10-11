@@ -29,7 +29,11 @@ esac
 
 
 set_download_url() {
-    BASE_URL="https://github.com/ankraio/ankra-cli/releases/$VERSION/download"
+    if [[ "$VERSION" == "latest" ]]; then
+      BASE_URL="https://github.com/ankraio/ankra-cli/releases/download"
+    else
+      BASE_URL="https://github.com/ankraio/ankra-cli/releases/download/$VERSION"
+    fi
     if [[ "$OS" == "darwin" ]]; then
         if [[ "$ARCH" == "arm64" ]]; then
             DOWNLOAD_URL="$BASE_URL/ankra-cli-darwin-arm64"
