@@ -57,14 +57,32 @@ type ClusterWithStatusResponse struct {
 	Result []ClusterWithStatus `json:"result"`
 }
 
-func ListClusters(token, baseURL string) ([]ClusterListItem, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/clusters"
-	var resp ClusterListResponse
-	if err := getJSON(url, token, &resp); err != nil {
+func ListClusters(token string, baseURL string, page int, pageSize int) (*ClusterListResponse, error) {
+	if page == 0 {
+		page = 1
+	}
+	if pageSize == 0 {
+		pageSize = 25
+	}
+
+	url := fmt.Sprintf("%s/api/v1/clusters?page=%d&page_size=%d", baseURL, page, pageSize)
+	fmt.Printf("CHECK %s", url)
+	var response *ClusterListResponse
+	if err := getJSON(url, token, &response); err != nil {
 		return nil, err
 	}
-	return resp.Result, nil
+
+	return response, nil
 }
+
+// func ListClusters(token, baseURL string) ([]ClusterListItem, error) {
+// 	url := strings.TrimRight(baseURL, "/") + "/api/v1/clusters"
+// 	var resp ClusterListResponse
+// 	if err := getJSON(url, token, &resp); err != nil {
+// 		return nil, err
+// 	}
+// 	return resp.Result, nil
+// }
 
 func GetCluster(token, baseURL, name string) (ClusterWithStatus, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters?cluster_name=%s",

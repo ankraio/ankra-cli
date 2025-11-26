@@ -19,12 +19,12 @@ var getClustersCmd = &cobra.Command{
 	Args:    cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
-			clusters, err := client.ListClusters(apiToken, baseURL)
+			response, err := client.ListClusters(apiToken, baseURL, 0, 0)
 			if err != nil {
 				fmt.Printf("Error listing clusters: %v\n", err)
 				return
 			}
-			if len(clusters) == 0 {
+			if len(response.Result) == 0 {
 				fmt.Println("No clusters found.")
 				return
 			}
@@ -41,7 +41,7 @@ var getClustersCmd = &cobra.Command{
 				{Number: 6, WidthMin: 10},
 				{Number: 7, WidthMin: 15},
 			})
-			for _, cluster := range clusters {
+			for _, cluster := range response.Result {
 				t.AppendRow(table.Row{
 					cluster.Name,
 					cluster.KubeVersion,
