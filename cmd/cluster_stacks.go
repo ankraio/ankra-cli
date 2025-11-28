@@ -8,6 +8,7 @@ import (
 	"ankra/internal/client"
 
 	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
 )
 
@@ -148,11 +149,11 @@ var getStacksCmd = &cobra.Command{
 			state := stack.State
 			switch strings.ToLower(state) {
 			case "up":
-				state = "✓ " + state
-			case "updating":
-				state = "⟳ " + state
+				state = text.FgGreen.Sprint("✓ " + state)
 			case "failed":
-				state = "✗ " + state
+				state = text.FgRed.Sprint("✗ " + state)
+			default:
+				state = text.FgYellow.Sprint("⟳ " + state)
 			}
 
 			t.AppendRow(table.Row{

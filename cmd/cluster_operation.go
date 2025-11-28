@@ -8,6 +8,7 @@ import (
 	"ankra/internal/client"
 
 	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
 )
 
@@ -75,9 +76,11 @@ var getOperationsCmd = &cobra.Command{
 			status := op.Status
 			switch strings.ToLower(status) {
 			case "success":
-				status = "✓ " + status
+				status = text.FgGreen.Sprint("✓ " + status)
 			case "failed":
-				status = "✗ " + status
+				status = text.FgRed.Sprint("✗ " + status)
+			default:
+				status = text.FgYellow.Sprint("⟳ " + status)
 			}
 			t.AppendRow(table.Row{
 				op.ID,

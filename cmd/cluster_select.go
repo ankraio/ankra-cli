@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,7 +60,7 @@ var selectClusterCmd = &cobra.Command{
 					return
 				} else {
 					fmt.Printf("Selected cluster: %s (ID: %s) is now active.\n", selectedCluster.Name, selectedCluster.ID)
-					fmt.Println("You can now run 'ankra get operations' or 'ankra get addons'.")
+					fmt.Println("Run 'ankra get --help' to see available commands for this cluster")
 					return
 				}
 			}
@@ -138,9 +139,27 @@ func init() {
 func createListPromptUi(response *client.ClusterListResponse, previousFetchedClusters []client.ClusterListItem, startCursorPosition int) (promptui.Select, []SelectableItem, []client.ClusterListItem) {
 	templates := &promptui.SelectTemplates{
 		Label:    "{{ . }}:",
-		Active:   "\U0001F336 {{ .Label | cyan }} {{ if .Cluster }} {{.Cluster.ID | red }} {{ end }}",
-		Inactive: "  {{ .Label | cyan }} {{ if .Cluster }} {{.Cluster.ID | red }} {{ end }}",
-		Selected: " {{ if .Cluster }} \u2705 {{ .Label | cyan }} {{.Cluster.ID | red }} {{ end }} {{ if .IsLoadMore }} \u23F3 Loading next page... {{ end }}",
+		Active:   "\U0001F336 {{ .Label | cyan }} {{ if .Cluster }} {{.Cluster | stateColor}} {{.Cluster.ID | red }} {{ end }}",
+		Inactive: "  {{ .Label | cyan }} {{ if .Cluster }} {{.Cluster | stateColor}} {{.Cluster.ID | red }} {{ end }}",
+		Selected: "{{ if .Cluster }} \u2705 {{ .Label | cyan }} {{.Cluster | stateColor}} {{.Cluster.ID | red }} {{ end }} {{ if .IsLoadMore }} \u23F3 Loading next page... {{ end }}",
+		FuncMap: template.FuncMap{
+			"black":   promptui.Styler(promptui.FGBlack),
+			"red":     promptui.Styler(promptui.FGRed),
+			"green":   promptui.Styler(promptui.FGGreen),
+			"yellow":  promptui.Styler(promptui.FGYellow),
+			"blue":    promptui.Styler(promptui.FGBlue),
+			"magenta": promptui.Styler(promptui.FGMagenta),
+			"cyan":    promptui.Styler(promptui.FGCyan),
+			"white":   promptui.Styler(promptui.FGWhite),
+			"bold":    promptui.Styler(promptui.FGBold),
+			"faint":   promptui.Styler(promptui.FGFaint),
+			"stateColor": func(cluster client.ClusterListItem) string {
+				if cluster.State == "online" {
+					return promptui.Styler(promptui.FGGreen)(cluster.State)
+				}
+				return promptui.Styler(promptui.FGWhite)(cluster.State)
+			},
+		},
 	}
 	selectableItems := []SelectableItem{}
 
