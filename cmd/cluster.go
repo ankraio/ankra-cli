@@ -3,12 +3,14 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"ankra/internal/client"
 
 	"github.com/dustin/go-humanize"
 	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
 )
 
@@ -42,12 +44,17 @@ var getClustersCmd = &cobra.Command{
 				{Number: 7, WidthMin: 15},
 			})
 			for _, cluster := range response.Result {
+				state := cluster.State
+				if strings.ToLower(state) == "online" {
+					state = text.FgGreen.Sprint(state)
+				}
+
 				t.AppendRow(table.Row{
 					cluster.Name,
 					cluster.KubeVersion,
 					cluster.Nodes,
 					cluster.ControlPlanes,
-					cluster.State,
+					state,
 					cluster.Kind,
 					formatTimeAgo(cluster.CreatedAt),
 				})

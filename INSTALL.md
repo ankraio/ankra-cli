@@ -9,11 +9,13 @@ This guide provides step-by-step instructions for installing the Ankra CLI on yo
 1. **Download and Run the Installer**
 
    For most users (requires sudo for global install):
+
    ```sh
    curl -sSL https://artifact.infra.ankra.cloud/repository/ankra-install-public/cli/install.sh | bash
    ```
 
    For a user-local install (no sudo, adds to ~/bin):
+
    ```sh
    curl -sSL https://artifact.infra.ankra.cloud/repository/ankra-install-public/cli/install-simple.sh | bash
    ```
@@ -52,7 +54,7 @@ This guide provides step-by-step instructions for installing the Ankra CLI on yo
      ```
 5. **Select a cluster:**
    ```sh
-   ankra cluster select
+   ankra select cluster
    ```
 6. **Deploy addons:**
    ```sh

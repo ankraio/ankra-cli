@@ -91,8 +91,17 @@ main() {
     print_step "Starting Ankra CLI installation..."
     echo
     if command -v "$BINARY_NAME" &> /dev/null; then
-        current_version=$("$BINARY_NAME" --version 2>/dev/null | head -1 || echo "installed")
+     current_version=$("$BINARY_NAME" --version 2>/dev/null | head -1 || echo "installed")
+    
+        if [[ "$VERSION" == "latest" ]]; then
+            target_version=$(curl -sL https://api.github.com/repos/ankraio/ankra-cli/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+            target_version="${target_version:-latest}"
+        else
+            target_version="$VERSION"
+        fi
+        
         print_warning "Ankra CLI is already installed ($current_version)"
+        print_info "Target version: $target_version"
         echo -n "Do you want to reinstall? [y/N]: "
         read -r response
         if [[ ! "$response" =~ ^[Yy]$ ]]; then
@@ -178,7 +187,7 @@ fi
     fi
     echo
     echo -e "${WHITE}5.${NC} ${BOLD}Select a cluster:${NC}"
-    echo -e "   ${CYAN}ankra cluster select${NC}"
+    echo -e "   ${CYAN}ankra select cluster${NC}"
     echo
     echo -e "${WHITE}7.${NC} ${BOLD}Get started:${NC}"
     echo -e "   ${CYAN}ankra --help${NC}"

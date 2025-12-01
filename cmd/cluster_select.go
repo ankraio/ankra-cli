@@ -59,7 +59,7 @@ var selectClusterCmd = &cobra.Command{
 					fmt.Printf("Failed to save selection: %v\n", err)
 					return
 				} else {
-					fmt.Printf("Selected cluster: %s (ID: %s) is now active.\n", selectedCluster.Name, selectedCluster.ID)
+					fmt.Printf("Selected cluster: %s is now active.\n", selectedCluster.Name)
 					fmt.Println("Run 'ankra get --help' to see available commands for this cluster")
 					return
 				}
