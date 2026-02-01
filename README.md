@@ -42,36 +42,61 @@ This script will:
 
 ## Features
 
+- **Organisation Management**
+  - List, switch, and create organisations
+  - View organisation members and roles
+  - Persistent organisation selection across sessions
+
 - **Cluster Management**
-  - Switch context between clusters in one
+  - Switch context between clusters
   - Persistent cluster selection across sessions
+  - Trigger cluster reconciliation
+
+- **AI-Powered Chat**
+  - Interactive troubleshooting with AI assistance
+  - Cluster-aware context for better answers
+  - Chat history management
+  - AI-analyzed cluster health insights
 
 - **Operations & Insight**
   - View and track all operations (create, update, delete) across clusters
+  - Cancel running operations and jobs
   - Stream real-time logs and events for any operation
   - Drill into operation timelines, statuses, and related jobs
-  - Query platform metrics (CPU, memory, networking) for clusters and namespaces
-
 
 - **Stacks & Manifests**
   - List, inspect, and manage Kubernetes stack definitions
+  - Create, delete, and rename stacks
+  - View stack change history
   - Decode base64-encoded manifests to view full YAML
   - Show parent-child relationships between stacks, manifests, and addons
 
 - **Addons**
-  - Install, upgrade, and remove Helm charts (e.g., `fluent-bit`, `cert-manager`)
+  - List available and installed addons
+  - View and update addon settings
+  - Uninstall addons from clusters
   - See chart repository, version history, and health status
+
+- **Agent Management**
+  - View agent status and health
+  - Get and generate agent tokens
+  - Trigger agent upgrades
+
+- **Credentials & Tokens**
+  - List and manage platform credentials
+  - Create and revoke API tokens
+  - Validate credential names
+
+- **Chart Browser**
+  - Browse available Helm charts
+  - Search charts by name
+  - View chart details, versions, and profiles
 
 - **Cluster Cloning & Templates**
   - Clone stack configurations from existing clusters or remote repositories
   - Support for local files and HTTP/HTTPS URLs (including GitHub raw URLs)
   - Smart conflict resolution with merge, clean, and force options
   - Automatic file downloading and directory structure creation
-
-- **Platform Hooks & Automation**
-  - Secure authentication via API token or OIDC
-  - Automatically generate GitOps manifests from platform resources
-  - Trigger CI/CD pipelines and webhooks when operations complete
 
 - **Help & Versioning**
   - `--help` on any command
@@ -117,93 +142,144 @@ Set your API token:
 
 ### Basic Workflow
 
-
-1. **Select a cluster** (interactive across all orgs):
+1. **Select a cluster** (interactive):
    ```bash
-   ankra select cluster
+   ankra cluster select
    ```
 
-2. **Browse resources**:
+2. **Browse cluster resources**:
    ```bash
-   ankra get clusters         # list all clusters by org
-   ankra get operations       # track operations platform-wide
-   ankra get stacks           # list stacks in active cluster
-   ankra get addons           # list addons in active cluster
+   ankra cluster list              # list all clusters
+   ankra cluster stacks list       # list stacks in active cluster
+   ankra cluster addons list       # list addons in active cluster
+   ankra cluster operations list   # list operations for active cluster
    ```
 
-4. **Apply Clusters**:
+3. **Apply Clusters**:
    ```bash
-   ankra apply -f cluster.yaml
+   ankra cluster apply -f cluster.yaml
    ```
 
-5. **Clone existing configurations**:
+4. **Clone existing configurations**:
    ```bash
-   ankra clone existing.yaml new-cluster.yaml    # copy stacks to new cluster
-   ankra clone https://github.com/user/repo/raw/main/cluster.yaml local.yaml
+   ankra cluster clone existing.yaml new-cluster.yaml
+   ankra cluster clone https://github.com/user/repo/raw/main/cluster.yaml local.yaml
    ```
 
 ### Command Reference
 
+#### Organisation Management
+```bash
+ankra org list                        # List all organisations
+ankra org switch <org_id>             # Switch to a different organisation
+ankra org current                     # Show current organisation
+ankra org create <name> [--country]   # Create a new organisation
+ankra org members [org_id]            # List organisation members
+```
+
 #### Cluster Management
 ```bash
-# List clusters across all organizations
-ankra get clusters
-
-# Select an active cluster
-ankra select cluster
+ankra cluster list                    # List all clusters
+ankra cluster get <name>              # Get cluster details
+ankra cluster select                  # Interactively select a cluster
+ankra cluster clear                   # Clear active cluster selection
+ankra cluster reconcile [name]        # Trigger cluster reconciliation
+ankra cluster apply -f <file>         # Apply an ImportCluster YAML
+ankra cluster clone <src> <dst>       # Clone cluster configuration
 ```
 
-#### Operations & Insight
+#### Cluster Stacks
 ```bash
-ankra get operations
-
-# Show operation details and logs
-ankra get operations <uuid>
+ankra cluster stacks list [name]      # List stacks or show details
+ankra cluster stacks create <name>    # Create a new stack
+ankra cluster stacks delete <name>    # Delete a stack
+ankra cluster stacks rename <old> <new>  # Rename a stack
+ankra cluster stacks history <name>   # View stack change history
 ```
 
-
-#### Cluster Cloning
+#### Cluster Addons
 ```bash
-# Clone stacks from a local cluster file
-ankra clone existing-cluster.yaml new-cluster.yaml
+ankra cluster addons list [name]      # List addons or show details
+ankra cluster addons available        # List addons available for installation
+ankra cluster addons settings <name>  # Get addon settings
+ankra cluster addons uninstall <name> # Uninstall an addon
+```
 
-# Clone from a GitHub repository (or any URL)
-ankra clone https://github.com/user/repo/raw/main/cluster.yaml new-cluster.yaml
+#### Cluster Operations
+```bash
+ankra cluster operations list [id]    # List operations or show details
+ankra cluster operations cancel <id>  # Cancel a running operation
+ankra cluster operations cancel-job <op_id> <job_id>  # Cancel a job
+```
 
-# Clean copy (replace all stacks in target)
-ankra clone source.yaml target.yaml --clean
+#### Cluster Agent
+```bash
+ankra cluster agent status            # Get agent status
+ankra cluster agent token             # Get agent token
+ankra cluster agent token --generate  # Generate new agent token
+ankra cluster agent upgrade           # Upgrade the agent
+```
 
-# Force merge (override conflicts)
-ankra clone source.yaml target.yaml --force
+#### Cluster Manifests
+```bash
+ankra cluster manifests list [name]   # List manifests or show details
+```
 
-# Copy missing files even from skipped stacks
-ankra clone source.yaml target.yaml --copy-missing
+#### AI Chat
+```bash
+ankra chat                            # Interactive chat mode
+ankra chat "question"                 # One-shot question
+ankra chat --cluster <name>           # Chat with cluster context
+ankra chat history [--cluster]        # View chat history
+ankra chat show <conversation_id>     # Show a conversation
+ankra chat delete <conversation_id>   # Delete a conversation
+ankra chat health                     # Get AI-analyzed cluster health
+```
 
-# Combine flags for complete replacement
-ankra clone source.yaml target.yaml --clean --force
+#### Credentials
+```bash
+ankra credentials list [--provider]   # List all credentials
+ankra credentials get <id>            # Get credential details
+ankra credentials validate <name>     # Validate credential name
+ankra credentials delete <id>         # Delete a credential
+```
+
+#### API Tokens
+```bash
+ankra tokens list                     # List API tokens
+ankra tokens create <name> [--expires]  # Create a new token
+ankra tokens revoke <token_id>        # Revoke a token
+ankra tokens delete <token_id>        # Delete a revoked token
+```
+
+#### Charts
+```bash
+ankra charts list [--page] [--subscribed]  # List Helm charts
+ankra charts search <query>           # Search charts
+ankra charts info <name> [--repository]  # Get chart details
 ```
 
 ## Examples
 
 ```bash
-ankra select cluster        # choose production-cluster
+# Select and work with a cluster
+ankra cluster select
+ankra cluster stacks list
+ankra cluster addons list
 
 # Clone a cluster configuration from GitHub
-ankra clone https://github.com/ankraio/ankra-gitops-examples/raw/main/clusters/monitoring-stack/cluster.yaml ./my-cluster.yaml
+ankra cluster clone https://github.com/ankraio/examples/raw/main/cluster.yaml ./my-cluster.yaml
 
-# Clone and merge with existing cluster (skip conflicts)
-ankra clone production.yaml staging.yaml
-
-# Clone with force override
-ankra clone production.yaml staging.yaml --force --copy-missing
+# Apply and reconcile
+ankra cluster apply -f my-cluster.yaml
+ankra cluster reconcile
 ```
 
 ## Troubleshooting
 
 - Ensure `ankra` is in your `PATH`
 - Verify `ANKRA_API_TOKEN` is set
-- Check connectivity: `ankra get clusters`
-- Consult platform logs: `ankra get operations --failed`
+- Check connectivity: `ankra cluster list`
 - Visit our [documentation](https://docs.ankra.io) for detailed guides
 - Check the [Ankra Platform status](https://status.ankra.io) for any service outages
 

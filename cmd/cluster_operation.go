@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"ankra/internal/client"
 
@@ -12,14 +14,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var getOperationsCmd = &cobra.Command{
-	Use:   "operations [operation ID]",
-	Short: "Get operations for the active cluster; optionally, provide an operation ID for details",
+var clusterOperationsCmd = &cobra.Command{
+	Use:   "operations",
+	Short: "Manage operations",
+	Long:  "Commands to list and cancel operations.",
+}
+
+var clusterOperationsListCmd = &cobra.Command{
+	Use:   "list [operation ID]",
+	Short: "List operations for the active cluster; optionally, provide an operation ID for details",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster is selected. Run 'ankra select cluster' to select one.")
+			fmt.Println("No active cluster is selected. Run 'ankra cluster select' to select one.")
 			return
 		}
 		ops, err := client.ListClusterOperations(apiToken, baseURL, cluster.ID)
@@ -94,6 +102,55 @@ var getOperationsCmd = &cobra.Command{
 	},
 }
 
+var clusterOperationsCancelCmd = &cobra.Command{
+	Use:   "cancel <operation_id>",
+	Short: "Cancel a running operation",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		operationID := args[0]
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		result, err := client.CancelOperation(ctx, apiToken, baseURL, operationID)
+		if err != nil {
+			fmt.Printf("Error cancelling operation: %v\n", err)
+			return
+		}
+
+		if result.Success {
+			fmt.Printf("Operation '%s' cancelled successfully!\n", operationID)
+		}
+	},
+}
+
+var clusterOperationsCancelJobCmd = &cobra.Command{
+	Use:   "cancel-job <operation_id> <job_id>",
+	Short: "Cancel a specific job within an operation",
+	Args:  cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		operationID := args[0]
+		jobID := args[1]
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		result, err := client.CancelJob(ctx, apiToken, baseURL, operationID, jobID)
+		if err != nil {
+			fmt.Printf("Error cancelling job: %v\n", err)
+			return
+		}
+
+		if result.Success {
+			fmt.Printf("Job '%s' cancelled successfully!\n", jobID)
+		}
+	},
+}
+
 func init() {
-	getCmd.AddCommand(getOperationsCmd)
+	clusterOperationsCmd.AddCommand(clusterOperationsListCmd)
+	clusterOperationsCmd.AddCommand(clusterOperationsCancelCmd)
+	clusterOperationsCmd.AddCommand(clusterOperationsCancelJobCmd)
+
+	clusterCmd.AddCommand(clusterOperationsCmd)
 }

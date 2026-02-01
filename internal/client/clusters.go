@@ -158,14 +158,18 @@ const (
 )
 
 type Addon struct {
-	Name              string      `json:"name"`
-	ChartName         string      `json:"chart_name"`
-	ChartVersion      string      `json:"chart_version"`
-	RepositoryURL     string      `json:"repository_url"`
-	Namespace         string      `json:"namespace,omitempty"`
-	ConfigurationType string      `json:"configuration_type,omitempty"`
-	Configuration     interface{} `json:"configuration,omitempty"`
-	Parents           []Parent    `json:"parents"`
+	Name                   string                 `json:"name"`
+	ChartName              string                 `json:"chart_name"`
+	ChartVersion           string                 `json:"chart_version"`
+	RepositoryURL          string                 `json:"repository_url,omitempty"`
+	Namespace              string                 `json:"namespace,omitempty"`
+	ConfigurationType      string                 `json:"configuration_type,omitempty"`
+	Configuration          interface{}            `json:"configuration,omitempty"`
+	Parents                []Parent               `json:"parents"`
+	RegistryName           string                 `json:"registry_name,omitempty"`
+	RegistryURL            string                 `json:"registry_url,omitempty"`
+	RegistryCredentialName string                 `json:"registry_credential_name,omitempty"`
+	Settings               map[string]interface{} `json:"settings,omitempty"`
 }
 
 type Manifest struct {
@@ -173,6 +177,7 @@ type Manifest struct {
 	ManifestBase64 string   `json:"manifest_base64"`
 	Namespace      string   `json:"namespace,omitempty"`
 	Parents        []Parent `json:"parents"`
+	EncryptedPaths []string `json:"encrypted_paths,omitempty"`
 }
 
 type Stack struct {
@@ -216,6 +221,44 @@ type ImportResponse struct {
 	ClusterId     string                        `json:"cluster_id"`
 	ImportCommand string                        `json:"import_command"`
 	Errors        []ImportResponseResourceError `json:"errors,omitempty"`
+}
+
+// TriggerReconcileResult is the response from triggering a cluster reconcile
+type TriggerReconcileResult struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+// TriggerReconcile triggers a reconciliation for a cluster
+func TriggerReconcile(ctx context.Context, token, baseURL, clusterID string) (*TriggerReconcileResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/reconcile", strings.TrimRight(baseURL, "/"), clusterID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("reconcile failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result TriggerReconcileResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
 }
 
 func ApplyCluster(ctx context.Context, token, baseURL string, req CreateImportClusterRequest) (*ImportResponse, error) {

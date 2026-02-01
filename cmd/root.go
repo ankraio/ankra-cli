@@ -12,7 +12,7 @@ var (
 	apiToken string
 	baseURL  string
 	cfgFile  string
-	version  = "0.1.121"
+	version  = "0.1.122"
 )
 
 var rootCmd = &cobra.Command{
@@ -44,8 +44,6 @@ func init() {
 	_ = viper.BindPFlag("base-url", rootCmd.PersistentFlags().Lookup("base-url"))
 	_ = viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
 
-	rootCmd.AddCommand(getCmd)
-	rootCmd.AddCommand(selectCmd)
 }
 
 func initConfig() {
@@ -63,19 +61,34 @@ func initConfig() {
 	if err := viper.BindEnv("base-url", "ANKRA_BASE_URL"); err != nil {
 		fmt.Printf("Warning: Could not bind base-url environment variable: %v\n", err)
 	}
-	if err := viper.ReadInConfig(); err == nil {
-		viper.ConfigFileUsed()
+	_ = viper.ReadInConfig()
+
+	// Skip token check for commands that don't need authentication
+	skipAuthCommands := map[string]bool{
+		"version":   true,
+		"--version": true,
+		"-v":        true,
+		"--help":    true,
+		"-h":        true,
+		"login":     true,
+		"logout":    true,
+		"help":      true,
+	}
+	// Check all args for skip commands (handles flags before command like --base-url)
+	for _, arg := range os.Args[1:] {
+		if skipAuthCommands[arg] {
+			return
+		}
 	}
 
-	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "--version" || os.Args[1] == "-v" || os.Args[1] == "--help" || os.Args[1] == "-h") {
-		return
-	}
-
-	if viper.GetString("token") == "" {
+	token := viper.GetString("token")
+	if token == "" {
 		fmt.Fprintln(os.Stderr,
-			"API token not provided; use --token, ANKRA_API_TOKEN, or `ankra login`")
+			"Not logged in. Please run `ankra login` to authenticate,")
+		fmt.Fprintln(os.Stderr,
+			"or provide a token via --token or ANKRA_API_TOKEN environment variable.")
 		os.Exit(1)
 	}
-	apiToken = viper.GetString("token")
+	apiToken = token
 	baseURL = viper.GetString("base-url")
 }

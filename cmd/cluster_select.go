@@ -20,10 +20,9 @@ type SelectableItem struct {
 	Label      string
 }
 
-var selectClusterCmd = &cobra.Command{
-	Use:     "cluster",
-	Aliases: []string{"clusters"},
-	Short:   "Interactively select a cluster and save as active",
+var clusterSelectCmd = &cobra.Command{
+	Use:   "select",
+	Short: "Interactively select a cluster and save as active",
 	Run: func(cmd *cobra.Command, args []string) {
 		page := 1
 		fetchedClusters := []client.ClusterListItem{}
@@ -60,7 +59,7 @@ var selectClusterCmd = &cobra.Command{
 					return
 				} else {
 					fmt.Printf("Selected cluster: %s is now active.\n", selectedCluster.Name)
-					fmt.Println("Run 'ankra get --help' to see available commands for this cluster")
+					fmt.Println("Run 'ankra cluster --help' to see available commands for this cluster")
 					return
 				}
 			}
@@ -68,7 +67,7 @@ var selectClusterCmd = &cobra.Command{
 	},
 }
 
-var clearSelectionCmd = &cobra.Command{
+var clusterClearCmd = &cobra.Command{
 	Use:   "clear",
 	Short: "Clear the active cluster selection",
 	Run: func(cmd *cobra.Command, args []string) {
@@ -126,14 +125,9 @@ func clearSelectedCluster() error {
 	return os.Remove(path)
 }
 
-var selectCmd = &cobra.Command{
-	Use:   "select",
-	Short: "Interactively select a resource",
-}
-
 func init() {
-	selectCmd.AddCommand(selectClusterCmd)
-	selectCmd.AddCommand(clearSelectionCmd)
+	clusterCmd.AddCommand(clusterSelectCmd)
+	clusterCmd.AddCommand(clusterClearCmd)
 }
 
 func createListPromptUi(response *client.ClusterListResponse, previousFetchedClusters []client.ClusterListItem, startCursorPosition int) (promptui.Select, []SelectableItem, []client.ClusterListItem) {

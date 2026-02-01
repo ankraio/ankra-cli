@@ -20,7 +20,7 @@ var (
 	stackFlag       []string
 )
 
-var cloneCmd = &cobra.Command{
+var clusterCloneCmd = &cobra.Command{
 	Use:   "clone <existing_cluster_file_or_url> <new_cluster_path>",
 	Short: "Clone stacks from an existing cluster to a new cluster configuration",
 	Long: `Clone stacks from an existing cluster ImportCluster YAML to a new cluster.
@@ -28,9 +28,9 @@ var cloneCmd = &cobra.Command{
 The source can be either a local file path or a URL (http/https).
 
 Examples:
-  ankra clone cluster.yaml new-cluster.yaml
-  ankra clone https://github.com/user/repo/raw/main/cluster.yaml new-cluster.yaml
-  ankra clone cluster.yaml new-cluster.yaml --stack "monitoring" --stack "networking"
+  ankra cluster clone cluster.yaml new-cluster.yaml
+  ankra cluster clone https://github.com/user/repo/raw/main/cluster.yaml new-cluster.yaml
+  ankra cluster clone cluster.yaml new-cluster.yaml --stack "monitoring" --stack "networking"
 
 Flags:
   --clean: Replace all stacks in the new cluster with those from the existing cluster
@@ -44,11 +44,11 @@ Without flags: Merge stacks, skipping any with conflicting names`,
 }
 
 func init() {
-	cloneCmd.Flags().BoolVar(&cleanFlag, "clean", false, "Replace all stacks in the new cluster")
-	cloneCmd.Flags().BoolVar(&forceFlag, "force", false, "Force merge even when names conflict")
-	cloneCmd.Flags().BoolVar(&copyMissingFlag, "copy-missing", false, "Copy missing files even for skipped stacks")
-	cloneCmd.Flags().StringSliceVar(&stackFlag, "stack", []string{}, "Clone only specific stacks by name (can be used multiple times)")
-	rootCmd.AddCommand(cloneCmd)
+	clusterCloneCmd.Flags().BoolVar(&cleanFlag, "clean", false, "Replace all stacks in the new cluster")
+	clusterCloneCmd.Flags().BoolVar(&forceFlag, "force", false, "Force merge even when names conflict")
+	clusterCloneCmd.Flags().BoolVar(&copyMissingFlag, "copy-missing", false, "Copy missing files even for skipped stacks")
+	clusterCloneCmd.Flags().StringSliceVar(&stackFlag, "stack", []string{}, "Clone only specific stacks by name (can be used multiple times)")
+	clusterCmd.AddCommand(clusterCloneCmd)
 }
 
 func runClone(cmd *cobra.Command, args []string) error {
@@ -196,22 +196,27 @@ type StackConfig struct {
 }
 
 type ManifestConfig struct {
-	Name      string         `yaml:"name"`
-	Parents   []ParentConfig `yaml:"parents,omitempty"`
-	FromFile  string         `yaml:"from_file,omitempty"`
-	Manifest  string         `yaml:"manifest,omitempty"`
-	Namespace string         `yaml:"namespace,omitempty"`
+	Name           string         `yaml:"name"`
+	Parents        []ParentConfig `yaml:"parents,omitempty"`
+	FromFile       string         `yaml:"from_file,omitempty"`
+	Manifest       string         `yaml:"manifest,omitempty"`
+	Namespace      string         `yaml:"namespace,omitempty"`
+	EncryptedPaths []string       `yaml:"encrypted_paths,omitempty"`
 }
 
 type AddonConfig struct {
-	Name              string                 `yaml:"name"`
-	ChartName         string                 `yaml:"chart_name"`
-	ChartVersion      string                 `yaml:"chart_version"`
-	RepositoryURL     string                 `yaml:"repository_url"`
-	Namespace         string                 `yaml:"namespace,omitempty"`
-	ConfigurationType string                 `yaml:"configuration_type,omitempty"`
-	Configuration     map[string]interface{} `yaml:"configuration,omitempty"`
-	Parents           []ParentConfig         `yaml:"parents,omitempty"`
+	Name                   string                 `yaml:"name"`
+	ChartName              string                 `yaml:"chart_name"`
+	ChartVersion           string                 `yaml:"chart_version"`
+	RepositoryURL          string                 `yaml:"repository_url,omitempty"`
+	Namespace              string                 `yaml:"namespace,omitempty"`
+	ConfigurationType      string                 `yaml:"configuration_type,omitempty"`
+	Configuration          map[string]interface{} `yaml:"configuration,omitempty"`
+	Parents                []ParentConfig         `yaml:"parents,omitempty"`
+	RegistryName           string                 `yaml:"registry_name,omitempty"`
+	RegistryURL            string                 `yaml:"registry_url,omitempty"`
+	RegistryCredentialName string                 `yaml:"registry_credential_name,omitempty"`
+	Settings               map[string]interface{} `yaml:"settings,omitempty"`
 }
 
 type ParentConfig struct {
@@ -603,6 +608,6 @@ func printCloneSummary(existingFile, newFile string, newClusterExists bool, exis
 
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  1. Review the generated file: %s\n", newFile)
-	fmt.Printf("  2. Apply the cluster: ankra apply -f %s\n", newFile)
+	fmt.Printf("  2. Apply the cluster: ankra cluster apply -f %s\n", newFile)
 	fmt.Printf(strings.Repeat("=", 60) + "\n")
 }

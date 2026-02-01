@@ -36,3 +36,7 @@ func getJSON(url, token string, target interface{}) error {
 	}
 	return json.NewDecoder(resp.Body).Decode(target)
 }
+
+func parseJSON(data []byte, target interface{}) error {
+	return json.Unmarshal(data, target)
+}

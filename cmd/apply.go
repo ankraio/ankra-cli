@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var applyCmd = &cobra.Command{
+var clusterApplyCmd = &cobra.Command{
 	Use:   "apply",
 	Short: "Apply an ImportCluster YAML to the Ankra API",
 	Args:  cobra.NoArgs,
@@ -23,12 +23,12 @@ var applyCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(applyCmd)
-	applyCmd.Flags().StringP("file", "f", "", "Path to the ImportCluster YAML file to apply")
-	if err := applyCmd.MarkFlagRequired("file"); err != nil {
+	clusterApplyCmd.Flags().StringP("file", "f", "", "Path to the ImportCluster YAML file to apply")
+	if err := clusterApplyCmd.MarkFlagRequired("file"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error marking flag as required: %s\n", err)
 		os.Exit(1)
 	}
+	clusterCmd.AddCommand(clusterApplyCmd)
 }
 
 func runApply(cmd *cobra.Command, _ []string) {
@@ -223,11 +223,22 @@ func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, 
 	ns, _ := mm["namespace"].(string)
 	parents := parseParentList(mm["parents"])
 
+	// Parse encrypted_paths if present
+	var encryptedPaths []string
+	if rawPaths, ok := mm["encrypted_paths"].([]interface{}); ok {
+		for _, p := range rawPaths {
+			if s, ok := p.(string); ok {
+				encryptedPaths = append(encryptedPaths, s)
+			}
+		}
+	}
+
 	return client.Manifest{
 		Name:           name,
 		ManifestBase64: encoded,
 		Namespace:      ns,
 		Parents:        parents,
+		EncryptedPaths: encryptedPaths,
 	}, nil
 }
 
@@ -238,9 +249,25 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 	}
 	chart := fmt.Sprint(am["chart_name"])
 	ver := fmt.Sprint(am["chart_version"])
-	repo := fmt.Sprint(am["repository_url"])
 	ns, _ := am["namespace"].(string)
 	parents := parseParentList(am["parents"])
+
+	// Handle legacy repository_url (optional now)
+	var repo string
+	if r, ok := am["repository_url"].(string); ok {
+		repo = r
+	}
+
+	// Handle new registry fields
+	registryName, _ := am["registry_name"].(string)
+	registryURL, _ := am["registry_url"].(string)
+	registryCredentialName, _ := am["registry_credential_name"].(string)
+
+	// Handle settings
+	var settings map[string]interface{}
+	if s, ok := am["settings"].(map[string]interface{}); ok {
+		settings = s
+	}
 
 	var cfg interface{}
 	ct, _ := am["configuration_type"].(string)
@@ -278,14 +305,18 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 	}
 
 	return client.Addon{
-		Name:              name,
-		ChartName:         chart,
-		ChartVersion:      ver,
-		RepositoryURL:     repo,
-		Namespace:         ns,
-		ConfigurationType: ct,
-		Configuration:     cfg,
-		Parents:           parents,
+		Name:                   name,
+		ChartName:              chart,
+		ChartVersion:           ver,
+		RepositoryURL:          repo,
+		Namespace:              ns,
+		ConfigurationType:      ct,
+		Configuration:          cfg,
+		Parents:                parents,
+		RegistryName:           registryName,
+		RegistryURL:            registryURL,
+		RegistryCredentialName: registryCredentialName,
+		Settings:               settings,
 	}, nil
 }
 

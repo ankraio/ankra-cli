@@ -12,14 +12,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var getManifestsCmd = &cobra.Command{
-	Use:   "manifests [manifest name]",
+var clusterManifestsCmd = &cobra.Command{
+	Use:   "manifests",
+	Short: "Manage manifests for the cluster",
+	Long:  "Commands to list and view manifests.",
+}
+
+var clusterManifestsListCmd = &cobra.Command{
+	Use:   "list [manifest name]",
 	Short: "List manifests for the active cluster; or show details for a single manifest",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra select cluster' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
 			return
 		}
 
@@ -135,5 +141,6 @@ var getManifestsCmd = &cobra.Command{
 }
 
 func init() {
-	getCmd.AddCommand(getManifestsCmd)
+	clusterManifestsCmd.AddCommand(clusterManifestsListCmd)
+	clusterCmd.AddCommand(clusterManifestsCmd)
 }
