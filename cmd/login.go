@@ -123,7 +123,7 @@ func runLogin() error {
 		loginURL = "https://platform.ankra.app"
 	}
 
-	initURL := fmt.Sprintf("%s/cli/login/init?redirect_uri=%s&code_challenge=%s",
+	initURL := fmt.Sprintf("%s/api/v1/cli/login/init?redirect_uri=%s&code_challenge=%s",
 		strings.TrimRight(loginURL, "/"),
 		url.QueryEscape(callbackURL),
 		url.QueryEscape(codeChallenge))
@@ -232,7 +232,7 @@ func runLogin() error {
 	}
 
 	tokenReqBody, _ := json.Marshal(tokenReq)
-	tokenURL := fmt.Sprintf("%s/cli/login/token", strings.TrimRight(loginURL, "/"))
+	tokenURL := fmt.Sprintf("%s/api/v1/cli/login/token", strings.TrimRight(loginURL, "/"))
 
 	tokenResp, err := http.Post(tokenURL, "application/json", strings.NewReader(string(tokenReqBody)))
 	if err != nil {
