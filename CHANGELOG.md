@@ -5,6 +5,21 @@ All notable changes to the Ankra CLI will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.122] - 2026-02-01
+
+### Added
+- **Charts commands** - New commands for browsing and managing Helm charts:
+  - `ankra charts list` - List available Helm charts with pagination support
+  - `ankra charts search <query>` - Search for charts by name or description
+  - `ankra charts info <chart_name>` - Get detailed information about a specific chart including versions and profiles
+
+### Changed
+- **CLI login endpoints** - Updated authentication endpoints to use standardized `/api/v1/cli` prefix:
+  - Login initialization: `/cli/login/init` → `/api/v1/cli/login/init`
+  - Token exchange: `/cli/login/token` → `/api/v1/cli/login/token`
+  
+This change ensures compatibility with the updated backend API structure where all endpoints use the `/api/v1` prefix.
+
 ## [0.1.116-alpha] - 2025-08-18
 
 ### Added
@@ -49,5 +64,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Version History
 
+- **0.1.122**: API standardization, OpenAPI documentation, and organisation switch fix
 - **0.1.116-alpha**: Added cluster cloning functionality with URL support
 - **0.1.115-alpha**: Core platform features

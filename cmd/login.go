@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -22,20 +23,23 @@ import (
 )
 
 type loginInitResponse struct {
-	AuthURL string `json:"auth_url"`
-	State   string `json:"state"`
+	AuthURL     string `json:"auth_url"`
+	State       string `json:"state"`
+	Auth0Domain string `json:"auth0_domain"`
 }
 
 type tokenExchangeRequest struct {
 	Code         string `json:"code"`
 	State        string `json:"state"`
 	CodeVerifier string `json:"code_verifier"`
+	MachineID    string `json:"machine_id,omitempty"`
 }
 
 type tokenExchangeResponse struct {
 	Token     string `json:"token"`
 	ExpiresAt string `json:"expires_at"`
 	TokenID   string `json:"token_id"`
+	TokenName string `json:"token_name"`
 }
 
 var loginCmd = &cobra.Command{
@@ -123,10 +127,11 @@ func runLogin() error {
 		loginURL = "https://platform.ankra.app"
 	}
 
-	initURL := fmt.Sprintf("%s/api/v1/cli/login/init?redirect_uri=%s&code_challenge=%s",
+	initURL := fmt.Sprintf("%s/api/v1/cli/login/init?redirect_uri=%s&code_challenge=%s&base_url=%s",
 		strings.TrimRight(loginURL, "/"),
 		url.QueryEscape(callbackURL),
-		url.QueryEscape(codeChallenge))
+		url.QueryEscape(codeChallenge),
+		url.QueryEscape(loginURL))
 
 	resp, err := http.Get(initURL)
 	if err != nil {
@@ -145,6 +150,11 @@ func runLogin() error {
 	if err := json.NewDecoder(resp.Body).Decode(&initResp); err != nil {
 		listener.Close()
 		return fmt.Errorf("parse login response: %w", err)
+	}
+
+	if initResp.Auth0Domain != "" {
+		fmt.Printf("Using Auth0 domain: %s\n", initResp.Auth0Domain)
+		fmt.Println()
 	}
 
 	// Channel to receive the authorization code
@@ -225,10 +235,14 @@ func runLogin() error {
 	// Exchange code for token
 	fmt.Println("Exchanging authorization code for token...")
 
+	// Generate or retrieve machine ID
+	machineID := getOrCreateMachineID()
+
 	tokenReq := tokenExchangeRequest{
 		Code:         authCode,
 		State:        initResp.State,
 		CodeVerifier: codeVerifier,
+		MachineID:    machineID,
 	}
 
 	tokenReqBody, _ := json.Marshal(tokenReq)
@@ -265,9 +279,15 @@ func runLogin() error {
 	// Try to read existing config
 	_ = viper.ReadInConfig()
 
-	// Set the token
+	// Set the token and metadata
 	viper.Set("token", tokenData.Token)
 	viper.Set("base-url", loginURL)
+	if tokenData.TokenID != "" {
+		viper.Set("token_id", tokenData.TokenID)
+	}
+	if tokenData.TokenName != "" {
+		viper.Set("token_name", tokenData.TokenName)
+	}
 
 	if err := viper.WriteConfig(); err != nil {
 		// If config doesn't exist, create it
@@ -280,6 +300,9 @@ func runLogin() error {
 	fmt.Println("✓ Login successful!")
 	fmt.Println()
 	fmt.Printf("  Credentials saved to: %s\n", configPath)
+	if tokenData.TokenName != "" {
+		fmt.Printf("  Token name: %s\n", tokenData.TokenName)
+	}
 	fmt.Printf("  Token expires: %s\n", formatExpiry(tokenData.ExpiresAt))
 	fmt.Println()
 	fmt.Println("You can now use ankra CLI commands. Try:")
@@ -333,6 +356,53 @@ func formatExpiry(expiresAt string) string {
 		return expiresAt
 	}
 	return t.Format("January 2, 2006")
+}
+
+func getOrCreateMachineID() string {
+	configPath := getConfigPath()
+	viper.SetConfigFile(configPath)
+	viper.SetConfigType("yaml")
+	_ = viper.ReadInConfig()
+
+	machineID := viper.GetString("machine_id")
+	if machineID != "" {
+		return machineID
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "unknown"
+	}
+
+	currentUser, err := user.Current()
+	username := "unknown"
+	if err == nil {
+		username = currentUser.Username
+	}
+
+	machineID = fmt.Sprintf("%s-%s", sanitizeIdentifier(hostname), sanitizeIdentifier(username))
+
+	viper.Set("machine_id", machineID)
+	_ = viper.WriteConfig()
+
+	return machineID
+}
+
+func sanitizeIdentifier(s string) string {
+	s = strings.ToLower(s)
+	s = strings.ReplaceAll(s, " ", "-")
+	s = strings.ReplaceAll(s, "_", "-")
+	s = strings.ReplaceAll(s, ".", "-")
+	result := ""
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			result += string(r)
+		}
+	}
+	if len(result) > 20 {
+		result = result[:20]
+	}
+	return result
 }
 
 const successHTML = `<!DOCTYPE html>
