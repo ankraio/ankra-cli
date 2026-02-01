@@ -316,9 +316,18 @@ Fixed issues where the chat command had incompatible field names with the backen
 
 2. **Response parsing:** The CLI was looking for `content` field in streaming events, but the backend sends content in the `data` field.
 
-**Before:** Chat would fail with 422 validation errors, or connect but show empty responses.
+3. **Status message formatting:** Status messages (like "Processing...") were being concatenated inline with content, making output hard to read.
 
-**After:** The CLI now correctly sends `query` and `conversation_history` fields, and properly parses the `data` field from streaming events.
+**Before:** Chat would fail with 422 validation errors, show empty responses, or display status messages inline with content:
+```
+Assistant: Processing...I'll generate a report...
+```
+
+**After:** The CLI now correctly sends `query` and `conversation_history` fields, properly parses the `data` field from streaming events, and formats status messages on separate lines:
+```
+Assistant: [Processing...]
+I'll generate a report...
+```
 
 ---
 

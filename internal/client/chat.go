@@ -199,7 +199,7 @@ func DeleteChatConversation(token, baseURL, conversationID string) (*DeleteConve
 
 // GetClusterHealth returns AI-analyzed cluster health
 func GetClusterHealth(token, baseURL, clusterID string, includeAI bool) (*ClusterHealth, error) {
-	url := fmt.Sprintf("%s/api/v1/chat/clusters/%s/health?include_ai_analysis=%t",
+	url := fmt.Sprintf("%s/api/v1/org/clusters/%s/kubernetes/health?include_ai_analysis=%t",
 		strings.TrimRight(baseURL, "/"), clusterID, includeAI)
 	var health ClusterHealth
 	if err := getJSON(url, token, &health); err != nil {
