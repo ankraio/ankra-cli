@@ -75,8 +75,11 @@ var logoutCmd = &cobra.Command{
 			return
 		}
 
-		// Remove token
+		// Remove token and base-url (reset to default)
 		viper.Set("token", "")
+		viper.Set("base-url", "")
+		viper.Set("token_id", "")
+		viper.Set("token_name", "")
 
 		if err := viper.WriteConfig(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error clearing credentials: %v\n", err)
