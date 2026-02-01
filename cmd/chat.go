@@ -44,8 +44,8 @@ Use --cluster to provide cluster context for better answers.`,
 
 		if len(args) > 0 {
 			// One-shot mode
-			message := args[0]
-			runChatMessage(clusterID, message)
+			query := args[0]
+			runChatMessage(clusterID, query)
 		} else {
 			// Interactive mode
 			runInteractiveChat(clusterID)
@@ -53,8 +53,8 @@ Use --cluster to provide cluster context for better answers.`,
 	},
 }
 
-func runChatMessage(clusterID *string, message string) {
-	req := client.ChatRequest{Message: message}
+func runChatMessage(clusterID *string, query string) {
+	req := client.ChatRequest{Query: query}
 	events, err := client.StreamChat(apiToken, baseURL, clusterID, req)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -62,18 +62,45 @@ func runChatMessage(clusterID *string, message string) {
 	}
 
 	fmt.Print("\n")
+	var hasStartedContent bool
+	var hadStatus bool
 	for event := range events {
 		switch event.Type {
 		case "content":
-			fmt.Print(event.Content)
-		case "error":
-			fmt.Printf("\nError: %s\n", event.Error)
-		case "done":
-			fmt.Print("\n\n")
-		default:
-			if event.Content != "" {
+			// Data can be string content
+			if str, ok := event.Data.(string); ok {
+				if !hasStartedContent {
+					if hadStatus {
+						fmt.Print("\n") // New line after status before content
+					}
+					hasStartedContent = true
+				}
+				fmt.Print(str)
+			} else if event.Content != "" {
+				if !hasStartedContent {
+					if hadStatus {
+						fmt.Print("\n")
+					}
+					hasStartedContent = true
+				}
 				fmt.Print(event.Content)
 			}
+		case "status":
+			// Show status
+			if str, ok := event.Data.(string); ok {
+				if hasStartedContent {
+					fmt.Printf("\n\n[%s]\n\n", str)
+				} else {
+					fmt.Printf("[%s]", str)
+					hadStatus = true
+				}
+			}
+		case "error":
+			fmt.Printf("\nError: %s\n", event.Error)
+		case "done", "complete":
+			fmt.Print("\n\n")
+		default:
+			// Ignore triage, context and other metadata events
 		}
 	}
 }
@@ -119,8 +146,8 @@ func runInteractiveChat(clusterID *string) {
 		history = append(history, client.ChatMessage{Role: "user", Content: input})
 
 		req := client.ChatRequest{
-			Message: input,
-			History: history,
+			Query:               input,
+			ConversationHistory: history,
 		}
 
 		events, err := client.StreamChat(apiToken, baseURL, clusterID, req)
@@ -131,23 +158,50 @@ func runInteractiveChat(clusterID *string) {
 
 		fmt.Print(text.FgGreen.Sprint("\nAssistant: "))
 		var response strings.Builder
+		var hasStartedContent bool
+		var hadStatus bool
 		for event := range events {
 			switch event.Type {
 			case "content":
-				fmt.Print(event.Content)
-				response.WriteString(event.Content)
+				// Data can be string content
+				if str, ok := event.Data.(string); ok {
+					if !hasStartedContent {
+						if hadStatus {
+							fmt.Print("\n") // New line after status before content
+						}
+						hasStartedContent = true
+					}
+					fmt.Print(str)
+					response.WriteString(str)
+				} else if event.Content != "" {
+					if !hasStartedContent {
+						if hadStatus {
+							fmt.Print("\n")
+						}
+						hasStartedContent = true
+					}
+					fmt.Print(event.Content)
+					response.WriteString(event.Content)
+				}
+			case "status":
+				// Show status, don't add to response
+				if str, ok := event.Data.(string); ok {
+					if hasStartedContent {
+						fmt.Printf("\n\n[%s]\n\n", str)
+					} else {
+						fmt.Printf("[%s]", str)
+						hadStatus = true
+					}
+				}
 			case "error":
 				fmt.Printf("\nError: %s\n", event.Error)
-			case "done":
+			case "done", "complete":
 				// Add assistant response to history
 				if response.Len() > 0 {
 					history = append(history, client.ChatMessage{Role: "assistant", Content: response.String()})
 				}
 			default:
-				if event.Content != "" {
-					fmt.Print(event.Content)
-					response.WriteString(event.Content)
-				}
+				// Ignore triage, context and other metadata events
 			}
 		}
 		fmt.Print("\n\n")

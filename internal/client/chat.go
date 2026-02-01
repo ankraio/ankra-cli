@@ -19,9 +19,9 @@ type ChatMessage struct {
 
 // ChatRequest is the request for sending a chat message
 type ChatRequest struct {
-	Message        string        `json:"message"`
-	ConversationID *string       `json:"conversation_id,omitempty"`
-	History        []ChatMessage `json:"history,omitempty"`
+	Query               string        `json:"query"`
+	ConversationID      *string       `json:"conversation_id,omitempty"`
+	ConversationHistory []ChatMessage `json:"conversation_history,omitempty"`
 }
 
 // ChatConversation represents a saved chat conversation
@@ -58,7 +58,8 @@ type ClusterHealth struct {
 // ChatStreamEvent represents a streaming event from chat
 type ChatStreamEvent struct {
 	Type    string `json:"type"`
-	Content string `json:"content,omitempty"`
+	Data    any    `json:"data,omitempty"`
+	Content string `json:"content,omitempty"` // Fallback for content field
 	Error   string `json:"error,omitempty"`
 	Done    bool   `json:"done,omitempty"`
 }

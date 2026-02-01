@@ -1,69 +1,359 @@
-# Changelog
+# Ankra CLI v1.0.0
 
-All notable changes to the Ankra CLI will be documented in this file.
+## Highlights
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [0.1.122] - 2026-02-01
-
-### Added
-- **Charts commands** - New commands for browsing and managing Helm charts:
-  - `ankra charts list` - List available Helm charts with pagination support
-  - `ankra charts search <query>` - Search for charts by name or description
-  - `ankra charts info <chart_name>` - Get detailed information about a specific chart including versions and profiles
-
-### Changed
-- **CLI login endpoints** - Updated authentication endpoints to use standardized `/api/v1/cli` prefix:
-  - Login initialization: `/cli/login/init` → `/api/v1/cli/login/init`
-  - Token exchange: `/cli/login/token` → `/api/v1/cli/login/token`
-  
-This change ensures compatibility with the updated backend API structure where all endpoints use the `/api/v1` prefix.
-
-## [0.1.116-alpha] - 2025-08-18
-
-### Added
-- **New `clone` command** - Clone stacks from existing clusters to new cluster configurations
-- **URL support for clone** - Clone from HTTP/HTTPS URLs including GitHub raw URLs
-- **Smart conflict resolution** - Multiple merge strategies with `--clean`, `--force`, and `--copy-missing` flags
-- **Automatic file management** - Downloads and copies referenced files (`from_file`) when cloning
-- **Directory structure creation** - Automatically creates necessary directory hierarchies
-
-### Features
-- Clone from local cluster files: `ankra clone source.yaml target.yaml`
-- Clone from remote URLs: `ankra clone https://github.com/user/repo/raw/main/cluster.yaml local.yaml`
-- **`--clean` flag**: Replace all stacks in target cluster with source stacks
-- **`--force` flag**: Force merge even when stack/addon/manifest names conflict
-- **`--copy-missing` flag**: Copy missing files even from skipped stacks due to conflicts
-- Smart conflict detection at stack, manifest, and addon levels
-- Support for merging with existing cluster configurations
-- Comprehensive clone summary with statistics and next steps
-
-### Enhanced
-- Updated README with comprehensive clone command documentation
-- Added clone examples to basic workflow and command reference sections
-- Enhanced help text and usage examples
-
-### Technical
-- HTTP/HTTPS URL parsing and downloading
-- Base URL resolution for relative file paths
-- Error handling for missing files (404s) with graceful fallback
-- File existence checking with optional overwrite functionality
-
-## [0.1.115-alpha] - Previous Release
-
-### Features
-- Cluster management and selection
-- Operations tracking and insight
-- Stack and manifest management
-- Addon installation and management
-- Platform hooks and automation
-- Authentication via API token
+This release introduces the **Ankra CLI** - a powerful command-line interface for managing your Kubernetes infrastructure. Authenticate with SSO, chat with AI about your clusters, browse Helm charts, manage credentials, and control stacks - all from your terminal.
 
 ---
 
-## Version History
+## New Features
 
-- **0.1.122**: API standardization, OpenAPI documentation, and organisation switch fix
-- **0.1.116-alpha**: Added cluster cloning functionality with URL support
-- **0.1.115-alpha**: Core platform features
+### SSO Authentication
+
+Securely authenticate with the Ankra platform using browser-based SSO login with PKCE.
+
+```bash
+# Login to Ankra (opens browser for SSO)
+ankra login
+
+# Logout and clear credentials
+ankra logout
+```
+
+Your credentials are securely stored in `~/.ankra.yaml` and automatically used for all subsequent commands.
+
+---
+
+### AI-Powered Chat
+
+Get instant help troubleshooting your infrastructure with AI-powered chat. Ask questions about your clusters, get recommendations, and analyze health issues.
+
+#### Interactive Chat Mode
+
+```bash
+# Start an interactive chat session
+ankra chat
+
+# Chat with cluster context for better answers
+ankra chat --cluster my-production-cluster
+```
+
+#### One-Shot Questions
+
+```bash
+# Ask a single question
+ankra chat "Why are my pods in CrashLoopBackOff?"
+
+# Ask with cluster context
+ankra chat --cluster staging "How do I scale my deployment?"
+```
+
+#### Cluster Health Analysis
+
+```bash
+# Get AI-analyzed cluster health for the selected cluster
+ankra chat health
+
+# Include detailed AI analysis
+ankra chat health --ai
+```
+
+#### Chat History Management
+
+```bash
+# List previous conversations
+ankra chat history
+
+# Show a specific conversation
+ankra chat show <conversation_id>
+
+# Delete a conversation
+ankra chat delete <conversation_id>
+```
+
+---
+
+### Helm Charts
+
+Browse and search the Helm chart catalog directly from your terminal.
+
+#### List Available Charts
+
+```bash
+# List all available charts
+ankra charts list
+
+# Paginate through charts
+ankra charts list --page 2 --page-size 50
+
+# Show only subscribed charts
+ankra charts list --subscribed
+```
+
+#### Search Charts
+
+```bash
+# Search for charts by name
+ankra charts search nginx
+
+# Search for monitoring solutions
+ankra charts search prometheus
+```
+
+#### Chart Information
+
+```bash
+# Get detailed info about a chart
+ankra charts info nginx
+
+# Specify a repository
+ankra charts info grafana --repository https://grafana.github.io/helm-charts
+```
+
+**Example Output:**
+
+```
+Chart: nginx
+
+  Repository: bitnami (https://charts.bitnami.com/bitnami)
+
+  Available Versions (10):
+    - 15.1.2
+    - 15.1.1
+    - 15.1.0
+    ...
+
+  Available Profiles:
+    - default: Standard nginx deployment
+    - high-availability: Multi-replica HA setup
+```
+
+---
+
+### Credentials Management
+
+Manage cloud provider and Git credentials for your clusters.
+
+#### List Credentials
+
+```bash
+# List all credentials
+ankra credentials list
+
+# Filter by provider
+ankra credentials list --provider github
+```
+
+#### View Credential Details
+
+```bash
+# Get details of a specific credential
+ankra credentials get <credential_id>
+```
+
+#### Validate & Delete
+
+```bash
+# Check if a credential name is available
+ankra credentials validate my-new-credential
+
+# Delete a credential
+ankra credentials delete <credential_id>
+```
+
+**Aliases:** `ankra creds`, `ankra cred`, `ankra credential`
+
+---
+
+### Stack Management
+
+Create, manage, and track infrastructure stacks on your clusters.
+
+#### List & View Stacks
+
+```bash
+# First, select a cluster
+ankra cluster select
+
+# List all stacks on the active cluster
+ankra cluster stacks list
+
+# View details of a specific stack
+ankra cluster stacks list my-monitoring-stack
+```
+
+**Example Output:**
+
+```
+Stack Details:
+  Name:        my-monitoring-stack
+  Description: Production monitoring
+  State:       up
+  Manifests:   3
+  Addons:      2
+
+  Manifests:
+    ✓ prometheus-config
+      ├─ kind: ConfigMap
+      ├─ namespace: monitoring
+      ├─ state: up
+      └─ parents: none
+
+  Addons:
+    ✓ grafana
+      ├─ chart: grafana:6.50.7
+      ├─ namespace: monitoring
+      ├─ state: up
+      └─ parents: none
+```
+
+#### Create & Delete Stacks
+
+```bash
+# Create a new stack
+ankra cluster stacks create my-new-stack --description "Application stack"
+
+# Delete a stack
+ankra cluster stacks delete old-stack
+```
+
+#### Rename & History
+
+```bash
+# Rename a stack
+ankra cluster stacks rename old-name new-name
+
+# View change history for a stack
+ankra cluster stacks history my-stack
+```
+
+---
+
+### Cluster Clone
+
+Clone stacks from an existing cluster to a new cluster configuration. Supports both local files and remote URLs.
+
+```bash
+# Clone all stacks from one cluster to another
+ankra cluster clone source-cluster.yaml new-cluster.yaml
+
+# Clone from a remote URL
+ankra cluster clone https://github.com/org/repo/raw/main/cluster.yaml new-cluster.yaml
+
+# Clone only specific stacks
+ankra cluster clone cluster.yaml new-cluster.yaml --stack "monitoring" --stack "networking"
+
+# Replace all stacks in the target cluster
+ankra cluster clone cluster.yaml new-cluster.yaml --clean
+
+# Force merge even with naming conflicts
+ankra cluster clone cluster.yaml new-cluster.yaml --force
+
+# Copy missing files from skipped stacks
+ankra cluster clone cluster.yaml new-cluster.yaml --copy-missing
+```
+
+---
+
+### API Tokens
+
+Manage API tokens for programmatic access.
+
+```bash
+# List all API tokens
+ankra tokens list
+
+# Create a new token
+ankra tokens create my-ci-token
+
+# Create token with expiration
+ankra tokens create my-temp-token --expires "2024-12-31T00:00:00Z"
+
+# Revoke a token
+ankra tokens revoke <token_id>
+
+# Delete a revoked token
+ankra tokens delete <token_id>
+```
+
+---
+
+### Cluster Operations
+
+```bash
+# List all clusters
+ankra cluster list
+
+# Get cluster details
+ankra cluster get my-cluster
+
+# Select a cluster for subsequent commands
+ankra cluster select
+
+# Trigger reconciliation
+ankra cluster reconcile my-cluster
+```
+
+---
+
+## Bug Fixes
+
+### `ankra cluster clone` - Registry Linkage Fix
+
+Fixed an issue where `ankra cluster clone` did not correctly format the linkage to existing registries when cloning stacks or entire clusters. Addon configurations that reference container registries (`registry_name`, `registry_url`, `registry_credential_name`) are now properly preserved and formatted in the cloned configuration.
+
+**Before:** Registry references in cloned addons could be malformed or missing, causing deployment failures when the cloned cluster tried to pull images from private registries.
+
+**After:** All registry linkage fields are correctly preserved and formatted, ensuring seamless deployments with private container registries.
+
+---
+
+### `ankra chat` - API Request & Response Format Fix
+
+Fixed issues where the chat command had incompatible field names with the backend API:
+
+1. **Request fields:** The CLI was sending `message` and `history` fields, but the backend expects `query` and `conversation_history`.
+
+2. **Response parsing:** The CLI was looking for `content` field in streaming events, but the backend sends content in the `data` field.
+
+**Before:** Chat would fail with 422 validation errors, or connect but show empty responses.
+
+**After:** The CLI now correctly sends `query` and `conversation_history` fields, and properly parses the `data` field from streaming events.
+
+---
+
+## Getting Started
+
+```bash
+# 1. Install the CLI (download from releases)
+
+# 2. Login with SSO
+ankra login
+
+# 3. List your clusters
+ankra cluster list
+
+# 4. Select a cluster to work with
+ankra cluster select
+
+# 5. Start chatting with AI about your infrastructure
+ankra chat "What's the status of my deployments?"
+```
+
+---
+
+## Configuration
+
+The CLI stores configuration in `~/.ankra.yaml`:
+
+- **token**: Your API authentication token
+- **base-url**: The Ankra platform URL (defaults to https://platform.ankra.app)
+
+You can also use environment variables:
+
+- `ANKRA_API_TOKEN`: Override the stored token
+- `ANKRA_BASE_URL`: Override the base URL
+
+---
+
+**Full documentation:** https://docs.ankra.app/cli
