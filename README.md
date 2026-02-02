@@ -98,6 +98,12 @@ This script will:
   - Smart conflict resolution with merge, clean, and force options
   - Automatic file downloading and directory structure creation
 
+- **SOPS Encryption**
+  - Encrypt sensitive values in manifest and addon configuration files
+  - Decrypt and view encrypted manifest files
+  - Automatic `encrypted_paths` tracking in cluster YAML
+  - Add new encrypted keys to already-encrypted files
+
 - **Help & Versioning**
   - `--help` on any command
   - `--version` to see CLI release & API compatibility
@@ -225,6 +231,13 @@ ankra cluster agent upgrade           # Upgrade the agent
 ankra cluster manifests list [name]   # List manifests or show details
 ```
 
+#### SOPS Encryption
+```bash
+ankra cluster encrypt manifest <name> --key <key> -f <file>  # Encrypt a key in a manifest
+ankra cluster encrypt addon --name <addon> --key <key> -f <file>  # Encrypt a key in addon config
+ankra cluster decrypt manifest <name> -f <file>  # Decrypt and display manifest
+```
+
 #### AI Chat
 ```bash
 ankra chat                            # Interactive chat mode
@@ -273,6 +286,13 @@ ankra cluster clone https://github.com/ankraio/examples/raw/main/cluster.yaml ./
 # Apply and reconcile
 ankra cluster apply -f my-cluster.yaml
 ankra cluster reconcile
+
+# Encrypt sensitive values in manifests
+ankra cluster encrypt manifest my-secret --key DB_PASSWORD -f cluster.yaml
+ankra cluster encrypt addon --name grafana --key adminPassword -f cluster.yaml
+
+# View decrypted manifest content
+ankra cluster decrypt manifest my-secret -f cluster.yaml
 ```
 
 ## Troubleshooting

@@ -1,3 +1,70 @@
+# Ankra CLI Changelog
+
+## v0.1.123
+
+### SOPS Encryption Commands
+
+New commands for encrypting and decrypting manifest and addon configuration files using SOPS.
+
+#### Breaking Change
+
+- **Removed**: `ankra cluster sops <secret>` command has been removed
+
+#### New Commands
+
+##### Encrypt Manifest
+
+Encrypt a specific key in a manifest file referenced by the cluster configuration.
+
+```bash
+ankra cluster encrypt manifest <manifest_name> --key <key_name> -f <cluster.yaml>
+```
+
+Example:
+```bash
+ankra cluster encrypt manifest trinity-database-secret --key TRINITY_DB_PASSWORD -f cluster.yaml
+```
+
+This will:
+1. Find the manifest in the cluster YAML
+2. Read the referenced manifest file
+3. Encrypt the specified key using your organisation's SOPS key
+4. Update the manifest file with encrypted values
+5. Add the key to `encrypted_paths` in the cluster YAML
+
+##### Encrypt Addon
+
+Encrypt a specific key in an addon's values file.
+
+```bash
+ankra cluster encrypt addon --name <addon_name> --key <key_name> -f <cluster.yaml>
+```
+
+Example:
+```bash
+ankra cluster encrypt addon --name grafana --key adminPassword -f cluster.yaml
+```
+
+##### Decrypt Manifest
+
+Decrypt and display the contents of a manifest file.
+
+```bash
+ankra cluster decrypt manifest <manifest_name> -f <cluster.yaml>
+```
+
+Example:
+```bash
+ankra cluster decrypt manifest trinity-database-secret -f cluster.yaml
+```
+
+#### Features
+
+- **Add keys to existing encrypted files**: You can add new encrypted keys to files that are already SOPS-encrypted (as long as they were encrypted with your organisation's key)
+- **Clear error messages**: If you try to encrypt a file that was encrypted by a different organisation, you'll get a helpful error message explaining the issue
+
+---
+
 # Ankra CLI v1.0.0
 
 ## Highlights
