@@ -82,6 +82,11 @@ This script will:
   - Get and generate agent tokens
   - Trigger agent upgrades
 
+- **Hetzner Cloud**
+  - Create and deprovision Hetzner Kubernetes clusters
+  - Scale worker nodes up and down
+  - Manage Hetzner API credentials and SSH key credentials
+
 - **Credentials & Tokens**
   - List and manage platform credentials
   - Create and revoke API tokens
@@ -247,6 +252,31 @@ ankra chat history [--cluster]        # View chat history
 ankra chat show <conversation_id>     # Show a conversation
 ankra chat delete <conversation_id>   # Delete a conversation
 ankra chat health                     # Get AI-analyzed cluster health
+```
+
+#### Hetzner Clusters
+```bash
+ankra cluster hetzner create           # Create a Hetzner cluster
+  --name <name>                        #   Cluster name (required)
+  --credential-id <id>                 #   Hetzner API credential (required)
+  --ssh-key-credential-id <id>         #   SSH key credential (required)
+  --location <loc>                     #   Datacenter location (required)
+  --worker-count <n>                   #   Number of workers (default: 1)
+  --worker-server-type <type>          #   Worker server type (default: cx33)
+  --control-plane-count <n>            #   Control planes (default: 1)
+  --control-plane-server-type <type>   #   CP server type (default: cx33)
+ankra cluster hetzner deprovision <id> # Deprovision a Hetzner cluster
+ankra cluster hetzner workers <id>     # Get current worker count
+ankra cluster hetzner scale <id> <n>   # Scale workers to n
+```
+
+#### Hetzner Credentials
+```bash
+ankra credentials hetzner list                              # List Hetzner API credentials
+ankra credentials hetzner create --name <n> --api-token <t> # Create Hetzner credential
+ankra credentials hetzner ssh-key list                      # List SSH key credentials
+ankra credentials hetzner ssh-key create --name <n> --generate          # Generate SSH keypair
+ankra credentials hetzner ssh-key create --name <n> --public-key "..."  # Import SSH public key
 ```
 
 #### Credentials
