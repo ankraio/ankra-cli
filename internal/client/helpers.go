@@ -31,6 +31,9 @@ func getJSON(url, token string, target interface{}) error {
 			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
 		}
 	}()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}

@@ -12,7 +12,7 @@ var (
 	apiToken string
 	baseURL  string
 	cfgFile  string
-	version  = "0.1.122"
+	version  = "0.1.124"
 )
 
 var rootCmd = &cobra.Command{
@@ -38,12 +38,13 @@ func init() {
 	rootCmd.PersistentFlags().
 		String("token", "", "API token for authentication (or set ANKRA_API_TOKEN)")
 	rootCmd.PersistentFlags().
-		String("base-url", "https://platform.ankra.app", "Base URL for the Ankra API (or set ANKRA_BASE_URL)")
+		String("base-url", "", "Base URL for the Ankra API (or set ANKRA_BASE_URL)")
 
 	_ = viper.BindPFlag("token", rootCmd.PersistentFlags().Lookup("token"))
 	_ = viper.BindPFlag("base-url", rootCmd.PersistentFlags().Lookup("base-url"))
 	_ = viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
 
+	viper.SetDefault("base-url", "https://platform.ankra.app")
 }
 
 func initConfig() {
@@ -81,7 +82,34 @@ func initConfig() {
 		}
 	}
 
-	token := viper.GetString("token")
+	// Resolve token with clear priority:
+	// 1. --token flag (explicit CLI argument)
+	// 2. Config file token (saved by `ankra login`)
+	// 3. ANKRA_API_TOKEN env var
+	tokenFlag := rootCmd.PersistentFlags().Lookup("token")
+	flagExplicitlySet := tokenFlag != nil && tokenFlag.Changed
+
+	var token string
+	switch {
+	case flagExplicitlySet:
+		token = tokenFlag.Value.String()
+	default:
+		savedToken := readConfigFileToken()
+		envToken := os.Getenv("ANKRA_API_TOKEN")
+
+		if savedToken != "" {
+			token = savedToken
+			if envToken != "" && envToken != savedToken {
+				fmt.Fprintln(os.Stderr,
+					"Note: ANKRA_API_TOKEN env var is set but differs from saved login token. Using login token.")
+				fmt.Fprintln(os.Stderr,
+					"To use the env var instead, run `ankra logout` to clear saved credentials.")
+			}
+		} else if envToken != "" {
+			token = envToken
+		}
+	}
+
 	if token == "" {
 		fmt.Fprintln(os.Stderr,
 			"Not logged in. Please run `ankra login` to authenticate,")
@@ -91,4 +119,23 @@ func initConfig() {
 	}
 	apiToken = token
 	baseURL = viper.GetString("base-url")
+}
+
+func readConfigFileToken() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	v := viper.New()
+	if cfgFile != "" {
+		v.SetConfigFile(cfgFile)
+	} else {
+		v.SetConfigName(".ankra")
+		v.SetConfigType("yaml")
+		v.AddConfigPath(home)
+	}
+	if err := v.ReadInConfig(); err != nil {
+		return ""
+	}
+	return v.GetString("token")
 }

@@ -273,7 +273,8 @@ ankra cluster hetzner scale <id> <n>   # Scale workers to n
 #### Hetzner Credentials
 ```bash
 ankra credentials hetzner list                              # List Hetzner API credentials
-ankra credentials hetzner create --name <n> --api-token <t> # Create Hetzner credential
+ankra credentials hetzner create --name <n>                 # Create Hetzner credential (prompts for token)
+
 ankra credentials hetzner ssh-key list                      # List SSH key credentials
 ankra credentials hetzner ssh-key create --name <n> --generate          # Generate SSH keypair
 ankra credentials hetzner ssh-key create --name <n> --public-key "..."  # Import SSH public key
