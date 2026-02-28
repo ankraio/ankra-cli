@@ -215,3 +215,60 @@ func CreateStack(ctx context.Context, token, baseURL, clusterID, name, descripti
 
 	return &CreateStackResult{Success: true, Message: "Stack created"}, nil
 }
+
+// CloneStackToClusterRequest is the request to clone a stack to another cluster
+type CloneStackToClusterRequest struct {
+	SourceClusterID            string `json:"source_cluster_id"`
+	StackName                  string `json:"stack_name"`
+	NewStackName               string `json:"new_stack_name,omitempty"`
+	IncludeAddonConfigurations bool   `json:"include_addon_configurations"`
+}
+
+// CloneStackToClusterResult is the response from cloning a stack
+type CloneStackToClusterResult struct {
+	DraftID         string   `json:"draft_id"`
+	StackName       string   `json:"stack_name"`
+	Warnings        []string `json:"warnings"`
+	AddonsCloned    int      `json:"addons_cloned"`
+	ManifestsCloned int      `json:"manifests_cloned"`
+}
+
+// CloneStackToCluster clones a stack from one cluster to another as a draft
+func CloneStackToCluster(ctx context.Context, token, baseURL, targetClusterID string, req CloneStackToClusterRequest) (*CloneStackToClusterResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/clone",
+		strings.TrimRight(baseURL, "/"), targetClusterID)
+
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("clone failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result CloneStackToClusterResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+
+	return &result, nil
+}
