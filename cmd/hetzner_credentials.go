@@ -7,6 +7,7 @@ import (
 	"ankra/internal/client"
 
 	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
 
@@ -64,7 +65,22 @@ var hetznerCredCreateCmd = &cobra.Command{
 	Short: "Create a Hetzner API credential",
 	Run: func(cmd *cobra.Command, args []string) {
 		name, _ := cmd.Flags().GetString("name")
-		apiTokenValue, _ := cmd.Flags().GetString("api-token")
+
+		prompt := promptui.Prompt{
+			Label: "Hetzner API Token",
+			Mask:  '*',
+			Validate: func(input string) error {
+				if len(input) == 0 {
+					return fmt.Errorf("token cannot be empty")
+				}
+				return nil
+			},
+		}
+		apiTokenValue, err := prompt.Run()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Prompt cancelled.\n")
+			os.Exit(1)
+		}
 
 		result, err := client.CreateHetznerCredential(apiToken, baseURL, client.CreateHetznerCredentialRequest{
 			Name:     name,
@@ -186,9 +202,7 @@ var sshKeyCmd = &cobra.Command{
 
 func init() {
 	hetznerCredCreateCmd.Flags().String("name", "", "Credential name (required)")
-	hetznerCredCreateCmd.Flags().String("api-token", "", "Hetzner API token (required)")
 	_ = hetznerCredCreateCmd.MarkFlagRequired("name")
-	_ = hetznerCredCreateCmd.MarkFlagRequired("api-token")
 
 	sshKeyCreateCmd.Flags().String("name", "", "Credential name (required)")
 	sshKeyCreateCmd.Flags().String("public-key", "", "SSH public key")
