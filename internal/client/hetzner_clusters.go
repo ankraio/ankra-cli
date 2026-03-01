@@ -56,6 +56,21 @@ type ScaleWorkersResult struct {
 	NewCount      int `json:"new_count"`
 }
 
+type K8sVersionInfo struct {
+	CurrentVersion *string `json:"current_version"`
+	Distribution   string  `json:"distribution"`
+}
+
+type UpgradeK8sVersionRequest struct {
+	TargetVersion string `json:"target_version"`
+}
+
+type UpgradeK8sVersionResult struct {
+	PreviousVersion *string `json:"previous_version"`
+	NewVersion      string  `json:"new_version"`
+	NodesAffected   int     `json:"nodes_affected"`
+}
+
 func CreateHetznerCluster(token, baseURL string, req CreateHetznerClusterRequest) (*CreateHetznerClusterResponse, error) {
 	url := strings.TrimRight(baseURL, "/") + "/api/v1/clusters/hetzner"
 	payload, err := json.Marshal(req)
@@ -127,6 +142,51 @@ func GetHetznerWorkerCount(token, baseURL, clusterID string) (*WorkerCountResult
 	var result WorkerCountResult
 	if err := getJSON(url, token, &result); err != nil {
 		return nil, err
+	}
+	return &result, nil
+}
+
+func GetHetznerK8sVersion(token, baseURL, clusterID string) (*K8sVersionInfo, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/k8s-version", strings.TrimRight(baseURL, "/"), clusterID)
+	var result K8sVersionInfo
+	if err := getJSON(url, token, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func UpgradeHetznerK8sVersion(token, baseURL, clusterID, targetVersion string) (*UpgradeK8sVersionResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/upgrade-k8s-version", strings.TrimRight(baseURL, "/"), clusterID)
+	payload, err := json.Marshal(UpgradeK8sVersionRequest{TargetVersion: targetVersion})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("upgrade failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result UpgradeK8sVersionResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &result, nil
 }

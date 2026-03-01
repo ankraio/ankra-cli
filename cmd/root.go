@@ -12,7 +12,7 @@ var (
 	apiToken string
 	baseURL  string
 	cfgFile  string
-	version  = "0.1.124"
+	version  = "0.1.125"
 )
 
 var rootCmd = &cobra.Command{

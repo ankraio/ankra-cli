@@ -155,6 +155,54 @@ var hetznerScaleCmd = &cobra.Command{
 	},
 }
 
+var hetznerK8sVersionCmd = &cobra.Command{
+	Use:   "k8s-version <cluster_id>",
+	Short: "Get current Kubernetes version for a Hetzner cluster",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+
+		result, err := client.GetHetznerK8sVersion(apiToken, baseURL, clusterID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error fetching Kubernetes version: %v\n", err)
+			os.Exit(1)
+		}
+
+		version := "not set (using latest stable)"
+		if result.CurrentVersion != nil {
+			version = *result.CurrentVersion
+		}
+		fmt.Printf("Kubernetes Version: %s\n", version)
+		fmt.Printf("  Distribution: %s\n", result.Distribution)
+	},
+}
+
+var hetznerUpgradeCmd = &cobra.Command{
+	Use:   "upgrade <cluster_id> <target_version>",
+	Short: "Upgrade Kubernetes version for a Hetzner cluster",
+	Long:  "Upgrade the Kubernetes (k3s) version on all nodes in a Hetzner cluster.",
+	Args:  cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+		targetVersion := args[1]
+
+		result, err := client.UpgradeHetznerK8sVersion(apiToken, baseURL, clusterID, targetVersion)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error upgrading Kubernetes version: %v\n", err)
+			os.Exit(1)
+		}
+
+		prev := "none"
+		if result.PreviousVersion != nil {
+			prev = *result.PreviousVersion
+		}
+		fmt.Printf("Kubernetes version upgrade initiated.\n")
+		fmt.Printf("  Previous version: %s\n", prev)
+		fmt.Printf("  New version:      %s\n", text.FgGreen.Sprint(result.NewVersion))
+		fmt.Printf("  Nodes affected:   %d\n", result.NodesAffected)
+	},
+}
+
 func init() {
 	hetznerCreateCmd.Flags().String("name", "", "Cluster name (required)")
 	hetznerCreateCmd.Flags().String("credential-id", "", "Hetzner API credential ID (required)")
@@ -179,6 +227,8 @@ func init() {
 	hetznerCmd.AddCommand(hetznerDeprovisionCmd)
 	hetznerCmd.AddCommand(hetznerWorkersCmd)
 	hetznerCmd.AddCommand(hetznerScaleCmd)
+	hetznerCmd.AddCommand(hetznerK8sVersionCmd)
+	hetznerCmd.AddCommand(hetznerUpgradeCmd)
 
 	clusterCmd.AddCommand(hetznerCmd)
 }
