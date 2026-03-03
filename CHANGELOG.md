@@ -1,5 +1,189 @@
 # Ankra CLI Changelog
 
+## v0.1.125
+
+### New Features
+
+#### Kubernetes Version Query
+
+Check the current Kubernetes version running on a Hetzner cluster:
+
+```bash
+ankra cluster hetzner k8s-version <cluster_id>
+```
+
+Example output:
+
+```
+Kubernetes Version: v1.29.1+k3s1
+  Distribution: k3s
+```
+
+#### Kubernetes Version Upgrade
+
+Upgrade the Kubernetes (k3s) version across all nodes in a Hetzner cluster:
+
+```bash
+ankra cluster hetzner upgrade <cluster_id> <target_version>
+```
+
+Example:
+
+```bash
+ankra cluster hetzner upgrade abc123 v1.30.0+k3s1
+```
+
+Example output:
+
+```
+Kubernetes version upgrade initiated.
+  Previous version: v1.29.1+k3s1
+  New version:      v1.30.0+k3s1
+  Nodes affected:   4
+```
+
+### API Endpoints
+
+- `GET /api/v1/clusters/hetzner/{id}/k8s-version` — fetch current k8s version
+- `POST /api/v1/clusters/hetzner/{id}/upgrade-k8s-version` — trigger k8s version upgrade
+
+---
+
+## v0.1.124
+
+### New Features
+
+#### Hetzner Cluster Management
+
+Full lifecycle management for Hetzner clusters, including provisioning, deprovisioning, and scaling.
+
+##### Create a Cluster
+
+```bash
+ankra cluster hetzner create \
+  --name my-cluster \
+  --credential-id <cred_id> \
+  --ssh-key-credential-id <ssh_key_id> \
+  --location fsn1 \
+  --worker-count 3 \
+  --worker-server-type cx33 \
+  --control-plane-count 1 \
+  --distribution k3s
+```
+
+##### Deprovision a Cluster
+
+```bash
+ankra cluster hetzner deprovision <cluster_id>
+```
+
+Example output:
+
+```
+Hetzner cluster deprovisioned successfully!
+  Cluster ID: abc123
+  Deleted servers: 4
+  Deleted networks: 1
+  Deleted SSH keys: 1
+```
+
+##### Check Worker Count
+
+```bash
+ankra cluster hetzner workers <cluster_id>
+```
+
+Example output:
+
+```
+Worker Count: 3
+  Min: 1
+  Max: 10
+```
+
+##### Scale Workers
+
+```bash
+ankra cluster hetzner scale <cluster_id> <worker_count>
+```
+
+Example:
+
+```bash
+ankra cluster hetzner scale abc123 5
+```
+
+Example output:
+
+```
+Scaling up from 3 to 5 workers.
+```
+
+#### Hetzner Credentials Management
+
+Manage Hetzner API credentials and SSH keys.
+
+##### List Hetzner Credentials
+
+```bash
+ankra credentials hetzner list
+```
+
+##### Create a Hetzner Credential
+
+```bash
+ankra credentials hetzner create --name my-hetzner-key
+```
+
+You will be prompted securely for the API token.
+
+##### List SSH Key Credentials
+
+```bash
+ankra credentials hetzner ssh-key list
+```
+
+##### Create an SSH Key Credential
+
+```bash
+# Generate a new keypair
+ankra credentials hetzner ssh-key create --name my-key --generate
+
+# Or provide an existing public key
+ankra credentials hetzner ssh-key create --name my-key --public-key "ssh-ed25519 AAAA..."
+```
+
+#### Stack Cloning Between Clusters
+
+Clone stacks from one cluster to another as a draft for review before deployment.
+
+```bash
+# Clone a stack to another cluster
+ankra cluster stacks clone my-stack --to target-cluster
+
+# Clone with a new name
+ankra cluster stacks clone my-stack --to target-cluster --name new-stack-name
+
+# Clone without addon configurations
+ankra cluster stacks clone my-stack --to target-cluster --include-config=false
+```
+
+Example output:
+
+```
+Cloning stack 'my-stack' to cluster 'target-cluster'...
+
+Stack cloned successfully!
+  Draft ID:    draft-456
+  Stack Name:  my-stack
+  Addons:      3
+  Manifests:   2
+
+The stack has been created as a draft. Open the Ankra dashboard to review and deploy.
+```
+
+---
+
 ## v0.1.123
 
 ### SOPS Encryption Commands
