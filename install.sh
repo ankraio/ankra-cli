@@ -166,33 +166,13 @@ fi
     echo -e "${WHITE}${BOLD}🚀 NEXT STEPS${NC}"
     echo -e "${CYAN}─────────────────────────────────────────────────────────────${NC}"
     echo
-    echo -e "${WHITE}1.${NC} ${BOLD}Configure Authentication:${NC}"
-    echo -e "   ${YELLOW}export ANKRA_API_TOKEN=your-api-token${NC}"
+    echo -e "${WHITE}1.${NC} ${BOLD}Login to Ankra:${NC}"
+    echo -e "   ${CYAN}ankra auth login${NC}"
     echo
-    echo -e "${WHITE}2.${NC} ${BOLD}Set Platform URL (optional):${NC}"
-    echo -e "   ${YELLOW}export ANKRA_BASE_URL=https://platform.ankra.app${NC}"
+    echo -e "${WHITE}2.${NC} ${BOLD}Select a cluster:${NC}"
+    echo -e "   ${CYAN}ankra cluster select${NC}"
     echo
-    echo -e "${WHITE}3.${NC} ${BOLD}Add to shell profile for persistence:${NC}"
-    if [[ "$SHELL" == *"zsh"* ]]; then
-        echo -e "   ${GRAY}echo 'export ANKRA_API_TOKEN=your-token' >> ~/.zshrc${NC}"
-    else
-        echo -e "   ${GRAY}echo 'export ANKRA_API_TOKEN=your-token' >> ~/.bashrc${NC}"
-    fi
-    echo
-    echo -e "${WHITE}4.${NC} ${BOLD}Reload your shell profile:${NC}"
-    if [[ "$SHELL" == *"zsh"* ]]; then
-        echo -e "   ${YELLOW}source ~/.zshrc${NC}"
-    else
-        echo -e "   ${YELLOW}source ~/.bashrc${NC}"
-    fi
-    echo
-    echo -e "${WHITE}5.${NC} ${BOLD}Enable shell completions:${NC}"
-    echo -e "   ${CYAN}ankra completion install${NC}"
-    echo
-    echo -e "${WHITE}6.${NC} ${BOLD}Select a cluster:${NC}"
-    echo -e "   ${CYAN}ankra select cluster${NC}"
-    echo
-    echo -e "${WHITE}7.${NC} ${BOLD}Get started:${NC}"
+    echo -e "${WHITE}3.${NC} ${BOLD}Get started:${NC}"
     echo -e "   ${CYAN}ankra --help${NC}"
     echo
     echo -e "${CYAN}─────────────────────────────────────────────────────────────${NC}"
