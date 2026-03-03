@@ -12,7 +12,7 @@ var (
 	apiToken string
 	baseURL  string
 	cfgFile  string
-	version  = "0.1.125"
+	version  = "0.1.126"
 )
 
 var rootCmd = &cobra.Command{
@@ -45,6 +45,8 @@ func init() {
 	_ = viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
 
 	viper.SetDefault("base-url", "https://platform.ankra.app")
+
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
 }
 
 func initConfig() {
@@ -66,14 +68,15 @@ func initConfig() {
 
 	// Skip token check for commands that don't need authentication
 	skipAuthCommands := map[string]bool{
-		"version":   true,
-		"--version": true,
-		"-v":        true,
-		"--help":    true,
-		"-h":        true,
-		"login":     true,
-		"logout":    true,
-		"help":      true,
+		"version":    true,
+		"--version":  true,
+		"-v":         true,
+		"--help":     true,
+		"-h":         true,
+		"login":      true,
+		"logout":     true,
+		"help":       true,
+		"completion": true,
 	}
 	// Check all args for skip commands (handles flags before command like --base-url)
 	for _, arg := range os.Args[1:] {

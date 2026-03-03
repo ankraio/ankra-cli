@@ -186,7 +186,10 @@ fi
         echo -e "   ${YELLOW}source ~/.bashrc${NC}"
     fi
     echo
-    echo -e "${WHITE}5.${NC} ${BOLD}Select a cluster:${NC}"
+    echo -e "${WHITE}5.${NC} ${BOLD}Enable shell completions:${NC}"
+    echo -e "   ${CYAN}ankra completion install${NC}"
+    echo
+    echo -e "${WHITE}6.${NC} ${BOLD}Select a cluster:${NC}"
     echo -e "   ${CYAN}ankra select cluster${NC}"
     echo
     echo -e "${WHITE}7.${NC} ${BOLD}Get started:${NC}"
