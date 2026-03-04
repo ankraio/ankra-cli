@@ -1,6 +1,6 @@
 # Ankra CLI Changelog
 
-## v0.1.126
+## v0.1.127
 
 ### New Features
 
@@ -126,6 +126,63 @@ Use `--generate` to create a new keypair, or omit it to provide your own public 
 - `POST /api/v1/credentials/ovh` — create an OVH credential
 - `GET /api/v1/credentials/ovh/ssh-keys` — list SSH key credentials
 - `POST /api/v1/credentials/ovh/ssh-key` — create an SSH key credential
+
+---
+
+## v0.1.126
+
+### New Features
+
+#### Hetzner Worker Scaling
+
+Scale worker nodes on a Hetzner cluster up or down (1–10 nodes):
+
+```bash
+ankra cluster hetzner scale <cluster_id> <count>
+```
+
+Example:
+
+```bash
+ankra cluster hetzner scale abc123 5
+```
+
+Example output:
+
+```
+Scaling workers.
+  Previous count: 3
+  New count:      5
+```
+
+#### Hetzner Kubernetes Version Upgrade
+
+Upgrade the Kubernetes (k3s) version across all nodes in a Hetzner cluster:
+
+```bash
+ankra cluster hetzner upgrade <cluster_id> <target_version>
+```
+
+Example:
+
+```bash
+ankra cluster hetzner upgrade abc123 v1.30.0+k3s1
+```
+
+Example output:
+
+```
+Kubernetes version upgrade initiated.
+  Previous version: v1.29.1+k3s1
+  New version:      v1.30.0+k3s1
+  Nodes affected:   4
+```
+
+### API Endpoints
+
+- `POST /api/v1/clusters/hetzner/{id}/scale-workers` — scale workers
+- `GET /api/v1/clusters/hetzner/{id}/k8s-version` — fetch current k8s version
+- `POST /api/v1/clusters/hetzner/{id}/upgrade-k8s-version` — trigger k8s version upgrade
 
 ---
 
