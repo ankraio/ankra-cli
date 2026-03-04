@@ -272,9 +272,11 @@ ankra cluster hetzner create           # Create a Hetzner cluster
   --worker-server-type <type>          #   Worker server type (default: cx33)
   --control-plane-count <n>            #   Control planes (default: 1)
   --control-plane-server-type <type>   #   CP server type (default: cx33)
-ankra cluster hetzner deprovision <id> # Deprovision a Hetzner cluster
-ankra cluster hetzner workers <id>     # Get current worker count
-ankra cluster hetzner scale <id> <n>   # Scale workers to n
+ankra cluster hetzner deprovision <id>    # Deprovision a Hetzner cluster
+ankra cluster hetzner workers <id>       # Get current worker count
+ankra cluster hetzner scale <id> <n>     # Scale workers to n
+ankra cluster hetzner k8s-version <id>   # Get current Kubernetes version
+ankra cluster hetzner upgrade <id> <ver> # Upgrade Kubernetes version
 ```
 
 #### Hetzner Credentials
