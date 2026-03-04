@@ -85,7 +85,14 @@ This script will:
 - **Hetzner Cloud**
   - Create and deprovision Hetzner Kubernetes clusters
   - Scale worker nodes up and down
+  - Check and upgrade Kubernetes versions
   - Manage Hetzner API credentials and SSH key credentials
+
+- **OVH Cloud**
+  - Create and deprovision OVH Kubernetes clusters
+  - Scale worker nodes up and down
+  - Check and upgrade Kubernetes versions
+  - Manage OVH API credentials and SSH key credentials
 
 - **Credentials & Tokens**
   - List and manage platform credentials
@@ -280,6 +287,33 @@ ankra credentials hetzner ssh-key create --name <n> --generate          # Genera
 ankra credentials hetzner ssh-key create --name <n> --public-key "..."  # Import SSH public key
 ```
 
+#### OVH Clusters
+```bash
+ankra cluster ovh create                  # Create an OVH cluster
+  --name <name>                           #   Cluster name (required)
+  --credential-id <id>                    #   OVH API credential (required)
+  --ssh-key-credential-id <id>            #   SSH key credential (required)
+  --region <region>                       #   OVH region (required, e.g. GRA7)
+  --worker-count <n>                      #   Number of workers (default: 1)
+  --worker-flavor-id <flavor>             #   Worker flavor (default: b2-15)
+  --control-plane-count <n>               #   Control planes (default: 1)
+  --control-plane-flavor-id <flavor>      #   CP flavor (default: b2-15)
+ankra cluster ovh deprovision <id>        # Deprovision an OVH cluster
+ankra cluster ovh workers <id>            # Get current worker count
+ankra cluster ovh scale <id> <n>          # Scale workers to n
+ankra cluster ovh k8s-version <id>        # Get current Kubernetes version
+ankra cluster ovh upgrade <id> <version>  # Upgrade Kubernetes version
+```
+
+#### OVH Credentials
+```bash
+ankra credentials ovh list                                  # List OVH API credentials
+ankra credentials ovh create --name <n> --project-id <id>   # Create OVH credential (prompts for secrets)
+
+ankra credentials ovh ssh-key list                          # List SSH key credentials
+ankra credentials ovh ssh-key create --name <n> --generate  # Generate SSH keypair
+```
+
 #### Credentials
 ```bash
 ankra credentials list [--provider]   # List all credentials
@@ -324,6 +358,13 @@ ankra cluster encrypt addon --name grafana --key adminPassword -f cluster.yaml
 
 # View decrypted manifest content
 ankra cluster decrypt manifest my-secret -f cluster.yaml
+
+# Provision an OVH cluster
+ankra credentials ovh create --name my-ovh --project-id abc123
+ankra credentials ovh ssh-key create --name my-key --generate
+ankra cluster ovh create --name prod --credential-id <cred> --ssh-key-credential-id <key> --region GRA7 --worker-count 3
+ankra cluster ovh scale <cluster_id> 5
+ankra cluster ovh k8s-version <cluster_id>
 ```
 
 ## Troubleshooting
