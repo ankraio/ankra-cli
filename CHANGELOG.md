@@ -1,5 +1,134 @@
 # Ankra CLI Changelog
 
+## v0.1.126
+
+### New Features
+
+#### OVH Cloud Cluster Management
+
+Full lifecycle management for OVH Cloud clusters, including provisioning, deprovisioning, scaling, and Kubernetes version upgrades.
+
+##### Create a Cluster
+
+```bash
+ankra cluster ovh create \
+  --name my-cluster \
+  --credential-id <ovh_credential_id> \
+  --ssh-key-credential-id <ssh_key_credential_id> \
+  --region GRA7 \
+  --control-plane-count 1 \
+  --control-plane-flavor-id b2-15 \
+  --worker-count 2 \
+  --worker-flavor-id b2-15
+```
+
+##### Deprovision a Cluster
+
+```bash
+ankra cluster ovh deprovision <cluster_id>
+```
+
+##### Check Worker Count
+
+```bash
+ankra cluster ovh workers <cluster_id>
+```
+
+Example output:
+
+```
+Worker Count: 2
+```
+
+##### Scale Workers
+
+```bash
+ankra cluster ovh scale <cluster_id> 4
+```
+
+Example output:
+
+```
+Scaling workers.
+  Previous count: 2
+  New count:      4
+```
+
+##### Check Kubernetes Version
+
+```bash
+ankra cluster ovh k8s-version <cluster_id>
+```
+
+Example output:
+
+```
+Kubernetes Version: v1.31.2+k3s1
+  Distribution: k3s
+```
+
+##### Upgrade Kubernetes Version
+
+```bash
+ankra cluster ovh upgrade <cluster_id> v1.35.1+k3s1
+```
+
+Example output:
+
+```
+Kubernetes version upgrade initiated.
+  Previous version: v1.31.2+k3s1
+  New version:      v1.35.1+k3s1
+  Nodes affected:   3
+```
+
+#### OVH API Credentials
+
+Manage OVH Cloud API credentials for cluster provisioning.
+
+##### List OVH Credentials
+
+```bash
+ankra credentials ovh list
+```
+
+##### Create an OVH Credential
+
+```bash
+ankra credentials ovh create --name my-ovh-cred --project-id <project_id>
+```
+
+Prompts securely for application key, application secret, and consumer key. Credentials are validated against the OVH API on creation.
+
+##### List SSH Key Credentials
+
+```bash
+ankra credentials ovh ssh-key list
+```
+
+##### Create an SSH Key Credential
+
+```bash
+ankra credentials ovh ssh-key create --name my-key --generate
+```
+
+Use `--generate` to create a new keypair, or omit it to provide your own public key.
+
+### API Endpoints
+
+- `POST /api/v1/clusters/ovh` — create an OVH cluster
+- `DELETE /api/v1/clusters/ovh/{id}` — deprovision a cluster
+- `GET /api/v1/clusters/ovh/{id}/worker-count` — get worker count
+- `POST /api/v1/clusters/ovh/{id}/scale-workers` — scale workers
+- `GET /api/v1/clusters/ovh/{id}/k8s-version` — get Kubernetes version
+- `POST /api/v1/clusters/ovh/{id}/upgrade-k8s-version` — upgrade Kubernetes version
+- `GET /api/v1/credentials/ovh` — list OVH credentials
+- `POST /api/v1/credentials/ovh` — create an OVH credential
+- `GET /api/v1/credentials/ovh/ssh-keys` — list SSH key credentials
+- `POST /api/v1/credentials/ovh/ssh-key` — create an SSH key credential
+
+---
+
 ## v0.1.125
 
 ### New Features
