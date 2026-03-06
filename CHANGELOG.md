@@ -1,5 +1,118 @@
 # Ankra CLI Changelog
 
+## v0.1.128 — April 2026
+
+### New Features
+
+#### UpCloud Cloud Cluster Management
+
+Full lifecycle management for UpCloud clusters, including provisioning, deprovisioning, scaling, and Kubernetes version upgrades. UpCloud clusters use managed SDN Routers and NAT Gateways for private networking.
+
+##### Create a Cluster
+
+```bash
+ankra cluster upcloud create \
+  --name my-cluster \
+  --credential-id <upcloud_credential_id> \
+  --ssh-key-credential-id <ssh_key_credential_id> \
+  --zone fi-hel1 \
+  --control-plane-count 1 \
+  --control-plane-plan 2xCPU-4GB \
+  --worker-count 2 \
+  --worker-plan 2xCPU-4GB
+```
+
+##### Deprovision a Cluster
+
+Deprovision now uses the DAG-based operation system. Resources are deleted in the correct dependency order via the scheduler, and the cluster is only removed once all resources are cleaned up.
+
+```bash
+ankra cluster upcloud deprovision <cluster_id>
+```
+
+Example output:
+
+```
+UpCloud cluster deprovision initiated!
+  Cluster ID: abc123
+  Operation ID: op-456
+  Resources queued for deletion: 11
+```
+
+##### Check Worker Count
+
+```bash
+ankra cluster upcloud workers <cluster_id>
+```
+
+##### Scale Workers
+
+```bash
+ankra cluster upcloud scale <cluster_id> 4
+```
+
+##### Check Kubernetes Version
+
+```bash
+ankra cluster upcloud k8s-version <cluster_id>
+```
+
+##### Upgrade Kubernetes Version
+
+```bash
+ankra cluster upcloud upgrade <cluster_id> v1.31.2+k3s1
+```
+
+#### UpCloud API Credentials
+
+Manage UpCloud API credentials for cluster provisioning. UpCloud uses a single API token for authentication.
+
+##### List UpCloud Credentials
+
+```bash
+ankra credentials upcloud list
+```
+
+##### Create an UpCloud Credential
+
+```bash
+ankra credentials upcloud create --name my-upcloud-cred --api-token <token>
+```
+
+##### List SSH Key Credentials
+
+```bash
+ankra credentials upcloud ssh-key list
+```
+
+##### Create an SSH Key Credential
+
+```bash
+ankra credentials upcloud ssh-key create --name my-key --generate
+ankra credentials upcloud ssh-key create --name my-key --public-key "ssh-ed25519 AAAA..."
+```
+
+### Improvements
+
+- **DAG-based deprovision**: Cluster deletion now creates a tracked operation with individual delete jobs, visible in the Operations UI. The cluster is only marked as deleted once all resources are successfully destroyed.
+- **Parallel server deletion**: Multiple server delete jobs run concurrently in the DAG, reducing deprovision time.
+- **Best-effort agent uninstall**: The Ankra agent uninstall step no longer blocks deprovision if SSH or Helm is unavailable.
+
+### API Endpoints
+
+- `POST /api/v1/clusters/upcloud` — create an UpCloud cluster
+- `DELETE /api/v1/clusters/upcloud/{id}` — deprovision a cluster (returns operation ID)
+- `GET /api/v1/clusters/upcloud/{id}/worker-count` — get worker count
+- `POST /api/v1/clusters/upcloud/{id}/scale-workers` — scale workers
+- `GET /api/v1/clusters/upcloud/{id}/k8s-version` — get Kubernetes version
+- `POST /api/v1/clusters/upcloud/{id}/upgrade-k8s-version` — upgrade Kubernetes version
+- `GET /api/v1/credentials/upcloud` — list UpCloud credentials
+- `POST /api/v1/credentials/upcloud` — create an UpCloud credential
+- `GET /api/v1/credentials/upcloud/ssh-keys` — list SSH key credentials
+- `POST /api/v1/credentials/upcloud/ssh-key` — create an SSH key credential
+
+---
+
 ## v0.1.127
 
 ### New Features

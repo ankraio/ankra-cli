@@ -94,6 +94,12 @@ This script will:
   - Check and upgrade Kubernetes versions
   - Manage OVH API credentials and SSH key credentials
 
+- **UpCloud**
+  - Create and deprovision UpCloud Kubernetes clusters
+  - Scale worker nodes up and down
+  - Check and upgrade Kubernetes versions
+  - Manage UpCloud API credentials and SSH key credentials
+
 - **Credentials & Tokens**
   - List and manage platform credentials
   - Create and revoke API tokens
@@ -316,6 +322,34 @@ ankra credentials ovh ssh-key list                          # List SSH key crede
 ankra credentials ovh ssh-key create --name <n> --generate  # Generate SSH keypair
 ```
 
+#### UpCloud Clusters
+```bash
+ankra cluster upcloud create              # Create an UpCloud cluster
+  --name <name>                           #   Cluster name (required)
+  --credential-id <id>                    #   UpCloud API credential (required)
+  --ssh-key-credential-id <id>            #   SSH key credential (required)
+  --zone <zone>                           #   Datacenter zone (required, e.g. fi-hel1)
+  --worker-count <n>                      #   Number of workers (default: 1)
+  --worker-plan <plan>                    #   Worker plan (default: 2xCPU-4GB)
+  --control-plane-count <n>               #   Control planes (default: 1)
+  --control-plane-plan <plan>             #   CP plan (default: 2xCPU-4GB)
+ankra cluster upcloud deprovision <id>    # Deprovision an UpCloud cluster
+ankra cluster upcloud workers <id>        # Get current worker count
+ankra cluster upcloud scale <id> <n>      # Scale workers to n
+ankra cluster upcloud k8s-version <id>    # Get current Kubernetes version
+ankra cluster upcloud upgrade <id> <ver>  # Upgrade Kubernetes version
+```
+
+#### UpCloud Credentials
+```bash
+ankra credentials upcloud list                              # List UpCloud API credentials
+ankra credentials upcloud create --name <n> --api-token <t> # Create UpCloud credential
+
+ankra credentials upcloud ssh-key list                      # List SSH key credentials
+ankra credentials upcloud ssh-key create --name <n> --generate          # Generate SSH keypair
+ankra credentials upcloud ssh-key create --name <n> --public-key "..."  # Import SSH public key
+```
+
 #### Credentials
 ```bash
 ankra credentials list [--provider]   # List all credentials
@@ -367,6 +401,13 @@ ankra credentials ovh ssh-key create --name my-key --generate
 ankra cluster ovh create --name prod --credential-id <cred> --ssh-key-credential-id <key> --region GRA7 --worker-count 3
 ankra cluster ovh scale <cluster_id> 5
 ankra cluster ovh k8s-version <cluster_id>
+
+# Provision an UpCloud cluster
+ankra credentials upcloud create --name my-upcloud --api-token <token>
+ankra credentials upcloud ssh-key create --name my-key --generate
+ankra cluster upcloud create --name prod --credential-id <cred> --ssh-key-credential-id <key> --zone fi-hel1 --worker-count 2
+ankra cluster upcloud scale <cluster_id> 4
+ankra cluster upcloud k8s-version <cluster_id>
 ```
 
 ## Troubleshooting
