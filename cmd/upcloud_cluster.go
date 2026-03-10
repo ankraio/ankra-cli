@@ -198,6 +198,116 @@ var upcloudUpgradeCmd = &cobra.Command{
 	},
 }
 
+var upcloudNodeGroupCmd = &cobra.Command{
+	Use:   "node-group",
+	Short: "Manage node groups for an UpCloud cluster",
+	Long:  "List, add, scale, upgrade, and delete node groups.",
+}
+
+var upcloudNodeGroupListCmd = &cobra.Command{
+	Use:   "list <cluster_id>",
+	Short: "List node groups",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+		result, err := client.ListUpcloudNodeGroups(apiToken, baseURL, clusterID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error listing node groups: %v\n", err)
+			os.Exit(1)
+		}
+		if len(result.NodeGroups) == 0 {
+			fmt.Println("No node groups found.")
+			return
+		}
+		for _, ng := range result.NodeGroups {
+			fmt.Printf("%-20s  type=%-12s  count=%d  labels=%d  taints=%d\n",
+				ng.Name, ng.InstanceType, ng.Count, len(ng.Labels), len(ng.Taints))
+		}
+	},
+}
+
+var upcloudNodeGroupAddCmd = &cobra.Command{
+	Use:   "add <cluster_id>",
+	Short: "Add a node group",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+		name, _ := cmd.Flags().GetString("name")
+		instanceType, _ := cmd.Flags().GetString("instance-type")
+		count, _ := cmd.Flags().GetInt("count")
+
+		req := client.AddNodeGroupRequest{
+			Name:         name,
+			InstanceType: instanceType,
+			Count:        count,
+		}
+
+		result, err := client.AddUpcloudNodeGroup(apiToken, baseURL, clusterID, req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error adding node group: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+	},
+}
+
+var upcloudNodeGroupScaleCmd = &cobra.Command{
+	Use:   "scale <cluster_id> <group_name> <count>",
+	Short: "Scale a node group",
+	Args:  cobra.ExactArgs(3),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+		groupName := args[1]
+		count, err := strconv.Atoi(args[2])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid count: %v\n", err)
+			os.Exit(1)
+		}
+
+		result, err := client.ScaleUpcloudNodeGroup(apiToken, baseURL, clusterID, groupName, count)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error scaling node group: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+	},
+}
+
+var upcloudNodeGroupUpgradeCmd = &cobra.Command{
+	Use:   "upgrade <cluster_id> <group_name> <plan>",
+	Short: "Upgrade server plan for a node group",
+	Args:  cobra.ExactArgs(3),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+		groupName := args[1]
+		plan := args[2]
+
+		result, err := client.UpdateUpcloudNodeGroupInstanceType(apiToken, baseURL, clusterID, groupName, plan)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error upgrading node group: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Node group '%s' plan upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+	},
+}
+
+var upcloudNodeGroupDeleteCmd = &cobra.Command{
+	Use:   "delete <cluster_id> <group_name>",
+	Short: "Delete a node group and all its nodes",
+	Args:  cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+		groupName := args[1]
+
+		result, err := client.DeleteUpcloudNodeGroup(apiToken, baseURL, clusterID, groupName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error deleting node group: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+	},
+}
+
 func init() {
 	upcloudCreateCmd.Flags().String("name", "", "Cluster name (required)")
 	upcloudCreateCmd.Flags().String("credential-id", "", "UpCloud API credential ID (required)")
@@ -217,12 +327,24 @@ func init() {
 	_ = upcloudCreateCmd.MarkFlagRequired("ssh-key-credential-id")
 	_ = upcloudCreateCmd.MarkFlagRequired("zone")
 
+	upcloudNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
+	upcloudNodeGroupAddCmd.Flags().String("instance-type", "2xCPU-4GB", "Server plan for nodes")
+	upcloudNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
+	_ = upcloudNodeGroupAddCmd.MarkFlagRequired("name")
+
+	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupListCmd)
+	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupAddCmd)
+	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupScaleCmd)
+	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupUpgradeCmd)
+	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupDeleteCmd)
+
 	upcloudCmd.AddCommand(upcloudCreateCmd)
 	upcloudCmd.AddCommand(upcloudDeprovisionCmd)
 	upcloudCmd.AddCommand(upcloudWorkersCmd)
 	upcloudCmd.AddCommand(upcloudScaleCmd)
 	upcloudCmd.AddCommand(upcloudK8sVersionCmd)
 	upcloudCmd.AddCommand(upcloudUpgradeCmd)
+	upcloudCmd.AddCommand(upcloudNodeGroupCmd)
 
 	clusterCmd.AddCommand(upcloudCmd)
 }

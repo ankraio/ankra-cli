@@ -272,7 +272,8 @@ ankra chat health                     # Get AI-analyzed cluster health
 ankra cluster hetzner create           # Create a Hetzner cluster
   --name <name>                        #   Cluster name (required)
   --credential-id <id>                 #   Hetzner API credential (required)
-  --ssh-key-credential-id <id>         #   SSH key credential (required)
+  --ssh-key-credential-ids <id,id>     #   SSH key credentials (comma-separated)
+  --ssh-key-credential-id <id>         #   SSH key credential (single, backward compat)
   --location <loc>                     #   Datacenter location (required)
   --worker-count <n>                   #   Number of workers (default: 1)
   --worker-server-type <type>          #   Worker server type (default: cx33)

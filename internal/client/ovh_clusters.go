@@ -163,6 +163,65 @@ func UpgradeOvhK8sVersion(token, baseURL, clusterID, targetVersion string) (*Upg
 	return &result, nil
 }
 
+func ListOvhNodeGroups(token, baseURL, clusterID string) (*NodeGroupListResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups", strings.TrimRight(baseURL, "/"), clusterID)
+	var result NodeGroupListResult
+	if err := getJSON(url, token, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func AddOvhNodeGroup(token, baseURL, clusterID string, req AddNodeGroupRequest) (*AddNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups", strings.TrimRight(baseURL, "/"), clusterID)
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	return postJSON[AddNodeGroupResult](url, token, payload)
+}
+
+func ScaleOvhNodeGroup(token, baseURL, clusterID, groupName string, count int) (*ScaleNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/scale", strings.TrimRight(baseURL, "/"), clusterID, groupName)
+	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	return putJSON[ScaleNodeGroupResult](url, token, payload)
+}
+
+func UpdateOvhNodeGroupInstanceType(token, baseURL, clusterID, groupName, instanceType string) (*UpdateNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/instance-type", strings.TrimRight(baseURL, "/"), clusterID, groupName)
+	payload, err := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	return putJSON[UpdateNodeGroupResult](url, token, payload)
+}
+
+func DeleteOvhNodeGroup(token, baseURL, clusterID, groupName string) (*DeleteNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s", strings.TrimRight(baseURL, "/"), clusterID, groupName)
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+	var result DeleteNodeGroupResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
 func ScaleOvhWorkers(token, baseURL, clusterID string, workerCount int) (*ScaleWorkersResult, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/scale-workers", strings.TrimRight(baseURL, "/"), clusterID)
 	payload, err := json.Marshal(ScaleWorkersRequest{WorkerCount: workerCount})

@@ -1,8 +1,130 @@
 # Ankra CLI Changelog
 
+## v0.1.129 — April 2026
+
+### New Features
+
+#### Node Group Management
+
+Full CRUD for node groups on Hetzner, OVH, and UpCloud clusters. Each node group has its own instance type, node count, Kubernetes labels, and taints.
+
+##### List Node Groups
+
+```bash
+ankra cluster hetzner node-group list <cluster_id>
+```
+
+Example output:
+
+```
+default              type=cx33     count=2  labels=0  taints=0
+gpu-workers          type=ccx33    count=3  labels=1  taints=1
+```
+
+##### Add a Node Group
+
+```bash
+ankra cluster hetzner node-group add <cluster_id> \
+  --name gpu-workers \
+  --instance-type ccx33 \
+  --count 3
+```
+
+##### Scale a Node Group
+
+```bash
+ankra cluster hetzner node-group scale <cluster_id> default 4
+```
+
+Node groups can be scaled to 0 (removes all servers but keeps the group definition).
+
+##### Upgrade Instance Type
+
+```bash
+ankra cluster hetzner node-group upgrade <cluster_id> default cx43
+```
+
+Instance type upgrades are irreversible — Hetzner disk enlargement cannot be undone. To use a smaller type, create a new node group and delete the old one.
+
+##### Delete a Node Group
+
+```bash
+ankra cluster hetzner node-group delete <cluster_id> gpu-workers
+```
+
+##### OVH and UpCloud
+
+The same commands are available for OVH and UpCloud clusters:
+
+```bash
+# OVH
+ankra cluster ovh node-group list <cluster_id>
+ankra cluster ovh node-group add <cluster_id> --name workers --instance-type b2-15 --count 2
+ankra cluster ovh node-group scale <cluster_id> workers 4
+ankra cluster ovh node-group upgrade <cluster_id> workers b2-30
+ankra cluster ovh node-group delete <cluster_id> workers
+
+# UpCloud
+ankra cluster upcloud node-group list <cluster_id>
+ankra cluster upcloud node-group add <cluster_id> --name workers --instance-type 4xCPU-8GB --count 2
+ankra cluster upcloud node-group scale <cluster_id> workers 4
+ankra cluster upcloud node-group upgrade <cluster_id> workers 8xCPU-16GB
+ankra cluster upcloud node-group delete <cluster_id> workers
+```
+
+#### Node Groups at Cluster Creation
+
+The `node_groups` field is now supported in the cluster create API for all providers. When provided, it replaces `worker_count` and `worker_server_type`:
+
+```json
+{
+  "node_groups": [
+    {"name": "default", "instance_type": "cx33", "count": 2},
+    {"name": "gpu", "instance_type": "ccx33", "count": 1, "labels": {"gpu": "true"}, "taints": [{"key": "gpu", "value": "true", "effect": "NoSchedule"}]}
+  ]
+}
+```
+
+### Improvements
+
+- **Server naming**: Servers are now named `{cluster}-{group_name}-{index}` instead of `{cluster}-worker-{index}` for better identification.
+- **No online requirement**: Node group operations no longer require the cluster to be online.
+- **Safe instance type changes**: Servers are powered off, verified off, resized, then powered back on. If the resize fails, the server is powered back on automatically.
+- **Graceful K8s cleanup**: K8s uninstall during node deletion is now best-effort — unreachable nodes (powered off, deleted) no longer block the delete operation.
+
+### API Endpoints
+
+- `GET /api/v1/clusters/hetzner/{id}/node-groups` — list node groups
+- `POST /api/v1/clusters/hetzner/{id}/node-groups` — add a node group
+- `PUT /api/v1/clusters/hetzner/{id}/node-groups/{name}/scale` — scale a node group
+- `PUT /api/v1/clusters/hetzner/{id}/node-groups/{name}/instance-type` — upgrade instance type
+- `PUT /api/v1/clusters/hetzner/{id}/node-groups/{name}/labels` — update labels
+- `PUT /api/v1/clusters/hetzner/{id}/node-groups/{name}/taints` — update taints
+- `DELETE /api/v1/clusters/hetzner/{id}/node-groups/{name}` — delete a node group
+
+Same endpoints available for OVH (`/clusters/ovh/...`) and UpCloud (`/clusters/upcloud/...`).
+
+---
+
 ## v0.1.128 — April 2026
 
 ### New Features
+
+#### Hetzner: Multiple SSH Key Support
+
+Hetzner cluster creation now supports attaching multiple SSH key credentials with the `--ssh-key-credential-ids` flag. Pass a comma-separated list of credential IDs to deploy multiple keys to all servers.
+
+```bash
+ankra cluster hetzner create \
+  --name my-cluster \
+  --credential-id <hetzner_credential_id> \
+  --ssh-key-credential-ids <key_id_1>,<key_id_2>,<key_id_3> \
+  --location fsn1 \
+  --control-plane-count 1 \
+  --worker-count 2
+```
+
+The existing `--ssh-key-credential-id` flag continues to work for single-key usage.
 
 #### UpCloud Cloud Cluster Management
 
