@@ -1,4 +1,4 @@
-name: Lint and Dry Run Build
+name: Lint, Test and Build
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
       - '**'
 
 jobs:
-  lint-build:
+  lint-test-build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -17,10 +17,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.23'
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
           version: latest
+      - name: Run tests
+        run: go test -race -count=1 -timeout=120s -coverprofile=coverage.out ./...
+      - name: Check coverage
+        run: go tool cover -func=coverage.out
       - name: Dry run build
         run: go build -o /dev/null ./...

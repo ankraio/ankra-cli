@@ -29,7 +29,7 @@ var clusterSelectCmd = &cobra.Command{
 		startCursorPosition := 0
 
 		for {
-			response, err := client.ListClusters(apiToken, baseURL, page, 25)
+			response, err := apiClient.ListClusters(page, 25)
 			if err != nil {
 				fmt.Printf("Error listing clusters: %v\n", err)
 				break

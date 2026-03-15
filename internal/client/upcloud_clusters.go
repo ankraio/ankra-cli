@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 )
 
 type CreateUpcloudClusterRequest struct {
@@ -32,15 +31,15 @@ type CreateUpcloudClusterResponse struct {
 }
 
 type DeprovisionUpcloudClusterResponse struct {
-	Success        bool     `json:"success"`
-	ClusterID      string   `json:"cluster_id"`
-	OperationID    *string  `json:"operation_id,omitempty"`
-	ResourcesMarked int    `json:"resources_marked"`
-	Errors         []string `json:"errors"`
+	Success         bool     `json:"success"`
+	ClusterID       string   `json:"cluster_id"`
+	OperationID     *string  `json:"operation_id,omitempty"`
+	ResourcesMarked int      `json:"resources_marked"`
+	Errors          []string `json:"errors"`
 }
 
-func CreateUpcloudCluster(token, baseURL string, req CreateUpcloudClusterRequest) (*CreateUpcloudClusterResponse, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/clusters/upcloud"
+func (c *Client) CreateUpcloudCluster(req CreateUpcloudClusterRequest) (*CreateUpcloudClusterResponse, error) {
+	url := c.BaseURL + "/api/v1/clusters/upcloud"
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -51,9 +50,9 @@ func CreateUpcloudCluster(token, baseURL string, req CreateUpcloudClusterRequest
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(httpReq)
+	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -75,15 +74,15 @@ func CreateUpcloudCluster(token, baseURL string, req CreateUpcloudClusterRequest
 	return &result, nil
 }
 
-func DeprovisionUpcloudCluster(token, baseURL, clusterID string) (*DeprovisionUpcloudClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) DeprovisionUpcloudCluster(clusterID string) (*DeprovisionUpcloudClusterResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s", c.BaseURL, clusterID)
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -105,151 +104,71 @@ func DeprovisionUpcloudCluster(token, baseURL, clusterID string) (*DeprovisionUp
 	return &result, nil
 }
 
-func GetUpcloudWorkerCount(token, baseURL, clusterID string) (*WorkerCountResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/worker-count", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) GetUpcloudWorkerCount(clusterID string) (*WorkerCountResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/worker-count", c.BaseURL, clusterID)
 	var result WorkerCountResult
-	if err := getJSON(url, token, &result); err != nil {
+	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func GetUpcloudK8sVersion(token, baseURL, clusterID string) (*K8sVersionInfo, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/k8s-version", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) GetUpcloudK8sVersion(clusterID string) (*K8sVersionInfo, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/k8s-version", c.BaseURL, clusterID)
 	var result K8sVersionInfo
-	if err := getJSON(url, token, &result); err != nil {
+	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func UpgradeUpcloudK8sVersion(token, baseURL, clusterID, targetVersion string) (*UpgradeK8sVersionResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/upgrade-k8s-version", strings.TrimRight(baseURL, "/"), clusterID)
-	payload, err := json.Marshal(UpgradeK8sVersionRequest{TargetVersion: targetVersion})
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upgrade failed: status %d, body: %s", resp.StatusCode, string(body))
-	}
-
-	var result UpgradeK8sVersionResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return &result, nil
+func (c *Client) UpgradeUpcloudK8sVersion(clusterID, targetVersion string) (*UpgradeK8sVersionResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/upgrade-k8s-version", c.BaseURL, clusterID)
+	return c.doUpgradeK8sVersion(url, targetVersion)
 }
 
-func ListUpcloudNodeGroups(token, baseURL, clusterID string) (*NodeGroupListResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) ListUpcloudNodeGroups(clusterID string) (*NodeGroupListResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups", c.BaseURL, clusterID)
 	var result NodeGroupListResult
-	if err := getJSON(url, token, &result); err != nil {
+	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func AddUpcloudNodeGroup(token, baseURL, clusterID string, req AddNodeGroupRequest) (*AddNodeGroupResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) AddUpcloudNodeGroup(clusterID string, req AddNodeGroupRequest) (*AddNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups", c.BaseURL, clusterID)
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	return postJSON[AddNodeGroupResult](url, token, payload)
+	return c.doAddNodeGroup(url, payload)
 }
 
-func ScaleUpcloudNodeGroup(token, baseURL, clusterID, groupName string, count int) (*ScaleNodeGroupResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/scale", strings.TrimRight(baseURL, "/"), clusterID, groupName)
+func (c *Client) ScaleUpcloudNodeGroup(clusterID, groupName string, count int) (*ScaleNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/scale", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	return putJSON[ScaleNodeGroupResult](url, token, payload)
+	return c.doScaleNodeGroup(url, payload)
 }
 
-func UpdateUpcloudNodeGroupInstanceType(token, baseURL, clusterID, groupName, instanceType string) (*UpdateNodeGroupResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/instance-type", strings.TrimRight(baseURL, "/"), clusterID, groupName)
+func (c *Client) UpdateUpcloudNodeGroupInstanceType(clusterID, groupName, instanceType string) (*UpdateNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	return putJSON[UpdateNodeGroupResult](url, token, payload)
+	return c.doUpdateNodeGroupInstanceType(url, payload)
 }
 
-func DeleteUpcloudNodeGroup(token, baseURL, clusterID, groupName string) (*DeleteNodeGroupResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s", strings.TrimRight(baseURL, "/"), clusterID, groupName)
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, string(body))
-	}
-	var result DeleteNodeGroupResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return &result, nil
+func (c *Client) DeleteUpcloudNodeGroup(clusterID, groupName string) (*DeleteNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
+	return c.doDeleteNodeGroup(url)
 }
 
-func ScaleUpcloudWorkers(token, baseURL, clusterID string, workerCount int) (*ScaleWorkersResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/scale-workers", strings.TrimRight(baseURL, "/"), clusterID)
-	payload, err := json.Marshal(ScaleWorkersRequest{WorkerCount: workerCount})
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("scale failed: status %d, body: %s", resp.StatusCode, string(body))
-	}
-
-	var result ScaleWorkersResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return &result, nil
+func (c *Client) ScaleUpcloudWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/scale-workers", c.BaseURL, clusterID)
+	return c.doScaleWorkers(url, workerCount)
 }

@@ -21,7 +21,7 @@ var ovhCredListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List OVH API credentials",
 	Run: func(cmd *cobra.Command, args []string) {
-		creds, err := client.ListOvhCredentials(apiToken, baseURL)
+		creds, err := apiClient.ListOvhCredentials()
 		if err != nil {
 			fmt.Printf("Error listing OVH credentials: %v\n", err)
 			return
@@ -120,7 +120,7 @@ Examples:
 			os.Exit(1)
 		}
 
-		result, err := client.CreateOvhCredential(apiToken, baseURL, client.CreateOvhCredentialRequest{
+		result, err := apiClient.CreateOvhCredential(client.CreateOvhCredentialRequest{
 			Name:              name,
 			ApplicationKey:    applicationKey,
 			ApplicationSecret: applicationSecret,
@@ -148,7 +148,7 @@ var ovhSSHKeyListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List SSH key credentials",
 	Run: func(cmd *cobra.Command, args []string) {
-		creds, err := client.ListOvhSSHKeyCredentials(apiToken, baseURL)
+		creds, err := apiClient.ListOvhSSHKeyCredentials()
 		if err != nil {
 			fmt.Printf("Error listing SSH key credentials: %v\n", err)
 			return
@@ -212,7 +212,7 @@ Examples:
 			req.SSHPublicKey = &publicKey
 		}
 
-		result, err := client.CreateOvhSSHKeyCredential(apiToken, baseURL, req)
+		result, err := apiClient.CreateOvhSSHKeyCredential(req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating SSH key credential: %v\n", err)
 			os.Exit(1)

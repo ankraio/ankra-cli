@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"ankra/internal/client"
-
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
@@ -22,7 +20,7 @@ var tokensListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all API tokens",
 	Run: func(cmd *cobra.Command, args []string) {
-		tokens, err := client.ListAPITokens(apiToken, baseURL)
+		tokens, err := apiClient.ListAPITokens()
 		if err != nil {
 			fmt.Printf("Error listing tokens: %v\n", err)
 			return
@@ -83,7 +81,7 @@ var tokensCreateCmd = &cobra.Command{
 			expiresAtPtr = &expiresAt
 		}
 
-		result, err := client.CreateAPIToken(apiToken, baseURL, name, expiresAtPtr)
+		result, err := apiClient.CreateAPIToken(name, expiresAtPtr)
 		if err != nil {
 			fmt.Printf("Error creating token: %v\n", err)
 			return
@@ -109,7 +107,7 @@ var tokensRevokeCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		tokenID := args[0]
 
-		result, err := client.RevokeAPIToken(apiToken, baseURL, tokenID)
+		result, err := apiClient.RevokeAPIToken(tokenID)
 		if err != nil {
 			fmt.Printf("Error revoking token: %v\n", err)
 			return
@@ -130,7 +128,7 @@ var tokensDeleteCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		tokenID := args[0]
 
-		result, err := client.DeleteAPIToken(apiToken, baseURL, tokenID)
+		result, err := apiClient.DeleteAPIToken(tokenID)
 		if err != nil {
 			fmt.Printf("Error deleting token: %v\n", err)
 			fmt.Println("Note: Tokens must be revoked before they can be deleted.")

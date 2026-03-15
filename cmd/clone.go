@@ -234,7 +234,11 @@ func downloadFile(url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to download file: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to download file: HTTP %d", resp.StatusCode)
@@ -259,7 +263,11 @@ func downloadFileFromURL(baseURL, relPath, dstPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to download file from %q: %w", fullURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusNotFound {
@@ -280,7 +288,11 @@ func downloadFileFromURL(baseURL, relPath, dstPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create destination file %q: %w", dstPath, err)
 	}
-	defer dstFile.Close()
+	defer func() {
+		if closeErr := dstFile.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close destination file: %v\n", closeErr)
+		}
+	}()
 
 	if _, err := io.Copy(dstFile, resp.Body); err != nil {
 		return fmt.Errorf("failed to write file content: %w", err)
@@ -505,13 +517,21 @@ func copyFile(srcBaseDir, dstBaseDir, relPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open source file %q: %w", srcPath, err)
 	}
-	defer srcFile.Close()
+	defer func() {
+		if closeErr := srcFile.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close source file: %v\n", closeErr)
+		}
+	}()
 
 	dstFile, err := os.Create(dstPath)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file %q: %w", dstPath, err)
 	}
-	defer dstFile.Close()
+	defer func() {
+		if closeErr := dstFile.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close destination file: %v\n", closeErr)
+		}
+	}()
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
 		return fmt.Errorf("failed to copy file content: %w", err)
@@ -545,7 +565,9 @@ func writeClusterFile(path string, cluster *ImportClusterConfig) error {
 	if err := encoder.Encode(cluster); err != nil {
 		return fmt.Errorf("failed to marshal cluster YAML: %w", err)
 	}
-	encoder.Close()
+	if err := encoder.Close(); err != nil {
+		return fmt.Errorf("failed to close YAML encoder: %w", err)
+	}
 
 	if err := os.WriteFile(path, []byte(buf.String()), 0644); err != nil {
 		return fmt.Errorf("failed to write cluster file: %w", err)

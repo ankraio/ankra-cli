@@ -28,7 +28,7 @@ Use --cluster to provide cluster context for better answers.`,
 
 		var clusterID *string
 		if clusterName != "" {
-			cluster, err := client.GetCluster(apiToken, baseURL, clusterName)
+			cluster, err := apiClient.GetCluster(clusterName)
 			if err != nil {
 				fmt.Printf("Error finding cluster %s: %v\n", clusterName, err)
 				return
@@ -55,7 +55,7 @@ Use --cluster to provide cluster context for better answers.`,
 
 func runChatMessage(clusterID *string, query string) {
 	req := client.ChatRequest{Query: query}
-	events, err := client.StreamChat(apiToken, baseURL, clusterID, req)
+	events, err := apiClient.StreamChat(clusterID, req)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -150,7 +150,7 @@ func runInteractiveChat(clusterID *string) {
 			ConversationHistory: history,
 		}
 
-		events, err := client.StreamChat(apiToken, baseURL, clusterID, req)
+		events, err := apiClient.StreamChat(clusterID, req)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
@@ -217,7 +217,7 @@ var chatHistoryCmd = &cobra.Command{
 
 		var clusterID *string
 		if clusterName != "" {
-			cluster, err := client.GetCluster(apiToken, baseURL, clusterName)
+			cluster, err := apiClient.GetCluster(clusterName)
 			if err != nil {
 				fmt.Printf("Error finding cluster %s: %v\n", clusterName, err)
 				return
@@ -225,7 +225,7 @@ var chatHistoryCmd = &cobra.Command{
 			clusterID = &cluster.ID
 		}
 
-		resp, err := client.ListChatHistory(apiToken, baseURL, clusterID, limit, 0)
+		resp, err := apiClient.ListChatHistory(clusterID, limit, 0)
 		if err != nil {
 			fmt.Printf("Error listing chat history: %v\n", err)
 			return
@@ -273,7 +273,7 @@ var chatShowCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		conversationID := args[0]
 
-		conv, err := client.GetChatConversation(apiToken, baseURL, conversationID)
+		conv, err := apiClient.GetChatConversation(conversationID)
 		if err != nil {
 			fmt.Printf("Error getting conversation: %v\n", err)
 			return
@@ -304,7 +304,7 @@ var chatDeleteCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		conversationID := args[0]
 
-		result, err := client.DeleteChatConversation(apiToken, baseURL, conversationID)
+		result, err := apiClient.DeleteChatConversation(conversationID)
 		if err != nil {
 			fmt.Printf("Error deleting conversation: %v\n", err)
 			return
@@ -328,7 +328,7 @@ var chatHealthCmd = &cobra.Command{
 
 		includeAI, _ := cmd.Flags().GetBool("ai")
 
-		health, err := client.GetClusterHealth(apiToken, baseURL, cluster.ID, includeAI)
+		health, err := apiClient.GetClusterHealth(cluster.ID, includeAI)
 		if err != nil {
 			fmt.Printf("Error getting cluster health: %v\n", err)
 			return

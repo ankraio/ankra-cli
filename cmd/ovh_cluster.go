@@ -58,7 +58,7 @@ var ovhCreateCmd = &cobra.Command{
 			req.KubernetesVersion = &kubeVersion
 		}
 
-		result, err := client.CreateOvhCluster(apiToken, baseURL, req)
+		result, err := apiClient.CreateOvhCluster(req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating OVH cluster: %v\n", err)
 			os.Exit(1)
@@ -78,7 +78,7 @@ var ovhDeprovisionCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
 
-		result, err := client.DeprovisionOvhCluster(apiToken, baseURL, clusterID)
+		result, err := apiClient.DeprovisionOvhCluster(clusterID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error deprovisioning cluster: %v\n", err)
 			os.Exit(1)
@@ -116,7 +116,7 @@ var ovhWorkersCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
 
-		result, err := client.GetOvhWorkerCount(apiToken, baseURL, clusterID)
+		result, err := apiClient.GetOvhWorkerCount(clusterID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error fetching worker count: %v\n", err)
 			os.Exit(1)
@@ -141,7 +141,7 @@ var ovhScaleCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		result, err := client.ScaleOvhWorkers(apiToken, baseURL, clusterID, workerCount)
+		result, err := apiClient.ScaleOvhWorkers(clusterID, workerCount)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error scaling workers: %v\n", err)
 			os.Exit(1)
@@ -166,7 +166,7 @@ var ovhK8sVersionCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
 
-		result, err := client.GetOvhK8sVersion(apiToken, baseURL, clusterID)
+		result, err := apiClient.GetOvhK8sVersion(clusterID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error fetching Kubernetes version: %v\n", err)
 			os.Exit(1)
@@ -190,7 +190,7 @@ var ovhUpgradeCmd = &cobra.Command{
 		clusterID := args[0]
 		targetVersion := args[1]
 
-		result, err := client.UpgradeOvhK8sVersion(apiToken, baseURL, clusterID, targetVersion)
+		result, err := apiClient.UpgradeOvhK8sVersion(clusterID, targetVersion)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error upgrading Kubernetes version: %v\n", err)
 			os.Exit(1)
@@ -219,7 +219,7 @@ var ovhNodeGroupListCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
-		result, err := client.ListOvhNodeGroups(apiToken, baseURL, clusterID)
+		result, err := apiClient.ListOvhNodeGroups(clusterID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error listing node groups: %v\n", err)
 			os.Exit(1)
@@ -251,7 +251,7 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 			Count:        count,
 		}
 
-		result, err := client.AddOvhNodeGroup(apiToken, baseURL, clusterID, req)
+		result, err := apiClient.AddOvhNodeGroup(clusterID, req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error adding node group: %v\n", err)
 			os.Exit(1)
@@ -273,7 +273,7 @@ var ovhNodeGroupScaleCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		result, err := client.ScaleOvhNodeGroup(apiToken, baseURL, clusterID, groupName, count)
+		result, err := apiClient.ScaleOvhNodeGroup(clusterID, groupName, count)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error scaling node group: %v\n", err)
 			os.Exit(1)
@@ -291,7 +291,7 @@ var ovhNodeGroupUpgradeCmd = &cobra.Command{
 		groupName := args[1]
 		instanceType := args[2]
 
-		result, err := client.UpdateOvhNodeGroupInstanceType(apiToken, baseURL, clusterID, groupName, instanceType)
+		result, err := apiClient.UpdateOvhNodeGroupInstanceType(clusterID, groupName, instanceType)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error upgrading node group: %v\n", err)
 			os.Exit(1)
@@ -308,7 +308,7 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 		clusterID := args[0]
 		groupName := args[1]
 
-		result, err := client.DeleteOvhNodeGroup(apiToken, baseURL, clusterID, groupName)
+		result, err := apiClient.DeleteOvhNodeGroup(clusterID, groupName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error deleting node group: %v\n", err)
 			os.Exit(1)

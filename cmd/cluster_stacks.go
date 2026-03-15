@@ -31,7 +31,7 @@ var clusterStacksListCmd = &cobra.Command{
 			return
 		}
 
-		stacks, err := client.ListClusterStacks(apiToken, baseURL, cluster.ID)
+		stacks, err := apiClient.ListClusterStacks(cluster.ID)
 		if err != nil {
 			fmt.Printf("Error listing stacks: %v\n", err)
 			return
@@ -193,7 +193,7 @@ var clusterStacksCreateCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		result, err := client.CreateStack(ctx, apiToken, baseURL, cluster.ID, stackName, description)
+		result, err := apiClient.CreateStack(ctx, cluster.ID, stackName, description)
 		if err != nil {
 			fmt.Printf("Error creating stack: %v\n", err)
 			return
@@ -221,7 +221,7 @@ var clusterStacksDeleteCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		result, err := client.DeleteStack(ctx, apiToken, baseURL, cluster.ID, stackName)
+		result, err := apiClient.DeleteStack(ctx, cluster.ID, stackName)
 		if err != nil {
 			fmt.Printf("Error deleting stack: %v\n", err)
 			return
@@ -250,7 +250,7 @@ var clusterStacksRenameCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		result, err := client.RenameStack(ctx, apiToken, baseURL, cluster.ID, oldName, newName)
+		result, err := apiClient.RenameStack(ctx, cluster.ID, oldName, newName)
 		if err != nil {
 			fmt.Printf("Error renaming stack: %v\n", err)
 			return
@@ -275,7 +275,7 @@ var clusterStacksHistoryCmd = &cobra.Command{
 			return
 		}
 
-		history, err := client.GetStackHistory(apiToken, baseURL, cluster.ID, stackName)
+		history, err := apiClient.GetStackHistory(cluster.ID, stackName)
 		if err != nil {
 			fmt.Printf("Error getting stack history: %v\n", err)
 			return
@@ -373,7 +373,7 @@ and will need to be reconfigured in the target cluster.`,
 
 		fmt.Printf("Cloning stack '%s' to cluster '%s'...\n", stackName, targetCluster)
 
-		result, err := client.CloneStackToCluster(ctx, apiToken, baseURL, targetClusterID, req)
+		result, err := apiClient.CloneStackToCluster(ctx, targetClusterID, req)
 		if err != nil {
 			fmt.Printf("Error cloning stack: %v\n", err)
 			return
@@ -404,8 +404,7 @@ func resolveClusterID(nameOrID string) (string, error) {
 		return nameOrID, nil
 	}
 
-	// Otherwise, try to find by name from the clusters list
-	clustersResp, err := client.ListClusters(apiToken, baseURL, 1, 100)
+	clustersResp, err := apiClient.ListClusters(1, 100)
 	if err != nil {
 		return "", fmt.Errorf("failed to list clusters: %w", err)
 	}

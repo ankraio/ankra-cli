@@ -281,7 +281,11 @@ func appendLineIfMissing(filePath, line, marker string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close file: %v\n", closeErr)
+		}
+	}()
 	_, err = fmt.Fprintf(f, "\n%s\n", line)
 	return err == nil, err
 }
@@ -291,7 +295,11 @@ func fileContainsMarker(filePath, marker string) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close file: %v\n", closeErr)
+		}
+	}()
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		if strings.Contains(scanner.Text(), marker) {

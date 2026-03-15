@@ -3,13 +3,10 @@ package cmd
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
-
-	"ankra/internal/client"
 
 	"github.com/spf13/cobra"
 )
@@ -29,10 +26,6 @@ var deleteClusterCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		if apiToken == "" {
-			return errors.New("API token not provided; use --token or set ANKRA_API_TOKEN")
-		}
-
 		if !forceDelete {
 			fmt.Printf("Are you sure you want to delete cluster %q? This action is irreversible! (y/N): ", name)
 			resp, err := bufio.NewReader(os.Stdin).ReadString('\n')
@@ -49,7 +42,7 @@ var deleteClusterCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		if err := client.DeleteCluster(ctx, apiToken, baseURL, name); err != nil {
+		if err := apiClient.DeleteCluster(ctx, name); err != nil {
 			if strings.Contains(err.Error(), "status 422") || strings.Contains(err.Error(), "status 404") {
 
 				fmt.Printf("Cluster %s does not exist, either %s is wrong or it's already been deleted.\n", name, name)

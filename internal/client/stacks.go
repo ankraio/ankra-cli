@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 )
 
 type ClusterStackListItem struct {
@@ -51,7 +50,6 @@ type ListClusterStacksResponse struct {
 	Stacks []ClusterStackListItem `json:"stacks"`
 }
 
-// StackHistoryEntry represents an entry in stack history
 type StackHistoryEntry struct {
 	ID          string  `json:"id"`
 	Version     int     `json:"version"`
@@ -61,74 +59,66 @@ type StackHistoryEntry struct {
 	ChangeType  string  `json:"change_type"`
 }
 
-// GetStackHistoryResponse is the response from getting stack history
 type GetStackHistoryResponse struct {
 	StackName string              `json:"stack_name"`
 	History   []StackHistoryEntry `json:"history"`
 }
 
-// DeleteStackResult is the response from deleting a stack
 type DeleteStackResult struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
 
-// RenameStackRequest is the request to rename a stack
 type RenameStackRequest struct {
 	NewName string `json:"new_name"`
 }
 
-// RenameStackResult is the response from renaming a stack
 type RenameStackResult struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
 
-// CreateStackRequest is the request to create a stack
 type CreateStackRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 }
 
-// CreateStackResult is the response from creating a stack
 type CreateStackResult struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
 
-func ListClusterStacks(token, baseURL, clusterID string) ([]ClusterStackListItem, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/stacks", baseURL, clusterID)
+func (c *Client) ListClusterStacks(clusterID string) ([]ClusterStackListItem, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/stacks", c.BaseURL, clusterID)
 
 	var response ListClusterStacksResponse
-	if err := getJSON(url, token, &response); err != nil {
+	if err := c.getJSON(url, &response); err != nil {
 		return nil, fmt.Errorf("failed to list cluster stacks: %w", err)
 	}
 
 	return response.Stacks, nil
 }
 
-// GetStackHistory returns the history of changes for a stack
-func GetStackHistory(token, baseURL, clusterID, stackName string) (*GetStackHistoryResponse, error) {
+func (c *Client) GetStackHistory(clusterID, stackName string) (*GetStackHistoryResponse, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/history",
-		strings.TrimRight(baseURL, "/"), clusterID, stackName)
+		c.BaseURL, clusterID, stackName)
 	var resp GetStackHistoryResponse
-	if err := getJSON(url, token, &resp); err != nil {
+	if err := c.getJSON(url, &resp); err != nil {
 		return nil, fmt.Errorf("failed to get stack history: %w", err)
 	}
 	return &resp, nil
 }
 
-// DeleteStack deletes a stack from a cluster
-func DeleteStack(ctx context.Context, token, baseURL, clusterID, stackName string) (*DeleteStackResult, error) {
+func (c *Client) DeleteStack(ctx context.Context, clusterID, stackName string) (*DeleteStackResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s",
-		strings.TrimRight(baseURL, "/"), clusterID, stackName)
+		c.BaseURL, clusterID, stackName)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -146,10 +136,9 @@ func DeleteStack(ctx context.Context, token, baseURL, clusterID, stackName strin
 	return &DeleteStackResult{Success: true, Message: "Stack deleted"}, nil
 }
 
-// RenameStack renames a stack
-func RenameStack(ctx context.Context, token, baseURL, clusterID, stackName, newName string) (*RenameStackResult, error) {
+func (c *Client) RenameStack(ctx context.Context, clusterID, stackName, newName string) (*RenameStackResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/rename-stack",
-		strings.TrimRight(baseURL, "/"), clusterID, stackName)
+		c.BaseURL, clusterID, stackName)
 	reqBody := RenameStackRequest{NewName: newName}
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -161,9 +150,9 @@ func RenameStack(ctx context.Context, token, baseURL, clusterID, stackName, newN
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -181,10 +170,9 @@ func RenameStack(ctx context.Context, token, baseURL, clusterID, stackName, newN
 	return &RenameStackResult{Success: true, Message: "Stack renamed"}, nil
 }
 
-// CreateStack creates a new stack on a cluster
-func CreateStack(ctx context.Context, token, baseURL, clusterID, name, description string) (*CreateStackResult, error) {
+func (c *Client) CreateStack(ctx context.Context, clusterID, name, description string) (*CreateStackResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks",
-		strings.TrimRight(baseURL, "/"), clusterID)
+		c.BaseURL, clusterID)
 	reqBody := CreateStackRequest{Name: name, Description: description}
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -196,9 +184,9 @@ func CreateStack(ctx context.Context, token, baseURL, clusterID, name, descripti
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -216,7 +204,6 @@ func CreateStack(ctx context.Context, token, baseURL, clusterID, name, descripti
 	return &CreateStackResult{Success: true, Message: "Stack created"}, nil
 }
 
-// CloneStackToClusterRequest is the request to clone a stack to another cluster
 type CloneStackToClusterRequest struct {
 	SourceClusterID            string `json:"source_cluster_id"`
 	StackName                  string `json:"stack_name"`
@@ -224,7 +211,6 @@ type CloneStackToClusterRequest struct {
 	IncludeAddonConfigurations bool   `json:"include_addon_configurations"`
 }
 
-// CloneStackToClusterResult is the response from cloning a stack
 type CloneStackToClusterResult struct {
 	DraftID         string   `json:"draft_id"`
 	StackName       string   `json:"stack_name"`
@@ -233,12 +219,11 @@ type CloneStackToClusterResult struct {
 	ManifestsCloned int      `json:"manifests_cloned"`
 }
 
-// CloneStackToCluster clones a stack from one cluster to another as a draft
-func CloneStackToCluster(ctx context.Context, token, baseURL, targetClusterID string, req CloneStackToClusterRequest) (*CloneStackToClusterResult, error) {
+func (c *Client) CloneStackToCluster(ctx context.Context, targetClusterID string, cloneReq CloneStackToClusterRequest) (*CloneStackToClusterResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/clone",
-		strings.TrimRight(baseURL, "/"), targetClusterID)
+		c.BaseURL, targetClusterID)
 
-	payload, err := json.Marshal(req)
+	payload, err := json.Marshal(cloneReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -248,9 +233,9 @@ func CloneStackToCluster(ctx context.Context, token, baseURL, targetClusterID st
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}

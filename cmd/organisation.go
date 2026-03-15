@@ -10,6 +10,7 @@ import (
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
+	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +32,7 @@ var orgListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all organisations you belong to",
 	Run: func(cmd *cobra.Command, args []string) {
-		orgs, err := client.ListOrganisations(apiToken, baseURL)
+		orgs, err := apiClient.ListOrganisations()
 		if err != nil {
 			fmt.Printf("Error listing organisations: %v\n", err)
 			return
@@ -91,8 +92,7 @@ var orgSwitchCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		orgID := args[0]
 
-		// First, verify the org exists and user has access
-		orgs, err := client.ListOrganisations(apiToken, baseURL)
+		orgs, err := apiClient.ListOrganisations()
 		if err != nil {
 			fmt.Printf("Error listing organisations: %v\n", err)
 			return
@@ -111,8 +111,7 @@ var orgSwitchCmd = &cobra.Command{
 			return
 		}
 
-		// Switch on the server
-		resp, err := client.SwitchOrganisation(apiToken, baseURL, orgID)
+		resp, err := apiClient.SwitchOrganisation(orgID)
 		if err != nil {
 			fmt.Printf("Error switching organisation: %v\n", err)
 			return
@@ -161,8 +160,7 @@ var orgCurrentCmd = &cobra.Command{
 			return
 		}
 
-		// Fall back to checking server for current org
-		orgs, err := client.ListOrganisations(apiToken, baseURL)
+		orgs, err := apiClient.ListOrganisations()
 		if err != nil {
 			fmt.Printf("Error fetching organisations: %v\n", err)
 			return
@@ -203,7 +201,7 @@ var orgCreateCmd = &cobra.Command{
 			countryPtr = &country
 		}
 
-		resp, err := client.CreateOrganisation(apiToken, baseURL, name, countryPtr)
+		resp, err := apiClient.CreateOrganisation(name, countryPtr)
 		if err != nil {
 			fmt.Printf("Error creating organisation: %v\n", err)
 			return
@@ -227,13 +225,11 @@ var orgMembersCmd = &cobra.Command{
 		if len(args) > 0 {
 			orgID = args[0]
 		} else {
-			// Try to get from local selection or current org
 			local, err := loadSelectedOrganisation()
 			if err == nil && local.OrganisationID != "" {
 				orgID = local.OrganisationID
 			} else {
-				// Fall back to server's current org
-				orgs, err := client.ListOrganisations(apiToken, baseURL)
+				orgs, err := apiClient.ListOrganisations()
 				if err != nil {
 					fmt.Printf("Error fetching organisations: %v\n", err)
 					return
@@ -252,7 +248,7 @@ var orgMembersCmd = &cobra.Command{
 			return
 		}
 
-		org, err := client.GetOrganisation(apiToken, baseURL, orgID)
+		org, err := apiClient.GetOrganisation(orgID)
 		if err != nil {
 			fmt.Printf("Error fetching organisation: %v\n", err)
 			return
@@ -334,14 +330,123 @@ func loadSelectedOrganisation() (SelectedOrganisation, error) {
 	return org, err
 }
 
+func resolveOrganisationID() (string, error) {
+	local, err := loadSelectedOrganisation()
+	if err == nil && local.OrganisationID != "" {
+		return local.OrganisationID, nil
+	}
+
+	orgs, err := apiClient.ListOrganisations()
+	if err != nil {
+		return "", fmt.Errorf("fetching organisations: %w", err)
+	}
+	for _, org := range orgs {
+		if org.UserCurrent {
+			return org.OrganisationID, nil
+		}
+	}
+	return "", fmt.Errorf("no organisation selected")
+}
+
+var orgInviteCmd = &cobra.Command{
+	Use:   "invite <email>",
+	Short: "Invite a user to the current organisation",
+	Long: `Invite a user by email to the current organisation.
+
+Valid roles: member (default), admin, read-only
+
+Examples:
+  ankra org invite user@example.com
+  ankra org invite user@example.com --role admin`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		email := args[0]
+		role, _ := cmd.Flags().GetString("role")
+
+		orgID, err := resolveOrganisationID()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			fmt.Println("Select an organisation first with 'ankra org switch <org_id>'")
+			return
+		}
+
+		result, err := apiClient.InviteUserToOrganisation(client.InviteUserRequest{
+			OrganisationID: orgID,
+			InviteeEmail:   email,
+			Role:           role,
+		})
+		if err != nil {
+			fmt.Printf("Error inviting user: %v\n", err)
+			return
+		}
+
+		if result.Success {
+			fmt.Printf("Invitation sent to %s (role: %s)\n", email, role)
+		}
+		if result.Message != "" {
+			fmt.Printf("Message: %s\n", result.Message)
+		}
+	},
+}
+
+var orgRemoveCmd = &cobra.Command{
+	Use:   "remove <user_id>",
+	Short: "Remove a user from the current organisation",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		userID := args[0]
+		force, _ := cmd.Flags().GetBool("force")
+
+		orgID, err := resolveOrganisationID()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			fmt.Println("Select an organisation first with 'ankra org switch <org_id>'")
+			return
+		}
+
+		if !force {
+			prompt := promptui.Prompt{
+				Label:     fmt.Sprintf("Remove user %s from the organisation", userID),
+				IsConfirm: true,
+			}
+			_, err := prompt.Run()
+			if err != nil {
+				fmt.Println("Cancelled.")
+				return
+			}
+		}
+
+		result, err := apiClient.RemoveUserFromOrganisation(client.RemoveUserRequest{
+			UserID:         userID,
+			OrganisationID: orgID,
+		})
+		if err != nil {
+			fmt.Printf("Error removing user: %v\n", err)
+			return
+		}
+
+		if result.Success {
+			fmt.Printf("User %s removed from the organisation.\n", userID)
+		}
+		if result.Message != "" {
+			fmt.Printf("Message: %s\n", result.Message)
+		}
+	},
+}
+
 func init() {
 	orgCreateCmd.Flags().String("country", "", "Country code for the organisation")
+
+	orgInviteCmd.Flags().String("role", "member", "Role for the invited user (member, admin, read-only)")
+	orgRemoveCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
 
 	orgCmd.AddCommand(orgListCmd)
 	orgCmd.AddCommand(orgSwitchCmd)
 	orgCmd.AddCommand(orgCurrentCmd)
 	orgCmd.AddCommand(orgCreateCmd)
 	orgCmd.AddCommand(orgMembersCmd)
+	orgCmd.AddCommand(orgInviteCmd)
+	orgCmd.AddCommand(orgRemoveCmd)
 
 	rootCmd.AddCommand(orgCmd)
 }

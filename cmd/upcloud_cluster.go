@@ -52,7 +52,7 @@ var upcloudCreateCmd = &cobra.Command{
 			req.KubernetesVersion = &kubeVersion
 		}
 
-		result, err := client.CreateUpcloudCluster(apiToken, baseURL, req)
+		result, err := apiClient.CreateUpcloudCluster(req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating UpCloud cluster: %v\n", err)
 			os.Exit(1)
@@ -72,7 +72,7 @@ var upcloudDeprovisionCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
 
-		result, err := client.DeprovisionUpcloudCluster(apiToken, baseURL, clusterID)
+		result, err := apiClient.DeprovisionUpcloudCluster(clusterID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error deprovisioning cluster: %v\n", err)
 			os.Exit(1)
@@ -107,7 +107,7 @@ var upcloudWorkersCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
 
-		result, err := client.GetUpcloudWorkerCount(apiToken, baseURL, clusterID)
+		result, err := apiClient.GetUpcloudWorkerCount(clusterID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error fetching worker count: %v\n", err)
 			os.Exit(1)
@@ -132,7 +132,7 @@ var upcloudScaleCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		result, err := client.ScaleUpcloudWorkers(apiToken, baseURL, clusterID, workerCount)
+		result, err := apiClient.ScaleUpcloudWorkers(clusterID, workerCount)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error scaling workers: %v\n", err)
 			os.Exit(1)
@@ -157,7 +157,7 @@ var upcloudK8sVersionCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
 
-		result, err := client.GetUpcloudK8sVersion(apiToken, baseURL, clusterID)
+		result, err := apiClient.GetUpcloudK8sVersion(clusterID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error fetching Kubernetes version: %v\n", err)
 			os.Exit(1)
@@ -181,7 +181,7 @@ var upcloudUpgradeCmd = &cobra.Command{
 		clusterID := args[0]
 		targetVersion := args[1]
 
-		result, err := client.UpgradeUpcloudK8sVersion(apiToken, baseURL, clusterID, targetVersion)
+		result, err := apiClient.UpgradeUpcloudK8sVersion(clusterID, targetVersion)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error upgrading Kubernetes version: %v\n", err)
 			os.Exit(1)
@@ -210,7 +210,7 @@ var upcloudNodeGroupListCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
-		result, err := client.ListUpcloudNodeGroups(apiToken, baseURL, clusterID)
+		result, err := apiClient.ListUpcloudNodeGroups(clusterID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error listing node groups: %v\n", err)
 			os.Exit(1)
@@ -242,7 +242,7 @@ var upcloudNodeGroupAddCmd = &cobra.Command{
 			Count:        count,
 		}
 
-		result, err := client.AddUpcloudNodeGroup(apiToken, baseURL, clusterID, req)
+		result, err := apiClient.AddUpcloudNodeGroup(clusterID, req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error adding node group: %v\n", err)
 			os.Exit(1)
@@ -264,7 +264,7 @@ var upcloudNodeGroupScaleCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		result, err := client.ScaleUpcloudNodeGroup(apiToken, baseURL, clusterID, groupName, count)
+		result, err := apiClient.ScaleUpcloudNodeGroup(clusterID, groupName, count)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error scaling node group: %v\n", err)
 			os.Exit(1)
@@ -282,7 +282,7 @@ var upcloudNodeGroupUpgradeCmd = &cobra.Command{
 		groupName := args[1]
 		plan := args[2]
 
-		result, err := client.UpdateUpcloudNodeGroupInstanceType(apiToken, baseURL, clusterID, groupName, plan)
+		result, err := apiClient.UpdateUpcloudNodeGroupInstanceType(clusterID, groupName, plan)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error upgrading node group: %v\n", err)
 			os.Exit(1)
@@ -299,7 +299,7 @@ var upcloudNodeGroupDeleteCmd = &cobra.Command{
 		clusterID := args[0]
 		groupName := args[1]
 
-		result, err := client.DeleteUpcloudNodeGroup(apiToken, baseURL, clusterID, groupName)
+		result, err := apiClient.DeleteUpcloudNodeGroup(clusterID, groupName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error deleting node group: %v\n", err)
 			os.Exit(1)

@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+
 var clusterAddonsCmd = &cobra.Command{
 	Use:   "addons",
 	Short: "Manage addons for clusters",
@@ -31,7 +32,7 @@ var clusterAddonsListCmd = &cobra.Command{
 			return
 		}
 
-		addons, err := client.ListClusterAddons(apiToken, baseURL, cluster.ID)
+		addons, err := apiClient.ListClusterAddons(cluster.ID)
 		if err != nil {
 			fmt.Printf("Error listing addons: %v\n", err)
 			return
@@ -127,7 +128,7 @@ var clusterAddonsAvailableCmd = &cobra.Command{
 			return
 		}
 
-		addons, err := client.ListAvailableAddons(apiToken, baseURL, cluster.ID)
+		addons, err := apiClient.ListAvailableAddons(cluster.ID)
 		if err != nil {
 			fmt.Printf("Error listing available addons: %v\n", err)
 			return
@@ -180,7 +181,7 @@ var clusterAddonsSettingsCmd = &cobra.Command{
 			return
 		}
 
-		settings, err := client.GetAddonSettings(apiToken, baseURL, cluster.ID, addonName)
+		settings, err := apiClient.GetAddonSettings(cluster.ID, addonName)
 		if err != nil {
 			fmt.Printf("Error getting addon settings: %v\n", err)
 			return
@@ -212,8 +213,7 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 			return
 		}
 
-		// First find the addon to get its resource ID
-		addon, err := client.GetAddonByName(apiToken, baseURL, cluster.ID, addonName)
+		addon, err := apiClient.GetAddonByName(cluster.ID, addonName)
 		if err != nil {
 			fmt.Printf("Error finding addon: %v\n", err)
 			return
@@ -222,7 +222,7 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		result, err := client.UninstallAddon(ctx, apiToken, baseURL, cluster.ID, addon.ID, deletePermanently)
+		result, err := apiClient.UninstallAddon(ctx, cluster.ID, addon.ID, deletePermanently)
 		if err != nil {
 			fmt.Printf("Error uninstalling addon: %v\n", err)
 			return
@@ -238,13 +238,66 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 	},
 }
 
+var clusterAddonsUpdateCmd = &cobra.Command{
+	Use:   "update <addon_name>",
+	Short: "Update settings for an addon from a JSON file",
+	Long: `Update addon settings by providing a JSON file that conforms to the settings schema.
+
+Example JSON file:
+  {
+    "retry_policy": { "limit": 3, "backoff": { "duration": "5s", "factor": 2, "max_duration": "3m" } },
+    "sync_policy": { "automated": true, "self_heal": true, "auto_prune": false },
+    "revision_history_limit": 10
+  }
+
+Usage:
+  ankra cluster addons update my-addon -f settings.json`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		addonName := args[0]
+		filePath, _ := cmd.Flags().GetString("file")
+
+		cluster, err := loadSelectedCluster()
+		if err != nil {
+			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			return
+		}
+
+		fileData, err := os.ReadFile(filePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading file %s: %v\n", filePath, err)
+			os.Exit(1)
+		}
+
+		var settings client.AddonSettings
+		if err := json.Unmarshal(fileData, &settings); err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing settings JSON: %v\n", err)
+			os.Exit(1)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := apiClient.UpdateAddonSettings(ctx, cluster.ID, addonName, settings); err != nil {
+			fmt.Fprintf(os.Stderr, "Error updating addon settings: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Settings for addon '%s' updated successfully!\n", addonName)
+	},
+}
+
 func init() {
 	clusterAddonsUninstallCmd.Flags().Bool("delete", false, "Also delete the addon permanently")
+
+	clusterAddonsUpdateCmd.Flags().StringP("file", "f", "", "Path to JSON settings file (required)")
+	_ = clusterAddonsUpdateCmd.MarkFlagRequired("file")
 
 	clusterAddonsCmd.AddCommand(clusterAddonsListCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsAvailableCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsSettingsCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsUninstallCmd)
+	clusterAddonsCmd.AddCommand(clusterAddonsUpdateCmd)
 
 	clusterCmd.AddCommand(clusterAddonsCmd)
 }

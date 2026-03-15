@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"ankra/internal/client"
-
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
 )
@@ -27,7 +25,7 @@ var clusterAgentStatusCmd = &cobra.Command{
 			return
 		}
 
-		agent, err := client.GetClusterAgent(apiToken, baseURL, cluster.ID)
+		agent, err := apiClient.GetClusterAgent(cluster.ID)
 		if err != nil {
 			fmt.Printf("Error getting agent status: %v\n", err)
 			return
@@ -84,7 +82,7 @@ var clusterAgentTokenCmd = &cobra.Command{
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			token, err := client.GenerateAgentToken(ctx, apiToken, baseURL, cluster.ID)
+			token, err := apiClient.GenerateAgentToken(ctx, cluster.ID)
 			if err != nil {
 				fmt.Printf("Error generating agent token: %v\n", err)
 				return
@@ -97,7 +95,7 @@ var clusterAgentTokenCmd = &cobra.Command{
 			fmt.Println()
 			fmt.Printf("Expires: %s\n", formatTimeAgo(token.ExpiresAt))
 		} else {
-			token, err := client.GetAgentToken(apiToken, baseURL, cluster.ID)
+			token, err := apiClient.GetAgentToken(cluster.ID)
 			if err != nil {
 				fmt.Printf("Error getting agent token: %v\n", err)
 				fmt.Println("\nTo generate a new token, run: ankra agent token --generate")
@@ -124,7 +122,7 @@ var clusterAgentUpgradeCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		result, err := client.UpgradeClusterAgent(ctx, apiToken, baseURL, cluster.ID)
+		result, err := apiClient.UpgradeClusterAgent(ctx, cluster.ID)
 		if err != nil {
 			fmt.Printf("Error upgrading agent: %v\n", err)
 			return

@@ -33,7 +33,7 @@ type ClusterListItem struct {
 
 type ClusterListResponse struct {
 	Result     []ClusterListItem `json:"result"`
-	Pagination Pagination        `json:"pagination"` // uses the Pagination type from helpers.go
+	Pagination Pagination        `json:"pagination"`
 }
 
 type ClusterWithStatus struct {
@@ -57,7 +57,7 @@ type ClusterWithStatusResponse struct {
 	Result []ClusterWithStatus `json:"result"`
 }
 
-func ListClusters(token string, baseURL string, page int, pageSize int) (*ClusterListResponse, error) {
+func (c *Client) ListClusters(page int, pageSize int) (*ClusterListResponse, error) {
 	if page == 0 {
 		page = 1
 	}
@@ -65,29 +65,19 @@ func ListClusters(token string, baseURL string, page int, pageSize int) (*Cluste
 		pageSize = 25
 	}
 
-	url := fmt.Sprintf("%s/api/v1/clusters?page=%d&page_size=%d", baseURL, page, pageSize)
+	url := fmt.Sprintf("%s/api/v1/clusters?page=%d&page_size=%d", c.BaseURL, page, pageSize)
 	var response *ClusterListResponse
-	if err := getJSON(url, token, &response); err != nil {
+	if err := c.getJSON(url, &response); err != nil {
 		return nil, err
 	}
 
 	return response, nil
 }
 
-// func ListClusters(token, baseURL string) ([]ClusterListItem, error) {
-// 	url := strings.TrimRight(baseURL, "/") + "/api/v1/clusters"
-// 	var resp ClusterListResponse
-// 	if err := getJSON(url, token, &resp); err != nil {
-// 		return nil, err
-// 	}
-// 	return resp.Result, nil
-// }
-
-func GetCluster(token, baseURL, name string) (ClusterWithStatus, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters?cluster_name=%s",
-		strings.TrimRight(baseURL, "/"), name)
+func (c *Client) GetCluster(name string) (ClusterWithStatus, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters?cluster_name=%s", c.BaseURL, name)
 	var wrapper ClusterWithStatusResponse
-	if err := getJSON(url, token, &wrapper); err != nil {
+	if err := c.getJSON(url, &wrapper); err != nil {
 		return ClusterWithStatus{}, err
 	}
 	if len(wrapper.Result) == 0 {
@@ -96,15 +86,15 @@ func GetCluster(token, baseURL, name string) (ClusterWithStatus, error) {
 	return wrapper.Result[0], nil
 }
 
-func DeleteCluster(ctx context.Context, token, baseURL, name string) error {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s", strings.TrimRight(baseURL, "/"), name)
+func (c *Client) DeleteCluster(ctx context.Context, name string) error {
+	url := fmt.Sprintf("%s/api/v1/clusters/%s", c.BaseURL, name)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return fmt.Errorf("creating DELETE request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("sending DELETE to %s: %w", url, err)
 	}
@@ -121,6 +111,136 @@ func DeleteCluster(ctx context.Context, token, baseURL, name string) error {
 		return fmt.Errorf("status %d: %s", resp.StatusCode, body)
 	}
 	return nil
+}
+
+type ProvisionClusterResult struct {
+	MarkedToStartAt string `json:"marked_to_start_at"`
+}
+
+type DeprovisionClusterResult struct {
+	MarkedForDeprovisionAt string `json:"marked_for_deprovision_at"`
+}
+
+func (c *Client) ProvisionCluster(ctx context.Context, clusterID string) (*ProvisionClusterResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/provision", c.BaseURL, clusterID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("provision failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result ProvisionClusterResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) DeprovisionCluster(ctx context.Context, clusterID string, autoDelete, force bool) (*DeprovisionClusterResult, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/deprovision", c.BaseURL, clusterID)
+	if autoDelete || force {
+		params := "?"
+		if autoDelete {
+			params += "auto_delete=true&"
+		}
+		if force {
+			params += "force=true&"
+		}
+		endpoint += strings.TrimRight(params, "&")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("deprovision failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result DeprovisionClusterResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+type RollToClusterResourceVersionRequest struct {
+	ClusterID string `json:"cluster_id"`
+	VersionID string `json:"version_id"`
+}
+
+type RollToClusterResourceVersionResult struct {
+	Ok bool `json:"ok"`
+}
+
+func (c *Client) RollToClusterResourceVersion(ctx context.Context, clusterID, versionID string) (*RollToClusterResourceVersionResult, error) {
+	url := c.BaseURL + "/api/v1/clusters/resources/roll-to"
+	reqBody := RollToClusterResourceVersionRequest{
+		ClusterID: clusterID,
+		VersionID: versionID,
+	}
+	payload, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("roll-to failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result RollToClusterResourceVersionResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
 }
 
 type AnkraResourceKind string
@@ -223,23 +343,21 @@ type ImportResponse struct {
 	Errors        []ImportResponseResourceError `json:"errors,omitempty"`
 }
 
-// TriggerReconcileResult is the response from triggering a cluster reconcile
 type TriggerReconcileResult struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
 
-// TriggerReconcile triggers a reconciliation for a cluster
-func TriggerReconcile(ctx context.Context, token, baseURL, clusterID string) (*TriggerReconcileResult, error) {
-	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/reconcile", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) TriggerReconcile(ctx context.Context, clusterID string) (*TriggerReconcileResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/reconcile", c.BaseURL, clusterID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -261,30 +379,29 @@ func TriggerReconcile(ctx context.Context, token, baseURL, clusterID string) (*T
 	return &result, nil
 }
 
-func ApplyCluster(ctx context.Context, token, baseURL string, req CreateImportClusterRequest) (*ImportResponse, error) {
-	for i := range req.Spec.Stacks {
-		if req.Spec.Stacks[i].Manifests == nil {
-			req.Spec.Stacks[i].Manifests = make([]Manifest, 0)
+func (c *Client) ApplyCluster(ctx context.Context, clusterReq CreateImportClusterRequest) (*ImportResponse, error) {
+	for i := range clusterReq.Spec.Stacks {
+		if clusterReq.Spec.Stacks[i].Manifests == nil {
+			clusterReq.Spec.Stacks[i].Manifests = make([]Manifest, 0)
 		}
-		if req.Spec.Stacks[i].Addons == nil {
-			req.Spec.Stacks[i].Addons = make([]Addon, 0)
+		if clusterReq.Spec.Stacks[i].Addons == nil {
+			clusterReq.Spec.Stacks[i].Addons = make([]Addon, 0)
 		}
 	}
-	payload, err := json.Marshal(req)
+	payload, err := json.Marshal(clusterReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/clusters/import"
+	url := c.BaseURL + "/api/v1/clusters/import"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("create HTTP request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 
-	client := &http.Client{Timeout: 0}
-	resp, err := client.Do(httpReq)
+	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}

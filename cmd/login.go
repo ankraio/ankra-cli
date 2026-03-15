@@ -138,20 +138,24 @@ func runLogin() error {
 
 	resp, err := http.Get(initURL)
 	if err != nil {
-		listener.Close()
+		_ = listener.Close()
 		return fmt.Errorf("initialize login: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
-		listener.Close()
+		_ = listener.Close()
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("initialize login failed: %s", string(body))
 	}
 
 	var initResp loginInitResponse
 	if err := json.NewDecoder(resp.Body).Decode(&initResp); err != nil {
-		listener.Close()
+		_ = listener.Close()
 		return fmt.Errorf("parse login response: %w", err)
 	}
 
@@ -177,21 +181,20 @@ func runLogin() error {
 
 			if state != initResp.State {
 				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprint(w, "Invalid state parameter")
+				_, _ = fmt.Fprint(w, "Invalid state parameter")
 				errChan <- fmt.Errorf("state mismatch")
 				return
 			}
 
 			if code == "" {
 				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprint(w, "Missing authorization code")
+				_, _ = fmt.Fprint(w, "Missing authorization code")
 				errChan <- fmt.Errorf("missing code")
 				return
 			}
 
-			// Return success page
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, successHTML)
+			_, _ = fmt.Fprint(w, successHTML)
 
 			codeChan <- code
 		}),
@@ -226,14 +229,14 @@ func runLogin() error {
 	case authCode = <-codeChan:
 		// Success
 	case err := <-errChan:
-		server.Close()
+		_ = server.Close()
 		return fmt.Errorf("callback error: %w", err)
 	case <-time.After(5 * time.Minute):
-		server.Close()
+		_ = server.Close()
 		return fmt.Errorf("login timed out after 5 minutes")
 	}
 
-	server.Close()
+	_ = server.Close()
 
 	// Exchange code for token
 	fmt.Println("Exchanging authorization code for token...")
@@ -255,7 +258,11 @@ func runLogin() error {
 	if err != nil {
 		return fmt.Errorf("exchange token: %w", err)
 	}
-	defer tokenResp.Body.Close()
+	defer func() {
+		if closeErr := tokenResp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
 
 	if tokenResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(tokenResp.Body)

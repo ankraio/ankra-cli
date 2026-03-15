@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"ankra/internal/client"
-
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
@@ -25,7 +23,7 @@ var clusterListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all clusters",
 	Run: func(cmd *cobra.Command, args []string) {
-		response, err := client.ListClusters(apiToken, baseURL, 0, 0)
+		response, err := apiClient.ListClusters(0, 0)
 		if err != nil {
 			fmt.Printf("Error listing clusters: %v\n", err)
 			return
@@ -73,7 +71,7 @@ var clusterGetCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		name := args[0]
-		cluster, err := client.GetCluster(apiToken, baseURL, name)
+		cluster, err := apiClient.GetCluster(name)
 		if err != nil {
 			fmt.Printf("Error fetching cluster details for %s: %v\n", name, err)
 			return
@@ -101,9 +99,8 @@ If a cluster name is provided, reconciles that specific cluster.`,
 		var clusterName string
 
 		if len(args) > 0 {
-			// Cluster name provided - look it up
 			clusterName = args[0]
-			cluster, err := client.GetCluster(apiToken, baseURL, clusterName)
+			cluster, err := apiClient.GetCluster(clusterName)
 			if err != nil {
 				fmt.Printf("Error finding cluster %s: %v\n", clusterName, err)
 				return
@@ -126,7 +123,7 @@ If a cluster name is provided, reconciles that specific cluster.`,
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		result, err := client.TriggerReconcile(ctx, apiToken, baseURL, clusterID)
+		result, err := apiClient.TriggerReconcile(ctx, clusterID)
 		if err != nil {
 			fmt.Printf("Error triggering reconcile: %v\n", err)
 			return
@@ -144,9 +141,144 @@ If a cluster name is provided, reconciles that specific cluster.`,
 }
 
 
+func resolveClusterFromArgs(args []string) (string, string, error) {
+	if len(args) > 0 {
+		clusterName := args[0]
+		cluster, err := apiClient.GetCluster(clusterName)
+		if err != nil {
+			return "", "", fmt.Errorf("finding cluster %s: %w", clusterName, err)
+		}
+		return cluster.ID, cluster.Name, nil
+	}
+	selected, err := loadSelectedCluster()
+	if err != nil {
+		return "", "", fmt.Errorf("no cluster specified and none selected; use 'ankra cluster select' first")
+	}
+	return selected.ID, selected.Name, nil
+}
+
+var clusterProvisionCmd = &cobra.Command{
+	Use:   "provision [cluster_name]",
+	Short: "Provision (start) a managed cluster",
+	Long: `Start a managed cluster that was previously created but is not yet running.
+
+If no cluster name is provided, uses the currently selected cluster.`,
+	Args: cobra.MaximumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID, clusterName, err := resolveClusterFromArgs(args)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+
+		fmt.Printf("Provisioning cluster: %s\n", clusterName)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		result, err := apiClient.ProvisionCluster(ctx, clusterID)
+		if err != nil {
+			fmt.Printf("Error provisioning cluster: %v\n", err)
+			return
+		}
+
+		fmt.Printf("Cluster provisioning initiated.\n")
+		if result.MarkedToStartAt != "" {
+			fmt.Printf("  Scheduled at: %s\n", result.MarkedToStartAt)
+		}
+	},
+}
+
+var clusterDeprovisionCmd = &cobra.Command{
+	Use:   "deprovision [cluster_name]",
+	Short: "Deprovision (stop) a managed cluster",
+	Long: `Stop a running managed cluster. This will shut down the cluster but not delete it.
+
+If no cluster name is provided, uses the currently selected cluster.`,
+	Args: cobra.MaximumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		autoDelete, _ := cmd.Flags().GetBool("auto-delete")
+		force, _ := cmd.Flags().GetBool("force")
+
+		clusterID, clusterName, err := resolveClusterFromArgs(args)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+
+		fmt.Printf("Deprovisioning cluster: %s\n", clusterName)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		result, err := apiClient.DeprovisionCluster(ctx, clusterID, autoDelete, force)
+		if err != nil {
+			fmt.Printf("Error deprovisioning cluster: %v\n", err)
+			return
+		}
+
+		fmt.Printf("Cluster deprovision initiated.\n")
+		if result.MarkedForDeprovisionAt != "" {
+			fmt.Printf("  Scheduled at: %s\n", result.MarkedForDeprovisionAt)
+		}
+	},
+}
+
+var clusterRollToCmd = &cobra.Command{
+	Use:   "roll-to",
+	Short: "Roll a cluster resource to a specific version",
+	Long: `Roll a cluster to a specific resource version.
+
+Uses the currently selected cluster unless --cluster is provided.
+
+Example:
+  ankra cluster roll-to --version abc123`,
+	Run: func(cmd *cobra.Command, args []string) {
+		versionID, _ := cmd.Flags().GetString("version")
+		clusterFlag, _ := cmd.Flags().GetString("cluster")
+
+		var clusterID string
+		if clusterFlag != "" {
+			clusterID = clusterFlag
+		} else {
+			selected, err := loadSelectedCluster()
+			if err != nil {
+				fmt.Println("No cluster specified. Use --cluster or select one with 'ankra cluster select'")
+				return
+			}
+			clusterID = selected.ID
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		result, err := apiClient.RollToClusterResourceVersion(ctx, clusterID, versionID)
+		if err != nil {
+			fmt.Printf("Error rolling to version: %v\n", err)
+			return
+		}
+
+		if result.Ok {
+			fmt.Printf("Roll-to version %s initiated successfully.\n", versionID)
+		} else {
+			fmt.Printf("Roll-to request completed but reported not ok.\n")
+		}
+	},
+}
+
 func init() {
+	clusterDeprovisionCmd.Flags().Bool("auto-delete", false, "Automatically delete the cluster after deprovisioning")
+	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state")
+
+	clusterRollToCmd.Flags().String("version", "", "Resource version ID to roll to (required)")
+	clusterRollToCmd.Flags().String("cluster", "", "Cluster ID (defaults to selected cluster)")
+	_ = clusterRollToCmd.MarkFlagRequired("version")
+
 	clusterCmd.AddCommand(clusterListCmd)
 	clusterCmd.AddCommand(clusterGetCmd)
 	clusterCmd.AddCommand(clusterReconcileCmd)
+	clusterCmd.AddCommand(clusterProvisionCmd)
+	clusterCmd.AddCommand(clusterDeprovisionCmd)
+	clusterCmd.AddCommand(clusterRollToCmd)
 	rootCmd.AddCommand(clusterCmd)
 }

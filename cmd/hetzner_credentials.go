@@ -24,7 +24,7 @@ var hetznerCredListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List Hetzner API credentials",
 	Run: func(cmd *cobra.Command, args []string) {
-		creds, err := client.ListHetznerCredentials(apiToken, baseURL)
+		creds, err := apiClient.ListHetznerCredentials()
 		if err != nil {
 			fmt.Printf("Error listing Hetzner credentials: %v\n", err)
 			return
@@ -84,7 +84,7 @@ var hetznerCredCreateCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		result, err := client.CreateHetznerCredential(apiToken, baseURL, client.CreateHetznerCredentialRequest{
+		result, err := apiClient.CreateHetznerCredential(client.CreateHetznerCredentialRequest{
 			Name:     name,
 			APIToken: apiTokenValue,
 		})
@@ -109,7 +109,7 @@ var sshKeyListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List SSH key credentials",
 	Run: func(cmd *cobra.Command, args []string) {
-		creds, err := client.ListSSHKeyCredentials(apiToken, baseURL)
+		creds, err := apiClient.ListSSHKeyCredentials()
 		if err != nil {
 			fmt.Printf("Error listing SSH key credentials: %v\n", err)
 			return
@@ -173,7 +173,7 @@ Examples:
 			req.SSHPublicKey = &publicKey
 		}
 
-		result, err := client.CreateSSHKeyCredential(apiToken, baseURL, req)
+		result, err := apiClient.CreateSSHKeyCredential(req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating SSH key credential: %v\n", err)
 			os.Exit(1)

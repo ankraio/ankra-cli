@@ -44,11 +44,6 @@ func runApply(cmd *cobra.Command, _ []string) {
 		}
 		os.Exit(1)
 	}
-	if apiToken == "" {
-		fmt.Fprintln(os.Stderr, "API token not provided; use --token or set ANKRA_API_TOKEN")
-		os.Exit(1)
-	}
-
 	importRequest, err := buildImportRequest(filePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error preparing request: %s\n", err)
@@ -58,7 +53,7 @@ func runApply(cmd *cobra.Command, _ []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	importResponse, err := client.ApplyCluster(ctx, apiToken, baseURL, importRequest)
+	importResponse, err := apiClient.ApplyCluster(ctx, importRequest)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error applying cluster: %s\n", err)
 		os.Exit(1)

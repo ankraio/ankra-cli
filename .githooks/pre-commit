@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -e
+
+echo "Running tests..."
+go test ./...
+
+echo "Running linter..."
+golangci-lint run ./...
+
+echo "Pre-commit checks passed."

@@ -7,10 +7,8 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 )
 
-// APIToken represents a user API token
 type APIToken struct {
 	ID         string  `json:"id"`
 	Name       string  `json:"name"`
@@ -21,13 +19,11 @@ type APIToken struct {
 	Revoked    bool    `json:"revoked"`
 }
 
-// CreateAPITokenRequest is the request to create a new API token
 type CreateAPITokenRequest struct {
 	Name      string  `json:"name"`
 	ExpiresAt *string `json:"expires_at,omitempty"`
 }
 
-// CreateAPITokenResponse is the response from creating a new API token
 type CreateAPITokenResponse struct {
 	ID        string `json:"id"`
 	Token     string `json:"token"`
@@ -35,31 +31,27 @@ type CreateAPITokenResponse struct {
 	Type      string `json:"type"`
 }
 
-// RevokeAPITokenResponse is the response from revoking an API token
 type RevokeAPITokenResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
 
-// DeleteAPITokenResponse is the response from deleting an API token
 type DeleteAPITokenResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
 
-// ListAPITokens returns all API tokens for the user
-func ListAPITokens(token, baseURL string) ([]APIToken, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/org/account/tokens"
+func (c *Client) ListAPITokens() ([]APIToken, error) {
+	url := c.BaseURL + "/api/v1/org/account/tokens"
 	var tokens []APIToken
-	if err := getJSON(url, token, &tokens); err != nil {
+	if err := c.getJSON(url, &tokens); err != nil {
 		return nil, err
 	}
 	return tokens, nil
 }
 
-// CreateAPIToken creates a new API token
-func CreateAPIToken(token, baseURL, name string, expiresAt *string) (*CreateAPITokenResponse, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/org/account/tokens"
+func (c *Client) CreateAPIToken(name string, expiresAt *string) (*CreateAPITokenResponse, error) {
+	url := c.BaseURL + "/api/v1/org/account/tokens"
 	reqBody := CreateAPITokenRequest{Name: name, ExpiresAt: expiresAt}
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -71,9 +63,9 @@ func CreateAPIToken(token, baseURL, name string, expiresAt *string) (*CreateAPIT
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -95,17 +87,16 @@ func CreateAPIToken(token, baseURL, name string, expiresAt *string) (*CreateAPIT
 	return &createResp, nil
 }
 
-// RevokeAPIToken revokes an API token
-func RevokeAPIToken(token, baseURL, tokenID string) (*RevokeAPITokenResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/org/account/tokens/%s/revoke", strings.TrimRight(baseURL, "/"), tokenID)
+func (c *Client) RevokeAPIToken(tokenID string) (*RevokeAPITokenResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/org/account/tokens/%s/revoke", c.BaseURL, tokenID)
 	req, err := http.NewRequest(http.MethodPost, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -123,16 +114,15 @@ func RevokeAPIToken(token, baseURL, tokenID string) (*RevokeAPITokenResponse, er
 	return &RevokeAPITokenResponse{Success: true, Message: "Token revoked"}, nil
 }
 
-// DeleteAPIToken deletes an API token
-func DeleteAPIToken(token, baseURL, tokenID string) (*DeleteAPITokenResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/org/account/tokens/%s", strings.TrimRight(baseURL, "/"), tokenID)
+func (c *Client) DeleteAPIToken(tokenID string) (*DeleteAPITokenResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/org/account/tokens/%s", c.BaseURL, tokenID)
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}

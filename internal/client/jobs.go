@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"net/url"
 )
 
 type JobStatusUpdate struct {
@@ -41,10 +42,30 @@ type GetJobStatusResponse struct {
 	DetailedJobInformation []JobInformation   `json:"detailed_job_information"`
 }
 
-func ListOperationJobs(token, baseURL, clusterID, operationID string) (GetJobStatusResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/operations/%s/jobs", baseURL, clusterID, operationID)
+type ListOperationJobsOptions struct {
+	JobKind          string
+	FromUTCTimestamp string
+}
+
+func (c *Client) ListOperationJobs(clusterID, operationID string, opts *ListOperationJobsOptions) (GetJobStatusResponse, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/operations/%s/jobs",
+		c.BaseURL, clusterID, operationID)
+
+	if opts != nil {
+		params := url.Values{}
+		if opts.JobKind != "" {
+			params.Set("job_kind", opts.JobKind)
+		}
+		if opts.FromUTCTimestamp != "" {
+			params.Set("from_utc_timestamp", opts.FromUTCTimestamp)
+		}
+		if encoded := params.Encode(); encoded != "" {
+			endpoint += "?" + encoded
+		}
+	}
+
 	var response GetJobStatusResponse
-	if err := getJSON(url, token, &response); err != nil {
+	if err := c.getJSON(endpoint, &response); err != nil {
 		return GetJobStatusResponse{}, err
 	}
 	return response, nil

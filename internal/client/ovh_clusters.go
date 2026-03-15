@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 )
 
 type CreateOvhClusterRequest struct {
@@ -43,8 +42,8 @@ type DeprovisionOvhClusterResponse struct {
 	Errors          []string `json:"errors"`
 }
 
-func CreateOvhCluster(token, baseURL string, req CreateOvhClusterRequest) (*CreateOvhClusterResponse, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/clusters/ovh"
+func (c *Client) CreateOvhCluster(req CreateOvhClusterRequest) (*CreateOvhClusterResponse, error) {
+	url := c.BaseURL + "/api/v1/clusters/ovh"
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -55,9 +54,9 @@ func CreateOvhCluster(token, baseURL string, req CreateOvhClusterRequest) (*Crea
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(httpReq)
+	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -79,15 +78,15 @@ func CreateOvhCluster(token, baseURL string, req CreateOvhClusterRequest) (*Crea
 	return &result, nil
 }
 
-func DeprovisionOvhCluster(token, baseURL, clusterID string) (*DeprovisionOvhClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) DeprovisionOvhCluster(clusterID string) (*DeprovisionOvhClusterResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s", c.BaseURL, clusterID)
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -109,151 +108,71 @@ func DeprovisionOvhCluster(token, baseURL, clusterID string) (*DeprovisionOvhClu
 	return &result, nil
 }
 
-func GetOvhWorkerCount(token, baseURL, clusterID string) (*WorkerCountResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/worker-count", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) GetOvhWorkerCount(clusterID string) (*WorkerCountResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/worker-count", c.BaseURL, clusterID)
 	var result WorkerCountResult
-	if err := getJSON(url, token, &result); err != nil {
+	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func GetOvhK8sVersion(token, baseURL, clusterID string) (*K8sVersionInfo, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/k8s-version", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) GetOvhK8sVersion(clusterID string) (*K8sVersionInfo, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/k8s-version", c.BaseURL, clusterID)
 	var result K8sVersionInfo
-	if err := getJSON(url, token, &result); err != nil {
+	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func UpgradeOvhK8sVersion(token, baseURL, clusterID, targetVersion string) (*UpgradeK8sVersionResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/upgrade-k8s-version", strings.TrimRight(baseURL, "/"), clusterID)
-	payload, err := json.Marshal(UpgradeK8sVersionRequest{TargetVersion: targetVersion})
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upgrade failed: status %d, body: %s", resp.StatusCode, string(body))
-	}
-
-	var result UpgradeK8sVersionResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return &result, nil
+func (c *Client) UpgradeOvhK8sVersion(clusterID, targetVersion string) (*UpgradeK8sVersionResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/upgrade-k8s-version", c.BaseURL, clusterID)
+	return c.doUpgradeK8sVersion(url, targetVersion)
 }
 
-func ListOvhNodeGroups(token, baseURL, clusterID string) (*NodeGroupListResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) ListOvhNodeGroups(clusterID string) (*NodeGroupListResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups", c.BaseURL, clusterID)
 	var result NodeGroupListResult
-	if err := getJSON(url, token, &result); err != nil {
+	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func AddOvhNodeGroup(token, baseURL, clusterID string, req AddNodeGroupRequest) (*AddNodeGroupResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) AddOvhNodeGroup(clusterID string, req AddNodeGroupRequest) (*AddNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups", c.BaseURL, clusterID)
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	return postJSON[AddNodeGroupResult](url, token, payload)
+	return c.doAddNodeGroup(url, payload)
 }
 
-func ScaleOvhNodeGroup(token, baseURL, clusterID, groupName string, count int) (*ScaleNodeGroupResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/scale", strings.TrimRight(baseURL, "/"), clusterID, groupName)
+func (c *Client) ScaleOvhNodeGroup(clusterID, groupName string, count int) (*ScaleNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/scale", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	return putJSON[ScaleNodeGroupResult](url, token, payload)
+	return c.doScaleNodeGroup(url, payload)
 }
 
-func UpdateOvhNodeGroupInstanceType(token, baseURL, clusterID, groupName, instanceType string) (*UpdateNodeGroupResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/instance-type", strings.TrimRight(baseURL, "/"), clusterID, groupName)
+func (c *Client) UpdateOvhNodeGroupInstanceType(clusterID, groupName, instanceType string) (*UpdateNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	return putJSON[UpdateNodeGroupResult](url, token, payload)
+	return c.doUpdateNodeGroupInstanceType(url, payload)
 }
 
-func DeleteOvhNodeGroup(token, baseURL, clusterID, groupName string) (*DeleteNodeGroupResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s", strings.TrimRight(baseURL, "/"), clusterID, groupName)
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, string(body))
-	}
-	var result DeleteNodeGroupResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return &result, nil
+func (c *Client) DeleteOvhNodeGroup(clusterID, groupName string) (*DeleteNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
+	return c.doDeleteNodeGroup(url)
 }
 
-func ScaleOvhWorkers(token, baseURL, clusterID string, workerCount int) (*ScaleWorkersResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/scale-workers", strings.TrimRight(baseURL, "/"), clusterID)
-	payload, err := json.Marshal(ScaleWorkersRequest{WorkerCount: workerCount})
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("scale failed: status %d, body: %s", resp.StatusCode, string(body))
-	}
-
-	var result ScaleWorkersResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return &result, nil
+func (c *Client) ScaleOvhWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/scale-workers", c.BaseURL, clusterID)
+	return c.doScaleWorkers(url, workerCount)
 }

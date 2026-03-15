@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"ankra/internal/client"
-
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -100,7 +98,7 @@ func runDecryptManifest(cmd *cobra.Command, args []string) error {
 	}
 
 	// Call the decrypt API
-	decryptedContent, err := client.DecryptYAML(apiToken, baseURL, string(manifestContent))
+	decryptedContent, err := apiClient.DecryptYAML(string(manifestContent))
 	if err != nil {
 		return fmt.Errorf("decryption failed: %w", err)
 	}

@@ -30,7 +30,7 @@ var clusterOperationsListCmd = &cobra.Command{
 			fmt.Println("No active cluster is selected. Run 'ankra cluster select' to select one.")
 			return
 		}
-		ops, err := client.ListClusterOperations(apiToken, baseURL, cluster.ID)
+		ops, err := apiClient.ListClusterOperations(cluster.ID)
 		if err != nil {
 			fmt.Printf("Error listing operations: %v\n", err)
 			return
@@ -112,7 +112,7 @@ var clusterOperationsCancelCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		result, err := client.CancelOperation(ctx, apiToken, baseURL, operationID)
+		result, err := apiClient.CancelOperation(ctx, operationID)
 		if err != nil {
 			fmt.Printf("Error cancelling operation: %v\n", err)
 			return
@@ -135,7 +135,7 @@ var clusterOperationsCancelJobCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		result, err := client.CancelJob(ctx, apiToken, baseURL, operationID, jobID)
+		result, err := apiClient.CancelJob(ctx, operationID, jobID)
 		if err != nil {
 			fmt.Printf("Error cancelling job: %v\n", err)
 			return
@@ -147,10 +147,95 @@ var clusterOperationsCancelJobCmd = &cobra.Command{
 	},
 }
 
+var clusterOperationsJobsCmd = &cobra.Command{
+	Use:   "jobs <operation_id>",
+	Short: "List jobs for a specific operation",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		operationID := args[0]
+		jobKind, _ := cmd.Flags().GetString("kind")
+		since, _ := cmd.Flags().GetString("since")
+
+		cluster, err := loadSelectedCluster()
+		if err != nil {
+			fmt.Println("No active cluster is selected. Run 'ankra cluster select' to select one.")
+			return
+		}
+
+		var opts *client.ListOperationJobsOptions
+		if jobKind != "" || since != "" {
+			opts = &client.ListOperationJobsOptions{
+				JobKind:          jobKind,
+				FromUTCTimestamp: since,
+			}
+		}
+
+		response, err := apiClient.ListOperationJobs(cluster.ID, operationID, opts)
+		if err != nil {
+			fmt.Printf("Error listing jobs: %v\n", err)
+			return
+		}
+
+		if len(response.Jobs) == 0 {
+			fmt.Println("No jobs found for this operation.")
+			return
+		}
+
+		if response.OperationInformation != nil {
+			opStatus := response.OperationInformation.Status
+			switch strings.ToLower(opStatus) {
+			case "success":
+				opStatus = text.FgGreen.Sprint("✓ " + opStatus)
+			case "failed":
+				opStatus = text.FgRed.Sprint("✗ " + opStatus)
+			default:
+				opStatus = text.FgYellow.Sprint("⟳ " + opStatus)
+			}
+			fmt.Printf("Operation: %s  Status: %s\n\n", response.OperationInformation.Name, opStatus)
+		}
+
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.SetStyle(table.StyleRounded)
+		t.AppendHeader(table.Row{"ID", "Name", "Status", "Created At", "Updated At"})
+		t.SetColumnConfigs([]table.ColumnConfig{
+			{Number: 1, WidthMin: 30},
+			{Number: 2, WidthMin: 25},
+			{Number: 3, WidthMin: 12},
+			{Number: 4, WidthMin: 20},
+			{Number: 5, WidthMin: 20},
+		})
+
+		for _, job := range response.Jobs {
+			jobStatus := job.Status
+			switch strings.ToLower(jobStatus) {
+			case "success":
+				jobStatus = text.FgGreen.Sprint("✓ " + jobStatus)
+			case "failed":
+				jobStatus = text.FgRed.Sprint("✗ " + jobStatus)
+			default:
+				jobStatus = text.FgYellow.Sprint("⟳ " + jobStatus)
+			}
+			t.AppendRow(table.Row{
+				job.ID,
+				job.Name,
+				jobStatus,
+				formatTimeAgo(job.CreatedAt),
+				formatTimeAgo(job.UpdatedAt),
+			})
+		}
+		t.Render()
+	},
+}
+
 func init() {
+	clusterOperationsJobsCmd.Flags().String("kind", "", "Filter by job kind")
+	clusterOperationsJobsCmd.Flags().String("since", "", "Show jobs updated since this UTC timestamp")
+
 	clusterOperationsCmd.AddCommand(clusterOperationsListCmd)
 	clusterOperationsCmd.AddCommand(clusterOperationsCancelCmd)
 	clusterOperationsCmd.AddCommand(clusterOperationsCancelJobCmd)
+	clusterOperationsCmd.AddCommand(clusterOperationsJobsCmd)
 
 	clusterCmd.AddCommand(clusterOperationsCmd)
 }
