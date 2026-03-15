@@ -5,11 +5,31 @@ import (
 	"os"
 	"path/filepath"
 
-	"ankra/internal/client"
-
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
+
+var clusterSopsConfigCmd = &cobra.Command{
+	Use:   "sops-config",
+	Short: "Display SOPS configuration for the organisation",
+	Long:  "Show the SOPS encryption configuration including the public key used for encrypting secrets.",
+	Run: func(cmd *cobra.Command, args []string) {
+		config, err := apiClient.GetSopsConfig()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error fetching SOPS config: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("SOPS Configuration:\n")
+		fmt.Printf("  Enabled:     %t\n", config.Enabled)
+		fmt.Printf("  Initialized: %t\n", config.Initialized)
+		if config.AgePublicKey != "" {
+			fmt.Printf("  Public Key:  %s\n", config.AgePublicKey)
+		} else {
+			fmt.Printf("  Public Key:  not configured\n")
+		}
+	},
+}
 
 var (
 	encryptClusterFile string
@@ -77,6 +97,7 @@ func init() {
 	clusterEncryptCmd.AddCommand(clusterEncryptManifestCmd)
 	clusterEncryptCmd.AddCommand(clusterEncryptAddonCmd)
 	clusterCmd.AddCommand(clusterEncryptCmd)
+	clusterCmd.AddCommand(clusterSopsConfigCmd)
 }
 
 func runEncryptManifest(cmd *cobra.Command, args []string) error {
@@ -136,7 +157,7 @@ func runEncryptManifest(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Encrypting key %q in manifest %q...\n", encryptKey, manifestName)
 
 	// Call the encrypt API
-	encryptedContent, err := client.EncryptYAML(apiToken, baseURL, string(manifestContent), []string{encryptKey})
+	encryptedContent, err := apiClient.EncryptYAML(string(manifestContent), []string{encryptKey})
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
 	}
@@ -170,7 +191,6 @@ func runEncryptManifest(cmd *cobra.Command, args []string) error {
 }
 
 func runEncryptAddon(cmd *cobra.Command, args []string) error {
-	// Read and parse cluster YAML
 	clusterData, err := os.ReadFile(encryptClusterFile)
 	if err != nil {
 		return fmt.Errorf("failed to read cluster file %q: %w", encryptClusterFile, err)
@@ -230,7 +250,7 @@ func runEncryptAddon(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Encrypting key %q in addon %q...\n", encryptKey, encryptAddonName)
 
 	// Call the encrypt API
-	encryptedContent, err := client.EncryptYAML(apiToken, baseURL, string(addonContent), []string{encryptKey})
+	encryptedContent, err := apiClient.EncryptYAML(string(addonContent), []string{encryptKey})
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
 	}

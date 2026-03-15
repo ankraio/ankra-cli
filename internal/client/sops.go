@@ -7,8 +7,23 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 )
+
+type SopsConfigResult struct {
+	OrganisationID string `json:"organisation_id"`
+	AgePublicKey   string `json:"age_public_key"`
+	Enabled        bool   `json:"enabled"`
+	Initialized    bool   `json:"initialized"`
+}
+
+func (c *Client) GetSopsConfig() (*SopsConfigResult, error) {
+	url := c.BaseURL + "/api/v1/org/sops/config"
+	var result SopsConfigResult
+	if err := c.getJSON(url, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
 
 type EncryptContentRequest struct {
 	YamlContent    string   `json:"yaml_content"`
@@ -33,8 +48,7 @@ type APIErrorResponse struct {
 	Detail string `json:"detail"`
 }
 
-// EncryptYAML encrypts specific paths in a YAML document using SOPS via the server API
-func EncryptYAML(token, baseURL, yamlContent string, encryptedPaths []string) (string, error) {
+func (c *Client) EncryptYAML(yamlContent string, encryptedPaths []string) (string, error) {
 	reqBody := EncryptContentRequest{
 		YamlContent:    yamlContent,
 		EncryptedPaths: encryptedPaths,
@@ -45,15 +59,15 @@ func EncryptYAML(token, baseURL, yamlContent string, encryptedPaths []string) (s
 		return "", fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/org/sops/encrypt"
+	url := c.BaseURL + "/api/v1/org/sops/encrypt"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
@@ -65,7 +79,6 @@ func EncryptYAML(token, baseURL, yamlContent string, encryptedPaths []string) (s
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		// Try to extract the error message from the response
 		var apiErr APIErrorResponse
 		if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Detail != "" {
 			return "", fmt.Errorf("%s", apiErr.Detail)
@@ -85,8 +98,7 @@ func EncryptYAML(token, baseURL, yamlContent string, encryptedPaths []string) (s
 	return encryptResp.EncryptedYaml, nil
 }
 
-// DecryptYAML decrypts a SOPS-encrypted YAML document via the server API
-func DecryptYAML(token, baseURL, encryptedYaml string) (string, error) {
+func (c *Client) DecryptYAML(encryptedYaml string) (string, error) {
 	reqBody := DecryptContentRequest{
 		EncryptedYaml: encryptedYaml,
 	}
@@ -96,15 +108,15 @@ func DecryptYAML(token, baseURL, encryptedYaml string) (string, error) {
 		return "", fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/org/sops/decrypt"
+	url := c.BaseURL + "/api/v1/org/sops/decrypt"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
@@ -116,7 +128,6 @@ func DecryptYAML(token, baseURL, encryptedYaml string) (string, error) {
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		// Try to extract the error message from the response
 		var apiErr APIErrorResponse
 		if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Detail != "" {
 			return "", fmt.Errorf("%s", apiErr.Detail)

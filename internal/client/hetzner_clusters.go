@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 )
 
 type NodeTaint struct {
@@ -25,22 +24,22 @@ type CreateNodeGroupRequest struct {
 }
 
 type CreateHetznerClusterRequest struct {
-	Name                   string                  `json:"name"`
-	Description            *string                 `json:"description,omitempty"`
-	CredentialID           string                  `json:"credential_id"`
-	SSHKeyCredentialID     string                  `json:"ssh_key_credential_id,omitempty"`
-	SSHKeyCredentialIDs    []string                `json:"ssh_key_credential_ids,omitempty"`
-	Location               string                  `json:"location"`
-	NetworkIPRange         string                  `json:"network_ip_range"`
-	SubnetRange            string                  `json:"subnet_range"`
-	BastionServerType      string                  `json:"bastion_server_type"`
-	ControlPlaneCount      int                     `json:"control_plane_count"`
-	ControlPlaneServerType string                  `json:"control_plane_server_type"`
-	WorkerCount            int                     `json:"worker_count"`
-	WorkerServerType       string                  `json:"worker_server_type"`
-	Distribution           string                  `json:"distribution"`
-	KubernetesVersion      *string                 `json:"kubernetes_version,omitempty"`
-	NodeGroups             []CreateNodeGroupRequest `json:"node_groups,omitempty"`
+	Name                   string                   `json:"name"`
+	Description            *string                  `json:"description,omitempty"`
+	CredentialID           string                   `json:"credential_id"`
+	SSHKeyCredentialID     string                   `json:"ssh_key_credential_id,omitempty"`
+	SSHKeyCredentialIDs    []string                 `json:"ssh_key_credential_ids,omitempty"`
+	Location               string                   `json:"location"`
+	NetworkIPRange         string                   `json:"network_ip_range"`
+	SubnetRange            string                   `json:"subnet_range"`
+	BastionServerType      string                   `json:"bastion_server_type"`
+	ControlPlaneCount      int                      `json:"control_plane_count"`
+	ControlPlaneServerType string                   `json:"control_plane_server_type"`
+	WorkerCount            int                      `json:"worker_count"`
+	WorkerServerType       string                   `json:"worker_server_type"`
+	Distribution           string                   `json:"distribution"`
+	KubernetesVersion      *string                  `json:"kubernetes_version,omitempty"`
+	NodeGroups             []CreateNodeGroupRequest  `json:"node_groups,omitempty"`
 }
 
 type CreateHetznerClusterResponse struct {
@@ -49,11 +48,11 @@ type CreateHetznerClusterResponse struct {
 }
 
 type DeprovisionHetznerClusterResponse struct {
-	Success         bool   `json:"success"`
-	ClusterID       string `json:"cluster_id"`
-	DeletedServers  []int  `json:"deleted_servers"`
-	DeletedNetworks []int  `json:"deleted_networks"`
-	DeletedSSHKeys  []int  `json:"deleted_ssh_keys"`
+	Success         bool     `json:"success"`
+	ClusterID       string   `json:"cluster_id"`
+	DeletedServers  []int    `json:"deleted_servers"`
+	DeletedNetworks []int    `json:"deleted_networks"`
+	DeletedSSHKeys  []int    `json:"deleted_ssh_keys"`
 	Errors          []string `json:"errors"`
 }
 
@@ -87,8 +86,8 @@ type UpgradeK8sVersionResult struct {
 	NodesAffected   int     `json:"nodes_affected"`
 }
 
-func CreateHetznerCluster(token, baseURL string, req CreateHetznerClusterRequest) (*CreateHetznerClusterResponse, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/clusters/hetzner"
+func (c *Client) CreateHetznerCluster(req CreateHetznerClusterRequest) (*CreateHetznerClusterResponse, error) {
+	url := c.BaseURL + "/api/v1/clusters/hetzner"
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -99,9 +98,9 @@ func CreateHetznerCluster(token, baseURL string, req CreateHetznerClusterRequest
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(httpReq)
+	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -123,15 +122,15 @@ func CreateHetznerCluster(token, baseURL string, req CreateHetznerClusterRequest
 	return &result, nil
 }
 
-func DeprovisionHetznerCluster(token, baseURL, clusterID string) (*DeprovisionHetznerClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) DeprovisionHetznerCluster(clusterID string) (*DeprovisionHetznerClusterResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s", c.BaseURL, clusterID)
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -153,97 +152,33 @@ func DeprovisionHetznerCluster(token, baseURL, clusterID string) (*DeprovisionHe
 	return &result, nil
 }
 
-func GetHetznerWorkerCount(token, baseURL, clusterID string) (*WorkerCountResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/worker-count", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) GetHetznerWorkerCount(clusterID string) (*WorkerCountResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/worker-count", c.BaseURL, clusterID)
 	var result WorkerCountResult
-	if err := getJSON(url, token, &result); err != nil {
+	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func GetHetznerK8sVersion(token, baseURL, clusterID string) (*K8sVersionInfo, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/k8s-version", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) GetHetznerK8sVersion(clusterID string) (*K8sVersionInfo, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/k8s-version", c.BaseURL, clusterID)
 	var result K8sVersionInfo
-	if err := getJSON(url, token, &result); err != nil {
+	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func UpgradeHetznerK8sVersion(token, baseURL, clusterID, targetVersion string) (*UpgradeK8sVersionResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/upgrade-k8s-version", strings.TrimRight(baseURL, "/"), clusterID)
-	payload, err := json.Marshal(UpgradeK8sVersionRequest{TargetVersion: targetVersion})
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upgrade failed: status %d, body: %s", resp.StatusCode, string(body))
-	}
-
-	var result UpgradeK8sVersionResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return &result, nil
+func (c *Client) UpgradeHetznerK8sVersion(clusterID, targetVersion string) (*UpgradeK8sVersionResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/upgrade-k8s-version", c.BaseURL, clusterID)
+	return c.doUpgradeK8sVersion(url, targetVersion)
 }
 
-func ScaleHetznerWorkers(token, baseURL, clusterID string, workerCount int) (*ScaleWorkersResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/scale-workers", strings.TrimRight(baseURL, "/"), clusterID)
-	payload, err := json.Marshal(ScaleWorkersRequest{WorkerCount: workerCount})
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("scale failed: status %d, body: %s", resp.StatusCode, string(body))
-	}
-
-	var result ScaleWorkersResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return &result, nil
+func (c *Client) ScaleHetznerWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/scale-workers", c.BaseURL, clusterID)
+	return c.doScaleWorkers(url, workerCount)
 }
-
-// --- Node Group Operations ---
 
 type NodeGroupInfo struct {
 	Name         string            `json:"name"`
@@ -296,59 +231,137 @@ type DeleteNodeGroupResult struct {
 	Deleted   int    `json:"deleted"`
 }
 
-func ListHetznerNodeGroups(token, baseURL, clusterID string) (*NodeGroupListResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) ListHetznerNodeGroups(clusterID string) (*NodeGroupListResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups", c.BaseURL, clusterID)
 	var result NodeGroupListResult
-	if err := getJSON(url, token, &result); err != nil {
+	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func AddHetznerNodeGroup(token, baseURL, clusterID string, req AddNodeGroupRequest) (*AddNodeGroupResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) AddHetznerNodeGroup(clusterID string, req AddNodeGroupRequest) (*AddNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups", c.BaseURL, clusterID)
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	return postJSON[AddNodeGroupResult](url, token, payload)
+	return c.doAddNodeGroup(url, payload)
 }
 
-func ScaleHetznerNodeGroup(token, baseURL, clusterID, groupName string, count int) (*ScaleNodeGroupResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/scale", strings.TrimRight(baseURL, "/"), clusterID, groupName)
+func (c *Client) ScaleHetznerNodeGroup(clusterID, groupName string, count int) (*ScaleNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/scale", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	return putJSON[ScaleNodeGroupResult](url, token, payload)
+	return c.doScaleNodeGroup(url, payload)
 }
 
-func UpdateHetznerNodeGroupInstanceType(token, baseURL, clusterID, groupName, instanceType string) (*UpdateNodeGroupResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/instance-type", strings.TrimRight(baseURL, "/"), clusterID, groupName)
+func (c *Client) UpdateHetznerNodeGroupInstanceType(clusterID, groupName, instanceType string) (*UpdateNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	return putJSON[UpdateNodeGroupResult](url, token, payload)
+	return c.doUpdateNodeGroupInstanceType(url, payload)
 }
 
-func DeleteHetznerNodeGroup(token, baseURL, clusterID, groupName string) (*DeleteNodeGroupResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s", strings.TrimRight(baseURL, "/"), clusterID, groupName)
+func (c *Client) DeleteHetznerNodeGroup(clusterID, groupName string) (*DeleteNodeGroupResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
+	return c.doDeleteNodeGroup(url)
+}
+
+func (c *Client) doAddNodeGroup(url string, payload []byte) (*AddNodeGroupResult, error) {
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("request failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result AddNodeGroupResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) doScaleNodeGroup(url string, payload []byte) (*ScaleNodeGroupResult, error) {
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result ScaleNodeGroupResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) doUpdateNodeGroupInstanceType(url string, payload []byte) (*UpdateNodeGroupResult, error) {
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result UpdateNodeGroupResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) doDeleteNodeGroup(url string) (*DeleteNodeGroupResult, error) {
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
@@ -362,52 +375,70 @@ func DeleteHetznerNodeGroup(token, baseURL, clusterID, groupName string) (*Delet
 	return &result, nil
 }
 
-func postJSON[T any](url, token string, payload []byte) (*T, error) {
+func (c *Client) doScaleWorkers(url string, workerCount int) (*ScaleWorkersResult, error) {
+	payload, err := json.Marshal(ScaleWorkersRequest{WorkerCount: workerCount})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
 
 	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("request failed: status %d, body: %s", resp.StatusCode, string(body))
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("scale failed: status %d, body: %s", resp.StatusCode, string(body))
 	}
 
-	var result T
+	var result ScaleWorkersResult
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &result, nil
 }
 
-func putJSON[T any](url, token string, payload []byte) (*T, error) {
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(payload))
+func (c *Client) doUpgradeK8sVersion(url, targetVersion string) (*UpgradeK8sVersionResult, error) {
+	payload, err := json.Marshal(UpgradeK8sVersionRequest{TargetVersion: targetVersion})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("upgrade failed: status %d, body: %s", resp.StatusCode, string(body))
 	}
 
-	var result T
+	var result UpgradeK8sVersionResult
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}

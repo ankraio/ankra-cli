@@ -6,8 +6,6 @@ import (
 	"os"
 	"time"
 
-	"ankra/internal/client"
-
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 )
@@ -29,7 +27,7 @@ var credentialsListCmd = &cobra.Command{
 			providerPtr = &provider
 		}
 
-		creds, err := client.ListCredentials(apiToken, baseURL, providerPtr)
+		creds, err := apiClient.ListCredentials(providerPtr)
 		if err != nil {
 			fmt.Printf("Error listing credentials: %v\n", err)
 			return
@@ -72,7 +70,7 @@ var credentialsValidateCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		name := args[0]
 
-		result, err := client.ValidateCredentialName(apiToken, baseURL, name)
+		result, err := apiClient.ValidateCredentialName(name)
 		if err != nil {
 			fmt.Printf("Error validating credential name: %v\n", err)
 			return
@@ -97,14 +95,12 @@ var credentialsDeleteCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		credentialID := args[0]
 
-		// Get organisation ID from current org
 		var orgID string
 		local, err := loadSelectedOrganisation()
 		if err == nil && local.OrganisationID != "" {
 			orgID = local.OrganisationID
 		} else {
-			// Fall back to server's current org
-			orgs, err := client.ListOrganisations(apiToken, baseURL)
+			orgs, err := apiClient.ListOrganisations()
 			if err != nil {
 				fmt.Printf("Error fetching organisation: %v\n", err)
 				return
@@ -125,7 +121,7 @@ var credentialsDeleteCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		result, err := client.DeleteCredential(ctx, apiToken, baseURL, credentialID, orgID)
+		result, err := apiClient.DeleteCredential(ctx, credentialID, orgID)
 		if err != nil {
 			fmt.Printf("Error deleting credential: %v\n", err)
 			return
@@ -144,7 +140,7 @@ var credentialsGetCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		credentialID := args[0]
 
-		cred, err := client.GetCredential(apiToken, baseURL, credentialID)
+		cred, err := apiClient.GetCredential(credentialID)
 		if err != nil {
 			fmt.Printf("Error fetching credential: %v\n", err)
 			return

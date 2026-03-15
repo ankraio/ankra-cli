@@ -59,7 +59,7 @@ var hetznerCreateCmd = &cobra.Command{
 			req.KubernetesVersion = &kubeVersion
 		}
 
-		result, err := client.CreateHetznerCluster(apiToken, baseURL, req)
+		result, err := apiClient.CreateHetznerCluster(req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating Hetzner cluster: %v\n", err)
 			os.Exit(1)
@@ -79,7 +79,7 @@ var hetznerDeprovisionCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
 
-		result, err := client.DeprovisionHetznerCluster(apiToken, baseURL, clusterID)
+		result, err := apiClient.DeprovisionHetznerCluster(clusterID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error deprovisioning cluster: %v\n", err)
 			os.Exit(1)
@@ -117,7 +117,7 @@ var hetznerWorkersCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
 
-		result, err := client.GetHetznerWorkerCount(apiToken, baseURL, clusterID)
+		result, err := apiClient.GetHetznerWorkerCount(clusterID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error fetching worker count: %v\n", err)
 			os.Exit(1)
@@ -142,7 +142,7 @@ var hetznerScaleCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		result, err := client.ScaleHetznerWorkers(apiToken, baseURL, clusterID, workerCount)
+		result, err := apiClient.ScaleHetznerWorkers(clusterID, workerCount)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error scaling workers: %v\n", err)
 			os.Exit(1)
@@ -167,7 +167,7 @@ var hetznerK8sVersionCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
 
-		result, err := client.GetHetznerK8sVersion(apiToken, baseURL, clusterID)
+		result, err := apiClient.GetHetznerK8sVersion(clusterID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error fetching Kubernetes version: %v\n", err)
 			os.Exit(1)
@@ -191,7 +191,7 @@ var hetznerUpgradeCmd = &cobra.Command{
 		clusterID := args[0]
 		targetVersion := args[1]
 
-		result, err := client.UpgradeHetznerK8sVersion(apiToken, baseURL, clusterID, targetVersion)
+		result, err := apiClient.UpgradeHetznerK8sVersion(clusterID, targetVersion)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error upgrading Kubernetes version: %v\n", err)
 			os.Exit(1)
@@ -220,7 +220,7 @@ var nodeGroupListCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
-		result, err := client.ListHetznerNodeGroups(apiToken, baseURL, clusterID)
+		result, err := apiClient.ListHetznerNodeGroups(clusterID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error listing node groups: %v\n", err)
 			os.Exit(1)
@@ -252,7 +252,7 @@ var nodeGroupAddCmd = &cobra.Command{
 			Count:        count,
 		}
 
-		result, err := client.AddHetznerNodeGroup(apiToken, baseURL, clusterID, req)
+		result, err := apiClient.AddHetznerNodeGroup(clusterID, req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error adding node group: %v\n", err)
 			os.Exit(1)
@@ -274,7 +274,7 @@ var nodeGroupScaleCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		result, err := client.ScaleHetznerNodeGroup(apiToken, baseURL, clusterID, groupName, count)
+		result, err := apiClient.ScaleHetznerNodeGroup(clusterID, groupName, count)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error scaling node group: %v\n", err)
 			os.Exit(1)
@@ -292,7 +292,7 @@ var nodeGroupUpgradeCmd = &cobra.Command{
 		groupName := args[1]
 		instanceType := args[2]
 
-		result, err := client.UpdateHetznerNodeGroupInstanceType(apiToken, baseURL, clusterID, groupName, instanceType)
+		result, err := apiClient.UpdateHetznerNodeGroupInstanceType(clusterID, groupName, instanceType)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error upgrading node group: %v\n", err)
 			os.Exit(1)
@@ -309,7 +309,7 @@ var nodeGroupDeleteCmd = &cobra.Command{
 		clusterID := args[0]
 		groupName := args[1]
 
-		result, err := client.DeleteHetznerNodeGroup(apiToken, baseURL, clusterID, groupName)
+		result, err := apiClient.DeleteHetznerNodeGroup(clusterID, groupName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error deleting node group: %v\n", err)
 			os.Exit(1)

@@ -5,8 +5,6 @@ import (
 	"os"
 	"strings"
 
-	"ankra/internal/client"
-
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 )
@@ -25,7 +23,7 @@ var chartsListCmd = &cobra.Command{
 		pageSize, _ := cmd.Flags().GetInt("page-size")
 		onlySubscribed, _ := cmd.Flags().GetBool("subscribed")
 
-		resp, err := client.ListCharts(apiToken, baseURL, page, pageSize, onlySubscribed)
+		resp, err := apiClient.ListCharts(page, pageSize, onlySubscribed)
 		if err != nil {
 			fmt.Printf("Error listing charts: %v\n", err)
 			return
@@ -73,7 +71,7 @@ var chartsSearchCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		query := args[0]
 
-		charts, err := client.SearchCharts(apiToken, baseURL, query)
+		charts, err := apiClient.SearchCharts(query)
 		if err != nil {
 			fmt.Printf("Error searching charts: %v\n", err)
 			return
@@ -126,7 +124,7 @@ Requires either --repository flag or finding the chart in the catalog first.`,
 
 		// If no repository URL provided, try to find the chart first
 		if repositoryURL == "" {
-			charts, err := client.SearchCharts(apiToken, baseURL, chartName)
+			charts, err := apiClient.SearchCharts(chartName)
 			if err != nil {
 				fmt.Printf("Error finding chart: %v\n", err)
 				return
@@ -146,7 +144,7 @@ Requires either --repository flag or finding the chart in the catalog first.`,
 			}
 		}
 
-		details, err := client.GetChartDetails(apiToken, baseURL, chartName, repositoryURL)
+		details, err := apiClient.GetChartDetails(chartName, repositoryURL)
 		if err != nil {
 			fmt.Printf("Error getting chart details: %v\n", err)
 			return

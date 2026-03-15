@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 )
 
 type HetznerCredentialListItem struct {
@@ -48,18 +47,36 @@ type CreateSSHKeyCredentialResponse struct {
 	Errors     []ResourceError `json:"errors,omitempty"`
 }
 
-func ListHetznerCredentials(token, baseURL string) ([]HetznerCredentialListItem, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/credentials/hetzner"
+func (c *Client) ListHetznerCredentials() ([]HetznerCredentialListItem, error) {
+	url := c.BaseURL + "/api/v1/credentials/hetzner"
 	var creds []HetznerCredentialListItem
-	if err := getJSON(url, token, &creds); err != nil {
+	if err := c.getJSON(url, &creds); err != nil {
 		return nil, err
 	}
 	return creds, nil
 }
 
-func CreateHetznerCredential(token, baseURL string, req CreateHetznerCredentialRequest) (*CreateHetznerCredentialResponse, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/credentials/hetzner"
-	payload, err := json.Marshal(req)
+func (c *Client) CreateHetznerCredential(req CreateHetznerCredentialRequest) (*CreateHetznerCredentialResponse, error) {
+	url := c.BaseURL + "/api/v1/credentials/hetzner"
+	return c.doCreateCredential(url, req)
+}
+
+func (c *Client) ListSSHKeyCredentials() ([]HetznerCredentialListItem, error) {
+	url := c.BaseURL + "/api/v1/credentials/hetzner/ssh-keys"
+	var creds []HetznerCredentialListItem
+	if err := c.getJSON(url, &creds); err != nil {
+		return nil, err
+	}
+	return creds, nil
+}
+
+func (c *Client) CreateSSHKeyCredential(req CreateSSHKeyCredentialRequest) (*CreateSSHKeyCredentialResponse, error) {
+	url := c.BaseURL + "/api/v1/credentials/hetzner/ssh-key"
+	return c.doCreateSSHKeyCredential(url, req)
+}
+
+func (c *Client) doCreateCredential(url string, reqBody interface{}) (*CreateHetznerCredentialResponse, error) {
+	payload, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -69,9 +86,9 @@ func CreateHetznerCredential(token, baseURL string, req CreateHetznerCredentialR
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(httpReq)
+	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -93,18 +110,8 @@ func CreateHetznerCredential(token, baseURL string, req CreateHetznerCredentialR
 	return &result, nil
 }
 
-func ListSSHKeyCredentials(token, baseURL string) ([]HetznerCredentialListItem, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/credentials/hetzner/ssh-keys"
-	var creds []HetznerCredentialListItem
-	if err := getJSON(url, token, &creds); err != nil {
-		return nil, err
-	}
-	return creds, nil
-}
-
-func CreateSSHKeyCredential(token, baseURL string, req CreateSSHKeyCredentialRequest) (*CreateSSHKeyCredentialResponse, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/credentials/hetzner/ssh-key"
-	payload, err := json.Marshal(req)
+func (c *Client) doCreateSSHKeyCredential(url string, reqBody interface{}) (*CreateSSHKeyCredentialResponse, error) {
+	payload, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -114,9 +121,9 @@ func CreateSSHKeyCredential(token, baseURL string, req CreateSSHKeyCredentialReq
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(httpReq)
+	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}

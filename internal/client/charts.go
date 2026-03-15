@@ -10,7 +10,6 @@ import (
 	"strings"
 )
 
-// ChartItem represents a Helm chart in the catalog
 type ChartItem struct {
 	ChartID                string  `json:"chart_id"`
 	Name                   string  `json:"name"`
@@ -23,20 +22,17 @@ type ChartItem struct {
 	RegistryCredentialName *string `json:"registry_credential_name,omitempty"`
 }
 
-// ChartsPagination represents pagination for charts
 type ChartsPagination struct {
 	Page       int `json:"page"`
 	PageSize   int `json:"page_size"`
 	TotalPages int `json:"total_pages"`
 }
 
-// ListChartsResponse is the response from listing charts
 type ListChartsResponse struct {
 	Charts     []ChartItem      `json:"charts"`
 	Pagination ChartsPagination `json:"pagination"`
 }
 
-// ChartProfile represents a profile for a chart
 type ChartProfile struct {
 	ProfileID   string  `json:"profile_id"`
 	Name        string  `json:"name"`
@@ -44,7 +40,6 @@ type ChartProfile struct {
 	UpdatedAt   string  `json:"updated_at"`
 }
 
-// ChartDetails represents detailed information about a chart
 type ChartDetails struct {
 	Name           string         `json:"name"`
 	Icon           string         `json:"icon"`
@@ -54,26 +49,23 @@ type ChartDetails struct {
 	Profiles       []ChartProfile `json:"profiles"`
 }
 
-// GetChartDetailsRequest is the request for getting chart details
 type GetChartDetailsRequest struct {
 	ChartName     string `json:"chart_name"`
 	RepositoryURL string `json:"repository_url"`
 }
 
-// ListCharts returns a list of available Helm charts
-func ListCharts(token, baseURL string, page, pageSize int, onlySubscribed bool) (*ListChartsResponse, error) {
+func (c *Client) ListCharts(page, pageSize int, onlySubscribed bool) (*ListChartsResponse, error) {
 	url := fmt.Sprintf("%s/api/v1/org/stacks/charts?page=%d&page_size=%d&only_subscribed=%t",
-		strings.TrimRight(baseURL, "/"), page, pageSize, onlySubscribed)
+		c.BaseURL, page, pageSize, onlySubscribed)
 	var resp ListChartsResponse
-	if err := getJSON(url, token, &resp); err != nil {
+	if err := c.getJSON(url, &resp); err != nil {
 		return nil, fmt.Errorf("failed to list charts: %w", err)
 	}
 	return &resp, nil
 }
 
-// GetChartDetails returns detailed information about a specific chart
-func GetChartDetails(token, baseURL, chartName, repositoryURL string) (*ChartDetails, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/org/stacks/charts/details"
+func (c *Client) GetChartDetails(chartName, repositoryURL string) (*ChartDetails, error) {
+	url := c.BaseURL + "/api/v1/org/stacks/charts/details"
 	reqBody := GetChartDetailsRequest{ChartName: chartName, RepositoryURL: repositoryURL}
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -85,9 +77,9 @@ func GetChartDetails(token, baseURL, chartName, repositoryURL string) (*ChartDet
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -109,11 +101,8 @@ func GetChartDetails(token, baseURL, chartName, repositoryURL string) (*ChartDet
 	return &details, nil
 }
 
-// SearchCharts searches for charts by name
-func SearchCharts(token, baseURL, query string) ([]ChartItem, error) {
-	// Get all charts and filter by name client-side
-	// The backend doesn't have a dedicated search endpoint
-	resp, err := ListCharts(token, baseURL, 1, 100, false)
+func (c *Client) SearchCharts(query string) ([]ChartItem, error) {
+	resp, err := c.ListCharts(1, 100, false)
 	if err != nil {
 		return nil, err
 	}

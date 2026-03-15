@@ -14,15 +14,13 @@ type Pagination struct {
 	PageSize   int `json:"page_size"`
 }
 
-var httpClient = &http.Client{}
-
-func getJSON(url, token string, target interface{}) error {
+func (c *Client) getJSON(url string, target interface{}) error {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := httpClient.Do(req)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return err
 	}

@@ -7,10 +7,8 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 )
 
-// OrganisationSummary represents a user's organisation
 type OrganisationSummary struct {
 	OrganisationID string  `json:"organisation_id"`
 	Name           *string `json:"name"`
@@ -19,7 +17,6 @@ type OrganisationSummary struct {
 	Role           *string `json:"role"`
 }
 
-// OrganisationMember represents a member of an organisation
 type OrganisationMember struct {
 	UserID    string  `json:"user_id"`
 	Email     string  `json:"email"`
@@ -29,7 +26,6 @@ type OrganisationMember struct {
 	AvatarURL *string `json:"avatar_url"`
 }
 
-// OrganisationFull represents full organisation details including members
 type OrganisationFull struct {
 	OrganisationID string               `json:"organisation_id"`
 	Name           *string              `json:"name"`
@@ -38,52 +34,45 @@ type OrganisationFull struct {
 	CreatedAt      string               `json:"created_at"`
 }
 
-// SwitchOrganisationRequest is the request to switch organisation
 type SwitchOrganisationRequest struct {
 	OrganisationID string `json:"organisation_id"`
 }
 
-// SwitchOrganisationResponse is the response from switching organisation
 type SwitchOrganisationResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
 
-// CreateOrganisationRequest is the request to create an organisation
 type CreateOrganisationRequest struct {
 	Name    string  `json:"name"`
 	Country *string `json:"country,omitempty"`
 }
 
-// CreateOrganisationResponse is the response from creating an organisation
 type CreateOrganisationResponse struct {
 	OrganisationID string `json:"organisation_id"`
 	Message        string `json:"message"`
 }
 
-// ListOrganisations returns all organisations the user belongs to
-func ListOrganisations(token, baseURL string) ([]OrganisationSummary, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/org/organisation"
+func (c *Client) ListOrganisations() ([]OrganisationSummary, error) {
+	url := c.BaseURL + "/api/v1/org/organisation"
 	var orgs []OrganisationSummary
-	if err := getJSON(url, token, &orgs); err != nil {
+	if err := c.getJSON(url, &orgs); err != nil {
 		return nil, err
 	}
 	return orgs, nil
 }
 
-// GetOrganisation returns full details of an organisation including members
-func GetOrganisation(token, baseURL, orgID string) (*OrganisationFull, error) {
-	url := fmt.Sprintf("%s/api/v1/org/organisation/%s", strings.TrimRight(baseURL, "/"), orgID)
+func (c *Client) GetOrganisation(orgID string) (*OrganisationFull, error) {
+	url := fmt.Sprintf("%s/api/v1/org/organisation/%s", c.BaseURL, orgID)
 	var org OrganisationFull
-	if err := getJSON(url, token, &org); err != nil {
+	if err := c.getJSON(url, &org); err != nil {
 		return nil, err
 	}
 	return &org, nil
 }
 
-// SwitchOrganisation switches the user's current organisation
-func SwitchOrganisation(token, baseURL, orgID string) (*SwitchOrganisationResponse, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/org/organisation/switch"
+func (c *Client) SwitchOrganisation(orgID string) (*SwitchOrganisationResponse, error) {
+	url := c.BaseURL + "/api/v1/org/organisation/switch"
 	reqBody := SwitchOrganisationRequest{OrganisationID: orgID}
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -95,9 +84,9 @@ func SwitchOrganisation(token, baseURL, orgID string) (*SwitchOrganisationRespon
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -119,9 +108,101 @@ func SwitchOrganisation(token, baseURL, orgID string) (*SwitchOrganisationRespon
 	return &switchResp, nil
 }
 
-// CreateOrganisation creates a new organisation
-func CreateOrganisation(token, baseURL, name string, country *string) (*CreateOrganisationResponse, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/org/organisation"
+type InviteUserRequest struct {
+	OrganisationID string `json:"organisation_id"`
+	InviteeEmail   string `json:"invitee_email"`
+	Role           string `json:"role"`
+}
+
+type InviteUserResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+type RemoveUserRequest struct {
+	UserID         string `json:"user_id"`
+	OrganisationID string `json:"organisation_id"`
+}
+
+type RemoveUserResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+func (c *Client) InviteUserToOrganisation(inviteReq InviteUserRequest) (*InviteUserResponse, error) {
+	url := c.BaseURL + "/api/v1/org/organisation/invite"
+	payload, err := json.Marshal(inviteReq)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("invite failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var inviteResp InviteUserResponse
+	if err := json.Unmarshal(body, &inviteResp); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &inviteResp, nil
+}
+
+func (c *Client) RemoveUserFromOrganisation(removeReq RemoveUserRequest) (*RemoveUserResponse, error) {
+	url := c.BaseURL + "/api/v1/org/organisation/user"
+	payload, err := json.Marshal(removeReq)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequest(http.MethodDelete, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("remove failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var removeResp RemoveUserResponse
+	if err := json.Unmarshal(body, &removeResp); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &removeResp, nil
+}
+
+func (c *Client) CreateOrganisation(name string, country *string) (*CreateOrganisationResponse, error) {
+	url := c.BaseURL + "/api/v1/org/organisation"
 	reqBody := CreateOrganisationRequest{Name: name, Country: country}
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -133,9 +214,9 @@ func CreateOrganisation(token, baseURL, name string, country *string) (*CreateOr
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}

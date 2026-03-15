@@ -22,7 +22,7 @@ var upcloudCredListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List UpCloud API credentials",
 	Run: func(cmd *cobra.Command, args []string) {
-		creds, err := client.ListUpcloudCredentials(apiToken, baseURL)
+		creds, err := apiClient.ListUpcloudCredentials()
 		if err != nil {
 			fmt.Printf("Error listing UpCloud credentials: %v\n", err)
 			return
@@ -82,7 +82,7 @@ var upcloudCredCreateCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		result, err := client.CreateUpcloudCredential(apiToken, baseURL, client.CreateUpcloudCredentialRequest{
+		result, err := apiClient.CreateUpcloudCredential(client.CreateUpcloudCredentialRequest{
 			Name:     name,
 			APIToken: apiTokenValue,
 		})
@@ -113,7 +113,7 @@ var upcloudSSHKeyListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List SSH key credentials",
 	Run: func(cmd *cobra.Command, args []string) {
-		creds, err := client.ListUpcloudSSHKeyCredentials(apiToken, baseURL)
+		creds, err := apiClient.ListUpcloudSSHKeyCredentials()
 		if err != nil {
 			fmt.Printf("Error listing SSH key credentials: %v\n", err)
 			return
@@ -177,7 +177,7 @@ Examples:
 			req.SSHPublicKey = &publicKey
 		}
 
-		result, err := client.CreateUpcloudSSHKeyCredential(apiToken, baseURL, req)
+		result, err := apiClient.CreateUpcloudSSHKeyCredential(req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating SSH key credential: %v\n", err)
 			os.Exit(1)

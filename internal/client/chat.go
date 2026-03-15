@@ -11,20 +11,17 @@ import (
 	"strings"
 )
 
-// ChatMessage represents a message in a chat conversation
 type ChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// ChatRequest is the request for sending a chat message
 type ChatRequest struct {
 	Query               string        `json:"query"`
 	ConversationID      *string       `json:"conversation_id,omitempty"`
 	ConversationHistory []ChatMessage `json:"conversation_history,omitempty"`
 }
 
-// ChatConversation represents a saved chat conversation
 type ChatConversation struct {
 	ID        string        `json:"id"`
 	Title     *string       `json:"title,omitempty"`
@@ -34,19 +31,16 @@ type ChatConversation struct {
 	ClusterID *string       `json:"cluster_id,omitempty"`
 }
 
-// ListConversationsResponse is the response from listing conversations
 type ListConversationsResponse struct {
 	Conversations []ChatConversation `json:"conversations"`
 	TotalCount    int                `json:"total_count"`
 }
 
-// DeleteConversationResponse is the response from deleting a conversation
 type DeleteConversationResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
 
-// ClusterHealth represents cluster health analysis
 type ClusterHealth struct {
 	OverallHealth   string   `json:"overall_health"`
 	Score           int      `json:"score"`
@@ -55,25 +49,23 @@ type ClusterHealth struct {
 	LastUpdated     string   `json:"last_updated"`
 }
 
-// ChatStreamEvent represents a streaming event from chat
 type ChatStreamEvent struct {
 	Type    string `json:"type"`
 	Data    any    `json:"data,omitempty"`
-	Content string `json:"content,omitempty"` // Fallback for content field
+	Content string `json:"content,omitempty"`
 	Error   string `json:"error,omitempty"`
 	Done    bool   `json:"done,omitempty"`
 }
 
-// StreamChat sends a chat message and returns a channel of streaming events
-func StreamChat(token, baseURL string, clusterID *string, req ChatRequest) (<-chan ChatStreamEvent, error) {
+func (c *Client) StreamChat(clusterID *string, chatReq ChatRequest) (<-chan ChatStreamEvent, error) {
 	var url string
 	if clusterID != nil && *clusterID != "" {
-		url = fmt.Sprintf("%s/api/v1/org/clusters/%s/kubernetes/chat", strings.TrimRight(baseURL, "/"), *clusterID)
+		url = fmt.Sprintf("%s/api/v1/org/clusters/%s/kubernetes/chat", c.BaseURL, *clusterID)
 	} else {
-		url = strings.TrimRight(baseURL, "/") + "/api/v1/chat/general"
+		url = c.BaseURL + "/api/v1/chat/general"
 	}
 
-	payload, err := json.Marshal(req)
+	payload, err := json.Marshal(chatReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -83,10 +75,10 @@ func StreamChat(token, baseURL string, clusterID *string, req ChatRequest) (<-ch
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -105,10 +97,10 @@ func StreamChat(token, baseURL string, clusterID *string, req ChatRequest) (<-ch
 
 		reader := bufio.NewReader(resp.Body)
 		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				if err != io.EOF {
-					events <- ChatStreamEvent{Type: "error", Error: err.Error()}
+			line, readErr := reader.ReadString('\n')
+			if readErr != nil {
+				if readErr != io.EOF {
+					events <- ChatStreamEvent{Type: "error", Error: readErr.Error()}
 				}
 				return
 			}
@@ -118,7 +110,6 @@ func StreamChat(token, baseURL string, clusterID *string, req ChatRequest) (<-ch
 				continue
 			}
 
-			// Parse SSE format
 			if strings.HasPrefix(line, "data: ") {
 				data := strings.TrimPrefix(line, "data: ")
 				if data == "[DONE]" {
@@ -128,7 +119,6 @@ func StreamChat(token, baseURL string, clusterID *string, req ChatRequest) (<-ch
 
 				var event ChatStreamEvent
 				if err := json.Unmarshal([]byte(data), &event); err != nil {
-					// If it's not JSON, treat it as plain content
 					events <- ChatStreamEvent{Type: "content", Content: data}
 				} else {
 					events <- event
@@ -140,46 +130,43 @@ func StreamChat(token, baseURL string, clusterID *string, req ChatRequest) (<-ch
 	return events, nil
 }
 
-// ListChatHistory returns chat conversations
-func ListChatHistory(token, baseURL string, clusterID *string, limit, offset int) (*ListConversationsResponse, error) {
+func (c *Client) ListChatHistory(clusterID *string, limit, offset int) (*ListConversationsResponse, error) {
 	var url string
 	if clusterID != nil && *clusterID != "" {
 		url = fmt.Sprintf("%s/api/v1/org/clusters/%s/kubernetes/chat/history?limit=%d&offset=%d",
-			strings.TrimRight(baseURL, "/"), *clusterID, limit, offset)
+			c.BaseURL, *clusterID, limit, offset)
 	} else {
 		url = fmt.Sprintf("%s/api/v1/chat/general/history?limit=%d&offset=%d",
-			strings.TrimRight(baseURL, "/"), limit, offset)
+			c.BaseURL, limit, offset)
 	}
 
 	var resp ListConversationsResponse
-	if err := getJSON(url, token, &resp); err != nil {
+	if err := c.getJSON(url, &resp); err != nil {
 		return nil, fmt.Errorf("failed to list chat history: %w", err)
 	}
 	return &resp, nil
 }
 
-// GetChatConversation returns a specific conversation
-func GetChatConversation(token, baseURL, conversationID string) (*ChatConversation, error) {
+func (c *Client) GetChatConversation(conversationID string) (*ChatConversation, error) {
 	url := fmt.Sprintf("%s/api/v1/chat/general/history/%s",
-		strings.TrimRight(baseURL, "/"), conversationID)
+		c.BaseURL, conversationID)
 	var conv ChatConversation
-	if err := getJSON(url, token, &conv); err != nil {
+	if err := c.getJSON(url, &conv); err != nil {
 		return nil, fmt.Errorf("failed to get conversation: %w", err)
 	}
 	return &conv, nil
 }
 
-// DeleteChatConversation deletes a conversation
-func DeleteChatConversation(token, baseURL, conversationID string) (*DeleteConversationResponse, error) {
+func (c *Client) DeleteChatConversation(conversationID string) (*DeleteConversationResponse, error) {
 	url := fmt.Sprintf("%s/api/v1/chat/general/history/%s",
-		strings.TrimRight(baseURL, "/"), conversationID)
+		c.BaseURL, conversationID)
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -197,12 +184,11 @@ func DeleteChatConversation(token, baseURL, conversationID string) (*DeleteConve
 	return &DeleteConversationResponse{Success: true, Message: "Conversation deleted"}, nil
 }
 
-// GetClusterHealth returns AI-analyzed cluster health
-func GetClusterHealth(token, baseURL, clusterID string, includeAI bool) (*ClusterHealth, error) {
+func (c *Client) GetClusterHealth(clusterID string, includeAI bool) (*ClusterHealth, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/%s/kubernetes/health?include_ai_analysis=%t",
-		strings.TrimRight(baseURL, "/"), clusterID, includeAI)
+		c.BaseURL, clusterID, includeAI)
 	var health ClusterHealth
-	if err := getJSON(url, token, &health); err != nil {
+	if err := c.getJSON(url, &health); err != nil {
 		return nil, fmt.Errorf("failed to get cluster health: %w", err)
 	}
 	return &health, nil

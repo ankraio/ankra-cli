@@ -6,69 +6,62 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 )
 
-// AgentInfo represents cluster agent information
 type AgentInfo struct {
-	ID              string  `json:"id"`
-	ClusterID       string  `json:"cluster_id"`
-	Status          string  `json:"status"`
-	Version         string  `json:"version"`
-	LastSeen        *string `json:"last_seen,omitempty"`
-	ConnectedAt     *string `json:"connected_at,omitempty"`
-	Healthy         bool    `json:"healthy"`
-	LatestVersion   *string `json:"latest_version,omitempty"`
-	UpgradeAvailable bool   `json:"upgrade_available"`
+	ID               string  `json:"id"`
+	ClusterID        string  `json:"cluster_id"`
+	Status           string  `json:"status"`
+	Version          string  `json:"version"`
+	LastSeen         *string `json:"last_seen,omitempty"`
+	ConnectedAt      *string `json:"connected_at,omitempty"`
+	Healthy          bool    `json:"healthy"`
+	LatestVersion    *string `json:"latest_version,omitempty"`
+	UpgradeAvailable bool    `json:"upgrade_available"`
 }
 
-// AgentToken represents the agent identity token
 type AgentToken struct {
 	Token     string `json:"token"`
 	ExpiresAt string `json:"expires_at"`
 	ClusterID string `json:"cluster_id"`
 }
 
-// UpgradeAgentResult is the response from upgrading an agent
 type UpgradeAgentResult struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
 
-// GetClusterAgent returns information about a cluster's agent
-func GetClusterAgent(token, baseURL, clusterID string) (*AgentInfo, error) {
+func (c *Client) GetClusterAgent(clusterID string) (*AgentInfo, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/agent",
-		strings.TrimRight(baseURL, "/"), clusterID)
+		c.BaseURL, clusterID)
 	var agent AgentInfo
-	if err := getJSON(url, token, &agent); err != nil {
+	if err := c.getJSON(url, &agent); err != nil {
 		return nil, fmt.Errorf("failed to get agent info: %w", err)
 	}
 	return &agent, nil
 }
 
-// GetAgentToken returns the agent identity token for a cluster
-func GetAgentToken(token, baseURL, clusterID string) (*AgentToken, error) {
+func (c *Client) GetAgentToken(clusterID string) (*AgentToken, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/cluster-agent/token",
-		strings.TrimRight(baseURL, "/"), clusterID)
+		c.BaseURL, clusterID)
 	var agentToken AgentToken
-	if err := getJSON(url, token, &agentToken); err != nil {
+	if err := c.getJSON(url, &agentToken); err != nil {
 		return nil, fmt.Errorf("failed to get agent token: %w", err)
 	}
 	return &agentToken, nil
 }
 
-// GenerateAgentToken generates a new agent token for a cluster
-func GenerateAgentToken(ctx context.Context, token, baseURL, clusterID string) (*AgentToken, error) {
+func (c *Client) GenerateAgentToken(ctx context.Context, clusterID string) (*AgentToken, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/cluster-agent/token",
-		strings.TrimRight(baseURL, "/"), clusterID)
+		c.BaseURL, clusterID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -90,18 +83,17 @@ func GenerateAgentToken(ctx context.Context, token, baseURL, clusterID string) (
 	return &agentToken, nil
 }
 
-// UpgradeClusterAgent triggers an agent upgrade for a cluster
-func UpgradeClusterAgent(ctx context.Context, token, baseURL, clusterID string) (*UpgradeAgentResult, error) {
+func (c *Client) UpgradeClusterAgent(ctx context.Context, clusterID string) (*UpgradeAgentResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/agent/upgrade",
-		strings.TrimRight(baseURL, "/"), clusterID)
+		c.BaseURL, clusterID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}

@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 )
 
@@ -31,11 +30,10 @@ type ListClusterAddonsResponse struct {
 	Pagination Pagination             `json:"pagination"`
 }
 
-// AddonSettings represents addon settings configuration
 type AddonSettings struct {
-	RetryPolicy           *RetryPolicy `json:"retry_policy,omitempty"`
-	SyncPolicy            *SyncPolicy  `json:"sync_policy,omitempty"`
-	RevisionHistoryLimit  *int         `json:"revision_history_limit,omitempty"`
+	RetryPolicy          *RetryPolicy `json:"retry_policy,omitempty"`
+	SyncPolicy           *SyncPolicy  `json:"sync_policy,omitempty"`
+	RevisionHistoryLimit *int         `json:"revision_history_limit,omitempty"`
 }
 
 type RetryPolicy struct {
@@ -56,19 +54,16 @@ type SyncPolicy struct {
 	SyncOptions []string `json:"sync_options,omitempty"`
 }
 
-// GetAddonSettingsResponse is the response from getting addon settings
 type GetAddonSettingsResponse struct {
 	AddonName string        `json:"addon_name"`
 	Settings  AddonSettings `json:"settings"`
 }
 
-// UninstallAddonResult is the response from uninstalling an addon
 type UninstallAddonResult struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
 
-// AvailableAddon represents an addon available for installation
 type AvailableAddon struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
@@ -82,40 +77,37 @@ type ListAvailableAddonsResponse struct {
 	Result []AvailableAddon `json:"result"`
 }
 
-func ListClusterAddons(token, baseURL, clusterID string) ([]ClusterAddonListItem, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/addons", baseURL, clusterID)
+func (c *Client) ListClusterAddons(clusterID string) ([]ClusterAddonListItem, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/addons", c.BaseURL, clusterID)
 	var resp ListClusterAddonsResponse
-	if err := getJSON(url, token, &resp); err != nil {
+	if err := c.getJSON(url, &resp); err != nil {
 		return nil, fmt.Errorf("failed to get cluster addons: %w", err)
 	}
 	return resp.Result, nil
 }
 
-// ListAvailableAddons returns addons available for installation on a cluster
-func ListAvailableAddons(token, baseURL, clusterID string) ([]AvailableAddon, error) {
-	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/available", strings.TrimRight(baseURL, "/"), clusterID)
+func (c *Client) ListAvailableAddons(clusterID string) ([]AvailableAddon, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/available", c.BaseURL, clusterID)
 	var resp ListAvailableAddonsResponse
-	if err := getJSON(url, token, &resp); err != nil {
+	if err := c.getJSON(url, &resp); err != nil {
 		return nil, fmt.Errorf("failed to get available addons: %w", err)
 	}
 	return resp.Result, nil
 }
 
-// GetAddonSettings returns the settings for a specific addon
-func GetAddonSettings(token, baseURL, clusterID, addonName string) (*GetAddonSettingsResponse, error) {
+func (c *Client) GetAddonSettings(clusterID, addonName string) (*GetAddonSettingsResponse, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/%s/settings",
-		strings.TrimRight(baseURL, "/"), clusterID, addonName)
+		c.BaseURL, clusterID, addonName)
 	var resp GetAddonSettingsResponse
-	if err := getJSON(url, token, &resp); err != nil {
+	if err := c.getJSON(url, &resp); err != nil {
 		return nil, fmt.Errorf("failed to get addon settings: %w", err)
 	}
 	return &resp, nil
 }
 
-// UpdateAddonSettings updates settings for an addon
-func UpdateAddonSettings(ctx context.Context, token, baseURL, clusterID, addonName string, settings AddonSettings) error {
+func (c *Client) UpdateAddonSettings(ctx context.Context, clusterID, addonName string, settings AddonSettings) error {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/%s/settings",
-		strings.TrimRight(baseURL, "/"), clusterID, addonName)
+		c.BaseURL, clusterID, addonName)
 	payload, err := json.Marshal(settings)
 	if err != nil {
 		return fmt.Errorf("marshal settings: %w", err)
@@ -126,9 +118,9 @@ func UpdateAddonSettings(ctx context.Context, token, baseURL, clusterID, addonNa
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
@@ -146,17 +138,16 @@ func UpdateAddonSettings(ctx context.Context, token, baseURL, clusterID, addonNa
 	return nil
 }
 
-// UninstallAddon uninstalls an addon from a cluster
-func UninstallAddon(ctx context.Context, token, baseURL, clusterID, addonResourceID string, deletePermanently bool) (*UninstallAddonResult, error) {
+func (c *Client) UninstallAddon(ctx context.Context, clusterID, addonResourceID string, deletePermanently bool) (*UninstallAddonResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/%s?delete=%t",
-		strings.TrimRight(baseURL, "/"), clusterID, addonResourceID, deletePermanently)
+		c.BaseURL, clusterID, addonResourceID, deletePermanently)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -174,9 +165,8 @@ func UninstallAddon(ctx context.Context, token, baseURL, clusterID, addonResourc
 	return &UninstallAddonResult{Success: true, Message: "Addon uninstalled"}, nil
 }
 
-// GetAddonByName finds an addon by name and returns its details including ID
-func GetAddonByName(token, baseURL, clusterID, addonName string) (*ClusterAddonListItem, error) {
-	addons, err := ListClusterAddons(token, baseURL, clusterID)
+func (c *Client) GetAddonByName(clusterID, addonName string) (*ClusterAddonListItem, error) {
+	addons, err := c.ListClusterAddons(clusterID)
 	if err != nil {
 		return nil, err
 	}

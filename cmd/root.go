@@ -4,9 +4,17 @@ import (
 	"fmt"
 	"os"
 
+	"ankra/internal/client"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+var apiClient APIClient
+
+func newAPIClient() APIClient {
+	return client.New(apiToken, baseURL)
+}
 
 var (
 	apiToken string
@@ -121,7 +129,10 @@ func initConfig() {
 		os.Exit(1)
 	}
 	apiToken = token
-	baseURL = viper.GetString("base-url")
+	if apiClient == nil {
+		baseURL = viper.GetString("base-url")
+		apiClient = newAPIClient()
+	}
 }
 
 func readConfigFileToken() string {

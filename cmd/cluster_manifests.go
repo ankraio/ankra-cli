@@ -29,7 +29,7 @@ var clusterManifestsListCmd = &cobra.Command{
 			return
 		}
 
-		manifests, err := client.ListClusterManifests(apiToken, baseURL, cluster.ID)
+		manifests, err := apiClient.ListClusterManifests(cluster.ID)
 		if err != nil {
 			fmt.Printf("Error listing manifests: %v\n", err)
 			return
