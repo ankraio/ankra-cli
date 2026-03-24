@@ -194,9 +194,9 @@ func TestStreamPodLogs(t *testing.T) {
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprintln(w, "data: log line one")
-				fmt.Fprintln(w, "data: log line two")
-				fmt.Fprintln(w, "data:log line three")
+				_, _ = fmt.Fprintln(w, "data: log line one")
+				_, _ = fmt.Fprintln(w, "data: log line two")
+				_, _ = fmt.Fprintln(w, "data:log line three")
 			},
 			wantErr:    false,
 			wantOutput: "log line one\nlog line two\nlog line three\n",
@@ -223,8 +223,8 @@ func TestStreamPodLogs(t *testing.T) {
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "text/event-stream")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprintln(w, "event: error")
-				fmt.Fprintln(w, "data: Log stream failed: HTTP 400 - container bad-name is not valid for pod my-pod")
+				_, _ = fmt.Fprintln(w, "event: error")
+				_, _ = fmt.Fprintln(w, "data: Log stream failed: HTTP 400 - container bad-name is not valid for pod my-pod")
 			},
 			wantErr: true,
 		},
@@ -236,7 +236,7 @@ func TestStreamPodLogs(t *testing.T) {
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprintln(w, "data: auto-selected container log")
+				_, _ = fmt.Fprintln(w, "data: auto-selected container log")
 			},
 			wantErr:    false,
 			wantOutput: "auto-selected container log\n",

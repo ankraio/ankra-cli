@@ -225,7 +225,9 @@ func (c *Client) StreamPodLogs(ctx context.Context, clusterID string, opts PodLo
 		if strings.HasPrefix(line, "data:") {
 			data := strings.TrimPrefix(line, "data:")
 			data = strings.TrimPrefix(data, " ")
-			fmt.Fprintln(writer, data)
+			if _, err := fmt.Fprintln(writer, data); err != nil {
+				return fmt.Errorf("write output: %w", err)
+			}
 		}
 	}
 	return scanner.Err()

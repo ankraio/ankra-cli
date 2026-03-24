@@ -60,30 +60,6 @@ func getNestedMap(obj map[string]interface{}, key string) (map[string]interface{
 	return m, ok
 }
 
-func getNestedInt(obj map[string]interface{}, keys ...string) int {
-	current := obj
-	for i, key := range keys {
-		val, ok := current[key]
-		if !ok {
-			return 0
-		}
-		if i == len(keys)-1 {
-			switch v := val.(type) {
-			case float64:
-				return int(v)
-			default:
-				return 0
-			}
-		}
-		nested, ok := val.(map[string]interface{})
-		if !ok {
-			return 0
-		}
-		current = nested
-	}
-	return 0
-}
-
 func formatK8sAge(timestamp string) string {
 	if timestamp == "" {
 		return ""
