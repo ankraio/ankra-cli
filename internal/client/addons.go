@@ -5,9 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
+	neturl "net/url"
 	"time"
 )
 
@@ -78,7 +77,7 @@ type ListAvailableAddonsResponse struct {
 }
 
 func (c *Client) ListClusterAddons(clusterID string) ([]ClusterAddonListItem, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/addons", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/addons", c.BaseURL, neturl.PathEscape(clusterID))
 	var resp ListClusterAddonsResponse
 	if err := c.getJSON(url, &resp); err != nil {
 		return nil, fmt.Errorf("failed to get cluster addons: %w", err)
@@ -87,7 +86,7 @@ func (c *Client) ListClusterAddons(clusterID string) ([]ClusterAddonListItem, er
 }
 
 func (c *Client) ListAvailableAddons(clusterID string) ([]AvailableAddon, error) {
-	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/available", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/available", c.BaseURL, neturl.PathEscape(clusterID))
 	var resp ListAvailableAddonsResponse
 	if err := c.getJSON(url, &resp); err != nil {
 		return nil, fmt.Errorf("failed to get available addons: %w", err)
@@ -97,7 +96,7 @@ func (c *Client) ListAvailableAddons(clusterID string) ([]AvailableAddon, error)
 
 func (c *Client) GetAddonSettings(clusterID, addonName string) (*GetAddonSettingsResponse, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/%s/settings",
-		c.BaseURL, clusterID, addonName)
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(addonName))
 	var resp GetAddonSettingsResponse
 	if err := c.getJSON(url, &resp); err != nil {
 		return nil, fmt.Errorf("failed to get addon settings: %w", err)
@@ -107,7 +106,7 @@ func (c *Client) GetAddonSettings(clusterID, addonName string) (*GetAddonSetting
 
 func (c *Client) UpdateAddonSettings(ctx context.Context, clusterID, addonName string, settings AddonSettings) error {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/%s/settings",
-		c.BaseURL, clusterID, addonName)
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(addonName))
 	payload, err := json.Marshal(settings)
 	if err != nil {
 		return fmt.Errorf("marshal settings: %w", err)
@@ -124,15 +123,14 @@ func (c *Client) UpdateAddonSettings(ctx context.Context, clusterID, addonName s
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update failed: status %d, body: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("update failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	return nil
@@ -140,7 +138,7 @@ func (c *Client) UpdateAddonSettings(ctx context.Context, clusterID, addonName s
 
 func (c *Client) UninstallAddon(ctx context.Context, clusterID, addonResourceID string, deletePermanently bool) (*UninstallAddonResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/%s?delete=%t",
-		c.BaseURL, clusterID, addonResourceID, deletePermanently)
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(addonResourceID), deletePermanently)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -151,15 +149,14 @@ func (c *Client) UninstallAddon(ctx context.Context, clusterID, addonResourceID 
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("uninstall failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("uninstall failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	return &UninstallAddonResult{Success: true, Message: "Addon uninstalled"}, nil

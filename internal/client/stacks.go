@@ -5,9 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
+	neturl "net/url"
 )
 
 type ClusterStackListItem struct {
@@ -89,7 +88,7 @@ type CreateStackResult struct {
 }
 
 func (c *Client) ListClusterStacks(clusterID string) ([]ClusterStackListItem, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/stacks", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/stacks", c.BaseURL, neturl.PathEscape(clusterID))
 
 	var response ListClusterStacksResponse
 	if err := c.getJSON(url, &response); err != nil {
@@ -101,7 +100,7 @@ func (c *Client) ListClusterStacks(clusterID string) ([]ClusterStackListItem, er
 
 func (c *Client) GetStackHistory(clusterID, stackName string) (*GetStackHistoryResponse, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/history",
-		c.BaseURL, clusterID, stackName)
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName))
 	var resp GetStackHistoryResponse
 	if err := c.getJSON(url, &resp); err != nil {
 		return nil, fmt.Errorf("failed to get stack history: %w", err)
@@ -111,7 +110,7 @@ func (c *Client) GetStackHistory(clusterID, stackName string) (*GetStackHistoryR
 
 func (c *Client) DeleteStack(ctx context.Context, clusterID, stackName string) (*DeleteStackResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s",
-		c.BaseURL, clusterID, stackName)
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName))
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -122,15 +121,14 @@ func (c *Client) DeleteStack(ctx context.Context, clusterID, stackName string) (
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	return &DeleteStackResult{Success: true, Message: "Stack deleted"}, nil
@@ -138,7 +136,7 @@ func (c *Client) DeleteStack(ctx context.Context, clusterID, stackName string) (
 
 func (c *Client) RenameStack(ctx context.Context, clusterID, stackName, newName string) (*RenameStackResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/rename-stack",
-		c.BaseURL, clusterID, stackName)
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName))
 	reqBody := RenameStackRequest{NewName: newName}
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -156,15 +154,14 @@ func (c *Client) RenameStack(ctx context.Context, clusterID, stackName, newName 
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("rename failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("rename failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	return &RenameStackResult{Success: true, Message: "Stack renamed"}, nil
@@ -172,7 +169,7 @@ func (c *Client) RenameStack(ctx context.Context, clusterID, stackName, newName 
 
 func (c *Client) CreateStack(ctx context.Context, clusterID, name, description string) (*CreateStackResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks",
-		c.BaseURL, clusterID)
+		c.BaseURL, neturl.PathEscape(clusterID))
 	reqBody := CreateStackRequest{Name: name, Description: description}
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -190,15 +187,14 @@ func (c *Client) CreateStack(ctx context.Context, clusterID, name, description s
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("create failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	return &CreateStackResult{Success: true, Message: "Stack created"}, nil
@@ -221,7 +217,7 @@ type CloneStackToClusterResult struct {
 
 func (c *Client) CloneStackToCluster(ctx context.Context, targetClusterID string, cloneReq CloneStackToClusterRequest) (*CloneStackToClusterResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/clone",
-		c.BaseURL, targetClusterID)
+		c.BaseURL, neturl.PathEscape(targetClusterID))
 
 	payload, err := json.Marshal(cloneReq)
 	if err != nil {
@@ -239,15 +235,14 @@ func (c *Client) CloneStackToCluster(ctx context.Context, targetClusterID string
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("clone failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("clone failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var result CloneStackToClusterResult

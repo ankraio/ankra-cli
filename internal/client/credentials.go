@@ -3,9 +3,8 @@ package client
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
+	neturl "net/url"
 )
 
 type Credential struct {
@@ -45,7 +44,7 @@ type DeleteCredentialResult struct {
 func (c *Client) ListCredentials(provider *string) ([]Credential, error) {
 	url := c.BaseURL + "/api/v1/org/credentials"
 	if provider != nil && *provider != "" {
-		url = url + "?provider=" + *provider
+		url = url + "?provider=" + neturl.QueryEscape(*provider)
 	}
 	var creds []Credential
 	if err := c.getJSON(url, &creds); err != nil {
@@ -55,7 +54,7 @@ func (c *Client) ListCredentials(provider *string) ([]Credential, error) {
 }
 
 func (c *Client) GetCredential(credentialID string) (*CredentialDetail, error) {
-	url := fmt.Sprintf("%s/api/v1/org/credentials/%s", c.BaseURL, credentialID)
+	url := fmt.Sprintf("%s/api/v1/org/credentials/%s", c.BaseURL, neturl.PathEscape(credentialID))
 	var cred CredentialDetail
 	if err := c.getJSON(url, &cred); err != nil {
 		return nil, err
@@ -64,7 +63,7 @@ func (c *Client) GetCredential(credentialID string) (*CredentialDetail, error) {
 }
 
 func (c *Client) ValidateCredentialName(name string) (*CredentialValidationResult, error) {
-	url := fmt.Sprintf("%s/api/v1/org/credentials/validate?credential_name=%s", c.BaseURL, name)
+	url := fmt.Sprintf("%s/api/v1/org/credentials/validate?credential_name=%s", c.BaseURL, neturl.QueryEscape(name))
 	var result CredentialValidationResult
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -74,7 +73,7 @@ func (c *Client) ValidateCredentialName(name string) (*CredentialValidationResul
 
 func (c *Client) DeleteCredential(ctx context.Context, credentialID, organisationID string) (*DeleteCredentialResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/credentials/%s?organisation_id=%s",
-		c.BaseURL, credentialID, organisationID)
+		c.BaseURL, neturl.PathEscape(credentialID), neturl.QueryEscape(organisationID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -85,15 +84,14 @@ func (c *Client) DeleteCredential(ctx context.Context, credentialID, organisatio
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	return &DeleteCredentialResult{Success: true, Message: "Credential deleted"}, nil

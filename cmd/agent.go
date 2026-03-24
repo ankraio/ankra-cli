@@ -21,7 +21,7 @@ var clusterAgentStatusCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 
@@ -32,34 +32,33 @@ var clusterAgentStatusCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Agent Status for cluster '%s':\n\n", cluster.Name)
-		fmt.Printf("  ID:       %s\n", agent.ID)
-		fmt.Printf("  Version:  %s\n", agent.Version)
 
-		status := agent.Status
-		if agent.Healthy {
-			status = text.FgGreen.Sprint(status)
+		version := "unknown"
+		if agent.AgentVersion != nil {
+			version = *agent.AgentVersion
+		}
+		fmt.Printf("  Version:    %s\n", version)
+
+		if agent.CheckedInAt != nil {
+			fmt.Printf("  Last Check-in: %s\n", formatTimeAgo(*agent.CheckedInAt))
 		} else {
-			status = text.FgRed.Sprint(status)
+			fmt.Printf("  Last Check-in: %s\n", text.FgRed.Sprint("never"))
 		}
-		fmt.Printf("  Status:   %s\n", status)
 
-		healthy := text.FgGreen.Sprint("Yes")
-		if !agent.Healthy {
-			healthy = text.FgRed.Sprint("No")
-		}
-		fmt.Printf("  Healthy:  %s\n", healthy)
+		fmt.Printf("  Created:    %s\n", formatTimeAgo(agent.CreatedAt))
 
-		if agent.LastSeen != nil {
-			fmt.Printf("  Last Seen: %s\n", formatTimeAgo(*agent.LastSeen))
-		}
-		if agent.ConnectedAt != nil {
-			fmt.Printf("  Connected: %s\n", formatTimeAgo(*agent.ConnectedAt))
+		if agent.Upgrading {
+			fmt.Printf("  Status:     %s\n", text.FgYellow.Sprint("upgrading"))
+		} else if agent.CheckedInAt != nil {
+			fmt.Printf("  Status:     %s\n", text.FgGreen.Sprint("connected"))
+		} else {
+			fmt.Printf("  Status:     %s\n", text.FgRed.Sprint("not connected"))
 		}
 
 		if agent.UpgradeAvailable {
 			fmt.Printf("\n  Upgrade Available: %s\n", text.FgYellow.Sprint("Yes"))
-			if agent.LatestVersion != nil {
-				fmt.Printf("  Latest Version: %s\n", *agent.LatestVersion)
+			if agent.LatestAgentVersion != nil {
+				fmt.Printf("  Latest Version:    %s\n", *agent.LatestAgentVersion)
 			}
 			fmt.Println("\n  Run 'ankra cluster agent upgrade' to upgrade the agent.")
 		}
@@ -74,7 +73,7 @@ var clusterAgentTokenCmd = &cobra.Command{
 
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 
@@ -115,7 +114,7 @@ var clusterAgentUpgradeCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 

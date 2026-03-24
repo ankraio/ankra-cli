@@ -28,7 +28,7 @@ var clusterAddonsListCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 
@@ -124,7 +124,7 @@ var clusterAddonsAvailableCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 
@@ -177,7 +177,7 @@ var clusterAddonsSettingsCmd = &cobra.Command{
 
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 
@@ -209,7 +209,7 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 
@@ -259,7 +259,7 @@ Usage:
 
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 

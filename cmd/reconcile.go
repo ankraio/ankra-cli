@@ -65,12 +65,26 @@ var clusterListCmd = &cobra.Command{
 	},
 }
 
-var clusterGetCmd = &cobra.Command{
-	Use:   "get <name>",
-	Short: "Get details of a specific cluster",
-	Args:  cobra.ExactArgs(1),
+var clusterInfoCmd = &cobra.Command{
+	Use:     "info [name]",
+	Aliases: []string{"get-cluster"},
+	Short:   "Show details of a specific cluster",
+	Long: `Show details of a specific cluster.
+
+If no name is provided, shows details for the currently selected cluster.`,
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		name := args[0]
+		var name string
+		if len(args) == 1 {
+			name = args[0]
+		} else {
+			selected, err := loadSelectedCluster()
+			if err != nil {
+				fmt.Println("No cluster specified and no cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+				return
+			}
+			name = selected.Name
+		}
 		cluster, err := apiClient.GetCluster(name)
 		if err != nil {
 			fmt.Printf("Error fetching cluster details for %s: %v\n", name, err)
@@ -110,8 +124,7 @@ If a cluster name is provided, reconciles that specific cluster.`,
 			// Use selected cluster
 			selected, err := loadSelectedCluster()
 			if err != nil {
-				fmt.Println("No cluster specified and no cluster selected.")
-				fmt.Println("Either provide a cluster name or select one first with 'ankra cluster select'")
+			fmt.Println("No cluster specified and no cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 				return
 			}
 			clusterID = selected.ID
@@ -152,7 +165,7 @@ func resolveClusterFromArgs(args []string) (string, string, error) {
 	}
 	selected, err := loadSelectedCluster()
 	if err != nil {
-		return "", "", fmt.Errorf("no cluster specified and none selected; use 'ankra cluster select' first")
+		return "", "", fmt.Errorf("no cluster specified and none selected; run 'ankra cluster select <name>' or 'ankra cluster select' first")
 	}
 	return selected.ID, selected.Name, nil
 }
@@ -243,7 +256,7 @@ Example:
 		} else {
 			selected, err := loadSelectedCluster()
 			if err != nil {
-				fmt.Println("No cluster specified. Use --cluster or select one with 'ankra cluster select'")
+				fmt.Println("No cluster specified. Run 'ankra cluster select <name>' or use --cluster.")
 				return
 			}
 			clusterID = selected.ID
@@ -275,7 +288,7 @@ func init() {
 	_ = clusterRollToCmd.MarkFlagRequired("version")
 
 	clusterCmd.AddCommand(clusterListCmd)
-	clusterCmd.AddCommand(clusterGetCmd)
+	clusterCmd.AddCommand(clusterInfoCmd)
 	clusterCmd.AddCommand(clusterReconcileCmd)
 	clusterCmd.AddCommand(clusterProvisionCmd)
 	clusterCmd.AddCommand(clusterDeprovisionCmd)

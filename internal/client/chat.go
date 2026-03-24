@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 )
 
@@ -78,25 +77,24 @@ func (c *Client) StreamChat(clusterID *string, chatReq ChatRequest) (<-chan Chat
 	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
-	resp, err := c.HTTP.Do(httpReq)
+	resp, err := c.StreamingHTTP.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		return nil, fmt.Errorf("chat failed: status %d, body: %s", resp.StatusCode, string(body))
+		body, err := readResponseBody(resp)
+		closeBody(resp)
+		if err != nil {
+			return nil, fmt.Errorf("read response: %w", err)
+		}
+		return nil, fmt.Errorf("chat failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	events := make(chan ChatStreamEvent, 100)
 
 	go func() {
-		defer func() {
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-			}
-		}()
+		defer closeBody(resp)
 		defer close(events)
 
 		reader := bufio.NewReader(resp.Body)
@@ -174,15 +172,14 @@ func (c *Client) DeleteChatConversation(conversationID string) (*DeleteConversat
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, string(body))
+		body, err := readResponseBody(resp)
+		if err != nil {
+			return nil, fmt.Errorf("read response: %w", err)
+		}
+		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	return &DeleteConversationResponse{Success: true, Message: "Conversation deleted"}, nil

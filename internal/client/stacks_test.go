@@ -84,6 +84,56 @@ func TestRenameStack(t *testing.T) {
 	}
 }
 
+func TestCloneStackToCluster(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler http.HandlerFunc
+		wantErr bool
+	}{
+		{
+			name: "success",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || !strings.Contains(r.URL.Path, "/stacks/clone") {
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				jsonResponse(t, w, http.StatusOK, CloneStackToClusterResult{
+					DraftID:         "draft-123",
+					StackName:       "cloned-stack",
+					AddonsCloned:    2,
+					ManifestsCloned: 3,
+				})
+			},
+			wantErr: false,
+		},
+		{
+			name: "error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte("clone failed"))
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testClient := newTestClient(t, tt.handler)
+			got, err := testClient.CloneStackToCluster(context.Background(), "target-cluster-id", CloneStackToClusterRequest{
+				SourceClusterID:            "source-cluster-id",
+				StackName:                  "my-stack",
+				IncludeAddonConfigurations: true,
+			})
+			if (err != nil) != tt.wantErr {
+				t.Errorf("CloneStackToCluster() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got.DraftID != "draft-123" {
+				t.Errorf("CloneStackToCluster() got.DraftID = %v, want draft-123", got.DraftID)
+			}
+		})
+	}
+}
+
 func TestCreateStack(t *testing.T) {
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/stacks") {

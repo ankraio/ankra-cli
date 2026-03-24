@@ -13,10 +13,12 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) *Client {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
+	httpClient := server.Client()
 	return &Client{
-		Token:   testToken,
-		BaseURL: server.URL,
-		HTTP:    server.Client(),
+		Token:         testToken,
+		BaseURL:       server.URL,
+		HTTP:          httpClient,
+		StreamingHTTP: httpClient,
 	}
 }
 

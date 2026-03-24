@@ -3,9 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
 )
 
 type OperationResponseListItem struct {
@@ -53,15 +51,14 @@ func (c *Client) CancelOperation(ctx context.Context, operationID string) (*Canc
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("cancel failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("cancel failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	return &CancelOperationResult{Success: true, Message: "Operation cancelled"}, nil
@@ -80,15 +77,14 @@ func (c *Client) CancelJob(ctx context.Context, operationID, jobID string) (*Can
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("cancel failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("cancel failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	return &CancelJobResult{Success: true, Message: "Job cancelled"}, nil

@@ -5,9 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
+	neturl "net/url"
 	"strings"
 )
 
@@ -75,7 +74,7 @@ func (c *Client) ListClusters(page int, pageSize int) (*ClusterListResponse, err
 }
 
 func (c *Client) GetCluster(name string) (ClusterWithStatus, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters?cluster_name=%s", c.BaseURL, name)
+	url := fmt.Sprintf("%s/api/v1/clusters?cluster_name=%s", c.BaseURL, neturl.QueryEscape(name))
 	var wrapper ClusterWithStatusResponse
 	if err := c.getJSON(url, &wrapper); err != nil {
 		return ClusterWithStatus{}, err
@@ -87,7 +86,7 @@ func (c *Client) GetCluster(name string) (ClusterWithStatus, error) {
 }
 
 func (c *Client) DeleteCluster(ctx context.Context, name string) error {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s", c.BaseURL, name)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s", c.BaseURL, neturl.PathEscape(name))
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return fmt.Errorf("creating DELETE request: %w", err)
@@ -98,17 +97,15 @@ func (c *Client) DeleteCluster(ctx context.Context, name string) error {
 	if err != nil {
 		return fmt.Errorf("sending DELETE to %s: %w", url, err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	body := strings.TrimSpace(string(bodyBytes))
+	bodyBytes, err := readResponseBody(resp)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("status %d: %s", resp.StatusCode, body)
+		return fmt.Errorf("status %d: %s", resp.StatusCode, truncateForError(bodyBytes, 500))
 	}
 	return nil
 }
@@ -122,7 +119,7 @@ type DeprovisionClusterResult struct {
 }
 
 func (c *Client) ProvisionCluster(ctx context.Context, clusterID string) (*ProvisionClusterResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/provision", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/provision", c.BaseURL, neturl.PathEscape(clusterID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -134,15 +131,14 @@ func (c *Client) ProvisionCluster(ctx context.Context, clusterID string) (*Provi
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("provision failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("provision failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var result ProvisionClusterResult
@@ -153,7 +149,7 @@ func (c *Client) ProvisionCluster(ctx context.Context, clusterID string) (*Provi
 }
 
 func (c *Client) DeprovisionCluster(ctx context.Context, clusterID string, autoDelete, force bool) (*DeprovisionClusterResult, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/deprovision", c.BaseURL, clusterID)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/deprovision", c.BaseURL, neturl.PathEscape(clusterID))
 	if autoDelete || force {
 		params := "?"
 		if autoDelete {
@@ -176,15 +172,14 @@ func (c *Client) DeprovisionCluster(ctx context.Context, clusterID string, autoD
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("deprovision failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("deprovision failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var result DeprovisionClusterResult
@@ -225,15 +220,14 @@ func (c *Client) RollToClusterResourceVersion(ctx context.Context, clusterID, ve
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("roll-to failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("roll-to failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var result RollToClusterResourceVersionResult
@@ -349,7 +343,7 @@ type TriggerReconcileResult struct {
 }
 
 func (c *Client) TriggerReconcile(ctx context.Context, clusterID string) (*TriggerReconcileResult, error) {
-	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/reconcile", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/reconcile", c.BaseURL, neturl.PathEscape(clusterID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -361,15 +355,14 @@ func (c *Client) TriggerReconcile(ctx context.Context, clusterID string) (*Trigg
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("reconcile failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("reconcile failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var result TriggerReconcileResult
@@ -405,21 +398,19 @@ func (c *Client) ApplyCluster(ctx context.Context, clusterReq CreateImportCluste
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
-	bodyStr := string(body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var er ImportResponse
 		if json.Unmarshal(body, &er) == nil && len(er.Errors) > 0 {
 			return nil, fmt.Errorf("import failed: %v", er.Errors)
 		}
-		return nil, fmt.Errorf("import failed: status %d, body: %s", resp.StatusCode, bodyStr)
+		return nil, fmt.Errorf("import failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var ir ImportResponse

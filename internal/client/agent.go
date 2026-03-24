@@ -3,21 +3,17 @@ package client
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
 )
 
 type AgentInfo struct {
-	ID               string  `json:"id"`
-	ClusterID        string  `json:"cluster_id"`
-	Status           string  `json:"status"`
-	Version          string  `json:"version"`
-	LastSeen         *string `json:"last_seen,omitempty"`
-	ConnectedAt      *string `json:"connected_at,omitempty"`
-	Healthy          bool    `json:"healthy"`
-	LatestVersion    *string `json:"latest_version,omitempty"`
-	UpgradeAvailable bool    `json:"upgrade_available"`
+	UpgradeAvailable    bool    `json:"upgrade_available"`
+	Upgrading           bool    `json:"upgrading"`
+	CreatedAt           string  `json:"created_at"`
+	CheckedInAt         *string `json:"checked_in_at,omitempty"`
+	AgentVersion        *string `json:"agent_version,omitempty"`
+	LatestAgentVersion  *string `json:"latest_agent_version,omitempty"`
+	DisableAutoUpgrade  bool    `json:"disable_auto_upgrade"`
 }
 
 type AgentToken struct {
@@ -65,15 +61,14 @@ func (c *Client) GenerateAgentToken(ctx context.Context, clusterID string) (*Age
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("generate token failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("generate token failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var agentToken AgentToken
@@ -97,15 +92,14 @@ func (c *Client) UpgradeClusterAgent(ctx context.Context, clusterID string) (*Up
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upgrade failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("upgrade failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	return &UpgradeAgentResult{Success: true, Message: "Agent upgrade initiated"}, nil

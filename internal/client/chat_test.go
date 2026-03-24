@@ -160,6 +160,84 @@ func TestListChatHistory_ClusterScoped(t *testing.T) {
 	}
 }
 
+func TestGetChatConversation_Success(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/v1/chat/general/history/conv-456" {
+			t.Errorf("path = %s, want /api/v1/chat/general/history/conv-456", r.URL.Path)
+		}
+		jsonResponse(t, w, http.StatusOK, ChatConversation{
+			ID:        "conv-456",
+			Title:     strPtr("Test Conversation"),
+			CreatedAt: "2025-01-01T00:00:00Z",
+			UpdatedAt: "2025-01-02T00:00:00Z",
+			Messages: []ChatMessage{
+				{Role: "user", Content: "hello"},
+				{Role: "assistant", Content: "hi there"},
+			},
+		})
+	}
+	testClient := newTestClient(t, handler)
+	got, err := testClient.GetChatConversation("conv-456")
+	if err != nil {
+		t.Fatalf("GetChatConversation() error = %v", err)
+	}
+	if got.ID != "conv-456" {
+		t.Errorf("GetChatConversation() got.ID = %s, want conv-456", got.ID)
+	}
+	if len(got.Messages) != 2 {
+		t.Errorf("GetChatConversation() got %d messages, want 2", len(got.Messages))
+	}
+}
+
+func TestGetChatConversation_NotFound(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}
+	testClient := newTestClient(t, handler)
+	_, err := testClient.GetChatConversation("nonexistent")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestGetClusterHealth_Success(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Query().Get("include_ai_analysis") != "true" {
+			t.Errorf("include_ai_analysis = %s, want true", r.URL.Query().Get("include_ai_analysis"))
+		}
+		jsonResponse(t, w, http.StatusOK, ClusterHealth{
+			OverallHealth: "healthy",
+			Score:         95,
+			LastUpdated:   "2025-06-01T00:00:00Z",
+		})
+	}
+	testClient := newTestClient(t, handler)
+	got, err := testClient.GetClusterHealth("cluster-123", true)
+	if err != nil {
+		t.Fatalf("GetClusterHealth() error = %v", err)
+	}
+	if got.OverallHealth != "healthy" || got.Score != 95 {
+		t.Errorf("GetClusterHealth() got = %v", got)
+	}
+}
+
+func TestGetClusterHealth_Error(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}
+	testClient := newTestClient(t, handler)
+	_, err := testClient.GetClusterHealth("cluster-123", false)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
 func TestDeleteChatConversation_Success(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {

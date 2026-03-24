@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -80,6 +81,7 @@ var logoutCmd = &cobra.Command{
 		viper.Set("base-url", "")
 		viper.Set("token_id", "")
 		viper.Set("token_name", "")
+		viper.Set("machine_id", "")
 
 		if err := viper.WriteConfig(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error clearing credentials: %v\n", err)
@@ -103,6 +105,8 @@ func getConfigPath() string {
 	}
 	return filepath.Join(home, ".ankra.yaml")
 }
+
+var loginHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 func runLogin() error {
 	fmt.Println("Ankra CLI Login")
@@ -136,7 +140,7 @@ func runLogin() error {
 		url.QueryEscape(codeChallenge),
 		url.QueryEscape(loginURL))
 
-	resp, err := http.Get(initURL)
+	resp, err := loginHTTPClient.Get(initURL)
 	if err != nil {
 		_ = listener.Close()
 		return fmt.Errorf("initialize login: %w", err)
@@ -149,8 +153,12 @@ func runLogin() error {
 
 	if resp.StatusCode != http.StatusOK {
 		_ = listener.Close()
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("initialize login failed: %s", string(body))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024))
+		msg := string(body)
+		if len(msg) > 500 {
+			msg = msg[:500] + "... (truncated)"
+		}
+		return fmt.Errorf("initialize login failed: %s", msg)
 	}
 
 	var initResp loginInitResponse
@@ -254,7 +262,7 @@ func runLogin() error {
 	tokenReqBody, _ := json.Marshal(tokenReq)
 	tokenURL := fmt.Sprintf("%s/api/v1/cli/login/token", strings.TrimRight(loginURL, "/"))
 
-	tokenResp, err := http.Post(tokenURL, "application/json", strings.NewReader(string(tokenReqBody)))
+	tokenResp, err := loginHTTPClient.Post(tokenURL, "application/json", strings.NewReader(string(tokenReqBody)))
 	if err != nil {
 		return fmt.Errorf("exchange token: %w", err)
 	}
@@ -265,8 +273,12 @@ func runLogin() error {
 	}()
 
 	if tokenResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(tokenResp.Body)
-		return fmt.Errorf("token exchange failed: %s", string(body))
+		body, _ := io.ReadAll(io.LimitReader(tokenResp.Body, 10*1024))
+		msg := string(body)
+		if len(msg) > 500 {
+			msg = msg[:500] + "... (truncated)"
+		}
+		return fmt.Errorf("token exchange failed: %s", msg)
 	}
 
 	var tokenData tokenExchangeResponse
@@ -300,10 +312,13 @@ func runLogin() error {
 	}
 
 	if err := viper.WriteConfig(); err != nil {
-		// If config doesn't exist, create it
 		if err := viper.SafeWriteConfig(); err != nil {
 			return fmt.Errorf("save config: %w", err)
 		}
+	}
+
+	if err := os.Chmod(configPath, 0600); err != nil {
+		return fmt.Errorf("secure config file: %w", err)
 	}
 
 	fmt.Println()
@@ -339,20 +354,25 @@ func generateCodeChallenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
-func openBrowser(url string) error {
+func openBrowser(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("refusing to open non-HTTP URL: %s", rawURL)
+	}
+
 	var cmd string
 	var args []string
 
 	switch runtime.GOOS {
 	case "darwin":
 		cmd = "open"
-		args = []string{url}
+		args = []string{rawURL}
 	case "linux":
 		cmd = "xdg-open"
-		args = []string{url}
+		args = []string{rawURL}
 	case "windows":
-		cmd = "cmd"
-		args = []string{"/c", "start", url}
+		cmd = "rundll32"
+		args = []string{"url.dll,FileProtocolHandler", rawURL}
 	default:
 		return fmt.Errorf("unsupported platform")
 	}
@@ -390,7 +410,9 @@ func getOrCreateMachineID() string {
 		username = currentUser.Username
 	}
 
-	machineID = fmt.Sprintf("%s-%s", sanitizeIdentifier(hostname), sanitizeIdentifier(username))
+	rawID := fmt.Sprintf("%s-%s", sanitizeIdentifier(hostname), sanitizeIdentifier(username))
+	hash := sha256.Sum256([]byte(rawID))
+	machineID = hex.EncodeToString(hash[:16])
 
 	viper.Set("machine_id", machineID)
 	_ = viper.WriteConfig()

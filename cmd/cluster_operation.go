@@ -27,7 +27,7 @@ var clusterOperationsListCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster is selected. Run 'ankra cluster select' to select one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 		ops, err := apiClient.ListClusterOperations(cluster.ID)
@@ -158,7 +158,7 @@ var clusterOperationsJobsCmd = &cobra.Command{
 
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster is selected. Run 'ankra cluster select' to select one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 

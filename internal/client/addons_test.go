@@ -30,6 +30,31 @@ func TestListClusterAddons(t *testing.T) {
 	}
 }
 
+func TestListAvailableAddons(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/addons/available") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		jsonResponse(t, w, http.StatusOK, ListAvailableAddonsResponse{
+			Result: []AvailableAddon{
+				{ID: "addon-1", Name: "ingress-nginx", ChartName: "ingress-nginx", Version: "4.7.0"},
+				{ID: "addon-2", Name: "cert-manager", ChartName: "cert-manager", Version: "1.12.0"},
+			},
+		})
+	})
+	got, err := testClient.ListAvailableAddons("cluster-id")
+	if err != nil {
+		t.Fatalf("ListAvailableAddons() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("ListAvailableAddons() got %d addons, want 2", len(got))
+	}
+	if got[0].Name != "ingress-nginx" {
+		t.Errorf("ListAvailableAddons() got[0].Name = %v, want ingress-nginx", got[0].Name)
+	}
+}
+
 func TestGetAddonSettings(t *testing.T) {
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, "/addons/ingress/settings") {

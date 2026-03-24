@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
 )
 
 type NodeTaint struct {
@@ -104,15 +102,14 @@ func (c *Client) CreateHetznerCluster(req CreateHetznerClusterRequest) (*CreateH
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var result CreateHetznerClusterResponse
@@ -134,15 +131,14 @@ func (c *Client) DeprovisionHetznerCluster(clusterID string) (*DeprovisionHetzne
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("deprovision failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("deprovision failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var result DeprovisionHetznerClusterResponse
@@ -284,11 +280,14 @@ func (c *Client) doAddNodeGroup(url string, payload []byte) (*AddNodeGroupResult
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("request failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var result AddNodeGroupResult
@@ -310,11 +309,14 @@ func (c *Client) doScaleNodeGroup(url string, payload []byte) (*ScaleNodeGroupRe
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var result ScaleNodeGroupResult
@@ -336,11 +338,14 @@ func (c *Client) doUpdateNodeGroupInstanceType(url string, payload []byte) (*Upd
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var result UpdateNodeGroupResult
@@ -361,11 +366,14 @@ func (c *Client) doDeleteNodeGroup(url string) (*DeleteNodeGroupResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("delete failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var result DeleteNodeGroupResult
@@ -392,15 +400,14 @@ func (c *Client) doScaleWorkers(url string, workerCount int) (*ScaleWorkersResul
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("scale failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("scale failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var result ScaleWorkersResult
@@ -427,15 +434,14 @@ func (c *Client) doUpgradeK8sVersion(url, targetVersion string) (*UpgradeK8sVers
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
-		}
-	}()
+	defer closeBody(resp)
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upgrade failed: status %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("upgrade failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var result UpgradeK8sVersionResult

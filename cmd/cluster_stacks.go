@@ -27,7 +27,7 @@ var clusterStacksListCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 
@@ -186,7 +186,7 @@ var clusterStacksCreateCmd = &cobra.Command{
 
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 
@@ -214,7 +214,7 @@ var clusterStacksDeleteCmd = &cobra.Command{
 
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 
@@ -243,7 +243,7 @@ var clusterStacksRenameCmd = &cobra.Command{
 
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 
@@ -271,7 +271,7 @@ var clusterStacksHistoryCmd = &cobra.Command{
 
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 
@@ -345,7 +345,7 @@ and will need to be reconfigured in the target cluster.`,
 		// Load source cluster (currently selected)
 		sourceCluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
 			return
 		}
 

@@ -21,50 +21,98 @@ type SelectableItem struct {
 }
 
 var clusterSelectCmd = &cobra.Command{
-	Use:   "select",
-	Short: "Interactively select a cluster and save as active",
+	Use:   "select [cluster_name]",
+	Short: "Select a cluster and save as active",
+	Long: `Select a cluster and save it as the active cluster for subsequent commands.
+
+If a cluster name is provided, it will be selected directly without prompting.
+If no name is provided, an interactive picker is shown.
+
+Examples:
+  ankra cluster select
+  ankra cluster select my-cluster`,
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		page := 1
-		fetchedClusters := []client.ClusterListItem{}
-		startCursorPosition := 0
+		if len(args) == 1 {
+			selectClusterByName(args[0])
+			return
+		}
+		selectClusterInteractive()
+	},
+}
 
-		for {
-			response, err := apiClient.ListClusters(page, 25)
-			if err != nil {
-				fmt.Printf("Error listing clusters: %v\n", err)
-				break
-			}
+func selectClusterByName(name string) {
+	cluster, err := apiClient.GetCluster(name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error finding cluster '%s': %v\n", name, err)
+		os.Exit(1)
+	}
 
-			if len(response.Result) == 0 {
-				fmt.Println("No clusters available.")
-				break
-			}
+	listItem := client.ClusterListItem{
+		ID:               cluster.ID,
+		Name:             cluster.Name,
+		IncomingNetworks: cluster.IncomingNetworks,
+		OutgoingNetworks: cluster.OutgoingNetworks,
+		State:            cluster.State,
+		Description:      cluster.Description,
+		Environment:      cluster.Environment,
+		OrganisationID:   cluster.OrganisationID,
+		KubeDistribution: cluster.KubeDistribution,
+		KubeVersion:      cluster.KubeVersion,
+		CreatedAt:        cluster.CreatedAt,
+		DeletedAt:        cluster.DeletedAt,
+		Kind:             cluster.Kind,
+	}
 
-			prompt, selectableItems, updatedFetchedClusters := createListPromptUi(response, fetchedClusters, startCursorPosition)
-			fetchedClusters = updatedFetchedClusters
-			i, _, err := prompt.Run()
-			if err != nil {
-				fmt.Printf("Prompt failed: %v\n", err)
-				break
-			}
-			selectedItem := selectableItems[i]
-			if selectedItem.IsLoadMore {
-				startCursorPosition = i
-				page++
-				continue
+	if err := saveSelectedCluster(listItem); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to save selection: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Selected cluster: %s is now active.\n", cluster.Name)
+}
+
+func selectClusterInteractive() {
+	page := 1
+	fetchedClusters := []client.ClusterListItem{}
+	startCursorPosition := 0
+
+	for {
+		response, err := apiClient.ListClusters(page, 25)
+		if err != nil {
+			fmt.Printf("Error listing clusters: %v\n", err)
+			break
+		}
+
+		if len(response.Result) == 0 {
+			fmt.Println("No clusters available.")
+			break
+		}
+
+		prompt, selectableItems, updatedFetchedClusters := createListPromptUi(response, fetchedClusters, startCursorPosition)
+		fetchedClusters = updatedFetchedClusters
+		i, _, err := prompt.Run()
+		if err != nil {
+			fmt.Printf("Prompt failed: %v\n", err)
+			break
+		}
+		selectedItem := selectableItems[i]
+		if selectedItem.IsLoadMore {
+			startCursorPosition = i
+			page++
+			continue
+		} else {
+			selectedCluster := *selectedItem.Cluster
+			if err := saveSelectedCluster(selectedCluster); err != nil {
+				fmt.Printf("Failed to save selection: %v\n", err)
+				return
 			} else {
-				selectedCluster := *selectedItem.Cluster
-				if err := saveSelectedCluster(selectedCluster); err != nil {
-					fmt.Printf("Failed to save selection: %v\n", err)
-					return
-				} else {
-					fmt.Printf("Selected cluster: %s is now active.\n", selectedCluster.Name)
-					fmt.Println("Run 'ankra cluster --help' to see available commands for this cluster")
-					return
-				}
+				fmt.Printf("Selected cluster: %s is now active.\n", selectedCluster.Name)
+				fmt.Println("Run 'ankra cluster --help' to see available commands for this cluster")
+				return
 			}
 		}
-	},
+	}
 }
 
 var clusterClearCmd = &cobra.Command{
@@ -85,7 +133,7 @@ func selectedClusterFile() (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(home, ".ankra")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, "selected.json"), nil
@@ -100,7 +148,7 @@ func saveSelectedCluster(cluster client.ClusterListItem) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 func loadSelectedCluster() (client.ClusterListItem, error) {

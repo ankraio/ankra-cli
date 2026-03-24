@@ -244,7 +244,7 @@ func downloadFile(url string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to download file: HTTP %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
@@ -294,7 +294,7 @@ func downloadFileFromURL(baseURL, relPath, dstPath string) error {
 		}
 	}()
 
-	if _, err := io.Copy(dstFile, resp.Body); err != nil {
+	if _, err := io.Copy(dstFile, io.LimitReader(resp.Body, 10*1024*1024)); err != nil {
 		return fmt.Errorf("failed to write file content: %w", err)
 	}
 

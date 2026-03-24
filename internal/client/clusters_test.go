@@ -174,6 +174,146 @@ func TestTriggerReconcile(t *testing.T) {
 	}
 }
 
+func TestProvisionCluster(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler http.HandlerFunc
+		wantErr bool
+	}{
+		{
+			name: "success",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || !strings.Contains(r.URL.Path, "/provision") {
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				jsonResponse(t, w, http.StatusOK, ProvisionClusterResult{MarkedToStartAt: "2025-06-01T00:00:00Z"})
+			},
+			wantErr: false,
+		},
+		{
+			name: "error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte("provision failed"))
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testClient := newTestClient(t, tt.handler)
+			got, err := testClient.ProvisionCluster(context.Background(), "cluster-id")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ProvisionCluster() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got.MarkedToStartAt == "" {
+				t.Errorf("ProvisionCluster() got empty MarkedToStartAt")
+			}
+		})
+	}
+}
+
+func TestDeprovisionCluster(t *testing.T) {
+	tests := []struct {
+		name       string
+		autoDelete bool
+		force      bool
+		handler    http.HandlerFunc
+		wantErr    bool
+	}{
+		{
+			name:       "success without flags",
+			autoDelete: false,
+			force:      false,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || !strings.Contains(r.URL.Path, "/deprovision") {
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				jsonResponse(t, w, http.StatusOK, DeprovisionClusterResult{MarkedForDeprovisionAt: "2025-06-01T00:00:00Z"})
+			},
+			wantErr: false,
+		},
+		{
+			name:       "success with auto_delete and force",
+			autoDelete: true,
+			force:      true,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				query := r.URL.RawQuery
+				if !strings.Contains(query, "auto_delete=true") || !strings.Contains(query, "force=true") {
+					t.Errorf("expected auto_delete=true&force=true in query, got %s", query)
+				}
+				jsonResponse(t, w, http.StatusOK, DeprovisionClusterResult{MarkedForDeprovisionAt: "2025-06-01T00:00:00Z"})
+			},
+			wantErr: false,
+		},
+		{
+			name: "error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte("deprovision failed"))
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testClient := newTestClient(t, tt.handler)
+			got, err := testClient.DeprovisionCluster(context.Background(), "cluster-id", tt.autoDelete, tt.force)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DeprovisionCluster() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got.MarkedForDeprovisionAt == "" {
+				t.Errorf("DeprovisionCluster() got empty MarkedForDeprovisionAt")
+			}
+		})
+	}
+}
+
+func TestRollToClusterResourceVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler http.HandlerFunc
+		wantErr bool
+	}{
+		{
+			name: "success",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/api/v1/clusters/resources/roll-to" {
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				jsonResponse(t, w, http.StatusOK, RollToClusterResourceVersionResult{Ok: true})
+			},
+			wantErr: false,
+		},
+		{
+			name: "error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte("roll-to failed"))
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testClient := newTestClient(t, tt.handler)
+			got, err := testClient.RollToClusterResourceVersion(context.Background(), "cluster-id", "version-1")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("RollToClusterResourceVersion() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && !got.Ok {
+				t.Errorf("RollToClusterResourceVersion() got.Ok = false, want true")
+			}
+		})
+	}
+}
+
 func TestApplyCluster(t *testing.T) {
 	validRequest := CreateImportClusterRequest{
 		Name:        "test-cluster",

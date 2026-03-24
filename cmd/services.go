@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"io"
 
 	"ankra/internal/client"
 )
@@ -67,6 +68,20 @@ type APIClient interface {
 	ListCharts(page, pageSize int, onlySubscribed bool) (*client.ListChartsResponse, error)
 	SearchCharts(query string) ([]client.ChartItem, error)
 	GetChartDetails(chartName, repositoryURL string) (*client.ChartDetails, error)
+
+	ListPods(clusterID string, opts *client.ListPodsOptions) (*client.ListPodsResponse, error)
+	GetResources(clusterID string, req client.GetResourcesRequest) (*client.GetResourcesResponse, error)
+	StreamPodLogs(ctx context.Context, clusterID string, opts client.PodLogOptions, writer io.Writer) error
+	ListHelmReleases(clusterID string, opts *client.HelmReleasesOptions) (*client.HelmReleasesResponse, error)
+	UninstallHelmRelease(clusterID, releaseName, namespace string) (*client.UninstallHelmReleaseResponse, error)
+
+	ListHelmRegistries() (*client.ListHelmRegistriesResponse, error)
+	GetHelmRegistry(registryName string) (*client.GetHelmRegistryResponse, error)
+	CreateHelmRegistry(req client.CreateHelmRegistryRequest) (*client.CreateHelmRegistryResponse, error)
+	DeleteHelmRegistry(registryName string) (*client.DeleteHelmRegistryResponse, error)
+	ListHelmRegistryCredentials() (*client.ListHelmCredentialsResponse, error)
+	CreateHelmRegistryCredential(req client.CreateHelmCredentialRequest) (*client.CreateHelmCredentialResponse, error)
+	DeleteHelmRegistryCredential(credentialName string) (*client.DeleteHelmCredentialResponse, error)
 
 	GetClusterAgent(clusterID string) (*client.AgentInfo, error)
 	GetAgentToken(clusterID string) (*client.AgentToken, error)
