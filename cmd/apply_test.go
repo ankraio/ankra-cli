@@ -198,10 +198,9 @@ func TestBuildAddon(t *testing.T) {
 		}
 
 		am := map[string]interface{}{
-			"name":               "cert-manager",
-			"chart_name":         "cert-manager",
-			"chart_version":      "1.14.0",
-			"configuration_type": "standalone",
+			"name":          "cert-manager",
+			"chart_name":    "cert-manager",
+			"chart_version": "1.14.0",
 			"configuration": map[string]interface{}{
 				"from_file": "values/cert-manager.yaml",
 			},

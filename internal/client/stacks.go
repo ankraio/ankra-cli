@@ -33,7 +33,6 @@ type StackAddon struct {
 	ChartVersion      string           `json:"chart_version"`
 	RepositoryURL     string           `json:"repository_url"`
 	Namespace         string           `json:"namespace"`
-	ConfigurationType string           `json:"configuration_type"`
 	Configuration     StackAddonConfig `json:"configuration"`
 	Parents           []Parent         `json:"parents"`
 	State             string           `json:"state"`

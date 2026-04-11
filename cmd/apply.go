@@ -155,6 +155,14 @@ func buildStack(sm map[string]interface{}, baseDir string) (client.Stack, error)
 		return client.Stack{}, errors.New("stack.name is required")
 	}
 	desc, _ := sm["description"].(string)
+	if descFile, ok := sm["description_from_file"].(string); ok && descFile != "" && desc == "" {
+		full := filepath.Join(baseDir, descFile)
+		b, err := os.ReadFile(full)
+		if err != nil {
+			return client.Stack{}, fmt.Errorf("read stack description %q: %w", full, err)
+		}
+		desc = string(b)
+	}
 
 	var manifests []client.Manifest
 	if rawMan, ok := sm["manifests"].([]interface{}); ok {
@@ -265,36 +273,19 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 	}
 
 	var cfg interface{}
-	ct, _ := am["configuration_type"].(string)
 	if conf, ok := am["configuration"].(map[string]interface{}); ok {
-		switch client.AddonConfigurationType(ct) {
-		case client.StandaloneType:
-			if pf, ok := conf["from_file"].(string); ok {
-				full := filepath.Join(baseDir, pf)
-				b, err := os.ReadFile(full)
-				if err != nil {
-					return client.Addon{}, fmt.Errorf("read addon configuration %q: %w", full, err)
-				}
-				cfg = client.AddonStandaloneConfiguration{
-					ValuesBase64: base64.StdEncoding.EncodeToString(b),
-				}
-			} else if inline, ok := conf["values"].(string); ok && inline != "" {
-				cfg = client.AddonStandaloneConfiguration{
-					ValuesBase64: base64.StdEncoding.EncodeToString([]byte(inline)),
-				}
+		if pf, ok := conf["from_file"].(string); ok {
+			full := filepath.Join(baseDir, pf)
+			b, err := os.ReadFile(full)
+			if err != nil {
+				return client.Addon{}, fmt.Errorf("read addon configuration %q: %w", full, err)
 			}
-		case client.ProfileType:
-			if pf, ok := conf["from_file"].(string); ok {
-				full := filepath.Join(baseDir, pf)
-				b, err := os.ReadFile(full)
-				if err != nil {
-					return client.Addon{}, fmt.Errorf("read addon profile %q: %w", full, err)
-				}
-				var prof client.AddonProfile
-				if err := yaml.Unmarshal(b, &prof); err != nil {
-					return client.Addon{}, fmt.Errorf("unmarshal profile %q: %w", full, err)
-				}
-				cfg = client.AddonProfileConfiguration{Profile: prof}
+			cfg = client.AddonStandaloneConfiguration{
+				ValuesBase64: base64.StdEncoding.EncodeToString(b),
+			}
+		} else if inline, ok := conf["values"].(string); ok && inline != "" {
+			cfg = client.AddonStandaloneConfiguration{
+				ValuesBase64: base64.StdEncoding.EncodeToString([]byte(inline)),
 			}
 		}
 	}
@@ -305,7 +296,6 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 		ChartVersion:           ver,
 		RepositoryURL:          repo,
 		Namespace:              ns,
-		ConfigurationType:      ct,
 		Configuration:          cfg,
 		Parents:                parents,
 		RegistryName:           registryName,

@@ -31,7 +31,6 @@ spec:
           namespace: fluent-bit
           parents:
             - manifest: configmap-fluent-bit
-          configuration_type: standalone
           configuration:
             values: |-
               fluent-bit:

@@ -102,7 +102,6 @@ spec:
         - name: grafana
           chart_name: grafana
           chart_version: "7.0.0"
-          configuration_type: standalone
           configuration:
             from_file: values/grafana.yaml
         - name: prometheus

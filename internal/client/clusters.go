@@ -244,32 +244,9 @@ type Parent struct {
 	Kind AnkraResourceKind `json:"kind"`
 }
 
-type AddonProfileInput struct {
-	Key   string      `json:"key"`
-	Value interface{} `json:"value"`
-}
-
-type AddonProfile struct {
-	Name     string              `json:"name"`
-	Owner    string              `json:"owner"`
-	Revision string              `json:"revision"`
-	Inputs   []AddonProfileInput `json:"inputs,omitempty"`
-}
-
-type AddonProfileConfiguration struct {
-	Profile AddonProfile `json:"profile"`
-}
-
 type AddonStandaloneConfiguration struct {
 	ValuesBase64 string `json:"values_base64,omitempty"`
 }
-
-type AddonConfigurationType string
-
-const (
-	StandaloneType AddonConfigurationType = "standalone"
-	ProfileType    AddonConfigurationType = "profile"
-)
 
 type Addon struct {
 	Name                   string                 `json:"name"`
@@ -277,7 +254,6 @@ type Addon struct {
 	ChartVersion           string                 `json:"chart_version"`
 	RepositoryURL          string                 `json:"repository_url,omitempty"`
 	Namespace              string                 `json:"namespace,omitempty"`
-	ConfigurationType      string                 `json:"configuration_type,omitempty"`
 	Configuration          interface{}            `json:"configuration,omitempty"`
 	Parents                []Parent               `json:"parents"`
 	RegistryName           string                 `json:"registry_name,omitempty"`

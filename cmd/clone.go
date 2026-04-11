@@ -189,10 +189,11 @@ type GitRepositoryConfig struct {
 }
 
 type StackConfig struct {
-	Name        string           `yaml:"name"`
-	Description string           `yaml:"description,omitempty"`
-	Manifests   []ManifestConfig `yaml:"manifests,omitempty"`
-	Addons      []AddonConfig    `yaml:"addons,omitempty"`
+	Name                string           `yaml:"name"`
+	Description         string           `yaml:"description,omitempty"`
+	DescriptionFromFile string           `yaml:"description_from_file,omitempty"`
+	Manifests           []ManifestConfig `yaml:"manifests,omitempty"`
+	Addons              []AddonConfig    `yaml:"addons,omitempty"`
 }
 
 type ManifestConfig struct {
@@ -210,7 +211,6 @@ type AddonConfig struct {
 	ChartVersion           string                 `yaml:"chart_version"`
 	RepositoryURL          string                 `yaml:"repository_url,omitempty"`
 	Namespace              string                 `yaml:"namespace,omitempty"`
-	ConfigurationType      string                 `yaml:"configuration_type,omitempty"`
 	Configuration          map[string]interface{} `yaml:"configuration,omitempty"`
 	Parents                []ParentConfig         `yaml:"parents,omitempty"`
 	RegistryName           string                 `yaml:"registry_name,omitempty"`
@@ -434,6 +434,22 @@ func checkStackConflicts(newStack StackConfig, existingStacks []StackConfig) ([]
 }
 
 func copyStackFiles(stack StackConfig, existingBaseDir, newBaseDir string, onlyMissing bool, fromURL bool) error {
+	if stack.DescriptionFromFile != "" {
+		dstPath := filepath.Join(newBaseDir, stack.DescriptionFromFile)
+
+		if !onlyMissing || func() bool { _, err := os.Stat(dstPath); return os.IsNotExist(err) }() {
+			if fromURL {
+				if err := downloadFileFromURL(existingBaseDir, stack.DescriptionFromFile, dstPath); err != nil {
+					return fmt.Errorf("failed to download stack description file %q: %w", stack.DescriptionFromFile, err)
+				}
+			} else {
+				if err := copyFile(existingBaseDir, newBaseDir, stack.DescriptionFromFile); err != nil {
+					return fmt.Errorf("failed to copy stack description file %q: %w", stack.DescriptionFromFile, err)
+				}
+			}
+		}
+	}
+
 	// Copy files for manifests
 	for i := range stack.Manifests {
 		if stack.Manifests[i].FromFile != "" {
