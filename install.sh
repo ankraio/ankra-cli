@@ -167,13 +167,23 @@ fi
     echo -e "${CYAN}─────────────────────────────────────────────────────────────${NC}"
     echo
     echo -e "${WHITE}1.${NC} ${BOLD}Login to Ankra:${NC}"
-    echo -e "   ${CYAN}ankra auth login${NC}"
+    echo -e "   ${CYAN}ankra login${NC}"
     echo
-    echo -e "${WHITE}2.${NC} ${BOLD}Select a cluster:${NC}"
+    echo -e "${WHITE}2.${NC} ${BOLD}Enable shell completions:${NC}"
+    echo -e "   ${CYAN}ankra completion install${NC}"
+    echo
+    echo -e "${WHITE}3.${NC} ${BOLD}Select a cluster to work with:${NC}"
+    echo -e "   ${CYAN}ankra cluster list${NC}"
     echo -e "   ${CYAN}ankra cluster select${NC}"
     echo
-    echo -e "${WHITE}3.${NC} ${BOLD}Get started:${NC}"
-    echo -e "   ${CYAN}ankra --help${NC}"
+    echo -e "${CYAN}─────────────────────────────────────────────────────────────${NC}"
+    echo
+    echo -e "${WHITE}${BOLD}📋 USEFUL COMMANDS${NC}"
+    echo
+    echo -e "   ${CYAN}ankra cluster info${NC}          ${GRAY}Show current cluster details${NC}"
+    echo -e "   ${CYAN}ankra cluster get pods${NC}      ${GRAY}List pods across namespaces${NC}"
+    echo -e "   ${CYAN}ankra org list${NC}              ${GRAY}List your organisations${NC}"
+    echo -e "   ${CYAN}ankra chat${NC}                  ${GRAY}Chat with Ankra AI${NC}"
     echo
     echo -e "${CYAN}─────────────────────────────────────────────────────────────${NC}"
     echo -e "${PURPLE}${BOLD}📚 Documentation:${NC} ${CYAN}https://docs.ankra.io${NC}"
