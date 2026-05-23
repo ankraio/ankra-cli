@@ -20,11 +20,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version-file: go.mod
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: v1.62.2
+          version: v2.12.2
       - name: Run tests
         run: go test -race -count=1 -timeout=120s -coverprofile=coverage.out ./...
       - name: Check coverage
