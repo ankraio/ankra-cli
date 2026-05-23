@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -94,6 +95,8 @@ var logoutCmd = &cobra.Command{
 }
 
 func init() {
+	setRequiresAuth(loginCmd, false)
+	setRequiresAuth(logoutCmd, false)
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(logoutCmd)
 }
@@ -104,6 +107,35 @@ func getConfigPath() string {
 		return ".ankra.yaml"
 	}
 	return filepath.Join(home, ".ankra.yaml")
+}
+
+// ensureSecureConfigFile creates `path` with 0600 permissions if it does
+// not exist, or repairs the permissions of an existing file. It is a
+// no-op when the file already has 0600.
+func ensureSecureConfigFile(path string) error {
+	info, err := os.Stat(path)
+	switch {
+	case err == nil:
+		// File exists - tighten permissions if they are loose.
+		mode := info.Mode().Perm()
+		if mode&0o077 != 0 {
+			fmt.Fprintf(os.Stderr,
+				"Warning: %s currently has permissions %#o; tightening to 0600.\n",
+				path, mode)
+			if err := os.Chmod(path, 0o600); err != nil {
+				return fmt.Errorf("tighten config permissions: %w", err)
+			}
+		}
+		return nil
+	case errors.Is(err, os.ErrNotExist):
+		f, createErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
+		if createErr != nil {
+			return fmt.Errorf("create config file: %w", createErr)
+		}
+		return f.Close()
+	default:
+		return fmt.Errorf("stat config file: %w", err)
+	}
 }
 
 var loginHTTPClient = &http.Client{Timeout: 30 * time.Second}
@@ -286,22 +318,27 @@ func runLogin() error {
 		return fmt.Errorf("parse token response: %w", err)
 	}
 
-	// Save token to config
 	configPath := getConfigPath()
 
-	// Ensure config directory exists
 	configDir := filepath.Dir(configPath)
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return fmt.Errorf("create config directory: %w", err)
+	}
+
+	// Create the file with 0600 permissions before viper writes to it.
+	// Viper's WriteConfig leaves the existing permissions in place on a
+	// pre-existing file, so we need the file to be 0600 *before* the
+	// token lands in it. The Chmod after WriteConfig acts as a belt-
+	// and-suspenders for the rare case where the file already exists
+	// with looser permissions.
+	if err := ensureSecureConfigFile(configPath); err != nil {
+		return err
 	}
 
 	viper.SetConfigFile(configPath)
 	viper.SetConfigType("yaml")
-
-	// Try to read existing config
 	_ = viper.ReadInConfig()
 
-	// Set the token and metadata
 	viper.Set("token", tokenData.Token)
 	viper.Set("base-url", loginURL)
 	if tokenData.TokenID != "" {
@@ -312,12 +349,12 @@ func runLogin() error {
 	}
 
 	if err := viper.WriteConfig(); err != nil {
-		if err := viper.SafeWriteConfig(); err != nil {
+		if safeErr := viper.SafeWriteConfig(); safeErr != nil {
 			return fmt.Errorf("save config: %w", err)
 		}
 	}
 
-	if err := os.Chmod(configPath, 0600); err != nil {
+	if err := os.Chmod(configPath, 0o600); err != nil {
 		return fmt.Errorf("secure config file: %w", err)
 	}
 

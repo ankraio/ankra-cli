@@ -5,9 +5,14 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: read
+
 jobs:
   build-and-release:
     name: Build and Release
+    permissions:
+      contents: write
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -37,32 +42,54 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.23'
 
       - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+          VERSION: ${{ github.ref_name }}
         run: |
           mkdir -p dist
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="-w -s" -o dist/ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}.exe
-          else
-            CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="-w -s" -o dist/ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          OUTPUT="ankra-cli-${GOOS}-${GOARCH}"
+          if [ "${GOOS}" = "windows" ]; then
+            OUTPUT="${OUTPUT}.exe"
           fi
+          go build -trimpath -ldflags="-w -s -X main.version=${VERSION}" -o "dist/${OUTPUT}"
 
       - name: Sign macOS binary
         if: matrix.goos == 'darwin'
         run: |
           chmod +x dist/ankra-cli-darwin-${{ matrix.goarch }}
-          # Remove quarantine attribute for local testing
           if command -v xattr >/dev/null 2>&1; then
             xattr -d com.apple.quarantine dist/ankra-cli-darwin-${{ matrix.goarch }} 2>/dev/null || true
           fi
-          # Ad-hoc sign to reduce Gatekeeper warnings
+          # Ad-hoc sign to reduce Gatekeeper warnings until proper
+          # Developer ID signing/notarization is configured.
           codesign --force --sign - dist/ankra-cli-darwin-${{ matrix.goarch }}
+
+      - name: Compute SHA256 checksum
+        shell: bash
+        run: |
+          cd dist
+          BINARY=$(ls ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}* 2>/dev/null | head -n 1)
+          if [ -z "${BINARY}" ]; then
+            echo "no binary found to checksum" >&2
+            exit 1
+          fi
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${BINARY}" > "${BINARY}.sha256"
+          else
+            shasum -a 256 "${BINARY}" > "${BINARY}.sha256"
+          fi
+          cat "${BINARY}.sha256"
 
       - name: Upload binaries
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/ankra-cli-*
+          files: |
+            dist/ankra-cli-*
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -75,3 +102,7 @@ jobs:
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Print version smoke test
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: ./dist/ankra-cli-linux-amd64 --version

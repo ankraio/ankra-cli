@@ -240,8 +240,8 @@ ankra org remove <user_id> [-f]       # Remove a user from the organisation
 #### Cluster Management
 ```bash
 ankra cluster list                    # List all clusters
-ankra cluster get <name>              # Get cluster details
-ankra cluster select                  # Interactively select a cluster
+ankra cluster info [name]             # Show cluster details (defaults to selected cluster)
+ankra cluster select [name]           # Select a cluster (interactive when no name)
 ankra cluster clear                   # Clear active cluster selection
 ankra cluster reconcile [name]        # Trigger cluster reconciliation
 ankra cluster apply -f <file>         # Apply an ImportCluster YAML
@@ -286,14 +286,19 @@ ankra cluster addons uninstall <name> # Uninstall an addon
   [--delete]                          #   Also delete the addon permanently
 ```
 
-#### Cluster Operations
+#### Cluster Operations (Executions)
 ```bash
-ankra cluster operations list [id]    # List operations or show details
-ankra cluster operations cancel <id>  # Cancel a running operation
-ankra cluster operations cancel-job <op_id> <job_id>  # Cancel a job
-ankra cluster operations jobs <op_id> # List jobs for an operation
-  [--kind <kind>] [--since <ts>]
+ankra cluster operations list [id]            # List executions or show details
+  [--status failed --status critical]         #   Filter by status (repeatable)
+  [--failed]                                  #   Shortcut for failed + critical
+  [--limit 50]                                #   Page size (max 100)
+ankra cluster operations cancel <id> [<id>...]    # Cancel one or more executions
+ankra cluster operations cancel-step <exec_id> <step_id>  # Cancel a single step
+ankra cluster operations retry <exec_id>      # Retry a terminal execution
+ankra cluster operations steps <exec_id>      # List steps for an execution
 ```
+
+`ankra cluster executions ...` is an alias for `ankra cluster operations ...` and uses the canonical `/api/v1/org/executions` endpoints.
 
 #### Cluster Agent
 ```bash
@@ -511,9 +516,10 @@ ankra cluster roll-to --version <version_id>
 # Invite a team member
 ankra org invite colleague@company.com --role admin
 
-# Inspect operation jobs
-ankra cluster operations list
-ankra cluster operations jobs <operation_id> --kind reconcile
+# Investigate executions and failures
+ankra cluster operations list --failed
+ankra cluster operations steps <execution_id>
+ankra cluster operations retry <execution_id>
 
 # Update addon settings from a file
 ankra cluster addons update my-addon -f settings.json

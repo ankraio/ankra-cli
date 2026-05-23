@@ -23,19 +23,17 @@ If no message is provided, enters interactive chat mode.
 
 Use --cluster to provide cluster context for better answers.`,
 	Args: cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterName, _ := cmd.Flags().GetString("cluster")
 
 		var clusterID *string
 		if clusterName != "" {
 			cluster, err := apiClient.GetCluster(clusterName)
 			if err != nil {
-				fmt.Printf("Error finding cluster %s: %v\n", clusterName, err)
-				return
+				return fmt.Errorf("finding cluster %s: %w", clusterName, err)
 			}
 			clusterID = &cluster.ID
 		} else {
-			// Try to use selected cluster
 			selected, err := loadSelectedCluster()
 			if err == nil {
 				clusterID = &selected.ID
@@ -43,22 +41,17 @@ Use --cluster to provide cluster context for better answers.`,
 		}
 
 		if len(args) > 0 {
-			// One-shot mode
-			query := args[0]
-			runChatMessage(clusterID, query)
-		} else {
-			// Interactive mode
-			runInteractiveChat(clusterID)
+			return runChatMessage(clusterID, args[0])
 		}
+		return runInteractiveChat(clusterID)
 	},
 }
 
-func runChatMessage(clusterID *string, query string) {
+func runChatMessage(clusterID *string, query string) error {
 	req := client.ChatRequest{Query: query}
 	events, err := apiClient.StreamChat(clusterID, req)
 	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		return
+		return fmt.Errorf("chat: %w", err)
 	}
 
 	fmt.Print("\n")
@@ -103,9 +96,10 @@ func runChatMessage(clusterID *string, query string) {
 			// Ignore triage, context and other metadata events
 		}
 	}
+	return nil
 }
 
-func runInteractiveChat(clusterID *string) {
+func runInteractiveChat(clusterID *string) error {
 	fmt.Println("Ankra AI Chat")
 	fmt.Println("─────────────")
 	if clusterID != nil {
@@ -123,8 +117,7 @@ func runInteractiveChat(clusterID *string) {
 		fmt.Print(text.FgCyan.Sprint("You: "))
 		input, err := reader.ReadString('\n')
 		if err != nil {
-			fmt.Printf("Error reading input: %v\n", err)
-			break
+			return fmt.Errorf("reading input: %w", err)
 		}
 
 		input = strings.TrimSpace(input)
@@ -135,7 +128,7 @@ func runInteractiveChat(clusterID *string) {
 		switch strings.ToLower(input) {
 		case "exit", "quit", "q":
 			fmt.Println("Goodbye!")
-			return
+			return nil
 		case "clear":
 			history = nil
 			fmt.Println("Chat history cleared.")

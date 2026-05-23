@@ -73,20 +73,32 @@ func (m baseMock) UninstallAddon(ctx context.Context, clusterID, addonResourceID
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListClusterOperations(clusterID string) ([]client.OperationResponseListItem, error) {
+func (m baseMock) ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error) {
+	return client.ExecutionListResponse{}, errors.New("not implemented")
+}
+
+func (m baseMock) GetExecution(executionID string) (client.ExecutionDetail, error) {
+	return client.ExecutionDetail{}, errors.New("not implemented")
+}
+
+func (m baseMock) ListExecutionSteps(executionID string) ([]client.ExecutionStep, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) CancelOperation(ctx context.Context, operationID string) (*client.CancelOperationResult, error) {
+func (m baseMock) CancelExecution(ctx context.Context, executionID string) (*client.CancelExecutionResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) CancelJob(ctx context.Context, operationID, jobID string) (*client.CancelJobResult, error) {
+func (m baseMock) CancelExecutionStep(ctx context.Context, executionID, stepID string) (*client.CancelStepResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListOperationJobs(clusterID, operationID string, opts *client.ListOperationJobsOptions) (client.GetJobStatusResponse, error) {
-	return client.GetJobStatusResponse{}, errors.New("not implemented")
+func (m baseMock) BatchCancelExecutions(ctx context.Context, executionIDs []string) (*client.BatchCancelExecutionsResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RetryExecution(ctx context.Context, executionID string) (*client.ExecutionSummary, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) GetSopsConfig() (*client.SopsConfigResult, error) {
@@ -285,7 +297,7 @@ func (m baseMock) CreateHetznerCluster(req client.CreateHetznerClusterRequest) (
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionHetznerCluster(clusterID string) (*client.DeprovisionHetznerClusterResponse, error) {
+func (m baseMock) DeprovisionHetznerCluster(clusterID string, force bool) (*client.DeprovisionHetznerClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -622,12 +634,12 @@ func TestClusterInfoNotFoundCommand(t *testing.T) {
 	}
 	setMockClient(t, mock)
 
-	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "info", "nonexistent-cluster")
-	})
-
-	if !strings.Contains(stdoutOutput, "Error") {
-		t.Errorf("expected error output for nonexistent cluster, got: %s", stdoutOutput)
+	output, err := executeCommand("cluster", "info", "nonexistent-cluster")
+	if err == nil {
+		t.Fatalf("expected non-zero exit for nonexistent cluster; output=%s", output)
+	}
+	if !strings.Contains(err.Error(), "nonexistent-cluster") {
+		t.Errorf("expected returned error to mention cluster name, got: %v", err)
 	}
 }
 
@@ -869,23 +881,28 @@ func TestClusterStacksListCommand(t *testing.T) {
 
 type clusterOperationsListMock struct {
 	baseMock
-	operations []client.OperationResponseListItem
+	executions []client.ExecutionSummary
 }
 
-func (m *clusterOperationsListMock) ListClusterOperations(clusterID string) ([]client.OperationResponseListItem, error) {
-	return m.operations, nil
+func (m *clusterOperationsListMock) ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error) {
+	return client.ExecutionListResponse{Result: m.executions}, nil
 }
 
 func TestClusterOperationsListCommand(t *testing.T) {
 	writeSelectedClusterJSON(t)
+	createdAt := "2024-04-01T10:00:00Z"
+	updatedAt := "2024-04-01T10:05:00Z"
 	mock := &clusterOperationsListMock{
-		operations: []client.OperationResponseListItem{
+		executions: []client.ExecutionSummary{
 			{
-				ID:        "operation-uuid-1",
-				Name:      "sync-cluster",
-				Status:    "success",
-				CreatedAt: "2024-04-01T10:00:00Z",
-				UpdatedAt: "2024-04-01T10:05:00Z",
+				ID:          "execution-uuid-1",
+				Name:        "sync_cluster",
+				DisplayName: "sync-cluster",
+				Type:        "write",
+				Status:      "success",
+				StepSummary: client.StepSummary{Total: 1, Succeeded: 1},
+				CreatedAt:   &createdAt,
+				UpdatedAt:   &updatedAt,
 			},
 		},
 	}
@@ -895,8 +912,8 @@ func TestClusterOperationsListCommand(t *testing.T) {
 		_, _ = executeCommand("cluster", "operations", "list")
 	})
 
-	if !strings.Contains(stdoutOutput, "operation-uuid-1") {
-		t.Errorf("expected output to contain 'operation-uuid-1', got: %s", stdoutOutput)
+	if !strings.Contains(stdoutOutput, "execution-uuid-1") {
+		t.Errorf("expected output to contain 'execution-uuid-1', got: %s", stdoutOutput)
 	}
 	if !strings.Contains(stdoutOutput, "sync-cluster") {
 		t.Errorf("expected output to contain 'sync-cluster', got: %s", stdoutOutput)
@@ -959,26 +976,28 @@ type helmRegistryCredentialsListMock struct {
 
 func (m *helmRegistryCredentialsListMock) ListHelmRegistryCredentials() (*client.ListHelmCredentialsResponse, error) {
 	return &client.ListHelmCredentialsResponse{
-		Result: m.credentials,
+		Credentials: m.credentials,
+		TotalCount:  len(m.credentials),
 	}, nil
 }
 
 func TestHelmRegistriesListCommand(t *testing.T) {
+	created1 := "2024-01-01T00:00:00Z"
+	created2 := "2024-02-01T00:00:00Z"
 	mock := &helmRegistriesListMock{
 		registries: []client.HelmRegistryListItem{
 			{
-				Name:      "oci-production",
-				Type:      "oci",
-				URL:       "oci://registry.example.com/charts",
-				Status:    "ready",
-				CreatedAt: "2024-01-01T00:00:00Z",
+				Name:       "oci-production",
+				URL:        "oci://registry.example.com/charts",
+				CreatedAt:  &created1,
+				ChartCount: 5,
 			},
 			{
-				Name:      "github-charts",
-				Type:      "github",
-				URL:       "https://github.com/org/charts",
-				Status:    "ready",
-				CreatedAt: "2024-02-01T00:00:00Z",
+				Name:       "github-charts",
+				URL:        "https://github.com/org/charts",
+				CreatedAt:  &created2,
+				ChartCount: 10,
+				IsGlobal:   true,
 			},
 		},
 	}

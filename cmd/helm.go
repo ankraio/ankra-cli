@@ -26,27 +26,39 @@ var helmRegistriesCmd = &cobra.Command{
 var helmRegistriesListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List Helm chart registries",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		response, err := apiClient.ListHelmRegistries()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error listing registries: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("listing registries: %w", err)
 		}
 
 		if len(response.Result) == 0 {
 			fmt.Println("No Helm registries found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{"Name", "Type", "URL", "Status", "Created"})
+		t.AppendHeader(table.Row{"Name", "Kind", "URL", "Charts", "Indexing", "Global", "Last Indexed"})
 
 		for _, reg := range response.Result {
-			t.AppendRow(table.Row{reg.Name, reg.Type, reg.URL, reg.Status, formatTimeAgo(reg.CreatedAt)})
+			lastIndexed := "-"
+			if reg.LastIndexedAt != nil && *reg.LastIndexedAt != "" {
+				lastIndexed = formatTimeAgo(*reg.LastIndexedAt)
+			}
+			t.AppendRow(table.Row{
+				reg.Name,
+				reg.Kind(),
+				reg.URL,
+				reg.ChartCount,
+				reg.Indexing,
+				reg.IsGlobal,
+				lastIndexed,
+			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
@@ -54,20 +66,32 @@ var helmRegistriesGetCmd = &cobra.Command{
 	Use:   "get <name>",
 	Short: "Get details of a Helm chart registry",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		registryName := args[0]
 
 		response, err := apiClient.GetHelmRegistry(registryName)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("getting registry: %w", err)
 		}
 
-		fmt.Printf("Registry: %s\n", response.Name)
-		fmt.Printf("  Type:      %s\n", response.Type)
-		fmt.Printf("  URL:       %s\n", response.URL)
-		fmt.Printf("  Status:    %s\n", response.Status)
-		fmt.Printf("  Created:   %s\n", formatTimeAgo(response.CreatedAt))
+		fmt.Printf("Registry: %s\n", response.Registry.Name)
+		fmt.Printf("  URL:           %s\n", response.Registry.URL)
+		if response.Registry.CredentialName != nil && *response.Registry.CredentialName != "" {
+			fmt.Printf("  Credential:    %s\n", *response.Registry.CredentialName)
+		}
+		fmt.Printf("  Indexing:      %t\n", response.Indexing)
+		if response.LastIndexedAt != nil && *response.LastIndexedAt != "" {
+			fmt.Printf("  Last Indexed:  %s\n", formatTimeAgo(*response.LastIndexedAt))
+		}
+		if response.NextSyncAt != nil && *response.NextSyncAt != "" {
+			fmt.Printf("  Next Sync:     %s\n", formatTimeAgo(*response.NextSyncAt))
+		}
+		fmt.Printf("  Charts:        %d (showing %d on this page)\n",
+			response.Pagination.TotalCount, len(response.Charts))
+		if response.ResourceState != nil && *response.ResourceState != "" {
+			fmt.Printf("  State:         %s\n", *response.ResourceState)
+		}
+		return nil
 	},
 }
 
@@ -78,25 +102,22 @@ var helmRegistriesCreateCmd = &cobra.Command{
 
 Example:
   ankra helm registries create -f registry-spec.json`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		filePath, _ := cmd.Flags().GetString("file")
 
 		fileData, err := os.ReadFile(filePath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("reading file: %w", err)
 		}
 
 		var specJSON json.RawMessage
 		if err := json.Unmarshal(fileData, &specJSON); err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing JSON: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("parsing JSON: %w", err)
 		}
 
 		result, err := apiClient.CreateHelmRegistry(client.CreateHelmRegistryRequest{Spec: specJSON})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating registry: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("creating registry: %w", err)
 		}
 
 		if len(result.Errors) > 0 {
@@ -104,10 +125,11 @@ Example:
 			for _, e := range result.Errors {
 				fmt.Fprintf(os.Stderr, "  - %s: %s\n", e.Key, e.Message)
 			}
-			os.Exit(1)
+			return fmt.Errorf("registry creation reported %d error(s)", len(result.Errors))
 		}
 
 		fmt.Println("Helm registry created successfully!")
+		return nil
 	},
 }
 
@@ -115,7 +137,7 @@ var helmRegistriesDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a Helm chart registry",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		registryName := args[0]
 		force, _ := cmd.Flags().GetBool("force")
 
@@ -126,17 +148,16 @@ var helmRegistriesDeleteCmd = &cobra.Command{
 			}
 			if _, err := prompt.Run(); err != nil {
 				fmt.Println("Cancelled.")
-				return
+				return nil
 			}
 		}
 
-		_, err := apiClient.DeleteHelmRegistry(registryName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error deleting registry: %v\n", err)
-			os.Exit(1)
+		if _, err := apiClient.DeleteHelmRegistry(registryName); err != nil {
+			return fmt.Errorf("deleting registry: %w", err)
 		}
 
 		fmt.Printf("Registry '%s' deleted.\n", registryName)
+		return nil
 	},
 }
 
@@ -148,27 +169,28 @@ var helmCredentialsCmd = &cobra.Command{
 var helmCredentialsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List Helm registry credentials",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		response, err := apiClient.ListHelmRegistryCredentials()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error listing credentials: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("listing credentials: %w", err)
 		}
 
-		if len(response.Result) == 0 {
+		if len(response.Credentials) == 0 {
 			fmt.Println("No Helm registry credentials found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{"Name", "Created"})
+		t.AppendHeader(table.Row{"ID", "Name", "Created"})
 
-		for _, cred := range response.Result {
-			t.AppendRow(table.Row{cred.Name, formatTimeAgo(cred.CreatedAt)})
+		for _, cred := range response.Credentials {
+			t.AppendRow(table.Row{cred.ID, cred.Name, formatTimeAgo(cred.CreatedAt)})
 		}
 		t.Render()
+		fmt.Printf("\nTotal: %d\n", response.TotalCount)
+		return nil
 	},
 }
 
@@ -180,7 +202,7 @@ The password will be prompted interactively.
 
 Example:
   ankra helm credentials create --name my-cred --username user`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		username, _ := cmd.Flags().GetString("username")
 
@@ -196,8 +218,7 @@ Example:
 		}
 		password, err := passwordPrompt.Run()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Prompt cancelled.")
-			os.Exit(1)
+			return fmt.Errorf("prompt cancelled: %w", err)
 		}
 
 		result, err := apiClient.CreateHelmRegistryCredential(client.CreateHelmCredentialRequest{
@@ -206,8 +227,7 @@ Example:
 			Password: password,
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating credential: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("creating credential: %w", err)
 		}
 
 		if len(result.Errors) > 0 {
@@ -215,10 +235,11 @@ Example:
 			for _, e := range result.Errors {
 				fmt.Fprintf(os.Stderr, "  - %s: %s\n", e.Key, e.Message)
 			}
-			os.Exit(1)
+			return fmt.Errorf("credential creation reported %d error(s)", len(result.Errors))
 		}
 
 		fmt.Printf("Helm registry credential '%s' created successfully!\n", name)
+		return nil
 	},
 }
 
@@ -226,7 +247,7 @@ var helmCredentialsDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a Helm registry credential",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialName := args[0]
 		force, _ := cmd.Flags().GetBool("force")
 
@@ -237,17 +258,16 @@ var helmCredentialsDeleteCmd = &cobra.Command{
 			}
 			if _, err := prompt.Run(); err != nil {
 				fmt.Println("Cancelled.")
-				return
+				return nil
 			}
 		}
 
-		_, err := apiClient.DeleteHelmRegistryCredential(credentialName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error deleting credential: %v\n", err)
-			os.Exit(1)
+		if _, err := apiClient.DeleteHelmRegistryCredential(credentialName); err != nil {
+			return fmt.Errorf("deleting credential: %w", err)
 		}
 
 		fmt.Printf("Credential '%s' deleted.\n", credentialName)
+		return nil
 	},
 }
 

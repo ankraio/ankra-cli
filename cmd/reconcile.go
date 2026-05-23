@@ -7,10 +7,20 @@ import (
 	"strings"
 	"time"
 
+	"ankra/internal/client"
+
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
 )
+
+// errNoClusterSelected is returned when a command needs a selected
+// cluster but none has been chosen yet.
+type errNoClusterSelected struct{}
+
+func (errNoClusterSelected) Error() string {
+	return "no cluster specified and none selected; run `ankra cluster select <name>` or `ankra cluster select` first"
+}
 
 // clusterCmd is the parent command for cluster operations
 var clusterCmd = &cobra.Command{
@@ -22,15 +32,14 @@ var clusterCmd = &cobra.Command{
 var clusterListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all clusters",
-	Run: func(cmd *cobra.Command, args []string) {
-		response, err := apiClient.ListClusters(0, 0)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusters, err := listAllClusters()
 		if err != nil {
-			fmt.Printf("Error listing clusters: %v\n", err)
-			return
+			return fmt.Errorf("listing clusters: %w", err)
 		}
-		if len(response.Result) == 0 {
+		if len(clusters) == 0 {
 			fmt.Println("No clusters found.")
-			return
+			return nil
 		}
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
@@ -45,12 +54,11 @@ var clusterListCmd = &cobra.Command{
 			{Number: 6, WidthMin: 10},
 			{Number: 7, WidthMin: 15},
 		})
-		for _, cluster := range response.Result {
+		for _, cluster := range clusters {
 			state := cluster.State
 			if strings.ToLower(state) == "online" {
 				state = text.FgGreen.Sprint(state)
 			}
-
 			t.AppendRow(table.Row{
 				cluster.Name,
 				cluster.KubeVersion,
@@ -62,7 +70,29 @@ var clusterListCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
+}
+
+// listAllClusters paginates through the cluster list until the backend
+// reports no more pages. The previous implementation called
+// ListClusters(0, 0) which defaults server-side to page=1, page_size=25
+// and silently truncates organisations that own more than 25 clusters.
+func listAllClusters() ([]client.ClusterListItem, error) {
+	const pageSize = 100
+	const maxPages = 100
+	var clusters []client.ClusterListItem
+	for page := 1; page <= maxPages; page++ {
+		response, err := apiClient.ListClusters(page, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		clusters = append(clusters, response.Result...)
+		if response.Pagination.TotalPages <= page || len(response.Result) == 0 {
+			break
+		}
+	}
+	return clusters, nil
 }
 
 var clusterInfoCmd = &cobra.Command{
@@ -73,22 +103,20 @@ var clusterInfoCmd = &cobra.Command{
 
 If no name is provided, shows details for the currently selected cluster.`,
 	Args: cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		var name string
 		if len(args) == 1 {
 			name = args[0]
 		} else {
 			selected, err := loadSelectedCluster()
 			if err != nil {
-				fmt.Println("No cluster specified and no cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
-				return
+				return errNoClusterSelected{}
 			}
 			name = selected.Name
 		}
 		cluster, err := apiClient.GetCluster(name)
 		if err != nil {
-			fmt.Printf("Error fetching cluster details for %s: %v\n", name, err)
-			return
+			return fmt.Errorf("fetching cluster details for %s: %w", name, err)
 		}
 		fmt.Printf("Cluster Details:\n")
 		fmt.Printf("  ID: %s\n", cluster.ID)
@@ -97,6 +125,7 @@ If no name is provided, shows details for the currently selected cluster.`,
 		fmt.Printf("  Kube Version: %s\n", cluster.KubeVersion)
 		fmt.Printf("  State: %s\n", cluster.State)
 		fmt.Printf("  Status: %v\n", cluster.Status)
+		return nil
 	},
 }
 
@@ -108,27 +137,10 @@ var clusterReconcileCmd = &cobra.Command{
 If no cluster name is provided, uses the currently selected cluster.
 If a cluster name is provided, reconciles that specific cluster.`,
 	Args: cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		var clusterID string
-		var clusterName string
-
-		if len(args) > 0 {
-			clusterName = args[0]
-			cluster, err := apiClient.GetCluster(clusterName)
-			if err != nil {
-				fmt.Printf("Error finding cluster %s: %v\n", clusterName, err)
-				return
-			}
-			clusterID = cluster.ID
-		} else {
-			// Use selected cluster
-			selected, err := loadSelectedCluster()
-			if err != nil {
-			fmt.Println("No cluster specified and no cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
-				return
-			}
-			clusterID = selected.ID
-			clusterName = selected.Name
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, clusterName, err := resolveClusterFromArgs(args)
+		if err != nil {
+			return err
 		}
 
 		fmt.Printf("Triggering reconciliation for cluster: %s\n", clusterName)
@@ -138,8 +150,7 @@ If a cluster name is provided, reconciles that specific cluster.`,
 
 		result, err := apiClient.TriggerReconcile(ctx, clusterID)
 		if err != nil {
-			fmt.Printf("Error triggering reconcile: %v\n", err)
-			return
+			return fmt.Errorf("triggering reconcile: %w", err)
 		}
 
 		if result.Success {
@@ -150,9 +161,9 @@ If a cluster name is provided, reconciles that specific cluster.`,
 		if result.Message != "" {
 			fmt.Printf("Message: %s\n", result.Message)
 		}
+		return nil
 	},
 }
-
 
 func resolveClusterFromArgs(args []string) (string, string, error) {
 	if len(args) > 0 {
@@ -165,7 +176,7 @@ func resolveClusterFromArgs(args []string) (string, string, error) {
 	}
 	selected, err := loadSelectedCluster()
 	if err != nil {
-		return "", "", fmt.Errorf("no cluster specified and none selected; run 'ankra cluster select <name>' or 'ankra cluster select' first")
+		return "", "", errNoClusterSelected{}
 	}
 	return selected.ID, selected.Name, nil
 }
@@ -177,11 +188,10 @@ var clusterProvisionCmd = &cobra.Command{
 
 If no cluster name is provided, uses the currently selected cluster.`,
 	Args: cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, clusterName, err := resolveClusterFromArgs(args)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			return
+			return err
 		}
 
 		fmt.Printf("Provisioning cluster: %s\n", clusterName)
@@ -191,50 +201,121 @@ If no cluster name is provided, uses the currently selected cluster.`,
 
 		result, err := apiClient.ProvisionCluster(ctx, clusterID)
 		if err != nil {
-			fmt.Printf("Error provisioning cluster: %v\n", err)
-			return
+			return fmt.Errorf("provisioning cluster: %w", err)
 		}
 
 		fmt.Printf("Cluster provisioning initiated.\n")
 		if result.MarkedToStartAt != "" {
 			fmt.Printf("  Scheduled at: %s\n", result.MarkedToStartAt)
 		}
+		return nil
 	},
 }
+
+// cloudClusterKind enumerates the cluster kinds that must be deprovisioned
+// through provider-specific endpoints. The backend's generic deprovision
+// route explicitly rejects these kinds with HTTP 409 (see
+// usecase/cluster/imported/deprovision_cluster.py).
+type cloudClusterKind string
+
+const (
+	cloudClusterKindHetzner cloudClusterKind = "hetzner"
+	cloudClusterKindOvh     cloudClusterKind = "ovh"
+	cloudClusterKindUpcloud cloudClusterKind = "upcloud"
+)
 
 var clusterDeprovisionCmd = &cobra.Command{
 	Use:   "deprovision [cluster_name]",
 	Short: "Deprovision (stop) a managed cluster",
 	Long: `Stop a running managed cluster. This will shut down the cluster but not delete it.
 
-If no cluster name is provided, uses the currently selected cluster.`,
+If no cluster name is provided, uses the currently selected cluster.
+
+For cloud clusters (hetzner, ovh, upcloud) this command routes to the provider-specific
+deprovision endpoint so cloud resources are released.`,
 	Args: cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		autoDelete, _ := cmd.Flags().GetBool("auto-delete")
 		force, _ := cmd.Flags().GetBool("force")
 
-		clusterID, clusterName, err := resolveClusterFromArgs(args)
+		clusterID, clusterName, clusterKind, err := resolveClusterFromArgsWithKind(args)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			return
+			return err
 		}
 
 		fmt.Printf("Deprovisioning cluster: %s\n", clusterName)
+
+		switch cloudClusterKind(clusterKind) {
+		case cloudClusterKindHetzner:
+			result, err := apiClient.DeprovisionHetznerCluster(clusterID, force)
+			if err != nil {
+				return fmt.Errorf("deprovisioning Hetzner cluster: %w", err)
+			}
+			fmt.Printf("Hetzner cluster deprovision initiated.\n")
+			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+			if result.OperationID != nil && *result.OperationID != "" {
+				fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+			}
+			return nil
+		case cloudClusterKindOvh:
+			result, err := apiClient.DeprovisionOvhCluster(clusterID)
+			if err != nil {
+				return fmt.Errorf("deprovisioning OVH cluster: %w", err)
+			}
+			fmt.Printf("OVH cluster deprovision initiated.\n")
+			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+			return nil
+		case cloudClusterKindUpcloud:
+			result, err := apiClient.DeprovisionUpcloudCluster(clusterID)
+			if err != nil {
+				return fmt.Errorf("deprovisioning UpCloud cluster: %w", err)
+			}
+			fmt.Printf("UpCloud cluster deprovision initiated.\n")
+			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+			if result.OperationID != nil && *result.OperationID != "" {
+				fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+			}
+			return nil
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
 		result, err := apiClient.DeprovisionCluster(ctx, clusterID, autoDelete, force)
 		if err != nil {
-			fmt.Printf("Error deprovisioning cluster: %v\n", err)
-			return
+			return fmt.Errorf("deprovisioning cluster: %w", err)
 		}
 
 		fmt.Printf("Cluster deprovision initiated.\n")
 		if result.MarkedForDeprovisionAt != "" {
 			fmt.Printf("  Scheduled at: %s\n", result.MarkedForDeprovisionAt)
 		}
+		return nil
 	},
+}
+
+func resolveClusterFromArgsWithKind(args []string) (string, string, string, error) {
+	if len(args) > 0 {
+		clusterName := args[0]
+		cluster, err := apiClient.GetCluster(clusterName)
+		if err != nil {
+			return "", "", "", fmt.Errorf("finding cluster %s: %w", clusterName, err)
+		}
+		return cluster.ID, cluster.Name, cluster.Kind, nil
+	}
+	selected, err := loadSelectedCluster()
+	if err != nil {
+		return "", "", "", errNoClusterSelected{}
+	}
+	cluster, lookupErr := apiClient.GetCluster(selected.Name)
+	if lookupErr != nil {
+		// We have a cached selection but the backend lookup failed. We
+		// intentionally return the cached id/name with no kind so the
+		// generic deprovision path is used (and the API will return a
+		// precise error if the cached selection is stale).
+		return selected.ID, selected.Name, "", nil
+	}
+	return cluster.ID, cluster.Name, cluster.Kind, nil
 }
 
 var clusterRollToCmd = &cobra.Command{
@@ -246,7 +327,7 @@ Uses the currently selected cluster unless --cluster is provided.
 
 Example:
   ankra cluster roll-to --version abc123`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		versionID, _ := cmd.Flags().GetString("version")
 		clusterFlag, _ := cmd.Flags().GetString("cluster")
 
@@ -256,8 +337,7 @@ Example:
 		} else {
 			selected, err := loadSelectedCluster()
 			if err != nil {
-				fmt.Println("No cluster specified. Run 'ankra cluster select <name>' or use --cluster.")
-				return
+				return fmt.Errorf("no cluster specified: run `ankra cluster select <name>` or use --cluster")
 			}
 			clusterID = selected.ID
 		}
@@ -267,15 +347,14 @@ Example:
 
 		result, err := apiClient.RollToClusterResourceVersion(ctx, clusterID, versionID)
 		if err != nil {
-			fmt.Printf("Error rolling to version: %v\n", err)
-			return
+			return fmt.Errorf("rolling to version: %w", err)
 		}
 
 		if result.Ok {
 			fmt.Printf("Roll-to version %s initiated successfully.\n", versionID)
-		} else {
-			fmt.Printf("Roll-to request completed but reported not ok.\n")
+			return nil
 		}
+		return fmt.Errorf("roll-to request completed but reported not ok")
 	},
 }
 

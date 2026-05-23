@@ -74,38 +74,31 @@ var hetznerCreateCmd = &cobra.Command{
 
 var hetznerDeprovisionCmd = &cobra.Command{
 	Use:   "deprovision <cluster_id>",
-	Short: "Deprovision a Hetzner cluster",
-	Args:  cobra.ExactArgs(1),
+	Short: "Initiate deprovision of a Hetzner cluster",
+	Long: "Initiate asynchronous deprovision of a Hetzner cluster. The platform schedules teardown " +
+		"jobs that delete cloud resources (servers, networks, SSH keys). Cloud resources are not " +
+		"deleted by the time this command returns; track progress via operations or the UI.",
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
+		force, _ := cmd.Flags().GetBool("force")
 
-		result, err := apiClient.DeprovisionHetznerCluster(clusterID)
+		result, err := apiClient.DeprovisionHetznerCluster(clusterID, force)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error deprovisioning cluster: %v\n", err)
 			os.Exit(1)
 		}
 
 		if result.Success {
-			fmt.Println(text.FgGreen.Sprint("Hetzner cluster deprovisioned successfully!"))
+			fmt.Println(text.FgGreen.Sprint("Hetzner cluster deprovision initiated."))
+			fmt.Println("Cloud resources are being torn down asynchronously. Track progress in the UI.")
 		} else {
-			fmt.Println("Cluster deprovisioned with issues.")
+			fmt.Println(text.FgYellow.Sprint("Hetzner cluster deprovision request accepted with warnings."))
 		}
 
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
-		if len(result.DeletedServers) > 0 {
-			fmt.Printf("  Deleted servers: %d\n", len(result.DeletedServers))
-		}
-		if len(result.DeletedNetworks) > 0 {
-			fmt.Printf("  Deleted networks: %d\n", len(result.DeletedNetworks))
-		}
-		if len(result.DeletedSSHKeys) > 0 {
-			fmt.Printf("  Deleted SSH keys: %d\n", len(result.DeletedSSHKeys))
-		}
-		if len(result.Errors) > 0 {
-			fmt.Println(text.FgYellow.Sprint("  Warnings:"))
-			for _, e := range result.Errors {
-				fmt.Printf("    - %s\n", e)
-			}
+		if result.OperationID != nil && *result.OperationID != "" {
+			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
 	},
 }
@@ -337,6 +330,8 @@ func init() {
 	_ = hetznerCreateCmd.MarkFlagRequired("name")
 	_ = hetznerCreateCmd.MarkFlagRequired("credential-id")
 	_ = hetznerCreateCmd.MarkFlagRequired("location")
+
+	hetznerDeprovisionCmd.Flags().Bool("force", false, "Force deprovision without waiting for the cluster agent (use only when the cluster agent is permanently offline; cloud resources may leak)")
 
 	nodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
 	nodeGroupAddCmd.Flags().String("instance-type", "cx33", "Server type for nodes")

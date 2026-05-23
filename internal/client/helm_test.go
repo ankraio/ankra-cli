@@ -21,10 +21,12 @@ func TestListHelmRegistries(t *testing.T) {
 					w.WriteHeader(http.StatusNotFound)
 					return
 				}
+				createdA := "2025-01-01T00:00:00Z"
+				createdB := "2025-02-01T00:00:00Z"
 				jsonResponse(t, w, http.StatusOK, ListHelmRegistriesResponse{
 					Result: []HelmRegistryListItem{
-						{Name: "docker-hub", Type: "oci", URL: "https://registry-1.docker.io", Status: "active", CreatedAt: "2025-01-01T00:00:00Z"},
-						{Name: "bitnami", Type: "http", URL: "https://charts.bitnami.com/bitnami", Status: "active", CreatedAt: "2025-02-01T00:00:00Z"},
+						{Name: "docker-hub", URL: "oci://registry-1.docker.io", CreatedAt: &createdA, Indexing: false, ChartCount: 42},
+						{Name: "bitnami", URL: "https://charts.bitnami.com/bitnami", CreatedAt: &createdB, Indexing: true, ChartCount: 100, IsGlobal: true},
 					},
 					Pagination: Pagination{TotalCount: 2, Page: 1, PageSize: 25, TotalPages: 1},
 				})
@@ -69,12 +71,14 @@ func TestGetHelmRegistry(t *testing.T) {
 					w.WriteHeader(http.StatusNotFound)
 					return
 				}
+				created := "2025-01-01T00:00:00Z"
 				jsonResponse(t, w, http.StatusOK, GetHelmRegistryResponse{
-					Name:      "my-registry",
-					Type:      "oci",
-					URL:       "https://ghcr.io",
-					Status:    "active",
-					CreatedAt: "2025-01-01T00:00:00Z",
+					Registry: HelmRegistryDetail{
+						Name:      "my-registry",
+						URL:       "oci://ghcr.io",
+						CreatedAt: &created,
+					},
+					Pagination: Pagination{TotalCount: 0, Page: 1, PageSize: 25, TotalPages: 0},
 				})
 			},
 			wantErr: false,
@@ -95,8 +99,8 @@ func TestGetHelmRegistry(t *testing.T) {
 				t.Errorf("GetHelmRegistry() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !tt.wantErr && got.Name != "my-registry" {
-				t.Errorf("GetHelmRegistry() got.Name = %v, want my-registry", got.Name)
+			if !tt.wantErr && got.Registry.Name != "my-registry" {
+				t.Errorf("GetHelmRegistry() got.Registry.Name = %v, want my-registry", got.Registry.Name)
 			}
 		})
 	}
@@ -221,10 +225,10 @@ func TestListHelmRegistryCredentials(t *testing.T) {
 					return
 				}
 				jsonResponse(t, w, http.StatusOK, ListHelmCredentialsResponse{
-					Result: []HelmCredentialListItem{
-						{Name: "docker-cred", CreatedAt: "2025-01-01T00:00:00Z"},
+					Credentials: []HelmCredentialListItem{
+						{ID: "cred-id", Name: "docker-cred", CreatedAt: "2025-01-01T00:00:00Z"},
 					},
-					Pagination: Pagination{TotalCount: 1, Page: 1, PageSize: 25, TotalPages: 1},
+					TotalCount: 1,
 				})
 			},
 			wantErr: false,
@@ -247,8 +251,8 @@ func TestListHelmRegistryCredentials(t *testing.T) {
 				t.Errorf("ListHelmRegistryCredentials() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !tt.wantErr && len(got.Result) != tt.wantLen {
-				t.Errorf("ListHelmRegistryCredentials() got %d results, want %d", len(got.Result), tt.wantLen)
+			if !tt.wantErr && len(got.Credentials) != tt.wantLen {
+				t.Errorf("ListHelmRegistryCredentials() got %d credentials, want %d", len(got.Credentials), tt.wantLen)
 			}
 		})
 	}

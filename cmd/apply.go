@@ -117,10 +117,17 @@ func buildImportRequest(path string) (client.CreateImportClusterRequest, error) 
 	var gitRepository *client.GitRepository
 	if gr, ok := spec["git_repository"].(map[string]interface{}); ok {
 		gitRepository = &client.GitRepository{
-			Provider:       fmt.Sprint(gr["provider"]),
-			CredentialName: fmt.Sprint(gr["credential_name"]),
-			Branch:         fmt.Sprint(gr["branch"]),
-			Repository:     fmt.Sprint(gr["repository"]),
+			Provider:       optString(gr, "provider"),
+			CredentialName: optString(gr, "credential_name"),
+			Branch:         optString(gr, "branch"),
+			Repository:     optString(gr, "repository"),
+			Workspace:      optString(gr, "workspace"),
+			RepoSlug:       optString(gr, "repo_slug"),
+			ProjectKey:     optString(gr, "project_key"),
+			InstanceURL:    optString(gr, "instance_url"),
+		}
+		if gitRepository.Provider == "" {
+			gitRepository.Provider = "github"
 		}
 	}
 
@@ -149,6 +156,17 @@ func buildImportRequest(path string) (client.CreateImportClusterRequest, error) 
 	}, nil
 }
 
+func optString(m map[string]interface{}, key string) string {
+	value, ok := m[key]
+	if !ok || value == nil {
+		return ""
+	}
+	if str, ok := value.(string); ok {
+		return str
+	}
+	return ""
+}
+
 func buildStack(sm map[string]interface{}, baseDir string) (client.Stack, error) {
 	name, _ := sm["name"].(string)
 	if name == "" {
@@ -156,7 +174,10 @@ func buildStack(sm map[string]interface{}, baseDir string) (client.Stack, error)
 	}
 	desc, _ := sm["description"].(string)
 	if descFile, ok := sm["description_from_file"].(string); ok && descFile != "" && desc == "" {
-		full := filepath.Join(baseDir, descFile)
+		full, err := resolveSafePath(baseDir, descFile)
+		if err != nil {
+			return client.Stack{}, fmt.Errorf("refusing to read stack description %q: %w", descFile, err)
+		}
 		b, err := os.ReadFile(full)
 		if err != nil {
 			return client.Stack{}, fmt.Errorf("read stack description %q: %w", full, err)
@@ -212,7 +233,10 @@ func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, 
 	if inline, ok := mm["manifest"].(string); ok && inline != "" {
 		content = []byte(inline)
 	} else if fileRef, ok := mm["from_file"].(string); ok {
-		full := filepath.Join(baseDir, fileRef)
+		full, err := resolveSafePath(baseDir, fileRef)
+		if err != nil {
+			return client.Manifest{}, fmt.Errorf("refusing to read manifest %q: %w", fileRef, err)
+		}
 		b, err := os.ReadFile(full)
 		if err != nil {
 			return client.Manifest{}, fmt.Errorf("read manifest %q: %w", full, err)
@@ -275,7 +299,10 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 	var cfg interface{}
 	if conf, ok := am["configuration"].(map[string]interface{}); ok {
 		if pf, ok := conf["from_file"].(string); ok {
-			full := filepath.Join(baseDir, pf)
+			full, err := resolveSafePath(baseDir, pf)
+			if err != nil {
+				return client.Addon{}, fmt.Errorf("refusing to read addon configuration %q: %w", pf, err)
+			}
 			b, err := os.ReadFile(full)
 			if err != nil {
 				return client.Addon{}, fmt.Errorf("read addon configuration %q: %w", full, err)

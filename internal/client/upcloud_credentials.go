@@ -62,7 +62,7 @@ func (c *Client) CreateUpcloudCredential(req CreateUpcloudCredentialRequest) (*C
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("create failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result CreateUpcloudCredentialResponse

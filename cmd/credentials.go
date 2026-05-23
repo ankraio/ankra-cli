@@ -20,7 +20,7 @@ var credentialsCmd = &cobra.Command{
 var credentialsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all credentials",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		provider, _ := cmd.Flags().GetString("provider")
 		var providerPtr *string
 		if provider != "" {
@@ -29,37 +29,55 @@ var credentialsListCmd = &cobra.Command{
 
 		creds, err := apiClient.ListCredentials(providerPtr)
 		if err != nil {
-			fmt.Printf("Error listing credentials: %v\n", err)
-			return
+			return fmt.Errorf("listing credentials: %w", err)
 		}
 
 		if len(creds) == 0 {
 			fmt.Println("No credentials found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{"ID", "Name", "Provider", "Clusters", "Created"})
+		t.AppendHeader(table.Row{"ID", "Name", "Provider", "State", "Available", "Repos", "Last Synced", "Created"})
 		t.SetColumnConfigs([]table.ColumnConfig{
 			{Number: 1, WidthMin: 36},
 			{Number: 2, WidthMin: 20},
 			{Number: 3, WidthMin: 10},
-			{Number: 4, WidthMin: 8},
-			{Number: 5, WidthMin: 15},
+			{Number: 4, WidthMin: 10},
+			{Number: 5, WidthMin: 9},
+			{Number: 6, WidthMin: 6},
+			{Number: 7, WidthMin: 15},
+			{Number: 8, WidthMin: 15},
 		})
 
 		for _, cred := range creds {
+			state := "-"
+			if cred.State != nil && *cred.State != "" {
+				state = *cred.State
+			}
+			repoCount := "-"
+			if cred.RepositoryCount != nil {
+				repoCount = fmt.Sprintf("%d", *cred.RepositoryCount)
+			}
+			lastSynced := "-"
+			if cred.LastSyncedAt != nil && *cred.LastSyncedAt != "" {
+				lastSynced = formatTimeAgo(*cred.LastSyncedAt)
+			}
 			t.AppendRow(table.Row{
 				cred.ID,
 				cred.Name,
 				cred.Provider,
-				cred.ClusterCount,
+				state,
+				cred.Available,
+				repoCount,
+				lastSynced,
 				formatTimeAgo(cred.CreatedAt),
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
@@ -67,24 +85,23 @@ var credentialsValidateCmd = &cobra.Command{
 	Use:   "validate <name>",
 	Short: "Validate a credential name",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
 		result, err := apiClient.ValidateCredentialName(name)
 		if err != nil {
-			fmt.Printf("Error validating credential name: %v\n", err)
-			return
+			return fmt.Errorf("validating credential name: %w", err)
 		}
 
 		if result.Valid {
 			fmt.Printf("Credential name '%s' is valid and available.\n", name)
-		} else {
-			msg := "unavailable"
-			if result.Message != nil {
-				msg = *result.Message
-			}
-			fmt.Printf("Credential name '%s' is invalid: %s\n", name, msg)
+			return nil
 		}
+		msg := "unavailable"
+		if result.Message != nil {
+			msg = *result.Message
+		}
+		return fmt.Errorf("credential name %q is invalid: %s", name, msg)
 	},
 }
 
@@ -92,7 +109,7 @@ var credentialsDeleteCmd = &cobra.Command{
 	Use:   "delete <credential_id>",
 	Short: "Delete a credential",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialID := args[0]
 
 		var orgID string
@@ -102,8 +119,7 @@ var credentialsDeleteCmd = &cobra.Command{
 		} else {
 			orgs, err := apiClient.ListOrganisations()
 			if err != nil {
-				fmt.Printf("Error fetching organisation: %v\n", err)
-				return
+				return fmt.Errorf("fetching organisation: %w", err)
 			}
 			for _, org := range orgs {
 				if org.UserCurrent {
@@ -114,8 +130,7 @@ var credentialsDeleteCmd = &cobra.Command{
 		}
 
 		if orgID == "" {
-			fmt.Println("No organisation selected. Use 'ankra org switch <org_id>' first.")
-			return
+			return fmt.Errorf("no organisation selected: run `ankra org switch <org_id>` first")
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -123,13 +138,14 @@ var credentialsDeleteCmd = &cobra.Command{
 
 		result, err := apiClient.DeleteCredential(ctx, credentialID, orgID)
 		if err != nil {
-			fmt.Printf("Error deleting credential: %v\n", err)
-			return
+			return fmt.Errorf("deleting credential: %w", err)
 		}
 
 		if result.Success {
 			fmt.Println("Credential deleted successfully!")
+			return nil
 		}
+		return fmt.Errorf("delete request did not report success")
 	},
 }
 
@@ -137,13 +153,12 @@ var credentialsGetCmd = &cobra.Command{
 	Use:   "get <credential_id>",
 	Short: "Get details of a specific credential",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialID := args[0]
 
 		cred, err := apiClient.GetCredential(credentialID)
 		if err != nil {
-			fmt.Printf("Error fetching credential: %v\n", err)
-			return
+			return fmt.Errorf("fetching credential: %w", err)
 		}
 
 		fmt.Printf("Credential Details:\n")
@@ -160,6 +175,7 @@ var credentialsGetCmd = &cobra.Command{
 			fmt.Printf("  Repository: %s\n", *cred.Repository)
 		}
 		fmt.Printf("  Created:  %s\n", formatTimeAgo(cred.CreatedAt))
+		return nil
 	},
 }
 

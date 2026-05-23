@@ -105,7 +105,7 @@ func (c *Client) DeleteCluster(ctx context.Context, name string) error {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("status %d: %s", resp.StatusCode, truncateForError(bodyBytes, 500))
+		return fmt.Errorf("status %d: %s", resp.StatusCode, redactedBodyForError(bodyBytes, 500))
 	}
 	return nil
 }
@@ -138,7 +138,7 @@ func (c *Client) ProvisionCluster(ctx context.Context, clusterID string) (*Provi
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("provision failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("provision failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result ProvisionClusterResult
@@ -179,7 +179,7 @@ func (c *Client) DeprovisionCluster(ctx context.Context, clusterID string, autoD
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("deprovision failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("deprovision failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result DeprovisionClusterResult
@@ -227,7 +227,7 @@ func (c *Client) RollToClusterResourceVersion(ctx context.Context, clusterID, ve
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("roll-to failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("roll-to failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result RollToClusterResourceVersionResult
@@ -281,7 +281,11 @@ type GitRepository struct {
 	Provider       string `json:"provider"`
 	CredentialName string `json:"credential_name"`
 	Branch         string `json:"branch"`
-	Repository     string `json:"repository"`
+	Repository     string `json:"repository,omitempty"`
+	Workspace      string `json:"workspace,omitempty"`
+	RepoSlug       string `json:"repo_slug,omitempty"`
+	ProjectKey     string `json:"project_key,omitempty"`
+	InstanceURL    string `json:"instance_url,omitempty"`
 }
 
 type CreateResourceSpec struct {
@@ -338,7 +342,7 @@ func (c *Client) TriggerReconcile(ctx context.Context, clusterID string) (*Trigg
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("reconcile failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("reconcile failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result TriggerReconcileResult
@@ -386,7 +390,7 @@ func (c *Client) ApplyCluster(ctx context.Context, clusterReq CreateImportCluste
 		if json.Unmarshal(body, &er) == nil && len(er.Errors) > 0 {
 			return nil, fmt.Errorf("import failed: %v", er.Errors)
 		}
-		return nil, fmt.Errorf("import failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("import failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var ir ImportResponse

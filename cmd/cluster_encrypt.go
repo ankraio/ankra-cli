@@ -144,11 +144,12 @@ func runEncryptManifest(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("manifest %q does not have a from_file reference", manifestName)
 	}
 
-	// Resolve the file path relative to the cluster YAML
 	clusterDir := filepath.Dir(encryptClusterFile)
-	manifestFilePath := filepath.Join(clusterDir, foundManifest.FromFile)
+	manifestFilePath, err := resolveSafePath(clusterDir, foundManifest.FromFile)
+	if err != nil {
+		return fmt.Errorf("refusing to access manifest %q: %w", foundManifest.FromFile, err)
+	}
 
-	// Read the manifest file
 	manifestContent, err := os.ReadFile(manifestFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to read manifest file %q: %w", manifestFilePath, err)
@@ -156,14 +157,12 @@ func runEncryptManifest(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Encrypting key %q in manifest %q...\n", encryptKey, manifestName)
 
-	// Call the encrypt API
 	encryptedContent, err := apiClient.EncryptYAML(string(manifestContent), []string{encryptKey})
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
 	}
 
-	// Write the encrypted content back to the manifest file
-	if err := os.WriteFile(manifestFilePath, []byte(encryptedContent), 0644); err != nil {
+	if err := os.WriteFile(manifestFilePath, []byte(encryptedContent), 0o644); err != nil {
 		return fmt.Errorf("failed to write encrypted manifest file: %w", err)
 	}
 
@@ -237,11 +236,12 @@ func runEncryptAddon(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("addon %q does not have a from_file configuration reference", encryptAddonName)
 	}
 
-	// Resolve the file path relative to the cluster YAML
 	clusterDir := filepath.Dir(encryptClusterFile)
-	addonFilePath := filepath.Join(clusterDir, fromFile)
+	addonFilePath, err := resolveSafePath(clusterDir, fromFile)
+	if err != nil {
+		return fmt.Errorf("refusing to access addon configuration %q: %w", fromFile, err)
+	}
 
-	// Read the addon values file
 	addonContent, err := os.ReadFile(addonFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to read addon configuration file %q: %w", addonFilePath, err)
@@ -249,14 +249,12 @@ func runEncryptAddon(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Encrypting key %q in addon %q...\n", encryptKey, encryptAddonName)
 
-	// Call the encrypt API
 	encryptedContent, err := apiClient.EncryptYAML(string(addonContent), []string{encryptKey})
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
 	}
 
-	// Write the encrypted content back to the addon file
-	if err := os.WriteFile(addonFilePath, []byte(encryptedContent), 0644); err != nil {
+	if err := os.WriteFile(addonFilePath, []byte(encryptedContent), 0o644); err != nil {
 		return fmt.Errorf("failed to write encrypted addon configuration file: %w", err)
 	}
 

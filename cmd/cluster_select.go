@@ -217,8 +217,19 @@ func createListPromptUi(response *client.ClusterListResponse, previousFetchedClu
 	}
 
 	searcher := func(input string, index int) bool {
-		cluster := fetchedClusters[index]
-		return strings.Contains(strings.ToLower(cluster.Name), strings.ToLower(input))
+		if index < 0 || index >= len(selectableItems) {
+			return false
+		}
+		item := selectableItems[index]
+		if item.IsLoadMore {
+			// Always show the synthetic "load more" row regardless of search
+			// input so users can still page forward after typing a filter.
+			return true
+		}
+		if item.Cluster == nil {
+			return false
+		}
+		return strings.Contains(strings.ToLower(item.Cluster.Name), strings.ToLower(input))
 	}
 
 	prompt := promptui.Select{
