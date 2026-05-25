@@ -16,13 +16,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
       - name: Run tests
@@ -33,7 +33,7 @@ jobs:
         run: go build -o /dev/null ./...
       - name: Run govulncheck
         env:
-          GOTOOLCHAIN: go1.26.3+auto
+          GOTOOLCHAIN: local
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
