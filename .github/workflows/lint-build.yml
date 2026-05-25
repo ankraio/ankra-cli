@@ -32,6 +32,8 @@ jobs:
       - name: Dry run build
         run: go build -o /dev/null ./...
       - name: Run govulncheck
+        env:
+          GOTOOLCHAIN: go1.26.3+auto
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
