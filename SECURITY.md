@@ -1,35 +1,60 @@
-# Security and Code Signing
+# Security
 
-## Recommended Installation Methods
+## Supported Releases
 
-### Method 1: Use the Installation Script (Easiest)
-Download and run the installation script that automatically handles the security bypass:
+We support the latest tagged release of `ankra-cli`. Pin to a tagged
+version (e.g. `v1.0.0`) rather than `latest` for reproducible installs.
+
+## Reporting a Vulnerability
+
+Please email security@ankra.io with a description of the issue, steps to
+reproduce, and any proof-of-concept. Do not open a public GitHub issue.
+
+## Verifying Releases
+
+Every binary published to GitHub Releases ships with a `.sha256` checksum
+sibling file. Verify before installing:
 
 ```bash
-bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
+curl -fsSL -O https://github.com/ankraio/ankra-cli/releases/download/<TAG>/ankra-cli-linux-amd64
+curl -fsSL -O https://github.com/ankraio/ankra-cli/releases/download/<TAG>/ankra-cli-linux-amd64.sha256
+sha256sum -c ankra-cli-linux-amd64.sha256
 ```
 
-### Method 2: Manual Installation with Security Bypass
-1. Download the binary for your architecture:
-   ```bash
-   # For Intel Macs
-   curl -sSL https://github.com/ankraio/ankra-cli/releases/latest/download/ankra-cli-darwin-amd64 -o ankra
+The recommended installer at
+<https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh>
+performs this verification automatically and refuses to install on
+mismatch.
 
-   # For Apple Silicon Macs
-   curl -sSL https://github.com/ankraio/ankra-cli/releases/latest/download/ankra-cli-darwin-arm64 -o ankra
-   ```
+## macOS Signing
 
-2. Remove the quarantine attribute:
-   ```bash
-   xattr -d com.apple.quarantine ankra
-   ```
+Until a Developer ID Application certificate is in place, macOS binaries
+are ad-hoc signed in CI. This reduces Gatekeeper friction but does not
+provide notarization-grade attestation. Verifying the SHA256 checksum
+remains the primary integrity check.
 
-3. Make it executable and install:
-   ```bash
-   chmod +x ankra
-   sudo mv ankra /usr/local/bin/
-   ```
+## Manual Installation with Verification
 
-## Future Plans
+```bash
+ASSET="ankra-cli-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')"
+BASE="https://github.com/ankraio/ankra-cli/releases/download/<TAG>"
 
-We plan to implement proper code signing and notarization once we have Apple Developer Program membership. Until then, the methods above are safe to use.
+curl -fsSL -o "${ASSET}" "${BASE}/${ASSET}"
+curl -fsSL -o "${ASSET}.sha256" "${BASE}/${ASSET}.sha256"
+sha256sum -c "${ASSET}.sha256"
+
+chmod +x "${ASSET}"
+sudo install -m 0755 "${ASSET}" /usr/local/bin/ankra
+```
+
+On macOS you can additionally strip the quarantine attribute:
+
+```bash
+xattr -d com.apple.quarantine /usr/local/bin/ankra
+```
+
+## Sensitive Data on Disk
+
+`ankra login` writes a bearer token to `~/.ankra.yaml`. The file is
+created with `0600` permissions. If you ever observe a `~/.ankra.yaml`
+with weaker permissions, regenerate it via `ankra logout && ankra login`.

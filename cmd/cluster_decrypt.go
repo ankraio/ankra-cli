@@ -87,11 +87,12 @@ func runDecryptManifest(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("manifest %q does not have a from_file reference", manifestName)
 	}
 
-	// Resolve the file path relative to the cluster YAML
 	clusterDir := filepath.Dir(decryptClusterFile)
-	manifestFilePath := filepath.Join(clusterDir, foundManifest.FromFile)
+	manifestFilePath, err := resolveSafePath(clusterDir, foundManifest.FromFile)
+	if err != nil {
+		return fmt.Errorf("refusing to access manifest %q: %w", foundManifest.FromFile, err)
+	}
 
-	// Read the manifest file
 	manifestContent, err := os.ReadFile(manifestFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to read manifest file %q: %w", manifestFilePath, err)

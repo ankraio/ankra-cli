@@ -18,17 +18,15 @@ var clusterAgentCmd = &cobra.Command{
 var clusterAgentStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Get agent status for the selected cluster",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
-			return
+			return errNoClusterSelected{}
 		}
 
 		agent, err := apiClient.GetClusterAgent(cluster.ID)
 		if err != nil {
-			fmt.Printf("Error getting agent status: %v\n", err)
-			return
+			return fmt.Errorf("getting agent status: %w", err)
 		}
 
 		fmt.Printf("Agent Status for cluster '%s':\n\n", cluster.Name)
@@ -47,11 +45,12 @@ var clusterAgentStatusCmd = &cobra.Command{
 
 		fmt.Printf("  Created:    %s\n", formatTimeAgo(agent.CreatedAt))
 
-		if agent.Upgrading {
+		switch {
+		case agent.Upgrading:
 			fmt.Printf("  Status:     %s\n", text.FgYellow.Sprint("upgrading"))
-		} else if agent.CheckedInAt != nil {
+		case agent.CheckedInAt != nil:
 			fmt.Printf("  Status:     %s\n", text.FgGreen.Sprint("connected"))
-		} else {
+		default:
 			fmt.Printf("  Status:     %s\n", text.FgRed.Sprint("not connected"))
 		}
 
@@ -62,19 +61,19 @@ var clusterAgentStatusCmd = &cobra.Command{
 			}
 			fmt.Println("\n  Run 'ankra cluster agent upgrade' to upgrade the agent.")
 		}
+		return nil
 	},
 }
 
 var clusterAgentTokenCmd = &cobra.Command{
 	Use:   "token",
 	Short: "Get or generate agent token for the selected cluster",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		generate, _ := cmd.Flags().GetBool("generate")
 
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
-			return
+			return errNoClusterSelected{}
 		}
 
 		if generate {
@@ -83,8 +82,7 @@ var clusterAgentTokenCmd = &cobra.Command{
 
 			token, err := apiClient.GenerateAgentToken(ctx, cluster.ID)
 			if err != nil {
-				fmt.Printf("Error generating agent token: %v\n", err)
-				return
+				return fmt.Errorf("generating agent token: %w", err)
 			}
 
 			fmt.Println("New agent token generated!")
@@ -93,29 +91,29 @@ var clusterAgentTokenCmd = &cobra.Command{
 			fmt.Printf("  %s\n", token.Token)
 			fmt.Println()
 			fmt.Printf("Expires: %s\n", formatTimeAgo(token.ExpiresAt))
-		} else {
-			token, err := apiClient.GetAgentToken(cluster.ID)
-			if err != nil {
-				fmt.Printf("Error getting agent token: %v\n", err)
-				fmt.Println("\nTo generate a new token, run: ankra agent token --generate")
-				return
-			}
-
-			fmt.Printf("Agent Token for cluster '%s':\n\n", cluster.Name)
-			fmt.Printf("  Token:   %s\n", token.Token)
-			fmt.Printf("  Expires: %s\n", formatTimeAgo(token.ExpiresAt))
+			return nil
 		}
+
+		token, err := apiClient.GetAgentToken(cluster.ID)
+		if err != nil {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "To generate a new token, run: ankra cluster agent token --generate")
+			return fmt.Errorf("getting agent token: %w", err)
+		}
+
+		fmt.Printf("Agent Token for cluster '%s':\n\n", cluster.Name)
+		fmt.Printf("  Token:   %s\n", token.Token)
+		fmt.Printf("  Expires: %s\n", formatTimeAgo(token.ExpiresAt))
+		return nil
 	},
 }
 
 var clusterAgentUpgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Upgrade the agent on the selected cluster",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
-			return
+			return errNoClusterSelected{}
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -123,15 +121,16 @@ var clusterAgentUpgradeCmd = &cobra.Command{
 
 		result, err := apiClient.UpgradeClusterAgent(ctx, cluster.ID)
 		if err != nil {
-			fmt.Printf("Error upgrading agent: %v\n", err)
-			return
+			return fmt.Errorf("upgrading agent: %w", err)
 		}
 
 		if result.Success {
 			fmt.Printf("Agent upgrade initiated for cluster '%s'!\n", cluster.Name)
 			fmt.Println("The agent will automatically restart with the new version.")
 			fmt.Println("\nRun 'ankra cluster agent status' to check the upgrade progress.")
+			return nil
 		}
+		return fmt.Errorf("agent upgrade request did not report success")
 	},
 }
 

@@ -8,13 +8,34 @@ import (
 	"net/url"
 )
 
+// HelmRegistryListItem mirrors the backend's ExtendedOCIRegistry /
+// ExtendedHTTPRegistry payload (see cluster-2.0's
+// usecase/helm/list_helm_chart_registries.py). The kind is inferred from
+// the URL prefix; the API does not include it as a discriminator field
+// because each row is already an instance of the correct Pydantic
+// subclass.
 type HelmRegistryListItem struct {
-	Name      string  `json:"name"`
-	Type      string  `json:"type"`
-	URL       string  `json:"url"`
-	Status    string  `json:"status"`
-	CreatedAt string  `json:"created_at"`
-	UpdatedAt *string `json:"updated_at"`
+	Name           string  `json:"name"`
+	URL            string  `json:"url"`
+	CredentialName *string `json:"credential_name,omitempty"`
+	CreatedAt      *string `json:"created_at,omitempty"`
+	UpdatedAt      *string `json:"updated_at,omitempty"`
+	ExcludeCharts  []string `json:"exclude_charts,omitempty"`
+	Indexing       bool    `json:"indexing"`
+	LastIndexedAt  *string `json:"last_indexed_at,omitempty"`
+	NextSyncAt     *string `json:"next_sync_at,omitempty"`
+	ChartCount     int     `json:"chart_count"`
+	IsGlobal       bool    `json:"is_global"`
+}
+
+// Kind returns "oci" if the URL has an oci:// scheme, otherwise "http".
+// The CLI used to show a kind column populated from an explicit field,
+// but the API does not surface one. URL scheme is the canonical signal.
+func (item HelmRegistryListItem) Kind() string {
+	if len(item.URL) >= 6 && item.URL[:6] == "oci://" {
+		return "oci"
+	}
+	return "http"
 }
 
 type ListHelmRegistriesResponse struct {
@@ -22,13 +43,37 @@ type ListHelmRegistriesResponse struct {
 	Pagination Pagination             `json:"pagination"`
 }
 
+// GetHelmRegistryResponse mirrors cluster-2.0's GetHelmChartRegistryResult.
 type GetHelmRegistryResponse struct {
-	Name      string      `json:"name"`
-	Type      string      `json:"type"`
-	URL       string      `json:"url"`
-	Status    string      `json:"status"`
-	Charts    interface{} `json:"charts"`
-	CreatedAt string      `json:"created_at"`
+	Registry        HelmRegistryDetail        `json:"registry"`
+	Charts          []HelmChartVersionSummary `json:"charts"`
+	Indexing        bool                      `json:"indexing"`
+	LastIndexedAt   *string                   `json:"last_indexed_at,omitempty"`
+	NextSyncAt      *string                   `json:"next_sync_at,omitempty"`
+	ReadJobInterval *int                      `json:"read_job_interval,omitempty"`
+	OrganisationID  *string                   `json:"organisation_id,omitempty"`
+	ResourceState   *string                   `json:"resource_state,omitempty"`
+	Pagination      Pagination                `json:"pagination"`
+}
+
+// HelmRegistryDetail covers the union of OCIRegistry and HTTPRegistry as
+// returned in the `registry` field of the detail endpoint.
+type HelmRegistryDetail struct {
+	Name           string   `json:"name"`
+	URL            string   `json:"url"`
+	CredentialName *string  `json:"credential_name,omitempty"`
+	ExcludeCharts  []string `json:"exclude_charts,omitempty"`
+	CreatedAt      *string  `json:"created_at,omitempty"`
+	UpdatedAt      *string  `json:"updated_at,omitempty"`
+}
+
+// HelmChartVersionSummary is a slim projection of the backend's
+// ChartVersion payload for use in CLI rendering.
+type HelmChartVersionSummary struct {
+	Name         string  `json:"name"`
+	Version      string  `json:"version"`
+	AppVersion   *string `json:"app_version,omitempty"`
+	IsDeprecated bool    `json:"is_deprecated"`
 }
 
 type CreateHelmRegistryRequest struct {
@@ -86,7 +131,7 @@ func (c *Client) CreateHelmRegistry(req CreateHelmRegistryRequest) (*CreateHelmR
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var response CreateHelmRegistryResponse
@@ -115,7 +160,7 @@ func (c *Client) DeleteHelmRegistry(registryName string) (*DeleteHelmRegistryRes
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("delete failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var response DeleteHelmRegistryResponse
@@ -125,14 +170,18 @@ func (c *Client) DeleteHelmRegistry(registryName string) (*DeleteHelmRegistryRes
 	return &response, nil
 }
 
+// HelmCredentialListItem mirrors cluster-2.0's
+// RegistryCredentialSummary returned by GET /api/v1/org/helm/credentials.
 type HelmCredentialListItem struct {
+	ID        string `json:"id"`
 	Name      string `json:"name"`
 	CreatedAt string `json:"created_at"`
 }
 
+// ListHelmCredentialsResponse mirrors ListRegistryCredentialsResult.
 type ListHelmCredentialsResponse struct {
-	Result     []HelmCredentialListItem `json:"result"`
-	Pagination Pagination               `json:"pagination"`
+	Credentials []HelmCredentialListItem `json:"credentials"`
+	TotalCount  int                      `json:"total_count"`
 }
 
 type CreateHelmCredentialRequest struct {
@@ -184,7 +233,7 @@ func (c *Client) CreateHelmRegistryCredential(req CreateHelmCredentialRequest) (
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var response CreateHelmCredentialResponse
@@ -213,7 +262,7 @@ func (c *Client) DeleteHelmRegistryCredential(credentialName string) (*DeleteHel
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("delete failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var response DeleteHelmCredentialResponse

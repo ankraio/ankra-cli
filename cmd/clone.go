@@ -8,10 +8,50 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
+
+const (
+	// maxRemoteDownloadBytes caps the size of remote cluster YAML / artifact
+	// downloads from `ankra cluster clone <url>`. Anything larger almost
+	// certainly indicates a misconfiguration or an attempt to exhaust disk.
+	maxRemoteDownloadBytes = 10 * 1024 * 1024
+
+	httpDownloadTimeout      = 60 * time.Second
+	httpDownloadMaxRedirects = 5
+)
+
+// httpDownloadClient is a bounded HTTP client used for `cluster clone` to
+// fetch a remote cluster YAML or a referenced manifest/values file. It has
+// a hard request timeout, capped redirects, and emits no Authorization
+// header, since the remote URL is untrusted user input.
+var httpDownloadClient = &http.Client{
+	Timeout: httpDownloadTimeout,
+	CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+		if len(via) >= httpDownloadMaxRedirects {
+			return fmt.Errorf("stopped after %d redirects", httpDownloadMaxRedirects)
+		}
+		return nil
+	},
+}
+
+// openDestinationFile creates the leaf file referenced by dstPath. It uses
+// O_CREATE|O_TRUNC|O_WRONLY when --force is set, otherwise O_CREATE|O_EXCL
+// so a pre-existing file fails fast and is never silently truncated.
+func openDestinationFile(dstPath string) (*os.File, error) {
+	flag := os.O_CREATE | os.O_WRONLY | os.O_EXCL
+	if forceFlag {
+		flag = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	}
+	file, err := os.OpenFile(dstPath, flag, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open destination file %q: %w", dstPath, err)
+	}
+	return file, nil
+}
 
 var (
 	cleanFlag       bool
@@ -185,7 +225,11 @@ type GitRepositoryConfig struct {
 	Provider       string `yaml:"provider"`
 	CredentialName string `yaml:"credential_name"`
 	Branch         string `yaml:"branch"`
-	Repository     string `yaml:"repository"`
+	Repository     string `yaml:"repository,omitempty"`
+	Workspace      string `yaml:"workspace,omitempty"`
+	RepoSlug       string `yaml:"repo_slug,omitempty"`
+	ProjectKey     string `yaml:"project_key,omitempty"`
+	InstanceURL    string `yaml:"instance_url,omitempty"`
 }
 
 type StackConfig struct {
@@ -229,8 +273,38 @@ func isURL(path string) bool {
 	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https")
 }
 
-func downloadFile(url string) ([]byte, error) {
-	resp, err := http.Get(url)
+// ensureSafeDownloadURL parses rawURL and rejects it if the scheme is
+// `http://` against a non-loopback host, unless the operator has set
+// ANKRA_ALLOW_INSECURE_HTTP=1. This mirrors the base URL validation
+// applied to API credentials: the cluster-clone source is just as
+// security-sensitive as the rest of the CLI's network traffic.
+func ensureSafeDownloadURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parse URL %q: %w", rawURL, err)
+	}
+	switch parsed.Scheme {
+	case "https":
+		return nil
+	case "http":
+		host := parsed.Hostname()
+		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+			return nil
+		}
+		if os.Getenv("ANKRA_ALLOW_INSECURE_HTTP") == "1" {
+			return nil
+		}
+		return fmt.Errorf("refusing plaintext http:// download from %q; set ANKRA_ALLOW_INSECURE_HTTP=1 for loopback dev only or use https://", rawURL)
+	default:
+		return fmt.Errorf("unsupported URL scheme %q in %q", parsed.Scheme, rawURL)
+	}
+}
+
+func downloadFile(rawURL string) ([]byte, error) {
+	if err := ensureSafeDownloadURL(rawURL); err != nil {
+		return nil, err
+	}
+	resp, err := httpDownloadClient.Get(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download file: %w", err)
 	}
@@ -244,7 +318,7 @@ func downloadFile(url string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to download file: HTTP %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxRemoteDownloadBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
@@ -253,13 +327,19 @@ func downloadFile(url string) ([]byte, error) {
 }
 
 func downloadFileFromURL(baseURL, relPath, dstPath string) error {
-	// Create the full URL for the file by joining base URL with relative path
-	fullURL := baseURL + "/" + relPath
+	safeRel, err := safeRelURLPath(relPath)
+	if err != nil {
+		return fmt.Errorf("refusing to download %q: %w", relPath, err)
+	}
+	fullURL := strings.TrimRight(baseURL, "/") + "/" + safeRel
+
+	if err := ensureSafeDownloadURL(fullURL); err != nil {
+		return err
+	}
 
 	fmt.Printf("Downloading file from URL: %s\n", fullURL)
 
-	// Download the file
-	resp, err := http.Get(fullURL)
+	resp, err := httpDownloadClient.Get(fullURL)
 	if err != nil {
 		return fmt.Errorf("failed to download file from %q: %w", fullURL, err)
 	}
@@ -277,16 +357,14 @@ func downloadFileFromURL(baseURL, relPath, dstPath string) error {
 		return fmt.Errorf("failed to download file from %q: HTTP %d", fullURL, resp.StatusCode)
 	}
 
-	// Create destination directory if it doesn't exist
 	dstDir := filepath.Dir(dstPath)
-	if err := os.MkdirAll(dstDir, 0755); err != nil {
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create directory %q: %w", dstDir, err)
 	}
 
-	// Create the destination file
-	dstFile, err := os.Create(dstPath)
+	dstFile, err := openDestinationFile(dstPath)
 	if err != nil {
-		return fmt.Errorf("failed to create destination file %q: %w", dstPath, err)
+		return err
 	}
 	defer func() {
 		if closeErr := dstFile.Close(); closeErr != nil {
@@ -294,7 +372,7 @@ func downloadFileFromURL(baseURL, relPath, dstPath string) error {
 		}
 	}()
 
-	if _, err := io.Copy(dstFile, io.LimitReader(resp.Body, 10*1024*1024)); err != nil {
+	if _, err := io.Copy(dstFile, io.LimitReader(resp.Body, maxRemoteDownloadBytes)); err != nil {
 		return fmt.Errorf("failed to write file content: %w", err)
 	}
 
@@ -435,91 +513,85 @@ func checkStackConflicts(newStack StackConfig, existingStacks []StackConfig) ([]
 
 func copyStackFiles(stack StackConfig, existingBaseDir, newBaseDir string, onlyMissing bool, fromURL bool) error {
 	if stack.DescriptionFromFile != "" {
-		dstPath := filepath.Join(newBaseDir, stack.DescriptionFromFile)
-
-		if !onlyMissing || func() bool { _, err := os.Stat(dstPath); return os.IsNotExist(err) }() {
-			if fromURL {
-				if err := downloadFileFromURL(existingBaseDir, stack.DescriptionFromFile, dstPath); err != nil {
-					return fmt.Errorf("failed to download stack description file %q: %w", stack.DescriptionFromFile, err)
-				}
-			} else {
-				if err := copyFile(existingBaseDir, newBaseDir, stack.DescriptionFromFile); err != nil {
-					return fmt.Errorf("failed to copy stack description file %q: %w", stack.DescriptionFromFile, err)
-				}
-			}
+		if err := transferStackFile(existingBaseDir, newBaseDir, stack.DescriptionFromFile, "stack description file", onlyMissing, fromURL); err != nil {
+			return err
 		}
 	}
 
-	// Copy files for manifests
 	for i := range stack.Manifests {
-		if stack.Manifests[i].FromFile != "" {
-			dstPath := filepath.Join(newBaseDir, stack.Manifests[i].FromFile)
-
-			if onlyMissing {
-				// Only copy if the file doesn't exist in the destination
-				if _, err := os.Stat(dstPath); err == nil {
-					continue // File exists, skip
-				}
-			}
-
-			if fromURL {
-				if err := downloadFileFromURL(existingBaseDir, stack.Manifests[i].FromFile, dstPath); err != nil {
-					return fmt.Errorf("failed to download manifest file %q: %w", stack.Manifests[i].FromFile, err)
-				}
-			} else {
-				if err := copyFile(existingBaseDir, newBaseDir, stack.Manifests[i].FromFile); err != nil {
-					return fmt.Errorf("failed to copy manifest file %q: %w", stack.Manifests[i].FromFile, err)
-				}
-			}
+		fromFile := stack.Manifests[i].FromFile
+		if fromFile == "" {
+			continue
+		}
+		if err := transferStackFile(existingBaseDir, newBaseDir, fromFile, "manifest file", onlyMissing, fromURL); err != nil {
+			return err
 		}
 	}
 
-	// Copy files for addons
 	for i := range stack.Addons {
-		if config := stack.Addons[i].Configuration; config != nil {
-			if fromFile, ok := config["from_file"].(string); ok && fromFile != "" {
-				dstPath := filepath.Join(newBaseDir, fromFile)
-
-				if onlyMissing {
-					// Only copy if the file doesn't exist in the destination
-					if _, err := os.Stat(dstPath); err == nil {
-						continue // File exists, skip
-					}
-				}
-
-				if fromURL {
-					if err := downloadFileFromURL(existingBaseDir, fromFile, dstPath); err != nil {
-						return fmt.Errorf("failed to download addon configuration file %q: %w", fromFile, err)
-					}
-				} else {
-					if err := copyFile(existingBaseDir, newBaseDir, fromFile); err != nil {
-						return fmt.Errorf("failed to copy addon configuration file %q: %w", fromFile, err)
-					}
-				}
-			}
+		config := stack.Addons[i].Configuration
+		if config == nil {
+			continue
+		}
+		fromFile, ok := config["from_file"].(string)
+		if !ok || fromFile == "" {
+			continue
+		}
+		if err := transferStackFile(existingBaseDir, newBaseDir, fromFile, "addon configuration file", onlyMissing, fromURL); err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-func copyFile(srcBaseDir, dstBaseDir, relPath string) error {
-	srcPath := filepath.Join(srcBaseDir, relPath)
-	dstPath := filepath.Join(dstBaseDir, relPath)
+// transferStackFile applies safe-path validation to the relative file
+// reference and either downloads it from the remote base URL or copies it
+// from the local existing cluster directory.
+func transferStackFile(existingBaseDir, newBaseDir, relPath, label string, onlyMissing, fromURL bool) error {
+	dstPath, err := resolveSafePath(newBaseDir, relPath)
+	if err != nil {
+		return fmt.Errorf("refusing to write %s %q: %w", label, relPath, err)
+	}
+	if onlyMissing {
+		if _, err := os.Stat(dstPath); err == nil {
+			return nil
+		}
+	}
 
-	// Create destination directory if it doesn't exist
+	if fromURL {
+		if err := downloadFileFromURL(existingBaseDir, relPath, dstPath); err != nil {
+			return fmt.Errorf("failed to download %s %q: %w", label, relPath, err)
+		}
+		return nil
+	}
+
+	if err := copyFile(existingBaseDir, newBaseDir, relPath); err != nil {
+		return fmt.Errorf("failed to copy %s %q: %w", label, relPath, err)
+	}
+	return nil
+}
+
+func copyFile(srcBaseDir, dstBaseDir, relPath string) error {
+	srcPath, err := resolveSafePath(srcBaseDir, relPath)
+	if err != nil {
+		return fmt.Errorf("refusing to read %q: %w", relPath, err)
+	}
+	dstPath, err := resolveSafePath(dstBaseDir, relPath)
+	if err != nil {
+		return fmt.Errorf("refusing to write %q: %w", relPath, err)
+	}
+
 	dstDir := filepath.Dir(dstPath)
-	if err := os.MkdirAll(dstDir, 0755); err != nil {
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create directory %q: %w", dstDir, err)
 	}
 
-	// Check if source file exists
 	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
 		fmt.Printf("Source file %q does not exist, skipping\n", relPath)
 		return nil
 	}
 
-	// Check if file already exists
 	if _, err := os.Stat(dstPath); err == nil {
 		if !forceFlag {
 			fmt.Printf("File %q already exists, skipping copy (use --force to override)\n", relPath)
@@ -528,7 +600,6 @@ func copyFile(srcBaseDir, dstBaseDir, relPath string) error {
 		fmt.Printf("File %q already exists, overwriting due to --force flag\n", relPath)
 	}
 
-	// Copy the file
 	srcFile, err := os.Open(srcPath)
 	if err != nil {
 		return fmt.Errorf("failed to open source file %q: %w", srcPath, err)
@@ -539,9 +610,9 @@ func copyFile(srcBaseDir, dstBaseDir, relPath string) error {
 		}
 	}()
 
-	dstFile, err := os.Create(dstPath)
+	dstFile, err := openDestinationFile(dstPath)
 	if err != nil {
-		return fmt.Errorf("failed to create destination file %q: %w", dstPath, err)
+		return err
 	}
 	defer func() {
 		if closeErr := dstFile.Close(); closeErr != nil {
@@ -565,18 +636,14 @@ func generateNewClusterName(existingName string) string {
 }
 
 func writeClusterFile(path string, cluster *ImportClusterConfig) error {
-	// Create directory if it doesn't exist
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create directory %q: %w", dir, err)
 	}
 
-	// Create a buffer to write YAML to
 	var buf strings.Builder
-
-	// Create YAML encoder with consistent indentation
 	encoder := yaml.NewEncoder(&buf)
-	encoder.SetIndent(2) // Use 2-space indentation consistently
+	encoder.SetIndent(2)
 
 	if err := encoder.Encode(cluster); err != nil {
 		return fmt.Errorf("failed to marshal cluster YAML: %w", err)
@@ -585,7 +652,7 @@ func writeClusterFile(path string, cluster *ImportClusterConfig) error {
 		return fmt.Errorf("failed to close YAML encoder: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(buf.String()), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(buf.String()), 0o644); err != nil {
 		return fmt.Errorf("failed to write cluster file: %w", err)
 	}
 

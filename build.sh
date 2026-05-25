@@ -1,32 +1,40 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-set -e
+# Local build script for ankra-cli. Produces dist/ankra (or dist/ankra.exe
+# on Windows) using the same flags as the release pipeline so that local
+# binaries match what users will receive from the GitHub Releases page.
+#
+# Pass --install to copy the freshly built binary to /usr/local/bin/ankra.
+
+set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-BINARY_NAME="ankra-cli"
-OUTPUT_DIR="./dist"
+readonly BINARY_NAME="ankra"
+readonly OUTPUT_DIR="./dist"
 GOOS=${GOOS:-$(go env GOOS)}
 GOARCH=${GOARCH:-$(go env GOARCH)}
 
+VERSION=${VERSION:-$(git describe --tags --always 2>/dev/null || echo "dev")}
+
 mkdir -p "$OUTPUT_DIR"
 
-echo -e "${GREEN}Building ankra-cli for ${GOOS}/${GOARCH}...${NC}"
+echo -e "${GREEN}Building ${BINARY_NAME} ${VERSION} for ${GOOS}/${GOARCH}...${NC}"
 
-if [ "$GOOS" = "windows" ]; then
-    BINARY_PATH="$OUTPUT_DIR/${BINARY_NAME}.exe"
-else
-    BINARY_PATH="$OUTPUT_DIR/${BINARY_NAME}"
+BINARY_PATH="$OUTPUT_DIR/${BINARY_NAME}"
+if [[ "$GOOS" == "windows" ]]; then
+    BINARY_PATH="${BINARY_PATH}.exe"
 fi
 
-CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build -ldflags="-w -s" -o "$BINARY_PATH"
+CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
+    go build -trimpath -ldflags="-w -s -X main.version=${VERSION}" -o "$BINARY_PATH"
 
-echo -e "${GREEN}Binary built: $BINARY_PATH${NC}"
+echo -e "${GREEN}Binary built: ${BINARY_PATH}${NC}"
 
-if [ "$GOOS" = "darwin" ]; then
+if [[ "$GOOS" == "darwin" ]]; then
     echo -e "${YELLOW}Handling macOS-specific tasks...${NC}"
 
     if xattr -l "$BINARY_PATH" 2>/dev/null | grep -q com.apple.quarantine; then
@@ -49,20 +57,16 @@ if [ "$GOOS" = "darwin" ]; then
         echo -e "${YELLOW}No Developer ID certificate found - binary will not be signed${NC}"
         echo -e "${YELLOW}Users may see a security warning when running the binary${NC}"
     fi
-
-    echo -e "${GREEN}macOS binary ready: $BINARY_PATH${NC}"
-    echo -e "${YELLOW}If you get a security warning, right-click and select 'Open'${NC}"
 fi
 
 echo -e "${GREEN}Build complete!${NC}"
 
-if [ "$1" = "--install" ]; then
-    echo -e "${YELLOW}Installing to /usr/local/bin...${NC}"
-    if [ "$GOOS" = "windows" ]; then
-        echo -e "${RED}Cannot install Windows binary on non-Windows system${NC}"
+if [[ "${1:-}" == "--install" ]]; then
+    if [[ "$GOOS" == "windows" ]]; then
+        echo -e "${RED}Cannot install Windows binary on a non-Windows system${NC}"
         exit 1
     fi
-
-    sudo cp "$BINARY_PATH" "/usr/local/bin/${BINARY_NAME}"
+    echo -e "${YELLOW}Installing to /usr/local/bin/${BINARY_NAME}...${NC}"
+    sudo install -m 0755 "$BINARY_PATH" "/usr/local/bin/${BINARY_NAME}"
     echo -e "${GREEN}Installed to /usr/local/bin/${BINARY_NAME}${NC}"
 fi

@@ -68,7 +68,7 @@ func (c *Client) GenerateAgentToken(ctx context.Context, clusterID string) (*Age
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("generate token failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("generate token failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var agentToken AgentToken
@@ -99,7 +99,7 @@ func (c *Client) UpgradeClusterAgent(ctx context.Context, clusterID string) (*Up
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upgrade failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("upgrade failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	return &UpgradeAgentResult{Success: true, Message: "Agent upgrade initiated"}, nil

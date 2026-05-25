@@ -7,16 +7,46 @@ import (
 	neturl "net/url"
 )
 
+// Credential mirrors cluster-2.0's ListCredentialResponseListItem
+// from src/usecase/credentials_v2/list_credentials.py. The legacy
+// `cluster_count` and `usage_count` fields the CLI used to render were
+// removed in the v2 list; they are kept here only for backwards
+// compatibility against older platform versions.
 type Credential struct {
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	Provider     string  `json:"provider"`
+	ID                  string                    `json:"id"`
+	Name                string                    `json:"name"`
+	Provider            string                    `json:"provider"`
+	OrganisationID      string                    `json:"organisation_id"`
+	System              bool                      `json:"system"`
+	Available           bool                      `json:"available"`
+	State               *string                   `json:"state,omitempty"`
+	CreatedAt           string                    `json:"created_at"`
+	UpdatedAt           *string                   `json:"updated_at,omitempty"`
+	AccountLogin        *string                   `json:"account_login,omitempty"`
+	AccountType         *string                   `json:"account_type,omitempty"`
+	InstallationID      *int                      `json:"installation_id,omitempty"`
+	RepositorySelection *string                   `json:"repository_selection,omitempty"`
+	CoTenantCount       *int                      `json:"co_tenant_count,omitempty"`
+	LastSyncedAt        *string                   `json:"last_synced_at,omitempty"`
+	Syncing             bool                      `json:"syncing"`
+	RepositoryCount     *int                      `json:"repository_count,omitempty"`
+	Health              *CredentialHealthSummary  `json:"health,omitempty"`
+
+	// Legacy fields kept for old responses; preferring backend values
+	// where available.
 	Description  *string `json:"description,omitempty"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    *string `json:"updated_at,omitempty"`
 	LastUsedAt   *string `json:"last_used_at,omitempty"`
 	UsageCount   int     `json:"usage_count"`
 	ClusterCount int     `json:"cluster_count"`
+}
+
+// CredentialHealthSummary mirrors cluster-2.0's CredentialHealthSummary
+// from src/usecase/credentials_v2/_credential_health_loader.py.
+type CredentialHealthSummary struct {
+	State               string  `json:"state"`
+	ConsecutiveFailures int     `json:"consecutive_failures"`
+	LastErrorClass      *string `json:"last_error_class,omitempty"`
+	NextAttemptAt       *string `json:"next_attempt_at,omitempty"`
 }
 
 type CredentialValidationResult struct {
@@ -91,7 +121,7 @@ func (c *Client) DeleteCredential(ctx context.Context, credentialID, organisatio
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	return &DeleteCredentialResult{Success: true, Message: "Credential deleted"}, nil

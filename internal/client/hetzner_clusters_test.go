@@ -86,10 +86,13 @@ func TestDeprovisionHetznerCluster_Success(t *testing.T) {
 		if r.URL.Path != "/api/v1/clusters/hetzner/cluster-123" {
 			t.Errorf("path = %s, want /api/v1/clusters/hetzner/cluster-123", r.URL.Path)
 		}
+		if r.URL.Query().Get("force") != "" {
+			t.Errorf("force query = %q, want empty for non-force request", r.URL.Query().Get("force"))
+		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	result, err := testClient.DeprovisionHetznerCluster("cluster-123")
+	result, err := testClient.DeprovisionHetznerCluster("cluster-123", false)
 	if err != nil {
 		t.Fatalf("DeprovisionHetznerCluster: %v", err)
 	}
@@ -101,12 +104,29 @@ func TestDeprovisionHetznerCluster_Success(t *testing.T) {
 	}
 }
 
+func TestDeprovisionHetznerCluster_Force(t *testing.T) {
+	expectedResponse := DeprovisionHetznerClusterResponse{
+		Success:   true,
+		ClusterID: "cluster-123",
+	}
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("force") != "true" {
+			t.Errorf("force query = %q, want 'true'", r.URL.Query().Get("force"))
+		}
+		jsonResponse(t, w, http.StatusOK, expectedResponse)
+	}
+	testClient := newTestClient(t, handler)
+	if _, err := testClient.DeprovisionHetznerCluster("cluster-123", true); err != nil {
+		t.Fatalf("DeprovisionHetznerCluster(force): %v", err)
+	}
+}
+
 func TestDeprovisionHetznerCluster_Error(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(t, w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
 	testClient := newTestClient(t, handler)
-	_, err := testClient.DeprovisionHetznerCluster("cluster-123")
+	_, err := testClient.DeprovisionHetznerCluster("cluster-123", false)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

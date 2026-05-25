@@ -24,21 +24,19 @@ var clusterStacksListCmd = &cobra.Command{
 	Use:   "list [stack name]",
 	Short: "List stacks for the active cluster; or show details for a single stack",
 	Args:  cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
-			return
+			return errNoClusterSelected{}
 		}
 
 		stacks, err := apiClient.ListClusterStacks(cluster.ID)
 		if err != nil {
-			fmt.Printf("Error listing stacks: %v\n", err)
-			return
+			return fmt.Errorf("listing stacks: %w", err)
 		}
 		if len(stacks) == 0 {
 			fmt.Println("No stacks found for the active cluster.")
-			return
+			return nil
 		}
 
 		if len(args) == 1 {
@@ -51,8 +49,7 @@ var clusterStacksListCmd = &cobra.Command{
 				}
 			}
 			if found == nil {
-				fmt.Printf("Stack %q not found on the active cluster.\n", name)
-				return
+				return fmt.Errorf("stack %q not found on the active cluster", name)
 			}
 
 			fmt.Println("Stack Details:")
@@ -131,7 +128,7 @@ var clusterStacksListCmd = &cobra.Command{
 					fmt.Println()
 				}
 			}
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -173,35 +170,33 @@ var clusterStacksListCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
+// clusterStacksCreateCmd is intentionally hidden and returns an error.
+//
+// The backend's POST /api/v1/org/clusters/imported/{cluster_id}/stacks
+// expects a full ResourceSpecification body (see
+// cluster-2.0/src/usecase/cluster/stacks/create_cluster_stack.py). The
+// old CLI shape `{ "name": "...", "description": "..." }` is rejected
+// with a 422.
+//
+// The supported workflow is:
+//   1. Write a cluster YAML containing the new stack
+//   2. Run `ankra cluster apply -f cluster.yaml`
+//
+// or use `ankra cluster clone` followed by `ankra cluster apply`.
 var clusterStacksCreateCmd = &cobra.Command{
-	Use:   "create <name>",
-	Short: "Create a new stack",
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		stackName := args[0]
-		description, _ := cmd.Flags().GetString("description")
-
-		cluster, err := loadSelectedCluster()
-		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
-			return
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-
-		result, err := apiClient.CreateStack(ctx, cluster.ID, stackName, description)
-		if err != nil {
-			fmt.Printf("Error creating stack: %v\n", err)
-			return
-		}
-
-		if result.Success {
-			fmt.Printf("Stack '%s' created successfully!\n", stackName)
-		}
+	Use:    "create <name>",
+	Short:  "(removed) Create a stack via the platform API",
+	Hidden: true,
+	Args:   cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return fmt.Errorf(
+			"`ankra cluster stacks create` is no longer supported; " +
+				"use `ankra cluster apply -f cluster.yaml` to add new stacks via the cluster YAML",
+		)
 	},
 }
 
@@ -209,13 +204,12 @@ var clusterStacksDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a stack",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName := args[0]
 
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
-			return
+			return errNoClusterSelected{}
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -223,13 +217,14 @@ var clusterStacksDeleteCmd = &cobra.Command{
 
 		result, err := apiClient.DeleteStack(ctx, cluster.ID, stackName)
 		if err != nil {
-			fmt.Printf("Error deleting stack: %v\n", err)
-			return
+			return fmt.Errorf("deleting stack: %w", err)
 		}
 
 		if result.Success {
 			fmt.Printf("Stack '%s' deleted successfully!\n", stackName)
+			return nil
 		}
+		return fmt.Errorf("delete request did not report success")
 	},
 }
 
@@ -237,14 +232,13 @@ var clusterStacksRenameCmd = &cobra.Command{
 	Use:   "rename <old_name> <new_name>",
 	Short: "Rename a stack",
 	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		oldName := args[0]
 		newName := args[1]
 
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
-			return
+			return errNoClusterSelected{}
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -252,13 +246,14 @@ var clusterStacksRenameCmd = &cobra.Command{
 
 		result, err := apiClient.RenameStack(ctx, cluster.ID, oldName, newName)
 		if err != nil {
-			fmt.Printf("Error renaming stack: %v\n", err)
-			return
+			return fmt.Errorf("renaming stack: %w", err)
 		}
 
 		if result.Success {
 			fmt.Printf("Stack '%s' renamed to '%s' successfully!\n", oldName, newName)
+			return nil
 		}
+		return fmt.Errorf("rename request did not report success")
 	},
 }
 
@@ -266,24 +261,22 @@ var clusterStacksHistoryCmd = &cobra.Command{
 	Use:   "history <name>",
 	Short: "Show history of changes for a stack",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName := args[0]
 
 		cluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
-			return
+			return errNoClusterSelected{}
 		}
 
 		history, err := apiClient.GetStackHistory(cluster.ID, stackName)
 		if err != nil {
-			fmt.Printf("Error getting stack history: %v\n", err)
-			return
+			return fmt.Errorf("getting stack history: %w", err)
 		}
 
 		if len(history.History) == 0 {
 			fmt.Printf("No history found for stack '%s'.\n", stackName)
-			return
+			return nil
 		}
 
 		fmt.Printf("History for stack '%s':\n\n", history.StackName)
@@ -318,6 +311,7 @@ var clusterStacksHistoryCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
@@ -331,34 +325,28 @@ allowing you to review and modify it before deployment.
 Encrypted values will be stripped during cloning for security reasons
 and will need to be reconfigured in the target cluster.`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName := args[0]
 		targetCluster, _ := cmd.Flags().GetString("to")
 		newName, _ := cmd.Flags().GetString("name")
 		includeConfig, _ := cmd.Flags().GetBool("include-config")
 
 		if targetCluster == "" {
-			fmt.Println("Error: --to flag is required. Specify the target cluster name or ID.")
-			return
+			return fmt.Errorf("--to flag is required: specify the target cluster name or ID")
 		}
 
-		// Load source cluster (currently selected)
 		sourceCluster, err := loadSelectedCluster()
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
-			return
+			return errNoClusterSelected{}
 		}
 
-		// Resolve target cluster ID
 		targetClusterID, err := resolveClusterID(targetCluster)
 		if err != nil {
-			fmt.Printf("Error resolving target cluster: %v\n", err)
-			return
+			return fmt.Errorf("resolving target cluster: %w", err)
 		}
 
 		if sourceCluster.ID == targetClusterID {
-			fmt.Println("Error: Cannot clone a stack to the same cluster.")
-			return
+			return fmt.Errorf("cannot clone a stack to the same cluster")
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -375,8 +363,7 @@ and will need to be reconfigured in the target cluster.`,
 
 		result, err := apiClient.CloneStackToCluster(ctx, targetClusterID, req)
 		if err != nil {
-			fmt.Printf("Error cloning stack: %v\n", err)
-			return
+			return fmt.Errorf("cloning stack: %w", err)
 		}
 
 		fmt.Printf("\nStack cloned successfully!\n")
@@ -393,29 +380,39 @@ and will need to be reconfigured in the target cluster.`,
 		}
 
 		fmt.Printf("\nThe stack has been created as a draft. Open the Ankra dashboard to review and deploy.\n")
+		return nil
 	},
 }
 
-// resolveClusterID resolves a cluster name or ID to a cluster ID
+// resolveClusterID resolves a cluster name or ID to a cluster ID.
+//
+// If the input already looks like a UUID, it is returned as-is so
+// callers can pass either form. Otherwise the cluster list is paged
+// through until a matching name is found, instead of relying on a
+// single page that may silently truncate results.
 func resolveClusterID(nameOrID string) (string, error) {
-	// First, try to load it as a direct ID (UUID format)
-	// If it looks like a UUID, use it directly
 	if len(nameOrID) == 36 && strings.Count(nameOrID, "-") == 4 {
 		return nameOrID, nil
 	}
 
-	clustersResp, err := apiClient.ListClusters(1, 100)
-	if err != nil {
-		return "", fmt.Errorf("failed to list clusters: %w", err)
-	}
-
-	for _, cluster := range clustersResp.Result {
-		if strings.EqualFold(cluster.Name, nameOrID) {
-			return cluster.ID, nil
+	const pageSize = 100
+	const maxPages = 50
+	for page := 1; page <= maxPages; page++ {
+		response, err := apiClient.ListClusters(page, pageSize)
+		if err != nil {
+			return "", fmt.Errorf("listing clusters: %w", err)
+		}
+		for _, cluster := range response.Result {
+			if strings.EqualFold(cluster.Name, nameOrID) {
+				return cluster.ID, nil
+			}
+		}
+		if response.Pagination.TotalPages <= page || len(response.Result) == 0 {
+			break
 		}
 	}
 
-	return "", fmt.Errorf("cluster '%s' not found", nameOrID)
+	return "", fmt.Errorf("cluster %q not found", nameOrID)
 }
 
 func init() {

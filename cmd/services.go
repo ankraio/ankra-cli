@@ -9,7 +9,7 @@ import (
 
 type APIClient interface {
 	ListClusters(page int, pageSize int) (*client.ClusterListResponse, error)
-	GetCluster(name string) (client.ClusterWithStatus, error)
+	GetCluster(name string) (client.ClusterListItem, error)
 	DeleteCluster(ctx context.Context, name string) error
 	TriggerReconcile(ctx context.Context, clusterID string) (*client.TriggerReconcileResult, error)
 	ProvisionCluster(ctx context.Context, clusterID string) (*client.ProvisionClusterResult, error)
@@ -24,10 +24,13 @@ type APIClient interface {
 	GetAddonByName(clusterID, addonName string) (*client.ClusterAddonListItem, error)
 	UninstallAddon(ctx context.Context, clusterID, addonResourceID string, deletePermanently bool) (*client.UninstallAddonResult, error)
 
-	ListClusterOperations(clusterID string) ([]client.OperationResponseListItem, error)
-	CancelOperation(ctx context.Context, operationID string) (*client.CancelOperationResult, error)
-	CancelJob(ctx context.Context, operationID, jobID string) (*client.CancelJobResult, error)
-	ListOperationJobs(clusterID, operationID string, opts *client.ListOperationJobsOptions) (client.GetJobStatusResponse, error)
+	ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error)
+	GetExecution(executionID string) (client.ExecutionDetail, error)
+	ListExecutionSteps(executionID string) ([]client.ExecutionStep, error)
+	CancelExecution(ctx context.Context, executionID string) (*client.CancelExecutionResponse, error)
+	CancelExecutionStep(ctx context.Context, executionID, stepID string) (*client.CancelStepResponse, error)
+	BatchCancelExecutions(ctx context.Context, executionIDs []string) (*client.BatchCancelExecutionsResponse, error)
+	RetryExecution(ctx context.Context, executionID string) (*client.ExecutionSummary, error)
 
 	GetSopsConfig() (*client.SopsConfigResult, error)
 	EncryptYAML(yamlContent string, encryptedPaths []string) (string, error)
@@ -89,7 +92,7 @@ type APIClient interface {
 	UpgradeClusterAgent(ctx context.Context, clusterID string) (*client.UpgradeAgentResult, error)
 
 	CreateHetznerCluster(req client.CreateHetznerClusterRequest) (*client.CreateHetznerClusterResponse, error)
-	DeprovisionHetznerCluster(clusterID string) (*client.DeprovisionHetznerClusterResponse, error)
+	DeprovisionHetznerCluster(clusterID string, force bool) (*client.DeprovisionHetznerClusterResponse, error)
 	GetHetznerWorkerCount(clusterID string) (*client.WorkerCountResult, error)
 	ScaleHetznerWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error)
 	GetHetznerK8sVersion(clusterID string) (*client.K8sVersionInfo, error)

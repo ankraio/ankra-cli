@@ -39,14 +39,31 @@ var deleteClusterCmd = &cobra.Command{
 			}
 		}
 
+		clusterInfo, lookupErr := apiClient.GetCluster(name)
+		if lookupErr == nil {
+			switch clusterInfo.Kind {
+			case "hetzner", "ovh", "upcloud":
+				fmt.Printf(
+					"Cluster %q is a %s cloud cluster and cannot be deleted with this command.\n"+
+						"Run 'ankra cluster %s deprovision %s' instead so the cloud resources are released.\n",
+					name, clusterInfo.Kind, clusterInfo.Kind, clusterInfo.ID,
+				)
+				return fmt.Errorf("refusing to delete cloud cluster %q via generic delete", name)
+			}
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
 		if err := apiClient.DeleteCluster(ctx, name); err != nil {
-			if strings.Contains(err.Error(), "status 422") || strings.Contains(err.Error(), "status 404") {
+			errorString := err.Error()
+			if strings.Contains(errorString, "status 422") || strings.Contains(errorString, "status 404") {
 
 				fmt.Printf("Cluster %s does not exist, either %s is wrong or it's already been deleted.\n", name, name)
 				return nil
+			}
+			if strings.Contains(errorString, "status 409") {
+				return fmt.Errorf("delete refused: %s", errorString)
 			}
 			return fmt.Errorf("could not delete cluster %q", name)
 		}

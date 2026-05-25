@@ -65,7 +65,7 @@ func (c *Client) CreateOvhCluster(req CreateOvhClusterRequest) (*CreateOvhCluste
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("create failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result CreateOvhClusterResponse
@@ -94,7 +94,7 @@ func (c *Client) DeprovisionOvhCluster(clusterID string) (*DeprovisionOvhCluster
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("deprovision failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("deprovision failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result DeprovisionOvhClusterResponse

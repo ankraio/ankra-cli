@@ -127,7 +127,7 @@ func (c *Client) DeleteStack(ctx context.Context, clusterID, stackName string) (
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	return &DeleteStackResult{Success: true, Message: "Stack deleted"}, nil
@@ -160,43 +160,26 @@ func (c *Client) RenameStack(ctx context.Context, clusterID, stackName, newName 
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("rename failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("rename failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	return &RenameStackResult{Success: true, Message: "Stack renamed"}, nil
 }
 
-func (c *Client) CreateStack(ctx context.Context, clusterID, name, description string) (*CreateStackResult, error) {
-	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks",
-		c.BaseURL, neturl.PathEscape(clusterID))
-	reqBody := CreateStackRequest{Name: name, Description: description}
-	payload, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer closeBody(resp)
-
-	body, err := readResponseBody(resp)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
-	}
-
-	return &CreateStackResult{Success: true, Message: "Stack created"}, nil
+// CreateStack is kept for interface compatibility with the APIClient
+// abstraction but is no longer used by any cobra command. The platform's
+// POST /api/v1/org/clusters/imported/{cluster_id}/stacks endpoint expects
+// a full ResourceSpecification (see cluster-2.0
+// usecase/cluster/stacks/create_cluster_stack.py:CreateClusterStackRequest);
+// the bare `{name, description}` payload this method used to send was
+// rejected with HTTP 422. New work should go through `cluster apply -f
+// cluster.yaml`.
+//
+// Returning an error here keeps the interface contract intact while
+// preventing any accidental future callers from sending an incompatible
+// request to production.
+func (c *Client) CreateStack(_ context.Context, _, _, _ string) (*CreateStackResult, error) {
+	return nil, fmt.Errorf("CreateStack: removed; use ApplyCluster with a cluster YAML instead")
 }
 
 type CloneStackToClusterRequest struct {
@@ -241,7 +224,7 @@ func (c *Client) CloneStackToCluster(ctx context.Context, targetClusterID string
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("clone failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("clone failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result CloneStackToClusterResult

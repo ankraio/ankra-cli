@@ -88,7 +88,7 @@ func (c *Client) GetChartDetails(chartName, repositoryURL string) (*ChartDetails
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get details failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("get details failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var details ChartDetails
@@ -98,18 +98,41 @@ func (c *Client) GetChartDetails(chartName, repositoryURL string) (*ChartDetails
 	return &details, nil
 }
 
-func (c *Client) SearchCharts(query string) ([]ChartItem, error) {
-	resp, err := c.ListCharts(1, 100, false)
-	if err != nil {
-		return nil, err
-	}
+const (
+	// searchChartsPageSize controls the page size used by SearchCharts.
+	// 100 is the API's max, so larger queries do fewer round trips.
+	searchChartsPageSize = 100
+	// searchChartsMaxPages caps how many pages SearchCharts will walk.
+	// The platform currently exposes a few thousand charts at most, so
+	// 50 pages * 100 items = 5000 entries is a safe upper bound that
+	// also protects against runaway pagination if the backend ever
+	// returns a stale total_pages count.
+	searchChartsMaxPages = 50
+)
 
-	query = strings.ToLower(query)
+// SearchCharts performs a client-side filter across all available chart
+// pages. The platform does not expose a free-text search endpoint for
+// `/org/stacks/charts`, so SearchCharts walks pagination until the last
+// page (or searchChartsMaxPages, whichever comes first) and matches the
+// query against chart name and description, case-insensitively.
+func (c *Client) SearchCharts(query string) ([]ChartItem, error) {
+	query = strings.ToLower(strings.TrimSpace(query))
+
 	var results []ChartItem
-	for _, chart := range resp.Charts {
-		if strings.Contains(strings.ToLower(chart.Name), query) ||
-			strings.Contains(strings.ToLower(chart.Description), query) {
-			results = append(results, chart)
+	for page := 1; page <= searchChartsMaxPages; page++ {
+		resp, err := c.ListCharts(page, searchChartsPageSize, false)
+		if err != nil {
+			return nil, err
+		}
+		for _, chart := range resp.Charts {
+			if query == "" ||
+				strings.Contains(strings.ToLower(chart.Name), query) ||
+				strings.Contains(strings.ToLower(chart.Description), query) {
+				results = append(results, chart)
+			}
+		}
+		if resp.Pagination.TotalPages <= page || len(resp.Charts) == 0 {
+			break
 		}
 	}
 	return results, nil

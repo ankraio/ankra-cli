@@ -97,7 +97,7 @@ func (c *Client) doCreateCredential(url string, reqBody interface{}) (*CreateHet
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result CreateHetznerCredentialResponse
@@ -131,7 +131,7 @@ func (c *Client) doCreateSSHKeyCredential(url string, reqBody interface{}) (*Cre
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result CreateSSHKeyCredentialResponse

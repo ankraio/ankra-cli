@@ -1,5 +1,16 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Deprecations
+
+- `ankra chat` currently uses the bearer-token streaming endpoints
+  `/api/v1/chat/general` and `/api/v1/org/clusters/{cluster_id}/kubernetes/chat`.
+  These are now deprecated and will be removed in a future release; the platform
+  now responds with `Deprecation: true` and a `Sunset` header on these routes.
+  When the warning prints, upgrade `ankra-cli` to the next release once a
+  resumable session-based replacement has shipped on the platform.
+
 ## v0.1.129 — April 2026
 
 ### New Features

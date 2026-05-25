@@ -134,19 +134,18 @@ func TestCloneStackToCluster(t *testing.T) {
 	}
 }
 
-func TestCreateStack(t *testing.T) {
+// TestCreateStackIsRemoved guards the documented decision in stacks.go:
+// CreateStack must always return an error because the legacy
+// `{name, description}` payload is no longer accepted by the platform.
+func TestCreateStackIsRemoved(t *testing.T) {
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/stacks") {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		w.WriteHeader(http.StatusCreated)
+		t.Fatalf("CreateStack should not hit the API; got %s %s", r.Method, r.URL.Path)
 	})
 	got, err := testClient.CreateStack(context.Background(), "cluster-id", "new-stack", "description")
-	if err != nil {
-		t.Fatalf("CreateStack() error = %v", err)
+	if err == nil {
+		t.Fatalf("expected CreateStack to return an error (got=%+v)", got)
 	}
-	if !got.Success {
-		t.Errorf("CreateStack() got.Success = %v, want true", got.Success)
+	if !strings.Contains(err.Error(), "removed") {
+		t.Errorf("expected removal-notice error, got: %v", err)
 	}
 }

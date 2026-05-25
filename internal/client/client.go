@@ -2,7 +2,6 @@ package client
 
 import (
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -13,13 +12,15 @@ type Client struct {
 	StreamingHTTP *http.Client
 }
 
+// New constructs a Client with the supplied token and a base URL that is
+// expected to already be validated and normalized via NormalizeBaseURL.
 func New(token, baseURL string) *Client {
 	sharedTransport := &http.Transport{
 		ResponseHeaderTimeout: 30 * time.Second,
 	}
 	return &Client{
 		Token:   token,
-		BaseURL: strings.TrimRight(baseURL, "/"),
+		BaseURL: baseURL,
 		HTTP: &http.Client{
 			Timeout:   5 * time.Minute,
 			Transport: sharedTransport,

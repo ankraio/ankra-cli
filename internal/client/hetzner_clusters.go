@@ -46,12 +46,9 @@ type CreateHetznerClusterResponse struct {
 }
 
 type DeprovisionHetznerClusterResponse struct {
-	Success         bool     `json:"success"`
-	ClusterID       string   `json:"cluster_id"`
-	DeletedServers  []int    `json:"deleted_servers"`
-	DeletedNetworks []int    `json:"deleted_networks"`
-	DeletedSSHKeys  []int    `json:"deleted_ssh_keys"`
-	Errors          []string `json:"errors"`
+	Success     bool    `json:"success"`
+	ClusterID   string  `json:"cluster_id"`
+	OperationID *string `json:"operation_id,omitempty"`
 }
 
 type WorkerCountResult struct {
@@ -109,7 +106,7 @@ func (c *Client) CreateHetznerCluster(req CreateHetznerClusterRequest) (*CreateH
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result CreateHetznerClusterResponse
@@ -119,8 +116,11 @@ func (c *Client) CreateHetznerCluster(req CreateHetznerClusterRequest) (*CreateH
 	return &result, nil
 }
 
-func (c *Client) DeprovisionHetznerCluster(clusterID string) (*DeprovisionHetznerClusterResponse, error) {
+func (c *Client) DeprovisionHetznerCluster(clusterID string, force bool) (*DeprovisionHetznerClusterResponse, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s", c.BaseURL, clusterID)
+	if force {
+		url = url + "?force=true"
+	}
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -138,7 +138,7 @@ func (c *Client) DeprovisionHetznerCluster(clusterID string) (*DeprovisionHetzne
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("deprovision failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("deprovision failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result DeprovisionHetznerClusterResponse
@@ -287,7 +287,7 @@ func (c *Client) doAddNodeGroup(url string, payload []byte) (*AddNodeGroupResult
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result AddNodeGroupResult
@@ -316,7 +316,7 @@ func (c *Client) doScaleNodeGroup(url string, payload []byte) (*ScaleNodeGroupRe
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result ScaleNodeGroupResult
@@ -345,7 +345,7 @@ func (c *Client) doUpdateNodeGroupInstanceType(url string, payload []byte) (*Upd
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result UpdateNodeGroupResult
@@ -373,7 +373,7 @@ func (c *Client) doDeleteNodeGroup(url string) (*DeleteNodeGroupResult, error) {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("delete failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result DeleteNodeGroupResult
@@ -407,7 +407,7 @@ func (c *Client) doScaleWorkers(url string, workerCount int) (*ScaleWorkersResul
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("scale failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("scale failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result ScaleWorkersResult
@@ -441,7 +441,7 @@ func (c *Client) doUpgradeK8sVersion(url, targetVersion string) (*UpgradeK8sVers
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upgrade failed: status %d: %s", resp.StatusCode, truncateForError(body, 500))
+		return nil, fmt.Errorf("upgrade failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result UpgradeK8sVersionResult

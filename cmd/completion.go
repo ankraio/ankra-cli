@@ -111,6 +111,7 @@ func init() {
 	completionCmd.AddCommand(completionPowershellCmd)
 	completionCmd.AddCommand(completionInstallCmd)
 
+	setRequiresAuth(completionCmd, false)
 	rootCmd.AddCommand(completionCmd)
 }
 
