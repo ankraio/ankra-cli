@@ -10,16 +10,17 @@ import (
 	"strings"
 )
 
+// ClusterListItem mirrors cluster-2.0's ClusterListItem from
+// src/usecase/cluster/list_clusters.py. Backend fields the CLI does not
+// currently render (operation, agent_*, resources, *_count, etc.) are
+// silently ignored by Go's JSON decoder.
 type ClusterListItem struct {
 	ID                string  `json:"id"`
 	Name              string  `json:"name"`
-	IncomingNetworks  int     `json:"incoming_networks"`
-	OutgoingNetworks  int     `json:"outgoing_networks"`
 	State             string  `json:"state"`
 	Description       string  `json:"description"`
 	Environment       string  `json:"environment"`
 	OrganisationID    string  `json:"organisation_id"`
-	KubeDistribution  string  `json:"kube_distribution"`
 	KubeVersion       string  `json:"kube_version"`
 	ControlPlanes     int     `json:"control_planes"`
 	Nodes             int     `json:"nodes"`
@@ -33,27 +34,6 @@ type ClusterListItem struct {
 type ClusterListResponse struct {
 	Result     []ClusterListItem `json:"result"`
 	Pagination Pagination        `json:"pagination"`
-}
-
-type ClusterWithStatus struct {
-	ID               string  `json:"id"`
-	Name             string  `json:"name"`
-	IncomingNetworks int     `json:"incoming_networks"`
-	OutgoingNetworks int     `json:"outgoing_networks"`
-	Description      string  `json:"description"`
-	Environment      string  `json:"environment"`
-	OrganisationID   string  `json:"organisation_id"`
-	KubeDistribution string  `json:"kube_distribution"`
-	KubeVersion      string  `json:"kube_version"`
-	Status           *string `json:"status"`
-	State            string  `json:"state"`
-	CreatedAt        string  `json:"created_at"`
-	DeletedAt        *string `json:"deleted_at"`
-	Kind             string  `json:"kind"`
-}
-
-type ClusterWithStatusResponse struct {
-	Result []ClusterWithStatus `json:"result"`
 }
 
 func (c *Client) ListClusters(page int, pageSize int) (*ClusterListResponse, error) {
@@ -73,16 +53,21 @@ func (c *Client) ListClusters(page int, pageSize int) (*ClusterListResponse, err
 	return response, nil
 }
 
-func (c *Client) GetCluster(name string) (ClusterWithStatus, error) {
+// GetCluster looks up a cluster by exact name. The backend's
+// /api/v1/clusters?cluster_name=... mode returns a ClusterListResponse
+// with the matching row in `result` (or an empty result on no match).
+func (c *Client) GetCluster(name string) (ClusterListItem, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters?cluster_name=%s", c.BaseURL, neturl.QueryEscape(name))
-	var wrapper ClusterWithStatusResponse
+	var wrapper ClusterListResponse
 	if err := c.getJSON(url, &wrapper); err != nil {
-		return ClusterWithStatus{}, err
+		return ClusterListItem{}, err
 	}
-	if len(wrapper.Result) == 0 {
-		return ClusterWithStatus{}, fmt.Errorf("no cluster found for name %q", name)
+	for _, cluster := range wrapper.Result {
+		if cluster.Name == name {
+			return cluster, nil
+		}
 	}
-	return wrapper.Result[0], nil
+	return ClusterListItem{}, fmt.Errorf("no cluster found for name %q", name)
 }
 
 func (c *Client) DeleteCluster(ctx context.Context, name string) error {

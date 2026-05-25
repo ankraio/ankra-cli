@@ -87,7 +87,7 @@ func (c *Client) StreamChat(clusterID *string, chatReq ChatRequest) (<-chan Chat
 		sunsetMessage := resp.Header.Get("Sunset")
 		fmt.Fprintf(os.Stderr,
 			"warning: this chat endpoint is deprecated and will be removed (sunset: %s).\n"+
-				"         Upgrade ankra-cli to a release that uses /api/v1/chat/sessions.\n",
+				"         Upgrade ankra-cli to a newer release.\n",
 			sunsetMessage,
 		)
 	}

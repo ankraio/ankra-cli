@@ -48,23 +48,7 @@ func selectClusterByName(name string) {
 		os.Exit(1)
 	}
 
-	listItem := client.ClusterListItem{
-		ID:               cluster.ID,
-		Name:             cluster.Name,
-		IncomingNetworks: cluster.IncomingNetworks,
-		OutgoingNetworks: cluster.OutgoingNetworks,
-		State:            cluster.State,
-		Description:      cluster.Description,
-		Environment:      cluster.Environment,
-		OrganisationID:   cluster.OrganisationID,
-		KubeDistribution: cluster.KubeDistribution,
-		KubeVersion:      cluster.KubeVersion,
-		CreatedAt:        cluster.CreatedAt,
-		DeletedAt:        cluster.DeletedAt,
-		Kind:             cluster.Kind,
-	}
-
-	if err := saveSelectedCluster(listItem); err != nil {
+	if err := saveSelectedCluster(cluster); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to save selection: %v\n", err)
 		os.Exit(1)
 	}

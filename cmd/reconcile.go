@@ -124,7 +124,9 @@ If no name is provided, shows details for the currently selected cluster.`,
 		fmt.Printf("  Environment: %s\n", cluster.Environment)
 		fmt.Printf("  Kube Version: %s\n", cluster.KubeVersion)
 		fmt.Printf("  State: %s\n", cluster.State)
-		fmt.Printf("  Status: %v\n", cluster.Status)
+		fmt.Printf("  Control Planes: %d\n", cluster.ControlPlanes)
+		fmt.Printf("  Nodes: %d\n", cluster.Nodes)
+		fmt.Printf("  Kind: %s\n", cluster.Kind)
 		return nil
 	},
 }

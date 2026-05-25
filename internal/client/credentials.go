@@ -40,11 +40,13 @@ type Credential struct {
 	ClusterCount int     `json:"cluster_count"`
 }
 
-// CredentialHealthSummary mirrors cluster-2.0's CredentialHealthSummary.
+// CredentialHealthSummary mirrors cluster-2.0's CredentialHealthSummary
+// from src/usecase/credentials_v2/_credential_health_loader.py.
 type CredentialHealthSummary struct {
-	Status      string  `json:"status"`
-	Message     *string `json:"message,omitempty"`
-	LastChecked *string `json:"last_checked_at,omitempty"`
+	State               string  `json:"state"`
+	ConsecutiveFailures int     `json:"consecutive_failures"`
+	LastErrorClass      *string `json:"last_error_class,omitempty"`
+	NextAttemptAt       *string `json:"next_attempt_at,omitempty"`
 }
 
 type CredentialValidationResult struct {

@@ -65,10 +65,11 @@ func TestGetCluster(t *testing.T) {
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
-				jsonResponse(t, w, http.StatusOK, ClusterWithStatusResponse{
-					Result: []ClusterWithStatus{
+				jsonResponse(t, w, http.StatusOK, ClusterListResponse{
+					Result: []ClusterListItem{
 						{ID: "id1", Name: "my-cluster", State: "online"},
 					},
+					Pagination: Pagination{TotalCount: 1, Page: 1, PageSize: 25, TotalPages: 1},
 				})
 			},
 			wantErr: false,
@@ -76,7 +77,22 @@ func TestGetCluster(t *testing.T) {
 		{
 			name: "not found",
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				jsonResponse(t, w, http.StatusOK, ClusterWithStatusResponse{Result: []ClusterWithStatus{}})
+				jsonResponse(t, w, http.StatusOK, ClusterListResponse{
+					Result:     []ClusterListItem{},
+					Pagination: Pagination{TotalCount: 0, Page: 1, PageSize: 25, TotalPages: 0},
+				})
+			},
+			wantErr: true,
+		},
+		{
+			name: "prefix match is rejected",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				jsonResponse(t, w, http.StatusOK, ClusterListResponse{
+					Result: []ClusterListItem{
+						{ID: "id2", Name: "my-cluster-staging", State: "online"},
+					},
+					Pagination: Pagination{TotalCount: 1, Page: 1, PageSize: 25, TotalPages: 1},
+				})
 			},
 			wantErr: true,
 		},

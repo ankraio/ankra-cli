@@ -21,8 +21,8 @@ func (m baseMock) ListClusters(page int, pageSize int) (*client.ClusterListRespo
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) GetCluster(name string) (client.ClusterWithStatus, error) {
-	return client.ClusterWithStatus{}, errors.New("not implemented")
+func (m baseMock) GetCluster(name string) (client.ClusterListItem, error) {
+	return client.ClusterListItem{}, errors.New("not implemented")
 }
 
 func (m baseMock) DeleteCluster(ctx context.Context, name string) error {
@@ -492,14 +492,14 @@ func (m *clusterListMock) ListClusters(page int, pageSize int) (*client.ClusterL
 
 type clusterGetMock struct {
 	baseMock
-	cluster client.ClusterWithStatus
+	cluster client.ClusterListItem
 }
 
-func (m *clusterGetMock) GetCluster(name string) (client.ClusterWithStatus, error) {
+func (m *clusterGetMock) GetCluster(name string) (client.ClusterListItem, error) {
 	if m.cluster.Name == name {
 		return m.cluster, nil
 	}
-	return client.ClusterWithStatus{}, errors.New("cluster not found")
+	return client.ClusterListItem{}, errors.New("cluster not found")
 }
 
 type orgListMock struct {
@@ -601,7 +601,7 @@ func TestClusterListEmptyCommand(t *testing.T) {
 
 func TestClusterInfoCommand(t *testing.T) {
 	mock := &clusterGetMock{
-		cluster: client.ClusterWithStatus{
+		cluster: client.ClusterListItem{
 			ID:          "test-cluster-id",
 			Name:        "my-cluster",
 			Environment: "production",
@@ -628,7 +628,7 @@ func TestClusterInfoCommand(t *testing.T) {
 
 func TestClusterInfoNotFoundCommand(t *testing.T) {
 	mock := &clusterGetMock{
-		cluster: client.ClusterWithStatus{
+		cluster: client.ClusterListItem{
 			Name: "existing-cluster",
 		},
 	}
