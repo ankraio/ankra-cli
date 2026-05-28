@@ -85,6 +85,22 @@ func (m baseMock) ListExecutionSteps(executionID string) ([]client.ExecutionStep
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetClusterAddonValues(ctx context.Context, clusterID, addonName string) (string, error) {
+	return "", errors.New("not implemented")
+}
+
+func (m baseMock) GetClusterIaC(ctx context.Context, clusterID string) (string, error) {
+	return "", errors.New("not implemented")
+}
+
+func (m baseMock) PatchClusterStackPartial(ctx context.Context, clusterID, stackName string, body client.PatchStackRequest) (*client.PatchStackResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetClusterManifestConfiguration(ctx context.Context, clusterID, manifestName string) (string, error) {
+	return "", errors.New("not implemented")
+}
+
 func (m baseMock) CancelExecution(ctx context.Context, executionID string) (*client.CancelExecutionResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -337,6 +353,26 @@ func (m baseMock) DeleteHetznerNodeGroup(clusterID, groupName string) (*client.D
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetHetznerControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeHetznerControlPlaneCount(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListHetznerClusterNodes(clusterID string) (*client.NodeListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetHetznerClusterNode(clusterID, nodeID string) (*client.NodeDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListHetznerCredentials() ([]client.HetznerCredentialListItem, error) {
 	return nil, errors.New("not implemented")
 }
@@ -397,6 +433,26 @@ func (m baseMock) DeleteOvhNodeGroup(clusterID, groupName string) (*client.Delet
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetOvhControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeOvhControlPlaneCount(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeOvhControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListOvhClusterNodes(clusterID string) (*client.NodeListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetOvhClusterNode(clusterID, nodeID string) (*client.NodeDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListOvhCredentials() ([]client.OvhCredentialListItem, error) {
 	return nil, errors.New("not implemented")
 }
@@ -454,6 +510,26 @@ func (m baseMock) UpdateUpcloudNodeGroupInstanceType(clusterID, groupName, insta
 }
 
 func (m baseMock) DeleteUpcloudNodeGroup(clusterID, groupName string) (*client.DeleteNodeGroupResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetUpcloudControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeUpcloudControlPlaneCount(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListUpcloudClusterNodes(clusterID string) (*client.NodeListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetUpcloudClusterNode(clusterID, nodeID string) (*client.NodeDetail, error) {
 	return nil, errors.New("not implemented")
 }
 

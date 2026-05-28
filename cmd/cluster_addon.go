@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 
@@ -287,17 +290,274 @@ Usage:
 	},
 }
 
+var clusterAddonsUpgradeCmd = &cobra.Command{
+	Use:   "upgrade <addon_name>",
+	Short: "Upgrade an addon in-place (chart version, values, registry, namespace)",
+	Long: `Upgrade an addon by patching just the fields you supply.
+
+At least one mutating flag is required. Examples:
+
+  # Bump chart version
+  ankra cluster addons upgrade ankra-website --chart-version 1.0.146 \
+    --cluster website-demo
+
+  # Tweak a single Helm values field with --set (mutates the existing values)
+  ankra cluster addons upgrade website --set image.tag=1.0.146 \
+    --cluster website-demo
+
+  # Replace the whole values document
+  ankra cluster addons upgrade website \
+    --values-from-file ./values.yaml --cluster website-demo
+
+--set* and --values-from-file are mutually exclusive: --set* mutates the
+existing values document while --values-from-file replaces it.
+
+Changing --namespace is destructive (Helm reinstall in the new namespace,
+leaves the old release orphaned). Use --yes to skip the confirmation prompt
+or interactively confirm.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runAddonsUpgrade,
+}
+
+func runAddonsUpgrade(cmd *cobra.Command, args []string) error {
+	addonName := args[0]
+	flags, err := parseAddonsUpgradeFlags(cmd)
+	if err != nil {
+		return err
+	}
+	if !flags.HasAnyMutation() {
+		return errors.New("at least one mutating flag is required (--chart-version, --values-from-file, --values, --set*, --registry-*, or --namespace)")
+	}
+	if flags.HasValuesReplace() && flags.HasSet() {
+		return errors.New("--values-from-file / --values - are mutually exclusive with --set/--set-string/--set-file (the former REPLACES the entire values document; the latter MUTATES the existing one)")
+	}
+
+	clusterID, clusterName, err := resolveClusterForCmd(flags.Cluster)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+	defer cancel()
+
+	iacYAML, err := apiClient.GetClusterIaC(ctx, clusterID)
+	if err != nil {
+		if errors.Is(err, client.ErrClusterEmpty) {
+			return fmt.Errorf("no resources on cluster %q; nothing to upgrade", clusterName)
+		}
+		return fmt.Errorf("fetch cluster IaC: %w", err)
+	}
+	doc, err := parseImportClusterYAML([]byte(iacYAML))
+	if err != nil {
+		return err
+	}
+	stack, addon, err := findAddonInIaC(doc, addonName, flags.Stack)
+	if err != nil {
+		return err
+	}
+
+	var newValuesB64 *string
+	var notices []string
+
+	encryptedPaths := []string{}
+	if addon.Configuration != nil && len(addon.Configuration.EncryptedPaths) > 0 {
+		encryptedPaths = addon.Configuration.EncryptedPaths
+	}
+
+	switch {
+	case flags.HasValuesReplace():
+		raw, readErr := readSource(flags.ValuesFromFile, flags.ValuesStdin)
+		if readErr != nil {
+			return fmt.Errorf("read values source: %w", readErr)
+		}
+		encoded := base64.StdEncoding.EncodeToString(raw)
+		newValuesB64 = &encoded
+		if len(encryptedPaths) > 0 {
+			notices = append(notices, fmt.Sprintf("values will be SOPS-encrypted on git push (encrypted_paths: %s)", strings.Join(encryptedPaths, ", ")))
+		}
+	case flags.HasSet():
+		currentYAML, valErr := apiClient.GetClusterAddonValues(ctx, clusterID, addonName)
+		if valErr != nil {
+			return fmt.Errorf("fetch current addon values: %w", valErr)
+		}
+		var root yaml.Node
+		if currentYAML != "" {
+			if err := yaml.Unmarshal([]byte(currentYAML), &root); err != nil {
+				return fmt.Errorf("parse current addon values: %w", err)
+			}
+		}
+		assignments, err := collectSetAssignments(flags)
+		if err != nil {
+			return err
+		}
+		if err := ApplySetAssignments(&root, assignments); err != nil {
+			return err
+		}
+		var buf strings.Builder
+		enc := yaml.NewEncoder(stringWriter{w: &buf})
+		enc.SetIndent(2)
+		if err := enc.Encode(&root); err != nil {
+			return fmt.Errorf("re-encode addon values: %w", err)
+		}
+		_ = enc.Close()
+		encoded := base64.StdEncoding.EncodeToString([]byte(buf.String()))
+		newValuesB64 = &encoded
+		if len(encryptedPaths) > 0 {
+			notices = append(notices, fmt.Sprintf("values will be SOPS-encrypted on git push (encrypted_paths: %s)", strings.Join(encryptedPaths, ", ")))
+		}
+	}
+
+	mutatedAddon := applyAddonMutations(*addon, flags, newValuesB64)
+	if mutatedAddon.Configuration != nil && len(encryptedPaths) > 0 {
+		mutatedAddon.Configuration.EncryptedPaths = encryptedPaths
+	}
+	patchStack := copyStackMetadata(stack)
+	patchStack.Addons = []client.AddonSpec{mutatedAddon}
+
+	beforeStack := previewStackBefore(stack, *addon)
+
+	if flags.DryRun {
+		return renderDryRun(cmd.OutOrStdout(), beforeStack, patchStack, notices, flags.Output)
+	}
+
+	if flags.Namespace != "" && flags.Namespace != addon.Namespace {
+		if err := confirmNamespaceChange(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), addon.Namespace, flags.Namespace, flags.Yes); err != nil {
+			return err
+		}
+		notices = append(notices, fmt.Sprintf("addon will be re-installed in namespace %q; the old release in %q is left orphaned", flags.Namespace, addon.Namespace))
+	}
+
+	req := buildPartialStackPatch(patchStack)
+	res, err := apiClient.PatchClusterStackPartial(ctx, clusterID, stack.Name, req)
+	if err != nil {
+		var perr *client.PatchStackError
+		if errors.As(err, &perr) {
+			return mapPatchError(perr)
+		}
+		return err
+	}
+	if len(res.Errors) > 0 {
+		fmt.Fprintln(cmd.ErrOrStderr(), "Update completed with resource errors:")
+		for _, e := range res.Errors {
+			fmt.Fprintf(cmd.ErrOrStderr(), "  - %s %s [%s]: %s\n", e.Kind, e.Name, e.Key, e.Message)
+		}
+		return errors.New("update partially failed; see errors above")
+	}
+	return printAsOutput(cmd.OutOrStdout(), res, flags.Output)
+}
+
+// stringWriter adapts a *strings.Builder to io.Writer.
+type stringWriter struct{ w *strings.Builder }
+
+func (s stringWriter) Write(p []byte) (int, error) { return s.w.Write(p) }
+
+// previewStackBefore returns a stack with just the original addon for the
+// dry-run "before" rendering, matching the shape of the "after" stack.
+func previewStackBefore(src *client.StackSpec, orig client.AddonSpec) client.StackSpec {
+	before := copyStackMetadata(src)
+	before.Addons = []client.AddonSpec{orig}
+	return before
+}
+
+func parseAddonsUpgradeFlags(cmd *cobra.Command) (addonsUpgradeFlags, error) {
+	chartVersion, _ := cmd.Flags().GetString("chart-version")
+	namespace, _ := cmd.Flags().GetString("namespace")
+	regName, _ := cmd.Flags().GetString("registry-name")
+	regURL, _ := cmd.Flags().GetString("registry-url")
+	regCred, _ := cmd.Flags().GetString("registry-credential-name")
+
+	valuesFile, _ := cmd.Flags().GetString("values-from-file")
+	valuesStdin, _ := cmd.Flags().GetString("values")
+	setEntries, _ := cmd.Flags().GetStringArray("set")
+	setStrings, _ := cmd.Flags().GetStringArray("set-string")
+	setFiles, _ := cmd.Flags().GetStringArray("set-file")
+
+	cluster, _ := cmd.Flags().GetString("cluster")
+	stack, _ := cmd.Flags().GetString("stack")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	yes, _ := cmd.Flags().GetBool("yes")
+	outRaw, _ := cmd.Flags().GetString("output")
+
+	out, err := parseOutputFormat(outRaw)
+	if err != nil {
+		return addonsUpgradeFlags{}, err
+	}
+	if valuesStdin != "" && valuesStdin != "-" {
+		return addonsUpgradeFlags{}, fmt.Errorf("--values currently only accepts `-` (stdin); use --values-from-file for a file path")
+	}
+	return addonsUpgradeFlags{
+		ChartVersion:           chartVersion,
+		Namespace:              namespace,
+		RegistryName:           regName,
+		RegistryURL:            regURL,
+		RegistryCredentialName: regCred,
+		ValuesFromFile:         valuesFile,
+		ValuesStdin:            valuesStdin,
+		SetEntries:             setEntries,
+		SetStrings:             setStrings,
+		SetFiles:               setFiles,
+		Cluster:                cluster,
+		Stack:                  stack,
+		DryRun:                 dryRun,
+		Yes:                    yes,
+		Output:                 out,
+	}, nil
+}
+
+func collectSetAssignments(flags addonsUpgradeFlags) ([]SetAssignment, error) {
+	var all []SetAssignment
+	if len(flags.SetEntries) > 0 {
+		got, err := ParseSetAssignments(flags.SetEntries, setKindCoerce)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, got...)
+	}
+	if len(flags.SetStrings) > 0 {
+		got, err := ParseSetAssignments(flags.SetStrings, setKindString)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, got...)
+	}
+	if len(flags.SetFiles) > 0 {
+		got, err := ParseSetAssignments(flags.SetFiles, setKindFile)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, got...)
+	}
+	return all, nil
+}
+
 func init() {
 	clusterAddonsUninstallCmd.Flags().Bool("delete", false, "Also delete the addon permanently")
 
 	clusterAddonsUpdateCmd.Flags().StringP("file", "f", "", "Path to JSON settings file (required)")
 	_ = clusterAddonsUpdateCmd.MarkFlagRequired("file")
 
+	clusterAddonsUpgradeCmd.Flags().String("chart-version", "", "New chart version to install")
+	clusterAddonsUpgradeCmd.Flags().String("namespace", "", "Change the addon's namespace (destructive: Helm reinstall)")
+	clusterAddonsUpgradeCmd.Flags().String("registry-name", "", "New helm registry name")
+	clusterAddonsUpgradeCmd.Flags().String("registry-url", "", "New helm registry URL")
+	clusterAddonsUpgradeCmd.Flags().String("registry-credential-name", "", "New helm registry credential name")
+	clusterAddonsUpgradeCmd.Flags().String("values-from-file", "", "Path to YAML values file (REPLACES the entire values document)")
+	clusterAddonsUpgradeCmd.Flags().String("values", "", "Use `-` to read values YAML from stdin (REPLACES the entire values document)")
+	clusterAddonsUpgradeCmd.Flags().StringArray("set", nil, "Helm-style values mutation, e.g. --set image.tag=1.0.0 (MUTATES existing values; repeatable, comma-separated)")
+	clusterAddonsUpgradeCmd.Flags().StringArray("set-string", nil, "Like --set but always treats the value as a string")
+	clusterAddonsUpgradeCmd.Flags().StringArray("set-file", nil, "Like --set but reads the value from a file: key=path or key=@path")
+	clusterAddonsUpgradeCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
+	clusterAddonsUpgradeCmd.Flags().String("stack", "", "Stack name (required when the addon exists in multiple stacks)")
+	clusterAddonsUpgradeCmd.Flags().Bool("dry-run", false, "Print the proposed before/after spec without applying changes")
+	clusterAddonsUpgradeCmd.Flags().Bool("yes", false, "Skip the confirmation prompt for destructive changes (--namespace)")
+	clusterAddonsUpgradeCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
+
 	clusterAddonsCmd.AddCommand(clusterAddonsListCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsAvailableCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsSettingsCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsUninstallCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsUpdateCmd)
+	clusterAddonsCmd.AddCommand(clusterAddonsUpgradeCmd)
 
 	clusterCmd.AddCommand(clusterAddonsCmd)
 }

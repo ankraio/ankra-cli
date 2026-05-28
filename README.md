@@ -75,11 +75,13 @@ This script will:
   - View stack change history
   - Decode base64-encoded manifests to view full YAML
   - Show parent-child relationships between stacks, manifests, and addons
+  - Upgrade a manifest in-place from a file or stdin (`ankra cluster manifests upgrade <name>`)
 
 - **Addons**
   - List available and installed addons
   - View addon settings
   - Update addon settings from a JSON file
+  - Upgrade an addon in-place: bump chart version, patch values with helm-style `--set`, swap registry credentials, or change namespace (`ankra cluster addons upgrade <name>`)
   - Uninstall addons from clusters
   - See chart repository, version history, and health status
 
@@ -282,9 +284,41 @@ ankra cluster addons list [name]      # List addons or show details
 ankra cluster addons available        # List addons available for installation
 ankra cluster addons settings <name>  # Get addon settings
 ankra cluster addons update <name> -f <file>  # Update addon settings from JSON
+ankra cluster addons upgrade <name>   # In-place upgrade against the partial-stack endpoint
+  [--chart-version <version>]         #   Bump the chart version
+  [--values-from-file <path>]         #   REPLACE the values document from a file
+  [--values -]                        #   REPLACE the values document from stdin
+  [--set key=value]                   #   MUTATE one Helm value (repeatable, helm-style)
+  [--set-string key=value]            #   --set but always coerce to string
+  [--set-file key=path]               #   --set with the value read from a file
+  [--registry-name <name>]            #   Atomically retag the addon's registry
+  [--registry-url <url>]
+  [--registry-credential-name <name>]
+  [--namespace <ns>]                  #   Destructive: Helm reinstall in the new namespace
+  [--yes]                             #   Skip the namespace-change confirmation prompt
+  [--cluster <name|id>]               #   Target cluster (defaults to active selection)
+  [--stack <stack>]                   #   Required when the addon exists in multiple stacks
+  [--dry-run]                         #   Print before/after spec without writing
+  [-o json|yaml]                      #   Machine-readable output for CI
 ankra cluster addons uninstall <name> # Uninstall an addon
   [--delete]                          #   Also delete the addon permanently
 ```
+
+Examples:
+
+```bash
+# Bump the chart version
+ankra cluster addons upgrade ankra-website \
+  --chart-version 1.0.146 \
+  --cluster website-demo
+
+# Mutate one Helm values field (CLI fetches existing values and patches them)
+ankra cluster addons upgrade website \
+  --set image.tag=1.0.146 \
+  --cluster website-demo
+```
+
+> Changing `--namespace` on an addon is **destructive**: Helm reinstalls the chart in the new namespace and leaves the old release orphaned. Use `--yes` to skip the interactive confirmation in CI.
 
 #### Cluster Operations (Executions)
 ```bash
@@ -311,7 +345,18 @@ ankra cluster agent upgrade           # Upgrade the agent
 #### Cluster Manifests
 ```bash
 ankra cluster manifests list [name]   # List manifests or show details
+ankra cluster manifests upgrade <name>  # In-place upgrade against the partial-stack endpoint
+  [--from-file <path>]                #   Replace manifest content from a file
+  [--manifest -]                      #   Replace manifest content from stdin
+  [--namespace <ns>]                  #   Change the manifest's namespace
+  [--cluster <name|id>]               #   Target cluster (defaults to active selection)
+  [--dry-run]                         #   Print before/after spec without writing
+  [-o json|yaml]                      #   Machine-readable output for CI
 ```
+
+Manifest names are unique across a cluster (a manifest belongs to exactly one stack), so unlike addons there is no `--stack` flag here.
+
+When neither `--from-file` nor `--manifest` is supplied, the CLI fetches the existing content from the cluster and re-sends it (the backend requires `manifest_base64` on every patch).
 
 #### SOPS Encryption
 ```bash
