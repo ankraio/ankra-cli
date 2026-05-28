@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -160,6 +161,70 @@ func (c *Client) UninstallAddon(ctx context.Context, clusterID, addonResourceID 
 	}
 
 	return &UninstallAddonResult{Success: true, Message: "Addon uninstalled"}, nil
+}
+
+// addonConfigurationV2Response mirrors the response shape of
+// GET /api/v1/org/clusters/imported/{cluster_id}/addons/{addon_name}/configuration
+// returning AddonStandaloneConfiguration.values (base64-encoded plaintext YAML).
+type addonConfigurationV2Response struct {
+	Result *struct {
+		ClusterAddonConfiguration struct {
+			Values string `json:"values"`
+		} `json:"cluster_addon_configuration"`
+	} `json:"result"`
+}
+
+// GetClusterAddonValues returns the current values YAML for a cluster addon
+// (base64-decoded plaintext). The DB always stores plaintext per
+// assert_no_silent_plaintext in the SOPS encryption service; SOPS is only
+// applied at git-push time, so this is safe to mutate locally and round-trip
+// back through PATCH /stacks.
+//
+// encrypted_paths is NOT returned by this endpoint; callers should source it
+// from the cluster IaC YAML when needed (it informs whether SOPS will
+// re-encrypt on the next git push).
+func (c *Client) GetClusterAddonValues(ctx context.Context, clusterID, addonName string) (string, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/%s/configuration",
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(addonName))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return "", fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("get addon configuration failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+	}
+
+	var parsed addonConfigurationV2Response
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", fmt.Errorf("parse response: %w", err)
+	}
+	if parsed.Result == nil {
+		return "", nil
+	}
+	encoded := parsed.Result.ClusterAddonConfiguration.Values
+	if encoded == "" {
+		return "", nil
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", fmt.Errorf("base64-decode addon values: %w", err)
+	}
+	return string(decoded), nil
 }
 
 func (c *Client) GetAddonByName(clusterID, addonName string) (*ClusterAddonListItem, error) {

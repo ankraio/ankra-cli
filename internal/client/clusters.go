@@ -225,8 +225,8 @@ func (c *Client) RollToClusterResourceVersion(ctx context.Context, clusterID, ve
 type AnkraResourceKind string
 
 type Parent struct {
-	Name string            `json:"name"`
-	Kind AnkraResourceKind `json:"kind"`
+	Name string            `json:"name" yaml:"name"`
+	Kind AnkraResourceKind `json:"kind" yaml:"kind"`
 }
 
 type AddonStandaloneConfiguration struct {

@@ -22,6 +22,7 @@ type APIClient interface {
 	GetAddonSettings(clusterID, addonName string) (*client.GetAddonSettingsResponse, error)
 	UpdateAddonSettings(ctx context.Context, clusterID, addonName string, settings client.AddonSettings) error
 	GetAddonByName(clusterID, addonName string) (*client.ClusterAddonListItem, error)
+	GetClusterAddonValues(ctx context.Context, clusterID, addonName string) (string, error)
 	UninstallAddon(ctx context.Context, clusterID, addonResourceID string, deletePermanently bool) (*client.UninstallAddonResult, error)
 
 	ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error)
@@ -32,11 +33,15 @@ type APIClient interface {
 	BatchCancelExecutions(ctx context.Context, executionIDs []string) (*client.BatchCancelExecutionsResponse, error)
 	RetryExecution(ctx context.Context, executionID string) (*client.ExecutionSummary, error)
 
+	GetClusterIaC(ctx context.Context, clusterID string) (string, error)
+	PatchClusterStackPartial(ctx context.Context, clusterID, stackName string, body client.PatchStackRequest) (*client.PatchStackResult, error)
+
 	GetSopsConfig() (*client.SopsConfigResult, error)
 	EncryptYAML(yamlContent string, encryptedPaths []string) (string, error)
 	DecryptYAML(encryptedYaml string) (string, error)
 
 	ListClusterManifests(clusterID string) ([]client.ClusterManifestListItem, error)
+	GetClusterManifestConfiguration(ctx context.Context, clusterID, manifestName string) (string, error)
 
 	ListClusterStacks(clusterID string) ([]client.ClusterStackListItem, error)
 	CreateStack(ctx context.Context, clusterID, name, description string) (*client.CreateStackResult, error)
@@ -102,6 +107,11 @@ type APIClient interface {
 	ScaleHetznerNodeGroup(clusterID, groupName string, count int) (*client.ScaleNodeGroupResult, error)
 	UpdateHetznerNodeGroupInstanceType(clusterID, groupName, instanceType string) (*client.UpdateNodeGroupResult, error)
 	DeleteHetznerNodeGroup(clusterID, groupName string) (*client.DeleteNodeGroupResult, error)
+	GetHetznerControlPlane(clusterID string) (*client.ControlPlaneInfo, error)
+	ChangeHetznerControlPlaneCount(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error)
+	ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error)
+	ListHetznerClusterNodes(clusterID string) (*client.NodeListResult, error)
+	GetHetznerClusterNode(clusterID, nodeID string) (*client.NodeDetail, error)
 
 	ListHetznerCredentials() ([]client.HetznerCredentialListItem, error)
 	CreateHetznerCredential(req client.CreateHetznerCredentialRequest) (*client.CreateHetznerCredentialResponse, error)
@@ -119,6 +129,11 @@ type APIClient interface {
 	ScaleOvhNodeGroup(clusterID, groupName string, count int) (*client.ScaleNodeGroupResult, error)
 	UpdateOvhNodeGroupInstanceType(clusterID, groupName, instanceType string) (*client.UpdateNodeGroupResult, error)
 	DeleteOvhNodeGroup(clusterID, groupName string) (*client.DeleteNodeGroupResult, error)
+	GetOvhControlPlane(clusterID string) (*client.ControlPlaneInfo, error)
+	ChangeOvhControlPlaneCount(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error)
+	ChangeOvhControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error)
+	ListOvhClusterNodes(clusterID string) (*client.NodeListResult, error)
+	GetOvhClusterNode(clusterID, nodeID string) (*client.NodeDetail, error)
 
 	ListOvhCredentials() ([]client.OvhCredentialListItem, error)
 	CreateOvhCredential(req client.CreateOvhCredentialRequest) (*client.CreateOvhCredentialResponse, error)
@@ -136,6 +151,11 @@ type APIClient interface {
 	ScaleUpcloudNodeGroup(clusterID, groupName string, count int) (*client.ScaleNodeGroupResult, error)
 	UpdateUpcloudNodeGroupInstanceType(clusterID, groupName, instanceType string) (*client.UpdateNodeGroupResult, error)
 	DeleteUpcloudNodeGroup(clusterID, groupName string) (*client.DeleteNodeGroupResult, error)
+	GetUpcloudControlPlane(clusterID string) (*client.ControlPlaneInfo, error)
+	ChangeUpcloudControlPlaneCount(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error)
+	ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error)
+	ListUpcloudClusterNodes(clusterID string) (*client.NodeListResult, error)
+	GetUpcloudClusterNode(clusterID, nodeID string) (*client.NodeDetail, error)
 
 	ListUpcloudCredentials() ([]client.UpcloudCredentialListItem, error)
 	CreateUpcloudCredential(req client.CreateUpcloudCredentialRequest) (*client.CreateUpcloudCredentialResponse, error)

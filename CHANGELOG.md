@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+### New Features
+
+#### Control Plane Management
+
+Inspect and change the control plane of a stopped cluster, without going through
+the dashboard.
+
+```bash
+# Show the current configuration
+ankra cluster hetzner control-plane get <cluster_id>
+
+# Switch between 1 and 3 controllers (etcd quorum: only 1 or 3 is allowed)
+ankra cluster hetzner control-plane set-count <cluster_id> 3
+
+# Change the controller instance type
+ankra cluster hetzner control-plane set-instance-type <cluster_id> cx33
+```
+
+The same commands are available for OVH (`ankra cluster ovh control-plane …`)
+and UpCloud (`ankra cluster upcloud control-plane …`). The cluster must be
+stopped; changes apply the next time you start the cluster.
+
+#### Cluster Nodes Listing
+
+List every server Ankra manages for the cluster (control plane, workers, and
+bastion or gateway), or drill into one for full spec and metadata. Soft-deleted
+entries from a stopped cluster are listed too, so the saved topology is visible
+before re-provisioning.
+
+```bash
+ankra cluster hetzner nodes list <cluster_id>
+ankra cluster hetzner nodes list <cluster_id> --json
+ankra cluster hetzner nodes get <cluster_id> <node_id>
+ankra cluster hetzner nodes get <cluster_id> <node_id> --json
+```
+
+Available for all providers (`hetzner`, `ovh`, `upcloud`).
+
+### API Endpoints
+
+- `GET /api/v1/clusters/{provider}/{id}/control-plane` — read controller count, instance type and editability
+- `PUT /api/v1/clusters/{provider}/{id}/control-plane` — change controller count (1 or 3)
+- `PUT /api/v1/clusters/{provider}/{id}/control-plane/instance-type` — change controller instance type
+- `GET /api/v1/clusters/{provider}/{id}/nodes` — list all managed servers for the cluster
+- `GET /api/v1/clusters/{provider}/{id}/nodes/{node_id}` — full spec and metadata for a node
+
 ### Deprecations
 
 - `ankra chat` currently uses the bearer-token streaming endpoints
@@ -10,6 +56,63 @@
   now responds with `Deprecation: true` and a `Sunset` header on these routes.
   When the warning prints, upgrade `ankra-cli` to the next release once a
   resumable session-based replacement has shipped on the platform.
+
+## v0.2.4 — May 2026
+
+### New Features
+
+#### Surgical Addon and Manifest Upgrades
+
+Two new subcommands for in-place updates against the existing partial-stack endpoint — no more hand-editing the full `ImportCluster.yaml`.
+
+##### Bump an addon's chart version
+
+```bash
+ankra cluster addons upgrade ankra-website \
+  --chart-version 1.0.146 \
+  --cluster website-demo
+```
+
+##### Tweak a single Helm values field with `--set` (helm-style)
+
+```bash
+ankra cluster addons upgrade website \
+  --set image.tag=1.0.146 \
+  --cluster website-demo
+```
+
+`--set` accepts comma-separated dotted paths with array indexing (`ingress.hosts[0].host=demo.ankra.io`).
+
+> `--set` vs `--set-string`: `--set image.tag=1.0.146` keeps the value a string because `1.0.146` is not a valid number. `--set image.tag=2.0` would coerce to the float `2.0`, which Helm renders as `2`. When the value is a valid number/bool but you want it to stay a string, use `--set-string image.tag=2.0`. `--set-file key=path` reads file contents as the value (useful for certs or configmap blobs).
+
+##### Replace the whole values document
+
+```bash
+ankra cluster addons upgrade website \
+  --values-from-file ./values.yaml \
+  --cluster website-demo
+```
+
+`--set*` and `--values-from-file` are mutually exclusive: `--set*` mutates the existing document while `--values-from-file` replaces it.
+
+##### Update a manifest
+
+```bash
+ankra cluster manifests upgrade demo-namespace \
+  --from-file manifests/demo-namespace.yaml \
+  --cluster website-demo
+```
+
+##### Common options
+
+- `--cluster <name|id>` — defaults to the selected cluster.
+- `--stack <name>` — addons only, required when the same addon name exists in multiple stacks. Manifest names are globally unique on a cluster, so `manifests upgrade` has no `--stack` flag.
+- `--registry-name`, `--registry-url`, `--registry-credential-name` — atomically retag the addon's registry.
+- `--namespace` — destructive for addons (Helm reinstall); requires `--yes` or interactive confirmation.
+- `--dry-run` — print the before/after YAML; no API write.
+- `-o json|yaml` — machine-readable output for CI scripts.
+
+All upgrades go through the same partial-stack endpoint as the UI, so they are atomic, locked, and produce a single git commit per invocation when gitops is enabled.
 
 ## v0.1.129 — April 2026
 
