@@ -19,11 +19,19 @@ const (
 )
 
 // pathSegment is one component of a dotted path.
-// If isIndex is true, value is empty and index carries the array index.
+//
+//   - isIndex:    a numeric array index (`[N]`); value is empty, index carries N.
+//   - isSelector: a key/value list match (`[key=value]`); selKey/selVal carry
+//     the field to match. Used to address list items by a stable field (e.g. a
+//     Kubernetes container by name) instead of a fragile positional index.
+//   - otherwise:  a plain map key in `value`.
 type pathSegment struct {
-	isIndex bool
-	value   string
-	index   int
+	isIndex    bool
+	value      string
+	index      int
+	isSelector bool
+	selKey     string
+	selVal     string
 }
 
 // SetAssignment is one parsed `key=value` from --set/--set-string/--set-file.
@@ -54,7 +62,7 @@ func ParseSetAssignments(raws []string, kind setKind) ([]SetAssignment, error) {
 			if entry == "" {
 				continue
 			}
-			eqIdx := findUnescaped(entry, '=')
+			eqIdx := findKeyValueSep(entry)
 			if eqIdx < 0 {
 				return nil, fmt.Errorf("invalid --set entry %q: expected key=value", entry)
 			}
@@ -140,6 +148,39 @@ func applyOne(root *yaml.Node, assign SetAssignment) error {
 	cursor := root
 	for i, seg := range assign.Path {
 		isLast := i == len(assign.Path)-1
+		if seg.isSelector {
+			if cursor.Kind == yaml.ScalarNode && (cursor.Tag == "!!null" || cursor.Value == "") {
+				return fmt.Errorf("--set %s: no list item with %s=%s in %s (list is empty or missing)", renderPath(assign.Path), seg.selKey, seg.selVal, renderPath(assign.Path[:i]))
+			}
+			if cursor.Kind != yaml.SequenceNode {
+				return fmt.Errorf("--set %s: expected sequence at selector [%s=%s], got %s", renderPath(assign.Path), seg.selKey, seg.selVal, kindName(cursor.Kind))
+			}
+			childIdx := -1
+			for ci, item := range cursor.Content {
+				if item.Kind != yaml.MappingNode {
+					continue
+				}
+				ki := mapIndexOf(item, seg.selKey)
+				if ki >= 0 && item.Content[ki+1].Value == seg.selVal {
+					childIdx = ci
+					break
+				}
+			}
+			if childIdx < 0 {
+				return fmt.Errorf("--set %s: no list item with %s=%s in %s", renderPath(assign.Path), seg.selKey, seg.selVal, renderPath(assign.Path[:i]))
+			}
+			child := cursor.Content[childIdx]
+			if isLast {
+				next, err := makeScalarNode(assign)
+				if err != nil {
+					return err
+				}
+				cursor.Content[childIdx] = preserveComments(child, next)
+				return nil
+			}
+			cursor = child
+			continue
+		}
 		if seg.isIndex {
 			if cursor.Kind == yaml.ScalarNode && (cursor.Tag == "!!null" || cursor.Value == "") {
 				cursor.Kind = yaml.SequenceNode
@@ -348,6 +389,10 @@ func renderPath(segments []pathSegment) string {
 			fmt.Fprintf(&b, "[%d]", seg.index)
 			continue
 		}
+		if seg.isSelector {
+			fmt.Fprintf(&b, "[%s=%s]", seg.selKey, seg.selVal)
+			continue
+		}
 		if i > 0 {
 			b.WriteByte('.')
 		}
@@ -383,6 +428,37 @@ func splitTopLevel(s string, sep rune) []string {
 	}
 	out = append(out, b.String())
 	return out
+}
+
+// findKeyValueSep returns the index of the `=` that separates the dotted key
+// from the value, ignoring any `=` that appears inside a `[...]` selector
+// (e.g. `containers[name=app].image=nginx`). Honors \-escapes. Returns -1 when
+// no top-level `=` exists.
+func findKeyValueSep(s string) int {
+	escape := false
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if escape {
+			escape = false
+			continue
+		}
+		switch c {
+		case '\\':
+			escape = true
+		case '[':
+			depth++
+		case ']':
+			if depth > 0 {
+				depth--
+			}
+		case '=':
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // findUnescaped returns the index of the first unescaped occurrence of c, or -1.
@@ -457,14 +533,22 @@ func parseDottedPath(key string) ([]pathSegment, error) {
 			flushKey()
 			end := strings.IndexByte(key[i+1:], ']')
 			if end < 0 {
-				return nil, fmt.Errorf("unterminated array index in %q", key)
+				return nil, fmt.Errorf("unterminated bracket in %q", key)
 			}
-			idxText := key[i+1 : i+1+end]
-			n, err := strconv.Atoi(idxText)
-			if err != nil || n < 0 {
-				return nil, fmt.Errorf("invalid array index %q", idxText)
+			body := key[i+1 : i+1+end]
+			if eq := strings.IndexByte(body, '='); eq >= 0 {
+				selKey := strings.TrimSpace(body[:eq])
+				if selKey == "" {
+					return nil, fmt.Errorf("invalid selector %q: empty key", body)
+				}
+				segments = append(segments, pathSegment{isSelector: true, selKey: selKey, selVal: body[eq+1:]})
+			} else {
+				n, err := strconv.Atoi(body)
+				if err != nil || n < 0 {
+					return nil, fmt.Errorf("invalid array index %q", body)
+				}
+				segments = append(segments, pathSegment{isIndex: true, index: n})
 			}
-			segments = append(segments, pathSegment{isIndex: true, index: n})
 			i = i + 1 + end + 1
 			if i < len(key) && key[i] == '.' {
 				i++

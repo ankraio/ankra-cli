@@ -227,3 +227,90 @@ func TestApplySetAssignments_DeeplyNestedCreatesPath(t *testing.T) {
 		t.Errorf("expected nested path created, got:\n%s", out)
 	}
 }
+
+func TestParseSetAssignments_KeySelectorPath(t *testing.T) {
+	got, err := ParseSetAssignments([]string{"spec.containers[name=app].image=nginx:1.27"}, setKindString)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d assignments, want 1", len(got))
+	}
+	p := got[0].Path
+	// spec . containers . [name=app] . image
+	if len(p) != 4 {
+		t.Fatalf("got %d segments, want 4: %+v", len(p), p)
+	}
+	if !p[2].isSelector || p[2].selKey != "name" || p[2].selVal != "app" {
+		t.Errorf("segment[2] not a name=app selector: %+v", p[2])
+	}
+	if got[0].Value != "nginx:1.27" {
+		t.Errorf("value mis-split (the = inside [name=app] leaked): %q", got[0].Value)
+	}
+}
+
+func TestApplySetAssignments_SelectorMatchesListItemByName(t *testing.T) {
+	src := "spec:\n  containers:\n    - name: sidecar\n      image: busybox:1.0\n    - name: app\n      image: nginx:1.0\n"
+	node := mustParseYAML(t, src)
+	a, err := ParseSetAssignments([]string{"spec.containers[name=app].image=nginx:1.27"}, setKindString)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := ApplySetAssignments(node, a); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	out := encodeYAML(t, node)
+	if !strings.Contains(out, "nginx:1.27") {
+		t.Errorf("expected app image updated, got:\n%s", out)
+	}
+	if !strings.Contains(out, "busybox:1.0") {
+		t.Errorf("expected sidecar image untouched, got:\n%s", out)
+	}
+}
+
+func TestApplySetAssignments_SelectorNotFoundErrors(t *testing.T) {
+	src := "spec:\n  containers:\n    - name: app\n      image: nginx:1.0\n"
+	node := mustParseYAML(t, src)
+	a, err := ParseSetAssignments([]string{"spec.containers[name=missing].image=x"}, setKindString)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	err = ApplySetAssignments(node, a)
+	if err == nil {
+		t.Fatal("expected error for unmatched selector")
+	}
+	if !strings.Contains(err.Error(), "no list item with name=missing") {
+		t.Errorf("error should name the missing selector, got: %v", err)
+	}
+}
+
+func TestApplySetAssignments_SelectorAndNumericIndexMix(t *testing.T) {
+	src := "spec:\n  containers:\n    - name: app\n      ports:\n        - 8080\n        - 9090\n"
+	node := mustParseYAML(t, src)
+	a, err := ParseSetAssignments([]string{"spec.containers[name=app].ports[1]=9999"}, setKindCoerce)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := ApplySetAssignments(node, a); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	out := encodeYAML(t, node)
+	if !strings.Contains(out, "9999") {
+		t.Errorf("expected port index updated, got:\n%s", out)
+	}
+	if !strings.Contains(out, "8080") {
+		t.Errorf("expected sibling port preserved, got:\n%s", out)
+	}
+}
+
+func TestApplySetAssignments_SelectorOnScalarErrors(t *testing.T) {
+	src := "spec:\n  containers: notalist\n"
+	node := mustParseYAML(t, src)
+	a, err := ParseSetAssignments([]string{"spec.containers[name=app].image=x"}, setKindString)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := ApplySetAssignments(node, a); err == nil {
+		t.Fatal("expected error when selecting into a non-sequence")
+	}
+}
