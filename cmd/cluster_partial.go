@@ -241,23 +241,23 @@ func renderDryRun(out io.Writer, before, after client.StackSpec, notices []strin
 	case outputYAML:
 		enc := yaml.NewEncoder(out)
 		enc.SetIndent(2)
-		defer enc.Close()
+		defer func() { _ = enc.Close() }()
 		return enc.Encode(env)
 	}
-	fmt.Fprintln(out, "DRY RUN — no changes will be sent to the API.")
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Before:")
+	_, _ = fmt.Fprintln(out, "DRY RUN — no changes will be sent to the API.")
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "Before:")
 	if err := writeYAMLIndented(out, before, "  "); err != nil {
 		return err
 	}
-	fmt.Fprintln(out, "After:")
+	_, _ = fmt.Fprintln(out, "After:")
 	if err := writeYAMLIndented(out, after, "  "); err != nil {
 		return err
 	}
 	if len(notices) > 0 {
-		fmt.Fprintln(out, "Notices:")
+		_, _ = fmt.Fprintln(out, "Notices:")
 		for _, n := range notices {
-			fmt.Fprintf(out, "  - %s\n", n)
+			_, _ = fmt.Fprintf(out, "  - %s\n", n)
 		}
 	}
 	return nil
@@ -274,7 +274,7 @@ func writeYAMLIndented(out io.Writer, v any, indent string) error {
 	scanner := bufio.NewScanner(&buf)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		fmt.Fprintln(out, indent+scanner.Text())
+		_, _ = fmt.Fprintln(out, indent+scanner.Text())
 	}
 	return scanner.Err()
 }
@@ -291,21 +291,21 @@ func printAsOutput(out io.Writer, res *client.PatchStackResult, format outputFor
 	case outputYAML:
 		enc := yaml.NewEncoder(out)
 		enc.SetIndent(2)
-		defer enc.Close()
+		defer func() { _ = enc.Close() }()
 		return enc.Encode(res)
 	}
-	fmt.Fprintf(out, "Stack %q updated.\n", res.StackName)
+	_, _ = fmt.Fprintf(out, "Stack %q updated.\n", res.StackName)
 	if res.OperationID != "" {
-		fmt.Fprintf(out, "  Operation ID: %s\n", res.OperationID)
+		_, _ = fmt.Fprintf(out, "  Operation ID: %s\n", res.OperationID)
 	}
 	if res.JobCount > 0 {
-		fmt.Fprintf(out, "  Jobs queued: %d\n", res.JobCount)
+		_, _ = fmt.Fprintf(out, "  Jobs queued: %d\n", res.JobCount)
 	}
 	if res.CommitSHA != "" {
-		fmt.Fprintf(out, "  Commit:       %s\n", res.CommitSHA)
+		_, _ = fmt.Fprintf(out, "  Commit:       %s\n", res.CommitSHA)
 	}
 	if res.CommitURL != "" {
-		fmt.Fprintf(out, "  Commit URL:   %s\n", res.CommitURL)
+		_, _ = fmt.Fprintf(out, "  Commit URL:   %s\n", res.CommitURL)
 	}
 	return nil
 }
@@ -381,9 +381,9 @@ func confirmNamespaceChange(ctx context.Context, in io.Reader, out io.Writer, ol
 	if yes {
 		return nil
 	}
-	fmt.Fprintf(out, "WARNING: changing the namespace from %q to %q is destructive.\n", oldNs, newNs)
-	fmt.Fprintln(out, "The existing Helm release will be reinstalled in the new namespace; the old release is left orphaned.")
-	fmt.Fprint(out, "Continue? [y/N]: ")
+	_, _ = fmt.Fprintf(out, "WARNING: changing the namespace from %q to %q is destructive.\n", oldNs, newNs)
+	_, _ = fmt.Fprintln(out, "The existing Helm release will be reinstalled in the new namespace; the old release is left orphaned.")
+	_, _ = fmt.Fprint(out, "Continue? [y/N]: ")
 	reader := bufio.NewReader(in)
 	line, err := reader.ReadString('\n')
 	if err != nil && err != io.EOF {
@@ -535,7 +535,7 @@ func confirmPrompt(in io.Reader, out io.Writer, message string, yes bool) error 
 	if yes {
 		return nil
 	}
-	fmt.Fprint(out, message)
+	_, _ = fmt.Fprint(out, message)
 	reader := bufio.NewReader(in)
 	line, err := reader.ReadString('\n')
 	if err != nil && err != io.EOF {

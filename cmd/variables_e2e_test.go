@@ -104,14 +104,6 @@ func (m *varsMock) DeleteClusterVariable(ctx context.Context, clusterID, name st
 	return nil
 }
 
-func resetVariablesCmdFlags(t *testing.T) {
-	t.Helper()
-	resetUpgradeCommandFlags(t)
-	for _, c := range []interface{ ResetFlags() }{} {
-		_ = c
-	}
-}
-
 // --- org variables ---
 
 func TestRunOrgVariablesSet_CreateThenList(t *testing.T) {

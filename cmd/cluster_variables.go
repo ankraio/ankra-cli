@@ -121,7 +121,7 @@ stdin by passing "-".`,
 
 		_, err = apiClient.CreateClusterVariable(ctx, clusterID, name, value, description)
 		if err == nil {
-			fmt.Fprintf(cmd.OutOrStdout(), "Cluster variable %q created.\n", name)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Cluster variable %q created.\n", name)
 			return nil
 		}
 		if !errors.Is(err, client.ErrVariableDuplicate) {
@@ -143,7 +143,7 @@ stdin by passing "-".`,
 		if _, err := apiClient.UpdateClusterVariable(ctx, clusterID, name, value, description); err != nil {
 			return fmt.Errorf("update cluster variable: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Cluster variable %q updated.\n", name)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Cluster variable %q updated.\n", name)
 		return nil
 	},
 }
@@ -179,7 +179,7 @@ var clusterVariablesDeleteCmd = &cobra.Command{
 			}
 			return fmt.Errorf("delete cluster variable: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Cluster variable %q deleted.\n", name)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Cluster variable %q deleted.\n", name)
 		return nil
 	},
 }
@@ -193,11 +193,11 @@ func renderClusterVariables(out io.Writer, vars []client.ClusterVariable, format
 	case outputYAML:
 		enc := yaml.NewEncoder(out)
 		enc.SetIndent(2)
-		defer enc.Close()
+		defer func() { _ = enc.Close() }()
 		return enc.Encode(client.ClusterVariablesListResult{Variables: vars})
 	}
 	if len(vars) == 0 {
-		fmt.Fprintln(out, "No cluster variables.")
+		_, _ = fmt.Fprintln(out, "No cluster variables.")
 		return nil
 	}
 	t := table.NewWriter()
@@ -220,10 +220,10 @@ func renderSingleClusterVariable(out io.Writer, v client.ClusterVariable, format
 	case outputYAML:
 		enc := yaml.NewEncoder(out)
 		enc.SetIndent(2)
-		defer enc.Close()
+		defer func() { _ = enc.Close() }()
 		return enc.Encode(client.ClusterVariableResult{Variable: v})
 	}
-	fmt.Fprintf(out, "Name:        %s\nValue:       %s\nDescription: %s\nUpdated:     %s\n",
+	_, _ = fmt.Fprintf(out, "Name:        %s\nValue:       %s\nDescription: %s\nUpdated:     %s\n",
 		v.Name, v.Value, v.Description, v.UpdatedAt.Format(time.RFC3339))
 	return nil
 }

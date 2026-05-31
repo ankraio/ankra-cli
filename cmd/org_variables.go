@@ -110,7 +110,7 @@ The value can also be read from stdin by passing "-":
 
 		_, err = apiClient.CreateOrganisationVariable(ctx, name, value, description)
 		if err == nil {
-			fmt.Fprintf(cmd.OutOrStdout(), "Organisation variable %q created.\n", name)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Organisation variable %q created.\n", name)
 			return nil
 		}
 		if !errors.Is(err, client.ErrVariableDuplicate) {
@@ -134,7 +134,7 @@ The value can also be read from stdin by passing "-":
 		if _, err := apiClient.UpdateOrganisationVariable(ctx, name, value, description); err != nil {
 			return fmt.Errorf("update organisation variable: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Organisation variable %q updated.\n", name)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Organisation variable %q updated.\n", name)
 		return nil
 	},
 }
@@ -164,7 +164,7 @@ var orgVariablesDeleteCmd = &cobra.Command{
 			}
 			return fmt.Errorf("delete organisation variable: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Organisation variable %q deleted.\n", name)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Organisation variable %q deleted.\n", name)
 		return nil
 	},
 }
@@ -191,11 +191,11 @@ func renderOrgVariables(out io.Writer, vars []client.OrganisationVariable, forma
 	case outputYAML:
 		enc := yaml.NewEncoder(out)
 		enc.SetIndent(2)
-		defer enc.Close()
+		defer func() { _ = enc.Close() }()
 		return enc.Encode(client.OrganisationVariablesListResult{Variables: vars})
 	}
 	if len(vars) == 0 {
-		fmt.Fprintln(out, "No organisation variables.")
+		_, _ = fmt.Fprintln(out, "No organisation variables.")
 		return nil
 	}
 	t := table.NewWriter()
@@ -218,10 +218,10 @@ func renderSingleOrgVariable(out io.Writer, v client.OrganisationVariable, forma
 	case outputYAML:
 		enc := yaml.NewEncoder(out)
 		enc.SetIndent(2)
-		defer enc.Close()
+		defer func() { _ = enc.Close() }()
 		return enc.Encode(client.OrganisationVariableResult{Variable: v})
 	}
-	fmt.Fprintf(out, "Name:        %s\nValue:       %s\nDescription: %s\nUpdated:     %s\n",
+	_, _ = fmt.Fprintf(out, "Name:        %s\nValue:       %s\nDescription: %s\nUpdated:     %s\n",
 		v.Name, v.Value, v.Description, v.UpdatedAt.Format(time.RFC3339))
 	return nil
 }

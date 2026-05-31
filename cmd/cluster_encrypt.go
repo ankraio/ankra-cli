@@ -398,7 +398,7 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName string) error {
 		return fmt.Errorf("base64-decode manifest content: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Encrypting key %q in manifest %q (stack %q)...\n", encryptKey, manifestName, stack.Name)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Encrypting key %q in manifest %q (stack %q)...\n", encryptKey, manifestName, stack.Name)
 	encryptedYAML, err := apiClient.EncryptYAML(string(decoded), []string{encryptKey})
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
@@ -427,13 +427,13 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName string) error {
 		return err
 	}
 	if len(res.Errors) > 0 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "Encryption completed with resource errors:")
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Encryption completed with resource errors:")
 		for _, e := range res.Errors {
-			fmt.Fprintf(cmd.ErrOrStderr(), "  - %s %s [%s]: %s\n", e.Kind, e.Name, e.Key, e.Message)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  - %s %s [%s]: %s\n", e.Kind, e.Name, e.Key, e.Message)
 		}
 		return errors.New("encryption partially failed; see errors above")
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Manifest %q encrypted in stack %q.\n", manifestName, stack.Name)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Manifest %q encrypted in stack %q.\n", manifestName, stack.Name)
 	return nil
 }
 
@@ -455,7 +455,7 @@ func runEncryptAddonCluster(cmd *cobra.Command, addonName string) error {
 		return fmt.Errorf("fetch current addon values: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Encrypting key %q in addon %q (stack %q)...\n", encryptKey, addonName, stack.Name)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Encrypting key %q in addon %q (stack %q)...\n", encryptKey, addonName, stack.Name)
 	encryptedYAML, err := apiClient.EncryptYAML(currentValues, []string{encryptKey})
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
@@ -489,12 +489,12 @@ func runEncryptAddonCluster(cmd *cobra.Command, addonName string) error {
 		return err
 	}
 	if len(res.Errors) > 0 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "Encryption completed with resource errors:")
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Encryption completed with resource errors:")
 		for _, e := range res.Errors {
-			fmt.Fprintf(cmd.ErrOrStderr(), "  - %s %s [%s]: %s\n", e.Kind, e.Name, e.Key, e.Message)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  - %s %s [%s]: %s\n", e.Kind, e.Name, e.Key, e.Message)
 		}
 		return errors.New("encryption partially failed; see errors above")
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Addon %q encrypted in stack %q.\n", addonName, stack.Name)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Addon %q encrypted in stack %q.\n", addonName, stack.Name)
 	return nil
 }

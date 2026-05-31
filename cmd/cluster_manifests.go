@@ -98,7 +98,7 @@ cluster). Use --dry-run to preview the target without making changes.`,
 		}
 
 		if dryRun {
-			fmt.Fprintf(cmd.OutOrStdout(), "Would disconnect manifest %q from stack %q (no changes made).\n", manifestName, stack.Name)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Would disconnect manifest %q from stack %q (no changes made).\n", manifestName, stack.Name)
 			return nil
 		}
 
@@ -110,7 +110,7 @@ cluster). Use --dry-run to preview the target without making changes.`,
 		if _, err := apiClient.DisconnectManifest(ctx, clusterID, stack.Name, manifestName); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Manifest %q disconnected from stack %q.\n", manifestName, stack.Name)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Manifest %q disconnected from stack %q.\n", manifestName, stack.Name)
 		return nil
 	},
 }
@@ -382,9 +382,9 @@ func runManifestsUpgrade(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if len(res.Errors) > 0 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "Update completed with resource errors:")
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Update completed with resource errors:")
 		for _, e := range res.Errors {
-			fmt.Fprintf(cmd.ErrOrStderr(), "  - %s %s [%s]: %s\n", e.Kind, e.Name, e.Key, e.Message)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  - %s %s [%s]: %s\n", e.Kind, e.Name, e.Key, e.Message)
 		}
 		return errors.New("update partially failed; see errors above")
 	}
