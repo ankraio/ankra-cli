@@ -1,6 +1,6 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.2.4 — May 2026
 
 ### New Features
 
@@ -221,27 +221,6 @@ ankra cluster hetzner nodes get <cluster_id> <node_id> --json
 
 Available for all providers (`hetzner`, `ovh`, `upcloud`).
 
-### API Endpoints
-
-- `GET /api/v1/clusters/{provider}/{id}/control-plane` — read controller count, instance type and editability
-- `PUT /api/v1/clusters/{provider}/{id}/control-plane` — change controller count (1 or 3)
-- `PUT /api/v1/clusters/{provider}/{id}/control-plane/instance-type` — change controller instance type
-- `GET /api/v1/clusters/{provider}/{id}/nodes` — list all managed servers for the cluster
-- `GET /api/v1/clusters/{provider}/{id}/nodes/{node_id}` — full spec and metadata for a node
-
-### Deprecations
-
-- `ankra chat` currently uses the bearer-token streaming endpoints
-  `/api/v1/chat/general` and `/api/v1/org/clusters/{cluster_id}/kubernetes/chat`.
-  These are now deprecated and will be removed in a future release; the platform
-  now responds with `Deprecation: true` and a `Sunset` header on these routes.
-  When the warning prints, upgrade `ankra-cli` to the next release once a
-  resumable session-based replacement has shipped on the platform.
-
-## v0.2.4 — May 2026
-
-### New Features
-
 #### Surgical Addon and Manifest Upgrades
 
 Two new subcommands for in-place updates against the existing partial-stack endpoint — no more hand-editing the full `ImportCluster.yaml`.
@@ -294,6 +273,23 @@ ankra cluster manifests upgrade demo-namespace \
 - `-o json|yaml` — machine-readable output for CI scripts.
 
 All upgrades go through the same partial-stack endpoint as the UI, so they are atomic, locked, and produce a single git commit per invocation when gitops is enabled.
+
+### API Endpoints
+
+- `GET /api/v1/clusters/{provider}/{id}/control-plane` — read controller count, instance type and editability
+- `PUT /api/v1/clusters/{provider}/{id}/control-plane` — change controller count (1 or 3)
+- `PUT /api/v1/clusters/{provider}/{id}/control-plane/instance-type` — change controller instance type
+- `GET /api/v1/clusters/{provider}/{id}/nodes` — list all managed servers for the cluster
+- `GET /api/v1/clusters/{provider}/{id}/nodes/{node_id}` — full spec and metadata for a node
+
+### Deprecations
+
+- `ankra chat` currently uses the bearer-token streaming endpoints
+  `/api/v1/chat/general` and `/api/v1/org/clusters/{cluster_id}/kubernetes/chat`.
+  These are now deprecated and will be removed in a future release; the platform
+  now responds with `Deprecation: true` and a `Sunset` header on these routes.
+  When the warning prints, upgrade `ankra-cli` to the next release once a
+  resumable session-based replacement has shipped on the platform.
 
 ## v0.1.129 — April 2026
 
