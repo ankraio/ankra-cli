@@ -3,8 +3,6 @@ package cmd
 import (
 	"bytes"
 	"context"
-	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -432,7 +430,3 @@ func TestRunStackVariablesList_UnknownStackErrors(t *testing.T) {
 
 // ensure compile-time interface compliance — varsMock must satisfy APIClient
 var _ APIClient = (*varsMock)(nil)
-
-// silence unused import (errors) when other helper tests slim down
-var _ = errors.New
-var _ = fmt.Sprintf

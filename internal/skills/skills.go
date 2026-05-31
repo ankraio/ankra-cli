@@ -154,12 +154,18 @@ func selectNames(available, requested []string) ([]string, error) {
 }
 
 func copySkill(fsys fs.FS, name, dest string) error {
+	cleanDest := filepath.Clean(dest)
 	return fs.WalkDir(fsys, name, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		rel := strings.TrimPrefix(strings.TrimPrefix(p, name), "/")
-		target := filepath.Join(dest, filepath.FromSlash(rel))
+		target := filepath.Join(cleanDest, filepath.FromSlash(rel))
+		// Guard against a crafted relative path (e.g. from a --source dir)
+		// escaping the destination directory.
+		if target != cleanDest && !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
+			return fmt.Errorf("refusing to write outside %s: %s", cleanDest, target)
+		}
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
