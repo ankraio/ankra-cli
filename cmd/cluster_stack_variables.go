@@ -82,7 +82,7 @@ var clusterStackVariablesGetCmd = &cobra.Command{
 		if !ok {
 			return fmt.Errorf("stack variable %q not found on stack %q", name, stackName)
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), value)
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), value)
 		return nil
 	},
 }
@@ -125,11 +125,11 @@ passing "-".`,
 		patchStack.Variables[name] = value
 
 		if dryRun {
-			fmt.Fprintf(cmd.OutOrStdout(), "Would set stack %q variable %q = %q", stackName, name, value)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Would set stack %q variable %q = %q", stackName, name, value)
 			if existed {
-				fmt.Fprintf(cmd.OutOrStdout(), " (was %q)\n", existing)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), " (was %q)\n", existing)
 			} else {
-				fmt.Fprintln(cmd.OutOrStdout(), " (new)")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), " (new)")
 			}
 			return nil
 		}
@@ -138,9 +138,9 @@ passing "-".`,
 			return err
 		}
 		if existed {
-			fmt.Fprintf(cmd.OutOrStdout(), "Stack %q variable %q updated.\n", stackName, name)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Stack %q variable %q updated.\n", stackName, name)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "Stack %q variable %q created.\n", stackName, name)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Stack %q variable %q created.\n", stackName, name)
 		}
 		return nil
 	},
@@ -190,7 +190,7 @@ var clusterStackVariablesDeleteCmd = &cobra.Command{
 		if err := patchStackVariables(ctx, clusterID, patchStack); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Stack %q variable %q deleted.\n", stackName, name)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Stack %q variable %q deleted.\n", stackName, name)
 		return nil
 	},
 }
@@ -262,11 +262,11 @@ func renderStackVariables(out io.Writer, stackName string, vars map[string]strin
 	case outputYAML:
 		enc := yaml.NewEncoder(out)
 		enc.SetIndent(2)
-		defer enc.Close()
+		defer func() { _ = enc.Close() }()
 		return enc.Encode(payload)
 	}
 	if len(vars) == 0 {
-		fmt.Fprintf(out, "No variables on stack %q.\n", stackName)
+		_, _ = fmt.Fprintf(out, "No variables on stack %q.\n", stackName)
 		return nil
 	}
 	keys := make([]string, 0, len(vars))

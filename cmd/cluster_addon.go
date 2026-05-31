@@ -459,6 +459,10 @@ func runAddonsUpgrade(cmd *cobra.Command, args []string) error {
 
 	beforeStack := previewStackBefore(stack, *addon)
 
+	if flags.Namespace != "" && flags.Namespace != addon.Namespace {
+		notices = append(notices, fmt.Sprintf("addon will be re-installed in namespace %q; the old release in %q is left orphaned", flags.Namespace, addon.Namespace))
+	}
+
 	if flags.DryRun {
 		return renderDryRun(cmd.OutOrStdout(), beforeStack, patchStack, notices, flags.Output)
 	}
@@ -467,7 +471,6 @@ func runAddonsUpgrade(cmd *cobra.Command, args []string) error {
 		if err := confirmNamespaceChange(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), addon.Namespace, flags.Namespace, flags.Yes); err != nil {
 			return err
 		}
-		notices = append(notices, fmt.Sprintf("addon will be re-installed in namespace %q; the old release in %q is left orphaned", flags.Namespace, addon.Namespace))
 	}
 
 	req := buildPartialStackPatch(patchStack)
@@ -480,9 +483,9 @@ func runAddonsUpgrade(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if len(res.Errors) > 0 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "Update completed with resource errors:")
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Update completed with resource errors:")
 		for _, e := range res.Errors {
-			fmt.Fprintf(cmd.ErrOrStderr(), "  - %s %s [%s]: %s\n", e.Kind, e.Name, e.Key, e.Message)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  - %s %s [%s]: %s\n", e.Kind, e.Name, e.Key, e.Message)
 		}
 		return errors.New("update partially failed; see errors above")
 	}

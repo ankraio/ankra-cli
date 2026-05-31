@@ -117,9 +117,9 @@ func runDecryptManifestCluster(cmd *cobra.Command, manifestName string) error {
 	if err != nil {
 		return fmt.Errorf("decryption failed: %w", err)
 	}
-	fmt.Fprint(cmd.OutOrStdout(), decryptedContent)
+	_, _ = fmt.Fprint(cmd.OutOrStdout(), decryptedContent)
 	if len(decryptedContent) > 0 && decryptedContent[len(decryptedContent)-1] != '\n' {
-		fmt.Fprintln(cmd.OutOrStdout())
+		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
 	return nil
 }
@@ -177,7 +177,7 @@ func runDecryptManifestFile(cmd *cobra.Command, manifestName string) error {
 		return fmt.Errorf("decryption failed: %w", err)
 	}
 
-	fmt.Fprint(cmd.OutOrStdout(), decryptedContent)
+	_, _ = fmt.Fprint(cmd.OutOrStdout(), decryptedContent)
 	return nil
 }
 
@@ -206,9 +206,9 @@ func runDecryptAddonCluster(cmd *cobra.Command, addonName string) error {
 	if err != nil {
 		return fmt.Errorf("decryption failed: %w", err)
 	}
-	fmt.Fprint(cmd.OutOrStdout(), decryptedContent)
+	_, _ = fmt.Fprint(cmd.OutOrStdout(), decryptedContent)
 	if len(decryptedContent) > 0 && decryptedContent[len(decryptedContent)-1] != '\n' {
-		fmt.Fprintln(cmd.OutOrStdout())
+		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
 	return nil
 }
@@ -265,6 +265,6 @@ func runDecryptAddonFile(cmd *cobra.Command, addonName string) error {
 	if err != nil {
 		return fmt.Errorf("decryption failed: %w", err)
 	}
-	fmt.Fprint(cmd.OutOrStdout(), decryptedContent)
+	_, _ = fmt.Fprint(cmd.OutOrStdout(), decryptedContent)
 	return nil
 }

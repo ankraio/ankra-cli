@@ -77,7 +77,7 @@ func ParseSetAssignments(raws []string, kind setKind) ([]SetAssignment, error) {
 				return nil, fmt.Errorf("invalid --set entry %q: empty key", entry)
 			}
 
-			value := rawVal
+			var value string
 			if kind == setKindFile {
 				filePath := strings.TrimPrefix(rawVal, "@")
 				contents, readErr := os.ReadFile(filePath)
@@ -456,25 +456,6 @@ func findKeyValueSep(s string) int {
 			if depth == 0 {
 				return i
 			}
-		}
-	}
-	return -1
-}
-
-// findUnescaped returns the index of the first unescaped occurrence of c, or -1.
-func findUnescaped(s string, c byte) int {
-	escape := false
-	for i := 0; i < len(s); i++ {
-		if escape {
-			escape = false
-			continue
-		}
-		if s[i] == '\\' {
-			escape = true
-			continue
-		}
-		if s[i] == c {
-			return i
 		}
 	}
 	return -1
