@@ -409,6 +409,7 @@ func TestMapPatchError_StatusCodes(t *testing.T) {
 		{"403 sandbox", 403, `{"detail":"sandbox mode is enabled"}`, "sandbox"},
 		{"409 pending", 409, `{"detail":"Stack is pending deletion"}`, "pending deletion"},
 		{"422 git push", 422, `{"detail":"permission denied"}`, "git push failed"},
+		{"422 circular dep", 422, `{"detail":"Circular dependency detected: a -> b -> a"}`, "Circular dependency detected"},
 		{"401 unauth", 401, ``, "unauthorized"},
 		{"500 other", 500, `{"detail":"unexpected"}`, "status 500"},
 	}

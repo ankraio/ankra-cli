@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"ankra/internal/client"
 
@@ -346,6 +347,54 @@ func resolveOrganisationID() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no organisation selected")
+}
+
+// resolveOrgFlagToID maps the global `--org` value (an organisation name or
+// ID) to an organisation ID, validating that the authenticated user belongs
+// to it. An exact ID match wins; otherwise a case-insensitive name match is
+// used. Ambiguous or unknown names return an actionable error listing the
+// organisations available to the user.
+func resolveOrgFlagToID(value string) (string, error) {
+	orgs, err := apiClient.ListOrganisations()
+	if err != nil {
+		return "", fmt.Errorf("resolving --org %q: %w", value, err)
+	}
+
+	for _, org := range orgs {
+		if org.OrganisationID == value {
+			return org.OrganisationID, nil
+		}
+	}
+
+	var matches []client.OrganisationSummary
+	for _, org := range orgs {
+		if org.Name != nil && strings.EqualFold(strings.TrimSpace(*org.Name), value) {
+			matches = append(matches, org)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0].OrganisationID, nil
+	case 0:
+		return "", fmt.Errorf("organisation %q not found. %s", value, availableOrganisationsHint(orgs))
+	default:
+		return "", fmt.Errorf("multiple organisations are named %q; pass the organisation ID instead", value)
+	}
+}
+
+func availableOrganisationsHint(orgs []client.OrganisationSummary) string {
+	if len(orgs) == 0 {
+		return "You do not belong to any organisations."
+	}
+	var names []string
+	for _, org := range orgs {
+		if org.Name != nil && *org.Name != "" {
+			names = append(names, fmt.Sprintf("%s (%s)", *org.Name, org.OrganisationID))
+		} else {
+			names = append(names, org.OrganisationID)
+		}
+	}
+	return "Available organisations: " + strings.Join(names, ", ")
 }
 
 var orgInviteCmd = &cobra.Command{

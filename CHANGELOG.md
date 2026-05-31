@@ -4,6 +4,187 @@
 
 ### New Features
 
+#### Variables CRUD at Organisation, Cluster, and Stack Scopes
+
+`ankra org variables` and `ankra cluster variables` are new top-level command
+groups for managing template variables that get substituted into stack
+manifests and addon values at deploy time. Stack-scoped variables are managed
+via `ankra cluster stacks variables`. All three scopes have the same UX:
+
+```bash
+# Organisation (available to every cluster)
+ankra org variables list
+ankra org variables set DB_HOST db.example.com --description "Primary DB"
+ankra org variables get DB_HOST
+ankra org variables delete DB_HOST
+
+# Cluster (shadows org variables on that cluster)
+ankra cluster variables list --cluster prod
+ankra cluster variables set DB_HOST db.prod.example.com
+
+# Stack (most specific; shadows cluster + org variables on that stack)
+ankra cluster stacks variables list demo-web-app
+ankra cluster stacks variables set demo-web-app FEATURE_FLAG enabled
+```
+
+`set` is an upsert: it creates the variable, or updates it if a variable with
+the same name already exists. The value can also be read from stdin with `-`
+(useful for piping secrets from a vault or `pass`). All `list`/`get` commands
+support `-o json|yaml` for scripting. `delete` prompts for confirmation
+(`--yes` to skip).
+
+Org and cluster variables are exposed on new bearer-token endpoints
+(`/api/v1/org/variables` and `/api/v1/org/clusters/imported/{id}/variables`)
+that wrap the existing usecases; stack variables travel through the same
+partial-stack PATCH used by `manifests upgrade` / `addons upgrade`.
+
+#### Encrypt and Decrypt Live Cluster Resources with SOPS
+
+`ankra cluster encrypt` and `ankra cluster decrypt` can now operate directly on
+manifests and addons stored on a live cluster, without needing a local
+`cluster.yaml`. They mirror the partial-stack PATCH flow used by
+`manifests upgrade` / `addons upgrade`: fetch the current content, call the
+SOPS API to encrypt/decrypt, and (for encrypt) push the result back with
+`encrypted_paths` updated.
+
+```bash
+# Encrypt a key in a live manifest on the selected cluster
+ankra cluster encrypt manifest db-secret --key data.password
+
+# Encrypt a key in a live addon's values, with an explicit cluster + stack
+ankra cluster encrypt addon --name grafana --key adminPassword \
+  --cluster prod --stack monitoring
+
+# Print decrypted content from a live cluster
+ankra cluster decrypt manifest db-secret
+ankra cluster decrypt addon --name grafana --cluster prod
+```
+
+The existing `-f <cluster.yaml>` file mode is unchanged and remains for GitOps
+workflows where the source of truth lives on disk. The two modes are mutually
+exclusive; cluster mode is the default when no `-f` is given. A new
+`decrypt addon` subcommand brings the addon variant to parity with the manifest
+variant.
+
+#### Install Ankra Agent Skills
+
+`ankra skills` installs the curated Ankra Agent Skills (for Cursor / Claude / OpenClaw)
+into a skills directory. The skills are embedded in the CLI binary, so installation works
+offline and is versioned with the release.
+
+```bash
+ankra skills list                  # list available skills, marking installed ones
+ankra skills install               # install all into ~/.cursor/skills (personal)
+ankra skills install --project .   # install into ./.cursor/skills (project)
+ankra skills install ankra-gitops  # install only named skills
+ankra skills uninstall             # remove all Ankra skills
+```
+
+Use `--force` to overwrite existing skills and `--source <dir>` to install from a local
+skills directory instead of the embedded copy. This is separate from `ankra openclaw skill`,
+which generates a per-cluster SKILL.md.
+
+#### Manage Dependency Parents from the CLI
+
+`ankra cluster addons upgrade` and `ankra cluster manifests upgrade` now accept
+`--add-parent`, `--remove-parent`, and `--set-parent` flags to edit a resource's
+dependency parents (which control deployment ordering inside a stack) without
+re-applying the whole `cluster.yaml`. Parents are given as
+`name=<name>,kind=<manifest|addon>` (kind defaults to `manifest`).
+
+```bash
+# Make an addon wait for a namespace manifest
+ankra cluster addons upgrade infisical \
+  --add-parent name=infisical-ns,kind=manifest \
+  --cluster website-demo
+
+# Replace all parents at once
+ankra cluster manifests upgrade web \
+  --set-parent name=infisical-ns,kind=manifest \
+  --set-parent name=infisical,kind=addon \
+  --cluster website-demo
+
+# Remove a parent (removing the last one clears the link)
+ankra cluster manifests upgrade web \
+  --remove-parent name=infisical-ns,kind=manifest \
+  --cluster website-demo
+```
+
+`--set-parent` replaces the list wholesale and is mutually exclusive with
+`--add-parent` / `--remove-parent`.
+
+#### Read and Delete Manifests and Addon Values
+
+Two new read commands print the current stored content, ready to pipe to a file
+or edit and re-apply:
+
+```bash
+ankra cluster addons values website > values.yaml
+ankra cluster manifests get web > web.yaml
+```
+
+Both support `-o raw` to emit the base64-encoded form. A new
+`ankra cluster manifests delete <name>` command disconnects a manifest from its
+stack (removing its resources from the cluster); the owning stack is resolved
+automatically and a confirmation prompt protects the operation (skip with
+`--yes`, preview with `--dry-run`).
+
+#### Patch a Manifest In-Place with `--set`
+
+`ankra cluster manifests upgrade` now accepts helm-style `--set`, `--set-string`,
+and `--set-file` flags to mutate a single path inside a manifest's Kubernetes
+YAML, instead of only replacing the whole file. This makes it easy to bump, for
+example, a Deployment image tag from CI.
+
+```bash
+# Bump a Deployment's image tag in place
+ankra cluster manifests upgrade web \
+  --set 'spec.template.spec.containers[name=app].image=nginx:1.27' \
+  --cluster website-demo
+
+# Pick a document when the manifest holds several
+ankra cluster manifests upgrade web \
+  --target-kind Deployment --target-name web \
+  --set 'spec.replicas=3' \
+  --cluster website-demo
+```
+
+`--set*` MUTATE the existing manifest and are mutually exclusive with
+`--from-file` / `--manifest -`, which REPLACE it. When a manifest contains more
+than one document, use `--target-kind` / `--target-name` to choose which one to
+edit.
+
+#### Address List Items by Field with `--set` Selectors
+
+Both `manifests upgrade` and `addons upgrade` `--set` paths can now address a
+list item by a stable field instead of a fragile numeric index. For example,
+`containers[name=app].image` targets the container named `app`, and
+`env[name=LOG_LEVEL].value` targets that environment entry. A selector that
+matches nothing fails with a clear error rather than silently creating an entry.
+Numeric indexes (`containers[0]`) continue to work.
+
+#### Run Commands Against a Specific Organisation (`--org`)
+
+A new global `--org` flag (or the `ANKRA_ORG` environment variable) runs a
+single command against any organisation you belong to, without changing your
+selected organisation. The value accepts an organisation name or ID.
+
+```bash
+# Run against another organisation by name, just for this command
+ankra --org "Acme Corp" cluster list
+
+# Or by ID
+ankra --org 22222222-2222-2222-2222-222222222222 get pods my-cluster
+
+# Scope a whole shell session via the environment
+export ANKRA_ORG="Acme Corp"
+ankra cluster list
+```
+
+The override is per-request: it does not call `ankra org switch` and leaves your
+persistently selected organisation untouched. You must be an active member of the
+requested organisation, otherwise the API returns a permission error.
+
 #### Control Plane Management
 
 Inspect and change the control plane of a stopped cluster, without going through

@@ -18,7 +18,101 @@ import (
 var clusterManifestsCmd = &cobra.Command{
 	Use:   "manifests",
 	Short: "Manage manifests for the cluster",
-	Long:  "Commands to list and view manifests.",
+	Long:  "Commands to list, view, upgrade, and delete manifests.",
+}
+
+var clusterManifestsGetCmd = &cobra.Command{
+	Use:   "get <manifest_name>",
+	Short: "Print the current YAML content of a manifest",
+	Long: `Print the current YAML content of a manifest.
+
+By default the decoded YAML is written to stdout, making it easy to pipe into
+a file or edit and re-apply with --from-file:
+
+  ankra cluster manifests get web > web.yaml
+  ankra cluster manifests get web -o raw   # base64-encoded form`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		manifestName := args[0]
+		clusterFlag, _ := cmd.Flags().GetString("cluster")
+		outRaw, _ := cmd.Flags().GetString("output")
+
+		clusterID, _, err := resolveClusterForCmd(clusterFlag)
+		if err != nil {
+			return err
+		}
+
+		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+		defer cancel()
+
+		encoded, err := apiClient.GetClusterManifestConfiguration(ctx, clusterID, manifestName)
+		if err != nil {
+			return fmt.Errorf("fetch manifest content: %w", err)
+		}
+		decoded, dErr := base64.StdEncoding.DecodeString(encoded)
+		if dErr != nil {
+			return fmt.Errorf("base64-decode manifest content: %w", dErr)
+		}
+		return writeDecodedDoc(cmd.OutOrStdout(), string(decoded), outRaw)
+	},
+}
+
+var clusterManifestsDeleteCmd = &cobra.Command{
+	Use:   "delete <manifest_name>",
+	Short: "Remove a manifest from its stack (disconnect)",
+	Long: `Disconnect a manifest from its stack. The manifest's resources are
+removed from the cluster and dependent resources are reconnected to the
+manifest's own parents.
+
+The owning stack is discovered automatically (manifest names are unique per
+cluster). Use --dry-run to preview the target without making changes.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		manifestName := args[0]
+		clusterFlag, _ := cmd.Flags().GetString("cluster")
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		clusterID, clusterName, err := resolveClusterForCmd(clusterFlag)
+		if err != nil {
+			return err
+		}
+
+		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+		defer cancel()
+
+		iacYAML, err := apiClient.GetClusterIaC(ctx, clusterID)
+		if err != nil {
+			if errors.Is(err, client.ErrClusterEmpty) {
+				return fmt.Errorf("no resources on cluster %q; nothing to delete", clusterName)
+			}
+			return fmt.Errorf("fetch cluster IaC: %w", err)
+		}
+		doc, err := parseImportClusterYAML([]byte(iacYAML))
+		if err != nil {
+			return err
+		}
+		stack, _, err := findManifestInIaC(doc, manifestName)
+		if err != nil {
+			return err
+		}
+
+		if dryRun {
+			fmt.Fprintf(cmd.OutOrStdout(), "Would disconnect manifest %q from stack %q (no changes made).\n", manifestName, stack.Name)
+			return nil
+		}
+
+		msg := fmt.Sprintf("This removes manifest %q (stack %q) and its resources from the cluster.\nContinue? [y/N]: ", manifestName, stack.Name)
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(), msg, yes); err != nil {
+			return err
+		}
+
+		if _, err := apiClient.DisconnectManifest(ctx, clusterID, stack.Name, manifestName); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Manifest %q disconnected from stack %q.\n", manifestName, stack.Name)
+		return nil
+	},
 }
 
 var clusterManifestsListCmd = &cobra.Command{
@@ -145,10 +239,19 @@ var clusterManifestsListCmd = &cobra.Command{
 
 var clusterManifestsUpgradeCmd = &cobra.Command{
 	Use:   "upgrade <manifest_name>",
-	Short: "Upgrade a manifest in-place (content, namespace)",
+	Short: "Upgrade a manifest in-place (content, --set paths, namespace)",
 	Long: `Upgrade a manifest by patching just the fields you supply.
 
 At least one mutating flag is required. Examples:
+
+  # Patch a single path in-place, e.g. bump a Deployment image tag
+  ankra cluster manifests upgrade web \
+    --set 'spec.template.spec.containers[name=app].image=nginx:1.27' \
+    --cluster website-demo
+
+  # When the manifest holds multiple documents, select which one to edit
+  ankra cluster manifests upgrade web --target-kind Deployment --target-name web \
+    --set 'spec.replicas=3' --cluster website-demo
 
   # Replace the manifest content from a file
   ankra cluster manifests upgrade demo-namespace \
@@ -158,9 +261,14 @@ At least one mutating flag is required. Examples:
   cat manifest.yaml | ankra cluster manifests upgrade demo-namespace \
     --manifest - --cluster website-demo
 
-When neither --from-file nor --manifest is supplied, the existing content is
-re-sent unchanged (only namespace is updated). This is required because the
-backend's manifest validation rejects empty manifest_base64.`,
+--set/--set-string/--set-file MUTATE the existing manifest YAML and address
+list items by a stable field (e.g. containers[name=app]) as well as by numeric
+index (containers[0]). --from-file / --manifest - REPLACE the whole manifest
+and are mutually exclusive with --set*.
+
+When no content or --set flag is supplied, the existing content is re-sent
+unchanged (only namespace is updated). This is required because the backend's
+manifest validation rejects empty manifest_base64.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runManifestsUpgrade,
 }
@@ -172,7 +280,13 @@ func runManifestsUpgrade(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if !flags.HasAnyMutation() {
-		return errors.New("at least one mutating flag is required (--from-file, --manifest, or --namespace)")
+		return errors.New("at least one mutating flag is required (--from-file, --manifest, --set*, or --namespace)")
+	}
+	if flags.HasContent() && flags.HasSet() {
+		return errors.New("--from-file / --manifest - are mutually exclusive with --set/--set-string/--set-file (the former REPLACES the entire manifest; the latter MUTATES the existing one)")
+	}
+	if (flags.TargetKind != "" || flags.TargetName != "") && !flags.HasSet() {
+		return errors.New("--target-kind/--target-name only apply together with --set/--set-string/--set-file")
 	}
 
 	clusterID, clusterName, err := resolveClusterForCmd(flags.Cluster)
@@ -202,13 +316,28 @@ func runManifestsUpgrade(cmd *cobra.Command, args []string) error {
 	mutated := *manifest
 	mutated.FromFile = ""
 
-	if flags.HasContent() {
+	switch {
+	case flags.HasContent():
 		raw, readErr := readSource(flags.FromFile, flags.ManifestStdin)
 		if readErr != nil {
 			return fmt.Errorf("read manifest source: %w", readErr)
 		}
 		mutated.ManifestBase64 = base64.StdEncoding.EncodeToString(raw)
-	} else {
+	case flags.HasSet():
+		existing, mErr := apiClient.GetClusterManifestConfiguration(ctx, clusterID, manifestName)
+		if mErr != nil {
+			return fmt.Errorf("fetch current manifest content: %w", mErr)
+		}
+		assignments, aErr := collectSetAssignments(flags.SetEntries, flags.SetStrings, flags.SetFiles)
+		if aErr != nil {
+			return aErr
+		}
+		newB64, sErr := applyManifestSet(existing, assignments, flags.TargetKind, flags.TargetName)
+		if sErr != nil {
+			return sErr
+		}
+		mutated.ManifestBase64 = newB64
+	default:
 		existing, mErr := apiClient.GetClusterManifestConfiguration(ctx, clusterID, manifestName)
 		if mErr != nil {
 			return fmt.Errorf("fetch current manifest content: %w", mErr)
@@ -218,6 +347,14 @@ func runManifestsUpgrade(cmd *cobra.Command, args []string) error {
 
 	if flags.Namespace != "" {
 		mutated.Namespace = flags.Namespace
+	}
+
+	if flags.HasParentEdit() {
+		parents, pErr := mergeParents(manifest.Parents, flags.AddParents, flags.RemoveParents, flags.SetParents)
+		if pErr != nil {
+			return pErr
+		}
+		mutated.Parents = parents
 	}
 
 	patchStack := copyStackMetadata(stack)
@@ -258,8 +395,17 @@ func parseManifestsUpgradeFlags(cmd *cobra.Command) (manifestsUpgradeFlags, erro
 	fromFile, _ := cmd.Flags().GetString("from-file")
 	manifestStdin, _ := cmd.Flags().GetString("manifest")
 	namespace, _ := cmd.Flags().GetString("namespace")
+	setEntries, _ := cmd.Flags().GetStringArray("set")
+	setStrings, _ := cmd.Flags().GetStringArray("set-string")
+	setFiles, _ := cmd.Flags().GetStringArray("set-file")
+	targetKind, _ := cmd.Flags().GetString("target-kind")
+	targetName, _ := cmd.Flags().GetString("target-name")
+	addParents, _ := cmd.Flags().GetStringArray("add-parent")
+	removeParents, _ := cmd.Flags().GetStringArray("remove-parent")
+	setParents, _ := cmd.Flags().GetStringArray("set-parent")
 	cluster, _ := cmd.Flags().GetString("cluster")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	yes, _ := cmd.Flags().GetBool("yes")
 	outRaw, _ := cmd.Flags().GetString("output")
 
 	if manifestStdin != "" && manifestStdin != "-" {
@@ -273,21 +419,48 @@ func parseManifestsUpgradeFlags(cmd *cobra.Command) (manifestsUpgradeFlags, erro
 		FromFile:      fromFile,
 		ManifestStdin: manifestStdin,
 		Namespace:     namespace,
+		SetEntries:    setEntries,
+		SetStrings:    setStrings,
+		SetFiles:      setFiles,
+		TargetKind:    targetKind,
+		TargetName:    targetName,
+		AddParents:    addParents,
+		RemoveParents: removeParents,
+		SetParents:    setParents,
 		Cluster:       cluster,
 		DryRun:        dryRun,
+		Yes:           yes,
 		Output:        out,
 	}, nil
 }
 
 func init() {
-	clusterManifestsUpgradeCmd.Flags().String("from-file", "", "Path to manifest YAML file")
-	clusterManifestsUpgradeCmd.Flags().String("manifest", "", "Use `-` to read manifest YAML from stdin")
+	clusterManifestsUpgradeCmd.Flags().String("from-file", "", "Path to manifest YAML file (REPLACES the entire manifest)")
+	clusterManifestsUpgradeCmd.Flags().String("manifest", "", "Use `-` to read manifest YAML from stdin (REPLACES the entire manifest)")
 	clusterManifestsUpgradeCmd.Flags().String("namespace", "", "Change the manifest's namespace")
+	clusterManifestsUpgradeCmd.Flags().StringArray("set", nil, "In-place edit of the manifest YAML, e.g. --set 'spec.template.spec.containers[name=app].image=nginx:1.27' (MUTATES existing content; repeatable, comma-separated)")
+	clusterManifestsUpgradeCmd.Flags().StringArray("set-string", nil, "Like --set but always treats the value as a string")
+	clusterManifestsUpgradeCmd.Flags().StringArray("set-file", nil, "Like --set but reads the value from a file: key=path or key=@path")
+	clusterManifestsUpgradeCmd.Flags().String("target-kind", "", "With --set: select the document to edit by Kubernetes kind (e.g. Deployment) when the manifest holds multiple documents")
+	clusterManifestsUpgradeCmd.Flags().String("target-name", "", "With --set: select the document to edit by metadata.name when the manifest holds multiple documents")
+	clusterManifestsUpgradeCmd.Flags().StringArray("add-parent", nil, "Add a dependency parent, e.g. --add-parent name=infisical-ns,kind=manifest (kind defaults to manifest; repeatable)")
+	clusterManifestsUpgradeCmd.Flags().StringArray("remove-parent", nil, "Remove a dependency parent, e.g. --remove-parent name=infisical-ns,kind=manifest (repeatable)")
+	clusterManifestsUpgradeCmd.Flags().StringArray("set-parent", nil, "Replace ALL dependency parents with the given set (repeatable)")
 	clusterManifestsUpgradeCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
 	clusterManifestsUpgradeCmd.Flags().Bool("dry-run", false, "Print the proposed before/after spec without applying changes")
+	clusterManifestsUpgradeCmd.Flags().Bool("yes", false, "Skip confirmation prompts")
 	clusterManifestsUpgradeCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
 
+	clusterManifestsGetCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
+	clusterManifestsGetCmd.Flags().StringP("output", "o", "", "Output format: yaml (decoded, default) or raw (base64)")
+
+	clusterManifestsDeleteCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
+	clusterManifestsDeleteCmd.Flags().Bool("dry-run", false, "Print the manifest that would be disconnected without making changes")
+	clusterManifestsDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+
 	clusterManifestsCmd.AddCommand(clusterManifestsListCmd)
+	clusterManifestsCmd.AddCommand(clusterManifestsGetCmd)
 	clusterManifestsCmd.AddCommand(clusterManifestsUpgradeCmd)
+	clusterManifestsCmd.AddCommand(clusterManifestsDeleteCmd)
 	clusterCmd.AddCommand(clusterManifestsCmd)
 }

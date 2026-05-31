@@ -8,6 +8,9 @@ import (
 )
 
 type APIClient interface {
+	SetOrganisationOverride(orgID string)
+	OrganisationOverride() string
+
 	ListClusters(page int, pageSize int) (*client.ClusterListResponse, error)
 	GetCluster(name string) (client.ClusterListItem, error)
 	DeleteCluster(ctx context.Context, name string) error
@@ -42,6 +45,17 @@ type APIClient interface {
 
 	ListClusterManifests(clusterID string) ([]client.ClusterManifestListItem, error)
 	GetClusterManifestConfiguration(ctx context.Context, clusterID, manifestName string) (string, error)
+	DisconnectManifest(ctx context.Context, clusterID, stackName, manifestName string) (*client.DisconnectManifestResult, error)
+
+	ListOrganisationVariables(ctx context.Context) (*client.OrganisationVariablesListResult, error)
+	CreateOrganisationVariable(ctx context.Context, name, value, description string) (*client.OrganisationVariableResult, error)
+	UpdateOrganisationVariable(ctx context.Context, name, value, description string) (*client.OrganisationVariableResult, error)
+	DeleteOrganisationVariable(ctx context.Context, name string) error
+
+	ListClusterVariables(ctx context.Context, clusterID string) (*client.ClusterVariablesListResult, error)
+	CreateClusterVariable(ctx context.Context, clusterID, name, value, description string) (*client.ClusterVariableResult, error)
+	UpdateClusterVariable(ctx context.Context, clusterID, name, value, description string) (*client.ClusterVariableResult, error)
+	DeleteClusterVariable(ctx context.Context, clusterID, name string) error
 
 	ListClusterStacks(clusterID string) ([]client.ClusterStackListItem, error)
 	CreateStack(ctx context.Context, clusterID, name, description string) (*client.CreateStackResult, error)

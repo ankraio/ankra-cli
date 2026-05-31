@@ -21,6 +21,8 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - name: Verify embedded skills are in sync
+        run: make verify-skills
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:

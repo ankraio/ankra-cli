@@ -202,6 +202,38 @@ var clusterAddonsSettingsCmd = &cobra.Command{
 	},
 }
 
+var clusterAddonsValuesCmd = &cobra.Command{
+	Use:   "values <addon_name>",
+	Short: "Print the current Helm values for an addon",
+	Long: `Print the current Helm values document for an addon.
+
+By default the decoded YAML is written to stdout, making it easy to pipe into
+a file or edit and re-apply with --values-from-file:
+
+  ankra cluster addons values my-addon > values.yaml
+  ankra cluster addons values my-addon -o raw   # base64-encoded form`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		addonName := args[0]
+		clusterFlag, _ := cmd.Flags().GetString("cluster")
+		outRaw, _ := cmd.Flags().GetString("output")
+
+		clusterID, _, err := resolveClusterForCmd(clusterFlag)
+		if err != nil {
+			return err
+		}
+
+		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+		defer cancel()
+
+		values, err := apiClient.GetClusterAddonValues(ctx, clusterID, addonName)
+		if err != nil {
+			return fmt.Errorf("fetch addon values: %w", err)
+		}
+		return writeDecodedDoc(cmd.OutOrStdout(), values, outRaw)
+	},
+}
+
 var clusterAddonsUninstallCmd = &cobra.Command{
 	Use:   "uninstall <addon_name>",
 	Short: "Uninstall an addon from the cluster",
@@ -305,6 +337,10 @@ At least one mutating flag is required. Examples:
   ankra cluster addons upgrade website --set image.tag=1.0.146 \
     --cluster website-demo
 
+  # Address a list item by a field instead of an index
+  ankra cluster addons upgrade website --set 'env[name=LOG_LEVEL].value=debug' \
+    --cluster website-demo
+
   # Replace the whole values document
   ankra cluster addons upgrade website \
     --values-from-file ./values.yaml --cluster website-demo
@@ -386,7 +422,7 @@ func runAddonsUpgrade(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("parse current addon values: %w", err)
 			}
 		}
-		assignments, err := collectSetAssignments(flags)
+		assignments, err := collectSetAssignments(flags.SetEntries, flags.SetStrings, flags.SetFiles)
 		if err != nil {
 			return err
 		}
@@ -410,6 +446,13 @@ func runAddonsUpgrade(cmd *cobra.Command, args []string) error {
 	mutatedAddon := applyAddonMutations(*addon, flags, newValuesB64)
 	if mutatedAddon.Configuration != nil && len(encryptedPaths) > 0 {
 		mutatedAddon.Configuration.EncryptedPaths = encryptedPaths
+	}
+	if flags.HasParentEdit() {
+		parents, pErr := mergeParents(addon.Parents, flags.AddParents, flags.RemoveParents, flags.SetParents)
+		if pErr != nil {
+			return pErr
+		}
+		mutatedAddon.Parents = parents
 	}
 	patchStack := copyStackMetadata(stack)
 	patchStack.Addons = []client.AddonSpec{mutatedAddon}
@@ -472,6 +515,10 @@ func parseAddonsUpgradeFlags(cmd *cobra.Command) (addonsUpgradeFlags, error) {
 	setStrings, _ := cmd.Flags().GetStringArray("set-string")
 	setFiles, _ := cmd.Flags().GetStringArray("set-file")
 
+	addParents, _ := cmd.Flags().GetStringArray("add-parent")
+	removeParents, _ := cmd.Flags().GetStringArray("remove-parent")
+	setParents, _ := cmd.Flags().GetStringArray("set-parent")
+
 	cluster, _ := cmd.Flags().GetString("cluster")
 	stack, _ := cmd.Flags().GetString("stack")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
@@ -496,6 +543,9 @@ func parseAddonsUpgradeFlags(cmd *cobra.Command) (addonsUpgradeFlags, error) {
 		SetEntries:             setEntries,
 		SetStrings:             setStrings,
 		SetFiles:               setFiles,
+		AddParents:             addParents,
+		RemoveParents:          removeParents,
+		SetParents:             setParents,
 		Cluster:                cluster,
 		Stack:                  stack,
 		DryRun:                 dryRun,
@@ -504,24 +554,27 @@ func parseAddonsUpgradeFlags(cmd *cobra.Command) (addonsUpgradeFlags, error) {
 	}, nil
 }
 
-func collectSetAssignments(flags addonsUpgradeFlags) ([]SetAssignment, error) {
+// collectSetAssignments parses the raw --set / --set-string / --set-file flag
+// slices into a single ordered list of assignments. Shared by both the addon
+// and manifest upgrade commands.
+func collectSetAssignments(setEntries, setStrings, setFiles []string) ([]SetAssignment, error) {
 	var all []SetAssignment
-	if len(flags.SetEntries) > 0 {
-		got, err := ParseSetAssignments(flags.SetEntries, setKindCoerce)
+	if len(setEntries) > 0 {
+		got, err := ParseSetAssignments(setEntries, setKindCoerce)
 		if err != nil {
 			return nil, err
 		}
 		all = append(all, got...)
 	}
-	if len(flags.SetStrings) > 0 {
-		got, err := ParseSetAssignments(flags.SetStrings, setKindString)
+	if len(setStrings) > 0 {
+		got, err := ParseSetAssignments(setStrings, setKindString)
 		if err != nil {
 			return nil, err
 		}
 		all = append(all, got...)
 	}
-	if len(flags.SetFiles) > 0 {
-		got, err := ParseSetAssignments(flags.SetFiles, setKindFile)
+	if len(setFiles) > 0 {
+		got, err := ParseSetAssignments(setFiles, setKindFile)
 		if err != nil {
 			return nil, err
 		}
@@ -546,15 +599,22 @@ func init() {
 	clusterAddonsUpgradeCmd.Flags().StringArray("set", nil, "Helm-style values mutation, e.g. --set image.tag=1.0.0 (MUTATES existing values; repeatable, comma-separated)")
 	clusterAddonsUpgradeCmd.Flags().StringArray("set-string", nil, "Like --set but always treats the value as a string")
 	clusterAddonsUpgradeCmd.Flags().StringArray("set-file", nil, "Like --set but reads the value from a file: key=path or key=@path")
+	clusterAddonsUpgradeCmd.Flags().StringArray("add-parent", nil, "Add a dependency parent, e.g. --add-parent name=infisical-ns,kind=manifest (kind defaults to manifest; repeatable)")
+	clusterAddonsUpgradeCmd.Flags().StringArray("remove-parent", nil, "Remove a dependency parent, e.g. --remove-parent name=infisical-ns,kind=manifest (repeatable)")
+	clusterAddonsUpgradeCmd.Flags().StringArray("set-parent", nil, "Replace ALL dependency parents with the given set (repeatable); pass none with the others to clear")
 	clusterAddonsUpgradeCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
 	clusterAddonsUpgradeCmd.Flags().String("stack", "", "Stack name (required when the addon exists in multiple stacks)")
 	clusterAddonsUpgradeCmd.Flags().Bool("dry-run", false, "Print the proposed before/after spec without applying changes")
 	clusterAddonsUpgradeCmd.Flags().Bool("yes", false, "Skip the confirmation prompt for destructive changes (--namespace)")
 	clusterAddonsUpgradeCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
 
+	clusterAddonsValuesCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
+	clusterAddonsValuesCmd.Flags().StringP("output", "o", "", "Output format: yaml (decoded, default) or raw (base64)")
+
 	clusterAddonsCmd.AddCommand(clusterAddonsListCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsAvailableCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsSettingsCmd)
+	clusterAddonsCmd.AddCommand(clusterAddonsValuesCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsUninstallCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsUpdateCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsUpgradeCmd)
