@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -240,23 +241,23 @@ func renderDryRun(out io.Writer, before, after client.StackSpec, notices []strin
 	case outputYAML:
 		enc := yaml.NewEncoder(out)
 		enc.SetIndent(2)
-		defer enc.Close()
+		defer func() { _ = enc.Close() }()
 		return enc.Encode(env)
 	}
-	fmt.Fprintln(out, "DRY RUN — no changes will be sent to the API.")
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Before:")
+	_, _ = fmt.Fprintln(out, "DRY RUN — no changes will be sent to the API.")
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "Before:")
 	if err := writeYAMLIndented(out, before, "  "); err != nil {
 		return err
 	}
-	fmt.Fprintln(out, "After:")
+	_, _ = fmt.Fprintln(out, "After:")
 	if err := writeYAMLIndented(out, after, "  "); err != nil {
 		return err
 	}
 	if len(notices) > 0 {
-		fmt.Fprintln(out, "Notices:")
+		_, _ = fmt.Fprintln(out, "Notices:")
 		for _, n := range notices {
-			fmt.Fprintf(out, "  - %s\n", n)
+			_, _ = fmt.Fprintf(out, "  - %s\n", n)
 		}
 	}
 	return nil
@@ -273,7 +274,7 @@ func writeYAMLIndented(out io.Writer, v any, indent string) error {
 	scanner := bufio.NewScanner(&buf)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		fmt.Fprintln(out, indent+scanner.Text())
+		_, _ = fmt.Fprintln(out, indent+scanner.Text())
 	}
 	return scanner.Err()
 }
@@ -290,21 +291,21 @@ func printAsOutput(out io.Writer, res *client.PatchStackResult, format outputFor
 	case outputYAML:
 		enc := yaml.NewEncoder(out)
 		enc.SetIndent(2)
-		defer enc.Close()
+		defer func() { _ = enc.Close() }()
 		return enc.Encode(res)
 	}
-	fmt.Fprintf(out, "Stack %q updated.\n", res.StackName)
+	_, _ = fmt.Fprintf(out, "Stack %q updated.\n", res.StackName)
 	if res.OperationID != "" {
-		fmt.Fprintf(out, "  Operation ID: %s\n", res.OperationID)
+		_, _ = fmt.Fprintf(out, "  Operation ID: %s\n", res.OperationID)
 	}
 	if res.JobCount > 0 {
-		fmt.Fprintf(out, "  Jobs queued: %d\n", res.JobCount)
+		_, _ = fmt.Fprintf(out, "  Jobs queued: %d\n", res.JobCount)
 	}
 	if res.CommitSHA != "" {
-		fmt.Fprintf(out, "  Commit:       %s\n", res.CommitSHA)
+		_, _ = fmt.Fprintf(out, "  Commit:       %s\n", res.CommitSHA)
 	}
 	if res.CommitURL != "" {
-		fmt.Fprintf(out, "  Commit URL:   %s\n", res.CommitURL)
+		_, _ = fmt.Fprintf(out, "  Commit URL:   %s\n", res.CommitURL)
 	}
 	return nil
 }
@@ -317,7 +318,8 @@ func printAsOutput(out io.Writer, res *client.PatchStackResult, format outputFor
 //     via CLI preflight; print as-is so users see the underlying issue.
 //   - 403: sandbox cluster — cannot be modified through the CLI.
 //   - 409: stack pending deletion — orphaned resources marked for cleanup.
-//   - 422: UpdateClusterStackGitPushError — credential/auth or write issue.
+//   - 422: git push failure (credential/auth or write issue), or a circular
+//     dependency rejection (surfaced verbatim).
 //   - else: print status + body for debugging.
 func mapPatchError(perr *client.PatchStackError) error {
 	if perr == nil {
@@ -335,6 +337,11 @@ func mapPatchError(perr *client.PatchStackError) error {
 	case http.StatusConflict:
 		return fmt.Errorf("cluster is not available — stack may be pending deletion or cluster is deprovisioned: %s", detail)
 	case http.StatusUnprocessableEntity:
+		// 422 is overloaded: circular-dependency rejections carry a descriptive
+		// message that is not a git failure, so surface it as-is.
+		if strings.Contains(strings.ToLower(detail), "circular dependency") {
+			return errors.New(detail)
+		}
 		return fmt.Errorf("git push failed: %s", detail)
 	case http.StatusUnauthorized:
 		return errors.New("unauthorized. Run `ankra login` to re-authenticate")
@@ -374,9 +381,9 @@ func confirmNamespaceChange(ctx context.Context, in io.Reader, out io.Writer, ol
 	if yes {
 		return nil
 	}
-	fmt.Fprintf(out, "WARNING: changing the namespace from %q to %q is destructive.\n", oldNs, newNs)
-	fmt.Fprintln(out, "The existing Helm release will be reinstalled in the new namespace; the old release is left orphaned.")
-	fmt.Fprint(out, "Continue? [y/N]: ")
+	_, _ = fmt.Fprintf(out, "WARNING: changing the namespace from %q to %q is destructive.\n", oldNs, newNs)
+	_, _ = fmt.Fprintln(out, "The existing Helm release will be reinstalled in the new namespace; the old release is left orphaned.")
+	_, _ = fmt.Fprint(out, "Continue? [y/N]: ")
 	reader := bufio.NewReader(in)
 	line, err := reader.ReadString('\n')
 	if err != nil && err != io.EOF {
@@ -404,6 +411,10 @@ type addonsUpgradeFlags struct {
 	SetStrings     []string
 	SetFiles       []string
 
+	AddParents    []string
+	RemoveParents []string
+	SetParents    []string
+
 	Cluster string
 	Stack   string
 	DryRun  bool
@@ -419,6 +430,10 @@ func (f addonsUpgradeFlags) HasSet() bool {
 	return len(f.SetEntries) > 0 || len(f.SetStrings) > 0 || len(f.SetFiles) > 0
 }
 
+func (f addonsUpgradeFlags) HasParentEdit() bool {
+	return len(f.AddParents) > 0 || len(f.RemoveParents) > 0 || len(f.SetParents) > 0
+}
+
 func (f addonsUpgradeFlags) HasAnyMutation() bool {
 	return f.ChartVersion != "" ||
 		f.Namespace != "" ||
@@ -426,7 +441,8 @@ func (f addonsUpgradeFlags) HasAnyMutation() bool {
 		f.RegistryURL != "" ||
 		f.RegistryCredentialName != "" ||
 		f.HasValuesReplace() ||
-		f.HasSet()
+		f.HasSet() ||
+		f.HasParentEdit()
 }
 
 // applyAddonMutations returns a NEW AddonSpec with only the requested fields
@@ -481,8 +497,19 @@ type manifestsUpgradeFlags struct {
 	ManifestStdin string // "-" if set
 	Namespace     string
 
+	SetEntries []string
+	SetStrings []string
+	SetFiles   []string
+	TargetKind string
+	TargetName string
+
+	AddParents    []string
+	RemoveParents []string
+	SetParents    []string
+
 	Cluster string
 	DryRun  bool
+	Yes     bool
 	Output  outputFormat
 }
 
@@ -490,8 +517,176 @@ func (f manifestsUpgradeFlags) HasContent() bool {
 	return f.FromFile != "" || f.ManifestStdin == "-"
 }
 
+func (f manifestsUpgradeFlags) HasSet() bool {
+	return len(f.SetEntries) > 0 || len(f.SetStrings) > 0 || len(f.SetFiles) > 0
+}
+
+func (f manifestsUpgradeFlags) HasParentEdit() bool {
+	return len(f.AddParents) > 0 || len(f.RemoveParents) > 0 || len(f.SetParents) > 0
+}
+
 func (f manifestsUpgradeFlags) HasAnyMutation() bool {
-	return f.HasContent() || f.Namespace != ""
+	return f.HasContent() || f.HasSet() || f.Namespace != "" || f.HasParentEdit()
+}
+
+// confirmPrompt prints message and a [y/N] prompt, returning nil only when the
+// user confirms. When yes is true the prompt is skipped.
+func confirmPrompt(in io.Reader, out io.Writer, message string, yes bool) error {
+	if yes {
+		return nil
+	}
+	_, _ = fmt.Fprint(out, message)
+	reader := bufio.NewReader(in)
+	line, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("read confirmation: %w", err)
+	}
+	line = strings.TrimSpace(strings.ToLower(line))
+	if line == "y" || line == "yes" {
+		return nil
+	}
+	return errors.New("cancelled")
+}
+
+// writeDecodedDoc writes a decoded document (addon values or manifest YAML) to
+// out in the requested format. An empty format or "yaml" prints the decoded
+// text as-is; "raw" prints the base64-encoded form. Any other format is an
+// error.
+func writeDecodedDoc(out io.Writer, decoded, format string) error {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", "yaml", "yml":
+		text := decoded
+		if text != "" && !strings.HasSuffix(text, "\n") {
+			text += "\n"
+		}
+		_, err := io.WriteString(out, text)
+		return err
+	case "raw":
+		_, err := io.WriteString(out, base64.StdEncoding.EncodeToString([]byte(decoded))+"\n")
+		return err
+	default:
+		return fmt.Errorf("invalid -o format %q (expected yaml or raw)", format)
+	}
+}
+
+// parseParentFlag parses a single `--add-parent` / `--remove-parent` /
+// `--set-parent` value of the form `name=<name>,kind=<manifest|addon>`. The
+// `kind` is optional and defaults to `manifest`. Only `manifest` and `addon`
+// are valid parent kinds (matching the backend's allowed_parents set).
+func parseParentFlag(s string) (client.Parent, error) {
+	raw := strings.TrimSpace(s)
+	if raw == "" {
+		return client.Parent{}, errors.New("parent value is empty; expected name=<name>,kind=<manifest|addon>")
+	}
+	var name, kind string
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, val, ok := strings.Cut(part, "=")
+		if !ok {
+			return client.Parent{}, fmt.Errorf("invalid parent %q: each field must be key=value (e.g. name=infisical-ns,kind=manifest)", s)
+		}
+		key = strings.TrimSpace(strings.ToLower(key))
+		val = strings.TrimSpace(val)
+		switch key {
+		case "name":
+			name = val
+		case "kind":
+			kind = strings.ToLower(val)
+		default:
+			return client.Parent{}, fmt.Errorf("invalid parent field %q: only name and kind are supported", key)
+		}
+	}
+	if name == "" {
+		return client.Parent{}, fmt.Errorf("invalid parent %q: name is required", s)
+	}
+	if kind == "" {
+		kind = "manifest"
+	}
+	if kind != "manifest" && kind != "addon" {
+		return client.Parent{}, fmt.Errorf("invalid parent kind %q: must be manifest or addon", kind)
+	}
+	return client.Parent{Name: name, Kind: client.AnkraResourceKind(kind)}, nil
+}
+
+// parseParentFlags parses a slice of raw parent flag values.
+func parseParentFlags(values []string) ([]client.Parent, error) {
+	out := make([]client.Parent, 0, len(values))
+	for _, v := range values {
+		p, err := parseParentFlag(v)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// mergeParents computes the final parent list for a resource. When set is
+// non-empty it replaces the list wholesale; otherwise the original list is
+// taken, removes are applied, then adds. Combining --set-parent with
+// --add-parent/--remove-parent is rejected. The result is sorted by
+// (kind, name) to match the backend's deterministic ordering. An empty result
+// is valid and intentionally clears all parents.
+func mergeParents(orig []client.Parent, addRaw, removeRaw, setRaw []string) ([]client.Parent, error) {
+	if len(setRaw) > 0 && (len(addRaw) > 0 || len(removeRaw) > 0) {
+		return nil, errors.New("--set-parent is mutually exclusive with --add-parent/--remove-parent")
+	}
+
+	if len(setRaw) > 0 {
+		set, err := parseParentFlags(setRaw)
+		if err != nil {
+			return nil, err
+		}
+		return dedupParents(set), nil
+	}
+
+	add, err := parseParentFlags(addRaw)
+	if err != nil {
+		return nil, err
+	}
+	remove, err := parseParentFlags(removeRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	removeSet := make(map[client.Parent]bool, len(remove))
+	for _, p := range remove {
+		removeSet[p] = true
+	}
+
+	result := make([]client.Parent, 0, len(orig)+len(add))
+	for _, p := range orig {
+		if removeSet[p] {
+			continue
+		}
+		result = append(result, p)
+	}
+	result = append(result, add...)
+	return dedupParents(result), nil
+}
+
+// dedupParents removes duplicate parents (by name+kind) and returns a stable,
+// sorted slice.
+func dedupParents(parents []client.Parent) []client.Parent {
+	seen := make(map[client.Parent]bool, len(parents))
+	out := make([]client.Parent, 0, len(parents))
+	for _, p := range parents {
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
 }
 
 // resolveClusterForCmd resolves the cluster context for upgrade commands.

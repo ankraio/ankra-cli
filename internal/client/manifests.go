@@ -77,3 +77,46 @@ func (c *Client) GetClusterManifestConfiguration(ctx context.Context, clusterID,
 	}
 	return parsed.Manifest.ManifestBase64, nil
 }
+
+// DisconnectManifestResult mirrors DisconnectClusterStackManifestResult from
+// the backend.
+type DisconnectManifestResult struct {
+	DisconnectedAt string `json:"disconnected_at"`
+	CommitSHA      string `json:"commit_sha,omitempty"`
+	CommitURL      string `json:"commit_url,omitempty"`
+}
+
+// DisconnectManifest removes a manifest from a stack, deleting its resources
+// from the cluster. Backed by the bearer-token disconnect endpoint.
+func (c *Client) DisconnectManifest(ctx context.Context, clusterID, stackName, manifestName string) (*DisconnectManifestResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/manifests/%s/disconnect",
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName), neturl.PathEscape(manifestName))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("disconnect manifest failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+	}
+
+	var parsed DisconnectManifestResult
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &parsed, nil
+}

@@ -17,6 +17,10 @@ import (
 
 type baseMock struct{}
 
+func (m baseMock) SetOrganisationOverride(string) {}
+
+func (m baseMock) OrganisationOverride() string { return "" }
+
 func (m baseMock) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -99,6 +103,42 @@ func (m baseMock) PatchClusterStackPartial(ctx context.Context, clusterID, stack
 
 func (m baseMock) GetClusterManifestConfiguration(ctx context.Context, clusterID, manifestName string) (string, error) {
 	return "", errors.New("not implemented")
+}
+
+func (m baseMock) DisconnectManifest(ctx context.Context, clusterID, stackName, manifestName string) (*client.DisconnectManifestResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListOrganisationVariables(ctx context.Context) (*client.OrganisationVariablesListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateOrganisationVariable(ctx context.Context, name, value, description string) (*client.OrganisationVariableResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateOrganisationVariable(ctx context.Context, name, value, description string) (*client.OrganisationVariableResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteOrganisationVariable(ctx context.Context, name string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) ListClusterVariables(ctx context.Context, clusterID string) (*client.ClusterVariablesListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateClusterVariable(ctx context.Context, clusterID, name, value, description string) (*client.ClusterVariableResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateClusterVariable(ctx context.Context, clusterID, name, value, description string) (*client.ClusterVariableResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteClusterVariable(ctx context.Context, clusterID, name string) error {
+	return errors.New("not implemented")
 }
 
 func (m baseMock) CancelExecution(ctx context.Context, executionID string) (*client.CancelExecutionResponse, error) {

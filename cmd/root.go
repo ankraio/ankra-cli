@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"ankra/internal/client"
 
@@ -21,10 +22,11 @@ const (
 	// help) set this to "false" so users can invoke them without a token.
 	annotationRequiresAuth = "ankra.requires_auth"
 
-	envAnkraAPIToken       = "ANKRA_API_TOKEN"
-	envAnkraBaseURL        = "ANKRA_BASE_URL"
-	envAllowInsecureHTTP   = "ANKRA_ALLOW_INSECURE_HTTP"
-	defaultBaseURL         = "https://platform.ankra.app"
+	envAnkraAPIToken     = "ANKRA_API_TOKEN"
+	envAnkraBaseURL      = "ANKRA_BASE_URL"
+	envAnkraOrg          = "ANKRA_ORG"
+	envAllowInsecureHTTP = "ANKRA_ALLOW_INSECURE_HTTP"
+	defaultBaseURL       = "https://platform.ankra.app"
 )
 
 func newAPIClient() APIClient {
@@ -73,6 +75,8 @@ func init() {
 		String("token", "", "API token for authentication (or set ANKRA_API_TOKEN)")
 	rootCmd.PersistentFlags().
 		String("base-url", "", "Base URL for the Ankra API (or set ANKRA_BASE_URL)")
+	rootCmd.PersistentFlags().
+		String("org", "", "Organisation name or ID to run this command against, overriding the selected organisation (or set ANKRA_ORG)")
 
 	_ = viper.BindPFlag("token", rootCmd.PersistentFlags().Lookup("token"))
 	_ = viper.BindPFlag("base-url", rootCmd.PersistentFlags().Lookup("base-url"))
@@ -161,6 +165,34 @@ func persistentPreRunE(cmd *cobra.Command, _ []string) error {
 	if apiClient == nil {
 		apiClient = newAPIClient()
 	}
+
+	if err := applyOrganisationOverride(cmd); err != nil {
+		return err
+	}
+	return nil
+}
+
+// applyOrganisationOverride resolves the global `--org` flag (or the ANKRA_ORG
+// environment variable) to an organisation ID and scopes all subsequent API
+// requests to it, without changing the persistently selected organisation. The
+// value may be an organisation name or ID. The flag takes precedence over the
+// environment variable.
+func applyOrganisationOverride(cmd *cobra.Command) error {
+	orgValue := ""
+	if flag, _ := flagValue(cmd.Root().PersistentFlags().Lookup("org")); flag != "" {
+		orgValue = flag
+	} else {
+		orgValue = os.Getenv(envAnkraOrg)
+	}
+	orgValue = strings.TrimSpace(orgValue)
+	if orgValue == "" {
+		return nil
+	}
+	orgID, err := resolveOrgFlagToID(orgValue)
+	if err != nil {
+		return err
+	}
+	apiClient.SetOrganisationOverride(orgID)
 	return nil
 }
 

@@ -23,13 +23,22 @@ func resetUpgradeCommandFlags(t *testing.T) {
 		cmd.Flags().VisitAll(func(f *pflag.Flag) {
 			if sv, ok := f.Value.(pflag.SliceValue); ok {
 				_ = sv.Replace(nil)
+				f.Changed = false
 				return
 			}
 			_ = f.Value.Set(f.DefValue)
+			f.Changed = false
 		})
 	}
 	reset(clusterAddonsUpgradeCmd)
 	reset(clusterManifestsUpgradeCmd)
+	reset(clusterAddonsValuesCmd)
+	reset(clusterManifestsGetCmd)
+	reset(clusterManifestsDeleteCmd)
+	reset(clusterEncryptManifestCmd)
+	reset(clusterEncryptAddonCmd)
+	reset(clusterDecryptManifestCmd)
+	reset(clusterDecryptAddonCmd)
 }
 
 const sampleIaCYAMLForCmd = `apiVersion: v1
@@ -61,12 +70,31 @@ type upgradeMock struct {
 	getIaCErr          error
 	getAddonValuesErr  error
 	getManifestCfgErr  error
+	disconnectCalls    []disconnectCall
+	disconnectErr      error
+
+	encryptCalls       []encryptCall
+	encryptResult      string
+	encryptErr         error
+	decryptResult      string
+	decryptErr         error
+}
+
+type encryptCall struct {
+	YamlContent    string
+	EncryptedPaths []string
 }
 
 type capturedPatch struct {
 	ClusterID string
 	StackName string
 	Body      client.PatchStackRequest
+}
+
+type disconnectCall struct {
+	ClusterID    string
+	StackName    string
+	ManifestName string
 }
 
 func (m *upgradeMock) GetClusterIaC(ctx context.Context, clusterID string) (string, error) {
@@ -88,6 +116,35 @@ func (m *upgradeMock) GetClusterManifestConfiguration(ctx context.Context, clust
 		return "", m.getManifestCfgErr
 	}
 	return m.manifestB64, nil
+}
+
+func (m *upgradeMock) EncryptYAML(yamlContent string, encryptedPaths []string) (string, error) {
+	m.encryptCalls = append(m.encryptCalls, encryptCall{YamlContent: yamlContent, EncryptedPaths: encryptedPaths})
+	if m.encryptErr != nil {
+		return "", m.encryptErr
+	}
+	if m.encryptResult != "" {
+		return m.encryptResult, nil
+	}
+	return "ENCRYPTED_PLACEHOLDER\n", nil
+}
+
+func (m *upgradeMock) DecryptYAML(encryptedYaml string) (string, error) {
+	if m.decryptErr != nil {
+		return "", m.decryptErr
+	}
+	if m.decryptResult != "" {
+		return m.decryptResult, nil
+	}
+	return "decrypted: true\n", nil
+}
+
+func (m *upgradeMock) DisconnectManifest(ctx context.Context, clusterID, stackName, manifestName string) (*client.DisconnectManifestResult, error) {
+	m.disconnectCalls = append(m.disconnectCalls, disconnectCall{ClusterID: clusterID, StackName: stackName, ManifestName: manifestName})
+	if m.disconnectErr != nil {
+		return nil, m.disconnectErr
+	}
+	return &client.DisconnectManifestResult{DisconnectedAt: "2026-05-30T00:00:00Z"}, nil
 }
 
 func (m *upgradeMock) PatchClusterStackPartial(ctx context.Context, clusterID, stackName string, body client.PatchStackRequest) (*client.PatchStackResult, error) {
@@ -319,6 +376,32 @@ func TestRunAddonsUpgrade_DryRunNoApiPatch(t *testing.T) {
 	}
 }
 
+func TestRunAddonsUpgrade_DryRunNamespaceChangeNotice(t *testing.T) {
+	mock := &upgradeMock{iac: sampleIaCYAMLForCmd}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "addons", "upgrade", "website",
+		"--namespace", "web-next",
+		"--cluster", fakeClusterUUID,
+		"--dry-run",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if len(mock.capturedRequests) != 0 {
+		t.Errorf("expected 0 PATCH calls in --dry-run, got %d", len(mock.capturedRequests))
+	}
+	body := out.String()
+	if !strings.Contains(body, "Notices:") || !strings.Contains(body, "left orphaned") {
+		t.Errorf("expected namespace-change orphan notice in dry-run output, got:\n%s", body)
+	}
+}
+
 func TestRunAddonsUpgrade_DryRunJSONEnvelope(t *testing.T) {
 	mock := &upgradeMock{iac: sampleIaCYAMLForCmd}
 	setMockClient(t, mock)
@@ -420,6 +503,105 @@ func TestRunManifestsUpgrade_NoMutation(t *testing.T) {
 	}
 }
 
+const sampleDeploymentManifestYAML = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: app
+          image: nginx:1.0
+`
+
+func TestRunManifestsUpgrade_SetMutationFetchesContent(t *testing.T) {
+	mock := &upgradeMock{
+		iac:         sampleIaCYAMLForCmd,
+		manifestB64: base64.StdEncoding.EncodeToString([]byte(sampleDeploymentManifestYAML)),
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "manifests", "upgrade", "demo-namespace",
+		"--set", "spec.template.spec.containers[name=app].image=nginx:1.27",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if len(mock.capturedRequests) != 1 {
+		t.Fatalf("expected one PATCH, got %d", len(mock.capturedRequests))
+	}
+	mPatch := mock.capturedRequests[0].Body.Spec.Stacks[0].Manifests[0]
+	decoded, err := base64.StdEncoding.DecodeString(mPatch.ManifestBase64)
+	if err != nil {
+		t.Fatalf("base64 decode: %v", err)
+	}
+	if !strings.Contains(string(decoded), "nginx:1.27") {
+		t.Errorf("expected mutated image, got:\n%s", string(decoded))
+	}
+	if !strings.Contains(string(decoded), "replicas: 1") {
+		t.Errorf("expected sibling field preserved, got:\n%s", string(decoded))
+	}
+}
+
+func TestRunManifestsUpgrade_ContentAndSetConflict(t *testing.T) {
+	mock := &upgradeMock{iac: sampleIaCYAMLForCmd}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "manifests", "upgrade", "demo-namespace",
+		"--from-file", "/tmp/does-not-matter.yaml",
+		"--set", "spec.replicas=3",
+		"--cluster", fakeClusterUUID,
+	})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected conflict error, got success; output: %s", out.String())
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("expected 'mutually exclusive' error, got %v", err)
+	}
+}
+
+func TestRunManifestsUpgrade_DryRunSetNoApiPatch(t *testing.T) {
+	mock := &upgradeMock{
+		iac:         sampleIaCYAMLForCmd,
+		manifestB64: base64.StdEncoding.EncodeToString([]byte(sampleDeploymentManifestYAML)),
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "manifests", "upgrade", "demo-namespace",
+		"--set", "spec.replicas=3",
+		"--cluster", fakeClusterUUID,
+		"--dry-run",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if len(mock.capturedRequests) != 0 {
+		t.Errorf("expected 0 PATCH calls in --dry-run, got %d", len(mock.capturedRequests))
+	}
+	if !strings.Contains(out.String(), "Before:") || !strings.Contains(out.String(), "After:") {
+		t.Errorf("expected dry-run output, got:\n%s", out.String())
+	}
+}
+
 // Sanity check: ensure that an error from PatchClusterStackPartial that isn't
 // a *PatchStackError still surfaces cleanly.
 func TestRunAddonsUpgrade_NonTypedErrorPasses(t *testing.T) {
@@ -444,5 +626,420 @@ func TestRunAddonsUpgrade_NonTypedErrorPasses(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "network is unreachable") {
 		t.Errorf("expected network error to surface, got %v", err)
+	}
+}
+
+const sampleIaCAddonWithParentForCmd = `apiVersion: v1
+kind: ImportCluster
+metadata:
+  name: website-demo
+spec:
+  stacks:
+    - name: demo-web-app
+      description: The demo web app stack
+      addons:
+        - name: website
+          chart_name: website
+          chart_version: 1.0.145
+          namespace: web
+          parents:
+            - name: demo-namespace
+              kind: manifest
+      manifests:
+        - name: demo-namespace
+          namespace: web
+`
+
+func TestRunAddonsUpgrade_AddParent(t *testing.T) {
+	mock := &upgradeMock{iac: sampleIaCYAMLForCmd}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "addons", "upgrade", "website",
+		"--add-parent", "name=demo-namespace,kind=manifest",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if len(mock.capturedRequests) != 1 {
+		t.Fatalf("expected one PATCH, got %d", len(mock.capturedRequests))
+	}
+	parents := mock.capturedRequests[0].Body.Spec.Stacks[0].Addons[0].Parents
+	if len(parents) != 1 || parents[0].Name != "demo-namespace" || parents[0].Kind != "manifest" {
+		t.Errorf("expected parent demo-namespace/manifest, got %+v", parents)
+	}
+}
+
+func TestRunAddonsUpgrade_RemoveLastParentClears(t *testing.T) {
+	mock := &upgradeMock{iac: sampleIaCAddonWithParentForCmd}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "addons", "upgrade", "website",
+		"--remove-parent", "name=demo-namespace,kind=manifest",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	parents := mock.capturedRequests[0].Body.Spec.Stacks[0].Addons[0].Parents
+	if len(parents) != 0 {
+		t.Errorf("expected parents cleared, got %+v", parents)
+	}
+}
+
+func TestRunManifestsUpgrade_AddParent(t *testing.T) {
+	mock := &upgradeMock{
+		iac:         sampleIaCYAMLForCmd,
+		manifestB64: base64.StdEncoding.EncodeToString([]byte("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: web\n")),
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "manifests", "upgrade", "demo-namespace",
+		"--add-parent", "name=website,kind=addon",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if len(mock.capturedRequests) != 1 {
+		t.Fatalf("expected one PATCH, got %d", len(mock.capturedRequests))
+	}
+	manifest := mock.capturedRequests[0].Body.Spec.Stacks[0].Manifests[0]
+	if len(manifest.Parents) != 1 || manifest.Parents[0].Name != "website" || manifest.Parents[0].Kind != "addon" {
+		t.Errorf("expected parent website/addon, got %+v", manifest.Parents)
+	}
+	if manifest.ManifestBase64 == "" {
+		t.Error("expected existing manifest content to be preserved on parent-only edit")
+	}
+}
+
+func TestRunManifestsUpgrade_BadParentKindErrors(t *testing.T) {
+	mock := &upgradeMock{
+		iac:         sampleIaCYAMLForCmd,
+		manifestB64: base64.StdEncoding.EncodeToString([]byte("apiVersion: v1\nkind: Namespace\n")),
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "manifests", "upgrade", "demo-namespace",
+		"--add-parent", "name=svc,kind=service",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error for invalid parent kind")
+	}
+	if len(mock.capturedRequests) != 0 {
+		t.Errorf("expected no PATCH on validation error, got %d", len(mock.capturedRequests))
+	}
+}
+
+func TestRunManifestsGet_DecodesContent(t *testing.T) {
+	yamlDoc := "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: web\n"
+	mock := &upgradeMock{manifestB64: base64.StdEncoding.EncodeToString([]byte(yamlDoc))}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "manifests", "get", "demo-namespace",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "kind: Namespace") {
+		t.Errorf("expected decoded YAML, got:\n%s", out.String())
+	}
+}
+
+func TestRunAddonsValues_PrintsDecoded(t *testing.T) {
+	mock := &upgradeMock{addonValues: "replicaCount: 3\nimage:\n  tag: 1.0.0\n"}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "addons", "values", "website",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "replicaCount: 3") {
+		t.Errorf("expected decoded values, got:\n%s", out.String())
+	}
+}
+
+func TestRunManifestsDelete_DisconnectsResolvedStack(t *testing.T) {
+	mock := &upgradeMock{iac: sampleIaCYAMLForCmd}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "manifests", "delete", "demo-namespace",
+		"--cluster", fakeClusterUUID,
+		"--yes",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if len(mock.disconnectCalls) != 1 {
+		t.Fatalf("expected one disconnect call, got %d", len(mock.disconnectCalls))
+	}
+	if mock.disconnectCalls[0].StackName != "demo-web-app" || mock.disconnectCalls[0].ManifestName != "demo-namespace" {
+		t.Errorf("unexpected disconnect call: %+v", mock.disconnectCalls[0])
+	}
+}
+
+func TestRunManifestsDelete_NotFoundErrors(t *testing.T) {
+	mock := &upgradeMock{iac: sampleIaCYAMLForCmd}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "manifests", "delete", "does-not-exist",
+		"--cluster", fakeClusterUUID,
+		"--yes",
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error when manifest is not found")
+	}
+	if len(mock.disconnectCalls) != 0 {
+		t.Errorf("must not disconnect when manifest is missing, got %d calls", len(mock.disconnectCalls))
+	}
+}
+
+func TestRunEncryptManifest_ClusterModePatchesEncryptedContent(t *testing.T) {
+	mock := &upgradeMock{
+		iac:           sampleIaCYAMLForCmd,
+		manifestB64:   base64.StdEncoding.EncodeToString([]byte("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: web\n")),
+		encryptResult: "ENC[AES256_GCM,data:abc]\n",
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "demo-namespace",
+		"--key", "data.password",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+
+	if len(mock.encryptCalls) != 1 {
+		t.Fatalf("expected one EncryptYAML call, got %d", len(mock.encryptCalls))
+	}
+	if len(mock.encryptCalls[0].EncryptedPaths) != 1 || mock.encryptCalls[0].EncryptedPaths[0] != "data.password" {
+		t.Errorf("encrypted paths = %v, want [data.password]", mock.encryptCalls[0].EncryptedPaths)
+	}
+
+	if len(mock.capturedRequests) != 1 {
+		t.Fatalf("expected one PATCH, got %d", len(mock.capturedRequests))
+	}
+	manifest := mock.capturedRequests[0].Body.Spec.Stacks[0].Manifests[0]
+	if len(manifest.EncryptedPaths) != 1 || manifest.EncryptedPaths[0] != "data.password" {
+		t.Errorf("manifest.encrypted_paths = %v, want [data.password]", manifest.EncryptedPaths)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(manifest.ManifestBase64)
+	if err != nil {
+		t.Fatalf("decode manifest_base64: %v", err)
+	}
+	if !strings.Contains(string(decoded), "ENC[AES256_GCM") {
+		t.Errorf("expected encrypted content in PATCH, got: %s", decoded)
+	}
+}
+
+func TestRunEncryptManifest_FileModeStillWorks(t *testing.T) {
+	// Smoke check that providing -f triggers the file-mode branch (which exits
+	// with a clear error before any cluster fetch). Confirms the dispatcher.
+	mock := &upgradeMock{}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "any",
+		"--key", "foo",
+		"-f", "/tmp/does-not-exist.yaml",
+	})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected file-mode error for missing file")
+	}
+	if !strings.Contains(err.Error(), "failed to read cluster file") {
+		t.Errorf("expected file-mode error, got %v", err)
+	}
+	if len(mock.capturedRequests) != 0 {
+		t.Errorf("file mode must not PATCH, got %d", len(mock.capturedRequests))
+	}
+}
+
+func TestRunEncryptManifest_FileAndClusterMutuallyExclusive(t *testing.T) {
+	mock := &upgradeMock{}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "any",
+		"--key", "foo",
+		"-f", "/tmp/x.yaml",
+		"--cluster", "demo",
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected mutual-exclusion error")
+	}
+}
+
+func TestRunEncryptAddon_ClusterModePatchesEncryptedValues(t *testing.T) {
+	mock := &upgradeMock{
+		iac:           sampleIaCYAMLForCmd,
+		addonValues:   "adminPassword: hunter2\n",
+		encryptResult: "adminPassword: ENC[AES256_GCM,data:abc]\n",
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "addon",
+		"--name", "website",
+		"--key", "adminPassword",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if len(mock.capturedRequests) != 1 {
+		t.Fatalf("expected one PATCH, got %d", len(mock.capturedRequests))
+	}
+	addon := mock.capturedRequests[0].Body.Spec.Stacks[0].Addons[0]
+	if addon.Configuration == nil {
+		t.Fatal("expected configuration in PATCH")
+	}
+	if len(addon.Configuration.EncryptedPaths) != 1 || addon.Configuration.EncryptedPaths[0] != "adminPassword" {
+		t.Errorf("addon.encrypted_paths = %v, want [adminPassword]", addon.Configuration.EncryptedPaths)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(addon.Configuration.ValuesBase64)
+	if err != nil {
+		t.Fatalf("decode values_base64: %v", err)
+	}
+	if !strings.Contains(string(decoded), "ENC[AES256_GCM") {
+		t.Errorf("expected encrypted values in PATCH, got: %s", decoded)
+	}
+}
+
+func TestRunDecryptManifest_ClusterModePrintsDecrypted(t *testing.T) {
+	mock := &upgradeMock{
+		iac:           sampleIaCYAMLForCmd,
+		manifestB64:   base64.StdEncoding.EncodeToString([]byte("kind: Secret\ndata:\n  password: ENC[...]\n")),
+		decryptResult: "kind: Secret\ndata:\n  password: hunter2\n",
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "decrypt", "manifest", "demo-namespace",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "password: hunter2") {
+		t.Errorf("expected decrypted YAML, got:\n%s", out.String())
+	}
+	if len(mock.capturedRequests) != 0 {
+		t.Errorf("decrypt must not PATCH, got %d", len(mock.capturedRequests))
+	}
+}
+
+func TestRunDecryptAddon_ClusterModePrintsDecrypted(t *testing.T) {
+	mock := &upgradeMock{
+		iac:           sampleIaCYAMLForCmd,
+		addonValues:   "secret: ENC[...]\n",
+		decryptResult: "secret: hunter2\n",
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "decrypt", "addon",
+		"--name", "website",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "secret: hunter2") {
+		t.Errorf("expected decrypted YAML, got:\n%s", out.String())
+	}
+}
+
+func TestRunManifestsDelete_DryRunNoCall(t *testing.T) {
+	mock := &upgradeMock{iac: sampleIaCYAMLForCmd}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "manifests", "delete", "demo-namespace",
+		"--cluster", fakeClusterUUID,
+		"--dry-run",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if len(mock.disconnectCalls) != 0 {
+		t.Errorf("dry-run must not call disconnect, got %d", len(mock.disconnectCalls))
+	}
+	if !strings.Contains(out.String(), "Would disconnect") {
+		t.Errorf("expected dry-run notice, got:\n%s", out.String())
 	}
 }
