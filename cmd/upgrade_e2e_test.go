@@ -376,6 +376,32 @@ func TestRunAddonsUpgrade_DryRunNoApiPatch(t *testing.T) {
 	}
 }
 
+func TestRunAddonsUpgrade_DryRunNamespaceChangeNotice(t *testing.T) {
+	mock := &upgradeMock{iac: sampleIaCYAMLForCmd}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "addons", "upgrade", "website",
+		"--namespace", "web-next",
+		"--cluster", fakeClusterUUID,
+		"--dry-run",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if len(mock.capturedRequests) != 0 {
+		t.Errorf("expected 0 PATCH calls in --dry-run, got %d", len(mock.capturedRequests))
+	}
+	body := out.String()
+	if !strings.Contains(body, "Notices:") || !strings.Contains(body, "left orphaned") {
+		t.Errorf("expected namespace-change orphan notice in dry-run output, got:\n%s", body)
+	}
+}
+
 func TestRunAddonsUpgrade_DryRunJSONEnvelope(t *testing.T) {
 	mock := &upgradeMock{iac: sampleIaCYAMLForCmd}
 	setMockClient(t, mock)
