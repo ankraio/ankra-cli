@@ -384,3 +384,150 @@ func (c *Client) ApplyCluster(ctx context.Context, clusterReq CreateImportCluste
 	}
 	return &ir, nil
 }
+
+type ValidateClusterRequest struct {
+	Spec          CreateResourceSpec `json:"spec"`
+	StrictSecrets bool               `json:"strict_secrets"`
+}
+
+type ValidationWarning struct {
+	Kind     string `json:"kind"`
+	Name     string `json:"name"`
+	Key      string `json:"key"`
+	Message  string `json:"message"`
+	Category string `json:"category"`
+}
+
+type ValidateClusterResponse struct {
+	Errors   []ImportResponseResourceError `json:"errors"`
+	Warnings []ValidationWarning           `json:"warnings"`
+}
+
+// ValidateCluster runs the server-side validation that the offline checks
+// cannot — chart existence in connected registries, plaintext-secret
+// detection, and parent references against live cluster state. A non-empty
+// clusterID validates the spec against that cluster's existing resources.
+func (c *Client) ValidateCluster(ctx context.Context, spec CreateResourceSpec, strictSecrets bool, clusterID string) (*ValidateClusterResponse, error) {
+	for i := range spec.Stacks {
+		if spec.Stacks[i].Manifests == nil {
+			spec.Stacks[i].Manifests = make([]Manifest, 0)
+		}
+		if spec.Stacks[i].Addons == nil {
+			spec.Stacks[i].Addons = make([]Addon, 0)
+		}
+	}
+
+	payload, err := json.Marshal(ValidateClusterRequest{Spec: spec, StrictSecrets: strictSecrets})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := c.BaseURL + "/api/v1/clusters/validate"
+	if clusterID != "" {
+		url += "?cluster_id=" + neturl.QueryEscape(clusterID)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create HTTP request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("validation request failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+	}
+
+	var result ValidateClusterResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+type stackDraftRequest struct {
+	Spec stackDraftSpec `json:"spec"`
+}
+
+type stackDraftSpec struct {
+	Stacks []Stack `json:"stacks"`
+}
+
+// StackDraftResult captures the outcome of staging a single stack as a draft.
+// NoChange is true when the stack already matches the cluster's desired state
+// (the server reports no diff to save); Errors holds per-resource validation
+// failures when the draft could not be created.
+type StackDraftResult struct {
+	DraftID  string
+	NoChange bool
+	Errors   []ImportResponseResourceError
+}
+
+// CreateStackDraft stages a single stack as a reviewable resource draft on an
+// existing cluster, without deploying anything. It reuses the same backend
+// path the stack builder uses.
+func (c *Client) CreateStackDraft(ctx context.Context, clusterID string, stack Stack) (*StackDraftResult, error) {
+	if stack.Manifests == nil {
+		stack.Manifests = make([]Manifest, 0)
+	}
+	if stack.Addons == nil {
+		stack.Addons = make([]Addon, 0)
+	}
+
+	payload, err := json.Marshal(stackDraftRequest{Spec: stackDraftSpec{Stacks: []Stack{stack}}})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/stacks/draft", c.BaseURL, neturl.PathEscape(clusterID))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create HTTP request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return &StackDraftResult{NoChange: true}, nil
+	case resp.StatusCode == http.StatusUnprocessableEntity:
+		var detail struct {
+			Detail []ImportResponseResourceError `json:"detail"`
+		}
+		if err := json.Unmarshal(body, &detail); err != nil {
+			return nil, fmt.Errorf("draft failed: status 422, body: %s", redactedBodyForError(body, 500))
+		}
+		return &StackDraftResult{Errors: detail.Detail}, nil
+	case resp.StatusCode < 200 || resp.StatusCode >= 300:
+		return nil, fmt.Errorf("draft request failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+	}
+
+	var parsed struct {
+		DraftID string `json:"draft_id"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &StackDraftResult{DraftID: parsed.DraftID}, nil
+}

@@ -30,13 +30,16 @@ const (
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Upgrade the Ankra CLI to the latest release",
-	Long: `Download and install the latest Ankra CLI release, replacing the
+	Long: `Download and install a specific Ankra CLI release, replacing the
 currently running binary in place.
 
-By default the command upgrades to the latest stable release. Pin a
-specific release with --version (for example --version v0.2.5). Use
---check to report whether a newer release is available without installing
-anything.
+By default the command upgrades to the latest stable release. Install an
+exact release with --version (for example --version v0.2.5, or --version
+0.2.5). When a version is pinned the command installs it whether it is
+newer, older or the same as the running binary, so --version doubles as a
+downgrade: 'ankra upgrade --version v0.1.9' rolls back to that release.
+Use --check to report whether a newer release is available without
+installing anything.
 
 When the beta channel is enabled (see 'ankra config beta enable') the
 newest release including pre-releases (release candidates such as
@@ -51,11 +54,12 @@ before it replaces the existing executable.`,
 }
 
 func init() {
-	upgradeCmd.Flags().String("version", "", "release tag to install (default: latest)")
+	upgradeCmd.Flags().String("version", "", "exact release to install for an upgrade or downgrade, e.g. v0.2.5 (default: latest)")
 	upgradeCmd.Flags().Bool("check", false, "check for a newer release without installing")
 	upgradeCmd.Flags().BoolP("yes", "y", false, "skip the confirmation prompt")
 	upgradeCmd.Flags().Bool("force", false, "reinstall even if already on the target version")
 	upgradeCmd.Flags().Bool("beta", false, "include pre-release versions for this run (overrides the saved channel)")
+	upgradeCmd.Flags().Bool("allow-unverified", false, "install even when no SHA-256 checksum is published (insecure)")
 
 	setRequiresAuth(upgradeCmd, false)
 	rootCmd.AddCommand(upgradeCmd)
@@ -67,6 +71,7 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	checkOnly, _ := cmd.Flags().GetBool("check")
 	skipConfirm, _ := cmd.Flags().GetBool("yes")
 	force, _ := cmd.Flags().GetBool("force")
+	allowUnverified, _ := cmd.Flags().GetBool("allow-unverified")
 
 	assetName, err := releaseAssetName(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
@@ -80,12 +85,13 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 		betaEnabled, _ = cmd.Flags().GetBool("beta")
 	}
 
+	versionPinned := cmd.Flags().Changed("version")
 	targetTag := strings.TrimSpace(pinnedVersion)
 	if targetTag == "" {
 		var latestTag string
 		var latestErr error
 		if betaEnabled {
-			fmt.Fprintln(out, "Beta channel enabled: including pre-release versions.")
+			_, _ = fmt.Fprintln(out, "Beta channel enabled: including pre-release versions.")
 			latestTag, latestErr = latestReleaseTagIncludingPrereleases(httpClient)
 		} else {
 			latestTag, latestErr = latestReleaseTag(httpClient)
@@ -94,6 +100,8 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("could not determine the latest release: %w", latestErr)
 		}
 		targetTag = latestTag
+	} else {
+		targetTag = ensureTagPrefix(targetTag)
 	}
 
 	currentVersion := normalizeVersion(version)
@@ -103,24 +111,25 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	if checkOnly {
 		switch {
 		case comparison > 0:
-			fmt.Fprintf(out, "A newer release is available: v%s (current: v%s)\n", targetVersion, currentVersion)
-			fmt.Fprintln(out, "Run `ankra upgrade` to install it.")
+			_, _ = fmt.Fprintf(out, "A newer release is available: v%s (current: v%s)\n", targetVersion, currentVersion)
+			_, _ = fmt.Fprintln(out, "Run `ankra upgrade` to install it.")
 		case comparison < 0:
-			fmt.Fprintf(out, "Installed version v%s is newer than v%s.\n", currentVersion, targetVersion)
+			_, _ = fmt.Fprintf(out, "Installed version v%s is newer than v%s.\n", currentVersion, targetVersion)
 		default:
-			fmt.Fprintf(out, "Already up to date (v%s).\n", currentVersion)
+			_, _ = fmt.Fprintf(out, "Already up to date (v%s).\n", currentVersion)
 		}
 		return nil
 	}
 
-	if comparison == 0 && !force {
-		fmt.Fprintf(out, "Already up to date (v%s).\n", currentVersion)
+	if comparison == 0 && !force && !versionPinned {
+		_, _ = fmt.Fprintf(out, "Already up to date (v%s).\n", currentVersion)
 		return nil
 	}
-	if comparison < 0 && !force {
-		fmt.Fprintf(out,
-			"Installed version v%s is newer than the requested v%s. Use --force to install it anyway.\n",
-			currentVersion, targetVersion)
+	if comparison < 0 && !force && !versionPinned {
+		_, _ = fmt.Fprintf(out,
+			"Installed version v%s is newer than the requested v%s. "+
+				"Pin it with --version v%s to downgrade, or use --force.\n",
+			currentVersion, targetVersion, targetVersion)
 		return nil
 	}
 
@@ -129,8 +138,15 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	prompt := fmt.Sprintf("Upgrade ankra from v%s to v%s (%s)? [y/N]: ",
-		currentVersion, targetVersion, executablePath)
+	action := "Upgrade"
+	switch {
+	case comparison < 0:
+		action = "Downgrade"
+	case comparison == 0:
+		action = "Reinstall"
+	}
+	prompt := fmt.Sprintf("%s ankra from v%s to v%s (%s)? [y/N]: ",
+		action, currentVersion, targetVersion, executablePath)
 	if err := confirmPrompt(cmd.InOrStdin(), out, prompt, skipConfirm); err != nil {
 		return err
 	}
@@ -148,7 +164,7 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	}()
 
 	downloadedBinary := filepath.Join(stagingDir, "ankra")
-	fmt.Fprintf(out, "Downloading %s ...\n", binaryURL)
+	_, _ = fmt.Fprintf(out, "Downloading %s ...\n", binaryURL)
 	if err := downloadToFile(httpClient, binaryURL, downloadedBinary); err != nil {
 		return fmt.Errorf("download binary: %w", err)
 	}
@@ -158,7 +174,12 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("download checksum: %w", err)
 	}
 	if expectedChecksum == "" {
-		fmt.Fprintln(out, "Warning: no checksum published for this release; skipping verification.")
+		if !allowUnverified {
+			return fmt.Errorf(
+				"no SHA-256 checksum published for %s; refusing to install an unverified binary "+
+					"(pass --allow-unverified to override)", targetTag)
+		}
+		_, _ = fmt.Fprintln(out, "Warning: no checksum published for this release; skipping verification (--allow-unverified).")
 	} else {
 		actualChecksum, sumErr := sha256OfFile(downloadedBinary)
 		if sumErr != nil {
@@ -167,14 +188,14 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 		if !strings.EqualFold(actualChecksum, expectedChecksum) {
 			return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedChecksum, actualChecksum)
 		}
-		fmt.Fprintln(out, "Checksum verified.")
+		_, _ = fmt.Fprintln(out, "Checksum verified.")
 	}
 
 	if err := replaceExecutable(executablePath, downloadedBinary); err != nil {
 		return err
 	}
 
-	fmt.Fprintf(out, "Ankra CLI upgraded to v%s.\n", targetVersion)
+	_, _ = fmt.Fprintf(out, "Ankra CLI upgraded to v%s.\n", targetVersion)
 	return nil
 }
 
@@ -416,6 +437,17 @@ func normalizeVersion(value string) string {
 	value = strings.TrimPrefix(value, "v")
 	value = strings.TrimPrefix(value, "V")
 	return value
+}
+
+// ensureTagPrefix normalises a user-supplied release version into the tag form
+// used by GitHub releases (a leading "v"), so `--version 0.2.5` and
+// `--version v0.2.5` both resolve to the same release.
+func ensureTagPrefix(value string) string {
+	normalized := normalizeVersion(value)
+	if normalized == "" {
+		return ""
+	}
+	return "v" + normalized
 }
 
 // compareVersions compares two versions using semantic-versioning precedence,

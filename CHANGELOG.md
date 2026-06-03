@@ -1,8 +1,65 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.3.0-rc1 — June 2026
+
+Second release candidate for the v0.3.0 line. It bundles everything previewed in
+**v0.3.0-rc0** and adds a draft/validate workflow plus a more capable
+self-updater on top. Install it with `ankra upgrade --beta` (beta channel) or
+download the `v0.3.0-rc1` release-candidate asset directly.
+
+**New in rc1 (since rc0):**
+
+- **`ankra cluster draft`** — stage every stack in an `ImportCluster` as a
+  reviewable draft instead of applying it.
+- **`ankra cluster validate`** — the offline `apply --dry-run` checks plus
+  server-side chart-existence, plaintext-secret, and parent-reference
+  validation; CI-friendly exit codes and `--strict-secrets`.
+- **`ankra upgrade` pinning, downgrade & rollback** — `--version` installs an
+  exact release (newer *or* older), with SHA-256 checksum enforcement and
+  `--allow-unverified` for releases that predate published checksums.
+
+**Carried over from v0.3.0-rc0:**
+
+- **`ankra upgrade`** self-update (download the latest release, verify SHA-256,
+  atomically swap the binary) and the **beta / pre-release update channel**
+  (`ankra config beta enable|disable|status`, `ankra upgrade --beta`) with
+  semver-aware version comparison.
+- **Offline dependency-tree and referenced-file validation** in
+  `ankra cluster apply`, and **`--dry-run`** for `apply` / `delete cluster`
+  (fully offline, no token).
+- **`--watch` and `-o json|yaml`** for `ankra cluster operations`.
+- **Credential and organisation fixes**: `ankra credentials get` resolves a
+  name to an ID (trying the v2 platform-credential lookup before the legacy
+  table); `ankra org members` / `current` honor `--org` and validate the saved
+  selection instead of sending a stale value.
 
 ### New Features
+
+#### Stage changes as drafts with `ankra cluster draft`
+
+`ankra cluster draft -f cluster.yaml` stages every stack in an ImportCluster YAML as a reviewable draft instead of applying it. The local checks run first (the same as `ankra cluster apply --dry-run`), then each stack is saved as a resource draft you can review, edit, and deploy from the Ankra stack builder — nothing is deployed by the command itself.
+
+If the cluster does not exist yet it is imported first (live), since drafts can only be attached to an existing cluster. Stacks that already match the cluster's desired state are reported as `no changes` rather than creating an empty draft. The command exits non-zero if any stack fails validation.
+
+```bash
+ankra cluster draft -f cluster.yaml
+```
+
+#### Server-side validation with `ankra cluster validate`
+
+`ankra cluster validate -f cluster.yaml` runs the same offline checks as `ankra cluster apply --dry-run` (structure, referenced-file YAML, parent/dependency tree) and then sends the spec to the Ankra API for the checks that need server-side data — checks the offline path cannot perform:
+
+- **chart existence** in the Helm registries connected to your organisation,
+- **plaintext secret detection** for Kubernetes `Secret` manifests and addon values that are not SOPS-encrypted,
+- **parent references** resolved against an existing cluster's deployed resources (with `--cluster <id>`).
+
+Nothing is applied. Warnings (e.g. plaintext secrets) are printed but do not fail the command; pass `--strict-secrets` to treat plaintext secrets as errors. The command exits non-zero when validation finds errors, so it drops straight into CI.
+
+```bash
+ankra cluster validate -f cluster.yaml
+ankra cluster validate -f cluster.yaml --strict-secrets
+ankra cluster validate -f cluster.yaml --cluster <cluster_id>
+```
 
 #### Self-update with `ankra upgrade`
 
@@ -12,10 +69,23 @@ the running binary in place. It resolves the latest release tag from GitHub
 `ankra-cli-<os>-<arch>` asset, verifies it against the published SHA-256
 checksum, and atomically swaps the executable. The command needs no API token.
 
+Pin an exact release with `--version` (with or without the leading `v`) to
+upgrade *or* downgrade — a pinned version installs whether it is newer, older
+or the same as the running binary, so it doubles as a rollback. Only an
+unpinned `ankra upgrade` keeps the "already up to date" / "installed version is
+newer" safety checks; pinning is treated as explicit intent and asks for a
+single confirmation (`Upgrade` / `Downgrade` / `Reinstall`).
+
+If a release does not publish a checksum, the upgrade fails closed rather than
+installing an unverified binary; pass `--allow-unverified` to override that for
+older releases that predate published checksums.
+
 ```bash
-ankra upgrade            # upgrade to the latest release
-ankra upgrade --check    # report whether a newer release is available
-ankra upgrade --version v0.2.5 --yes
+ankra upgrade                       # upgrade to the latest release
+ankra upgrade --check               # report whether a newer release is available
+ankra upgrade --version v0.2.5      # install an exact release (upgrade)
+ankra upgrade --version 0.1.9 --yes # downgrade/roll back, no confirmation prompt
+ankra upgrade --version v0.1.0 --allow-unverified  # release without a checksum
 ```
 
 If the installed binary lives in a directory the current user cannot write

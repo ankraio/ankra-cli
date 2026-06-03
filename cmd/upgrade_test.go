@@ -59,6 +59,23 @@ func TestNormalizeVersion(t *testing.T) {
 	}
 }
 
+func TestEnsureTagPrefix(t *testing.T) {
+	cases := map[string]string{
+		"v0.2.5":     "v0.2.5",
+		"0.2.5":      "v0.2.5",
+		" 0.2.5 ":    "v0.2.5",
+		"V1.0.0":     "v1.0.0",
+		"0.3.0-rc.1": "v0.3.0-rc.1",
+		"":           "",
+		"   ":        "",
+	}
+	for input, want := range cases {
+		if got := ensureTagPrefix(input); got != want {
+			t.Errorf("ensureTagPrefix(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestCompareVersions(t *testing.T) {
 	cases := []struct {
 		left  string

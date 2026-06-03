@@ -99,7 +99,7 @@ var configBetaEnableCmd = &cobra.Command{
 		if err := saveCLISettings(settings); err != nil {
 			return fmt.Errorf("save settings: %w", err)
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Beta channel enabled. `ankra upgrade` will now install pre-release versions.")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Beta channel enabled. `ankra upgrade` will now install pre-release versions.")
 		return nil
 	},
 }
@@ -117,7 +117,7 @@ var configBetaDisableCmd = &cobra.Command{
 		if err := saveCLISettings(settings); err != nil {
 			return fmt.Errorf("save settings: %w", err)
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Beta channel disabled. `ankra upgrade` will install stable releases only.")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Beta channel disabled. `ankra upgrade` will install stable releases only.")
 		return nil
 	},
 }
@@ -128,9 +128,9 @@ var configBetaStatusCmd = &cobra.Command{
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		if betaReleasesEnabled() {
-			fmt.Fprintln(cmd.OutOrStdout(), "Beta channel: enabled (pre-release versions)")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Beta channel: enabled (pre-release versions)")
 		} else {
-			fmt.Fprintln(cmd.OutOrStdout(), "Beta channel: disabled (stable releases)")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Beta channel: disabled (stable releases)")
 		}
 		return nil
 	},

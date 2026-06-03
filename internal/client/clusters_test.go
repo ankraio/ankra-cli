@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -380,4 +381,126 @@ func TestApplyCluster(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateCluster(t *testing.T) {
+	spec := CreateResourceSpec{Stacks: []Stack{{Name: "stack1"}}}
+
+	t.Run("returns errors and warnings", func(t *testing.T) {
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || r.URL.Path != "/api/v1/clusters/validate" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			jsonResponse(t, w, http.StatusOK, ValidateClusterResponse{
+				Errors: []ImportResponseResourceError{
+					{Name: "nginx", Kind: "addon", Errors: []ImportResponseErrorItem{{Key: "chart_name", Message: "not found"}}},
+				},
+				Warnings: []ValidationWarning{
+					{Kind: "manifest", Name: "db-secret", Key: "encrypted_paths", Message: "plaintext", Category: "secrets_plaintext"},
+				},
+			})
+		}
+		got, err := newTestClient(t, handler).ValidateCluster(context.Background(), spec, false, "")
+		if err != nil {
+			t.Fatalf("ValidateCluster() unexpected error: %v", err)
+		}
+		if len(got.Errors) != 1 || got.Errors[0].Name != "nginx" {
+			t.Errorf("ValidateCluster() errors = %+v", got.Errors)
+		}
+		if len(got.Warnings) != 1 || got.Warnings[0].Category != "secrets_plaintext" {
+			t.Errorf("ValidateCluster() warnings = %+v", got.Warnings)
+		}
+	})
+
+	t.Run("forwards cluster_id query and strict_secrets body", func(t *testing.T) {
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("cluster_id") != "cluster-9" {
+				t.Errorf("cluster_id = %q, want cluster-9", r.URL.Query().Get("cluster_id"))
+			}
+			var body ValidateClusterRequest
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+			if !body.StrictSecrets {
+				t.Errorf("strict_secrets = false, want true")
+			}
+			jsonResponse(t, w, http.StatusOK, ValidateClusterResponse{})
+		}
+		if _, err := newTestClient(t, handler).ValidateCluster(context.Background(), spec, true, "cluster-9"); err != nil {
+			t.Fatalf("ValidateCluster() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("server error", func(t *testing.T) {
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("boom"))
+		}
+		if _, err := newTestClient(t, handler).ValidateCluster(context.Background(), spec, false, ""); err == nil {
+			t.Error("ValidateCluster() expected error, got nil")
+		}
+	})
+}
+
+func TestCreateStackDraft(t *testing.T) {
+	stack := Stack{Name: "web"}
+
+	t.Run("created", func(t *testing.T) {
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || r.URL.Path != "/api/v1/clusters/cluster-1/stacks/draft" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			jsonResponse(t, w, http.StatusOK, map[string]any{"draft_id": "draft-123", "version": 1})
+		}
+		got, err := newTestClient(t, handler).CreateStackDraft(context.Background(), "cluster-1", stack)
+		if err != nil {
+			t.Fatalf("CreateStackDraft() unexpected error: %v", err)
+		}
+		if got.DraftID != "draft-123" || got.NoChange || len(got.Errors) != 0 {
+			t.Errorf("CreateStackDraft() = %+v", got)
+		}
+	})
+
+	t.Run("no changes maps to NoChange", func(t *testing.T) {
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"detail":"no changes"}`))
+		}
+		got, err := newTestClient(t, handler).CreateStackDraft(context.Background(), "cluster-1", stack)
+		if err != nil {
+			t.Fatalf("CreateStackDraft() unexpected error: %v", err)
+		}
+		if !got.NoChange || got.DraftID != "" {
+			t.Errorf("CreateStackDraft() = %+v, want NoChange", got)
+		}
+	})
+
+	t.Run("validation errors surfaced", func(t *testing.T) {
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			jsonResponse(t, w, http.StatusUnprocessableEntity, map[string]any{
+				"detail": []map[string]any{
+					{"name": "grafana", "kind": "addon", "errors": []map[string]string{{"key": "chart_name", "message": "not found"}}},
+				},
+			})
+		}
+		got, err := newTestClient(t, handler).CreateStackDraft(context.Background(), "cluster-1", stack)
+		if err != nil {
+			t.Fatalf("CreateStackDraft() unexpected error: %v", err)
+		}
+		if len(got.Errors) != 1 || got.Errors[0].Name != "grafana" {
+			t.Errorf("CreateStackDraft() errors = %+v", got.Errors)
+		}
+	})
+
+	t.Run("server error", func(t *testing.T) {
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("boom"))
+		}
+		if _, err := newTestClient(t, handler).CreateStackDraft(context.Background(), "cluster-1", stack); err == nil {
+			t.Error("CreateStackDraft() expected error, got nil")
+		}
+	})
 }

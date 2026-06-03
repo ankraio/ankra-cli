@@ -53,6 +53,14 @@ func (m baseMock) ApplyCluster(ctx context.Context, clusterReq client.CreateImpo
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ValidateCluster(ctx context.Context, spec client.CreateResourceSpec, strictSecrets bool, clusterID string) (*client.ValidateClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateStackDraft(ctx context.Context, clusterID string, stack client.Stack) (*client.StackDraftResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error) {
 	return nil, errors.New("not implemented")
 }

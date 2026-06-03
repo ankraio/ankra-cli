@@ -44,14 +44,23 @@ This script will:
 Once installed, the CLI can update itself:
 
 ```bash
-ankra upgrade            # upgrade to the latest release
-ankra upgrade --check    # report whether a newer release is available
-ankra upgrade --version v0.2.5 --yes
+ankra upgrade                       # upgrade to the latest release
+ankra upgrade --check               # report whether a newer release is available
+ankra upgrade --version v0.2.5      # install an exact release (upgrade)
+ankra upgrade --version 0.1.9 --yes # downgrade / roll back to an older release
 ```
+
+Pin an exact release with `--version` (the leading `v` is optional) to upgrade
+or downgrade: a pinned version is installed whether it is newer, older or the
+same as the running binary, so the same command rolls back a bad release.
+Unpinned `ankra upgrade` still refuses to reinstall when you are already up to
+date or running a newer build (use `--force` to override those).
 
 `ankra upgrade` downloads the matching `ankra-cli-<os>-<arch>` asset, verifies
 it against the published SHA-256 checksum, and atomically replaces the running
-binary. If the binary lives in a directory you cannot write (such as
+binary. If a release publishes no checksum the upgrade aborts rather than
+installing an unverified binary — pass `--allow-unverified` to override for
+older releases. If the binary lives in a directory you cannot write (such as
 `/usr/local/bin`), re-run with `sudo ankra upgrade`.
 
 #### Beta (pre-release) channel
@@ -76,7 +85,7 @@ opt into the beta channel:
 
 ```bash
 # Option 1: install a specific release candidate directly
-bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh) --version v0.3.0-rc0
+bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh) --version v0.3.0-rc1
 
 # Option 2: install stable, then switch to the beta channel
 bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
@@ -329,6 +338,11 @@ ankra cluster reconcile [name]        # Trigger cluster reconciliation
 ankra cluster apply -f <file>         # Apply an ImportCluster YAML
   [--dry-run]                         #   Validate locally (structure, referenced-file YAML,
                                       #   and the parent/dependency tree) without calling the API
+ankra cluster validate -f <file>      # Server-side validation (chart existence, plaintext
+  [--strict-secrets]                  #   secrets, parent refs); treat secrets as errors
+  [--cluster <cluster_id>]            #   validate against an existing cluster's resources
+ankra cluster draft -f <file>         # Stage every stack as a reviewable draft (nothing
+                                      #   deployed); imports the cluster first if it's new
 ankra cluster clone <src> <dst>       # Clone cluster configuration
   [--clean] [--force]                 #   Replace all stacks / force merge on conflicts
   [--copy-missing]                    #   Copy missing files for skipped stacks

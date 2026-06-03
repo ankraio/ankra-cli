@@ -19,6 +19,8 @@ type APIClient interface {
 	DeprovisionCluster(ctx context.Context, clusterID string, autoDelete, force bool) (*client.DeprovisionClusterResult, error)
 	RollToClusterResourceVersion(ctx context.Context, clusterID, versionID string) (*client.RollToClusterResourceVersionResult, error)
 	ApplyCluster(ctx context.Context, clusterReq client.CreateImportClusterRequest) (*client.ImportResponse, error)
+	ValidateCluster(ctx context.Context, spec client.CreateResourceSpec, strictSecrets bool, clusterID string) (*client.ValidateClusterResponse, error)
+	CreateStackDraft(ctx context.Context, clusterID string, stack client.Stack) (*client.StackDraftResult, error)
 
 	ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error)
 	ListAvailableAddons(clusterID string) ([]client.AvailableAddon, error)
