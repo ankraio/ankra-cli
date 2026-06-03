@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: ImportCluster
+metadata:
+  description: metadata block present but name is empty
+spec:
+  stacks: []

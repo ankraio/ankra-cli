@@ -220,6 +220,25 @@ func parseOutputFormat(s string) (outputFormat, error) {
 	}
 }
 
+// encodeStructured writes value as indented JSON or YAML for the structured -o
+// formats. It is a no-op for outputDefault, so callers gate on the format being
+// non-default before falling back to their human-readable rendering.
+func encodeStructured(out io.Writer, format outputFormat, value interface{}) error {
+	switch format {
+	case outputJSON:
+		encoder := json.NewEncoder(out)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(value)
+	case outputYAML:
+		encoder := yaml.NewEncoder(out)
+		encoder.SetIndent(2)
+		defer func() { _ = encoder.Close() }()
+		return encoder.Encode(value)
+	default:
+		return nil
+	}
+}
+
 // dryRunEnvelope is the structured shape emitted by --dry-run -o json|yaml so
 // CI scripts can lint the diff before approving.
 type dryRunEnvelope struct {

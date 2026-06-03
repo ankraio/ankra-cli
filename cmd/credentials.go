@@ -150,11 +150,15 @@ var credentialsDeleteCmd = &cobra.Command{
 }
 
 var credentialsGetCmd = &cobra.Command{
-	Use:   "get <credential_id>",
+	Use:   "get <credential_id|name>",
 	Short: "Get details of a specific credential",
+	Long:  "Get details of a credential by its ID or by its name (as shown in `ankra credentials list`).",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		credentialID := args[0]
+		credentialID, err := resolveCredentialID(args[0])
+		if err != nil {
+			return err
+		}
 
 		cred, err := apiClient.GetCredential(credentialID)
 		if err != nil {
@@ -177,6 +181,62 @@ var credentialsGetCmd = &cobra.Command{
 		fmt.Printf("  Created:  %s\n", formatTimeAgo(cred.CreatedAt))
 		return nil
 	},
+}
+
+// resolveCredentialID accepts either a credential ID (UUID) or a credential
+// name. A UUID is returned unchanged; a name is resolved to its ID by matching
+// against the credential list, since the backend's get-credential endpoint
+// only accepts a UUID path parameter.
+func resolveCredentialID(idOrName string) (string, error) {
+	if looksLikeUUID(idOrName) {
+		return idOrName, nil
+	}
+
+	creds, err := apiClient.ListCredentials(nil)
+	if err != nil {
+		return "", fmt.Errorf("looking up credential %q: %w", idOrName, err)
+	}
+
+	var matchedIDs []string
+	for _, cred := range creds {
+		if cred.Name == idOrName {
+			matchedIDs = append(matchedIDs, cred.ID)
+		}
+	}
+
+	switch len(matchedIDs) {
+	case 1:
+		return matchedIDs[0], nil
+	case 0:
+		return "", fmt.Errorf("credential %q not found; run `ankra credentials list` to see available credentials", idOrName)
+	default:
+		return "", fmt.Errorf("multiple credentials are named %q; pass the credential ID instead", idOrName)
+	}
+}
+
+// looksLikeUUID reports whether s has the canonical 8-4-4-4-12 hexadecimal
+// UUID shape, so a value can be treated as an ID rather than a name without
+// pulling in a UUID dependency.
+func looksLikeUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for index, char := range s {
+		switch index {
+		case 8, 13, 18, 23:
+			if char != '-' {
+				return false
+			}
+		default:
+			isHex := (char >= '0' && char <= '9') ||
+				(char >= 'a' && char <= 'f') ||
+				(char >= 'A' && char <= 'F')
+			if !isHex {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func init() {

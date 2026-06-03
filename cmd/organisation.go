@@ -143,49 +143,24 @@ var orgCurrentCmd = &cobra.Command{
 	Use:   "current",
 	Short: "Show the currently selected organisation",
 	Run: func(cmd *cobra.Command, args []string) {
-		// First check local selection
-		local, err := loadSelectedOrganisation()
-		if err == nil && local.OrganisationID != "" {
-			name := ""
-			if local.Name != nil {
-				name = *local.Name
-			}
-			role := ""
-			if local.Role != nil {
-				role = *local.Role
-			}
-			fmt.Printf("Current organisation (local):\n")
-			fmt.Printf("  ID:   %s\n", local.OrganisationID)
-			fmt.Printf("  Name: %s\n", name)
-			fmt.Printf("  Role: %s\n", role)
-			return
-		}
-
-		orgs, err := apiClient.ListOrganisations()
+		org, source, err := resolveTargetOrganisation(cmd)
 		if err != nil {
-			fmt.Printf("Error fetching organisations: %v\n", err)
+			fmt.Printf("Error: %v\n", err)
 			return
 		}
 
-		for _, org := range orgs {
-			if org.UserCurrent {
-				name := ""
-				if org.Name != nil {
-					name = *org.Name
-				}
-				role := ""
-				if org.Role != nil {
-					role = *org.Role
-				}
-				fmt.Printf("Current organisation (server):\n")
-				fmt.Printf("  ID:   %s\n", org.OrganisationID)
-				fmt.Printf("  Name: %s\n", name)
-				fmt.Printf("  Role: %s\n", role)
-				return
-			}
+		name := ""
+		if org.Name != nil {
+			name = *org.Name
 		}
-
-		fmt.Println("No organisation currently selected.")
+		role := ""
+		if org.Role != nil {
+			role = *org.Role
+		}
+		fmt.Printf("Current organisation (%s):\n", source)
+		fmt.Printf("  ID:   %s\n", org.OrganisationID)
+		fmt.Printf("  Name: %s\n", name)
+		fmt.Printf("  Role: %s\n", role)
 	},
 }
 
@@ -226,22 +201,12 @@ var orgMembersCmd = &cobra.Command{
 		if len(args) > 0 {
 			orgID = args[0]
 		} else {
-			local, err := loadSelectedOrganisation()
-			if err == nil && local.OrganisationID != "" {
-				orgID = local.OrganisationID
-			} else {
-				orgs, err := apiClient.ListOrganisations()
-				if err != nil {
-					fmt.Printf("Error fetching organisations: %v\n", err)
-					return
-				}
-				for _, org := range orgs {
-					if org.UserCurrent {
-						orgID = org.OrganisationID
-						break
-					}
-				}
+			resolved, err := resolveTargetOrganisationID(cmd)
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				return
 			}
+			orgID = resolved
 		}
 
 		if orgID == "" {
@@ -347,6 +312,67 @@ func resolveOrganisationID() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no organisation selected")
+}
+
+// organisationOverrideValue returns the explicit organisation requested via
+// the global `--org` flag, falling back to the ANKRA_ORG environment variable.
+// An empty string means no override was supplied.
+func organisationOverrideValue(cmd *cobra.Command) string {
+	if flag := cmd.Root().PersistentFlags().Lookup("org"); flag != nil {
+		if value := strings.TrimSpace(flag.Value.String()); value != "" {
+			return value
+		}
+	}
+	return strings.TrimSpace(os.Getenv(envAnkraOrg))
+}
+
+// resolveTargetOrganisation resolves which organisation a command should act
+// on and the source of that decision. Precedence is: the explicit `--org`
+// flag / ANKRA_ORG override, then the saved local selection (but only when it
+// still matches an organisation the user belongs to, so a stale selection is
+// ignored rather than sent to the API), then the server-side current
+// organisation.
+func resolveTargetOrganisation(cmd *cobra.Command) (client.OrganisationSummary, string, error) {
+	orgs, err := apiClient.ListOrganisations()
+	if err != nil {
+		return client.OrganisationSummary{}, "", fmt.Errorf("fetching organisations: %w", err)
+	}
+
+	if override := organisationOverrideValue(cmd); override != "" {
+		orgID, resolveErr := resolveOrgFlagToID(override)
+		if resolveErr != nil {
+			return client.OrganisationSummary{}, "", resolveErr
+		}
+		for _, org := range orgs {
+			if org.OrganisationID == orgID {
+				return org, "override", nil
+			}
+		}
+		return client.OrganisationSummary{}, "", fmt.Errorf("organisation %q not found", override)
+	}
+
+	if local, loadErr := loadSelectedOrganisation(); loadErr == nil && local.OrganisationID != "" {
+		for _, org := range orgs {
+			if org.OrganisationID == local.OrganisationID {
+				return org, "local", nil
+			}
+		}
+	}
+
+	for _, org := range orgs {
+		if org.UserCurrent {
+			return org, "server", nil
+		}
+	}
+	return client.OrganisationSummary{}, "", fmt.Errorf("no organisation selected: run `ankra org switch <org_id>`")
+}
+
+func resolveTargetOrganisationID(cmd *cobra.Command) (string, error) {
+	org, _, err := resolveTargetOrganisation(cmd)
+	if err != nil {
+		return "", err
+	}
+	return org.OrganisationID, nil
 }
 
 // resolveOrgFlagToID maps the global `--org` value (an organisation name or

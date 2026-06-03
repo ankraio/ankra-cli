@@ -665,24 +665,24 @@ func TestClusterListCommand(t *testing.T) {
 	mock := &clusterListMock{
 		clusters: []client.ClusterListItem{
 			{
-				ID:           "cluster-id-1",
-				Name:         "production-cluster",
-				KubeVersion:  "1.28.0",
-				Nodes:        3,
+				ID:            "cluster-id-1",
+				Name:          "production-cluster",
+				KubeVersion:   "1.28.0",
+				Nodes:         3,
 				ControlPlanes: 1,
-				State:        "online",
-				Kind:         "imported",
-				CreatedAt:    "2024-01-01T00:00:00Z",
+				State:         "online",
+				Kind:          "imported",
+				CreatedAt:     "2024-01-01T00:00:00Z",
 			},
 			{
-				ID:           "cluster-id-2",
-				Name:         "staging-cluster",
-				KubeVersion:  "1.27.0",
-				Nodes:        2,
+				ID:            "cluster-id-2",
+				Name:          "staging-cluster",
+				KubeVersion:   "1.27.0",
+				Nodes:         2,
 				ControlPlanes: 1,
-				State:        "offline",
-				Kind:         "imported",
-				CreatedAt:    "2024-02-01T00:00:00Z",
+				State:         "offline",
+				Kind:          "imported",
+				CreatedAt:     "2024-02-01T00:00:00Z",
 			},
 		},
 	}
@@ -1238,11 +1238,18 @@ func (m *orgCreateOnlyMock) CreateOrganisation(name string, country *string) (*c
 
 type credentialGetMock struct {
 	baseMock
-	detail *client.CredentialDetail
+	detail      *client.CredentialDetail
+	list        []client.Credential
+	requestedID string
 }
 
 func (m *credentialGetMock) GetCredential(credentialID string) (*client.CredentialDetail, error) {
+	m.requestedID = credentialID
 	return m.detail, nil
+}
+
+func (m *credentialGetMock) ListCredentials(provider *string) ([]client.Credential, error) {
+	return m.list, nil
 }
 
 func TestChartsListCommand(t *testing.T) {
@@ -1347,9 +1354,10 @@ func TestOrgCreateCommand(t *testing.T) {
 }
 
 func TestCredentialsGetCommand(t *testing.T) {
+	const credentialUUID = "11111111-2222-4333-8444-555555555555"
 	mock := &credentialGetMock{
 		detail: &client.CredentialDetail{
-			ID:             "cred-detail-1",
+			ID:             credentialUUID,
 			Name:           "github-app-cred",
 			Provider:       "github",
 			CreatedAt:      "2024-03-15T10:00:00Z",
@@ -1359,11 +1367,43 @@ func TestCredentialsGetCommand(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("credentials", "get", "cred-detail-1")
+		_, _ = executeCommand("credentials", "get", credentialUUID)
 	})
 
 	if !strings.Contains(stdoutOutput, "github-app-cred") {
 		t.Errorf("expected credential name in output, got: %s", stdoutOutput)
+	}
+	if mock.requestedID != credentialUUID {
+		t.Errorf("expected a UUID arg to be passed through unchanged, got %q", mock.requestedID)
+	}
+}
+
+func TestCredentialsGetByNameResolvesToID(t *testing.T) {
+	const credentialUUID = "11111111-2222-4333-8444-555555555555"
+	mock := &credentialGetMock{
+		detail: &client.CredentialDetail{
+			ID:             credentialUUID,
+			Name:           "mash",
+			Provider:       "hetzner",
+			CreatedAt:      "2024-03-15T10:00:00Z",
+			OrganisationID: "org-1",
+		},
+		list: []client.Credential{
+			{ID: credentialUUID, Name: "mash", Provider: "hetzner"},
+			{ID: "99999999-2222-4333-8444-555555555555", Name: "other", Provider: "ovh"},
+		},
+	}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("credentials", "get", "mash")
+	})
+
+	if !strings.Contains(stdoutOutput, "mash") {
+		t.Errorf("expected credential name in output, got: %s", stdoutOutput)
+	}
+	if mock.requestedID != credentialUUID {
+		t.Errorf("expected name 'mash' to resolve to %q, got %q", credentialUUID, mock.requestedID)
 	}
 }
 

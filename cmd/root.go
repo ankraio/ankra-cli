@@ -22,6 +22,13 @@ const (
 	// help) set this to "false" so users can invoke them without a token.
 	annotationRequiresAuth = "ankra.requires_auth"
 
+	// annotationDryRunOffline marks a command whose --dry-run mode performs
+	// no API calls, so it may run without credentials when --dry-run is set.
+	// Commands whose --dry-run still calls the API (for example
+	// `cluster addons upgrade --dry-run`, which diffs against live cluster
+	// state) must NOT set this annotation.
+	annotationDryRunOffline = "ankra.dry_run_offline"
+
 	envAnkraAPIToken     = "ANKRA_API_TOKEN"
 	envAnkraBaseURL      = "ANKRA_BASE_URL"
 	envAnkraOrg          = "ANKRA_ORG"
@@ -128,6 +135,45 @@ func commandRequiresAuth(cmd *cobra.Command) bool {
 	return true
 }
 
+// setDryRunOffline marks a command as having a fully offline --dry-run mode
+// (no API calls), so credentials are not required when --dry-run is set.
+func setDryRunOffline(cmd *cobra.Command) {
+	if cmd == nil {
+		return
+	}
+	if cmd.Annotations == nil {
+		cmd.Annotations = map[string]string{}
+	}
+	cmd.Annotations[annotationDryRunOffline] = "true"
+}
+
+// commandDryRunSkipsAuth reports whether a command may skip credential
+// resolution because it was invoked with --dry-run and its dry-run mode is
+// known to make no API calls (opted in via annotationDryRunOffline). It
+// deliberately only short-circuits auth for commands that validate purely
+// locally; dry-run modes that still hit the API keep requiring a token.
+func commandDryRunSkipsAuth(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	if cmd.Flags().Lookup("dry-run") == nil {
+		return false
+	}
+	value, err := cmd.Flags().GetBool("dry-run")
+	if err != nil || !value {
+		return false
+	}
+	for current := cmd; current != nil; current = current.Parent() {
+		if current.Annotations == nil {
+			continue
+		}
+		if current.Annotations[annotationDryRunOffline] == "true" {
+			return true
+		}
+	}
+	return false
+}
+
 func initConfig() {
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
@@ -151,7 +197,7 @@ func initConfig() {
 // command, so positional arguments cannot accidentally bypass auth (the
 // previous implementation scanned os.Args[1:]).
 func persistentPreRunE(cmd *cobra.Command, _ []string) error {
-	if !commandRequiresAuth(cmd) {
+	if !commandRequiresAuth(cmd) || commandDryRunSkipsAuth(cmd) {
 		return nil
 	}
 

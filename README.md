@@ -39,6 +39,35 @@ This script will:
    xattr -d com.apple.quarantine /usr/local/bin/ankra
    ```
 
+### Upgrading
+
+Once installed, the CLI can update itself:
+
+```bash
+ankra upgrade            # upgrade to the latest release
+ankra upgrade --check    # report whether a newer release is available
+ankra upgrade --version v0.2.5 --yes
+```
+
+`ankra upgrade` downloads the matching `ankra-cli-<os>-<arch>` asset, verifies
+it against the published SHA-256 checksum, and atomically replaces the running
+binary. If the binary lives in a directory you cannot write (such as
+`/usr/local/bin`), re-run with `sudo ankra upgrade`.
+
+#### Beta (pre-release) channel
+
+By default `ankra upgrade` installs stable `x.x.x` releases. Opt into
+pre-release versions (release candidates) with the beta channel:
+
+```bash
+ankra config beta enable     # install pre-releases (e.g. v0.3.0-rc.1)
+ankra config beta status     # show the current channel
+ankra config beta disable    # back to stable only (default)
+ankra upgrade --beta         # one-off override for a single run
+```
+
+The preference is stored in `~/.ankra/settings.json`.
+
 
 ## Features
 
@@ -280,6 +309,8 @@ ankra cluster select [name]           # Select a cluster (interactive when no na
 ankra cluster clear                   # Clear active cluster selection
 ankra cluster reconcile [name]        # Trigger cluster reconciliation
 ankra cluster apply -f <file>         # Apply an ImportCluster YAML
+  [--dry-run]                         #   Validate locally (structure, referenced-file YAML,
+                                      #   and the parent/dependency tree) without calling the API
 ankra cluster clone <src> <dst>       # Clone cluster configuration
   [--clean] [--force]                 #   Replace all stacks / force merge on conflicts
   [--copy-missing]                    #   Copy missing files for skipped stacks
@@ -295,6 +326,7 @@ ankra cluster roll-to --version <id>  # Roll to a specific resource version
 ```bash
 ankra delete cluster <name>           # Delete a cluster by name
 ankra delete cluster <name> -f        # Delete without confirmation
+ankra delete cluster <name> --dry-run # Show what would be deleted without calling the API
 ```
 
 #### Cluster Stacks
@@ -395,10 +427,14 @@ ankra cluster operations list [id]            # List executions or show details
   [--status failed --status critical]         #   Filter by status (repeatable)
   [--failed]                                  #   Shortcut for failed + critical
   [--limit 50]                                #   Page size (max 100)
+  [--watch | -w]                              #   Poll until all executions reach a terminal state
+  [--interval 5s]                             #   Poll interval used with --watch
+  [-o json|yaml]                              #   Machine-readable output for CI
 ankra cluster operations cancel <id> [<id>...]    # Cancel one or more executions
 ankra cluster operations cancel-step <exec_id> <step_id>  # Cancel a single step
 ankra cluster operations retry <exec_id>      # Retry a terminal execution
 ankra cluster operations steps <exec_id>      # List steps for an execution
+  [-o json|yaml]                              #   Machine-readable output for CI
 ```
 
 `ankra cluster executions ...` is an alias for `ankra cluster operations ...` and uses the canonical `/api/v1/org/executions` endpoints.
@@ -648,6 +684,22 @@ ankra tokens delete <token_id>        # Delete a revoked token
 ankra charts list [--page] [--page-size] [--subscribed]  # List Helm charts
 ankra charts search <query>           # Search charts
 ankra charts info <name> [--repository]  # Get chart details
+```
+
+#### Self-Update
+```bash
+ankra upgrade                         # Upgrade to the latest release
+ankra upgrade --check                 # Report whether a newer release exists
+ankra upgrade --version <tag> [--yes] # Install a specific release tag
+ankra upgrade --force                 # Reinstall even if already current
+ankra upgrade --beta                  # Include pre-releases for this run
+```
+
+#### Settings
+```bash
+ankra config beta enable              # Opt into pre-release (beta) versions
+ankra config beta disable             # Use stable releases only (default)
+ankra config beta status              # Show the current update channel
 ```
 
 #### Shell Completion

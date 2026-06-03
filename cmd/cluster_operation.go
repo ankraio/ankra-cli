@@ -17,7 +17,46 @@ import (
 const (
 	defaultExecutionsPageSize = 50
 	executionRequestTimeout   = 30 * time.Second
+	defaultWatchInterval      = 5 * time.Second
+	// minWatchInterval keeps a misconfigured --interval from hammering the API
+	// with a tight polling loop.
+	minWatchInterval = 1 * time.Second
 )
+
+// isTerminalExecutionStatus reports whether an execution (or step) status will
+// not change again, so a --watch loop knows when to stop polling.
+func isTerminalExecutionStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "success", "succeeded", "failed", "critical", "error", "cancelled", "canceled", "timeout":
+		return true
+	default:
+		return false
+	}
+}
+
+// clampWatchInterval keeps the watch poll cadence at a sane floor: non-positive
+// values fall back to the default, and anything below minWatchInterval is
+// raised to it so a stray --interval cannot tight-loop the API.
+func clampWatchInterval(interval time.Duration) time.Duration {
+	if interval <= 0 {
+		return defaultWatchInterval
+	}
+	if interval < minWatchInterval {
+		return minWatchInterval
+	}
+	return interval
+}
+
+// clearScreen emits the ANSI clear sequence only when stdout is an interactive
+// terminal, so piping --watch output to a file or pager does not litter it with
+// escape codes.
+func clearScreen() {
+	info, err := os.Stdout.Stat()
+	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
+		return
+	}
+	fmt.Print("\033[H\033[2J")
+}
 
 var clusterOperationsCmd = &cobra.Command{
 	Use:     "operations",
@@ -44,33 +83,108 @@ var clusterOperationsListCmd = &cobra.Command{
 			limit = defaultExecutionsPageSize
 		}
 
+		outputRaw, _ := cmd.Flags().GetString("output")
+		format, err := parseOutputFormat(outputRaw)
+		if err != nil {
+			return err
+		}
+
+		watch, _ := cmd.Flags().GetBool("watch")
+		intervalFlag, _ := cmd.Flags().GetDuration("interval")
+		interval := clampWatchInterval(intervalFlag)
+
+		if watch && format != outputDefault {
+			return fmt.Errorf("--watch cannot be combined with -o %s; structured output is rendered once", format)
+		}
+
 		statusList := statusFlag
 		if failedOnly {
 			statusList = append(statusList, "failed", "critical")
 		}
-
-		response, err := apiClient.ListExecutions(client.ListExecutionsOptions{
+		options := client.ListExecutionsOptions{
 			ClusterID:  cluster.ID,
 			StatusList: statusList,
 			Page:       1,
 			PageSize:   limit,
-		})
-		if err != nil {
-			return fmt.Errorf("listing executions: %w", err)
-		}
-		if len(response.Result) == 0 {
-			fmt.Println("No executions found for the active cluster.")
-			return nil
 		}
 
+		executionID := ""
 		if len(args) > 0 {
-			executionID := strings.TrimSpace(args[0])
-			return renderExecutionDetail(executionID)
+			executionID = strings.TrimSpace(args[0])
 		}
 
-		renderExecutionsTable(response.Result)
-		return nil
+		if format != outputDefault {
+			return renderExecutionsStructured(format, options, executionID)
+		}
+
+		if !watch {
+			_, err := renderExecutionsOnce(options, executionID)
+			return err
+		}
+
+		for {
+			clearScreen()
+			fmt.Printf("Watching executions (every %s, press Ctrl+C to stop) — %s\n\n",
+				interval, time.Now().Format("15:04:05"))
+			keepWatching, err := renderExecutionsOnce(options, executionID)
+			if err != nil {
+				return err
+			}
+			if !keepWatching {
+				fmt.Println("\nAll executions have reached a terminal state. Stopping watch.")
+				return nil
+			}
+			time.Sleep(interval)
+		}
 	},
+}
+
+// renderExecutionsOnce prints either the executions table or a single
+// execution detail, returning whether any rendered execution is still active
+// (used to decide whether a --watch loop keeps polling).
+func renderExecutionsOnce(options client.ListExecutionsOptions, executionID string) (keepWatching bool, err error) {
+	if executionID != "" {
+		detail, err := apiClient.GetExecution(executionID)
+		if err != nil {
+			return false, fmt.Errorf("fetching execution %s: %w", executionID, err)
+		}
+		printExecutionDetail(detail)
+		return !isTerminalExecutionStatus(detail.Execution.Status), nil
+	}
+
+	response, err := apiClient.ListExecutions(options)
+	if err != nil {
+		return false, fmt.Errorf("listing executions: %w", err)
+	}
+	if len(response.Result) == 0 {
+		fmt.Println("No executions found for the active cluster.")
+		return false, nil
+	}
+	renderExecutionsTable(response.Result)
+
+	for _, execution := range response.Result {
+		if !isTerminalExecutionStatus(execution.Status) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// renderExecutionsStructured prints the list response (or a single execution
+// detail) using a structured -o format (json or yaml).
+func renderExecutionsStructured(format outputFormat, options client.ListExecutionsOptions, executionID string) error {
+	if executionID != "" {
+		detail, err := apiClient.GetExecution(executionID)
+		if err != nil {
+			return fmt.Errorf("fetching execution %s: %w", executionID, err)
+		}
+		return encodeStructured(os.Stdout, format, detail)
+	}
+	response, err := apiClient.ListExecutions(options)
+	if err != nil {
+		return fmt.Errorf("listing executions: %w", err)
+	}
+	return encodeStructured(os.Stdout, format, response.Result)
 }
 
 var clusterOperationsCancelCmd = &cobra.Command{
@@ -161,9 +275,19 @@ var clusterOperationsStepsCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		executionID := args[0]
 
+		outputRaw, _ := cmd.Flags().GetString("output")
+		format, err := parseOutputFormat(outputRaw)
+		if err != nil {
+			return err
+		}
+
 		detail, err := apiClient.GetExecution(executionID)
 		if err != nil {
 			return fmt.Errorf("fetching execution: %w", err)
+		}
+
+		if format != outputDefault {
+			return encodeStructured(os.Stdout, format, detail)
 		}
 
 		fmt.Printf("Execution: %s  Status: %s\n",
@@ -250,12 +374,7 @@ func renderExecutionsTable(executions []client.ExecutionSummary) {
 	t.Render()
 }
 
-func renderExecutionDetail(executionID string) error {
-	detail, err := apiClient.GetExecution(executionID)
-	if err != nil {
-		return fmt.Errorf("fetching execution %s: %w", executionID, err)
-	}
-
+func printExecutionDetail(detail client.ExecutionDetail) {
 	fmt.Printf("Execution Details:\n")
 	fmt.Printf("  ID: %s\n", detail.Execution.ID)
 	fmt.Printf("  Name: %s\n", detail.Execution.DisplayName)
@@ -274,7 +393,6 @@ func renderExecutionDetail(executionID string) error {
 	)
 	fmt.Printf("  Created At: %s\n", formatOptionalTime(detail.Execution.CreatedAt))
 	fmt.Printf("  Updated At: %s\n", formatOptionalTime(detail.Execution.UpdatedAt))
-	return nil
 }
 
 func renderColouredStatus(status string) string {
@@ -308,6 +426,14 @@ func init() {
 	clusterOperationsListCmd.Flags().StringSlice("status", nil, "Filter by execution status (repeatable). Examples: failed, critical, running")
 	clusterOperationsListCmd.Flags().Bool("failed", false, "Shortcut for --status failed --status critical")
 	clusterOperationsListCmd.Flags().Int("limit", defaultExecutionsPageSize, "Maximum number of executions to return (max 100)")
+	clusterOperationsListCmd.Flags().BoolP("watch", "w", false,
+		"Continuously poll and refresh until all executions reach a terminal state")
+	clusterOperationsListCmd.Flags().Duration("interval", defaultWatchInterval,
+		"Polling interval used when --watch is set")
+	clusterOperationsListCmd.Flags().StringP("output", "o", "",
+		"Output format: json or yaml (default: human-readable)")
+	clusterOperationsStepsCmd.Flags().StringP("output", "o", "",
+		"Output format: json or yaml (default: human-readable)")
 
 	clusterOperationsCmd.AddCommand(clusterOperationsListCmd)
 	clusterOperationsCmd.AddCommand(clusterOperationsCancelCmd)

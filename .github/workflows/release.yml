@@ -91,6 +91,7 @@ jobs:
           files: |
             dist/ankra-cli-*
           fail_on_unmatched_files: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -100,6 +101,7 @@ jobs:
         with:
           files: install.sh
           fail_on_unmatched_files: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

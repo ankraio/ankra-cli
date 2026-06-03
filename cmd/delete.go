@@ -12,6 +12,7 @@ import (
 )
 
 var forceDelete bool
+var dryRunDelete bool
 
 var deleteCmd = &cobra.Command{
 	Use:   "delete",
@@ -25,6 +26,11 @@ var deleteClusterCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
+
+		if dryRunDelete {
+			fmt.Printf("Would delete cluster %q; no changes applied (--dry-run).\n", name)
+			return nil
+		}
 
 		if !forceDelete {
 			fmt.Printf("Are you sure you want to delete cluster %q? This action is irreversible! (y/N): ", name)
@@ -76,6 +82,9 @@ var deleteClusterCmd = &cobra.Command{
 func init() {
 	deleteClusterCmd.Flags().
 		BoolVarP(&forceDelete, "force", "f", false, "Skip confirmation prompt")
+	deleteClusterCmd.Flags().
+		BoolVar(&dryRunDelete, "dry-run", false, "Show what would be deleted without calling the API")
+	setDryRunOffline(deleteClusterCmd)
 
 	deleteCmd.AddCommand(deleteClusterCmd)
 	rootCmd.AddCommand(deleteCmd)

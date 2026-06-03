@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"ankra/internal/client"
@@ -154,6 +155,49 @@ func TestBuildManifest(t *testing.T) {
 			t.Errorf("encrypted_paths count = %d, want 2", len(m.EncryptedPaths))
 		}
 	})
+
+	t.Run("multi-document inline manifest", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name":     "two-docs",
+			"manifest": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: a\n---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: b",
+		}
+		if _, err := buildManifest(mm, ""); err != nil {
+			t.Fatalf("unexpected error for multi-document manifest: %v", err)
+		}
+	})
+
+	t.Run("invalid inline YAML", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name":     "broken",
+			"manifest": "apiVersion: v1\n  kind: Namespace\n bad: : :",
+		}
+		_, err := buildManifest(mm, "")
+		if err == nil {
+			t.Fatal("expected error for invalid inline YAML")
+		}
+		if !strings.Contains(err.Error(), "not valid YAML") {
+			t.Errorf("expected YAML validation error, got: %v", err)
+		}
+	})
+
+	t.Run("invalid from_file YAML names the file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		manifestPath := filepath.Join(tmpDir, "broken.yaml")
+		if err := os.WriteFile(manifestPath, []byte("key: value\n\tbad-tab-indent: x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		mm := map[string]interface{}{
+			"name":      "broken-file",
+			"from_file": "broken.yaml",
+		}
+		_, err := buildManifest(mm, tmpDir)
+		if err == nil {
+			t.Fatal("expected error for invalid from_file YAML")
+		}
+		if !strings.Contains(err.Error(), "broken.yaml") || !strings.Contains(err.Error(), "not valid YAML") {
+			t.Errorf("expected error naming the file and YAML problem, got: %v", err)
+		}
+	})
 }
 
 func TestBuildAddon(t *testing.T) {
@@ -262,6 +306,50 @@ func TestBuildAddon(t *testing.T) {
 			t.Error("expected settings to be populated")
 		}
 	})
+
+	t.Run("invalid inline values YAML", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "bad-values",
+			"chart_name":    "test",
+			"chart_version": "1.0.0",
+			"configuration": map[string]interface{}{
+				"values": "replicaCount: 3\n  badIndent: : :",
+			},
+		}
+		_, err := buildAddon(am, "")
+		if err == nil {
+			t.Fatal("expected error for invalid inline values YAML")
+		}
+		if !strings.Contains(err.Error(), "not valid YAML") {
+			t.Errorf("expected YAML validation error, got: %v", err)
+		}
+	})
+
+	t.Run("invalid values file YAML names the file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		valuesPath := filepath.Join(tmpDir, "values", "bad.yaml")
+		if err := os.MkdirAll(filepath.Dir(valuesPath), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(valuesPath, []byte("a: b\n\tc: d"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		am := map[string]interface{}{
+			"name":          "bad-values-file",
+			"chart_name":    "test",
+			"chart_version": "1.0.0",
+			"configuration": map[string]interface{}{
+				"from_file": "values/bad.yaml",
+			},
+		}
+		_, err := buildAddon(am, tmpDir)
+		if err == nil {
+			t.Fatal("expected error for invalid values file YAML")
+		}
+		if !strings.Contains(err.Error(), "bad.yaml") || !strings.Contains(err.Error(), "not valid YAML") {
+			t.Errorf("expected error naming the file and YAML problem, got: %v", err)
+		}
+	})
 }
 
 func TestBuildStack(t *testing.T) {
@@ -338,6 +426,58 @@ func TestBuildStack(t *testing.T) {
 		_, err := buildStack(sm, "")
 		if err == nil {
 			t.Error("expected error for invalid manifest entry")
+		}
+	})
+
+	t.Run("description_from_file is read", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(tmpDir, "desc.txt"), []byte("a longer description"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		sm := map[string]interface{}{
+			"name":                  "documented",
+			"description_from_file": "desc.txt",
+		}
+		s, err := buildStack(sm, tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if s.Description != "a longer description" {
+			t.Errorf("description = %q, want %q", s.Description, "a longer description")
+		}
+	})
+
+	t.Run("missing description_from_file is validated even with inline description", func(t *testing.T) {
+		sm := map[string]interface{}{
+			"name":                  "documented",
+			"description":           "inline wins",
+			"description_from_file": "does-not-exist.txt",
+		}
+		_, err := buildStack(sm, t.TempDir())
+		if err == nil {
+			t.Fatal("expected error for missing description_from_file")
+		}
+		if !strings.Contains(err.Error(), "description_from_file") {
+			t.Errorf("expected description_from_file error, got: %v", err)
+		}
+	})
+
+	t.Run("inline description wins over file content", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(tmpDir, "desc.txt"), []byte("from file"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		sm := map[string]interface{}{
+			"name":                  "documented",
+			"description":           "inline wins",
+			"description_from_file": "desc.txt",
+		}
+		s, err := buildStack(sm, tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if s.Description != "inline wins" {
+			t.Errorf("description = %q, want %q", s.Description, "inline wins")
 		}
 	})
 }
@@ -478,6 +618,180 @@ spec:
 		}
 		if req.Spec.GitRepository.Branch != "main" {
 			t.Errorf("branch = %q, want %q", req.Spec.GitRepository.Branch, "main")
+		}
+	})
+}
+
+func manifestWithParents(name string, parents ...client.Parent) client.Manifest {
+	return client.Manifest{Name: name, Parents: parents}
+}
+
+func addonWithParents(name string, parents ...client.Parent) client.Addon {
+	return client.Addon{Name: name, Parents: parents}
+}
+
+func TestValidateResourceGraph(t *testing.T) {
+	manifestParent := func(name string) client.Parent {
+		return client.Parent{Name: name, Kind: client.AnkraResourceKind("manifest")}
+	}
+	addonParent := func(name string) client.Parent {
+		return client.Parent{Name: name, Kind: client.AnkraResourceKind("addon")}
+	}
+
+	t.Run("valid acyclic graph with cross-stack parent", func(t *testing.T) {
+		request := client.CreateImportClusterRequest{
+			Spec: client.CreateResourceSpec{
+				Stacks: []client.Stack{
+					{
+						Name:      "base",
+						Manifests: []client.Manifest{manifestWithParents("namespace")},
+					},
+					{
+						Name:   "apps",
+						Addons: []client.Addon{addonWithParents("cert-manager", manifestParent("namespace"))},
+					},
+				},
+			},
+		}
+		if err := validateResourceGraph(request); err != nil {
+			t.Errorf("expected valid graph, got error: %v", err)
+		}
+	})
+
+	t.Run("parent does not exist", func(t *testing.T) {
+		request := client.CreateImportClusterRequest{
+			Spec: client.CreateResourceSpec{
+				Stacks: []client.Stack{
+					{
+						Name:   "apps",
+						Addons: []client.Addon{addonWithParents("cert-manager", manifestParent("missing-namespace"))},
+					},
+				},
+			},
+		}
+		err := validateResourceGraph(request)
+		if err == nil {
+			t.Fatal("expected error for missing parent")
+		}
+		if !strings.Contains(err.Error(), "missing-namespace") {
+			t.Errorf("expected error to name the missing parent, got: %v", err)
+		}
+	})
+
+	t.Run("invalid parent kind", func(t *testing.T) {
+		request := client.CreateImportClusterRequest{
+			Spec: client.CreateResourceSpec{
+				Stacks: []client.Stack{
+					{
+						Name:   "apps",
+						Addons: []client.Addon{addonWithParents("cert-manager", client.Parent{Name: "x", Kind: client.AnkraResourceKind("stack")})},
+					},
+				},
+			},
+		}
+		err := validateResourceGraph(request)
+		if err == nil {
+			t.Fatal("expected error for invalid parent kind")
+		}
+		if !strings.Contains(err.Error(), "invalid kind") {
+			t.Errorf("expected invalid-kind error, got: %v", err)
+		}
+	})
+
+	t.Run("dependency cycle", func(t *testing.T) {
+		request := client.CreateImportClusterRequest{
+			Spec: client.CreateResourceSpec{
+				Stacks: []client.Stack{
+					{
+						Name: "apps",
+						Addons: []client.Addon{
+							addonWithParents("a", addonParent("b")),
+							addonWithParents("b", addonParent("a")),
+						},
+					},
+				},
+			},
+		}
+		err := validateResourceGraph(request)
+		if err == nil {
+			t.Fatal("expected error for dependency cycle")
+		}
+		if !strings.Contains(err.Error(), "cycle") {
+			t.Errorf("expected cycle error, got: %v", err)
+		}
+	})
+
+	t.Run("self dependency is a cycle", func(t *testing.T) {
+		request := client.CreateImportClusterRequest{
+			Spec: client.CreateResourceSpec{
+				Stacks: []client.Stack{
+					{
+						Name:   "apps",
+						Addons: []client.Addon{addonWithParents("a", addonParent("a"))},
+					},
+				},
+			},
+		}
+		if err := validateResourceGraph(request); err == nil {
+			t.Fatal("expected error for self-referential dependency")
+		}
+	})
+
+	t.Run("duplicate resource name across stacks is rejected", func(t *testing.T) {
+		request := client.CreateImportClusterRequest{
+			Spec: client.CreateResourceSpec{
+				Stacks: []client.Stack{
+					{
+						Name:      "base",
+						Manifests: []client.Manifest{manifestWithParents("namespace")},
+					},
+					{
+						Name:      "apps",
+						Manifests: []client.Manifest{manifestWithParents("namespace")},
+					},
+				},
+			},
+		}
+		err := validateResourceGraph(request)
+		if err == nil {
+			t.Fatal("expected error for duplicate resource name")
+		}
+		if !strings.Contains(err.Error(), "more than once") {
+			t.Errorf("expected duplicate-name error, got: %v", err)
+		}
+	})
+
+	t.Run("same name different kind is allowed", func(t *testing.T) {
+		request := client.CreateImportClusterRequest{
+			Spec: client.CreateResourceSpec{
+				Stacks: []client.Stack{
+					{
+						Name:      "base",
+						Manifests: []client.Manifest{manifestWithParents("shared")},
+						Addons:    []client.Addon{addonWithParents("shared")},
+					},
+				},
+			},
+		}
+		if err := validateResourceGraph(request); err != nil {
+			t.Errorf("expected manifest and addon to share a name, got error: %v", err)
+		}
+	})
+
+	t.Run("no parents is valid", func(t *testing.T) {
+		request := client.CreateImportClusterRequest{
+			Spec: client.CreateResourceSpec{
+				Stacks: []client.Stack{
+					{
+						Name:      "base",
+						Manifests: []client.Manifest{manifestWithParents("namespace")},
+						Addons:    []client.Addon{addonWithParents("cert-manager")},
+					},
+				},
+			},
+		}
+		if err := validateResourceGraph(request); err != nil {
+			t.Errorf("expected valid graph, got error: %v", err)
 		}
 	})
 }

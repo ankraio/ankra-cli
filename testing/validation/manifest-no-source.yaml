@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ImportCluster
+metadata:
+  name: validation-manifest-no-source
+spec:
+  stacks:
+    - name: logging
+      manifests:
+        - name: namespace-fluent-bit
+      addons: []

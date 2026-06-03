@@ -1,5 +1,106 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### New Features
+
+#### Self-update with `ankra upgrade`
+
+`ankra upgrade` downloads and installs the latest Ankra CLI release, replacing
+the running binary in place. It resolves the latest release tag from GitHub
+(or installs a pinned `--version v0.2.5`), downloads the matching
+`ankra-cli-<os>-<arch>` asset, verifies it against the published SHA-256
+checksum, and atomically swaps the executable. The command needs no API token.
+
+```bash
+ankra upgrade            # upgrade to the latest release
+ankra upgrade --check    # report whether a newer release is available
+ankra upgrade --version v0.2.5 --yes
+```
+
+If the installed binary lives in a directory the current user cannot write
+(for example `/usr/local/bin`), the command prints a clear message pointing to
+`sudo ankra upgrade` or the install script.
+
+#### Beta (pre-release) update channel
+
+`ankra config beta enable` opts the CLI into pre-release versions. When the
+beta channel is enabled, `ankra upgrade` resolves the newest release
+*including* release candidates (for example `v0.3.0-rc.1`); when disabled (the
+default) only stable `x.x.x` releases are installed. The preference is stored
+in `~/.ankra/settings.json`, separately from credentials.
+
+```bash
+ankra config beta enable     # opt into pre-releases
+ankra config beta status     # show the current channel
+ankra config beta disable    # back to stable only (default)
+ankra upgrade --beta         # one-off: include pre-releases for this run
+```
+
+Version comparison now follows semantic-versioning precedence, so a stable
+release outranks its release candidates (`v0.3.0` > `v0.3.0-rc.2` > `v0.3.0-rc.1`).
+
+#### Offline dependency-tree validation in `ankra cluster apply`
+
+`ankra cluster apply` now validates the parent (`parents:`) graph of the
+assembled `ImportCluster` document before it is sent to the API, in addition to
+the existing structural and `from_file` checks. The validation enforces that
+resource names are unique per kind across the whole document (parents resolve by
+`kind`+`name` with no stack qualifier, so a duplicate is ambiguous), that every
+parent reference uses a valid `kind` (`manifest` or `addon`), names a resource
+declared somewhere in the document (cross-stack references allowed), and that
+the resulting graph is acyclic. This catches dependency errors locally that the
+backend would otherwise only reject at apply time (HTTP 422).
+
+It runs for both real applies and `--dry-run`, so you can lint a `cluster.yaml`
+end-to-end without a token or network:
+
+```bash
+ankra cluster apply -f cluster.yaml --dry-run
+# Invalid ImportCluster in "cluster.yaml":
+#   dependency cycle detected: addon "a" -> addon "b" -> addon "a"
+```
+
+#### Referenced-file YAML validation in `ankra cluster apply`
+
+Every file reference in the document is now resolved and validated, regardless
+of whether its content is ultimately used. Manifest content (`manifest` inline
+or `from_file`, including multi-document files) and addon values
+(`configuration.values` inline or `configuration.from_file`) are parsed to
+confirm valid YAML; `stack.description_from_file` is resolved and read for
+existence even when an inline `description` is also set (previously the file
+reference was silently skipped in that case). Errors name the resolved file and
+the problem:
+
+```bash
+ankra cluster apply -f cluster.yaml --dry-run
+# Invalid ImportCluster in "cluster.yaml":
+#   stack "logging": manifest "broken": the file referenced by 'from_file' ("/abs/path/broken.yaml") is not valid YAML: ...
+```
+
+#### `--dry-run` for `ankra cluster apply` and `ankra delete cluster`
+
+`ankra cluster apply --dry-run` runs the structural, referenced-file, and
+dependency-tree validation above and then exits without contacting the API.
+`ankra delete cluster --dry-run` reports the cluster it would delete without
+calling the API. Both dry-run modes are fully offline and no longer require a
+token, so they can run in pre-merge CI without credentials. (Dry-run modes that
+still query live cluster state, such as `cluster addons upgrade --dry-run`,
+continue to require authentication.)
+
+#### Watch and machine-readable output for `ankra cluster operations`
+
+`ankra cluster operations list` gains `--watch`/`-w` to continuously poll and
+refresh until every execution reaches a terminal state, with a configurable
+`--interval` (default `5s`, floored at `1s`). Both `operations list` and
+`operations steps` gain `-o json|yaml` for machine-readable output in CI.
+`--watch` cannot be combined with `-o` (structured output is rendered once).
+
+```bash
+ankra cluster operations list --watch --interval 10s
+ankra cluster operations steps <execution_id> -o json
+```
+
 ## v0.2.4 — May 2026
 
 ### New Features

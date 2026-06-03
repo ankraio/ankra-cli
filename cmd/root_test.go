@@ -51,6 +51,43 @@ func TestPersistentPreRunESkipsAuthFreeCommands(t *testing.T) {
 	}
 }
 
+func TestCommandDryRunSkipsAuthOnlyForOfflineCommands(t *testing.T) {
+	root := &cobra.Command{Use: "root"}
+
+	offlineCmd := &cobra.Command{Use: "apply"}
+	offlineCmd.Flags().Bool("dry-run", false, "")
+	setDryRunOffline(offlineCmd)
+	root.AddCommand(offlineCmd)
+
+	onlineDryRunCmd := &cobra.Command{Use: "upgrade"}
+	onlineDryRunCmd.Flags().Bool("dry-run", false, "")
+	root.AddCommand(onlineDryRunCmd)
+
+	noFlagCmd := &cobra.Command{Use: "info"}
+	root.AddCommand(noFlagCmd)
+
+	if commandDryRunSkipsAuth(offlineCmd) {
+		t.Error("offline command without --dry-run set should still require auth")
+	}
+	if err := offlineCmd.Flags().Set("dry-run", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if !commandDryRunSkipsAuth(offlineCmd) {
+		t.Error("offline command with --dry-run should skip auth")
+	}
+
+	if err := onlineDryRunCmd.Flags().Set("dry-run", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if commandDryRunSkipsAuth(onlineDryRunCmd) {
+		t.Error("a --dry-run command that still calls the API must NOT skip auth")
+	}
+
+	if commandDryRunSkipsAuth(noFlagCmd) {
+		t.Error("command without a --dry-run flag must not skip auth")
+	}
+}
+
 func TestResolveCredentialsTokenFlagBeatsConfigAndEnv(t *testing.T) {
 	withFreshViperAndEnv(t)
 	withTempHome(t)

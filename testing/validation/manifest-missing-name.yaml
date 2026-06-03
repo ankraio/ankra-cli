@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ImportCluster
+metadata:
+  name: validation-manifest-missing-name
+spec:
+  stacks:
+    - name: logging
+      manifests:
+        - from_file: manifests/namespace.yaml
+      addons: []
