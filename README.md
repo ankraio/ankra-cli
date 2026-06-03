@@ -68,6 +68,24 @@ ankra upgrade --beta         # one-off override for a single run
 
 The preference is stored in `~/.ankra/settings.json`.
 
+#### Installing a beta / release-candidate version
+
+The quick-install one-liner tracks the latest **stable** release, so it will not
+pick up a pre-release. To install a beta (RC) build, either pin the version or
+opt into the beta channel:
+
+```bash
+# Option 1: install a specific release candidate directly
+bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh) --version v0.3.0-rc0
+
+# Option 2: install stable, then switch to the beta channel
+bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
+ankra config beta enable
+ankra upgrade
+```
+
+Switch back to stable any time with `ankra config beta disable`.
+
 
 ## Features
 
