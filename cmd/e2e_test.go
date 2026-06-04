@@ -461,6 +461,10 @@ func (m baseMock) UpgradeOvhK8sVersion(clusterID, targetVersion string) (*client
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListOvhRegions(credentialID string) (*client.OvhRegionListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListOvhNodeGroups(clusterID string) (*client.NodeGroupListResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -474,6 +478,14 @@ func (m baseMock) ScaleOvhNodeGroup(clusterID, groupName string, count int) (*cl
 }
 
 func (m baseMock) UpdateOvhNodeGroupInstanceType(clusterID, groupName, instanceType string) (*client.UpdateNodeGroupResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateOvhNodeGroupLabels(clusterID, groupName string, labels map[string]string) (*client.UpdateNodeGroupResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateOvhNodeGroupTaints(clusterID, groupName string, taints []client.NodeTaint) (*client.UpdateNodeGroupResult, error) {
 	return nil, errors.New("not implemented")
 }
 

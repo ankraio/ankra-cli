@@ -1,5 +1,24 @@
 # Ankra CLI Changelog
 
+## v0.3.0-rc2 — June 2026
+
+Third release candidate for the v0.3.0 line. It carries everything in
+**v0.3.0-rc1** and adds OVH region discovery plus node label/taint management to
+the OVH command set. Install it with `ankra upgrade --beta` (beta channel) or
+download the `v0.3.0-rc2` release-candidate asset directly.
+
+**New in rc2 (since rc1):**
+
+- **`ankra cluster ovh regions --credential-id <id>`** — list the OVH Cloud
+  regions a credential's project can actually deploy in, so you pick a valid
+  `--region` for `ankra cluster ovh create` instead of guessing (a region that
+  is not enabled on the project fails the reconcile at private-network setup).
+- **`ankra cluster ovh node-group labels <cluster_id> <group> --labels k=v,...`**
+  and **`ankra cluster ovh node-group taints <cluster_id> <group> --taints
+  k=v:Effect,...`** — set Kubernetes labels and taints on every node in an OVH
+  node group from the CLI (empty value clears them; taint effect defaults to
+  `NoSchedule`).
+
 ## v0.3.0-rc1 — June 2026
 
 Second release candidate for the v0.3.0 line. It bundles everything previewed in

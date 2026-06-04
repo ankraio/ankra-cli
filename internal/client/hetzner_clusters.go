@@ -217,6 +217,14 @@ type UpdateInstanceTypeRequest struct {
 	InstanceType string `json:"instance_type"`
 }
 
+type UpdateLabelsRequest struct {
+	Labels map[string]string `json:"labels"`
+}
+
+type UpdateTaintsRequest struct {
+	Taints []NodeTaint `json:"taints"`
+}
+
 type UpdateNodeGroupResult struct {
 	GroupName string `json:"group_name"`
 	Updated   int    `json:"updated"`
@@ -260,7 +268,7 @@ func (c *Client) UpdateHetznerNodeGroupInstanceType(clusterID, groupName, instan
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroupInstanceType(url, payload)
+	return c.doUpdateNodeGroup(url, payload)
 }
 
 func (c *Client) DeleteHetznerNodeGroup(clusterID, groupName string) (*DeleteNodeGroupResult, error) {
@@ -326,7 +334,7 @@ func (c *Client) doScaleNodeGroup(url string, payload []byte) (*ScaleNodeGroupRe
 	return &result, nil
 }
 
-func (c *Client) doUpdateNodeGroupInstanceType(url string, payload []byte) (*UpdateNodeGroupResult, error) {
+func (c *Client) doUpdateNodeGroup(url string, payload []byte) (*UpdateNodeGroupResult, error) {
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

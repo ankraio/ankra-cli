@@ -85,7 +85,7 @@ opt into the beta channel:
 
 ```bash
 # Option 1: install a specific release candidate directly
-bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh) --version v0.3.0-rc1
+bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh) --version v0.3.0-rc2
 
 # Option 2: install stable, then switch to the beta channel
 bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
@@ -634,12 +634,15 @@ ankra cluster ovh workers <id>            # Get current worker count
 ankra cluster ovh scale <id> <n>          # Scale workers to n
 ankra cluster ovh k8s-version <id>        # Get current Kubernetes version
 ankra cluster ovh upgrade <id> <version>  # Upgrade Kubernetes version
+ankra cluster ovh regions --credential-id <id>  # List regions the credential can deploy in
 
 ankra cluster ovh node-group list <id>                    # List node groups
 ankra cluster ovh node-group add <id>                     # Add a node group
   --name <name> [--instance-type <type>] [--count <n>]
 ankra cluster ovh node-group scale <id> <group> <n>       # Scale a node group
 ankra cluster ovh node-group upgrade <id> <group> <type>  # Upgrade instance type
+ankra cluster ovh node-group labels <id> <group> --labels k=v,...      # Set node labels
+ankra cluster ovh node-group taints <id> <group> --taints k=v:Effect,...  # Set node taints
 ankra cluster ovh node-group delete <id> <group>          # Delete a node group
 ```
 

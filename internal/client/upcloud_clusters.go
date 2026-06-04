@@ -156,7 +156,7 @@ func (c *Client) UpdateUpcloudNodeGroupInstanceType(clusterID, groupName, instan
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroupInstanceType(url, payload)
+	return c.doUpdateNodeGroup(url, payload)
 }
 
 func (c *Client) DeleteUpcloudNodeGroup(clusterID, groupName string) (*DeleteNodeGroupResult, error) {

@@ -5,7 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 )
+
+type OvhRegionListResult struct {
+	Regions []string `json:"regions"`
+}
 
 type CreateOvhClusterRequest struct {
 	Name                 string  `json:"name"`
@@ -104,6 +109,15 @@ func (c *Client) DeprovisionOvhCluster(clusterID string) (*DeprovisionOvhCluster
 	return &result, nil
 }
 
+func (c *Client) ListOvhRegions(credentialID string) (*OvhRegionListResult, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/regions?credential_id=%s", c.BaseURL, url.QueryEscape(credentialID))
+	var result OvhRegionListResult
+	if err := c.getJSON(endpoint, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) GetOvhWorkerCount(clusterID string) (*WorkerCountResult, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/worker-count", c.BaseURL, clusterID)
 	var result WorkerCountResult
@@ -160,7 +174,25 @@ func (c *Client) UpdateOvhNodeGroupInstanceType(clusterID, groupName, instanceTy
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroupInstanceType(url, payload)
+	return c.doUpdateNodeGroup(url, payload)
+}
+
+func (c *Client) UpdateOvhNodeGroupLabels(clusterID, groupName string, labels map[string]string) (*UpdateNodeGroupResult, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(UpdateLabelsRequest{Labels: labels})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroup(endpoint, payload)
+}
+
+func (c *Client) UpdateOvhNodeGroupTaints(clusterID, groupName string, taints []NodeTaint) (*UpdateNodeGroupResult, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(UpdateTaintsRequest{Taints: taints})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroup(endpoint, payload)
 }
 
 func (c *Client) DeleteOvhNodeGroup(clusterID, groupName string) (*DeleteNodeGroupResult, error) {

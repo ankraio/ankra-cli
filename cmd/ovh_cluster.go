@@ -207,10 +207,83 @@ var ovhUpgradeCmd = &cobra.Command{
 	},
 }
 
+var ovhRegionsCmd = &cobra.Command{
+	Use:   "regions",
+	Short: "List OVH regions available to a credential",
+	Long:  "List the OVH Cloud regions the supplied credential's project can deploy in. Only these regions are valid for cluster creation.",
+	Run: func(cmd *cobra.Command, args []string) {
+		credentialID, _ := cmd.Flags().GetString("credential-id")
+
+		result, err := apiClient.ListOvhRegions(credentialID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error listing regions: %v\n", err)
+			os.Exit(1)
+		}
+		if len(result.Regions) == 0 {
+			fmt.Println("No regions available for this credential.")
+			return
+		}
+		fmt.Printf("Regions available to credential %s:\n", credentialID)
+		for _, region := range result.Regions {
+			fmt.Printf("  %s\n", region)
+		}
+	},
+}
+
 var ovhNodeGroupCmd = &cobra.Command{
 	Use:   "node-group",
 	Short: "Manage node groups for an OVH cluster",
-	Long:  "List, add, scale, upgrade, and delete node groups.",
+	Long:  "List, add, scale, upgrade, label, taint, and delete node groups.",
+}
+
+var ovhNodeGroupLabelsCmd = &cobra.Command{
+	Use:   "labels <cluster_id> <group_name>",
+	Short: "Set labels on all nodes in a node group",
+	Long:  "Replace the labels on every node in the group. Pass --labels as a comma-separated list of key=value pairs (empty clears all labels).",
+	Args:  cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+		groupName := args[1]
+		labelsFlag, _ := cmd.Flags().GetString("labels")
+
+		labels, err := parseLabelsFlag(labelsFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid --labels: %v\n", err)
+			os.Exit(1)
+		}
+
+		result, err := apiClient.UpdateOvhNodeGroupLabels(clusterID, groupName, labels)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error updating node group labels: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Node group '%s' labels updated. %d node(s) affected.\n", result.GroupName, result.Updated)
+	},
+}
+
+var ovhNodeGroupTaintsCmd = &cobra.Command{
+	Use:   "taints <cluster_id> <group_name>",
+	Short: "Set taints on all nodes in a node group",
+	Long:  "Replace the taints on every node in the group. Pass --taints as a comma-separated list of key=value:Effect (value optional, effect defaults to NoSchedule; empty clears all taints).",
+	Args:  cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+		groupName := args[1]
+		taintsFlag, _ := cmd.Flags().GetString("taints")
+
+		taints, err := parseTaintsFlag(taintsFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid --taints: %v\n", err)
+			os.Exit(1)
+		}
+
+		result, err := apiClient.UpdateOvhNodeGroupTaints(clusterID, groupName, taints)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error updating node group taints: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Node group '%s' taints updated. %d node(s) affected.\n", result.GroupName, result.Updated)
+	},
 }
 
 var ovhNodeGroupListCmd = &cobra.Command{
@@ -317,6 +390,56 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 	},
 }
 
+func parseLabelsFlag(raw string) (map[string]string, error) {
+	labels := map[string]string{}
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return labels, nil
+	}
+	for _, pair := range strings.Split(trimmed, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		key, value, found := strings.Cut(pair, "=")
+		key = strings.TrimSpace(key)
+		if !found || key == "" {
+			return nil, fmt.Errorf("label %q must be in key=value form", pair)
+		}
+		labels[key] = strings.TrimSpace(value)
+	}
+	return labels, nil
+}
+
+func parseTaintsFlag(raw string) ([]client.NodeTaint, error) {
+	taints := []client.NodeTaint{}
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return taints, nil
+	}
+	for _, item := range strings.Split(trimmed, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		keyValue, effect, hasEffect := strings.Cut(item, ":")
+		if !hasEffect || strings.TrimSpace(effect) == "" {
+			effect = "NoSchedule"
+		}
+		key, value, _ := strings.Cut(keyValue, "=")
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return nil, fmt.Errorf("taint %q must specify a key", item)
+		}
+		taints = append(taints, client.NodeTaint{
+			Key:    key,
+			Value:  strings.TrimSpace(value),
+			Effect: strings.TrimSpace(effect),
+		})
+	}
+	return taints, nil
+}
+
 func init() {
 	ovhCreateCmd.Flags().String("name", "", "Cluster name (required)")
 	ovhCreateCmd.Flags().String("credential-id", "", "OVH API credential ID (required)")
@@ -344,10 +467,18 @@ func init() {
 	ovhNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
 	_ = ovhNodeGroupAddCmd.MarkFlagRequired("name")
 
+	ovhNodeGroupLabelsCmd.Flags().String("labels", "", "Comma-separated key=value pairs (empty clears all labels)")
+	ovhNodeGroupTaintsCmd.Flags().String("taints", "", "Comma-separated key=value:Effect taints (empty clears all taints)")
+
+	ovhRegionsCmd.Flags().String("credential-id", "", "OVH API credential ID (required)")
+	_ = ovhRegionsCmd.MarkFlagRequired("credential-id")
+
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupListCmd)
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupAddCmd)
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupScaleCmd)
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupUpgradeCmd)
+	ovhNodeGroupCmd.AddCommand(ovhNodeGroupLabelsCmd)
+	ovhNodeGroupCmd.AddCommand(ovhNodeGroupTaintsCmd)
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupDeleteCmd)
 
 	ovhCmd.AddCommand(ovhCreateCmd)
@@ -356,6 +487,7 @@ func init() {
 	ovhCmd.AddCommand(ovhScaleCmd)
 	ovhCmd.AddCommand(ovhK8sVersionCmd)
 	ovhCmd.AddCommand(ovhUpgradeCmd)
+	ovhCmd.AddCommand(ovhRegionsCmd)
 	ovhCmd.AddCommand(ovhNodeGroupCmd)
 
 	clusterCmd.AddCommand(ovhCmd)
