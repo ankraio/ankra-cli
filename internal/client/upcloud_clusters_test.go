@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -232,7 +233,7 @@ func TestAddUpcloudNodeGroup_Success(t *testing.T) {
 		jsonResponse(t, w, http.StatusCreated, expectedResponse)
 	})
 	req := AddNodeGroupRequest{Name: "extra", InstanceType: "2xCPU-4GB", Count: 2}
-	result, err := testClient.AddUpcloudNodeGroup(clusterID, req)
+	result, _, err := testClient.AddUpcloudNodeGroup(context.Background(), clusterID, req, true)
 	if err != nil {
 		t.Fatalf("AddUpcloudNodeGroup: %v", err)
 	}
@@ -250,7 +251,7 @@ func TestAddUpcloudNodeGroup_Error(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusUnprocessableEntity, map[string]string{"error": "validation"})
 	})
-	_, err := testClient.AddUpcloudNodeGroup(clusterID, AddNodeGroupRequest{Name: "x", InstanceType: "y", Count: 1})
+	_, _, err := testClient.AddUpcloudNodeGroup(context.Background(), clusterID, AddNodeGroupRequest{Name: "x", InstanceType: "y", Count: 1}, true)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -274,7 +275,7 @@ func TestScaleUpcloudNodeGroup_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, err := testClient.ScaleUpcloudNodeGroup(clusterID, groupName, 4)
+	result, _, err := testClient.ScaleUpcloudNodeGroup(context.Background(), clusterID, groupName, 4, true)
 	if err != nil {
 		t.Fatalf("ScaleUpcloudNodeGroup: %v", err)
 	}
@@ -293,7 +294,7 @@ func TestScaleUpcloudNodeGroup_Error(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusBadRequest, map[string]string{"error": "scale failed"})
 	})
-	_, err := testClient.ScaleUpcloudNodeGroup(clusterID, groupName, 4)
+	_, _, err := testClient.ScaleUpcloudNodeGroup(context.Background(), clusterID, groupName, 4, true)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -314,7 +315,7 @@ func TestUpdateUpcloudNodeGroupInstanceType_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, err := testClient.UpdateUpcloudNodeGroupInstanceType(clusterID, groupName, instanceType)
+	result, _, err := testClient.UpdateUpcloudNodeGroupInstanceType(context.Background(), clusterID, groupName, instanceType, true)
 	if err != nil {
 		t.Fatalf("UpdateUpcloudNodeGroupInstanceType: %v", err)
 	}
@@ -333,7 +334,7 @@ func TestUpdateUpcloudNodeGroupInstanceType_Error(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})
-	_, err := testClient.UpdateUpcloudNodeGroupInstanceType(clusterID, groupName, "4xCPU-8GB")
+	_, _, err := testClient.UpdateUpcloudNodeGroupInstanceType(context.Background(), clusterID, groupName, "4xCPU-8GB", true)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -353,7 +354,7 @@ func TestDeleteUpcloudNodeGroup_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, err := testClient.DeleteUpcloudNodeGroup(clusterID, groupName)
+	result, _, err := testClient.DeleteUpcloudNodeGroup(context.Background(), clusterID, groupName, true)
 	if err != nil {
 		t.Fatalf("DeleteUpcloudNodeGroup: %v", err)
 	}
@@ -372,7 +373,7 @@ func TestDeleteUpcloudNodeGroup_Error(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 	})
-	_, err := testClient.DeleteUpcloudNodeGroup(clusterID, groupName)
+	_, _, err := testClient.DeleteUpcloudNodeGroup(context.Background(), clusterID, groupName, true)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

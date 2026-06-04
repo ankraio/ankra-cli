@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -150,54 +151,54 @@ func (c *Client) ListOvhNodeGroups(clusterID string) (*NodeGroupListResult, erro
 	return &result, nil
 }
 
-func (c *Client) AddOvhNodeGroup(clusterID string, req AddNodeGroupRequest) (*AddNodeGroupResult, error) {
+func (c *Client) AddOvhNodeGroup(ctx context.Context, clusterID string, req AddNodeGroupRequest, wait bool) (*AddNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups", c.BaseURL, clusterID)
 	payload, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doAddNodeGroup(url, payload)
+	return c.doAddNodeGroup(ctx, url, payload, wait)
 }
 
-func (c *Client) ScaleOvhNodeGroup(clusterID, groupName string, count int) (*ScaleNodeGroupResult, error) {
+func (c *Client) ScaleOvhNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*ScaleNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/scale", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count})
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doScaleNodeGroup(url, payload)
+	return c.doScaleNodeGroup(ctx, url, payload, wait)
 }
 
-func (c *Client) UpdateOvhNodeGroupInstanceType(clusterID, groupName, instanceType string) (*UpdateNodeGroupResult, error) {
+func (c *Client) UpdateOvhNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroup(url, payload)
+	return c.doUpdateNodeGroup(ctx, url, payload, wait)
 }
 
-func (c *Client) UpdateOvhNodeGroupLabels(clusterID, groupName string, labels map[string]string) (*UpdateNodeGroupResult, error) {
+func (c *Client) UpdateOvhNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(UpdateLabelsRequest{Labels: labels})
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroup(endpoint, payload)
+	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
-func (c *Client) UpdateOvhNodeGroupTaints(clusterID, groupName string, taints []NodeTaint) (*UpdateNodeGroupResult, error) {
+func (c *Client) UpdateOvhNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(UpdateTaintsRequest{Taints: taints})
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroup(endpoint, payload)
+	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
-func (c *Client) DeleteOvhNodeGroup(clusterID, groupName string) (*DeleteNodeGroupResult, error) {
+func (c *Client) DeleteOvhNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
-	return c.doDeleteNodeGroup(url)
+	return c.doDeleteNodeGroup(ctx, url, wait)
 }
 
 func (c *Client) ScaleOvhWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {

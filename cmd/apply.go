@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"ankra/internal/client"
 	"github.com/spf13/cobra"
@@ -27,6 +25,7 @@ var clusterApplyCmd = &cobra.Command{
 func init() {
 	clusterApplyCmd.Flags().StringP("file", "f", "", "Path to the ImportCluster YAML file to apply")
 	clusterApplyCmd.Flags().Bool("dry-run", false, "Validate the ImportCluster YAML locally without calling the API")
+	registerAsyncWriteFlags(clusterApplyCmd)
 	setDryRunOffline(clusterApplyCmd)
 	if err := clusterApplyCmd.MarkFlagRequired("file"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error marking flag as required: %s\n", err)
@@ -70,13 +69,19 @@ func runApply(cmd *cobra.Command, _ []string) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	wait := asyncWriteWaitFlag(cmd)
+	requestContext, cancelRequestContext := asyncWriteRequestContext(cmd)
+	defer cancelRequestContext()
 
-	importResponse, err := apiClient.ApplyCluster(ctx, importRequest)
+	importResponse, submitted, err := apiClient.ApplyCluster(requestContext, importRequest, wait)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error applying cluster: %s\n", err)
 		os.Exit(1)
+	}
+	if submitted {
+		printAsyncWriteSubmitted("Cluster apply")
+		fmt.Println("For a new cluster, the agent install command is only shown when you use --wait.")
+		return
 	}
 
 	if len(importResponse.Errors) > 0 {

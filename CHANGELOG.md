@@ -9,6 +9,11 @@ download the `v0.3.0-rc2` release-candidate asset directly.
 
 **New in rc2 (since rc1):**
 
+- **`cluster apply` and cloud `node-group` mutations (Hetzner, OVH, UpCloud)** —
+  submit and return immediately by default (`202 Accepted`); use **`--wait`** to
+  block until the platform finishes and print the full result (including the
+  agent install command on first import). **`--timeout`** bounds `--wait`
+  (default 10m). Avoid re-running the same change while it may still be running.
 - **`ankra cluster ovh regions --credential-id <id>`** — list the OVH Cloud
   regions a credential's project can actually deploy in, so you pick a valid
   `--region` for `ankra cluster ovh create` instead of guessing (a region that

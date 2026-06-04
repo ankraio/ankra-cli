@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -244,151 +245,84 @@ func (c *Client) ListHetznerNodeGroups(clusterID string) (*NodeGroupListResult, 
 	return &result, nil
 }
 
-func (c *Client) AddHetznerNodeGroup(clusterID string, req AddNodeGroupRequest) (*AddNodeGroupResult, error) {
+func (c *Client) AddHetznerNodeGroup(ctx context.Context, clusterID string, req AddNodeGroupRequest, wait bool) (*AddNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups", c.BaseURL, clusterID)
 	payload, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doAddNodeGroup(url, payload)
+	return c.doAddNodeGroup(ctx, url, payload, wait)
 }
 
-func (c *Client) ScaleHetznerNodeGroup(clusterID, groupName string, count int) (*ScaleNodeGroupResult, error) {
+func (c *Client) ScaleHetznerNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*ScaleNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/scale", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count})
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doScaleNodeGroup(url, payload)
+	return c.doScaleNodeGroup(ctx, url, payload, wait)
 }
 
-func (c *Client) UpdateHetznerNodeGroupInstanceType(clusterID, groupName, instanceType string) (*UpdateNodeGroupResult, error) {
+func (c *Client) UpdateHetznerNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroup(url, payload)
+	return c.doUpdateNodeGroup(ctx, url, payload, wait)
 }
 
-func (c *Client) DeleteHetznerNodeGroup(clusterID, groupName string) (*DeleteNodeGroupResult, error) {
+func (c *Client) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
-	return c.doDeleteNodeGroup(url)
+	return c.doDeleteNodeGroup(ctx, url, wait)
 }
 
-func (c *Client) doAddNodeGroup(url string, payload []byte) (*AddNodeGroupResult, error) {
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer closeBody(resp)
-
-	body, err := readResponseBody(resp)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
-	}
-
+func (c *Client) doAddNodeGroup(ctx context.Context, url string, payload []byte, wait bool) (*AddNodeGroupResult, bool, error) {
 	var result AddNodeGroupResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+	submitted, err := c.doJSONWriteRequest(ctx, http.MethodPost, url, payload, wait, &result)
+	if err != nil {
+		return nil, false, err
 	}
-	return &result, nil
+	if submitted {
+		return nil, true, nil
+	}
+	return &result, false, nil
 }
 
-func (c *Client) doScaleNodeGroup(url string, payload []byte) (*ScaleNodeGroupResult, error) {
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer closeBody(resp)
-
-	body, err := readResponseBody(resp)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
-	}
-
+func (c *Client) doScaleNodeGroup(ctx context.Context, url string, payload []byte, wait bool) (*ScaleNodeGroupResult, bool, error) {
 	var result ScaleNodeGroupResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+	submitted, err := c.doJSONWriteRequest(ctx, http.MethodPut, url, payload, wait, &result)
+	if err != nil {
+		return nil, false, err
 	}
-	return &result, nil
+	if submitted {
+		return nil, true, nil
+	}
+	return &result, false, nil
 }
 
-func (c *Client) doUpdateNodeGroup(url string, payload []byte) (*UpdateNodeGroupResult, error) {
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer closeBody(resp)
-
-	body, err := readResponseBody(resp)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
-	}
-
+func (c *Client) doUpdateNodeGroup(ctx context.Context, url string, payload []byte, wait bool) (*UpdateNodeGroupResult, bool, error) {
 	var result UpdateNodeGroupResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+	submitted, err := c.doJSONWriteRequest(ctx, http.MethodPut, url, payload, wait, &result)
+	if err != nil {
+		return nil, false, err
 	}
-	return &result, nil
+	if submitted {
+		return nil, true, nil
+	}
+	return &result, false, nil
 }
 
-func (c *Client) doDeleteNodeGroup(url string) (*DeleteNodeGroupResult, error) {
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer closeBody(resp)
-
-	body, err := readResponseBody(resp)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
-	}
-
+func (c *Client) doDeleteNodeGroup(ctx context.Context, url string, wait bool) (*DeleteNodeGroupResult, bool, error) {
 	var result DeleteNodeGroupResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+	submitted, err := c.doJSONWriteRequest(ctx, http.MethodDelete, url, nil, wait, &result)
+	if err != nil {
+		return nil, false, err
 	}
-	return &result, nil
+	if submitted {
+		return nil, true, nil
+	}
+	return &result, false, nil
 }
 
 func (c *Client) doScaleWorkers(url string, workerCount int) (*ScaleWorkersResult, error) {

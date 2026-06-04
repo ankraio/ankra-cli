@@ -337,7 +337,7 @@ func (c *Client) TriggerReconcile(ctx context.Context, clusterID string) (*Trigg
 	return &result, nil
 }
 
-func (c *Client) ApplyCluster(ctx context.Context, clusterReq CreateImportClusterRequest) (*ImportResponse, error) {
+func (c *Client) ApplyCluster(ctx context.Context, clusterReq CreateImportClusterRequest, wait bool) (*ImportResponse, bool, error) {
 	for i := range clusterReq.Spec.Stacks {
 		if clusterReq.Spec.Stacks[i].Manifests == nil {
 			clusterReq.Spec.Stacks[i].Manifests = make([]Manifest, 0)
@@ -348,41 +348,22 @@ func (c *Client) ApplyCluster(ctx context.Context, clusterReq CreateImportCluste
 	}
 	payload, err := json.Marshal(clusterReq)
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := c.BaseURL + "/api/v1/clusters/import"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	endpoint := c.BaseURL + "/api/v1/clusters/import"
+	var importResponse ImportResponse
+	submitted, err := c.doJSONWriteRequest(ctx, http.MethodPost, endpoint, payload, wait, &importResponse)
 	if err != nil {
-		return nil, fmt.Errorf("create HTTP request: %w", err)
+		return nil, false, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
-
-	resp, err := c.HTTP.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+	if submitted {
+		return nil, true, nil
 	}
-	defer closeBody(resp)
-
-	body, err := readResponseBody(resp)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+	if len(importResponse.Errors) > 0 {
+		return nil, false, fmt.Errorf("import failed: %v", importResponse.Errors)
 	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var er ImportResponse
-		if json.Unmarshal(body, &er) == nil && len(er.Errors) > 0 {
-			return nil, fmt.Errorf("import failed: %v", er.Errors)
-		}
-		return nil, fmt.Errorf("import failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
-	}
-
-	var ir ImportResponse
-	if err := json.Unmarshal(body, &ir); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return &ir, nil
+	return &importResponse, false, nil
 }
 
 type ValidateClusterRequest struct {

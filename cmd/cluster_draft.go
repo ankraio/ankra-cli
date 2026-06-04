@@ -114,7 +114,7 @@ func resolveClusterForDraft(ctx context.Context, importRequest client.CreateImpo
 	}
 
 	fmt.Printf("Cluster %q does not exist yet; importing it first...\n", importRequest.Name)
-	importResponse, importErr := apiClient.ApplyCluster(ctx, importRequest)
+	importResponse, _, importErr := apiClient.ApplyCluster(ctx, importRequest, true)
 	if importErr != nil {
 		return "", fmt.Errorf("importing cluster %q: %w", importRequest.Name, importErr)
 	}

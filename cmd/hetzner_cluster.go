@@ -245,10 +245,16 @@ var nodeGroupAddCmd = &cobra.Command{
 			Count:        count,
 		}
 
-		result, err := apiClient.AddHetznerNodeGroup(clusterID, req)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.AddHetznerNodeGroup(requestContext, clusterID, req, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error adding node group: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("adding node group", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group add")
+			return
 		}
 		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
 	},
@@ -267,10 +273,16 @@ var nodeGroupScaleCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		result, err := apiClient.ScaleHetznerNodeGroup(clusterID, groupName, count)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.ScaleHetznerNodeGroup(requestContext, clusterID, groupName, count, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error scaling node group: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("scaling node group", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group scale")
+			return
 		}
 		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
 	},
@@ -285,10 +297,16 @@ var nodeGroupUpgradeCmd = &cobra.Command{
 		groupName := args[1]
 		instanceType := args[2]
 
-		result, err := apiClient.UpdateHetznerNodeGroupInstanceType(clusterID, groupName, instanceType)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.UpdateHetznerNodeGroupInstanceType(requestContext, clusterID, groupName, instanceType, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error upgrading node group: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("upgrading node group", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group instance-type update")
+			return
 		}
 		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
 	},
@@ -302,10 +320,16 @@ var nodeGroupDeleteCmd = &cobra.Command{
 		clusterID := args[0]
 		groupName := args[1]
 
-		result, err := apiClient.DeleteHetznerNodeGroup(clusterID, groupName)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.DeleteHetznerNodeGroup(requestContext, clusterID, groupName, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error deleting node group: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("deleting node group", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group delete")
+			return
 		}
 		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
 	},
@@ -337,6 +361,10 @@ func init() {
 	nodeGroupAddCmd.Flags().String("instance-type", "cx33", "Server type for nodes")
 	nodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
 	_ = nodeGroupAddCmd.MarkFlagRequired("name")
+	registerAsyncWriteFlags(nodeGroupAddCmd)
+	registerAsyncWriteFlags(nodeGroupScaleCmd)
+	registerAsyncWriteFlags(nodeGroupUpgradeCmd)
+	registerAsyncWriteFlags(nodeGroupDeleteCmd)
 
 	nodeGroupCmd.AddCommand(nodeGroupListCmd)
 	nodeGroupCmd.AddCommand(nodeGroupAddCmd)

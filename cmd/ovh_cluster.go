@@ -252,10 +252,16 @@ var ovhNodeGroupLabelsCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		result, err := apiClient.UpdateOvhNodeGroupLabels(clusterID, groupName, labels)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.UpdateOvhNodeGroupLabels(requestContext, clusterID, groupName, labels, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error updating node group labels: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("updating node group labels", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group labels update")
+			return
 		}
 		fmt.Printf("Node group '%s' labels updated. %d node(s) affected.\n", result.GroupName, result.Updated)
 	},
@@ -277,10 +283,16 @@ var ovhNodeGroupTaintsCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		result, err := apiClient.UpdateOvhNodeGroupTaints(clusterID, groupName, taints)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.UpdateOvhNodeGroupTaints(requestContext, clusterID, groupName, taints, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error updating node group taints: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("updating node group taints", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group taints update")
+			return
 		}
 		fmt.Printf("Node group '%s' taints updated. %d node(s) affected.\n", result.GroupName, result.Updated)
 	},
@@ -324,10 +336,16 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 			Count:        count,
 		}
 
-		result, err := apiClient.AddOvhNodeGroup(clusterID, req)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.AddOvhNodeGroup(requestContext, clusterID, req, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error adding node group: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("adding node group", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group add")
+			return
 		}
 		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
 	},
@@ -346,10 +364,16 @@ var ovhNodeGroupScaleCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		result, err := apiClient.ScaleOvhNodeGroup(clusterID, groupName, count)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.ScaleOvhNodeGroup(requestContext, clusterID, groupName, count, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error scaling node group: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("scaling node group", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group scale")
+			return
 		}
 		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
 	},
@@ -364,10 +388,16 @@ var ovhNodeGroupUpgradeCmd = &cobra.Command{
 		groupName := args[1]
 		instanceType := args[2]
 
-		result, err := apiClient.UpdateOvhNodeGroupInstanceType(clusterID, groupName, instanceType)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.UpdateOvhNodeGroupInstanceType(requestContext, clusterID, groupName, instanceType, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error upgrading node group: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("upgrading node group", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group instance-type update")
+			return
 		}
 		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
 	},
@@ -381,10 +411,16 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 		clusterID := args[0]
 		groupName := args[1]
 
-		result, err := apiClient.DeleteOvhNodeGroup(clusterID, groupName)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.DeleteOvhNodeGroup(requestContext, clusterID, groupName, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error deleting node group: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("deleting node group", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group delete")
+			return
 		}
 		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
 	},
@@ -466,6 +502,12 @@ func init() {
 	ovhNodeGroupAddCmd.Flags().String("instance-type", "b2-15", "Instance flavor for nodes")
 	ovhNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
 	_ = ovhNodeGroupAddCmd.MarkFlagRequired("name")
+	registerAsyncWriteFlags(ovhNodeGroupAddCmd)
+	registerAsyncWriteFlags(ovhNodeGroupScaleCmd)
+	registerAsyncWriteFlags(ovhNodeGroupUpgradeCmd)
+	registerAsyncWriteFlags(ovhNodeGroupLabelsCmd)
+	registerAsyncWriteFlags(ovhNodeGroupTaintsCmd)
+	registerAsyncWriteFlags(ovhNodeGroupDeleteCmd)
 
 	ovhNodeGroupLabelsCmd.Flags().String("labels", "", "Comma-separated key=value pairs (empty clears all labels)")
 	ovhNodeGroupTaintsCmd.Flags().String("taints", "", "Comma-separated key=value:Effect taints (empty clears all taints)")

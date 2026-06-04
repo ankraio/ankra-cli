@@ -242,10 +242,16 @@ var upcloudNodeGroupAddCmd = &cobra.Command{
 			Count:        count,
 		}
 
-		result, err := apiClient.AddUpcloudNodeGroup(clusterID, req)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.AddUpcloudNodeGroup(requestContext, clusterID, req, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error adding node group: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("adding node group", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group add")
+			return
 		}
 		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
 	},
@@ -264,10 +270,16 @@ var upcloudNodeGroupScaleCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		result, err := apiClient.ScaleUpcloudNodeGroup(clusterID, groupName, count)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.ScaleUpcloudNodeGroup(requestContext, clusterID, groupName, count, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error scaling node group: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("scaling node group", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group scale")
+			return
 		}
 		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
 	},
@@ -282,10 +294,16 @@ var upcloudNodeGroupUpgradeCmd = &cobra.Command{
 		groupName := args[1]
 		plan := args[2]
 
-		result, err := apiClient.UpdateUpcloudNodeGroupInstanceType(clusterID, groupName, plan)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.UpdateUpcloudNodeGroupInstanceType(requestContext, clusterID, groupName, plan, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error upgrading node group: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("upgrading node group", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group plan update")
+			return
 		}
 		fmt.Printf("Node group '%s' plan upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
 	},
@@ -299,10 +317,16 @@ var upcloudNodeGroupDeleteCmd = &cobra.Command{
 		clusterID := args[0]
 		groupName := args[1]
 
-		result, err := apiClient.DeleteUpcloudNodeGroup(clusterID, groupName)
+		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.DeleteUpcloudNodeGroup(requestContext, clusterID, groupName, wait)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error deleting node group: %v\n", err)
-			os.Exit(1)
+			handleNodeGroupSubmitError("deleting node group", err)
+		}
+		if submitted {
+			printAsyncWriteSubmitted("Node group delete")
+			return
 		}
 		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
 	},
@@ -331,6 +355,10 @@ func init() {
 	upcloudNodeGroupAddCmd.Flags().String("instance-type", "2xCPU-4GB", "Server plan for nodes")
 	upcloudNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
 	_ = upcloudNodeGroupAddCmd.MarkFlagRequired("name")
+	registerAsyncWriteFlags(upcloudNodeGroupAddCmd)
+	registerAsyncWriteFlags(upcloudNodeGroupScaleCmd)
+	registerAsyncWriteFlags(upcloudNodeGroupUpgradeCmd)
+	registerAsyncWriteFlags(upcloudNodeGroupDeleteCmd)
 
 	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupListCmd)
 	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupAddCmd)

@@ -351,11 +351,24 @@ func TestApplyCluster(t *testing.T) {
 					w.WriteHeader(http.StatusMethodNotAllowed)
 					return
 				}
+				if got := r.URL.Query().Get("wait"); got != "true" {
+					t.Errorf("wait query = %q, want true", got)
+				}
 				jsonResponse(t, w, http.StatusOK, ImportResponse{
 					Name:          "test-cluster",
 					ClusterId:     "cluster-123",
 					ImportCommand: "ankra cluster import ...",
 				})
+			},
+			wantErr: false,
+		},
+		{
+			name: "accepted without wait",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if got := r.URL.Query().Get("wait"); got != "false" {
+					t.Errorf("wait query = %q, want false", got)
+				}
+				jsonResponse(t, w, http.StatusAccepted, AsyncWriteAcceptedResponse{Status: "accepted"})
 			},
 			wantErr: false,
 		},
@@ -371,9 +384,16 @@ func TestApplyCluster(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testClient := newTestClient(t, tt.handler)
-			got, err := testClient.ApplyCluster(context.Background(), validRequest)
+			waitForResult := tt.name != "accepted without wait"
+			got, submitted, err := testClient.ApplyCluster(context.Background(), validRequest, waitForResult)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ApplyCluster() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.name == "accepted without wait" {
+				if !submitted || got != nil {
+					t.Errorf("ApplyCluster() submitted=%v got=%v, want submitted=true got=nil", submitted, got)
+				}
 				return
 			}
 			if !tt.wantErr && (got == nil || got.ClusterId != "cluster-123") {

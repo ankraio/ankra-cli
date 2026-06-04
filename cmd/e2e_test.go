@@ -49,8 +49,8 @@ func (m baseMock) RollToClusterResourceVersion(ctx context.Context, clusterID, v
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ApplyCluster(ctx context.Context, clusterReq client.CreateImportClusterRequest) (*client.ImportResponse, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) ApplyCluster(ctx context.Context, clusterReq client.CreateImportClusterRequest, wait bool) (*client.ImportResponse, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
 func (m baseMock) ValidateCluster(ctx context.Context, spec client.CreateResourceSpec, strictSecrets bool, clusterID string) (*client.ValidateClusterResponse, error) {
@@ -385,20 +385,20 @@ func (m baseMock) ListHetznerNodeGroups(clusterID string) (*client.NodeGroupList
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) AddHetznerNodeGroup(clusterID string, req client.AddNodeGroupRequest) (*client.AddNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) AddHetznerNodeGroup(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleHetznerNodeGroup(clusterID, groupName string, count int) (*client.ScaleNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) ScaleHetznerNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateHetznerNodeGroupInstanceType(clusterID, groupName, instanceType string) (*client.UpdateNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) UpdateHetznerNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) DeleteHetznerNodeGroup(clusterID, groupName string) (*client.DeleteNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
 func (m baseMock) GetHetznerControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
@@ -469,28 +469,28 @@ func (m baseMock) ListOvhNodeGroups(clusterID string) (*client.NodeGroupListResu
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) AddOvhNodeGroup(clusterID string, req client.AddNodeGroupRequest) (*client.AddNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) AddOvhNodeGroup(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleOvhNodeGroup(clusterID, groupName string, count int) (*client.ScaleNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) ScaleOvhNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateOvhNodeGroupInstanceType(clusterID, groupName, instanceType string) (*client.UpdateNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) UpdateOvhNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateOvhNodeGroupLabels(clusterID, groupName string, labels map[string]string) (*client.UpdateNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) UpdateOvhNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateOvhNodeGroupTaints(clusterID, groupName string, taints []client.NodeTaint) (*client.UpdateNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) UpdateOvhNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) DeleteOvhNodeGroup(clusterID, groupName string) (*client.DeleteNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) DeleteOvhNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
 func (m baseMock) GetOvhControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
@@ -557,20 +557,20 @@ func (m baseMock) ListUpcloudNodeGroups(clusterID string) (*client.NodeGroupList
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) AddUpcloudNodeGroup(clusterID string, req client.AddNodeGroupRequest) (*client.AddNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) AddUpcloudNodeGroup(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleUpcloudNodeGroup(clusterID, groupName string, count int) (*client.ScaleNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) ScaleUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateUpcloudNodeGroupInstanceType(clusterID, groupName, instanceType string) (*client.UpdateNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) UpdateUpcloudNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) DeleteUpcloudNodeGroup(clusterID, groupName string) (*client.DeleteNodeGroupResult, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
 func (m baseMock) GetUpcloudControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
