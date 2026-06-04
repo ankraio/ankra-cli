@@ -9,12 +9,39 @@ permissions:
   contents: read
 
 jobs:
+  create-release:
+    name: Create release
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Create release and upload install script
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_FLAG=""
+          case "${{ github.ref_name }}" in
+            *-*) PRERELEASE_FLAG="--prerelease" ;;
+          esac
+          if ! gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            gh release create "${{ github.ref_name }}" \
+              ${PRERELEASE_FLAG} \
+              --title "${{ github.ref_name }}" \
+              --generate-notes
+          fi
+          gh release upload "${{ github.ref_name }}" install.sh --clobber
+
   build-and-release:
     name: Build and Release
+    needs: create-release
     permissions:
       contents: write
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -85,25 +112,14 @@ jobs:
           fi
           cat "${BINARY}.sha256"
 
-      - name: Upload binaries
-        uses: softprops/action-gh-release@v3
-        with:
-          files: |
-            dist/ankra-cli-*
-          fail_on_unmatched_files: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+      - name: Upload binary and checksum
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload install script (once)
-        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
-        uses: softprops/action-gh-release@v3
-        with:
-          files: install.sh
-          fail_on_unmatched_files: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            dist/ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}* \
+            --clobber
 
       - name: Print version smoke test
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
