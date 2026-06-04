@@ -445,6 +445,26 @@ func (m baseMock) DeprovisionOvhCluster(clusterID string) (*client.DeprovisionOv
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) StopOvhCluster(clusterID string) (*client.StopOvhClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartOvhCluster(clusterID, scope string) (*client.StartOvhClusterResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetOvhClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateOvhClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetOvhAccessInfo(clusterID string) (*client.ClusterAccessInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetOvhWorkerCount(clusterID string) (*client.WorkerCountResult, error) {
 	return nil, errors.New("not implemented")
 }

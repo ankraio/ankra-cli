@@ -136,6 +136,11 @@ type APIClient interface {
 
 	CreateOvhCluster(req client.CreateOvhClusterRequest) (*client.CreateOvhClusterResponse, error)
 	DeprovisionOvhCluster(clusterID string) (*client.DeprovisionOvhClusterResponse, error)
+	StopOvhCluster(clusterID string) (*client.StopOvhClusterResponse, error)
+	StartOvhCluster(clusterID, scope string) (*client.StartOvhClusterResult, error)
+	GetOvhClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error)
+	UpdateOvhClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error)
+	GetOvhAccessInfo(clusterID string) (*client.ClusterAccessInfo, error)
 	GetOvhWorkerCount(clusterID string) (*client.WorkerCountResult, error)
 	ScaleOvhWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error)
 	GetOvhK8sVersion(clusterID string) (*client.K8sVersionInfo, error)

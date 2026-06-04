@@ -230,6 +230,171 @@ var ovhRegionsCmd = &cobra.Command{
 	},
 }
 
+var ovhStopCmd = &cobra.Command{
+	Use:   "stop <cluster_id>",
+	Short: "Stop an OVH cluster",
+	Long:  "Stop an OVH cluster's compute while keeping its configuration so it can be started again later.",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+
+		result, err := apiClient.StopOvhCluster(clusterID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error stopping cluster: %v\n", err)
+			os.Exit(1)
+		}
+
+		if result.Success {
+			fmt.Println(text.FgGreen.Sprint("OVH cluster stop initiated."))
+		} else {
+			fmt.Println("Cluster stop request submitted.")
+		}
+		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+		if result.OperationID != nil {
+			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+		}
+	},
+}
+
+var ovhStartCmd = &cobra.Command{
+	Use:   "start <cluster_id>",
+	Short: "Start a stopped OVH cluster",
+	Long:  "Start (re-provision) a stopped OVH cluster. Use --scope control_plane to bring up only the control plane.",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+		scope, _ := cmd.Flags().GetString("scope")
+		if scope != "all" && scope != "control_plane" {
+			fmt.Fprintf(os.Stderr, "Invalid --scope %q: must be 'all' or 'control_plane'\n", scope)
+			os.Exit(1)
+		}
+
+		result, err := apiClient.StartOvhCluster(clusterID, scope)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting cluster: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println(text.FgGreen.Sprint("OVH cluster start initiated."))
+		fmt.Printf("  Scope: %s\n", result.Scope)
+		if result.MarkedToStartAt != "" {
+			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
+		}
+		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
+	},
+}
+
+var ovhAccessInfoCmd = &cobra.Command{
+	Use:   "access-info <cluster_id>",
+	Short: "Show SSH access details for an OVH cluster",
+	Long:  "Show the gateway (bastion) and control plane IPs plus ready-to-use SSH jump and Kubernetes API port-forward commands.",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+
+		result, err := apiClient.GetOvhAccessInfo(clusterID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error fetching access info: %v\n", err)
+			os.Exit(1)
+		}
+
+		gatewayIP := ""
+		if result.BastionIP != nil {
+			gatewayIP = *result.BastionIP
+		}
+		controlPlaneIP := ""
+		if result.ControlPlaneIP != nil {
+			controlPlaneIP = *result.ControlPlaneIP
+		}
+
+		if result.ClusterName != nil && *result.ClusterName != "" {
+			fmt.Printf("Cluster: %s\n", *result.ClusterName)
+		}
+		if gatewayIP == "" {
+			fmt.Printf("Gateway IP: -\n")
+		} else {
+			fmt.Printf("Gateway IP: %s\n", gatewayIP)
+		}
+		if len(result.ControlPlaneIPs) > 0 {
+			fmt.Printf("Control plane IPs: %s\n", strings.Join(result.ControlPlaneIPs, ", "))
+		} else {
+			fmt.Printf("Control plane IPs: -\n")
+		}
+
+		if gatewayIP != "" && controlPlaneIP != "" {
+			fmt.Println("\nSSH to a control plane node via the gateway:")
+			fmt.Printf("  ssh -J ubuntu@%s ubuntu@%s\n", gatewayIP, controlPlaneIP)
+			fmt.Println("\nPort-forward the Kubernetes API:")
+			fmt.Printf("  ssh -L 6443:%s:6443 -N ubuntu@%s\n", controlPlaneIP, gatewayIP)
+		}
+	},
+}
+
+var ovhSSHKeysCmd = &cobra.Command{
+	Use:     "ssh-keys",
+	Aliases: []string{"ssh-key"},
+	Short:   "Manage SSH keys attached to an OVH cluster",
+	Long:    "Get and set the SSH key credentials authorised to access an OVH cluster's nodes.",
+}
+
+var ovhSSHKeysGetCmd = &cobra.Command{
+	Use:   "get <cluster_id>",
+	Short: "Show SSH keys attached to an OVH cluster",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+
+		result, err := apiClient.GetOvhClusterSSHKeys(clusterID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error fetching SSH keys: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(result.SSHKeyCredentialIDs) == 0 {
+			fmt.Println("Attached SSH keys: none")
+		} else {
+			fmt.Println("Attached SSH key credential IDs:")
+			for _, id := range result.SSHKeyCredentialIDs {
+				fmt.Printf("  %s\n", id)
+			}
+		}
+
+		if len(result.AvailableSSHKeys) > 0 {
+			fmt.Println("\nAvailable SSH key credentials:")
+			for _, key := range result.AvailableSSHKeys {
+				fmt.Printf("  %-38s  %s\n", key.CredentialID, key.Name)
+			}
+		}
+	},
+}
+
+var ovhSSHKeysSetCmd = &cobra.Command{
+	Use:   "set <cluster_id>",
+	Short: "Set the SSH keys attached to an OVH cluster",
+	Long:  "Replace the SSH key credentials attached to an OVH cluster. Changes take effect on the next reconciliation.",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+		sshKeyCredentialIDs, _ := cmd.Flags().GetStringSlice("ssh-key-credential-ids")
+		if len(sshKeyCredentialIDs) == 0 {
+			fmt.Fprintln(os.Stderr, "At least one --ssh-key-credential-ids value is required")
+			os.Exit(1)
+		}
+
+		result, err := apiClient.UpdateOvhClusterSSHKeys(clusterID, sshKeyCredentialIDs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error updating SSH keys: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println(text.FgGreen.Sprint("SSH keys updated. Changes apply on next reconciliation."))
+		fmt.Println("Attached SSH key credential IDs:")
+		for _, id := range result.SSHKeyCredentialIDs {
+			fmt.Printf("  %s\n", id)
+		}
+	},
+}
+
 var ovhNodeGroupCmd = &cobra.Command{
 	Use:   "node-group",
 	Short: "Manage node groups for an OVH cluster",
@@ -329,11 +494,26 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		instanceType, _ := cmd.Flags().GetString("instance-type")
 		count, _ := cmd.Flags().GetInt("count")
+		labelsFlag, _ := cmd.Flags().GetString("labels")
+		taintsFlag, _ := cmd.Flags().GetString("taints")
+
+		labels, err := parseLabelsFlag(labelsFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid --labels: %v\n", err)
+			os.Exit(1)
+		}
+		taints, err := parseTaintsFlag(taintsFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid --taints: %v\n", err)
+			os.Exit(1)
+		}
 
 		req := client.AddNodeGroupRequest{
 			Name:         name,
 			InstanceType: instanceType,
 			Count:        count,
+			Labels:       labels,
+			Taints:       taints,
 		}
 
 		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
@@ -498,9 +678,18 @@ func init() {
 	_ = ovhCreateCmd.MarkFlagRequired("ssh-key-credential-id")
 	_ = ovhCreateCmd.MarkFlagRequired("region")
 
+	ovhStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
+
+	ovhSSHKeysSetCmd.Flags().StringSlice("ssh-key-credential-ids", nil, "SSH key credential IDs to attach (comma-separated or repeated)")
+	_ = ovhSSHKeysSetCmd.MarkFlagRequired("ssh-key-credential-ids")
+	ovhSSHKeysCmd.AddCommand(ovhSSHKeysGetCmd)
+	ovhSSHKeysCmd.AddCommand(ovhSSHKeysSetCmd)
+
 	ovhNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
 	ovhNodeGroupAddCmd.Flags().String("instance-type", "b2-15", "Instance flavor for nodes")
 	ovhNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
+	ovhNodeGroupAddCmd.Flags().String("labels", "", "Comma-separated key=value labels to apply to the node group")
+	ovhNodeGroupAddCmd.Flags().String("taints", "", "Comma-separated key=value:Effect taints to apply to the node group")
 	_ = ovhNodeGroupAddCmd.MarkFlagRequired("name")
 	registerAsyncWriteFlags(ovhNodeGroupAddCmd)
 	registerAsyncWriteFlags(ovhNodeGroupScaleCmd)
@@ -525,11 +714,15 @@ func init() {
 
 	ovhCmd.AddCommand(ovhCreateCmd)
 	ovhCmd.AddCommand(ovhDeprovisionCmd)
+	ovhCmd.AddCommand(ovhStopCmd)
+	ovhCmd.AddCommand(ovhStartCmd)
 	ovhCmd.AddCommand(ovhWorkersCmd)
 	ovhCmd.AddCommand(ovhScaleCmd)
 	ovhCmd.AddCommand(ovhK8sVersionCmd)
 	ovhCmd.AddCommand(ovhUpgradeCmd)
 	ovhCmd.AddCommand(ovhRegionsCmd)
+	ovhCmd.AddCommand(ovhAccessInfoCmd)
+	ovhCmd.AddCommand(ovhSSHKeysCmd)
 	ovhCmd.AddCommand(ovhNodeGroupCmd)
 
 	clusterCmd.AddCommand(ovhCmd)

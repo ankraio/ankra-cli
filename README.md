@@ -85,7 +85,7 @@ opt into the beta channel:
 
 ```bash
 # Option 1: install a specific release candidate directly
-bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh) --version v0.3.0-rc2
+bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh) --version v0.3.0-rc3
 
 # Option 2: install stable, then switch to the beta channel
 bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
@@ -171,10 +171,12 @@ Switch back to stable any time with `ankra config beta disable`.
   - Manage Hetzner API credentials and SSH key credentials
 
 - **OVH Cloud**
-  - Create and deprovision OVH Kubernetes clusters
+  - Create, deprovision, stop, and start OVH Kubernetes clusters
   - Scale worker nodes up and down
   - Check and upgrade Kubernetes versions
-  - Manage node groups (add, scale, upgrade, delete)
+  - Manage node groups (add with labels/taints, scale, upgrade, label, taint, delete)
+  - Manage the control plane (count and instance type) and inspect nodes
+  - View SSH access info and manage cluster SSH keys
   - Manage OVH API credentials and SSH key credentials
 
 - **UpCloud**
@@ -630,15 +632,26 @@ ankra cluster ovh create                  # Create an OVH cluster
   --distribution <dist>                   #   Kubernetes distribution (default: k3s)
   --kubernetes-version <ver>              #   Kubernetes version (optional)
 ankra cluster ovh deprovision <id>        # Deprovision an OVH cluster
+ankra cluster ovh stop <id>               # Stop an OVH cluster (keeps configuration)
+ankra cluster ovh start <id> [--scope all|control_plane]  # Start a stopped OVH cluster
 ankra cluster ovh workers <id>            # Get current worker count
 ankra cluster ovh scale <id> <n>          # Scale workers to n
 ankra cluster ovh k8s-version <id>        # Get current Kubernetes version
 ankra cluster ovh upgrade <id> <version>  # Upgrade Kubernetes version
 ankra cluster ovh regions --credential-id <id>  # List regions the credential can deploy in
+ankra cluster ovh access-info <id>        # Show gateway/control-plane IPs and SSH commands
+ankra cluster ovh ssh-keys get <id>       # Show SSH keys attached to the cluster
+ankra cluster ovh ssh-keys set <id> --ssh-key-credential-ids <id>,...  # Replace attached SSH keys
+
+ankra cluster ovh control-plane get <id>                  # Show control plane configuration
+ankra cluster ovh control-plane set-count <id> <count>    # Change control plane count (1 or 3)
+ankra cluster ovh control-plane set-instance-type <id> <type>  # Change control plane instance type
+ankra cluster ovh nodes list <id>                         # List cluster nodes
+ankra cluster ovh nodes get <id> <node_id>                # Show node details
 
 ankra cluster ovh node-group list <id>                    # List node groups
 ankra cluster ovh node-group add <id>                     # Add a node group
-  --name <name> [--instance-type <type>] [--count <n>]
+  --name <name> [--instance-type <type>] [--count <n>] [--labels k=v,...] [--taints k=v:Effect,...]
 ankra cluster ovh node-group scale <id> <group> <n>       # Scale a node group
 ankra cluster ovh node-group upgrade <id> <group> <type>  # Upgrade instance type
 ankra cluster ovh node-group labels <id> <group> --labels k=v,...      # Set node labels

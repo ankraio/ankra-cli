@@ -1,5 +1,34 @@
 # Ankra CLI Changelog
 
+## v0.3.0-rc3 — June 2026
+
+Fourth release candidate for the v0.3.0 line. It carries everything in
+**v0.3.0-rc2** and brings the OVH command set to full parity with the web UI.
+Install it with `ankra upgrade --beta` (beta channel) or download the
+`v0.3.0-rc3` release-candidate asset directly.
+
+**New in rc3 (since rc2):**
+
+- **`ankra cluster ovh stop <cluster_id>`** and **`ankra cluster ovh start
+  <cluster_id> [--scope all|control_plane]`** — stop an OVH cluster's compute
+  while keeping its configuration, then start it again later (optionally bringing
+  up only the control plane first).
+- **`ankra cluster ovh access-info <cluster_id>`** — print the gateway (bastion)
+  and control plane IPs along with ready-to-use `ssh -J` jump and Kubernetes API
+  port-forward commands.
+- **`ankra cluster ovh ssh-keys get <cluster_id>`** and **`ankra cluster ovh
+  ssh-keys set <cluster_id> --ssh-key-credential-ids <id>,...`** — view and
+  replace the SSH key credentials attached to an OVH cluster (changes apply on
+  the next reconciliation).
+- **`ankra cluster ovh node-group add`** now accepts **`--labels k=v,...`** and
+  **`--taints k=v:Effect,...`** so a new node group can be created with its
+  Kubernetes labels and taints in one step.
+- **`ankra cluster ovh control-plane ...`** and **`ankra cluster ovh nodes
+  ...`** now reach the public API: the control-plane and node-inspection
+  endpoints are exposed on `/api/v1/clusters/ovh/...` (previously only
+  available to the web UI), so these commands work against a token-authenticated
+  CLI session.
+
 ## v0.3.0-rc2 — June 2026
 
 Third release candidate for the v0.3.0 line. It carries everything in

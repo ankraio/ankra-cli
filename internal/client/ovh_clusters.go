@@ -46,6 +46,43 @@ type DeprovisionOvhClusterResponse struct {
 	Errors          []string `json:"errors"`
 }
 
+type StopOvhClusterResponse struct {
+	Success     bool    `json:"success"`
+	ClusterID   string  `json:"cluster_id"`
+	OperationID *string `json:"operation_id,omitempty"`
+}
+
+type StartOvhClusterResult struct {
+	MarkedToStartAt   string `json:"marked_to_start_at"`
+	Scope             string `json:"scope"`
+	CreatedOperations int    `json:"created_operations"`
+}
+
+type ClusterSSHKeyEntry struct {
+	CredentialID string `json:"credential_id"`
+	Name         string `json:"name"`
+}
+
+type ClusterSSHKeysResult struct {
+	SSHKeyCredentialIDs []string             `json:"ssh_key_credential_ids"`
+	AvailableSSHKeys    []ClusterSSHKeyEntry `json:"available_ssh_keys"`
+}
+
+type UpdateClusterSSHKeysRequest struct {
+	SSHKeyCredentialIDs []string `json:"ssh_key_credential_ids"`
+}
+
+type UpdateClusterSSHKeysResult struct {
+	SSHKeyCredentialIDs []string `json:"ssh_key_credential_ids"`
+}
+
+type ClusterAccessInfo struct {
+	BastionIP       *string  `json:"bastion_ip"`
+	ControlPlaneIP  *string  `json:"control_plane_ip"`
+	ControlPlaneIPs []string `json:"control_plane_ips"`
+	ClusterName     *string  `json:"cluster_name"`
+}
+
 func (c *Client) CreateOvhCluster(req CreateOvhClusterRequest) (*CreateOvhClusterResponse, error) {
 	url := c.BaseURL + "/api/v1/clusters/ovh"
 	payload, err := json.Marshal(req)
@@ -204,4 +241,118 @@ func (c *Client) DeleteOvhNodeGroup(ctx context.Context, clusterID, groupName st
 func (c *Client) ScaleOvhWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/scale-workers", c.BaseURL, clusterID)
 	return c.doScaleWorkers(url, workerCount)
+}
+
+func (c *Client) StopOvhCluster(clusterID string) (*StopOvhClusterResponse, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/stop", c.BaseURL, url.PathEscape(clusterID))
+	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("stop failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+	}
+
+	var result StopOvhClusterResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) StartOvhCluster(clusterID, scope string) (*StartOvhClusterResult, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/start", c.BaseURL, url.PathEscape(clusterID))
+	if scope != "" {
+		endpoint += "?scope=" + url.QueryEscape(scope)
+	}
+	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("start failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+	}
+
+	var result StartOvhClusterResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) GetOvhClusterSSHKeys(clusterID string) (*ClusterSSHKeysResult, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/ssh-keys", c.BaseURL, url.PathEscape(clusterID))
+	var result ClusterSSHKeysResult
+	if err := c.getJSON(endpoint, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) UpdateOvhClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*UpdateClusterSSHKeysResult, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/ssh-keys", c.BaseURL, url.PathEscape(clusterID))
+	payload, err := json.Marshal(UpdateClusterSSHKeysRequest{SSHKeyCredentialIDs: sshKeyCredentialIDs})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("update ssh keys failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+	}
+
+	var result UpdateClusterSSHKeysResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) GetOvhAccessInfo(clusterID string) (*ClusterAccessInfo, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/access-info", c.BaseURL, url.PathEscape(clusterID))
+	var result ClusterAccessInfo
+	if err := c.getJSON(endpoint, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }

@@ -74,6 +74,155 @@ func TestDeprovisionOvhCluster_Success(t *testing.T) {
 	}
 }
 
+func TestStopOvhCluster_Success(t *testing.T) {
+	expectedResponse := StopOvhClusterResponse{Success: true, ClusterID: "ovh-cluster-123"}
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if r.URL.Path != "/api/v1/clusters/ovh/ovh-cluster-123/stop" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		jsonResponse(t, w, http.StatusOK, expectedResponse)
+	}
+	testClient := newTestClient(t, handler)
+	result, err := testClient.StopOvhCluster("ovh-cluster-123")
+	if err != nil {
+		t.Fatalf("StopOvhCluster: %v", err)
+	}
+	if !result.Success {
+		t.Error("Success = false, want true")
+	}
+}
+
+func TestStopOvhCluster_Error(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(t, w, http.StatusNotFound, map[string]string{"error": "not found"})
+	}
+	testClient := newTestClient(t, handler)
+	_, err := testClient.StopOvhCluster("ovh-cluster-123")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestStartOvhCluster_Success(t *testing.T) {
+	expectedResponse := StartOvhClusterResult{MarkedToStartAt: "2026-01-01T00:00:00Z", Scope: "control_plane", CreatedOperations: 1}
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if r.URL.Path != "/api/v1/clusters/ovh/ovh-cluster-123/start" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("scope"); got != "control_plane" {
+			t.Errorf("scope = %s, want control_plane", got)
+		}
+		jsonResponse(t, w, http.StatusOK, expectedResponse)
+	}
+	testClient := newTestClient(t, handler)
+	result, err := testClient.StartOvhCluster("ovh-cluster-123", "control_plane")
+	if err != nil {
+		t.Fatalf("StartOvhCluster: %v", err)
+	}
+	if result.Scope != "control_plane" {
+		t.Errorf("Scope = %s, want control_plane", result.Scope)
+	}
+}
+
+func TestStartOvhCluster_Error(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(t, w, http.StatusConflict, map[string]string{"error": "operation in progress"})
+	}
+	testClient := newTestClient(t, handler)
+	_, err := testClient.StartOvhCluster("ovh-cluster-123", "all")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestGetOvhClusterSSHKeys_Success(t *testing.T) {
+	expectedResponse := ClusterSSHKeysResult{
+		SSHKeyCredentialIDs: []string{"ssh-1"},
+		AvailableSSHKeys:    []ClusterSSHKeyEntry{{CredentialID: "ssh-1", Name: "primary"}},
+	}
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/v1/clusters/ovh/cluster-123/ssh-keys" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		jsonResponse(t, w, http.StatusOK, expectedResponse)
+	}
+	testClient := newTestClient(t, handler)
+	result, err := testClient.GetOvhClusterSSHKeys("cluster-123")
+	if err != nil {
+		t.Fatalf("GetOvhClusterSSHKeys: %v", err)
+	}
+	if len(result.SSHKeyCredentialIDs) != 1 || result.SSHKeyCredentialIDs[0] != "ssh-1" {
+		t.Errorf("SSHKeyCredentialIDs = %v, want [ssh-1]", result.SSHKeyCredentialIDs)
+	}
+}
+
+func TestUpdateOvhClusterSSHKeys_Success(t *testing.T) {
+	expectedResponse := UpdateClusterSSHKeysResult{SSHKeyCredentialIDs: []string{"ssh-1", "ssh-2"}}
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("method = %s, want PUT", r.Method)
+		}
+		if r.URL.Path != "/api/v1/clusters/ovh/cluster-123/ssh-keys" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		jsonResponse(t, w, http.StatusOK, expectedResponse)
+	}
+	testClient := newTestClient(t, handler)
+	result, err := testClient.UpdateOvhClusterSSHKeys("cluster-123", []string{"ssh-1", "ssh-2"})
+	if err != nil {
+		t.Fatalf("UpdateOvhClusterSSHKeys: %v", err)
+	}
+	if len(result.SSHKeyCredentialIDs) != 2 {
+		t.Errorf("SSHKeyCredentialIDs len = %d, want 2", len(result.SSHKeyCredentialIDs))
+	}
+}
+
+func TestUpdateOvhClusterSSHKeys_Error(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(t, w, http.StatusConflict, map[string]string{"error": "not an OVH cluster"})
+	}
+	testClient := newTestClient(t, handler)
+	_, err := testClient.UpdateOvhClusterSSHKeys("cluster-123", []string{"ssh-1"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestGetOvhAccessInfo_Success(t *testing.T) {
+	expectedResponse := ClusterAccessInfo{
+		BastionIP:       strPtr("203.0.113.10"),
+		ControlPlaneIP:  strPtr("10.0.1.10"),
+		ControlPlaneIPs: []string{"10.0.1.10"},
+		ClusterName:     strPtr("ovh-test"),
+	}
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/v1/clusters/ovh/cluster-123/access-info" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		jsonResponse(t, w, http.StatusOK, expectedResponse)
+	}
+	testClient := newTestClient(t, handler)
+	result, err := testClient.GetOvhAccessInfo("cluster-123")
+	if err != nil {
+		t.Fatalf("GetOvhAccessInfo: %v", err)
+	}
+	if result.BastionIP == nil || *result.BastionIP != "203.0.113.10" {
+		t.Errorf("BastionIP = %v, want 203.0.113.10", result.BastionIP)
+	}
+}
+
 func TestScaleOvhWorkers_Success(t *testing.T) {
 	expectedResponse := ScaleWorkersResult{PreviousCount: 2, NewCount: 5}
 	handler := func(w http.ResponseWriter, r *http.Request) {
