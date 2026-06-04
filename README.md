@@ -216,7 +216,7 @@ Switch back to stable any time with `ankra config beta disable`.
   - `--help` on any command
   - `--version` to see CLI release & API compatibility
 
-> **New to Ankra?** Start with our [platform overview](https://ankra.io) and [getting started guide](https://docs.ankra.io/getting-started).
+> **New to Ankra?** Start with our [platform overview](https://ankra.io) and [getting started guide](https://docs.ankra.ai/getting-started).
 
 
 ## Build from Source
@@ -830,7 +830,7 @@ ankra cluster upcloud node-group add <cluster_id> --name workers --instance-type
 - Ensure `ankra` is in your `PATH`
 - Verify `ANKRA_API_TOKEN` is set
 - Check connectivity: `ankra cluster list`
-- Visit our [documentation](https://docs.ankra.io) for detailed guides
+- Visit our [documentation](https://docs.ankra.ai) for detailed guides
 - Check the [Ankra Platform status](https://status.ankra.io) for any service outages
 
 ## Project Structure
@@ -892,13 +892,13 @@ CI runs `go test -race` on every push via GitHub Actions.
 ## Learn More
 
 - **Platform Overview**: [ankra.io](https://ankra.io)
-- **Documentation**: [docs.ankra.io](https://docs.ankra.io)
+- **Documentation**: [docs.ankra.ai](https://docs.ankra.ai)
 - **Blog & Tutorials**: [blog.ankra.io](https://blog.ankra.io)
 - **Community**: [community.ankra.io](https://community.ankra.io)
 
 ## Support
 
 - Issues: https://github.com/ankraio/ankra-cli/issues
-- Documentation: [docs.ankra.io](https://docs.ankra.io)
+- Documentation: [docs.ankra.ai](https://docs.ankra.ai)
 - Community Slack: [community.ankra.io](https://community.ankra.io)
 - Email: hello@ankra.io

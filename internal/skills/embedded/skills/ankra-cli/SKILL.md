@@ -13,7 +13,7 @@ The `ankra` CLI is the terminal client for the Ankra Platform (an AI-powered Kub
 bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
 ```
 
-Verify: `ankra --version`. Docs: https://docs.ankra.io
+Verify: `ankra --version`. Docs: https://docs.ankra.ai
 
 ## Core workflow (do this in order)
 

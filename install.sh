@@ -262,7 +262,7 @@ main() {
     echo -e "   ${CYAN}ankra chat${NC}                    ${GRAY}Chat with Ankra AI${NC}"
     echo
     echo -e "${CYAN}─────────────────────────────────────────────────────────────${NC}"
-    echo -e "${PURPLE}${BOLD}Documentation:${NC} ${CYAN}https://docs.ankra.io${NC}"
+    echo -e "${PURPLE}${BOLD}Documentation:${NC} ${CYAN}https://docs.ankra.ai${NC}"
     echo -e "${PURPLE}${BOLD}Support:${NC}       ${CYAN}hello@ankra.io${NC}"
     echo
 }
