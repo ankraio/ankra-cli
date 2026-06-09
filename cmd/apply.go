@@ -160,6 +160,18 @@ func buildImportRequest(path string) (client.CreateImportClusterRequest, error) 
 		}
 	}
 
+	var prometheusMetrics *client.PrometheusMetrics
+	if pm, ok := spec["prometheus_metrics"].(map[string]interface{}); ok {
+		endpoint := optString(pm, "endpoint")
+		if endpoint != "" {
+			prometheusMetrics = &client.PrometheusMetrics{
+				Endpoint:       endpoint,
+				CredentialName: optString(pm, "credential_name"),
+				Flavor:         optString(pm, "flavor"),
+			}
+		}
+	}
+
 	baseDirectory := filepath.Dir(path)
 	rawStackItems, _ := spec["stacks"].([]interface{})
 	stacks := make([]client.Stack, 0, len(rawStackItems))
@@ -183,8 +195,9 @@ func buildImportRequest(path string) (client.CreateImportClusterRequest, error) 
 		Name:        clusterName,
 		Description: clusterDescription,
 		Spec: client.CreateResourceSpec{
-			GitRepository: gitRepository,
-			Stacks:        stacks,
+			GitRepository:     gitRepository,
+			PrometheusMetrics: prometheusMetrics,
+			Stacks:            stacks,
 		},
 	}, nil
 }
