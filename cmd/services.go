@@ -22,6 +22,7 @@ type APIClient interface {
 	ApplyCluster(ctx context.Context, clusterReq client.CreateImportClusterRequest, wait bool) (*client.ImportResponse, bool, error)
 	ValidateCluster(ctx context.Context, spec client.CreateResourceSpec, strictSecrets bool, clusterID string) (*client.ValidateClusterResponse, error)
 	CreateStackDraft(ctx context.Context, clusterID string, stack client.Stack) (*client.StackDraftResult, error)
+	GetClusterKubeToken(ctx context.Context, clusterID string) (*client.KubeToken, error)
 
 	ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error)
 	ListAvailableAddons(clusterID string) ([]client.AvailableAddon, error)
@@ -60,12 +61,23 @@ type APIClient interface {
 	UpdateClusterVariable(ctx context.Context, clusterID, name, value, description string) (*client.ClusterVariableResult, error)
 	DeleteClusterVariable(ctx context.Context, clusterID, name string) error
 
+	CreateSupportTicket(ctx context.Context, req client.CreateSupportTicketRequest) (*client.SupportTicket, error)
+	ListSupportTickets(ctx context.Context, opts client.ListSupportTicketsOptions) (*client.SupportTicketListResponse, error)
+	GetSupportTicket(ctx context.Context, ticketID string) (*client.SupportTicket, error)
+	CommentSupportTicket(ctx context.Context, ticketID, comment string) (*client.SupportTicket, error)
+	CloseSupportTicket(ctx context.Context, ticketID string) (*client.SupportTicket, error)
+	UploadSupportAttachment(ctx context.Context, ticketID, filePath string) (*client.SupportTicket, error)
+
 	ListClusterStacks(clusterID string) ([]client.ClusterStackListItem, error)
 	CreateStack(ctx context.Context, clusterID, name, description string) (*client.CreateStackResult, error)
 	DeleteStack(ctx context.Context, clusterID, stackName string) (*client.DeleteStackResult, error)
 	RenameStack(ctx context.Context, clusterID, stackName, newName string) (*client.RenameStackResult, error)
 	GetStackHistory(clusterID, stackName string) (*client.GetStackHistoryResponse, error)
 	CloneStackToCluster(ctx context.Context, targetClusterID string, cloneReq client.CloneStackToClusterRequest) (*client.CloneStackToClusterResult, error)
+
+	ListStackProfiles(page, pageSize int, search string) (*client.StackProfileListResponse, error)
+	ExportStackProfileIac(profileID string, version int) (*client.StackProfileIacExport, error)
+	ImportStackProfile(importRequest client.ImportStackProfileRequest) (*client.CreateStackProfileResult, error)
 
 	ListOrganisations() ([]client.OrganisationSummary, error)
 	SwitchOrganisation(orgID string) (*client.SwitchOrganisationResponse, error)
@@ -99,6 +111,8 @@ type APIClient interface {
 	StreamPodLogs(ctx context.Context, clusterID string, opts client.PodLogOptions, writer io.Writer) error
 	ListHelmReleases(clusterID string, opts *client.HelmReleasesOptions) (*client.HelmReleasesResponse, error)
 	UninstallHelmRelease(clusterID, releaseName, namespace string) (*client.UninstallHelmReleaseResponse, error)
+	QueryPrometheusInstant(clusterID, query string, timeoutSeconds int) (*client.PrometheusQueryResult, error)
+	QueryPrometheusRange(clusterID string, opts client.PrometheusRangeOptions) (*client.PrometheusQueryResult, error)
 
 	ListHelmRegistries() (*client.ListHelmRegistriesResponse, error)
 	GetHelmRegistry(registryName string) (*client.GetHelmRegistryResponse, error)

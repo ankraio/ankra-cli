@@ -65,6 +65,22 @@ func (m baseMock) CreateStackDraft(ctx context.Context, clusterID string, stack 
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetClusterKubeToken(ctx context.Context, clusterID string) (*client.KubeToken, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListStackProfiles(page, pageSize int, search string) (*client.StackProfileListResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ExportStackProfileIac(profileID string, version int) (*client.StackProfileIacExport, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ImportStackProfile(importRequest client.ImportStackProfileRequest) (*client.CreateStackProfileResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error) {
 	return nil, errors.New("not implemented")
 }
@@ -151,6 +167,30 @@ func (m baseMock) UpdateClusterVariable(ctx context.Context, clusterID, name, va
 
 func (m baseMock) DeleteClusterVariable(ctx context.Context, clusterID, name string) error {
 	return errors.New("not implemented")
+}
+
+func (m baseMock) CreateSupportTicket(ctx context.Context, req client.CreateSupportTicketRequest) (*client.SupportTicket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSupportTickets(ctx context.Context, opts client.ListSupportTicketsOptions) (*client.SupportTicketListResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSupportTicket(ctx context.Context, ticketID string) (*client.SupportTicket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CommentSupportTicket(ctx context.Context, ticketID, comment string) (*client.SupportTicket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CloseSupportTicket(ctx context.Context, ticketID string) (*client.SupportTicket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UploadSupportAttachment(ctx context.Context, ticketID, filePath string) (*client.SupportTicket, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) CancelExecution(ctx context.Context, executionID string) (*client.CancelExecutionResponse, error) {
@@ -314,6 +354,14 @@ func (m baseMock) ListHelmReleases(clusterID string, opts *client.HelmReleasesOp
 }
 
 func (m baseMock) UninstallHelmRelease(clusterID, releaseName, namespace string) (*client.UninstallHelmReleaseResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) QueryPrometheusInstant(clusterID, query string, timeoutSeconds int) (*client.PrometheusQueryResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) QueryPrometheusRange(clusterID string, opts client.PrometheusRangeOptions) (*client.PrometheusQueryResult, error) {
 	return nil, errors.New("not implemented")
 }
 

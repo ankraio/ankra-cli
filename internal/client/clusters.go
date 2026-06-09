@@ -291,9 +291,16 @@ type GitRepository struct {
 	InstanceURL    string `json:"instance_url,omitempty"`
 }
 
+type PrometheusMetrics struct {
+	Endpoint       string `json:"endpoint"`
+	CredentialName string `json:"credential_name,omitempty"`
+	Flavor         string `json:"flavor,omitempty"`
+}
+
 type CreateResourceSpec struct {
-	GitRepository *GitRepository `json:"git_repository,omitempty"`
-	Stacks        []Stack        `json:"stacks"`
+	GitRepository     *GitRepository     `json:"git_repository,omitempty"`
+	PrometheusMetrics *PrometheusMetrics `json:"prometheus_metrics,omitempty"`
+	Stacks            []Stack            `json:"stacks"`
 }
 
 type CreateImportClusterRequest struct {
