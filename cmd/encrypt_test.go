@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -181,6 +182,126 @@ func TestContainsString(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNormalizeEncryptKey(t *testing.T) {
+	tests := []struct {
+		name      string
+		rawKey    string
+		expected  string
+		expectErr bool
+	}{
+		{"plain key", "password", "password", false},
+		{"dotted path uses last segment", "data.password", "password", false},
+		{"deeply dotted path", "spec.template.secret.apiKey", "apiKey", false},
+		{"surrounding whitespace trimmed", "  password  ", "password", false},
+		{"empty key", "", "", true},
+		{"whitespace-only key", "   ", "", true},
+		{"trailing dot", "data.", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := normalizeEncryptKey(tt.rawKey)
+			if tt.expectErr {
+				if err == nil {
+					t.Fatalf("normalizeEncryptKey(%q) expected error, got %q", tt.rawKey, result)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("normalizeEncryptKey(%q) unexpected error: %v", tt.rawKey, err)
+			}
+			if result != tt.expected {
+				t.Errorf("normalizeEncryptKey(%q) = %q, want %q", tt.rawKey, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestVerifyKeyEncrypted(t *testing.T) {
+	encryptedSecret := `apiVersion: v1
+kind: Secret
+data:
+  username: YWRtaW4=
+  password: ENC[AES256_GCM,data:abc,iv:def,tag:ghi,type:str]
+sops:
+  mac: ENC[AES256_GCM,data:mac]
+  encrypted_regex: ^(password)$
+`
+
+	plaintextWithSopsMetadata := `apiVersion: v1
+kind: Secret
+data:
+  username: YWRtaW4=
+  password: aHVudGVyMg==
+sops:
+  mac: ENC[AES256_GCM,data:mac]
+  encrypted_regex: ^(data.password)$
+`
+
+	t.Run("encrypted value passes", func(t *testing.T) {
+		if err := verifyKeyEncrypted(encryptedSecret, "password"); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("plaintext value under sops metadata fails", func(t *testing.T) {
+		err := verifyKeyEncrypted(plaintextWithSopsMetadata, "password")
+		if err == nil {
+			t.Fatal("expected error for plaintext value")
+		}
+		if !strings.Contains(err.Error(), "still plaintext") {
+			t.Errorf("expected plaintext error, got: %v", err)
+		}
+	})
+
+	t.Run("missing key fails", func(t *testing.T) {
+		err := verifyKeyEncrypted(encryptedSecret, "token")
+		if err == nil {
+			t.Fatal("expected error for missing key")
+		}
+		if !strings.Contains(err.Error(), "SOPS encrypted nothing") {
+			t.Errorf("expected missing-key error, got: %v", err)
+		}
+	})
+
+	t.Run("sops metadata key does not count as a match", func(t *testing.T) {
+		if err := verifyKeyEncrypted(encryptedSecret, "mac"); err == nil {
+			t.Error("expected error: 'mac' only exists inside the sops metadata block")
+		}
+	})
+
+	t.Run("nested mapping under matched key must be fully encrypted", func(t *testing.T) {
+		content := `credentials:
+  username: ENC[AES256_GCM,data:abc]
+  password: plain
+`
+		if err := verifyKeyEncrypted(content, "credentials"); err == nil {
+			t.Error("expected error for partially encrypted subtree")
+		}
+	})
+
+	t.Run("multi-document YAML finds the key in any document", func(t *testing.T) {
+		content := `kind: Namespace
+metadata:
+  name: web
+---
+kind: Secret
+data:
+  password: ENC[AES256_GCM,data:abc]
+`
+		if err := verifyKeyEncrypted(content, "password"); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("leading fingerprint comment is tolerated", func(t *testing.T) {
+		content := "# ankra_content_fingerprint: abc123\ndata:\n  password: ENC[AES256_GCM,data:abc]\n"
+		if err := verifyKeyEncrypted(content, "password"); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
 }
 
 func TestGetEncryptedPathsFromConfig(t *testing.T) {

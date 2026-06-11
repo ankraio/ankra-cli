@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -838,11 +840,56 @@ func TestRunManifestsDelete_NotFoundErrors(t *testing.T) {
 	}
 }
 
-func TestRunEncryptManifest_ClusterModePatchesEncryptedContent(t *testing.T) {
+const plainSecretManifestYAML = `apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+  namespace: web
+type: Opaque
+data:
+  username: YWRtaW4=
+  password: aHVudGVyMg==
+`
+
+const encryptedSecretManifestYAML = `apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+  namespace: web
+type: Opaque
+data:
+  username: YWRtaW4=
+  password: ENC[AES256_GCM,data:abc,iv:def,tag:ghi,type:str]
+sops:
+  age:
+    - recipient: age1example
+  lastmodified: "2026-06-11T00:00:00Z"
+  mac: ENC[AES256_GCM,data:mac]
+  encrypted_regex: ^(password)$
+`
+
+const sopsMetadataOnlySecretManifestYAML = `apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+  namespace: web
+type: Opaque
+data:
+  username: YWRtaW4=
+  password: aHVudGVyMg==
+sops:
+  age:
+    - recipient: age1example
+  lastmodified: "2026-06-11T00:00:00Z"
+  mac: ENC[AES256_GCM,data:mac]
+  encrypted_regex: ^(data.password)$
+`
+
+func TestRunEncryptManifest_ClusterModeDottedKeyEncryptsLeaf(t *testing.T) {
 	mock := &upgradeMock{
 		iac:           sampleIaCYAMLForCmd,
-		manifestB64:   base64.StdEncoding.EncodeToString([]byte("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: web\n")),
-		encryptResult: "ENC[AES256_GCM,data:abc]\n",
+		manifestB64:   base64.StdEncoding.EncodeToString([]byte(plainSecretManifestYAML)),
+		encryptResult: encryptedSecretManifestYAML,
 	}
 	setMockClient(t, mock)
 	resetUpgradeCommandFlags(t)
@@ -862,16 +909,19 @@ func TestRunEncryptManifest_ClusterModePatchesEncryptedContent(t *testing.T) {
 	if len(mock.encryptCalls) != 1 {
 		t.Fatalf("expected one EncryptYAML call, got %d", len(mock.encryptCalls))
 	}
-	if len(mock.encryptCalls[0].EncryptedPaths) != 1 || mock.encryptCalls[0].EncryptedPaths[0] != "data.password" {
-		t.Errorf("encrypted paths = %v, want [data.password]", mock.encryptCalls[0].EncryptedPaths)
+	if len(mock.encryptCalls[0].EncryptedPaths) != 1 || mock.encryptCalls[0].EncryptedPaths[0] != "password" {
+		t.Errorf("encrypted paths = %v, want [password]", mock.encryptCalls[0].EncryptedPaths)
+	}
+	if !strings.Contains(out.String(), `encrypting key "password"`) {
+		t.Errorf("expected normalisation note, got:\n%s", out.String())
 	}
 
 	if len(mock.capturedRequests) != 1 {
 		t.Fatalf("expected one PATCH, got %d", len(mock.capturedRequests))
 	}
 	manifest := mock.capturedRequests[0].Body.Spec.Stacks[0].Manifests[0]
-	if len(manifest.EncryptedPaths) != 1 || manifest.EncryptedPaths[0] != "data.password" {
-		t.Errorf("manifest.encrypted_paths = %v, want [data.password]", manifest.EncryptedPaths)
+	if len(manifest.EncryptedPaths) != 1 || manifest.EncryptedPaths[0] != "password" {
+		t.Errorf("manifest.encrypted_paths = %v, want [password]", manifest.EncryptedPaths)
 	}
 	decoded, err := base64.StdEncoding.DecodeString(manifest.ManifestBase64)
 	if err != nil {
@@ -879,6 +929,178 @@ func TestRunEncryptManifest_ClusterModePatchesEncryptedContent(t *testing.T) {
 	}
 	if !strings.Contains(string(decoded), "ENC[AES256_GCM") {
 		t.Errorf("expected encrypted content in PATCH, got: %s", decoded)
+	}
+}
+
+func TestRunEncryptManifest_ClusterModeFailsWhenValueStaysPlaintext(t *testing.T) {
+	mock := &upgradeMock{
+		iac:           sampleIaCYAMLForCmd,
+		manifestB64:   base64.StdEncoding.EncodeToString([]byte(plainSecretManifestYAML)),
+		encryptResult: sopsMetadataOnlySecretManifestYAML,
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "demo-namespace",
+		"--key", "password",
+		"--cluster", fakeClusterUUID,
+	})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected verification error when value stays plaintext")
+	}
+	if !strings.Contains(err.Error(), "still plaintext") {
+		t.Errorf("expected plaintext verification error, got: %v", err)
+	}
+	if len(mock.capturedRequests) != 0 {
+		t.Errorf("must not PATCH unverified content, got %d", len(mock.capturedRequests))
+	}
+}
+
+func TestRunEncryptManifest_ClusterModeFailsWhenKeyMissing(t *testing.T) {
+	mock := &upgradeMock{
+		iac:           sampleIaCYAMLForCmd,
+		manifestB64:   base64.StdEncoding.EncodeToString([]byte(plainSecretManifestYAML)),
+		encryptResult: encryptedSecretManifestYAML,
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "demo-namespace",
+		"--key", "does-not-exist",
+		"--cluster", fakeClusterUUID,
+	})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected verification error when the key is absent from the output")
+	}
+	if !strings.Contains(err.Error(), "SOPS encrypted nothing") {
+		t.Errorf("expected missing-key verification error, got: %v", err)
+	}
+	if len(mock.capturedRequests) != 0 {
+		t.Errorf("must not PATCH unverified content, got %d", len(mock.capturedRequests))
+	}
+}
+
+func writeEncryptFileModeFixture(t *testing.T, manifestYAML string) (clusterPath, manifestPath string) {
+	t.Helper()
+	dir := t.TempDir()
+	manifestPath = filepath.Join(dir, "manifests", "secret.yaml")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+		t.Fatalf("create manifests dir: %v", err)
+	}
+	if err := os.WriteFile(manifestPath, []byte(manifestYAML), 0o644); err != nil {
+		t.Fatalf("write manifest fixture: %v", err)
+	}
+	clusterPath = filepath.Join(dir, "cluster.yaml")
+	clusterYAML := `apiVersion: v1
+kind: ImportCluster
+metadata:
+  name: file-mode-test
+spec:
+  stacks:
+    - name: web
+      manifests:
+        - name: my-secret
+          from_file: manifests/secret.yaml
+`
+	if err := os.WriteFile(clusterPath, []byte(clusterYAML), 0o644); err != nil {
+		t.Fatalf("write cluster fixture: %v", err)
+	}
+	return clusterPath, manifestPath
+}
+
+func TestRunEncryptManifest_FileModeDottedKeyEncryptsLeaf(t *testing.T) {
+	clusterPath, manifestPath := writeEncryptFileModeFixture(t, plainSecretManifestYAML)
+
+	mock := &upgradeMock{encryptResult: encryptedSecretManifestYAML}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "my-secret",
+		"--key", "data.password",
+		"-f", clusterPath,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+
+	if len(mock.encryptCalls) != 1 {
+		t.Fatalf("expected one EncryptYAML call, got %d", len(mock.encryptCalls))
+	}
+	if len(mock.encryptCalls[0].EncryptedPaths) != 1 || mock.encryptCalls[0].EncryptedPaths[0] != "password" {
+		t.Errorf("encrypted paths = %v, want [password]", mock.encryptCalls[0].EncryptedPaths)
+	}
+
+	writtenManifest, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read written manifest: %v", err)
+	}
+	if string(writtenManifest) != encryptedSecretManifestYAML {
+		t.Errorf("manifest file = %q, want the encrypted content", writtenManifest)
+	}
+
+	writtenCluster, err := os.ReadFile(clusterPath)
+	if err != nil {
+		t.Fatalf("read written cluster file: %v", err)
+	}
+	if !strings.Contains(string(writtenCluster), "- password") {
+		t.Errorf("expected encrypted_paths entry 'password' in cluster file, got:\n%s", writtenCluster)
+	}
+	if strings.Contains(string(writtenCluster), "data.password") {
+		t.Errorf("cluster file must store the leaf key, not the dotted path:\n%s", writtenCluster)
+	}
+}
+
+func TestRunEncryptManifest_FileModeRefusesSilentPlaintext(t *testing.T) {
+	clusterPath, manifestPath := writeEncryptFileModeFixture(t, plainSecretManifestYAML)
+
+	mock := &upgradeMock{encryptResult: sopsMetadataOnlySecretManifestYAML}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "my-secret",
+		"--key", "data.password",
+		"-f", clusterPath,
+	})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected verification error when SOPS encrypts nothing")
+	}
+	if !strings.Contains(err.Error(), "still plaintext") {
+		t.Errorf("expected plaintext verification error, got: %v", err)
+	}
+
+	manifestAfter, readErr := os.ReadFile(manifestPath)
+	if readErr != nil {
+		t.Fatalf("read manifest after failed run: %v", readErr)
+	}
+	if string(manifestAfter) != plainSecretManifestYAML {
+		t.Errorf("manifest file must be untouched on verification failure, got:\n%s", manifestAfter)
+	}
+
+	clusterAfter, readErr := os.ReadFile(clusterPath)
+	if readErr != nil {
+		t.Fatalf("read cluster file after failed run: %v", readErr)
+	}
+	if strings.Contains(string(clusterAfter), "encrypted_paths") {
+		t.Errorf("cluster file must not gain encrypted_paths on verification failure, got:\n%s", clusterAfter)
 	}
 }
 
