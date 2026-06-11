@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -68,9 +69,31 @@ func SetVersion(v string) {
 
 func Execute() {
 	rootCmd.Version = version
-	if err := rootCmd.Execute(); err != nil {
+	executedCommand, err := rootCmd.ExecuteC()
+	if err != nil {
+		printSupportHintForUnexpectedError(os.Stderr, executedCommand, err)
 		os.Exit(1)
 	}
+}
+
+// supportHintMessage is shown after an unexpected platform response so users
+// (and agents driving the CLI) know they can file a bug without leaving the
+// terminal. Expected failures (auth, not-found, validation, usage errors)
+// never trigger it.
+const supportHintMessage = `
+If this looks like a bug, report it from the terminal:
+  ankra support create --category bug --subject "<short summary>" --description "<command you ran + the error above>"
+Attach screenshots with 'ankra support attach' and track replies with 'ankra support get'.`
+
+func printSupportHintForUnexpectedError(out io.Writer, executedCommand *cobra.Command, err error) {
+	var unexpectedResponse *client.UnexpectedResponseError
+	if !errors.As(err, &unexpectedResponse) {
+		return
+	}
+	if executedCommand != nil && strings.HasPrefix(executedCommand.CommandPath(), "ankra support") {
+		return
+	}
+	_, _ = fmt.Fprintln(out, supportHintMessage)
 }
 
 func init() {

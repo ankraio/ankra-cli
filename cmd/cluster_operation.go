@@ -83,8 +83,7 @@ var clusterOperationsListCmd = &cobra.Command{
 			limit = defaultExecutionsPageSize
 		}
 
-		outputRaw, _ := cmd.Flags().GetString("output")
-		format, err := parseOutputFormat(outputRaw)
+		format, err := structuredFormatFromFlags(cmd)
 		if err != nil {
 			return err
 		}
@@ -201,6 +200,9 @@ var clusterOperationsCancelCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("cancelling execution: %w", err)
 			}
+			if rendered, err := renderStructured(cmd, result); rendered || err != nil {
+				return err
+			}
 			fmt.Printf("Execution '%s' cancelled (status: %s)\n", result.ExecutionID, result.Status)
 			return nil
 		}
@@ -208,6 +210,12 @@ var clusterOperationsCancelCmd = &cobra.Command{
 		result, err := apiClient.BatchCancelExecutions(ctx, args)
 		if err != nil {
 			return fmt.Errorf("cancelling executions: %w", err)
+		}
+		if rendered, err := renderStructured(cmd, result); rendered || err != nil {
+			if err == nil && len(result.NotFound) > 0 {
+				return fmt.Errorf("%d execution(s) not found", len(result.NotFound))
+			}
+			return err
 		}
 		if len(result.Cancelled) > 0 {
 			fmt.Printf("Cancelled (%d):\n", len(result.Cancelled))
@@ -245,6 +253,9 @@ var clusterOperationsCancelStepCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("cancelling step: %w", err)
 		}
+		if rendered, err := renderStructured(cmd, result); rendered || err != nil {
+			return err
+		}
 		fmt.Printf("Step '%s' cancelled (status: %s)\n", result.StepID, result.Status)
 		return nil
 	},
@@ -262,6 +273,9 @@ var clusterOperationsRetryCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("retrying execution: %w", err)
 		}
+		if rendered, err := renderStructured(cmd, result); rendered || err != nil {
+			return err
+		}
 		fmt.Printf("Retry queued: %s (status: %s)\n", result.ID, result.Status)
 		return nil
 	},
@@ -275,8 +289,7 @@ var clusterOperationsStepsCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		executionID := args[0]
 
-		outputRaw, _ := cmd.Flags().GetString("output")
-		format, err := parseOutputFormat(outputRaw)
+		format, err := structuredFormatFromFlags(cmd)
 		if err != nil {
 			return err
 		}
@@ -434,6 +447,11 @@ func init() {
 		"Output format: json or yaml (default: human-readable)")
 	clusterOperationsStepsCmd.Flags().StringP("output", "o", "",
 		"Output format: json or yaml (default: human-readable)")
+	registerStructuredOutputFlags(
+		clusterOperationsCancelCmd,
+		clusterOperationsCancelStepCmd,
+		clusterOperationsRetryCmd,
+	)
 
 	clusterOperationsCmd.AddCommand(clusterOperationsListCmd)
 	clusterOperationsCmd.AddCommand(clusterOperationsCancelCmd)

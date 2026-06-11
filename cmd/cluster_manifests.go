@@ -131,6 +131,14 @@ var clusterManifestsListCmd = &cobra.Command{
 			fmt.Printf("Error listing manifests: %v\n", err)
 			return
 		}
+		if len(args) == 0 {
+			if manifests == nil {
+				manifests = []client.ClusterManifestListItem{}
+			}
+			if renderStructuredOrExit(cmd, manifests) {
+				return
+			}
+		}
 		if len(manifests) == 0 {
 			fmt.Println("No manifests found for the active cluster.")
 			return
@@ -147,6 +155,9 @@ var clusterManifestsListCmd = &cobra.Command{
 			}
 			if found == nil {
 				fmt.Printf("Manifest %q not found on the active cluster.\n", name)
+				return
+			}
+			if renderStructuredOrExit(cmd, found) {
 				return
 			}
 
@@ -406,12 +417,11 @@ func parseManifestsUpgradeFlags(cmd *cobra.Command) (manifestsUpgradeFlags, erro
 	cluster, _ := cmd.Flags().GetString("cluster")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	yes, _ := cmd.Flags().GetBool("yes")
-	outRaw, _ := cmd.Flags().GetString("output")
 
 	if manifestStdin != "" && manifestStdin != "-" {
 		return manifestsUpgradeFlags{}, fmt.Errorf("--manifest currently only accepts `-` (stdin); use --from-file for a file path")
 	}
-	out, err := parseOutputFormat(outRaw)
+	out, err := structuredFormatFromFlags(cmd)
 	if err != nil {
 		return manifestsUpgradeFlags{}, err
 	}
@@ -450,6 +460,7 @@ func init() {
 	clusterManifestsUpgradeCmd.Flags().Bool("dry-run", false, "Print the proposed before/after spec without applying changes")
 	clusterManifestsUpgradeCmd.Flags().Bool("yes", false, "Skip confirmation prompts")
 	clusterManifestsUpgradeCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
+	registerStructuredOutputFlags(clusterManifestsListCmd)
 
 	clusterManifestsGetCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
 	clusterManifestsGetCmd.Flags().StringP("output", "o", "", "Output format: yaml (decoded, default) or raw (base64)")

@@ -31,6 +31,12 @@ Skills are embedded in the CLI, so installation works offline.
   ankra skills install ankra-cli ankra-gitops`,
 }
 
+type skillListEntry struct {
+	Name        string `json:"name" yaml:"name"`
+	Description string `json:"description" yaml:"description"`
+	Installed   bool   `json:"installed" yaml:"installed"`
+}
+
 var skillsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List the available Ankra skills",
@@ -48,14 +54,25 @@ var skillsListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		entries := make([]skillListEntry, 0, len(list))
 		for _, s := range list {
+			entries = append(entries, skillListEntry{
+				Name:        s.Name,
+				Description: s.Description,
+				Installed:   dirExists(filepath.Join(target, s.Name)),
+			})
+		}
+		if rendered, err := renderStructured(cmd, entries); rendered || err != nil {
+			return err
+		}
+		for _, entry := range entries {
 			marker := ""
-			if dirExists(filepath.Join(target, s.Name)) {
+			if entry.Installed {
 				marker = " [installed]"
 			}
-			fmt.Printf("%s%s\n  %s\n", s.Name, marker, s.Description)
+			fmt.Printf("%s%s\n  %s\n", entry.Name, marker, entry.Description)
 		}
-		fmt.Printf("\n%d skills available. Install with: ankra skills install\n", len(list))
+		fmt.Printf("\n%d skills available. Install with: ankra skills install\n", len(entries))
 		return nil
 	},
 }
@@ -174,6 +191,7 @@ func init() {
 		c.Flags().String("source", "", "read skills from a local directory instead of the embedded copy")
 	}
 	skillsInstallCmd.Flags().Bool("force", false, "overwrite existing skills without prompting")
+	registerStructuredOutputFlags(skillsListCmd)
 
 	skillsCmd.AddCommand(skillsListCmd)
 	skillsCmd.AddCommand(skillsInstallCmd)

@@ -36,8 +36,7 @@ var clusterVariablesListCmd = &cobra.Command{
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterFlag, _ := cmd.Flags().GetString("cluster")
-		outRaw, _ := cmd.Flags().GetString("output")
-		out, err := parseOutputFormat(outRaw)
+		out, err := structuredFormatFromFlags(cmd)
 		if err != nil {
 			return err
 		}
@@ -65,8 +64,7 @@ var clusterVariablesGetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		clusterFlag, _ := cmd.Flags().GetString("cluster")
-		outRaw, _ := cmd.Flags().GetString("output")
-		out, err := parseOutputFormat(outRaw)
+		out, err := structuredFormatFromFlags(cmd)
 		if err != nil {
 			return err
 		}
@@ -231,8 +229,8 @@ func renderSingleClusterVariable(out io.Writer, v client.ClusterVariable, format
 func init() {
 	for _, c := range []*cobra.Command{clusterVariablesListCmd, clusterVariablesGetCmd} {
 		c.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
-		c.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
 	}
+	registerStructuredOutputFlags(clusterVariablesListCmd, clusterVariablesGetCmd)
 	clusterVariablesSetCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
 	clusterVariablesSetCmd.Flags().String("description", "", "Optional human-readable description")
 	clusterVariablesDeleteCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")

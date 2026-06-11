@@ -28,6 +28,13 @@ var upcloudCredListCmd = &cobra.Command{
 			return
 		}
 
+		if creds == nil {
+			creds = []client.UpcloudCredentialListItem{}
+		}
+		if renderStructuredOrExit(cmd, creds) {
+			return
+		}
+
 		if len(creds) == 0 {
 			fmt.Println("No UpCloud credentials found.")
 			return
@@ -116,6 +123,13 @@ var upcloudSSHKeyListCmd = &cobra.Command{
 		creds, err := apiClient.ListUpcloudSSHKeyCredentials()
 		if err != nil {
 			fmt.Printf("Error listing SSH key credentials: %v\n", err)
+			return
+		}
+
+		if creds == nil {
+			creds = []client.UpcloudCredentialListItem{}
+		}
+		if renderStructuredOrExit(cmd, creds) {
 			return
 		}
 
@@ -208,6 +222,8 @@ func init() {
 	upcloudSSHKeyCreateCmd.Flags().String("public-key", "", "SSH public key")
 	upcloudSSHKeyCreateCmd.Flags().Bool("generate", false, "Generate a new SSH keypair")
 	_ = upcloudSSHKeyCreateCmd.MarkFlagRequired("name")
+
+	registerStructuredOutputFlags(upcloudCredListCmd, upcloudSSHKeyListCmd)
 
 	upcloudSSHKeyCmd.AddCommand(upcloudSSHKeyListCmd)
 	upcloudSSHKeyCmd.AddCommand(upcloudSSHKeyCreateCmd)

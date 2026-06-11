@@ -108,7 +108,7 @@ func (c *Client) DeleteCluster(ctx context.Context, name string) error {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("status %d: %s", resp.StatusCode, redactedBodyForError(bodyBytes, 500))
+		return newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("status %d: %s", resp.StatusCode, redactedBodyForError(bodyBytes, 500)))
 	}
 	return nil
 }
@@ -141,7 +141,7 @@ func (c *Client) ProvisionCluster(ctx context.Context, clusterID string) (*Provi
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("provision failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("provision failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result ProvisionClusterResult
@@ -182,7 +182,7 @@ func (c *Client) DeprovisionCluster(ctx context.Context, clusterID string, autoD
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("deprovision failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("deprovision failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result DeprovisionClusterResult
@@ -230,7 +230,7 @@ func (c *Client) RollToClusterResourceVersion(ctx context.Context, clusterID, ve
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("roll-to failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("roll-to failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result RollToClusterResourceVersionResult
@@ -352,7 +352,7 @@ func (c *Client) TriggerReconcile(ctx context.Context, clusterID string) (*Trigg
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("reconcile failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("reconcile failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result TriggerReconcileResult
@@ -451,7 +451,7 @@ func (c *Client) ValidateCluster(ctx context.Context, spec CreateResourceSpec, s
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("validation request failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("validation request failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result ValidateClusterResponse
@@ -526,7 +526,7 @@ func (c *Client) CreateStackDraft(ctx context.Context, clusterID string, stack S
 		}
 		return &StackDraftResult{Errors: detail.Detail}, nil
 	case resp.StatusCode < 200 || resp.StatusCode >= 300:
-		return nil, fmt.Errorf("draft request failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("draft request failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var parsed struct {

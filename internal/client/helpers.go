@@ -64,7 +64,7 @@ func (c *Client) getJSON(url string, target interface{}) error {
 		return fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status: %s", resp.Status)
+		return newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("unexpected status: %s", resp.Status))
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodySize)).Decode(target)
 }

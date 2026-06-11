@@ -148,7 +148,7 @@ func (c *Client) GetResources(clusterID string, req GetResourcesRequest) (*GetRe
 		return nil, parseClusterError(body)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	var response GetResourcesResponse
@@ -208,7 +208,7 @@ func (c *Client) StreamPodLogs(ctx context.Context, clusterID string, opts PodLo
 		if err != nil {
 			return fmt.Errorf("read response: %w", err)
 		}
-		return fmt.Errorf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -302,7 +302,7 @@ func (c *Client) ListHelmReleases(clusterID string, opts *HelmReleasesOptions) (
 		return nil, parseClusterError(body)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	var response HelmReleasesResponse
@@ -352,7 +352,7 @@ func (c *Client) UninstallHelmRelease(clusterID, releaseName, namespace string) 
 		return nil, parseClusterError(body)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	var response UninstallHelmReleaseResponse

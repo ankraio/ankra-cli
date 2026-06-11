@@ -133,7 +133,7 @@ func (c *Client) CreateHetznerCluster(req CreateHetznerClusterRequest) (*CreateH
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("create failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	var result CreateHetznerClusterResponse
@@ -165,7 +165,7 @@ func (c *Client) DeprovisionHetznerCluster(clusterID string, force bool) (*Depro
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("deprovision failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("deprovision failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	var result DeprovisionHetznerClusterResponse
@@ -375,7 +375,7 @@ func (c *Client) doScaleWorkers(url string, workerCount int) (*ScaleWorkersResul
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("scale failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("scale failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	var result ScaleWorkersResult
@@ -409,7 +409,7 @@ func (c *Client) doUpgradeK8sVersion(url, targetVersion string) (*UpgradeK8sVers
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upgrade failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("upgrade failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	var result UpgradeK8sVersionResult

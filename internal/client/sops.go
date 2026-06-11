@@ -80,7 +80,7 @@ func (c *Client) EncryptYAML(yamlContent string, encryptedPaths []string) (strin
 		if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Detail != "" {
 			return "", fmt.Errorf("%s", apiErr.Detail)
 		}
-		return "", fmt.Errorf("encrypt failed: status %d", resp.StatusCode)
+		return "", newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("encrypt failed: status %d", resp.StatusCode))
 	}
 
 	var encryptResp EncryptContentResponse
@@ -128,7 +128,7 @@ func (c *Client) DecryptYAML(encryptedYaml string) (string, error) {
 		if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Detail != "" {
 			return "", fmt.Errorf("%s", apiErr.Detail)
 		}
-		return "", fmt.Errorf("decrypt failed: status %d", resp.StatusCode)
+		return "", newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("decrypt failed: status %d", resp.StatusCode))
 	}
 
 	var decryptResp DecryptContentResponse

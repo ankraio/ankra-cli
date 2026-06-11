@@ -26,6 +26,7 @@ func init() {
 	clusterApplyCmd.Flags().StringP("file", "f", "", "Path to the ImportCluster YAML file to apply")
 	clusterApplyCmd.Flags().Bool("dry-run", false, "Validate the ImportCluster YAML locally without calling the API")
 	registerAsyncWriteFlags(clusterApplyCmd)
+	registerStructuredOutputFlags(clusterApplyCmd)
 	setDryRunOffline(clusterApplyCmd)
 	if err := clusterApplyCmd.MarkFlagRequired("file"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error marking flag as required: %s\n", err)
@@ -79,12 +80,18 @@ func runApply(cmd *cobra.Command, _ []string) {
 		os.Exit(1)
 	}
 	if submitted {
+		if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Cluster apply")) {
+			return
+		}
 		printAsyncWriteSubmitted("Cluster apply")
 		fmt.Println("For a new cluster, the agent install command is only shown when you use --wait.")
 		return
 	}
 
 	if len(importResponse.Errors) > 0 {
+		if renderStructuredOrExit(cmd, importResponse) {
+			os.Exit(1)
+		}
 		fmt.Fprintln(os.Stderr, "Import failed with the following issues:")
 		for _, resourceError := range importResponse.Errors {
 			fmt.Fprintf(os.Stderr, "- %s %q:\n", resourceError.Kind, resourceError.Name)
@@ -93,6 +100,10 @@ func runApply(cmd *cobra.Command, _ []string) {
 			}
 		}
 		os.Exit(1)
+	}
+
+	if renderStructuredOrExit(cmd, importResponse) {
+		return
 	}
 
 	if importResponse.ImportCommand == "" {

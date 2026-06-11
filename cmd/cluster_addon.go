@@ -40,6 +40,14 @@ var clusterAddonsListCmd = &cobra.Command{
 			fmt.Printf("Error listing addons: %v\n", err)
 			return
 		}
+		if len(args) == 0 {
+			if addons == nil {
+				addons = []client.ClusterAddonListItem{}
+			}
+			if renderStructuredOrExit(cmd, addons) {
+				return
+			}
+		}
 		if len(addons) == 0 {
 			fmt.Println("No addons found for the active cluster.")
 			return
@@ -56,6 +64,9 @@ var clusterAddonsListCmd = &cobra.Command{
 			}
 			if found == nil {
 				fmt.Printf("Addon %q not found on the active cluster.\n", name)
+				return
+			}
+			if renderStructuredOrExit(cmd, found) {
 				return
 			}
 
@@ -136,6 +147,12 @@ var clusterAddonsAvailableCmd = &cobra.Command{
 			fmt.Printf("Error listing available addons: %v\n", err)
 			return
 		}
+		if addons == nil {
+			addons = []client.AvailableAddon{}
+		}
+		if renderStructuredOrExit(cmd, addons) {
+			return
+		}
 
 		if len(addons) == 0 {
 			fmt.Println("No addons available for installation.")
@@ -187,6 +204,9 @@ var clusterAddonsSettingsCmd = &cobra.Command{
 		settings, err := apiClient.GetAddonSettings(cluster.ID, addonName)
 		if err != nil {
 			fmt.Printf("Error getting addon settings: %v\n", err)
+			return
+		}
+		if renderStructuredOrExit(cmd, settings) {
 			return
 		}
 
@@ -526,9 +546,8 @@ func parseAddonsUpgradeFlags(cmd *cobra.Command) (addonsUpgradeFlags, error) {
 	stack, _ := cmd.Flags().GetString("stack")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	yes, _ := cmd.Flags().GetBool("yes")
-	outRaw, _ := cmd.Flags().GetString("output")
 
-	out, err := parseOutputFormat(outRaw)
+	out, err := structuredFormatFromFlags(cmd)
 	if err != nil {
 		return addonsUpgradeFlags{}, err
 	}
@@ -610,6 +629,7 @@ func init() {
 	clusterAddonsUpgradeCmd.Flags().Bool("dry-run", false, "Print the proposed before/after spec without applying changes")
 	clusterAddonsUpgradeCmd.Flags().Bool("yes", false, "Skip the confirmation prompt for destructive changes (--namespace)")
 	clusterAddonsUpgradeCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
+	registerStructuredOutputFlags(clusterAddonsListCmd, clusterAddonsAvailableCmd, clusterAddonsSettingsCmd)
 
 	clusterAddonsValuesCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
 	clusterAddonsValuesCmd.Flags().StringP("output", "o", "", "Output format: yaml (decoded, default) or raw (base64)")

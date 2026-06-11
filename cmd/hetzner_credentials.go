@@ -7,7 +7,7 @@ import (
 	"ankra/internal/client"
 
 	"github.com/jedib0t/go-pretty/v6/table"
-  
+
 	"github.com/manifoldco/promptui"
 
 	"github.com/spf13/cobra"
@@ -27,6 +27,13 @@ var hetznerCredListCmd = &cobra.Command{
 		creds, err := apiClient.ListHetznerCredentials()
 		if err != nil {
 			fmt.Printf("Error listing Hetzner credentials: %v\n", err)
+			return
+		}
+
+		if creds == nil {
+			creds = []client.HetznerCredentialListItem{}
+		}
+		if renderStructuredOrExit(cmd, creds) {
 			return
 		}
 
@@ -112,6 +119,13 @@ var sshKeyListCmd = &cobra.Command{
 		creds, err := apiClient.ListSSHKeyCredentials()
 		if err != nil {
 			fmt.Printf("Error listing SSH key credentials: %v\n", err)
+			return
+		}
+
+		if creds == nil {
+			creds = []client.HetznerCredentialListItem{}
+		}
+		if renderStructuredOrExit(cmd, creds) {
 			return
 		}
 
@@ -210,6 +224,8 @@ func init() {
 	sshKeyCreateCmd.Flags().String("public-key", "", "SSH public key")
 	sshKeyCreateCmd.Flags().Bool("generate", false, "Generate a new SSH keypair")
 	_ = sshKeyCreateCmd.MarkFlagRequired("name")
+
+	registerStructuredOutputFlags(hetznerCredListCmd, sshKeyListCmd)
 
 	sshKeyCmd.AddCommand(sshKeyListCmd)
 	sshKeyCmd.AddCommand(sshKeyCreateCmd)

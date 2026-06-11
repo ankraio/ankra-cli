@@ -41,7 +41,7 @@ func upcloudNodesOps() clusterNodesOps {
 	}
 }
 
-func runNodesList(opsFn func() clusterNodesOps, clusterID string, asJSON bool) {
+func runNodesList(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID string) {
 	ops := opsFn()
 	result, err := ops.list(clusterID)
 	if err != nil {
@@ -49,13 +49,7 @@ func runNodesList(opsFn func() clusterNodesOps, clusterID string, asJSON bool) {
 		os.Exit(1)
 	}
 
-	if asJSON {
-		encoded, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error encoding output: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Println(string(encoded))
+	if renderStructuredOrExit(cmd, result) {
 		return
 	}
 
@@ -83,7 +77,7 @@ func runNodesList(opsFn func() clusterNodesOps, clusterID string, asJSON bool) {
 	}
 }
 
-func runNodesGet(opsFn func() clusterNodesOps, clusterID, nodeID string, asJSON bool) {
+func runNodesGet(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID, nodeID string) {
 	ops := opsFn()
 	detail, err := ops.get(clusterID, nodeID)
 	if err != nil {
@@ -91,13 +85,7 @@ func runNodesGet(opsFn func() clusterNodesOps, clusterID, nodeID string, asJSON 
 		os.Exit(1)
 	}
 
-	if asJSON {
-		encoded, err := json.MarshalIndent(detail, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error encoding output: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Println(string(encoded))
+	if renderStructuredOrExit(cmd, detail) {
 		return
 	}
 
@@ -190,28 +178,25 @@ and bastion or gateway). Soft-deleted entries from a stopped cluster are
 included so the saved topology is visible before re-provisioning.`,
 	}
 
-	var listJSON bool
 	listCmd := &cobra.Command{
 		Use:   "list <cluster_id>",
 		Short: "List all nodes for the cluster",
 		Args:  cobra.ExactArgs(1),
-		Run: func(_ *cobra.Command, args []string) {
-			runNodesList(opsFn, args[0], listJSON)
+		Run: func(cmd *cobra.Command, args []string) {
+			runNodesList(cmd, opsFn, args[0])
 		},
 	}
-	listCmd.Flags().BoolVar(&listJSON, "json", false, "Output as JSON")
 
-	var getJSON bool
 	getCmd := &cobra.Command{
 		Use:   "get <cluster_id> <node_id>",
 		Short: "Show full spec and metadata for a single node",
 		Args:  cobra.ExactArgs(2),
-		Run: func(_ *cobra.Command, args []string) {
-			runNodesGet(opsFn, args[0], args[1], getJSON)
+		Run: func(cmd *cobra.Command, args []string) {
+			runNodesGet(cmd, opsFn, args[0], args[1])
 		},
 	}
-	getCmd.Flags().BoolVar(&getJSON, "json", false, "Output as JSON")
 
+	registerStructuredOutputFlags(listCmd, getCmd)
 	cmd.AddCommand(listCmd, getCmd)
 	return cmd
 }

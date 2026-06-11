@@ -62,7 +62,7 @@ func parseAsyncWriteResponse(
 	}
 	if wait {
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			return false, fmt.Errorf("request failed: status %d: %s", response.StatusCode, redactedBodyForError(responseBody, 500))
+			return false, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("request failed: status %d: %s", response.StatusCode, redactedBodyForError(responseBody, 500)))
 		}
 		if target == nil {
 			return false, nil
@@ -73,9 +73,9 @@ func parseAsyncWriteResponse(
 		return false, nil
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return false, fmt.Errorf("request failed: status %d: %s", response.StatusCode, redactedBodyForError(responseBody, 500))
+		return false, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("request failed: status %d: %s", response.StatusCode, redactedBodyForError(responseBody, 500)))
 	}
-	return false, fmt.Errorf("unexpected status %d for async submit", response.StatusCode)
+	return false, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("unexpected status %d for async submit", response.StatusCode))
 }
 
 func decodeJSON(responseBody []byte, target interface{}) error {

@@ -113,7 +113,7 @@ func (c *Client) CreateOvhCluster(req CreateOvhClusterRequest) (*CreateOvhCluste
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("create failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result CreateOvhClusterResponse
@@ -142,7 +142,7 @@ func (c *Client) DeprovisionOvhCluster(clusterID string) (*DeprovisionOvhCluster
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("deprovision failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("deprovision failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result DeprovisionOvhClusterResponse
@@ -267,7 +267,7 @@ func (c *Client) StopOvhCluster(clusterID string) (*StopOvhClusterResponse, erro
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("stop failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("stop failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result StopOvhClusterResponse
@@ -299,7 +299,7 @@ func (c *Client) StartOvhCluster(clusterID, scope string) (*StartOvhClusterResul
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("start failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("start failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result StartOvhClusterResult
@@ -343,7 +343,7 @@ func (c *Client) UpdateOvhClusterSSHKeys(clusterID string, sshKeyCredentialIDs [
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("update ssh keys failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("update ssh keys failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result UpdateClusterSSHKeysResult

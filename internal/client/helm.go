@@ -131,7 +131,7 @@ func (c *Client) CreateHelmRegistry(req CreateHelmRegistryRequest) (*CreateHelmR
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("create failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	var response CreateHelmRegistryResponse
@@ -160,7 +160,7 @@ func (c *Client) DeleteHelmRegistry(registryName string) (*DeleteHelmRegistryRes
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("delete failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	var response DeleteHelmRegistryResponse
@@ -352,7 +352,7 @@ func (c *Client) CreateHelmRegistryCredential(req CreateHelmCredentialRequest) (
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("create failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	var response CreateHelmCredentialResponse
@@ -439,7 +439,7 @@ func (c *Client) DeleteHelmRegistryCredential(credentialName string) (*DeleteHel
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("delete failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	var response DeleteHelmCredentialResponse

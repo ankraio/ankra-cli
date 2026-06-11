@@ -232,7 +232,7 @@ func (c *Client) UploadSupportAttachment(ctx context.Context, ticketID, filePath
 	case http.StatusNotFound:
 		return nil, ErrSupportTicketNotFound
 	default:
-		return nil, fmt.Errorf("attachment upload failed: status %d, body: %s", resp.StatusCode, truncateForError(respBody, 500))
+		return nil, newUnexpectedResponseError("attachment upload failed", resp.StatusCode, truncateForError(respBody, 500))
 	}
 }
 
@@ -289,7 +289,7 @@ func (c *Client) doSupportRequest(ctx context.Context, method, url string, body 
 	case http.StatusConflict:
 		return nil, fmt.Errorf("%w: %s", ErrSupportReviewRequired, extractDetail(respBody))
 	default:
-		return nil, fmt.Errorf("support request failed: status %d, body: %s", resp.StatusCode, truncateForError(respBody, 500))
+		return nil, newUnexpectedResponseError("support request failed", resp.StatusCode, truncateForError(respBody, 500))
 	}
 }
 

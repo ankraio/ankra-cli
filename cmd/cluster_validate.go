@@ -32,6 +32,7 @@ func init() {
 	clusterValidateCmd.Flags().StringP("file", "f", "", "Path to the ImportCluster YAML file to validate")
 	clusterValidateCmd.Flags().Bool("strict-secrets", false, "Treat plaintext secrets as errors instead of warnings")
 	clusterValidateCmd.Flags().String("cluster", "", "Validate against an existing cluster's resources (cluster ID)")
+	registerStructuredOutputFlags(clusterValidateCmd)
 	if err := clusterValidateCmd.MarkFlagRequired("file"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error marking flag as required: %s\n", err)
 		os.Exit(1)
@@ -65,6 +66,13 @@ func runClusterValidate(cmd *cobra.Command, _ []string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error validating cluster: %s\n", err)
 		os.Exit(1)
+	}
+
+	if renderStructuredOrExit(cmd, result) {
+		if len(result.Errors) > 0 {
+			os.Exit(1)
+		}
+		return
 	}
 
 	for _, warning := range result.Warnings {

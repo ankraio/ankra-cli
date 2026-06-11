@@ -39,6 +39,13 @@ var orgListCmd = &cobra.Command{
 			return
 		}
 
+		if orgs == nil {
+			orgs = []client.OrganisationSummary{}
+		}
+		if renderStructuredOrExit(cmd, orgs) {
+			return
+		}
+
 		if len(orgs) == 0 {
 			fmt.Println("No organisations found.")
 			return
@@ -139,6 +146,11 @@ var orgSwitchCmd = &cobra.Command{
 	},
 }
 
+type currentOrganisationOutput struct {
+	Organisation client.OrganisationSummary `json:"organisation" yaml:"organisation"`
+	Source       string                     `json:"source" yaml:"source"`
+}
+
 var orgCurrentCmd = &cobra.Command{
 	Use:   "current",
 	Short: "Show the currently selected organisation",
@@ -146,6 +158,10 @@ var orgCurrentCmd = &cobra.Command{
 		org, source, err := resolveTargetOrganisation(cmd)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
+			return
+		}
+
+		if renderStructuredOrExit(cmd, currentOrganisationOutput{Organisation: org, Source: source}) {
 			return
 		}
 
@@ -183,6 +199,10 @@ var orgCreateCmd = &cobra.Command{
 			return
 		}
 
+		if renderStructuredOrExit(cmd, resp) {
+			return
+		}
+
 		fmt.Printf("Organisation created successfully!\n")
 		fmt.Printf("  ID:      %s\n", resp.OrganisationID)
 		fmt.Printf("  Message: %s\n", resp.Message)
@@ -217,6 +237,10 @@ var orgMembersCmd = &cobra.Command{
 		org, err := apiClient.GetOrganisation(orgID)
 		if err != nil {
 			fmt.Printf("Error fetching organisation: %v\n", err)
+			return
+		}
+
+		if renderStructuredOrExit(cmd, org) {
 			return
 		}
 
@@ -514,6 +538,8 @@ func init() {
 
 	orgInviteCmd.Flags().String("role", "member", "Role for the invited user (member, admin, read-only)")
 	orgRemoveCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
+
+	registerStructuredOutputFlags(orgListCmd, orgCurrentCmd, orgCreateCmd, orgMembersCmd)
 
 	orgCmd.AddCommand(orgListCmd)
 	orgCmd.AddCommand(orgSwitchCmd)

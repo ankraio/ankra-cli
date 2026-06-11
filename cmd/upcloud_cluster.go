@@ -77,6 +77,10 @@ var upcloudCreateCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		if renderStructuredOrExit(cmd, result) {
+			return
+		}
+
 		fmt.Printf("UpCloud cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
@@ -95,6 +99,10 @@ var upcloudDeprovisionCmd = &cobra.Command{
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error deprovisioning cluster: %v\n", err)
 			os.Exit(1)
+		}
+
+		if renderStructuredOrExit(cmd, result) {
+			return
 		}
 
 		if result.Success {
@@ -186,6 +194,10 @@ var upcloudWorkersCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		if renderStructuredOrExit(cmd, result) {
+			return
+		}
+
 		fmt.Printf("Worker Count: %d\n", result.WorkerCount)
 		fmt.Printf("  Min: %d\n", result.Min)
 		fmt.Printf("  Max: %d\n", result.Max)
@@ -209,6 +221,10 @@ var upcloudScaleCmd = &cobra.Command{
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error scaling workers: %v\n", err)
 			os.Exit(1)
+		}
+
+		if renderStructuredOrExit(cmd, result) {
+			return
 		}
 
 		if result.PreviousCount == result.NewCount {
@@ -236,6 +252,10 @@ var upcloudK8sVersionCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		if renderStructuredOrExit(cmd, result) {
+			return
+		}
+
 		version := "not set (using latest stable)"
 		if result.CurrentVersion != nil {
 			version = *result.CurrentVersion
@@ -259,6 +279,10 @@ var upcloudUpgradeCmd = &cobra.Command{
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error upgrading Kubernetes version: %v\n", err)
 			os.Exit(1)
+		}
+
+		if renderStructuredOrExit(cmd, result) {
+			return
 		}
 
 		prev := "none"
@@ -288,6 +312,9 @@ var upcloudNodeGroupListCmd = &cobra.Command{
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error listing node groups: %v\n", err)
 			os.Exit(1)
+		}
+		if renderStructuredOrExit(cmd, result) {
+			return
 		}
 		if len(result.NodeGroups) == 0 {
 			fmt.Println("No node groups found.")
@@ -324,7 +351,13 @@ var upcloudNodeGroupAddCmd = &cobra.Command{
 			handleNodeGroupSubmitError("adding node group", err)
 		}
 		if submitted {
+			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group add")) {
+				return
+			}
 			printAsyncWriteSubmitted("Node group add")
+			return
+		}
+		if renderStructuredOrExit(cmd, result) {
 			return
 		}
 		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
@@ -352,7 +385,13 @@ var upcloudNodeGroupScaleCmd = &cobra.Command{
 			handleNodeGroupSubmitError("scaling node group", err)
 		}
 		if submitted {
+			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group scale")) {
+				return
+			}
 			printAsyncWriteSubmitted("Node group scale")
+			return
+		}
+		if renderStructuredOrExit(cmd, result) {
 			return
 		}
 		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
@@ -376,7 +415,13 @@ var upcloudNodeGroupUpgradeCmd = &cobra.Command{
 			handleNodeGroupSubmitError("upgrading node group", err)
 		}
 		if submitted {
+			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group plan update")) {
+				return
+			}
 			printAsyncWriteSubmitted("Node group plan update")
+			return
+		}
+		if renderStructuredOrExit(cmd, result) {
 			return
 		}
 		fmt.Printf("Node group '%s' plan upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
@@ -399,7 +444,13 @@ var upcloudNodeGroupDeleteCmd = &cobra.Command{
 			handleNodeGroupSubmitError("deleting node group", err)
 		}
 		if submitted {
+			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group delete")) {
+				return
+			}
 			printAsyncWriteSubmitted("Node group delete")
+			return
+		}
+		if renderStructuredOrExit(cmd, result) {
 			return
 		}
 		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
@@ -440,6 +491,20 @@ func init() {
 	registerAsyncWriteFlags(upcloudNodeGroupScaleCmd)
 	registerAsyncWriteFlags(upcloudNodeGroupUpgradeCmd)
 	registerAsyncWriteFlags(upcloudNodeGroupDeleteCmd)
+
+	registerStructuredOutputFlags(
+		upcloudCreateCmd,
+		upcloudDeprovisionCmd,
+		upcloudWorkersCmd,
+		upcloudScaleCmd,
+		upcloudK8sVersionCmd,
+		upcloudUpgradeCmd,
+		upcloudNodeGroupListCmd,
+		upcloudNodeGroupAddCmd,
+		upcloudNodeGroupScaleCmd,
+		upcloudNodeGroupUpgradeCmd,
+		upcloudNodeGroupDeleteCmd,
+	)
 
 	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupListCmd)
 	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupAddCmd)

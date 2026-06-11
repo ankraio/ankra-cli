@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 
+	"ankra/internal/client"
+
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 )
@@ -26,6 +28,10 @@ var chartsListCmd = &cobra.Command{
 		resp, err := apiClient.ListCharts(page, pageSize, onlySubscribed)
 		if err != nil {
 			fmt.Printf("Error listing charts: %v\n", err)
+			return
+		}
+
+		if renderStructuredOrExit(cmd, resp) {
 			return
 		}
 
@@ -74,6 +80,13 @@ var chartsSearchCmd = &cobra.Command{
 		charts, err := apiClient.SearchCharts(query)
 		if err != nil {
 			fmt.Printf("Error searching charts: %v\n", err)
+			return
+		}
+
+		if charts == nil {
+			charts = []client.ChartItem{}
+		}
+		if renderStructuredOrExit(cmd, charts) {
 			return
 		}
 
@@ -150,6 +163,10 @@ Requires either --repository flag or finding the chart in the catalog first.`,
 			return
 		}
 
+		if renderStructuredOrExit(cmd, details) {
+			return
+		}
+
 		fmt.Printf("Chart: %s\n\n", details.Name)
 		fmt.Printf("  Repository: %s (%s)\n", details.RepositoryName, details.RepositoryURL)
 		if details.Icon != "" {
@@ -190,6 +207,8 @@ func init() {
 	chartsListCmd.Flags().Bool("subscribed", false, "Show only subscribed charts")
 
 	chartsInfoCmd.Flags().String("repository", "", "Repository URL for the chart")
+
+	registerStructuredOutputFlags(chartsListCmd, chartsSearchCmd, chartsInfoCmd)
 
 	chartsCmd.AddCommand(chartsListCmd)
 	chartsCmd.AddCommand(chartsSearchCmd)

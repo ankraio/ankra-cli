@@ -11,6 +11,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type stackDraftOutput struct {
+	StackName string `json:"stack_name" yaml:"stack_name"`
+	DraftID   string `json:"draft_id,omitempty" yaml:"draft_id,omitempty"`
+	NoChange  bool   `json:"no_change" yaml:"no_change"`
+	Error     string `json:"error,omitempty" yaml:"error,omitempty"`
+}
+
 var clusterDraftCmd = &cobra.Command{
 	Use:   "draft",
 	Short: "Stage an ImportCluster YAML as reviewable drafts instead of applying it",
@@ -29,6 +36,7 @@ empty draft.`,
 
 func init() {
 	clusterDraftCmd.Flags().StringP("file", "f", "", "Path to the ImportCluster YAML file to stage as drafts")
+	registerStructuredOutputFlags(clusterDraftCmd)
 	if err := clusterDraftCmd.MarkFlagRequired("file"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error marking flag as required: %s\n", err)
 		os.Exit(1)
@@ -42,6 +50,12 @@ func runClusterDraft(cmd *cobra.Command, _ []string) {
 		fmt.Fprintf(os.Stderr, "Error reading --file: %s\n", err)
 		os.Exit(1)
 	}
+	format, err := structuredFormatFromFlags(cmd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		os.Exit(1)
+	}
+	structured := format != outputDefault
 
 	importRequest, err := buildImportRequest(filePath)
 	if err != nil {
@@ -64,29 +78,51 @@ func runClusterDraft(cmd *cobra.Command, _ []string) {
 
 	var created, unchanged int
 	hasErrors := false
+	stackOutputs := make([]stackDraftOutput, 0, len(importRequest.Spec.Stacks))
 	for _, stack := range importRequest.Spec.Stacks {
 		result, draftErr := apiClient.CreateStackDraft(ctx, clusterID, stack)
 		if draftErr != nil {
 			fmt.Fprintf(os.Stderr, "- stack %q: %s\n", stack.Name, draftErr)
 			hasErrors = true
+			stackOutputs = append(stackOutputs, stackDraftOutput{StackName: stack.Name, Error: draftErr.Error()})
 			continue
 		}
 		switch {
 		case len(result.Errors) > 0:
 			hasErrors = true
 			fmt.Fprintf(os.Stderr, "- stack %q:\n", stack.Name)
+			errorParts := make([]string, 0, len(result.Errors))
 			for _, resourceError := range result.Errors {
 				for _, detail := range resourceError.Errors {
 					fmt.Fprintf(os.Stderr, "    • %s %q: %s — %s\n", resourceError.Kind, resourceError.Name, detail.Key, detail.Message)
+					errorParts = append(errorParts, fmt.Sprintf("%s %q: %s — %s", resourceError.Kind, resourceError.Name, detail.Key, detail.Message))
 				}
 			}
+			stackOutputs = append(stackOutputs, stackDraftOutput{StackName: stack.Name, Error: strings.Join(errorParts, "; ")})
 		case result.NoChange:
 			unchanged++
-			fmt.Printf("- stack %q: no changes\n", stack.Name)
+			stackOutputs = append(stackOutputs, stackDraftOutput{StackName: stack.Name, NoChange: true})
+			if !structured {
+				fmt.Printf("- stack %q: no changes\n", stack.Name)
+			}
 		default:
 			created++
-			fmt.Printf("- stack %q: draft created (%s)\n", stack.Name, result.DraftID)
+			stackOutputs = append(stackOutputs, stackDraftOutput{StackName: stack.Name, DraftID: result.DraftID})
+			if !structured {
+				fmt.Printf("- stack %q: draft created (%s)\n", stack.Name, result.DraftID)
+			}
 		}
+	}
+
+	if structured {
+		if err := encodeStructured(cmd.OutOrStdout(), format, stackOutputs); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+			os.Exit(1)
+		}
+		if hasErrors {
+			os.Exit(1)
+		}
+		return
 	}
 
 	if hasErrors {
@@ -113,7 +149,7 @@ func resolveClusterForDraft(ctx context.Context, importRequest client.CreateImpo
 		return "", fmt.Errorf("looking up cluster %q: %w", importRequest.Name, err)
 	}
 
-	fmt.Printf("Cluster %q does not exist yet; importing it first...\n", importRequest.Name)
+	fmt.Fprintf(os.Stderr, "Cluster %q does not exist yet; importing it first...\n", importRequest.Name)
 	importResponse, _, importErr := apiClient.ApplyCluster(ctx, importRequest, true)
 	if importErr != nil {
 		return "", fmt.Errorf("importing cluster %q: %w", importRequest.Name, importErr)
@@ -121,6 +157,6 @@ func resolveClusterForDraft(ctx context.Context, importRequest client.CreateImpo
 	if len(importResponse.Errors) > 0 {
 		return "", fmt.Errorf("import of cluster %q failed: %v", importRequest.Name, importResponse.Errors)
 	}
-	fmt.Printf("Cluster %q imported.\n", importResponse.Name)
+	fmt.Fprintf(os.Stderr, "Cluster %q imported.\n", importResponse.Name)
 	return importResponse.ClusterId, nil
 }

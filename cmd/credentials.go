@@ -6,6 +6,8 @@ import (
 	"os"
 	"time"
 
+	"ankra/internal/client"
+
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 )
@@ -30,6 +32,13 @@ var credentialsListCmd = &cobra.Command{
 		creds, err := apiClient.ListCredentials(providerPtr)
 		if err != nil {
 			return fmt.Errorf("listing credentials: %w", err)
+		}
+
+		if creds == nil {
+			creds = []client.Credential{}
+		}
+		if rendered, err := renderStructured(cmd, creds); rendered || err != nil {
+			return err
 		}
 
 		if len(creds) == 0 {
@@ -165,6 +174,10 @@ var credentialsGetCmd = &cobra.Command{
 			return fmt.Errorf("fetching credential: %w", err)
 		}
 
+		if rendered, err := renderStructured(cmd, cred); rendered || err != nil {
+			return err
+		}
+
 		fmt.Printf("Credential Details:\n")
 		fmt.Printf("  ID:       %s\n", cred.ID)
 		fmt.Printf("  Name:     %s\n", cred.Name)
@@ -241,6 +254,8 @@ func looksLikeUUID(s string) bool {
 
 func init() {
 	credentialsListCmd.Flags().String("provider", "", "Filter by provider (e.g., github)")
+
+	registerStructuredOutputFlags(credentialsListCmd, credentialsGetCmd)
 
 	credentialsCmd.AddCommand(credentialsListCmd)
 	credentialsCmd.AddCommand(credentialsValidateCmd)

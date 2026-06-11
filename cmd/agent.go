@@ -29,6 +29,10 @@ var clusterAgentStatusCmd = &cobra.Command{
 			return fmt.Errorf("getting agent status: %w", err)
 		}
 
+		if rendered, err := renderStructured(cmd, agent); rendered || err != nil {
+			return err
+		}
+
 		fmt.Printf("Agent Status for cluster '%s':\n\n", cluster.Name)
 
 		version := "unknown"
@@ -85,6 +89,10 @@ var clusterAgentTokenCmd = &cobra.Command{
 				return fmt.Errorf("generating agent token: %w", err)
 			}
 
+			if rendered, err := renderStructured(cmd, token); rendered || err != nil {
+				return err
+			}
+
 			fmt.Println("New agent token generated!")
 			fmt.Println()
 			fmt.Printf("Token (save this, it won't be shown again):\n")
@@ -98,6 +106,10 @@ var clusterAgentTokenCmd = &cobra.Command{
 		if err != nil {
 			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "To generate a new token, run: ankra cluster agent token --generate")
 			return fmt.Errorf("getting agent token: %w", err)
+		}
+
+		if rendered, err := renderStructured(cmd, token); rendered || err != nil {
+			return err
 		}
 
 		fmt.Printf("Agent Token for cluster '%s':\n\n", cluster.Name)
@@ -136,6 +148,8 @@ var clusterAgentUpgradeCmd = &cobra.Command{
 
 func init() {
 	clusterAgentTokenCmd.Flags().Bool("generate", false, "Generate a new agent token")
+
+	registerStructuredOutputFlags(clusterAgentStatusCmd, clusterAgentTokenCmd)
 
 	clusterAgentCmd.AddCommand(clusterAgentStatusCmd)
 	clusterAgentCmd.AddCommand(clusterAgentTokenCmd)

@@ -127,7 +127,7 @@ func (c *Client) DeleteStack(ctx context.Context, clusterID, stackName string) (
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("delete failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	return &DeleteStackResult{Success: true, Message: "Stack deleted"}, nil
@@ -160,7 +160,7 @@ func (c *Client) RenameStack(ctx context.Context, clusterID, stackName, newName 
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("rename failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("rename failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	return &RenameStackResult{Success: true, Message: "Stack renamed"}, nil
@@ -224,7 +224,7 @@ func (c *Client) CloneStackToCluster(ctx context.Context, targetClusterID string
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("clone failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("clone failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result CloneStackToClusterResult

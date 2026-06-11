@@ -1,5 +1,57 @@
 # Ankra CLI Changelog
 
+## v0.3.0 — June 2026
+
+First stable release of the v0.3.0 line. It graduates everything from the
+**v0.3.0-rc0 → rc3** release candidates and adds direct kubeconfig, metrics,
+support and stack-profile tooling on top, so you can drive an Ankra cluster
+end-to-end from the terminal. Install it with the standard one-liner or
+`ankra upgrade`; the beta channel is no longer required for the v0.3.0 features.
+
+**New since v0.3.0-rc3:**
+
+- **`ankra cluster kubeconfig add | remove | list`** and **`ankra cluster
+  kube-token`** — wire `kubectl` straight to an Ankra cluster. `kube-token`
+  prints a short-lived Kubernetes `ExecCredential` for use as a credential
+  plugin, and `kubeconfig add` writes an `ankra-*` context (exec-based, or
+  `--embed-token`) into your kubeconfig with atomic `0600` writes that preserve
+  any foreign entries and use collision-safe context naming.
+- **`ankra cluster metrics query | query-range`** — proxy a PromQL query (instant
+  or range) to the cluster's Prometheus metrics source, with `table | json |
+  yaml` output for ad-hoc inspection and CI.
+- **`ankra support create | list | get | comment | attach | close`** — open and
+  track Ankra support requests from the CLI, including image/screenshot
+  attachments. Each request goes through a mandatory AI review; use `--force` to
+  submit a request the reviewer flags.
+- **`ankra stack-profiles list | export-iac | import`** — manage reusable,
+  organisation-level stack profiles as `ClusterInfrastructureAsCode` YAML
+  (export a profile version, import one from a file).
+- **`ankra cluster apply`** now understands the `prometheus_metrics` spec field,
+  and an unknown `--cluster` name now fails clearly instead of forwarding a
+  non-UUID value and producing an opaque server-side error.
+
+**Included from the v0.3.0 release-candidate line:**
+
+- **Self-update & beta channel** — `ankra upgrade` downloads, SHA-256-verifies
+  and atomically swaps the binary, with `--version` pinning for upgrade,
+  downgrade and rollback, and a `ankra config beta enable|disable|status`
+  pre-release channel (semver-aware precedence).
+- **Safer, scriptable applies** — `cluster apply` and the cloud `node-group`
+  mutations submit async by default (`202 Accepted`) with `--wait` / `--timeout`;
+  offline dependency-tree and referenced-file validation plus `--dry-run` for
+  `apply` / `delete cluster` (no token, CI-friendly); `cluster draft` to stage
+  stacks as reviewable drafts and `cluster validate` for server-side chart /
+  secret / parent checks with `--strict-secrets`.
+- **`ankra cluster operations`** gains `--watch` and `-o json|yaml`.
+- **OVH command parity with the web UI** — region discovery
+  (`ovh regions`), `start` / `stop`, `access-info`, `ssh-keys get|set`,
+  `control-plane`, `nodes`, and `node-group` create/labels/taints.
+- **Credential & organisation fixes** — `credentials get` resolves a name to an
+  ID (v2 lookup before the legacy table); `org members` / `current` honour
+  `--org` and validate the saved selection.
+
+See the v0.3.0-rc0 → rc3 sections below for the detailed notes and examples.
+
 ## v0.3.0-rc3 — June 2026
 
 Fourth release candidate for the v0.3.0 line. It carries everything in

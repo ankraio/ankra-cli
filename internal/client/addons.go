@@ -131,7 +131,7 @@ func (c *Client) UpdateAddonSettings(ctx context.Context, clusterID, addonName s
 		return fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("update failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return newUnexpectedResponseError("update failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	return nil
@@ -157,7 +157,7 @@ func (c *Client) UninstallAddon(ctx context.Context, clusterID, addonResourceID 
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("uninstall failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("uninstall failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	return &UninstallAddonResult{Success: true, Message: "Addon uninstalled"}, nil
@@ -206,7 +206,7 @@ func (c *Client) GetClusterAddonValues(ctx context.Context, clusterID, addonName
 		return "", fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("get addon configuration failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500))
+		return "", newUnexpectedResponseError("get addon configuration failed", resp.StatusCode, truncateForError(body, 500))
 	}
 
 	var parsed addonConfigurationV2Response
