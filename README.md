@@ -867,7 +867,8 @@ ankra cluster addons update my-addon -f settings.json
 ankra cluster sops-config
 
 # Encrypt sensitive values on a live cluster (no cluster.yaml needed)
-ankra cluster encrypt manifest my-secret --key data.password
+# --key takes the YAML key name (SOPS matches key names, not dotted paths)
+ankra cluster encrypt manifest my-secret --key password
 ankra cluster encrypt addon --name grafana --key adminPassword --cluster prod
 
 # Encrypt sensitive values in a local cluster.yaml (GitOps workflow)

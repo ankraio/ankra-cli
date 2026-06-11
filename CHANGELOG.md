@@ -1,5 +1,19 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+- **`ankra cluster encrypt manifest | addon` no longer produces files that only
+  look encrypted.** SOPS' `encrypted_regex` matches YAML key names during tree
+  traversal, not dotted paths, so `--key data.password` previously matched
+  nothing: the file gained full `sops:` metadata (age recipient, mac) while the
+  secret value stayed plaintext base64, and `encrypted_paths` was still updated.
+  A dotted `--key` is now normalised to its last segment (`data.password` →
+  `password`) with a notice, and after every encryption the CLI verifies the
+  target key's value is real `ENC[...]` ciphertext — hard-failing before any
+  file write or stack PATCH when SOPS encrypted nothing. The `--help` examples
+  and the `ankra-sops-secrets` skill no longer steer users into the dotted-path
+  form.
+
 ## v0.3.0 — June 2026
 
 First stable release of the v0.3.0 line. It graduates everything from the
