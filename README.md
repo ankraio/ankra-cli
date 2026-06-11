@@ -84,8 +84,8 @@ pick up a pre-release. To install a beta (RC) build, either pin the version or
 opt into the beta channel:
 
 ```bash
-# Option 1: install a specific release candidate directly
-bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh) --version v0.3.0-rc3
+# Option 1: install a specific release candidate directly (pin its tag)
+bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh) --version <pre-release-tag>
 
 # Option 2: install stable, then switch to the beta channel
 bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
