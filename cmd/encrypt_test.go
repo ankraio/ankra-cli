@@ -52,8 +52,7 @@ spec:
 		}
 		if found == nil {
 			t.Fatal("expected to find manifest 'db-secret'")
-		}
-		if found.FromFile != "manifests/secret.yaml" {
+		} else if found.FromFile != "manifests/secret.yaml" {
 			t.Errorf("from_file = %q, want %q", found.FromFile, "manifests/secret.yaml")
 		}
 	})
@@ -129,13 +128,14 @@ spec:
 		}
 		if found == nil {
 			t.Fatal("expected to find addon 'grafana'")
-		}
-		if found.Configuration == nil {
-			t.Fatal("expected configuration to be present")
-		}
-		fromFile, ok := found.Configuration["from_file"].(string)
-		if !ok || fromFile == "" {
-			t.Error("expected from_file to be set in configuration")
+		} else {
+			if found.Configuration == nil {
+				t.Fatal("expected configuration to be present")
+			}
+			fromFile, ok := found.Configuration["from_file"].(string)
+			if !ok || fromFile == "" {
+				t.Error("expected from_file to be set in configuration")
+			}
 		}
 	})
 
@@ -151,8 +151,7 @@ spec:
 		}
 		if found == nil {
 			t.Fatal("expected to find addon 'prometheus'")
-		}
-		if len(found.Configuration) > 0 {
+		} else if len(found.Configuration) > 0 {
 			fromFile, ok := found.Configuration["from_file"].(string)
 			if ok && fromFile != "" {
 				t.Error("expected prometheus to not have from_file")

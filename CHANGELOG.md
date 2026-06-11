@@ -1,6 +1,17 @@
 # Ankra CLI Changelog
 
 ## Unreleased
+Nothing here yet.
+
+## v0.3.0 — 2026-06-11
+
+First stable release of the v0.3.0 line. It consolidates everything shipped in
+the **v0.3.0-rc0 → rc3** release candidates and adds direct kubeconfig, metrics,
+support and stack-profile tooling on top, so you can drive an Ankra cluster
+end-to-end from the terminal. Install it with the standard one-liner or
+`ankra upgrade`; the beta channel is no longer required for the v0.3.0 features.
+
+### Security
 
 - **`ankra cluster encrypt manifest | addon` no longer produces files that only
   look encrypted.** SOPS' `encrypted_regex` matches YAML key names during tree
@@ -14,15 +25,7 @@
   and the `ankra-sops-secrets` skill no longer steer users into the dotted-path
   form.
 
-## v0.3.0 — June 2026
-
-First stable release of the v0.3.0 line. It graduates everything from the
-**v0.3.0-rc0 → rc3** release candidates and adds direct kubeconfig, metrics,
-support and stack-profile tooling on top, so you can drive an Ankra cluster
-end-to-end from the terminal. Install it with the standard one-liner or
-`ankra upgrade`; the beta channel is no longer required for the v0.3.0 features.
-
-**New since v0.3.0-rc3:**
+### Added
 
 - **`ankra cluster kubeconfig add | remove | list`** and **`ankra cluster
   kube-token`** — wire `kubectl` straight to an Ankra cluster. `kube-token`
@@ -40,119 +43,60 @@ end-to-end from the terminal. Install it with the standard one-liner or
 - **`ankra stack-profiles list | export-iac | import`** — manage reusable,
   organisation-level stack profiles as `ClusterInfrastructureAsCode` YAML
   (export a profile version, import one from a file).
-- **`ankra cluster apply`** now understands the `prometheus_metrics` spec field,
-  and an unknown `--cluster` name now fails clearly instead of forwarding a
-  non-UUID value and producing an opaque server-side error.
-
-**Included from the v0.3.0 release-candidate line:**
-
-- **Self-update & beta channel** — `ankra upgrade` downloads, SHA-256-verifies
-  and atomically swaps the binary, with `--version` pinning for upgrade,
-  downgrade and rollback, and a `ankra config beta enable|disable|status`
-  pre-release channel (semver-aware precedence).
-- **Safer, scriptable applies** — `cluster apply` and the cloud `node-group`
-  mutations submit async by default (`202 Accepted`) with `--wait` / `--timeout`;
-  offline dependency-tree and referenced-file validation plus `--dry-run` for
-  `apply` / `delete cluster` (no token, CI-friendly); `cluster draft` to stage
-  stacks as reviewable drafts and `cluster validate` for server-side chart /
-  secret / parent checks with `--strict-secrets`.
-- **`ankra cluster operations`** gains `--watch` and `-o json|yaml`.
-- **OVH command parity with the web UI** — region discovery
-  (`ovh regions`), `start` / `stop`, `access-info`, `ssh-keys get|set`,
-  `control-plane`, `nodes`, and `node-group` create/labels/taints.
-- **Credential & organisation fixes** — `credentials get` resolves a name to an
-  ID (v2 lookup before the legacy table); `org members` / `current` honour
-  `--org` and validate the saved selection.
-
-See the v0.3.0-rc0 → rc3 sections below for the detailed notes and examples.
-
-## v0.3.0-rc3 — June 2026
-
-Fourth release candidate for the v0.3.0 line. It carries everything in
-**v0.3.0-rc2** and brings the OVH command set to full parity with the web UI.
-Install it with `ankra upgrade --beta` (beta channel) or download the
-`v0.3.0-rc3` release-candidate asset directly.
-
-**New in rc3 (since rc2):**
-
-- **`ankra cluster ovh stop <cluster_id>`** and **`ankra cluster ovh start
-  <cluster_id> [--scope all|control_plane]`** — stop an OVH cluster's compute
-  while keeping its configuration, then start it again later (optionally bringing
-  up only the control plane first).
-- **`ankra cluster ovh access-info <cluster_id>`** — print the gateway (bastion)
-  and control plane IPs along with ready-to-use `ssh -J` jump and Kubernetes API
-  port-forward commands.
-- **`ankra cluster ovh ssh-keys get <cluster_id>`** and **`ankra cluster ovh
-  ssh-keys set <cluster_id> --ssh-key-credential-ids <id>,...`** — view and
-  replace the SSH key credentials attached to an OVH cluster (changes apply on
-  the next reconciliation).
-- **`ankra cluster ovh node-group add`** now accepts **`--labels k=v,...`** and
-  **`--taints k=v:Effect,...`** so a new node group can be created with its
-  Kubernetes labels and taints in one step.
-- **`ankra cluster ovh control-plane ...`** and **`ankra cluster ovh nodes
-  ...`** now reach the public API: the control-plane and node-inspection
-  endpoints are exposed on `/api/v1/clusters/ovh/...` (previously only
-  available to the web UI), so these commands work against a token-authenticated
-  CLI session.
-
-## v0.3.0-rc2 — June 2026
-
-Third release candidate for the v0.3.0 line. It carries everything in
-**v0.3.0-rc1** and adds OVH region discovery plus node label/taint management to
-the OVH command set. Install it with `ankra upgrade --beta` (beta channel) or
-download the `v0.3.0-rc2` release-candidate asset directly.
-
-**New in rc2 (since rc1):**
-
-- **`cluster apply` and cloud `node-group` mutations (Hetzner, OVH, UpCloud)** —
-  submit and return immediately by default (`202 Accepted`); use **`--wait`** to
-  block until the platform finishes and print the full result (including the
-  agent install command on first import). **`--timeout`** bounds `--wait`
-  (default 10m). Avoid re-running the same change while it may still be running.
-- **`ankra cluster ovh regions --credential-id <id>`** — list the OVH Cloud
-  regions a credential's project can actually deploy in, so you pick a valid
-  `--region` for `ankra cluster ovh create` instead of guessing (a region that
-  is not enabled on the project fails the reconcile at private-network setup).
-- **`ankra cluster ovh node-group labels <cluster_id> <group> --labels k=v,...`**
-  and **`ankra cluster ovh node-group taints <cluster_id> <group> --taints
-  k=v:Effect,...`** — set Kubernetes labels and taints on every node in an OVH
-  node group from the CLI (empty value clears them; taint effect defaults to
-  `NoSchedule`).
-
-## v0.3.0-rc1 — June 2026
-
-Second release candidate for the v0.3.0 line. It bundles everything previewed in
-**v0.3.0-rc0** and adds a draft/validate workflow plus a more capable
-self-updater on top. Install it with `ankra upgrade --beta` (beta channel) or
-download the `v0.3.0-rc1` release-candidate asset directly.
-
-**New in rc1 (since rc0):**
-
 - **`ankra cluster draft`** — stage every stack in an `ImportCluster` as a
-  reviewable draft instead of applying it.
+  reviewable draft instead of applying it; nothing is deployed by the command
+  itself.
 - **`ankra cluster validate`** — the offline `apply --dry-run` checks plus
   server-side chart-existence, plaintext-secret, and parent-reference
   validation; CI-friendly exit codes and `--strict-secrets`.
-- **`ankra upgrade` pinning, downgrade & rollback** — `--version` installs an
-  exact release (newer *or* older), with SHA-256 checksum enforcement and
-  `--allow-unverified` for releases that predate published checksums.
-
-**Carried over from v0.3.0-rc0:**
-
-- **`ankra upgrade`** self-update (download the latest release, verify SHA-256,
-  atomically swap the binary) and the **beta / pre-release update channel**
-  (`ankra config beta enable|disable|status`, `ankra upgrade --beta`) with
-  semver-aware version comparison.
+- **Self-update & beta channel** — `ankra upgrade` downloads, SHA-256-verifies
+  and atomically swaps the binary, with `--version` pinning for upgrade,
+  downgrade and rollback (`--allow-unverified` for releases that predate
+  published checksums), and an `ankra config beta enable|disable|status`
+  pre-release channel with semver-aware precedence (a stable release outranks
+  its release candidates).
 - **Offline dependency-tree and referenced-file validation** in
   `ankra cluster apply`, and **`--dry-run`** for `apply` / `delete cluster`
-  (fully offline, no token).
-- **`--watch` and `-o json|yaml`** for `ankra cluster operations`.
-- **Credential and organisation fixes**: `ankra credentials get` resolves a
-  name to an ID (trying the v2 platform-credential lookup before the legacy
-  table); `ankra org members` / `current` honor `--org` and validate the saved
-  selection instead of sending a stale value.
+  (fully offline, no token, CI-friendly).
+- **`--watch` and `-o json|yaml`** for `ankra cluster operations` list and
+  steps.
+- **Shared `-o json|yaml` output across commands**, and unexpected platform
+  errors now print a hint to file the bug with `ankra support create`.
+- **OVH command parity with the web UI**:
+  - `ovh regions --credential-id <id>` — list the OVH Cloud regions a
+    credential's project can actually deploy in.
+  - `ovh stop <cluster_id>` and `ovh start <cluster_id>
+    [--scope all|control_plane]` — stop a cluster's compute while keeping its
+    configuration, then start it again later.
+  - `ovh access-info <cluster_id>` — gateway (bastion) and control plane IPs
+    with ready-to-use `ssh -J` jump and Kubernetes API port-forward commands.
+  - `ovh ssh-keys get|set` — view and replace the SSH key credentials attached
+    to a cluster (changes apply on the next reconciliation).
+  - `ovh node-group add --labels k=v,... --taints k=v:Effect,...`, plus
+    `node-group labels` / `node-group taints` to update existing groups (an
+    empty value clears them; taint effect defaults to `NoSchedule`).
+  - `ovh control-plane ...` and `ovh nodes ...` now reach the public API
+    (`/api/v1/clusters/ovh/...`), so they work against a token-authenticated
+    CLI session.
 
-### New Features
+### Changed
+
+- **`cluster apply` and the cloud `node-group` mutations (Hetzner, OVH,
+  UpCloud)** submit async by default (`202 Accepted`); `--wait` blocks until
+  the platform finishes and prints the full result (including the agent install
+  command on first import), bounded by `--timeout` (default 10m).
+- **`ankra cluster apply`** understands the `prometheus_metrics` spec field.
+
+### Fixed
+
+- **`ankra credentials get`** resolves a name to an ID (trying the v2
+  platform-credential lookup before the legacy table).
+- **`ankra org members` / `org current`** honour `--org` and validate the saved
+  selection instead of sending a stale value.
+- An unknown `--cluster` name fails clearly instead of forwarding a non-UUID
+  value and producing an opaque server-side error.
+
+### Details and examples
 
 #### Stage changes as drafts with `ankra cluster draft`
 
@@ -1251,17 +1195,20 @@ ankra cluster decrypt manifest trinity-database-secret -f cluster.yaml
 
 ---
 
-# Ankra CLI v1.0.0
+## v0.1.122 and earlier — initial releases
 
-## Highlights
+Originally published as "Ankra CLI v1.0.0"; the tags actually shipped for this
+initial line were `v0.1.115` through `v0.1.122`.
+
+### Highlights
 
 This release introduces the **Ankra CLI** - a powerful command-line interface for managing your Kubernetes infrastructure. Authenticate with SSO, chat with AI about your clusters, browse Helm charts, manage credentials, and control stacks - all from your terminal.
 
 ---
 
-## New Features
+### New Features
 
-### SSO Authentication
+#### SSO Authentication
 
 Securely authenticate with the Ankra platform using browser-based SSO login with PKCE.
 
@@ -1277,11 +1224,11 @@ Your credentials are securely stored in `~/.ankra.yaml` and automatically used f
 
 ---
 
-### AI-Powered Chat
+#### AI-Powered Chat
 
 Get instant help troubleshooting your infrastructure with AI-powered chat. Ask questions about your clusters, get recommendations, and analyze health issues.
 
-#### Interactive Chat Mode
+##### Interactive Chat Mode
 
 ```bash
 # Start an interactive chat session
@@ -1291,7 +1238,7 @@ ankra chat
 ankra chat --cluster my-production-cluster
 ```
 
-#### One-Shot Questions
+##### One-Shot Questions
 
 ```bash
 # Ask a single question
@@ -1301,7 +1248,7 @@ ankra chat "Why are my pods in CrashLoopBackOff?"
 ankra chat --cluster staging "How do I scale my deployment?"
 ```
 
-#### Cluster Health Analysis
+##### Cluster Health Analysis
 
 ```bash
 # Get AI-analyzed cluster health for the selected cluster
@@ -1311,7 +1258,7 @@ ankra chat health
 ankra chat health --ai
 ```
 
-#### Chat History Management
+##### Chat History Management
 
 ```bash
 # List previous conversations
@@ -1326,11 +1273,11 @@ ankra chat delete <conversation_id>
 
 ---
 
-### Helm Charts
+#### Helm Charts
 
 Browse and search the Helm chart catalog directly from your terminal.
 
-#### List Available Charts
+##### List Available Charts
 
 ```bash
 # List all available charts
@@ -1343,7 +1290,7 @@ ankra charts list --page 2 --page-size 50
 ankra charts list --subscribed
 ```
 
-#### Search Charts
+##### Search Charts
 
 ```bash
 # Search for charts by name
@@ -1353,7 +1300,7 @@ ankra charts search nginx
 ankra charts search prometheus
 ```
 
-#### Chart Information
+##### Chart Information
 
 ```bash
 # Get detailed info about a chart
@@ -1383,11 +1330,11 @@ Chart: nginx
 
 ---
 
-### Credentials Management
+#### Credentials Management
 
 Manage cloud provider and Git credentials for your clusters.
 
-#### List Credentials
+##### List Credentials
 
 ```bash
 # List all credentials
@@ -1397,14 +1344,14 @@ ankra credentials list
 ankra credentials list --provider github
 ```
 
-#### View Credential Details
+##### View Credential Details
 
 ```bash
 # Get details of a specific credential
 ankra credentials get <credential_id>
 ```
 
-#### Validate & Delete
+##### Validate & Delete
 
 ```bash
 # Check if a credential name is available
@@ -1418,11 +1365,11 @@ ankra credentials delete <credential_id>
 
 ---
 
-### Stack Management
+#### Stack Management
 
 Create, manage, and track infrastructure stacks on your clusters.
 
-#### List & View Stacks
+##### List & View Stacks
 
 ```bash
 # First, select a cluster
@@ -1460,7 +1407,7 @@ Stack Details:
       └─ parents: none
 ```
 
-#### Create & Delete Stacks
+##### Create & Delete Stacks
 
 ```bash
 # Create a new stack
@@ -1470,7 +1417,7 @@ ankra cluster stacks create my-new-stack --description "Application stack"
 ankra cluster stacks delete old-stack
 ```
 
-#### Rename & History
+##### Rename & History
 
 ```bash
 # Rename a stack
@@ -1482,7 +1429,7 @@ ankra cluster stacks history my-stack
 
 ---
 
-### Cluster Clone
+#### Cluster Clone
 
 Clone stacks from an existing cluster to a new cluster configuration. Supports both local files and remote URLs.
 
@@ -1508,7 +1455,7 @@ ankra cluster clone cluster.yaml new-cluster.yaml --copy-missing
 
 ---
 
-### API Tokens
+#### API Tokens
 
 Manage API tokens for programmatic access.
 
@@ -1531,7 +1478,7 @@ ankra tokens delete <token_id>
 
 ---
 
-### Cluster Operations
+#### Cluster Operations
 
 ```bash
 # List all clusters
@@ -1549,9 +1496,9 @@ ankra cluster reconcile my-cluster
 
 ---
 
-## Bug Fixes
+### Bug Fixes
 
-### `ankra cluster clone` - Registry Linkage Fix
+#### `ankra cluster clone` - Registry Linkage Fix
 
 Fixed an issue where `ankra cluster clone` did not correctly format the linkage to existing registries when cloning stacks or entire clusters. Addon configurations that reference container registries (`registry_name`, `registry_url`, `registry_credential_name`) are now properly preserved and formatted in the cloned configuration.
 
@@ -1561,7 +1508,7 @@ Fixed an issue where `ankra cluster clone` did not correctly format the linkage 
 
 ---
 
-### `ankra chat` - API Request & Response Format Fix
+#### `ankra chat` - API Request & Response Format Fix
 
 Fixed issues where the chat command had incompatible field names with the backend API:
 
@@ -1584,7 +1531,7 @@ I'll generate a report...
 
 ---
 
-## Getting Started
+### Getting Started
 
 ```bash
 # 1. Install the CLI (download from releases)
@@ -1604,7 +1551,7 @@ ankra chat "What's the status of my deployments?"
 
 ---
 
-## Configuration
+### Configuration
 
 The CLI stores configuration in `~/.ankra.yaml`:
 
