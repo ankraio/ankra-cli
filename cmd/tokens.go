@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"ankra/internal/client"
+
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
@@ -23,6 +25,13 @@ var tokensListCmd = &cobra.Command{
 		tokens, err := apiClient.ListAPITokens()
 		if err != nil {
 			fmt.Printf("Error listing tokens: %v\n", err)
+			return
+		}
+
+		if tokens == nil {
+			tokens = []client.APIToken{}
+		}
+		if renderStructuredOrExit(cmd, tokens) {
 			return
 		}
 
@@ -87,6 +96,10 @@ var tokensCreateCmd = &cobra.Command{
 			return
 		}
 
+		if renderStructuredOrExit(cmd, result) {
+			return
+		}
+
 		fmt.Println("API token created successfully!")
 		fmt.Println()
 		fmt.Printf("  ID:      %s\n", result.ID)
@@ -143,6 +156,8 @@ var tokensDeleteCmd = &cobra.Command{
 
 func init() {
 	tokensCreateCmd.Flags().String("expires", "", "Token expiration date (ISO 8601 format)")
+
+	registerStructuredOutputFlags(tokensListCmd, tokensCreateCmd)
 
 	tokensCmd.AddCommand(tokensListCmd)
 	tokensCmd.AddCommand(tokensCreateCmd)

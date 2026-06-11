@@ -121,7 +121,7 @@ func (c *Client) DeleteCredential(ctx context.Context, credentialID, organisatio
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("delete failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	return &DeleteCredentialResult{Success: true, Message: "Credential deleted"}, nil

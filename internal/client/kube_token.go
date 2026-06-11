@@ -32,7 +32,7 @@ func (c *Client) GetClusterKubeToken(ctx context.Context, clusterID string) (*Ku
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("kube token request failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("kube token request failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var kubeToken KubeToken

@@ -122,7 +122,7 @@ func (c *Client) doPutJSON(url string, payload []byte, target interface{}) error
 		return fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 	if err := json.Unmarshal(body, target); err != nil {
 		return fmt.Errorf("parse response: %w", err)

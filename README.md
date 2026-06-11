@@ -269,6 +269,32 @@ ankra logout
 
 ## Usage
 
+### Machine-readable output (`-o json|yaml`)
+
+Every command that reads or returns data supports structured output via the
+shared `-o/--output` flag, so scripts and AI agents never have to parse
+tables or prose:
+
+- `-o json` — print the result as indented JSON
+- `-o yaml` — same data as YAML
+- The kubectl-style commands default to `-o table` and accept `json`/`yaml`
+  as alternatives (for example `ankra cluster get pods -o json`)
+
+```bash
+ankra cluster list -o json
+ankra cluster operations list -o json
+ankra cluster stacks list my-stack -o json
+ankra cluster agent status -o json
+ankra org list -o json
+ankra cluster get pods -o json
+```
+
+Write commands (reconcile, provision, deprovision, scaling, node groups,
+token creation, ...) also accept `-o json` and emit the API result — including
+operation IDs — so automation can poll `ankra cluster operations list <id> -o json`
+for completion. Asynchronous writes submitted without `--wait` emit
+`{"submitted": true, ...}`.
+
 ### Basic Workflow
 
 1. **Select a cluster** (interactive):

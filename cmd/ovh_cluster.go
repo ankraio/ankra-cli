@@ -64,6 +64,10 @@ var ovhCreateCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		if renderStructuredOrExit(cmd, result) {
+			return
+		}
+
 		fmt.Printf("OVH cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
@@ -82,6 +86,10 @@ var ovhDeprovisionCmd = &cobra.Command{
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error deprovisioning cluster: %v\n", err)
 			os.Exit(1)
+		}
+
+		if renderStructuredOrExit(cmd, result) {
+			return
 		}
 
 		if result.Success {
@@ -122,6 +130,10 @@ var ovhWorkersCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		if renderStructuredOrExit(cmd, result) {
+			return
+		}
+
 		fmt.Printf("Worker Count: %d\n", result.WorkerCount)
 		fmt.Printf("  Min: %d\n", result.Min)
 		fmt.Printf("  Max: %d\n", result.Max)
@@ -145,6 +157,10 @@ var ovhScaleCmd = &cobra.Command{
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error scaling workers: %v\n", err)
 			os.Exit(1)
+		}
+
+		if renderStructuredOrExit(cmd, result) {
+			return
 		}
 
 		if result.PreviousCount == result.NewCount {
@@ -172,6 +188,10 @@ var ovhK8sVersionCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		if renderStructuredOrExit(cmd, result) {
+			return
+		}
+
 		version := "not set (using latest stable)"
 		if result.CurrentVersion != nil {
 			version = *result.CurrentVersion
@@ -194,6 +214,10 @@ var ovhUpgradeCmd = &cobra.Command{
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error upgrading Kubernetes version: %v\n", err)
 			os.Exit(1)
+		}
+
+		if renderStructuredOrExit(cmd, result) {
+			return
 		}
 
 		prev := "none"
@@ -219,6 +243,9 @@ var ovhRegionsCmd = &cobra.Command{
 			fmt.Fprintf(os.Stderr, "Error listing regions: %v\n", err)
 			os.Exit(1)
 		}
+		if renderStructuredOrExit(cmd, result) {
+			return
+		}
 		if len(result.Regions) == 0 {
 			fmt.Println("No regions available for this credential.")
 			return
@@ -242,6 +269,10 @@ var ovhStopCmd = &cobra.Command{
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error stopping cluster: %v\n", err)
 			os.Exit(1)
+		}
+
+		if renderStructuredOrExit(cmd, result) {
+			return
 		}
 
 		if result.Success {
@@ -275,6 +306,10 @@ var ovhStartCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		if renderStructuredOrExit(cmd, result) {
+			return
+		}
+
 		fmt.Println(text.FgGreen.Sprint("OVH cluster start initiated."))
 		fmt.Printf("  Scope: %s\n", result.Scope)
 		if result.MarkedToStartAt != "" {
@@ -296,6 +331,10 @@ var ovhAccessInfoCmd = &cobra.Command{
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error fetching access info: %v\n", err)
 			os.Exit(1)
+		}
+
+		if renderStructuredOrExit(cmd, result) {
+			return
 		}
 
 		gatewayIP := ""
@@ -350,6 +389,10 @@ var ovhSSHKeysGetCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		if renderStructuredOrExit(cmd, result) {
+			return
+		}
+
 		if len(result.SSHKeyCredentialIDs) == 0 {
 			fmt.Println("Attached SSH keys: none")
 		} else {
@@ -385,6 +428,10 @@ var ovhSSHKeysSetCmd = &cobra.Command{
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error updating SSH keys: %v\n", err)
 			os.Exit(1)
+		}
+
+		if renderStructuredOrExit(cmd, result) {
+			return
 		}
 
 		fmt.Println(text.FgGreen.Sprint("SSH keys updated. Changes apply on next reconciliation."))
@@ -425,7 +472,13 @@ var ovhNodeGroupLabelsCmd = &cobra.Command{
 			handleNodeGroupSubmitError("updating node group labels", err)
 		}
 		if submitted {
+			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group labels update")) {
+				return
+			}
 			printAsyncWriteSubmitted("Node group labels update")
+			return
+		}
+		if renderStructuredOrExit(cmd, result) {
 			return
 		}
 		fmt.Printf("Node group '%s' labels updated. %d node(s) affected.\n", result.GroupName, result.Updated)
@@ -456,7 +509,13 @@ var ovhNodeGroupTaintsCmd = &cobra.Command{
 			handleNodeGroupSubmitError("updating node group taints", err)
 		}
 		if submitted {
+			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group taints update")) {
+				return
+			}
 			printAsyncWriteSubmitted("Node group taints update")
+			return
+		}
+		if renderStructuredOrExit(cmd, result) {
 			return
 		}
 		fmt.Printf("Node group '%s' taints updated. %d node(s) affected.\n", result.GroupName, result.Updated)
@@ -473,6 +532,9 @@ var ovhNodeGroupListCmd = &cobra.Command{
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error listing node groups: %v\n", err)
 			os.Exit(1)
+		}
+		if renderStructuredOrExit(cmd, result) {
+			return
 		}
 		if len(result.NodeGroups) == 0 {
 			fmt.Println("No node groups found.")
@@ -524,7 +586,13 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 			handleNodeGroupSubmitError("adding node group", err)
 		}
 		if submitted {
+			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group add")) {
+				return
+			}
 			printAsyncWriteSubmitted("Node group add")
+			return
+		}
+		if renderStructuredOrExit(cmd, result) {
 			return
 		}
 		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
@@ -552,7 +620,13 @@ var ovhNodeGroupScaleCmd = &cobra.Command{
 			handleNodeGroupSubmitError("scaling node group", err)
 		}
 		if submitted {
+			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group scale")) {
+				return
+			}
 			printAsyncWriteSubmitted("Node group scale")
+			return
+		}
+		if renderStructuredOrExit(cmd, result) {
 			return
 		}
 		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
@@ -576,7 +650,13 @@ var ovhNodeGroupUpgradeCmd = &cobra.Command{
 			handleNodeGroupSubmitError("upgrading node group", err)
 		}
 		if submitted {
+			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group instance-type update")) {
+				return
+			}
 			printAsyncWriteSubmitted("Node group instance-type update")
+			return
+		}
+		if renderStructuredOrExit(cmd, result) {
 			return
 		}
 		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
@@ -599,7 +679,13 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 			handleNodeGroupSubmitError("deleting node group", err)
 		}
 		if submitted {
+			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group delete")) {
+				return
+			}
 			printAsyncWriteSubmitted("Node group delete")
+			return
+		}
+		if renderStructuredOrExit(cmd, result) {
 			return
 		}
 		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
@@ -703,6 +789,28 @@ func init() {
 
 	ovhRegionsCmd.Flags().String("credential-id", "", "OVH API credential ID (required)")
 	_ = ovhRegionsCmd.MarkFlagRequired("credential-id")
+
+	registerStructuredOutputFlags(
+		ovhCreateCmd,
+		ovhDeprovisionCmd,
+		ovhStopCmd,
+		ovhStartCmd,
+		ovhWorkersCmd,
+		ovhScaleCmd,
+		ovhK8sVersionCmd,
+		ovhUpgradeCmd,
+		ovhRegionsCmd,
+		ovhAccessInfoCmd,
+		ovhSSHKeysGetCmd,
+		ovhSSHKeysSetCmd,
+		ovhNodeGroupListCmd,
+		ovhNodeGroupAddCmd,
+		ovhNodeGroupScaleCmd,
+		ovhNodeGroupUpgradeCmd,
+		ovhNodeGroupLabelsCmd,
+		ovhNodeGroupTaintsCmd,
+		ovhNodeGroupDeleteCmd,
+	)
 
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupListCmd)
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupAddCmd)

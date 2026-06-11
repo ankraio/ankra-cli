@@ -34,6 +34,14 @@ var clusterStacksListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing stacks: %w", err)
 		}
+		if len(args) == 0 {
+			if stacks == nil {
+				stacks = []client.ClusterStackListItem{}
+			}
+			if rendered, err := renderStructured(cmd, stacks); rendered || err != nil {
+				return err
+			}
+		}
 		if len(stacks) == 0 {
 			fmt.Println("No stacks found for the active cluster.")
 			return nil
@@ -50,6 +58,9 @@ var clusterStacksListCmd = &cobra.Command{
 			}
 			if found == nil {
 				return fmt.Errorf("stack %q not found on the active cluster", name)
+			}
+			if rendered, err := renderStructured(cmd, found); rendered || err != nil {
+				return err
 			}
 
 			fmt.Println("Stack Details:")
@@ -274,6 +285,10 @@ var clusterStacksHistoryCmd = &cobra.Command{
 			return fmt.Errorf("getting stack history: %w", err)
 		}
 
+		if rendered, err := renderStructured(cmd, history); rendered || err != nil {
+			return err
+		}
+
 		if len(history.History) == 0 {
 			fmt.Printf("No history found for stack '%s'.\n", stackName)
 			return nil
@@ -352,6 +367,11 @@ and will need to be reconfigured in the target cluster.`,
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 
+		format, err := structuredFormatFromFlags(cmd)
+		if err != nil {
+			return err
+		}
+
 		req := client.CloneStackToClusterRequest{
 			SourceClusterID:            sourceCluster.ID,
 			StackName:                  stackName,
@@ -359,11 +379,17 @@ and will need to be reconfigured in the target cluster.`,
 			IncludeAddonConfigurations: includeConfig,
 		}
 
-		fmt.Printf("Cloning stack '%s' to cluster '%s'...\n", stackName, targetCluster)
+		if format == outputDefault {
+			fmt.Printf("Cloning stack '%s' to cluster '%s'...\n", stackName, targetCluster)
+		}
 
 		result, err := apiClient.CloneStackToCluster(ctx, targetClusterID, req)
 		if err != nil {
 			return fmt.Errorf("cloning stack: %w", err)
+		}
+
+		if format != outputDefault {
+			return encodeStructured(cmd.OutOrStdout(), format, result)
 		}
 
 		fmt.Printf("\nStack cloned successfully!\n")
@@ -423,6 +449,8 @@ func init() {
 	clusterStacksCloneCmd.Flags().StringP("name", "n", "", "New stack name (optional, defaults to original)")
 	clusterStacksCloneCmd.Flags().Bool("include-config", true, "Include addon configurations")
 	_ = clusterStacksCloneCmd.MarkFlagRequired("to")
+
+	registerStructuredOutputFlags(clusterStacksListCmd, clusterStacksHistoryCmd, clusterStacksCloneCmd)
 
 	clusterStacksCmd.AddCommand(clusterStacksListCmd)
 	clusterStacksCmd.AddCommand(clusterStacksCreateCmd)

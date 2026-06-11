@@ -224,6 +224,10 @@ var chatHistoryCmd = &cobra.Command{
 			return
 		}
 
+		if renderStructuredOrExit(cmd, resp) {
+			return
+		}
+
 		if len(resp.Conversations) == 0 {
 			fmt.Println("No chat conversations found.")
 			return
@@ -269,6 +273,10 @@ var chatShowCmd = &cobra.Command{
 		conv, err := apiClient.GetChatConversation(conversationID)
 		if err != nil {
 			fmt.Printf("Error getting conversation: %v\n", err)
+			return
+		}
+
+		if renderStructuredOrExit(cmd, conv) {
 			return
 		}
 
@@ -327,6 +335,10 @@ var chatHealthCmd = &cobra.Command{
 			return
 		}
 
+		if renderStructuredOrExit(cmd, health) {
+			return
+		}
+
 		fmt.Printf("Cluster Health for '%s'\n", cluster.Name)
 		fmt.Println("─────────────────────────────────────────")
 
@@ -366,6 +378,8 @@ func init() {
 	chatHistoryCmd.Flags().Int("limit", 20, "Maximum number of conversations to show")
 
 	chatHealthCmd.Flags().Bool("ai", true, "Include AI analysis")
+
+	registerStructuredOutputFlags(chatHistoryCmd, chatShowCmd, chatHealthCmd)
 
 	chatCmd.AddCommand(chatHistoryCmd)
 	chatCmd.AddCommand(chatShowCmd)

@@ -15,18 +15,25 @@ Never commit plaintext Secrets. Ankra integrates SOPS (with AGE keys) so sensiti
 
 ## Workflow with the CLI
 
+`encrypt` / `decrypt` take an `addon` or `manifest` subcommand and a `--key` path. They run in two modes: **cluster mode** (default — fetch the resource from a live cluster, encrypt, and push the result back) and **file mode** (`-f cluster.yaml` — rewrite the referenced `from_file` on disk and add the key to `encrypted_paths`, for GitOps).
+
 ```bash
-# 1. Inspect / set the SOPS configuration for the cluster
+# 1. Inspect the SOPS configuration (the public key used to encrypt)
 ankra cluster sops-config
 
-# 2. Encrypt a file before committing it
-ankra cluster encrypt -f manifests/db-secret.yaml
+# 2a. Encrypt a key on the selected cluster (cluster mode)
+ankra cluster encrypt manifest db-secret --key data.password
+ankra cluster encrypt addon --name grafana --key adminPassword
 
-# 3. (When needed) decrypt locally to inspect
-ankra cluster decrypt -f manifests/db-secret.yaml
+# 2b. Encrypt in a local cluster.yaml before committing (file mode)
+ankra cluster encrypt manifest db-secret --key data.password -f cluster.yaml
+
+# 3. (When needed) decrypt to stdout to inspect
+ankra cluster decrypt manifest db-secret              # cluster mode
+ankra cluster decrypt manifest db-secret -f cluster.yaml
 ```
 
-Then reference the encrypted file from your stack and declare its encrypted paths:
+Reference the encrypted file from your stack and declare its encrypted paths (file mode adds these for you):
 
 ```yaml
 manifests:

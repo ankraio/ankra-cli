@@ -32,6 +32,10 @@ var helmRegistriesListCmd = &cobra.Command{
 			return fmt.Errorf("listing registries: %w", err)
 		}
 
+		if rendered, err := renderStructured(cmd, response); rendered || err != nil {
+			return err
+		}
+
 		if len(response.Result) == 0 {
 			fmt.Println("No Helm registries found.")
 			return nil
@@ -72,6 +76,10 @@ var helmRegistriesGetCmd = &cobra.Command{
 		response, err := apiClient.GetHelmRegistry(registryName)
 		if err != nil {
 			return fmt.Errorf("getting registry: %w", err)
+		}
+
+		if rendered, err := renderStructured(cmd, response); rendered || err != nil {
+			return err
 		}
 
 		fmt.Printf("Registry: %s\n", response.Registry.Name)
@@ -173,6 +181,10 @@ var helmCredentialsListCmd = &cobra.Command{
 		response, err := apiClient.ListHelmRegistryCredentials()
 		if err != nil {
 			return fmt.Errorf("listing credentials: %w", err)
+		}
+
+		if rendered, err := renderStructured(cmd, response); rendered || err != nil {
+			return err
 		}
 
 		if len(response.Credentials) == 0 {
@@ -281,6 +293,8 @@ func init() {
 	_ = helmCredentialsCreateCmd.MarkFlagRequired("name")
 	_ = helmCredentialsCreateCmd.MarkFlagRequired("username")
 	helmCredentialsDeleteCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
+
+	registerStructuredOutputFlags(helmRegistriesListCmd, helmRegistriesGetCmd, helmCredentialsListCmd)
 
 	helmRegistriesCmd.AddCommand(helmRegistriesListCmd)
 	helmRegistriesCmd.AddCommand(helmRegistriesGetCmd)

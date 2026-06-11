@@ -29,6 +29,9 @@ var stackProfilesListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing stack profiles: %w", err)
 		}
+		if rendered, err := renderStructured(cmd, response); rendered || err != nil {
+			return err
+		}
 		if len(response.Result) == 0 {
 			fmt.Println("No stack profiles found.")
 			return nil
@@ -121,6 +124,7 @@ func init() {
 	stackProfilesListCmd.Flags().Int("page", 1, "Page number")
 	stackProfilesListCmd.Flags().Int("page-size", 25, "Page size")
 	stackProfilesListCmd.Flags().String("search", "", "Filter profiles by name")
+	registerStructuredOutputFlags(stackProfilesListCmd)
 
 	stackProfilesExportIacCmd.Flags().Int("version", 1, "Profile version to export")
 	stackProfilesExportIacCmd.Flags().StringP("output", "o", "", "Write YAML to this file instead of stdout")

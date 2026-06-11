@@ -37,8 +37,7 @@ var orgVariablesListCmd = &cobra.Command{
 	Short: "List all organisation variables",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		outRaw, _ := cmd.Flags().GetString("output")
-		out, err := parseOutputFormat(outRaw)
+		out, err := structuredFormatFromFlags(cmd)
 		if err != nil {
 			return err
 		}
@@ -60,8 +59,7 @@ var orgVariablesGetCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		outRaw, _ := cmd.Flags().GetString("output")
-		out, err := parseOutputFormat(outRaw)
+		out, err := structuredFormatFromFlags(cmd)
 		if err != nil {
 			return err
 		}
@@ -237,9 +235,7 @@ func truncateForDisplay(s string, n int) string {
 }
 
 func init() {
-	for _, c := range []*cobra.Command{orgVariablesListCmd, orgVariablesGetCmd} {
-		c.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
-	}
+	registerStructuredOutputFlags(orgVariablesListCmd, orgVariablesGetCmd)
 	orgVariablesSetCmd.Flags().String("description", "", "Optional human-readable description")
 	orgVariablesDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 

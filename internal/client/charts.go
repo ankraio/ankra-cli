@@ -88,7 +88,7 @@ func (c *Client) GetChartDetails(chartName, repositoryURL string) (*ChartDetails
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get details failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("get details failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var details ChartDetails

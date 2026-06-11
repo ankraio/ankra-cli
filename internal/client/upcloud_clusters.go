@@ -62,7 +62,7 @@ func (c *Client) CreateUpcloudCluster(req CreateUpcloudClusterRequest) (*CreateU
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("create failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result CreateUpcloudClusterResponse
@@ -91,7 +91,7 @@ func (c *Client) DeprovisionUpcloudCluster(clusterID string) (*DeprovisionUpclou
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("deprovision failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("deprovision failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var result DeprovisionUpcloudClusterResponse

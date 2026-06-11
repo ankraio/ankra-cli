@@ -207,7 +207,7 @@ func doExecutionPostJSON[T any](c *Client, ctx context.Context, endpoint string,
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		trimmed := strings.TrimSpace(string(body))
-		return nil, fmt.Errorf("execution endpoint returned status %d: %s", resp.StatusCode, redactedBodyForError([]byte(trimmed), 500))
+		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("execution endpoint returned status %d: %s", resp.StatusCode, redactedBodyForError([]byte(trimmed), 500)))
 	}
 
 	if len(body) == 0 {

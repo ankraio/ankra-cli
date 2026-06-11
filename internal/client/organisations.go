@@ -95,7 +95,7 @@ func (c *Client) SwitchOrganisation(orgID string) (*SwitchOrganisationResponse, 
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("switch failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("switch failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var switchResp SwitchOrganisationResponse
@@ -151,7 +151,7 @@ func (c *Client) InviteUserToOrganisation(inviteReq InviteUserRequest) (*InviteU
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("invite failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("invite failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var inviteResp InviteUserResponse
@@ -186,7 +186,7 @@ func (c *Client) RemoveUserFromOrganisation(removeReq RemoveUserRequest) (*Remov
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("remove failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("remove failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var removeResp RemoveUserResponse
@@ -222,7 +222,7 @@ func (c *Client) CreateOrganisation(name string, country *string) (*CreateOrgani
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("create failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var createResp CreateOrganisationResponse

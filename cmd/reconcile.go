@@ -37,6 +37,12 @@ var clusterListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing clusters: %w", err)
 		}
+		if clusters == nil {
+			clusters = []client.ClusterListItem{}
+		}
+		if rendered, err := renderStructured(cmd, clusters); rendered || err != nil {
+			return err
+		}
 		if len(clusters) == 0 {
 			fmt.Println("No clusters found.")
 			return nil
@@ -118,6 +124,9 @@ If no name is provided, shows details for the currently selected cluster.`,
 		if err != nil {
 			return fmt.Errorf("fetching cluster details for %s: %w", name, err)
 		}
+		if rendered, err := renderStructured(cmd, cluster); rendered || err != nil {
+			return err
+		}
 		fmt.Printf("Cluster Details:\n")
 		fmt.Printf("  ID: %s\n", cluster.ID)
 		fmt.Printf("  Name: %s\n", cluster.Name)
@@ -140,12 +149,19 @@ If no cluster name is provided, uses the currently selected cluster.
 If a cluster name is provided, reconciles that specific cluster.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		format, err := structuredFormatFromFlags(cmd)
+		if err != nil {
+			return err
+		}
+
 		clusterID, clusterName, err := resolveClusterFromArgs(args)
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("Triggering reconciliation for cluster: %s\n", clusterName)
+		if format == outputDefault {
+			fmt.Printf("Triggering reconciliation for cluster: %s\n", clusterName)
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -153,6 +169,10 @@ If a cluster name is provided, reconciles that specific cluster.`,
 		result, err := apiClient.TriggerReconcile(ctx, clusterID)
 		if err != nil {
 			return fmt.Errorf("triggering reconcile: %w", err)
+		}
+
+		if format != outputDefault {
+			return encodeStructured(cmd.OutOrStdout(), format, result)
 		}
 
 		if result.Success {
@@ -191,12 +211,19 @@ var clusterProvisionCmd = &cobra.Command{
 If no cluster name is provided, uses the currently selected cluster.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		format, err := structuredFormatFromFlags(cmd)
+		if err != nil {
+			return err
+		}
+
 		clusterID, clusterName, err := resolveClusterFromArgs(args)
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("Provisioning cluster: %s\n", clusterName)
+		if format == outputDefault {
+			fmt.Printf("Provisioning cluster: %s\n", clusterName)
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -204,6 +231,10 @@ If no cluster name is provided, uses the currently selected cluster.`,
 		result, err := apiClient.ProvisionCluster(ctx, clusterID)
 		if err != nil {
 			return fmt.Errorf("provisioning cluster: %w", err)
+		}
+
+		if format != outputDefault {
+			return encodeStructured(cmd.OutOrStdout(), format, result)
 		}
 
 		fmt.Printf("Cluster provisioning initiated.\n")
@@ -240,18 +271,28 @@ deprovision endpoint so cloud resources are released.`,
 		autoDelete, _ := cmd.Flags().GetBool("auto-delete")
 		force, _ := cmd.Flags().GetBool("force")
 
+		format, err := structuredFormatFromFlags(cmd)
+		if err != nil {
+			return err
+		}
+
 		clusterID, clusterName, clusterKind, err := resolveClusterFromArgsWithKind(args)
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("Deprovisioning cluster: %s\n", clusterName)
+		if format == outputDefault {
+			fmt.Printf("Deprovisioning cluster: %s\n", clusterName)
+		}
 
 		switch cloudClusterKind(clusterKind) {
 		case cloudClusterKindHetzner:
 			result, err := apiClient.DeprovisionHetznerCluster(clusterID, force)
 			if err != nil {
 				return fmt.Errorf("deprovisioning Hetzner cluster: %w", err)
+			}
+			if format != outputDefault {
+				return encodeStructured(cmd.OutOrStdout(), format, result)
 			}
 			fmt.Printf("Hetzner cluster deprovision initiated.\n")
 			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
@@ -264,6 +305,9 @@ deprovision endpoint so cloud resources are released.`,
 			if err != nil {
 				return fmt.Errorf("deprovisioning OVH cluster: %w", err)
 			}
+			if format != outputDefault {
+				return encodeStructured(cmd.OutOrStdout(), format, result)
+			}
 			fmt.Printf("OVH cluster deprovision initiated.\n")
 			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 			return nil
@@ -271,6 +315,9 @@ deprovision endpoint so cloud resources are released.`,
 			result, err := apiClient.DeprovisionUpcloudCluster(clusterID)
 			if err != nil {
 				return fmt.Errorf("deprovisioning UpCloud cluster: %w", err)
+			}
+			if format != outputDefault {
+				return encodeStructured(cmd.OutOrStdout(), format, result)
 			}
 			fmt.Printf("UpCloud cluster deprovision initiated.\n")
 			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
@@ -286,6 +333,10 @@ deprovision endpoint so cloud resources are released.`,
 		result, err := apiClient.DeprovisionCluster(ctx, clusterID, autoDelete, force)
 		if err != nil {
 			return fmt.Errorf("deprovisioning cluster: %w", err)
+		}
+
+		if format != outputDefault {
+			return encodeStructured(cmd.OutOrStdout(), format, result)
 		}
 
 		fmt.Printf("Cluster deprovision initiated.\n")
@@ -367,6 +418,14 @@ func init() {
 	clusterRollToCmd.Flags().String("version", "", "Resource version ID to roll to (required)")
 	clusterRollToCmd.Flags().String("cluster", "", "Cluster ID (defaults to selected cluster)")
 	_ = clusterRollToCmd.MarkFlagRequired("version")
+
+	registerStructuredOutputFlags(
+		clusterListCmd,
+		clusterInfoCmd,
+		clusterReconcileCmd,
+		clusterProvisionCmd,
+		clusterDeprovisionCmd,
+	)
 
 	clusterCmd.AddCommand(clusterListCmd)
 	clusterCmd.AddCommand(clusterInfoCmd)

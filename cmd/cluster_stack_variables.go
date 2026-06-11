@@ -45,8 +45,7 @@ var clusterStackVariablesListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName := args[0]
 		clusterFlag, _ := cmd.Flags().GetString("cluster")
-		outRaw, _ := cmd.Flags().GetString("output")
-		out, err := parseOutputFormat(outRaw)
+		out, err := structuredFormatFromFlags(cmd)
 		if err != nil {
 			return err
 		}
@@ -289,7 +288,7 @@ func init() {
 	for _, c := range []*cobra.Command{clusterStackVariablesListCmd, clusterStackVariablesGetCmd} {
 		c.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
 	}
-	clusterStackVariablesListCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
+	registerStructuredOutputFlags(clusterStackVariablesListCmd)
 	clusterStackVariablesSetCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
 	clusterStackVariablesSetCmd.Flags().Bool("dry-run", false, "Print the proposed change without writing")
 	clusterStackVariablesDeleteCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")

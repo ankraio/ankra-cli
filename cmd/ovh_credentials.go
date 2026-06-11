@@ -27,6 +27,13 @@ var ovhCredListCmd = &cobra.Command{
 			return
 		}
 
+		if creds == nil {
+			creds = []client.OvhCredentialListItem{}
+		}
+		if renderStructuredOrExit(cmd, creds) {
+			return
+		}
+
 		if len(creds) == 0 {
 			fmt.Println("No OVH credentials found.")
 			return
@@ -154,6 +161,13 @@ var ovhSSHKeyListCmd = &cobra.Command{
 			return
 		}
 
+		if creds == nil {
+			creds = []client.OvhCredentialListItem{}
+		}
+		if renderStructuredOrExit(cmd, creds) {
+			return
+		}
+
 		if len(creds) == 0 {
 			fmt.Println("No SSH key credentials found.")
 			return
@@ -246,6 +260,8 @@ func init() {
 	ovhCredCreateCmd.Flags().String("project-id", "", "OVH Cloud project ID (required)")
 	_ = ovhCredCreateCmd.MarkFlagRequired("name")
 	_ = ovhCredCreateCmd.MarkFlagRequired("project-id")
+
+	registerStructuredOutputFlags(ovhCredListCmd, ovhSSHKeyListCmd)
 
 	ovhSSHKeyCreateCmd.Flags().String("name", "", "Credential name (required)")
 	ovhSSHKeyCreateCmd.Flags().String("public-key", "", "SSH public key")

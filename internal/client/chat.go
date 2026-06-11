@@ -98,7 +98,7 @@ func (c *Client) StreamChat(clusterID *string, chatReq ChatRequest) (<-chan Chat
 		if err != nil {
 			return nil, fmt.Errorf("read response: %w", err)
 		}
-		return nil, fmt.Errorf("chat failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("chat failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	events := make(chan ChatStreamEvent, 100)
@@ -189,7 +189,7 @@ func (c *Client) DeleteChatConversation(conversationID string) (*DeleteConversat
 		if err != nil {
 			return nil, fmt.Errorf("read response: %w", err)
 		}
-		return nil, fmt.Errorf("delete failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, newUnexpectedResponseError("delete failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	return &DeleteConversationResponse{Success: true, Message: "Conversation deleted"}, nil

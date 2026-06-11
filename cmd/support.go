@@ -45,8 +45,7 @@ var supportCreateCmd = &cobra.Command{
 		clusterFlag, _ := cmd.Flags().GetString("cluster")
 		source, _ := cmd.Flags().GetString("source")
 		force, _ := cmd.Flags().GetBool("force")
-		outRaw, _ := cmd.Flags().GetString("output")
-		out, err := parseOutputFormat(outRaw)
+		out, err := structuredFormatFromFlags(cmd)
 		if err != nil {
 			return err
 		}
@@ -95,8 +94,7 @@ var supportListCmd = &cobra.Command{
 		query, _ := cmd.Flags().GetString("query")
 		page, _ := cmd.Flags().GetInt("page")
 		pageSize, _ := cmd.Flags().GetInt("page-size")
-		outRaw, _ := cmd.Flags().GetString("output")
-		out, err := parseOutputFormat(outRaw)
+		out, err := structuredFormatFromFlags(cmd)
 		if err != nil {
 			return err
 		}
@@ -122,8 +120,7 @@ var supportGetCmd = &cobra.Command{
 	Short: "Show a support request and its replies",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		outRaw, _ := cmd.Flags().GetString("output")
-		out, err := parseOutputFormat(outRaw)
+		out, err := structuredFormatFromFlags(cmd)
 		if err != nil {
 			return err
 		}
@@ -148,8 +145,7 @@ var supportCommentCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		message, _ := cmd.Flags().GetString("message")
-		outRaw, _ := cmd.Flags().GetString("output")
-		out, err := parseOutputFormat(outRaw)
+		out, err := structuredFormatFromFlags(cmd)
 		if err != nil {
 			return err
 		}
@@ -178,8 +174,7 @@ var supportAttachCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ticketID := args[0]
 		files := args[1:]
-		outRaw, _ := cmd.Flags().GetString("output")
-		out, err := parseOutputFormat(outRaw)
+		out, err := structuredFormatFromFlags(cmd)
 		if err != nil {
 			return err
 		}
