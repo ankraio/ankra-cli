@@ -23,6 +23,9 @@ type APIClient interface {
 	ValidateCluster(ctx context.Context, spec client.CreateResourceSpec, strictSecrets bool, clusterID string) (*client.ValidateClusterResponse, error)
 	CreateStackDraft(ctx context.Context, clusterID string, stack client.Stack) (*client.StackDraftResult, error)
 	GetClusterKubeToken(ctx context.Context, clusterID string) (*client.KubeToken, error)
+	ListClusterAccessGrants(ctx context.Context, clusterID string) (*client.ListClusterAccessGrantsResponse, error)
+	CreateClusterAccessGrant(ctx context.Context, clusterID string, request client.CreateClusterAccessGrantRequest) (*client.CreateClusterAccessGrantResponse, error)
+	DeleteClusterAccessGrant(ctx context.Context, clusterID string, grantID string) (*client.DeleteClusterAccessGrantResponse, error)
 
 	ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error)
 	ListAvailableAddons(clusterID string) ([]client.AvailableAddon, error)
@@ -62,6 +65,7 @@ type APIClient interface {
 	DeleteClusterVariable(ctx context.Context, clusterID, name string) error
 
 	CreateSupportTicket(ctx context.Context, req client.CreateSupportTicketRequest) (*client.SupportTicket, error)
+	ReviewSupportTicket(ctx context.Context, req client.ReviewSupportTicketRequest) (*client.SupportTicketReview, error)
 	ListSupportTickets(ctx context.Context, opts client.ListSupportTicketsOptions) (*client.SupportTicketListResponse, error)
 	GetSupportTicket(ctx context.Context, ticketID string) (*client.SupportTicket, error)
 	CommentSupportTicket(ctx context.Context, ticketID, comment string) (*client.SupportTicket, error)

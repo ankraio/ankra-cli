@@ -69,6 +69,18 @@ func (m baseMock) GetClusterKubeToken(ctx context.Context, clusterID string) (*c
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListClusterAccessGrants(ctx context.Context, clusterID string) (*client.ListClusterAccessGrantsResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateClusterAccessGrant(ctx context.Context, clusterID string, request client.CreateClusterAccessGrantRequest) (*client.CreateClusterAccessGrantResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteClusterAccessGrant(ctx context.Context, clusterID string, grantID string) (*client.DeleteClusterAccessGrantResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListStackProfiles(page, pageSize int, search string) (*client.StackProfileListResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -170,6 +182,10 @@ func (m baseMock) DeleteClusterVariable(ctx context.Context, clusterID, name str
 }
 
 func (m baseMock) CreateSupportTicket(ctx context.Context, req client.CreateSupportTicketRequest) (*client.SupportTicket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReviewSupportTicket(ctx context.Context, req client.ReviewSupportTicketRequest) (*client.SupportTicketReview, error) {
 	return nil, errors.New("not implemented")
 }
 
