@@ -122,6 +122,14 @@ Switch back to stable any time with `ankra config beta disable`.
   - Delete clusters
   - Roll back to a specific resource version
 
+- **Cluster Access (kube gateway)**
+  - Grant organisation members scoped access to a cluster's Kubernetes API
+    (`ankra cluster access grant <email> --role view|edit|admin|cluster-admin`)
+  - Cluster-wide or single-namespace grants (`--namespace`)
+  - List grants with their RBAC reconcile status (`ankra cluster access list`)
+  - Revoke by grant ID, or by email to clear every grant a member has
+    (`ankra cluster access revoke`)
+
 - **AI-Powered Chat**
   - Interactive troubleshooting with AI assistance
   - Cluster-aware context for better answers
@@ -380,6 +388,16 @@ ankra cluster deprovision [name]      # Deprovision (stop) a managed cluster
   [--auto-delete] [--force]
 ankra cluster roll-to --version <id>  # Roll to a specific resource version
   [--cluster <cluster_id>]
+```
+
+#### Cluster Access
+```bash
+ankra cluster access list             # List access grants and their RBAC reconcile status
+ankra cluster access grant <email>    # Grant a member access through the kube gateway
+  [--role <role>]                     #   view (default), edit, admin, or cluster-admin
+  [--namespace <ns>]                  #   Limit the grant to one namespace (default: cluster-wide)
+ankra cluster access revoke <target>  # Revoke by grant ID, or by email (every grant for that member)
+                                      # All subcommands accept --cluster (defaults to selected cluster)
 ```
 
 #### Delete Resources

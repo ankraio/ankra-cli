@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"ankra/internal/client"
@@ -53,26 +54,57 @@ var supportCreateCmd = &cobra.Command{
 			return errors.New("--subject and --description are required")
 		}
 
-		request := client.CreateSupportTicketRequest{
-			Subject:      subject,
-			Description:  description,
-			Category:     category,
-			Source:       source,
-			Acknowledged: force,
-		}
-		if severity != "" {
-			request.Severity = &severity
-		}
+		var clusterID *string
 		if clusterFlag != "" {
-			clusterID, resolveErr := resolveClusterID(clusterFlag)
+			resolved, resolveErr := resolveClusterID(clusterFlag)
 			if resolveErr != nil {
 				return resolveErr
 			}
-			request.ClusterID = &clusterID
+			clusterID = &resolved
 		}
 
 		ctx, cancel := context.WithTimeout(cmd.Context(), supportRequestTimeout)
 		defer cancel()
+
+		review, err := apiClient.ReviewSupportTicket(ctx, client.ReviewSupportTicketRequest{
+			Subject:     subject,
+			Description: description,
+			Category:    category,
+			ClusterID:   clusterID,
+			Source:      source,
+		})
+		if err != nil {
+			return fmt.Errorf("review support ticket: %w", err)
+		}
+
+		humanReadable := out == outputDefault
+		if humanReadable {
+			renderReviewFeedback(cmd.OutOrStdout(), review)
+		}
+
+		acknowledged := force
+		if reviewNeedsConfirmation(review) && !force {
+			if !humanReadable {
+				return fmt.Errorf("%w: %s", client.ErrSupportReviewRequired, reviewBlockReason(review))
+			}
+			if confirmErr := confirmPrompt(
+				cmd.InOrStdin(), cmd.OutOrStdout(),
+				"\nSubmit this request anyway? [y/N]: ", false,
+			); confirmErr != nil {
+				return errors.New("support request not submitted")
+			}
+			acknowledged = true
+		}
+
+		reviewID := review.ReviewID
+		request := client.CreateSupportTicketRequest{
+			ReviewID:     &reviewID,
+			Source:       source,
+			Acknowledged: acknowledged,
+		}
+		if severity != "" {
+			request.Severity = &severity
+		}
 
 		ticket, err := apiClient.CreateSupportTicket(ctx, request)
 		if err != nil {
@@ -83,6 +115,57 @@ var supportCreateCmd = &cobra.Command{
 		}
 		return renderTicket(cmd.OutOrStdout(), ticket, out)
 	},
+}
+
+// reviewNeedsConfirmation reports whether the AI review surfaced something the
+// customer should acknowledge before the ticket is created: a quality flag or a
+// possible duplicate of an already-tracked ticket.
+func reviewNeedsConfirmation(review *client.SupportTicketReview) bool {
+	return review.Quality == "flag" || len(review.DuplicateCandidates) > 0
+}
+
+// reviewBlockReason is the short, machine-friendly reason used when structured
+// output is requested and the review needs acknowledgement but --force was not
+// supplied (an interactive prompt would corrupt the JSON/YAML stream).
+func reviewBlockReason(review *client.SupportTicketReview) string {
+	if review.Quality == "flag" {
+		if len(review.QualityFlags) > 0 {
+			return strings.Join(review.QualityFlags, "; ")
+		}
+		return "flagged as too vague or low quality"
+	}
+	return "possible duplicate of an existing ticket"
+}
+
+// renderReviewFeedback prints the human-readable AI review feedback: an optional
+// summary, the reasons a ticket was flagged, clarifying questions that would
+// speed up triage, and any tickets that may already track the same problem.
+func renderReviewFeedback(out io.Writer, review *client.SupportTicketReview) {
+	if review.Enrichment.Summary != nil && *review.Enrichment.Summary != "" {
+		_, _ = fmt.Fprintf(out, "AI summary: %s\n", *review.Enrichment.Summary)
+	}
+	if review.Quality == "flag" {
+		_, _ = fmt.Fprintln(out, "\nThis request was flagged in review:")
+		if len(review.QualityFlags) > 0 {
+			for _, flag := range review.QualityFlags {
+				_, _ = fmt.Fprintf(out, "  - %s\n", flag)
+			}
+		} else {
+			_, _ = fmt.Fprintln(out, "  - It is too vague or low quality for the team to act on.")
+		}
+	}
+	if len(review.ClarifyingQuestions) > 0 {
+		_, _ = fmt.Fprintln(out, "\nAdding these details to the description would help us help you faster:")
+		for _, question := range review.ClarifyingQuestions {
+			_, _ = fmt.Fprintf(out, "  - %s\n", question)
+		}
+	}
+	if len(review.DuplicateCandidates) > 0 {
+		_, _ = fmt.Fprintln(out, "\nThis may already be tracked:")
+		for _, candidate := range review.DuplicateCandidates {
+			_, _ = fmt.Fprintf(out, "  - [%s] %s\n", candidate.StatusLabel, candidate.Summary)
+		}
+	}
 }
 
 var supportListCmd = &cobra.Command{
@@ -314,7 +397,7 @@ func init() {
 	supportCreateCmd.Flags().String("severity", "", "Optional severity: low, medium, high, critical")
 	supportCreateCmd.Flags().String("cluster", "", "Optional related cluster (name or ID)")
 	supportCreateCmd.Flags().String("source", "cli", "Origin of the request: cli or agent")
-	supportCreateCmd.Flags().Bool("force", false, "Submit even if the AI review flags the request")
+	supportCreateCmd.Flags().Bool("force", false, "Skip the review prompt and submit even if flagged or a possible duplicate")
 	supportCreateCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
 
 	supportListCmd.Flags().StringSlice("status", nil, "Filter by status (repeatable)")

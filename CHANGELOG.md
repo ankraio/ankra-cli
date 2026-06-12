@@ -1,7 +1,31 @@
 # Ankra CLI Changelog
 
 ## Unreleased
-Nothing here yet.
+
+### Added
+
+- **`ankra cluster access list | grant | revoke`** — manage who can reach a
+  cluster's Kubernetes API through the Ankra kube gateway (the access used by
+  `ankra cluster kubeconfig` and `ankra cluster kube-token`). A grant maps an
+  organisation member (by email) to a Kubernetes role (`view`, `edit`, `admin`,
+  `cluster-admin`), cluster-wide or limited to one namespace with
+  `--namespace`. `list` shows each grant's RBAC reconcile status (pending,
+  applied, failed, cluster offline); `revoke` accepts a grant ID or an email
+  (revoking every grant that member has on the cluster). Managing access
+  requires organisation admin rights.
+
+### Changed
+
+- **`ankra support create` now shows the AI review before submitting.** Instead
+  of a one-shot create that returned a terse "ticket flagged in review; retry
+  with --force" on rejection, the command first calls the review endpoint and
+  prints what it found: the specific reasons a request was flagged, clarifying
+  questions that would speed up triage, and any existing ticket that may already
+  track the same problem. When the review flags the request or finds a possible
+  duplicate, you're asked to confirm interactively (`Submit this request anyway?
+  [y/N]`); `--force` still skips the prompt and submits, and `-o json|yaml`
+  callers get a `--force`-guidance error instead of a prompt. A clean request is
+  submitted with no extra step.
 
 ## v0.3.0 — 2026-06-11
 

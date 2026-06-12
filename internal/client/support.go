@@ -73,16 +73,61 @@ type SupportTicketListResponse struct {
 	Pagination SupportTicketPagination `json:"pagination"`
 }
 
-// CreateSupportTicketRequest is the wire shape for the create POST. Agents and
-// the CLI submit raw fields; the backend runs the mandatory AI review inline.
+// CreateSupportTicketRequest is the wire shape for the create POST. When
+// ReviewID is set the backend reads the subject/description/category/cluster
+// from the stored review and only honours Severity, Acknowledged and the review
+// reference; otherwise the raw fields are used and the backend runs the AI
+// review inline.
 type CreateSupportTicketRequest struct {
-	Subject      string  `json:"subject"`
-	Description  string  `json:"description"`
-	Category     string  `json:"category"`
+	ReviewID     *string `json:"review_id,omitempty"`
+	Subject      string  `json:"subject,omitempty"`
+	Description  string  `json:"description,omitempty"`
+	Category     string  `json:"category,omitempty"`
 	ClusterID    *string `json:"cluster_id,omitempty"`
 	Severity     *string `json:"severity,omitempty"`
 	Source       string  `json:"source"`
 	Acknowledged bool    `json:"acknowledged"`
+}
+
+// ReviewSupportTicketRequest is the wire shape for the pre-submission AI review.
+// The backend grades quality, enriches the ticket and detects duplicates so the
+// caller can show the customer actionable feedback before creating the ticket.
+type ReviewSupportTicketRequest struct {
+	Subject     string  `json:"subject"`
+	Description string  `json:"description"`
+	Category    string  `json:"category"`
+	ClusterID   *string `json:"cluster_id,omitempty"`
+	Source      string  `json:"source"`
+}
+
+// SupportTicketEnrichment is the AI-suggested summary/severity/category.
+type SupportTicketEnrichment struct {
+	Summary  *string `json:"summary,omitempty"`
+	Severity *string `json:"severity,omitempty"`
+	Category *string `json:"category,omitempty"`
+}
+
+// SupportDuplicateCandidate is an already-tracked ticket the review believes is
+// the same problem. Linear identifiers are intentionally absent from the wire.
+type SupportDuplicateCandidate struct {
+	CandidateID     string `json:"candidate_id"`
+	Summary         string `json:"summary"`
+	StatusLabel     string `json:"status_label"`
+	Confidence      string `json:"confidence"`
+	AlreadyResolved bool   `json:"already_resolved"`
+}
+
+// SupportTicketReview mirrors the backend TicketReviewResult. Quality is either
+// "pass" or "flag"; a flagged ticket needs acknowledgement to be submitted.
+type SupportTicketReview struct {
+	ReviewID            string                      `json:"review_id"`
+	Enrichment          SupportTicketEnrichment     `json:"enrichment"`
+	Quality             string                      `json:"quality"`
+	QualityFlags        []string                    `json:"quality_flags"`
+	ClarifyingQuestions []string                    `json:"clarifying_questions"`
+	DuplicateCandidates []SupportDuplicateCandidate `json:"duplicate_candidates"`
+	RecommendedAction   string                      `json:"recommended_action"`
+	ExpiresAt           time.Time                   `json:"expires_at"`
 }
 
 type addSupportCommentRequest struct {
@@ -116,6 +161,23 @@ func (c *Client) CreateSupportTicket(ctx context.Context, req CreateSupportTicke
 		return nil, err
 	}
 	var out SupportTicket
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *Client) ReviewSupportTicket(ctx context.Context, req ReviewSupportTicketRequest) (*SupportTicketReview, error) {
+	url := c.BaseURL + "/api/v1/org/support/tickets/review"
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	body, err := c.doSupportRequest(ctx, http.MethodPost, url, payload)
+	if err != nil {
+		return nil, err
+	}
+	var out SupportTicketReview
 	if err := json.Unmarshal(body, &out); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}

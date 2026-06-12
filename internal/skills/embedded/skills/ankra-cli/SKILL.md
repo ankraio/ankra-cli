@@ -75,6 +75,15 @@ ankra cluster kubeconfig list / remove     # manage Ankra-managed contexts
 ankra cluster kube-token                   # print a Kubernetes ExecCredential (credential plugin)
 ```
 
+Gateway access is gated by per-member grants. Organisation admins manage them with `ankra cluster access`:
+
+```bash
+ankra cluster access list                                # grants + RBAC reconcile status
+ankra cluster access grant user@example.com --role view  # roles: view, edit, admin, cluster-admin
+ankra cluster access grant user@example.com --role edit --namespace staging
+ankra cluster access revoke user@example.com             # by email (all grants) or by grant ID
+```
+
 ## Cloud clusters, credentials & secrets
 
 - Provision/manage Hetzner, OVH, UpCloud clusters: `ankra cluster hetzner|ovh|upcloud ...` and `ankra credentials ...`. See the **`ankra-cloud-clusters`** skill.
