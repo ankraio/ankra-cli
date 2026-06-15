@@ -27,9 +27,15 @@
 # This is intentionally a thin, faithful wrapper around the same CLI commands an
 # operator (or customer) runs by hand -- "as real as possible".
 #
+# Day-2 operations use the generic, provider-auto-detecting CLI verbs
+# (`ankra cluster scale|node-group|upgrade|deprovision`); only `create` is
+# provider-specific because the flags differ per provider.
+#
 # Usage:
+#   export ANKRA_SYSTEMTEST_CONFIRM=yes        # required (acknowledges real cost)
 #   export SSH_KEY_CREDENTIAL_ID=...           # required
-#   export GITOPS_REPOSITORY=org/repo          # required for the stack step
+#   export HETZNER_CREDENTIAL_ID=...           # required per selected provider
+#   export GITOPS_REPOSITORY=org/repo          # optional (GitOps commit step)
 #   ./systemtest/lifecycle_systemtest.sh                 # all three providers
 #   ANKRA_SYSTEMTEST_PROVIDERS="upcloud" ./systemtest/lifecycle_systemtest.sh
 #
@@ -87,6 +93,7 @@ ONLINE_TIMEOUT="${ONLINE_TIMEOUT:-1500}"     # cluster create -> online
 ADDONS_TIMEOUT="${ADDONS_TIMEOUT:-900}"      # addons -> up
 DAYTWO_TIMEOUT="${DAYTWO_TIMEOUT:-900}"      # each day-2 op
 DEPROVISION_TIMEOUT="${DEPROVISION_TIMEOUT:-1500}"
+DEPROVISION_FORCE_TIMEOUT="${DEPROVISION_FORCE_TIMEOUT:-600}"  # bounded force fallback on stall
 POLL_INTERVAL="${POLL_INTERVAL:-15}"
 IDLE_TIMEOUT="${IDLE_TIMEOUT:-600}"          # wait for no running ops before a write
 
@@ -127,16 +134,17 @@ die() {
 # ---------------------------------------------------------------------------
 
 cleanup() {
-  local entry name id provider
+  local entry name id
   for entry in "${CREATED_CLUSTERS[@]:-}"; do
     [ -z "$entry" ] && continue
     name="${entry%%=*}"
     id="${entry#*=}"
-    provider="${name#${NAME_PREFIX}-}"
-    provider="${provider%%-*}"
     if ank cluster list | grep -q "$name"; then
       log "cleanup: deprovisioning leftover cluster $name ($id)"
-      ank cluster "$provider" deprovision "$id" >/dev/null 2>&1 || true
+      # Best-effort: try a graceful deprovision, then force so we never leak
+      # paid infrastructure on an aborted run.
+      ank cluster deprovision "$id" >/dev/null 2>&1 || true
+      ank cluster deprovision "$id" --force >/dev/null 2>&1 || true
     fi
   done
 }
@@ -186,12 +194,12 @@ addon_state() {
 
 node_group_plan() {
   select_cluster "$1"
-  ank cluster "$2" node-group list "$3" | awk -v g="$4" '$1==g { for(i=1;i<=NF;i++){ if($i ~ /^type=/){ sub(/type=/,"",$i); print $i; exit } } }'
+  ank cluster node-group list "$2" | awk -v g="$3" '$1==g { for(i=1;i<=NF;i++){ if($i ~ /^type=/){ sub(/type=/,"",$i); print $i; exit } } }'
 }
 
 node_group_present() {
   select_cluster "$1"
-  ank cluster "$2" node-group list "$3" | awk -v g="$4" '$1==g{f=1} END{exit f?0:1}'
+  ank cluster node-group list "$2" | awk -v g="$3" '$1==g{f=1} END{exit f?0:1}'
 }
 
 # ---------------------------------------------------------------------------
@@ -390,37 +398,47 @@ run_provider() {
   # 3. Stacks
   if wait_for_addons "$name" 4 "$ADDONS_TIMEOUT"; then pass "$provider stacks up (CCM/CSI/Traefik/cert-manager)"; else fail "$provider stacks did not reach up"; fi
 
-  # 4. Scale up / down
-  if daytwo "scale up" "$name" "$provider" scale "$id" 3 && wait_for_nodes "$name" 4 "$DAYTWO_TIMEOUT"; then
+  # 4. Scale up / down (generic, provider-auto-detecting verbs)
+  if daytwo "scale up" "$name" scale "$id" 3 && wait_for_nodes "$name" 4 "$DAYTWO_TIMEOUT"; then
     pass "$provider scale up 1->3"; else fail "$provider scale up"; fi
-  if daytwo "scale down" "$name" "$provider" scale "$id" 1 && wait_for_nodes "$name" 2 "$DAYTWO_TIMEOUT"; then
+  if daytwo "scale down" "$name" scale "$id" 1 && wait_for_nodes "$name" 2 "$DAYTWO_TIMEOUT"; then
     pass "$provider scale down 3->1"; else fail "$provider scale down"; fi
 
   # 5. Node group add / delete
-  if daytwo "ng add" "$name" "$provider" node-group add "$id" --name pool-b --instance-type "$(ng_instance_type "$provider")" --count 2 \
-     && wait_for_nodes "$name" 4 "$DAYTWO_TIMEOUT" && node_group_present "$name" "$provider" "$id" pool-b; then
+  if daytwo "ng add" "$name" node-group add "$id" --name pool-b --instance-type "$(ng_instance_type "$provider")" --count 2 \
+     && wait_for_nodes "$name" 4 "$DAYTWO_TIMEOUT" && node_group_present "$name" "$id" pool-b; then
     pass "$provider node-group add"; else fail "$provider node-group add"; fi
-  if daytwo "ng delete" "$name" "$provider" node-group delete "$id" pool-b \
+  if daytwo "ng delete" "$name" node-group delete "$id" pool-b \
      && wait_for_nodes "$name" 2 "$DAYTWO_TIMEOUT"; then
     pass "$provider node-group delete"; else fail "$provider node-group delete"; fi
 
   # 6. K8s upgrade
   target="$(pick_upgrade_target "$name")"
   local want_ver="${target#v}"; want_ver="${want_ver%%+*}"
-  if [ -n "$target" ] && daytwo "k8s upgrade" "$name" "$provider" upgrade "$id" "$target"; then
+  if [ -n "$target" ] && daytwo "k8s upgrade" "$name" upgrade "$id" "$target"; then
     if wait_until_version "$name" "$want_ver" "$DAYTWO_TIMEOUT"; then pass "$provider k8s upgrade -> $target"; else fail "$provider k8s upgrade did not reach $target"; fi
   else fail "$provider k8s upgrade (submit)"; fi
 
   # 7. Instance resize
   plan="$(bigger_plan "$provider")"
-  if daytwo "resize" "$name" "$provider" node-group upgrade "$id" default "$plan" \
-     && wait_until_ng_plan "$name" "$provider" "$id" default "$plan" "$DAYTWO_TIMEOUT"; then
+  if daytwo "resize" "$name" node-group upgrade "$id" default "$plan" \
+     && wait_until_ng_plan "$name" "$id" default "$plan" "$DAYTWO_TIMEOUT"; then
     pass "$provider instance resize default -> $plan"; else fail "$provider instance resize"; fi
 
-  # 8. Deprovision -> removed
+  # 8. Deprovision -> removed (with a bounded force-deprovision fallback on stall)
   log "deprovisioning $name ..."
-  ank cluster "$provider" deprovision "$id" | tail -2
-  if wait_for_removed "$name" "$DEPROVISION_TIMEOUT"; then pass "$provider deprovision -> deleted_at"; else fail "$provider deprovision did not complete"; fi
+  ank cluster deprovision "$id" | tail -2
+  if wait_for_removed "$name" "$DEPROVISION_TIMEOUT"; then
+    pass "$provider deprovision -> deleted_at"
+  else
+    log "  $name deprovision stalled after ${DEPROVISION_TIMEOUT}s; attempting bounded force-deprovision fallback"
+    ank cluster deprovision "$id" --force | tail -2 || true
+    if wait_for_removed "$name" "$DEPROVISION_FORCE_TIMEOUT"; then
+      pass "$provider deprovision -> deleted_at (after force fallback)"
+    else
+      fail "$provider deprovision did not complete (even after force fallback)"
+    fi
+  fi
 }
 
 wait_until_version() {
@@ -436,10 +454,10 @@ wait_until_version() {
 }
 
 wait_until_ng_plan() {
-  local name="$1" provider="$2" id="$3" group="$4" want="$5" timeout="$6" deadline cur
+  local name="$1" id="$2" group="$3" want="$4" timeout="$5" deadline cur
   deadline=$(( $(date +%s) + timeout ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    cur="$(node_group_plan "$name" "$provider" "$id" "$group")"
+    cur="$(node_group_plan "$name" "$id" "$group")"
     log "  $name $group plan=$cur (want $want)"
     [ "$cur" = "$want" ] && return 0
     sleep "$POLL_INTERVAL"
@@ -451,12 +469,38 @@ wait_until_ng_plan() {
 # Preflight + main
 # ---------------------------------------------------------------------------
 
+# Cost gate: this test provisions REAL, billable cloud infrastructure across up
+# to three providers and only tears it down at the end (or on cleanup). Require
+# an explicit opt-in so it is never run by accident in CI or by a stray invocation.
+confirm_cost() {
+  cat >&2 <<'WARNING'
+
+  ############################################################################
+  #  WARNING: REAL, BILLABLE CLOUD INFRASTRUCTURE                            #
+  #                                                                          #
+  #  This system test provisions actual servers, load balancers, networks   #
+  #  and volumes on Hetzner / OVH / UpCloud and runs a multi-step lifecycle  #
+  #  (create, scale, node-groups, k8s upgrade, resize, deprovision).         #
+  #  A full three-provider run can take ~2 hours and WILL incur charges.     #
+  #  Clusters are deprovisioned at the end and on abort, but a crash of this #
+  #  script can still leave paid resources running -- verify afterwards.     #
+  #                                                                          #
+  #  Set ANKRA_SYSTEMTEST_CONFIRM=yes to acknowledge and proceed.           #
+  ############################################################################
+
+WARNING
+  if [ "${ANKRA_SYSTEMTEST_CONFIRM:-}" != "yes" ]; then
+    die "refusing to run without confirmation: export ANKRA_SYSTEMTEST_CONFIRM=yes to proceed"
+  fi
+}
+
 preflight() {
   command -v "$ANKRA_BIN" >/dev/null 2>&1 || [ -x "$ANKRA_BIN" ] || die "ankra binary not found ($ANKRA_BIN)"
   log "using ankra: $ANKRA_BIN ($($ANKRA_BIN --version 2>/dev/null | head -1))"
+  confirm_cost
   [ -n "$SSH_KEY_CREDENTIAL_ID" ] || die "SSH_KEY_CREDENTIAL_ID is required"
   if [ -z "$GITOPS_CREDENTIAL_NAME" ] || [ -z "$GITOPS_REPOSITORY" ]; then
-    log "WARNING: GITOPS_CREDENTIAL_NAME/GITOPS_REPOSITORY not set -> the stack step will likely fail"
+    log "WARNING: GITOPS_CREDENTIAL_NAME/GITOPS_REPOSITORY not set -> the GitOps commit step is skipped (stacks still install)"
   fi
   local p
   for p in $ANKRA_SYSTEMTEST_PROVIDERS; do
