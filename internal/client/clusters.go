@@ -70,6 +70,24 @@ func (c *Client) GetCluster(name string) (ClusterListItem, error) {
 	return ClusterListItem{}, fmt.Errorf("no cluster found for name %q", name)
 }
 
+// GetClusterByID looks up a cluster by its UUID. Passing an explicit page
+// forces the backend's paginated ClusterListResponse shape so the matching
+// row is returned in `result`. The Kind field on the result identifies the
+// cloud provider (hetzner, ovh, upcloud) for provider-agnostic commands.
+func (c *Client) GetClusterByID(clusterID string) (ClusterListItem, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters?cluster_id=%s&page=1&page_size=1", c.BaseURL, neturl.QueryEscape(clusterID))
+	var wrapper ClusterListResponse
+	if err := c.getJSON(url, &wrapper); err != nil {
+		return ClusterListItem{}, err
+	}
+	for _, cluster := range wrapper.Result {
+		if cluster.ID == clusterID {
+			return cluster, nil
+		}
+	}
+	return ClusterListItem{}, fmt.Errorf("no cluster found for id %q", clusterID)
+}
+
 func (c *Client) DeleteCluster(ctx context.Context, name string) error {
 	url := fmt.Sprintf("%s/api/v1/clusters/%s", c.BaseURL, neturl.PathEscape(name))
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)

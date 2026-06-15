@@ -13,6 +13,7 @@ type APIClient interface {
 
 	ListClusters(page int, pageSize int) (*client.ClusterListResponse, error)
 	GetCluster(name string) (client.ClusterListItem, error)
+	GetClusterByID(clusterID string) (client.ClusterListItem, error)
 	DeleteCluster(ctx context.Context, name string) error
 	TriggerReconcile(ctx context.Context, clusterID string) (*client.TriggerReconcileResult, error)
 	ProvisionCluster(ctx context.Context, clusterID string) (*client.ProvisionClusterResult, error)
@@ -102,9 +103,14 @@ type APIClient interface {
 	ListHelmRegistries() (*client.ListHelmRegistriesResponse, error)
 	GetHelmRegistry(registryName string) (*client.GetHelmRegistryResponse, error)
 	CreateHelmRegistry(req client.CreateHelmRegistryRequest) (*client.CreateHelmRegistryResponse, error)
+	UpdateHelmRegistry(registryName string, readJobInterval *int) error
 	DeleteHelmRegistry(registryName string) (*client.DeleteHelmRegistryResponse, error)
+	SyncHelmRegistry(registryName string) (*client.SyncHelmRegistryResponse, error)
+	ListHelmRegistrySyncJobs(registryName string, page, pageSize int) (*client.ListRegistrySyncJobsResponse, error)
 	ListHelmRegistryCredentials() (*client.ListHelmCredentialsResponse, error)
 	CreateHelmRegistryCredential(req client.CreateHelmCredentialRequest) (*client.CreateHelmCredentialResponse, error)
+	GetHelmRegistryCredential(credentialName string) (*client.GetHelmCredentialResponse, error)
+	UpdateHelmRegistryCredential(credentialName string, req client.UpdateHelmCredentialRequest) error
 	DeleteHelmRegistryCredential(credentialName string) (*client.DeleteHelmCredentialResponse, error)
 
 	GetClusterAgent(clusterID string) (*client.AgentInfo, error)
@@ -146,6 +152,9 @@ type APIClient interface {
 	GetOvhK8sVersion(clusterID string) (*client.K8sVersionInfo, error)
 	UpgradeOvhK8sVersion(clusterID, targetVersion string) (*client.UpgradeK8sVersionResult, error)
 	ListOvhRegions(credentialID string) (*client.OvhRegionListResult, error)
+	ListHetznerLocations(credentialID string) ([]client.HetznerLocation, error)
+	ListHetznerServerTypes(credentialID, location string) ([]client.HetznerServerType, error)
+	ListK3sVersions() (*client.ListK3sVersionsResult, error)
 	ListOvhNodeGroups(clusterID string) (*client.NodeGroupListResult, error)
 	AddOvhNodeGroup(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error)
 	ScaleOvhNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error)
@@ -166,6 +175,8 @@ type APIClient interface {
 
 	CreateUpcloudCluster(req client.CreateUpcloudClusterRequest) (*client.CreateUpcloudClusterResponse, error)
 	DeprovisionUpcloudCluster(clusterID string) (*client.DeprovisionUpcloudClusterResponse, error)
+	StopUpcloudCluster(clusterID string) (*client.StopUpcloudClusterResponse, error)
+	StartUpcloudCluster(clusterID, scope string) (*client.StartUpcloudClusterResult, error)
 	GetUpcloudWorkerCount(clusterID string) (*client.WorkerCountResult, error)
 	ScaleUpcloudWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error)
 	GetUpcloudK8sVersion(clusterID string) (*client.K8sVersionInfo, error)

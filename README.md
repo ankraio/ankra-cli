@@ -95,6 +95,12 @@ ankra upgrade
 
 Switch back to stable any time with `ankra config beta disable`.
 
+#### Deprecations
+
+Commands scheduled for removal are tracked in [`DEPRECATIONS.md`](DEPRECATIONS.md),
+including the version they are removed in and the replacement to use. Running a
+deprecated command also prints a warning at runtime.
+
 
 ## Features
 
@@ -354,6 +360,9 @@ ankra cluster deprovision [name]      # Deprovision (stop) a managed cluster
   [--auto-delete] [--force]
 ankra cluster roll-to --version <id>  # Roll to a specific resource version
   [--cluster <cluster_id>]
+ankra cluster k3s-versions            # List Kubernetes (k3s) versions available for upgrades
+ankra cluster upgrade <id> <version>  # Upgrade the Kubernetes version of a cloud cluster
+                                      #   (Hetzner/OVH/UpCloud detected automatically)
 ```
 
 #### Delete Resources
@@ -588,11 +597,16 @@ ankra cluster hetzner create           # Create a Hetzner cluster
   --bastion-server-type <type>         #   Bastion server type (default: cx23)
   --distribution <dist>                #   Kubernetes distribution (default: k3s)
   --kubernetes-version <ver>           #   Kubernetes version (optional)
+  --external-cloud-provider            #   Install Hetzner CCM + CSI (default: true; --external-cloud-provider=false also disables --include-networking)
+  --include-networking                 #   Install Traefik + cert-manager (default: true; requires --external-cloud-provider; use --include-networking=false to skip)
+  --gitops-credential-name <name>      #   GitHub credential for GitOps (optional; requires --gitops-repository)
+  --gitops-repository <org/repo>       #   Git repo to commit the generated hcloud stack to (optional)
+  --gitops-branch <branch>             #   GitOps branch (default: master)
 ankra cluster hetzner deprovision <id>    # Deprovision a Hetzner cluster
 ankra cluster hetzner workers <id>       # Get current worker count
 ankra cluster hetzner scale <id> <n>     # Scale workers to n
 ankra cluster hetzner k8s-version <id>   # Get current Kubernetes version
-ankra cluster hetzner upgrade <id> <ver> # Upgrade Kubernetes version
+ankra cluster hetzner upgrade <id> <ver> # Upgrade Kubernetes version (deprecated: use `ankra cluster upgrade`)
 
 ankra cluster hetzner node-group list <id>                  # List node groups
 ankra cluster hetzner node-group add <id>                   # Add a node group
@@ -631,13 +645,18 @@ ankra cluster ovh create                  # Create an OVH cluster
   --dhcp-end <ip>                         #   DHCP range end (default: 10.0.1.200)
   --distribution <dist>                   #   Kubernetes distribution (default: k3s)
   --kubernetes-version <ver>              #   Kubernetes version (optional)
+  --external-cloud-provider               #   Install OpenStack CCM + Cinder CSI (default: true; --external-cloud-provider=false also disables --include-networking)
+  --include-networking                    #   Install Traefik + cert-manager (default: true; requires --external-cloud-provider; use --include-networking=false to skip)
+  --gitops-credential-name <name>         #   GitHub credential for GitOps (optional; requires --gitops-repository)
+  --gitops-repository <org/repo>          #   Git repo to commit the generated ovh-cloud stack to (optional)
+  --gitops-branch <branch>                #   GitOps branch (default: master)
 ankra cluster ovh deprovision <id>        # Deprovision an OVH cluster
 ankra cluster ovh stop <id>               # Stop an OVH cluster (keeps configuration)
 ankra cluster ovh start <id> [--scope all|control_plane]  # Start a stopped OVH cluster
 ankra cluster ovh workers <id>            # Get current worker count
 ankra cluster ovh scale <id> <n>          # Scale workers to n
 ankra cluster ovh k8s-version <id>        # Get current Kubernetes version
-ankra cluster ovh upgrade <id> <version>  # Upgrade Kubernetes version
+ankra cluster ovh upgrade <id> <version>  # Upgrade Kubernetes version (deprecated: use `ankra cluster upgrade`)
 ankra cluster ovh regions --credential-id <id>  # List regions the credential can deploy in
 ankra cluster ovh access-info <id>        # Show gateway/control-plane IPs and SSH commands
 ankra cluster ovh ssh-keys get <id>       # Show SSH keys attached to the cluster
@@ -684,11 +703,18 @@ ankra cluster upcloud create              # Create an UpCloud cluster
   --bastion-plan <plan>                   #   Bastion plan (default: 1xCPU-2GB)
   --distribution <dist>                   #   Kubernetes distribution (default: k3s)
   --kubernetes-version <ver>              #   Kubernetes version (optional)
+  --external-cloud-provider               #   Install UpCloud CCM + CSI (default: true; --external-cloud-provider=false also disables --include-networking)
+  --include-networking                    #   Install Traefik + cert-manager (default: true; requires --external-cloud-provider; use --include-networking=false to skip)
+  --gitops-credential-name <name>         #   GitHub credential for GitOps (optional; requires --gitops-repository)
+  --gitops-repository <org/repo>          #   Git repo to commit the generated upcloud-cloud-provider stack to (optional)
+  --gitops-branch <branch>                #   GitOps branch (default: master)
 ankra cluster upcloud deprovision <id>    # Deprovision an UpCloud cluster
+ankra cluster upcloud stop <id>           # Stop an UpCloud cluster (keeps configuration)
+ankra cluster upcloud start <id> [--scope all|control_plane]  # Start a stopped UpCloud cluster
 ankra cluster upcloud workers <id>        # Get current worker count
 ankra cluster upcloud scale <id> <n>      # Scale workers to n
 ankra cluster upcloud k8s-version <id>    # Get current Kubernetes version
-ankra cluster upcloud upgrade <id> <ver>  # Upgrade Kubernetes version
+ankra cluster upcloud upgrade <id> <ver>  # Upgrade Kubernetes version (deprecated: use `ankra cluster upgrade`)
 
 ankra cluster upcloud node-group list <id>                  # List node groups
 ankra cluster upcloud node-group add <id>                   # Add a node group

@@ -1,57 +1,61 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
-	"time"
+
+	"github.com/spf13/cobra"
 )
 
-func TestFormatTimeAgo(t *testing.T) {
+func newCloudProviderNetworkingCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "create"}
+	cmd.Flags().Bool("external-cloud-provider", true, "")
+	cmd.Flags().Bool("include-networking", true, "")
+	return cmd
+}
+
+func TestResolveCloudProviderNetworking(t *testing.T) {
 	tests := []struct {
-		name           string
-		input          string
-		expectOriginal bool
+		name              string
+		args              []string
+		wantCloudProvider bool
+		wantNetworking    bool
+		wantErr           bool
+		wantErrContains   string
 	}{
-		{
-			name:           "valid recent timestamp",
-			input:          time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
-			expectOriginal: false,
-		},
-		{
-			name:           "valid old timestamp",
-			input:          "2020-01-01T00:00:00Z",
-			expectOriginal: false,
-		},
-		{
-			name:           "invalid timestamp returns original",
-			input:          "not-a-timestamp",
-			expectOriginal: true,
-		},
-		{
-			name:           "empty string returns original",
-			input:          "",
-			expectOriginal: true,
-		},
-		{
-			name:           "partial date returns original",
-			input:          "2024-01-01",
-			expectOriginal: true,
-		},
+		{name: "defaults both on", args: nil, wantCloudProvider: true, wantNetworking: true},
+		{name: "networking off keeps cloud provider", args: []string{"--include-networking=false"}, wantCloudProvider: true, wantNetworking: false},
+		{name: "cloud provider off disables networking implicitly", args: []string{"--external-cloud-provider=false"}, wantCloudProvider: false, wantNetworking: false},
+		{name: "cloud provider off with networking off", args: []string{"--external-cloud-provider=false", "--include-networking=false"}, wantCloudProvider: false, wantNetworking: false},
+		{name: "cloud provider off with explicit networking errors", args: []string{"--external-cloud-provider=false", "--include-networking=true"}, wantErr: true, wantErrContains: "requires --external-cloud-provider"},
+		{name: "both explicitly on", args: []string{"--external-cloud-provider=true", "--include-networking=true"}, wantCloudProvider: true, wantNetworking: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := formatTimeAgo(tt.input)
-			if tt.expectOriginal {
-				if result != tt.input {
-					t.Errorf("formatTimeAgo(%q) = %q, want original input", tt.input, result)
+			cmd := newCloudProviderNetworkingCommand()
+			if err := cmd.Flags().Parse(tt.args); err != nil {
+				t.Fatalf("parsing flags: %v", err)
+			}
+
+			externalCloudProvider, includeNetworking, err := resolveCloudProviderNetworking(cmd)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error, got none")
 				}
-			} else {
-				if result == tt.input {
-					t.Errorf("formatTimeAgo(%q) returned original instead of human-readable time", tt.input)
+				if tt.wantErrContains != "" && !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Errorf("error = %q, want it to contain %q", err.Error(), tt.wantErrContains)
 				}
-				if result == "" {
-					t.Errorf("formatTimeAgo(%q) returned empty string", tt.input)
-				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if externalCloudProvider != tt.wantCloudProvider {
+				t.Errorf("externalCloudProvider = %v, want %v", externalCloudProvider, tt.wantCloudProvider)
+			}
+			if includeNetworking != tt.wantNetworking {
+				t.Errorf("includeNetworking = %v, want %v", includeNetworking, tt.wantNetworking)
 			}
 		})
 	}

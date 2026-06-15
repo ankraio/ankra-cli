@@ -6,7 +6,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 )
+
+type HetznerLocation struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	City        string `json:"city"`
+	Country     string `json:"country"`
+	NetworkZone string `json:"network_zone"`
+}
+
+type HetznerServerType struct {
+	Name         string  `json:"name"`
+	Description  string  `json:"description"`
+	Cores        int     `json:"cores"`
+	Memory       float64 `json:"memory"`
+	Disk         int     `json:"disk"`
+	Architecture string  `json:"architecture"`
+	CPUType      string  `json:"cpu_type"`
+	PriceMonthly float64 `json:"price_monthly"`
+	Available    bool    `json:"available"`
+}
 
 type NodeTaint struct {
 	Key    string `json:"key"`
@@ -39,6 +60,11 @@ type CreateHetznerClusterRequest struct {
 	Distribution           string                   `json:"distribution"`
 	KubernetesVersion      *string                  `json:"kubernetes_version,omitempty"`
 	NodeGroups             []CreateNodeGroupRequest  `json:"node_groups,omitempty"`
+	ExternalCloudProvider  bool                     `json:"external_cloud_provider"`
+	IncludeNetworking      bool                     `json:"include_networking"`
+	GitopsCredentialName   *string                  `json:"gitops_credential_name,omitempty"`
+	GitopsRepository       *string                  `json:"gitops_repository,omitempty"`
+	GitopsBranch           *string                  `json:"gitops_branch,omitempty"`
 }
 
 type CreateHetznerClusterResponse struct {
@@ -391,4 +417,25 @@ func (c *Client) doUpgradeK8sVersion(url, targetVersion string) (*UpgradeK8sVers
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &result, nil
+}
+
+func (c *Client) ListHetznerLocations(credentialID string) ([]HetznerLocation, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/locations?credential_id=%s", c.BaseURL, url.QueryEscape(credentialID))
+	var result []HetznerLocation
+	if err := c.getJSON(endpoint, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) ListHetznerServerTypes(credentialID, location string) ([]HetznerServerType, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/server-types?credential_id=%s", c.BaseURL, url.QueryEscape(credentialID))
+	if location != "" {
+		endpoint += "&location=" + url.QueryEscape(location)
+	}
+	var result []HetznerServerType
+	if err := c.getJSON(endpoint, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }

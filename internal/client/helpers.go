@@ -73,6 +73,21 @@ func parseJSON(data []byte, target interface{}) error {
 	return json.Unmarshal(data, target)
 }
 
+// detailFromBody extracts the FastAPI `detail` string from a JSON error
+// body, returning "" when the body is not JSON or carries no string detail.
+// FastAPI's HTTPException serialises its message as {"detail": "..."}, so
+// surfacing it gives the user the backend's human-readable reason (for
+// example "A sync is already in progress for this registry.").
+func detailFromBody(body []byte) string {
+	var parsed struct {
+		Detail string `json:"detail"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return ""
+	}
+	return parsed.Detail
+}
+
 // sensitiveKeyFragments lists case-insensitive substrings that mark a JSON
 // field as carrying credential material. A match triggers redaction of the
 // associated value before the body is included in any error message.

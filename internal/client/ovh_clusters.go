@@ -14,22 +14,27 @@ type OvhRegionListResult struct {
 }
 
 type CreateOvhClusterRequest struct {
-	Name                 string  `json:"name"`
-	Description          *string `json:"description,omitempty"`
-	CredentialID         string  `json:"credential_id"`
-	SSHKeyCredentialID   string  `json:"ssh_key_credential_id"`
-	Region               string  `json:"region"`
-	NetworkVlanID        int     `json:"network_vlan_id"`
-	SubnetCIDR           string  `json:"subnet_cidr"`
-	DHCPStart            string  `json:"dhcp_start"`
-	DHCPEnd              string  `json:"dhcp_end"`
-	GatewayFlavorID      string  `json:"gateway_flavor_id"`
-	ControlPlaneCount    int     `json:"control_plane_count"`
-	ControlPlaneFlavorID string  `json:"control_plane_flavor_id"`
-	WorkerCount          int     `json:"worker_count"`
-	WorkerFlavorID       string  `json:"worker_flavor_id"`
-	Distribution         string  `json:"distribution"`
-	KubernetesVersion    *string `json:"kubernetes_version,omitempty"`
+	Name                  string  `json:"name"`
+	Description           *string `json:"description,omitempty"`
+	CredentialID          string  `json:"credential_id"`
+	SSHKeyCredentialID    string  `json:"ssh_key_credential_id"`
+	Region                string  `json:"region"`
+	NetworkVlanID         int     `json:"network_vlan_id"`
+	SubnetCIDR            string  `json:"subnet_cidr"`
+	DHCPStart             string  `json:"dhcp_start"`
+	DHCPEnd               string  `json:"dhcp_end"`
+	GatewayFlavorID       string  `json:"gateway_flavor_id"`
+	ControlPlaneCount     int     `json:"control_plane_count"`
+	ControlPlaneFlavorID  string  `json:"control_plane_flavor_id"`
+	WorkerCount           int     `json:"worker_count"`
+	WorkerFlavorID        string  `json:"worker_flavor_id"`
+	Distribution          string  `json:"distribution"`
+	KubernetesVersion     *string `json:"kubernetes_version,omitempty"`
+	ExternalCloudProvider bool    `json:"external_cloud_provider"`
+	IncludeNetworking     bool    `json:"include_networking"`
+	GitopsCredentialName  *string `json:"gitops_credential_name,omitempty"`
+	GitopsRepository      *string `json:"gitops_repository,omitempty"`
+	GitopsBranch          *string `json:"gitops_branch,omitempty"`
 }
 
 type CreateOvhClusterResponse struct {

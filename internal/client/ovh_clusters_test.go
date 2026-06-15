@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -32,6 +33,80 @@ func TestCreateOvhCluster_Success(t *testing.T) {
 	}
 	if result.ClusterID != expectedResponse.ClusterID {
 		t.Errorf("ClusterID = %s, want %s", result.ClusterID, expectedResponse.ClusterID)
+	}
+}
+
+func TestCreateOvhCluster_SendsCloudProviderNetworkingAndGitopsFields(t *testing.T) {
+	expectedResponse := CreateOvhClusterResponse{ClusterID: "ovh-cluster-123", Name: "ovh-test"}
+	var receivedBody map[string]any
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	}
+	testClient := newTestClient(t, handler)
+	branch := "main"
+	req := CreateOvhClusterRequest{
+		Name: "ovh-test", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Region: "GRA9", NetworkVlanID: 1, SubnetCIDR: "10.0.0.0/24",
+		DHCPStart: "10.0.0.10", DHCPEnd: "10.0.0.250", GatewayFlavorID: "b2-7",
+		ControlPlaneCount: 1, ControlPlaneFlavorID: "b2-7",
+		WorkerCount: 2, WorkerFlavorID: "b2-7", Distribution: "k3s",
+		ExternalCloudProvider: true,
+		IncludeNetworking:     true,
+		GitopsCredentialName:  strPtr("github-cred"),
+		GitopsRepository:      strPtr("acme/infra"),
+		GitopsBranch:          &branch,
+	}
+	if _, err := testClient.CreateOvhCluster(req); err != nil {
+		t.Fatalf("CreateOvhCluster: %v", err)
+	}
+	if got, ok := receivedBody["external_cloud_provider"].(bool); !ok || !got {
+		t.Errorf("external_cloud_provider = %v, want true", receivedBody["external_cloud_provider"])
+	}
+	if got, ok := receivedBody["include_networking"].(bool); !ok || !got {
+		t.Errorf("include_networking = %v, want true", receivedBody["include_networking"])
+	}
+	if got, _ := receivedBody["gitops_credential_name"].(string); got != "github-cred" {
+		t.Errorf("gitops_credential_name = %q, want github-cred", got)
+	}
+	if got, _ := receivedBody["gitops_repository"].(string); got != "acme/infra" {
+		t.Errorf("gitops_repository = %q, want acme/infra", got)
+	}
+	if got, _ := receivedBody["gitops_branch"].(string); got != "main" {
+		t.Errorf("gitops_branch = %q, want main", got)
+	}
+}
+
+func TestCreateOvhCluster_OmitsGitopsWhenUnset(t *testing.T) {
+	expectedResponse := CreateOvhClusterResponse{ClusterID: "ovh-cluster-123", Name: "ovh-test"}
+	var receivedBody map[string]any
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	}
+	testClient := newTestClient(t, handler)
+	req := CreateOvhClusterRequest{
+		Name: "ovh-test", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Region: "GRA9", Distribution: "k3s",
+	}
+	if _, err := testClient.CreateOvhCluster(req); err != nil {
+		t.Fatalf("CreateOvhCluster: %v", err)
+	}
+	if got, ok := receivedBody["external_cloud_provider"].(bool); !ok || got {
+		t.Errorf("external_cloud_provider = %v, want false", receivedBody["external_cloud_provider"])
+	}
+	if got, ok := receivedBody["include_networking"].(bool); !ok || got {
+		t.Errorf("include_networking = %v, want false", receivedBody["include_networking"])
+	}
+	if _, present := receivedBody["gitops_credential_name"]; present {
+		t.Errorf("gitops_credential_name should be omitted when unset")
+	}
+	if _, present := receivedBody["gitops_repository"]; present {
+		t.Errorf("gitops_repository should be omitted when unset")
 	}
 }
 
