@@ -14,6 +14,34 @@
   (revoking every grant that member has on the cluster). Managing access
   requires organisation admin rights.
 
+- **`ankra cluster ovh create`** now accepts **`--external-cloud-provider`**
+  (OpenStack CCM + Cinder CSI), **`--include-networking`** (Traefik +
+  cert-manager), and **`--gitops-credential-name`** / **`--gitops-repository`** /
+  **`--gitops-branch`**. The cloud provider and networking install by default
+  (reconciled directly, no GitOps required) and are committed to Git when the
+  GitOps flags are set. `--include-networking` requires `--external-cloud-provider`
+  (the ingress LoadBalancer is provisioned by the cloud controller manager), so
+  `--external-cloud-provider=false` also disables networking; pass
+  `--include-networking=false` to keep the cloud provider without ingress.
+- **`ankra cluster upcloud create`** now matches OVH: **`--external-cloud-provider`**
+  (UpCloud CCM + CSI) and the new **`--include-networking`** flag (Traefik +
+  cert-manager) both default to **on** and no longer require GitOps — the
+  cloud-provider/networking stacks are reconciled directly, and are additionally
+  committed to Git when **`--gitops-credential-name`** and **`--gitops-repository`**
+  are set. `--include-networking` requires `--external-cloud-provider` (the ingress
+  LoadBalancer is provisioned by the cloud controller manager), so
+  `--external-cloud-provider=false` also disables networking; pass
+  `--include-networking=false` to keep the cloud provider without ingress.
+- **`ankra cluster hetzner create`** reaches the same parity: new
+  **`--external-cloud-provider`** (Hetzner CCM + CSI), **`--include-networking`**
+  (Traefik + cert-manager), and **`--gitops-credential-name`** /
+  **`--gitops-repository`** / **`--gitops-branch`** flags. The cloud-provider and
+  networking stacks now install by default without GitOps (reconciled directly),
+  and are committed to Git when the GitOps flags are set. `--include-networking`
+  requires `--external-cloud-provider`, so `--external-cloud-provider=false` also
+  disables networking; pass `--include-networking=false` to keep the cloud provider
+  without ingress.
+
 ### Changed
 
 - **`ankra support create` now shows the AI review before submitting.** Instead
