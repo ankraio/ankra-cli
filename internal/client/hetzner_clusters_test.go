@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -48,6 +49,80 @@ func TestCreateHetznerCluster_Success(t *testing.T) {
 	}
 	if result.Name != expectedResponse.Name {
 		t.Errorf("Name = %s, want %s", result.Name, expectedResponse.Name)
+	}
+}
+
+func TestCreateHetznerCluster_SendsCloudProviderNetworkingAndGitopsFields(t *testing.T) {
+	expectedResponse := CreateHetznerClusterResponse{ClusterID: "cluster-123", Name: "test-cluster"}
+	var receivedBody map[string]any
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	}
+	testClient := newTestClient(t, handler)
+	branch := "main"
+	req := CreateHetznerClusterRequest{
+		Name: "test-cluster", CredentialID: "cred-1", Location: "fsn1",
+		NetworkIPRange: "10.0.0.0/16", SubnetRange: "10.0.1.0/24", BastionServerType: "cx23",
+		ControlPlaneCount: 1, ControlPlaneServerType: "cx33",
+		WorkerCount: 2, WorkerServerType: "cx33", Distribution: "k3s",
+		ExternalCloudProvider: true,
+		IncludeNetworking:     true,
+		GitopsCredentialName:  strPtr("github-cred"),
+		GitopsRepository:      strPtr("acme/infra"),
+		GitopsBranch:          &branch,
+	}
+	if _, err := testClient.CreateHetznerCluster(req); err != nil {
+		t.Fatalf("CreateHetznerCluster: %v", err)
+	}
+	if got, ok := receivedBody["external_cloud_provider"].(bool); !ok || !got {
+		t.Errorf("external_cloud_provider = %v, want true", receivedBody["external_cloud_provider"])
+	}
+	if got, ok := receivedBody["include_networking"].(bool); !ok || !got {
+		t.Errorf("include_networking = %v, want true", receivedBody["include_networking"])
+	}
+	if got, _ := receivedBody["gitops_credential_name"].(string); got != "github-cred" {
+		t.Errorf("gitops_credential_name = %q, want github-cred", got)
+	}
+	if got, _ := receivedBody["gitops_repository"].(string); got != "acme/infra" {
+		t.Errorf("gitops_repository = %q, want acme/infra", got)
+	}
+	if got, _ := receivedBody["gitops_branch"].(string); got != "main" {
+		t.Errorf("gitops_branch = %q, want main", got)
+	}
+}
+
+func TestCreateHetznerCluster_OmitsGitopsWhenUnset(t *testing.T) {
+	expectedResponse := CreateHetznerClusterResponse{ClusterID: "cluster-123", Name: "test-cluster"}
+	var receivedBody map[string]any
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	}
+	testClient := newTestClient(t, handler)
+	req := CreateHetznerClusterRequest{
+		Name: "test-cluster", CredentialID: "cred-1", Location: "fsn1", Distribution: "k3s",
+		ExternalCloudProvider: false,
+		IncludeNetworking:     false,
+	}
+	if _, err := testClient.CreateHetznerCluster(req); err != nil {
+		t.Fatalf("CreateHetznerCluster: %v", err)
+	}
+	if got, ok := receivedBody["external_cloud_provider"].(bool); !ok || got {
+		t.Errorf("external_cloud_provider = %v, want false", receivedBody["external_cloud_provider"])
+	}
+	if got, ok := receivedBody["include_networking"].(bool); !ok || got {
+		t.Errorf("include_networking = %v, want false", receivedBody["include_networking"])
+	}
+	if _, present := receivedBody["gitops_credential_name"]; present {
+		t.Errorf("gitops_credential_name should be omitted when unset")
+	}
+	if _, present := receivedBody["gitops_repository"]; present {
+		t.Errorf("gitops_repository should be omitted when unset")
 	}
 }
 

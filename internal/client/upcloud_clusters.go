@@ -6,27 +6,45 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 type CreateUpcloudClusterRequest struct {
-	Name               string  `json:"name"`
-	Description        *string `json:"description,omitempty"`
-	CredentialID       string  `json:"credential_id"`
-	SSHKeyCredentialID string  `json:"ssh_key_credential_id"`
-	Zone               string  `json:"zone"`
-	NetworkIPRange     string  `json:"network_ip_range"`
-	BastionPlan        string  `json:"bastion_plan"`
-	ControlPlaneCount  int     `json:"control_plane_count"`
-	ControlPlanePlan   string  `json:"control_plane_plan"`
-	WorkerCount        int     `json:"worker_count"`
-	WorkerPlan         string  `json:"worker_plan"`
-	Distribution       string  `json:"distribution"`
-	KubernetesVersion  *string `json:"kubernetes_version,omitempty"`
+	Name                  string  `json:"name"`
+	Description           *string `json:"description,omitempty"`
+	CredentialID          string  `json:"credential_id"`
+	SSHKeyCredentialID    string  `json:"ssh_key_credential_id"`
+	Zone                  string  `json:"zone"`
+	NetworkIPRange        string  `json:"network_ip_range"`
+	BastionPlan           string  `json:"bastion_plan"`
+	ControlPlaneCount     int     `json:"control_plane_count"`
+	ControlPlanePlan      string  `json:"control_plane_plan"`
+	WorkerCount           int     `json:"worker_count"`
+	WorkerPlan            string  `json:"worker_plan"`
+	Distribution          string  `json:"distribution"`
+	KubernetesVersion     *string `json:"kubernetes_version,omitempty"`
+	ExternalCloudProvider bool    `json:"external_cloud_provider"`
+	IncludeNetworking     bool    `json:"include_networking"`
+	GitopsCredentialName  *string `json:"gitops_credential_name,omitempty"`
+	GitopsRepository      *string `json:"gitops_repository,omitempty"`
+	GitopsBranch          *string `json:"gitops_branch,omitempty"`
 }
 
 type CreateUpcloudClusterResponse struct {
 	ClusterID string `json:"cluster_id"`
 	Name      string `json:"name"`
+}
+
+type StopUpcloudClusterResponse struct {
+	Success     bool    `json:"success"`
+	ClusterID   string  `json:"cluster_id"`
+	OperationID *string `json:"operation_id,omitempty"`
+}
+
+type StartUpcloudClusterResult struct {
+	MarkedToStartAt   string `json:"marked_to_start_at"`
+	Scope             string `json:"scope"`
+	CreatedOperations int    `json:"created_operations"`
 }
 
 type DeprovisionUpcloudClusterResponse struct {
@@ -166,6 +184,67 @@ func (c *Client) DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupNam
 }
 
 func (c *Client) ScaleUpcloudWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/scale-workers", c.BaseURL, clusterID)
-	return c.doScaleWorkers(url, workerCount)
+	scaleURL := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/scale-workers", c.BaseURL, clusterID)
+	return c.doScaleWorkers(scaleURL, workerCount)
+}
+
+func (c *Client) StopUpcloudCluster(clusterID string) (*StopUpcloudClusterResponse, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/stop", c.BaseURL, url.PathEscape(clusterID))
+	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("stop failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+	}
+
+	var result StopUpcloudClusterResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) StartUpcloudCluster(clusterID, scope string) (*StartUpcloudClusterResult, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/start", c.BaseURL, url.PathEscape(clusterID))
+	if scope != "" {
+		endpoint += "?scope=" + url.QueryEscape(scope)
+	}
+	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("start failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+	}
+
+	var result StartUpcloudClusterResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
 }

@@ -36,6 +36,14 @@ var hetznerCreateCmd = &cobra.Command{
 		workerServerType, _ := cmd.Flags().GetString("worker-server-type")
 		distribution, _ := cmd.Flags().GetString("distribution")
 		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
+		externalCloudProvider, includeNetworking, err := resolveCloudProviderNetworking(cmd)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
+		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
+		gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
 
 		if sshKeyCredentialID != "" && len(sshKeyCredentialIDs) == 0 {
 			sshKeyCredentialIDs = []string{sshKeyCredentialID}
@@ -54,9 +62,20 @@ var hetznerCreateCmd = &cobra.Command{
 			WorkerCount:            workerCount,
 			WorkerServerType:       workerServerType,
 			Distribution:           distribution,
+			ExternalCloudProvider:  externalCloudProvider,
+			IncludeNetworking:      includeNetworking,
 		}
 		if kubeVersion != "" {
 			req.KubernetesVersion = &kubeVersion
+		}
+		if gitopsCredentialName != "" {
+			req.GitopsCredentialName = &gitopsCredentialName
+		}
+		if gitopsRepository != "" {
+			req.GitopsRepository = &gitopsRepository
+			if gitopsBranch != "" {
+				req.GitopsBranch = &gitopsBranch
+			}
 		}
 
 		result, err := apiClient.CreateHetznerCluster(req)
@@ -196,10 +215,11 @@ var hetznerK8sVersionCmd = &cobra.Command{
 }
 
 var hetznerUpgradeCmd = &cobra.Command{
-	Use:   "upgrade <cluster_id> <target_version>",
-	Short: "Upgrade Kubernetes version for a Hetzner cluster",
-	Long:  "Upgrade the Kubernetes (k3s) version on all nodes in a Hetzner cluster.",
-	Args:  cobra.ExactArgs(2),
+	Use:        "upgrade <cluster_id> <target_version>",
+	Short:      "Upgrade Kubernetes version for a Hetzner cluster",
+	Long:       "Upgrade the Kubernetes (k3s) version on all nodes in a Hetzner cluster.",
+	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
+	Args:       cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
 		targetVersion := args[1]
@@ -386,6 +406,67 @@ var nodeGroupDeleteCmd = &cobra.Command{
 	},
 }
 
+var hetznerLocationsCmd = &cobra.Command{
+	Use:   "locations",
+	Short: "List Hetzner locations available to a credential",
+	Long:  "List the Hetzner Cloud locations the supplied credential can deploy in. Only these locations are valid for cluster creation.",
+	Run: func(cmd *cobra.Command, args []string) {
+		credentialID, _ := cmd.Flags().GetString("credential-id")
+
+		locations, err := apiClient.ListHetznerLocations(credentialID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error listing locations: %v\n", err)
+			os.Exit(1)
+		}
+		if len(locations) == 0 {
+			fmt.Println("No locations available for this credential.")
+			return
+		}
+		fmt.Printf("Locations available to credential %s:\n", credentialID)
+		for _, loc := range locations {
+			fmt.Printf("  %-6s %s, %s (zone: %s)\n", loc.Name, loc.City, loc.Country, loc.NetworkZone)
+		}
+	},
+}
+
+var hetznerServerTypesCmd = &cobra.Command{
+	Use:   "server-types",
+	Short: "List Hetzner server types and availability",
+	Long:  "List Hetzner Cloud server types. Pass --location to see which types are currently available for provisioning there, and --available-only to hide the rest.",
+	Run: func(cmd *cobra.Command, args []string) {
+		credentialID, _ := cmd.Flags().GetString("credential-id")
+		location, _ := cmd.Flags().GetString("location")
+		availableOnly, _ := cmd.Flags().GetBool("available-only")
+
+		serverTypes, err := apiClient.ListHetznerServerTypes(credentialID, location)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error listing server types: %v\n", err)
+			os.Exit(1)
+		}
+		if len(serverTypes) == 0 {
+			fmt.Println("No server types available for this credential.")
+			return
+		}
+		header := "Server types"
+		if location != "" {
+			header = fmt.Sprintf("Server types for location %s", location)
+		}
+		fmt.Printf("%s:\n", header)
+		fmt.Printf("  %-12s %-6s %-8s %-7s %-6s %-10s %s\n", "NAME", "CORES", "MEMORY", "DISK", "ARCH", "PRICE/MO", "AVAILABLE")
+		for _, st := range serverTypes {
+			if availableOnly && !st.Available {
+				continue
+			}
+			available := "yes"
+			if !st.Available {
+				available = "no"
+			}
+			fmt.Printf("  %-12s %-6d %-6.0fGB %-5dGB %-6s %-10.2f %s\n",
+				st.Name, st.Cores, st.Memory, st.Disk, st.Architecture, st.PriceMonthly, available)
+		}
+	},
+}
+
 func init() {
 	hetznerCreateCmd.Flags().String("name", "", "Cluster name (required)")
 	hetznerCreateCmd.Flags().String("credential-id", "", "Hetzner API credential ID (required)")
@@ -401,12 +482,24 @@ func init() {
 	hetznerCreateCmd.Flags().String("worker-server-type", "cx33", "Worker server type")
 	hetznerCreateCmd.Flags().String("distribution", "k3s", "Kubernetes distribution")
 	hetznerCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional)")
+	hetznerCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the Hetzner CCM and CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
+	hetznerCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
+	hetznerCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated hcloud stack is committed to Git (optional)")
+	hetznerCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")
+	hetznerCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch to commit to")
 
 	_ = hetznerCreateCmd.MarkFlagRequired("name")
 	_ = hetznerCreateCmd.MarkFlagRequired("credential-id")
 	_ = hetznerCreateCmd.MarkFlagRequired("location")
 
 	hetznerDeprovisionCmd.Flags().Bool("force", false, "Force deprovision without waiting for the cluster agent (use only when the cluster agent is permanently offline; cloud resources may leak)")
+
+	hetznerLocationsCmd.Flags().String("credential-id", "", "Hetzner API credential ID (required)")
+	_ = hetznerLocationsCmd.MarkFlagRequired("credential-id")
+	hetznerServerTypesCmd.Flags().String("credential-id", "", "Hetzner API credential ID (required)")
+	hetznerServerTypesCmd.Flags().String("location", "", "Filter availability by location")
+	hetznerServerTypesCmd.Flags().Bool("available-only", false, "Only show server types available for provisioning (use with --location)")
+	_ = hetznerServerTypesCmd.MarkFlagRequired("credential-id")
 
 	nodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
 	nodeGroupAddCmd.Flags().String("instance-type", "cx33", "Server type for nodes")
@@ -438,6 +531,8 @@ func init() {
 	nodeGroupCmd.AddCommand(nodeGroupDeleteCmd)
 
 	hetznerCmd.AddCommand(hetznerCreateCmd)
+	hetznerCmd.AddCommand(hetznerLocationsCmd)
+	hetznerCmd.AddCommand(hetznerServerTypesCmd)
 	hetznerCmd.AddCommand(hetznerDeprovisionCmd)
 	hetznerCmd.AddCommand(hetznerWorkersCmd)
 	hetznerCmd.AddCommand(hetznerScaleCmd)

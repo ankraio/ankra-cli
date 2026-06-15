@@ -34,22 +34,41 @@ var upcloudCreateCmd = &cobra.Command{
 		workerPlan, _ := cmd.Flags().GetString("worker-plan")
 		distribution, _ := cmd.Flags().GetString("distribution")
 		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
+		externalCloudProvider, includeNetworking, err := resolveCloudProviderNetworking(cmd)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
+		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
+		gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
 
 		req := client.CreateUpcloudClusterRequest{
-			Name:               name,
-			CredentialID:       credentialID,
-			SSHKeyCredentialID: sshKeyCredentialID,
-			Zone:               zone,
-			NetworkIPRange:     networkIPRange,
-			BastionPlan:        bastionPlan,
-			ControlPlaneCount:  cpCount,
-			ControlPlanePlan:   cpPlan,
-			WorkerCount:        workerCount,
-			WorkerPlan:         workerPlan,
-			Distribution:       distribution,
+			Name:                  name,
+			CredentialID:          credentialID,
+			SSHKeyCredentialID:    sshKeyCredentialID,
+			Zone:                  zone,
+			NetworkIPRange:        networkIPRange,
+			BastionPlan:           bastionPlan,
+			ControlPlaneCount:     cpCount,
+			ControlPlanePlan:      cpPlan,
+			WorkerCount:           workerCount,
+			WorkerPlan:            workerPlan,
+			Distribution:          distribution,
+			ExternalCloudProvider: externalCloudProvider,
+			IncludeNetworking:     includeNetworking,
 		}
 		if kubeVersion != "" {
 			req.KubernetesVersion = &kubeVersion
+		}
+		if gitopsCredentialName != "" {
+			req.GitopsCredentialName = &gitopsCredentialName
+		}
+		if gitopsRepository != "" {
+			req.GitopsRepository = &gitopsRepository
+			if gitopsBranch != "" {
+				req.GitopsBranch = &gitopsBranch
+			}
 		}
 
 		result, err := apiClient.CreateUpcloudCluster(req)
@@ -105,6 +124,60 @@ var upcloudDeprovisionCmd = &cobra.Command{
 				fmt.Printf("    - %s\n", e)
 			}
 		}
+	},
+}
+
+var upcloudStopCmd = &cobra.Command{
+	Use:   "stop <cluster_id>",
+	Short: "Stop an UpCloud cluster",
+	Long:  "Stop an UpCloud cluster's compute while keeping its configuration so it can be started again later.",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+
+		result, err := apiClient.StopUpcloudCluster(clusterID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error stopping cluster: %v\n", err)
+			os.Exit(1)
+		}
+
+		if result.Success {
+			fmt.Println(text.FgGreen.Sprint("UpCloud cluster stop initiated."))
+		} else {
+			fmt.Println("Cluster stop request submitted.")
+		}
+		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+		if result.OperationID != nil {
+			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+		}
+	},
+}
+
+var upcloudStartCmd = &cobra.Command{
+	Use:   "start <cluster_id>",
+	Short: "Start a stopped UpCloud cluster",
+	Long:  "Start (re-provision) a stopped UpCloud cluster. Use --scope control_plane to bring up only the control plane.",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		clusterID := args[0]
+		scope, _ := cmd.Flags().GetString("scope")
+		if scope != "all" && scope != "control_plane" {
+			fmt.Fprintf(os.Stderr, "Invalid --scope %q: must be 'all' or 'control_plane'\n", scope)
+			os.Exit(1)
+		}
+
+		result, err := apiClient.StartUpcloudCluster(clusterID, scope)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting cluster: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println(text.FgGreen.Sprint("UpCloud cluster start initiated."))
+		fmt.Printf("  Scope: %s\n", result.Scope)
+		if result.MarkedToStartAt != "" {
+			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
+		}
+		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
 	},
 }
 
@@ -193,10 +266,11 @@ var upcloudK8sVersionCmd = &cobra.Command{
 }
 
 var upcloudUpgradeCmd = &cobra.Command{
-	Use:   "upgrade <cluster_id> <target_version>",
-	Short: "Upgrade Kubernetes version for an UpCloud cluster",
-	Long:  "Upgrade the Kubernetes (k3s) version on all nodes in an UpCloud cluster.",
-	Args:  cobra.ExactArgs(2),
+	Use:        "upgrade <cluster_id> <target_version>",
+	Short:      "Upgrade Kubernetes version for an UpCloud cluster",
+	Long:       "Upgrade the Kubernetes (k3s) version on all nodes in an UpCloud cluster.",
+	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
+	Args:       cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
 		targetVersion := args[1]
@@ -396,11 +470,18 @@ func init() {
 	upcloudCreateCmd.Flags().String("worker-plan", "2xCPU-4GB", "Worker plan")
 	upcloudCreateCmd.Flags().String("distribution", "k3s", "Kubernetes distribution")
 	upcloudCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional)")
+	upcloudCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the UpCloud CCM and CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
+	upcloudCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
+	upcloudCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated upcloud-cloud-provider stack is committed to Git (optional)")
+	upcloudCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")
+	upcloudCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch to commit to")
 
 	_ = upcloudCreateCmd.MarkFlagRequired("name")
 	_ = upcloudCreateCmd.MarkFlagRequired("credential-id")
 	_ = upcloudCreateCmd.MarkFlagRequired("ssh-key-credential-id")
 	_ = upcloudCreateCmd.MarkFlagRequired("zone")
+
+	upcloudStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
 
 	upcloudNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
 	upcloudNodeGroupAddCmd.Flags().String("instance-type", "2xCPU-4GB", "Server plan for nodes")
@@ -433,6 +514,8 @@ func init() {
 
 	upcloudCmd.AddCommand(upcloudCreateCmd)
 	upcloudCmd.AddCommand(upcloudDeprovisionCmd)
+	upcloudCmd.AddCommand(upcloudStopCmd)
+	upcloudCmd.AddCommand(upcloudStartCmd)
 	upcloudCmd.AddCommand(upcloudWorkersCmd)
 	upcloudCmd.AddCommand(upcloudScaleCmd)
 	upcloudCmd.AddCommand(upcloudK8sVersionCmd)

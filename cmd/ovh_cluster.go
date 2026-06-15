@@ -37,25 +37,44 @@ var ovhCreateCmd = &cobra.Command{
 		workerFlavorID, _ := cmd.Flags().GetString("worker-flavor-id")
 		distribution, _ := cmd.Flags().GetString("distribution")
 		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
+		externalCloudProvider, includeNetworking, err := resolveCloudProviderNetworking(cmd)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
+		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
+		gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
 
 		req := client.CreateOvhClusterRequest{
-			Name:                 name,
-			CredentialID:         credentialID,
-			SSHKeyCredentialID:   sshKeyCredentialID,
-			Region:               region,
-			NetworkVlanID:        networkVlanID,
-			SubnetCIDR:           subnetCIDR,
-			DHCPStart:            dhcpStart,
-			DHCPEnd:              dhcpEnd,
-			GatewayFlavorID:      gatewayFlavorID,
-			ControlPlaneCount:    cpCount,
-			ControlPlaneFlavorID: cpFlavorID,
-			WorkerCount:          workerCount,
-			WorkerFlavorID:       workerFlavorID,
-			Distribution:         distribution,
+			Name:                  name,
+			CredentialID:          credentialID,
+			SSHKeyCredentialID:    sshKeyCredentialID,
+			Region:                region,
+			NetworkVlanID:         networkVlanID,
+			SubnetCIDR:            subnetCIDR,
+			DHCPStart:             dhcpStart,
+			DHCPEnd:               dhcpEnd,
+			GatewayFlavorID:       gatewayFlavorID,
+			ControlPlaneCount:     cpCount,
+			ControlPlaneFlavorID:  cpFlavorID,
+			WorkerCount:           workerCount,
+			WorkerFlavorID:        workerFlavorID,
+			Distribution:          distribution,
+			ExternalCloudProvider: externalCloudProvider,
+			IncludeNetworking:     includeNetworking,
 		}
 		if kubeVersion != "" {
 			req.KubernetesVersion = &kubeVersion
+		}
+		if gitopsCredentialName != "" {
+			req.GitopsCredentialName = &gitopsCredentialName
+		}
+		if gitopsRepository != "" {
+			req.GitopsRepository = &gitopsRepository
+			if gitopsBranch != "" {
+				req.GitopsBranch = &gitopsBranch
+			}
 		}
 
 		result, err := apiClient.CreateOvhCluster(req)
@@ -202,10 +221,11 @@ var ovhK8sVersionCmd = &cobra.Command{
 }
 
 var ovhUpgradeCmd = &cobra.Command{
-	Use:   "upgrade <cluster_id> <target_version>",
-	Short: "Upgrade Kubernetes version for an OVH cluster",
-	Long:  "Upgrade the Kubernetes (k3s) version on all nodes in an OVH cluster.",
-	Args:  cobra.ExactArgs(2),
+	Use:        "upgrade <cluster_id> <target_version>",
+	Short:      "Upgrade Kubernetes version for an OVH cluster",
+	Long:       "Upgrade the Kubernetes (k3s) version on all nodes in an OVH cluster.",
+	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
+	Args:       cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterID := args[0]
 		targetVersion := args[1]
@@ -758,6 +778,11 @@ func init() {
 	ovhCreateCmd.Flags().String("worker-flavor-id", "b2-15", "Worker instance flavor")
 	ovhCreateCmd.Flags().String("distribution", "k3s", "Kubernetes distribution")
 	ovhCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional)")
+	ovhCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the OpenStack CCM and Cinder CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
+	ovhCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
+	ovhCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated ovh-cloud stack is committed to Git (optional)")
+	ovhCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")
+	ovhCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch to commit to")
 
 	_ = ovhCreateCmd.MarkFlagRequired("name")
 	_ = ovhCreateCmd.MarkFlagRequired("credential-id")

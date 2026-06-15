@@ -169,6 +169,90 @@ var helmRegistriesDeleteCmd = &cobra.Command{
 	},
 }
 
+var helmRegistriesUpdateCmd = &cobra.Command{
+	Use:   "update <name>",
+	Short: "Update a Helm chart registry",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		registryName := args[0]
+		readJobInterval, _ := cmd.Flags().GetInt("read-job-interval")
+
+		if err := apiClient.UpdateHelmRegistry(registryName, &readJobInterval); err != nil {
+			return fmt.Errorf("updating registry: %w", err)
+		}
+
+		fmt.Printf("Registry '%s' updated.\n", registryName)
+		return nil
+	},
+}
+
+var helmRegistriesSyncCmd = &cobra.Command{
+	Use:   "sync <name>",
+	Short: "Trigger a manual sync of a Helm chart registry",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		registryName := args[0]
+
+		result, err := apiClient.SyncHelmRegistry(registryName)
+		if err != nil {
+			return fmt.Errorf("syncing registry: %w", err)
+		}
+
+		fmt.Printf("Sync triggered for '%s' (%d job(s) created).\n", registryName, result.CreatedJobs)
+		fmt.Printf("Track progress with: ankra helm registries sync-jobs %s\n", registryName)
+		return nil
+	},
+}
+
+var helmRegistriesSyncJobsCmd = &cobra.Command{
+	Use:   "sync-jobs <name>",
+	Short: "List sync jobs for a Helm chart registry",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		registryName := args[0]
+		page, _ := cmd.Flags().GetInt("page")
+		pageSize, _ := cmd.Flags().GetInt("page-size")
+
+		response, err := apiClient.ListHelmRegistrySyncJobs(registryName, page, pageSize)
+		if err != nil {
+			return fmt.Errorf("listing sync jobs: %w", err)
+		}
+
+		if len(response.Jobs) == 0 {
+			fmt.Println("No sync jobs found.")
+			return nil
+		}
+
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.SetStyle(table.StyleRounded)
+		t.AppendHeader(table.Row{"Name", "Kind", "Resource", "Status", "Created", "Started"})
+
+		for _, job := range response.Jobs {
+			started := "-"
+			if job.StartAt != nil && *job.StartAt != "" {
+				started = formatTimeAgo(*job.StartAt)
+			}
+			created := "-"
+			if job.CreatedAt != "" {
+				created = formatTimeAgo(job.CreatedAt)
+			}
+			t.AppendRow(table.Row{
+				job.Name,
+				job.ResourceKind,
+				job.ResourceName,
+				job.Status,
+				created,
+				started,
+			})
+		}
+		t.Render()
+		fmt.Printf("\nPage %d of %d (total %d)\n",
+			response.Pagination.Page, response.Pagination.TotalPages, response.Pagination.TotalCount)
+		return nil
+	},
+}
+
 var helmCredentialsCmd = &cobra.Command{
 	Use:   "credentials",
 	Short: "Manage Helm registry credentials",
@@ -255,6 +339,72 @@ Example:
 	},
 }
 
+var helmCredentialsGetCmd = &cobra.Command{
+	Use:   "get <name>",
+	Short: "Get details of a Helm registry credential",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		credentialName := args[0]
+
+		response, err := apiClient.GetHelmRegistryCredential(credentialName)
+		if err != nil {
+			return fmt.Errorf("getting credential: %w", err)
+		}
+
+		fmt.Printf("Credential: %s\n", response.Name)
+		fmt.Printf("  ID:        %s\n", response.ID)
+		fmt.Printf("  Username:  %s\n", response.Username)
+		fmt.Printf("  Provider:  %s\n", response.Provider)
+		if response.CreatedAt != "" {
+			fmt.Printf("  Created:   %s\n", formatTimeAgo(response.CreatedAt))
+		}
+		if response.UpdatedAt != "" {
+			fmt.Printf("  Updated:   %s\n", formatTimeAgo(response.UpdatedAt))
+		}
+		return nil
+	},
+}
+
+var helmCredentialsUpdateCmd = &cobra.Command{
+	Use:   "update <name>",
+	Short: "Update a Helm registry credential",
+	Long: `Update a Helm registry credential's username and password.
+The password will be prompted interactively.
+
+Example:
+  ankra helm credentials update my-cred --username user`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		credentialName := args[0]
+		username, _ := cmd.Flags().GetString("username")
+
+		passwordPrompt := promptui.Prompt{
+			Label: "Password",
+			Mask:  '*',
+			Validate: func(input string) error {
+				if len(input) == 0 {
+					return fmt.Errorf("password cannot be empty")
+				}
+				return nil
+			},
+		}
+		password, err := passwordPrompt.Run()
+		if err != nil {
+			return fmt.Errorf("prompt cancelled: %w", err)
+		}
+
+		if err := apiClient.UpdateHelmRegistryCredential(credentialName, client.UpdateHelmCredentialRequest{
+			Username: username,
+			Password: password,
+		}); err != nil {
+			return fmt.Errorf("updating credential: %w", err)
+		}
+
+		fmt.Printf("Helm registry credential '%s' updated successfully!\n", credentialName)
+		return nil
+	},
+}
+
 var helmCredentialsDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a Helm registry credential",
@@ -287,11 +437,17 @@ func init() {
 	helmRegistriesCreateCmd.Flags().StringP("file", "f", "", "Path to registry spec JSON file (required)")
 	_ = helmRegistriesCreateCmd.MarkFlagRequired("file")
 	helmRegistriesDeleteCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
+	helmRegistriesUpdateCmd.Flags().Int("read-job-interval", 0, "Seconds between automatic background syncs (required)")
+	_ = helmRegistriesUpdateCmd.MarkFlagRequired("read-job-interval")
+	helmRegistriesSyncJobsCmd.Flags().Int("page", 1, "Page number")
+	helmRegistriesSyncJobsCmd.Flags().Int("page-size", 25, "Number of jobs per page")
 
 	helmCredentialsCreateCmd.Flags().String("name", "", "Credential name (required)")
 	helmCredentialsCreateCmd.Flags().String("username", "", "Registry username (required)")
 	_ = helmCredentialsCreateCmd.MarkFlagRequired("name")
 	_ = helmCredentialsCreateCmd.MarkFlagRequired("username")
+	helmCredentialsUpdateCmd.Flags().String("username", "", "Registry username (required)")
+	_ = helmCredentialsUpdateCmd.MarkFlagRequired("username")
 	helmCredentialsDeleteCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
 
 	registerStructuredOutputFlags(helmRegistriesListCmd, helmRegistriesGetCmd, helmCredentialsListCmd)
@@ -299,10 +455,15 @@ func init() {
 	helmRegistriesCmd.AddCommand(helmRegistriesListCmd)
 	helmRegistriesCmd.AddCommand(helmRegistriesGetCmd)
 	helmRegistriesCmd.AddCommand(helmRegistriesCreateCmd)
+	helmRegistriesCmd.AddCommand(helmRegistriesUpdateCmd)
 	helmRegistriesCmd.AddCommand(helmRegistriesDeleteCmd)
+	helmRegistriesCmd.AddCommand(helmRegistriesSyncCmd)
+	helmRegistriesCmd.AddCommand(helmRegistriesSyncJobsCmd)
 
 	helmCredentialsCmd.AddCommand(helmCredentialsListCmd)
 	helmCredentialsCmd.AddCommand(helmCredentialsCreateCmd)
+	helmCredentialsCmd.AddCommand(helmCredentialsGetCmd)
+	helmCredentialsCmd.AddCommand(helmCredentialsUpdateCmd)
 	helmCredentialsCmd.AddCommand(helmCredentialsDeleteCmd)
 
 	helmCmd.AddCommand(helmRegistriesCmd)
