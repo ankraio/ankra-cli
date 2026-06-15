@@ -23,6 +23,9 @@ version; running one prints a warning pointing at the replacement.
 | `ankra cluster hetzner upgrade <cluster_id> <target_version>` | v0.4.0 | `ankra cluster upgrade <cluster_id> <target_version>` | The provider is now detected automatically from the cluster, so users no longer pick a provider namespace. |
 | `ankra cluster ovh upgrade <cluster_id> <target_version>` | v0.4.0 | `ankra cluster upgrade <cluster_id> <target_version>` | Same as above. |
 | `ankra cluster upcloud upgrade <cluster_id> <target_version>` | v0.4.0 | `ankra cluster upgrade <cluster_id> <target_version>` | Same as above. |
+| `ankra cluster {hetzner,ovh,upcloud} scale <cluster_id> <worker_count>` | v0.4.0 | `ankra cluster scale <cluster_id> <worker_count>` | The provider is detected automatically from the cluster. |
+| `ankra cluster {hetzner,ovh,upcloud} node-group <list\|add\|scale\|upgrade\|delete> ...` | v0.4.0 | `ankra cluster node-group <list\|add\|scale\|upgrade\|delete> ...` | The provider is detected automatically from the cluster. |
+| `ankra cluster {hetzner,ovh,upcloud} deprovision <cluster_id>` | v0.4.0 | `ankra cluster deprovision <cluster_id> [--force]` | The provider is detected automatically; the generic verb also routes to the provider-specific teardown endpoint. |
 
 ## Removed
 

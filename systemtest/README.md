@@ -40,9 +40,15 @@ Required:
 
 | Variable | Meaning |
 |---|---|
+| `ANKRA_SYSTEMTEST_CONFIRM` | must be `yes` to acknowledge that real, billable infrastructure will be provisioned; the script refuses to run otherwise |
 | `SSH_KEY_CREDENTIAL_ID` | SSH-key credential ID |
 | `HETZNER_CREDENTIAL_ID` / `OVH_CREDENTIAL_ID` / `UPCLOUD_CREDENTIAL_ID` | provider API credential ID (per selected provider) |
-| `GITOPS_CREDENTIAL_NAME` + `GITOPS_REPOSITORY` | GitOps target for the cloud-provider stack (without these the stack step fails) |
+
+Optional GitOps (commits the generated cloud-provider stack to Git; the stack still installs without it):
+
+| Variable | Meaning |
+|---|---|
+| `GITOPS_CREDENTIAL_NAME` + `GITOPS_REPOSITORY` | GitOps target for the cloud-provider stack |
 
 Common optional (defaults in parentheses):
 
@@ -57,6 +63,7 @@ Common optional (defaults in parentheses):
 | `UPCLOUD_CP_PLAN` / `UPCLOUD_WORKER_PLAN` / `UPCLOUD_BIGGER_PLAN` | `2xCPU-4GB` / `2xCPU-4GB` / `4xCPU-8GB` |
 | `K8S_UPGRADE_TARGET` | highest version from `ankra cluster k3s-versions` |
 | `ONLINE_TIMEOUT` / `ADDONS_TIMEOUT` / `DAYTWO_TIMEOUT` / `DEPROVISION_TIMEOUT` | `1500` / `900` / `900` / `1500` (seconds) |
+| `DEPROVISION_FORCE_TIMEOUT` | `600` (bounded force-deprovision fallback if a graceful deprovision stalls) |
 
 Discover valid values with the CLI:
 
@@ -73,12 +80,13 @@ ankra cluster k3s-versions
 ```bash
 cd ankra-cli && go build -o bin/ankra .
 
+export ANKRA_SYSTEMTEST_CONFIRM=yes   # acknowledge real, billable infrastructure
 export SSH_KEY_CREDENTIAL_ID=...
 export HETZNER_CREDENTIAL_ID=...
 export OVH_CREDENTIAL_ID=...
 export UPCLOUD_CREDENTIAL_ID=...
-export GITOPS_CREDENTIAL_NAME=...
-export GITOPS_REPOSITORY=org/repo
+export GITOPS_CREDENTIAL_NAME=...     # optional
+export GITOPS_REPOSITORY=org/repo     # optional
 
 # all three providers, sequentially
 ./systemtest/lifecycle_systemtest.sh
@@ -105,6 +113,7 @@ summary line, and exits non-zero if any step failed.
 ## Cost & safety
 
 This provisions real, billable cloud servers (1 control-plane + 1 worker, briefly
-scaled to 3, plus a temporary node group). The run is short-lived and the script
-always attempts to deprovision on exit, but verify with `ankra cluster list`
-afterwards.
+scaled to 3, plus a temporary node group). You must set `ANKRA_SYSTEMTEST_CONFIRM=yes`
+to run it. The run is short-lived and the script always attempts to deprovision on
+exit (graceful, then `--force` as a fallback so nothing leaks), but verify with
+`ankra cluster list` afterwards.
