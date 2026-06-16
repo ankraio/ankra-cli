@@ -194,9 +194,12 @@ func TestNormalizeEncryptKey(t *testing.T) {
 		{"dotted path uses last segment", "data.password", "password", false},
 		{"deeply dotted path", "spec.template.secret.apiKey", "apiKey", false},
 		{"surrounding whitespace trimmed", "  password  ", "password", false},
+		{"leading-dot key kept literally", ".dockerconfigjson", ".dockerconfigjson", false},
+		{"leading-dot key with whitespace", "  .dockerconfigjson  ", ".dockerconfigjson", false},
 		{"empty key", "", "", true},
 		{"whitespace-only key", "   ", "", true},
 		{"trailing dot", "data.", "", true},
+		{"bare dot", ".", "", true},
 	}
 
 	for _, tt := range tests {
@@ -242,6 +245,40 @@ sops:
 	t.Run("encrypted value passes", func(t *testing.T) {
 		if err := verifyKeyEncrypted(encryptedSecret, "password"); err != nil {
 			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("encrypted leading-dot key passes", func(t *testing.T) {
+		content := `apiVersion: v1
+kind: Secret
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: ENC[AES256_GCM,data:abc,iv:def,tag:ghi,type:str]
+sops:
+  mac: ENC[AES256_GCM,data:mac]
+  encrypted_regex: ^(\.dockerconfigjson)$
+`
+		if err := verifyKeyEncrypted(content, ".dockerconfigjson"); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("plaintext leading-dot key fails", func(t *testing.T) {
+		content := `apiVersion: v1
+kind: Secret
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: eyJhdXRocyI6e319
+sops:
+  mac: ENC[AES256_GCM,data:mac]
+  encrypted_regex: ^(\.dockerconfigjson)$
+`
+		err := verifyKeyEncrypted(content, ".dockerconfigjson")
+		if err == nil {
+			t.Fatal("expected error for plaintext value")
+		}
+		if !strings.Contains(err.Error(), "still plaintext") {
+			t.Errorf("expected plaintext error, got: %v", err)
 		}
 	})
 

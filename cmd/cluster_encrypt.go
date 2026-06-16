@@ -66,8 +66,9 @@ var clusterEncryptManifestCmd = &cobra.Command{
 --key takes the YAML key name whose values should be encrypted (for a Secret's
 data.password, that is "password"). SOPS matches key names anywhere in the
 document, not dotted paths; a dotted --key is normalised to its last segment.
-After encrypting, the CLI verifies the value is actually ENC[...] ciphertext
-and fails if it is not.
+A key whose own name starts with a dot (such as ".dockerconfigjson" in a
+kubernetes.io/dockerconfigjson Secret) is kept literally. After encrypting, the
+CLI verifies the value is actually ENC[...] ciphertext and fails if it is not.
 
 Two modes:
   Cluster mode (default): fetch the manifest from a live cluster, encrypt the
@@ -98,8 +99,9 @@ var clusterEncryptAddonCmd = &cobra.Command{
 
 --key takes the YAML key name whose values should be encrypted. SOPS matches
 key names anywhere in the document, not dotted paths; a dotted --key is
-normalised to its last segment. After encrypting, the CLI verifies the value
-is actually ENC[...] ciphertext and fails if it is not.
+normalised to its last segment. A key whose own name starts with a dot (such
+as ".dockerconfigjson") is kept literally. After encrypting, the CLI verifies
+the value is actually ENC[...] ciphertext and fails if it is not.
 
 Two modes:
   Cluster mode (default): fetch the addon's values from a live cluster,
@@ -123,13 +125,13 @@ Examples:
 
 func init() {
 	clusterEncryptManifestCmd.Flags().StringVarP(&encryptClusterFile, "file", "f", "", "Path to a local cluster YAML (enables file mode)")
-	clusterEncryptManifestCmd.Flags().StringVar(&encryptKey, "key", "", "YAML key name to encrypt (required); dotted paths are normalised to the last segment")
+	clusterEncryptManifestCmd.Flags().StringVar(&encryptKey, "key", "", "YAML key name to encrypt (required); dotted paths are normalised to the last segment, a leading-dot key like .dockerconfigjson is kept literally")
 	clusterEncryptManifestCmd.Flags().StringVar(&encryptClusterFlag, "cluster", "", "Target cluster (name or ID); defaults to the active selection (cluster mode)")
 	_ = clusterEncryptManifestCmd.MarkFlagRequired("key")
 	clusterEncryptManifestCmd.MarkFlagsMutuallyExclusive("file", "cluster")
 
 	clusterEncryptAddonCmd.Flags().StringVarP(&encryptClusterFile, "file", "f", "", "Path to a local cluster YAML (enables file mode)")
-	clusterEncryptAddonCmd.Flags().StringVar(&encryptKey, "key", "", "YAML key name to encrypt (required); dotted paths are normalised to the last segment")
+	clusterEncryptAddonCmd.Flags().StringVar(&encryptKey, "key", "", "YAML key name to encrypt (required); dotted paths are normalised to the last segment, a leading-dot key like .dockerconfigjson is kept literally")
 	clusterEncryptAddonCmd.Flags().StringVar(&encryptAddonName, "name", "", "Name of the addon (required)")
 	clusterEncryptAddonCmd.Flags().StringVar(&encryptClusterFlag, "cluster", "", "Target cluster (name or ID); defaults to the active selection (cluster mode)")
 	clusterEncryptAddonCmd.Flags().StringVar(&encryptStackFlag, "stack", "", "Stack name (cluster mode; required when the addon exists in multiple stacks)")
@@ -149,10 +151,20 @@ func init() {
 // names during tree traversal, never to dotted paths: --key data.password must
 // become "password", otherwise SOPS encrypts nothing while still writing full
 // sops metadata, leaving a file that looks encrypted but is plaintext.
+//
+// A leading dot marks a literal key whose own name contains a dot, such as the
+// ".dockerconfigjson" key in a kubernetes.io/dockerconfigjson Secret. Those are
+// kept verbatim instead of being split on the dot.
 func normalizeEncryptKey(rawKey string) (string, error) {
 	trimmedKey := strings.TrimSpace(rawKey)
 	if trimmedKey == "" {
 		return "", fmt.Errorf("--key must not be empty")
+	}
+	if strings.HasPrefix(trimmedKey, ".") {
+		if trimmedKey == "." {
+			return "", fmt.Errorf("invalid --key %q: empty key name", rawKey)
+		}
+		return trimmedKey, nil
 	}
 	segments := strings.Split(trimmedKey, ".")
 	leafKey := segments[len(segments)-1]
