@@ -31,12 +31,19 @@
 # (`ankra cluster scale|node-group|upgrade|deprovision`); only `create` is
 # provider-specific because the flags differ per provider.
 #
+# By default the selected providers run CONCURRENTLY (ANKRA_SYSTEMTEST_PARALLEL=1)
+# so a full three-provider run finishes in roughly the time of the slowest single
+# provider instead of the sum of all three. Each parallel worker uses an isolated
+# copy of the ankra CLI config so concurrent `cluster select` calls do not clobber
+# each other. Set ANKRA_SYSTEMTEST_PARALLEL=0 to run providers one at a time.
+#
 # Usage:
 #   export ANKRA_SYSTEMTEST_CONFIRM=yes        # required (acknowledges real cost)
 #   export SSH_KEY_CREDENTIAL_ID=...           # required
 #   export HETZNER_CREDENTIAL_ID=...           # required per selected provider
 #   export GITOPS_REPOSITORY=org/repo          # optional (GitOps commit step)
-#   ./systemtest/lifecycle_systemtest.sh                 # all three providers
+#   ./systemtest/lifecycle_systemtest.sh                 # all three, in parallel
+#   ANKRA_SYSTEMTEST_PARALLEL=0 ./systemtest/lifecycle_systemtest.sh   # sequential
 #   ANKRA_SYSTEMTEST_PROVIDERS="upcloud" ./systemtest/lifecycle_systemtest.sh
 #
 # See systemtest/README.md for the full list of configuration variables.
@@ -57,6 +64,15 @@ fi
 ANKRA_SYSTEMTEST_PROVIDERS="${ANKRA_SYSTEMTEST_PROVIDERS:-hetzner ovh upcloud}"
 NAME_PREFIX="${NAME_PREFIX:-systest}"
 RUN_ID="${RUN_ID:-$(date +%y%m%d%H%M%S)}"
+
+# Async execution: run the selected providers concurrently (1) or one at a time
+# (0). Each parallel worker gets an isolated copy of the ankra CLI config so that
+# per-worker `cluster select` writes never clobber a sibling worker's selection.
+ANKRA_SYSTEMTEST_PARALLEL="${ANKRA_SYSTEMTEST_PARALLEL:-1}"
+
+# Base ankra CLI config (holds the login token + selected org). Parallel workers
+# copy this so they share auth but isolate the per-cluster selection.
+BASE_CONFIG="${ANKRA_CONFIG_FILE:-$HOME/.ankra.yaml}"
 
 # Credentials (IDs/names already stored in the Ankra org). Override per environment.
 SSH_KEY_CREDENTIAL_ID="${SSH_KEY_CREDENTIAL_ID:-}"
@@ -104,9 +120,16 @@ K8S_UPGRADE_TARGET="${K8S_UPGRADE_TARGET:-}"
 # Internal state
 # ---------------------------------------------------------------------------
 
-CREATED_CLUSTERS=()        # "name=id" entries for cleanup
+CREATED_CLUSTERS=()        # "name=id" entries for cleanup (sequential mode)
 FAILURES=0
-declare -a RESULTS         # human-readable per-step results
+declare -a RESULTS         # human-readable per-step results (sequential mode)
+
+# Shared run artifacts (populated in main). In parallel mode each worker writes
+# its results to its own file and appends created clusters to a shared file so
+# the EXIT/INT/TERM cleanup can tear down everything even on abort.
+WORKDIR=""
+CREATED_FILE=""
+WORKER_PIDS=()
 
 # ---------------------------------------------------------------------------
 # Output helpers
@@ -114,14 +137,40 @@ declare -a RESULTS         # human-readable per-step results
 
 log()     { printf '%s [systest] %s\n' "$(date +%H:%M:%S)" "$*"; }
 section() { printf '\n========== %s ==========\n' "$*"; }
-record()  { RESULTS+=("$1"); }
+
+# Record a result line. A worker (parallel or sequential) sets RESULT_FILE so its
+# results survive the subshell; otherwise fall back to the in-memory array.
+record() {
+  if [ -n "${RESULT_FILE:-}" ]; then
+    printf '%s\n' "$1" >> "$RESULT_FILE"
+  else
+    RESULTS+=("$1")
+  fi
+}
 
 pass() { log "PASS: $1"; record "PASS  $1"; }
 fail() { log "FAIL: $1"; record "FAIL  $1"; FAILURES=$((FAILURES + 1)); }
 
-# Run the CLI, stripping the noisy login/env preamble lines.
+# Remember a created cluster for cleanup. Append to the shared file (so the
+# main-shell trap sees clusters created inside parallel worker subshells) and
+# also keep the in-memory array for sequential runs.
+register_cluster() {
+  CREATED_CLUSTERS+=("$1=$2")
+  if [ -n "${CREATED_FILE:-}" ]; then
+    printf '%s=%s\n' "$1" "$2" >> "$CREATED_FILE"
+  fi
+}
+
+# Run the CLI, stripping the noisy login/env preamble lines. A parallel worker
+# sets ANK_CONFIG to an isolated config copy; the CLI keys both the saved
+# credentials and the active-cluster selection off the --config file, so workers
+# never clobber each other's `cluster select`.
 ank() {
-  "$ANKRA_BIN" "$@" 2>&1 | grep -vE "ANKRA_API_TOKEN env var is set|To use the env var instead|Using login token"
+  if [ -n "${ANK_CONFIG:-}" ]; then
+    "$ANKRA_BIN" --config "$ANK_CONFIG" "$@" 2>&1 | grep -vE "ANKRA_API_TOKEN env var is set|To use the env var instead|Using login token"
+  else
+    "$ANKRA_BIN" "$@" 2>&1 | grep -vE "ANKRA_API_TOKEN env var is set|To use the env var instead|Using login token"
+  fi
 }
 
 die() {
@@ -134,8 +183,24 @@ die() {
 # ---------------------------------------------------------------------------
 
 cleanup() {
+  # On a signalled abort, stop the parallel workers before we tear down so they
+  # do not keep issuing writes against clusters we are deleting.
+  local pid
+  for pid in "${WORKER_PIDS[@]:-}"; do
+    [ -z "$pid" ] && continue
+    kill "$pid" >/dev/null 2>&1 || true
+  done
+
+  # Cleanup runs in the main shell with the default config (auth intact); the
+  # deprovision call takes the id explicitly so no selection is required.
   local entry name id
-  for entry in "${CREATED_CLUSTERS[@]:-}"; do
+  local -a entries=()
+  if [ -n "${CREATED_FILE:-}" ] && [ -f "$CREATED_FILE" ]; then
+    while IFS= read -r entry; do entries+=("$entry"); done < "$CREATED_FILE"
+  else
+    entries=("${CREATED_CLUSTERS[@]:-}")
+  fi
+  for entry in "${entries[@]:-}"; do
     [ -z "$entry" ] && continue
     name="${entry%%=*}"
     id="${entry#*=}"
@@ -388,7 +453,7 @@ run_provider() {
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
   if [ -z "$id" ]; then fail "$provider create (could not resolve cluster id)"; return; fi
-  CREATED_CLUSTERS+=("$name=$id")
+  register_cluster "$name" "$id"
   pass "$provider create submitted (id=$id)"
 
   # 2. Online + nodes
@@ -513,20 +578,71 @@ preflight() {
   done
 }
 
+# Run one provider's full lifecycle as an isolated worker: its own config copy
+# (so `cluster select` is not shared), its own results file, and every line of
+# output tagged + tee'd to a per-provider log. Intended to be backgrounded.
+run_provider_bg() {
+  local provider="$1"
+  # Isolated config copy so the CLI's saved credentials and active-cluster
+  # selection are private to this worker (see the ank() wrapper). The .yaml
+  # suffix keeps viper's format detection happy.
+  local ANK_CONFIG="$WORKDIR/config.$provider.yaml"
+  local RESULT_FILE="$WORKDIR/results.$provider"
+  : > "$RESULT_FILE"
+  if [ -f "$BASE_CONFIG" ]; then
+    cp "$BASE_CONFIG" "$ANK_CONFIG" 2>/dev/null || true
+  fi
+  run_provider "$provider" 2>&1 | sed -u "s/^/[$provider] /" | tee "$WORKDIR/log.$provider"
+}
+
 main() {
   preflight
   section "Ankra cloud lifecycle system test (run $RUN_ID)"
-  log "providers: $ANKRA_SYSTEMTEST_PROVIDERS"
+
+  WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/ankra-systest-${RUN_ID}.XXXXXX")"
+  CREATED_FILE="$WORKDIR/created_clusters"
+  : > "$CREATED_FILE"
+
   local p
+  if [ "$ANKRA_SYSTEMTEST_PARALLEL" = "1" ]; then
+    log "providers: $ANKRA_SYSTEMTEST_PROVIDERS (parallel)"
+    log "run artifacts + per-provider logs: $WORKDIR"
+    local -a worker_provs=()
+    for p in $ANKRA_SYSTEMTEST_PROVIDERS; do
+      run_provider_bg "$p" &
+      WORKER_PIDS+=("$!")
+      worker_provs+=("$p")
+    done
+    local i
+    for i in "${!WORKER_PIDS[@]}"; do
+      wait "${WORKER_PIDS[$i]}" || true
+      log "worker finished: ${worker_provs[$i]}"
+    done
+  else
+    log "providers: $ANKRA_SYSTEMTEST_PROVIDERS (sequential)"
+    log "run artifacts: $WORKDIR"
+    for p in $ANKRA_SYSTEMTEST_PROVIDERS; do
+      RESULT_FILE="$WORKDIR/results.$p" run_provider "$p"
+    done
+  fi
+
+  # Aggregate results from every worker's file (works for both modes).
+  local -a all_results=()
+  local total_failures=0 line
   for p in $ANKRA_SYSTEMTEST_PROVIDERS; do
-    run_provider "$p"
+    [ -f "$WORKDIR/results.$p" ] || continue
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      all_results+=("$line")
+      case "$line" in FAIL*) total_failures=$((total_failures + 1));; esac
+    done < "$WORKDIR/results.$p"
   done
 
   section "RESULTS"
-  printf '%s\n' "${RESULTS[@]}"
+  if [ "${#all_results[@]}" -gt 0 ]; then printf '%s\n' "${all_results[@]}"; fi
   section "SUMMARY"
-  log "$(( ${#RESULTS[@]} - FAILURES )) passed, $FAILURES failed"
-  [ "$FAILURES" -eq 0 ]
+  log "$(( ${#all_results[@]} - total_failures )) passed, $total_failures failed"
+  [ "$total_failures" -eq 0 ]
 }
 
 main "$@"

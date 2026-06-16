@@ -112,6 +112,24 @@ var clusterClearCmd = &cobra.Command{
 }
 
 func selectedClusterFile() (string, error) {
+	// Honor an explicit --config so a custom config fully isolates CLI state.
+	// The active-cluster selection is otherwise keyed only by $HOME, so two
+	// invocations pointed at different --config files (e.g. parallel automation)
+	// would clobber each other's selection. Keep the selection next to the
+	// config file instead.
+	if cfgFile != "" {
+		absConfig, err := filepath.Abs(cfgFile)
+		if err != nil {
+			absConfig = cfgFile
+		}
+		if err := os.MkdirAll(filepath.Dir(absConfig), 0700); err != nil {
+			return "", err
+		}
+		// Append the suffix to the full config path so distinct config files get
+		// distinct selection files (deriving a stem via filepath.Ext collapses
+		// e.g. config.hetzner and config.ovh onto the same name).
+		return absConfig + ".selected.json", nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

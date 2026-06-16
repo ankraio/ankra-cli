@@ -55,6 +55,8 @@ Common optional (defaults in parentheses):
 | Variable | Default |
 |---|---|
 | `ANKRA_SYSTEMTEST_PROVIDERS` | `hetzner ovh upcloud` |
+| `ANKRA_SYSTEMTEST_PARALLEL` | `1` (run selected providers concurrently; set `0` for one-at-a-time) |
+| `ANKRA_CONFIG_FILE` | `~/.ankra.yaml` (base config parallel workers copy for auth/org) |
 | `ANKRA_BIN` | `../bin/ankra` then `ankra` on PATH |
 | `GITOPS_BRANCH` | `master` |
 | `HETZNER_LOCATION` / `OVH_REGION` / `UPCLOUD_ZONE` | `nbg1` / `GRA9` / `de-fra1` |
@@ -88,27 +90,29 @@ export UPCLOUD_CREDENTIAL_ID=...
 export GITOPS_CREDENTIAL_NAME=...     # optional
 export GITOPS_REPOSITORY=org/repo     # optional
 
-# all three providers, sequentially
+# all three providers, in parallel (default)
 ./systemtest/lifecycle_systemtest.sh
+
+# all three providers, one at a time
+ANKRA_SYSTEMTEST_PARALLEL=0 ./systemtest/lifecycle_systemtest.sh
 
 # one provider
 ANKRA_SYSTEMTEST_PROVIDERS=upcloud ./systemtest/lifecycle_systemtest.sh
 ```
 
-Run providers in parallel by launching one process per provider (each in its own
-shell / HOME so the selected-cluster state does not clash):
-
-```bash
-ANKRA_SYSTEMTEST_PROVIDERS=hetzner ./systemtest/lifecycle_systemtest.sh &
-ANKRA_SYSTEMTEST_PROVIDERS=ovh     ./systemtest/lifecycle_systemtest.sh &
-ANKRA_SYSTEMTEST_PROVIDERS=upcloud ./systemtest/lifecycle_systemtest.sh &
-wait
-```
+By default the selected providers run **concurrently** within a single invocation
+(`ANKRA_SYSTEMTEST_PARALLEL=1`), so a full three-provider run takes roughly as long
+as the slowest single provider rather than the sum of all three. Each parallel
+worker copies the base CLI config to its own file and runs with `--config`, so
+concurrent `cluster select` writes never clobber a sibling worker's selection.
+Per-provider logs and result files are written under a `mktemp -d` work directory
+printed at the start of the run; output on the console is line-tagged `[provider]`.
 
 ## Output
 
-The script prints a per-step `PASS`/`FAIL`, ends with a results list and a
-summary line, and exits non-zero if any step failed.
+The script prints a per-step `PASS`/`FAIL` (tagged with the provider in parallel
+mode), ends with a results list and a summary line, and exits non-zero if any step
+failed. Per-provider logs are also saved under the run's work directory.
 
 ## Cost & safety
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"ankra/internal/client"
@@ -197,9 +198,30 @@ func commandDryRunSkipsAuth(cmd *cobra.Command) bool {
 	return false
 }
 
+// configExtSupported reports whether a config file's extension is a format
+// viper can parse on its own. An explicit --config file with an unfamiliar or
+// missing extension (for example `--config /run/ankra/worker1`) otherwise reads
+// as empty, silently dropping the saved token and base URL. Callers fall back to
+// YAML in that case -- the only format the CLI ever writes.
+func configExtSupported(path string) bool {
+	ext := strings.TrimPrefix(filepath.Ext(path), ".")
+	if ext == "" {
+		return false
+	}
+	for _, supported := range viper.SupportedExts {
+		if strings.EqualFold(ext, supported) {
+			return true
+		}
+	}
+	return false
+}
+
 func initConfig() {
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
+		if !configExtSupported(cfgFile) {
+			viper.SetConfigType("yaml")
+		}
 	} else if home, err := os.UserHomeDir(); err == nil {
 		viper.AddConfigPath(home)
 		viper.SetConfigName(".ankra")
@@ -393,6 +415,9 @@ func readSavedCredentials() (string, string) {
 	v := viper.New()
 	if cfgFile != "" {
 		v.SetConfigFile(cfgFile)
+		if !configExtSupported(cfgFile) {
+			v.SetConfigType("yaml")
+		}
 	} else {
 		v.SetConfigName(".ankra")
 		v.SetConfigType("yaml")
