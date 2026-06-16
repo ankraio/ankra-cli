@@ -44,6 +44,15 @@
 
 ### Changed
 
+- **`--config <file>` now fully isolates per-invocation state.** A config file
+  with an unfamiliar or missing extension (for example `--config /run/ankra/worker1`)
+  is now parsed as YAML — the only format the CLI writes — instead of reading as
+  empty and silently dropping the saved token and base URL. The active-cluster
+  selection (`ankra cluster select`) is also keyed to the explicit `--config`
+  path (stored alongside it as `<config>.selected.json`) rather than `$HOME`, so
+  parallel runs against different config files no longer clobber each other's
+  selection. **Migration:** if you previously ran with `--config` and relied on
+  the `$HOME`-keyed selection, re-run `ankra cluster select` once to re-establish it.
 - **`ankra support create` now shows the AI review before submitting.** Instead
   of a one-shot create that returned a terse "ticket flagged in review; retry
   with --force" on rejection, the command first calls the review endpoint and
