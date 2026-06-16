@@ -349,10 +349,15 @@ deprovision endpoint so cloud resources are released.`,
 
 func resolveClusterFromArgsWithKind(args []string) (string, string, string, error) {
 	if len(args) > 0 {
-		clusterName := args[0]
-		cluster, err := apiClient.GetCluster(clusterName)
+		identifier := args[0]
+		// Accept either a cluster ID (consistent with `cluster scale`,
+		// `cluster node-group`, `cluster upgrade`) or a cluster name.
+		if cluster, err := apiClient.GetClusterByID(identifier); err == nil {
+			return cluster.ID, cluster.Name, cluster.Kind, nil
+		}
+		cluster, err := apiClient.GetCluster(identifier)
 		if err != nil {
-			return "", "", "", fmt.Errorf("finding cluster %s: %w", clusterName, err)
+			return "", "", "", fmt.Errorf("finding cluster %s: %w", identifier, err)
 		}
 		return cluster.ID, cluster.Name, cluster.Kind, nil
 	}
