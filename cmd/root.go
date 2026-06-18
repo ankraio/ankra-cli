@@ -91,6 +91,14 @@ func printSupportHintForUnexpectedError(out io.Writer, executedCommand *cobra.Co
 	if !errors.As(err, &unexpectedResponse) {
 		return
 	}
+	// Only nudge toward a bug report for server-side failures (5xx) or a
+	// response with no status code. Caller-actionable 4xx responses (bad
+	// request, unauthorized, forbidden, not found, conflict, ...) are user
+	// errors, not platform bugs, so suggesting `ankra support create` for them
+	// is misleading.
+	if unexpectedResponse.StatusCode != 0 && unexpectedResponse.StatusCode < 500 {
+		return
+	}
 	if executedCommand != nil && strings.HasPrefix(executedCommand.CommandPath(), "ankra support") {
 		return
 	}

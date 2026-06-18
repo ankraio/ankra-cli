@@ -506,6 +506,13 @@ func init() {
 		upcloudNodeGroupDeleteCmd,
 	)
 
+	markDeprecatedForGenericVerb("ankra cluster scale <cluster_id> <worker_count>", upcloudScaleCmd)
+	markDeprecatedForGenericVerb("ankra cluster deprovision <cluster_id> [--force]", upcloudDeprovisionCmd)
+	markDeprecatedForGenericVerb(
+		"ankra cluster node-group <list|add|scale|upgrade|delete>",
+		upcloudNodeGroupListCmd, upcloudNodeGroupAddCmd, upcloudNodeGroupScaleCmd, upcloudNodeGroupUpgradeCmd, upcloudNodeGroupDeleteCmd,
+	)
+
 	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupListCmd)
 	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupAddCmd)
 	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupScaleCmd)

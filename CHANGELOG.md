@@ -1,6 +1,6 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.4.0-rc1 — 2026-06-18
 
 ### Added
 
@@ -13,6 +13,18 @@
   applied, failed, cluster offline); `revoke` accepts a grant ID or an email
   (revoking every grant that member has on the cluster). Managing access
   requires organisation admin rights.
+
+- **`ankra cluster upgrade <cluster_id> <target_version>`**, **`ankra cluster
+  scale <cluster_id> <worker_count>`**, and **`ankra cluster node-group
+  <list|add|scale|upgrade|delete>`** — cloud-agnostic verbs that detect the
+  provider (Hetzner, OVH, UpCloud) automatically from the cluster, so you no
+  longer pick a provider namespace. They replace the provider-specific
+  `ankra cluster {hetzner,ovh,upcloud} ...` forms (see Deprecated).
+- **`ankra cluster k3s-versions`** — list the k3s (Kubernetes) versions
+  available for `ankra cluster upgrade`, with the stable channel highlighted.
+- **`ankra cluster deprovision <cluster_id>`** now accepts a cluster ID or a
+  name (previously name-only) and routes cloud clusters to the provider-specific
+  teardown so cloud resources are released.
 
 - **`ankra cluster ovh create`** now accepts **`--external-cloud-provider`**
   (OpenStack CCM + Cinder CSI), **`--include-networking`** (Traefik +
@@ -63,6 +75,16 @@
   [y/N]`); `--force` still skips the prompt and submits, and `-o json|yaml`
   callers get a `--force`-guidance error instead of a prompt. A clean request is
   submitted with no extra step.
+
+### Deprecated
+
+- The provider-specific **`ankra cluster {hetzner,ovh,upcloud} upgrade`**,
+  **`scale`**, **`node-group <list|add|scale|upgrade|delete>`**, and
+  **`deprovision`** commands are deprecated in favour of the cloud-agnostic
+  `ankra cluster upgrade` / `scale` / `node-group` / `deprovision` verbs, which
+  detect the provider automatically. The old commands still work and now print a
+  runtime warning pointing at the replacement; they are scheduled for removal in
+  v0.5.0. See `DEPRECATIONS.md`.
 
 ## v0.3.0 — 2026-06-11
 

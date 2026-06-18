@@ -123,7 +123,7 @@ export ANKRA_ORG=<org>             # optional; or pass --org
 ankra cluster info --cluster prod
 ```
 
-Resolution order: explicit `--token` (paired with `--base-url`), then `ANKRA_API_TOKEN` (+ optional `ANKRA_BASE_URL`), then the saved login. Use least-privilege tokens and store them in the CI secret store, not in Git.
+Resolution order: explicit `--token` (paired with `--base-url`), then the saved login from `ankra login`, then `ANKRA_API_TOKEN` (+ optional `ANKRA_BASE_URL`). A saved login token takes precedence over `ANKRA_API_TOKEN` — run `ankra logout` first if you want the env var to win. Use least-privilege tokens and store them in the CI secret store, not in Git.
 
 ## Conventions to follow
 

@@ -31,6 +31,19 @@ func TestSupportHintSkippedForOrdinaryErrors(t *testing.T) {
 	}
 }
 
+func TestSupportHintSkippedForClientErrorResponses(t *testing.T) {
+	for _, statusCode := range []int{400, 401, 403, 404, 409, 422} {
+		var out bytes.Buffer
+		err := fmt.Errorf("create access grant failed: %w", &client.UnexpectedResponseError{StatusCode: statusCode})
+
+		printSupportHintForUnexpectedError(&out, clusterCmd, err)
+
+		if out.Len() != 0 {
+			t.Errorf("expected no hint for status %d, got %q", statusCode, out.String())
+		}
+	}
+}
+
 func TestSupportHintSkippedForSupportCommands(t *testing.T) {
 	var out bytes.Buffer
 	unexpectedResponse := fmt.Errorf("create support ticket: %w", &client.UnexpectedResponseError{StatusCode: 500})
