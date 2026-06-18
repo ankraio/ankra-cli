@@ -668,12 +668,13 @@ ankra cluster hetzner create           # Create a Hetzner cluster
   --gitops-credential-name <name>      #   GitHub credential for GitOps (optional; requires --gitops-repository)
   --gitops-repository <org/repo>       #   Git repo to commit the generated hcloud stack to (optional)
   --gitops-branch <branch>             #   GitOps branch (default: master)
-ankra cluster hetzner deprovision <id>    # Deprovision a Hetzner cluster
+ankra cluster hetzner deprovision <id>    # Deprovision a Hetzner cluster (deprecated: use `ankra cluster deprovision`)
 ankra cluster hetzner workers <id>       # Get current worker count
-ankra cluster hetzner scale <id> <n>     # Scale workers to n
+ankra cluster hetzner scale <id> <n>     # Scale workers to n (deprecated: use `ankra cluster scale`)
 ankra cluster hetzner k8s-version <id>   # Get current Kubernetes version
 ankra cluster hetzner upgrade <id> <ver> # Upgrade Kubernetes version (deprecated: use `ankra cluster upgrade`)
 
+# node-group commands are deprecated: use `ankra cluster node-group <list|add|scale|upgrade|delete>` (provider auto-detected)
 ankra cluster hetzner node-group list <id>                  # List node groups
 ankra cluster hetzner node-group add <id>                   # Add a node group
   --name <name> [--instance-type <type>] [--count <n>]
@@ -716,11 +717,11 @@ ankra cluster ovh create                  # Create an OVH cluster
   --gitops-credential-name <name>         #   GitHub credential for GitOps (optional; requires --gitops-repository)
   --gitops-repository <org/repo>          #   Git repo to commit the generated ovh-cloud stack to (optional)
   --gitops-branch <branch>                #   GitOps branch (default: master)
-ankra cluster ovh deprovision <id>        # Deprovision an OVH cluster
+ankra cluster ovh deprovision <id>        # Deprovision an OVH cluster (deprecated: use `ankra cluster deprovision`)
 ankra cluster ovh stop <id>               # Stop an OVH cluster (keeps configuration)
 ankra cluster ovh start <id> [--scope all|control_plane]  # Start a stopped OVH cluster
 ankra cluster ovh workers <id>            # Get current worker count
-ankra cluster ovh scale <id> <n>          # Scale workers to n
+ankra cluster ovh scale <id> <n>          # Scale workers to n (deprecated: use `ankra cluster scale`)
 ankra cluster ovh k8s-version <id>        # Get current Kubernetes version
 ankra cluster ovh upgrade <id> <version>  # Upgrade Kubernetes version (deprecated: use `ankra cluster upgrade`)
 ankra cluster ovh regions --credential-id <id>  # List regions the credential can deploy in
@@ -734,6 +735,7 @@ ankra cluster ovh control-plane set-instance-type <id> <type>  # Change control 
 ankra cluster ovh nodes list <id>                         # List cluster nodes
 ankra cluster ovh nodes get <id> <node_id>                # Show node details
 
+# node-group list/add/scale/upgrade/delete are deprecated: use `ankra cluster node-group ...` (provider auto-detected); labels/taints remain OVH-specific
 ankra cluster ovh node-group list <id>                    # List node groups
 ankra cluster ovh node-group add <id>                     # Add a node group
   --name <name> [--instance-type <type>] [--count <n>] [--labels k=v,...] [--taints k=v:Effect,...]
@@ -774,14 +776,15 @@ ankra cluster upcloud create              # Create an UpCloud cluster
   --gitops-credential-name <name>         #   GitHub credential for GitOps (optional; requires --gitops-repository)
   --gitops-repository <org/repo>          #   Git repo to commit the generated upcloud-cloud-provider stack to (optional)
   --gitops-branch <branch>                #   GitOps branch (default: master)
-ankra cluster upcloud deprovision <id>    # Deprovision an UpCloud cluster
+ankra cluster upcloud deprovision <id>    # Deprovision an UpCloud cluster (deprecated: use `ankra cluster deprovision`)
 ankra cluster upcloud stop <id>           # Stop an UpCloud cluster (keeps configuration)
 ankra cluster upcloud start <id> [--scope all|control_plane]  # Start a stopped UpCloud cluster
 ankra cluster upcloud workers <id>        # Get current worker count
-ankra cluster upcloud scale <id> <n>      # Scale workers to n
+ankra cluster upcloud scale <id> <n>      # Scale workers to n (deprecated: use `ankra cluster scale`)
 ankra cluster upcloud k8s-version <id>    # Get current Kubernetes version
 ankra cluster upcloud upgrade <id> <ver>  # Upgrade Kubernetes version (deprecated: use `ankra cluster upgrade`)
 
+# node-group commands are deprecated: use `ankra cluster node-group <list|add|scale|upgrade|delete>` (provider auto-detected)
 ankra cluster upcloud node-group list <id>                  # List node groups
 ankra cluster upcloud node-group add <id>                   # Add a node group
   --name <name> [--instance-type <plan>] [--count <n>]

@@ -524,6 +524,13 @@ func init() {
 		nodeGroupDeleteCmd,
 	)
 
+	markDeprecatedForGenericVerb("ankra cluster scale <cluster_id> <worker_count>", hetznerScaleCmd)
+	markDeprecatedForGenericVerb("ankra cluster deprovision <cluster_id> [--force]", hetznerDeprovisionCmd)
+	markDeprecatedForGenericVerb(
+		"ankra cluster node-group <list|add|scale|upgrade|delete>",
+		nodeGroupListCmd, nodeGroupAddCmd, nodeGroupScaleCmd, nodeGroupUpgradeCmd, nodeGroupDeleteCmd,
+	)
+
 	nodeGroupCmd.AddCommand(nodeGroupListCmd)
 	nodeGroupCmd.AddCommand(nodeGroupAddCmd)
 	nodeGroupCmd.AddCommand(nodeGroupScaleCmd)

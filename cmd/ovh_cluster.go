@@ -837,6 +837,13 @@ func init() {
 		ovhNodeGroupDeleteCmd,
 	)
 
+	markDeprecatedForGenericVerb("ankra cluster scale <cluster_id> <worker_count>", ovhScaleCmd)
+	markDeprecatedForGenericVerb("ankra cluster deprovision <cluster_id> [--force]", ovhDeprovisionCmd)
+	markDeprecatedForGenericVerb(
+		"ankra cluster node-group <list|add|scale|upgrade|delete>",
+		ovhNodeGroupListCmd, ovhNodeGroupAddCmd, ovhNodeGroupScaleCmd, ovhNodeGroupUpgradeCmd, ovhNodeGroupDeleteCmd,
+	)
+
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupListCmd)
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupAddCmd)
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupScaleCmd)
