@@ -10,6 +10,7 @@ import (
 type OrganisationSummary struct {
 	OrganisationID string  `json:"organisation_id"`
 	Name           *string `json:"name"`
+	Slug           *string `json:"slug"`
 	UserCurrent    bool    `json:"user_current"`
 	Status         *string `json:"status"`
 	Role           *string `json:"role"`
@@ -27,6 +28,7 @@ type OrganisationMember struct {
 type OrganisationFull struct {
 	OrganisationID string               `json:"organisation_id"`
 	Name           *string              `json:"name"`
+	Slug           *string              `json:"slug"`
 	Status         *string              `json:"status"`
 	Members        []OrganisationMember `json:"members"`
 	CreatedAt      string               `json:"created_at"`
@@ -48,6 +50,7 @@ type CreateOrganisationRequest struct {
 
 type CreateOrganisationResponse struct {
 	OrganisationID string `json:"organisation_id"`
+	Slug           string `json:"slug"`
 	Message        string `json:"message"`
 }
 

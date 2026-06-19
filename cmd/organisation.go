@@ -19,6 +19,7 @@ import (
 type SelectedOrganisation struct {
 	OrganisationID string  `json:"organisation_id"`
 	Name           *string `json:"name"`
+	Slug           *string `json:"slug,omitempty"`
 	Role           *string `json:"role"`
 }
 
@@ -54,19 +55,24 @@ var orgListCmd = &cobra.Command{
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{"ID", "Name", "Role", "Status", "Current"})
+		t.AppendHeader(table.Row{"ID", "Name", "Slug", "Role", "Status", "Current"})
 		t.SetColumnConfigs([]table.ColumnConfig{
 			{Number: 1, WidthMin: 36},
 			{Number: 2, WidthMin: 20},
-			{Number: 3, WidthMin: 10},
+			{Number: 3, WidthMin: 20},
 			{Number: 4, WidthMin: 10},
-			{Number: 5, WidthMin: 8},
+			{Number: 5, WidthMin: 10},
+			{Number: 6, WidthMin: 8},
 		})
 
 		for _, org := range orgs {
 			name := ""
 			if org.Name != nil {
 				name = *org.Name
+			}
+			slug := ""
+			if org.Slug != nil {
+				slug = *org.Slug
 			}
 			role := ""
 			if org.Role != nil {
@@ -84,6 +90,7 @@ var orgListCmd = &cobra.Command{
 			t.AppendRow(table.Row{
 				org.OrganisationID,
 				name,
+				slug,
 				role,
 				status,
 				current,
@@ -94,11 +101,11 @@ var orgListCmd = &cobra.Command{
 }
 
 var orgSwitchCmd = &cobra.Command{
-	Use:   "switch <org_id>",
-	Short: "Switch to a different organisation",
+	Use:   "switch <organisation>",
+	Short: "Switch to a different organisation by slug, name, or ID",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		orgID := args[0]
+		reference := args[0]
 
 		orgs, err := apiClient.ListOrganisations()
 		if err != nil {
@@ -106,20 +113,13 @@ var orgSwitchCmd = &cobra.Command{
 			return
 		}
 
-		var targetOrg *client.OrganisationSummary
-		for i := range orgs {
-			if orgs[i].OrganisationID == orgID {
-				targetOrg = &orgs[i]
-				break
-			}
-		}
-
-		if targetOrg == nil {
-			fmt.Printf("Organisation %s not found or you don't have access.\n", orgID)
+		targetOrg, err := resolveOrganisationReference(orgs, reference)
+		if err != nil {
+			fmt.Printf("%v\n", err)
 			return
 		}
 
-		resp, err := apiClient.SwitchOrganisation(orgID)
+		resp, err := apiClient.SwitchOrganisation(targetOrg.OrganisationID)
 		if err != nil {
 			fmt.Printf("Error switching organisation: %v\n", err)
 			return
@@ -129,6 +129,7 @@ var orgSwitchCmd = &cobra.Command{
 		selected := SelectedOrganisation{
 			OrganisationID: targetOrg.OrganisationID,
 			Name:           targetOrg.Name,
+			Slug:           targetOrg.Slug,
 			Role:           targetOrg.Role,
 		}
 		if err := saveSelectedOrganisation(selected); err != nil {
@@ -139,7 +140,7 @@ var orgSwitchCmd = &cobra.Command{
 		if targetOrg.Name != nil {
 			name = *targetOrg.Name
 		}
-		fmt.Printf("Switched to organisation: %s (%s)\n", name, orgID)
+		fmt.Printf("Switched to organisation: %s (%s)\n", name, targetOrg.OrganisationID)
 		if resp.Message != "" {
 			fmt.Printf("Message: %s\n", resp.Message)
 		}
@@ -169,6 +170,10 @@ var orgCurrentCmd = &cobra.Command{
 		if org.Name != nil {
 			name = *org.Name
 		}
+		slug := ""
+		if org.Slug != nil {
+			slug = *org.Slug
+		}
 		role := ""
 		if org.Role != nil {
 			role = *org.Role
@@ -176,6 +181,9 @@ var orgCurrentCmd = &cobra.Command{
 		fmt.Printf("Current organisation (%s):\n", source)
 		fmt.Printf("  ID:   %s\n", org.OrganisationID)
 		fmt.Printf("  Name: %s\n", name)
+		if slug != "" {
+			fmt.Printf("  Slug: %s\n", slug)
+		}
 		fmt.Printf("  Role: %s\n", role)
 	},
 }
@@ -205,9 +213,16 @@ var orgCreateCmd = &cobra.Command{
 
 		fmt.Printf("Organisation created successfully!\n")
 		fmt.Printf("  ID:      %s\n", resp.OrganisationID)
+		if resp.Slug != "" {
+			fmt.Printf("  Slug:    %s\n", resp.Slug)
+		}
 		fmt.Printf("  Message: %s\n", resp.Message)
 		fmt.Println("\nTo switch to this organisation, run:")
-		fmt.Printf("  ankra org switch %s\n", resp.OrganisationID)
+		switchReference := resp.OrganisationID
+		if resp.Slug != "" {
+			switchReference = resp.Slug
+		}
+		fmt.Printf("  ankra org switch %s\n", switchReference)
 	},
 }
 
@@ -399,37 +414,64 @@ func resolveTargetOrganisationID(cmd *cobra.Command) (string, error) {
 	return org.OrganisationID, nil
 }
 
-// resolveOrgFlagToID maps the global `--org` value (an organisation name or
-// ID) to an organisation ID, validating that the authenticated user belongs
-// to it. An exact ID match wins; otherwise a case-insensitive name match is
-// used. Ambiguous or unknown names return an actionable error listing the
-// organisations available to the user.
+// resolveOrganisationReference maps a user-supplied organisation reference (an
+// ID, a slug, or a name) to the matching organisation the user belongs to.
+// Resolution order is exact ID, then exact slug, then case-insensitive name.
+// Slug and name comparisons are case-insensitive. Ambiguous or unknown
+// references return an actionable error listing the organisations available to
+// the user.
+func resolveOrganisationReference(orgs []client.OrganisationSummary, reference string) (*client.OrganisationSummary, error) {
+	trimmedReference := strings.TrimSpace(reference)
+
+	for index := range orgs {
+		if orgs[index].OrganisationID == trimmedReference {
+			return &orgs[index], nil
+		}
+	}
+
+	var slugMatches []*client.OrganisationSummary
+	for index := range orgs {
+		if orgs[index].Slug != nil && strings.EqualFold(strings.TrimSpace(*orgs[index].Slug), trimmedReference) {
+			slugMatches = append(slugMatches, &orgs[index])
+		}
+	}
+	if len(slugMatches) == 1 {
+		return slugMatches[0], nil
+	}
+	if len(slugMatches) > 1 {
+		return nil, fmt.Errorf("multiple organisations have slug %q; pass the organisation ID instead", reference)
+	}
+
+	var nameMatches []*client.OrganisationSummary
+	for index := range orgs {
+		if orgs[index].Name != nil && strings.EqualFold(strings.TrimSpace(*orgs[index].Name), trimmedReference) {
+			nameMatches = append(nameMatches, &orgs[index])
+		}
+	}
+	switch len(nameMatches) {
+	case 1:
+		return nameMatches[0], nil
+	case 0:
+		return nil, fmt.Errorf("organisation %q not found. %s", reference, availableOrganisationsHint(orgs))
+	default:
+		return nil, fmt.Errorf("multiple organisations are named %q; pass the organisation ID instead", reference)
+	}
+}
+
+// resolveOrgFlagToID maps the global `--org` value (an organisation slug, name,
+// or ID) to an organisation ID, validating that the authenticated user belongs
+// to it.
 func resolveOrgFlagToID(value string) (string, error) {
 	orgs, err := apiClient.ListOrganisations()
 	if err != nil {
 		return "", fmt.Errorf("resolving --org %q: %w", value, err)
 	}
 
-	for _, org := range orgs {
-		if org.OrganisationID == value {
-			return org.OrganisationID, nil
-		}
+	org, err := resolveOrganisationReference(orgs, value)
+	if err != nil {
+		return "", err
 	}
-
-	var matches []client.OrganisationSummary
-	for _, org := range orgs {
-		if org.Name != nil && strings.EqualFold(strings.TrimSpace(*org.Name), value) {
-			matches = append(matches, org)
-		}
-	}
-	switch len(matches) {
-	case 1:
-		return matches[0].OrganisationID, nil
-	case 0:
-		return "", fmt.Errorf("organisation %q not found. %s", value, availableOrganisationsHint(orgs))
-	default:
-		return "", fmt.Errorf("multiple organisations are named %q; pass the organisation ID instead", value)
-	}
+	return org.OrganisationID, nil
 }
 
 func availableOrganisationsHint(orgs []client.OrganisationSummary) string {

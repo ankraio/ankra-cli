@@ -89,6 +89,14 @@ func (m baseMock) ImportStackProfile(importRequest client.ImportStackProfileRequ
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetStackProfile(profileID string) (*client.StackProfileDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) InstantiateStackProfile(ctx context.Context, clusterID string, instantiateRequest client.InstantiateStackProfileRequest) (*client.InstantiateStackProfileResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1317,10 +1325,12 @@ type orgSwitchMock struct {
 
 func (m *orgSwitchMock) ListOrganisations() ([]client.OrganisationSummary, error) {
 	orgName := "Switchable Org"
+	orgSlug := "switchable-org"
 	return []client.OrganisationSummary{
 		{
 			OrganisationID: "org-switch-target",
 			Name:           &orgName,
+			Slug:           &orgSlug,
 		},
 	}, nil
 }
@@ -1441,6 +1451,23 @@ func TestOrgSwitchCommand(t *testing.T) {
 	}
 	if !strings.Contains(stdoutOutput, "Switchable Org") {
 		t.Errorf("expected organisation name in output, got: %s", stdoutOutput)
+	}
+}
+
+func TestOrgSwitchBySlugCommand(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	mock := &orgSwitchMock{}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("org", "switch", "switchable-org")
+	})
+
+	if !strings.Contains(stdoutOutput, "Switched to organisation") {
+		t.Errorf("expected success message for org switch by slug, got: %s", stdoutOutput)
+	}
+	if !strings.Contains(stdoutOutput, "org-switch-target") {
+		t.Errorf("expected resolved organisation ID in output, got: %s", stdoutOutput)
 	}
 }
 

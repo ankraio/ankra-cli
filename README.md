@@ -425,6 +425,28 @@ ankra cluster stacks variables set <stack> <name> <value> [--dry-run]   # Upsert
 ankra cluster stacks variables delete <stack> <name> [--yes]            # Delete one
 ```
 
+#### Stack Profiles
+```bash
+ankra stack-profiles list                       # List org-level reusable stack profiles
+  [--search <text>] [--page N] [--page-size N]
+ankra stack-profiles get <profile-id>           # Show a profile's versions and parameters
+  [--version N]                                  #   Describe a specific version (default: current)
+ankra stack-profiles apply <profile-id>         # Apply a profile to a cluster as a draft
+  [--cluster <name|id>]                          #   Target cluster (defaults to the selected cluster)
+  [--version N]                                  #   Profile version (default: the profile's current version)
+  [--stack-name <name>]                          #   Name for the new stack
+  [--set <name=value>]                           #   Bind a parameter (repeatable; not for secrets)
+  [--set-file <name=path>]                       #   Bind a parameter from a file (repeatable; secret-safe)
+  [--set-env <name=ENV_VAR>]                     #   Bind a parameter from an env var (repeatable; secret-safe)
+  [--deploy]                                     #   Deploy immediately instead of leaving a draft
+ankra stack-profiles export-iac <profile-id>    # Export a version as ClusterInfrastructureAsCode YAML
+  [--version N] [-o <file>]
+ankra stack-profiles import <file>              # Create a profile from an IaC YAML file
+  [--name <name>] [--category <category>]
+```
+
+By default `apply` creates a reviewable **draft** on the target cluster — nothing is deployed until you pass `--deploy` or deploy it from the dashboard. Run `ankra stack-profiles get <profile-id>` first to discover which parameters a profile expects. For **secret** parameters prefer `--set-file` or `--set-env` so values never land in your shell history or process list.
+
 #### Cluster Variables
 ```bash
 ankra cluster variables list [--cluster <name|id>]
