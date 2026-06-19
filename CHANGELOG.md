@@ -1,5 +1,34 @@
 # Ankra CLI Changelog
 
+## v0.4.0-rc2 — 2026-06-19
+
+Builds on v0.4.0-rc1 (all of its provider-parity work is included) and adds
+stack-profile inspection and one-step apply, plus organisation slug resolution.
+
+### Added
+
+- **`ankra stack-profiles get <profile-id>`** — show a stack profile's metadata,
+  its published versions, and the parameters a version exposes. Pick a specific
+  version with `--version` (defaults to the profile's current version) and use
+  `-o json|yaml` for structured output.
+- **`ankra stack-profiles apply <profile-id>`** — instantiate a stack profile
+  onto a cluster. By default it creates a reviewable **draft** (nothing is
+  deployed until you pass `--deploy` or deploy it from the dashboard); it targets
+  the selected cluster unless `--cluster <name|id>` is given. Choose the profile
+  `--version`, name the new stack with `--stack-name`, and bind parameters with
+  `--set name=value` — or, for secrets, `--set-file name=path` / `--set-env
+  name=ENV_VAR` so values never reach your shell history or process list.
+- **Organisation slugs** — the organisation `slug` is now shown in
+  `ankra org list`, `ankra org current`, and `ankra org create`, and both
+  `ankra org switch <organisation>` and the global `--org` flag resolve a
+  reference by ID, slug, or name (case-insensitive), with actionable errors on
+  ambiguous or unknown references.
+
+See the **v0.4.0-rc1** notes below for the cloud-agnostic `cluster
+upgrade | scale | node-group` verbs, the cloud-provider/ingress parity across
+OVH, UpCloud and Hetzner, and the deprecation of the provider-specific
+`cluster {hetzner,ovh,upcloud}` commands.
+
 ## v0.4.0-rc1 — 2026-06-18
 
 ### Added
