@@ -1,6 +1,6 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.4.0-rc1 — 2026-06-18
 
 ### Added
 
@@ -14,8 +14,76 @@
   (revoking every grant that member has on the cluster). Managing access
   requires organisation admin rights.
 
+- **`ankra cluster upgrade <cluster_id> <target_version>`**, **`ankra cluster
+  scale <cluster_id> <worker_count>`**, and **`ankra cluster node-group
+  <list|add|scale|upgrade|delete>`** — cloud-agnostic verbs that detect the
+  provider (Hetzner, OVH, UpCloud) automatically from the cluster, so you no
+  longer pick a provider namespace. They replace the provider-specific
+  `ankra cluster {hetzner,ovh,upcloud} ...` forms (see Deprecated).
+- **`ankra cluster k3s-versions`** — list the k3s (Kubernetes) versions
+  available for `ankra cluster upgrade`, with the stable channel highlighted.
+- **`ankra cluster deprovision <cluster_id>`** now accepts a cluster ID or a
+  name (previously name-only) and routes cloud clusters to the provider-specific
+  teardown so cloud resources are released.
+
+- **`ankra cluster ovh create`** now accepts **`--external-cloud-provider`**
+  (OpenStack CCM + Cinder CSI), **`--include-networking`** (Traefik +
+  cert-manager), and **`--gitops-credential-name`** / **`--gitops-repository`** /
+  **`--gitops-branch`**. The cloud provider and networking install by default
+  (reconciled directly, no GitOps required) and are committed to Git when the
+  GitOps flags are set. `--include-networking` requires `--external-cloud-provider`
+  (the ingress LoadBalancer is provisioned by the cloud controller manager), so
+  `--external-cloud-provider=false` also disables networking; pass
+  `--include-networking=false` to keep the cloud provider without ingress.
+- **`ankra cluster upcloud create`** now matches OVH: **`--external-cloud-provider`**
+  (UpCloud CCM + CSI) and the new **`--include-networking`** flag (Traefik +
+  cert-manager) both default to **on** and no longer require GitOps — the
+  cloud-provider/networking stacks are reconciled directly, and are additionally
+  committed to Git when **`--gitops-credential-name`** and **`--gitops-repository`**
+  are set. `--include-networking` requires `--external-cloud-provider` (the ingress
+  LoadBalancer is provisioned by the cloud controller manager), so
+  `--external-cloud-provider=false` also disables networking; pass
+  `--include-networking=false` to keep the cloud provider without ingress.
+- **`ankra cluster hetzner create`** reaches the same parity: new
+  **`--external-cloud-provider`** (Hetzner CCM + CSI), **`--include-networking`**
+  (Traefik + cert-manager), and **`--gitops-credential-name`** /
+  **`--gitops-repository`** / **`--gitops-branch`** flags. The cloud-provider and
+  networking stacks now install by default without GitOps (reconciled directly),
+  and are committed to Git when the GitOps flags are set. `--include-networking`
+  requires `--external-cloud-provider`, so `--external-cloud-provider=false` also
+  disables networking; pass `--include-networking=false` to keep the cloud provider
+  without ingress.
+- **`ankra cluster ovh stop <cluster_id>`** and **`ankra cluster ovh start
+  <cluster_id> [--scope all|control_plane]`** — stop an OVH cluster's compute
+  while keeping its configuration, then start it again later (optionally bringing
+  up only the control plane first).
+- **`ankra cluster ovh access-info <cluster_id>`** — print the gateway (bastion)
+  and control plane IPs along with ready-to-use `ssh -J` jump and Kubernetes API
+  port-forward commands.
+- **`ankra cluster ovh ssh-keys get <cluster_id>`** and **`ankra cluster ovh
+  ssh-keys set <cluster_id> --ssh-key-credential-ids <id>,...`** — view and
+  replace the SSH key credentials attached to an OVH cluster (changes apply on
+  the next reconciliation).
+- **`ankra cluster ovh node-group add`** now accepts **`--labels k=v,...`** and
+  **`--taints k=v:Effect,...`** so a new node group can be created with its
+  Kubernetes labels and taints in one step.
+- **`ankra cluster ovh control-plane ...`** and **`ankra cluster ovh nodes
+  ...`** now reach the public API: the control-plane and node-inspection
+  endpoints are exposed on `/api/v1/clusters/ovh/...` (previously only
+  available to the web UI), so these commands work against a token-authenticated
+  CLI session.
+
 ### Changed
 
+- **`--config <file>` now fully isolates per-invocation state.** A config file
+  with an unfamiliar or missing extension (for example `--config /run/ankra/worker1`)
+  is now parsed as YAML — the only format the CLI writes — instead of reading as
+  empty and silently dropping the saved token and base URL. The active-cluster
+  selection (`ankra cluster select`) is also keyed to the explicit `--config`
+  path (stored alongside it as `<config>.selected.json`) rather than `$HOME`, so
+  parallel runs against different config files no longer clobber each other's
+  selection. **Migration:** if you previously ran with `--config` and relied on
+  the `$HOME`-keyed selection, re-run `ankra cluster select` once to re-establish it.
 - **`ankra support create` now shows the AI review before submitting.** Instead
   of a one-shot create that returned a terse "ticket flagged in review; retry
   with --force" on rejection, the command first calls the review endpoint and
@@ -26,6 +94,16 @@
   [y/N]`); `--force` still skips the prompt and submits, and `-o json|yaml`
   callers get a `--force`-guidance error instead of a prompt. A clean request is
   submitted with no extra step.
+
+### Deprecated
+
+- The provider-specific **`ankra cluster {hetzner,ovh,upcloud} upgrade`**,
+  **`scale`**, **`node-group <list|add|scale|upgrade|delete>`**, and
+  **`deprovision`** commands are deprecated in favour of the cloud-agnostic
+  `ankra cluster upgrade` / `scale` / `node-group` / `deprovision` verbs, which
+  detect the provider automatically. The old commands still work and now print a
+  runtime warning pointing at the replacement; they are scheduled for removal in
+  v0.5.0. See `DEPRECATIONS.md`.
 
 ## v0.3.0 — 2026-06-11
 

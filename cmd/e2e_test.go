@@ -29,6 +29,10 @@ func (m baseMock) GetCluster(name string) (client.ClusterListItem, error) {
 	return client.ClusterListItem{}, errors.New("not implemented")
 }
 
+func (m baseMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
+	return client.ClusterListItem{}, errors.New("not implemented")
+}
+
 func (m baseMock) DeleteCluster(ctx context.Context, name string) error {
 	return errors.New("not implemented")
 }
@@ -397,7 +401,19 @@ func (m baseMock) CreateHelmRegistry(req client.CreateHelmRegistryRequest) (*cli
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) UpdateHelmRegistry(registryName string, readJobInterval *int) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) DeleteHelmRegistry(registryName string) (*client.DeleteHelmRegistryResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SyncHelmRegistry(registryName string) (*client.SyncHelmRegistryResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListHelmRegistrySyncJobs(registryName string, page, pageSize int) (*client.ListRegistrySyncJobsResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -407,6 +423,14 @@ func (m baseMock) ListHelmRegistryCredentials() (*client.ListHelmCredentialsResp
 
 func (m baseMock) CreateHelmRegistryCredential(req client.CreateHelmCredentialRequest) (*client.CreateHelmCredentialResponse, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetHelmRegistryCredential(credentialName string) (*client.GetHelmCredentialResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateHelmRegistryCredential(credentialName string, req client.UpdateHelmCredentialRequest) error {
+	return errors.New("not implemented")
 }
 
 func (m baseMock) DeleteHelmRegistryCredential(credentialName string) (*client.DeleteHelmCredentialResponse, error) {
@@ -557,6 +581,18 @@ func (m baseMock) ListOvhRegions(credentialID string) (*client.OvhRegionListResu
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListHetznerLocations(credentialID string) ([]client.HetznerLocation, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListHetznerServerTypes(credentialID, location string) ([]client.HetznerServerType, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListK3sVersions() (*client.ListK3sVersionsResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListOvhNodeGroups(clusterID string) (*client.NodeGroupListResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -626,6 +662,14 @@ func (m baseMock) CreateUpcloudCluster(req client.CreateUpcloudClusterRequest) (
 }
 
 func (m baseMock) DeprovisionUpcloudCluster(clusterID string) (*client.DeprovisionUpcloudClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StopUpcloudCluster(clusterID string) (*client.StopUpcloudClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartUpcloudCluster(clusterID, scope string) (*client.StartUpcloudClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
 

@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -28,6 +29,79 @@ func TestCreateUpcloudCluster_Success(t *testing.T) {
 	}
 	if result.ClusterID != expectedResponse.ClusterID {
 		t.Errorf("ClusterID = %s, want %s", result.ClusterID, expectedResponse.ClusterID)
+	}
+}
+
+func TestCreateUpcloudCluster_SendsCloudProviderNetworkingAndGitopsFields(t *testing.T) {
+	expectedResponse := CreateUpcloudClusterResponse{ClusterID: "upcloud-cluster-123", Name: "upcloud-test"}
+	var receivedBody map[string]any
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	})
+	branch := "main"
+	req := CreateUpcloudClusterRequest{
+		Name: "upcloud-test", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Zone: "fi-hel1", NetworkIPRange: "10.0.0.0/16", BastionPlan: "1xCPU-1GB",
+		ControlPlaneCount: 1, ControlPlanePlan: "2xCPU-4GB",
+		WorkerCount: 2, WorkerPlan: "2xCPU-4GB", Distribution: "k3s",
+		ExternalCloudProvider: true,
+		IncludeNetworking:     true,
+		GitopsCredentialName:  strPtr("github-cred"),
+		GitopsRepository:      strPtr("acme/infra"),
+		GitopsBranch:          &branch,
+	}
+	if _, err := testClient.CreateUpcloudCluster(req); err != nil {
+		t.Fatalf("CreateUpcloudCluster: %v", err)
+	}
+	if got, ok := receivedBody["external_cloud_provider"].(bool); !ok || !got {
+		t.Errorf("external_cloud_provider = %v, want true", receivedBody["external_cloud_provider"])
+	}
+	if got, ok := receivedBody["include_networking"].(bool); !ok || !got {
+		t.Errorf("include_networking = %v, want true", receivedBody["include_networking"])
+	}
+	if got, _ := receivedBody["gitops_credential_name"].(string); got != "github-cred" {
+		t.Errorf("gitops_credential_name = %q, want github-cred", got)
+	}
+	if got, _ := receivedBody["gitops_repository"].(string); got != "acme/infra" {
+		t.Errorf("gitops_repository = %q, want acme/infra", got)
+	}
+	if got, _ := receivedBody["gitops_branch"].(string); got != "main" {
+		t.Errorf("gitops_branch = %q, want main", got)
+	}
+}
+
+func TestCreateUpcloudCluster_OmitsGitopsWhenUnset(t *testing.T) {
+	expectedResponse := CreateUpcloudClusterResponse{ClusterID: "upcloud-cluster-123", Name: "upcloud-test"}
+	var receivedBody map[string]any
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	})
+	req := CreateUpcloudClusterRequest{
+		Name: "upcloud-test", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Zone: "fi-hel1", Distribution: "k3s",
+		ExternalCloudProvider: false,
+		IncludeNetworking:     false,
+	}
+	if _, err := testClient.CreateUpcloudCluster(req); err != nil {
+		t.Fatalf("CreateUpcloudCluster: %v", err)
+	}
+	if got, ok := receivedBody["external_cloud_provider"].(bool); !ok || got {
+		t.Errorf("external_cloud_provider = %v, want false", receivedBody["external_cloud_provider"])
+	}
+	if got, ok := receivedBody["include_networking"].(bool); !ok || got {
+		t.Errorf("include_networking = %v, want false", receivedBody["include_networking"])
+	}
+	if _, present := receivedBody["gitops_credential_name"]; present {
+		t.Errorf("gitops_credential_name should be omitted when unset")
+	}
+	if _, present := receivedBody["gitops_repository"]; present {
+		t.Errorf("gitops_repository should be omitted when unset")
 	}
 }
 
