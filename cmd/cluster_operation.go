@@ -71,9 +71,9 @@ var clusterOperationsListCmd = &cobra.Command{
 	Short:   "List executions for the active cluster; optionally, provide an ID for details",
 	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			return errNoClusterSelected{}
+			return err
 		}
 
 		statusFlag, _ := cmd.Flags().GetStringSlice("status")

@@ -19,9 +19,9 @@ var clusterAgentStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Get agent status for the selected cluster",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			return errNoClusterSelected{}
+			return err
 		}
 
 		agent, err := apiClient.GetClusterAgent(cluster.ID)
@@ -75,9 +75,9 @@ var clusterAgentTokenCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		generate, _ := cmd.Flags().GetBool("generate")
 
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			return errNoClusterSelected{}
+			return err
 		}
 
 		if generate {
@@ -123,9 +123,9 @@ var clusterAgentUpgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Upgrade the agent on the selected cluster",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			return errNoClusterSelected{}
+			return err
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

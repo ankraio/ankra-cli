@@ -496,9 +496,9 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		Annotations: map[string]string{"group": "kubernetes"},
 		Run: func(cmd *cobra.Command, args []string) {
-			cluster, err := loadSelectedCluster()
+			cluster, err := resolveActiveCluster(cmd)
 			if err != nil {
-				fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+				fmt.Println(err)
 				return
 			}
 			namespace, _ := cmd.Flags().GetString("namespace")
@@ -539,9 +539,9 @@ var clusterPodsCmd = &cobra.Command{
 	Args:  cobra.MaximumNArgs(1),
 	Annotations: map[string]string{"group": "kubernetes"},
 	Run: func(cmd *cobra.Command, args []string) {
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+			fmt.Println(err)
 			return
 		}
 		namespace, _ := cmd.Flags().GetString("namespace")
@@ -678,9 +678,9 @@ Example:
 			fmt.Fprintln(os.Stderr, "Error: --namespace (-n) is required for logs")
 			os.Exit(1)
 		}
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+			fmt.Println(err)
 			return
 		}
 
@@ -717,9 +717,9 @@ Example:
 	Annotations: map[string]string{"group": "kubernetes"},
 	Run: func(cmd *cobra.Command, args []string) {
 		kind := args[0]
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+			fmt.Println(err)
 			return
 		}
 		namespace, _ := cmd.Flags().GetString("namespace")

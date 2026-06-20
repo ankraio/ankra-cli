@@ -37,9 +37,9 @@ agent, addons, and AI Agents. The default output path is
 $HOME/.openclaw/skills/ankra-<cluster>.md but can be overridden via
 --output.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select' to pick one.")
+			fmt.Println(err)
 			return
 		}
 		out, _ := cmd.Flags().GetString("output")
@@ -67,9 +67,9 @@ var openclawHandoffCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		convID := args[0]
-		cluster, err := loadSelectedCluster()
+		cluster, _ := resolveActiveCluster(cmd)
 		clusterPart := ""
-		if err == nil && cluster.ID != "" {
+		if cluster.ID != "" {
 			clusterPart = fmt.Sprintf("&clusterId=%s", cluster.ID)
 		}
 		url := fmt.Sprintf("%s/organisation/ai-agents?openclaw=%s%s", strings.TrimRight(baseURL, "/"), convID, clusterPart)
@@ -150,6 +150,8 @@ This opens the AI Agents tab with the conversation pre-loaded.
 
 func init() {
 	openclawSkillCmd.Flags().StringP("output", "o", "", "Path to write SKILL.md to (default ~/.openclaw/skills/ankra-<cluster>.md)")
+	openclawSkillCmd.Flags().String("cluster", "", "Target cluster name or ID (defaults to the selected cluster)")
+	openclawHandoffCmd.Flags().String("cluster", "", "Target cluster name or ID (defaults to the selected cluster)")
 	openclawCmd.AddCommand(openclawSkillCmd)
 	openclawCmd.AddCommand(openclawHandoffCmd)
 	rootCmd.AddCommand(openclawCmd)

@@ -393,11 +393,28 @@ ankra cluster provision [name]        # Provision (start) a managed cluster
 ankra cluster deprovision [name]      # Deprovision (stop) a managed cluster
   [--auto-delete] [--force]
 ankra cluster roll-to --version <id>  # Roll to a specific resource version
-  [--cluster <cluster_id>]
+  [--cluster <name|id>]
 ankra cluster k3s-versions            # List Kubernetes (k3s) versions available for upgrades
 ankra cluster upgrade <id> <version>  # Upgrade the Kubernetes version of a cloud cluster
                                       #   (Hetzner/OVH/UpCloud detected automatically)
 ```
+
+`ankra cluster ...` subcommands act on the selected cluster, but every one of
+them also accepts a global `--cluster <name|id>` flag so you can target a
+cluster for a single command **instead of** running `ankra cluster select`
+first:
+```bash
+ankra cluster stacks list --cluster prod          # By name
+ankra cluster operations list --cluster 2222...    # By ID
+ankra cluster agent status --cluster staging
+```
+The flag takes precedence over the saved selection and accepts either a cluster
+name or ID. For commands that also take a positional cluster name (for example
+`ankra cluster info [name]` and `ankra cluster reconcile [name]`), an explicit
+argument wins over `--cluster`, which in turn wins over the saved selection.
+`ankra chat health` and `ankra openclaw skill | handoff` accept `--cluster` too.
+(`ankra cluster scale | node-group | upgrade` always take the cluster id as a
+required positional argument and do not use the selection.)
 
 #### Cluster Access
 ```bash

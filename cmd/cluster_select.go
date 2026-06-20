@@ -153,6 +153,54 @@ func saveSelectedCluster(cluster client.ClusterListItem) error {
 	return os.WriteFile(path, data, 0600)
 }
 
+// activeClusterFlagName is the persistent --cluster override registered on
+// clusterCmd. Every `ankra cluster ...` subcommand inherits it, so a single
+// command can target a cluster without first running `ankra cluster select`.
+const activeClusterFlagName = "cluster"
+
+// resolveActiveCluster returns the cluster a command should operate on. An
+// explicit --cluster <name|id> takes precedence over the cluster persisted by
+// `ankra cluster select`.
+func resolveActiveCluster(cmd *cobra.Command) (client.ClusterListItem, error) {
+	if override := clusterFlagOverride(cmd); override != "" {
+		return lookupClusterByNameOrID(override)
+	}
+	selected, err := loadSelectedCluster()
+	if err != nil {
+		return client.ClusterListItem{}, errNoClusterSelected{}
+	}
+	return selected, nil
+}
+
+// clusterFlagOverride returns the trimmed --cluster value when the command (or
+// an inherited persistent flag) defines it and a value was supplied.
+func clusterFlagOverride(cmd *cobra.Command) string {
+	if cmd == nil {
+		return ""
+	}
+	flag := cmd.Flags().Lookup(activeClusterFlagName)
+	if flag == nil {
+		return ""
+	}
+	return strings.TrimSpace(flag.Value.String())
+}
+
+// lookupClusterByNameOrID resolves a cluster name or UUID to its full list
+// item. A value shaped like a UUID is looked up by ID first, then falls back to
+// a name lookup so a name that merely resembles a UUID still resolves.
+func lookupClusterByNameOrID(nameOrID string) (client.ClusterListItem, error) {
+	if isLikelyClusterID(nameOrID) {
+		if cluster, err := apiClient.GetClusterByID(nameOrID); err == nil {
+			return cluster, nil
+		}
+	}
+	cluster, err := apiClient.GetCluster(nameOrID)
+	if err != nil {
+		return client.ClusterListItem{}, fmt.Errorf("cluster %q not found", nameOrID)
+	}
+	return cluster, nil
+}
+
 func loadSelectedCluster() (client.ClusterListItem, error) {
 	var cluster client.ClusterListItem
 	path, err := selectedClusterFile()
@@ -176,6 +224,7 @@ func clearSelectedCluster() error {
 }
 
 func init() {
+	clusterCmd.PersistentFlags().String(activeClusterFlagName, "", "Target cluster name or ID for this command, overriding `ankra cluster select`")
 	clusterCmd.AddCommand(clusterSelectCmd)
 	clusterCmd.AddCommand(clusterClearCmd)
 }

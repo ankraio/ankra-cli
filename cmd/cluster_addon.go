@@ -29,9 +29,9 @@ var clusterAddonsListCmd = &cobra.Command{
 	Short: "List addons for the active cluster; or show details for a single addon",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+			fmt.Println(err)
 			return
 		}
 
@@ -136,9 +136,9 @@ var clusterAddonsAvailableCmd = &cobra.Command{
 	Use:   "available",
 	Short: "List addons available for installation",
 	Run: func(cmd *cobra.Command, args []string) {
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+			fmt.Println(err)
 			return
 		}
 
@@ -195,9 +195,9 @@ var clusterAddonsSettingsCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		addonName := args[0]
 
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+			fmt.Println(err)
 			return
 		}
 
@@ -262,9 +262,9 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 		addonName := args[0]
 		deletePermanently, _ := cmd.Flags().GetBool("delete")
 
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+			fmt.Println(err)
 			return
 		}
 
@@ -312,9 +312,9 @@ Usage:
 		addonName := args[0]
 		filePath, _ := cmd.Flags().GetString("file")
 
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+			fmt.Println(err)
 			return
 		}
 

@@ -1,5 +1,49 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **Global `--cluster <name|id>` on every `ankra cluster ...` subcommand** —
+  target a cluster per command without first running `ankra cluster select`.
+  The flag is inherited by all cluster subcommands (`stacks`, `operations`,
+  `addons`, `manifests`, `get`/`logs`/`resources`, `helm`, `agent`,
+  `reconcile`, `provision`, `deprovision`, `roll-to`, `info`, ...) and takes
+  precedence over the persisted selection; it also accepts either a cluster
+  name or ID. `ankra chat health` and `ankra openclaw skill | handoff` gained
+  the same `--cluster` override. Commands that already accepted a positional
+  cluster name still do — an explicit argument wins over `--cluster`, which in
+  turn wins over the saved selection.
+
+- **`ankra cluster ssh-keys get | set | resync <cluster_id>`** — cloud-agnostic
+  SSH key management that detects the provider (Hetzner, OVH, UpCloud)
+  automatically from the cluster. `get` lists attached and available SSH key
+  credentials, `set` replaces the attached set (use `--clear` to remove all user
+  keys; the Ankra-managed key is always retained) and applies the change to
+  running nodes, and `resync` repairs a stale provider-side SSH key reference
+  (for example when the key was deleted and re-created in the provider console)
+  that blocks new node creation, re-applying the authorised keys to running
+  nodes.
+
+### Fixed
+
+- **`ankra login` now completes reliably on dual-stack (IPv4/IPv6) machines.**
+  The browser callback server binds the IPv4 loopback (`127.0.0.1`) but the
+  redirect URI advertised to the backend used `localhost`, which resolves to
+  both `127.0.0.1` and `::1`. A browser that connected to the IPv6 address
+  reached nothing, so after authenticating (including MFA) the final
+  `http://localhost:<port>/callback` redirect failed and login never finished.
+  The redirect URI now uses the `127.0.0.1` literal (RFC 8252 §8.3), matching
+  the listener. The CLI also waits up to 10 minutes for the callback (was 5) to
+  align with the backend's login-state expiry, so a slow MFA round-trip no
+  longer tears the callback server down early.
+
+### Deprecated
+
+- **`ankra cluster ovh ssh-keys get | set <cluster_id>`** — replaced by the
+  cloud-agnostic `ankra cluster ssh-keys get | set <cluster_id>`. The provider is
+  detected automatically from the cluster.
+
 ## v0.4.0-rc2 — 2026-06-19
 
 Builds on v0.4.0-rc1 (all of its provider-parity work is included) and adds

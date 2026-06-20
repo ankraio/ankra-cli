@@ -154,6 +154,9 @@ type APIClient interface {
 	ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error)
 	ListHetznerClusterNodes(clusterID string) (*client.NodeListResult, error)
 	GetHetznerClusterNode(clusterID, nodeID string) (*client.NodeDetail, error)
+	GetHetznerClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error)
+	UpdateHetznerClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error)
+	ResyncHetznerClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error)
 
 	ListHetznerCredentials() ([]client.HetznerCredentialListItem, error)
 	CreateHetznerCredential(req client.CreateHetznerCredentialRequest) (*client.CreateHetznerCredentialResponse, error)
@@ -166,6 +169,7 @@ type APIClient interface {
 	StartOvhCluster(clusterID, scope string) (*client.StartOvhClusterResult, error)
 	GetOvhClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error)
 	UpdateOvhClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error)
+	ResyncOvhClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error)
 	GetOvhAccessInfo(clusterID string) (*client.ClusterAccessInfo, error)
 	GetOvhWorkerCount(clusterID string) (*client.WorkerCountResult, error)
 	ScaleOvhWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error)
@@ -211,6 +215,9 @@ type APIClient interface {
 	ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error)
 	ListUpcloudClusterNodes(clusterID string) (*client.NodeListResult, error)
 	GetUpcloudClusterNode(clusterID, nodeID string) (*client.NodeDetail, error)
+	GetUpcloudClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error)
+	UpdateUpcloudClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error)
+	ResyncUpcloudClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error)
 
 	ListUpcloudCredentials() ([]client.UpcloudCredentialListItem, error)
 	CreateUpcloudCredential(req client.CreateUpcloudCredentialRequest) (*client.CreateUpcloudCredentialResponse, error)

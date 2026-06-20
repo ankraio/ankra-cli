@@ -321,9 +321,9 @@ var chatHealthCmd = &cobra.Command{
 	Use:   "health",
 	Short: "Get AI-analyzed cluster health",
 	Run: func(cmd *cobra.Command, args []string) {
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+			fmt.Println(err)
 			return
 		}
 
@@ -378,6 +378,7 @@ func init() {
 	chatHistoryCmd.Flags().Int("limit", 20, "Maximum number of conversations to show")
 
 	chatHealthCmd.Flags().Bool("ai", true, "Include AI analysis")
+	chatHealthCmd.Flags().String("cluster", "", "Target cluster name or ID (defaults to the selected cluster)")
 
 	registerStructuredOutputFlags(chatHistoryCmd, chatShowCmd, chatHealthCmd)
 

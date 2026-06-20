@@ -22,9 +22,9 @@ var clusterHelmReleasesCmd = &cobra.Command{
 	Use:   "releases",
 	Short: "List Helm releases in the cluster",
 	Run: func(cmd *cobra.Command, args []string) {
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+			fmt.Println(err)
 			return
 		}
 
@@ -103,9 +103,9 @@ var clusterHelmUninstallCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+			fmt.Println(err)
 			return
 		}
 

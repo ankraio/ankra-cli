@@ -843,6 +843,8 @@ func init() {
 		"ankra cluster node-group <list|add|scale|upgrade|delete>",
 		ovhNodeGroupListCmd, ovhNodeGroupAddCmd, ovhNodeGroupScaleCmd, ovhNodeGroupUpgradeCmd, ovhNodeGroupDeleteCmd,
 	)
+	markDeprecatedForGenericVerb("ankra cluster ssh-keys get <cluster_id>", ovhSSHKeysGetCmd)
+	markDeprecatedForGenericVerb("ankra cluster ssh-keys set <cluster_id> --ssh-key-credential-ids ...", ovhSSHKeysSetCmd)
 
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupListCmd)
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupAddCmd)

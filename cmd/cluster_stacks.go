@@ -25,9 +25,9 @@ var clusterStacksListCmd = &cobra.Command{
 	Short: "List stacks for the active cluster; or show details for a single stack",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			return errNoClusterSelected{}
+			return err
 		}
 
 		stacks, err := apiClient.ListClusterStacks(cluster.ID)
@@ -218,9 +218,9 @@ var clusterStacksDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName := args[0]
 
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			return errNoClusterSelected{}
+			return err
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -247,9 +247,9 @@ var clusterStacksRenameCmd = &cobra.Command{
 		oldName := args[0]
 		newName := args[1]
 
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			return errNoClusterSelected{}
+			return err
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -275,9 +275,9 @@ var clusterStacksHistoryCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName := args[0]
 
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			return errNoClusterSelected{}
+			return err
 		}
 
 		history, err := apiClient.GetStackHistory(cluster.ID, stackName)
@@ -350,9 +350,9 @@ and will need to be reconfigured in the target cluster.`,
 			return fmt.Errorf("--to flag is required: specify the target cluster name or ID")
 		}
 
-		sourceCluster, err := loadSelectedCluster()
+		sourceCluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			return errNoClusterSelected{}
+			return err
 		}
 
 		targetClusterID, err := resolveClusterID(targetCluster)
