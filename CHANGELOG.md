@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.4.0-rc3 — 2026-06-23
+
 ### Added
 
 - **Global `--cluster <name|id>` on every `ankra cluster ...` subcommand** —
