@@ -120,9 +120,9 @@ var clusterManifestsListCmd = &cobra.Command{
 	Short: "List manifests for the active cluster; or show details for a single manifest",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		cluster, err := loadSelectedCluster()
+		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println("No active cluster selected. Run 'ankra cluster select <name>' or 'ankra cluster select' to pick one.")
+			fmt.Println(err)
 			return
 		}
 

@@ -557,6 +557,34 @@ func (m baseMock) UpdateOvhClusterSSHKeys(clusterID string, sshKeyCredentialIDs 
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ResyncOvhClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetHetznerClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateHetznerClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResyncHetznerClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetUpcloudClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateUpcloudClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResyncUpcloudClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetOvhAccessInfo(clusterID string) (*client.ClusterAccessInfo, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1075,6 +1103,38 @@ func TestClusterAddonsListCommand(t *testing.T) {
 	}
 	if !strings.Contains(stdoutOutput, "ingress-nginx") {
 		t.Errorf("expected output to contain 'ingress-nginx', got: %s", stdoutOutput)
+	}
+}
+
+type clusterFlagOverrideMock struct {
+	baseMock
+	requestedClusterID string
+}
+
+func (m *clusterFlagOverrideMock) GetCluster(name string) (client.ClusterListItem, error) {
+	if name == "other-cluster" {
+		return client.ClusterListItem{ID: "other-cluster-id", Name: "other-cluster"}, nil
+	}
+	return client.ClusterListItem{}, errors.New("cluster not found")
+}
+
+func (m *clusterFlagOverrideMock) ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error) {
+	m.requestedClusterID = clusterID
+	return []client.ClusterAddonListItem{}, nil
+}
+
+func TestClusterFlagOverridesSelectedCluster(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &clusterFlagOverrideMock{}
+	setMockClient(t, mock)
+	t.Cleanup(func() { _ = clusterCmd.PersistentFlags().Set(activeClusterFlagName, "") })
+
+	_ = captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "addons", "list", "--cluster", "other-cluster")
+	})
+
+	if mock.requestedClusterID != "other-cluster-id" {
+		t.Errorf("expected --cluster to target other-cluster-id (overriding the selected cluster), got %q", mock.requestedClusterID)
 	}
 }
 

@@ -152,13 +152,18 @@ func runLogin() error {
 	}
 	codeChallenge := generateCodeChallenge(codeVerifier)
 
-	// Find an available port for the callback server
+	// Find an available port for the callback server. Bind to the IPv4
+	// loopback explicitly and advertise the same 127.0.0.1 literal in the
+	// redirect URI. Using "localhost" here is unsafe: on dual-stack hosts it
+	// resolves to both 127.0.0.1 and ::1, so a browser that picks the IPv6
+	// address reaches nothing (the server only listens on IPv4) and the login
+	// callback silently fails. RFC 8252 §8.3 recommends the loopback IP literal.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("start callback server: %w", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	callbackURL := fmt.Sprintf("http://localhost:%d/callback", port)
+	callbackURL := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
 
 	// Initialize login with the backend
 	loginURL := viper.GetString("base-url")
@@ -271,9 +276,9 @@ func runLogin() error {
 	case err := <-errChan:
 		_ = server.Close()
 		return fmt.Errorf("callback error: %w", err)
-	case <-time.After(5 * time.Minute):
+	case <-time.After(10 * time.Minute):
 		_ = server.Close()
-		return fmt.Errorf("login timed out after 5 minutes")
+		return fmt.Errorf("login timed out after 10 minutes")
 	}
 
 	_ = server.Close()

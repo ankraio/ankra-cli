@@ -19,7 +19,7 @@ import (
 type errNoClusterSelected struct{}
 
 func (errNoClusterSelected) Error() string {
-	return "no cluster specified and none selected; run `ankra cluster select <name>` or `ankra cluster select` first"
+	return "no cluster specified and none selected; pass --cluster <name|id>, or run `ankra cluster select <name>` first"
 }
 
 // clusterCmd is the parent command for cluster operations
@@ -114,9 +114,9 @@ If no name is provided, shows details for the currently selected cluster.`,
 		if len(args) == 1 {
 			name = args[0]
 		} else {
-			selected, err := loadSelectedCluster()
+			selected, err := resolveActiveCluster(cmd)
 			if err != nil {
-				return errNoClusterSelected{}
+				return err
 			}
 			name = selected.Name
 		}
@@ -154,7 +154,7 @@ If a cluster name is provided, reconciles that specific cluster.`,
 			return err
 		}
 
-		clusterID, clusterName, err := resolveClusterFromArgs(args)
+		clusterID, clusterName, err := resolveClusterFromArgs(cmd, args)
 		if err != nil {
 			return err
 		}
@@ -187,7 +187,7 @@ If a cluster name is provided, reconciles that specific cluster.`,
 	},
 }
 
-func resolveClusterFromArgs(args []string) (string, string, error) {
+func resolveClusterFromArgs(cmd *cobra.Command, args []string) (string, string, error) {
 	if len(args) > 0 {
 		clusterName := args[0]
 		cluster, err := apiClient.GetCluster(clusterName)
@@ -196,9 +196,9 @@ func resolveClusterFromArgs(args []string) (string, string, error) {
 		}
 		return cluster.ID, cluster.Name, nil
 	}
-	selected, err := loadSelectedCluster()
+	selected, err := resolveActiveCluster(cmd)
 	if err != nil {
-		return "", "", errNoClusterSelected{}
+		return "", "", err
 	}
 	return selected.ID, selected.Name, nil
 }
@@ -216,7 +216,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			return err
 		}
 
-		clusterID, clusterName, err := resolveClusterFromArgs(args)
+		clusterID, clusterName, err := resolveClusterFromArgs(cmd, args)
 		if err != nil {
 			return err
 		}
@@ -276,7 +276,7 @@ deprovision endpoint so cloud resources are released.`,
 			return err
 		}
 
-		clusterID, clusterName, clusterKind, err := resolveClusterFromArgsWithKind(args)
+		clusterID, clusterName, clusterKind, err := resolveClusterFromArgsWithKind(cmd, args)
 		if err != nil {
 			return err
 		}
@@ -347,7 +347,7 @@ deprovision endpoint so cloud resources are released.`,
 	},
 }
 
-func resolveClusterFromArgsWithKind(args []string) (string, string, string, error) {
+func resolveClusterFromArgsWithKind(cmd *cobra.Command, args []string) (string, string, string, error) {
 	if len(args) > 0 {
 		identifier := args[0]
 		// Accept either a cluster ID (consistent with `cluster scale`,
@@ -361,16 +361,16 @@ func resolveClusterFromArgsWithKind(args []string) (string, string, string, erro
 		}
 		return cluster.ID, cluster.Name, cluster.Kind, nil
 	}
-	selected, err := loadSelectedCluster()
+	selected, err := resolveActiveCluster(cmd)
 	if err != nil {
-		return "", "", "", errNoClusterSelected{}
+		return "", "", "", err
 	}
 	cluster, lookupErr := apiClient.GetCluster(selected.Name)
 	if lookupErr != nil {
-		// We have a cached selection but the backend lookup failed. We
-		// intentionally return the cached id/name with no kind so the
-		// generic deprovision path is used (and the API will return a
-		// precise error if the cached selection is stale).
+		// We have a resolved selection but the backend lookup failed. We
+		// intentionally return the id/name with no kind so the generic
+		// deprovision path is used (and the API will return a precise error
+		// if the selection is stale).
 		return selected.ID, selected.Name, "", nil
 	}
 	return cluster.ID, cluster.Name, cluster.Kind, nil
@@ -387,18 +387,12 @@ Example:
   ankra cluster roll-to --version abc123`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		versionID, _ := cmd.Flags().GetString("version")
-		clusterFlag, _ := cmd.Flags().GetString("cluster")
 
-		var clusterID string
-		if clusterFlag != "" {
-			clusterID = clusterFlag
-		} else {
-			selected, err := loadSelectedCluster()
-			if err != nil {
-				return fmt.Errorf("no cluster specified: run `ankra cluster select <name>` or use --cluster")
-			}
-			clusterID = selected.ID
+		selected, err := resolveActiveCluster(cmd)
+		if err != nil {
+			return err
 		}
+		clusterID := selected.ID
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -421,7 +415,6 @@ func init() {
 	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state")
 
 	clusterRollToCmd.Flags().String("version", "", "Resource version ID to roll to (required)")
-	clusterRollToCmd.Flags().String("cluster", "", "Cluster ID (defaults to selected cluster)")
 	_ = clusterRollToCmd.MarkFlagRequired("version")
 
 	registerStructuredOutputFlags(
