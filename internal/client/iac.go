@@ -215,7 +215,7 @@ func (c *Client) PatchClusterStackPartial(ctx context.Context, clusterID, stackN
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.httpClientForSlowWrite().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
