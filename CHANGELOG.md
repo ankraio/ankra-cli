@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## v0.4.0-rc4 — 2026-06-23
+
+### Fixed
+
+- **Partial-stack writes no longer fail with `http2: timeout awaiting response
+  headers` when the server commits to git synchronously.** `ankra cluster
+  manifests upgrade`, `ankra cluster addons update`, `ankra cluster encrypt`,
+  and `ankra cluster stack-variables set` all issue
+  `PATCH /stacks/{stack_name}`, which performs a synchronous git commit+push on
+  the request path and can legitimately take longer than the shared HTTP
+  client's 30s response-header timeout to start responding. These partial-stack
+  writes now use a dedicated client that drops the response-header timeout and
+  is bounded by an overall 5-minute deadline, so a slow-but-progressing server
+  completes the write instead of erroring out while still making progress.
+
 ## v0.4.0-rc3 — 2026-06-23
 
 ### Added
