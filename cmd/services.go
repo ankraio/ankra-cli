@@ -101,6 +101,12 @@ type APIClient interface {
 	CreateAPIToken(name string, expiresAt *string) (*client.CreateAPITokenResponse, error)
 	RevokeAPIToken(tokenID string) (*client.RevokeAPITokenResponse, error)
 	DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error)
+	GetMFAStatus() (*client.MFAStatus, error)
+	StartTOTPEnrollment() (*client.StartTOTPEnrollmentResponse, error)
+	ConfirmTOTPEnrollment(code string) (*client.RecoveryCodesResponse, error)
+	RemoveMFAMethod(methodID string) (*client.RemoveMFAResponse, error)
+	RegenerateRecoveryCodes() (*client.RecoveryCodesResponse, error)
+	RemovePasskey(credentialID string) (*client.RemoveMFAResponse, error)
 
 	StreamChat(clusterID *string, chatReq client.ChatRequest) (<-chan client.ChatStreamEvent, error)
 	ListChatHistory(clusterID *string, limit, offset int) (*client.ListConversationsResponse, error)

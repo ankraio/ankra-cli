@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"ankra/internal/skills"
 
@@ -12,13 +13,13 @@ import (
 )
 
 // skillsCmd installs the curated Ankra Agent Skills (SKILL.md files) into a
-// Cursor/Claude skills directory. The skills are embedded in the binary, so
-// installation works offline and is versioned with the CLI release. This is
+// Cursor/Claude Code skills directory. The skills are embedded in the binary,
+// so installation works offline and is versioned with the CLI release. This is
 // distinct from `ankra openclaw skill`, which generates a per-cluster skill.
 var skillsCmd = &cobra.Command{
 	Use:   "skills",
 	Short: "Install Ankra Agent Skills into your editor",
-	Long: `Install the curated Ankra Agent Skills into a Cursor/Claude skills
+	Long: `Install the curated Ankra Agent Skills into a Cursor/Claude Code skills
 directory. The skills teach your agent to follow Ankra's recommended practices
 for the CLI, ImportCluster YAML, stacks/addons, GitOps, CI/CD, SOPS secrets,
 Helm registries, observability, alerts, Terraform, and cloud clusters.
@@ -27,8 +28,20 @@ Skills are embedded in the CLI, so installation works offline.
 
   ankra skills list
   ankra skills install
+  ankra skills install --editor claude-code
   ankra skills install --project .
   ankra skills install ankra-cli ankra-gitops`,
+}
+
+type skillsEditor struct {
+	Name                   string
+	ConfigurationDirectory string
+}
+
+type skillsTarget struct {
+	Directory  string
+	Scope      string
+	EditorName string
 }
 
 type skillListEntry struct {
@@ -46,7 +59,7 @@ var skillsListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		target, _, err := skillsTargetDir(cmd)
+		target, err := skillsTargetForCommand(cmd)
 		if err != nil {
 			return err
 		}
@@ -59,7 +72,7 @@ var skillsListCmd = &cobra.Command{
 			entries = append(entries, skillListEntry{
 				Name:        s.Name,
 				Description: s.Description,
-				Installed:   dirExists(filepath.Join(target, s.Name)),
+				Installed:   dirExists(filepath.Join(target.Directory, s.Name)),
 			})
 		}
 		if rendered, err := renderStructured(cmd, entries); rendered || err != nil {
@@ -83,24 +96,25 @@ var skillsInstallCmd = &cobra.Command{
 	Long: `Install all skills (default) or only the named ones.
 
 By default skills install into ~/.cursor/skills/ (personal, available in every
-project). Use --project <DIR> to install into <DIR>/.cursor/skills/ instead
-(--project . for the current directory).`,
+project). Use --editor claude-code to install into ~/.claude/skills/ instead.
+Use --project <DIR> to install into the selected editor's project skills
+directory (--project . for the current directory).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fsys, err := skillsSourceFS(cmd)
 		if err != nil {
 			return err
 		}
-		target, scope, err := skillsTargetDir(cmd)
+		target, err := skillsTargetForCommand(cmd)
 		if err != nil {
 			return err
 		}
 		force, _ := cmd.Flags().GetBool("force")
 
-		if err := os.MkdirAll(target, 0o755); err != nil {
-			return fmt.Errorf("could not create %s: %w", target, err)
+		if err := os.MkdirAll(target.Directory, 0o755); err != nil {
+			return fmt.Errorf("could not create %s: %w", target.Directory, err)
 		}
 
-		installed, skipped, err := skills.Install(fsys, target, args, force)
+		installed, skipped, err := skills.Install(fsys, target.Directory, args, force)
 		if err != nil {
 			return err
 		}
@@ -112,8 +126,8 @@ project). Use --project <DIR> to install into <DIR>/.cursor/skills/ instead
 			fmt.Printf("skipped   %s (already exists; use --force to overwrite)\n", name)
 		}
 		fmt.Printf("\nInstalled %d skill(s) to %s (%s, skipped %d).\n",
-			len(installed), target, scope, len(skipped))
-		fmt.Println("Restart Cursor (or your editor) to load the skills.")
+			len(installed), target.Directory, target.Scope, len(skipped))
+		fmt.Printf("Restart %s to load the skills.\n", target.EditorName)
 		return nil
 	},
 }
@@ -123,7 +137,7 @@ var skillsUninstallCmd = &cobra.Command{
 	Short: "Remove installed Ankra skills",
 	Long:  "Remove the named skills, or all Ankra skills when none are given.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		target, scope, err := skillsTargetDir(cmd)
+		target, err := skillsTargetForCommand(cmd)
 		if err != nil {
 			return err
 		}
@@ -140,7 +154,7 @@ var skillsUninstallCmd = &cobra.Command{
 		}
 		removed := 0
 		for _, name := range names {
-			dest := filepath.Join(target, name)
+			dest := filepath.Join(target.Directory, name)
 			if dirExists(dest) {
 				if err := os.RemoveAll(dest); err != nil {
 					return fmt.Errorf("could not remove %s: %w", dest, err)
@@ -149,7 +163,7 @@ var skillsUninstallCmd = &cobra.Command{
 				removed++
 			}
 		}
-		fmt.Printf("\nRemoved %d skill(s) from %s (%s).\n", removed, target, scope)
+		fmt.Printf("\nRemoved %d skill(s) from %s (%s).\n", removed, target.Directory, target.Scope)
 		return nil
 	},
 }
@@ -166,28 +180,59 @@ func skillsSourceFS(cmd *cobra.Command) (fs.FS, error) {
 }
 
 // skillsTargetDir resolves the install directory and a human-readable scope.
-// --project [DIR] installs into <DIR>/.cursor/skills (default DIR "."),
-// otherwise skills install into ~/.cursor/skills.
 func skillsTargetDir(cmd *cobra.Command) (string, string, error) {
+	target, err := skillsTargetForCommand(cmd)
+	if err != nil {
+		return "", "", err
+	}
+	return target.Directory, target.Scope, nil
+}
+
+func skillsTargetForCommand(cmd *cobra.Command) (skillsTarget, error) {
+	editor, err := skillsEditorForCommand(cmd)
+	if err != nil {
+		return skillsTarget{}, err
+	}
 	projectFlag := cmd.Flags().Lookup("project")
 	if projectFlag != nil && projectFlag.Changed {
 		dir := projectFlag.Value.String()
 		if dir == "" {
 			dir = "."
 		}
-		return filepath.Join(dir, ".cursor", "skills"), "project", nil
+		return skillsTarget{
+			Directory:  filepath.Join(dir, editor.ConfigurationDirectory, "skills"),
+			Scope:      "project",
+			EditorName: editor.Name,
+		}, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", "", fmt.Errorf("could not determine home directory: %w", err)
+		return skillsTarget{}, fmt.Errorf("could not determine home directory: %w", err)
 	}
-	return filepath.Join(home, ".cursor", "skills"), "personal", nil
+	return skillsTarget{
+		Directory:  filepath.Join(home, editor.ConfigurationDirectory, "skills"),
+		Scope:      "personal",
+		EditorName: editor.Name,
+	}, nil
+}
+
+func skillsEditorForCommand(cmd *cobra.Command) (skillsEditor, error) {
+	editor, _ := cmd.Flags().GetString("editor")
+	switch strings.ToLower(strings.TrimSpace(editor)) {
+	case "", "cursor":
+		return skillsEditor{Name: "Cursor", ConfigurationDirectory: ".cursor"}, nil
+	case "claude", "claude-code", "claudecode":
+		return skillsEditor{Name: "Claude Code", ConfigurationDirectory: ".claude"}, nil
+	default:
+		return skillsEditor{}, fmt.Errorf("unsupported editor %q (expected cursor or claude-code)", editor)
+	}
 }
 
 func init() {
 	for _, c := range []*cobra.Command{skillsListCmd, skillsInstallCmd, skillsUninstallCmd} {
-		c.Flags().Bool("personal", false, "install into ~/.cursor/skills (default)")
-		c.Flags().String("project", "", "install into <DIR>/.cursor/skills (use \".\" for the current directory)")
+		c.Flags().Bool("personal", false, "install into the selected editor's personal skills directory (default)")
+		c.Flags().String("project", "", "install into <DIR>/<editor config>/skills (use \".\" for the current directory)")
+		c.Flags().String("editor", "cursor", "skills app to target: cursor or claude-code")
 		c.Flags().String("source", "", "read skills from a local directory instead of the embedded copy")
 	}
 	skillsInstallCmd.Flags().Bool("force", false, "overwrite existing skills without prompting")

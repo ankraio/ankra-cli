@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+## v0.4.0 - 2026-06-30
+
+The stable v0.4.0 release consolidates the v0.4.0 release candidates into a
+larger CLI control-plane update: provider-agnostic cloud cluster management,
+cluster access administration, stack-profile apply/get, global per-command
+cluster targeting, self-service MFA tooling, and more resilient login and
+GitOps write paths.
+
+### Added
+
+- **`ankra profile auth ...`** - manage your own two-factor authentication from
+  the CLI. `status` shows enrolled authenticators, passkeys/security keys and
+  remaining recovery codes; `totp start|confirm|remove` sets up or removes an
+  authenticator app; `recovery-codes regenerate` creates a fresh one-time code
+  set; and `passkeys list|remove|open` lists/removes passkeys or opens Profile
+  Authentication in the browser for WebAuthn setup.
+- **`ankra skills --editor claude-code`** - install the curated Ankra Agent
+  Skills into Claude Code's `~/.claude/skills` directory, or
+  `<project>/.claude/skills` when combined with `--project`.
+- **`ankra cluster access list | grant | revoke`** - manage per-user access to
+  a cluster's Kubernetes API through the Ankra kube gateway, including
+  namespace-scoped grants and RBAC reconcile status.
+- **Provider-agnostic cloud cluster lifecycle commands** - `ankra cluster
+  upgrade`, `scale`, `node-group`, `k3s-versions`, and `deprovision` now detect
+  Hetzner, OVH, or UpCloud automatically, so users no longer need to pick a
+  provider namespace for common lifecycle work.
+- **Cloud create parity across Hetzner, OVH, and UpCloud** - cloud-provider and
+  networking stacks can be installed directly by default and committed to GitOps
+  when repository flags are supplied.
+- **OVH operational commands** - stop/start clusters, print access info, manage
+  SSH keys, set node-group labels/taints, and inspect control-plane or node
+  details through the public API.
+- **`ankra stack-profiles get` and `ankra stack-profiles apply`** - inspect
+  published stack-profile versions and instantiate a profile as a draft or
+  deploy it directly, with `--set`, `--set-file`, and `--set-env` parameter
+  binding.
+- **Organisation slug resolution** - organisation slugs are shown in org output,
+  and `ankra org switch` plus global `--org` resolve by ID, slug, or name.
+- **Global `--cluster <name|id>` for cluster-scoped commands** - target a
+  cluster for a single command without changing the saved selection.
+- **`ankra cluster ssh-keys get | set | resync <cluster_id>`** - manage SSH keys
+  across Hetzner, OVH, and UpCloud from one command group, including provider
+  reference repair with `resync`.
+
 ### Changed
 
 - **`ankra login` now completes Ankra-native two-factor authentication.** Second
@@ -11,6 +55,35 @@
   browser, you complete the second step (passkey, authenticator code, or recovery
   code), and the CLI polls until the step-up succeeds and the token is released.
   No flags change; accounts without a second factor log in exactly as before.
+- **`ankra login` is more reliable on dual-stack IPv4/IPv6 machines.** The
+  browser redirect now uses the same `127.0.0.1` loopback address the callback
+  server listens on, and the callback wait matches the backend's 10-minute
+  login-state expiry.
+- **`--config <file>` now fully isolates per-invocation state.** Extensionless
+  config files are parsed as YAML, and active-cluster selection is keyed to the
+  explicit config path so parallel workers do not clobber each other.
+- **`ankra support create` now shows the AI review before submitting.** Flagged
+  requests and possible duplicates are shown before confirmation; `--force`
+  still skips the prompt.
+
+### Fixed
+
+- **Partial-stack writes tolerate slow synchronous Git commits.** Commands that
+  PATCH a stack (`manifests upgrade`, `addons update`, `cluster encrypt`, and
+  `stack-variables set`) are bounded by an overall 5-minute deadline instead of
+  the shared client's 30-second response-header timeout.
+- **`ankra cluster encrypt` preserves leading-dot keys such as
+  `.dockerconfigjson`.** Dotted-path normalisation no longer corrupts literal
+  Kubernetes secret keys that begin with a dot.
+
+### Deprecated
+
+- The provider-specific `ankra cluster {hetzner,ovh,upcloud} upgrade`, `scale`,
+  `node-group`, and `deprovision` commands are deprecated in favour of the
+  provider-agnostic verbs above and are scheduled for removal in v0.5.0.
+- `ankra cluster ovh ssh-keys get | set <cluster_id>` is deprecated in favour
+  of `ankra cluster ssh-keys get | set <cluster_id>` and is scheduled for
+  removal in v0.6.0.
 
 ## v0.4.0-rc4 - 2026-06-23
 
@@ -504,14 +577,16 @@ variant.
 
 #### Install Ankra Agent Skills
 
-`ankra skills` installs the curated Ankra Agent Skills (for Cursor / Claude / OpenClaw)
+`ankra skills` installs the curated Ankra Agent Skills (for Cursor, Claude Code, and OpenClaw)
 into a skills directory. The skills are embedded in the CLI binary, so installation works
 offline and is versioned with the release.
 
 ```bash
 ankra skills list                  # list available skills, marking installed ones
 ankra skills install               # install all into ~/.cursor/skills (personal)
+ankra skills install --editor claude-code  # install all into ~/.claude/skills
 ankra skills install --project .   # install into ./.cursor/skills (project)
+ankra skills install --editor claude-code --project .  # install into ./.claude/skills
 ankra skills install ankra-gitops  # install only named skills
 ankra skills uninstall             # remove all Ankra skills
 ```

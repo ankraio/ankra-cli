@@ -131,7 +131,7 @@ Resolution order: explicit `--token` (paired with `--base-url`), then the saved 
 - Treat mutating commands (`apply`, `reconcile`, `delete`, `provision`, `deprovision`, `roll-to`) as deliberate; confirm the target cluster with `ankra cluster info` first. `apply` / `delete cluster` accept `--dry-run` for a no-token, CI-friendly check.
 - Prefer applying versioned YAML (`ankra cluster apply -f`) over ad-hoc edits so the change is reproducible and reviewable. Stage risky changes with `ankra cluster draft` and review them in the stack builder.
 - Enable completions once per machine: `ankra completion install`.
-- Install these skills into your editor with the CLI itself: `ankra skills list` / `ankra skills install [--project .]`.
+- Install these skills into Cursor or Claude Code with the CLI itself: `ankra skills list` / `ankra skills install [--editor cursor|claude-code] [--project .]`.
 
 ## Related skills
 

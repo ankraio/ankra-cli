@@ -20,7 +20,7 @@ version; running one prints a warning pointing at the replacement.
 
 | Deprecated | Deprecated in | Replacement | Notes |
 |---|---|---|---|
-| `ankra cluster ovh ssh-keys <get\|set> <cluster_id>` | v0.5.0 | `ankra cluster ssh-keys <get\|set> <cluster_id>` | The provider is detected automatically from the cluster. The generic group also adds `resync` and works for Hetzner and UpCloud. |
+| `ankra cluster ovh ssh-keys <get\|set> <cluster_id>` | v0.4.0 | `ankra cluster ssh-keys <get\|set> <cluster_id>` | The provider is detected automatically from the cluster. The generic group also adds `resync` and works for Hetzner and UpCloud. |
 
 ### v0.5.0
 

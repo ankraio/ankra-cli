@@ -143,9 +143,9 @@ deprecated command also prints a warning at runtime.
   - AI-analyzed cluster health insights
 
 - **Agent Skills**
-  - Install the curated Ankra Agent Skills into Cursor/Claude
+  - Install the curated Ankra Agent Skills into Cursor or Claude Code
   - Embedded in the binary, so installation works offline
-  - Personal (`~/.cursor/skills/`) or project (`.cursor/skills/`) scope
+  - Personal or project scope for the selected editor (`.cursor/skills/` or `.claude/skills/`)
 
 - **Operations & Insight**
   - View and track all operations (create, update, delete) across clusters
@@ -204,6 +204,12 @@ deprecated command also prints a warning at runtime.
   - List and manage platform credentials
   - Create and revoke API tokens
   - Validate credential names
+
+- **Profile Authentication**
+  - View your own two-factor authentication status
+  - Set up, confirm, or remove an authenticator app
+  - Regenerate recovery codes
+  - List and remove passkeys/security keys, or open Profile Authentication for WebAuthn setup
 
 - **Chart Browser**
   - Browse available Helm charts
@@ -839,6 +845,19 @@ ankra tokens revoke <token_id>        # Revoke a token
 ankra tokens delete <token_id>        # Delete a revoked token
 ```
 
+#### Profile Authentication
+Aliases: `profile auth`, `profile authentication`, `profile mfa`, `profile 2fa`
+```bash
+ankra profile auth status             # Show MFA enrollment and recovery-code state
+ankra profile auth totp start         # Start authenticator app setup
+ankra profile auth totp confirm <code>  # Confirm authenticator app setup
+ankra profile auth totp remove        # Remove the authenticator app factor
+ankra profile auth recovery-codes regenerate  # Generate a fresh recovery-code set
+ankra profile auth passkeys list      # List passkeys and security keys
+ankra profile auth passkeys remove <credential_id>  # Remove a passkey/security key
+ankra profile auth passkeys open      # Open Profile Authentication for WebAuthn setup
+```
+
 #### Charts
 ```bash
 ankra charts list [--page] [--page-size] [--subscribed]  # List Helm charts
@@ -874,13 +893,15 @@ ankra completion install [--shell]    # Install completions for current shell
 #### Agent Skills
 
 Install the curated [Ankra Agent Skills](https://github.com/ankraio/ankra-skills) so your
-Cursor/Claude agent follows Ankra's recommended practices. The skills are embedded in the
+Cursor or Claude Code agent follows Ankra's recommended practices. The skills are embedded in the
 CLI, so installation works offline.
 
 ```bash
 ankra skills list                     # List available skills (marks installed ones)
 ankra skills install                  # Install all skills into ~/.cursor/skills (personal)
+ankra skills install --editor claude-code  # Install all skills into ~/.claude/skills
 ankra skills install --project .      # Install into ./.cursor/skills (project)
+ankra skills install --editor claude-code --project .  # Install into ./.claude/skills
 ankra skills install ankra-cli ankra-gitops   # Install only named skills
 ankra skills install --force          # Overwrite existing skills
 ankra skills uninstall                # Remove all Ankra skills

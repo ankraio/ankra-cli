@@ -329,6 +329,30 @@ func (m baseMock) DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetMFAStatus() (*client.MFAStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartTOTPEnrollment() (*client.StartTOTPEnrollmentResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ConfirmTOTPEnrollment(code string) (*client.RecoveryCodesResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveMFAMethod(methodID string) (*client.RemoveMFAResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RegenerateRecoveryCodes() (*client.RecoveryCodesResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemovePasskey(credentialID string) (*client.RemoveMFAResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) StreamChat(clusterID *string, chatReq client.ChatRequest) (<-chan client.ChatStreamEvent, error) {
 	return nil, errors.New("not implemented")
 }

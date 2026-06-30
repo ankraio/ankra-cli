@@ -1,5 +1,5 @@
 // Package skills embeds the curated Ankra Agent Skills and installs them into
-// a Cursor/Claude skills directory. The canonical source lives in the
+// a Cursor/Claude Code skills directory. The canonical source lives in the
 // ankra-skills project; it is vendored into embedded/skills via
 // scripts/sync-skills.sh so it can be embedded with //go:embed (which cannot
 // reach outside this module). The binary therefore carries a deterministic,
