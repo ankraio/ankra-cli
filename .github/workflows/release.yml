@@ -23,7 +23,7 @@ jobs:
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
           awk -v version="${VERSION}" '
-            $0 ~ "^## v?"version"([^0-9.]|$)" {found=1; next}
+            $0 ~ "^## v?"version"([[:space:]]|$)" {found=1; next}
             found && /^## / {exit}
             found {print}
           ' CHANGELOG.md > release-notes.md
