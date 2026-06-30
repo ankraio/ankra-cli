@@ -1,6 +1,6 @@
 # Ankra CLI
 
-A command-line interface for the [Ankra Platform](https://ankra.io) that allows you to manage Kubernetes clusters, operations, stacks, manifests, addons—and tap into platform-wide insights.
+A command-line interface for the [Ankra Platform](https://ankra.io) that allows you to manage Kubernetes clusters, operations, stacks, manifests, addons-and tap into platform-wide insights.
 
 ## Installation
 
@@ -59,7 +59,7 @@ date or running a newer build (use `--force` to override those).
 `ankra upgrade` downloads the matching `ankra-cli-<os>-<arch>` asset, verifies
 it against the published SHA-256 checksum, and atomically replaces the running
 binary. If a release publishes no checksum the upgrade aborts rather than
-installing an unverified binary — pass `--allow-unverified` to override for
+installing an unverified binary - pass `--allow-unverified` to override for
 older releases. If the binary lives in a directory you cannot write (such as
 `/usr/local/bin`), re-run with `sudo ankra upgrade`.
 
@@ -115,7 +115,7 @@ deprecated command also prints a warning at runtime.
   - CRUD for variables that get substituted into manifests and addon values
     at deploy time (`ankra org variables`, `ankra cluster variables`,
     `ankra cluster stacks variables`)
-  - Stack > cluster > org resolution order — a more specific scope shadows
+  - Stack > cluster > org resolution order - a more specific scope shadows
     less specific ones
   - Upsert semantics (`set` creates or updates), stdin value support,
     `-o json|yaml` for scripting
@@ -289,8 +289,8 @@ Every command that reads or returns data supports structured output via the
 shared `-o/--output` flag, so scripts and AI agents never have to parse
 tables or prose:
 
-- `-o json` — print the result as indented JSON
-- `-o yaml` — same data as YAML
+- `-o json` - print the result as indented JSON
+- `-o yaml` - same data as YAML
 - The kubectl-style commands default to `-o table` and accept `json`/`yaml`
   as alternatives (for example `ankra cluster get pods -o json`)
 
@@ -304,8 +304,8 @@ ankra cluster get pods -o json
 ```
 
 Write commands (reconcile, provision, deprovision, scaling, node groups,
-token creation, ...) also accept `-o json` and emit the API result — including
-operation IDs — so automation can poll `ankra cluster operations list <id> -o json`
+token creation, ...) also accept `-o json` and emit the API result - including
+operation IDs - so automation can poll `ankra cluster operations list <id> -o json`
 for completion. Asynchronous writes submitted without `--wait` emit
 `{"submitted": true, ...}`.
 
@@ -471,7 +471,7 @@ ankra stack-profiles import <file>              # Create a profile from an IaC Y
   [--name <name>] [--category <category>]
 ```
 
-By default `apply` creates a reviewable **draft** on the target cluster — nothing is deployed until you pass `--deploy` or deploy it from the dashboard. Run `ankra stack-profiles get <profile-id>` first to discover which parameters a profile expects. For **secret** parameters prefer `--set-file` or `--set-env` so values never land in your shell history or process list.
+By default `apply` creates a reviewable **draft** on the target cluster - nothing is deployed until you pass `--deploy` or deploy it from the dashboard. Run `ankra stack-profiles get <profile-id>` first to discover which parameters a profile expects. For **secret** parameters prefer `--set-file` or `--set-env` so values never land in your shell history or process list.
 
 #### Cluster Variables
 ```bash
@@ -481,7 +481,7 @@ ankra cluster variables set <name> <value> [--description <text>] [--cluster <na
 ankra cluster variables delete <name> [--cluster <name|id>] [--yes]
 ```
 
-Resolution at deploy time is **stack > cluster > organisation** — a more specific scope shadows less specific ones for the same variable name. Stack variables travel through the same partial-stack PATCH used by `manifests upgrade` / `addons upgrade`; org and cluster variables use dedicated bearer-token endpoints.
+Resolution at deploy time is **stack > cluster > organisation** - a more specific scope shadows less specific ones for the same variable name. Stack variables travel through the same partial-stack PATCH used by `manifests upgrade` / `addons upgrade`; org and cluster variables use dedicated bearer-token endpoints.
 
 #### Cluster Addons
 ```bash
@@ -644,7 +644,7 @@ ankra cluster encrypt addon --name <addon> --key <key> [--cluster <name|id>] [--
 ankra cluster decrypt manifest <name> [--cluster <name|id>]                # Print a decrypted manifest
 ankra cluster decrypt addon --name <addon> [--cluster <name|id>] [--stack <stack>]              # Print decrypted addon values
 
-# File mode (GitOps workflows — rewrites the local cluster.yaml in place)
+# File mode (GitOps workflows - rewrites the local cluster.yaml in place)
 ankra cluster encrypt manifest <name> --key <key> -f <file>
 ankra cluster encrypt addon --name <addon> --key <key> -f <file>
 ankra cluster decrypt manifest <name> -f <file>

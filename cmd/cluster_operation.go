@@ -123,7 +123,7 @@ var clusterOperationsListCmd = &cobra.Command{
 
 		for {
 			clearScreen()
-			fmt.Printf("Watching executions (every %s, press Ctrl+C to stop) — %s\n\n",
+			fmt.Printf("Watching executions (every %s, press Ctrl+C to stop) - %s\n\n",
 				interval, time.Now().Format("15:04:05"))
 			keepWatching, err := renderExecutionsOnce(options, executionID)
 			if err != nil {

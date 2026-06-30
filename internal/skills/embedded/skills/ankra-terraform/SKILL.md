@@ -24,7 +24,7 @@ provider "ankra" {
 }
 ```
 
-Authenticate with a scoped API token created via `ankra tokens create`, supplied through `ANKRA_API_TOKEN` or a Terraform variable backed by the secret store — never a literal in committed HCL.
+Authenticate with a scoped API token created via `ankra tokens create`, supplied through `ANKRA_API_TOKEN` or a Terraform variable backed by the secret store - never a literal in committed HCL.
 
 ## Workflow
 

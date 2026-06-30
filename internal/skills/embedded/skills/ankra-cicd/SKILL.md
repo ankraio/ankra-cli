@@ -40,7 +40,7 @@ For full, copy-pasteable GitHub Actions and GitLab CI examples, see [reference.m
 
 ## Rules
 
-- **Immutable tags only** — commit SHA or semver, never `latest` or a moving tag.
+- **Immutable tags only** - commit SHA or semver, never `latest` or a moving tag.
 - **CI updates Git, Ankra deploys.** Do not run `kubectl apply` / `helm upgrade` against the cluster from CI.
 - **Least-privilege secrets.** CI needs registry push and GitOps-repo write; it does not need cluster admin.
 - **One image, many environments.** Promote by committing the same tag to the next environment's path, don't rebuild.

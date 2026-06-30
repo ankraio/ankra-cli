@@ -410,7 +410,7 @@ type ValidateClusterResponse struct {
 }
 
 // ValidateCluster runs the server-side validation that the offline checks
-// cannot — chart existence in connected registries, plaintext-secret
+// cannot - chart existence in connected registries, plaintext-secret
 // detection, and parent references against live cluster state. A non-empty
 // clusterID validates the spec against that cluster's existing resources.
 func (c *Client) ValidateCluster(ctx context.Context, spec CreateResourceSpec, strictSecrets bool, clusterID string) (*ValidateClusterResponse, error) {

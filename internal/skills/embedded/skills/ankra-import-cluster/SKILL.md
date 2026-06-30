@@ -48,17 +48,17 @@ spec:
 
 ## Field reference
 
-- `spec.git_repository` — connect a Git repo so stacks are stored and synced from Git (see `ankra-gitops`). Omit for a non-GitOps import.
-- `spec.stacks[]` — each stack groups related `manifests` and `addons`.
-- `manifests[]` — raw Kubernetes YAML. Use `from_file: "path.yaml"` to reference a file, or `manifest: |-` for inline content.
-- `addons[]` — Helm releases. Required: `chart_name`, `chart_version`, `repository_url`, `namespace`. Configure via `configuration.values: |-` (inline) or `configuration.from_file:`.
-- `parents` — the dependency edges that control deployment order. A resource only deploys after its parents succeed. Reference a parent as `- manifest: <name>` or `- addon: <name>`.
+- `spec.git_repository` - connect a Git repo so stacks are stored and synced from Git (see `ankra-gitops`). Omit for a non-GitOps import.
+- `spec.stacks[]` - each stack groups related `manifests` and `addons`.
+- `manifests[]` - raw Kubernetes YAML. Use `from_file: "path.yaml"` to reference a file, or `manifest: |-` for inline content.
+- `addons[]` - Helm releases. Required: `chart_name`, `chart_version`, `repository_url`, `namespace`. Configure via `configuration.values: |-` (inline) or `configuration.from_file:`.
+- `parents` - the dependency edges that control deployment order. A resource only deploys after its parents succeed. Reference a parent as `- manifest: <name>` or `- addon: <name>`.
 
 ## Workflow
 
 1. Create namespaces as manifests first; make dependent addons/configmaps list that namespace manifest in `parents`.
 2. Pin every addon's `chart_version` to an exact version.
-3. Keep secret material out of plaintext — encrypt with SOPS and mark `encrypted_paths` (see `ankra-sops-secrets`).
+3. Keep secret material out of plaintext - encrypt with SOPS and mark `encrypted_paths` (see `ankra-sops-secrets`).
 4. Validate and apply:
 
 ```bash

@@ -39,7 +39,7 @@ addons are identified by name when present, otherwise by 1-based position
 | `manifest-no-source.yaml` | `stack "logging": manifest "namespace-fluent-bit": a manifest must set either 'manifest' (inline YAML) or 'from_file' (path to a YAML file)` |
 | `manifest-missing-file.yaml` | `stack "logging": manifest "namespace-fluent-bit": could not read the file referenced by 'from_file' ("..."): ... no such file or directory` |
 | `addon-missing-name.yaml` | `stack "logging": addon #1: every addon needs a 'name'` |
-| `stack-without-manifests-key.yaml` | Passes validation. A stack that omits the `manifests` key (and likewise `addons`) is handled gracefully — `cmd/apply.go` guards the map access, so no panic. |
+| `stack-without-manifests-key.yaml` | Passes validation. A stack that omits the `manifests` key (and likewise `addons`) is handled gracefully - `cmd/apply.go` guards the map access, so no panic. |
 
 `manifests/namespace.yaml` is the Kubernetes manifest referenced by
 `valid-cluster.yaml` via `from_file`.
@@ -51,12 +51,12 @@ After the structural checks above, `--dry-run` also validates the parent
 dependency errors the backend would otherwise only reject at apply time
 (HTTP 422). Three rules are enforced:
 
-1. **Parent kind** — each parent `kind` must be `manifest` or `addon`:
+1. **Parent kind** - each parent `kind` must be `manifest` or `addon`:
    `addon "cert-manager" in stack "apps": parent #1 has invalid kind "stack" (must be "manifest" or "addon")`
-2. **Parent existence** — each parent must name a manifest or addon declared
+2. **Parent existence** - each parent must name a manifest or addon declared
    anywhere in the same document (cross-stack references are allowed):
    `addon "cert-manager" in stack "apps": parent manifest "namespace" is not defined anywhere in this file`
-3. **Acyclic graph** — the parent edges must not form a cycle (a resource
+3. **Acyclic graph** - the parent edges must not form a cycle (a resource
    depending on itself counts):
    `dependency cycle detected: addon "a" -> addon "b" -> addon "a"`
 
@@ -67,11 +67,11 @@ These checks run for both `ankra cluster apply` and `ankra cluster apply --dry-r
 **Every file reference in the document is resolved and checked**, regardless of
 whether its content is ultimately used:
 
-- `manifest.from_file` and inline `manifest` — resolved and parsed as YAML
+- `manifest.from_file` and inline `manifest` - resolved and parsed as YAML
   (multi-document `---` files supported).
-- `addon.configuration.from_file` and inline `configuration.values` — resolved
+- `addon.configuration.from_file` and inline `configuration.values` - resolved
   and parsed as YAML.
-- `stack.description_from_file` — resolved and read (a plain-text description,
+- `stack.description_from_file` - resolved and read (a plain-text description,
   so existence/readability only). This is validated even when an inline
   `description` is also set and takes precedence for the value.
 

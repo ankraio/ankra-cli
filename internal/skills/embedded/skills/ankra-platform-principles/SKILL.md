@@ -46,7 +46,7 @@ Treat `delete`, `deprovision`, `roll-to`, and force operations as deliberate. Co
 
 ## 9. Review before deploy
 
-Protect synced branches, require pull-request review, and keep diffs small. A merge is a deploy — review it like one.
+Protect synced branches, require pull-request review, and keep diffs small. A merge is a deploy - review it like one.
 
 ## Related skills
 

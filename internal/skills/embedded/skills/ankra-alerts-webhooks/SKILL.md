@@ -26,7 +26,7 @@ When an alert fires, Ankra can attach an AI analysis of the likely cause and aff
 
 ## Rules
 
-- **Secrets as credentials.** Webhook URLs and integration keys are secrets — store them in Ankra credentials / the secret store, never commit them.
+- **Secrets as credentials.** Webhook URLs and integration keys are secrets - store them in Ankra credentials / the secret store, never commit them.
 - **Scope and severity-route.** Don't fan every alert to every channel; map severity to destination (critical → on-call, warning → chat).
 - **Test delivery** before relying on a route in production.
 - **Avoid alert noise.** Tune thresholds so alerts are actionable; noisy alerts get ignored.

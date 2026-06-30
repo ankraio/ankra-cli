@@ -38,10 +38,17 @@ type tokenExchangeRequest struct {
 }
 
 type tokenExchangeResponse struct {
-	Token     string `json:"token"`
-	ExpiresAt string `json:"expires_at"`
-	TokenID   string `json:"token_id"`
-	TokenName string `json:"token_name"`
+	Token        string `json:"token"`
+	ExpiresAt    string `json:"expires_at"`
+	TokenID      string `json:"token_id"`
+	TokenName    string `json:"token_name"`
+	MfaRequired  bool   `json:"mfa_required"`
+	MfaTicket    string `json:"mfa_ticket"`
+	ChallengeURL string `json:"challenge_url"`
+}
+
+type mfaPollRequest struct {
+	Ticket string `json:"ticket"`
 }
 
 var loginCmd = &cobra.Command{
@@ -323,6 +330,18 @@ func runLogin() error {
 		return fmt.Errorf("parse token response: %w", err)
 	}
 
+	// When the account has a second factor, the backend withholds the token and
+	// hands back an MFA ticket plus a browser URL where the user completes the
+	// passkey / authenticator / recovery-code challenge. We open that URL and
+	// poll until the step-up succeeds and the token is released.
+	if tokenData.MfaRequired {
+		completed, err := completeMFAChallenge(loginURL, tokenData)
+		if err != nil {
+			return err
+		}
+		tokenData = completed
+	}
+
 	configPath := getConfigPath()
 
 	configDir := filepath.Dir(configPath)
@@ -377,6 +396,76 @@ func runLogin() error {
 	fmt.Println()
 
 	return nil
+}
+
+func completeMFAChallenge(loginURL string, pending tokenExchangeResponse) (tokenExchangeResponse, error) {
+	fmt.Println()
+	fmt.Println("Two-factor authentication required.")
+	fmt.Println("Complete the second step in your browser:")
+	fmt.Println()
+	fmt.Printf("  %s\n", pending.ChallengeURL)
+	fmt.Println()
+
+	if err := openBrowser(pending.ChallengeURL); err != nil {
+		fmt.Println("Could not open browser automatically. Please open the URL above manually.")
+	}
+
+	fmt.Println("Waiting for you to complete two-factor authentication...")
+	fmt.Println("(Press Ctrl+C to cancel)")
+	fmt.Println()
+
+	pollURL := fmt.Sprintf("%s/api/v1/cli/login/mfa/poll", strings.TrimRight(loginURL, "/"))
+	requestBody, _ := json.Marshal(mfaPollRequest{Ticket: pending.MfaTicket})
+
+	deadline := time.After(10 * time.Minute)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-deadline:
+			return tokenExchangeResponse{}, fmt.Errorf("two-factor authentication timed out after 10 minutes")
+		case <-ticker.C:
+			polled, done, err := pollMFAToken(pollURL, requestBody)
+			if err != nil {
+				return tokenExchangeResponse{}, err
+			}
+			if done {
+				return polled, nil
+			}
+		}
+	}
+}
+
+func pollMFAToken(pollURL string, requestBody []byte) (tokenExchangeResponse, bool, error) {
+	resp, err := loginHTTPClient.Post(pollURL, "application/json", strings.NewReader(string(requestBody)))
+	if err != nil {
+		// Transient network error - keep polling.
+		return tokenExchangeResponse{}, false, nil
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
+
+	if resp.StatusCode == http.StatusGone {
+		return tokenExchangeResponse{}, false, fmt.Errorf("login session expired; run 'ankra login' again")
+	}
+	if resp.StatusCode != http.StatusOK {
+		// Server hiccup - keep polling rather than failing the whole login.
+		return tokenExchangeResponse{}, false, nil
+	}
+
+	var polled tokenExchangeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&polled); err != nil {
+		return tokenExchangeResponse{}, false, nil
+	}
+	if polled.Token != "" {
+		return polled, true, nil
+	}
+	// Still awaiting the second factor.
+	return tokenExchangeResponse{}, false, nil
 }
 
 func generateCodeVerifier() (string, error) {

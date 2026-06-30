@@ -9,10 +9,10 @@ A Stack is Ankra's reusable unit of deployment: it bundles Helm addons, raw mani
 
 ## Building blocks
 
-- **Addon** — a Helm release: `chart_name`, `chart_version`, `repository_url`, `namespace`, and `configuration.values`.
-- **Manifest** — raw Kubernetes YAML (namespaces, ConfigMaps, CRDs, RBAC, anything Helm does not own).
-- **Variable** — a named value substituted into manifests/addon values, so the same stack works across environments.
-- **Parents** — dependency edges. A resource deploys only after every parent has succeeded.
+- **Addon** - a Helm release: `chart_name`, `chart_version`, `repository_url`, `namespace`, and `configuration.values`.
+- **Manifest** - raw Kubernetes YAML (namespaces, ConfigMaps, CRDs, RBAC, anything Helm does not own).
+- **Variable** - a named value substituted into manifests/addon values, so the same stack works across environments.
+- **Parents** - dependency edges. A resource deploys only after every parent has succeeded.
 
 ## Deployment order via `parents`
 
@@ -49,7 +49,7 @@ Promote anything environment-specific (domains, replica counts, storage classes,
 
 ## Design rules
 
-- **Small, focused stacks.** One concern per stack (logging, monitoring, ingress) beats a single mega-stack — easier to reason about, reorder, and clone.
+- **Small, focused stacks.** One concern per stack (logging, monitoring, ingress) beats a single mega-stack - easier to reason about, reorder, and clone.
 - **Namespace first.** The namespace manifest is a parent of everything deployed into it.
 - **Pin chart versions.** Exact `chart_version` everywhere; never floating in production.
 - **Test before prod.** Roll a stack out to dev/staging, then promote the same definition to production.

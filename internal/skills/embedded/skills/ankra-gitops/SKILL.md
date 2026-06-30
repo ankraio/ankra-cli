@@ -50,14 +50,14 @@ gitops-repo/
 
 1. Branch from `main`, edit the relevant `stack.yaml` / manifests.
 2. Open a pull request; review the diff.
-3. Merge to the synced branch — Ankra/ArgoCD reconciles the change onto the cluster.
+3. Merge to the synced branch - Ankra/ArgoCD reconciles the change onto the cluster.
 4. Confirm with `ankra cluster operations list` and `ankra cluster info`.
 
 ## Rules
 
 - **Git is the source of truth.** Do not hand-edit cluster state out of band; change the repo and let it sync.
 - **Protect the synced branch.** Require PR review; treat merges as deploys.
-- **Encrypt secrets before commit.** Never commit plaintext Secrets — use SOPS (`ankra-sops-secrets`).
+- **Encrypt secrets before commit.** Never commit plaintext Secrets - use SOPS (`ankra-sops-secrets`).
 - **Pin versions.** Exact chart versions and immutable image tags so a commit fully determines what runs.
 - **Small, reviewable commits.** One logical change per PR; the diff should read as "what will deploy".
 

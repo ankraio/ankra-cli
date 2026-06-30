@@ -262,7 +262,7 @@ func validateResourceGraph(request client.CreateImportClusterRequest) error {
 	declarationOrder := make([]resourceNode, 0)
 
 	// Parent references resolve by (kind, name) with no stack qualifier, so the
-	// same (kind, name) declared twice — even across stacks — is ambiguous and
+	// same (kind, name) declared twice - even across stacks - is ambiguous and
 	// the backend rejects it. Flag duplicates here rather than silently merging
 	// them into a single node.
 	addResource := func(kind, name, stackName string) error {

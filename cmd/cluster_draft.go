@@ -94,8 +94,8 @@ func runClusterDraft(cmd *cobra.Command, _ []string) {
 			errorParts := make([]string, 0, len(result.Errors))
 			for _, resourceError := range result.Errors {
 				for _, detail := range resourceError.Errors {
-					fmt.Fprintf(os.Stderr, "    • %s %q: %s — %s\n", resourceError.Kind, resourceError.Name, detail.Key, detail.Message)
-					errorParts = append(errorParts, fmt.Sprintf("%s %q: %s — %s", resourceError.Kind, resourceError.Name, detail.Key, detail.Message))
+					fmt.Fprintf(os.Stderr, "    • %s %q: %s - %s\n", resourceError.Kind, resourceError.Name, detail.Key, detail.Message)
+					errorParts = append(errorParts, fmt.Sprintf("%s %q: %s - %s", resourceError.Kind, resourceError.Name, detail.Key, detail.Message))
 				}
 			}
 			stackOutputs = append(stackOutputs, stackDraftOutput{StackName: stack.Name, Error: strings.Join(errorParts, "; ")})

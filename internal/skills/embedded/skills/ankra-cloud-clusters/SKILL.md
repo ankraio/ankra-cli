@@ -9,7 +9,7 @@ Besides importing existing clusters, Ankra can provision managed K3s clusters on
 
 ## 1. Store provider credentials
 
-Provider credentials (and SSH keys) are scoped credentials held by Ankra. Create them first and note the returned credential ID — the create commands take the ID, not the name.
+Provider credentials (and SSH keys) are scoped credentials held by Ankra. Create them first and note the returned credential ID - the create commands take the ID, not the name.
 
 ```bash
 ankra credentials hetzner create --name hetzner-prod
@@ -36,7 +36,7 @@ ankra cluster ovh create \
 
 Hetzner/UpCloud `create` take equivalent flags (`--name`, `--credential-id`, location/region, control-plane and worker sizes/counts, `--ssh-key-credential-id[s]`, optional `--kubernetes-version`). Run `ankra cluster <provider> create --help` for the provider-specific server-type/location flags.
 
-> `ankra cluster provision` and `ankra cluster deprovision` **start and stop** an already-created managed cluster — they are not how you create one. Creation is always `ankra cluster <provider> create`.
+> `ankra cluster provision` and `ankra cluster deprovision` **start and stop** an already-created managed cluster - they are not how you create one. Creation is always `ankra cluster <provider> create`.
 
 ## 3. Manage the lifecycle
 
@@ -95,7 +95,7 @@ Confirm the target with `ankra cluster info` first; deprovisioning releases infr
 - **Confirm the target** before any `deprovision`, `delete`, scale-down, or version/instance upgrade. Node-group `upgrade` is irreversible.
 - **Use `--wait`** when a follow-up step depends on the result; otherwise treat creates and node-group mutations as in-flight and don't re-submit.
 - **Plan node groups** for workload isolation rather than one undifferentiated pool, and right-size them to avoid inflated cost.
-- **Upgrade deliberately** — review the target Kubernetes version and upgrade non-prod first.
+- **Upgrade deliberately** - review the target Kubernetes version and upgrade non-prod first.
 
 ## Related skills
 

@@ -9,8 +9,8 @@ Addons pull charts from a `repository_url`. Public charts work as-is; private ch
 
 ## Registry types
 
-- **HTTP Helm repositories** — classic chart servers: ChartMuseum, Harbor, Nexus, JFrog Artifactory, an S3-backed index. `repository_url: https://charts.example.com`.
-- **OCI registries** — charts stored as OCI artifacts: GHCR, Amazon ECR, Google Artifact Registry, Azure Container Registry, Docker Hub. `repository_url: oci://registry.example.com/charts`.
+- **HTTP Helm repositories** - classic chart servers: ChartMuseum, Harbor, Nexus, JFrog Artifactory, an S3-backed index. `repository_url: https://charts.example.com`.
+- **OCI registries** - charts stored as OCI artifacts: GHCR, Amazon ECR, Google Artifact Registry, Azure Container Registry, Docker Hub. `repository_url: oci://registry.example.com/charts`.
 
 ## Connect and use
 
@@ -41,7 +41,7 @@ ankra charts info <chart>       # inspect a chart and its versions
 - **Least privilege.** Registry credentials should be read-only pull tokens, scoped to the needed repositories.
 - **Pin `chart_version`.** Always pin; never resolve `latest` from a registry in production.
 - **Prefer OCI** for new private registries where the backend supports it.
-- **Credentials live in Ankra**, referenced by name from addons — never inline secrets in stack YAML.
+- **Credentials live in Ankra**, referenced by name from addons - never inline secrets in stack YAML.
 - **Verify reachability** from the cluster's network before relying on a private registry in a deploy.
 
 ## Related skills

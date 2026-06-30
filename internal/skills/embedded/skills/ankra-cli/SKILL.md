@@ -55,7 +55,7 @@ Most `ankra cluster ...` subcommands act on the selected cluster. Override per c
 
 ## Machine-readable output
 
-Every data command supports `-o json` (and `-o yaml`). **Always pass `-o json` when parsing output programmatically** — never scrape tables or prose:
+Every data command supports `-o json` (and `-o yaml`). **Always pass `-o json` when parsing output programmatically** - never scrape tables or prose:
 
 ```bash
 ankra cluster list -o json
@@ -93,7 +93,7 @@ ankra cluster access revoke user@example.com             # by email (all grants)
 
 ## Report bugs & get help (`ankra support`)
 
-Users **and agents** file bugs and support requests straight from the terminal. When any `ankra` command fails with an unexpected platform response, the CLI prints this exact suggestion — follow it:
+Users **and agents** file bugs and support requests straight from the terminal. When any `ankra` command fails with an unexpected platform response, the CLI prints this exact suggestion - follow it:
 
 ```bash
 ankra support create \
@@ -107,10 +107,10 @@ Expected: the apply to be accepted."
 ```
 
 - Include the **exact command, full error output, and what you expected** in `--description`. `--cluster` links the ticket to a cluster so the team sees its context.
-- Every ticket passes a **mandatory AI review**. If it is flagged (low detail, missing reproduction), the create returns guidance — improve the description, or re-submit with `--force` to file it anyway.
+- Every ticket passes a **mandatory AI review**. If it is flagged (low detail, missing reproduction), the create returns guidance - improve the description, or re-submit with `--force` to file it anyway.
 - Attach screenshots or images: `ankra support attach <ticket-id> <file>...`
 - Track it: `ankra support list`, `ankra support get <ticket-id>` (shows replies and whether the Ankra team is tracking it), `ankra support comment <ticket-id> -m "..."`, `ankra support close <ticket-id>`.
-- **Agents** filing on a user's behalf: pass `--source agent` and `-o json` for machine-readable output; never invent reproduction details — quote the real command and output.
+- **Agents** filing on a user's behalf: pass `--source agent` and `-o json` for machine-readable output; never invent reproduction details - quote the real command and output.
 - Categories: `technical` (default), `bug`, `account`, `billing`, `feature_request`, `other`. Severities: `low`, `medium`, `high`, `critical`.
 
 ## Authentication for automation
@@ -123,7 +123,7 @@ export ANKRA_ORG=<org>             # optional; or pass --org
 ankra cluster info --cluster prod
 ```
 
-Resolution order: explicit `--token` (paired with `--base-url`), then the saved login from `ankra login`, then `ANKRA_API_TOKEN` (+ optional `ANKRA_BASE_URL`). A saved login token takes precedence over `ANKRA_API_TOKEN` — run `ankra logout` first if you want the env var to win. Use least-privilege tokens and store them in the CI secret store, not in Git.
+Resolution order: explicit `--token` (paired with `--base-url`), then the saved login from `ankra login`, then `ANKRA_API_TOKEN` (+ optional `ANKRA_BASE_URL`). A saved login token takes precedence over `ANKRA_API_TOKEN` - run `ankra logout` first if you want the env var to win. Use least-privilege tokens and store them in the CI secret store, not in Git.
 
 ## Conventions to follow
 

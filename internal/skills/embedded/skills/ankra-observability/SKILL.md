@@ -54,7 +54,7 @@ Instead of (or in addition to) in-cluster Prometheus, connect a Prometheus-compa
 
 - **Namespace first**, then the stack via `parents`.
 - **Pin chart versions.**
-- **No plaintext credentials** (Grafana admin password, remote-write tokens) — use SOPS-encrypted values (`ankra-sops-secrets`).
+- **No plaintext credentials** (Grafana admin password, remote-write tokens) - use SOPS-encrypted values (`ankra-sops-secrets`).
 - **Read-only credentials** for external metrics sources.
 - **Right-size retention and resources** in values; avoid unbounded storage defaults in production.
 

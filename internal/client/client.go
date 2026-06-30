@@ -72,7 +72,7 @@ func (c *Client) OrganisationOverride() string {
 
 // httpClientForSlowWrite returns a client for synchronous writes that can
 // legitimately take longer than the shared client's 30s response-header
-// timeout to start responding — notably PATCH /stacks/{stack_name}, which
+// timeout to start responding - notably PATCH /stacks/{stack_name}, which
 // performs a synchronous git commit+push on the request path. It drops
 // ResponseHeaderTimeout so the call is bounded by the caller's context
 // instead of failing with "http2: timeout awaiting response headers" while

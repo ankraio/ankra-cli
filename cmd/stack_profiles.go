@@ -212,7 +212,7 @@ var stackProfilesApplyCmd = &cobra.Command{
 	Short: "Apply a stack profile to a cluster as a draft (optionally deploy)",
 	Long: `Apply (instantiate) a stack profile onto a cluster.
 
-By default this creates a reviewable stack DRAFT on the target cluster — nothing is
+By default this creates a reviewable stack DRAFT on the target cluster - nothing is
 deployed until you review it in the Ankra dashboard or pass --deploy.
 
 Bind profile parameters with --set name=value. For secret parameters prefer

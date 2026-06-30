@@ -47,7 +47,7 @@ chmod +x "${ASSET}"
 sudo install -m 0755 "${ASSET}" /usr/local/bin/ankra
 ```
 
-On macOS you can additionally strip the quarantine attribute:
+On macOS you can strip the quarantine attribute:
 
 ```bash
 xattr -d com.apple.quarantine /usr/local/bin/ankra
