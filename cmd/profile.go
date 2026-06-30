@@ -56,16 +56,16 @@ var profileAuthTotpStartCmd = &cobra.Command{
 		if renderStructuredOrExit(cmd, result) {
 			return nil
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Authenticator setup started.")
-		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), "Scan this otpauth URI with your authenticator app:")
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", result.OtpAuthURI)
-		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), "Or enter this secret manually:")
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", result.Secret)
-		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), "Then confirm with:")
-		fmt.Fprintln(cmd.OutOrStdout(), "  ankra profile auth totp confirm <6-digit-code>")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Authenticator setup started.")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout())
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Scan this otpauth URI with your authenticator app:")
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", result.OtpAuthURI)
+		_, _ = fmt.Fprintln(cmd.OutOrStdout())
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Or enter this secret manually:")
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", result.Secret)
+		_, _ = fmt.Fprintln(cmd.OutOrStdout())
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Then confirm with:")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  ankra profile auth totp confirm <6-digit-code>")
 		return nil
 	},
 }
@@ -82,7 +82,7 @@ var profileAuthTotpConfirmCmd = &cobra.Command{
 		if renderStructuredOrExit(cmd, result) {
 			return nil
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Authenticator app enabled.")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Authenticator app enabled.")
 		renderRecoveryCodes(cmd, result.RecoveryCodes)
 		return nil
 	},
@@ -103,7 +103,7 @@ var profileAuthTotpRemoveCmd = &cobra.Command{
 		if renderStructuredOrExit(cmd, result) {
 			return nil
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Authenticator app removed.")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Authenticator app removed.")
 		return nil
 	},
 }
@@ -173,7 +173,7 @@ var profileAuthPasskeysRemoveCmd = &cobra.Command{
 		if renderStructuredOrExit(cmd, result) {
 			return nil
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Passkey removed.")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Passkey removed.")
 		return nil
 	},
 }
@@ -183,10 +183,10 @@ var profileAuthPasskeysOpenCmd = &cobra.Command{
 	Short: "Open Profile Authentication to add a passkey or security key",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		profileAuthenticationURL := fmt.Sprintf("%s/organisation/profile/authentication", strings.TrimRight(baseURL, "/"))
-		fmt.Fprintln(cmd.OutOrStdout(), "Opening Profile Authentication in your browser:")
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", profileAuthenticationURL)
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Opening Profile Authentication in your browser:")
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", profileAuthenticationURL)
 		if err := openBrowser(profileAuthenticationURL); err != nil {
-			fmt.Fprintln(cmd.OutOrStdout(), "Could not open browser automatically. Please open the URL above manually.")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Could not open browser automatically. Please open the URL above manually.")
 		}
 		return nil
 	},
@@ -201,21 +201,21 @@ func renderMFAStatus(out io.Writer, status *client.MFAStatus) {
 	if status.Required {
 		required = text.FgYellow.Sprint("Yes")
 	}
-	fmt.Fprintln(out, "Two-factor authentication:")
-	fmt.Fprintf(out, "  Required by organisation: %s\n", required)
-	fmt.Fprintf(out, "  Enrolled:                 %s\n", enrolled)
-	fmt.Fprintf(out, "  Recovery codes remaining: %d\n", status.RecoveryCodesRemaining)
-	fmt.Fprintf(out, "  Authenticator apps:       %d\n", len(status.Methods))
-	fmt.Fprintf(out, "  Passkeys/security keys:   %d\n", len(status.Passkeys))
+	_, _ = fmt.Fprintln(out, "Two-factor authentication:")
+	_, _ = fmt.Fprintf(out, "  Required by organisation: %s\n", required)
+	_, _ = fmt.Fprintf(out, "  Enrolled:                 %s\n", enrolled)
+	_, _ = fmt.Fprintf(out, "  Recovery codes remaining: %d\n", status.RecoveryCodesRemaining)
+	_, _ = fmt.Fprintf(out, "  Authenticator apps:       %d\n", len(status.Methods))
+	_, _ = fmt.Fprintf(out, "  Passkeys/security keys:   %d\n", len(status.Passkeys))
 	if len(status.Passkeys) > 0 {
-		fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(out)
 		renderPasskeys(out, status.Passkeys)
 	}
 }
 
 func renderPasskeys(out io.Writer, passkeys []client.PasskeyInfo) {
 	if len(passkeys) == 0 {
-		fmt.Fprintln(out, "No passkeys or security keys registered.")
+		_, _ = fmt.Fprintln(out, "No passkeys or security keys registered.")
 		return
 	}
 	writer := table.NewWriter()
@@ -240,10 +240,10 @@ func renderRecoveryCodes(cmd *cobra.Command, recoveryCodes []string) {
 	if len(recoveryCodes) == 0 {
 		return
 	}
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), "Recovery codes (save these now; they will not be shown again):")
+	_, _ = fmt.Fprintln(cmd.OutOrStdout())
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Recovery codes (save these now; they will not be shown again):")
 	for _, recoveryCode := range recoveryCodes {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", recoveryCode)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", recoveryCode)
 	}
 }
 
