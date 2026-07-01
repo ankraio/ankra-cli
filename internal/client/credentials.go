@@ -7,7 +7,7 @@ import (
 	neturl "net/url"
 )
 
-// Credential mirrors cluster-2.0's ListCredentialResponseListItem
+// Credential mirrors cluster's ListCredentialResponseListItem
 // from src/usecase/credentials_v2/list_credentials.py. The legacy
 // `cluster_count` and `usage_count` fields the CLI used to render were
 // removed in the v2 list; they are kept here only for backwards
@@ -40,7 +40,7 @@ type Credential struct {
 	ClusterCount int     `json:"cluster_count"`
 }
 
-// CredentialHealthSummary mirrors cluster-2.0's CredentialHealthSummary
+// CredentialHealthSummary mirrors cluster's CredentialHealthSummary
 // from src/usecase/credentials_v2/_credential_health_loader.py.
 type CredentialHealthSummary struct {
 	State               string  `json:"state"`

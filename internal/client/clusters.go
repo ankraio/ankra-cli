@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// ClusterListItem mirrors cluster-2.0's ClusterListItem from
+// ClusterListItem mirrors cluster's ClusterListItem from
 // src/usecase/cluster/list_clusters.py. Backend fields the CLI does not
 // currently render (operation, agent_*, resources, *_count, etc.) are
 // silently ignored by Go's JSON decoder.

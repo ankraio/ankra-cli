@@ -169,7 +169,7 @@ func (c *Client) RenameStack(ctx context.Context, clusterID, stackName, newName 
 // CreateStack is kept for interface compatibility with the APIClient
 // abstraction but is no longer used by any cobra command. The platform's
 // POST /api/v1/org/clusters/imported/{cluster_id}/stacks endpoint expects
-// a full ResourceSpecification (see cluster-2.0
+// a full ResourceSpecification (see cluster
 // usecase/cluster/stacks/create_cluster_stack.py:CreateClusterStackRequest);
 // the bare `{name, description}` payload this method used to send was
 // rejected with HTTP 422. New work should go through `cluster apply -f

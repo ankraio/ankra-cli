@@ -9,7 +9,7 @@ import (
 )
 
 // HelmRegistryListItem mirrors the backend's ExtendedOCIRegistry /
-// ExtendedHTTPRegistry payload (see cluster-2.0's
+// ExtendedHTTPRegistry payload (see cluster's
 // usecase/helm/list_helm_chart_registries.py). The kind is inferred from
 // the URL prefix; the API does not include it as a discriminator field
 // because each row is already an instance of the correct Pydantic
@@ -43,7 +43,7 @@ type ListHelmRegistriesResponse struct {
 	Pagination Pagination             `json:"pagination"`
 }
 
-// GetHelmRegistryResponse mirrors cluster-2.0's GetHelmChartRegistryResult.
+// GetHelmRegistryResponse mirrors cluster's GetHelmChartRegistryResult.
 type GetHelmRegistryResponse struct {
 	Registry        HelmRegistryDetail        `json:"registry"`
 	Charts          []HelmChartVersionSummary `json:"charts"`
@@ -170,19 +170,19 @@ func (c *Client) DeleteHelmRegistry(registryName string) (*DeleteHelmRegistryRes
 	return &response, nil
 }
 
-// UpdateHelmRegistryRequest mirrors cluster-2.0's
+// UpdateHelmRegistryRequest mirrors cluster's
 // UpdateHelmChartRegistryRequest. The only mutable field on the wire is the
 // read job interval (seconds between automatic background syncs).
 type UpdateHelmRegistryRequest struct {
 	ReadJobInterval *int `json:"read_job_interval,omitempty"`
 }
 
-// SyncHelmRegistryResponse mirrors cluster-2.0's SyncHelmChartRegistryResult.
+// SyncHelmRegistryResponse mirrors cluster's SyncHelmChartRegistryResult.
 type SyncHelmRegistryResponse struct {
 	CreatedJobs int `json:"created_jobs"`
 }
 
-// SyncJobTask mirrors cluster-2.0's SyncJobTask projection.
+// SyncJobTask mirrors cluster's SyncJobTask projection.
 type SyncJobTask struct {
 	ActionLabel string  `json:"action_label"`
 	Status      string  `json:"status"`
@@ -191,7 +191,7 @@ type SyncJobTask struct {
 	Command     *string `json:"command,omitempty"`
 }
 
-// SyncJob mirrors cluster-2.0's SyncJob projection returned by the
+// SyncJob mirrors cluster's SyncJob projection returned by the
 // registry sync-jobs endpoint.
 type SyncJob struct {
 	ID           string        `json:"id"`
@@ -289,7 +289,7 @@ func (c *Client) ListHelmRegistrySyncJobs(registryName string, page, pageSize in
 	return &response, nil
 }
 
-// HelmCredentialListItem mirrors cluster-2.0's
+// HelmCredentialListItem mirrors cluster's
 // RegistryCredentialSummary returned by GET /api/v1/org/helm/credentials.
 type HelmCredentialListItem struct {
 	ID        string `json:"id"`
@@ -362,7 +362,7 @@ func (c *Client) CreateHelmRegistryCredential(req CreateHelmCredentialRequest) (
 	return &response, nil
 }
 
-// GetHelmCredentialResponse mirrors cluster-2.0's
+// GetHelmCredentialResponse mirrors cluster's
 // GetRegistryCredentialResult. The password is never returned by the API.
 type GetHelmCredentialResponse struct {
 	ID        string `json:"id"`

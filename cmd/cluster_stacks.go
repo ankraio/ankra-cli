@@ -189,7 +189,7 @@ var clusterStacksListCmd = &cobra.Command{
 //
 // The backend's POST /api/v1/org/clusters/imported/{cluster_id}/stacks
 // expects a full ResourceSpecification body (see
-// cluster-2.0/src/usecase/cluster/stacks/create_cluster_stack.py). The
+// cluster/src/usecase/cluster/stacks/create_cluster_stack.py). The
 // old CLI shape `{ "name": "...", "description": "..." }` is rejected
 // with a 422.
 //
