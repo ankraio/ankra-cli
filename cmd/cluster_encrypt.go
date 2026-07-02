@@ -26,11 +26,10 @@ var clusterSopsConfigCmd = &cobra.Command{
 	Use:   "sops-config",
 	Short: "Display SOPS configuration for the organisation",
 	Long:  "Show the SOPS encryption configuration including the public key used for encrypting secrets.",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		config, err := apiClient.GetSopsConfig()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching SOPS config: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("fetching SOPS config: %w", err)
 		}
 
 		fmt.Printf("SOPS Configuration:\n")
@@ -41,6 +40,7 @@ var clusterSopsConfigCmd = &cobra.Command{
 		} else {
 			fmt.Printf("  Public Key:  not configured\n")
 		}
+		return nil
 	},
 }
 

@@ -119,29 +119,29 @@ var clusterManifestsListCmd = &cobra.Command{
 	Use:   "list [manifest name]",
 	Short: "List manifests for the active cluster; or show details for a single manifest",
 	Args:  cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 
 		manifests, err := apiClient.ListClusterManifests(cluster.ID)
 		if err != nil {
-			fmt.Printf("Error listing manifests: %v\n", err)
-			return
+			return fmt.Errorf("listing manifests: %w", err)
 		}
 		if len(args) == 0 {
 			if manifests == nil {
 				manifests = []client.ClusterManifestListItem{}
 			}
-			if renderStructuredOrExit(cmd, manifests) {
-				return
+			if handled, err := renderStructured(cmd, manifests); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 		}
 		if len(manifests) == 0 {
 			fmt.Println("No manifests found for the active cluster.")
-			return
+			return nil
 		}
 
 		if len(args) == 1 {
@@ -154,11 +154,12 @@ var clusterManifestsListCmd = &cobra.Command{
 				}
 			}
 			if found == nil {
-				fmt.Printf("Manifest %q not found on the active cluster.\n", name)
-				return
+				return withExitCode(exitNotFound, fmt.Errorf("manifest %q not found on the active cluster", name))
 			}
-			if renderStructuredOrExit(cmd, found) {
-				return
+			if handled, err := renderStructured(cmd, found); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 
 			kind := extractKindFromBase64(found.ManifestBase64)
@@ -186,15 +187,14 @@ var clusterManifestsListCmd = &cobra.Command{
 				fmt.Println("\n  Manifest Content:")
 				decoded, err := base64.StdEncoding.DecodeString(found.ManifestBase64)
 				if err != nil {
-					fmt.Printf("    Error decoding manifest: %v\n", err)
-				} else {
-					lines := strings.Split(string(decoded), "\n")
-					for _, line := range lines {
-						fmt.Printf("    %s\n", line)
-					}
+					return fmt.Errorf("decoding manifest: %w", err)
+				}
+				lines := strings.Split(string(decoded), "\n")
+				for _, line := range lines {
+					fmt.Printf("    %s\n", line)
 				}
 			}
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -245,6 +245,7 @@ var clusterManifestsListCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
