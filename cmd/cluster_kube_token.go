@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -40,18 +39,16 @@ for example in a kubeconfig:
 
 It prints JSON to stdout and never prompts; run 'ankra login' first.`,
 	Annotations: map[string]string{"group": "kubernetes"},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterFlag, _ := cmd.Flags().GetString("cluster")
 		clusterID, err := resolveKubeTokenClusterID(clusterFlag)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 
 		kubeToken, err := apiClient.GetClusterKubeToken(context.Background(), clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 
 		credential := execCredential{
@@ -64,10 +61,10 @@ It prints JSON to stdout and never prompts; run 'ankra login' first.`,
 		}
 		output, err := json.Marshal(credential)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 		fmt.Println(string(output))
+		return nil
 	},
 }
 
@@ -80,7 +77,7 @@ func resolveKubeTokenClusterID(clusterFlag string) (string, error) {
 		if isLikelyClusterID(clusterFlag) {
 			return clusterFlag, nil
 		}
-		return "", fmt.Errorf("cluster %q not found; pass a cluster name or ID (not the kubeconfig context name)", clusterFlag)
+		return "", withExitCode(exitNotFound, fmt.Errorf("cluster %q not found; pass a cluster name or ID (not the kubeconfig context name)", clusterFlag))
 	}
 	cluster, err := loadSelectedCluster()
 	if err != nil {

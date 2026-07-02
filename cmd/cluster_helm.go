@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
@@ -21,11 +22,10 @@ var clusterHelmCmd = &cobra.Command{
 var clusterHelmReleasesCmd = &cobra.Command{
 	Use:   "releases",
 	Short: "List Helm releases in the cluster",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 
 		namespace, _ := cmd.Flags().GetString("namespace")
@@ -39,14 +39,13 @@ var clusterHelmReleasesCmd = &cobra.Command{
 
 		response, err := apiClient.ListHelmReleases(cluster.ID, opts)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 
 		if outputFormat == "json" {
 			jsonData, _ := json.MarshalIndent(response, "", "  ")
 			fmt.Println(string(jsonData))
-			return
+			return nil
 		}
 
 		allItems := []interface{}{}
@@ -56,7 +55,7 @@ var clusterHelmReleasesCmd = &cobra.Command{
 
 		if len(allItems) == 0 {
 			fmt.Println("No Helm releases found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -87,6 +86,7 @@ var clusterHelmReleasesCmd = &cobra.Command{
 			}
 		}
 		t.Render()
+		return nil
 	},
 }
 
@@ -94,31 +94,29 @@ var clusterHelmUninstallCmd = &cobra.Command{
 	Use:   "uninstall <release_name>",
 	Short: "Uninstall a Helm release from the cluster",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		releaseName := args[0]
 		namespace, _ := cmd.Flags().GetString("namespace")
 
 		if namespace == "" {
-			fmt.Fprintln(os.Stderr, "Error: --namespace (-n) is required for uninstall")
-			os.Exit(1)
+			return errors.New("--namespace (-n) is required for uninstall")
 		}
 
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 
 		result, err := apiClient.UninstallHelmRelease(cluster.ID, releaseName, namespace)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 
 		fmt.Printf("Helm release '%s' uninstalled from namespace '%s'.\n", releaseName, namespace)
 		if result.Message != nil && *result.Message != "" {
 			fmt.Printf("  Message: %s\n", *result.Message)
 		}
+		return nil
 	},
 }
 

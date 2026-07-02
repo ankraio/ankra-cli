@@ -59,33 +59,24 @@ Examples:
 var clusterKubeconfigAddCmd = &cobra.Command{
 	Use:   "add",
 	Short: "Add or update an Ankra context in your kubeconfig",
-	Run: func(cmd *cobra.Command, args []string) {
-		if err := kubeconfigAdd(os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return kubeconfigAdd(os.Stdout)
 	},
 }
 
 var clusterKubeconfigRemoveCmd = &cobra.Command{
 	Use:   "remove",
 	Short: "Remove Ankra contexts from your kubeconfig",
-	Run: func(cmd *cobra.Command, args []string) {
-		if err := kubeconfigRemove(os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return kubeconfigRemove(os.Stdout)
 	},
 }
 
 var clusterKubeconfigListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List Ankra-managed contexts in your kubeconfig",
-	Run: func(cmd *cobra.Command, args []string) {
-		if err := kubeconfigList(os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return kubeconfigList(os.Stdout)
 	},
 }
 
@@ -340,7 +331,7 @@ func resolveKubeconfigTargets() ([]kubeTarget, error) {
 		if isLikelyClusterID(kubeconfigClusterFlag) {
 			return []kubeTarget{{id: kubeconfigClusterFlag, name: kubeconfigClusterFlag}}, nil
 		}
-		return nil, fmt.Errorf("cluster %q not found; pass a cluster name or ID", kubeconfigClusterFlag)
+		return nil, withExitCode(exitNotFound, fmt.Errorf("cluster %q not found; pass a cluster name or ID", kubeconfigClusterFlag))
 	}
 	selected, err := loadSelectedCluster()
 	if err != nil || selected.ID == "" {
