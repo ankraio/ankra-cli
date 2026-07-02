@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -32,17 +31,10 @@ var deleteClusterCmd = &cobra.Command{
 			return nil
 		}
 
-		if !forceDelete {
-			fmt.Printf("Are you sure you want to delete cluster %q? This action is irreversible! (y/N): ", name)
-			resp, err := bufio.NewReader(os.Stdin).ReadString('\n')
-			if err != nil {
-				return fmt.Errorf("reading confirmation: %w", err)
-			}
-			resp = strings.TrimSpace(strings.ToLower(resp))
-			if resp != "y" && resp != "yes" {
-				fmt.Println("Aborted.")
-				return nil
-			}
+		if err := confirmPrompt(os.Stdin, os.Stdout,
+			fmt.Sprintf("Are you sure you want to delete cluster %q? This action is irreversible! (y/N): ", name),
+			forceDelete); err != nil {
+			return err
 		}
 
 		clusterInfo, lookupErr := apiClient.GetCluster(name)
@@ -51,8 +43,8 @@ var deleteClusterCmd = &cobra.Command{
 			case "hetzner", "ovh", "upcloud":
 				fmt.Printf(
 					"Cluster %q is a %s cloud cluster and cannot be deleted with this command.\n"+
-						"Run 'ankra cluster %s deprovision %s' instead so the cloud resources are released.\n",
-					name, clusterInfo.Kind, clusterInfo.Kind, clusterInfo.ID,
+						"Run 'ankra cluster deprovision %s' instead so the cloud resources are released.\n",
+					name, clusterInfo.Kind, clusterInfo.ID,
 				)
 				return fmt.Errorf("refusing to delete cloud cluster %q via generic delete", name)
 			}
@@ -64,14 +56,13 @@ var deleteClusterCmd = &cobra.Command{
 		if err := apiClient.DeleteCluster(ctx, name); err != nil {
 			errorString := err.Error()
 			if strings.Contains(errorString, "status 422") || strings.Contains(errorString, "status 404") {
-
-				fmt.Printf("Cluster %s does not exist, either %s is wrong or it's already been deleted.\n", name, name)
-				return nil
+				return withExitCode(exitNotFound,
+					fmt.Errorf("cluster %q does not exist: the name is wrong or it has already been deleted", name))
 			}
 			if strings.Contains(errorString, "status 409") {
 				return fmt.Errorf("delete refused: %s", errorString)
 			}
-			return fmt.Errorf("could not delete cluster %q", name)
+			return fmt.Errorf("could not delete cluster %q: %w", name, err)
 		}
 
 		fmt.Printf("Cluster %q deleted successfully.\n", name)

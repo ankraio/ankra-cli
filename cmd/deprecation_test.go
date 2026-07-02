@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -70,5 +73,100 @@ func TestOvhNodeGroupLabelsAndTaintsNotDeprecated(t *testing.T) {
 		if leaf.Deprecated != "" {
 			t.Errorf("ovh node-group %s has no generic equivalent and must not be deprecated, got Deprecated=%q", verb, leaf.Deprecated)
 		}
+	}
+}
+
+func TestDeprecateAndForwardDispatchesToTarget(t *testing.T) {
+	var gotArgs []string
+	var gotFlag string
+	root := &cobra.Command{Use: "ankra"}
+	group := &cobra.Command{Use: "cluster"}
+	target := &cobra.Command{
+		Use: "delete",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			gotArgs = args
+			gotFlag, _ = cmd.Flags().GetString("note")
+			return nil
+		},
+	}
+	target.Flags().String("note", "", "")
+	group.AddCommand(target)
+	root.AddCommand(group)
+
+	forwarder := deprecateAndForward(root, "delete-cluster", "cluster delete", "v0.7.0", nil)
+	if !forwarder.Hidden {
+		t.Error("forwarder should be hidden from help")
+	}
+
+	var stderr bytes.Buffer
+	root.SetErr(&stderr)
+	root.SetOut(io.Discard)
+	root.SetArgs([]string{"delete-cluster", "prod", "--note", "bye"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("forwarded execution failed: %v", err)
+	}
+	if len(gotArgs) != 1 || gotArgs[0] != "prod" {
+		t.Errorf("target args = %v, want [prod]", gotArgs)
+	}
+	if gotFlag != "bye" {
+		t.Errorf("target flag = %q, want %q (flags must pass through the forwarder)", gotFlag, "bye")
+	}
+	warnings := stderr.String()
+	if !strings.Contains(warnings, "ANKRA_DEPRECATED=ankra delete-cluster=>ankra cluster delete removal=v0.7.0") {
+		t.Errorf("missing machine-readable marker, stderr: %q", warnings)
+	}
+	if !strings.Contains(warnings, "deprecated") {
+		t.Errorf("missing human-facing notice, stderr: %q", warnings)
+	}
+}
+
+func TestDeprecateAndForwardRewritesArgs(t *testing.T) {
+	var gotArgs []string
+	root := &cobra.Command{Use: "ankra"}
+	target := &cobra.Command{
+		Use:  "cancel",
+		RunE: func(cmd *cobra.Command, args []string) error { gotArgs = args; return nil },
+	}
+	target.Flags().String("step", "", "")
+	root.AddCommand(target)
+
+	deprecateAndForward(root, "cancel-step", "cancel", "v0.7.0", func(args []string) []string {
+		if len(args) == 2 {
+			return []string{args[0], "--step", args[1]}
+		}
+		return args
+	})
+
+	root.SetErr(io.Discard)
+	root.SetOut(io.Discard)
+	root.SetArgs([]string{"cancel-step", "exec-1", "step-2"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("forwarded execution failed: %v", err)
+	}
+	if len(gotArgs) != 1 || gotArgs[0] != "exec-1" {
+		t.Errorf("rewritten args = %v, want positional [exec-1] with step-2 moved to --step", gotArgs)
+	}
+}
+
+func TestDeprecateAndForwardPropagatesTargetError(t *testing.T) {
+	root := &cobra.Command{Use: "ankra"}
+	target := &cobra.Command{
+		Use:           "fail",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		RunE:          func(*cobra.Command, []string) error { return withExitCode(exitNotFound, errors.New("boom")) },
+	}
+	root.AddCommand(target)
+	deprecateAndForward(root, "old-fail", "fail", "v0.7.0", nil)
+
+	root.SetErr(io.Discard)
+	root.SetOut(io.Discard)
+	root.SetArgs([]string{"old-fail"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("target error should propagate through the forwarder")
+	}
+	if got := exitCodeFor(err); got != exitNotFound {
+		t.Errorf("exit code should survive forwarding, got %d", got)
 	}
 }
