@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -21,7 +20,7 @@ var hetznerCmd = &cobra.Command{
 var hetznerCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new Hetzner cluster",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		credentialID, _ := cmd.Flags().GetString("credential-id")
 		sshKeyCredentialID, _ := cmd.Flags().GetString("ssh-key-credential-id")
@@ -38,8 +37,7 @@ var hetznerCreateCmd = &cobra.Command{
 		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
 		externalCloudProvider, includeNetworking, err := resolveCloudProviderNetworking(cmd)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
 		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
@@ -80,18 +78,20 @@ var hetznerCreateCmd = &cobra.Command{
 
 		result, err := apiClient.CreateHetznerCluster(req)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating Hetzner cluster: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("creating Hetzner cluster: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		fmt.Printf("Hetzner cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
 			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		return nil
 	},
 }
 
@@ -102,18 +102,19 @@ var hetznerDeprovisionCmd = &cobra.Command{
 		"jobs that delete cloud resources (servers, networks, SSH keys). Cloud resources are not " +
 		"deleted by the time this command returns; track progress via operations or the UI.",
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		force, _ := cmd.Flags().GetBool("force")
 
 		result, err := apiClient.DeprovisionHetznerCluster(clusterID, force)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error deprovisioning cluster: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("deprovisioning cluster: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if result.Success {
@@ -127,6 +128,7 @@ var hetznerDeprovisionCmd = &cobra.Command{
 		if result.OperationID != nil && *result.OperationID != "" {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
+		return nil
 	},
 }
 
@@ -134,22 +136,24 @@ var hetznerWorkersCmd = &cobra.Command{
 	Use:   "workers <cluster_id>",
 	Short: "Get current worker count for a Hetzner cluster",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 
 		result, err := apiClient.GetHetznerWorkerCount(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching worker count: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("fetching worker count: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		fmt.Printf("Worker Count: %d\n", result.WorkerCount)
 		fmt.Printf("  Min: %d\n", result.Min)
 		fmt.Printf("  Max: %d\n", result.Max)
+		return nil
 	},
 }
 
@@ -158,22 +162,22 @@ var hetznerScaleCmd = &cobra.Command{
 	Short: "Scale workers for a Hetzner cluster",
 	Long:  "Scale the number of worker nodes up or down for a Hetzner cluster.",
 	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		workerCount, err := strconv.Atoi(args[1])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid worker count: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("invalid worker count: %w", err)
 		}
 
 		result, err := apiClient.ScaleHetznerWorkers(clusterID, workerCount)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error scaling workers: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("scaling workers: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if result.PreviousCount == result.NewCount {
@@ -185,6 +189,7 @@ var hetznerScaleCmd = &cobra.Command{
 			fmt.Printf("Scaling %s from %d to %d workers.\n",
 				text.FgYellow.Sprint("down"), result.PreviousCount, result.NewCount)
 		}
+		return nil
 	},
 }
 
@@ -192,17 +197,18 @@ var hetznerK8sVersionCmd = &cobra.Command{
 	Use:   "k8s-version <cluster_id>",
 	Short: "Get current Kubernetes version for a Hetzner cluster",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 
 		result, err := apiClient.GetHetznerK8sVersion(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching Kubernetes version: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("fetching Kubernetes version: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		version := "not set (using latest stable)"
@@ -211,6 +217,7 @@ var hetznerK8sVersionCmd = &cobra.Command{
 		}
 		fmt.Printf("Kubernetes Version: %s\n", version)
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
+		return nil
 	},
 }
 
@@ -220,18 +227,19 @@ var hetznerUpgradeCmd = &cobra.Command{
 	Long:       "Upgrade the Kubernetes (k3s) version on all nodes in a Hetzner cluster.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
 	Args:       cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		targetVersion := args[1]
 
 		result, err := apiClient.UpgradeHetznerK8sVersion(clusterID, targetVersion)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error upgrading Kubernetes version: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("upgrading Kubernetes version: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		prev := "none"
@@ -242,6 +250,7 @@ var hetznerUpgradeCmd = &cobra.Command{
 		fmt.Printf("  Previous version: %s\n", prev)
 		fmt.Printf("  New version:      %s\n", text.FgGreen.Sprint(result.NewVersion))
 		fmt.Printf("  Nodes affected:   %d\n", result.NodesAffected)
+		return nil
 	},
 }
 
@@ -255,24 +264,26 @@ var nodeGroupListCmd = &cobra.Command{
 	Use:   "list <cluster_id>",
 	Short: "List node groups",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		result, err := apiClient.ListHetznerNodeGroups(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error listing node groups: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("listing node groups: %w", err)
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		if len(result.NodeGroups) == 0 {
 			fmt.Println("No node groups found.")
-			return
+			return nil
 		}
 		for _, ng := range result.NodeGroups {
 			fmt.Printf("%-20s  type=%-8s  count=%d  labels=%d  taints=%d\n",
 				ng.Name, ng.InstanceType, ng.Count, len(ng.Labels), len(ng.Taints))
 		}
+		return nil
 	},
 }
 
@@ -280,7 +291,7 @@ var nodeGroupAddCmd = &cobra.Command{
 	Use:   "add <cluster_id>",
 	Short: "Add a node group",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		name, _ := cmd.Flags().GetString("name")
 		instanceType, _ := cmd.Flags().GetString("instance-type")
@@ -297,19 +308,24 @@ var nodeGroupAddCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.AddHetznerNodeGroup(requestContext, clusterID, req, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("adding node group", err)
+			return fmt.Errorf("adding node group: %w", err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group add")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group add")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+		return nil
 	},
 }
 
@@ -317,13 +333,12 @@ var nodeGroupScaleCmd = &cobra.Command{
 	Use:   "scale <cluster_id> <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  cobra.ExactArgs(3),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
 		count, err := strconv.Atoi(args[2])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid count: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("invalid count: %w", err)
 		}
 
 		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
@@ -331,19 +346,24 @@ var nodeGroupScaleCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.ScaleHetznerNodeGroup(requestContext, clusterID, groupName, count, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("scaling node group", err)
+			return fmt.Errorf("scaling node group: %w", err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group scale")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group scale")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+		return nil
 	},
 }
 
@@ -351,7 +371,7 @@ var nodeGroupUpgradeCmd = &cobra.Command{
 	Use:   "upgrade <cluster_id> <group_name> <instance_type>",
 	Short: "Upgrade instance type for a node group (cannot be reversed)",
 	Args:  cobra.ExactArgs(3),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
 		instanceType := args[2]
@@ -361,19 +381,24 @@ var nodeGroupUpgradeCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.UpdateHetznerNodeGroupInstanceType(requestContext, clusterID, groupName, instanceType, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("upgrading node group", err)
+			return fmt.Errorf("upgrading node group: %w", err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group instance-type update")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group instance-type update")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group instance-type update")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		return nil
 	},
 }
 
@@ -381,7 +406,7 @@ var nodeGroupDeleteCmd = &cobra.Command{
 	Use:   "delete <cluster_id> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
 
@@ -390,19 +415,24 @@ var nodeGroupDeleteCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.DeleteHetznerNodeGroup(requestContext, clusterID, groupName, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("deleting node group", err)
+			return fmt.Errorf("deleting node group: %w", err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group delete")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group delete")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+		return nil
 	},
 }
 
@@ -410,22 +440,22 @@ var hetznerLocationsCmd = &cobra.Command{
 	Use:   "locations",
 	Short: "List Hetzner locations available to a credential",
 	Long:  "List the Hetzner Cloud locations the supplied credential can deploy in. Only these locations are valid for cluster creation.",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialID, _ := cmd.Flags().GetString("credential-id")
 
 		locations, err := apiClient.ListHetznerLocations(credentialID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error listing locations: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("listing locations: %w", err)
 		}
 		if len(locations) == 0 {
 			fmt.Println("No locations available for this credential.")
-			return
+			return nil
 		}
 		fmt.Printf("Locations available to credential %s:\n", credentialID)
 		for _, loc := range locations {
 			fmt.Printf("  %-6s %s, %s (zone: %s)\n", loc.Name, loc.City, loc.Country, loc.NetworkZone)
 		}
+		return nil
 	},
 }
 
@@ -433,19 +463,18 @@ var hetznerServerTypesCmd = &cobra.Command{
 	Use:   "server-types",
 	Short: "List Hetzner server types and availability",
 	Long:  "List Hetzner Cloud server types. Pass --location to see which types are currently available for provisioning there, and --available-only to hide the rest.",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialID, _ := cmd.Flags().GetString("credential-id")
 		location, _ := cmd.Flags().GetString("location")
 		availableOnly, _ := cmd.Flags().GetBool("available-only")
 
 		serverTypes, err := apiClient.ListHetznerServerTypes(credentialID, location)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error listing server types: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("listing server types: %w", err)
 		}
 		if len(serverTypes) == 0 {
 			fmt.Println("No server types available for this credential.")
-			return
+			return nil
 		}
 		header := "Server types"
 		if location != "" {
@@ -464,6 +493,7 @@ var hetznerServerTypesCmd = &cobra.Command{
 			fmt.Printf("  %-12s %-6d %-6.0fGB %-5dGB %-6s %-10.2f %s\n",
 				st.Name, st.Cores, st.Memory, st.Disk, st.Architecture, st.PriceMonthly, available)
 		}
+		return nil
 	},
 }
 
