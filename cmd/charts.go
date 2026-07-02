@@ -20,24 +20,23 @@ var chartsCmd = &cobra.Command{
 var chartsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List available Helm charts",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		page, _ := cmd.Flags().GetInt("page")
 		pageSize, _ := cmd.Flags().GetInt("page-size")
 		onlySubscribed, _ := cmd.Flags().GetBool("subscribed")
 
 		resp, err := apiClient.ListCharts(page, pageSize, onlySubscribed)
 		if err != nil {
-			fmt.Printf("Error listing charts: %v\n", err)
-			return
+			return fmt.Errorf("listing charts: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, resp) {
-			return
+		if rendered, err := renderStructured(cmd, resp); rendered || err != nil {
+			return err
 		}
 
 		if len(resp.Charts) == 0 {
 			fmt.Println("No charts found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -67,6 +66,7 @@ var chartsListCmd = &cobra.Command{
 
 		fmt.Printf("\nPage %d of %d (page size: %d)\n",
 			resp.Pagination.Page, resp.Pagination.TotalPages, resp.Pagination.PageSize)
+		return nil
 	},
 }
 
@@ -74,25 +74,24 @@ var chartsSearchCmd = &cobra.Command{
 	Use:   "search <query>",
 	Short: "Search for Helm charts",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		query := args[0]
 
 		charts, err := apiClient.SearchCharts(query)
 		if err != nil {
-			fmt.Printf("Error searching charts: %v\n", err)
-			return
+			return fmt.Errorf("searching charts: %w", err)
 		}
 
 		if charts == nil {
 			charts = []client.ChartItem{}
 		}
-		if renderStructuredOrExit(cmd, charts) {
-			return
+		if rendered, err := renderStructured(cmd, charts); rendered || err != nil {
+			return err
 		}
 
 		if len(charts) == 0 {
 			fmt.Printf("No charts found matching '%s'.\n", query)
-			return
+			return nil
 		}
 
 		fmt.Printf("Charts matching '%s':\n\n", query)
@@ -121,6 +120,7 @@ var chartsSearchCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
@@ -131,7 +131,7 @@ var chartsInfoCmd = &cobra.Command{
 
 Requires either --repository flag or finding the chart in the catalog first.`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		chartName := args[0]
 		repositoryURL, _ := cmd.Flags().GetString("repository")
 
@@ -139,8 +139,7 @@ Requires either --repository flag or finding the chart in the catalog first.`,
 		if repositoryURL == "" {
 			charts, err := apiClient.SearchCharts(chartName)
 			if err != nil {
-				fmt.Printf("Error finding chart: %v\n", err)
-				return
+				return fmt.Errorf("finding chart: %w", err)
 			}
 
 			// Find exact match
@@ -152,19 +151,17 @@ Requires either --repository flag or finding the chart in the catalog first.`,
 			}
 
 			if repositoryURL == "" {
-				fmt.Printf("Chart '%s' not found. Please specify --repository flag.\n", chartName)
-				return
+				return withExitCode(exitNotFound, fmt.Errorf("chart '%s' not found. Please specify --repository flag", chartName))
 			}
 		}
 
 		details, err := apiClient.GetChartDetails(chartName, repositoryURL)
 		if err != nil {
-			fmt.Printf("Error getting chart details: %v\n", err)
-			return
+			return fmt.Errorf("getting chart details: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, details) {
-			return
+		if rendered, err := renderStructured(cmd, details); rendered || err != nil {
+			return err
 		}
 
 		fmt.Printf("Chart: %s\n\n", details.Name)
@@ -198,6 +195,7 @@ Requires either --repository flag or finding the chart in the catalog first.`,
 				fmt.Println()
 			}
 		}
+		return nil
 	},
 }
 

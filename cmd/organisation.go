@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,23 +34,22 @@ var orgCmd = &cobra.Command{
 var orgListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all organisations you belong to",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		orgs, err := apiClient.ListOrganisations()
 		if err != nil {
-			fmt.Printf("Error listing organisations: %v\n", err)
-			return
+			return fmt.Errorf("listing organisations: %w", err)
 		}
 
 		if orgs == nil {
 			orgs = []client.OrganisationSummary{}
 		}
-		if renderStructuredOrExit(cmd, orgs) {
-			return
+		if rendered, err := renderStructured(cmd, orgs); rendered || err != nil {
+			return err
 		}
 
 		if len(orgs) == 0 {
 			fmt.Println("No organisations found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -97,6 +97,7 @@ var orgListCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
@@ -104,25 +105,22 @@ var orgSwitchCmd = &cobra.Command{
 	Use:   "switch <organisation>",
 	Short: "Switch to a different organisation by slug, name, or ID",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		reference := args[0]
 
 		orgs, err := apiClient.ListOrganisations()
 		if err != nil {
-			fmt.Printf("Error listing organisations: %v\n", err)
-			return
+			return fmt.Errorf("listing organisations: %w", err)
 		}
 
 		targetOrg, err := resolveOrganisationReference(orgs, reference)
 		if err != nil {
-			fmt.Printf("%v\n", err)
-			return
+			return err
 		}
 
 		resp, err := apiClient.SwitchOrganisation(targetOrg.OrganisationID)
 		if err != nil {
-			fmt.Printf("Error switching organisation: %v\n", err)
-			return
+			return fmt.Errorf("switching organisation: %w", err)
 		}
 
 		// Save locally
@@ -144,6 +142,7 @@ var orgSwitchCmd = &cobra.Command{
 		if resp.Message != "" {
 			fmt.Printf("Message: %s\n", resp.Message)
 		}
+		return nil
 	},
 }
 
@@ -155,15 +154,14 @@ type currentOrganisationOutput struct {
 var orgCurrentCmd = &cobra.Command{
 	Use:   "current",
 	Short: "Show the currently selected organisation",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		org, source, err := resolveTargetOrganisation(cmd)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			return
+			return err
 		}
 
-		if renderStructuredOrExit(cmd, currentOrganisationOutput{Organisation: org, Source: source}) {
-			return
+		if rendered, err := renderStructured(cmd, currentOrganisationOutput{Organisation: org, Source: source}); rendered || err != nil {
+			return err
 		}
 
 		name := ""
@@ -185,6 +183,7 @@ var orgCurrentCmd = &cobra.Command{
 			fmt.Printf("  Slug: %s\n", slug)
 		}
 		fmt.Printf("  Role: %s\n", role)
+		return nil
 	},
 }
 
@@ -192,7 +191,7 @@ var orgCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a new organisation",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		country, _ := cmd.Flags().GetString("country")
 
@@ -203,12 +202,11 @@ var orgCreateCmd = &cobra.Command{
 
 		resp, err := apiClient.CreateOrganisation(name, countryPtr)
 		if err != nil {
-			fmt.Printf("Error creating organisation: %v\n", err)
-			return
+			return fmt.Errorf("creating organisation: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, resp) {
-			return
+		if rendered, err := renderStructured(cmd, resp); rendered || err != nil {
+			return err
 		}
 
 		fmt.Printf("Organisation created successfully!\n")
@@ -223,6 +221,7 @@ var orgCreateCmd = &cobra.Command{
 			switchReference = resp.Slug
 		}
 		fmt.Printf("  ankra org switch %s\n", switchReference)
+		return nil
 	},
 }
 
@@ -230,7 +229,7 @@ var orgMembersCmd = &cobra.Command{
 	Use:   "members [org_id]",
 	Short: "List members of an organisation",
 	Args:  cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		var orgID string
 
 		if len(args) > 0 {
@@ -238,25 +237,22 @@ var orgMembersCmd = &cobra.Command{
 		} else {
 			resolved, err := resolveTargetOrganisationID(cmd)
 			if err != nil {
-				fmt.Printf("Error: %v\n", err)
-				return
+				return err
 			}
 			orgID = resolved
 		}
 
 		if orgID == "" {
-			fmt.Println("No organisation specified. Use 'ankra org members <org_id>' or select an organisation first.")
-			return
+			return errors.New("no organisation specified. Use 'ankra org members <org_id>' or select an organisation first")
 		}
 
 		org, err := apiClient.GetOrganisation(orgID)
 		if err != nil {
-			fmt.Printf("Error fetching organisation: %v\n", err)
-			return
+			return fmt.Errorf("fetching organisation: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, org) {
-			return
+		if rendered, err := renderStructured(cmd, org); rendered || err != nil {
+			return err
 		}
 
 		name := ""
@@ -267,7 +263,7 @@ var orgMembersCmd = &cobra.Command{
 
 		if len(org.Members) == 0 {
 			fmt.Println("No members found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -294,6 +290,7 @@ var orgMembersCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
@@ -500,15 +497,13 @@ Examples:
   ankra org invite user@example.com
   ankra org invite user@example.com --role admin`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		email := args[0]
 		role, _ := cmd.Flags().GetString("role")
 
 		orgID, err := resolveOrganisationID()
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			fmt.Println("Select an organisation first with 'ankra org switch <org_id>'")
-			return
+			return fmt.Errorf("%w\nSelect an organisation first with 'ankra org switch <org_id>'", err)
 		}
 
 		result, err := apiClient.InviteUserToOrganisation(client.InviteUserRequest{
@@ -517,8 +512,7 @@ Examples:
 			Role:           role,
 		})
 		if err != nil {
-			fmt.Printf("Error inviting user: %v\n", err)
-			return
+			return fmt.Errorf("inviting user: %w", err)
 		}
 
 		if result.Success {
@@ -527,6 +521,7 @@ Examples:
 		if result.Message != "" {
 			fmt.Printf("Message: %s\n", result.Message)
 		}
+		return nil
 	},
 }
 
@@ -534,15 +529,13 @@ var orgRemoveCmd = &cobra.Command{
 	Use:   "remove <user_id>",
 	Short: "Remove a user from the current organisation",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		userID := args[0]
 		force, _ := cmd.Flags().GetBool("force")
 
 		orgID, err := resolveOrganisationID()
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			fmt.Println("Select an organisation first with 'ankra org switch <org_id>'")
-			return
+			return fmt.Errorf("%w\nSelect an organisation first with 'ankra org switch <org_id>'", err)
 		}
 
 		if !force {
@@ -550,10 +543,8 @@ var orgRemoveCmd = &cobra.Command{
 				Label:     fmt.Sprintf("Remove user %s from the organisation", userID),
 				IsConfirm: true,
 			}
-			_, err := prompt.Run()
-			if err != nil {
-				fmt.Println("Cancelled.")
-				return
+			if _, err := prompt.Run(); err != nil {
+				return errCancelled
 			}
 		}
 
@@ -562,8 +553,7 @@ var orgRemoveCmd = &cobra.Command{
 			OrganisationID: orgID,
 		})
 		if err != nil {
-			fmt.Printf("Error removing user: %v\n", err)
-			return
+			return fmt.Errorf("removing user: %w", err)
 		}
 
 		if result.Success {
@@ -572,6 +562,7 @@ var orgRemoveCmd = &cobra.Command{
 		if result.Message != "" {
 			fmt.Printf("Message: %s\n", result.Message)
 		}
+		return nil
 	},
 }
 
