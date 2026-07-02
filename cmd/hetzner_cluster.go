@@ -303,7 +303,10 @@ var nodeGroupAddCmd = &cobra.Command{
 			Count:        count,
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.AddHetznerNodeGroup(requestContext, clusterID, req, wait)
@@ -341,7 +344,10 @@ var nodeGroupScaleCmd = &cobra.Command{
 			return fmt.Errorf("invalid count: %w", err)
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.ScaleHetznerNodeGroup(requestContext, clusterID, groupName, count, wait)
@@ -376,7 +382,10 @@ var nodeGroupUpgradeCmd = &cobra.Command{
 		groupName := args[1]
 		instanceType := args[2]
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.UpdateHetznerNodeGroupInstanceType(requestContext, clusterID, groupName, instanceType, wait)
@@ -410,7 +419,10 @@ var nodeGroupDeleteCmd = &cobra.Command{
 		clusterID := args[0]
 		groupName := args[1]
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.DeleteHetznerNodeGroup(requestContext, clusterID, groupName, wait)

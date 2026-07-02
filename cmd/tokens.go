@@ -143,7 +143,7 @@ var tokensDeleteCmd = &cobra.Command{
 
 		result, err := apiClient.DeleteAPIToken(tokenID)
 		if err != nil {
-			return fmt.Errorf("deleting token: %w\nNote: Tokens must be revoked before they can be deleted.", err)
+			return fmt.Errorf("deleting token (tokens must be revoked before they can be deleted): %w", err)
 		}
 
 		if result.Success {

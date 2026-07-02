@@ -59,8 +59,14 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	wait := asyncWriteWaitFlag(cmd)
-	requestContext, cancelRequestContext := asyncWriteRequestContext(cmd)
+	wait, err := asyncWriteWaitFlag(cmd)
+	if err != nil {
+		return err
+	}
+	requestContext, cancelRequestContext, err := asyncWriteRequestContext(cmd)
+	if err != nil {
+		return err
+	}
 	defer cancelRequestContext()
 
 	importResponse, submitted, err := apiClient.ApplyCluster(requestContext, importRequest, wait)

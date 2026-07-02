@@ -1,9 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/spf13/cobra"
 )
 
@@ -39,17 +36,6 @@ func renderStructured(cmd *cobra.Command, value interface{}) (bool, error) {
 		return false, nil
 	}
 	return true, encodeStructured(cmd.OutOrStdout(), format, value)
-}
-
-// renderStructuredOrExit is renderStructured for legacy Run-style commands
-// that print errors to stderr and exit instead of returning an error.
-func renderStructuredOrExit(cmd *cobra.Command, value interface{}) bool {
-	rendered, err := renderStructured(cmd, value)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-	return rendered
 }
 
 // asyncSubmittedResult is the structured shape emitted when an asynchronous

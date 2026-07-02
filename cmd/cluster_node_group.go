@@ -157,7 +157,10 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 			Count:        count,
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, addError := nodeGroupAddForKind(kind)(requestContext, clusterID, req, wait)
@@ -199,7 +202,10 @@ var clusterNodeGroupScaleCmd = &cobra.Command{
 			return kindError
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, scaleError := nodeGroupScaleForKind(kind)(requestContext, clusterID, groupName, count, wait)
@@ -238,7 +244,10 @@ var clusterNodeGroupUpgradeCmd = &cobra.Command{
 			return kindError
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, upgradeError := nodeGroupUpgradeForKind(kind)(requestContext, clusterID, groupName, instanceType, wait)
@@ -276,7 +285,10 @@ var clusterNodeGroupDeleteCmd = &cobra.Command{
 			return kindError
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, deleteError := nodeGroupDeleteForKind(kind)(requestContext, clusterID, groupName, wait)

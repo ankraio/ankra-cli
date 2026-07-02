@@ -503,7 +503,10 @@ var ovhNodeGroupLabelsCmd = &cobra.Command{
 			return fmt.Errorf("invalid --labels: %w", err)
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.UpdateOvhNodeGroupLabels(requestContext, clusterID, groupName, labels, wait)
@@ -544,7 +547,10 @@ var ovhNodeGroupTaintsCmd = &cobra.Command{
 			return fmt.Errorf("invalid --taints: %w", err)
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.UpdateOvhNodeGroupTaints(requestContext, clusterID, groupName, taints, wait)
@@ -626,7 +632,10 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 			Taints:       taints,
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.AddOvhNodeGroup(requestContext, clusterID, req, wait)
@@ -664,7 +673,10 @@ var ovhNodeGroupScaleCmd = &cobra.Command{
 			return fmt.Errorf("invalid count: %w", err)
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.ScaleOvhNodeGroup(requestContext, clusterID, groupName, count, wait)
@@ -699,7 +711,10 @@ var ovhNodeGroupUpgradeCmd = &cobra.Command{
 		groupName := args[1]
 		instanceType := args[2]
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.UpdateOvhNodeGroupInstanceType(requestContext, clusterID, groupName, instanceType, wait)
@@ -733,7 +748,10 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 		clusterID := args[0]
 		groupName := args[1]
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.DeleteOvhNodeGroup(requestContext, clusterID, groupName, wait)

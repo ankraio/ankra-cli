@@ -353,7 +353,10 @@ var upcloudNodeGroupAddCmd = &cobra.Command{
 			Count:        count,
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.AddUpcloudNodeGroup(requestContext, clusterID, req, wait)
@@ -391,7 +394,10 @@ var upcloudNodeGroupScaleCmd = &cobra.Command{
 			return fmt.Errorf("invalid count: %w", err)
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.ScaleUpcloudNodeGroup(requestContext, clusterID, groupName, count, wait)
@@ -426,7 +432,10 @@ var upcloudNodeGroupUpgradeCmd = &cobra.Command{
 		groupName := args[1]
 		plan := args[2]
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.UpdateUpcloudNodeGroupInstanceType(requestContext, clusterID, groupName, plan, wait)
@@ -460,7 +469,10 @@ var upcloudNodeGroupDeleteCmd = &cobra.Command{
 		clusterID := args[0]
 		groupName := args[1]
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.DeleteUpcloudNodeGroup(requestContext, clusterID, groupName, wait)

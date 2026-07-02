@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Changed
+
+- **Differentiated exit codes** - the CLI now exits with a stable, documented
+  code instead of always `1`: `0` success, `1` API/runtime error, `2`
+  usage/flag error, `3` targeted resource not found, `4` confirmation
+  declined, `5` `--wait`/`--timeout` expiry, `6` authentication failure
+  (missing/expired/rejected credentials, 401/403). Scripts can now branch on
+  the failure class (re-authenticate on 6, treat 3 as idempotent success)
+  without parsing error text.
+- **Errors always reach stderr and set a non-zero exit code.** Every command
+  handler was converted from cobra's `Run` to `RunE`. This fixes a class of
+  bugs where failures printed an error to *stdout* and exited `0`, invisible
+  to scripts and CI: all of `charts` and `chat`, `cluster manifests list`,
+  `cluster select`/`clear`, credential list commands, and others. Error text
+  no longer pollutes stdout for `-o json|yaml` consumers; it is printed by
+  cobra to stderr as `Error: ...`.
+- **`ankra delete cluster`** - declining the confirmation prompt now exits `4`
+  (previously printed "Aborted." and exited `0`); deleting a cluster that does
+  not exist now exits `3` (previously exited `0`); the refusal hint for cloud
+  clusters now points at `ankra cluster deprovision` instead of the
+  provider-namespaced form deprecated in v0.4.0; and the underlying API error
+  is included in the failure message instead of being swallowed.
+
+### Added
+
+- **Deprecation forwarding machinery** (internal) - `deprecateAndForward`
+  registers a hidden forwarder at an old command path that re-dispatches to
+  the replacement with argument rewriting, emitting cobra's human-facing
+  notice plus a machine-readable `ANKRA_DEPRECATED=<old>=><new>
+  removal=<version>` stderr marker for scripts and agents. No forwarders are
+  wired yet; this lands the mechanism for upcoming command-tree work.
+
 ## v0.4.0 - 2026-06-30
 
 The stable v0.4.0 release consolidates the v0.4.0 release candidates into a
