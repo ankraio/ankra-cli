@@ -19,7 +19,7 @@ var clusterApplyCmd = &cobra.Command{
 	Use:   "apply",
 	Short: "Apply an ImportCluster YAML to the Ankra API",
 	Args:  cobra.NoArgs,
-	Run:   runApply,
+	RunE:  runApply,
 }
 
 func init() {
@@ -28,46 +28,35 @@ func init() {
 	registerAsyncWriteFlags(clusterApplyCmd)
 	registerStructuredOutputFlags(clusterApplyCmd)
 	setDryRunOffline(clusterApplyCmd)
-	if err := clusterApplyCmd.MarkFlagRequired("file"); err != nil {
-		fmt.Fprintf(os.Stderr, "Error marking flag as required: %s\n", err)
-		os.Exit(1)
-	}
+	_ = clusterApplyCmd.MarkFlagRequired("file")
 	clusterCmd.AddCommand(clusterApplyCmd)
 }
 
-func runApply(cmd *cobra.Command, _ []string) {
+func runApply(cmd *cobra.Command, _ []string) error {
 	filePath, err := cmd.Flags().GetString("file")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading --file: %s\n", err)
-		os.Exit(1)
+		return fmt.Errorf("reading --file: %w", err)
 	}
 	if filePath == "" {
-		fmt.Fprintln(os.Stderr, "--file is required")
-		if err := cmd.Usage(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error displaying usage: %s\n", err)
-		}
-		os.Exit(1)
+		return errors.New("--file is required")
 	}
 	dryRun, err := cmd.Flags().GetBool("dry-run")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading --dry-run: %s\n", err)
-		os.Exit(1)
+		return fmt.Errorf("reading --dry-run: %w", err)
 	}
 
 	importRequest, err := buildImportRequest(filePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid ImportCluster in %q:\n  %s\n", filePath, err)
-		os.Exit(1)
+		return fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
 	}
 
 	if err := validateResourceGraph(importRequest); err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid ImportCluster in %q:\n  %s\n", filePath, err)
-		os.Exit(1)
+		return fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
 	}
 
 	if dryRun {
 		fmt.Printf("Validation succeeded for %q; no changes applied (--dry-run).\n", filePath)
-		return
+		return nil
 	}
 
 	wait := asyncWriteWaitFlag(cmd)
@@ -76,34 +65,36 @@ func runApply(cmd *cobra.Command, _ []string) {
 
 	importResponse, submitted, err := apiClient.ApplyCluster(requestContext, importRequest, wait)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error applying cluster: %s\n", err)
-		os.Exit(1)
+		return fmt.Errorf("applying cluster: %w", err)
 	}
 	if submitted {
-		if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Cluster apply")) {
-			return
+		if rendered, err := renderStructured(cmd, newAsyncSubmittedResult("Cluster apply")); rendered || err != nil {
+			return err
 		}
 		printAsyncWriteSubmitted("Cluster apply")
 		fmt.Println("For a new cluster, the agent install command is only shown when you use --wait.")
-		return
+		return nil
 	}
 
 	if len(importResponse.Errors) > 0 {
-		if renderStructuredOrExit(cmd, importResponse) {
-			os.Exit(1)
+		rendered, renderErr := renderStructured(cmd, importResponse)
+		if renderErr != nil {
+			return renderErr
 		}
-		fmt.Fprintln(os.Stderr, "Import failed with the following issues:")
-		for _, resourceError := range importResponse.Errors {
-			fmt.Fprintf(os.Stderr, "- %s %q:\n", resourceError.Kind, resourceError.Name)
-			for _, detail := range resourceError.Errors {
-				fmt.Fprintf(os.Stderr, "    • %s: %s\n", detail.Key, detail.Message)
+		if !rendered {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Import failed with the following issues:")
+			for _, resourceError := range importResponse.Errors {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "- %s %q:\n", resourceError.Kind, resourceError.Name)
+				for _, detail := range resourceError.Errors {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "    • %s: %s\n", detail.Key, detail.Message)
+				}
 			}
 		}
-		os.Exit(1)
+		return errors.New("import failed")
 	}
 
-	if renderStructuredOrExit(cmd, importResponse) {
-		return
+	if rendered, err := renderStructured(cmd, importResponse); rendered || err != nil {
+		return err
 	}
 
 	if importResponse.ImportCommand == "" {
@@ -118,6 +109,7 @@ func runApply(cmd *cobra.Command, _ []string) {
 
 	fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
 		strings.TrimRight(baseURL, "/"), importResponse.ClusterId)
+	return nil
 }
 
 func buildImportRequest(path string) (client.CreateImportClusterRequest, error) {
