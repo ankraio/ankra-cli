@@ -228,7 +228,7 @@ func (c *Client) doVariableRequest(ctx context.Context, method, url string, body
 	case http.StatusOK, http.StatusCreated, http.StatusNoContent:
 		return respBody, nil
 	case http.StatusUnauthorized:
-		return nil, fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
+		return nil, ErrUnauthorized
 	case http.StatusNotFound:
 		return nil, ErrVariableNotFound
 	case http.StatusConflict:

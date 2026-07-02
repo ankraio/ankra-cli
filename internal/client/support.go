@@ -290,7 +290,7 @@ func (c *Client) UploadSupportAttachment(ctx context.Context, ticketID, filePath
 		}
 		return &out, nil
 	case http.StatusUnauthorized:
-		return nil, fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
+		return nil, ErrUnauthorized
 	case http.StatusNotFound:
 		return nil, ErrSupportTicketNotFound
 	default:
@@ -345,7 +345,7 @@ func (c *Client) doSupportRequest(ctx context.Context, method, url string, body 
 	case http.StatusOK, http.StatusCreated, http.StatusNoContent:
 		return respBody, nil
 	case http.StatusUnauthorized:
-		return nil, fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
+		return nil, ErrUnauthorized
 	case http.StatusNotFound:
 		return nil, ErrSupportTicketNotFound
 	case http.StatusConflict:

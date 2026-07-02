@@ -71,7 +71,7 @@ func runApply(cmd *cobra.Command, _ []string) error {
 
 	importResponse, submitted, err := apiClient.ApplyCluster(requestContext, importRequest, wait)
 	if err != nil {
-		return fmt.Errorf("applying cluster: %w", err)
+		return asyncWriteError("applying cluster", wait, err)
 	}
 	if submitted {
 		if rendered, err := renderStructured(cmd, newAsyncSubmittedResult("Cluster apply")); rendered || err != nil {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -37,6 +38,17 @@ func asyncWriteRequestContext(command *cobra.Command) (context.Context, context.
 	}
 	requestContext, cancel := context.WithTimeout(context.Background(), timeout)
 	return requestContext, cancel, nil
+}
+
+// asyncWriteError wraps a failed asynchronous write, tagging it with
+// exitWaitTimeout when the --wait deadline expired so scripts can distinguish
+// "gave up waiting" (the write may still complete) from a rejected write.
+func asyncWriteError(operationLabel string, wait bool, err error) error {
+	wrapped := fmt.Errorf("%s: %w", operationLabel, err)
+	if wait && errors.Is(err, context.DeadlineExceeded) {
+		return withExitCode(exitWaitTimeout, wrapped)
+	}
+	return wrapped
 }
 
 func printAsyncWriteSubmitted(operationLabel string) {

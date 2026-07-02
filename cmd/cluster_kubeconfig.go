@@ -331,7 +331,7 @@ func resolveKubeconfigTargets() ([]kubeTarget, error) {
 		if isLikelyClusterID(kubeconfigClusterFlag) {
 			return []kubeTarget{{id: kubeconfigClusterFlag, name: kubeconfigClusterFlag}}, nil
 		}
-		return nil, withExitCode(exitNotFound, fmt.Errorf("cluster %q not found; pass a cluster name or ID", kubeconfigClusterFlag))
+		return nil, fmt.Errorf("cluster %q not found; pass a cluster name or ID: %w", kubeconfigClusterFlag, err)
 	}
 	selected, err := loadSelectedCluster()
 	if err != nil || selected.ID == "" {

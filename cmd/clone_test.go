@@ -98,11 +98,11 @@ func TestGetStackNames(t *testing.T) {
 
 func TestCheckStackConflicts(t *testing.T) {
 	tests := []struct {
-		name               string
-		newStack           StackConfig
-		existingStacks     []StackConfig
-		expectManifests    int
-		expectAddons       int
+		name            string
+		newStack        StackConfig
+		existingStacks  []StackConfig
+		expectManifests int
+		expectAddons    int
 	}{
 		{
 			name: "no conflicts",

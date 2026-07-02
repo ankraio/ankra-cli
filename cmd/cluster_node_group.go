@@ -165,7 +165,7 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 
 		result, submitted, addError := nodeGroupAddForKind(kind)(requestContext, clusterID, req, wait)
 		if addError != nil {
-			return fmt.Errorf("adding node group: %w", addError)
+			return asyncWriteError("adding node group", wait, addError)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
@@ -210,7 +210,7 @@ var clusterNodeGroupScaleCmd = &cobra.Command{
 
 		result, submitted, scaleError := nodeGroupScaleForKind(kind)(requestContext, clusterID, groupName, count, wait)
 		if scaleError != nil {
-			return fmt.Errorf("scaling node group: %w", scaleError)
+			return asyncWriteError("scaling node group", wait, scaleError)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
@@ -252,7 +252,7 @@ var clusterNodeGroupUpgradeCmd = &cobra.Command{
 
 		result, submitted, upgradeError := nodeGroupUpgradeForKind(kind)(requestContext, clusterID, groupName, instanceType, wait)
 		if upgradeError != nil {
-			return fmt.Errorf("upgrading node group: %w", upgradeError)
+			return asyncWriteError("upgrading node group", wait, upgradeError)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group instance-type update")); err != nil {
@@ -293,7 +293,7 @@ var clusterNodeGroupDeleteCmd = &cobra.Command{
 
 		result, submitted, deleteError := nodeGroupDeleteForKind(kind)(requestContext, clusterID, groupName, wait)
 		if deleteError != nil {
-			return fmt.Errorf("deleting node group: %w", deleteError)
+			return asyncWriteError("deleting node group", wait, deleteError)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {

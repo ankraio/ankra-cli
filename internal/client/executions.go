@@ -203,7 +203,7 @@ func doExecutionPostJSON[T any](c *Client, ctx context.Context, endpoint string,
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
+		return nil, ErrUnauthorized
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		trimmed := strings.TrimSpace(string(body))

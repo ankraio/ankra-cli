@@ -1,6 +1,9 @@
 package client
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // UnexpectedResponseError marks an API response the CLI has no specific
 // handling for (the default branch of a status-code switch). cmd.Execute
@@ -32,3 +35,8 @@ func newUnexpectedResponseErrorWithMessage(statusCode int, message string) *Unex
 		message:    message,
 	}
 }
+
+// ErrUnauthorized is returned for 401 API responses so callers — and the
+// CLI's exit-code classification — can detect authentication failures with
+// errors.Is instead of matching message text.
+var ErrUnauthorized = errors.New("unauthorized. Run `ankra login` to re-authenticate")

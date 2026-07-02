@@ -311,7 +311,7 @@ var nodeGroupAddCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.AddHetznerNodeGroup(requestContext, clusterID, req, wait)
 		if err != nil {
-			return fmt.Errorf("adding node group: %w", err)
+			return asyncWriteError("adding node group", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
@@ -352,7 +352,7 @@ var nodeGroupScaleCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.ScaleHetznerNodeGroup(requestContext, clusterID, groupName, count, wait)
 		if err != nil {
-			return fmt.Errorf("scaling node group: %w", err)
+			return asyncWriteError("scaling node group", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
@@ -390,7 +390,7 @@ var nodeGroupUpgradeCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.UpdateHetznerNodeGroupInstanceType(requestContext, clusterID, groupName, instanceType, wait)
 		if err != nil {
-			return fmt.Errorf("upgrading node group: %w", err)
+			return asyncWriteError("upgrading node group", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group instance-type update")); err != nil {
@@ -427,7 +427,7 @@ var nodeGroupDeleteCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.DeleteHetznerNodeGroup(requestContext, clusterID, groupName, wait)
 		if err != nil {
-			return fmt.Errorf("deleting node group: %w", err)
+			return asyncWriteError("deleting node group", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {

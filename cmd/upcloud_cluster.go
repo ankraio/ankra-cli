@@ -361,7 +361,7 @@ var upcloudNodeGroupAddCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.AddUpcloudNodeGroup(requestContext, clusterID, req, wait)
 		if err != nil {
-			return fmt.Errorf("adding node group: %w", err)
+			return asyncWriteError("adding node group", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
@@ -402,7 +402,7 @@ var upcloudNodeGroupScaleCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.ScaleUpcloudNodeGroup(requestContext, clusterID, groupName, count, wait)
 		if err != nil {
-			return fmt.Errorf("scaling node group: %w", err)
+			return asyncWriteError("scaling node group", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
@@ -440,7 +440,7 @@ var upcloudNodeGroupUpgradeCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.UpdateUpcloudNodeGroupInstanceType(requestContext, clusterID, groupName, plan, wait)
 		if err != nil {
-			return fmt.Errorf("upgrading node group: %w", err)
+			return asyncWriteError("upgrading node group", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group plan update")); err != nil {
@@ -477,7 +477,7 @@ var upcloudNodeGroupDeleteCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.DeleteUpcloudNodeGroup(requestContext, clusterID, groupName, wait)
 		if err != nil {
-			return fmt.Errorf("deleting node group: %w", err)
+			return asyncWriteError("deleting node group", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {

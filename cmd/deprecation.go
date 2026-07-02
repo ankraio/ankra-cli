@@ -34,10 +34,12 @@ func markDeprecatedForGenericVerb(replacement string, cmds ...*cobra.Command) {
 // (stderr keeps `-o json` output parseable). Each forwarder must have a
 // matching entry in DEPRECATIONS.md.
 //
-// The forwarder inherits the parent's auth annotations. When the target's
-// auth requirement differs from the old location's, set it explicitly on the
-// returned command — a silent flip would change which invocations demand a
-// token (see commandRequiresAuth's parent walk).
+// The forwarder itself is auth-free: with DisableFlagParsing, the persistent
+// pre-run would otherwise resolve credentials before --token/--base-url are
+// parsed and wrongly reject `ankra <old-cmd> --token ...`. Authentication is
+// enforced on the target during re-dispatch, after its flags are parsed.
+// The nested dispatch runs with errors silenced so a failing target prints
+// its error exactly once (from the outer Execute).
 func deprecateAndForward(parent *cobra.Command, use, newPath, removalVersion string, rewrite func([]string) []string) *cobra.Command {
 	forwarder := &cobra.Command{
 		Use:                use,
@@ -55,9 +57,13 @@ func deprecateAndForward(parent *cobra.Command, use, newPath, removalVersion str
 			}
 			root := cmd.Root()
 			root.SetArgs(append(strings.Split(newPath, " "), args...))
+			previousSilenceErrors := root.SilenceErrors
+			root.SilenceErrors = true
+			defer func() { root.SilenceErrors = previousSilenceErrors }()
 			return root.Execute()
 		},
 	}
+	setRequiresAuth(forwarder, false)
 	parent.AddCommand(forwarder)
 	return forwarder
 }

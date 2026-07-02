@@ -6,11 +6,17 @@
 
 - **Differentiated exit codes** - the CLI now exits with a stable, documented
   code instead of always `1`: `0` success, `1` API/runtime error, `2`
-  usage/flag error, `3` targeted resource not found, `4` confirmation
-  declined, `5` `--wait`/`--timeout` expiry, `6` authentication failure
-  (missing/expired/rejected credentials, 401/403). Scripts can now branch on
-  the failure class (re-authenticate on 6, treat 3 as idempotent success)
-  without parsing error text.
+  usage/flag error (unknown command/flag, bad arguments, missing required
+  flags), `3` targeted resource not found, `4` confirmation declined, `5`
+  `--wait`/`--timeout` expiry on asynchronous writes (internal request
+  deadlines still exit `1`), `6` authentication failure (missing/expired/
+  rejected credentials, 401/403). Scripts can now branch on the failure class
+  (re-authenticate on 6, treat 3 as idempotent success) without parsing error
+  text.
+- **Declined confirmations exit `4` everywhere** - including `helm registries
+  delete` and `helm credentials delete`, which previously printed
+  "Cancelled." to stdout and exited `0`, indistinguishable from a successful
+  delete.
 - **Errors always reach stderr and set a non-zero exit code.** Every command
   handler was converted from cobra's `Run` to `RunE`. This fixes a class of
   bugs where failures printed an error to *stdout* and exited `0`, invisible

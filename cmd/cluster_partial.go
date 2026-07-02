@@ -724,4 +724,3 @@ func resolveClusterForCmd(flagValue string) (id, name string, err error) {
 	}
 	return cluster.ID, cluster.Name, nil
 }
-

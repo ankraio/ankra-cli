@@ -65,7 +65,7 @@ func (c *Client) GetClusterManifestConfiguration(ctx context.Context, clusterID,
 		return "", fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		return "", fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
+		return "", ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", newUnexpectedResponseError("get manifest configuration failed", resp.StatusCode, truncateForError(body, 500))
@@ -108,7 +108,7 @@ func (c *Client) DisconnectManifest(ctx context.Context, clusterID, stackName, m
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
+		return nil, ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, newUnexpectedResponseError("disconnect manifest failed", resp.StatusCode, truncateForError(body, 500))

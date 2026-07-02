@@ -149,17 +149,19 @@ func TestDeprecateAndForwardRewritesArgs(t *testing.T) {
 }
 
 func TestDeprecateAndForwardPropagatesTargetError(t *testing.T) {
-	root := &cobra.Command{Use: "ankra"}
+	// Configured like the real rootCmd: SilenceUsage only, errors NOT silenced,
+	// so this also guards against the forwarded error printing twice (once from
+	// the nested Execute, once from the outer one).
+	root := &cobra.Command{Use: "ankra", SilenceUsage: true}
 	target := &cobra.Command{
-		Use:           "fail",
-		SilenceErrors: true,
-		SilenceUsage:  true,
-		RunE:          func(*cobra.Command, []string) error { return withExitCode(exitNotFound, errors.New("boom")) },
+		Use:  "fail",
+		RunE: func(*cobra.Command, []string) error { return withExitCode(exitNotFound, errors.New("boom")) },
 	}
 	root.AddCommand(target)
 	deprecateAndForward(root, "old-fail", "fail", "v0.7.0", nil)
 
-	root.SetErr(io.Discard)
+	var stderr bytes.Buffer
+	root.SetErr(&stderr)
 	root.SetOut(io.Discard)
 	root.SetArgs([]string{"old-fail"})
 	err := root.Execute()
@@ -168,5 +170,22 @@ func TestDeprecateAndForwardPropagatesTargetError(t *testing.T) {
 	}
 	if got := exitCodeFor(err); got != exitNotFound {
 		t.Errorf("exit code should survive forwarding, got %d", got)
+	}
+	if got := strings.Count(stderr.String(), "Error: boom"); got != 1 {
+		t.Errorf("forwarded failure should print exactly once, got %d prints in: %q", got, stderr.String())
+	}
+	if root.SilenceErrors {
+		t.Error("root.SilenceErrors must be restored after forwarding")
+	}
+}
+
+func TestDeprecateAndForwardIsAuthFree(t *testing.T) {
+	// With DisableFlagParsing the persistent pre-run would resolve credentials
+	// before --token is parsed, so the forwarder itself must skip auth; the
+	// target enforces it during re-dispatch with parsed flags.
+	root := &cobra.Command{Use: "ankra"}
+	forwarder := deprecateAndForward(root, "old", "new", "v0.7.0", nil)
+	if commandRequiresAuth(forwarder) {
+		t.Error("forwarder must be auth-free; auth is enforced on the target after flags are parsed")
 	}
 }

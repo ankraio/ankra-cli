@@ -77,7 +77,7 @@ func resolveKubeTokenClusterID(clusterFlag string) (string, error) {
 		if isLikelyClusterID(clusterFlag) {
 			return clusterFlag, nil
 		}
-		return "", withExitCode(exitNotFound, fmt.Errorf("cluster %q not found; pass a cluster name or ID (not the kubeconfig context name)", clusterFlag))
+		return "", fmt.Errorf("cluster %q not found; pass a cluster name or ID (not the kubeconfig context name): %w", clusterFlag, err)
 	}
 	cluster, err := loadSelectedCluster()
 	if err != nil {

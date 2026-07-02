@@ -640,7 +640,7 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.AddOvhNodeGroup(requestContext, clusterID, req, wait)
 		if err != nil {
-			return fmt.Errorf("adding node group: %w", err)
+			return asyncWriteError("adding node group", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
@@ -681,7 +681,7 @@ var ovhNodeGroupScaleCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.ScaleOvhNodeGroup(requestContext, clusterID, groupName, count, wait)
 		if err != nil {
-			return fmt.Errorf("scaling node group: %w", err)
+			return asyncWriteError("scaling node group", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
@@ -719,7 +719,7 @@ var ovhNodeGroupUpgradeCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.UpdateOvhNodeGroupInstanceType(requestContext, clusterID, groupName, instanceType, wait)
 		if err != nil {
-			return fmt.Errorf("upgrading node group: %w", err)
+			return asyncWriteError("upgrading node group", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group instance-type update")); err != nil {
@@ -756,7 +756,7 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.DeleteOvhNodeGroup(requestContext, clusterID, groupName, wait)
 		if err != nil {
-			return fmt.Errorf("deleting node group: %w", err)
+			return asyncWriteError("deleting node group", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {

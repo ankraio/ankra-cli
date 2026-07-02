@@ -194,8 +194,8 @@ var clusterStacksListCmd = &cobra.Command{
 // with a 422.
 //
 // The supported workflow is:
-//   1. Write a cluster YAML containing the new stack
-//   2. Run `ankra cluster apply -f cluster.yaml`
+//  1. Write a cluster YAML containing the new stack
+//  2. Run `ankra cluster apply -f cluster.yaml`
 //
 // or use `ankra cluster clone` followed by `ankra cluster apply`.
 var clusterStacksCreateCmd = &cobra.Command{

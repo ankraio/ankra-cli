@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"strings"
 
@@ -50,8 +49,10 @@ var errCancelled = withExitCode(exitCancelled, errors.New("cancelled"))
 
 // exitCodeFor classifies an error returned by ExecuteC into an exit code.
 // Explicit withExitCode wrapping wins; otherwise auth and not-found API
-// responses and --wait expiry map to their codes, and anything unclassified
-// is a generic failure.
+// responses map to their codes, and anything unclassified is a generic
+// failure. exitWaitTimeout is never inferred here — internal fixed request
+// deadlines also surface as context.DeadlineExceeded, so only call sites
+// that know --wait was set tag it (see asyncWriteError).
 func exitCodeFor(err error) int {
 	if err == nil {
 		return exitOK
@@ -59,6 +60,9 @@ func exitCodeFor(err error) int {
 	var coded *codedError
 	if errors.As(err, &coded) {
 		return coded.code
+	}
+	if errors.Is(err, client.ErrUnauthorized) {
+		return exitAuth
 	}
 	var unexpected *client.UnexpectedResponseError
 	if errors.As(err, &unexpected) {
@@ -69,11 +73,13 @@ func exitCodeFor(err error) int {
 			return exitNotFound
 		}
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return exitWaitTimeout
-	}
-	// Cobra reports unknown subcommands as plain errors with a fixed prefix.
-	if strings.HasPrefix(err.Error(), "unknown command ") {
+	// Cobra reports unknown subcommands, required-flag violations, and
+	// flag-group violations as plain errors; they bypass both FlagErrorFunc
+	// (parse errors only) and Args validators, so match their fixed shapes.
+	message := err.Error()
+	if strings.HasPrefix(message, "unknown command ") ||
+		strings.HasPrefix(message, "required flag(s) ") ||
+		strings.Contains(message, "flags in the group [") {
 		return exitUsage
 	}
 	return exitError

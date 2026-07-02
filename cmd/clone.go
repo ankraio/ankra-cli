@@ -110,7 +110,7 @@ func runClone(cmd *cobra.Command, args []string) error {
 		parsedURL, _ := url.Parse(existingFileOrURL)
 		// Keep the full path up to the cluster file, then remove just the filename
 		parsedURL.Path = strings.TrimSuffix(parsedURL.Path, filepath.Base(parsedURL.Path))
-		existingBaseDir = strings.TrimSuffix(parsedURL.String(), "/")  // Remove trailing slash
+		existingBaseDir = strings.TrimSuffix(parsedURL.String(), "/") // Remove trailing slash
 	} else {
 		// Read existing cluster from local file
 		existingData, err = os.ReadFile(existingFileOrURL)

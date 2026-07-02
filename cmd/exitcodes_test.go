@@ -27,8 +27,11 @@ func TestExitCodeForClassification(t *testing.T) {
 		{"forbidden response", &client.UnexpectedResponseError{StatusCode: 403}, exitAuth},
 		{"not-found response", &client.UnexpectedResponseError{StatusCode: 404}, exitNotFound},
 		{"server error response", &client.UnexpectedResponseError{StatusCode: 500}, exitError},
-		{"wait deadline", fmt.Errorf("waiting: %w", context.DeadlineExceeded), exitWaitTimeout},
+		{"bare deadline stays generic (internal request timeouts are not --wait expiry)", fmt.Errorf("waiting: %w", context.DeadlineExceeded), exitError},
+		{"unauthorized sentinel", fmt.Errorf("listing clusters: %w", client.ErrUnauthorized), exitAuth},
 		{"unknown command", errors.New(`unknown command "clusterz" for "ankra"`), exitUsage},
+		{"required flag", errors.New(`required flag(s) "file" not set`), exitUsage},
+		{"flag group violation", errors.New(`if any flags in the group [file cluster] are set none of the others can be; [cluster file] were all set`), exitUsage},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -76,5 +79,19 @@ func TestWrapArgsValidatorsMarksUsageErrors(t *testing.T) {
 
 	if err := child.Args(child, []string{"one"}); err != nil {
 		t.Errorf("valid args should still pass, got %v", err)
+	}
+}
+
+func TestAsyncWriteErrorTagsWaitExpiryOnly(t *testing.T) {
+	deadline := fmt.Errorf("request failed: %w", context.DeadlineExceeded)
+
+	if got := exitCodeFor(asyncWriteError("applying cluster", true, deadline)); got != exitWaitTimeout {
+		t.Errorf("--wait deadline expiry should exit %d, got %d", exitWaitTimeout, got)
+	}
+	if got := exitCodeFor(asyncWriteError("applying cluster", false, deadline)); got != exitError {
+		t.Errorf("internal deadline without --wait should exit %d, got %d", exitError, got)
+	}
+	if got := exitCodeFor(asyncWriteError("applying cluster", true, errors.New("rejected"))); got != exitError {
+		t.Errorf("non-deadline failure with --wait should exit %d, got %d", exitError, got)
 	}
 }
