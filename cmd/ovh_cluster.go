@@ -1,8 +1,8 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -21,7 +21,7 @@ var ovhCmd = &cobra.Command{
 var ovhCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new OVH cluster",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		credentialID, _ := cmd.Flags().GetString("credential-id")
 		sshKeyCredentialID, _ := cmd.Flags().GetString("ssh-key-credential-id")
@@ -39,8 +39,7 @@ var ovhCreateCmd = &cobra.Command{
 		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
 		externalCloudProvider, includeNetworking, err := resolveCloudProviderNetworking(cmd)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
 		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
@@ -79,18 +78,20 @@ var ovhCreateCmd = &cobra.Command{
 
 		result, err := apiClient.CreateOvhCluster(req)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating OVH cluster: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("creating OVH cluster: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		fmt.Printf("OVH cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
 			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		return nil
 	},
 }
 
@@ -98,17 +99,18 @@ var ovhDeprovisionCmd = &cobra.Command{
 	Use:   "deprovision <cluster_id>",
 	Short: "Deprovision an OVH cluster",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 
 		result, err := apiClient.DeprovisionOvhCluster(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error deprovisioning cluster: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("deprovisioning cluster: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if result.Success {
@@ -133,6 +135,7 @@ var ovhDeprovisionCmd = &cobra.Command{
 				fmt.Printf("    - %s\n", e)
 			}
 		}
+		return nil
 	},
 }
 
@@ -140,22 +143,24 @@ var ovhWorkersCmd = &cobra.Command{
 	Use:   "workers <cluster_id>",
 	Short: "Get current worker count for an OVH cluster",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 
 		result, err := apiClient.GetOvhWorkerCount(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching worker count: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("fetching worker count: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		fmt.Printf("Worker Count: %d\n", result.WorkerCount)
 		fmt.Printf("  Min: %d\n", result.Min)
 		fmt.Printf("  Max: %d\n", result.Max)
+		return nil
 	},
 }
 
@@ -164,22 +169,22 @@ var ovhScaleCmd = &cobra.Command{
 	Short: "Scale workers for an OVH cluster",
 	Long:  "Scale the number of worker nodes up or down for an OVH cluster.",
 	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		workerCount, err := strconv.Atoi(args[1])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid worker count: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("invalid worker count: %w", err)
 		}
 
 		result, err := apiClient.ScaleOvhWorkers(clusterID, workerCount)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error scaling workers: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("scaling workers: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if result.PreviousCount == result.NewCount {
@@ -191,6 +196,7 @@ var ovhScaleCmd = &cobra.Command{
 			fmt.Printf("Scaling %s from %d to %d workers.\n",
 				text.FgYellow.Sprint("down"), result.PreviousCount, result.NewCount)
 		}
+		return nil
 	},
 }
 
@@ -198,17 +204,18 @@ var ovhK8sVersionCmd = &cobra.Command{
 	Use:   "k8s-version <cluster_id>",
 	Short: "Get current Kubernetes version for an OVH cluster",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 
 		result, err := apiClient.GetOvhK8sVersion(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching Kubernetes version: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("fetching Kubernetes version: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		version := "not set (using latest stable)"
@@ -217,6 +224,7 @@ var ovhK8sVersionCmd = &cobra.Command{
 		}
 		fmt.Printf("Kubernetes Version: %s\n", version)
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
+		return nil
 	},
 }
 
@@ -226,18 +234,19 @@ var ovhUpgradeCmd = &cobra.Command{
 	Long:       "Upgrade the Kubernetes (k3s) version on all nodes in an OVH cluster.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
 	Args:       cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		targetVersion := args[1]
 
 		result, err := apiClient.UpgradeOvhK8sVersion(clusterID, targetVersion)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error upgrading Kubernetes version: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("upgrading Kubernetes version: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		prev := "none"
@@ -248,6 +257,7 @@ var ovhUpgradeCmd = &cobra.Command{
 		fmt.Printf("  Previous version: %s\n", prev)
 		fmt.Printf("  New version:      %s\n", text.FgGreen.Sprint(result.NewVersion))
 		fmt.Printf("  Nodes affected:   %d\n", result.NodesAffected)
+		return nil
 	},
 }
 
@@ -255,25 +265,27 @@ var ovhRegionsCmd = &cobra.Command{
 	Use:   "regions",
 	Short: "List OVH regions available to a credential",
 	Long:  "List the OVH Cloud regions the supplied credential's project can deploy in. Only these regions are valid for cluster creation.",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialID, _ := cmd.Flags().GetString("credential-id")
 
 		result, err := apiClient.ListOvhRegions(credentialID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error listing regions: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("listing regions: %w", err)
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		if len(result.Regions) == 0 {
 			fmt.Println("No regions available for this credential.")
-			return
+			return nil
 		}
 		fmt.Printf("Regions available to credential %s:\n", credentialID)
 		for _, region := range result.Regions {
 			fmt.Printf("  %s\n", region)
 		}
+		return nil
 	},
 }
 
@@ -282,17 +294,18 @@ var ovhStopCmd = &cobra.Command{
 	Short: "Stop an OVH cluster",
 	Long:  "Stop an OVH cluster's compute while keeping its configuration so it can be started again later.",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 
 		result, err := apiClient.StopOvhCluster(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error stopping cluster: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("stopping cluster: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if result.Success {
@@ -304,6 +317,7 @@ var ovhStopCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
+		return nil
 	},
 }
 
@@ -312,22 +326,22 @@ var ovhStartCmd = &cobra.Command{
 	Short: "Start a stopped OVH cluster",
 	Long:  "Start (re-provision) a stopped OVH cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		scope, _ := cmd.Flags().GetString("scope")
 		if scope != "all" && scope != "control_plane" {
-			fmt.Fprintf(os.Stderr, "Invalid --scope %q: must be 'all' or 'control_plane'\n", scope)
-			os.Exit(1)
+			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
 		result, err := apiClient.StartOvhCluster(clusterID, scope)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error starting cluster: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("starting cluster: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		fmt.Println(text.FgGreen.Sprint("OVH cluster start initiated."))
@@ -336,6 +350,7 @@ var ovhStartCmd = &cobra.Command{
 			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
 		}
 		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
+		return nil
 	},
 }
 
@@ -344,17 +359,18 @@ var ovhAccessInfoCmd = &cobra.Command{
 	Short: "Show SSH access details for an OVH cluster",
 	Long:  "Show the gateway (bastion) and control plane IPs plus ready-to-use SSH jump and Kubernetes API port-forward commands.",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 
 		result, err := apiClient.GetOvhAccessInfo(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching access info: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("fetching access info: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		gatewayIP := ""
@@ -386,6 +402,7 @@ var ovhAccessInfoCmd = &cobra.Command{
 			fmt.Println("\nPort-forward the Kubernetes API:")
 			fmt.Printf("  ssh -L 6443:%s:6443 -N ubuntu@%s\n", controlPlaneIP, gatewayIP)
 		}
+		return nil
 	},
 }
 
@@ -400,17 +417,18 @@ var ovhSSHKeysGetCmd = &cobra.Command{
 	Use:   "get <cluster_id>",
 	Short: "Show SSH keys attached to an OVH cluster",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 
 		result, err := apiClient.GetOvhClusterSSHKeys(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching SSH keys: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("fetching SSH keys: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if len(result.SSHKeyCredentialIDs) == 0 {
@@ -428,6 +446,7 @@ var ovhSSHKeysGetCmd = &cobra.Command{
 				fmt.Printf("  %-38s  %s\n", key.CredentialID, key.Name)
 			}
 		}
+		return nil
 	},
 }
 
@@ -436,22 +455,22 @@ var ovhSSHKeysSetCmd = &cobra.Command{
 	Short: "Set the SSH keys attached to an OVH cluster",
 	Long:  "Replace the SSH key credentials attached to an OVH cluster. Changes take effect on the next reconciliation.",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		sshKeyCredentialIDs, _ := cmd.Flags().GetStringSlice("ssh-key-credential-ids")
 		if len(sshKeyCredentialIDs) == 0 {
-			fmt.Fprintln(os.Stderr, "At least one --ssh-key-credential-ids value is required")
-			os.Exit(1)
+			return errors.New("at least one --ssh-key-credential-ids value is required")
 		}
 
 		result, err := apiClient.UpdateOvhClusterSSHKeys(clusterID, sshKeyCredentialIDs)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error updating SSH keys: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("updating SSH keys: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		fmt.Println(text.FgGreen.Sprint("SSH keys updated. Changes apply on next reconciliation."))
@@ -459,6 +478,7 @@ var ovhSSHKeysSetCmd = &cobra.Command{
 		for _, id := range result.SSHKeyCredentialIDs {
 			fmt.Printf("  %s\n", id)
 		}
+		return nil
 	},
 }
 
@@ -473,15 +493,14 @@ var ovhNodeGroupLabelsCmd = &cobra.Command{
 	Short: "Set labels on all nodes in a node group",
 	Long:  "Replace the labels on every node in the group. Pass --labels as a comma-separated list of key=value pairs (empty clears all labels).",
 	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
 		labelsFlag, _ := cmd.Flags().GetString("labels")
 
 		labels, err := parseLabelsFlag(labelsFlag)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid --labels: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("invalid --labels: %w", err)
 		}
 
 		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
@@ -489,19 +508,24 @@ var ovhNodeGroupLabelsCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.UpdateOvhNodeGroupLabels(requestContext, clusterID, groupName, labels, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("updating node group labels", err)
+			return fmt.Errorf("updating node group labels: %w", err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group labels update")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group labels update")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group labels update")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' labels updated. %d node(s) affected.\n", result.GroupName, result.Updated)
+		return nil
 	},
 }
 
@@ -510,15 +534,14 @@ var ovhNodeGroupTaintsCmd = &cobra.Command{
 	Short: "Set taints on all nodes in a node group",
 	Long:  "Replace the taints on every node in the group. Pass --taints as a comma-separated list of key=value:Effect (value optional, effect defaults to NoSchedule; empty clears all taints).",
 	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
 		taintsFlag, _ := cmd.Flags().GetString("taints")
 
 		taints, err := parseTaintsFlag(taintsFlag)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid --taints: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("invalid --taints: %w", err)
 		}
 
 		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
@@ -526,19 +549,24 @@ var ovhNodeGroupTaintsCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.UpdateOvhNodeGroupTaints(requestContext, clusterID, groupName, taints, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("updating node group taints", err)
+			return fmt.Errorf("updating node group taints: %w", err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group taints update")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group taints update")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group taints update")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' taints updated. %d node(s) affected.\n", result.GroupName, result.Updated)
+		return nil
 	},
 }
 
@@ -546,24 +574,26 @@ var ovhNodeGroupListCmd = &cobra.Command{
 	Use:   "list <cluster_id>",
 	Short: "List node groups",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		result, err := apiClient.ListOvhNodeGroups(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error listing node groups: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("listing node groups: %w", err)
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		if len(result.NodeGroups) == 0 {
 			fmt.Println("No node groups found.")
-			return
+			return nil
 		}
 		for _, ng := range result.NodeGroups {
 			fmt.Printf("%-20s  type=%-8s  count=%d  labels=%d  taints=%d\n",
 				ng.Name, ng.InstanceType, ng.Count, len(ng.Labels), len(ng.Taints))
 		}
+		return nil
 	},
 }
 
@@ -571,7 +601,7 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 	Use:   "add <cluster_id>",
 	Short: "Add a node group",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		name, _ := cmd.Flags().GetString("name")
 		instanceType, _ := cmd.Flags().GetString("instance-type")
@@ -581,13 +611,11 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 
 		labels, err := parseLabelsFlag(labelsFlag)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid --labels: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("invalid --labels: %w", err)
 		}
 		taints, err := parseTaintsFlag(taintsFlag)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid --taints: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("invalid --taints: %w", err)
 		}
 
 		req := client.AddNodeGroupRequest{
@@ -603,19 +631,24 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.AddOvhNodeGroup(requestContext, clusterID, req, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("adding node group", err)
+			return fmt.Errorf("adding node group: %w", err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group add")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group add")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+		return nil
 	},
 }
 
@@ -623,13 +656,12 @@ var ovhNodeGroupScaleCmd = &cobra.Command{
 	Use:   "scale <cluster_id> <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  cobra.ExactArgs(3),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
 		count, err := strconv.Atoi(args[2])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid count: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("invalid count: %w", err)
 		}
 
 		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
@@ -637,19 +669,24 @@ var ovhNodeGroupScaleCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.ScaleOvhNodeGroup(requestContext, clusterID, groupName, count, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("scaling node group", err)
+			return fmt.Errorf("scaling node group: %w", err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group scale")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group scale")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+		return nil
 	},
 }
 
@@ -657,7 +694,7 @@ var ovhNodeGroupUpgradeCmd = &cobra.Command{
 	Use:   "upgrade <cluster_id> <group_name> <instance_type>",
 	Short: "Upgrade instance type for a node group (cannot be reversed)",
 	Args:  cobra.ExactArgs(3),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
 		instanceType := args[2]
@@ -667,19 +704,24 @@ var ovhNodeGroupUpgradeCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.UpdateOvhNodeGroupInstanceType(requestContext, clusterID, groupName, instanceType, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("upgrading node group", err)
+			return fmt.Errorf("upgrading node group: %w", err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group instance-type update")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group instance-type update")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group instance-type update")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		return nil
 	},
 }
 
@@ -687,7 +729,7 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 	Use:   "delete <cluster_id> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
 
@@ -696,19 +738,24 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.DeleteOvhNodeGroup(requestContext, clusterID, groupName, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("deleting node group", err)
+			return fmt.Errorf("deleting node group: %w", err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group delete")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group delete")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+		return nil
 	},
 }
 
