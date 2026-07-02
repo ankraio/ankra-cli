@@ -3,7 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 
 	"github.com/spf13/cobra"
@@ -41,21 +40,22 @@ func upcloudNodesOps() clusterNodesOps {
 	}
 }
 
-func runNodesList(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID string) {
+func runNodesList(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID string) error {
 	ops := opsFn()
 	result, err := ops.list(clusterID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
-	if renderStructuredOrExit(cmd, result) {
-		return
+	if handled, err := renderStructured(cmd, result); err != nil {
+		return err
+	} else if handled {
+		return nil
 	}
 
 	if len(result.Nodes) == 0 {
 		fmt.Println("No nodes found.")
-		return
+		return nil
 	}
 
 	fmt.Printf("%-36s  %-22s  %-13s  %-14s  %-16s  %-12s  %-15s\n",
@@ -75,18 +75,20 @@ func runNodesList(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID st
 			truncate(stringValue(n.PrivateIP), 15),
 		)
 	}
+	return nil
 }
 
-func runNodesGet(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID, nodeID string) {
+func runNodesGet(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID, nodeID string) error {
 	ops := opsFn()
 	detail, err := ops.get(clusterID, nodeID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
-	if renderStructuredOrExit(cmd, detail) {
-		return
+	if handled, err := renderStructured(cmd, detail); err != nil {
+		return err
+	} else if handled {
+		return nil
 	}
 
 	fmt.Printf("Node: %s\n", detail.Name)
@@ -104,22 +106,29 @@ func runNodesGet(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID, no
 
 	fmt.Println()
 	fmt.Println("Definition:")
-	printJSONBlock(detail.Definition)
+	if err := printJSONBlock(detail.Definition); err != nil {
+		return err
+	}
 
 	if len(detail.Info) > 0 {
 		fmt.Println()
 		fmt.Println("Provider info (latest):")
-		printJSONBlock(detail.Info)
+		if err := printJSONBlock(detail.Info); err != nil {
+			return err
+		}
 	}
 	if len(detail.Data) > 0 {
 		fmt.Println()
 		fmt.Println("Reconciler data (latest):")
-		printJSONBlock(detail.Data)
+		if err := printJSONBlock(detail.Data); err != nil {
+			return err
+		}
 	}
 
 	printEdges("Dependencies", detail.Dependencies)
 	printEdges("Relationships", detail.Relationships)
 	printEdges("Groups", detail.Groups)
+	return nil
 }
 
 func stringValue(p *string) string {
@@ -139,13 +148,13 @@ func truncate(s string, max int) string {
 	return s[:max-1] + "…"
 }
 
-func printJSONBlock(v interface{}) {
+func printJSONBlock(v interface{}) error {
 	encoded, err := json.MarshalIndent(v, "  ", "  ")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error encoding JSON: %v\n", err)
-		return
+		return fmt.Errorf("encoding JSON: %w", err)
 	}
 	fmt.Printf("  %s\n", string(encoded))
+	return nil
 }
 
 func printEdges(title string, edges map[string][]string) {
@@ -182,8 +191,8 @@ included so the saved topology is visible before re-provisioning.`,
 		Use:   "list <cluster_id>",
 		Short: "List all nodes for the cluster",
 		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			runNodesList(cmd, opsFn, args[0])
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runNodesList(cmd, opsFn, args[0])
 		},
 	}
 
@@ -191,8 +200,8 @@ included so the saved topology is visible before re-provisioning.`,
 		Use:   "get <cluster_id> <node_id>",
 		Short: "Show full spec and metadata for a single node",
 		Args:  cobra.ExactArgs(2),
-		Run: func(cmd *cobra.Command, args []string) {
-			runNodesGet(cmd, opsFn, args[0], args[1])
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runNodesGet(cmd, opsFn, args[0], args[1])
 		},
 	}
 

@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 
 	"ankra/internal/client"
@@ -20,23 +19,20 @@ type (
 )
 
 // resolveNodeGroupClusterKind looks up the cluster and confirms it is a
-// cloud-managed kind that supports node groups, exiting with a clear message
+// cloud-managed kind that supports node groups, returning a clear error
 // otherwise.
-func resolveNodeGroupClusterKind(clusterID string) string {
+func resolveNodeGroupClusterKind(clusterID string) (string, error) {
 	cluster, lookupError := apiClient.GetClusterByID(clusterID)
 	if lookupError != nil {
-		fmt.Fprintf(os.Stderr, "Error looking up cluster %q: %v\n", clusterID, lookupError)
-		os.Exit(1)
+		return "", fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
 	}
 	switch cluster.Kind {
 	case "hetzner", "ovh", "upcloud":
-		return cluster.Kind
+		return cluster.Kind, nil
 	default:
-		fmt.Fprintf(os.Stderr,
-			"Cluster %q (kind %q) does not support node groups. Only Hetzner, OVH, and UpCloud clusters can use this command.\n",
+		return "", fmt.Errorf(
+			"cluster %q (kind %q) does not support node groups. Only Hetzner, OVH, and UpCloud clusters can use this command",
 			clusterID, cluster.Kind)
-		os.Exit(1)
-		return ""
 	}
 }
 
@@ -113,26 +109,31 @@ var clusterNodeGroupListCmd = &cobra.Command{
 	Use:   "list <cluster_id>",
 	Short: "List node groups",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
-		kind := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		if kindError != nil {
+			return kindError
+		}
 
 		result, listError := nodeGroupListForKind(kind)(clusterID)
 		if listError != nil {
-			fmt.Fprintf(os.Stderr, "Error listing node groups: %v\n", listError)
-			os.Exit(1)
+			return fmt.Errorf("listing node groups: %w", listError)
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		if len(result.NodeGroups) == 0 {
 			fmt.Println("No node groups found.")
-			return
+			return nil
 		}
 		for _, nodeGroup := range result.NodeGroups {
 			fmt.Printf("%-20s  type=%-8s  count=%d  labels=%d  taints=%d\n",
 				nodeGroup.Name, nodeGroup.InstanceType, nodeGroup.Count, len(nodeGroup.Labels), len(nodeGroup.Taints))
 		}
+		return nil
 	},
 }
 
@@ -140,9 +141,12 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 	Use:   "add <cluster_id>",
 	Short: "Add a node group",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
-		kind := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		if kindError != nil {
+			return kindError
+		}
 		name, _ := cmd.Flags().GetString("name")
 		instanceType, _ := cmd.Flags().GetString("instance-type")
 		count, _ := cmd.Flags().GetInt("count")
@@ -158,19 +162,24 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 
 		result, submitted, addError := nodeGroupAddForKind(kind)(requestContext, clusterID, req, wait)
 		if addError != nil {
-			handleNodeGroupSubmitError("adding node group", addError)
+			return fmt.Errorf("adding node group: %w", addError)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group add")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group add")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+		return nil
 	},
 }
 
@@ -178,34 +187,41 @@ var clusterNodeGroupScaleCmd = &cobra.Command{
 	Use:   "scale <cluster_id> <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  cobra.ExactArgs(3),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
 		count, convertError := strconv.Atoi(args[2])
 		if convertError != nil {
-			fmt.Fprintf(os.Stderr, "Invalid count: %v\n", convertError)
-			os.Exit(1)
+			return fmt.Errorf("invalid count: %w", convertError)
 		}
-		kind := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		if kindError != nil {
+			return kindError
+		}
 
 		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
 		defer cancelRequestContext()
 
 		result, submitted, scaleError := nodeGroupScaleForKind(kind)(requestContext, clusterID, groupName, count, wait)
 		if scaleError != nil {
-			handleNodeGroupSubmitError("scaling node group", scaleError)
+			return fmt.Errorf("scaling node group: %w", scaleError)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group scale")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group scale")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+		return nil
 	},
 }
 
@@ -213,30 +229,38 @@ var clusterNodeGroupUpgradeCmd = &cobra.Command{
 	Use:   "upgrade <cluster_id> <group_name> <instance_type>",
 	Short: "Upgrade instance type for a node group (cannot be reversed)",
 	Args:  cobra.ExactArgs(3),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
 		instanceType := args[2]
-		kind := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		if kindError != nil {
+			return kindError
+		}
 
 		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
 		defer cancelRequestContext()
 
 		result, submitted, upgradeError := nodeGroupUpgradeForKind(kind)(requestContext, clusterID, groupName, instanceType, wait)
 		if upgradeError != nil {
-			handleNodeGroupSubmitError("upgrading node group", upgradeError)
+			return fmt.Errorf("upgrading node group: %w", upgradeError)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group instance-type update")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group instance-type update")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group instance-type update")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		return nil
 	},
 }
 
@@ -244,29 +268,37 @@ var clusterNodeGroupDeleteCmd = &cobra.Command{
 	Use:   "delete <cluster_id> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
-		kind := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		if kindError != nil {
+			return kindError
+		}
 
 		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
 		defer cancelRequestContext()
 
 		result, submitted, deleteError := nodeGroupDeleteForKind(kind)(requestContext, clusterID, groupName, wait)
 		if deleteError != nil {
-			handleNodeGroupSubmitError("deleting node group", deleteError)
+			return fmt.Errorf("deleting node group: %w", deleteError)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group delete")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group delete")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+		return nil
 	},
 }
 
