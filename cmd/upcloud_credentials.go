@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -21,23 +22,24 @@ var upcloudCredCmd = &cobra.Command{
 var upcloudCredListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List UpCloud API credentials",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		creds, err := apiClient.ListUpcloudCredentials()
 		if err != nil {
-			fmt.Printf("Error listing UpCloud credentials: %v\n", err)
-			return
+			return fmt.Errorf("listing UpCloud credentials: %w", err)
 		}
 
 		if creds == nil {
 			creds = []client.UpcloudCredentialListItem{}
 		}
-		if renderStructuredOrExit(cmd, creds) {
-			return
+		if handled, err := renderStructured(cmd, creds); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if len(creds) == 0 {
 			fmt.Println("No UpCloud credentials found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -64,13 +66,14 @@ var upcloudCredListCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
 var upcloudCredCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create an UpCloud API credential",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 
 		prompt := promptui.Prompt{
@@ -85,8 +88,7 @@ var upcloudCredCreateCmd = &cobra.Command{
 		}
 		apiTokenValue, err := prompt.Run()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Prompt cancelled.\n")
-			os.Exit(1)
+			return errors.New("prompt cancelled")
 		}
 
 		result, err := apiClient.CreateUpcloudCredential(client.CreateUpcloudCredentialRequest{
@@ -94,19 +96,19 @@ var upcloudCredCreateCmd = &cobra.Command{
 			APIToken: apiTokenValue,
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating UpCloud credential: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("creating UpCloud credential: %w", err)
 		}
 
 		if !result.Success {
-			fmt.Fprintln(os.Stderr, "Failed to create UpCloud credential:")
+			msg := "failed to create UpCloud credential:"
 			for _, e := range result.Errors {
-				fmt.Fprintf(os.Stderr, "  - %s: %s\n", e.Key, e.Message)
+				msg += fmt.Sprintf("\n  - %s: %s", e.Key, e.Message)
 			}
-			os.Exit(1)
+			return errors.New(msg)
 		}
 
 		fmt.Printf("UpCloud credential '%s' created successfully!\n", name)
+		return nil
 	},
 }
 
@@ -119,23 +121,24 @@ var upcloudSSHKeyCmd = &cobra.Command{
 var upcloudSSHKeyListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List SSH key credentials",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		creds, err := apiClient.ListUpcloudSSHKeyCredentials()
 		if err != nil {
-			fmt.Printf("Error listing SSH key credentials: %v\n", err)
-			return
+			return fmt.Errorf("listing SSH key credentials: %w", err)
 		}
 
 		if creds == nil {
 			creds = []client.UpcloudCredentialListItem{}
 		}
-		if renderStructuredOrExit(cmd, creds) {
-			return
+		if handled, err := renderStructured(cmd, creds); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if len(creds) == 0 {
 			fmt.Println("No SSH key credentials found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -162,6 +165,7 @@ var upcloudSSHKeyListCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
@@ -173,14 +177,13 @@ var upcloudSSHKeyCreateCmd = &cobra.Command{
 Examples:
   ankra credentials upcloud ssh-key create --name my-key --generate
   ankra credentials upcloud ssh-key create --name my-key --public-key "ssh-ed25519 AAAA..."`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		publicKey, _ := cmd.Flags().GetString("public-key")
 		generate, _ := cmd.Flags().GetBool("generate")
 
 		if !generate && publicKey == "" {
-			fmt.Fprintln(os.Stderr, "Either --public-key or --generate must be provided.")
-			os.Exit(1)
+			return errors.New("either --public-key or --generate must be provided")
 		}
 
 		req := client.CreateSSHKeyCredentialRequest{
@@ -193,16 +196,15 @@ Examples:
 
 		result, err := apiClient.CreateUpcloudSSHKeyCredential(req)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating SSH key credential: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("creating SSH key credential: %w", err)
 		}
 
 		if !result.Success {
-			fmt.Fprintln(os.Stderr, "Failed to create SSH key credential:")
+			msg := "failed to create SSH key credential:"
 			for _, e := range result.Errors {
-				fmt.Fprintf(os.Stderr, "  - %s: %s\n", e.Key, e.Message)
+				msg += fmt.Sprintf("\n  - %s: %s", e.Key, e.Message)
 			}
-			os.Exit(1)
+			return errors.New(msg)
 		}
 
 		fmt.Printf("SSH key credential '%s' created successfully!\n", name)
@@ -211,6 +213,7 @@ Examples:
 			fmt.Println("\nGenerated private key (save this, it will not be shown again):")
 			fmt.Println(*result.PrivateKey)
 		}
+		return nil
 	},
 }
 
