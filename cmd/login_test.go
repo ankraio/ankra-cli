@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -51,6 +52,32 @@ func TestEnsureSecureConfigFileTightensLoosePerms(t *testing.T) {
 	}
 	if mode := info.Mode().Perm(); mode != 0o600 {
 		t.Errorf("expected mode tightened to 0600, got %#o", mode)
+	}
+}
+
+func TestEnsureTokenIssuedAcceptsToken(t *testing.T) {
+	if err := ensureTokenIssued(tokenExchangeResponse{Token: "ankra-token"}); err != nil {
+		t.Fatalf("ensureTokenIssued() error = %v", err)
+	}
+}
+
+func TestEnsureTokenIssuedRejectsEmptyToken(t *testing.T) {
+	err := ensureTokenIssued(tokenExchangeResponse{})
+	if err == nil {
+		t.Fatal("expected error for empty token")
+	}
+	if !strings.Contains(err.Error(), "did not issue an API token") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+func TestEnsureTokenIssuedRejectsIncompleteMFA(t *testing.T) {
+	err := ensureTokenIssued(tokenExchangeResponse{MfaRequired: true})
+	if err == nil {
+		t.Fatal("expected error for incomplete two-factor authentication")
+	}
+	if !strings.Contains(err.Error(), "two-factor authentication was not completed") {
+		t.Fatalf("unexpected error message: %v", err)
 	}
 }
 

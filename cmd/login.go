@@ -342,6 +342,15 @@ func runLogin() error {
 		tokenData = completed
 	}
 
+	// Never persist an empty token. Older CLIs silently wrote "" to
+	// ~/.ankra.yaml when the platform withheld the token (e.g. for a
+	// two-factor step-up this CLI version did not understand) and then
+	// reported "Login successful!", leaving every subsequent command
+	// failing with "not logged in".
+	if err := ensureTokenIssued(tokenData); err != nil {
+		return err
+	}
+
 	configPath := getConfigPath()
 
 	configDir := filepath.Dir(configPath)
@@ -396,6 +405,16 @@ func runLogin() error {
 	fmt.Println()
 
 	return nil
+}
+
+func ensureTokenIssued(tokenData tokenExchangeResponse) error {
+	if strings.TrimSpace(tokenData.Token) != "" {
+		return nil
+	}
+	if tokenData.MfaRequired {
+		return fmt.Errorf("two-factor authentication was not completed; run `ankra login` again")
+	}
+	return fmt.Errorf("the platform did not issue an API token; saved credentials were left unchanged. Upgrade the CLI (`ankra upgrade`) and run `ankra login` again")
 }
 
 func completeMFAChallenge(loginURL string, pending tokenExchangeResponse) (tokenExchangeResponse, error) {

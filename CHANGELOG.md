@@ -40,6 +40,20 @@
   removal=<version>` stderr marker for scripts and agents. No forwarders are
   wired yet; this lands the mechanism for upcoming command-tree work.
 
+## v0.4.1-rc0 — 2026-07-03
+
+### Fixed
+
+- **`ankra login` no longer reports "Login successful!" while saving an empty
+  token.** When the platform withholds the API token — for example when the
+  account requires a two-factor step-up that the running CLI version does not
+  understand — older CLIs silently wrote an empty `token:` to `~/.ankra.yaml`
+  and declared success, leaving every subsequent command failing with
+  "not logged in". The login flow now refuses to persist credentials without a
+  token and explains what happened: an incomplete two-factor step-up says to
+  run `ankra login` again, and a token-less exchange points at
+  `ankra upgrade`. Existing saved credentials are left untouched either way.
+
 ## v0.4.0 - 2026-06-30
 
 The stable v0.4.0 release consolidates the v0.4.0 release candidates into a
