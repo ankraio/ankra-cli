@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v0.4.2 — 2026-07-03
+
+### Fixed
+
+- **`ankra login` now declares two-factor capability to the platform.** The
+  token exchange sends `supports_mfa: true`, letting the platform tell CLIs
+  that can complete the Ankra-native two-factor step-up apart from legacy
+  releases (v0.3.0 and older) that silently saved an empty token and reported
+  "Login successful!". Once the platform enforces the check, outdated CLIs
+  receive an explicit upgrade error instead of a broken login.
+
 ### Changed
 
 - **Differentiated exit codes** - the CLI now exits with a stable, documented

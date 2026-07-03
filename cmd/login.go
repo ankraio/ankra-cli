@@ -35,6 +35,22 @@ type tokenExchangeRequest struct {
 	State        string `json:"state"`
 	CodeVerifier string `json:"code_verifier"`
 	MachineID    string `json:"machine_id,omitempty"`
+	SupportsMfa  bool   `json:"supports_mfa"`
+}
+
+// buildTokenExchangeRequest declares supports_mfa so the platform can tell
+// this CLI apart from pre-v0.4.0 releases that cannot complete the native
+// two-factor step-up. Those legacy clients used to receive a 200 with an
+// empty token and silently persisted it; the platform now refuses them with
+// an explicit upgrade error instead.
+func buildTokenExchangeRequest(code, state, codeVerifier, machineID string) tokenExchangeRequest {
+	return tokenExchangeRequest{
+		Code:         code,
+		State:        state,
+		CodeVerifier: codeVerifier,
+		MachineID:    machineID,
+		SupportsMfa:  true,
+	}
 }
 
 type tokenExchangeResponse struct {
@@ -296,12 +312,7 @@ func runLogin() error {
 	// Generate or retrieve machine ID
 	machineID := getOrCreateMachineID()
 
-	tokenReq := tokenExchangeRequest{
-		Code:         authCode,
-		State:        initResp.State,
-		CodeVerifier: codeVerifier,
-		MachineID:    machineID,
-	}
+	tokenReq := buildTokenExchangeRequest(authCode, initResp.State, codeVerifier, machineID)
 
 	tokenReqBody, _ := json.Marshal(tokenReq)
 	tokenURL := fmt.Sprintf("%s/api/v1/cli/login/token", strings.TrimRight(loginURL, "/"))

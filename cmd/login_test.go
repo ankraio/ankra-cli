@@ -55,6 +55,25 @@ func TestEnsureSecureConfigFileTightensLoosePerms(t *testing.T) {
 	}
 }
 
+func TestBuildTokenExchangeRequestDeclaresMFASupport(t *testing.T) {
+	request := buildTokenExchangeRequest("auth-code", "state-1", "verifier-1", "machine-1")
+
+	if !request.SupportsMfa {
+		t.Fatal("expected supports_mfa to be declared")
+	}
+	if request.Code != "auth-code" || request.State != "state-1" || request.CodeVerifier != "verifier-1" || request.MachineID != "machine-1" {
+		t.Fatalf("unexpected request fields: %+v", request)
+	}
+
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"supports_mfa":true`) {
+		t.Fatalf("supports_mfa missing from wire payload: %s", encoded)
+	}
+}
+
 func TestEnsureTokenIssuedAcceptsToken(t *testing.T) {
 	if err := ensureTokenIssued(tokenExchangeResponse{Token: "ankra-token"}); err != nil {
 		t.Fatalf("ensureTokenIssued() error = %v", err)
