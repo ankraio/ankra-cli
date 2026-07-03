@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"os"
@@ -13,6 +14,15 @@ import (
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
+
+// isPromptCancellation reports whether a promptui error signals that the user
+// aborted the picker (Ctrl+C, ESC/abort, or EOF) rather than a real failure.
+// Callers map it to errCancelled so an aborted picker exits with exitCancelled.
+func isPromptCancellation(err error) bool {
+	return errors.Is(err, promptui.ErrInterrupt) ||
+		errors.Is(err, promptui.ErrAbort) ||
+		errors.Is(err, promptui.ErrEOF)
+}
 
 type SelectableItem struct {
 	IsLoadMore bool
@@ -74,6 +84,9 @@ func selectClusterInteractive() error {
 		fetchedClusters = updatedFetchedClusters
 		i, _, err := prompt.Run()
 		if err != nil {
+			if isPromptCancellation(err) {
+				return errCancelled
+			}
 			return fmt.Errorf("prompt failed: %w", err)
 		}
 		selectedItem := selectableItems[i]

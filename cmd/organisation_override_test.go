@@ -114,6 +114,44 @@ func TestResolveOrgFlagToIDBySlug(t *testing.T) {
 	}
 }
 
+// TestOrgSwitchUnknownExitsNotFound asserts that switching to an organisation
+// the user does not belong to exits with exitNotFound (3) rather than the
+// generic failure code.
+func TestOrgSwitchUnknownExitsNotFound(t *testing.T) {
+	orgs := []client.OrganisationSummary{
+		{OrganisationID: "11111111-1111-1111-1111-111111111111", Name: strPtrCmd("Acme Corp"), UserCurrent: true},
+	}
+	setMockClient(t, &orgListMock{organisations: orgs})
+
+	_, err := executeCommand("org", "switch", "does-not-exist")
+	if err == nil {
+		t.Fatal("expected an error switching to an unknown organisation")
+	}
+	if got := exitCodeFor(err); got != exitNotFound {
+		t.Errorf("unknown org switch should exit %d, got %d", exitNotFound, got)
+	}
+}
+
+// TestOrgSwitchAmbiguousExitsUsage asserts that an organisation reference that
+// matches more than one membership (a shared name/slug) is a fixable usage
+// error (exit 2), not a not-found (3) - the org exists, the user just needs to
+// disambiguate with an ID.
+func TestOrgSwitchAmbiguousExitsUsage(t *testing.T) {
+	orgs := []client.OrganisationSummary{
+		{OrganisationID: "11111111-1111-1111-1111-111111111111", Name: strPtrCmd("Shared Name")},
+		{OrganisationID: "22222222-2222-2222-2222-222222222222", Name: strPtrCmd("Shared Name")},
+	}
+	setMockClient(t, &orgListMock{organisations: orgs})
+
+	_, err := executeCommand("org", "switch", "Shared Name")
+	if err == nil {
+		t.Fatal("expected an error switching to an ambiguous organisation name")
+	}
+	if got := exitCodeFor(err); got != exitUsage {
+		t.Errorf("ambiguous org switch should exit %d, got %d", exitUsage, got)
+	}
+}
+
 func strPtrCmd(s string) *string {
 	return &s
 }

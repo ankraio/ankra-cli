@@ -51,6 +51,35 @@ func TestStructuredFormatFromFlags(t *testing.T) {
 	}
 }
 
+// TestStructuredFormatFromFlagsRejectsWithUsageExit asserts an invalid -o value
+// is tagged exitUsage so scripts see exit 2 rather than the generic 1.
+func TestStructuredFormatFromFlagsRejectsWithUsageExit(t *testing.T) {
+	command := newStructuredOutputTestCommand()
+	if err := command.Flags().Set("output", "xml"); err != nil {
+		t.Fatalf("set --output: %v", err)
+	}
+	_, err := structuredFormatFromFlags(command)
+	if err == nil {
+		t.Fatal("expected an error for an invalid -o value")
+	}
+	if got := exitCodeFor(err); got != exitUsage {
+		t.Errorf("invalid -o value should classify as exitUsage (%d), got %d", exitUsage, got)
+	}
+}
+
+// TestInvalidOutputOnStructuredCommandExitsUsage drives a real structured
+// command (org list) end-to-end with a bad -o value and asserts exit 2.
+func TestInvalidOutputOnStructuredCommandExitsUsage(t *testing.T) {
+	setMockClient(t, &orgListMock{organisations: nil})
+	_, err := executeCommand("org", "list", "-o", "xml")
+	if err == nil {
+		t.Fatal("expected an error for an invalid -o value")
+	}
+	if got := exitCodeFor(err); got != exitUsage {
+		t.Errorf("invalid -o on a structured command should exit %d, got %d", exitUsage, got)
+	}
+}
+
 func TestStructuredFormatFromFlagsWithoutFlags(t *testing.T) {
 	command := &cobra.Command{Use: "bare", Run: func(*cobra.Command, []string) {}}
 	got, err := structuredFormatFromFlags(command)
