@@ -40,7 +40,7 @@
   removal=<version>` stderr marker for scripts and agents. No forwarders are
   wired yet; this lands the mechanism for upcoming command-tree work.
 
-## v0.4.1-rc0 — 2026-07-03
+## v0.4.1 — 2026-07-03
 
 ### Fixed
 
