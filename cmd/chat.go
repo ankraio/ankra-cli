@@ -204,7 +204,7 @@ func runInteractiveChat(clusterID *string) error {
 var chatHistoryCmd = &cobra.Command{
 	Use:   "history",
 	Short: "List chat conversation history",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterName, _ := cmd.Flags().GetString("cluster")
 		limit, _ := cmd.Flags().GetInt("limit")
 
@@ -212,25 +212,25 @@ var chatHistoryCmd = &cobra.Command{
 		if clusterName != "" {
 			cluster, err := apiClient.GetCluster(clusterName)
 			if err != nil {
-				fmt.Printf("Error finding cluster %s: %v\n", clusterName, err)
-				return
+				return fmt.Errorf("finding cluster %s: %w", clusterName, err)
 			}
 			clusterID = &cluster.ID
 		}
 
 		resp, err := apiClient.ListChatHistory(clusterID, limit, 0)
 		if err != nil {
-			fmt.Printf("Error listing chat history: %v\n", err)
-			return
+			return fmt.Errorf("listing chat history: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, resp) {
-			return
+		if handled, err := renderStructured(cmd, resp); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if len(resp.Conversations) == 0 {
 			fmt.Println("No chat conversations found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -260,6 +260,7 @@ var chatHistoryCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
@@ -267,17 +268,18 @@ var chatShowCmd = &cobra.Command{
 	Use:   "show <conversation_id>",
 	Short: "Show a specific chat conversation",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		conversationID := args[0]
 
 		conv, err := apiClient.GetChatConversation(conversationID)
 		if err != nil {
-			fmt.Printf("Error getting conversation: %v\n", err)
-			return
+			return fmt.Errorf("getting conversation: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, conv) {
-			return
+		if handled, err := renderStructured(cmd, conv); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if conv.Title != nil {
@@ -295,6 +297,7 @@ var chatShowCmd = &cobra.Command{
 				fmt.Printf("%s: %s\n\n", text.FgGreen.Sprint("Assistant"), msg.Content)
 			}
 		}
+		return nil
 	},
 }
 
@@ -302,41 +305,41 @@ var chatDeleteCmd = &cobra.Command{
 	Use:   "delete <conversation_id>",
 	Short: "Delete a chat conversation",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		conversationID := args[0]
 
 		result, err := apiClient.DeleteChatConversation(conversationID)
 		if err != nil {
-			fmt.Printf("Error deleting conversation: %v\n", err)
-			return
+			return fmt.Errorf("deleting conversation: %w", err)
 		}
 
 		if result.Success {
 			fmt.Println("Conversation deleted successfully!")
 		}
+		return nil
 	},
 }
 
 var chatHealthCmd = &cobra.Command{
 	Use:   "health",
 	Short: "Get AI-analyzed cluster health",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 
 		includeAI, _ := cmd.Flags().GetBool("ai")
 
 		health, err := apiClient.GetClusterHealth(cluster.ID, includeAI)
 		if err != nil {
-			fmt.Printf("Error getting cluster health: %v\n", err)
-			return
+			return fmt.Errorf("getting cluster health: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, health) {
-			return
+		if handled, err := renderStructured(cmd, health); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		fmt.Printf("Cluster Health for '%s'\n", cluster.Name)
@@ -368,6 +371,7 @@ var chatHealthCmd = &cobra.Command{
 				fmt.Printf("    - %s\n", rec)
 			}
 		}
+		return nil
 	},
 }
 

@@ -32,31 +32,29 @@ Examples:
   ankra cluster select
   ankra cluster select my-cluster`,
 	Args: cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 1 {
-			selectClusterByName(args[0])
-			return
+			return selectClusterByName(args[0])
 		}
-		selectClusterInteractive()
+		return selectClusterInteractive()
 	},
 }
 
-func selectClusterByName(name string) {
+func selectClusterByName(name string) error {
 	cluster, err := apiClient.GetCluster(name)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error finding cluster '%s': %v\n", name, err)
-		os.Exit(1)
+		return fmt.Errorf("finding cluster '%s': %w", name, err)
 	}
 
 	if err := saveSelectedCluster(cluster); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to save selection: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to save selection: %w", err)
 	}
 
 	fmt.Printf("Selected cluster: %s is now active.\n", cluster.Name)
+	return nil
 }
 
-func selectClusterInteractive() {
+func selectClusterInteractive() error {
 	page := 1
 	fetchedClusters := []client.ClusterListItem{}
 	startCursorPosition := 0
@@ -64,50 +62,45 @@ func selectClusterInteractive() {
 	for {
 		response, err := apiClient.ListClusters(page, 25)
 		if err != nil {
-			fmt.Printf("Error listing clusters: %v\n", err)
-			break
+			return fmt.Errorf("listing clusters: %w", err)
 		}
 
 		if len(response.Result) == 0 {
 			fmt.Println("No clusters available.")
-			break
+			return nil
 		}
 
 		prompt, selectableItems, updatedFetchedClusters := createListPromptUi(response, fetchedClusters, startCursorPosition)
 		fetchedClusters = updatedFetchedClusters
 		i, _, err := prompt.Run()
 		if err != nil {
-			fmt.Printf("Prompt failed: %v\n", err)
-			break
+			return fmt.Errorf("prompt failed: %w", err)
 		}
 		selectedItem := selectableItems[i]
 		if selectedItem.IsLoadMore {
 			startCursorPosition = i
 			page++
 			continue
-		} else {
-			selectedCluster := *selectedItem.Cluster
-			if err := saveSelectedCluster(selectedCluster); err != nil {
-				fmt.Printf("Failed to save selection: %v\n", err)
-				return
-			} else {
-				fmt.Printf("Selected cluster: %s is now active.\n", selectedCluster.Name)
-				fmt.Println("Run 'ankra cluster --help' to see available commands for this cluster")
-				return
-			}
 		}
+		selectedCluster := *selectedItem.Cluster
+		if err := saveSelectedCluster(selectedCluster); err != nil {
+			return fmt.Errorf("failed to save selection: %w", err)
+		}
+		fmt.Printf("Selected cluster: %s is now active.\n", selectedCluster.Name)
+		fmt.Println("Run 'ankra cluster --help' to see available commands for this cluster")
+		return nil
 	}
 }
 
 var clusterClearCmd = &cobra.Command{
 	Use:   "clear",
 	Short: "Clear the active cluster selection",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := clearSelectedCluster(); err != nil {
-			fmt.Printf("Error clearing selection: %v\n", err)
-			return
+			return fmt.Errorf("clearing selection: %w", err)
 		}
 		fmt.Println("Active cluster selection cleared.")
+		return nil
 	},
 }
 

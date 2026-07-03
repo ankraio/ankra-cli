@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -21,7 +20,7 @@ var upcloudCmd = &cobra.Command{
 var upcloudCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new UpCloud cluster",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		credentialID, _ := cmd.Flags().GetString("credential-id")
 		sshKeyCredentialID, _ := cmd.Flags().GetString("ssh-key-credential-id")
@@ -36,8 +35,7 @@ var upcloudCreateCmd = &cobra.Command{
 		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
 		externalCloudProvider, includeNetworking, err := resolveCloudProviderNetworking(cmd)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
 		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
@@ -73,18 +71,20 @@ var upcloudCreateCmd = &cobra.Command{
 
 		result, err := apiClient.CreateUpcloudCluster(req)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating UpCloud cluster: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("creating UpCloud cluster: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		fmt.Printf("UpCloud cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
 			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		return nil
 	},
 }
 
@@ -92,17 +92,18 @@ var upcloudDeprovisionCmd = &cobra.Command{
 	Use:   "deprovision <cluster_id>",
 	Short: "Deprovision an UpCloud cluster",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 
 		result, err := apiClient.DeprovisionUpcloudCluster(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error deprovisioning cluster: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("deprovisioning cluster: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if result.Success {
@@ -124,6 +125,7 @@ var upcloudDeprovisionCmd = &cobra.Command{
 				fmt.Printf("    - %s\n", e)
 			}
 		}
+		return nil
 	},
 }
 
@@ -132,13 +134,12 @@ var upcloudStopCmd = &cobra.Command{
 	Short: "Stop an UpCloud cluster",
 	Long:  "Stop an UpCloud cluster's compute while keeping its configuration so it can be started again later.",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 
 		result, err := apiClient.StopUpcloudCluster(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error stopping cluster: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("stopping cluster: %w", err)
 		}
 
 		if result.Success {
@@ -150,6 +151,7 @@ var upcloudStopCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
+		return nil
 	},
 }
 
@@ -158,18 +160,16 @@ var upcloudStartCmd = &cobra.Command{
 	Short: "Start a stopped UpCloud cluster",
 	Long:  "Start (re-provision) a stopped UpCloud cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		scope, _ := cmd.Flags().GetString("scope")
 		if scope != "all" && scope != "control_plane" {
-			fmt.Fprintf(os.Stderr, "Invalid --scope %q: must be 'all' or 'control_plane'\n", scope)
-			os.Exit(1)
+			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
 		result, err := apiClient.StartUpcloudCluster(clusterID, scope)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error starting cluster: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("starting cluster: %w", err)
 		}
 
 		fmt.Println(text.FgGreen.Sprint("UpCloud cluster start initiated."))
@@ -178,6 +178,7 @@ var upcloudStartCmd = &cobra.Command{
 			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
 		}
 		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
+		return nil
 	},
 }
 
@@ -185,22 +186,24 @@ var upcloudWorkersCmd = &cobra.Command{
 	Use:   "workers <cluster_id>",
 	Short: "Get current worker count for an UpCloud cluster",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 
 		result, err := apiClient.GetUpcloudWorkerCount(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching worker count: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("fetching worker count: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		fmt.Printf("Worker Count: %d\n", result.WorkerCount)
 		fmt.Printf("  Min: %d\n", result.Min)
 		fmt.Printf("  Max: %d\n", result.Max)
+		return nil
 	},
 }
 
@@ -209,22 +212,22 @@ var upcloudScaleCmd = &cobra.Command{
 	Short: "Scale workers for an UpCloud cluster",
 	Long:  "Scale the number of worker nodes up or down for an UpCloud cluster.",
 	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		workerCount, err := strconv.Atoi(args[1])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid worker count: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("invalid worker count: %w", err)
 		}
 
 		result, err := apiClient.ScaleUpcloudWorkers(clusterID, workerCount)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error scaling workers: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("scaling workers: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if result.PreviousCount == result.NewCount {
@@ -236,6 +239,7 @@ var upcloudScaleCmd = &cobra.Command{
 			fmt.Printf("Scaling %s from %d to %d workers.\n",
 				text.FgYellow.Sprint("down"), result.PreviousCount, result.NewCount)
 		}
+		return nil
 	},
 }
 
@@ -243,17 +247,18 @@ var upcloudK8sVersionCmd = &cobra.Command{
 	Use:   "k8s-version <cluster_id>",
 	Short: "Get current Kubernetes version for an UpCloud cluster",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 
 		result, err := apiClient.GetUpcloudK8sVersion(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching Kubernetes version: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("fetching Kubernetes version: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		version := "not set (using latest stable)"
@@ -262,6 +267,7 @@ var upcloudK8sVersionCmd = &cobra.Command{
 		}
 		fmt.Printf("Kubernetes Version: %s\n", version)
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
+		return nil
 	},
 }
 
@@ -271,18 +277,19 @@ var upcloudUpgradeCmd = &cobra.Command{
 	Long:       "Upgrade the Kubernetes (k3s) version on all nodes in an UpCloud cluster.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
 	Args:       cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		targetVersion := args[1]
 
 		result, err := apiClient.UpgradeUpcloudK8sVersion(clusterID, targetVersion)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error upgrading Kubernetes version: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("upgrading Kubernetes version: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		prev := "none"
@@ -293,6 +300,7 @@ var upcloudUpgradeCmd = &cobra.Command{
 		fmt.Printf("  Previous version: %s\n", prev)
 		fmt.Printf("  New version:      %s\n", text.FgGreen.Sprint(result.NewVersion))
 		fmt.Printf("  Nodes affected:   %d\n", result.NodesAffected)
+		return nil
 	},
 }
 
@@ -306,24 +314,26 @@ var upcloudNodeGroupListCmd = &cobra.Command{
 	Use:   "list <cluster_id>",
 	Short: "List node groups",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		result, err := apiClient.ListUpcloudNodeGroups(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error listing node groups: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("listing node groups: %w", err)
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		if len(result.NodeGroups) == 0 {
 			fmt.Println("No node groups found.")
-			return
+			return nil
 		}
 		for _, ng := range result.NodeGroups {
 			fmt.Printf("%-20s  type=%-12s  count=%d  labels=%d  taints=%d\n",
 				ng.Name, ng.InstanceType, ng.Count, len(ng.Labels), len(ng.Taints))
 		}
+		return nil
 	},
 }
 
@@ -331,7 +341,7 @@ var upcloudNodeGroupAddCmd = &cobra.Command{
 	Use:   "add <cluster_id>",
 	Short: "Add a node group",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		name, _ := cmd.Flags().GetString("name")
 		instanceType, _ := cmd.Flags().GetString("instance-type")
@@ -343,24 +353,32 @@ var upcloudNodeGroupAddCmd = &cobra.Command{
 			Count:        count,
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.AddUpcloudNodeGroup(requestContext, clusterID, req, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("adding node group", err)
+			return asyncWriteError("adding node group", wait, err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group add")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group add")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+		return nil
 	},
 }
 
@@ -368,33 +386,40 @@ var upcloudNodeGroupScaleCmd = &cobra.Command{
 	Use:   "scale <cluster_id> <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  cobra.ExactArgs(3),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
 		count, err := strconv.Atoi(args[2])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid count: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("invalid count: %w", err)
 		}
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.ScaleUpcloudNodeGroup(requestContext, clusterID, groupName, count, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("scaling node group", err)
+			return asyncWriteError("scaling node group", wait, err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group scale")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group scale")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+		return nil
 	},
 }
 
@@ -402,29 +427,37 @@ var upcloudNodeGroupUpgradeCmd = &cobra.Command{
 	Use:   "upgrade <cluster_id> <group_name> <plan>",
 	Short: "Upgrade server plan for a node group",
 	Args:  cobra.ExactArgs(3),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
 		plan := args[2]
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.UpdateUpcloudNodeGroupInstanceType(requestContext, clusterID, groupName, plan, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("upgrading node group", err)
+			return asyncWriteError("upgrading node group", wait, err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group plan update")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group plan update")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group plan update")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' plan upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		return nil
 	},
 }
 
@@ -432,28 +465,36 @@ var upcloudNodeGroupDeleteCmd = &cobra.Command{
 	Use:   "delete <cluster_id> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
 
-		requestContext, cancelRequestContext, wait := nodeGroupAsyncContext(cmd)
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
 		defer cancelRequestContext()
 
 		result, submitted, err := apiClient.DeleteUpcloudNodeGroup(requestContext, clusterID, groupName, wait)
 		if err != nil {
-			handleNodeGroupSubmitError("deleting node group", err)
+			return asyncWriteError("deleting node group", wait, err)
 		}
 		if submitted {
-			if renderStructuredOrExit(cmd, newAsyncSubmittedResult("Node group delete")) {
-				return
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 			printAsyncWriteSubmitted("Node group delete")
-			return
+			return nil
 		}
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+		return nil
 	},
 }
 

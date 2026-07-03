@@ -62,11 +62,11 @@ This command will:
 3. You can then use all ankra CLI commands
 
 Your credentials will be saved to ~/.ankra.yaml`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := runLogin(); err != nil {
-			fmt.Fprintf(os.Stderr, "Login failed: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("login failed: %w", err)
 		}
+		return nil
 	},
 }
 
@@ -74,14 +74,14 @@ var logoutCmd = &cobra.Command{
 	Use:   "logout",
 	Short: "Remove saved credentials",
 	Long:  `Remove saved credentials from ~/.ankra.yaml`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		configPath := getConfigPath()
 
 		// Read existing config
 		viper.SetConfigFile(configPath)
 		if err := viper.ReadInConfig(); err != nil {
 			fmt.Println("No credentials found.")
-			return
+			return nil
 		}
 
 		// Remove token and base-url (reset to default)
@@ -92,12 +92,12 @@ var logoutCmd = &cobra.Command{
 		viper.Set("machine_id", "")
 
 		if err := viper.WriteConfig(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error clearing credentials: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("clearing credentials: %w", err)
 		}
 
 		fmt.Println("Logged out successfully.")
 		fmt.Println("Your credentials have been removed from", configPath)
+		return nil
 	},
 }
 

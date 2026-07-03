@@ -36,11 +36,10 @@ var openclawSkillCmd = &cobra.Command{
 agent, addons, and AI Agents. The default output path is
 $HOME/.openclaw/skills/ankra-<cluster>.md but can be overridden via
 --output.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 		out, _ := cmd.Flags().GetString("output")
 		if out == "" {
@@ -48,16 +47,15 @@ $HOME/.openclaw/skills/ankra-<cluster>.md but can be overridden via
 			out = filepath.Join(home, ".openclaw", "skills", fmt.Sprintf("ankra-%s.md", sanitiseSkillName(cluster.Name)))
 		}
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
-			fmt.Printf("Error creating output directory: %v\n", err)
-			return
+			return fmt.Errorf("creating output directory: %w", err)
 		}
 		body := buildSkillMarkdown(cluster.Name, cluster.ID, baseURL)
 		if err := os.WriteFile(out, []byte(body), 0o644); err != nil {
-			fmt.Printf("Error writing skill file: %v\n", err)
-			return
+			return fmt.Errorf("writing skill file: %w", err)
 		}
 		fmt.Printf("Wrote OpenClaw skill for cluster '%s' to %s\n", cluster.Name, out)
 		fmt.Println("Reload OpenClaw or restart your editor to pick it up.")
+		return nil
 	},
 }
 
@@ -65,7 +63,7 @@ var openclawHandoffCmd = &cobra.Command{
 	Use:   "handoff <conversation-id>",
 	Short: "Hand off an OpenClaw conversation to the Ankra portal",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		convID := args[0]
 		cluster, _ := resolveActiveCluster(cmd)
 		clusterPart := ""
@@ -74,6 +72,7 @@ var openclawHandoffCmd = &cobra.Command{
 		}
 		url := fmt.Sprintf("%s/organisation/ai-agents?openclaw=%s%s", strings.TrimRight(baseURL, "/"), convID, clusterPart)
 		fmt.Printf("Open this URL in your browser to continue in the Ankra AI Agents UI:\n  %s\n", url)
+		return nil
 	},
 }
 
@@ -109,7 +108,7 @@ below with full audit, approval flow, and sandboxed execution.
 - Anything that mutates the cluster (create/update/delete) should be
   proposed via the Ankra plan-mode flow rather than executed locally.
 - Anything that needs cluster credentials should run as an Ankra
-  ` + "`run_sandbox_job`" + ` so it inherits the per-agent NetworkPolicy and
+  `+"`run_sandbox_job`"+` so it inherits the per-agent NetworkPolicy and
   hardened distroless runner.
 - For scheduled / recurring work, register an Ankra AI Agent rather
   than wiring a local cron.
@@ -124,9 +123,9 @@ This opens the AI Agents tab with the conversation pre-loaded.
 
 ## Useful endpoints (token auth)
 
-- ` + "`POST %s/api/v1/agents/{id}/run`" + ` -- trigger a manual run
-- ` + "`GET  %s/api/v1/agents/{id}/runs`" + ` -- list runs
-- ` + "`GET  %s/api/v1/runs/{run_id}/stream`" + ` -- SSE event stream
+- `+"`POST %s/api/v1/agents/{id}/run`"+` -- trigger a manual run
+- `+"`GET  %s/api/v1/agents/{id}/runs`"+` -- list runs
+- `+"`GET  %s/api/v1/runs/{run_id}/stream`"+` -- SSE event stream
 
 ## Cluster metadata
 

@@ -1,8 +1,8 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
-	"os"
 
 	"ankra/internal/client"
 
@@ -17,23 +17,20 @@ type (
 )
 
 // resolveSSHKeysClusterKind looks up the cluster and confirms it is a
-// cloud-managed kind that supports cluster SSH key management, exiting with a
-// clear message otherwise.
-func resolveSSHKeysClusterKind(clusterID string) string {
+// cloud-managed kind that supports cluster SSH key management, returning a
+// clear error otherwise.
+func resolveSSHKeysClusterKind(clusterID string) (string, error) {
 	cluster, lookupError := apiClient.GetClusterByID(clusterID)
 	if lookupError != nil {
-		fmt.Fprintf(os.Stderr, "Error looking up cluster %q: %v\n", clusterID, lookupError)
-		os.Exit(1)
+		return "", fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
 	}
 	switch cluster.Kind {
 	case "hetzner", "ovh", "upcloud":
-		return cluster.Kind
+		return cluster.Kind, nil
 	default:
-		fmt.Fprintf(os.Stderr,
-			"Cluster %q (kind %q) does not support SSH key management. Only Hetzner, OVH, and UpCloud clusters can use this command.\n",
+		return "", fmt.Errorf(
+			"cluster %q (kind %q) does not support SSH key management; only Hetzner, OVH, and UpCloud clusters can use this command",
 			clusterID, cluster.Kind)
-		os.Exit(1)
-		return ""
 	}
 }
 
@@ -88,18 +85,22 @@ var clusterSSHKeysGetCmd = &cobra.Command{
 	Use:   "get <cluster_id>",
 	Short: "Show SSH keys attached to a cluster",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
-		kind := resolveSSHKeysClusterKind(clusterID)
+		kind, err := resolveSSHKeysClusterKind(clusterID)
+		if err != nil {
+			return err
+		}
 
 		result, getError := sshKeysGetForKind(kind)(clusterID)
 		if getError != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching SSH keys: %v\n", getError)
-			os.Exit(1)
+			return fmt.Errorf("fetching SSH keys: %w", getError)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if len(result.SSHKeyCredentialIDs) == 0 {
@@ -117,6 +118,7 @@ var clusterSSHKeysGetCmd = &cobra.Command{
 				fmt.Printf("  %-38s  %s\n", key.CredentialID, key.Name)
 			}
 		}
+		return nil
 	},
 }
 
@@ -128,7 +130,7 @@ the next reconciliation and are applied to running nodes.
 
 Pass --clear to remove all user SSH keys (the Ankra-managed key always remains).`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		clear, _ := cmd.Flags().GetBool("clear")
 		sshKeyCredentialIDs, _ := cmd.Flags().GetStringSlice("ssh-key-credential-ids")
@@ -136,31 +138,35 @@ Pass --clear to remove all user SSH keys (the Ankra-managed key always remains).
 		if clear {
 			sshKeyCredentialIDs = []string{}
 		} else if len(sshKeyCredentialIDs) == 0 {
-			fmt.Fprintln(os.Stderr, "Provide at least one --ssh-key-credential-ids value, or pass --clear to remove all user SSH keys")
-			os.Exit(1)
+			return errors.New("provide at least one --ssh-key-credential-ids value, or pass --clear to remove all user SSH keys")
 		}
 
-		kind := resolveSSHKeysClusterKind(clusterID)
+		kind, err := resolveSSHKeysClusterKind(clusterID)
+		if err != nil {
+			return err
+		}
 
 		result, setError := sshKeysSetForKind(kind)(clusterID, sshKeyCredentialIDs)
 		if setError != nil {
-			fmt.Fprintf(os.Stderr, "Error updating SSH keys: %v\n", setError)
-			os.Exit(1)
+			return fmt.Errorf("updating SSH keys: %w", setError)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		fmt.Println(text.FgGreen.Sprint("SSH keys updated. Changes apply on next reconciliation."))
 		if len(result.SSHKeyCredentialIDs) == 0 {
 			fmt.Println("Attached SSH keys: none (Ankra-managed key retained)")
-			return
+			return nil
 		}
 		fmt.Println("Attached SSH key credential IDs:")
 		for _, id := range result.SSHKeyCredentialIDs {
 			fmt.Printf("  %s\n", id)
 		}
+		return nil
 	},
 }
 
@@ -172,24 +178,29 @@ stale provider-side SSH key reference (for example when the key was deleted and
 re-created in the provider console) that blocks new node creation, and to
 re-apply the authorised keys to running nodes.`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
-		kind := resolveSSHKeysClusterKind(clusterID)
+		kind, err := resolveSSHKeysClusterKind(clusterID)
+		if err != nil {
+			return err
+		}
 
 		result, resyncError := sshKeysResyncForKind(kind)(clusterID)
 		if resyncError != nil {
-			fmt.Fprintf(os.Stderr, "Error re-syncing SSH keys: %v\n", resyncError)
-			os.Exit(1)
+			return fmt.Errorf("re-syncing SSH keys: %w", resyncError)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		fmt.Println(text.FgGreen.Sprint("SSH key re-sync triggered. Keys are repaired and re-applied on the next reconciliation."))
 		for _, id := range result.ResourceIDs {
 			fmt.Printf("  %s\n", id)
 		}
+		return nil
 	},
 }
 

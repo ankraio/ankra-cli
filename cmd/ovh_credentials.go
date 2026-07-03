@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -20,23 +21,24 @@ var ovhCredCmd = &cobra.Command{
 var ovhCredListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List OVH API credentials",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		creds, err := apiClient.ListOvhCredentials()
 		if err != nil {
-			fmt.Printf("Error listing OVH credentials: %v\n", err)
-			return
+			return fmt.Errorf("listing OVH credentials: %w", err)
 		}
 
 		if creds == nil {
 			creds = []client.OvhCredentialListItem{}
 		}
-		if renderStructuredOrExit(cmd, creds) {
-			return
+		if handled, err := renderStructured(cmd, creds); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if len(creds) == 0 {
 			fmt.Println("No OVH credentials found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -63,6 +65,7 @@ var ovhCredListCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
@@ -76,7 +79,7 @@ GET, POST, PUT, DELETE rights on /cloud/project/* and /cloud/project.
 
 Examples:
   ankra credentials ovh create --name my-ovh-cred --project-id <project-id>`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		projectID, _ := cmd.Flags().GetString("project-id")
 
@@ -91,8 +94,7 @@ Examples:
 		}
 		applicationKey, err := appKeyPrompt.Run()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Prompt cancelled.\n")
-			os.Exit(1)
+			return errors.New("prompt cancelled")
 		}
 
 		appSecretPrompt := promptui.Prompt{
@@ -107,8 +109,7 @@ Examples:
 		}
 		applicationSecret, err := appSecretPrompt.Run()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Prompt cancelled.\n")
-			os.Exit(1)
+			return errors.New("prompt cancelled")
 		}
 
 		consumerKeyPrompt := promptui.Prompt{
@@ -123,8 +124,7 @@ Examples:
 		}
 		consumerKey, err := consumerKeyPrompt.Run()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Prompt cancelled.\n")
-			os.Exit(1)
+			return errors.New("prompt cancelled")
 		}
 
 		result, err := apiClient.CreateOvhCredential(client.CreateOvhCredentialRequest{
@@ -135,42 +135,43 @@ Examples:
 			ProjectID:         projectID,
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating OVH credential: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("creating OVH credential: %w", err)
 		}
 
 		if !result.Success {
-			fmt.Fprintln(os.Stderr, "Failed to create OVH credential:")
+			msg := "failed to create OVH credential:"
 			for _, e := range result.Errors {
-				fmt.Fprintf(os.Stderr, "  - %s: %s\n", e.Key, e.Message)
+				msg += fmt.Sprintf("\n  - %s: %s", e.Key, e.Message)
 			}
-			os.Exit(1)
+			return errors.New(msg)
 		}
 
 		fmt.Printf("OVH credential '%s' created successfully!\n", name)
+		return nil
 	},
 }
 
 var ovhSSHKeyListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List SSH key credentials",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		creds, err := apiClient.ListOvhSSHKeyCredentials()
 		if err != nil {
-			fmt.Printf("Error listing SSH key credentials: %v\n", err)
-			return
+			return fmt.Errorf("listing SSH key credentials: %w", err)
 		}
 
 		if creds == nil {
 			creds = []client.OvhCredentialListItem{}
 		}
-		if renderStructuredOrExit(cmd, creds) {
-			return
+		if handled, err := renderStructured(cmd, creds); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if len(creds) == 0 {
 			fmt.Println("No SSH key credentials found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -197,6 +198,7 @@ var ovhSSHKeyListCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
@@ -208,14 +210,13 @@ var ovhSSHKeyCreateCmd = &cobra.Command{
 Examples:
   ankra credentials ovh ssh-key create --name my-key --generate
   ankra credentials ovh ssh-key create --name my-key --public-key "ssh-ed25519 AAAA..."`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		publicKey, _ := cmd.Flags().GetString("public-key")
 		generate, _ := cmd.Flags().GetBool("generate")
 
 		if !generate && publicKey == "" {
-			fmt.Fprintln(os.Stderr, "Either --public-key or --generate must be provided.")
-			os.Exit(1)
+			return errors.New("either --public-key or --generate must be provided")
 		}
 
 		req := client.CreateSSHKeyCredentialRequest{
@@ -228,16 +229,15 @@ Examples:
 
 		result, err := apiClient.CreateOvhSSHKeyCredential(req)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating SSH key credential: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("creating SSH key credential: %w", err)
 		}
 
 		if !result.Success {
-			fmt.Fprintln(os.Stderr, "Failed to create SSH key credential:")
+			msg := "failed to create SSH key credential:"
 			for _, e := range result.Errors {
-				fmt.Fprintf(os.Stderr, "  - %s: %s\n", e.Key, e.Message)
+				msg += fmt.Sprintf("\n  - %s: %s", e.Key, e.Message)
 			}
-			os.Exit(1)
+			return errors.New(msg)
 		}
 
 		fmt.Printf("SSH key credential '%s' created successfully!\n", name)
@@ -246,6 +246,7 @@ Examples:
 			fmt.Println("\nGenerated private key (save this, it will not be shown again):")
 			fmt.Println(*result.PrivateKey)
 		}
+		return nil
 	},
 }
 

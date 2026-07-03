@@ -2,8 +2,8 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -16,26 +16,39 @@ func registerAsyncWriteFlags(command *cobra.Command) {
 	command.Flags().Duration("timeout", defaultAsyncWriteTimeout, "Maximum time to wait when --wait is set")
 }
 
-func asyncWriteWaitFlag(command *cobra.Command) bool {
+func asyncWriteWaitFlag(command *cobra.Command) (bool, error) {
 	wait, err := command.Flags().GetBool("wait")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading --wait: %s\n", err)
-		os.Exit(1)
+		return false, fmt.Errorf("reading --wait: %w", err)
 	}
-	return wait
+	return wait, nil
 }
 
-func asyncWriteRequestContext(command *cobra.Command) (context.Context, context.CancelFunc) {
-	wait := asyncWriteWaitFlag(command)
+func asyncWriteRequestContext(command *cobra.Command) (context.Context, context.CancelFunc, error) {
+	wait, err := asyncWriteWaitFlag(command)
+	if err != nil {
+		return nil, nil, err
+	}
 	if !wait {
-		return context.Background(), func() {}
+		return context.Background(), func() {}, nil
 	}
 	timeout, err := command.Flags().GetDuration("timeout")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading --timeout: %s\n", err)
-		os.Exit(1)
+		return nil, nil, fmt.Errorf("reading --timeout: %w", err)
 	}
-	return context.WithTimeout(context.Background(), timeout)
+	requestContext, cancel := context.WithTimeout(context.Background(), timeout)
+	return requestContext, cancel, nil
+}
+
+// asyncWriteError wraps a failed asynchronous write, tagging it with
+// exitWaitTimeout when the --wait deadline expired so scripts can distinguish
+// "gave up waiting" (the write may still complete) from a rejected write.
+func asyncWriteError(operationLabel string, wait bool, err error) error {
+	wrapped := fmt.Errorf("%s: %w", operationLabel, err)
+	if wait && errors.Is(err, context.DeadlineExceeded) {
+		return withExitCode(exitWaitTimeout, wrapped)
+	}
+	return wrapped
 }
 
 func printAsyncWriteSubmitted(operationLabel string) {

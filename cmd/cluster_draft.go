@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -31,40 +32,33 @@ can only be attached to an existing cluster. Stacks that already match the
 cluster's desired state are reported as "no changes" rather than creating an
 empty draft.`,
 	Args: cobra.NoArgs,
-	Run:  runClusterDraft,
+	RunE: runClusterDraft,
 }
 
 func init() {
 	clusterDraftCmd.Flags().StringP("file", "f", "", "Path to the ImportCluster YAML file to stage as drafts")
 	registerStructuredOutputFlags(clusterDraftCmd)
-	if err := clusterDraftCmd.MarkFlagRequired("file"); err != nil {
-		fmt.Fprintf(os.Stderr, "Error marking flag as required: %s\n", err)
-		os.Exit(1)
-	}
+	_ = clusterDraftCmd.MarkFlagRequired("file")
 	clusterCmd.AddCommand(clusterDraftCmd)
 }
 
-func runClusterDraft(cmd *cobra.Command, _ []string) {
+func runClusterDraft(cmd *cobra.Command, _ []string) error {
 	filePath, err := cmd.Flags().GetString("file")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading --file: %s\n", err)
-		os.Exit(1)
+		return fmt.Errorf("reading --file: %w", err)
 	}
 	format, err := structuredFormatFromFlags(cmd)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-		os.Exit(1)
+		return err
 	}
 	structured := format != outputDefault
 
 	importRequest, err := buildImportRequest(filePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid ImportCluster in %q:\n  %s\n", filePath, err)
-		os.Exit(1)
+		return fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
 	}
 	if err := validateResourceGraph(importRequest); err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid ImportCluster in %q:\n  %s\n", filePath, err)
-		os.Exit(1)
+		return fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -72,8 +66,7 @@ func runClusterDraft(cmd *cobra.Command, _ []string) {
 
 	clusterID, err := resolveClusterForDraft(ctx, importRequest)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	var created, unchanged int
@@ -82,7 +75,7 @@ func runClusterDraft(cmd *cobra.Command, _ []string) {
 	for _, stack := range importRequest.Spec.Stacks {
 		result, draftErr := apiClient.CreateStackDraft(ctx, clusterID, stack)
 		if draftErr != nil {
-			fmt.Fprintf(os.Stderr, "- stack %q: %s\n", stack.Name, draftErr)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "- stack %q: %s\n", stack.Name, draftErr)
 			hasErrors = true
 			stackOutputs = append(stackOutputs, stackDraftOutput{StackName: stack.Name, Error: draftErr.Error()})
 			continue
@@ -90,11 +83,11 @@ func runClusterDraft(cmd *cobra.Command, _ []string) {
 		switch {
 		case len(result.Errors) > 0:
 			hasErrors = true
-			fmt.Fprintf(os.Stderr, "- stack %q:\n", stack.Name)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "- stack %q:\n", stack.Name)
 			errorParts := make([]string, 0, len(result.Errors))
 			for _, resourceError := range result.Errors {
 				for _, detail := range resourceError.Errors {
-					fmt.Fprintf(os.Stderr, "    • %s %q: %s - %s\n", resourceError.Kind, resourceError.Name, detail.Key, detail.Message)
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "    • %s %q: %s - %s\n", resourceError.Kind, resourceError.Name, detail.Key, detail.Message)
 					errorParts = append(errorParts, fmt.Sprintf("%s %q: %s - %s", resourceError.Kind, resourceError.Name, detail.Key, detail.Message))
 				}
 			}
@@ -116,18 +109,16 @@ func runClusterDraft(cmd *cobra.Command, _ []string) {
 
 	if structured {
 		if err := encodeStructured(cmd.OutOrStdout(), format, stackOutputs); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-			os.Exit(1)
+			return err
 		}
 		if hasErrors {
-			os.Exit(1)
+			return errors.New("some stacks could not be staged as drafts")
 		}
-		return
+		return nil
 	}
 
 	if hasErrors {
-		fmt.Fprintf(os.Stderr, "\nSome stacks could not be staged as drafts.\n")
-		os.Exit(1)
+		return errors.New("some stacks could not be staged as drafts")
 	}
 
 	fmt.Printf("\nStaged %d draft(s), %d stack(s) already up to date. Nothing was deployed.\n", created, unchanged)
@@ -135,6 +126,7 @@ func runClusterDraft(cmd *cobra.Command, _ []string) {
 		fmt.Printf("Review and deploy the drafts in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
 			strings.TrimRight(baseURL, "/"), clusterID)
 	}
+	return nil
 }
 
 // resolveClusterForDraft returns the cluster ID to attach drafts to. If the

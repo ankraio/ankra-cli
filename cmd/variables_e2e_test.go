@@ -16,19 +16,19 @@ import (
 type varsMock struct {
 	baseMock
 
-	iac              string
-	orgVars          []client.OrganisationVariable
-	clusterVars      []client.ClusterVariable
-	createOrgCalls   []createVarCall
-	updateOrgCalls   []updateVarCall
-	deleteOrgCalls   []string
-	createOrgErr     error
-	updateOrgErr     error
-	deleteOrgErr     error
-	createClusterCalls   []createClusterVarCall
-	updateClusterCalls   []updateClusterVarCall
-	deleteClusterCalls   []deleteClusterVarCall
-	createClusterErr     error
+	iac                string
+	orgVars            []client.OrganisationVariable
+	clusterVars        []client.ClusterVariable
+	createOrgCalls     []createVarCall
+	updateOrgCalls     []updateVarCall
+	deleteOrgCalls     []string
+	createOrgErr       error
+	updateOrgErr       error
+	deleteOrgErr       error
+	createClusterCalls []createClusterVarCall
+	updateClusterCalls []updateClusterVarCall
+	deleteClusterCalls []deleteClusterVarCall
+	createClusterErr   error
 
 	patchCalls []capturedPatch
 	patchErr   error

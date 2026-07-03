@@ -21,23 +21,22 @@ var tokensCmd = &cobra.Command{
 var tokensListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all API tokens",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		tokens, err := apiClient.ListAPITokens()
 		if err != nil {
-			fmt.Printf("Error listing tokens: %v\n", err)
-			return
+			return fmt.Errorf("listing tokens: %w", err)
 		}
 
 		if tokens == nil {
 			tokens = []client.APIToken{}
 		}
-		if renderStructuredOrExit(cmd, tokens) {
-			return
+		if rendered, err := renderStructured(cmd, tokens); rendered || err != nil {
+			return err
 		}
 
 		if len(tokens) == 0 {
 			fmt.Println("No API tokens found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -74,6 +73,7 @@ var tokensListCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
@@ -81,7 +81,7 @@ var tokensCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a new API token",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		expiresAt, _ := cmd.Flags().GetString("expires")
 
@@ -92,12 +92,11 @@ var tokensCreateCmd = &cobra.Command{
 
 		result, err := apiClient.CreateAPIToken(name, expiresAtPtr)
 		if err != nil {
-			fmt.Printf("Error creating token: %v\n", err)
-			return
+			return fmt.Errorf("creating token: %w", err)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if rendered, err := renderStructured(cmd, result); rendered || err != nil {
+			return err
 		}
 
 		fmt.Println("API token created successfully!")
@@ -110,6 +109,7 @@ var tokensCreateCmd = &cobra.Command{
 		fmt.Println()
 		fmt.Println("To use this token, set it as ANKRA_API_TOKEN environment variable:")
 		fmt.Printf("  export ANKRA_API_TOKEN='%s'\n", result.Token)
+		return nil
 	},
 }
 
@@ -117,19 +117,19 @@ var tokensRevokeCmd = &cobra.Command{
 	Use:   "revoke <token_id>",
 	Short: "Revoke an API token (can be deleted after)",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		tokenID := args[0]
 
 		result, err := apiClient.RevokeAPIToken(tokenID)
 		if err != nil {
-			fmt.Printf("Error revoking token: %v\n", err)
-			return
+			return fmt.Errorf("revoking token: %w", err)
 		}
 
 		if result.Success {
 			fmt.Println("Token revoked successfully!")
 			fmt.Println("You can now delete it with: ankra tokens delete", tokenID)
 		}
+		return nil
 	},
 }
 
@@ -138,19 +138,18 @@ var tokensDeleteCmd = &cobra.Command{
 	Short: "Delete a revoked API token",
 	Long:  "Delete an API token. The token must be revoked first.",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		tokenID := args[0]
 
 		result, err := apiClient.DeleteAPIToken(tokenID)
 		if err != nil {
-			fmt.Printf("Error deleting token: %v\n", err)
-			fmt.Println("Note: Tokens must be revoked before they can be deleted.")
-			return
+			return fmt.Errorf("deleting token (tokens must be revoked before they can be deleted): %w", err)
 		}
 
 		if result.Success {
 			fmt.Println("Token deleted successfully!")
 		}
+		return nil
 	},
 }
 

@@ -63,23 +63,23 @@ spec:
 
 type upgradeMock struct {
 	baseMock
-	iac                string
-	addonValues        string
-	manifestB64        string
-	capturedRequests   []capturedPatch
-	patchResult        *client.PatchStackResult
-	patchErr           error
-	getIaCErr          error
-	getAddonValuesErr  error
-	getManifestCfgErr  error
-	disconnectCalls    []disconnectCall
-	disconnectErr      error
+	iac               string
+	addonValues       string
+	manifestB64       string
+	capturedRequests  []capturedPatch
+	patchResult       *client.PatchStackResult
+	patchErr          error
+	getIaCErr         error
+	getAddonValuesErr error
+	getManifestCfgErr error
+	disconnectCalls   []disconnectCall
+	disconnectErr     error
 
-	encryptCalls       []encryptCall
-	encryptResult      string
-	encryptErr         error
-	decryptResult      string
-	decryptErr         error
+	encryptCalls  []encryptCall
+	encryptResult string
+	encryptErr    error
+	decryptResult string
+	decryptErr    error
 }
 
 type encryptCall struct {

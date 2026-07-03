@@ -43,27 +43,28 @@ Examples:
 var clusterAccessListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List access grants for a cluster",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, err := resolveKubeTokenClusterID(accessClusterFlag)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 
 		grants, err := apiClient.ListClusterAccessGrants(context.Background(), clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 
-		if renderStructuredOrExit(cmd, grants.Result) {
-			return
+		if handled, err := renderStructured(cmd, grants.Result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		if len(grants.Result) == 0 {
 			fmt.Println("No access grants found. Add one with: ankra cluster access grant <email> --role view")
-			return
+			return nil
 		}
 		renderGrantsTable(grants.Result)
+		return nil
 	},
 }
 
@@ -77,16 +78,14 @@ The grant is cluster-wide by default; pass --namespace to limit it to one
 namespace. Roles map to the standard Kubernetes ClusterRoles: view, edit,
 admin, cluster-admin.`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		email := args[0]
 		if err := validateAccessRole(accessRoleFlag); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 		clusterID, err := resolveKubeTokenClusterID(accessClusterFlag)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 
 		request := client.CreateClusterAccessGrantRequest{
@@ -102,18 +101,20 @@ admin, cluster-admin.`,
 
 		created, err := apiClient.CreateClusterAccessGrant(context.Background(), clusterID, request)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 
-		if renderStructuredOrExit(cmd, created.Grant) {
-			return
+		if handled, err := renderStructured(cmd, created.Grant); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 		grant := created.Grant
 		fmt.Printf("Granted %s role %q (%s scope) on the cluster.\n", email, grant.Role, grant.Scope)
 		fmt.Printf("  Grant ID: %s\n", grant.ID)
 		fmt.Println("The grant is applied to the cluster by the RBAC reconciler; check status with: ankra cluster access list")
 		fmt.Printf("The member can now run: ankra cluster kubeconfig add --cluster %s --use\n", displayClusterReference())
+		return nil
 	},
 }
 
@@ -125,27 +126,25 @@ var clusterAccessRevokeCmd = &cobra.Command{
 Pass a grant ID (from 'ankra cluster access list') to revoke a single grant,
 or an email address to revoke every grant that member has on the cluster.`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		target := args[0]
 		clusterID, err := resolveKubeTokenClusterID(accessClusterFlag)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 
 		grantIDs, err := resolveGrantIDs(clusterID, target)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 
 		for _, grantID := range grantIDs {
 			if _, err := apiClient.DeleteClusterAccessGrant(context.Background(), clusterID, grantID); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+				return err
 			}
 			fmt.Printf("Revoked grant %s\n", grantID)
 		}
+		return nil
 	},
 }
 
@@ -164,7 +163,7 @@ func resolveGrantIDs(clusterID string, target string) ([]string, error) {
 		}
 	}
 	if len(grantIDs) == 0 {
-		return nil, fmt.Errorf("no access grants found for %q on this cluster", target)
+		return nil, withExitCode(exitNotFound, fmt.Errorf("no access grants found for %q on this cluster", target))
 	}
 	return grantIDs, nil
 }

@@ -17,7 +17,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-
 var clusterAddonsCmd = &cobra.Command{
 	Use:   "addons",
 	Short: "Manage addons for clusters",
@@ -28,29 +27,29 @@ var clusterAddonsListCmd = &cobra.Command{
 	Use:   "list [addon name]",
 	Short: "List addons for the active cluster; or show details for a single addon",
 	Args:  cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 
 		addons, err := apiClient.ListClusterAddons(cluster.ID)
 		if err != nil {
-			fmt.Printf("Error listing addons: %v\n", err)
-			return
+			return fmt.Errorf("listing addons: %w", err)
 		}
 		if len(args) == 0 {
 			if addons == nil {
 				addons = []client.ClusterAddonListItem{}
 			}
-			if renderStructuredOrExit(cmd, addons) {
-				return
+			if handled, err := renderStructured(cmd, addons); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 		}
 		if len(addons) == 0 {
 			fmt.Println("No addons found for the active cluster.")
-			return
+			return nil
 		}
 
 		if len(args) == 1 {
@@ -63,11 +62,12 @@ var clusterAddonsListCmd = &cobra.Command{
 				}
 			}
 			if found == nil {
-				fmt.Printf("Addon %q not found on the active cluster.\n", name)
-				return
+				return withExitCode(exitNotFound, fmt.Errorf("addon %q not found on the active cluster", name))
 			}
-			if renderStructuredOrExit(cmd, found) {
-				return
+			if handled, err := renderStructured(cmd, found); err != nil {
+				return err
+			} else if handled {
+				return nil
 			}
 
 			fmt.Println("Addon Details:")
@@ -86,7 +86,7 @@ var clusterAddonsListCmd = &cobra.Command{
 			}
 			fmt.Printf("  Created:         %s\n", formatTimeAgo(found.CreatedAt.Format(time.RFC3339)))
 			fmt.Printf("  Updated:         %s\n", formatTimeAgo(found.UpdatedAt.Format(time.RFC3339)))
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -129,34 +129,35 @@ var clusterAddonsListCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
 var clusterAddonsAvailableCmd = &cobra.Command{
 	Use:   "available",
 	Short: "List addons available for installation",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 
 		addons, err := apiClient.ListAvailableAddons(cluster.ID)
 		if err != nil {
-			fmt.Printf("Error listing available addons: %v\n", err)
-			return
+			return fmt.Errorf("listing available addons: %w", err)
 		}
 		if addons == nil {
 			addons = []client.AvailableAddon{}
 		}
-		if renderStructuredOrExit(cmd, addons) {
-			return
+		if handled, err := renderStructured(cmd, addons); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		if len(addons) == 0 {
 			fmt.Println("No addons available for installation.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -185,6 +186,7 @@ var clusterAddonsAvailableCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		return nil
 	},
 }
 
@@ -192,22 +194,22 @@ var clusterAddonsSettingsCmd = &cobra.Command{
 	Use:   "settings <addon_name>",
 	Short: "Get settings for an addon",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		addonName := args[0]
 
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 
 		settings, err := apiClient.GetAddonSettings(cluster.ID, addonName)
 		if err != nil {
-			fmt.Printf("Error getting addon settings: %v\n", err)
-			return
+			return fmt.Errorf("getting addon settings: %w", err)
 		}
-		if renderStructuredOrExit(cmd, settings) {
-			return
+		if handled, err := renderStructured(cmd, settings); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		fmt.Printf("Settings for addon '%s':\n\n", settings.AddonName)
@@ -215,10 +217,10 @@ var clusterAddonsSettingsCmd = &cobra.Command{
 		// Pretty print as JSON
 		jsonData, err := json.MarshalIndent(settings.Settings, "", "  ")
 		if err != nil {
-			fmt.Printf("Error formatting settings: %v\n", err)
-			return
+			return fmt.Errorf("formatting settings: %w", err)
 		}
 		fmt.Println(string(jsonData))
+		return nil
 	},
 }
 
@@ -258,20 +260,18 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 	Use:   "uninstall <addon_name>",
 	Short: "Uninstall an addon from the cluster",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		addonName := args[0]
 		deletePermanently, _ := cmd.Flags().GetBool("delete")
 
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 
 		addon, err := apiClient.GetAddonByName(cluster.ID, addonName)
 		if err != nil {
-			fmt.Printf("Error finding addon: %v\n", err)
-			return
+			return fmt.Errorf("finding addon: %w", err)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -279,8 +279,7 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 
 		result, err := apiClient.UninstallAddon(ctx, cluster.ID, addon.ID, deletePermanently)
 		if err != nil {
-			fmt.Printf("Error uninstalling addon: %v\n", err)
-			return
+			return fmt.Errorf("uninstalling addon: %w", err)
 		}
 
 		if result.Success {
@@ -290,6 +289,7 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 				fmt.Printf("Addon '%s' uninstalled successfully!\n", addonName)
 			}
 		}
+		return nil
 	},
 }
 
@@ -308,37 +308,34 @@ Example JSON file:
 Usage:
   ankra cluster addons update my-addon -f settings.json`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		addonName := args[0]
 		filePath, _ := cmd.Flags().GetString("file")
 
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 
 		fileData, err := os.ReadFile(filePath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading file %s: %v\n", filePath, err)
-			os.Exit(1)
+			return fmt.Errorf("reading file %s: %w", filePath, err)
 		}
 
 		var settings client.AddonSettings
 		if err := json.Unmarshal(fileData, &settings); err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing settings JSON: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("parsing settings JSON: %w", err)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		if err := apiClient.UpdateAddonSettings(ctx, cluster.ID, addonName, settings); err != nil {
-			fmt.Fprintf(os.Stderr, "Error updating addon settings: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("updating addon settings: %w", err)
 		}
 
 		fmt.Printf("Settings for addon '%s' updated successfully!\n", addonName)
+		return nil
 	},
 }
 

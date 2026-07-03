@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"ankra/internal/client"
 
@@ -40,28 +39,25 @@ the available target versions with 'ankra cluster k3s-versions'.
 Example:
   ankra cluster upgrade 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 v1.36.1+k3s1`,
 	Args: cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		targetVersion := args[1]
 
 		cluster, err := apiClient.GetClusterByID(clusterID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error looking up cluster %q: %v\n", clusterID, err)
-			os.Exit(1)
+			return fmt.Errorf("looking up cluster %q: %w", clusterID, err)
 		}
 
 		upgrade, supported := upgradeFunctionForKind(cluster.Kind)
 		if !supported {
-			fmt.Fprintf(os.Stderr,
-				"Cluster %q (kind %q) does not support Kubernetes version upgrades. Only Hetzner, OVH, and UpCloud clusters can be upgraded with this command.\n",
+			return fmt.Errorf(
+				"cluster %q (kind %q) does not support Kubernetes version upgrades. Only Hetzner, OVH, and UpCloud clusters can be upgraded with this command",
 				clusterID, cluster.Kind)
-			os.Exit(1)
 		}
 
 		result, err := upgrade(clusterID, targetVersion)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error upgrading Kubernetes version: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("upgrading Kubernetes version: %w", err)
 		}
 
 		previousVersion := "none"
@@ -73,6 +69,7 @@ Example:
 		fmt.Printf("  Previous version: %s\n", previousVersion)
 		fmt.Printf("  New version:      %s\n", text.FgGreen.Sprint(result.NewVersion))
 		fmt.Printf("  Nodes affected:   %d\n", result.NodesAffected)
+		return nil
 	},
 }
 

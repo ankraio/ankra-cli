@@ -203,7 +203,7 @@ func (c *Client) GetClusterAddonValues(ctx context.Context, clusterID, addonName
 		return "", fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		return "", fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
+		return "", ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", newUnexpectedResponseError("get addon configuration failed", resp.StatusCode, truncateForError(body, 500))

@@ -31,7 +31,9 @@ var profileAuthStatusCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("get authentication status: %w", err)
 		}
-		if renderStructuredOrExit(cmd, status) {
+		if handled, err := renderStructured(cmd, status); err != nil {
+			return err
+		} else if handled {
 			return nil
 		}
 		renderMFAStatus(cmd.OutOrStdout(), status)
@@ -53,7 +55,9 @@ var profileAuthTotpStartCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("start authenticator setup: %w", err)
 		}
-		if renderStructuredOrExit(cmd, result) {
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
 			return nil
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Authenticator setup started.")
@@ -79,7 +83,9 @@ var profileAuthTotpConfirmCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("confirm authenticator setup: %w", err)
 		}
-		if renderStructuredOrExit(cmd, result) {
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
 			return nil
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Authenticator app enabled.")
@@ -100,7 +106,9 @@ var profileAuthTotpRemoveCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("remove authenticator: %w", err)
 		}
-		if renderStructuredOrExit(cmd, result) {
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
 			return nil
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Authenticator app removed.")
@@ -127,7 +135,9 @@ var profileAuthRecoveryCodesRegenerateCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("regenerate recovery codes: %w", err)
 		}
-		if renderStructuredOrExit(cmd, result) {
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
 			return nil
 		}
 		renderRecoveryCodes(cmd, result.RecoveryCodes)
@@ -149,7 +159,9 @@ var profileAuthPasskeysListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("list passkeys: %w", err)
 		}
-		if renderStructuredOrExit(cmd, status.Passkeys) {
+		if handled, err := renderStructured(cmd, status.Passkeys); err != nil {
+			return err
+		} else if handled {
 			return nil
 		}
 		renderPasskeys(cmd.OutOrStdout(), status.Passkeys)
@@ -170,7 +182,9 @@ var profileAuthPasskeysRemoveCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("remove passkey: %w", err)
 		}
-		if renderStructuredOrExit(cmd, result) {
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
 			return nil
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Passkey removed.")

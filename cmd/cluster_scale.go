@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 
 	"ankra/internal/client"
@@ -41,36 +40,34 @@ a named node group instead, use 'ankra cluster node-group scale'.
 Example:
   ankra cluster scale 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 3`,
 	Args: cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		workerCount, convertError := strconv.Atoi(args[1])
 		if convertError != nil {
-			fmt.Fprintf(os.Stderr, "Invalid worker count: %v\n", convertError)
-			os.Exit(1)
+			return fmt.Errorf("invalid worker count: %w", convertError)
 		}
 
 		cluster, lookupError := apiClient.GetClusterByID(clusterID)
 		if lookupError != nil {
-			fmt.Fprintf(os.Stderr, "Error looking up cluster %q: %v\n", clusterID, lookupError)
-			os.Exit(1)
+			return fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
 		}
 
 		scale, supported := scaleFunctionForKind(cluster.Kind)
 		if !supported {
-			fmt.Fprintf(os.Stderr,
-				"Cluster %q (kind %q) does not support worker scaling. Only Hetzner, OVH, and UpCloud clusters can be scaled with this command.\n",
+			return fmt.Errorf(
+				"cluster %q (kind %q) does not support worker scaling. Only Hetzner, OVH, and UpCloud clusters can be scaled with this command",
 				clusterID, cluster.Kind)
-			os.Exit(1)
 		}
 
 		result, scaleError := scale(clusterID, workerCount)
 		if scaleError != nil {
-			fmt.Fprintf(os.Stderr, "Error scaling workers: %v\n", scaleError)
-			os.Exit(1)
+			return fmt.Errorf("scaling workers: %w", scaleError)
 		}
 
-		if renderStructuredOrExit(cmd, result) {
-			return
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
 		}
 
 		fmt.Printf("  Provider: %s\n", cluster.Kind)
@@ -83,6 +80,7 @@ Example:
 			fmt.Printf("Scaling %s from %d to %d workers.\n",
 				text.FgYellow.Sprint("down"), result.PreviousCount, result.NewCount)
 		}
+		return nil
 	},
 }
 

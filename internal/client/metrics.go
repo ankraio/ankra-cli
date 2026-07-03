@@ -105,7 +105,7 @@ func (c *Client) postPrometheusQuery(endpoint string, payload []byte) (*Promethe
 		return nil, parseClusterError(body)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
+		return nil, ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(body, 500)))

@@ -13,9 +13,9 @@ import (
 type setKind int
 
 const (
-	setKindCoerce  setKind = iota // --set:        auto-coerce true/false/null/int/float, else string
-	setKindString                 // --set-string: always string
-	setKindFile                   // --set-file:   value is a file path; its contents become the string value
+	setKindCoerce setKind = iota // --set:        auto-coerce true/false/null/int/float, else string
+	setKindString                // --set-string: always string
+	setKindFile                  // --set-file:   value is a file path; its contents become the string value
 )
 
 // pathSegment is one component of a dotted path.

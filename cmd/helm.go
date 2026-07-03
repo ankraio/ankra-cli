@@ -155,8 +155,7 @@ var helmRegistriesDeleteCmd = &cobra.Command{
 				IsConfirm: true,
 			}
 			if _, err := prompt.Run(); err != nil {
-				fmt.Println("Cancelled.")
-				return nil
+				return errCancelled
 			}
 		}
 
@@ -419,8 +418,7 @@ var helmCredentialsDeleteCmd = &cobra.Command{
 				IsConfirm: true,
 			}
 			if _, err := prompt.Run(); err != nil {
-				fmt.Println("Cancelled.")
-				return nil
+				return errCancelled
 			}
 		}
 

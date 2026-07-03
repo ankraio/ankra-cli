@@ -179,7 +179,7 @@ func (c *Client) GetClusterIaC(ctx context.Context, clusterID string) (string, e
 		return "", fmt.Errorf("get IaC failed: status 404, body: %s", truncateForError(body, 500))
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		return "", fmt.Errorf("unauthorized. Run `ankra login` to re-authenticate")
+		return "", ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("get IaC failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500)))

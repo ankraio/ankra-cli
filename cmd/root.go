@@ -70,10 +70,11 @@ func SetVersion(v string) {
 
 func Execute() {
 	rootCmd.Version = version
+	wrapArgsValidators(rootCmd)
 	executedCommand, err := rootCmd.ExecuteC()
 	if err != nil {
 		printSupportHintForUnexpectedError(os.Stderr, executedCommand, err)
-		os.Exit(1)
+		os.Exit(exitCodeFor(err))
 	}
 }
 
@@ -124,6 +125,10 @@ func init() {
 	viper.SetDefault("base-url", defaultBaseURL)
 
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+
+	rootCmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return withExitCode(exitUsage, err)
+	})
 }
 
 // setRequiresAuth attaches the auth requirement annotation to a command.
@@ -387,8 +392,8 @@ func resolveCredentials(cmd *cobra.Command) (resolvedCredentials, error) {
 			rawBaseURL = defaultBaseURL
 		}
 	default:
-		return resolvedCredentials{}, errors.New(
-			"not logged in: run `ankra login`, or provide a token via --token or ANKRA_API_TOKEN")
+		return resolvedCredentials{}, withExitCode(exitAuth, errors.New(
+			"not logged in: run `ankra login`, or provide a token via --token or ANKRA_API_TOKEN"))
 	}
 
 	normalized, err := client.NormalizeBaseURL(rawBaseURL, allowInsecureHTTP)

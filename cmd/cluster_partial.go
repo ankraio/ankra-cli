@@ -564,7 +564,7 @@ func confirmPrompt(in io.Reader, out io.Writer, message string, yes bool) error 
 	if line == "y" || line == "yes" {
 		return nil
 	}
-	return errors.New("cancelled")
+	return errCancelled
 }
 
 // writeDecodedDoc writes a decoded document (addon values or manifest YAML) to
@@ -724,4 +724,3 @@ func resolveClusterForCmd(flagValue string) (id, name string, err error) {
 	}
 	return cluster.ID, cluster.Name, nil
 }
-

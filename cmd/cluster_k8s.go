@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -95,7 +96,7 @@ type kindConfig struct {
 var kindConfigs = []kindConfig{
 	{
 		commandName: "deployments", kind: "Deployment", group: "apps", version: "v1",
-		short: "List deployments in the cluster",
+		short:   "List deployments in the cluster",
 		headers: table.Row{"Name", "Namespace", "Ready", "Up-to-date", "Available", "Age"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			readyCount := getNestedString(obj, "status", "readyReplicas")
@@ -126,7 +127,7 @@ var kindConfigs = []kindConfig{
 	},
 	{
 		commandName: "services", kind: "Service", group: "", version: "v1",
-		short: "List services in the cluster",
+		short:   "List services in the cluster",
 		headers: table.Row{"Name", "Namespace", "Type", "Cluster-IP", "External-IP", "Ports", "Age"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			ports := ""
@@ -163,7 +164,7 @@ var kindConfigs = []kindConfig{
 	},
 	{
 		commandName: "nodes", kind: "Node", group: "", version: "v1", clusterScoped: true,
-		short: "List nodes in the cluster",
+		short:   "List nodes in the cluster",
 		headers: table.Row{"Name", "Status", "Roles", "Version", "Age"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			status := "Unknown"
@@ -211,7 +212,7 @@ var kindConfigs = []kindConfig{
 	},
 	{
 		commandName: "namespaces", kind: "Namespace", group: "", version: "v1", clusterScoped: true,
-		short: "List namespaces in the cluster",
+		short:   "List namespaces in the cluster",
 		headers: table.Row{"Name", "Status", "Age"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			return table.Row{
@@ -223,7 +224,7 @@ var kindConfigs = []kindConfig{
 	},
 	{
 		commandName: "ingresses", kind: "Ingress", group: "networking.k8s.io", version: "v1",
-		short: "List ingresses in the cluster",
+		short:   "List ingresses in the cluster",
 		headers: table.Row{"Name", "Namespace", "Hosts", "Address", "Ports", "Age"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			hosts := ""
@@ -252,7 +253,7 @@ var kindConfigs = []kindConfig{
 	},
 	{
 		commandName: "events", kind: "Event", group: "", version: "v1",
-		short: "List events in the cluster",
+		short:   "List events in the cluster",
 		headers: table.Row{"Last Seen", "Type", "Reason", "Object", "Message"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			lastSeen := getNestedString(obj, "lastTimestamp")
@@ -273,7 +274,7 @@ var kindConfigs = []kindConfig{
 	},
 	{
 		commandName: "configmaps", kind: "ConfigMap", group: "", version: "v1",
-		short: "List configmaps in the cluster",
+		short:   "List configmaps in the cluster",
 		headers: table.Row{"Name", "Namespace", "Data", "Age"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			dataCount := 0
@@ -292,7 +293,7 @@ var kindConfigs = []kindConfig{
 	},
 	{
 		commandName: "secrets", kind: "Secret", group: "", version: "v1",
-		short: "List secrets in the cluster",
+		short:   "List secrets in the cluster",
 		headers: table.Row{"Name", "Namespace", "Type", "Data", "Age"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			dataCount := 0
@@ -312,7 +313,7 @@ var kindConfigs = []kindConfig{
 	},
 	{
 		commandName: "statefulsets", kind: "StatefulSet", group: "apps", version: "v1",
-		short: "List statefulsets in the cluster",
+		short:   "List statefulsets in the cluster",
 		headers: table.Row{"Name", "Namespace", "Ready", "Age"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			readyCount := getNestedString(obj, "status", "readyReplicas")
@@ -334,7 +335,7 @@ var kindConfigs = []kindConfig{
 	},
 	{
 		commandName: "daemonsets", kind: "DaemonSet", group: "apps", version: "v1",
-		short: "List daemonsets in the cluster",
+		short:   "List daemonsets in the cluster",
 		headers: table.Row{"Name", "Namespace", "Desired", "Current", "Ready", "Age"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			return table.Row{
@@ -349,7 +350,7 @@ var kindConfigs = []kindConfig{
 	},
 	{
 		commandName: "k8s-jobs", kind: "Job", group: "batch", version: "v1",
-		short: "List Kubernetes jobs in the cluster",
+		short:   "List Kubernetes jobs in the cluster",
 		headers: table.Row{"Name", "Namespace", "Completions", "Duration", "Age"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			completions := fmt.Sprintf("%s/%s",
@@ -376,7 +377,7 @@ var kindConfigs = []kindConfig{
 	},
 	{
 		commandName: "cronjobs", kind: "CronJob", group: "batch", version: "v1",
-		short: "List cronjobs in the cluster",
+		short:   "List cronjobs in the cluster",
 		headers: table.Row{"Name", "Namespace", "Schedule", "Suspend", "Active", "Last Schedule"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			activeCount := 0
@@ -399,26 +400,25 @@ var kindConfigs = []kindConfig{
 	},
 }
 
-func renderSingleResource(item interface{}, outputFormat string) {
+func renderSingleResource(item interface{}, outputFormat string) error {
 	switch outputFormat {
 	case "json":
 		jsonData, err := json.MarshalIndent(item, "", "  ")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error marshalling to JSON: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("marshalling to JSON: %w", err)
 		}
 		fmt.Println(string(jsonData))
 	default:
 		yamlData, err := yaml.Marshal(item)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error marshalling to YAML: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("marshalling to YAML: %w", err)
 		}
 		fmt.Print(string(yamlData))
 	}
+	return nil
 }
 
-func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, outputFormat string, cfg kindConfig) {
+func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, outputFormat string, cfg kindConfig) error {
 	reqItem := client.ResourceRequestItem{
 		Kind:    cfg.kind,
 		Version: cfg.version,
@@ -440,40 +440,36 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 		ResourceRequests: []client.ResourceRequestItem{reqItem},
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	if len(response.ResourceResponses) == 0 || len(response.ResourceResponses[0].Items) == 0 {
 		fmt.Printf("No %s found.\n", cfg.commandName)
-		return
+		return nil
 	}
 
 	items := response.ResourceResponses[0].Items
 
 	isSingleResourceLookup := nameFilter != "" && len(items) == 1
 	if isSingleResourceLookup {
-		renderSingleResource(items[0], outputFormat)
-		return
+		return renderSingleResource(items[0], outputFormat)
 	}
 
 	if outputFormat == "json" {
 		jsonData, err := json.MarshalIndent(response, "", "  ")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error marshalling to JSON: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("marshalling to JSON: %w", err)
 		}
 		fmt.Println(string(jsonData))
-		return
+		return nil
 	}
 	if outputFormat == "yaml" {
 		yamlData, err := yaml.Marshal(response)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error marshalling to YAML: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("marshalling to YAML: %w", err)
 		}
 		fmt.Print(string(yamlData))
-		return
+		return nil
 	}
 
 	t := table.NewWriter()
@@ -487,19 +483,19 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 		}
 	}
 	t.Render()
+	return nil
 }
 
 func registerKindCommand(cfg kindConfig) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   cfg.commandName + " [name]",
-		Short: cfg.short,
-		Args:  cobra.MaximumNArgs(1),
+		Use:         cfg.commandName + " [name]",
+		Short:       cfg.short,
+		Args:        cobra.MaximumNArgs(1),
 		Annotations: map[string]string{"group": "kubernetes"},
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cluster, err := resolveActiveCluster(cmd)
 			if err != nil {
-				fmt.Println(err)
-				return
+				return err
 			}
 			namespace, _ := cmd.Flags().GetString("namespace")
 			allNamespaces, _ := cmd.Flags().GetBool("all-namespaces")
@@ -518,7 +514,7 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 				namespace = ""
 			}
 
-			fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, cfg)
+			return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, cfg)
 		},
 	}
 
@@ -534,15 +530,14 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 }
 
 var clusterPodsCmd = &cobra.Command{
-	Use:   "pods [name]",
-	Short: "List pods or get a specific pod's manifest",
-	Args:  cobra.MaximumNArgs(1),
+	Use:         "pods [name]",
+	Short:       "List pods or get a specific pod's manifest",
+	Args:        cobra.MaximumNArgs(1),
 	Annotations: map[string]string{"group": "kubernetes"},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 		namespace, _ := cmd.Flags().GetString("namespace")
 		allNamespaces, _ := cmd.Flags().GetBool("all-namespaces")
@@ -560,8 +555,7 @@ var clusterPodsCmd = &cobra.Command{
 				kind:        "Pod",
 				version:     "v1",
 			}
-			fetchAndRenderResources(cluster.ID, namespace, podName, "", outputFormat, podCfg)
-			return
+			return fetchAndRenderResources(cluster.ID, namespace, podName, "", outputFormat, podCfg)
 		}
 
 		if allNamespaces {
@@ -581,8 +575,7 @@ var clusterPodsCmd = &cobra.Command{
 
 			response, err := apiClient.ListPods(cluster.ID, opts)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+				return err
 			}
 
 			allPods = append(allPods, response.Pods...)
@@ -590,7 +583,7 @@ var clusterPodsCmd = &cobra.Command{
 			if outputFormat == "json" && page == 1 && response.TotalPages <= 1 {
 				jsonData, _ := json.MarshalIndent(response, "", "  ")
 				fmt.Println(string(jsonData))
-				return
+				return nil
 			}
 
 			if page >= response.TotalPages {
@@ -602,25 +595,23 @@ var clusterPodsCmd = &cobra.Command{
 		if outputFormat == "json" {
 			jsonData, err := json.MarshalIndent(allPods, "", "  ")
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error marshalling to JSON: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("marshalling to JSON: %w", err)
 			}
 			fmt.Println(string(jsonData))
-			return
+			return nil
 		}
 		if outputFormat == "yaml" {
 			yamlData, err := yaml.Marshal(allPods)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error marshalling to YAML: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("marshalling to YAML: %w", err)
 			}
 			fmt.Print(string(yamlData))
-			return
+			return nil
 		}
 
 		if len(allPods) == 0 {
 			fmt.Println("No pods found.")
-			return
+			return nil
 		}
 
 		t := table.NewWriter()
@@ -655,6 +646,7 @@ var clusterPodsCmd = &cobra.Command{
 		t.Render()
 
 		fmt.Printf("\n%d pods total.\n", len(allPods))
+		return nil
 	},
 }
 
@@ -665,9 +657,9 @@ var clusterLogsCmd = &cobra.Command{
 
 Example:
   ankra cluster logs my-pod -n default -c my-container --tail 100`,
-	Args: cobra.ExactArgs(1),
+	Args:        cobra.ExactArgs(1),
 	Annotations: map[string]string{"group": "kubernetes"},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		podName := args[0]
 		namespace, _ := cmd.Flags().GetString("namespace")
 		container, _ := cmd.Flags().GetString("container")
@@ -675,13 +667,11 @@ Example:
 		sinceSeconds, _ := cmd.Flags().GetInt("since")
 
 		if namespace == "" {
-			fmt.Fprintln(os.Stderr, "Error: --namespace (-n) is required for logs")
-			os.Exit(1)
+			return errors.New("--namespace (-n) is required for logs")
 		}
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 
 		opts := client.PodLogOptions{
@@ -697,11 +687,11 @@ Example:
 
 		if err := apiClient.StreamPodLogs(ctx, cluster.ID, opts, os.Stdout); err != nil {
 			if ctx.Err() != nil {
-				return
+				return nil
 			}
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
+		return nil
 	},
 }
 
@@ -713,14 +703,13 @@ var clusterGenericResourcesCmd = &cobra.Command{
 Example:
   ankra cluster resources PersistentVolumeClaim -n default
   ankra cluster resources NetworkPolicy --all-namespaces`,
-	Args: cobra.ExactArgs(1),
+	Args:        cobra.ExactArgs(1),
 	Annotations: map[string]string{"group": "kubernetes"},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		kind := args[0]
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 		namespace, _ := cmd.Flags().GetString("namespace")
 		allNamespaces, _ := cmd.Flags().GetBool("all-namespaces")
@@ -749,7 +738,7 @@ Example:
 			},
 		}
 
-		fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, genericCfg)
+		return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, genericCfg)
 	},
 }
 
