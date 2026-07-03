@@ -27,10 +27,11 @@ without deploying anything. The local checks run first (the same ones as
 'ankra cluster apply --dry-run'), then each stack in the file is saved as a
 resource draft you can review, edit, and deploy from the Ankra stack builder.
 
-If the cluster does not exist yet it is imported first (live), since drafts
-can only be attached to an existing cluster. Stacks that already match the
-cluster's desired state are reported as "no changes" rather than creating an
-empty draft.`,
+If the cluster does not exist yet it is imported first without its stacks,
+since drafts can only be attached to an existing cluster; every stack in the
+file is then staged as a draft. Stacks that already match the cluster's
+desired state are reported as "no changes" rather than creating an empty
+draft.`,
 	Args: cobra.NoArgs,
 	RunE: runClusterDraft,
 }
@@ -130,8 +131,9 @@ func runClusterDraft(cmd *cobra.Command, _ []string) error {
 }
 
 // resolveClusterForDraft returns the cluster ID to attach drafts to. If the
-// cluster does not exist yet it is imported (live) first, because drafts can
-// only be attached to an existing cluster.
+// cluster does not exist yet it is imported first without any stacks, because
+// drafts can only be attached to an existing cluster and importing the stacks
+// would deploy them.
 func resolveClusterForDraft(ctx context.Context, importRequest client.CreateImportClusterRequest) (string, error) {
 	existing, err := apiClient.GetCluster(importRequest.Name)
 	if err == nil && existing.ID != "" {
@@ -141,8 +143,12 @@ func resolveClusterForDraft(ctx context.Context, importRequest client.CreateImpo
 		return "", fmt.Errorf("looking up cluster %q: %w", importRequest.Name, err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Cluster %q does not exist yet; importing it first...\n", importRequest.Name)
-	importResponse, _, importErr := apiClient.ApplyCluster(ctx, importRequest, true)
+	fmt.Fprintf(os.Stderr, "Cluster %q does not exist yet; importing it first (without stacks, so they can be staged as drafts)...\n", importRequest.Name)
+	// Bootstrap the cluster without stacks: importing the full request would
+	// deploy every stack as live desired state, leaving nothing to draft.
+	bootstrapRequest := importRequest
+	bootstrapRequest.Spec.Stacks = []client.Stack{}
+	importResponse, _, importErr := apiClient.ApplyCluster(ctx, bootstrapRequest, true)
 	if importErr != nil {
 		return "", fmt.Errorf("importing cluster %q: %w", importRequest.Name, importErr)
 	}
