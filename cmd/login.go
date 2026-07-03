@@ -365,12 +365,18 @@ func runLogin() error {
 
 	viper.Set("token", tokenData.Token)
 	viper.Set("base-url", loginURL)
+	viper.Set("machine_id", machineID)
 	if tokenData.TokenID != "" {
 		viper.Set("token_id", tokenData.TokenID)
 	}
 	if tokenData.TokenName != "" {
 		viper.Set("token_name", tokenData.TokenName)
 	}
+
+	// Second belt: if viper has to create the file (SafeWriteConfig path),
+	// have it do so with 0600 rather than its default so the token never
+	// briefly lands in a world-readable file.
+	viper.SetConfigPermissions(0o600)
 
 	if err := viper.WriteConfig(); err != nil {
 		if safeErr := viper.SafeWriteConfig(); safeErr != nil {
@@ -519,6 +525,14 @@ func formatExpiry(expiresAt string) string {
 	return t.Format("January 2, 2006")
 }
 
+// getOrCreateMachineID returns the machine ID for this host. It is read-only:
+// when a machine_id is already saved it is returned as-is, otherwise the ID is
+// derived in memory and returned WITHOUT writing anything to disk. Persisting
+// it is the caller's job (see the save block in runLogin), which only happens
+// after ensureSecureConfigFile has created the config file with 0600
+// permissions. Writing here previously created ~/.ankra.yaml world-readable
+// with the ANKRA_API_TOKEN env value bound into the global viper, leaking the
+// token if login then failed or was cancelled.
 func getOrCreateMachineID() string {
 	configPath := getConfigPath()
 	viper.SetConfigFile(configPath)
@@ -544,9 +558,6 @@ func getOrCreateMachineID() string {
 	rawID := fmt.Sprintf("%s-%s", sanitizeIdentifier(hostname), sanitizeIdentifier(username))
 	hash := sha256.Sum256([]byte(rawID))
 	machineID = hex.EncodeToString(hash[:16])
-
-	viper.Set("machine_id", machineID)
-	_ = viper.WriteConfig()
 
 	return machineID
 }
