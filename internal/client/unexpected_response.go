@@ -36,6 +36,14 @@ func newUnexpectedResponseErrorWithMessage(statusCode int, message string) *Unex
 	}
 }
 
+// NewUnexpectedResponseError builds an *UnexpectedResponseError carrying the
+// given status code and message. It is the exported entry point for callers
+// outside this package (e.g. cmd's PATCH error mapper) that need the CLI's
+// support-hint machinery to fire on an otherwise plain error message.
+func NewUnexpectedResponseError(statusCode int, message string) *UnexpectedResponseError {
+	return newUnexpectedResponseErrorWithMessage(statusCode, message)
+}
+
 // ErrUnauthorized is returned for 401 API responses so callers — and the
 // CLI's exit-code classification — can detect authentication failures with
 // errors.Is instead of matching message text.
