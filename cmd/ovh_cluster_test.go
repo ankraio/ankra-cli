@@ -2,10 +2,14 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"ankra/internal/client"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type ovhStopMock struct {
@@ -189,5 +193,260 @@ func TestOvhNodeGroupAddWithLabelsAndTaints(t *testing.T) {
 	}
 	if !strings.Contains(output, "gpu") {
 		t.Errorf("expected group name in output, got: %s", output)
+	}
+}
+
+// setStdin points the root command's input at the given text for one test and
+// restores it afterwards so confirmation prompts read a deterministic answer.
+func setStdin(t *testing.T, input string) {
+	t.Helper()
+	rootCmd.SetIn(strings.NewReader(input))
+	t.Cleanup(func() { rootCmd.SetIn(nil) })
+}
+
+// resetOvhNodeGroupFlags clears flag state (notably Changed) that cobra retains
+// between Execute calls on the same command instance, so each test observes a
+// fresh invocation.
+func resetOvhNodeGroupFlags(t *testing.T) {
+	t.Helper()
+	for _, command := range []*cobra.Command{
+		ovhDeprovisionCmd, ovhNodeGroupLabelsCmd, ovhNodeGroupTaintsCmd, ovhNodeGroupDeleteCmd,
+	} {
+		command.Flags().VisitAll(func(flag *pflag.Flag) {
+			_ = flag.Value.Set(flag.DefValue)
+			flag.Changed = false
+		})
+	}
+}
+
+type ovhNodeGroupLabelsMock struct {
+	baseMock
+	called    bool
+	gotLabels map[string]string
+}
+
+func (m *ovhNodeGroupLabelsMock) UpdateOvhNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	m.called = true
+	m.gotLabels = labels
+	return &client.UpdateNodeGroupResult{GroupName: groupName, Updated: 1}, false, nil
+}
+
+func TestOvhNodeGroupLabels_BareInvocationIsUsageError(t *testing.T) {
+	resetOvhNodeGroupFlags(t)
+	mock := &ovhNodeGroupLabelsMock{}
+	setMockClient(t, mock)
+
+	_, err := executeCommand("cluster", "ovh", "node-group", "labels", "ovh-123", "gpu")
+	if err == nil {
+		t.Fatal("expected usage error when neither --labels nor --clear is given")
+	}
+	if exitCodeFor(err) != exitUsage {
+		t.Errorf("exit code = %d, want %d (usage)", exitCodeFor(err), exitUsage)
+	}
+	if mock.called {
+		t.Error("API must not be called on a bare labels invocation")
+	}
+}
+
+func TestOvhNodeGroupLabels_ClearAndLabelsTogetherIsUsageError(t *testing.T) {
+	resetOvhNodeGroupFlags(t)
+	mock := &ovhNodeGroupLabelsMock{}
+	setMockClient(t, mock)
+
+	_, err := executeCommand("cluster", "ovh", "node-group", "labels", "ovh-123", "gpu", "--labels", "a=b", "--clear")
+	if err == nil {
+		t.Fatal("expected usage error when both --labels and --clear are given")
+	}
+	if exitCodeFor(err) != exitUsage {
+		t.Errorf("exit code = %d, want %d (usage)", exitCodeFor(err), exitUsage)
+	}
+	if mock.called {
+		t.Error("API must not be called when flags conflict")
+	}
+}
+
+func TestOvhNodeGroupLabels_ClearSendsEmptyMap(t *testing.T) {
+	resetOvhNodeGroupFlags(t)
+	mock := &ovhNodeGroupLabelsMock{}
+	setMockClient(t, mock)
+
+	_, _ = executeCommand("cluster", "ovh", "node-group", "labels", "ovh-123", "gpu", "--clear")
+
+	if !mock.called {
+		t.Fatal("expected API to be called with --clear")
+	}
+	if len(mock.gotLabels) != 0 {
+		t.Errorf("labels = %v, want empty map", mock.gotLabels)
+	}
+}
+
+func TestOvhNodeGroupLabels_SetLabels(t *testing.T) {
+	resetOvhNodeGroupFlags(t)
+	mock := &ovhNodeGroupLabelsMock{}
+	setMockClient(t, mock)
+
+	_, _ = executeCommand("cluster", "ovh", "node-group", "labels", "ovh-123", "gpu", "--labels", "tier=gold")
+
+	if !mock.called {
+		t.Fatal("expected API to be called with --labels")
+	}
+	if mock.gotLabels["tier"] != "gold" {
+		t.Errorf("labels = %v, want tier=gold", mock.gotLabels)
+	}
+}
+
+type ovhNodeGroupTaintsMock struct {
+	baseMock
+	called    bool
+	gotTaints []client.NodeTaint
+}
+
+func (m *ovhNodeGroupTaintsMock) UpdateOvhNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	m.called = true
+	m.gotTaints = taints
+	return &client.UpdateNodeGroupResult{GroupName: groupName, Updated: 1}, false, nil
+}
+
+func TestOvhNodeGroupTaints_BareInvocationIsUsageError(t *testing.T) {
+	resetOvhNodeGroupFlags(t)
+	mock := &ovhNodeGroupTaintsMock{}
+	setMockClient(t, mock)
+
+	_, err := executeCommand("cluster", "ovh", "node-group", "taints", "ovh-123", "gpu")
+	if err == nil {
+		t.Fatal("expected usage error when neither --taints nor --clear is given")
+	}
+	if exitCodeFor(err) != exitUsage {
+		t.Errorf("exit code = %d, want %d (usage)", exitCodeFor(err), exitUsage)
+	}
+	if mock.called {
+		t.Error("API must not be called on a bare taints invocation")
+	}
+}
+
+func TestOvhNodeGroupTaints_ClearAndTaintsTogetherIsUsageError(t *testing.T) {
+	resetOvhNodeGroupFlags(t)
+	mock := &ovhNodeGroupTaintsMock{}
+	setMockClient(t, mock)
+
+	_, err := executeCommand("cluster", "ovh", "node-group", "taints", "ovh-123", "gpu", "--taints", "a=b:NoSchedule", "--clear")
+	if err == nil {
+		t.Fatal("expected usage error when both --taints and --clear are given")
+	}
+	if exitCodeFor(err) != exitUsage {
+		t.Errorf("exit code = %d, want %d (usage)", exitCodeFor(err), exitUsage)
+	}
+	if mock.called {
+		t.Error("API must not be called when flags conflict")
+	}
+}
+
+func TestOvhNodeGroupTaints_ClearSendsEmptySlice(t *testing.T) {
+	resetOvhNodeGroupFlags(t)
+	mock := &ovhNodeGroupTaintsMock{}
+	setMockClient(t, mock)
+
+	_, _ = executeCommand("cluster", "ovh", "node-group", "taints", "ovh-123", "gpu", "--clear")
+
+	if !mock.called {
+		t.Fatal("expected API to be called with --clear")
+	}
+	if len(mock.gotTaints) != 0 {
+		t.Errorf("taints = %v, want empty slice", mock.gotTaints)
+	}
+}
+
+func TestOvhNodeGroupTaints_SetTaints(t *testing.T) {
+	resetOvhNodeGroupFlags(t)
+	mock := &ovhNodeGroupTaintsMock{}
+	setMockClient(t, mock)
+
+	_, _ = executeCommand("cluster", "ovh", "node-group", "taints", "ovh-123", "gpu", "--taints", "dedicated=gpu:NoSchedule")
+
+	if !mock.called {
+		t.Fatal("expected API to be called with --taints")
+	}
+	if len(mock.gotTaints) != 1 || mock.gotTaints[0].Key != "dedicated" {
+		t.Errorf("taints = %v, want one dedicated taint", mock.gotTaints)
+	}
+}
+
+type ovhDeprovisionMock struct {
+	baseMock
+	called bool
+}
+
+func (m *ovhDeprovisionMock) DeprovisionOvhCluster(clusterID string) (*client.DeprovisionOvhClusterResponse, error) {
+	m.called = true
+	return &client.DeprovisionOvhClusterResponse{Success: true, ClusterID: clusterID}, nil
+}
+
+func TestOvhDeprovision_DeclinedPromptCancels(t *testing.T) {
+	resetOvhNodeGroupFlags(t)
+	mock := &ovhDeprovisionMock{}
+	setMockClient(t, mock)
+	setStdin(t, "n\n")
+
+	_, err := executeCommand("cluster", "ovh", "deprovision", "ovh-123")
+	if !errors.Is(err, errCancelled) {
+		t.Fatalf("expected errCancelled, got %v", err)
+	}
+	if mock.called {
+		t.Error("API must not be called when the prompt is declined")
+	}
+}
+
+func TestOvhDeprovision_YesSkipsPrompt(t *testing.T) {
+	resetOvhNodeGroupFlags(t)
+	mock := &ovhDeprovisionMock{}
+	setMockClient(t, mock)
+	setStdin(t, "") // empty input would block/decline if prompted
+
+	_, err := executeCommand("cluster", "ovh", "deprovision", "ovh-123", "--yes")
+	if err != nil {
+		t.Fatalf("expected success with --yes, got %v", err)
+	}
+	if !mock.called {
+		t.Error("API must be called when --yes skips the prompt")
+	}
+}
+
+type ovhNodeGroupDeleteMock struct {
+	baseMock
+	called bool
+}
+
+func (m *ovhNodeGroupDeleteMock) DeleteOvhNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+	m.called = true
+	return &client.DeleteNodeGroupResult{GroupName: groupName, Deleted: 1}, false, nil
+}
+
+func TestOvhNodeGroupDelete_DeclinedPromptCancels(t *testing.T) {
+	resetOvhNodeGroupFlags(t)
+	mock := &ovhNodeGroupDeleteMock{}
+	setMockClient(t, mock)
+	setStdin(t, "n\n")
+
+	_, err := executeCommand("cluster", "ovh", "node-group", "delete", "ovh-123", "gpu")
+	if !errors.Is(err, errCancelled) {
+		t.Fatalf("expected errCancelled, got %v", err)
+	}
+	if mock.called {
+		t.Error("API must not be called when the prompt is declined")
+	}
+}
+
+func TestOvhNodeGroupDelete_YesSkipsPrompt(t *testing.T) {
+	resetOvhNodeGroupFlags(t)
+	mock := &ovhNodeGroupDeleteMock{}
+	setMockClient(t, mock)
+	setStdin(t, "")
+
+	_, err := executeCommand("cluster", "ovh", "node-group", "delete", "ovh-123", "gpu", "--yes")
+	if err != nil {
+		t.Fatalf("expected success with --yes, got %v", err)
+	}
+	if !mock.called {
+		t.Error("API must be called when --yes skips the prompt")
 	}
 }
