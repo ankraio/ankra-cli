@@ -57,7 +57,7 @@ var clusterStacksListCmd = &cobra.Command{
 				}
 			}
 			if found == nil {
-				return fmt.Errorf("stack %q not found on the active cluster", name)
+				return withExitCode(exitNotFound, fmt.Errorf("stack %q not found on the active cluster", name))
 			}
 			if rendered, err := renderStructured(cmd, found); rendered || err != nil {
 				return err
@@ -217,9 +217,18 @@ var clusterStacksDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName := args[0]
+		yes, _ := cmd.Flags().GetBool("yes")
 
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
+			return err
+		}
+
+		if err := confirmPrompt(
+			cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Delete stack %q from cluster %q? This removes every addon and manifest in the stack! [y/N]: ", stackName, cluster.Name),
+			yes,
+		); err != nil {
 			return err
 		}
 
@@ -443,6 +452,8 @@ func resolveClusterID(nameOrID string) (string, error) {
 
 func init() {
 	clusterStacksCreateCmd.Flags().String("description", "", "Description for the stack")
+
+	clusterStacksDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	// Clone command flags
 	clusterStacksCloneCmd.Flags().StringP("to", "t", "", "Target cluster name or ID (required)")

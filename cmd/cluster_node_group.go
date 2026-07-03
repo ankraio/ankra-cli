@@ -280,9 +280,18 @@ var clusterNodeGroupDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
+		yes, _ := cmd.Flags().GetBool("yes")
 		kind, kindError := resolveNodeGroupClusterKind(clusterID)
 		if kindError != nil {
 			return kindError
+		}
+
+		if err := confirmPrompt(
+			cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Delete node group %q from cluster %q? This deletes all its nodes! [y/N]: ", groupName, clusterID),
+			yes,
+		); err != nil {
+			return err
 		}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
@@ -325,6 +334,8 @@ func init() {
 	registerAsyncWriteFlags(clusterNodeGroupScaleCmd)
 	registerAsyncWriteFlags(clusterNodeGroupUpgradeCmd)
 	registerAsyncWriteFlags(clusterNodeGroupDeleteCmd)
+
+	clusterNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	registerStructuredOutputFlags(
 		clusterNodeGroupListCmd,

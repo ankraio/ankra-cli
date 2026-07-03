@@ -120,6 +120,15 @@ var credentialsDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialID := args[0]
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		if err := confirmPrompt(
+			cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Delete credential %q? Clusters using it will fail to reconcile! [y/N]: ", credentialID),
+			yes,
+		); err != nil {
+			return err
+		}
 
 		var orgID string
 		local, err := loadSelectedOrganisation()
@@ -254,6 +263,7 @@ func looksLikeUUID(s string) bool {
 
 func init() {
 	credentialsListCmd.Flags().String("provider", "", "Filter by provider (e.g., github)")
+	credentialsDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	registerStructuredOutputFlags(credentialsListCmd, credentialsGetCmd)
 
