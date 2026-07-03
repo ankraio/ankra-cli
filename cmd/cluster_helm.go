@@ -107,6 +107,13 @@ var clusterHelmUninstallCmd = &cobra.Command{
 			return err
 		}
 
+		yes, _ := cmd.Flags().GetBool("yes")
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Uninstall Helm release %q (namespace %q) from cluster %q? [y/N]: ", releaseName, namespace, cluster.Name),
+			yes); err != nil {
+			return err
+		}
+
 		result, err := apiClient.UninstallHelmRelease(cluster.ID, releaseName, namespace)
 		if err != nil {
 			return err
@@ -126,6 +133,7 @@ func init() {
 	clusterHelmReleasesCmd.Flags().StringP("output", "o", "table", "Output format: table, json")
 
 	clusterHelmUninstallCmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace (required)")
+	clusterHelmUninstallCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	clusterHelmCmd.AddCommand(clusterHelmReleasesCmd)
 	clusterHelmCmd.AddCommand(clusterHelmUninstallCmd)

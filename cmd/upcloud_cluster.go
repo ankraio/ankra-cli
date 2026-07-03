@@ -94,6 +94,13 @@ var upcloudDeprovisionCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Deprovision UpCloud cluster %q? This deletes all its servers, networks and SSH keys! [y/N]: ", clusterID),
+			yes); err != nil {
+			return err
+		}
 
 		result, err := apiClient.DeprovisionUpcloudCluster(clusterID)
 		if err != nil {
@@ -468,6 +475,13 @@ var upcloudNodeGroupDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Delete node group %q from cluster %q? This deletes all its nodes! [y/N]: ", groupName, clusterID),
+			yes); err != nil {
+			return err
+		}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
 		if err != nil {
@@ -523,6 +537,9 @@ func init() {
 	_ = upcloudCreateCmd.MarkFlagRequired("zone")
 
 	upcloudStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
+
+	upcloudDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	upcloudNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	upcloudNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
 	upcloudNodeGroupAddCmd.Flags().String("instance-type", "2xCPU-4GB", "Server plan for nodes")

@@ -307,6 +307,13 @@ var chatDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		conversationID := args[0]
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Delete conversation %q? [y/N]: ", conversationID),
+			yes); err != nil {
+			return err
+		}
 
 		result, err := apiClient.DeleteChatConversation(conversationID)
 		if err != nil {
@@ -380,6 +387,8 @@ func init() {
 
 	chatHistoryCmd.Flags().String("cluster", "", "Filter by cluster")
 	chatHistoryCmd.Flags().Int("limit", 20, "Maximum number of conversations to show")
+
+	chatDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	chatHealthCmd.Flags().Bool("ai", true, "Include AI analysis")
 	chatHealthCmd.Flags().String("cluster", "", "Target cluster name or ID (defaults to the selected cluster)")
