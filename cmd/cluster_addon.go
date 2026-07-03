@@ -263,6 +263,7 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		addonName := args[0]
 		deletePermanently, _ := cmd.Flags().GetBool("delete")
+		yes, _ := cmd.Flags().GetBool("yes")
 
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
@@ -271,7 +272,20 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 
 		addon, err := apiClient.GetAddonByName(cluster.ID, addonName)
 		if err != nil {
+			if errors.Is(err, client.ErrAddonNotFound) {
+				return withExitCode(exitNotFound, fmt.Errorf("finding addon: %w", err))
+			}
 			return fmt.Errorf("finding addon: %w", err)
+		}
+
+		var msg string
+		if deletePermanently {
+			msg = fmt.Sprintf("Uninstall and PERMANENTLY delete addon %q from cluster %q? [y/N]: ", addonName, cluster.Name)
+		} else {
+			msg = fmt.Sprintf("Uninstall addon %q from cluster %q? [y/N]: ", addonName, cluster.Name)
+		}
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(), msg, yes); err != nil {
+			return err
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -604,6 +618,7 @@ func collectSetAssignments(setEntries, setStrings, setFiles []string) ([]SetAssi
 
 func init() {
 	clusterAddonsUninstallCmd.Flags().Bool("delete", false, "Also delete the addon permanently")
+	clusterAddonsUninstallCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	clusterAddonsUpdateCmd.Flags().StringP("file", "f", "", "Path to JSON settings file (required)")
 	_ = clusterAddonsUpdateCmd.MarkFlagRequired("file")
