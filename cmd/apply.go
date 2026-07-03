@@ -500,8 +500,14 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 	if name == "" {
 		return client.Addon{}, errors.New("every addon needs a 'name'")
 	}
-	chart := fmt.Sprint(am["chart_name"])
-	ver := fmt.Sprint(am["chart_version"])
+	chart, err := requiredAddonString(am, name, "chart_name")
+	if err != nil {
+		return client.Addon{}, err
+	}
+	ver, err := requiredAddonString(am, name, "chart_version")
+	if err != nil {
+		return client.Addon{}, err
+	}
 	ns, _ := am["namespace"].(string)
 	parents := parseParentList(am["parents"])
 
@@ -524,6 +530,15 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 
 	var cfg interface{}
 	if conf, ok := am["configuration"].(map[string]interface{}); ok {
+		var encryptedPaths []string
+		if rawPaths, ok := conf["encrypted_paths"].([]interface{}); ok {
+			for _, p := range rawPaths {
+				if s, ok := p.(string); ok {
+					encryptedPaths = append(encryptedPaths, s)
+				}
+			}
+		}
+
 		if pf, ok := conf["from_file"].(string); ok {
 			full, err := resolveSafePath(baseDir, pf)
 			if err != nil {
@@ -537,15 +552,19 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 				return client.Addon{}, fmt.Errorf("the addon configuration file %q is not valid YAML: %w", full, err)
 			}
 			cfg = client.AddonStandaloneConfiguration{
-				ValuesBase64: base64.StdEncoding.EncodeToString(b),
+				ValuesBase64:   base64.StdEncoding.EncodeToString(b),
+				EncryptedPaths: encryptedPaths,
 			}
 		} else if inline, ok := conf["values"].(string); ok && inline != "" {
 			if err := validateYAMLDocuments([]byte(inline)); err != nil {
 				return client.Addon{}, fmt.Errorf("the inline addon 'configuration.values' is not valid YAML: %w", err)
 			}
 			cfg = client.AddonStandaloneConfiguration{
-				ValuesBase64: base64.StdEncoding.EncodeToString([]byte(inline)),
+				ValuesBase64:   base64.StdEncoding.EncodeToString([]byte(inline)),
+				EncryptedPaths: encryptedPaths,
 			}
+		} else if len(encryptedPaths) > 0 {
+			return client.Addon{}, errors.New("addon 'configuration.encrypted_paths' is set but there is nothing to decrypt (set 'from_file' or 'values')")
 		}
 	}
 
@@ -562,6 +581,25 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 		RegistryCredentialName: registryCredentialName,
 		Settings:               settings,
 	}, nil
+}
+
+// requiredAddonString extracts a mandatory string field from an addon map.
+// A missing or empty value is an error; a non-string value (e.g. an unquoted
+// YAML number that parses as a float) is rejected with a hint to quote it,
+// since fmt.Sprint would otherwise mangle it (chart_version: 1.20 -> "1.2").
+func requiredAddonString(am map[string]interface{}, addonName, key string) (string, error) {
+	value, ok := am[key]
+	if !ok || value == nil {
+		return "", fmt.Errorf("addon %q: %s is required", addonName, key)
+	}
+	str, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("addon %q: %s must be a quoted string (got %v - quote it, as YAML reads unquoted numbers like 1.20 as numbers, not \"1.20\")", addonName, key, value)
+	}
+	if str == "" {
+		return "", fmt.Errorf("addon %q: %s is required", addonName, key)
+	}
+	return str, nil
 }
 
 func parseParentList(raw interface{}) []client.Parent {

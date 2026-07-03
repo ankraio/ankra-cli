@@ -350,6 +350,121 @@ func TestBuildAddon(t *testing.T) {
 			t.Errorf("expected error naming the file and YAML problem, got: %v", err)
 		}
 	})
+
+	t.Run("encrypted_paths round-trip from inline values", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "sealed",
+			"chart_name":    "test",
+			"chart_version": "1.0.0",
+			"configuration": map[string]interface{}{
+				"values":          "password: ENC[...]",
+				"encrypted_paths": []interface{}{"password", "apiKey"},
+			},
+		}
+		a, err := buildAddon(am, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		cfg, ok := a.Configuration.(client.AddonStandaloneConfiguration)
+		if !ok {
+			t.Fatalf("configuration type = %T, want AddonStandaloneConfiguration", a.Configuration)
+		}
+		if len(cfg.EncryptedPaths) != 2 || cfg.EncryptedPaths[0] != "password" || cfg.EncryptedPaths[1] != "apiKey" {
+			t.Errorf("encrypted_paths = %v, want [password apiKey]", cfg.EncryptedPaths)
+		}
+	})
+
+	t.Run("encrypted_paths round-trip from from_file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		valuesPath := filepath.Join(tmpDir, "values", "sealed.yaml")
+		if err := os.MkdirAll(filepath.Dir(valuesPath), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(valuesPath, []byte("password: ENC[...]"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		am := map[string]interface{}{
+			"name":          "sealed-file",
+			"chart_name":    "test",
+			"chart_version": "1.0.0",
+			"configuration": map[string]interface{}{
+				"from_file":       "values/sealed.yaml",
+				"encrypted_paths": []interface{}{"password"},
+			},
+		}
+		a, err := buildAddon(am, tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		cfg, ok := a.Configuration.(client.AddonStandaloneConfiguration)
+		if !ok {
+			t.Fatalf("configuration type = %T, want AddonStandaloneConfiguration", a.Configuration)
+		}
+		if len(cfg.EncryptedPaths) != 1 || cfg.EncryptedPaths[0] != "password" {
+			t.Errorf("encrypted_paths = %v, want [password]", cfg.EncryptedPaths)
+		}
+	})
+
+	t.Run("encrypted_paths with nothing to decrypt errors", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "sealed-empty",
+			"chart_name":    "test",
+			"chart_version": "1.0.0",
+			"configuration": map[string]interface{}{
+				"encrypted_paths": []interface{}{"password"},
+			},
+		}
+		_, err := buildAddon(am, "")
+		if err == nil {
+			t.Fatal("expected error for encrypted_paths with no configuration")
+		}
+		if !strings.Contains(err.Error(), "encrypted_paths") {
+			t.Errorf("expected encrypted_paths error, got: %v", err)
+		}
+	})
+
+	t.Run("missing chart_version errors", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":       "no-version",
+			"chart_name": "test",
+		}
+		_, err := buildAddon(am, "")
+		if err == nil {
+			t.Fatal("expected error for missing chart_version")
+		}
+		if !strings.Contains(err.Error(), "chart_version is required") {
+			t.Errorf("expected chart_version-required error, got: %v", err)
+		}
+	})
+
+	t.Run("missing chart_name errors", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "no-chart",
+			"chart_version": "1.0.0",
+		}
+		_, err := buildAddon(am, "")
+		if err == nil {
+			t.Fatal("expected error for missing chart_name")
+		}
+		if !strings.Contains(err.Error(), "chart_name is required") {
+			t.Errorf("expected chart_name-required error, got: %v", err)
+		}
+	})
+
+	t.Run("unquoted float chart_version errors with quote hint", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "float-version",
+			"chart_name":    "test",
+			"chart_version": 1.20, // YAML parses unquoted 1.20 as float64(1.2)
+		}
+		_, err := buildAddon(am, "")
+		if err == nil {
+			t.Fatal("expected error for unquoted float chart_version")
+		}
+		if !strings.Contains(err.Error(), "quoted string") {
+			t.Errorf("expected quote-hint error, got: %v", err)
+		}
+	})
 }
 
 func TestBuildStack(t *testing.T) {
