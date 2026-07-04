@@ -227,7 +227,14 @@ func (c *Client) PatchClusterStackPartial(ctx context.Context, clusterID, stackN
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, &PatchStackError{StatusCode: resp.StatusCode, Body: respBody}
+		perr := &PatchStackError{StatusCode: resp.StatusCode, Body: respBody}
+		if resp.StatusCode == http.StatusUnauthorized {
+			// Carry ErrUnauthorized at the source so any caller inspecting the
+			// error (not just cmd's mapPatchError) can detect auth failures with
+			// errors.Is instead of matching message text.
+			perr.Err = ErrUnauthorized
+		}
+		return nil, perr
 	}
 
 	var result PatchStackResult

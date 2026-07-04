@@ -248,7 +248,8 @@ type Parent struct {
 }
 
 type AddonStandaloneConfiguration struct {
-	ValuesBase64 string `json:"values_base64,omitempty"`
+	ValuesBase64   string   `json:"values_base64,omitempty"`
+	EncryptedPaths []string `json:"encrypted_paths,omitempty"`
 }
 
 type Addon struct {

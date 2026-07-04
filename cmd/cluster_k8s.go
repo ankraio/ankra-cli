@@ -400,6 +400,19 @@ var kindConfigs = []kindConfig{
 	},
 }
 
+// validateK8sOutputFormat guards the kubernetes command family's -o flag, which
+// accepts table|json|yaml only. Unknown values (e.g. the kubectl habit of
+// "-o wide") are rejected up front with exitUsage so they never reach the table
+// renderer, whose named-resource path carries a nil formatRow and would panic.
+func validateK8sOutputFormat(outputFormat string) error {
+	switch outputFormat {
+	case "table", "json", "yaml":
+		return nil
+	default:
+		return withExitCode(exitUsage, fmt.Errorf("unsupported output format %q: use table, json or yaml", outputFormat))
+	}
+}
+
 func renderSingleResource(item interface{}, outputFormat string) error {
 	switch outputFormat {
 	case "json":
@@ -503,6 +516,10 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 			labelSelector, _ := cmd.Flags().GetString("selector")
 			outputFormat, _ := cmd.Flags().GetString("output")
 
+			if err := validateK8sOutputFormat(outputFormat); err != nil {
+				return err
+			}
+
 			if len(args) == 1 {
 				nameFilter = args[0]
 				if outputFormat == "table" {
@@ -544,6 +561,10 @@ var clusterPodsCmd = &cobra.Command{
 		nodeName, _ := cmd.Flags().GetString("node")
 		nameContains, _ := cmd.Flags().GetString("name")
 		outputFormat, _ := cmd.Flags().GetString("output")
+
+		if err := validateK8sOutputFormat(outputFormat); err != nil {
+			return err
+		}
 
 		if len(args) == 1 {
 			podName := args[0]
@@ -667,7 +688,7 @@ Example:
 		sinceSeconds, _ := cmd.Flags().GetInt("since")
 
 		if namespace == "" {
-			return errors.New("--namespace (-n) is required for logs")
+			return withExitCode(exitUsage, errors.New("--namespace (-n) is required for logs"))
 		}
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
@@ -718,6 +739,10 @@ Example:
 		outputFormat, _ := cmd.Flags().GetString("output")
 		apiVersion, _ := cmd.Flags().GetString("api-version")
 		apiGroup, _ := cmd.Flags().GetString("group")
+
+		if err := validateK8sOutputFormat(outputFormat); err != nil {
+			return err
+		}
 
 		if allNamespaces {
 			namespace = ""

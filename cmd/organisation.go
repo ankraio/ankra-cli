@@ -115,7 +115,13 @@ var orgSwitchCmd = &cobra.Command{
 
 		targetOrg, err := resolveOrganisationReference(orgs, reference)
 		if err != nil {
-			return err
+			// A genuinely unknown organisation is a missing target (exit 3);
+			// an ambiguous reference is a fixable invocation (exit 2). Both
+			// keep their human-readable message.
+			if errors.Is(err, errOrganisationNotFound) {
+				return withExitCode(exitNotFound, err)
+			}
+			return withExitCode(exitUsage, err)
 		}
 
 		resp, err := apiClient.SwitchOrganisation(targetOrg.OrganisationID)
@@ -417,6 +423,12 @@ func resolveTargetOrganisationID(cmd *cobra.Command) (string, error) {
 // Slug and name comparisons are case-insensitive. Ambiguous or unknown
 // references return an actionable error listing the organisations available to
 // the user.
+// errOrganisationNotFound marks the case where a reference matches no
+// organisation the user belongs to, so `org switch` can exit exitNotFound(3)
+// while an ambiguous reference (the org exists, but the name/slug is shared)
+// stays a fixable usage error (exit 2).
+var errOrganisationNotFound = errors.New("organisation not found")
+
 func resolveOrganisationReference(orgs []client.OrganisationSummary, reference string) (*client.OrganisationSummary, error) {
 	trimmedReference := strings.TrimSpace(reference)
 
@@ -449,7 +461,7 @@ func resolveOrganisationReference(orgs []client.OrganisationSummary, reference s
 	case 1:
 		return nameMatches[0], nil
 	case 0:
-		return nil, fmt.Errorf("organisation %q not found. %s", reference, availableOrganisationsHint(orgs))
+		return nil, fmt.Errorf("%w: %q. %s", errOrganisationNotFound, reference, availableOrganisationsHint(orgs))
 	default:
 		return nil, fmt.Errorf("multiple organisations are named %q; pass the organisation ID instead", reference)
 	}

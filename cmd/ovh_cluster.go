@@ -101,6 +101,13 @@ var ovhDeprovisionCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Deprovision OVH cluster %q? This deletes all its servers, networks and SSH keys! [y/N]: ", clusterID),
+			yes); err != nil {
+			return err
+		}
 
 		result, err := apiClient.DeprovisionOvhCluster(clusterID)
 		if err != nil {
@@ -491,12 +498,21 @@ var ovhNodeGroupCmd = &cobra.Command{
 var ovhNodeGroupLabelsCmd = &cobra.Command{
 	Use:   "labels <cluster_id> <group_name>",
 	Short: "Set labels on all nodes in a node group",
-	Long:  "Replace the labels on every node in the group. Pass --labels as a comma-separated list of key=value pairs (empty clears all labels).",
+	Long:  "Replace the labels on every node in the group. Pass --labels as a comma-separated list of key=value pairs, or --clear to remove all labels.",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
+		clear, _ := cmd.Flags().GetBool("clear")
+		labelsChanged := cmd.Flags().Changed("labels")
 		labelsFlag, _ := cmd.Flags().GetString("labels")
+
+		if clear && labelsChanged {
+			return withExitCode(exitUsage, errors.New("pass either --labels k=v or --clear, not both"))
+		}
+		if !clear && !labelsChanged {
+			return withExitCode(exitUsage, errors.New("provide --labels k=v to set labels, or pass --clear to remove all labels"))
+		}
 
 		labels, err := parseLabelsFlag(labelsFlag)
 		if err != nil {
@@ -511,7 +527,7 @@ var ovhNodeGroupLabelsCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.UpdateOvhNodeGroupLabels(requestContext, clusterID, groupName, labels, wait)
 		if err != nil {
-			return fmt.Errorf("updating node group labels: %w", err)
+			return asyncWriteError("updating node group labels", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group labels update")); err != nil {
@@ -535,12 +551,21 @@ var ovhNodeGroupLabelsCmd = &cobra.Command{
 var ovhNodeGroupTaintsCmd = &cobra.Command{
 	Use:   "taints <cluster_id> <group_name>",
 	Short: "Set taints on all nodes in a node group",
-	Long:  "Replace the taints on every node in the group. Pass --taints as a comma-separated list of key=value:Effect (value optional, effect defaults to NoSchedule; empty clears all taints).",
+	Long:  "Replace the taints on every node in the group. Pass --taints as a comma-separated list of key=value:Effect (value optional, effect defaults to NoSchedule), or --clear to remove all taints.",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
+		clear, _ := cmd.Flags().GetBool("clear")
+		taintsChanged := cmd.Flags().Changed("taints")
 		taintsFlag, _ := cmd.Flags().GetString("taints")
+
+		if clear && taintsChanged {
+			return withExitCode(exitUsage, errors.New("pass either --taints k=v:Effect or --clear, not both"))
+		}
+		if !clear && !taintsChanged {
+			return withExitCode(exitUsage, errors.New("provide --taints k=v:Effect to set taints, or pass --clear to remove all taints"))
+		}
 
 		taints, err := parseTaintsFlag(taintsFlag)
 		if err != nil {
@@ -555,7 +580,7 @@ var ovhNodeGroupTaintsCmd = &cobra.Command{
 
 		result, submitted, err := apiClient.UpdateOvhNodeGroupTaints(requestContext, clusterID, groupName, taints, wait)
 		if err != nil {
-			return fmt.Errorf("updating node group taints: %w", err)
+			return asyncWriteError("updating node group taints", wait, err)
 		}
 		if submitted {
 			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group taints update")); err != nil {
@@ -747,6 +772,13 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Delete node group %q and all its nodes? This action is irreversible! [y/N]: ", groupName),
+			yes); err != nil {
+			return err
+		}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
 		if err != nil {
@@ -874,8 +906,13 @@ func init() {
 	registerAsyncWriteFlags(ovhNodeGroupTaintsCmd)
 	registerAsyncWriteFlags(ovhNodeGroupDeleteCmd)
 
-	ovhNodeGroupLabelsCmd.Flags().String("labels", "", "Comma-separated key=value pairs (empty clears all labels)")
-	ovhNodeGroupTaintsCmd.Flags().String("taints", "", "Comma-separated key=value:Effect taints (empty clears all taints)")
+	ovhNodeGroupLabelsCmd.Flags().String("labels", "", "Comma-separated key=value pairs to set on the group")
+	ovhNodeGroupLabelsCmd.Flags().Bool("clear", false, "Remove all labels from the node group")
+	ovhNodeGroupTaintsCmd.Flags().String("taints", "", "Comma-separated key=value:Effect taints to set on the group")
+	ovhNodeGroupTaintsCmd.Flags().Bool("clear", false, "Remove all taints from the node group")
+
+	ovhDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	ovhNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	ovhRegionsCmd.Flags().String("credential-id", "", "OVH API credential ID (required)")
 	_ = ovhRegionsCmd.MarkFlagRequired("credential-id")

@@ -349,10 +349,16 @@ func mapPatchError(perr *client.PatchStackError) error {
 	case http.StatusBadRequest:
 		return fmt.Errorf("request rejected by API: %s", detail)
 	case http.StatusForbidden:
+		// 403 is a rejected credential/permission: classify as exitAuth while
+		// keeping the human-readable message identical.
 		if strings.Contains(strings.ToLower(string(perr.Body)), "sandbox") {
-			return errors.New("sandbox clusters cannot be patched via the CLI; promote the cluster first")
+			return withExitCode(exitAuth, errors.New("sandbox clusters cannot be patched via the CLI; promote the cluster first"))
 		}
-		return fmt.Errorf("forbidden: %s", detail)
+		return withExitCode(exitAuth, fmt.Errorf("forbidden: %s", detail))
+	case http.StatusNotFound:
+		// The stack or cluster does not exist: classify as exitNotFound while
+		// preserving the historical default-branch message shape.
+		return withExitCode(exitNotFound, fmt.Errorf("update stack failed: status %d, body: %s", perr.StatusCode, detail))
 	case http.StatusConflict:
 		return fmt.Errorf("cluster is not available — stack may be pending deletion or cluster is deprovisioned: %s", detail)
 	case http.StatusUnprocessableEntity:
@@ -363,9 +369,15 @@ func mapPatchError(perr *client.PatchStackError) error {
 		}
 		return fmt.Errorf("git push failed: %s", detail)
 	case http.StatusUnauthorized:
-		return errors.New("unauthorized. Run `ankra login` to re-authenticate")
+		// Wrap ErrUnauthorized (whose message is byte-for-byte identical to the
+		// historical text) so errors.Is matches and the exit code is exitAuth.
+		return client.ErrUnauthorized
 	}
-	return fmt.Errorf("update stack failed: status %d, body: %s", perr.StatusCode, detail)
+	// 5xx and any other unexpected status: wrap an *UnexpectedResponseError
+	// carrying the status code so the root-level support hint fires. The
+	// message text is unchanged from the historical default branch.
+	return client.NewUnexpectedResponseError(perr.StatusCode,
+		fmt.Sprintf("update stack failed: status %d, body: %s", perr.StatusCode, detail))
 }
 
 // extractDetail tries to surface the FastAPI `detail` field; falls back to

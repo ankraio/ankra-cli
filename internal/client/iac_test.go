@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -238,6 +239,31 @@ func TestGetClusterManifestConfiguration_ReturnsBase64(t *testing.T) {
 	}
 	if got != encoded {
 		t.Errorf("got %q, want %q", got, encoded)
+	}
+}
+
+func TestPatchClusterStackPartial_UnauthorizedCarriesErrUnauthorized(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"detail":"token expired"}`))
+	})
+	req := PatchStackRequest{
+		PartialStack: true,
+		Spec:         ResourceSpecSpec{Stacks: []StackSpec{{Name: "demo"}}},
+	}
+	_, err := testClient.PatchClusterStackPartial(context.Background(), "cluster-id", "demo", req)
+	if err == nil {
+		t.Fatal("expected error for 401 status")
+	}
+	perr, ok := err.(*PatchStackError)
+	if !ok {
+		t.Fatalf("expected *PatchStackError, got %T: %v", err, err)
+	}
+	if perr.StatusCode != http.StatusUnauthorized {
+		t.Errorf("StatusCode = %d, want 401", perr.StatusCode)
+	}
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("401 PatchStackError should wrap ErrUnauthorized, got %v", err)
 	}
 }
 

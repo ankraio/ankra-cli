@@ -270,6 +270,7 @@ deprovision endpoint so cloud resources are released.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		autoDelete, _ := cmd.Flags().GetBool("auto-delete")
 		force, _ := cmd.Flags().GetBool("force")
+		yes, _ := cmd.Flags().GetBool("yes")
 
 		format, err := structuredFormatFromFlags(cmd)
 		if err != nil {
@@ -278,6 +279,14 @@ deprovision endpoint so cloud resources are released.`,
 
 		clusterID, clusterName, clusterKind, err := resolveClusterFromArgsWithKind(cmd, args)
 		if err != nil {
+			return err
+		}
+
+		if err := confirmPrompt(
+			cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Deprovision cluster %q? This deletes all its cloud resources (servers, networks, SSH keys)! [y/N]: ", clusterName),
+			yes,
+		); err != nil {
 			return err
 		}
 
@@ -413,6 +422,7 @@ Example:
 func init() {
 	clusterDeprovisionCmd.Flags().Bool("auto-delete", false, "Automatically delete the cluster after deprovisioning")
 	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state")
+	clusterDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	clusterRollToCmd.Flags().String("version", "", "Resource version ID to roll to (required)")
 	_ = clusterRollToCmd.MarkFlagRequired("version")

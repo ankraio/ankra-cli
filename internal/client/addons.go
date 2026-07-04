@@ -5,11 +5,17 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	neturl "net/url"
 	"time"
 )
+
+// ErrAddonNotFound is returned (wrapped) by GetAddonByName when no addon with
+// the requested name exists on the cluster. Callers use errors.Is to classify
+// it as a not-found condition (exit code 3) rather than a generic failure.
+var ErrAddonNotFound = errors.New("addon not found")
 
 type ClusterAddonListItem struct {
 	ID            string    `json:"id"`
@@ -237,5 +243,5 @@ func (c *Client) GetAddonByName(clusterID, addonName string) (*ClusterAddonListI
 			return &addons[i], nil
 		}
 	}
-	return nil, fmt.Errorf("addon %q not found", addonName)
+	return nil, fmt.Errorf("addon %q: %w", addonName, ErrAddonNotFound)
 }

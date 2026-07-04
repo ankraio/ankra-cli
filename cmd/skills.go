@@ -152,6 +152,13 @@ var skillsUninstallCmd = &cobra.Command{
 				return err
 			}
 		}
+		// Validate every name before removing anything, so one bad argument
+		// (e.g. "." or "../x") cannot delete the skills directory or escape it.
+		for _, name := range names {
+			if err := validateSkillName(target.Directory, name); err != nil {
+				return err
+			}
+		}
 		removed := 0
 		for _, name := range names {
 			dest := filepath.Join(target.Directory, name)
@@ -166,6 +173,21 @@ var skillsUninstallCmd = &cobra.Command{
 		fmt.Printf("\nRemoved %d skill(s) from %s (%s).\n", removed, target.Directory, target.Scope)
 		return nil
 	},
+}
+
+// validateSkillName rejects skill arguments that would resolve outside dir
+// when joined onto it: empty, ".", "..", and anything containing a path
+// separator. Belt-and-braces, it also verifies the joined path stays strictly
+// inside dir (compare copySkill in internal/skills).
+func validateSkillName(dir, name string) error {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
+		return withExitCode(exitUsage, fmt.Errorf("invalid skill name %q: must be a bare directory name", name))
+	}
+	rel, err := filepath.Rel(dir, filepath.Join(dir, name))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return withExitCode(exitUsage, fmt.Errorf("invalid skill name %q: resolves outside %s", name, dir))
+	}
+	return nil
 }
 
 // skillsSourceFS returns the skills filesystem: a local directory when

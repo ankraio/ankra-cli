@@ -105,6 +105,13 @@ var hetznerDeprovisionCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		force, _ := cmd.Flags().GetBool("force")
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Deprovision Hetzner cluster %q? This deletes all its servers, networks and SSH keys! [y/N]: ", clusterID),
+			yes); err != nil {
+			return err
+		}
 
 		result, err := apiClient.DeprovisionHetznerCluster(clusterID, force)
 		if err != nil {
@@ -418,6 +425,13 @@ var nodeGroupDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		groupName := args[1]
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Delete node group %q from cluster %q? This deletes all its nodes! [y/N]: ", groupName, clusterID),
+			yes); err != nil {
+			return err
+		}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
 		if err != nil {
@@ -535,6 +549,8 @@ func init() {
 	_ = hetznerCreateCmd.MarkFlagRequired("location")
 
 	hetznerDeprovisionCmd.Flags().Bool("force", false, "Force deprovision without waiting for the cluster agent (use only when the cluster agent is permanently offline; cloud resources may leak)")
+	hetznerDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	nodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	hetznerLocationsCmd.Flags().String("credential-id", "", "Hetzner API credential ID (required)")
 	_ = hetznerLocationsCmd.MarkFlagRequired("credential-id")

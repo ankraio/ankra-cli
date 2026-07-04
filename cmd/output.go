@@ -15,13 +15,19 @@ func registerStructuredOutputFlags(cmds ...*cobra.Command) {
 }
 
 // structuredFormatFromFlags resolves the requested structured output format
-// from -o/--output. Commands without the flag resolve to outputDefault.
+// from -o/--output. Commands without the flag resolve to outputDefault. A
+// rejected value is an invocation mistake, so it is tagged exitUsage; callers
+// pass the error straight through to Execute.
 func structuredFormatFromFlags(cmd *cobra.Command) (outputFormat, error) {
 	outputRaw := ""
 	if cmd.Flags().Lookup("output") != nil {
 		outputRaw, _ = cmd.Flags().GetString("output")
 	}
-	return parseOutputFormat(outputRaw)
+	format, err := parseOutputFormat(outputRaw)
+	if err != nil {
+		return outputDefault, withExitCode(exitUsage, err)
+	}
+	return format, nil
 }
 
 // renderStructured writes value as JSON or YAML when requested via -o. It

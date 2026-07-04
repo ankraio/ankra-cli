@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -424,6 +425,66 @@ func TestMapPatchError_StatusCodes(t *testing.T) {
 				t.Errorf("error %q does not contain %q", got.Error(), tc.wantSub)
 			}
 		})
+	}
+}
+
+func TestMapPatchError_ExitCodeClassification(t *testing.T) {
+	cases := []struct {
+		name       string
+		statusCode int
+		wantExit   int
+	}{
+		{"401 unauthorized -> exitAuth", 401, exitAuth},
+		{"403 forbidden -> exitAuth", 403, exitAuth},
+		{"404 not found -> exitNotFound", 404, exitNotFound},
+		{"500 server error -> exitError", 500, exitError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			perr := &client.PatchStackError{StatusCode: tc.statusCode, Body: []byte(`{"detail":"boom"}`)}
+			err := mapPatchError(perr)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if got := exitCodeFor(err); got != tc.wantExit {
+				t.Errorf("exitCodeFor(mapPatchError(%d)) = %d, want %d", tc.statusCode, got, tc.wantExit)
+			}
+		})
+	}
+}
+
+func TestMapPatchError_ServerErrorTriggersSupportHint(t *testing.T) {
+	perr := &client.PatchStackError{StatusCode: 500, Body: []byte(`{"detail":"boom"}`)}
+	err := mapPatchError(perr)
+	var unexpected *client.UnexpectedResponseError
+	if !errors.As(err, &unexpected) {
+		t.Fatalf("5xx should wrap *client.UnexpectedResponseError so the support hint fires, got %T: %v", err, err)
+	}
+	if unexpected.StatusCode != 500 {
+		t.Errorf("wrapped status = %d, want 500", unexpected.StatusCode)
+	}
+	if got := err.Error(); !strings.Contains(got, "status 500") {
+		t.Errorf("message text changed: %q", got)
+	}
+}
+
+func TestMapPatchError_MessagesUnchanged(t *testing.T) {
+	cases := []struct {
+		statusCode int
+		body       string
+		want       string
+	}{
+		{401, ``, "unauthorized. Run `ankra login` to re-authenticate"},
+		{403, `{"detail":"nope"}`, "forbidden: nope"},
+		{403, `sandbox mode enabled`, "sandbox clusters cannot be patched via the CLI; promote the cluster first"},
+		{404, `{"detail":"missing"}`, "update stack failed: status 404, body: missing"},
+		{500, `{"detail":"boom"}`, "update stack failed: status 500, body: boom"},
+	}
+	for _, tc := range cases {
+		perr := &client.PatchStackError{StatusCode: tc.statusCode, Body: []byte(tc.body)}
+		if got := mapPatchError(perr).Error(); got != tc.want {
+			t.Errorf("status %d message = %q, want %q", tc.statusCode, got, tc.want)
+		}
 	}
 }
 
