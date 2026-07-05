@@ -641,11 +641,11 @@ func (m baseMock) ListHetznerServerTypes(credentialID, location string) ([]clien
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListK3sVersions() (*client.ListK3sVersionsResult, error) {
+func (m baseMock) ListK3sVersions() (*client.ListVersionsResult, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListKubeadmVersions() (*client.ListKubeadmVersionsResult, error) {
+func (m baseMock) ListKubeadmVersions() (*client.ListVersionsResult, error) {
 	return nil, errors.New("not implemented")
 }
 
