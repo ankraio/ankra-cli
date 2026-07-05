@@ -30,6 +30,9 @@ type CreateOvhClusterRequest struct {
 	WorkerFlavorID        string  `json:"worker_flavor_id"`
 	Distribution          string  `json:"distribution"`
 	KubernetesVersion     *string `json:"kubernetes_version,omitempty"`
+	EtcdTopology          string  `json:"etcd_topology,omitempty"`
+	EtcdNodeCount         int     `json:"etcd_node_count,omitempty"`
+	EtcdFlavorID          string  `json:"etcd_flavor_id,omitempty"`
 	ExternalCloudProvider bool    `json:"external_cloud_provider"`
 	IncludeNetworking     bool    `json:"include_networking"`
 	GitopsCredentialName  *string `json:"gitops_credential_name,omitempty"`
@@ -179,9 +182,9 @@ func (c *Client) GetOvhK8sVersion(clusterID string) (*K8sVersionInfo, error) {
 	return &result, nil
 }
 
-func (c *Client) UpgradeOvhK8sVersion(clusterID, targetVersion string) (*UpgradeK8sVersionResult, error) {
+func (c *Client) UpgradeOvhK8sVersion(clusterID, targetVersion string, force bool) (*UpgradeK8sVersionResult, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/upgrade-k8s-version", c.BaseURL, clusterID)
-	return c.doUpgradeK8sVersion(url, targetVersion)
+	return c.doUpgradeK8sVersion(url, targetVersion, force)
 }
 
 func (c *Client) ListOvhNodeGroups(clusterID string) (*NodeGroupListResult, error) {

@@ -269,7 +269,7 @@ func TestUpgradeUpcloudK8sVersion_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, err := testClient.UpgradeUpcloudK8sVersion(clusterID, targetVersion)
+	result, err := testClient.UpgradeUpcloudK8sVersion(clusterID, targetVersion, false)
 	if err != nil {
 		t.Fatalf("UpgradeUpcloudK8sVersion: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestUpgradeUpcloudK8sVersion_Error(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusConflict, map[string]string{"error": "upgrade blocked"})
 	})
-	_, err := testClient.UpgradeUpcloudK8sVersion(clusterID, "1.30.0")
+	_, err := testClient.UpgradeUpcloudK8sVersion(clusterID, "1.30.0", false)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

@@ -38,17 +38,17 @@ func (m *clusterUpgradeMock) upgradeResult() *client.UpgradeK8sVersionResult {
 	}
 }
 
-func (m *clusterUpgradeMock) UpgradeHetznerK8sVersion(clusterID, targetVersion string) (*client.UpgradeK8sVersionResult, error) {
+func (m *clusterUpgradeMock) UpgradeHetznerK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
 	m.hetznerCalls = append(m.hetznerCalls, k8sUpgradeCall{ClusterID: clusterID, TargetVersion: targetVersion})
 	return m.upgradeResult(), nil
 }
 
-func (m *clusterUpgradeMock) UpgradeOvhK8sVersion(clusterID, targetVersion string) (*client.UpgradeK8sVersionResult, error) {
+func (m *clusterUpgradeMock) UpgradeOvhK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
 	m.ovhCalls = append(m.ovhCalls, k8sUpgradeCall{ClusterID: clusterID, TargetVersion: targetVersion})
 	return m.upgradeResult(), nil
 }
 
-func (m *clusterUpgradeMock) UpgradeUpcloudK8sVersion(clusterID, targetVersion string) (*client.UpgradeK8sVersionResult, error) {
+func (m *clusterUpgradeMock) UpgradeUpcloudK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
 	m.upcloudCalls = append(m.upcloudCalls, k8sUpgradeCall{ClusterID: clusterID, TargetVersion: targetVersion})
 	return m.upgradeResult(), nil
 }

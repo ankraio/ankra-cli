@@ -400,7 +400,7 @@ func TestUpgradeHetznerK8sVersion(t *testing.T) {
 			jsonResponse(t, w, http.StatusOK, expectedResponse)
 		}
 		testClient := newTestClient(t, handler)
-		result, err := testClient.UpgradeHetznerK8sVersion(clusterID, "1.29.0")
+		result, err := testClient.UpgradeHetznerK8sVersion(clusterID, "1.29.0", false)
 		if err != nil {
 			t.Fatalf("UpgradeHetznerK8sVersion: %v", err)
 		}
@@ -416,7 +416,7 @@ func TestUpgradeHetznerK8sVersion(t *testing.T) {
 			jsonResponse(t, w, http.StatusBadRequest, map[string]string{"error": "invalid version"})
 		}
 		testClient := newTestClient(t, handler)
-		_, err := testClient.UpgradeHetznerK8sVersion(clusterID, "9.99.0")
+		_, err := testClient.UpgradeHetznerK8sVersion(clusterID, "9.99.0", false)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}

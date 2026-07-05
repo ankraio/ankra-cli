@@ -23,6 +23,9 @@ type CreateUpcloudClusterRequest struct {
 	WorkerPlan            string  `json:"worker_plan"`
 	Distribution          string  `json:"distribution"`
 	KubernetesVersion     *string `json:"kubernetes_version,omitempty"`
+	EtcdTopology          string  `json:"etcd_topology,omitempty"`
+	EtcdNodeCount         int     `json:"etcd_node_count,omitempty"`
+	EtcdPlan              string  `json:"etcd_plan,omitempty"`
 	ExternalCloudProvider bool    `json:"external_cloud_provider"`
 	IncludeNetworking     bool    `json:"include_networking"`
 	GitopsCredentialName  *string `json:"gitops_credential_name,omitempty"`
@@ -137,9 +140,9 @@ func (c *Client) GetUpcloudK8sVersion(clusterID string) (*K8sVersionInfo, error)
 	return &result, nil
 }
 
-func (c *Client) UpgradeUpcloudK8sVersion(clusterID, targetVersion string) (*UpgradeK8sVersionResult, error) {
+func (c *Client) UpgradeUpcloudK8sVersion(clusterID, targetVersion string, force bool) (*UpgradeK8sVersionResult, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/upgrade-k8s-version", c.BaseURL, clusterID)
-	return c.doUpgradeK8sVersion(url, targetVersion)
+	return c.doUpgradeK8sVersion(url, targetVersion, force)
 }
 
 func (c *Client) ListUpcloudNodeGroups(clusterID string) (*NodeGroupListResult, error) {
