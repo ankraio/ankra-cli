@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+## v0.5.0 — 2026-07-05
+
+### Added
+
+- **kubeadm cluster support in `ankra cluster upgrade`.** The provider-agnostic
+  upgrade now covers kubeadm-distribution clusters alongside k3s. Nodes
+  upgrade one at a time (control plane first): each node is cordoned, drained
+  respecting PodDisruptionBudgets, upgraded, and gated on being Ready at the
+  target version, with an etcd snapshot taken before the control plane. A new
+  `--force` flag proceeds when a drain is blocked by a PodDisruptionBudget
+  (the default aborts safely), and the upgrade now prints the operation ID
+  with a hint to follow progress via `ankra cluster operations list`.
+- **`ankra cluster kubeadm-versions`** lists the upstream Kubernetes versions
+  the platform can provision or upgrade kubeadm clusters to, as a sibling of
+  `ankra cluster k3s-versions`.
+- **etcd topology flags for kubeadm creates.** `ankra cluster
+  hetzner|ovh|upcloud create` gain `--etcd-topology` (`stacked` on the control
+  planes, or `external` on dedicated VMs), `--etcd-node-count` (3 or 5), and
+  `--etcd-server-type` for sizing the dedicated etcd nodes.
+- **`ankra stack-profiles list --category`** filters profiles server-side by
+  category (e.g. `monitoring`).
+- **Generated CLI reference.** `tools/gendocs` renders the full command tree
+  as Mintlify MDX pages, and a release-tag workflow opens a sync PR against
+  the public docs so the reference never drifts from the shipped CLI.
+
+### Fixed
+
+- **Kubeconfig exec entries pin the cluster's owning organisation.** Entries
+  written by `ankra cluster kubeconfig add` now embed `--org
+  <organisation-id>` in the `kube-token` exec args, so `kubectl` keeps
+  working after you switch your selected organisation — previously the token
+  mint failed with "Cluster not found" whenever the selection differed from
+  the cluster's owner. Cluster IDs are resolved to their owning organisation
+  (and real cluster name) via the backend; entries written before this
+  release need a one-time re-add to pick up the pin.
+- **`ankra stack-profiles export-iac` exports the current version by
+  default.** The `--version` default was a hard-coded `1`, silently exporting
+  a stale first version once a profile advanced; it now resolves the
+  profile's current published version and errors clearly when a profile has
+  no published versions.
+- **Deprecated `ankra cluster <provider> upgrade` help no longer overstates
+  parity.** These forms always run the safe non-forced rollout; the help now
+  says so and points at `ankra cluster upgrade` for `--force` and operation
+  tracking.
+
 ## v0.4.2 — 2026-07-03
 
 ### Fixed
