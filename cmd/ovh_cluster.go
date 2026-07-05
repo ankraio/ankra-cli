@@ -37,6 +37,9 @@ var ovhCreateCmd = &cobra.Command{
 		workerFlavorID, _ := cmd.Flags().GetString("worker-flavor-id")
 		distribution, _ := cmd.Flags().GetString("distribution")
 		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
+		etcdTopology, _ := cmd.Flags().GetString("etcd-topology")
+		etcdNodeCount, _ := cmd.Flags().GetInt("etcd-node-count")
+		etcdFlavorID, _ := cmd.Flags().GetString("etcd-flavor-id")
 		externalCloudProvider, includeNetworking, err := resolveCloudProviderNetworking(cmd)
 		if err != nil {
 			return err
@@ -60,6 +63,9 @@ var ovhCreateCmd = &cobra.Command{
 			WorkerCount:           workerCount,
 			WorkerFlavorID:        workerFlavorID,
 			Distribution:          distribution,
+			EtcdTopology:          etcdTopology,
+			EtcdNodeCount:         etcdNodeCount,
+			EtcdFlavorID:          etcdFlavorID,
 			ExternalCloudProvider: externalCloudProvider,
 			IncludeNetworking:     includeNetworking,
 		}
@@ -238,14 +244,14 @@ var ovhK8sVersionCmd = &cobra.Command{
 var ovhUpgradeCmd = &cobra.Command{
 	Use:        "upgrade <cluster_id> <target_version>",
 	Short:      "Upgrade Kubernetes version for an OVH cluster",
-	Long:       "Upgrade the Kubernetes (k3s) version on all nodes in an OVH cluster.",
+	Long:       "Upgrade the Kubernetes version on all nodes in an OVH cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
 	Args:       cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		targetVersion := args[1]
 
-		result, err := apiClient.UpgradeOvhK8sVersion(clusterID, targetVersion)
+		result, err := apiClient.UpgradeOvhK8sVersion(clusterID, targetVersion, false)
 		if err != nil {
 			return fmt.Errorf("upgrading Kubernetes version: %w", err)
 		}
@@ -873,8 +879,11 @@ func init() {
 	ovhCreateCmd.Flags().String("control-plane-flavor-id", "b2-15", "Control plane instance flavor")
 	ovhCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
 	ovhCreateCmd.Flags().String("worker-flavor-id", "b2-15", "Worker instance flavor")
-	ovhCreateCmd.Flags().String("distribution", "k3s", "Kubernetes distribution")
-	ovhCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional)")
+	ovhCreateCmd.Flags().String("distribution", "k3s", "Kubernetes distribution: k3s or kubeadm")
+	ovhCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster k3s-versions` or `ankra cluster kubeadm-versions`)")
+	ovhCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control planes) or external (dedicated VMs)")
+	ovhCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
+	ovhCreateCmd.Flags().String("etcd-flavor-id", "b2-15", "Instance flavor for dedicated etcd nodes when --etcd-topology=external")
 	ovhCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the OpenStack CCM and Cinder CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
 	ovhCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
 	ovhCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated ovh-cloud stack is committed to Git (optional)")

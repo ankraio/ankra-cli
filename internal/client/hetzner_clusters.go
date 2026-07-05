@@ -59,6 +59,9 @@ type CreateHetznerClusterRequest struct {
 	WorkerServerType       string                   `json:"worker_server_type"`
 	Distribution           string                   `json:"distribution"`
 	KubernetesVersion      *string                  `json:"kubernetes_version,omitempty"`
+	EtcdTopology           string                   `json:"etcd_topology,omitempty"`
+	EtcdNodeCount          int                      `json:"etcd_node_count,omitempty"`
+	EtcdServerType         string                   `json:"etcd_server_type,omitempty"`
 	NodeGroups             []CreateNodeGroupRequest  `json:"node_groups,omitempty"`
 	ExternalCloudProvider  bool                     `json:"external_cloud_provider"`
 	IncludeNetworking      bool                     `json:"include_networking"`
@@ -100,12 +103,15 @@ type K8sVersionInfo struct {
 
 type UpgradeK8sVersionRequest struct {
 	TargetVersion string `json:"target_version"`
+	// Force relaxes the PDB-respecting node drain to warn-and-continue.
+	Force bool `json:"force,omitempty"`
 }
 
 type UpgradeK8sVersionResult struct {
 	PreviousVersion *string `json:"previous_version"`
 	NewVersion      string  `json:"new_version"`
 	NodesAffected   int     `json:"nodes_affected"`
+	OperationID     *string `json:"operation_id,omitempty"`
 }
 
 func (c *Client) CreateHetznerCluster(req CreateHetznerClusterRequest) (*CreateHetznerClusterResponse, error) {
@@ -193,9 +199,9 @@ func (c *Client) GetHetznerK8sVersion(clusterID string) (*K8sVersionInfo, error)
 	return &result, nil
 }
 
-func (c *Client) UpgradeHetznerK8sVersion(clusterID, targetVersion string) (*UpgradeK8sVersionResult, error) {
+func (c *Client) UpgradeHetznerK8sVersion(clusterID, targetVersion string, force bool) (*UpgradeK8sVersionResult, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/upgrade-k8s-version", c.BaseURL, clusterID)
-	return c.doUpgradeK8sVersion(url, targetVersion)
+	return c.doUpgradeK8sVersion(url, targetVersion, force)
 }
 
 func (c *Client) ScaleHetznerWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
@@ -385,8 +391,8 @@ func (c *Client) doScaleWorkers(url string, workerCount int) (*ScaleWorkersResul
 	return &result, nil
 }
 
-func (c *Client) doUpgradeK8sVersion(url, targetVersion string) (*UpgradeK8sVersionResult, error) {
-	payload, err := json.Marshal(UpgradeK8sVersionRequest{TargetVersion: targetVersion})
+func (c *Client) doUpgradeK8sVersion(url, targetVersion string, force bool) (*UpgradeK8sVersionResult, error) {
+	payload, err := json.Marshal(UpgradeK8sVersionRequest{TargetVersion: targetVersion, Force: force})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}

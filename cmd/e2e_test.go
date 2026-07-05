@@ -81,7 +81,7 @@ func (m baseMock) DeleteClusterAccessGrant(ctx context.Context, clusterID string
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListStackProfiles(page, pageSize int, search string) (*client.StackProfileListResponse, error) {
+func (m baseMock) ListStackProfiles(page, pageSize int, search string, category string) (*client.StackProfileListResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -497,7 +497,7 @@ func (m baseMock) GetHetznerK8sVersion(clusterID string) (*client.K8sVersionInfo
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) UpgradeHetznerK8sVersion(clusterID, targetVersion string) (*client.UpgradeK8sVersionResult, error) {
+func (m baseMock) UpgradeHetznerK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -625,7 +625,7 @@ func (m baseMock) GetOvhK8sVersion(clusterID string) (*client.K8sVersionInfo, er
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) UpgradeOvhK8sVersion(clusterID, targetVersion string) (*client.UpgradeK8sVersionResult, error) {
+func (m baseMock) UpgradeOvhK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -641,7 +641,11 @@ func (m baseMock) ListHetznerServerTypes(credentialID, location string) ([]clien
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListK3sVersions() (*client.ListK3sVersionsResult, error) {
+func (m baseMock) ListK3sVersions() (*client.ListVersionsResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListKubeadmVersions() (*client.ListVersionsResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -737,7 +741,7 @@ func (m baseMock) GetUpcloudK8sVersion(clusterID string) (*client.K8sVersionInfo
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) UpgradeUpcloudK8sVersion(clusterID, targetVersion string) (*client.UpgradeK8sVersionResult, error) {
+func (m baseMock) UpgradeUpcloudK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
 	return nil, errors.New("not implemented")
 }
 

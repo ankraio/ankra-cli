@@ -27,8 +27,9 @@ var stackProfilesListCmd = &cobra.Command{
 		page, _ := cmd.Flags().GetInt("page")
 		pageSize, _ := cmd.Flags().GetInt("page-size")
 		search, _ := cmd.Flags().GetString("search")
+		category, _ := cmd.Flags().GetString("category")
 
-		response, err := apiClient.ListStackProfiles(page, pageSize, search)
+		response, err := apiClient.ListStackProfiles(page, pageSize, search, category)
 		if err != nil {
 			return fmt.Errorf("listing stack profiles: %w", err)
 		}
@@ -65,6 +66,20 @@ var stackProfilesExportIacCmd = &cobra.Command{
 		profileID := args[0]
 		version, _ := cmd.Flags().GetInt("version")
 		outputPath, _ := cmd.Flags().GetString("output")
+
+		if version <= 0 {
+			detail, detailErr := apiClient.GetStackProfile(profileID)
+			if detailErr != nil {
+				return fmt.Errorf("loading profile: %w", detailErr)
+			}
+			version = detail.Profile.CurrentVersion
+			if version <= 0 && detail.LatestVersionDetail != nil {
+				version = detail.LatestVersionDetail.Version
+			}
+			if version <= 0 {
+				return fmt.Errorf("profile %s has no published versions to export", profileID)
+			}
+		}
 
 		export, err := apiClient.ExportStackProfileIac(profileID, version)
 		if err != nil {
@@ -392,9 +407,10 @@ func init() {
 	stackProfilesListCmd.Flags().Int("page", 1, "Page number")
 	stackProfilesListCmd.Flags().Int("page-size", 25, "Page size")
 	stackProfilesListCmd.Flags().String("search", "", "Filter profiles by name")
+	stackProfilesListCmd.Flags().String("category", "", "Filter profiles by category (e.g. 'monitoring')")
 	registerStructuredOutputFlags(stackProfilesListCmd)
 
-	stackProfilesExportIacCmd.Flags().Int("version", 1, "Profile version to export")
+	stackProfilesExportIacCmd.Flags().Int("version", 0, "Profile version to export (defaults to the profile's current version)")
 	stackProfilesExportIacCmd.Flags().StringP("output", "o", "", "Write YAML to this file instead of stdout")
 
 	stackProfilesImportCmd.Flags().String("name", "", "Profile name (defaults to metadata.name in the file)")

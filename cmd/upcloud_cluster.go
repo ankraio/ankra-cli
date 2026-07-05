@@ -33,6 +33,9 @@ var upcloudCreateCmd = &cobra.Command{
 		workerPlan, _ := cmd.Flags().GetString("worker-plan")
 		distribution, _ := cmd.Flags().GetString("distribution")
 		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
+		etcdTopology, _ := cmd.Flags().GetString("etcd-topology")
+		etcdNodeCount, _ := cmd.Flags().GetInt("etcd-node-count")
+		etcdPlan, _ := cmd.Flags().GetString("etcd-plan")
 		externalCloudProvider, includeNetworking, err := resolveCloudProviderNetworking(cmd)
 		if err != nil {
 			return err
@@ -53,6 +56,9 @@ var upcloudCreateCmd = &cobra.Command{
 			WorkerCount:           workerCount,
 			WorkerPlan:            workerPlan,
 			Distribution:          distribution,
+			EtcdTopology:          etcdTopology,
+			EtcdNodeCount:         etcdNodeCount,
+			EtcdPlan:              etcdPlan,
 			ExternalCloudProvider: externalCloudProvider,
 			IncludeNetworking:     includeNetworking,
 		}
@@ -281,14 +287,14 @@ var upcloudK8sVersionCmd = &cobra.Command{
 var upcloudUpgradeCmd = &cobra.Command{
 	Use:        "upgrade <cluster_id> <target_version>",
 	Short:      "Upgrade Kubernetes version for an UpCloud cluster",
-	Long:       "Upgrade the Kubernetes (k3s) version on all nodes in an UpCloud cluster.",
+	Long:       "Upgrade the Kubernetes version on all nodes in an UpCloud cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
 	Args:       cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		targetVersion := args[1]
 
-		result, err := apiClient.UpgradeUpcloudK8sVersion(clusterID, targetVersion)
+		result, err := apiClient.UpgradeUpcloudK8sVersion(clusterID, targetVersion, false)
 		if err != nil {
 			return fmt.Errorf("upgrading Kubernetes version: %w", err)
 		}
@@ -523,8 +529,11 @@ func init() {
 	upcloudCreateCmd.Flags().String("control-plane-plan", "2xCPU-4GB", "Control plane plan")
 	upcloudCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
 	upcloudCreateCmd.Flags().String("worker-plan", "2xCPU-4GB", "Worker plan")
-	upcloudCreateCmd.Flags().String("distribution", "k3s", "Kubernetes distribution")
-	upcloudCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional)")
+	upcloudCreateCmd.Flags().String("distribution", "k3s", "Kubernetes distribution: k3s or kubeadm")
+	upcloudCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster k3s-versions` or `ankra cluster kubeadm-versions`)")
+	upcloudCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control planes) or external (dedicated VMs)")
+	upcloudCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
+	upcloudCreateCmd.Flags().String("etcd-plan", "2xCPU-4GB", "Plan for dedicated etcd nodes when --etcd-topology=external")
 	upcloudCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the UpCloud CCM and CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
 	upcloudCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
 	upcloudCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated upcloud-cloud-provider stack is committed to Git (optional)")

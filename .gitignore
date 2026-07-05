@@ -47,3 +47,6 @@ config.yml
 build/
 dist/
 release/
+
+# Claude Code agent worktrees (ephemeral, never commit)
+.claude/worktrees/

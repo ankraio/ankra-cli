@@ -427,7 +427,7 @@ func TestUpgradeOvhK8sVersion_Success(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	result, err := testClient.UpgradeOvhK8sVersion(clusterID, targetVersion)
+	result, err := testClient.UpgradeOvhK8sVersion(clusterID, targetVersion, false)
 	if err != nil {
 		t.Fatalf("UpgradeOvhK8sVersion: %v", err)
 	}
@@ -442,7 +442,7 @@ func TestUpgradeOvhK8sVersion_Error(t *testing.T) {
 		jsonResponse(t, w, http.StatusConflict, map[string]string{"error": "upgrade in progress"})
 	}
 	testClient := newTestClient(t, handler)
-	_, err := testClient.UpgradeOvhK8sVersion(clusterID, "1.29.0")
+	_, err := testClient.UpgradeOvhK8sVersion(clusterID, "1.29.0", false)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
