@@ -237,7 +237,7 @@ var hetznerK8sVersionCmd = &cobra.Command{
 var hetznerUpgradeCmd = &cobra.Command{
 	Use:        "upgrade <cluster_id> <target_version>",
 	Short:      "Upgrade Kubernetes version for a Hetzner cluster",
-	Long:       "Upgrade the Kubernetes version on all nodes in a Hetzner cluster (k3s and kubeadm).",
+	Long:       "Upgrade the Kubernetes version on all nodes in a Hetzner cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
 	Args:       cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
