@@ -364,6 +364,13 @@ func resolveKubeconfigTargets() ([]kubeTarget, error) {
 			return []kubeTarget{{id: cluster.ID, name: cluster.Name, orgID: cluster.OrganisationID}}, nil
 		}
 		if isLikelyClusterID(kubeconfigClusterFlag) {
+			// GetCluster is a name lookup, so UUID input lands here. Resolve
+			// the ID properly to learn the owning organisation — pinning the
+			// locally selected org instead would bake a wrong --org into the
+			// kubeconfig whenever the selection has diverged from the owner.
+			if byID, idErr := apiClient.GetClusterByID(kubeconfigClusterFlag); idErr == nil {
+				return []kubeTarget{{id: byID.ID, name: byID.Name, orgID: byID.OrganisationID}}, nil
+			}
 			return []kubeTarget{{id: kubeconfigClusterFlag, name: kubeconfigClusterFlag}}, nil
 		}
 		return nil, fmt.Errorf("cluster %q not found; pass a cluster name or ID: %w", kubeconfigClusterFlag, err)

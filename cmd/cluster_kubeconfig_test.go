@@ -16,6 +16,7 @@ import (
 type kubeconfigMock struct {
 	baseMock
 	cluster     client.ClusterListItem
+	byIDCluster client.ClusterListItem
 	clusters    []client.ClusterListItem
 	token       string
 	proxyBase   string
@@ -27,6 +28,13 @@ func (m kubeconfigMock) OrganisationOverride() string { return m.orgOverride }
 func (m kubeconfigMock) GetCluster(name string) (client.ClusterListItem, error) {
 	if m.cluster.Name == name || m.cluster.ID == name {
 		return m.cluster, nil
+	}
+	return client.ClusterListItem{}, errors.New("not found")
+}
+
+func (m kubeconfigMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
+	if m.byIDCluster.ID == clusterID {
+		return m.byIDCluster, nil
 	}
 	return client.ClusterListItem{}, errors.New("not found")
 }
@@ -404,6 +412,45 @@ func TestKubeconfigAddTreatsUUIDFlagAsID(t *testing.T) {
 	// add still succeeds; the exec args just omit --org.
 	want := "cluster kube-token --cluster " + clusterUUID
 	if got := strings.Join(execArgsForUser(t, config, wantContext), " "); got != want {
+		t.Errorf("exec args = %q, want %q", got, want)
+	}
+}
+
+func TestKubeconfigAddUUIDResolvesOwningOrg(t *testing.T) {
+	// UUID input resolves the cluster via GetClusterByID, so the exec args
+	// pin the *owning* organisation from the backend — a diverged local
+	// selection must not win, and the context gets the real cluster name.
+	const clusterUUID = "11111111-1111-1111-1111-111111111111"
+	withKubeconfigMock(t, kubeconfigMock{
+		byIDCluster: client.ClusterListItem{ID: clusterUUID, Name: "prod-cluster", OrganisationID: "org-owner"},
+	})
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".ankra"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	selection := []byte(`{"organisation_id":"org-selected","name":"Selected","role":"admin"}`)
+	if err := os.WriteFile(filepath.Join(home, ".ankra", "organisation.json"), selection, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(t.TempDir(), "config")
+	resetKubeconfigFlags(path)
+	kubeconfigClusterFlag = clusterUUID
+
+	var out bytes.Buffer
+	if err := kubeconfigAdd(&out); err != nil {
+		t.Fatal(err)
+	}
+	config, _ := kubeconfig.Load(path)
+	names := config.ManagedContextNames()
+	if len(names) != 1 || names[0] != "ankra-prod-cluster" {
+		t.Fatalf("context names = %v, want [ankra-prod-cluster]", names)
+	}
+	want := "cluster kube-token --cluster " + clusterUUID + " --org org-owner"
+	if got := strings.Join(execArgsForUser(t, config, "ankra-prod-cluster"), " "); got != want {
 		t.Errorf("exec args = %q, want %q", got, want)
 	}
 }
