@@ -15,11 +15,14 @@ import (
 
 type kubeconfigMock struct {
 	baseMock
-	cluster   client.ClusterListItem
-	clusters  []client.ClusterListItem
-	token     string
-	proxyBase string
+	cluster     client.ClusterListItem
+	clusters    []client.ClusterListItem
+	token       string
+	proxyBase   string
+	orgOverride string
 }
+
+func (m kubeconfigMock) OrganisationOverride() string { return m.orgOverride }
 
 func (m kubeconfigMock) GetCluster(name string) (client.ClusterListItem, error) {
 	if m.cluster.Name == name || m.cluster.ID == name {
@@ -48,6 +51,9 @@ func (m kubeconfigMock) ListClusters(page, pageSize int) (*client.ClusterListRes
 
 func withKubeconfigMock(t *testing.T, mock kubeconfigMock) {
 	t.Helper()
+	// Isolate HOME so org/cluster selection fallbacks never read the
+	// developer's real ~/.ankra state.
+	t.Setenv("HOME", t.TempDir())
 	originalClient := apiClient
 	originalBaseURL := baseURL
 	apiClient = mock
@@ -56,6 +62,26 @@ func withKubeconfigMock(t *testing.T, mock kubeconfigMock) {
 		apiClient = originalClient
 		baseURL = originalBaseURL
 	})
+}
+
+// execArgsForUser decodes the exec credential-plugin args of a managed user
+// entry from a loaded kubeconfig.
+func execArgsForUser(t *testing.T, config *kubeconfig.Config, name string) []string {
+	t.Helper()
+	for _, user := range config.Users {
+		if user.Name != name {
+			continue
+		}
+		var body struct {
+			Exec kubeconfig.ExecConfig `yaml:"exec"`
+		}
+		if err := user.User.Decode(&body); err != nil {
+			t.Fatalf("decode user %q: %v", name, err)
+		}
+		return body.Exec.Args
+	}
+	t.Fatalf("user %q not found in kubeconfig", name)
+	return nil
 }
 
 func resetKubeconfigFlags(path string) {
@@ -71,7 +97,7 @@ func resetKubeconfigFlags(path string) {
 }
 
 func TestKubeconfigAddExecMode(t *testing.T) {
-	withKubeconfigMock(t, kubeconfigMock{cluster: client.ClusterListItem{ID: "id-1", Name: "demo"}})
+	withKubeconfigMock(t, kubeconfigMock{cluster: client.ClusterListItem{ID: "id-1", Name: "demo", OrganisationID: "org-1"}})
 	path := filepath.Join(t.TempDir(), "config")
 	resetKubeconfigFlags(path)
 	kubeconfigClusterFlag = "demo"
@@ -105,6 +131,12 @@ func TestKubeconfigAddExecMode(t *testing.T) {
 		if !strings.Contains(body, fragment) {
 			t.Errorf("rendered kubeconfig missing %q\n%s", fragment, body)
 		}
+	}
+	// The exec args must pin the cluster's owning organisation so kube-token
+	// keeps working when the selected organisation later differs.
+	want := "cluster kube-token --cluster id-1 --org org-1"
+	if got := strings.Join(execArgsForUser(t, config, "ankra-demo"), " "); got != want {
+		t.Errorf("exec args = %q, want %q", got, want)
 	}
 	if config.CurrentContext != "" {
 		t.Errorf("current-context should be unset without --use, got %q", config.CurrentContext)
@@ -174,8 +206,8 @@ func TestKubeconfigAddPrintDoesNotWriteFile(t *testing.T) {
 
 func TestKubeconfigAddAll(t *testing.T) {
 	withKubeconfigMock(t, kubeconfigMock{clusters: []client.ClusterListItem{
-		{ID: "id-1", Name: "demo"},
-		{ID: "id-2", Name: "staging"},
+		{ID: "id-1", Name: "demo", OrganisationID: "org-1"},
+		{ID: "id-2", Name: "staging", OrganisationID: "org-2"},
 	}})
 	path := filepath.Join(t.TempDir(), "config")
 	resetKubeconfigFlags(path)
@@ -188,6 +220,15 @@ func TestKubeconfigAddAll(t *testing.T) {
 	config, _ := kubeconfig.Load(path)
 	if len(config.ManagedContextNames()) != 2 {
 		t.Fatalf("expected 2 managed contexts, got %v", config.ManagedContextNames())
+	}
+	// Each entry pins the organisation of its own cluster, not a shared one.
+	for _, expectation := range []struct{ user, args string }{
+		{"ankra-demo", "cluster kube-token --cluster id-1 --org org-1"},
+		{"ankra-staging", "cluster kube-token --cluster id-2 --org org-2"},
+	} {
+		if got := strings.Join(execArgsForUser(t, config, expectation.user), " "); got != expectation.args {
+			t.Errorf("%s exec args = %q, want %q", expectation.user, got, expectation.args)
+		}
 	}
 }
 
@@ -358,6 +399,76 @@ func TestKubeconfigAddTreatsUUIDFlagAsID(t *testing.T) {
 	}
 	if got := config.ClusterServer(wantContext); got != "https://api.platform.ankra.dev/api/v1/clusters/"+clusterUUID+"/k8s" {
 		t.Errorf("server = %q", got)
+	}
+	// With no cluster lookup, no override, and no selected organisation the
+	// add still succeeds; the exec args just omit --org.
+	want := "cluster kube-token --cluster " + clusterUUID
+	if got := strings.Join(execArgsForUser(t, config, wantContext), " "); got != want {
+		t.Errorf("exec args = %q, want %q", got, want)
+	}
+}
+
+func TestKubeconfigAddUUIDFallbackEmbedsSelectedOrg(t *testing.T) {
+	// A raw cluster-ID passthrough carries no organisation from the backend;
+	// the exec args fall back to the persistently selected organisation.
+	withKubeconfigMock(t, kubeconfigMock{})
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".ankra"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	selection := []byte(`{"organisation_id":"org-selected","name":"Selected","role":"admin"}`)
+	if err := os.WriteFile(filepath.Join(home, ".ankra", "organisation.json"), selection, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(t.TempDir(), "config")
+	resetKubeconfigFlags(path)
+	const clusterUUID = "11111111-1111-1111-1111-111111111111"
+	kubeconfigClusterFlag = clusterUUID
+
+	var out bytes.Buffer
+	if err := kubeconfigAdd(&out); err != nil {
+		t.Fatal(err)
+	}
+	config, _ := kubeconfig.Load(path)
+	want := "cluster kube-token --cluster " + clusterUUID + " --org org-selected"
+	if got := strings.Join(execArgsForUser(t, config, "ankra-"+clusterUUID), " "); got != want {
+		t.Errorf("exec args = %q, want %q", got, want)
+	}
+}
+
+func TestKubeconfigAddUUIDFallbackEmbedsOrgOverride(t *testing.T) {
+	// The resolved --org/ANKRA_ORG override wins over the selected
+	// organisation for targets whose owning organisation is unknown.
+	withKubeconfigMock(t, kubeconfigMock{orgOverride: "org-override"})
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".ankra"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	selection := []byte(`{"organisation_id":"org-selected","name":"Selected","role":"admin"}`)
+	if err := os.WriteFile(filepath.Join(home, ".ankra", "organisation.json"), selection, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(t.TempDir(), "config")
+	resetKubeconfigFlags(path)
+	const clusterUUID = "11111111-1111-1111-1111-111111111111"
+	kubeconfigClusterFlag = clusterUUID
+
+	var out bytes.Buffer
+	if err := kubeconfigAdd(&out); err != nil {
+		t.Fatal(err)
+	}
+	config, _ := kubeconfig.Load(path)
+	want := "cluster kube-token --cluster " + clusterUUID + " --org org-override"
+	if got := strings.Join(execArgsForUser(t, config, "ankra-"+clusterUUID), " "); got != want {
+		t.Errorf("exec args = %q, want %q", got, want)
 	}
 }
 

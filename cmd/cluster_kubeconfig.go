@@ -30,8 +30,9 @@ var (
 const kubeconfigPageSize = 100
 
 type kubeTarget struct {
-	id   string
-	name string
+	id    string
+	name  string
+	orgID string
 }
 
 var clusterKubeconfigCmd = &cobra.Command{
@@ -265,6 +266,12 @@ func resolveContextNames(targets []kubeTarget) []string {
 // Embed-token mode mints one token per cluster (it needs the token anyway).
 // Exec mode mints a single token to learn the platform-wide proxy base URL and
 // to verify access, then reuses that base for every target.
+//
+// Exec args pin the cluster's owning organisation with --org so kube-token
+// keeps working after the user switches their selected organisation; without
+// it the token mint 404s ("Cluster not found") whenever the selection differs
+// from the cluster's organisation. The organisation ID is used rather than the
+// slug so the entry survives organisation renames.
 func buildManagedEntries(targets []kubeTarget, names []string) ([]kubeconfig.Entry, error) {
 	entries := make([]kubeconfig.Entry, len(targets))
 
@@ -287,9 +294,20 @@ func buildManagedEntries(targets []kubeTarget, names []string) ([]kubeconfig.Ent
 	if err != nil {
 		return nil, err
 	}
+	fallbackOrgID := ""
 	for index, target := range targets {
 		server := base + proxyServerPath(target.id)
+		orgID := target.orgID
+		if orgID == "" {
+			if fallbackOrgID == "" {
+				fallbackOrgID = effectiveOrganisationID()
+			}
+			orgID = fallbackOrgID
+		}
 		args := []string{"cluster", "kube-token", "--cluster", target.id}
+		if orgID != "" {
+			args = append(args, "--org", orgID)
+		}
 		entry, buildErr := kubeconfig.BuildExecEntry(names[index], server, kubeconfigExecCommand, args, kubeconfigNamespace, kubeconfigInsecure)
 		if buildErr != nil {
 			return nil, buildErr
@@ -297,6 +315,23 @@ func buildManagedEntries(targets []kubeTarget, names []string) ([]kubeconfig.Ent
 		entries[index] = entry
 	}
 	return entries, nil
+}
+
+// effectiveOrganisationID returns the organisation ID this invocation is
+// scoped to: the resolved --org/ANKRA_ORG override when one was applied,
+// otherwise the persistently selected organisation. Used as the fallback for
+// targets whose owning organisation the backend lookup did not supply (a raw
+// cluster-ID passthrough): the token mint during add only succeeds within the
+// owning organisation, so the effective scope is that organisation. Returns
+// "" when no organisation can be determined.
+func effectiveOrganisationID() string {
+	if override := apiClient.OrganisationOverride(); override != "" {
+		return override
+	}
+	if orgID, err := resolveOrganisationID(); err == nil {
+		return orgID
+	}
+	return ""
 }
 
 func proxyServerPath(clusterID string) string {
@@ -326,7 +361,7 @@ func resolveKubeconfigTargets() ([]kubeTarget, error) {
 	if kubeconfigClusterFlag != "" {
 		cluster, err := apiClient.GetCluster(kubeconfigClusterFlag)
 		if err == nil {
-			return []kubeTarget{{id: cluster.ID, name: cluster.Name}}, nil
+			return []kubeTarget{{id: cluster.ID, name: cluster.Name, orgID: cluster.OrganisationID}}, nil
 		}
 		if isLikelyClusterID(kubeconfigClusterFlag) {
 			return []kubeTarget{{id: kubeconfigClusterFlag, name: kubeconfigClusterFlag}}, nil
@@ -337,7 +372,7 @@ func resolveKubeconfigTargets() ([]kubeTarget, error) {
 	if err != nil || selected.ID == "" {
 		return nil, errors.New("no cluster specified; pass --cluster <name|id>, use --all, or run 'ankra cluster select' first")
 	}
-	return []kubeTarget{{id: selected.ID, name: selected.Name}}, nil
+	return []kubeTarget{{id: selected.ID, name: selected.Name, orgID: selected.OrganisationID}}, nil
 }
 
 func resolveKubeconfigClusterName() (string, error) {
@@ -363,7 +398,7 @@ func listAllClusterTargets() ([]kubeTarget, error) {
 			return nil, err
 		}
 		for _, cluster := range response.Result {
-			targets = append(targets, kubeTarget{id: cluster.ID, name: cluster.Name})
+			targets = append(targets, kubeTarget{id: cluster.ID, name: cluster.Name, orgID: cluster.OrganisationID})
 		}
 		if len(response.Result) == 0 || response.Pagination.Page >= response.Pagination.TotalPages {
 			break

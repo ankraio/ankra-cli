@@ -35,7 +35,11 @@ for example in a kubeconfig:
       exec:
         apiVersion: client.authentication.k8s.io/v1
         command: ankra
-        args: ["cluster", "kube-token", "--cluster", "<cluster-name-or-id>"]
+        args: ["cluster", "kube-token", "--cluster", "<cluster-name-or-id>", "--org", "<organisation-id>"]
+
+Pinning --org to the cluster's organisation ID keeps the entry working when
+your selected organisation differs from the cluster's ('ankra cluster
+kubeconfig add' writes it automatically).
 
 It prints JSON to stdout and never prompts; run 'ankra login' first.`,
 	Annotations: map[string]string{"group": "kubernetes"},
