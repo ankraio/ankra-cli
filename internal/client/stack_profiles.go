@@ -109,12 +109,15 @@ type ImportStackProfileRequest struct {
 	Changelog     *string  `json:"changelog,omitempty"`
 }
 
-func (c *Client) ListStackProfiles(page, pageSize int, search string) (*StackProfileListResponse, error) {
+func (c *Client) ListStackProfiles(page, pageSize int, search string, category string) (*StackProfileListResponse, error) {
 	query := neturl.Values{}
 	query.Set("page", fmt.Sprintf("%d", page))
 	query.Set("page_size", fmt.Sprintf("%d", pageSize))
 	if search != "" {
 		query.Set("search", search)
+	}
+	if category != "" {
+		query.Set("category", category)
 	}
 	requestURL := fmt.Sprintf("%s/api/v1/org/stack-profiles?%s", c.BaseURL, query.Encode())
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, requestURL, nil)

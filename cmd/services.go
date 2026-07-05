@@ -79,7 +79,7 @@ type APIClient interface {
 	GetStackHistory(clusterID, stackName string) (*client.GetStackHistoryResponse, error)
 	CloneStackToCluster(ctx context.Context, targetClusterID string, cloneReq client.CloneStackToClusterRequest) (*client.CloneStackToClusterResult, error)
 
-	ListStackProfiles(page, pageSize int, search string) (*client.StackProfileListResponse, error)
+	ListStackProfiles(page, pageSize int, search string, category string) (*client.StackProfileListResponse, error)
 	ExportStackProfileIac(profileID string, version int) (*client.StackProfileIacExport, error)
 	ImportStackProfile(importRequest client.ImportStackProfileRequest) (*client.CreateStackProfileResult, error)
 	GetStackProfile(profileID string) (*client.StackProfileDetail, error)

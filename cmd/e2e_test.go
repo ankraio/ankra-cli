@@ -81,7 +81,7 @@ func (m baseMock) DeleteClusterAccessGrant(ctx context.Context, clusterID string
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListStackProfiles(page, pageSize int, search string) (*client.StackProfileListResponse, error) {
+func (m baseMock) ListStackProfiles(page, pageSize int, search string, category string) (*client.StackProfileListResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
