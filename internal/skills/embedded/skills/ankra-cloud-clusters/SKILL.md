@@ -1,11 +1,11 @@
 ---
 name: ankra-cloud-clusters
-description: Provision and manage Ankra-managed K3s clusters on Hetzner Cloud, OVHcloud, and UpCloud - creating clusters, storing provider credentials, and managing node groups, scaling, Kubernetes versions, and upgrades. Use when the user wants Ankra to provision a cluster (rather than import one), or mentions Hetzner, OVH, or UpCloud clusters.
+description: Provision and manage Ankra-managed K3s clusters on Hetzner Cloud, OVHcloud, UpCloud, and DigitalOcean - creating clusters, storing provider credentials, and managing node groups, scaling, Kubernetes versions, and upgrades. Use when the user wants Ankra to provision a cluster (rather than import one), or mentions Hetzner, OVH, UpCloud, or DigitalOcean clusters.
 ---
 
 # Ankra Cloud Clusters
 
-Besides importing existing clusters, Ankra can provision managed K3s clusters on Hetzner Cloud, OVHcloud, and UpCloud. This skill covers the provision-and-manage lifecycle. Provider subcommands share a common shape: `ankra cluster hetzner|ovh|upcloud <verb>`.
+Besides importing existing clusters, Ankra can provision managed K3s clusters on Hetzner Cloud, OVHcloud, UpCloud, and DigitalOcean. This skill covers the provision-and-manage lifecycle. Provider subcommands share a common shape: `ankra cluster hetzner|ovh|upcloud|digitalocean <verb>`.
 
 ## 1. Store provider credentials
 
@@ -16,9 +16,12 @@ ankra credentials hetzner create --name hetzner-prod
 ankra credentials hetzner ssh-key create --name ops-key      # SSH key credential
 ankra credentials ovh create --name ovh-prod
 ankra credentials upcloud create --name upcloud-prod
+ankra credentials digitalocean create --name do-prod         # alias: ankra creds do
 ankra credentials list                                       # find the IDs to pass below
 ankra credentials get <name>                                 # resolve a name to its ID
 ```
+
+DigitalOcean personal access tokens are prefixed with `dop_v1_`.
 
 ## 2. Create a cluster (per provider)
 
@@ -34,13 +37,28 @@ ankra cluster ovh create \
   --wait
 ```
 
-Hetzner/UpCloud `create` take equivalent flags (`--name`, `--credential-id`, location/region, control-plane and worker sizes/counts, `--ssh-key-credential-id[s]`, optional `--kubernetes-version`). Run `ankra cluster <provider> create --help` for the provider-specific server-type/location flags.
+Hetzner/UpCloud/DigitalOcean `create` take equivalent flags (`--name`, `--credential-id`, location/region, control-plane and worker sizes/counts, `--ssh-key-credential-id[s]`, optional `--kubernetes-version`). Run `ankra cluster <provider> create --help` for the provider-specific server-type/location flags.
+
+DigitalOcean discovery before create:
+
+```bash
+ankra cluster digitalocean regions --credential-id <id>
+ankra cluster digitalocean sizes --credential-id <id> --region nyc3 --available-only
+ankra cluster digitalocean create \
+  --name prod \
+  --credential-id <do_cred_id> \
+  --ssh-key-credential-id <ssh_key_id> \
+  --region nyc3 \
+  --control-plane-size s-2vcpu-4gb \
+  --worker-size s-2vcpu-4gb \
+  --wait
+```
 
 > `ankra cluster provision` and `ankra cluster deprovision` **start and stop** an already-created managed cluster - they are not how you create one. Creation is always `ankra cluster <provider> create`.
 
 ## 3. Manage the lifecycle
 
-Same verbs exist under `hetzner`, `ovh`, and `upcloud`:
+Same verbs exist under `hetzner`, `ovh`, `upcloud`, and `digitalocean`:
 
 ```bash
 ankra cluster ovh k8s-version <cluster_id>                   # current Kubernetes version
@@ -75,7 +93,18 @@ ankra cluster ovh ssh-keys get <cluster_id>
 ankra cluster ovh ssh-keys set <cluster_id> --ssh-key-credential-ids <id>,...  # applies on next reconcile
 ```
 
-(Hetzner and UpCloud node groups support `add/list/scale/upgrade/delete`; labels/taints, start/stop, access-info, ssh-keys, and `regions` are OVH-specific today.)
+(Hetzner, UpCloud, and DigitalOcean node groups support `add/list/scale/upgrade/delete`; labels/taints, start/stop, access-info, ssh-keys, and `regions` are OVH-specific today. DigitalOcean adds `regions` and `sizes` discovery commands.)
+
+## Provider-native managed Kubernetes (DOKS & UKS)
+
+For DigitalOcean Kubernetes (DOKS, kind `doks`) or UpCloud UKS (kind `uks`) instead of self-managed K3s on VMs, use the platform API:
+
+```bash
+curl -X POST https://platform.ankra.app/org/clusters/managed/doks \
+  -H "Authorization: Bearer $ANKRA_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"prod","credential_id":"<do_cred_id>","location":"nyc3","node_pools":[{"name":"default","size":"s-2vcpu-4gb","count":2}]}'
+```
 
 ## 4. Deprovision / delete (destructive)
 
@@ -91,7 +120,7 @@ Confirm the target with `ankra cluster info` first; deprovisioning releases infr
 ## Rules
 
 - **Least-privilege provider credentials**, stored in Ankra and validated (`ankra credentials get`) before provisioning. Pass credential IDs, not names, to `create`.
-- **Pick a valid region first** (`ankra cluster ovh regions`); a region not enabled on the project fails the reconcile at private-network setup.
+- **Pick a valid region first** (`ankra cluster ovh regions`, `ankra cluster digitalocean regions`); a region not enabled on the account fails the reconcile at private-network setup.
 - **Confirm the target** before any `deprovision`, `delete`, scale-down, or version/instance upgrade. Node-group `upgrade` is irreversible.
 - **Use `--wait`** when a follow-up step depends on the result; otherwise treat creates and node-group mutations as in-flight and don't re-submit.
 - **Plan node groups** for workload isolation rather than one undifferentiated pool, and right-size them to avoid inflated cost.

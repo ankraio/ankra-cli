@@ -46,6 +46,10 @@ func (c *Client) GetUpcloudControlPlane(clusterID string) (*ControlPlaneInfo, er
 	return c.getControlPlane("upcloud", clusterID)
 }
 
+func (c *Client) GetDigitaloceanControlPlane(clusterID string) (*ControlPlaneInfo, error) {
+	return c.getControlPlane("digitalocean", clusterID)
+}
+
 func (c *Client) ChangeHetznerControlPlaneCount(clusterID string, count int) (*ChangeControlPlaneCountResult, error) {
 	return c.changeControlPlaneCount("hetzner", clusterID, count)
 }
@@ -58,6 +62,10 @@ func (c *Client) ChangeUpcloudControlPlaneCount(clusterID string, count int) (*C
 	return c.changeControlPlaneCount("upcloud", clusterID, count)
 }
 
+func (c *Client) ChangeDigitaloceanControlPlaneCount(clusterID string, count int) (*ChangeControlPlaneCountResult, error) {
+	return c.changeControlPlaneCount("digitalocean", clusterID, count)
+}
+
 func (c *Client) ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string) (*ChangeControlPlaneInstanceTypeResult, error) {
 	return c.changeControlPlaneInstanceType("hetzner", clusterID, instanceType)
 }
@@ -68,6 +76,10 @@ func (c *Client) ChangeOvhControlPlaneInstanceType(clusterID, instanceType strin
 
 func (c *Client) ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string) (*ChangeControlPlaneInstanceTypeResult, error) {
 	return c.changeControlPlaneInstanceType("upcloud", clusterID, instanceType)
+}
+
+func (c *Client) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceType string) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType("digitalocean", clusterID, instanceType)
 }
 
 func (c *Client) getControlPlane(provider, clusterID string) (*ControlPlaneInfo, error) {

@@ -44,6 +44,15 @@ func upcloudControlPlaneOps() controlPlaneOps {
 	}
 }
 
+func digitaloceanControlPlaneOps() controlPlaneOps {
+	return controlPlaneOps{
+		provider:        "digitalocean",
+		get:             apiClient.GetDigitaloceanControlPlane,
+		setCount:        apiClient.ChangeDigitaloceanControlPlaneCount,
+		setInstanceType: apiClient.ChangeDigitaloceanControlPlaneInstanceType,
+	}
+}
+
 func runControlPlaneGet(cmd *cobra.Command, opsFn func() controlPlaneOps, clusterID string) error {
 	ops := opsFn()
 	info, err := ops.get(clusterID)
@@ -153,4 +162,5 @@ func init() {
 	hetznerCmd.AddCommand(newControlPlaneCmd(hetznerControlPlaneOps, "Hetzner"))
 	ovhCmd.AddCommand(newControlPlaneCmd(ovhControlPlaneOps, "OVH"))
 	upcloudCmd.AddCommand(newControlPlaneCmd(upcloudControlPlaneOps, "UpCloud"))
+	digitaloceanCmd.AddCommand(newControlPlaneCmd(digitaloceanControlPlaneOps, "DigitalOcean"))
 }

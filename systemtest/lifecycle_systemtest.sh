@@ -104,6 +104,13 @@ UPCLOUD_CP_PLAN="${UPCLOUD_CP_PLAN:-2xCPU-4GB}"
 UPCLOUD_WORKER_PLAN="${UPCLOUD_WORKER_PLAN:-2xCPU-4GB}"
 UPCLOUD_BIGGER_PLAN="${UPCLOUD_BIGGER_PLAN:-4xCPU-8GB}"
 
+DIGITALOCEAN_CREDENTIAL_ID="${DIGITALOCEAN_CREDENTIAL_ID:-}"
+DIGITALOCEAN_REGION="${DIGITALOCEAN_REGION:-nyc3}"
+DIGITALOCEAN_BASTION_SIZE="${DIGITALOCEAN_BASTION_SIZE:-s-1vcpu-1gb}"
+DIGITALOCEAN_CP_SIZE="${DIGITALOCEAN_CP_SIZE:-s-2vcpu-4gb}"
+DIGITALOCEAN_WORKER_SIZE="${DIGITALOCEAN_WORKER_SIZE:-s-2vcpu-4gb}"
+DIGITALOCEAN_BIGGER_SIZE="${DIGITALOCEAN_BIGGER_SIZE:-s-4vcpu-8gb}"
+
 # Timeouts / polling (seconds).
 ONLINE_TIMEOUT="${ONLINE_TIMEOUT:-1500}"     # cluster create -> online
 ADDONS_TIMEOUT="${ADDONS_TIMEOUT:-900}"      # addons -> up
@@ -208,8 +215,8 @@ cleanup() {
       log "cleanup: deprovisioning leftover cluster $name ($id)"
       # Best-effort: try a graceful deprovision, then force so we never leak
       # paid infrastructure on an aborted run.
-      ank cluster deprovision "$id" >/dev/null 2>&1 || true
-      ank cluster deprovision "$id" --force >/dev/null 2>&1 || true
+      ank cluster deprovision "$id" --yes >/dev/null 2>&1 || true
+      ank cluster deprovision "$id" --force --yes >/dev/null 2>&1 || true
     fi
   done
 }
@@ -416,6 +423,14 @@ create_cluster() {
         --worker-plan "$UPCLOUD_WORKER_PLAN" --worker-count 1 \
         --external-cloud-provider "${gitops_args[@]}"
       ;;
+    digitalocean)
+      ank cluster digitalocean create --name "$name" --credential-id "$DIGITALOCEAN_CREDENTIAL_ID" \
+        --ssh-key-credential-id "$SSH_KEY_CREDENTIAL_ID" --region "$DIGITALOCEAN_REGION" \
+        --bastion-size "$DIGITALOCEAN_BASTION_SIZE" \
+        --control-plane-size "$DIGITALOCEAN_CP_SIZE" --control-plane-count 1 \
+        --worker-size "$DIGITALOCEAN_WORKER_SIZE" --worker-count 1 \
+        --external-cloud-provider "${gitops_args[@]}"
+      ;;
     *) die "unknown provider $provider" ;;
   esac
 }
@@ -425,6 +440,7 @@ bigger_plan() {
     hetzner) echo "$HETZNER_BIGGER_TYPE" ;;
     ovh)     echo "$OVH_BIGGER_FLAVOR" ;;
     upcloud) echo "$UPCLOUD_BIGGER_PLAN" ;;
+    digitalocean) echo "$DIGITALOCEAN_BIGGER_SIZE" ;;
   esac
 }
 
@@ -433,6 +449,7 @@ ng_instance_type() {
     hetzner) echo "$HETZNER_WORKER_TYPE" ;;
     ovh)     echo "$OVH_WORKER_FLAVOR" ;;
     upcloud) echo "$UPCLOUD_WORKER_PLAN" ;;
+    digitalocean) echo "$DIGITALOCEAN_WORKER_SIZE" ;;
   esac
 }
 
@@ -473,7 +490,7 @@ run_provider() {
   if daytwo "ng add" "$name" node-group add "$id" --name pool-b --instance-type "$(ng_instance_type "$provider")" --count 2 \
      && wait_for_nodes "$name" 4 "$DAYTWO_TIMEOUT" && node_group_present "$name" "$id" pool-b; then
     pass "$provider node-group add"; else fail "$provider node-group add"; fi
-  if daytwo "ng delete" "$name" node-group delete "$id" pool-b \
+  if daytwo "ng delete" "$name" node-group delete "$id" pool-b --yes \
      && wait_for_nodes "$name" 2 "$DAYTWO_TIMEOUT"; then
     pass "$provider node-group delete"; else fail "$provider node-group delete"; fi
 
@@ -492,12 +509,12 @@ run_provider() {
 
   # 8. Deprovision -> removed (with a bounded force-deprovision fallback on stall)
   log "deprovisioning $name ..."
-  ank cluster deprovision "$id" | tail -2
+  ank cluster deprovision "$id" --yes | tail -2
   if wait_for_removed "$name" "$DEPROVISION_TIMEOUT"; then
     pass "$provider deprovision -> deleted_at"
   else
     log "  $name deprovision stalled after ${DEPROVISION_TIMEOUT}s; attempting bounded force-deprovision fallback"
-    ank cluster deprovision "$id" --force | tail -2 || true
+    ank cluster deprovision "$id" --force --yes | tail -2 || true
     if wait_for_removed "$name" "$DEPROVISION_FORCE_TIMEOUT"; then
       pass "$provider deprovision -> deleted_at (after force fallback)"
     else
@@ -573,6 +590,7 @@ preflight() {
       hetzner) [ -n "$HETZNER_CREDENTIAL_ID" ] || die "HETZNER_CREDENTIAL_ID required for hetzner" ;;
       ovh)     [ -n "$OVH_CREDENTIAL_ID" ] || die "OVH_CREDENTIAL_ID required for ovh" ;;
       upcloud) [ -n "$UPCLOUD_CREDENTIAL_ID" ] || die "UPCLOUD_CREDENTIAL_ID required for upcloud" ;;
+      digitalocean) [ -n "$DIGITALOCEAN_CREDENTIAL_ID" ] || die "DIGITALOCEAN_CREDENTIAL_ID required for digitalocean" ;;
       *) die "unknown provider in ANKRA_SYSTEMTEST_PROVIDERS: $p" ;;
     esac
   done

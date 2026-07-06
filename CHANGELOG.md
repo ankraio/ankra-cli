@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster digitalocean`** — create, deprovision, stop/start, scale, upgrade, node groups,
+  regions/sizes discovery, and credential management (alias: `ankra cluster do`,
+  `ankra credentials digitalocean`).
+- **`ankra cluster managed`** — create, deprovision, upgrade, and node-pool operations for
+  DigitalOcean Kubernetes (`doks`) and UpCloud Managed Kubernetes (`uks`).
+- Provider-agnostic cluster commands (`scale`, `upgrade`, `node-group`, `ssh-keys`, `deprovision`)
+  now detect `digitalocean` clusters automatically.
+
 ## v0.5.0 — 2026-07-05
 
 ### Added
