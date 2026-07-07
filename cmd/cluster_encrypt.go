@@ -546,7 +546,12 @@ func fetchClusterIaCDoc(ctx context.Context, clusterFlag string) (clusterID, clu
 }
 
 func runEncryptManifestCluster(cmd *cobra.Command, manifestName, leafKey string) error {
-	ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+	// The command ends in a partial-stack PATCH, which the backend serves
+	// synchronously (DB transaction + a full GitOps commit/push when the
+	// cluster has a linked repo) rather than enqueuing it - that can
+	// legitimately take longer than 60s on a large cluster, so the timeout
+	// matches the HTTP client's slow-write ceiling (see httpClientForSlowWrite).
+	ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
 	defer cancel()
 
 	clusterID, _, doc, err := fetchClusterIaCDoc(ctx, encryptClusterFlag)
@@ -611,7 +616,12 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName, leafKey string)
 }
 
 func runEncryptAddonCluster(cmd *cobra.Command, addonName, leafKey string) error {
-	ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+	// The command ends in a partial-stack PATCH, which the backend serves
+	// synchronously (DB transaction + a full GitOps commit/push when the
+	// cluster has a linked repo) rather than enqueuing it - that can
+	// legitimately take longer than 60s on a large cluster, so the timeout
+	// matches the HTTP client's slow-write ceiling (see httpClientForSlowWrite).
+	ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
 	defer cancel()
 
 	clusterID, _, doc, err := fetchClusterIaCDoc(ctx, encryptClusterFlag)
