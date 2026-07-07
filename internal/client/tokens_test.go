@@ -38,7 +38,7 @@ func TestCreateAPIToken(t *testing.T) {
 			Type:      "bearer",
 		})
 	})
-	got, err := testClient.CreateAPIToken("New Token", nil)
+	got, err := testClient.CreateAPIToken("New Token", nil, nil)
 	if err != nil {
 		t.Fatalf("CreateAPIToken() error = %v", err)
 	}

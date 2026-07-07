@@ -60,6 +60,9 @@ func parseAsyncWriteResponse(
 	if response.StatusCode == http.StatusAccepted {
 		return true, nil
 	}
+	if denied := PermissionDeniedFromResponse(response.StatusCode, responseBody); denied != nil {
+		return false, denied
+	}
 	if wait {
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
 			return false, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("request failed: status %d: %s", response.StatusCode, redactedBodyForError(responseBody, 500)))

@@ -84,13 +84,14 @@ var tokensCreateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		expiresAt, _ := cmd.Flags().GetString("expires")
+		scopes, _ := cmd.Flags().GetStringSlice("scopes")
 
 		var expiresAtPtr *string
 		if expiresAt != "" {
 			expiresAtPtr = &expiresAt
 		}
 
-		result, err := apiClient.CreateAPIToken(name, expiresAtPtr)
+		result, err := apiClient.CreateAPIToken(name, expiresAtPtr, scopes)
 		if err != nil {
 			return fmt.Errorf("creating token: %w", err)
 		}
@@ -155,6 +156,8 @@ var tokensDeleteCmd = &cobra.Command{
 
 func init() {
 	tokensCreateCmd.Flags().String("expires", "", "Token expiration date (ISO 8601 format)")
+	tokensCreateCmd.Flags().StringSlice("scopes", nil,
+		"Permission allowlist for the token (e.g. clusters.read,stacks.deploy); omitted grants the user's full authority")
 
 	registerStructuredOutputFlags(tokensListCmd, tokensCreateCmd)
 

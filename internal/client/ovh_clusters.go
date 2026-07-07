@@ -214,6 +214,20 @@ func (c *Client) ScaleOvhNodeGroup(ctx context.Context, clusterID, groupName str
 	return c.doScaleNodeGroup(ctx, url, payload, wait)
 }
 
+func (c *Client) GetOvhNodeGroupAutoscaling(clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
+	return c.doGetNodeGroupAutoscaling(url)
+}
+
+func (c *Client) UpdateOvhNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, req NodeGroupAutoscalingRequest, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, wait)
+}
+
 func (c *Client) UpdateOvhNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})

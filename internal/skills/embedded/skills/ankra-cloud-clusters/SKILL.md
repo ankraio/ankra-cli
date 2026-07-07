@@ -1,11 +1,11 @@
 ---
 name: ankra-cloud-clusters
-description: Provision and manage Ankra-managed K3s clusters on Hetzner Cloud, OVHcloud, and UpCloud - creating clusters, storing provider credentials, and managing node groups, scaling, Kubernetes versions, and upgrades. Use when the user wants Ankra to provision a cluster (rather than import one), or mentions Hetzner, OVH, or UpCloud clusters.
+description: Provision and manage Ankra-managed Kubernetes clusters (K3s or kubeadm) on Hetzner Cloud, OVHcloud, and UpCloud - creating clusters, storing provider credentials, and managing node groups, scaling, Kubernetes versions, and upgrades. Use when the user wants to create or provision a new Kubernetes cluster (rather than import an existing one), or mentions Hetzner, OVH, or UpCloud clusters.
 ---
 
 # Ankra Cloud Clusters
 
-Besides importing existing clusters, Ankra can provision managed K3s clusters on Hetzner Cloud, OVHcloud, and UpCloud. This skill covers the provision-and-manage lifecycle. Provider subcommands share a common shape: `ankra cluster hetzner|ovh|upcloud <verb>`.
+Besides importing existing clusters, Ankra can provision managed Kubernetes clusters on Hetzner Cloud, OVHcloud, and UpCloud - K3s by default, or vanilla upstream Kubernetes via kubeadm. This skill covers the provision-and-manage lifecycle. Provider subcommands share a common shape: `ankra cluster hetzner|ovh|upcloud <verb>`.
 
 ## 1. Store provider credentials
 
@@ -35,6 +35,22 @@ ankra cluster ovh create \
 ```
 
 Hetzner/UpCloud `create` take equivalent flags (`--name`, `--credential-id`, location/region, control-plane and worker sizes/counts, `--ssh-key-credential-id[s]`, optional `--kubernetes-version`). Run `ankra cluster <provider> create --help` for the provider-specific server-type/location flags.
+
+### Distribution: K3s (default) or kubeadm
+
+`--distribution kubeadm` provisions vanilla upstream Kubernetes (containerd, pinned pkgs.k8s.io packages, Cilium CNI) instead of K3s. kubeadm-only extras:
+
+```bash
+ankra cluster kubeadm-versions                               # supported upstream versions (plain v1.31.0 tags)
+ankra cluster hetzner create ... \
+  --distribution kubeadm \
+  --etcd-topology external \                                 # default: stacked (etcd on control planes)
+  --etcd-node-count 3 \                                      # 3 or 5, external only
+  --etcd-server-type cx33                                    # OVH: --etcd-flavor-id, UpCloud: --etcd-plan
+```
+
+- Version tags differ per distribution: `ankra cluster k3s-versions` lists `v1.30.0+k3s1`-style tags; `kubeadm-versions` lists plain `v1.31.0` tags. Upgrades reject the wrong format.
+- External etcd is kubeadm-only, fixed at create time (no resize), on dedicated VMs.
 
 > `ankra cluster provision` and `ankra cluster deprovision` **start and stop** an already-created managed cluster - they are not how you create one. Creation is always `ankra cluster <provider> create`.
 

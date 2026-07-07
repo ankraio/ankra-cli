@@ -25,6 +25,8 @@ func TestExitCodeForClassification(t *testing.T) {
 		{"cancelled wrapped", fmt.Errorf("delete: %w", errCancelled), exitCancelled},
 		{"unauthorized response", &client.UnexpectedResponseError{StatusCode: 401}, exitAuth},
 		{"forbidden response", &client.UnexpectedResponseError{StatusCode: 403}, exitAuth},
+		{"RBAC permission denied", &client.PermissionDeniedError{Permission: "clusters.write"}, exitForbidden},
+		{"RBAC permission denied wrapped", fmt.Errorf("applying cluster: %w", &client.PermissionDeniedError{}), exitForbidden},
 		{"not-found response", &client.UnexpectedResponseError{StatusCode: 404}, exitNotFound},
 		{"server error response", &client.UnexpectedResponseError{StatusCode: 500}, exitError},
 		{"bare deadline stays generic (internal request timeouts are not --wait expiry)", fmt.Errorf("waiting: %w", context.DeadlineExceeded), exitError},

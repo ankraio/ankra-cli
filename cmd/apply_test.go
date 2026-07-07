@@ -529,6 +529,35 @@ func TestBuildStack(t *testing.T) {
 		if s.Name != "empty" {
 			t.Errorf("name = %q, want %q", s.Name, "empty")
 		}
+		if s.DeployWave != nil {
+			t.Errorf("deploy wave = %v, want nil for a stack without deploy_wave", *s.DeployWave)
+		}
+	})
+
+	t.Run("deploy_wave is parsed", func(t *testing.T) {
+		sm := map[string]interface{}{
+			"name":        "waved",
+			"deploy_wave": 2,
+		}
+		s, err := buildStack(sm, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if s.DeployWave == nil || *s.DeployWave != 2 {
+			t.Errorf("deploy wave = %v, want 2", s.DeployWave)
+		}
+	})
+
+	t.Run("deploy_wave rejects negatives and fractions", func(t *testing.T) {
+		if _, err := buildStack(map[string]interface{}{"name": "w", "deploy_wave": -1}, ""); err == nil {
+			t.Error("expected error for a negative deploy_wave")
+		}
+		if _, err := buildStack(map[string]interface{}{"name": "w", "deploy_wave": 1.5}, ""); err == nil {
+			t.Error("expected error for a fractional deploy_wave")
+		}
+		if _, err := buildStack(map[string]interface{}{"name": "w", "deploy_wave": "first"}, ""); err == nil {
+			t.Error("expected error for a non-numeric deploy_wave")
+		}
 	})
 
 	t.Run("invalid manifest entry", func(t *testing.T) {

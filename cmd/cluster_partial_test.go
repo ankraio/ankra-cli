@@ -453,6 +453,26 @@ func TestMapPatchError_ExitCodeClassification(t *testing.T) {
 	}
 }
 
+// A platform RBAC 403 ({"detail":"permission_denied", ...}) is a role
+// problem, not a credential problem: it must classify as exitForbidden (7)
+// with the permission named, while every other 403 stays exitAuth (6).
+func TestMapPatchError_RBACDenialGetsExitForbidden(t *testing.T) {
+	perr := &client.PatchStackError{
+		StatusCode: 403,
+		Body:       []byte(`{"detail":"permission_denied","permission":"stacks.deploy"}`),
+	}
+	err := mapPatchError(perr)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := exitCodeFor(err); got != exitForbidden {
+		t.Errorf("exitCodeFor = %d, want %d", got, exitForbidden)
+	}
+	if !strings.Contains(err.Error(), `"stacks.deploy"`) {
+		t.Errorf("message should name the missing permission, got %q", err.Error())
+	}
+}
+
 func TestMapPatchError_ServerErrorTriggersSupportHint(t *testing.T) {
 	perr := &client.PatchStackError{StatusCode: 500, Body: []byte(`{"detail":"boom"}`)}
 	err := mapPatchError(perr)

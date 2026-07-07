@@ -48,3 +48,22 @@ func NewUnexpectedResponseError(statusCode int, message string) *UnexpectedRespo
 // CLI's exit-code classification — can detect authentication failures with
 // errors.Is instead of matching message text.
 var ErrUnauthorized = errors.New("unauthorized. Run `ankra login` to re-authenticate")
+
+// PermissionDeniedError marks the platform RBAC 403
+// (`{"detail": "permission_denied", "permission": ...}`): the caller is
+// authenticated but their role lacks the named permission. Distinct from
+// ErrUnauthorized so scripts can tell "re-login" from "ask an admin for a
+// role change" (exit code 7 vs 6).
+type PermissionDeniedError struct {
+	Permission string
+}
+
+func (e *PermissionDeniedError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Permission == "" {
+		return "permission denied: your role does not permit this action. Ask an organisation admin to change your role"
+	}
+	return fmt.Sprintf("permission denied: this action requires the %q permission. Ask an organisation admin to change your role", e.Permission)
+}

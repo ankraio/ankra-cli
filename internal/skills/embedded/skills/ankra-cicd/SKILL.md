@@ -1,6 +1,6 @@
 ---
 name: ankra-cicd
-description: Build CI/CD pipelines (GitHub Actions or GitLab CI) that build a container image, push it with an immutable tag, and bump that tag in the Ankra GitOps repository so Ankra/ArgoCD syncs the change - rather than running kubectl/helm against the cluster from CI. Use when the user wires CI/CD for an Ankra-managed app, mentions GitHub Actions or GitLab CI with Ankra, or asks how to deploy on push.
+description: Build CI/CD pipelines (GitHub Actions or GitLab CI) that deploy to Kubernetes the GitOps way - build a container image, push it with an immutable tag, and bump that tag in the Ankra GitOps repository so Ankra/ArgoCD syncs the change, rather than running kubectl/helm against the cluster from CI. Use when the user sets up CI/CD or automated deployment to a Kubernetes cluster in an Ankra environment, or asks how to deploy on push.
 ---
 
 # Ankra CI/CD

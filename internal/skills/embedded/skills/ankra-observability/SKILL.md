@@ -1,6 +1,6 @@
 ---
 name: ankra-observability
-description: Deploy a monitoring and logging stack on an Ankra cluster (Prometheus, Grafana, Loki, Promtail) and wire external Prometheus-compatible metrics sources (Grafana Cloud, Amazon Managed Prometheus, Google Cloud Managed Prometheus, Thanos, VictoriaMetrics). Use when the user wants monitoring, metrics, dashboards, logging, or to connect a metrics source to Ankra.
+description: Deploy monitoring and logging on a Kubernetes cluster through Ankra (Prometheus, Grafana, Loki, Promtail) and wire external Prometheus-compatible metrics sources (Grafana Cloud, Amazon Managed Prometheus, Google Cloud Managed Prometheus, Thanos, VictoriaMetrics). Use when the user wants monitoring, metrics, dashboards, or logging on a Kubernetes cluster in an Ankra environment, or to connect a metrics source to Ankra.
 ---
 
 # Ankra Observability

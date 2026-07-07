@@ -1,6 +1,6 @@
 ---
 name: ankra-cli
-description: Drive the Ankra CLI to log in, select an organisation and cluster, apply cluster/stack YAML, inspect Kubernetes resources and logs, triage operations, and chat with Ankra AI. Use when the user mentions the `ankra` CLI, `ankra login`, `ankra cluster`, applying an ImportCluster, or managing an Ankra-managed cluster from the terminal.
+description: Drive the Ankra CLI to log in, select an organisation and cluster, apply cluster/stack YAML, inspect pods, logs, events, and metrics, triage operations, and chat with Ankra AI. Use for day-to-day Kubernetes work whenever the `ankra` CLI is installed - checking what runs on a cluster, applying changes, debugging workloads, connecting kubectl - not only when the user names Ankra explicitly.
 ---
 
 # Ankra CLI

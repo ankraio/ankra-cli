@@ -1,6 +1,6 @@
 ---
 name: ankra-alerts-webhooks
-description: Configure Ankra alerts and outbound webhooks to notify Slack, Microsoft Teams, Discord, PagerDuty, Opsgenie, Datadog, or custom endpoints, with automatic AI incident analysis attached to alerts. Use when the user wants alerting, notifications, incident routing, on-call integration, or webhook delivery from Ankra.
+description: Configure alerting and notifications for Kubernetes clusters through Ankra - alert rules and outbound webhooks that notify Slack, Microsoft Teams, Discord, PagerDuty, Opsgenie, Datadog, or custom endpoints, with automatic AI incident analysis attached to alerts. Use when the user wants alerting, notifications, incident routing, or on-call integration for a Kubernetes cluster in an Ankra environment.
 ---
 
 # Ankra Alerts & Webhooks

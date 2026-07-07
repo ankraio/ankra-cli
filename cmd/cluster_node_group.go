@@ -11,11 +11,13 @@ import (
 )
 
 type (
-	nodeGroupListFunc    func(clusterID string) (*client.NodeGroupListResult, error)
-	nodeGroupAddFunc     func(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error)
-	nodeGroupScaleFunc   func(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error)
-	nodeGroupUpgradeFunc func(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error)
-	nodeGroupDeleteFunc  func(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error)
+	nodeGroupListFunc           func(clusterID string) (*client.NodeGroupListResult, error)
+	nodeGroupAddFunc            func(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error)
+	nodeGroupScaleFunc          func(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error)
+	nodeGroupUpgradeFunc        func(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error)
+	nodeGroupDeleteFunc         func(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error)
+	nodeGroupAutoscalingGetFunc func(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error)
+	nodeGroupAutoscalingSetFunc func(ctx context.Context, clusterID, groupName string, req client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error)
 )
 
 // resolveNodeGroupClusterKind looks up the cluster and confirms it is a
@@ -92,6 +94,30 @@ func nodeGroupDeleteForKind(kind string) nodeGroupDeleteFunc {
 		return apiClient.DeleteOvhNodeGroup
 	case "upcloud":
 		return apiClient.DeleteUpcloudNodeGroup
+	}
+	return nil
+}
+
+func nodeGroupAutoscalingGetForKind(kind string) nodeGroupAutoscalingGetFunc {
+	switch kind {
+	case "hetzner":
+		return apiClient.GetHetznerNodeGroupAutoscaling
+	case "ovh":
+		return apiClient.GetOvhNodeGroupAutoscaling
+	case "upcloud":
+		return apiClient.GetUpcloudNodeGroupAutoscaling
+	}
+	return nil
+}
+
+func nodeGroupAutoscalingSetForKind(kind string) nodeGroupAutoscalingSetFunc {
+	switch kind {
+	case "hetzner":
+		return apiClient.UpdateHetznerNodeGroupAutoscaling
+	case "ovh":
+		return apiClient.UpdateOvhNodeGroupAutoscaling
+	case "upcloud":
+		return apiClient.UpdateUpcloudNodeGroupAutoscaling
 	}
 	return nil
 }
@@ -323,6 +349,103 @@ var clusterNodeGroupDeleteCmd = &cobra.Command{
 	},
 }
 
+var clusterNodeGroupAutoscalingCmd = &cobra.Command{
+	Use:   "autoscaling",
+	Short: "Manage node-group autoscaling",
+	Long: `Read or write the Cluster Autoscaler settings of a node group.
+
+When autoscaling is enabled, the Ankra-managed Cluster Autoscaler keeps the
+group's node count within [min, max] based on pod demand. Manual scaling
+stays allowed but is clamped into the same bounds.`,
+}
+
+var clusterNodeGroupAutoscalingGetCmd = &cobra.Command{
+	Use:   "get <cluster_id> <group_name>",
+	Short: "Show autoscaling settings for a node group",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID := args[0]
+		groupName := args[1]
+		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		if kindError != nil {
+			return kindError
+		}
+
+		result, getError := nodeGroupAutoscalingGetForKind(kind)(clusterID, groupName)
+		if getError != nil {
+			return fmt.Errorf("fetching node group autoscaling: %w", getError)
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		state := "disabled"
+		if result.Enabled {
+			state = "enabled"
+		}
+		fmt.Printf("Node group '%s' autoscaling: %s\n", result.GroupName, state)
+		fmt.Printf("  Min: %d\n", result.MinCount)
+		fmt.Printf("  Max: %d\n", result.MaxCount)
+		return nil
+	},
+}
+
+var clusterNodeGroupAutoscalingSetCmd = &cobra.Command{
+	Use:   "set <cluster_id> <group_name>",
+	Short: "Enable or disable autoscaling for a node group",
+	Long: `Enable autoscaling with --enabled --min <n> --max <n>, or disable it with
+--enabled=false. min must be at least 1 (scale-to-zero is not supported);
+enabling requires the cluster's ankra-agent to be recent enough to serve
+the autoscaler, and installs the Cluster Autoscaler on first enable.`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID := args[0]
+		groupName := args[1]
+		enabled, _ := cmd.Flags().GetBool("enabled")
+		minCount, _ := cmd.Flags().GetInt("min")
+		maxCount, _ := cmd.Flags().GetInt("max")
+		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		if kindError != nil {
+			return kindError
+		}
+
+		req := client.NodeGroupAutoscalingRequest{Enabled: enabled, MinCount: minCount, MaxCount: maxCount}
+
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
+		defer cancelRequestContext()
+
+		result, submitted, setError := nodeGroupAutoscalingSetForKind(kind)(requestContext, clusterID, groupName, req, wait)
+		if setError != nil {
+			return asyncWriteError("updating node group autoscaling", wait, setError)
+		}
+		if submitted {
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group autoscaling update")); err != nil {
+				return err
+			} else if handled {
+				return nil
+			}
+			printAsyncWriteSubmitted("Node group autoscaling update")
+			return nil
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		if result.Enabled {
+			fmt.Printf("Node group '%s' autoscaling enabled (min %d, max %d).\n",
+				result.GroupName, result.MinCount, result.MaxCount)
+		} else {
+			fmt.Printf("Node group '%s' autoscaling disabled.\n", result.GroupName)
+		}
+		return nil
+	},
+}
+
 func init() {
 	clusterNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
 	clusterNodeGroupAddCmd.Flags().String("instance-type", "", "Server type / flavor / plan for nodes (required)")
@@ -330,10 +453,15 @@ func init() {
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("name")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("instance-type")
 
+	clusterNodeGroupAutoscalingSetCmd.Flags().Bool("enabled", true, "Enable (true) or disable (false) autoscaling")
+	clusterNodeGroupAutoscalingSetCmd.Flags().Int("min", 1, "Minimum node count while autoscaling (>= 1)")
+	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 5, "Maximum node count while autoscaling")
+
 	registerAsyncWriteFlags(clusterNodeGroupAddCmd)
 	registerAsyncWriteFlags(clusterNodeGroupScaleCmd)
 	registerAsyncWriteFlags(clusterNodeGroupUpgradeCmd)
 	registerAsyncWriteFlags(clusterNodeGroupDeleteCmd)
+	registerAsyncWriteFlags(clusterNodeGroupAutoscalingSetCmd)
 
 	clusterNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
@@ -343,13 +471,19 @@ func init() {
 		clusterNodeGroupScaleCmd,
 		clusterNodeGroupUpgradeCmd,
 		clusterNodeGroupDeleteCmd,
+		clusterNodeGroupAutoscalingGetCmd,
+		clusterNodeGroupAutoscalingSetCmd,
 	)
+
+	clusterNodeGroupAutoscalingCmd.AddCommand(clusterNodeGroupAutoscalingGetCmd)
+	clusterNodeGroupAutoscalingCmd.AddCommand(clusterNodeGroupAutoscalingSetCmd)
 
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupListCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupAddCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupScaleCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupUpgradeCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupDeleteCmd)
+	clusterNodeGroupCmd.AddCommand(clusterNodeGroupAutoscalingCmd)
 
 	clusterCmd.AddCommand(clusterNodeGroupCmd)
 }

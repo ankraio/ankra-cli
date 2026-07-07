@@ -10,12 +10,14 @@ import (
 )
 
 type ClusterStackListItem struct {
-	Name              string          `json:"name"`
-	Description       string          `json:"description"`
-	Manifests         []StackManifest `json:"manifests"`
-	Addons            []StackAddon    `json:"addons"`
-	State             string          `json:"state"`
-	DeletePermanently bool            `json:"delete_permanently"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Manifests   []StackManifest `json:"manifests"`
+	Addons      []StackAddon    `json:"addons"`
+	// DeployWave orders stacks against each other (nil = unordered).
+	DeployWave        *int   `json:"deploy_wave,omitempty"`
+	State             string `json:"state"`
+	DeletePermanently bool   `json:"delete_permanently"`
 }
 
 type StackManifest struct {

@@ -1,6 +1,6 @@
 ---
 name: ankra-gitops
-description: Structure an Ankra GitOps repository with modular include paths so cluster and stack definitions are stored in Git and synced by Ankra/ArgoCD. Use when the user connects a Git repository to a cluster, organizes a GitOps repo layout, or wants Git to be the source of truth for their Kubernetes configuration.
+description: Structure a GitOps repository for Kubernetes with Ankra - modular include paths so cluster and stack definitions are stored in Git and synced by Ankra/ArgoCD. Use when the user sets up GitOps, connects a Git repository to a cluster, organizes cluster/stack YAML in a repo, or wants Git to be the source of truth for their Kubernetes configuration.
 ---
 
 # Ankra GitOps

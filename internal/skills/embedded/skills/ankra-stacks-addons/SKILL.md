@@ -1,6 +1,6 @@
 ---
 name: ankra-stacks-addons
-description: Compose Ankra Stacks from Helm addons, raw Kubernetes manifests, variables, and dependency edges that control deployment order. Use when the user is designing or editing an Ankra stack, adding a Helm addon, ordering resources with parents, or factoring configuration into variables.
+description: Compose Ankra Stacks from Helm addons, raw Kubernetes manifests, variables, and dependency edges that control deployment order. Use when deploying anything onto an Ankra-managed Kubernetes cluster - installing a Helm chart or addon (ingress-nginx, cert-manager, Prometheus, databases, ...), applying manifests, ordering resources with parents or deploy waves - instead of running helm install or kubectl apply directly.
 ---
 
 # Ankra Stacks & Addons
@@ -14,7 +14,21 @@ A Stack is Ankra's reusable unit of deployment: it bundles Helm addons, raw mani
 - **Variable** - a named value substituted into manifests/addon values, so the same stack works across environments.
 - **Parents** - dependency edges. A resource deploys only after every parent has succeeded.
 
-## Deployment order via `parents`
+## Deployment order across stacks via `deploy_wave`
+
+Stacks accept an optional `deploy_wave` (integer >= 0): a stack in wave N deploys only after every stack in a lower wave finished, teardown unwinds in reverse, and stacks sharing a wave run in parallel. Stacks without a wave stay independent.
+
+```yaml
+stacks:
+  - name: infrastructure
+    deploy_wave: 1
+  - name: platform
+    deploy_wave: 2
+  - name: applications
+    deploy_wave: 3
+```
+
+## Deployment order within a stack via `parents`
 
 Order is a graph, not a list. Declare what each resource needs:
 

@@ -210,13 +210,14 @@ func (c *Client) ScaleHetznerWorkers(clusterID string, workerCount int) (*ScaleW
 }
 
 type NodeGroupInfo struct {
-	Name         string            `json:"name"`
-	InstanceType string            `json:"instance_type"`
-	Count        int               `json:"count"`
-	Min          int               `json:"min"`
-	Max          int               `json:"max"`
-	Labels       map[string]string `json:"labels"`
-	Taints       []NodeTaint       `json:"taints"`
+	Name               string            `json:"name"`
+	InstanceType       string            `json:"instance_type"`
+	Count              int               `json:"count"`
+	Min                int               `json:"min"`
+	Max                int               `json:"max"`
+	AutoscalingEnabled bool              `json:"autoscaling_enabled"`
+	Labels             map[string]string `json:"labels"`
+	Taints             []NodeTaint       `json:"taints"`
 }
 
 type NodeGroupListResult struct {
@@ -268,6 +269,22 @@ type DeleteNodeGroupResult struct {
 	Deleted   int    `json:"deleted"`
 }
 
+// NodeGroupAutoscalingRequest is the PUT .../node-groups/{g}/autoscaling
+// body (Cluster Autoscaler min/max bounds; min_count >= 1 in v1).
+type NodeGroupAutoscalingRequest struct {
+	Enabled  bool `json:"enabled"`
+	MinCount int  `json:"min_count"`
+	MaxCount int  `json:"max_count"`
+}
+
+// NodeGroupAutoscalingResult is the GET/PUT autoscaling response body.
+type NodeGroupAutoscalingResult struct {
+	GroupName string `json:"group_name"`
+	Enabled   bool   `json:"enabled"`
+	MinCount  int    `json:"min_count"`
+	MaxCount  int    `json:"max_count"`
+}
+
 func (c *Client) ListHetznerNodeGroups(clusterID string) (*NodeGroupListResult, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups", c.BaseURL, clusterID)
 	var result NodeGroupListResult
@@ -307,6 +324,40 @@ func (c *Client) UpdateHetznerNodeGroupInstanceType(ctx context.Context, cluster
 func (c *Client) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
 	return c.doDeleteNodeGroup(ctx, url, wait)
+}
+
+func (c *Client) GetHetznerNodeGroupAutoscaling(clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
+	return c.doGetNodeGroupAutoscaling(url)
+}
+
+func (c *Client) UpdateHetznerNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, req NodeGroupAutoscalingRequest, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, wait)
+}
+
+func (c *Client) doGetNodeGroupAutoscaling(url string) (*NodeGroupAutoscalingResult, error) {
+	var result NodeGroupAutoscalingResult
+	if err := c.getJSON(url, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) doUpdateNodeGroupAutoscaling(ctx context.Context, url string, payload []byte, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
+	var result NodeGroupAutoscalingResult
+	submitted, err := c.doJSONWriteRequest(ctx, http.MethodPut, url, payload, wait, &result)
+	if err != nil {
+		return nil, false, err
+	}
+	if submitted {
+		return nil, true, nil
+	}
+	return &result, false, nil
 }
 
 func (c *Client) doAddNodeGroup(ctx context.Context, url string, payload []byte, wait bool) (*AddNodeGroupResult, bool, error) {

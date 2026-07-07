@@ -279,6 +279,9 @@ type Stack struct {
 	Description string     `json:"description,omitempty"`
 	Manifests   []Manifest `json:"manifests,omitempty"`
 	Addons      []Addon    `json:"addons,omitempty"`
+	// DeployWave orders stacks against each other: stacks in wave N deploy
+	// only after every stack in a lower wave finished. Nil = unordered.
+	DeployWave *int `json:"deploy_wave,omitempty"`
 }
 
 type GitRepository struct {

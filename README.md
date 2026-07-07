@@ -238,7 +238,7 @@ deprecated command also prints a warning at runtime.
   - `--help` on any command
   - `--version` to see CLI release & API compatibility
 
-> **New to Ankra?** Start with our [platform overview](https://ankra.io) and [getting started guide](https://docs.ankra.ai/getting-started).
+> **New to Ankra?** Start with our [platform overview](https://ankra.io) and [getting started guide](https://docs.ankra.ai/get-started/quickstart).
 
 
 ## Build from Source
@@ -904,9 +904,33 @@ ankra skills install --project .      # Install into ./.cursor/skills (project)
 ankra skills install --editor claude-code --project .  # Install into ./.claude/skills
 ankra skills install ankra-cli ankra-gitops   # Install only named skills
 ankra skills install --force          # Overwrite existing skills
-ankra skills uninstall                # Remove all Ankra skills
-ankra skills uninstall ankra-cli      # Remove a named skill
+ankra skills install --with-hooks     # Also gate direct kubectl/helm mutations
+ankra skills install --no-rules       # Skills only, skip the always-applied rule
+ankra skills uninstall                # Remove all Ankra skills + rule + hook
+ankra skills uninstall ankra-cli      # Remove a named skill (keeps rule/hook)
 ```
+
+Skills are only picked up when they match the conversation, so `install` also writes a
+small **always-applied rule** that tells the agent Kubernetes in this environment is
+managed by Ankra: route changes through the GitOps repo or `ankra cluster apply` instead
+of raw `kubectl`/`helm`, and inspect freely. Where it lands:
+
+| Editor + scope | Rule location |
+|---|---|
+| Cursor, personal | `~/.cursor/plugins/local/ankra/rules/ankra.mdc` (local plugin, applies to every project) |
+| Cursor, `--project DIR` | `DIR/.cursor/rules/ankra.mdc` |
+| Claude Code, personal | managed block in `~/.claude/CLAUDE.md` |
+| Claude Code, `--project DIR` | managed block in `DIR/CLAUDE.md` |
+
+`--with-hooks` adds an enforcement layer: a `beforeShellExecution` hook (Cursor,
+`hooks.json`) or `PreToolUse` hook (Claude Code, `settings.json`) that runs
+`ankra skills guard`. Shell commands that would mutate a cluster out-of-band
+(`kubectl apply/delete/...`, `helm install/upgrade/...`) pause for confirmation with a
+pointer back to the Ankra workflow; read-only commands (`kubectl get/describe/logs`,
+`--dry-run`, `helm template`, ...) pass straight through. Managed blocks and hook
+entries are marker-based, so reinstalls converge and `uninstall` removes only what
+Ankra added. Check a project-scoped install into your GitOps repo and every
+teammate's agent picks it up automatically.
 
 This is distinct from `ankra openclaw skill`, which generates a SKILL.md describing one of
 your clusters. `ankra skills` installs the static, curated skill set.

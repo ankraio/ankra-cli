@@ -434,12 +434,45 @@ func buildStack(sm map[string]interface{}, baseDir string) (client.Stack, error)
 		}
 	}
 
+	deployWave, err := parseDeployWave(sm["deploy_wave"])
+	if err != nil {
+		return client.Stack{}, err
+	}
+
 	return client.Stack{
 		Name:        name,
 		Description: desc,
 		Manifests:   manifests,
 		Addons:      addons,
+		DeployWave:  deployWave,
 	}, nil
+}
+
+// parseDeployWave validates the optional 'deploy_wave' stack field: a
+// non-negative integer that orders stacks against each other (stacks in wave
+// N deploy only after every stack in a lower wave finished).
+func parseDeployWave(raw interface{}) (*int, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	var wave int
+	switch typed := raw.(type) {
+	case int:
+		wave = typed
+	case int64:
+		wave = int(typed)
+	case float64:
+		if typed != float64(int(typed)) {
+			return nil, fmt.Errorf("'deploy_wave' must be a whole number, got %v", typed)
+		}
+		wave = int(typed)
+	default:
+		return nil, fmt.Errorf("'deploy_wave' must be an integer, got %v", raw)
+	}
+	if wave < 0 {
+		return nil, fmt.Errorf("'deploy_wave' must be zero or positive, got %d", wave)
+	}
+	return &wave, nil
 }
 
 func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, error) {

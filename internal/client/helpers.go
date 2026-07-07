@@ -64,6 +64,10 @@ func (c *Client) getJSON(url string, target interface{}) error {
 		return ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
+		body, _ := readResponseBody(resp)
+		if denied := PermissionDeniedFromResponse(resp.StatusCode, body); denied != nil {
+			return denied
+		}
 		return newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("unexpected status: %s", resp.Status))
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodySize)).Decode(target)
@@ -86,6 +90,24 @@ func detailFromBody(body []byte) string {
 		return ""
 	}
 	return parsed.Detail
+}
+
+// PermissionDeniedFromResponse parses the platform RBAC 403 body
+// ({"detail": "permission_denied", "permission": ...}) into a
+// *PermissionDeniedError; nil for any other body, so legacy 403s keep
+// their existing handling.
+func PermissionDeniedFromResponse(statusCode int, body []byte) *PermissionDeniedError {
+	if statusCode != http.StatusForbidden {
+		return nil
+	}
+	var parsed struct {
+		Detail     string `json:"detail"`
+		Permission string `json:"permission"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil || parsed.Detail != "permission_denied" {
+		return nil
+	}
+	return &PermissionDeniedError{Permission: parsed.Permission}
 }
 
 // sensitiveKeyFragments lists case-insensitive substrings that mark a JSON

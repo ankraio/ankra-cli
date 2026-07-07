@@ -1,6 +1,6 @@
 ---
 name: ankra-sops-secrets
-description: Encrypt Kubernetes Secrets and sensitive values stored in an Ankra GitOps repo using SOPS with AGE, and track them with encrypted_paths so Ankra decrypts at deploy time. Use when the user needs to store secrets in Git, mentions SOPS, AGE, encrypted_paths, or `ankra cluster encrypt`/`decrypt`/`sops-config`.
+description: Encrypt Kubernetes Secrets and sensitive values stored in Git using SOPS with AGE, tracked with encrypted_paths so Ankra decrypts at deploy time. Use when the user needs to put secrets, credentials, or API keys into Kubernetes configuration stored in a repo, or mentions SOPS, AGE, encrypted_paths, or `ankra cluster encrypt`/`decrypt`/`sops-config`.
 ---
 
 # Ankra Secrets with SOPS

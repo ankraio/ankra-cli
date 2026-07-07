@@ -151,10 +151,11 @@ func manifestStackNamesOf(ms []manifestMatch) string {
 }
 
 // copyStackMetadata returns a new StackSpec carrying only the stack-level
-// metadata (name, description, description_from_file, variables). The caller
-// must append exactly one mutated addon or manifest before sending the patch.
-// This guarantees the backend's upsert_external(stack) won't wipe description
-// or variables when the patch only changes one nested resource.
+// metadata (name, description, description_from_file, variables,
+// deploy_wave). The caller must append exactly one mutated addon or manifest
+// before sending the patch. This guarantees the backend's
+// upsert_external(stack) won't wipe description, variables or the deploy
+// wave when the patch only changes one nested resource.
 func copyStackMetadata(src *client.StackSpec) client.StackSpec {
 	var vars map[string]string
 	if len(src.Variables) > 0 {
@@ -163,6 +164,11 @@ func copyStackMetadata(src *client.StackSpec) client.StackSpec {
 			vars[k] = v
 		}
 	}
+	var deployWave *int
+	if src.DeployWave != nil {
+		waveCopy := *src.DeployWave
+		deployWave = &waveCopy
+	}
 	return client.StackSpec{
 		Name:                src.Name,
 		Description:         src.Description,
@@ -170,6 +176,7 @@ func copyStackMetadata(src *client.StackSpec) client.StackSpec {
 		Variables:           vars,
 		Manifests:           []client.ManifestSpec{},
 		Addons:              []client.AddonSpec{},
+		DeployWave:          deployWave,
 	}
 }
 
@@ -349,8 +356,13 @@ func mapPatchError(perr *client.PatchStackError) error {
 	case http.StatusBadRequest:
 		return fmt.Errorf("request rejected by API: %s", detail)
 	case http.StatusForbidden:
-		// 403 is a rejected credential/permission: classify as exitAuth while
-		// keeping the human-readable message identical.
+		// Platform RBAC denials carry their own error type (and exit code 7):
+		// the role lacks a permission, which re-authenticating cannot fix.
+		if denied := client.PermissionDeniedFromResponse(perr.StatusCode, perr.Body); denied != nil {
+			return denied
+		}
+		// Any other 403 is a rejected credential/permission: classify as
+		// exitAuth while keeping the human-readable message identical.
 		if strings.Contains(strings.ToLower(string(perr.Body)), "sandbox") {
 			return withExitCode(exitAuth, errors.New("sandbox clusters cannot be patched via the CLI; promote the cluster first"))
 		}

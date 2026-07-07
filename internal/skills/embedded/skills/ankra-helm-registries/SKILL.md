@@ -1,6 +1,6 @@
 ---
 name: ankra-helm-registries
-description: Connect HTTP and OCI Helm chart registries to Ankra and store least-privilege registry credentials (Harbor, Nexus, JFrog Artifactory, ChartMuseum, GHCR, Amazon ECR, Google Artifact Registry, Azure Container Registry, Docker Hub). Use when the user needs private charts, mentions Helm registries, OCI registries, or registry credentials in Ankra.
+description: Connect HTTP and OCI Helm chart registries to Ankra and store least-privilege registry credentials (Harbor, Nexus, JFrog Artifactory, ChartMuseum, GHCR, Amazon ECR, Google Artifact Registry, Azure Container Registry, Docker Hub). Use when the user needs charts from a private registry on a Kubernetes cluster, or mentions Helm registries, OCI registries, or registry credentials.
 ---
 
 # Ankra Helm Registries

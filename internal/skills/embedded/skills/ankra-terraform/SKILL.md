@@ -1,6 +1,6 @@
 ---
 name: ankra-terraform
-description: Manage Ankra resources as infrastructure-as-code with the Ankra Terraform provider - clusters, stacks, addons, credentials, and tokens declared in HCL and reconciled by `terraform apply`. Use when the user wants to manage Ankra with Terraform, mentions the Ankra provider, or wants IaC for their Ankra platform setup.
+description: Manage Ankra resources as infrastructure-as-code with the Ankra Terraform provider - clusters, stacks, addons, credentials, and tokens declared in HCL and reconciled by `terraform apply`. Use when the user manages their Kubernetes platform with Terraform or IaC, mentions the Ankra provider, or wants clusters and stacks declared in HCL.
 ---
 
 # Ankra Terraform Provider

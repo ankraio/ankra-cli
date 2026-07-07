@@ -317,7 +317,7 @@ func (m baseMock) ListAPITokens() ([]client.APIToken, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) CreateAPIToken(name string, expiresAt *string) (*client.CreateAPITokenResponse, error) {
+func (m baseMock) CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -503,6 +503,30 @@ func (m baseMock) UpgradeHetznerK8sVersion(clusterID, targetVersion string, forc
 
 func (m baseMock) ListHetznerNodeGroups(clusterID string) (*client.NodeGroupListResult, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetHetznerNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateHetznerNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, req client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetOvhNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateOvhNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, req client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetUpcloudNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateUpcloudNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, req client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
 func (m baseMock) AddHetznerNodeGroup(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error) {

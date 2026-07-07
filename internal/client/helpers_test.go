@@ -1,7 +1,9 @@
 package client
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -69,6 +71,67 @@ func TestGetJSON(t *testing.T) {
 				tt.validateResult(t, &target)
 			}
 		})
+	}
+}
+
+func TestPermissionDeniedFromResponse(t *testing.T) {
+	rbacBody := []byte(`{"detail":"permission_denied","permission":"clusters.write","scope_type":"organisation"}`)
+
+	if got := PermissionDeniedFromResponse(http.StatusForbidden, rbacBody); got == nil {
+		t.Fatal("expected a PermissionDeniedError for the RBAC 403 body")
+	} else if got.Permission != "clusters.write" {
+		t.Errorf("permission = %q, want clusters.write", got.Permission)
+	}
+
+	// Only 403s qualify, and only with the permission_denied discriminator:
+	// legacy 403 bodies must keep their existing handling.
+	if got := PermissionDeniedFromResponse(http.StatusNotFound, rbacBody); got != nil {
+		t.Errorf("non-403 must not classify, got %v", got)
+	}
+	for _, body := range []string{`{"detail":"sandbox mode is enabled"}`, `not json`, ``} {
+		if got := PermissionDeniedFromResponse(http.StatusForbidden, []byte(body)); got != nil {
+			t.Errorf("body %q must not classify, got %v", body, got)
+		}
+	}
+}
+
+func TestPermissionDeniedErrorMessages(t *testing.T) {
+	named := &PermissionDeniedError{Permission: "sops.manage"}
+	if msg := named.Error(); !strings.Contains(msg, `"sops.manage"`) || !strings.Contains(msg, "admin") {
+		t.Errorf("named-permission message should cite the permission and the admin remedy, got %q", msg)
+	}
+	if msg := (&PermissionDeniedError{}).Error(); !strings.Contains(msg, "does not permit") {
+		t.Errorf("permissionless message = %q", msg)
+	}
+}
+
+func TestGetJSONClassifiesRBACDenial(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(t, w, http.StatusForbidden, map[string]string{
+			"detail":     "permission_denied",
+			"permission": "clusters.read",
+		})
+	})
+	var target map[string]string
+	err := testClient.getJSON(testClient.BaseURL+"/api/test", &target)
+	var denied *PermissionDeniedError
+	if !errors.As(err, &denied) {
+		t.Fatalf("expected *PermissionDeniedError, got %T: %v", err, err)
+	}
+	if denied.Permission != "clusters.read" {
+		t.Errorf("permission = %q, want clusters.read", denied.Permission)
+	}
+}
+
+func TestGetJSONLegacyForbiddenStaysUnexpected(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(t, w, http.StatusForbidden, map[string]string{"detail": "nope"})
+	})
+	var target map[string]string
+	err := testClient.getJSON(testClient.BaseURL+"/api/test", &target)
+	var unexpected *UnexpectedResponseError
+	if !errors.As(err, &unexpected) || unexpected.StatusCode != http.StatusForbidden {
+		t.Fatalf("legacy 403 should stay *UnexpectedResponseError, got %T: %v", err, err)
 	}
 }
 

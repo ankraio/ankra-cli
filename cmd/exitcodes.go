@@ -22,6 +22,7 @@ const (
 	exitCancelled   = 4 // confirmation declined
 	exitWaitTimeout = 5 // --wait/--timeout expired before completion
 	exitAuth        = 6 // missing, expired, or rejected credentials
+	exitForbidden   = 7 // authenticated but the role lacks the permission (RBAC)
 )
 
 // codedError attaches an exit code to an error without changing its message.
@@ -63,6 +64,13 @@ func exitCodeFor(err error) int {
 	}
 	if errors.Is(err, client.ErrUnauthorized) {
 		return exitAuth
+	}
+	// RBAC denials (403 permission_denied with a named permission) are a
+	// role problem, not a credential problem: re-authenticating won't help,
+	// so they get their own code.
+	var permissionDenied *client.PermissionDeniedError
+	if errors.As(err, &permissionDenied) {
+		return exitForbidden
 	}
 	var unexpected *client.UnexpectedResponseError
 	if errors.As(err, &unexpected) {

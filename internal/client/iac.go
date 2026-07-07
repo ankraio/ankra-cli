@@ -46,6 +46,9 @@ type AddonSpec struct {
 	Configuration          *AddonConfigurationSpec `json:"configuration,omitempty" yaml:"configuration,omitempty"`
 	Parents                []Parent                `json:"parents,omitempty" yaml:"parents,omitempty"`
 	Settings               map[string]interface{}  `json:"settings,omitempty" yaml:"settings,omitempty"`
+	// Group is the optional organizational grouping label within the stack
+	// (purely organizational; never triggers a redeploy).
+	Group string `json:"group,omitempty" yaml:"group,omitempty"`
 }
 
 // ManifestSpec is the typed manifest shape used for partial-stack patches.
@@ -56,6 +59,8 @@ type ManifestSpec struct {
 	FromFile       string   `json:"from_file,omitempty" yaml:"from_file,omitempty"`
 	Parents        []Parent `json:"parents,omitempty" yaml:"parents,omitempty"`
 	EncryptedPaths []string `json:"encrypted_paths,omitempty" yaml:"encrypted_paths,omitempty"`
+	// Group is the optional organizational grouping label within the stack.
+	Group string `json:"group,omitempty" yaml:"group,omitempty"`
 }
 
 // StackSpec is the typed stack shape used for partial-stack patches.
@@ -66,6 +71,9 @@ type StackSpec struct {
 	Variables           map[string]string `json:"variables,omitempty" yaml:"variables,omitempty"`
 	Manifests           []ManifestSpec    `json:"manifests" yaml:"manifests"`
 	Addons              []AddonSpec       `json:"addons" yaml:"addons"`
+	// DeployWave orders stacks against each other: stacks in wave N deploy
+	// only after every stack in a lower wave finished. Nil = unordered.
+	DeployWave *int `json:"deploy_wave,omitempty" yaml:"deploy_wave,omitempty"`
 }
 
 // ResourceSpecSpec is the spec envelope expected by the PATCH endpoint

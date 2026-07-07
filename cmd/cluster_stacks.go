@@ -67,6 +67,7 @@ var clusterStacksListCmd = &cobra.Command{
 			fmt.Printf("  Name:        %s\n", found.Name)
 			fmt.Printf("  Description: %s\n", found.Description)
 			fmt.Printf("  State:       %s\n", found.State)
+			fmt.Printf("  Deploy wave: %s\n", formatDeployWave(found.DeployWave))
 			fmt.Printf("  Manifests:   %d\n", len(found.Manifests))
 			fmt.Printf("  Addons:      %d\n", len(found.Addons))
 
@@ -146,14 +147,15 @@ var clusterStacksListCmd = &cobra.Command{
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
 		t.AppendHeader(table.Row{
-			"Name", "Description", "State", "Manifests", "Addons",
+			"Name", "Description", "State", "Wave", "Manifests", "Addons",
 		})
 		t.SetColumnConfigs([]table.ColumnConfig{
 			{Number: 1, WidthMin: 20},
 			{Number: 2, WidthMin: 30},
 			{Number: 3, WidthMin: 12},
-			{Number: 4, WidthMin: 10},
+			{Number: 4, WidthMin: 6},
 			{Number: 5, WidthMin: 10},
+			{Number: 6, WidthMin: 10},
 		})
 
 		for _, stack := range stacks {
@@ -176,6 +178,7 @@ var clusterStacksListCmd = &cobra.Command{
 				stack.Name,
 				description,
 				state,
+				formatDeployWave(stack.DeployWave),
 				len(stack.Manifests),
 				len(stack.Addons),
 			})
@@ -183,6 +186,15 @@ var clusterStacksListCmd = &cobra.Command{
 		t.Render()
 		return nil
 	},
+}
+
+// formatDeployWave renders a stack's deploy wave for tables and detail
+// views ("-" when the stack does not participate in wave ordering).
+func formatDeployWave(wave *int) string {
+	if wave == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%d", *wave)
 }
 
 // clusterStacksCreateCmd is intentionally hidden and returns an error.

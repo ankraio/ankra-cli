@@ -20,6 +20,9 @@ type APIToken struct {
 type CreateAPITokenRequest struct {
 	Name      string  `json:"name"`
 	ExpiresAt *string `json:"expires_at,omitempty"`
+	// Scopes is the optional permission allowlist (RBAC, backend ADR 0007);
+	// nil/omitted keeps the token at the full authority of its user.
+	Scopes []string `json:"scopes,omitempty"`
 }
 
 type CreateAPITokenResponse struct {
@@ -48,9 +51,9 @@ func (c *Client) ListAPITokens() ([]APIToken, error) {
 	return tokens, nil
 }
 
-func (c *Client) CreateAPIToken(name string, expiresAt *string) (*CreateAPITokenResponse, error) {
+func (c *Client) CreateAPIToken(name string, expiresAt *string, scopes []string) (*CreateAPITokenResponse, error) {
 	url := c.BaseURL + "/api/v1/org/account/tokens"
-	reqBody := CreateAPITokenRequest{Name: name, ExpiresAt: expiresAt}
+	reqBody := CreateAPITokenRequest{Name: name, ExpiresAt: expiresAt, Scopes: scopes}
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)

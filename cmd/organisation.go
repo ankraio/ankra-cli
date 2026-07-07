@@ -503,15 +503,22 @@ var orgInviteCmd = &cobra.Command{
 	Short: "Invite a user to the current organisation",
 	Long: `Invite a user by email to the current organisation.
 
-Valid roles: member (default), admin, read-only
+Valid roles: owner, admin, operator, member (default), viewer, read-only.
+owner/operator alias onto admin/member on the invite until the RBAC
+assignments API ships; run 'ankra org roles' for the full list.
 
 Examples:
   ankra org invite user@example.com
-  ankra org invite user@example.com --role admin`,
+  ankra org invite user@example.com --role admin
+  ankra org invite user@example.com --role viewer`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		email := args[0]
 		role, _ := cmd.Flags().GetString("role")
+		if !isValidAssignableRole(role) {
+			return withExitCode(exitUsage, fmt.Errorf(
+				"invalid role %q; valid roles: %s", role, strings.Join(assignableRoles, ", ")))
+		}
 
 		orgID, err := resolveOrganisationID()
 		if err != nil {
@@ -521,7 +528,7 @@ Examples:
 		result, err := apiClient.InviteUserToOrganisation(client.InviteUserRequest{
 			OrganisationID: orgID,
 			InviteeEmail:   email,
-			Role:           role,
+			Role:           toLegacyWireRole(role),
 		})
 		if err != nil {
 			return fmt.Errorf("inviting user: %w", err)
@@ -532,6 +539,18 @@ Examples:
 		}
 		if result.Message != "" {
 			fmt.Printf("Message: %s\n", result.Message)
+		}
+		return nil
+	},
+}
+
+var orgRolesCmd = &cobra.Command{
+	Use:   "roles",
+	Short: "List the assignable organisation roles",
+	Args:  cobra.NoArgs,
+	RunE: func(_ *cobra.Command, _ []string) error {
+		for _, role := range assignableRoles {
+			fmt.Printf("  %-10s %s\n", role, roleDescriptions[role])
 		}
 		return nil
 	},
@@ -581,7 +600,7 @@ var orgRemoveCmd = &cobra.Command{
 func init() {
 	orgCreateCmd.Flags().String("country", "", "Country code for the organisation")
 
-	orgInviteCmd.Flags().String("role", "member", "Role for the invited user (member, admin, read-only)")
+	orgInviteCmd.Flags().String("role", "member", "Role for the invited user (owner, admin, operator, member, viewer, read-only)")
 	orgRemoveCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
 
 	registerStructuredOutputFlags(orgListCmd, orgCurrentCmd, orgCreateCmd, orgMembersCmd)
@@ -592,6 +611,7 @@ func init() {
 	orgCmd.AddCommand(orgCreateCmd)
 	orgCmd.AddCommand(orgMembersCmd)
 	orgCmd.AddCommand(orgInviteCmd)
+	orgCmd.AddCommand(orgRolesCmd)
 	orgCmd.AddCommand(orgRemoveCmd)
 
 	rootCmd.AddCommand(orgCmd)
