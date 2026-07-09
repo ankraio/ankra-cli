@@ -660,9 +660,9 @@ func writeClusterFile(path string, cluster *ImportClusterConfig) error {
 }
 
 func printCloneSummary(existingFile, newFile string, newClusterExists bool, existing, new *ImportClusterConfig) {
-	fmt.Printf("\n" + strings.Repeat("=", 60) + "\n")
+	fmt.Printf("\n%s\n", strings.Repeat("=", 60))
 	fmt.Printf("CLONE SUMMARY\n")
-	fmt.Printf(strings.Repeat("=", 60) + "\n")
+	fmt.Printf("%s\n", strings.Repeat("=", 60))
 
 	fmt.Printf("Source cluster: %s (%s)\n", existing.Metadata.Name, existingFile)
 	fmt.Printf("Target cluster: %s (%s)\n", new.Metadata.Name, newFile)
@@ -714,5 +714,5 @@ func printCloneSummary(existingFile, newFile string, newClusterExists bool, exis
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  1. Review the generated file: %s\n", newFile)
 	fmt.Printf("  2. Apply the cluster: ankra cluster apply -f %s\n", newFile)
-	fmt.Printf(strings.Repeat("=", 60) + "\n")
+	fmt.Printf("%s\n", strings.Repeat("=", 60))
 }
