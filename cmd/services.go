@@ -91,6 +91,18 @@ type APIClient interface {
 	GetOrganisation(orgID string) (*client.OrganisationFull, error)
 	InviteUserToOrganisation(inviteReq client.InviteUserRequest) (*client.InviteUserResponse, error)
 	RemoveUserFromOrganisation(removeReq client.RemoveUserRequest) (*client.RemoveUserResponse, error)
+	ListOrganisationUsers(orgID string) ([]client.OrganisationUser, error)
+
+	ListRoles() ([]client.RoleDocument, error)
+	CreateCustomRole(request client.CreateCustomRoleRequest) (*client.RoleDocument, error)
+	ListMemberAssignments(ankraUserID string) ([]client.RoleAssignment, error)
+	CreateRoleAssignment(request client.CreateRoleAssignmentRequest) (*client.RoleAssignment, error)
+	DeleteRoleAssignment(assignmentID string) error
+	ListClusterGroups() ([]client.ClusterGroup, error)
+	CreateClusterGroup(request client.CreateClusterGroupRequest) (*client.ClusterGroup, error)
+	SetClusterGroupMembers(groupID string, clusterIDs []string) error
+	SetClusterGroupSelector(groupID string, selector map[string]string) error
+	PreviewClusterGroup(groupID string) ([]string, error)
 
 	ListCredentials(provider *string) ([]client.Credential, error)
 	ValidateCredentialName(name string) (*client.CredentialValidationResult, error)

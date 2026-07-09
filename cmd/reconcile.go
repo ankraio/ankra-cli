@@ -50,15 +50,16 @@ var clusterListCmd = &cobra.Command{
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{"Name", "Kube Version", "Nodes", "Control Planes", "State", "Kind", "Created"})
+		t.AppendHeader(table.Row{"Name", "Environment", "Kube Version", "Nodes", "Control Planes", "State", "Kind", "Created"})
 		t.SetColumnConfigs([]table.ColumnConfig{
 			{Number: 1, WidthMin: 20},
 			{Number: 2, WidthMin: 10},
-			{Number: 3, WidthMin: 5},
-			{Number: 4, WidthMin: 10},
+			{Number: 3, WidthMin: 10},
+			{Number: 4, WidthMin: 5},
 			{Number: 5, WidthMin: 10},
 			{Number: 6, WidthMin: 10},
-			{Number: 7, WidthMin: 15},
+			{Number: 7, WidthMin: 10},
+			{Number: 8, WidthMin: 15},
 		})
 		for _, cluster := range clusters {
 			state := cluster.State
@@ -67,6 +68,7 @@ var clusterListCmd = &cobra.Command{
 			}
 			t.AppendRow(table.Row{
 				cluster.Name,
+				cluster.Environment,
 				cluster.KubeVersion,
 				cluster.Nodes,
 				cluster.ControlPlanes,

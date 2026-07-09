@@ -297,6 +297,50 @@ func (m baseMock) RemoveUserFromOrganisation(removeReq client.RemoveUserRequest)
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListOrganisationUsers(orgID string) ([]client.OrganisationUser, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListRoles() ([]client.RoleDocument, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateCustomRole(request client.CreateCustomRoleRequest) (*client.RoleDocument, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListMemberAssignments(ankraUserID string) ([]client.RoleAssignment, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateRoleAssignment(request client.CreateRoleAssignmentRequest) (*client.RoleAssignment, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteRoleAssignment(assignmentID string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) ListClusterGroups() ([]client.ClusterGroup, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateClusterGroup(request client.CreateClusterGroupRequest) (*client.ClusterGroup, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetClusterGroupMembers(groupID string, clusterIDs []string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) SetClusterGroupSelector(groupID string, selector map[string]string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) PreviewClusterGroup(groupID string) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListCredentials(provider *string) ([]client.Credential, error) {
 	return nil, errors.New("not implemented")
 }
