@@ -1,5 +1,90 @@
 # Ankra CLI Changelog
 
+## v0.6.0 — 2026-07-10
+
+The stable v0.6.0 release consolidates v0.6.0-rc0 and adds organisation
+cluster groups and scoped role assignments on top: agent rules and hooks that
+make Ankra the default Kubernetes workflow, stack deploy waves, node-group
+autoscaling, and the first slice of platform RBAC.
+
+### Security
+
+- **Builds now use Go 1.26.5**, picking up the fix for
+  [GO-2026-5856](https://pkg.go.dev/vuln/GO-2026-5856) (`crypto/tls`:
+  Encrypted Client Hello privacy leak), which govulncheck flagged as reachable
+  from the CLI's TLS paths — the login callback server, streaming log/chat
+  reads and writes, and every API round-trip. `golang.org/x/sys` is bumped to
+  v0.44.0 for [GO-2026-5024](https://pkg.go.dev/vuln/GO-2026-5024)
+  (Windows-only; not called by the CLI). `govulncheck ./...` is clean again.
+
+### Added
+
+- **Organisation cluster groups.** `ankra org cluster-groups
+  list|create|add-cluster|set-selector|preview` manages named sets of
+  clusters, either static (pinned members) or dynamic (a label selector
+  evaluated against cluster labels), for use as role-assignment scopes.
+  `preview` shows the clusters a group currently resolves to.
+- **Scoped role assignments.** `ankra org assign <member-email>` grants a
+  member a role at organisation, cluster, or cluster-group scope;
+  `ankra org assignments <member-email>` lists what a member holds and
+  `ankra org unassign <assignment-id>` revokes it. `ankra org roles create`
+  defines custom roles that may bundle Kubernetes access levels provisioned
+  across the assignment's scope (ADR 0007 extension).
+- **`ankra cluster list` gains an Environment column.**
+- **`ankra skills install` makes Ankra the agent's default for Kubernetes
+  work.** Skills alone only load when the conversation happens to match their
+  description, so install now also writes an always-applied rule telling
+  Cursor/Claude Code that clusters here are Ankra-managed: route changes
+  through the GitOps repo or `ankra cluster apply`, inspect freely, never
+  mutate with raw kubectl/helm. Cursor gets a local plugin rule
+  (`~/.cursor/plugins/local/ankra`) or a project `.cursor/rules/ankra.mdc`;
+  Claude Code gets a marker-managed block in `CLAUDE.md` that reinstalls
+  refresh and uninstalls remove without touching your own content. Skip with
+  `--no-rules`; a full `ankra skills uninstall` cleans everything up.
+- **`ankra skills install --with-hooks` enforces the workflow.** Installs an
+  agent hook (Cursor `beforeShellExecution`, Claude Code `PreToolUse`) that
+  runs the new `ankra skills guard` plumbing command on every shell command:
+  cluster-mutating kubectl/helm invocations (`apply`, `delete`, `helm
+  upgrade`, ...) pause for user confirmation with a redirect to the Ankra
+  workflow, while read-only inspection, `--dry-run`, and everything else pass
+  through untouched. The guard fails open and merges into existing
+  hooks.json/settings.json without disturbing other entries.
+- **Skill descriptions now trigger on plain Kubernetes intent.** The embedded
+  skills previously activated only when the user said "Ankra"; their
+  descriptions now match what users actually ask ("deploy an app", "install a
+  Helm chart", "set up monitoring", "store secrets in Git"), so agents reach
+  for the Ankra workflow without being told. The `ankra-platform-principles`
+  skill doubles as the gateway: it applies to any Kubernetes task in an
+  environment with the `ankra` CLI or an Ankra GitOps repo, with an explicit
+  escape hatch for clusters that are not Ankra-managed.
+- **Stack deploy waves.** Stacks in a cluster YAML accept an optional
+  `deploy_wave` (integer >= 0): stacks in wave N deploy only after every
+  stack in a lower wave finished, and teardown unwinds in reverse order.
+  Stacks without a wave keep the current unordered behaviour. The wave is
+  validated by `ankra cluster apply`, preserved by partial patches
+  (`ankra cluster addons upgrade`, `ankra cluster manifests upgrade`), and
+  shown as a new "Wave" column in `ankra cluster stacks list`.
+- **`ankra cluster node-group autoscaling get|set`.** Read and write a node
+  group's Cluster Autoscaler settings on Hetzner, OVH, and UpCloud clusters:
+  `set --enabled --min <n> --max <n>` keeps the group's node count within
+  [min, max] based on pod demand (first enable installs the autoscaler),
+  `--enabled=false` turns it off. Both honour `-o json|yaml`, and `set`
+  supports the standard `--wait`/`--timeout` async-write flags.
+- **Wider organisation roles ahead of platform RBAC.** `ankra org invite
+  --role` now accepts `owner`, `admin`, `operator`, `member`, `viewer`, and
+  `read-only`, validated client-side with a clear usage error; the new
+  `ankra org roles` lists them with descriptions. Until the RBAC assignments
+  API ships, `owner`/`operator` alias onto `admin`/`member` on the wire.
+- **`ankra tokens create --scopes`.** Optionally pin an API token to a
+  permission allowlist (e.g. `--scopes clusters.read,stacks.deploy`);
+  omitting it keeps today's behaviour of the user's full authority.
+- **Exit code 7 for RBAC permission denials.** When the platform denies a
+  request because the caller's role lacks a permission (403
+  `permission_denied`), the CLI now names the missing permission, points at
+  an organisation admin, and exits 7 — distinct from exit 6, which means
+  re-authenticate. Reads, async writes, and stack patches all classify;
+  other 403s keep their existing handling.
+
 ## v0.5.1 — 2026-07-07
 
 ### Added

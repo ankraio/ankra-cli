@@ -110,6 +110,11 @@ deprecated command also prints a warning at runtime.
   - Invite users and remove members
   - Persistent organisation selection across sessions
   - Manage organisation-scoped template variables (`ankra org variables ...`)
+  - Cluster groups as assignment scopes, static or label-selector based
+    (`ankra org cluster-groups list|create|add-cluster|set-selector|preview`)
+  - Grant, inspect, and revoke member roles at organisation, cluster, or
+    cluster-group scope (`ankra org assign|assignments|unassign`), and define
+    custom roles with `ankra org roles create`
 
 - **Variables (org / cluster / stack scopes)**
   - CRUD for variables that get substituted into manifests and addon values
@@ -251,7 +256,7 @@ deprecated command also prints a warning at runtime.
 
 ## Build from Source
 
-**Prerequisites**: Go 1.23+
+**Prerequisites**: Go 1.25+
 
 ```bash
 git clone https://github.com/ankraio/ankra-cli.git
