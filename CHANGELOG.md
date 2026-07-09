@@ -1,6 +1,30 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.5.1 — 2026-07-07
+
+### Added
+
+- **`ankra cluster digitalocean`** — create, deprovision, stop/start, scale, upgrade, node groups,
+  regions/sizes discovery, and credential management (alias: `ankra cluster do`,
+  `ankra credentials digitalocean`).
+- **`ankra cluster managed`** — create, deprovision, upgrade, and node-pool operations for
+  DigitalOcean Kubernetes (`doks`) and UpCloud Managed Kubernetes (`uks`).
+- Provider-agnostic cluster commands (`scale`, `upgrade`, `node-group`, `ssh-keys`, `deprovision`)
+  now detect `digitalocean` clusters automatically.
+- `systemtest/lifecycle_systemtest.sh` now exercises Kubernetes distribution as
+  an independent axis (`ANKRA_SYSTEMTEST_DISTRIBUTIONS="k3s kubeadm"`), running
+  one cluster per provider/distribution pair, and generates a unique `/16` per
+  DigitalOcean cluster to avoid VPC range collisions across parallel workers.
+
+### Fixed
+
+- **`ankra cluster addons upgrade` / `manifests upgrade` / `encrypt ... --cluster` /
+  `stacks variables set|delete` timing out on large clusters.** These commands
+  end in a partial-stack PATCH that the backend serves synchronously (DB
+  transaction plus a full GitOps commit/push when the cluster has a linked
+  repo), which can legitimately take longer than the previous 60-second
+  command context. The context deadline is now 5 minutes, matching the HTTP
+  client's existing slow-write timeout.
 
 ## v0.6.0-rc0 — 2026-07-07
 

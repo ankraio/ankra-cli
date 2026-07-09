@@ -200,6 +200,14 @@ deprecated command also prints a warning at runtime.
   - Manage node groups (add, scale, upgrade, delete)
   - Manage UpCloud API credentials and SSH key credentials
 
+- **DigitalOcean**
+  - Create, deprovision, stop, and start DigitalOcean Kubernetes clusters
+  - List regions and droplet sizes for a credential
+  - Scale worker nodes up and down
+  - Check and upgrade Kubernetes versions
+  - Manage node groups (add, scale, upgrade, delete)
+  - Manage DigitalOcean API credentials and SSH key credentials
+
 - **Credentials & Tokens**
   - List and manage platform credentials
   - Create and revoke API tokens
@@ -402,7 +410,7 @@ ankra cluster roll-to --version <id>  # Roll to a specific resource version
   [--cluster <name|id>]
 ankra cluster k3s-versions            # List Kubernetes (k3s) versions available for upgrades
 ankra cluster upgrade <id> <version>  # Upgrade the Kubernetes version of a cloud cluster
-                                      #   (Hetzner/OVH/UpCloud detected automatically)
+                                      #   (Hetzner/OVH/UpCloud/DigitalOcean detected automatically)
 ```
 
 `ankra cluster ...` subcommands act on the selected cluster, but every one of
@@ -825,6 +833,49 @@ ankra credentials upcloud create --name <n>                 # Create UpCloud cre
 ankra credentials upcloud ssh-key list                      # List SSH key credentials
 ankra credentials upcloud ssh-key create --name <n> --generate          # Generate SSH keypair
 ankra credentials upcloud ssh-key create --name <n> --public-key "..."  # Import SSH public key
+```
+
+#### DigitalOcean Clusters
+Alias: `cluster digitalocean` or `cluster do`
+```bash
+ankra cluster digitalocean create         # Create a DigitalOcean cluster
+  --name <name>                           #   Cluster name (required)
+  --credential-id <id>                    #   DigitalOcean API credential (required)
+  --ssh-key-credential-id <id>            #   SSH key credential (required)
+  --region <region>                       #   DigitalOcean region (required, e.g. nyc3)
+  --control-plane-count <n>               #   Control plane count (default: 1)
+  --control-plane-size <size>             #   Control plane droplet size (default: s-2vcpu-4gb)
+  --worker-count <n>                      #   Worker count (default: 1)
+  --worker-size <size>                    #   Worker droplet size (default: s-2vcpu-4gb)
+  --bastion-size <size>                   #   Bastion droplet size (default: s-1vcpu-1gb)
+  --external-cloud-provider               #   Install DigitalOcean CCM + CSI (default: true)
+  --include-networking                    #   Install Traefik + cert-manager (default: true)
+
+ankra cluster digitalocean regions --credential-id <id>   # List available regions
+ankra cluster digitalocean sizes --credential-id <id> [--region <r>] [--available-only]
+ankra cluster digitalocean deprovision <id>               # Deprovision (deprecated: use `ankra cluster deprovision`)
+ankra cluster digitalocean stop <id>                      # Stop compute, keep configuration
+ankra cluster digitalocean start <id> [--scope all|control_plane]
+ankra cluster digitalocean workers <id>                   # Current worker count
+ankra cluster digitalocean scale <id> <count>             # Scale workers (deprecated: use `ankra cluster scale`)
+ankra cluster digitalocean k8s-version <id>               # Current Kubernetes version
+ankra cluster digitalocean upgrade <id> <version>         # Upgrade Kubernetes (deprecated: use `ankra cluster upgrade`)
+ankra cluster digitalocean node-group list <id>
+ankra cluster digitalocean node-group add <id> --name <n> --instance-type <size> --count <c>
+ankra cluster digitalocean node-group scale <id> <group> <count>
+ankra cluster digitalocean node-group upgrade <id> <group> <size>
+ankra cluster digitalocean node-group delete <id> <group>
+```
+
+#### DigitalOcean Credentials
+Alias: `credentials digitalocean` or `creds do`
+```bash
+ankra credentials digitalocean list                         # List DigitalOcean API credentials
+ankra credentials digitalocean create --name <n>            # Create credential (prompts for dop_v1_ token)
+
+ankra credentials digitalocean ssh-key list                 # List SSH key credentials
+ankra credentials digitalocean ssh-key create --name <n> --generate
+ankra credentials digitalocean ssh-key create --name <n> --public-key "..."
 ```
 
 #### Credentials

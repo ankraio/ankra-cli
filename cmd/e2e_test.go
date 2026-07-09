@@ -869,6 +869,138 @@ func (m baseMock) CreateUpcloudSSHKeyCredential(req client.CreateSSHKeyCredentia
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateDigitaloceanCluster(req client.CreateDigitaloceanClusterRequest) (*client.CreateDigitaloceanClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeprovisionDigitaloceanCluster(clusterID string) (*client.DeprovisionDigitaloceanClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StopDigitaloceanCluster(clusterID string) (*client.StopDigitaloceanClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartDigitaloceanCluster(clusterID, scope string) (*client.StartDigitaloceanClusterResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetDigitaloceanWorkerCount(clusterID string) (*client.WorkerCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ScaleDigitaloceanWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetDigitaloceanK8sVersion(clusterID string) (*client.K8sVersionInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpgradeDigitaloceanK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListDigitaloceanNodeGroups(clusterID string) (*client.NodeGroupListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddDigitaloceanNodeGroup(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) ScaleDigitaloceanNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateDigitaloceanNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteDigitaloceanNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetDigitaloceanControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeDigitaloceanControlPlaneCount(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListDigitaloceanClusterNodes(clusterID string) (*client.NodeListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetDigitaloceanClusterNode(clusterID, nodeID string) (*client.NodeDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetDigitaloceanClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateDigitaloceanClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResyncDigitaloceanClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListDigitaloceanRegions(credentialID string) ([]client.DigitaloceanRegion, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListDigitaloceanSizes(credentialID, region string) ([]client.DigitaloceanSize, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListDigitaloceanCredentials() ([]client.DigitaloceanCredentialListItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateDigitaloceanCredential(req client.CreateDigitaloceanCredentialRequest) (*client.CreateDigitaloceanCredentialResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListDigitaloceanSSHKeyCredentials() ([]client.DigitaloceanCredentialListItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateDigitaloceanSSHKeyCredential(req client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateManagedCluster(provider client.ManagedK8sProvider, request client.CreateManagedClusterRequest) (*client.CreateManagedClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeprovisionManagedCluster(provider client.ManagedK8sProvider, clusterID string, force bool) (*client.DeprovisionManagedClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddManagedNodePool(provider client.ManagedK8sProvider, clusterID string, request client.AddManagedNodePoolRequest) (*client.AddManagedNodePoolResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ScaleManagedNodePool(provider client.ManagedK8sProvider, clusterID, nodePoolName string, count int) (*client.ScaleManagedNodePoolResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteManagedNodePool(provider client.ManagedK8sProvider, clusterID, nodePoolName string) (*client.DeleteManagedNodePoolResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpgradeManagedK8sVersion(provider client.ManagedK8sProvider, clusterID, version string) (*client.UpgradeManagedK8sVersionResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 type clusterListMock struct {
 	baseMock
 	clusters []client.ClusterListItem

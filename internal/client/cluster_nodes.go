@@ -51,6 +51,10 @@ func (c *Client) ListUpcloudClusterNodes(clusterID string) (*NodeListResult, err
 	return c.listClusterNodes("upcloud", clusterID)
 }
 
+func (c *Client) ListDigitaloceanClusterNodes(clusterID string) (*NodeListResult, error) {
+	return c.listClusterNodes("digitalocean", clusterID)
+}
+
 func (c *Client) GetHetznerClusterNode(clusterID, nodeID string) (*NodeDetail, error) {
 	return c.getClusterNode("hetzner", clusterID, nodeID)
 }
@@ -61,6 +65,10 @@ func (c *Client) GetOvhClusterNode(clusterID, nodeID string) (*NodeDetail, error
 
 func (c *Client) GetUpcloudClusterNode(clusterID, nodeID string) (*NodeDetail, error) {
 	return c.getClusterNode("upcloud", clusterID, nodeID)
+}
+
+func (c *Client) GetDigitaloceanClusterNode(clusterID, nodeID string) (*NodeDetail, error) {
+	return c.getClusterNode("digitalocean", clusterID, nodeID)
 }
 
 func (c *Client) listClusterNodes(provider, clusterID string) (*NodeListResult, error) {

@@ -104,7 +104,13 @@ passing "-".`,
 			return err
 		}
 
-		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+		// The command ends in a partial-stack PATCH, which the backend serves
+		// synchronously (DB transaction + a full GitOps commit/push when the
+		// cluster has a linked repo) rather than enqueuing it - that can
+		// legitimately take longer than 60s on a large cluster, so the
+		// timeout matches the HTTP client's slow-write ceiling (see
+		// httpClientForSlowWrite).
+		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
 		defer cancel()
 
 		clusterID, _, doc, err := fetchClusterIaCDoc(ctx, clusterFlag)
@@ -155,7 +161,13 @@ var clusterStackVariablesDeleteCmd = &cobra.Command{
 		clusterFlag, _ := cmd.Flags().GetString("cluster")
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+		// The command ends in a partial-stack PATCH, which the backend serves
+		// synchronously (DB transaction + a full GitOps commit/push when the
+		// cluster has a linked repo) rather than enqueuing it - that can
+		// legitimately take longer than 60s on a large cluster, so the
+		// timeout matches the HTTP client's slow-write ceiling (see
+		// httpClientForSlowWrite).
+		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
 		defer cancel()
 
 		clusterID, _, doc, err := fetchClusterIaCDoc(ctx, clusterFlag)

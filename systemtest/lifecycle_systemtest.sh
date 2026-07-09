@@ -5,7 +5,8 @@
 # Real, end-to-end system test for Ankra cloud clusters, driven entirely through
 # the ankra CLI against a live platform (default: https://platform.ankra.dev).
 #
-# For each selected provider (hetzner, ovh, upcloud) it provisions a REAL cluster
+# For each selected provider (hetzner, ovh, upcloud, digitalocean) and each
+# selected Kubernetes distribution (k3s, kubeadm) it provisions a REAL cluster
 # and exercises the full lifecycle, asserting the outcome at every step:
 #
 #   1. create (with external cloud provider + GitOps -> CCM/CSI/Traefik/cert-manager)
@@ -13,9 +14,14 @@
 #   3. confirm the cloud-provider stack addons reach "up"
 #   4. scale workers up (1 -> 3) and down (3 -> 1)
 #   5. add a node group, then delete it
-#   6. upgrade Kubernetes (k3s) to a newer version
+#   6. upgrade Kubernetes (k3s or kubeadm) to a newer version
 #   7. resize the default node group to a bigger instance plan
 #   8. deprovision and confirm the cluster record is removed (deleted_at)
+#
+# Distributions run as an independent axis: with
+# ANKRA_SYSTEMTEST_DISTRIBUTIONS="k3s kubeadm" every selected provider gets one
+# cluster per distribution (e.g. systest-digitalocean-k3s-... and
+# systest-digitalocean-kubeadm-...), so a single run matrix-tests both.
 #
 # It tolerates the two real-world behaviours observed on UpCloud and the others:
 #   - transient provisioning timeouts (slow bastion/server boot) -> reconcile retry
@@ -45,6 +51,9 @@
 #   ./systemtest/lifecycle_systemtest.sh                 # all three, in parallel
 #   ANKRA_SYSTEMTEST_PARALLEL=0 ./systemtest/lifecycle_systemtest.sh   # sequential
 #   ANKRA_SYSTEMTEST_PROVIDERS="upcloud" ./systemtest/lifecycle_systemtest.sh
+#   # DigitalOcean, both distributions:
+#   ANKRA_SYSTEMTEST_PROVIDERS="digitalocean" \
+#     ANKRA_SYSTEMTEST_DISTRIBUTIONS="k3s kubeadm" ./systemtest/lifecycle_systemtest.sh
 #
 # See systemtest/README.md for the full list of configuration variables.
 
@@ -62,6 +71,13 @@ if [ ! -x "$ANKRA_BIN" ]; then
 fi
 
 ANKRA_SYSTEMTEST_PROVIDERS="${ANKRA_SYSTEMTEST_PROVIDERS:-hetzner ovh upcloud}"
+
+# Kubernetes distributions to exercise per provider. Each (provider,
+# distribution) pair becomes its own cluster with the distribution in its name,
+# so a single run can matrix-test both k3s and kubeadm side by side, e.g.
+#   ANKRA_SYSTEMTEST_DISTRIBUTIONS="k3s kubeadm"
+ANKRA_SYSTEMTEST_DISTRIBUTIONS="${ANKRA_SYSTEMTEST_DISTRIBUTIONS:-k3s}"
+
 NAME_PREFIX="${NAME_PREFIX:-systest}"
 RUN_ID="${RUN_ID:-$(date +%y%m%d%H%M%S)}"
 
@@ -104,6 +120,13 @@ UPCLOUD_CP_PLAN="${UPCLOUD_CP_PLAN:-2xCPU-4GB}"
 UPCLOUD_WORKER_PLAN="${UPCLOUD_WORKER_PLAN:-2xCPU-4GB}"
 UPCLOUD_BIGGER_PLAN="${UPCLOUD_BIGGER_PLAN:-4xCPU-8GB}"
 
+DIGITALOCEAN_CREDENTIAL_ID="${DIGITALOCEAN_CREDENTIAL_ID:-}"
+DIGITALOCEAN_REGION="${DIGITALOCEAN_REGION:-nyc3}"
+DIGITALOCEAN_BASTION_SIZE="${DIGITALOCEAN_BASTION_SIZE:-s-1vcpu-1gb}"
+DIGITALOCEAN_CP_SIZE="${DIGITALOCEAN_CP_SIZE:-s-2vcpu-4gb}"
+DIGITALOCEAN_WORKER_SIZE="${DIGITALOCEAN_WORKER_SIZE:-s-2vcpu-4gb}"
+DIGITALOCEAN_BIGGER_SIZE="${DIGITALOCEAN_BIGGER_SIZE:-s-4vcpu-8gb}"
+
 # Timeouts / polling (seconds).
 ONLINE_TIMEOUT="${ONLINE_TIMEOUT:-1500}"     # cluster create -> online
 ADDONS_TIMEOUT="${ADDONS_TIMEOUT:-900}"      # addons -> up
@@ -113,8 +136,12 @@ DEPROVISION_FORCE_TIMEOUT="${DEPROVISION_FORCE_TIMEOUT:-600}"  # bounded force f
 POLL_INTERVAL="${POLL_INTERVAL:-15}"
 IDLE_TIMEOUT="${IDLE_TIMEOUT:-600}"          # wait for no running ops before a write
 
-# k8s upgrade target. If empty, the highest version from `cluster k3s-versions`.
+# k8s upgrade target. If empty, the highest version from the distribution's
+# version listing (`cluster k3s-versions` or `cluster kubeadm-versions`).
 K8S_UPGRADE_TARGET="${K8S_UPGRADE_TARGET:-}"
+
+# etcd topology for kubeadm clusters (stacked | external). k3s ignores it.
+ETCD_TOPOLOGY="${ETCD_TOPOLOGY:-stacked}"
 
 # ---------------------------------------------------------------------------
 # Internal state
@@ -208,8 +235,8 @@ cleanup() {
       log "cleanup: deprovisioning leftover cluster $name ($id)"
       # Best-effort: try a graceful deprovision, then force so we never leak
       # paid infrastructure on an aborted run.
-      ank cluster deprovision "$id" >/dev/null 2>&1 || true
-      ank cluster deprovision "$id" --force >/dev/null 2>&1 || true
+      ank cluster deprovision "$id" --yes >/dev/null 2>&1 || true
+      ank cluster deprovision "$id" --force --yes >/dev/null 2>&1 || true
     fi
   done
 }
@@ -370,27 +397,36 @@ daytwo() {
 }
 
 pick_upgrade_target() {
-  local name="$1" current target
+  local name="$1" distribution="$2" versions_cmd="k3s-versions"
   if [ -n "$K8S_UPGRADE_TARGET" ]; then echo "$K8S_UPGRADE_TARGET"; return; fi
-  current="$(cluster_version "$name")"
-  target="$(ank cluster k3s-versions | awk '/Available versions:/{f=1;next} f&&NF{print $1; exit}')"
-  echo "$target"
+  if [ "$distribution" = "kubeadm" ]; then versions_cmd="kubeadm-versions"; fi
+  ank cluster "$versions_cmd" | awk '/Available versions:/{f=1;next} f&&NF{print $1; exit}'
 }
 
 # ---------------------------------------------------------------------------
 # Per-provider create
 # ---------------------------------------------------------------------------
 
-# UpCloud uses a shared SDN address space, so each cluster needs a unique
-# /16 to avoid "network overlaps with an existing private network" (409).
-# Hetzner and OVH networks are isolated per cluster, so their defaults are safe.
-gen_upcloud_cidr() { echo "10.$(( (RANDOM % 200) + 30 )).0.0/16"; }
+# UpCloud uses a shared SDN address space and DigitalOcean rejects overlapping
+# VPC ranges account-wide, so each cluster needs a unique /16. $RANDOM alone is
+# unsafe for this: parallel workers fork from the same shell and would draw the
+# same value, so combine a per-run random base (drawn once, before forking)
+# with the worker's index. Hetzner and OVH networks are isolated per cluster,
+# so their defaults are safe.
+CIDR_BASE=$(( RANDOM % 200 ))
+worker_cidr() { echo "10.$(( ((CIDR_BASE + ${WORKER_INDEX:-0} * 11) % 200) + 30 )).0.0/16"; }
 
 create_cluster() {
-  local provider="$1" name="$2"
+  local provider="$1" name="$2" distribution="$3"
   local gitops_args=()
   if [ -n "$GITOPS_CREDENTIAL_NAME" ] && [ -n "$GITOPS_REPOSITORY" ]; then
     gitops_args=(--gitops-credential-name "$GITOPS_CREDENTIAL_NAME" --gitops-repository "$GITOPS_REPOSITORY" --gitops-branch "$GITOPS_BRANCH")
+  fi
+  # Distribution selection applies to every self-managed provider; the etcd
+  # topology flag only matters for kubeadm (k3s ignores it).
+  local dist_args=(--distribution "$distribution")
+  if [ "$distribution" = "kubeadm" ]; then
+    dist_args+=(--etcd-topology "$ETCD_TOPOLOGY")
   fi
   case "$provider" in
     hetzner)
@@ -399,22 +435,31 @@ create_cluster() {
         --bastion-server-type "$HETZNER_BASTION_TYPE" \
         --control-plane-server-type "$HETZNER_CP_TYPE" --control-plane-count 1 \
         --worker-server-type "$HETZNER_WORKER_TYPE" --worker-count 1 \
-        --external-cloud-provider "${gitops_args[@]}"
+        --external-cloud-provider "${dist_args[@]}" "${gitops_args[@]}"
       ;;
     ovh)
       ank cluster ovh create --name "$name" --credential-id "$OVH_CREDENTIAL_ID" \
         --ssh-key-credential-id "$SSH_KEY_CREDENTIAL_ID" --region "$OVH_REGION" \
         --control-plane-flavor-id "$OVH_CP_FLAVOR" --control-plane-count 1 \
         --worker-flavor-id "$OVH_WORKER_FLAVOR" --worker-count 1 \
-        --external-cloud-provider "${gitops_args[@]}"
+        --external-cloud-provider "${dist_args[@]}" "${gitops_args[@]}"
       ;;
     upcloud)
       ank cluster upcloud create --name "$name" --credential-id "$UPCLOUD_CREDENTIAL_ID" \
         --ssh-key-credential-id "$SSH_KEY_CREDENTIAL_ID" --zone "$UPCLOUD_ZONE" \
-        --network-ip-range "$(gen_upcloud_cidr)" \
+        --network-ip-range "$(worker_cidr)" \
         --control-plane-plan "$UPCLOUD_CP_PLAN" --control-plane-count 1 \
         --worker-plan "$UPCLOUD_WORKER_PLAN" --worker-count 1 \
-        --external-cloud-provider "${gitops_args[@]}"
+        --external-cloud-provider "${dist_args[@]}" "${gitops_args[@]}"
+      ;;
+    digitalocean)
+      ank cluster digitalocean create --name "$name" --credential-id "$DIGITALOCEAN_CREDENTIAL_ID" \
+        --ssh-key-credential-id "$SSH_KEY_CREDENTIAL_ID" --region "$DIGITALOCEAN_REGION" \
+        --network-ip-range "$(worker_cidr)" \
+        --bastion-size "$DIGITALOCEAN_BASTION_SIZE" \
+        --control-plane-size "$DIGITALOCEAN_CP_SIZE" --control-plane-count 1 \
+        --worker-size "$DIGITALOCEAN_WORKER_SIZE" --worker-count 1 \
+        --external-cloud-provider "${dist_args[@]}" "${gitops_args[@]}"
       ;;
     *) die "unknown provider $provider" ;;
   esac
@@ -425,6 +470,7 @@ bigger_plan() {
     hetzner) echo "$HETZNER_BIGGER_TYPE" ;;
     ovh)     echo "$OVH_BIGGER_FLAVOR" ;;
     upcloud) echo "$UPCLOUD_BIGGER_PLAN" ;;
+    digitalocean) echo "$DIGITALOCEAN_BIGGER_SIZE" ;;
   esac
 }
 
@@ -433,6 +479,7 @@ ng_instance_type() {
     hetzner) echo "$HETZNER_WORKER_TYPE" ;;
     ovh)     echo "$OVH_WORKER_FLAVOR" ;;
     upcloud) echo "$UPCLOUD_WORKER_PLAN" ;;
+    digitalocean) echo "$DIGITALOCEAN_WORKER_SIZE" ;;
   esac
 }
 
@@ -441,67 +488,68 @@ ng_instance_type() {
 # ---------------------------------------------------------------------------
 
 run_provider() {
-  local provider="$1"
-  local name="${NAME_PREFIX}-${provider}-${RUN_ID}"
+  local provider="$1" distribution="$2"
+  local name="${NAME_PREFIX}-${provider}-${distribution}-${RUN_ID}"
+  local label="$provider/$distribution"
   local id target plan out
 
-  section "$provider :: $name"
+  section "$label :: $name"
 
   # 1. Create (capture the printed "Cluster ID: <uuid>")
-  log "creating $name ..."
-  out="$(create_cluster "$provider" "$name")"
+  log "creating $name (distribution=$distribution) ..."
+  out="$(create_cluster "$provider" "$name" "$distribution")"
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
-  if [ -z "$id" ]; then fail "$provider create (could not resolve cluster id)"; return; fi
+  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
   register_cluster "$name" "$id"
-  pass "$provider create submitted (id=$id)"
+  pass "$label create submitted (id=$id)"
 
   # 2. Online + nodes
-  if wait_for_online "$name" "$ONLINE_TIMEOUT"; then pass "$provider online"; else fail "$provider did not reach online"; return; fi
-  if wait_for_nodes "$name" 2 "$DAYTWO_TIMEOUT"; then pass "$provider nodes Ready (cp+worker)"; else fail "$provider nodes not Ready"; fi
+  if wait_for_online "$name" "$ONLINE_TIMEOUT"; then pass "$label online"; else fail "$label did not reach online"; return; fi
+  if wait_for_nodes "$name" 2 "$DAYTWO_TIMEOUT"; then pass "$label nodes Ready (cp+worker)"; else fail "$label nodes not Ready"; fi
 
   # 3. Stacks
-  if wait_for_addons "$name" 4 "$ADDONS_TIMEOUT"; then pass "$provider stacks up (CCM/CSI/Traefik/cert-manager)"; else fail "$provider stacks did not reach up"; fi
+  if wait_for_addons "$name" 4 "$ADDONS_TIMEOUT"; then pass "$label stacks up (CCM/CSI/Traefik/cert-manager)"; else fail "$label stacks did not reach up"; fi
 
   # 4. Scale up / down (generic, provider-auto-detecting verbs)
   if daytwo "scale up" "$name" scale "$id" 3 && wait_for_nodes "$name" 4 "$DAYTWO_TIMEOUT"; then
-    pass "$provider scale up 1->3"; else fail "$provider scale up"; fi
+    pass "$label scale up 1->3"; else fail "$label scale up"; fi
   if daytwo "scale down" "$name" scale "$id" 1 && wait_for_nodes "$name" 2 "$DAYTWO_TIMEOUT"; then
-    pass "$provider scale down 3->1"; else fail "$provider scale down"; fi
+    pass "$label scale down 3->1"; else fail "$label scale down"; fi
 
   # 5. Node group add / delete
   if daytwo "ng add" "$name" node-group add "$id" --name pool-b --instance-type "$(ng_instance_type "$provider")" --count 2 \
      && wait_for_nodes "$name" 4 "$DAYTWO_TIMEOUT" && node_group_present "$name" "$id" pool-b; then
-    pass "$provider node-group add"; else fail "$provider node-group add"; fi
-  if daytwo "ng delete" "$name" node-group delete "$id" pool-b \
+    pass "$label node-group add"; else fail "$label node-group add"; fi
+  if daytwo "ng delete" "$name" node-group delete "$id" pool-b --yes \
      && wait_for_nodes "$name" 2 "$DAYTWO_TIMEOUT"; then
-    pass "$provider node-group delete"; else fail "$provider node-group delete"; fi
+    pass "$label node-group delete"; else fail "$label node-group delete"; fi
 
-  # 6. K8s upgrade
-  target="$(pick_upgrade_target "$name")"
+  # 6. K8s upgrade (uses the matching k3s/kubeadm version listing)
+  target="$(pick_upgrade_target "$name" "$distribution")"
   local want_ver="${target#v}"; want_ver="${want_ver%%+*}"
   if [ -n "$target" ] && daytwo "k8s upgrade" "$name" upgrade "$id" "$target"; then
-    if wait_until_version "$name" "$want_ver" "$DAYTWO_TIMEOUT"; then pass "$provider k8s upgrade -> $target"; else fail "$provider k8s upgrade did not reach $target"; fi
-  else fail "$provider k8s upgrade (submit)"; fi
+    if wait_until_version "$name" "$want_ver" "$DAYTWO_TIMEOUT"; then pass "$label k8s upgrade -> $target"; else fail "$label k8s upgrade did not reach $target"; fi
+  else fail "$label k8s upgrade (submit)"; fi
 
   # 7. Instance resize
   plan="$(bigger_plan "$provider")"
   if daytwo "resize" "$name" node-group upgrade "$id" default "$plan" \
      && wait_until_ng_plan "$name" "$id" default "$plan" "$DAYTWO_TIMEOUT"; then
-    pass "$provider instance resize default -> $plan"; else fail "$provider instance resize"; fi
+    pass "$label instance resize default -> $plan"; else fail "$label instance resize"; fi
 
   # 8. Deprovision -> removed (with a bounded force-deprovision fallback on stall)
   log "deprovisioning $name ..."
-  ank cluster deprovision "$id" | tail -2
+  ank cluster deprovision "$id" --yes | tail -2
   if wait_for_removed "$name" "$DEPROVISION_TIMEOUT"; then
-    pass "$provider deprovision -> deleted_at"
+    pass "$label deprovision -> deleted_at"
   else
     log "  $name deprovision stalled after ${DEPROVISION_TIMEOUT}s; attempting bounded force-deprovision fallback"
-    ank cluster deprovision "$id" --force | tail -2 || true
+    ank cluster deprovision "$id" --force --yes | tail -2 || true
     if wait_for_removed "$name" "$DEPROVISION_FORCE_TIMEOUT"; then
-      pass "$provider deprovision -> deleted_at (after force fallback)"
+      pass "$label deprovision -> deleted_at (after force fallback)"
     else
-      fail "$provider deprovision did not complete (even after force fallback)"
+      fail "$label deprovision did not complete (even after force fallback)"
     fi
   fi
 }
@@ -573,7 +621,15 @@ preflight() {
       hetzner) [ -n "$HETZNER_CREDENTIAL_ID" ] || die "HETZNER_CREDENTIAL_ID required for hetzner" ;;
       ovh)     [ -n "$OVH_CREDENTIAL_ID" ] || die "OVH_CREDENTIAL_ID required for ovh" ;;
       upcloud) [ -n "$UPCLOUD_CREDENTIAL_ID" ] || die "UPCLOUD_CREDENTIAL_ID required for upcloud" ;;
+      digitalocean) [ -n "$DIGITALOCEAN_CREDENTIAL_ID" ] || die "DIGITALOCEAN_CREDENTIAL_ID required for digitalocean" ;;
       *) die "unknown provider in ANKRA_SYSTEMTEST_PROVIDERS: $p" ;;
+    esac
+  done
+  local d
+  for d in $ANKRA_SYSTEMTEST_DISTRIBUTIONS; do
+    case "$d" in
+      k3s|kubeadm) ;;
+      *) die "unknown distribution in ANKRA_SYSTEMTEST_DISTRIBUTIONS: $d (want k3s or kubeadm)" ;;
     esac
   done
 }
@@ -582,17 +638,18 @@ preflight() {
 # (so `cluster select` is not shared), its own results file, and every line of
 # output tagged + tee'd to a per-provider log. Intended to be backgrounded.
 run_provider_bg() {
-  local provider="$1"
+  local provider="$1" distribution="$2" WORKER_INDEX="${3:-0}"
+  local slug="$provider-$distribution"
   # Isolated config copy so the CLI's saved credentials and active-cluster
   # selection are private to this worker (see the ank() wrapper). The .yaml
   # suffix keeps viper's format detection happy.
-  local ANK_CONFIG="$WORKDIR/config.$provider.yaml"
-  local RESULT_FILE="$WORKDIR/results.$provider"
+  local ANK_CONFIG="$WORKDIR/config.$slug.yaml"
+  local RESULT_FILE="$WORKDIR/results.$slug"
   : > "$RESULT_FILE"
   if [ -f "$BASE_CONFIG" ]; then
     cp "$BASE_CONFIG" "$ANK_CONFIG" 2>/dev/null || true
   fi
-  run_provider "$provider" 2>&1 | sed -u "s/^/[$provider] /" | tee "$WORKDIR/log.$provider"
+  run_provider "$provider" "$distribution" 2>&1 | sed -u "s/^/[$slug] /" | tee "$WORKDIR/log.$slug"
 }
 
 main() {
@@ -603,39 +660,53 @@ main() {
   CREATED_FILE="$WORKDIR/created_clusters"
   : > "$CREATED_FILE"
 
-  local p
+  # Build the provider x distribution matrix ("provider:distribution" targets).
+  local -a targets=()
+  local p d
+  for p in $ANKRA_SYSTEMTEST_PROVIDERS; do
+    for d in $ANKRA_SYSTEMTEST_DISTRIBUTIONS; do
+      targets+=("$p:$d")
+    done
+  done
+
+  local t
+  local worker_index=0
   if [ "$ANKRA_SYSTEMTEST_PARALLEL" = "1" ]; then
-    log "providers: $ANKRA_SYSTEMTEST_PROVIDERS (parallel)"
-    log "run artifacts + per-provider logs: $WORKDIR"
-    local -a worker_provs=()
-    for p in $ANKRA_SYSTEMTEST_PROVIDERS; do
-      run_provider_bg "$p" &
+    log "targets: ${targets[*]} (parallel)"
+    log "run artifacts + per-target logs: $WORKDIR"
+    local -a worker_targets=()
+    for t in "${targets[@]}"; do
+      run_provider_bg "${t%%:*}" "${t#*:}" "$worker_index" &
       WORKER_PIDS+=("$!")
-      worker_provs+=("$p")
+      worker_targets+=("$t")
+      worker_index=$((worker_index + 1))
     done
     local i
     for i in "${!WORKER_PIDS[@]}"; do
       wait "${WORKER_PIDS[$i]}" || true
-      log "worker finished: ${worker_provs[$i]}"
+      log "worker finished: ${worker_targets[$i]}"
     done
   else
-    log "providers: $ANKRA_SYSTEMTEST_PROVIDERS (sequential)"
+    log "targets: ${targets[*]} (sequential)"
     log "run artifacts: $WORKDIR"
-    for p in $ANKRA_SYSTEMTEST_PROVIDERS; do
-      RESULT_FILE="$WORKDIR/results.$p" run_provider "$p"
+    for t in "${targets[@]}"; do
+      p="${t%%:*}"; d="${t#*:}"
+      RESULT_FILE="$WORKDIR/results.$p-$d" WORKER_INDEX="$worker_index" run_provider "$p" "$d"
+      worker_index=$((worker_index + 1))
     done
   fi
 
   # Aggregate results from every worker's file (works for both modes).
   local -a all_results=()
-  local total_failures=0 line
-  for p in $ANKRA_SYSTEMTEST_PROVIDERS; do
-    [ -f "$WORKDIR/results.$p" ] || continue
+  local total_failures=0 line slug
+  for t in "${targets[@]}"; do
+    slug="${t%%:*}-${t#*:}"
+    [ -f "$WORKDIR/results.$slug" ] || continue
     while IFS= read -r line; do
       [ -z "$line" ] && continue
       all_results+=("$line")
       case "$line" in FAIL*) total_failures=$((total_failures + 1));; esac
-    done < "$WORKDIR/results.$p"
+    done < "$WORKDIR/results.$slug"
   done
 
   section "RESULTS"

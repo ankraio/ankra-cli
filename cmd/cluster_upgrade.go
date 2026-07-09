@@ -22,6 +22,8 @@ func upgradeFunctionForKind(kind string) (k8sVersionUpgrade, bool) {
 		return apiClient.UpgradeOvhK8sVersion, true
 	case "upcloud":
 		return apiClient.UpgradeUpcloudK8sVersion, true
+	case "digitalocean":
+		return apiClient.UpgradeDigitaloceanK8sVersion, true
 	default:
 		return nil, false
 	}
@@ -34,7 +36,7 @@ var clusterUpgradeCmd = &cobra.Command{
 	Short: "Upgrade the Kubernetes version of a cloud cluster",
 	Long: `Upgrade the Kubernetes version on all nodes in a cloud cluster.
 
-The cloud provider (Hetzner, OVH, or UpCloud) is detected automatically from
+The cloud provider (Hetzner, OVH, UpCloud, or DigitalOcean) is detected automatically from
 the cluster, so you do not need to remember which provider it runs on. Both
 k3s and kubeadm clusters are supported; list the available target versions
 with 'ankra cluster k3s-versions' or 'ankra cluster kubeadm-versions'.

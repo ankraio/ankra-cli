@@ -40,6 +40,14 @@ func upcloudNodesOps() clusterNodesOps {
 	}
 }
 
+func digitaloceanNodesOps() clusterNodesOps {
+	return clusterNodesOps{
+		provider: "digitalocean",
+		list:     apiClient.ListDigitaloceanClusterNodes,
+		get:      apiClient.GetDigitaloceanClusterNode,
+	}
+}
+
 func runNodesList(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID string) error {
 	ops := opsFn()
 	result, err := ops.list(clusterID)
@@ -214,4 +222,5 @@ func init() {
 	hetznerCmd.AddCommand(newNodesCmd(hetznerNodesOps, "Hetzner"))
 	ovhCmd.AddCommand(newNodesCmd(ovhNodesOps, "OVH"))
 	upcloudCmd.AddCommand(newNodesCmd(upcloudNodesOps, "UpCloud"))
+	digitaloceanCmd.AddCommand(newNodesCmd(digitaloceanNodesOps, "DigitalOcean"))
 }

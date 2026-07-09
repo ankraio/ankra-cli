@@ -254,9 +254,10 @@ If no cluster name is provided, uses the currently selected cluster.`,
 type cloudClusterKind string
 
 const (
-	cloudClusterKindHetzner cloudClusterKind = "hetzner"
-	cloudClusterKindOvh     cloudClusterKind = "ovh"
-	cloudClusterKindUpcloud cloudClusterKind = "upcloud"
+	cloudClusterKindHetzner      cloudClusterKind = "hetzner"
+	cloudClusterKindOvh          cloudClusterKind = "ovh"
+	cloudClusterKindUpcloud      cloudClusterKind = "upcloud"
+	cloudClusterKindDigitalocean cloudClusterKind = "digitalocean"
 )
 
 var clusterDeprovisionCmd = &cobra.Command{
@@ -266,7 +267,7 @@ var clusterDeprovisionCmd = &cobra.Command{
 
 If no cluster name is provided, uses the currently selected cluster.
 
-For cloud clusters (hetzner, ovh, upcloud) this command routes to the provider-specific
+For cloud clusters (hetzner, ovh, upcloud, digitalocean) this command routes to the provider-specific
 deprovision endpoint so cloud resources are released.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -331,6 +332,20 @@ deprovision endpoint so cloud resources are released.`,
 				return encodeStructured(cmd.OutOrStdout(), format, result)
 			}
 			fmt.Printf("UpCloud cluster deprovision initiated.\n")
+			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+			if result.OperationID != nil && *result.OperationID != "" {
+				fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+			}
+			return nil
+		case cloudClusterKindDigitalocean:
+			result, err := apiClient.DeprovisionDigitaloceanCluster(clusterID)
+			if err != nil {
+				return fmt.Errorf("deprovisioning DigitalOcean cluster: %w", err)
+			}
+			if format != outputDefault {
+				return encodeStructured(cmd.OutOrStdout(), format, result)
+			}
+			fmt.Printf("DigitalOcean cluster deprovision initiated.\n")
 			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 			if result.OperationID != nil && *result.OperationID != "" {
 				fmt.Printf("  Operation ID: %s\n", *result.OperationID)

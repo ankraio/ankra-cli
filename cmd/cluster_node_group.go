@@ -29,11 +29,11 @@ func resolveNodeGroupClusterKind(clusterID string) (string, error) {
 		return "", fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
 	}
 	switch cluster.Kind {
-	case "hetzner", "ovh", "upcloud":
+	case "hetzner", "ovh", "upcloud", "digitalocean":
 		return cluster.Kind, nil
 	default:
 		return "", fmt.Errorf(
-			"cluster %q (kind %q) does not support node groups. Only Hetzner, OVH, and UpCloud clusters can use this command",
+			"cluster %q (kind %q) does not support node groups. Only Hetzner, OVH, UpCloud, and DigitalOcean clusters can use this command",
 			clusterID, cluster.Kind)
 	}
 }
@@ -46,6 +46,8 @@ func nodeGroupListForKind(kind string) nodeGroupListFunc {
 		return apiClient.ListOvhNodeGroups
 	case "upcloud":
 		return apiClient.ListUpcloudNodeGroups
+	case "digitalocean":
+		return apiClient.ListDigitaloceanNodeGroups
 	}
 	return nil
 }
@@ -58,6 +60,8 @@ func nodeGroupAddForKind(kind string) nodeGroupAddFunc {
 		return apiClient.AddOvhNodeGroup
 	case "upcloud":
 		return apiClient.AddUpcloudNodeGroup
+	case "digitalocean":
+		return apiClient.AddDigitaloceanNodeGroup
 	}
 	return nil
 }
@@ -70,6 +74,8 @@ func nodeGroupScaleForKind(kind string) nodeGroupScaleFunc {
 		return apiClient.ScaleOvhNodeGroup
 	case "upcloud":
 		return apiClient.ScaleUpcloudNodeGroup
+	case "digitalocean":
+		return apiClient.ScaleDigitaloceanNodeGroup
 	}
 	return nil
 }
@@ -82,6 +88,8 @@ func nodeGroupUpgradeForKind(kind string) nodeGroupUpgradeFunc {
 		return apiClient.UpdateOvhNodeGroupInstanceType
 	case "upcloud":
 		return apiClient.UpdateUpcloudNodeGroupInstanceType
+	case "digitalocean":
+		return apiClient.UpdateDigitaloceanNodeGroupInstanceType
 	}
 	return nil
 }
@@ -94,6 +102,8 @@ func nodeGroupDeleteForKind(kind string) nodeGroupDeleteFunc {
 		return apiClient.DeleteOvhNodeGroup
 	case "upcloud":
 		return apiClient.DeleteUpcloudNodeGroup
+	case "digitalocean":
+		return apiClient.DeleteDigitaloceanNodeGroup
 	}
 	return nil
 }

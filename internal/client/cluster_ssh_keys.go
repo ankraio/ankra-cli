@@ -115,3 +115,15 @@ func (c *Client) UpdateUpcloudClusterSSHKeys(clusterID string, sshKeyCredentialI
 func (c *Client) ResyncUpcloudClusterSSHKeys(clusterID string) (*ResyncSSHKeysResult, error) {
 	return c.resyncClusterSSHKeys("upcloud", clusterID)
 }
+
+func (c *Client) GetDigitaloceanClusterSSHKeys(clusterID string) (*ClusterSSHKeysResult, error) {
+	return c.getClusterSSHKeys("digitalocean", clusterID)
+}
+
+func (c *Client) UpdateDigitaloceanClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*UpdateClusterSSHKeysResult, error) {
+	return c.updateClusterSSHKeys("digitalocean", clusterID, sshKeyCredentialIDs)
+}
+
+func (c *Client) ResyncDigitaloceanClusterSSHKeys(clusterID string) (*ResyncSSHKeysResult, error) {
+	return c.resyncClusterSSHKeys("digitalocean", clusterID)
+}
