@@ -2,6 +2,811 @@
 
 ## Unreleased
 
+### Security
+
+- **`ankra login` no longer opens a localhost callback server.** The whole
+  browser part of the login now runs against the platform: the CLI starts a
+  login session, opens the browser, and polls the platform for the token,
+  proving possession of the PKCE code verifier that never leaves the machine.
+  No local TCP port is opened, and the Auth0 authorization code no longer
+  passes through a loopback redirect URL (browser history, extensions,
+  corporate proxies). The browser shows an explicit approval page naming the
+  requesting machine before any credentials are released, and the two-factor
+  step-up continues in the same browser flow. Older CLI releases are refused
+  by the platform with an upgrade message once this ships.
+- **Login polling fails fast on client errors.** An expired login session,
+  a refused code verifier, or an upgrade-required answer now aborts
+  `ankra login` immediately with the platform's message instead of silently
+  retrying until the ten-minute timeout (the old behaviour behind the
+  "stuck waiting for two-factor" hangs).
+- **`ankra logout` now revokes the login token on the platform.** The saved
+  `token_id` from the browser login is revoked server-side before the local
+  credentials are cleared, so a copied token no longer survives logout. Pass
+  `--local-only` to skip the remote revocation (e.g. when offline). The logout
+  rewrite of `~/.ankra.yaml` uses the same 0600 secure-write path as login.
+- **`install.sh` fails closed on missing checksums.** When a release publishes
+  no `.sha256` asset the installer now aborts instead of installing an
+  unverified binary; set `ALLOW_UNVERIFIED=1` to override, matching
+  `ankra upgrade --allow-unverified`.
+- **API error bodies are redacted before display.** Every error path that
+  echoes a response body now masks token/secret/password-like JSON fields, so
+  backend errors can be pasted into issues and CI logs safely.
+- **Secrets are no longer over-printed.** `ankra tokens create` prints the
+  token once without a runnable `export` line, `ankra cluster agent token`
+  shows metadata only unless `--generate` is passed, SSH `--generate` supports
+  `--output-file` (written 0600) instead of dumping the private key to the
+  terminal, and the OVH Application Key prompt is masked like the other
+  credential prompts.
+
+### Added
+
+- **`--wait`/`--timeout` on `ankra cluster upgrade` and `ankra cluster deprovision`.**
+  Both commands can now block until the underlying operation finishes and
+  report success or failure (exit code 5 when the wait deadline expires),
+  matching the node-group commands.
+- **`-o json|yaml` on `ankra cluster upgrade`.**
+- **Cluster name, ID, or selection everywhere.** `ankra cluster scale`,
+  `upgrade`, `reconcile`, `provision`, `deprovision`, and `metrics` all accept
+  a cluster name or UUID and fall back to `--cluster` or the selection saved by
+  `ankra cluster select` — e.g. `ankra cluster scale 3` scales the selected
+  cluster.
+- **Non-interactive credential creation.** All `ankra credentials * create`
+  commands accept `--token-file <path>` to read the secret from a file instead
+  of an interactive prompt (OVH takes a small JSON document with the three
+  keys), so credentials can be created from CI.
+- **`--yes`/`-y` is now accepted by every command with a confirmation prompt.**
+  `ankra delete cluster` and the Helm registry/credential delete commands keep
+  `--force`/`-f` as a hidden alias for backwards compatibility.
+- **`--labels` and `--taints` on `ankra cluster node-group add`.** The generic
+  add command now applies labels and taints at creation for every provider,
+  matching what the OVH-specific spelling supported.
+- **`-o json|yaml` on `ankra cluster kubeconfig list`** emitting
+  `[{context, server, active}]`, closing the last structured-output gap among
+  the read commands.
+- **Dynamic shell completion.** Cluster, stack, addon, and credential name
+  arguments now tab-complete against the live platform (`ankra completion
+  install` to set up).
+- **Homebrew installation.** `brew install ankraio/tap/ankra` installs the CLI
+  on macOS and Linux. The formula in
+  [ankraio/homebrew-tap](https://github.com/ankraio/homebrew-tap) is
+  regenerated automatically by the release workflow on every stable release
+  (pre-releases never reach the tap), and shell completions are installed by
+  brew. A Homebrew-managed binary refuses `ankra upgrade` and points at
+  `brew upgrade ankra` instead, so the next `brew upgrade` can never silently
+  revert a self-update.
+- **New managed Kubernetes providers: GKE, OVH MKS, AKS, and EKS.** Every
+  `ankra cluster managed` subcommand now accepts `--provider gke|ovh-mks|aks|eks`
+  alongside the existing `doks` and `uks` (`ovh_mks` is tolerated as an
+  alternative spelling of `ovh-mks`).
+- **`ankra cluster managed options`** — list the locations, Kubernetes versions,
+  node sizes, cluster plans, and capabilities a provider offers for a credential.
+- **`ankra cluster managed discover` / `import`** — list the clusters that
+  already exist at a provider for a credential and adopt one into Ankra
+  (`--provider`, `--credential-id`, plus `--cluster-id` and optional `--name`
+  on `import`).
+- **Preflight checks on `ankra cluster managed create`.** Create now runs the
+  provider preflight first, prints each check, and aborts when the provider
+  reports it cannot proceed; pass `--skip-preflight` to bypass.
+- **`ankra cluster managed upgrades <cluster_id>`** — list the Kubernetes
+  versions a managed cluster can upgrade to.
+- **Node pool autoscaling for managed clusters.**
+  `ankra cluster managed node-pool update <cluster_id> <node_pool_name>` updates
+  the node count and/or autoscaling bounds (`--count`, `--autoscaling-enabled`,
+  `--autoscaling-min`, `--autoscaling-max`), and `managed create` gains
+  `--node-pool-autoscaling-min`/`--node-pool-autoscaling-max` for the initial
+  node pool. `managed create` also gains `--description`, `--ha`, and
+  `--cluster-plan` for providers that support them.
+- **`ankra cluster proxmox`** — create, deprovision, stop/start, scale, upgrade, node groups,
+  control plane and nodes inspection, `access-info`, per-provider `ssh-keys`, plus
+  `host-nodes`/`storages`/`bridges`/`templates`/`sizes` discovery for Proxmox VE (alias:
+  `ankra cluster pve`). Sizes are the fixed presets px-small (2 vCPU/4 GB/40 GB),
+  px-medium (4/8/80), px-large (8/16/160), and px-xlarge (16/32/320).
+- **`ankra credentials proxmox`** — manage Proxmox VE API token credentials
+  (`--api-url`, `--token-id`, prompted token secret, `--tls-insecure`) and SSH key
+  credentials (alias: `ankra creds pve`).
+- **`ankra cluster morpheus`** — create, deprovision, stop/start, scale, upgrade, node groups,
+  control plane and nodes inspection, `access-info`, per-provider `ssh-keys`, plus
+  `groups`/`clouds`/`plans`/`layouts`/`networks` discovery for HPE Morpheus. Placement flags
+  take numeric Morpheus IDs (`--group-id`, `--cloud-id`, `--network-id`, `--layout-id`,
+  optional `--virtual-image-id`) and nodes are sized by numeric service-plan IDs
+  (`--bastion-plan-id`, `--control-plane-plan-id`, `--worker-plan-id`, `--etcd-plan-id`).
+  Discovery lists everything the credential can reach; `networks` accepts an optional
+  `--cloud-id` that filters client-side.
+- **`ankra credentials morpheus`** — manage Morpheus API credentials (`--api-url`, prompted
+  access token, `--tls-insecure`) and SSH key credentials.
+- **Jumphost support for provider credentials.** `ankra credentials proxmox|morpheus create`
+  accept `--jumphost-host`, `--jumphost-port`, `--jumphost-username`, and
+  `--jumphost-key-file` for APIs that are only reachable through a bastion.
+- **Repeatable `--node-group`** on `ankra cluster proxmox|morpheus create` provisions extra
+  node groups alongside the default workers
+  (`name=<n>,instance-type=<t>|plan-id=<id>,count=<c>[,labels=k=v;...][,taints=k=v:Effect;...]`).
+- Provider-agnostic cluster commands (`scale`, `upgrade`, `node-group`, `ssh-keys`,
+  `deprovision`, `nodes`, `control-plane`) now detect `proxmox` and `morpheus` clusters
+  automatically.
+- `systemtest/lifecycle_systemtest.sh` gains opt-in `proxmox` and `morpheus` lifecycle
+  targets (`ANKRA_SYSTEMTEST_PROVIDERS="proxmox morpheus"` with the matching
+  `PROXMOX_*`/`MORPHEUS_*` environment variables).
+- **`systemtest/managed_lifecycle_systemtest.sh`** — real end-to-end lifecycle
+  system test for the managed Kubernetes providers (DOKS, UKS, GKE, OVH MKS,
+  AKS, EKS): options discovery, preflighted create, node-pool scale/add/delete,
+  upgrade listing and execution, provider-side discover, and delete, with
+  parallel per-provider workers and guaranteed teardown on abort
+  (`ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="doks uks gke ovh-mks aks eks"`).
+
+### Changed
+
+- **The Hetzner, OVH, and UpCloud provider-specific `scale`, `upgrade`,
+  `deprovision`, and `node-group <list|add|scale|upgrade|delete>` commands are
+  now thin forwarders** to the generic `ankra cluster` verbs (deprecated since
+  v0.4.0). The old spellings keep working until v0.7.0: they print the cobra
+  deprecation notice plus a machine-readable
+  `ANKRA_DEPRECATED=<old>=><new> removal=v0.7.0` line on stderr, then
+  re-dispatch — flags, validation, and exit codes come from the generic verb.
+  OVH's `node-group labels`/`node-group taints` stay as real commands (no
+  generic equivalent). See `DEPRECATIONS.md`.
+- **Confirmation prompts are written to stderr** when output goes to a
+  terminal pipeline, so `-o json` stdout stays machine-parseable.
+- The CLI sends a `User-Agent: ankra-cli/<version>` header, and read requests
+  retry transient 429/503 responses with a small bounded backoff (honouring
+  `Retry-After`).
+- **Ctrl+C / SIGTERM now aborts in-flight API requests.** The first signal
+  cancels the command's context (requests fail fast instead of running to
+  their HTTP timeout); a second Ctrl+C kills the process outright.
+- All six self-managed cloud providers now share one client transport path
+  for create/deprovision/stop/start/scale-workers/upgrade-k8s-version, so
+  every lifecycle failure maps to the CLI's standard exit codes and 404s
+  surface the backend detail (previously Morpheus, Proxmox, UpCloud, and
+  DigitalOcean stop/start returned exit 1 regardless of the HTTP status).
+- Releases are gated: the release workflow runs the race-enabled test suite
+  before building, and a stable tag fails when its `CHANGELOG.md` section is
+  empty. Stable releases also bump the Homebrew tap automatically.
+- The scheduled lifecycle system test now rotates providers across the week
+  (Mon: Hetzner/OVH/UpCloud k3s; Wed: DigitalOcean/Proxmox/Morpheus k3s;
+  Fri: kubeadm) so every provider and both distributions get coverage.
+
+## v0.5.1 — 2026-07-07
+
+### Added
+
+- **`ankra cluster digitalocean`** — create, deprovision, stop/start, scale, upgrade, node groups,
+  regions/sizes discovery, and credential management (alias: `ankra cluster do`,
+  `ankra credentials digitalocean`).
+- **`ankra cluster managed`** — create, deprovision, upgrade, and node-pool operations for
+  DigitalOcean Kubernetes (`doks`) and UpCloud Managed Kubernetes (`uks`).
+- Provider-agnostic cluster commands (`scale`, `upgrade`, `node-group`, `ssh-keys`, `deprovision`)
+  now detect `digitalocean` clusters automatically.
+- `systemtest/lifecycle_systemtest.sh` now exercises Kubernetes distribution as
+  an independent axis (`ANKRA_SYSTEMTEST_DISTRIBUTIONS="k3s kubeadm"`), running
+  one cluster per provider/distribution pair, and generates a unique `/16` per
+  DigitalOcean cluster to avoid VPC range collisions across parallel workers.
+
+### Fixed
+
+- **`ankra cluster addons upgrade` / `manifests upgrade` / `encrypt ... --cluster` /
+  `stacks variables set|delete` timing out on large clusters.** These commands
+  end in a partial-stack PATCH that the backend serves synchronously (DB
+  transaction plus a full GitOps commit/push when the cluster has a linked
+  repo), which can legitimately take longer than the previous 60-second
+  command context. The context deadline is now 5 minutes, matching the HTTP
+  client's existing slow-write timeout.
+
+## v0.5.0 — 2026-07-05
+
+### Added
+
+- **kubeadm cluster support in `ankra cluster upgrade`.** The provider-agnostic
+  upgrade now covers kubeadm-distribution clusters alongside k3s. Nodes
+  upgrade one at a time (control plane first): each node is cordoned, drained
+  respecting PodDisruptionBudgets, upgraded, and gated on being Ready at the
+  target version, with an etcd snapshot taken before the control plane. A new
+  `--force` flag proceeds when a drain is blocked by a PodDisruptionBudget
+  (the default aborts safely), and the upgrade now prints the operation ID
+  with a hint to follow progress via `ankra cluster operations list`.
+- **`ankra cluster kubeadm-versions`** lists the upstream Kubernetes versions
+  the platform can provision or upgrade kubeadm clusters to, as a sibling of
+  `ankra cluster k3s-versions`.
+- **etcd topology flags for kubeadm creates.** `ankra cluster
+  hetzner|ovh|upcloud create` gain `--etcd-topology` (`stacked` on the control
+  planes, or `external` on dedicated VMs), `--etcd-node-count` (3 or 5), and
+  `--etcd-server-type` for sizing the dedicated etcd nodes.
+- **`ankra stack-profiles list --category`** filters profiles server-side by
+  category (e.g. `monitoring`).
+- **Generated CLI reference.** `tools/gendocs` renders the full command tree
+  as Mintlify MDX pages, and a release-tag workflow opens a sync PR against
+  the public docs so the reference never drifts from the shipped CLI.
+
+### Fixed
+
+- **Kubeconfig exec entries pin the cluster's owning organisation.** Entries
+  written by `ankra cluster kubeconfig add` now embed `--org
+  <organisation-id>` in the `kube-token` exec args, so `kubectl` keeps
+  working after you switch your selected organisation — previously the token
+  mint failed with "Cluster not found" whenever the selection differed from
+  the cluster's owner. Cluster IDs are resolved to their owning organisation
+  (and real cluster name) via the backend; entries written before this
+  release need a one-time re-add to pick up the pin.
+- **`ankra stack-profiles export-iac` exports the current version by
+  default.** The `--version` default was a hard-coded `1`, silently exporting
+  a stale first version once a profile advanced; it now resolves the
+  profile's current published version and errors clearly when a profile has
+  no published versions.
+- **Deprecated `ankra cluster <provider> upgrade` help no longer overstates
+  parity.** These forms always run the safe non-forced rollout; the help now
+  says so and points at `ankra cluster upgrade` for `--force` and operation
+  tracking.
+
+## v0.4.2 — 2026-07-03
+
+### Fixed
+
+- **`ankra login` now declares two-factor capability to the platform.** The
+  token exchange sends `supports_mfa: true`, letting the platform tell CLIs
+  that can complete the Ankra-native two-factor step-up apart from legacy
+  releases (v0.3.0 and older) that silently saved an empty token and reported
+  "Login successful!". Once the platform enforces the check, outdated CLIs
+  receive an explicit upgrade error instead of a broken login.
+
+### Changed
+
+- **Differentiated exit codes** - the CLI now exits with a stable, documented
+  code instead of always `1`: `0` success, `1` API/runtime error, `2`
+  usage/flag error (unknown command/flag, bad arguments, missing required
+  flags), `3` targeted resource not found, `4` confirmation declined, `5`
+  `--wait`/`--timeout` expiry on asynchronous writes (internal request
+  deadlines still exit `1`), `6` authentication failure (missing/expired/
+  rejected credentials, 401/403). Scripts can now branch on the failure class
+  (re-authenticate on 6, treat 3 as idempotent success) without parsing error
+  text.
+- **Declined confirmations exit `4` everywhere** - including `helm registries
+  delete` and `helm credentials delete`, which previously printed
+  "Cancelled." to stdout and exited `0`, indistinguishable from a successful
+  delete.
+- **Errors always reach stderr and set a non-zero exit code.** Every command
+  handler was converted from cobra's `Run` to `RunE`. This fixes a class of
+  bugs where failures printed an error to *stdout* and exited `0`, invisible
+  to scripts and CI: all of `charts` and `chat`, `cluster manifests list`,
+  `cluster select`/`clear`, credential list commands, and others. Error text
+  no longer pollutes stdout for `-o json|yaml` consumers; it is printed by
+  cobra to stderr as `Error: ...`.
+- **`ankra delete cluster`** - declining the confirmation prompt now exits `4`
+  (previously printed "Aborted." and exited `0`); deleting a cluster that does
+  not exist now exits `3` (previously exited `0`); the refusal hint for cloud
+  clusters now points at `ankra cluster deprovision` instead of the
+  provider-namespaced form deprecated in v0.4.0; and the underlying API error
+  is included in the failure message instead of being swallowed.
+
+### Added
+
+- **Deprecation forwarding machinery** (internal) - `deprecateAndForward`
+  registers a hidden forwarder at an old command path that re-dispatches to
+  the replacement with argument rewriting, emitting cobra's human-facing
+  notice plus a machine-readable `ANKRA_DEPRECATED=<old>=><new>
+  removal=<version>` stderr marker for scripts and agents. No forwarders are
+  wired yet; this lands the mechanism for upcoming command-tree work.
+
+## v0.4.1 — 2026-07-03
+
+### Fixed
+
+- **`ankra login` no longer reports "Login successful!" while saving an empty
+  token.** When the platform withholds the API token — for example when the
+  account requires a two-factor step-up that the running CLI version does not
+  understand — older CLIs silently wrote an empty `token:` to `~/.ankra.yaml`
+  and declared success, leaving every subsequent command failing with
+  "not logged in". The login flow now refuses to persist credentials without a
+  token and explains what happened: an incomplete two-factor step-up says to
+  run `ankra login` again, and a token-less exchange points at
+  `ankra upgrade`. Existing saved credentials are left untouched either way.
+
+## v0.4.0 - 2026-06-30
+
+The stable v0.4.0 release consolidates the v0.4.0 release candidates into a
+larger CLI control-plane update: provider-agnostic cloud cluster management,
+cluster access administration, stack-profile apply/get, global per-command
+cluster targeting, self-service MFA tooling, and more resilient login and
+GitOps write paths.
+
+### Added
+
+- **`ankra profile auth ...`** - manage your own two-factor authentication from
+  the CLI. `status` shows enrolled authenticators, passkeys/security keys and
+  remaining recovery codes; `totp start|confirm|remove` sets up or removes an
+  authenticator app; `recovery-codes regenerate` creates a fresh one-time code
+  set; and `passkeys list|remove|open` lists/removes passkeys or opens Profile
+  Authentication in the browser for WebAuthn setup.
+- **`ankra skills --editor claude-code`** - install the curated Ankra Agent
+  Skills into Claude Code's `~/.claude/skills` directory, or
+  `<project>/.claude/skills` when combined with `--project`.
+- **`ankra cluster access list | grant | revoke`** - manage per-user access to
+  a cluster's Kubernetes API through the Ankra kube gateway, including
+  namespace-scoped grants and RBAC reconcile status.
+- **Provider-agnostic cloud cluster lifecycle commands** - `ankra cluster
+  upgrade`, `scale`, `node-group`, `k3s-versions`, and `deprovision` now detect
+  Hetzner, OVH, or UpCloud automatically, so users no longer need to pick a
+  provider namespace for common lifecycle work.
+- **Cloud create parity across Hetzner, OVH, and UpCloud** - cloud-provider and
+  networking stacks can be installed directly by default and committed to GitOps
+  when repository flags are supplied.
+- **OVH operational commands** - stop/start clusters, print access info, manage
+  SSH keys, set node-group labels/taints, and inspect control-plane or node
+  details through the public API.
+- **`ankra stack-profiles get` and `ankra stack-profiles apply`** - inspect
+  published stack-profile versions and instantiate a profile as a draft or
+  deploy it directly, with `--set`, `--set-file`, and `--set-env` parameter
+  binding.
+- **Organisation slug resolution** - organisation slugs are shown in org output,
+  and `ankra org switch` plus global `--org` resolve by ID, slug, or name.
+- **Global `--cluster <name|id>` for cluster-scoped commands** - target a
+  cluster for a single command without changing the saved selection.
+- **`ankra cluster ssh-keys get | set | resync <cluster_id>`** - manage SSH keys
+  across Hetzner, OVH, and UpCloud from one command group, including provider
+  reference repair with `resync`.
+
+### Changed
+
+- **`ankra login` now completes Ankra-native two-factor authentication.** Second
+  factors are managed by Ankra (not Auth0): when your account has a passkey,
+  security key, or authenticator app enrolled, the token exchange withholds the
+  API token and returns a one-time challenge URL. The CLI opens that URL in your
+  browser, you complete the second step (passkey, authenticator code, or recovery
+  code), and the CLI polls until the step-up succeeds and the token is released.
+  No flags change; accounts without a second factor log in exactly as before.
+- **`ankra login` is more reliable on dual-stack IPv4/IPv6 machines.** The
+  browser redirect now uses the same `127.0.0.1` loopback address the callback
+  server listens on, and the callback wait matches the backend's 10-minute
+  login-state expiry.
+- **`--config <file>` now fully isolates per-invocation state.** Extensionless
+  config files are parsed as YAML, and active-cluster selection is keyed to the
+  explicit config path so parallel workers do not clobber each other.
+- **`ankra support create` now shows the AI review before submitting.** Flagged
+  requests and possible duplicates are shown before confirmation; `--force`
+  still skips the prompt.
+
+### Fixed
+
+- **Partial-stack writes tolerate slow synchronous Git commits.** Commands that
+  PATCH a stack (`manifests upgrade`, `addons update`, `cluster encrypt`, and
+  `stack-variables set`) are bounded by an overall 5-minute deadline instead of
+  the shared client's 30-second response-header timeout.
+- **`ankra cluster encrypt` preserves leading-dot keys such as
+  `.dockerconfigjson`.** Dotted-path normalisation no longer corrupts literal
+  Kubernetes secret keys that begin with a dot.
+
+### Deprecated
+
+- The provider-specific `ankra cluster {hetzner,ovh,upcloud} upgrade`, `scale`,
+  `node-group`, and `deprovision` commands are deprecated in favour of the
+  provider-agnostic verbs above and are scheduled for removal in v0.5.0.
+- `ankra cluster ovh ssh-keys get | set <cluster_id>` is deprecated in favour
+  of `ankra cluster ssh-keys get | set <cluster_id>` and is scheduled for
+  removal in v0.6.0.
+
+## v0.4.0-rc4 - 2026-06-23
+
+### Fixed
+
+- **Partial-stack writes no longer fail with `http2: timeout awaiting response
+  headers` when the server commits to git synchronously.** `ankra cluster
+  manifests upgrade`, `ankra cluster addons update`, `ankra cluster encrypt`,
+  and `ankra cluster stack-variables set` all issue
+  `PATCH /stacks/{stack_name}`, which performs a synchronous git commit+push on
+  the request path and can legitimately take longer than the shared HTTP
+  client's 30s response-header timeout to start responding. These partial-stack
+  writes now use a dedicated client that drops the response-header timeout and
+  is bounded by an overall 5-minute deadline, so a slow-but-progressing server
+  completes the write instead of erroring out while still making progress.
+
+## v0.4.0-rc3 - 2026-06-23
+
+### Added
+
+- **Global `--cluster <name|id>` on every `ankra cluster ...` subcommand** -
+  target a cluster per command without first running `ankra cluster select`.
+  The flag is inherited by all cluster subcommands (`stacks`, `operations`,
+  `addons`, `manifests`, `get`/`logs`/`resources`, `helm`, `agent`,
+  `reconcile`, `provision`, `deprovision`, `roll-to`, `info`, ...) and takes
+  precedence over the persisted selection; it also accepts either a cluster
+  name or ID. `ankra chat health` and `ankra openclaw skill | handoff` gained
+  the same `--cluster` override. Commands that already accepted a positional
+  cluster name still do - an explicit argument wins over `--cluster`, which in
+  turn wins over the saved selection.
+
+- **`ankra cluster ssh-keys get | set | resync <cluster_id>`** - cloud-agnostic
+  SSH key management that detects the provider (Hetzner, OVH, UpCloud)
+  automatically from the cluster. `get` lists attached and available SSH key
+  credentials, `set` replaces the attached set (use `--clear` to remove all user
+  keys; the Ankra-managed key is always retained) and applies the change to
+  running nodes, and `resync` repairs a stale provider-side SSH key reference
+  (for example when the key was deleted and re-created in the provider console)
+  that blocks new node creation, re-applying the authorised keys to running
+  nodes.
+
+### Fixed
+
+- **`ankra login` now completes reliably on dual-stack (IPv4/IPv6) machines.**
+  The browser callback server binds the IPv4 loopback (`127.0.0.1`) but the
+  redirect URI advertised to the backend used `localhost`, which resolves to
+  both `127.0.0.1` and `::1`. A browser that connected to the IPv6 address
+  reached nothing, so after authenticating (including MFA) the final
+  `http://localhost:<port>/callback` redirect failed and login never finished.
+  The redirect URI now uses the `127.0.0.1` literal (RFC 8252 §8.3), matching
+  the listener. The CLI also waits up to 10 minutes for the callback (was 5) to
+  align with the backend's login-state expiry, so a slow MFA round-trip no
+  longer tears the callback server down early.
+
+### Deprecated
+
+- **`ankra cluster ovh ssh-keys get | set <cluster_id>`** - replaced by the
+  cloud-agnostic `ankra cluster ssh-keys get | set <cluster_id>`. The provider is
+  detected automatically from the cluster.
+
+## v0.4.0-rc2 - 2026-06-19
+
+Builds on v0.4.0-rc1 (all of its provider-parity work is included) and adds
+stack-profile inspection and one-step apply, plus organisation slug resolution.
+
+### Added
+
+- **`ankra stack-profiles get <profile-id>`** - show a stack profile's metadata,
+  its published versions, and the parameters a version exposes. Pick a specific
+  version with `--version` (defaults to the profile's current version) and use
+  `-o json|yaml` for structured output.
+- **`ankra stack-profiles apply <profile-id>`** - instantiate a stack profile
+  onto a cluster. By default it creates a reviewable **draft** (nothing is
+  deployed until you pass `--deploy` or deploy it from the dashboard); it targets
+  the selected cluster unless `--cluster <name|id>` is given. Choose the profile
+  `--version`, name the new stack with `--stack-name`, and bind parameters with
+  `--set name=value` - or, for secrets, `--set-file name=path` / `--set-env
+  name=ENV_VAR` so values never reach your shell history or process list.
+- **Organisation slugs** - the organisation `slug` is now shown in
+  `ankra org list`, `ankra org current`, and `ankra org create`, and both
+  `ankra org switch <organisation>` and the global `--org` flag resolve a
+  reference by ID, slug, or name (case-insensitive), with actionable errors on
+  ambiguous or unknown references.
+
+See the **v0.4.0-rc1** notes below for the cloud-agnostic `cluster
+upgrade | scale | node-group` verbs, the cloud-provider/ingress parity across
+OVH, UpCloud and Hetzner, and the deprecation of the provider-specific
+`cluster {hetzner,ovh,upcloud}` commands.
+
+## v0.4.0-rc1 - 2026-06-18
+
+### Added
+
+- **`ankra cluster access list | grant | revoke`** - manage who can reach a
+  cluster's Kubernetes API through the Ankra kube gateway (the access used by
+  `ankra cluster kubeconfig` and `ankra cluster kube-token`). A grant maps an
+  organisation member (by email) to a Kubernetes role (`view`, `edit`, `admin`,
+  `cluster-admin`), cluster-wide or limited to one namespace with
+  `--namespace`. `list` shows each grant's RBAC reconcile status (pending,
+  applied, failed, cluster offline); `revoke` accepts a grant ID or an email
+  (revoking every grant that member has on the cluster). Managing access
+  requires organisation admin rights.
+
+- **`ankra cluster upgrade <cluster_id> <target_version>`**, **`ankra cluster
+  scale <cluster_id> <worker_count>`**, and **`ankra cluster node-group
+  <list|add|scale|upgrade|delete>`** - cloud-agnostic verbs that detect the
+  provider (Hetzner, OVH, UpCloud) automatically from the cluster, so you no
+  longer pick a provider namespace. They replace the provider-specific
+  `ankra cluster {hetzner,ovh,upcloud} ...` forms (see Deprecated).
+- **`ankra cluster k3s-versions`** - list the k3s (Kubernetes) versions
+  available for `ankra cluster upgrade`, with the stable channel highlighted.
+- **`ankra cluster deprovision <cluster_id>`** now accepts a cluster ID or a
+  name (previously name-only) and routes cloud clusters to the provider-specific
+  teardown so cloud resources are released.
+
+- **`ankra cluster ovh create`** now accepts **`--external-cloud-provider`**
+  (OpenStack CCM + Cinder CSI), **`--include-networking`** (Traefik +
+  cert-manager), and **`--gitops-credential-name`** / **`--gitops-repository`** /
+  **`--gitops-branch`**. The cloud provider and networking install by default
+  (reconciled directly, no GitOps required) and are committed to Git when the
+  GitOps flags are set. `--include-networking` requires `--external-cloud-provider`
+  (the ingress LoadBalancer is provisioned by the cloud controller manager), so
+  `--external-cloud-provider=false` also disables networking; pass
+  `--include-networking=false` to keep the cloud provider without ingress.
+- **`ankra cluster upcloud create`** now matches OVH: **`--external-cloud-provider`**
+  (UpCloud CCM + CSI) and the new **`--include-networking`** flag (Traefik +
+  cert-manager) both default to **on** and no longer require GitOps - the
+  cloud-provider/networking stacks are reconciled directly, and are additionally
+  committed to Git when **`--gitops-credential-name`** and **`--gitops-repository`**
+  are set. `--include-networking` requires `--external-cloud-provider` (the ingress
+  LoadBalancer is provisioned by the cloud controller manager), so
+  `--external-cloud-provider=false` also disables networking; pass
+  `--include-networking=false` to keep the cloud provider without ingress.
+- **`ankra cluster hetzner create`** reaches the same parity: new
+  **`--external-cloud-provider`** (Hetzner CCM + CSI), **`--include-networking`**
+  (Traefik + cert-manager), and **`--gitops-credential-name`** /
+  **`--gitops-repository`** / **`--gitops-branch`** flags. The cloud-provider and
+  networking stacks now install by default without GitOps (reconciled directly),
+  and are committed to Git when the GitOps flags are set. `--include-networking`
+  requires `--external-cloud-provider`, so `--external-cloud-provider=false` also
+  disables networking; pass `--include-networking=false` to keep the cloud provider
+  without ingress.
+- **`ankra cluster ovh stop <cluster_id>`** and **`ankra cluster ovh start
+  <cluster_id> [--scope all|control_plane]`** - stop an OVH cluster's compute
+  while keeping its configuration, then start it again later (optionally bringing
+  up only the control plane first).
+- **`ankra cluster ovh access-info <cluster_id>`** - print the gateway (bastion)
+  and control plane IPs along with ready-to-use `ssh -J` jump and Kubernetes API
+  port-forward commands.
+- **`ankra cluster ovh ssh-keys get <cluster_id>`** and **`ankra cluster ovh
+  ssh-keys set <cluster_id> --ssh-key-credential-ids <id>,...`** - view and
+  replace the SSH key credentials attached to an OVH cluster (changes apply on
+  the next reconciliation).
+- **`ankra cluster ovh node-group add`** now accepts **`--labels k=v,...`** and
+  **`--taints k=v:Effect,...`** so a new node group can be created with its
+  Kubernetes labels and taints in one step.
+- **`ankra cluster ovh control-plane ...`** and **`ankra cluster ovh nodes
+  ...`** now reach the public API: the control-plane and node-inspection
+  endpoints are exposed on `/api/v1/clusters/ovh/...` (previously only
+  available to the web UI), so these commands work against a token-authenticated
+  CLI session.
+
+### Changed
+
+- **`--config <file>` now fully isolates per-invocation state.** A config file
+  with an unfamiliar or missing extension (for example `--config /run/ankra/worker1`)
+  is now parsed as YAML - the only format the CLI writes - instead of reading as
+  empty and silently dropping the saved token and base URL. The active-cluster
+  selection (`ankra cluster select`) is also keyed to the explicit `--config`
+  path (stored alongside it as `<config>.selected.json`) rather than `$HOME`, so
+  parallel runs against different config files no longer clobber each other's
+  selection. **Migration:** if you previously ran with `--config` and relied on
+  the `$HOME`-keyed selection, re-run `ankra cluster select` once to re-establish it.
+- **`ankra support create` now shows the AI review before submitting.** Instead
+  of a one-shot create that returned a terse "ticket flagged in review; retry
+  with --force" on rejection, the command first calls the review endpoint and
+  prints what it found: the specific reasons a request was flagged, clarifying
+  questions that would speed up triage, and any existing ticket that may already
+  track the same problem. When the review flags the request or finds a possible
+  duplicate, you're asked to confirm interactively (`Submit this request anyway?
+  [y/N]`); `--force` still skips the prompt and submits, and `-o json|yaml`
+  callers get a `--force`-guidance error instead of a prompt. A clean request is
+  submitted with no extra step.
+
+### Deprecated
+
+- The provider-specific **`ankra cluster {hetzner,ovh,upcloud} upgrade`**,
+  **`scale`**, **`node-group <list|add|scale|upgrade|delete>`**, and
+  **`deprovision`** commands are deprecated in favour of the cloud-agnostic
+  `ankra cluster upgrade` / `scale` / `node-group` / `deprovision` verbs, which
+  detect the provider automatically. The old commands still work and now print a
+  runtime warning pointing at the replacement; they are scheduled for removal in
+  v0.5.0. See `DEPRECATIONS.md`.
+
+## v0.3.0 - 2026-06-11
+
+First stable release of the v0.3.0 line. It consolidates everything shipped in
+the **v0.3.0-rc0 → rc3** release candidates and adds direct kubeconfig, metrics,
+support and stack-profile tooling on top, so you can drive an Ankra cluster
+end-to-end from the terminal. Install it with the standard one-liner or
+`ankra upgrade`; the beta channel is no longer required for the v0.3.0 features.
+
+### Security
+
+- **`ankra cluster encrypt manifest | addon` no longer produces files that only
+  look encrypted.** SOPS' `encrypted_regex` matches YAML key names during tree
+  traversal, not dotted paths, so `--key data.password` previously matched
+  nothing: the file gained full `sops:` metadata (age recipient, mac) while the
+  secret value stayed plaintext base64, and `encrypted_paths` was still updated.
+  A dotted `--key` is now normalised to its last segment (`data.password` →
+  `password`) with a notice, and after every encryption the CLI verifies the
+  target key's value is real `ENC[...]` ciphertext - hard-failing before any
+  file write or stack PATCH when SOPS encrypted nothing. The `--help` examples
+  and the `ankra-sops-secrets` skill no longer steer users into the dotted-path
+  form.
+
+### Added
+
+- **`ankra cluster kubeconfig add | remove | list`** and **`ankra cluster
+  kube-token`** - wire `kubectl` straight to an Ankra cluster. `kube-token`
+  prints a short-lived Kubernetes `ExecCredential` for use as a credential
+  plugin, and `kubeconfig add` writes an `ankra-*` context (exec-based, or
+  `--embed-token`) into your kubeconfig with atomic `0600` writes that preserve
+  any foreign entries and use collision-safe context naming.
+- **`ankra cluster metrics query | query-range`** - proxy a PromQL query (instant
+  or range) to the cluster's Prometheus metrics source, with `table | json |
+  yaml` output for ad-hoc inspection and CI.
+- **`ankra support create | list | get | comment | attach | close`** - open and
+  track Ankra support requests from the CLI, including image/screenshot
+  attachments. Each request goes through a mandatory AI review; use `--force` to
+  submit a request the reviewer flags.
+- **`ankra stack-profiles list | export-iac | import`** - manage reusable,
+  organisation-level stack profiles as `ClusterInfrastructureAsCode` YAML
+  (export a profile version, import one from a file).
+- **`ankra cluster draft`** - stage every stack in an `ImportCluster` as a
+  reviewable draft instead of applying it; nothing is deployed by the command
+  itself.
+- **`ankra cluster validate`** - the offline `apply --dry-run` checks plus
+  server-side chart-existence, plaintext-secret, and parent-reference
+  validation; CI-friendly exit codes and `--strict-secrets`.
+- **Self-update & beta channel** - `ankra upgrade` downloads, SHA-256-verifies
+  and atomically swaps the binary, with `--version` pinning for upgrade,
+  downgrade and rollback (`--allow-unverified` for releases that predate
+  published checksums), and an `ankra config beta enable|disable|status`
+  pre-release channel with semver-aware precedence (a stable release outranks
+  its release candidates).
+- **Offline dependency-tree and referenced-file validation** in
+  `ankra cluster apply`, and **`--dry-run`** for `apply` / `delete cluster`
+  (fully offline, no token, CI-friendly).
+- **`--watch` and `-o json|yaml`** for `ankra cluster operations` list and
+  steps.
+- **Shared `-o json|yaml` output across commands**, and unexpected platform
+  errors now print a hint to file the bug with `ankra support create`.
+- **OVH command parity with the web UI**:
+  - `ovh regions --credential-id <id>` - list the OVH Cloud regions a
+    credential's project can actually deploy in.
+  - `ovh stop <cluster_id>` and `ovh start <cluster_id>
+    [--scope all|control_plane]` - stop a cluster's compute while keeping its
+    configuration, then start it again later.
+  - `ovh access-info <cluster_id>` - gateway (bastion) and control plane IPs
+    with ready-to-use `ssh -J` jump and Kubernetes API port-forward commands.
+  - `ovh ssh-keys get|set` - view and replace the SSH key credentials attached
+    to a cluster (changes apply on the next reconciliation).
+  - `ovh node-group add --labels k=v,... --taints k=v:Effect,...`, plus
+    `node-group labels` / `node-group taints` to update existing groups (an
+    empty value clears them; taint effect defaults to `NoSchedule`).
+  - `ovh control-plane ...` and `ovh nodes ...` now reach the public API
+    (`/api/v1/clusters/ovh/...`), so they work against a token-authenticated
+    CLI session.
+
+### Changed
+
+- **`cluster apply` and the cloud `node-group` mutations (Hetzner, OVH,
+  UpCloud)** submit async by default (`202 Accepted`); `--wait` blocks until
+  the platform finishes and prints the full result (including the agent install
+  command on first import), bounded by `--timeout` (default 10m).
+- **`ankra cluster apply`** understands the `prometheus_metrics` spec field.
+
+### Fixed
+
+- **`ankra credentials get`** resolves a name to an ID (trying the v2
+  platform-credential lookup before the legacy table).
+- **`ankra org members` / `org current`** honour `--org` and validate the saved
+  selection instead of sending a stale value.
+- An unknown `--cluster` name fails clearly instead of forwarding a non-UUID
+  value and producing an opaque server-side error.
+
+### Details and examples
+
+#### Stage changes as drafts with `ankra cluster draft`
+
+`ankra cluster draft -f cluster.yaml` stages every stack in an ImportCluster YAML as a reviewable draft instead of applying it. The local checks run first (the same as `ankra cluster apply --dry-run`), then each stack is saved as a resource draft you can review, edit, and deploy from the Ankra stack builder - nothing is deployed by the command itself.
+
+If the cluster does not exist yet it is imported first (live), since drafts can only be attached to an existing cluster. Stacks that already match the cluster's desired state are reported as `no changes` rather than creating an empty draft. The command exits non-zero if any stack fails validation.
+
+```bash
+ankra cluster draft -f cluster.yaml
+```
+
+#### Server-side validation with `ankra cluster validate`
+
+`ankra cluster validate -f cluster.yaml` runs the same offline checks as `ankra cluster apply --dry-run` (structure, referenced-file YAML, parent/dependency tree) and then sends the spec to the Ankra API for the checks that need server-side data - checks the offline path cannot perform:
+
+- **chart existence** in the Helm registries connected to your organisation,
+- **plaintext secret detection** for Kubernetes `Secret` manifests and addon values that are not SOPS-encrypted,
+- **parent references** resolved against an existing cluster's deployed resources (with `--cluster <id>`).
+
+Nothing is applied. Warnings (e.g. plaintext secrets) are printed but do not fail the command; pass `--strict-secrets` to treat plaintext secrets as errors. The command exits non-zero when validation finds errors, so it drops straight into CI.
+
+```bash
+ankra cluster validate -f cluster.yaml
+ankra cluster validate -f cluster.yaml --strict-secrets
+ankra cluster validate -f cluster.yaml --cluster <cluster_id>
+```
+
+#### Self-update with `ankra upgrade`
+
+`ankra upgrade` downloads and installs the latest Ankra CLI release, replacing
+the running binary in place. It resolves the latest release tag from GitHub
+(or installs a pinned `--version v0.2.5`), downloads the matching
+`ankra-cli-<os>-<arch>` asset, verifies it against the published SHA-256
+checksum, and atomically swaps the executable. The command needs no API token.
+
+Pin an exact release with `--version` (with or without the leading `v`) to
+upgrade *or* downgrade - a pinned version installs whether it is newer, older
+or the same as the running binary, so it doubles as a rollback. Only an
+unpinned `ankra upgrade` keeps the "already up to date" / "installed version is
+newer" safety checks; pinning is treated as explicit intent and asks for a
+single confirmation (`Upgrade` / `Downgrade` / `Reinstall`).
+
+If a release does not publish a checksum, the upgrade fails closed rather than
+installing an unverified binary; pass `--allow-unverified` to override that for
+older releases that predate published checksums.
+
+```bash
+ankra upgrade                       # upgrade to the latest release
+ankra upgrade --check               # report whether a newer release is available
+ankra upgrade --version v0.2.5      # install an exact release (upgrade)
+ankra upgrade --version 0.1.9 --yes # downgrade/roll back, no confirmation prompt
+ankra upgrade --version v0.1.0 --allow-unverified  # release without a checksum
+```
+
+If the installed binary lives in a directory the current user cannot write
+(for example `/usr/local/bin`), the command prints a clear message pointing to
+`sudo ankra upgrade` or the install script.
+
+#### Beta (pre-release) update channel
+
+`ankra config beta enable` opts the CLI into pre-release versions. When the
+beta channel is enabled, `ankra upgrade` resolves the newest release
+*including* release candidates (for example `v0.3.0-rc.1`); when disabled (the
+default) only stable `x.x.x` releases are installed. The preference is stored
+in `~/.ankra/settings.json`, separately from credentials.
+
+```bash
+ankra config beta enable     # opt into pre-releases
+ankra config beta status     # show the current channel
+ankra config beta disable    # back to stable only (default)
+ankra upgrade --beta         # one-off: include pre-releases for this run
+```
+
+Version comparison now follows semantic-versioning precedence, so a stable
+release outranks its release candidates (`v0.3.0` > `v0.3.0-rc.2` > `v0.3.0-rc.1`).
+
+#### Offline dependency-tree validation in `ankra cluster apply`
+
+`ankra cluster apply` now validates the parent (`parents:`) graph of the
+assembled `ImportCluster` document before it is sent to the API, in addition to
+the existing structural and `from_file` checks. The validation enforces that
+resource names are unique per kind across the whole document (parents resolve by
+`kind`+`name` with no stack qualifier, so a duplicate is ambiguous), that every
+parent reference uses a valid `kind` (`manifest` or `addon`), names a resource
+declared somewhere in the document (cross-stack references allowed), and that
+the resulting graph is acyclic. This catches dependency errors locally that the
+backend would otherwise only reject at apply time (HTTP 422).
+
+It runs for both real applies and `--dry-run`, so you can lint a `cluster.yaml`
+end-to-end without a token or network:
+
+```bash
+ankra cluster apply -f cluster.yaml --dry-run
+# Invalid ImportCluster in "cluster.yaml":
+#   dependency cycle detected: addon "a" -> addon "b" -> addon "a"
+```
+
+#### Referenced-file YAML validation in `ankra cluster apply`
+
+Every file reference in the document is now resolved and validated, regardless
+of whether its content is ultimately used. Manifest content (`manifest` inline
+or `from_file`, including multi-document files) and addon values
+(`configuration.values` inline or `configuration.from_file`) are parsed to
+confirm valid YAML; `stack.description_from_file` is resolved and read for
+existence even when an inline `description` is also set (previously the file
+reference was silently skipped in that case). Errors name the resolved file and
+the problem:
+
+```bash
+ankra cluster apply -f cluster.yaml --dry-run
+# Invalid ImportCluster in "cluster.yaml":
+#   stack "logging": manifest "broken": the file referenced by 'from_file' ("/abs/path/broken.yaml") is not valid YAML: ...
+```
+
+#### `--dry-run` for `ankra cluster apply` and `ankra delete cluster`
+
+`ankra cluster apply --dry-run` runs the structural, referenced-file, and
+dependency-tree validation above and then exits without contacting the API.
+`ankra delete cluster --dry-run` reports the cluster it would delete without
+calling the API. Both dry-run modes are fully offline and no longer require a
+token, so they can run in pre-merge CI without credentials. (Dry-run modes that
+still query live cluster state, such as `cluster addons upgrade --dry-run`,
+continue to require authentication.)
+
+#### Watch and machine-readable output for `ankra cluster operations`
+
+`ankra cluster operations list` gains `--watch`/`-w` to continuously poll and
+refresh until every execution reaches a terminal state, with a configurable
+`--interval` (default `5s`, floored at `1s`). Both `operations list` and
+`operations steps` gain `-o json|yaml` for machine-readable output in CI.
+`--watch` cannot be combined with `-o` (structured output is rendered once).
+
+```bash
+ankra cluster operations list --watch --interval 10s
+ankra cluster operations steps <execution_id> -o json
+```
+
+## v0.2.4 - May 2026
+
 ### New Features
 
 #### Variables CRUD at Organisation, Cluster, and Stack Scopes
@@ -68,14 +873,16 @@ variant.
 
 #### Install Ankra Agent Skills
 
-`ankra skills` installs the curated Ankra Agent Skills (for Cursor / Claude / OpenClaw)
+`ankra skills` installs the curated Ankra Agent Skills (for Cursor, Claude Code, and OpenClaw)
 into a skills directory. The skills are embedded in the CLI binary, so installation works
 offline and is versioned with the release.
 
 ```bash
 ankra skills list                  # list available skills, marking installed ones
 ankra skills install               # install all into ~/.cursor/skills (personal)
+ankra skills install --editor claude-code  # install all into ~/.claude/skills
 ankra skills install --project .   # install into ./.cursor/skills (project)
+ankra skills install --editor claude-code --project .  # install into ./.claude/skills
 ankra skills install ankra-gitops  # install only named skills
 ankra skills uninstall             # remove all Ankra skills
 ```
@@ -221,30 +1028,9 @@ ankra cluster hetzner nodes get <cluster_id> <node_id> --json
 
 Available for all providers (`hetzner`, `ovh`, `upcloud`).
 
-### API Endpoints
-
-- `GET /api/v1/clusters/{provider}/{id}/control-plane` — read controller count, instance type and editability
-- `PUT /api/v1/clusters/{provider}/{id}/control-plane` — change controller count (1 or 3)
-- `PUT /api/v1/clusters/{provider}/{id}/control-plane/instance-type` — change controller instance type
-- `GET /api/v1/clusters/{provider}/{id}/nodes` — list all managed servers for the cluster
-- `GET /api/v1/clusters/{provider}/{id}/nodes/{node_id}` — full spec and metadata for a node
-
-### Deprecations
-
-- `ankra chat` currently uses the bearer-token streaming endpoints
-  `/api/v1/chat/general` and `/api/v1/org/clusters/{cluster_id}/kubernetes/chat`.
-  These are now deprecated and will be removed in a future release; the platform
-  now responds with `Deprecation: true` and a `Sunset` header on these routes.
-  When the warning prints, upgrade `ankra-cli` to the next release once a
-  resumable session-based replacement has shipped on the platform.
-
-## v0.2.4 — May 2026
-
-### New Features
-
 #### Surgical Addon and Manifest Upgrades
 
-Two new subcommands for in-place updates against the existing partial-stack endpoint — no more hand-editing the full `ImportCluster.yaml`.
+Two new subcommands for in-place updates against the existing partial-stack endpoint - no more hand-editing the full `ImportCluster.yaml`.
 
 ##### Bump an addon's chart version
 
@@ -286,16 +1072,33 @@ ankra cluster manifests upgrade demo-namespace \
 
 ##### Common options
 
-- `--cluster <name|id>` — defaults to the selected cluster.
-- `--stack <name>` — addons only, required when the same addon name exists in multiple stacks. Manifest names are globally unique on a cluster, so `manifests upgrade` has no `--stack` flag.
-- `--registry-name`, `--registry-url`, `--registry-credential-name` — atomically retag the addon's registry.
-- `--namespace` — destructive for addons (Helm reinstall); requires `--yes` or interactive confirmation.
-- `--dry-run` — print the before/after YAML; no API write.
-- `-o json|yaml` — machine-readable output for CI scripts.
+- `--cluster <name|id>` - defaults to the selected cluster.
+- `--stack <name>` - addons only, required when the same addon name exists in multiple stacks. Manifest names are globally unique on a cluster, so `manifests upgrade` has no `--stack` flag.
+- `--registry-name`, `--registry-url`, `--registry-credential-name` - atomically retag the addon's registry.
+- `--namespace` - destructive for addons (Helm reinstall); requires `--yes` or interactive confirmation.
+- `--dry-run` - print the before/after YAML; no API write.
+- `-o json|yaml` - machine-readable output for CI scripts.
 
 All upgrades go through the same partial-stack endpoint as the UI, so they are atomic, locked, and produce a single git commit per invocation when gitops is enabled.
 
-## v0.1.129 — April 2026
+### API Endpoints
+
+- `GET /api/v1/clusters/{provider}/{id}/control-plane` - read controller count, instance type and editability
+- `PUT /api/v1/clusters/{provider}/{id}/control-plane` - change controller count (1 or 3)
+- `PUT /api/v1/clusters/{provider}/{id}/control-plane/instance-type` - change controller instance type
+- `GET /api/v1/clusters/{provider}/{id}/nodes` - list all managed servers for the cluster
+- `GET /api/v1/clusters/{provider}/{id}/nodes/{node_id}` - full spec and metadata for a node
+
+### Deprecations
+
+- `ankra chat` currently uses the bearer-token streaming endpoints
+  `/api/v1/chat/general` and `/api/v1/org/clusters/{cluster_id}/kubernetes/chat`.
+  These are now deprecated and will be removed in a future release; the platform
+  now responds with `Deprecation: true` and a `Sunset` header on these routes.
+  When the warning prints, upgrade `ankra-cli` to the next release once a
+  resumable session-based replacement has shipped on the platform.
+
+## v0.1.129 - April 2026
 
 ### New Features
 
@@ -339,7 +1142,7 @@ Node groups can be scaled to 0 (removes all servers but keeps the group definiti
 ankra cluster hetzner node-group upgrade <cluster_id> default cx43
 ```
 
-Instance type upgrades are irreversible — Hetzner disk enlargement cannot be undone. To use a smaller type, create a new node group and delete the old one.
+Instance type upgrades are irreversible - Hetzner disk enlargement cannot be undone. To use a smaller type, create a new node group and delete the old one.
 
 ##### Delete a Node Group
 
@@ -385,23 +1188,23 @@ The `node_groups` field is now supported in the cluster create API for all provi
 - **Server naming**: Servers are now named `{cluster}-{group_name}-{index}` instead of `{cluster}-worker-{index}` for better identification.
 - **No online requirement**: Node group operations no longer require the cluster to be online.
 - **Safe instance type changes**: Servers are powered off, verified off, resized, then powered back on. If the resize fails, the server is powered back on automatically.
-- **Graceful K8s cleanup**: K8s uninstall during node deletion is now best-effort — unreachable nodes (powered off, deleted) no longer block the delete operation.
+- **Graceful K8s cleanup**: K8s uninstall during node deletion is now best-effort - unreachable nodes (powered off, deleted) no longer block the delete operation.
 
 ### API Endpoints
 
-- `GET /api/v1/clusters/hetzner/{id}/node-groups` — list node groups
-- `POST /api/v1/clusters/hetzner/{id}/node-groups` — add a node group
-- `PUT /api/v1/clusters/hetzner/{id}/node-groups/{name}/scale` — scale a node group
-- `PUT /api/v1/clusters/hetzner/{id}/node-groups/{name}/instance-type` — upgrade instance type
-- `PUT /api/v1/clusters/hetzner/{id}/node-groups/{name}/labels` — update labels
-- `PUT /api/v1/clusters/hetzner/{id}/node-groups/{name}/taints` — update taints
-- `DELETE /api/v1/clusters/hetzner/{id}/node-groups/{name}` — delete a node group
+- `GET /api/v1/clusters/hetzner/{id}/node-groups` - list node groups
+- `POST /api/v1/clusters/hetzner/{id}/node-groups` - add a node group
+- `PUT /api/v1/clusters/hetzner/{id}/node-groups/{name}/scale` - scale a node group
+- `PUT /api/v1/clusters/hetzner/{id}/node-groups/{name}/instance-type` - upgrade instance type
+- `PUT /api/v1/clusters/hetzner/{id}/node-groups/{name}/labels` - update labels
+- `PUT /api/v1/clusters/hetzner/{id}/node-groups/{name}/taints` - update taints
+- `DELETE /api/v1/clusters/hetzner/{id}/node-groups/{name}` - delete a node group
 
 Same endpoints available for OVH (`/clusters/ovh/...`) and UpCloud (`/clusters/upcloud/...`).
 
 ---
 
-## v0.1.128 — April 2026
+## v0.1.128 - April 2026
 
 ### New Features
 
@@ -517,16 +1320,16 @@ ankra credentials upcloud ssh-key create --name my-key --public-key "ssh-ed25519
 
 ### API Endpoints
 
-- `POST /api/v1/clusters/upcloud` — create an UpCloud cluster
-- `DELETE /api/v1/clusters/upcloud/{id}` — deprovision a cluster (returns operation ID)
-- `GET /api/v1/clusters/upcloud/{id}/worker-count` — get worker count
-- `POST /api/v1/clusters/upcloud/{id}/scale-workers` — scale workers
-- `GET /api/v1/clusters/upcloud/{id}/k8s-version` — get Kubernetes version
-- `POST /api/v1/clusters/upcloud/{id}/upgrade-k8s-version` — upgrade Kubernetes version
-- `GET /api/v1/credentials/upcloud` — list UpCloud credentials
-- `POST /api/v1/credentials/upcloud` — create an UpCloud credential
-- `GET /api/v1/credentials/upcloud/ssh-keys` — list SSH key credentials
-- `POST /api/v1/credentials/upcloud/ssh-key` — create an SSH key credential
+- `POST /api/v1/clusters/upcloud` - create an UpCloud cluster
+- `DELETE /api/v1/clusters/upcloud/{id}` - deprovision a cluster (returns operation ID)
+- `GET /api/v1/clusters/upcloud/{id}/worker-count` - get worker count
+- `POST /api/v1/clusters/upcloud/{id}/scale-workers` - scale workers
+- `GET /api/v1/clusters/upcloud/{id}/k8s-version` - get Kubernetes version
+- `POST /api/v1/clusters/upcloud/{id}/upgrade-k8s-version` - upgrade Kubernetes version
+- `GET /api/v1/credentials/upcloud` - list UpCloud credentials
+- `POST /api/v1/credentials/upcloud` - create an UpCloud credential
+- `GET /api/v1/credentials/upcloud/ssh-keys` - list SSH key credentials
+- `POST /api/v1/credentials/upcloud/ssh-key` - create an SSH key credential
 
 ---
 
@@ -646,16 +1449,16 @@ Use `--generate` to create a new keypair, or omit it to provide your own public 
 
 ### API Endpoints
 
-- `POST /api/v1/clusters/ovh` — create an OVH cluster
-- `DELETE /api/v1/clusters/ovh/{id}` — deprovision a cluster
-- `GET /api/v1/clusters/ovh/{id}/worker-count` — get worker count
-- `POST /api/v1/clusters/ovh/{id}/scale-workers` — scale workers
-- `GET /api/v1/clusters/ovh/{id}/k8s-version` — get Kubernetes version
-- `POST /api/v1/clusters/ovh/{id}/upgrade-k8s-version` — upgrade Kubernetes version
-- `GET /api/v1/credentials/ovh` — list OVH credentials
-- `POST /api/v1/credentials/ovh` — create an OVH credential
-- `GET /api/v1/credentials/ovh/ssh-keys` — list SSH key credentials
-- `POST /api/v1/credentials/ovh/ssh-key` — create an SSH key credential
+- `POST /api/v1/clusters/ovh` - create an OVH cluster
+- `DELETE /api/v1/clusters/ovh/{id}` - deprovision a cluster
+- `GET /api/v1/clusters/ovh/{id}/worker-count` - get worker count
+- `POST /api/v1/clusters/ovh/{id}/scale-workers` - scale workers
+- `GET /api/v1/clusters/ovh/{id}/k8s-version` - get Kubernetes version
+- `POST /api/v1/clusters/ovh/{id}/upgrade-k8s-version` - upgrade Kubernetes version
+- `GET /api/v1/credentials/ovh` - list OVH credentials
+- `POST /api/v1/credentials/ovh` - create an OVH credential
+- `GET /api/v1/credentials/ovh/ssh-keys` - list SSH key credentials
+- `POST /api/v1/credentials/ovh/ssh-key` - create an SSH key credential
 
 ---
 
@@ -665,7 +1468,7 @@ Use `--generate` to create a new keypair, or omit it to provide your own public 
 
 #### Hetzner Worker Scaling
 
-Scale worker nodes on a Hetzner cluster up or down (1–10 nodes):
+Scale worker nodes on a Hetzner cluster up or down (1-10 nodes):
 
 ```bash
 ankra cluster hetzner scale <cluster_id> <count>
@@ -710,9 +1513,9 @@ Kubernetes version upgrade initiated.
 
 ### API Endpoints
 
-- `POST /api/v1/clusters/hetzner/{id}/scale-workers` — scale workers
-- `GET /api/v1/clusters/hetzner/{id}/k8s-version` — fetch current k8s version
-- `POST /api/v1/clusters/hetzner/{id}/upgrade-k8s-version` — trigger k8s version upgrade
+- `POST /api/v1/clusters/hetzner/{id}/scale-workers` - scale workers
+- `GET /api/v1/clusters/hetzner/{id}/k8s-version` - fetch current k8s version
+- `POST /api/v1/clusters/hetzner/{id}/upgrade-k8s-version` - trigger k8s version upgrade
 
 ---
 
@@ -760,8 +1563,8 @@ Kubernetes version upgrade initiated.
 
 ### API Endpoints
 
-- `GET /api/v1/clusters/hetzner/{id}/k8s-version` — fetch current k8s version
-- `POST /api/v1/clusters/hetzner/{id}/upgrade-k8s-version` — trigger k8s version upgrade
+- `GET /api/v1/clusters/hetzner/{id}/k8s-version` - fetch current k8s version
+- `POST /api/v1/clusters/hetzner/{id}/upgrade-k8s-version` - trigger k8s version upgrade
 
 ---
 
@@ -965,17 +1768,20 @@ ankra cluster decrypt manifest trinity-database-secret -f cluster.yaml
 
 ---
 
-# Ankra CLI v1.0.0
+## v0.1.122 and earlier - initial releases
 
-## Highlights
+Originally published as "Ankra CLI v1.0.0"; the tags actually shipped for this
+initial line were `v0.1.115` through `v0.1.122`.
+
+### Highlights
 
 This release introduces the **Ankra CLI** - a powerful command-line interface for managing your Kubernetes infrastructure. Authenticate with SSO, chat with AI about your clusters, browse Helm charts, manage credentials, and control stacks - all from your terminal.
 
 ---
 
-## New Features
+### New Features
 
-### SSO Authentication
+#### SSO Authentication
 
 Securely authenticate with the Ankra platform using browser-based SSO login with PKCE.
 
@@ -991,11 +1797,11 @@ Your credentials are securely stored in `~/.ankra.yaml` and automatically used f
 
 ---
 
-### AI-Powered Chat
+#### AI-Powered Chat
 
 Get instant help troubleshooting your infrastructure with AI-powered chat. Ask questions about your clusters, get recommendations, and analyze health issues.
 
-#### Interactive Chat Mode
+##### Interactive Chat Mode
 
 ```bash
 # Start an interactive chat session
@@ -1005,7 +1811,7 @@ ankra chat
 ankra chat --cluster my-production-cluster
 ```
 
-#### One-Shot Questions
+##### One-Shot Questions
 
 ```bash
 # Ask a single question
@@ -1015,7 +1821,7 @@ ankra chat "Why are my pods in CrashLoopBackOff?"
 ankra chat --cluster staging "How do I scale my deployment?"
 ```
 
-#### Cluster Health Analysis
+##### Cluster Health Analysis
 
 ```bash
 # Get AI-analyzed cluster health for the selected cluster
@@ -1025,7 +1831,7 @@ ankra chat health
 ankra chat health --ai
 ```
 
-#### Chat History Management
+##### Chat History Management
 
 ```bash
 # List previous conversations
@@ -1040,11 +1846,11 @@ ankra chat delete <conversation_id>
 
 ---
 
-### Helm Charts
+#### Helm Charts
 
 Browse and search the Helm chart catalog directly from your terminal.
 
-#### List Available Charts
+##### List Available Charts
 
 ```bash
 # List all available charts
@@ -1057,7 +1863,7 @@ ankra charts list --page 2 --page-size 50
 ankra charts list --subscribed
 ```
 
-#### Search Charts
+##### Search Charts
 
 ```bash
 # Search for charts by name
@@ -1067,7 +1873,7 @@ ankra charts search nginx
 ankra charts search prometheus
 ```
 
-#### Chart Information
+##### Chart Information
 
 ```bash
 # Get detailed info about a chart
@@ -1097,11 +1903,11 @@ Chart: nginx
 
 ---
 
-### Credentials Management
+#### Credentials Management
 
 Manage cloud provider and Git credentials for your clusters.
 
-#### List Credentials
+##### List Credentials
 
 ```bash
 # List all credentials
@@ -1111,14 +1917,14 @@ ankra credentials list
 ankra credentials list --provider github
 ```
 
-#### View Credential Details
+##### View Credential Details
 
 ```bash
 # Get details of a specific credential
 ankra credentials get <credential_id>
 ```
 
-#### Validate & Delete
+##### Validate & Delete
 
 ```bash
 # Check if a credential name is available
@@ -1132,11 +1938,11 @@ ankra credentials delete <credential_id>
 
 ---
 
-### Stack Management
+#### Stack Management
 
 Create, manage, and track infrastructure stacks on your clusters.
 
-#### List & View Stacks
+##### List & View Stacks
 
 ```bash
 # First, select a cluster
@@ -1174,7 +1980,7 @@ Stack Details:
       └─ parents: none
 ```
 
-#### Create & Delete Stacks
+##### Create & Delete Stacks
 
 ```bash
 # Create a new stack
@@ -1184,7 +1990,7 @@ ankra cluster stacks create my-new-stack --description "Application stack"
 ankra cluster stacks delete old-stack
 ```
 
-#### Rename & History
+##### Rename & History
 
 ```bash
 # Rename a stack
@@ -1196,7 +2002,7 @@ ankra cluster stacks history my-stack
 
 ---
 
-### Cluster Clone
+#### Cluster Clone
 
 Clone stacks from an existing cluster to a new cluster configuration. Supports both local files and remote URLs.
 
@@ -1222,7 +2028,7 @@ ankra cluster clone cluster.yaml new-cluster.yaml --copy-missing
 
 ---
 
-### API Tokens
+#### API Tokens
 
 Manage API tokens for programmatic access.
 
@@ -1245,7 +2051,7 @@ ankra tokens delete <token_id>
 
 ---
 
-### Cluster Operations
+#### Cluster Operations
 
 ```bash
 # List all clusters
@@ -1263,9 +2069,9 @@ ankra cluster reconcile my-cluster
 
 ---
 
-## Bug Fixes
+### Bug Fixes
 
-### `ankra cluster clone` - Registry Linkage Fix
+#### `ankra cluster clone` - Registry Linkage Fix
 
 Fixed an issue where `ankra cluster clone` did not correctly format the linkage to existing registries when cloning stacks or entire clusters. Addon configurations that reference container registries (`registry_name`, `registry_url`, `registry_credential_name`) are now properly preserved and formatted in the cloned configuration.
 
@@ -1275,7 +2081,7 @@ Fixed an issue where `ankra cluster clone` did not correctly format the linkage 
 
 ---
 
-### `ankra chat` - API Request & Response Format Fix
+#### `ankra chat` - API Request & Response Format Fix
 
 Fixed issues where the chat command had incompatible field names with the backend API:
 
@@ -1298,7 +2104,7 @@ I'll generate a report...
 
 ---
 
-## Getting Started
+### Getting Started
 
 ```bash
 # 1. Install the CLI (download from releases)
@@ -1318,7 +2124,7 @@ ankra chat "What's the status of my deployments?"
 
 ---
 
-## Configuration
+### Configuration
 
 The CLI stores configuration in `~/.ankra.yaml`:
 
