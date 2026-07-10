@@ -1,5 +1,19 @@
 # Ankra CLI Changelog
 
+## v0.7.0-rc3 — 2026-07-10
+
+### Added
+
+- **`ankra cluster managed` now supports all six managed Kubernetes
+  providers.** The `--provider` flag previously accepted only `doks` and
+  `uks`, even though the backend and portal already managed GKE, OVHcloud
+  MKS, AKS, and EKS at the same endpoints. `create`, `delete`, `node-pool
+  add|scale|delete`, and `upgrade` now accept `doks`, `uks`, `gke`,
+  `ovh_mks`, `aks`, and `eks` (the `ovh-mks` and `mks` aliases normalise to
+  `ovh_mks`; input is lower-cased and trimmed). Provider-specific
+  control-plane options, node-pool autoscaling bounds, and cluster
+  discovery/import remain portal/API only.
+
 ## v0.6.0 — 2026-07-10
 
 The stable v0.6.0 release consolidates v0.6.0-rc0 and adds organisation
