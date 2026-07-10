@@ -12,8 +12,8 @@ import (
 
 var managedCmd = &cobra.Command{
 	Use:   "managed",
-	Short: "Manage DigitalOcean and UpCloud managed Kubernetes clusters",
-	Long:  "Create, delete, scale node pools, and upgrade managed Kubernetes clusters on DOKS and UpCloud UKS.",
+	Short: "Manage cloud-managed Kubernetes clusters",
+	Long:  "Create, delete, scale node pools, and upgrade cloud-managed Kubernetes clusters on DOKS, UpCloud UKS, GKE, OVH MKS, AKS, and EKS.",
 }
 
 var managedCreateCmd = &cobra.Command{
@@ -275,20 +275,30 @@ var managedUpgradeCmd = &cobra.Command{
 	},
 }
 
+const managedProviderFlagHelp = "Managed Kubernetes provider (doks, uks, gke, ovh_mks, aks, eks)"
+
 func parseManagedProviderFlag(cmd *cobra.Command) (client.ManagedK8sProvider, error) {
 	providerValue, _ := cmd.Flags().GetString("provider")
-	switch providerValue {
+	switch strings.ToLower(strings.TrimSpace(providerValue)) {
 	case "doks":
 		return client.ManagedK8sProviderDoks, nil
 	case "uks":
 		return client.ManagedK8sProviderUks, nil
+	case "gke":
+		return client.ManagedK8sProviderGke, nil
+	case "ovh_mks", "ovh-mks", "mks":
+		return client.ManagedK8sProviderOvhMks, nil
+	case "aks":
+		return client.ManagedK8sProviderAks, nil
+	case "eks":
+		return client.ManagedK8sProviderEks, nil
 	default:
-		return "", fmt.Errorf("invalid provider %q: must be doks or uks", providerValue)
+		return "", fmt.Errorf("invalid provider %q: must be one of doks, uks, gke, ovh_mks, aks, eks", providerValue)
 	}
 }
 
 func init() {
-	managedCreateCmd.Flags().String("provider", "", "Managed Kubernetes provider (doks or uks)")
+	managedCreateCmd.Flags().String("provider", "", managedProviderFlagHelp)
 	managedCreateCmd.Flags().String("name", "", "Cluster name")
 	managedCreateCmd.Flags().String("credential-id", "", "Cloud credential ID")
 	managedCreateCmd.Flags().String("location", "", "Region or zone for the cluster")
@@ -305,12 +315,12 @@ func init() {
 	_ = managedCreateCmd.MarkFlagRequired("location")
 	_ = managedCreateCmd.MarkFlagRequired("node-pool-size")
 
-	managedDeleteCmd.Flags().String("provider", "", "Managed Kubernetes provider (doks or uks)")
+	managedDeleteCmd.Flags().String("provider", "", managedProviderFlagHelp)
 	managedDeleteCmd.Flags().Bool("force", false, "Force delete even when cluster is in a non-idle state")
 	managedDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	_ = managedDeleteCmd.MarkFlagRequired("provider")
 
-	managedNodePoolAddCmd.Flags().String("provider", "", "Managed Kubernetes provider (doks or uks)")
+	managedNodePoolAddCmd.Flags().String("provider", "", managedProviderFlagHelp)
 	managedNodePoolAddCmd.Flags().String("name", "", "Node pool name")
 	managedNodePoolAddCmd.Flags().String("size", "", "Node pool size/plan")
 	managedNodePoolAddCmd.Flags().Int("count", 1, "Node count")
@@ -318,16 +328,16 @@ func init() {
 	_ = managedNodePoolAddCmd.MarkFlagRequired("name")
 	_ = managedNodePoolAddCmd.MarkFlagRequired("size")
 
-	managedNodePoolScaleCmd.Flags().String("provider", "", "Managed Kubernetes provider (doks or uks)")
+	managedNodePoolScaleCmd.Flags().String("provider", "", managedProviderFlagHelp)
 	managedNodePoolScaleCmd.Flags().Int("count", 0, "Target node count")
 	_ = managedNodePoolScaleCmd.MarkFlagRequired("provider")
 	_ = managedNodePoolScaleCmd.MarkFlagRequired("count")
 
-	managedNodePoolDeleteCmd.Flags().String("provider", "", "Managed Kubernetes provider (doks or uks)")
+	managedNodePoolDeleteCmd.Flags().String("provider", "", managedProviderFlagHelp)
 	managedNodePoolDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	_ = managedNodePoolDeleteCmd.MarkFlagRequired("provider")
 
-	managedUpgradeCmd.Flags().String("provider", "", "Managed Kubernetes provider (doks or uks)")
+	managedUpgradeCmd.Flags().String("provider", "", managedProviderFlagHelp)
 	managedUpgradeCmd.Flags().String("version", "", "Target Kubernetes version")
 	managedUpgradeCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	_ = managedUpgradeCmd.MarkFlagRequired("provider")
