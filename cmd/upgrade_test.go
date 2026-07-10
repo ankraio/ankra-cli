@@ -76,6 +76,23 @@ func TestEnsureTagPrefix(t *testing.T) {
 	}
 }
 
+func TestIsHomebrewManagedPath(t *testing.T) {
+	cases := map[string]bool{
+		"/opt/homebrew/Cellar/ankra/0.5.1/bin/ankra":              true,
+		"/usr/local/Cellar/ankra/0.5.1/bin/ankra":                 true,
+		"/home/linuxbrew/.linuxbrew/Cellar/ankra/0.5.1/bin/ankra": true,
+		"/usr/local/bin/ankra":                                    false,
+		"/opt/homebrew/bin/ankra":                                 false,
+		"/home/user/go/bin/ankra":                                 false,
+		"":                                                        false,
+	}
+	for input, want := range cases {
+		if got := isHomebrewManagedPath(input); got != want {
+			t.Errorf("isHomebrewManagedPath(%q) = %v, want %v", input, got, want)
+		}
+	}
+}
+
 func TestCompareVersions(t *testing.T) {
 	cases := []struct {
 		left  string

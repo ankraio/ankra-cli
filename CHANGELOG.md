@@ -1,5 +1,17 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **Homebrew installation.** `brew install ankraio/tap/ankra` installs the CLI
+  from the new [ankraio/homebrew-tap](https://github.com/ankraio/homebrew-tap)
+  vendor tap. The release workflow now renders the formula from
+  `packaging/homebrew/ankra.rb.tmpl` and pushes version and checksum bumps to
+  the tap on every stable tag; pre-release tags never reach brew. A
+  Homebrew-managed binary refuses `ankra upgrade` (self-update) and defers to
+  `brew upgrade ankra`, so brew stays the single owner of the file.
+
 ## v0.7.0-rc3 — 2026-07-10
 
 ### Added

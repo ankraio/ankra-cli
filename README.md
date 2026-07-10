@@ -4,9 +4,25 @@ A command-line interface for the [Ankra Platform](https://ankra.io) that allows 
 
 ## Installation
 
-### Quick Install (Recommended)
+### Homebrew (Recommended for macOS and Linux)
 
-For **macOS** and **Linux**, use the universal installer:
+```bash
+brew install ankraio/tap/ankra
+```
+
+Upgrades then flow through Homebrew as usual:
+
+```bash
+brew update && brew upgrade ankra
+```
+
+A Homebrew-managed `ankra` refuses to self-update via `ankra upgrade` and
+points you at `brew upgrade ankra` instead, so Homebrew stays the single
+owner of the binary.
+
+### Quick Install Script
+
+For **macOS** and **Linux** without Homebrew, use the universal installer:
 
 ```bash
 bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
@@ -41,7 +57,9 @@ This script will:
 
 ### Upgrading
 
-Once installed, the CLI can update itself:
+Homebrew installs upgrade with `brew update && brew upgrade ankra`.
+
+For script or manual installs, the CLI can update itself:
 
 ```bash
 ankra upgrade                       # upgrade to the latest release

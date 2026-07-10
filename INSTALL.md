@@ -4,7 +4,17 @@ This guide provides step-by-step instructions for installing the Ankra CLI on yo
 
 ## Installation
 
-### Quick install (recommended)
+### Homebrew (recommended for macOS and Linux)
+
+```sh
+brew install ankraio/tap/ankra
+```
+
+Upgrade later with `brew update && brew upgrade ankra`. Homebrew-managed
+binaries refuse `ankra upgrade` (self-update) and defer to brew, so the
+two upgrade paths never fight over the same file.
+
+### Quick install script
 
 ```sh
 bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)

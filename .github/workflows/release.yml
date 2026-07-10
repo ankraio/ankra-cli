@@ -147,3 +147,65 @@ jobs:
       - name: Print version smoke test
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         run: ./dist/ankra-cli-linux-amd64 --version
+
+  publish-homebrew:
+    name: Publish Homebrew formula
+    needs: build-and-release
+    # Pre-release tags (containing a hyphen) never reach the tap; brew users
+    # only ever see stable releases.
+    if: ${{ !contains(github.ref_name, '-') }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Render formula from template
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          fetch_checksum() {
+            curl -fsSL "https://github.com/ankraio/ankra-cli/releases/download/${TAG}/ankra-cli-$1.sha256" | awk '{print $1}'
+          }
+          SHA_DARWIN_ARM64="$(fetch_checksum darwin-arm64)"
+          SHA_DARWIN_AMD64="$(fetch_checksum darwin-amd64)"
+          SHA_LINUX_ARM64="$(fetch_checksum linux-arm64)"
+          SHA_LINUX_AMD64="$(fetch_checksum linux-amd64)"
+          for checksum in "${SHA_DARWIN_ARM64}" "${SHA_DARWIN_AMD64}" "${SHA_LINUX_ARM64}" "${SHA_LINUX_AMD64}"; do
+            if ! printf '%s' "${checksum}" | grep -Eq '^[0-9a-f]{64}$'; then
+              echo "refusing to publish formula: invalid checksum '${checksum}'" >&2
+              exit 1
+            fi
+          done
+          sed \
+            -e "s/__VERSION__/${VERSION}/g" \
+            -e "s/__SHA_DARWIN_ARM64__/${SHA_DARWIN_ARM64}/g" \
+            -e "s/__SHA_DARWIN_AMD64__/${SHA_DARWIN_AMD64}/g" \
+            -e "s/__SHA_LINUX_ARM64__/${SHA_LINUX_ARM64}/g" \
+            -e "s/__SHA_LINUX_AMD64__/${SHA_LINUX_AMD64}/g" \
+            packaging/homebrew/ankra.rb.tmpl > /tmp/ankra.rb
+
+      - name: Push formula to ankraio/homebrew-tap
+        env:
+          TAG: ${{ github.ref_name }}
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${HOMEBREW_TAP_DEPLOY_KEY}" > ~/.ssh/homebrew_tap_deploy_key
+          chmod 600 ~/.ssh/homebrew_tap_deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/homebrew_tap_deploy_key -o IdentitiesOnly=yes"
+          git clone --depth 1 git@github.com:ankraio/homebrew-tap.git tap
+          cp /tmp/ankra.rb tap/Formula/ankra.rb
+          cd tap
+          if git diff --quiet; then
+            echo "Formula already up to date for ${TAG}; nothing to push."
+            exit 0
+          fi
+          git config user.name "ankra-release-bot"
+          git config user.email "hello@ankra.io"
+          git add Formula/ankra.rb
+          git commit -m "ankra ${TAG}"
+          git push origin master

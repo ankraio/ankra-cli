@@ -137,6 +137,13 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	if isHomebrewManagedPath(executablePath) {
+		return fmt.Errorf(
+			"this ankra binary is managed by Homebrew (%s).\n"+
+				"Self-updating it would be reverted by the next `brew upgrade`. Upgrade with:\n"+
+				"  brew update && brew upgrade ankra",
+			executablePath)
+	}
 
 	action := "Upgrade"
 	switch {
@@ -361,6 +368,19 @@ func sha256OfFile(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// isHomebrewManagedPath reports whether a resolved executable path lives in a
+// Homebrew Cellar, meaning Homebrew owns the file. Self-updating such a binary
+// would desynchronise it from the recorded formula version and be undone by
+// the next `brew upgrade`, so `ankra upgrade` refuses and defers to brew. The
+// path must already have symlinks resolved (currentExecutablePath does this):
+// brew installs `<prefix>/bin/ankra` as a symlink into the Cellar, while a
+// manually copied binary under `<prefix>/bin` resolves outside it and stays
+// self-updatable.
+func isHomebrewManagedPath(executablePath string) bool {
+	normalized := filepath.ToSlash(executablePath)
+	return strings.Contains(normalized, "/Cellar/")
 }
 
 // currentExecutablePath resolves the path of the running binary, following any
