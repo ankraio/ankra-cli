@@ -8,8 +8,12 @@ import (
 type ManagedK8sProvider string
 
 const (
-	ManagedK8sProviderDoks ManagedK8sProvider = "doks"
-	ManagedK8sProviderUks  ManagedK8sProvider = "uks"
+	ManagedK8sProviderDoks   ManagedK8sProvider = "doks"
+	ManagedK8sProviderUks    ManagedK8sProvider = "uks"
+	ManagedK8sProviderGke    ManagedK8sProvider = "gke"
+	ManagedK8sProviderOvhMks ManagedK8sProvider = "ovh_mks"
+	ManagedK8sProviderAks    ManagedK8sProvider = "aks"
+	ManagedK8sProviderEks    ManagedK8sProvider = "eks"
 )
 
 type ManagedClusterNodePoolRequest struct {
