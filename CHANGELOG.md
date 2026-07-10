@@ -1,6 +1,22 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.7.0 — 2026-07-10
+
+The stable v0.7.0 release consolidates the v0.7.0 release candidates: the
+new ticket-relay browser login (required by the platform, which now answers
+the old localhost-callback flow with 426 Upgrade Required), managed
+Kubernetes support for all six providers, and Homebrew installation.
+
+### Changed
+
+- **`ankra login` no longer opens a local network port.** The old flow
+  started a localhost callback server and had the browser redirect the OAuth
+  code to it. The CLI now starts a platform login ticket, drives the whole
+  flow in the browser (including sign-in approval and any MFA challenge),
+  and polls `/api/v1/cli/login/poll` with the PKCE code verifier — which
+  never leaves the machine — to collect the parked token. The platform has
+  dropped support for the localhost-callback flow and refuses pre-v0.7.0
+  CLIs with `426 Upgrade Required`, so this release is required to log in.
 
 ### Added
 
@@ -11,6 +27,15 @@
   the tap on every stable tag; pre-release tags never reach brew. A
   Homebrew-managed binary refuses `ankra upgrade` (self-update) and defers to
   `brew upgrade ankra`, so brew stays the single owner of the file.
+- **`ankra cluster managed` now supports all six managed Kubernetes
+  providers.** The `--provider` flag previously accepted only `doks` and
+  `uks`, even though the backend and portal already managed GKE, OVHcloud
+  MKS, AKS, and EKS at the same endpoints. `create`, `delete`, `node-pool
+  add|scale|delete`, and `upgrade` now accept `doks`, `uks`, `gke`,
+  `ovh_mks`, `aks`, and `eks` (the `ovh-mks` and `mks` aliases normalise to
+  `ovh_mks`; input is lower-cased and trimmed). Provider-specific
+  control-plane options, node-pool autoscaling bounds, and cluster
+  discovery/import remain portal/API only.
 
 ## v0.7.0-rc3 — 2026-07-10
 
