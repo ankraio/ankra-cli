@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"ankra/internal/client"
 
 	"github.com/spf13/viper"
 )
@@ -57,25 +60,6 @@ func TestEnsureSecureConfigFileTightensLoosePerms(t *testing.T) {
 	}
 }
 
-func TestBuildTokenExchangeRequestDeclaresMFASupport(t *testing.T) {
-	request := buildTokenExchangeRequest("auth-code", "state-1", "verifier-1", "machine-1")
-
-	if !request.SupportsMfa {
-		t.Fatal("expected supports_mfa to be declared")
-	}
-	if request.Code != "auth-code" || request.State != "state-1" || request.CodeVerifier != "verifier-1" || request.MachineID != "machine-1" {
-		t.Fatalf("unexpected request fields: %+v", request)
-	}
-
-	encoded, err := json.Marshal(request)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if !strings.Contains(string(encoded), `"supports_mfa":true`) {
-		t.Fatalf("supports_mfa missing from wire payload: %s", encoded)
-	}
-}
-
 func TestEnsureTokenIssuedAcceptsToken(t *testing.T) {
 	if err := ensureTokenIssued(tokenExchangeResponse{Token: "ankra-token"}); err != nil {
 		t.Fatalf("ensureTokenIssued() error = %v", err)
@@ -102,38 +86,47 @@ func TestEnsureTokenIssuedRejectsIncompleteMFA(t *testing.T) {
 	}
 }
 
-func TestPollMFATokenPending(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodPost {
-			t.Fatalf("method = %s", request.Method)
-		}
-		if request.URL.Path != "/mfa/poll" {
-			t.Fatalf("path = %s", request.URL.Path)
-		}
-		responseWriter.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(responseWriter).Encode(tokenExchangeResponse{MfaRequired: true})
-	}))
-	defer server.Close()
-
+func withShortLoginHTTPClient(t *testing.T) {
+	t.Helper()
 	restoreLoginHTTPClient := loginHTTPClient
 	loginHTTPClient = &http.Client{Timeout: time.Second}
 	t.Cleanup(func() {
 		loginHTTPClient = restoreLoginHTTPClient
 	})
+}
 
-	result, done, err := pollMFAToken(server.URL+"/mfa/poll", []byte(`{"ticket":"ticket-1"}`))
+func TestPollLoginOncePendingKeepsPolling(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			t.Fatalf("method = %s", request.Method)
+		}
+		var payload loginPollRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode poll body: %v", err)
+		}
+		if payload.Ticket != "ticket-1" || payload.CodeVerifier != "verifier-1" {
+			t.Fatalf("unexpected poll payload: %+v", payload)
+		}
+		responseWriter.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(responseWriter).Encode(tokenExchangeResponse{Status: "pending"})
+	}))
+	defer server.Close()
+	withShortLoginHTTPClient(t)
+
+	result, done, err := pollLoginOnce(server.URL,
+		[]byte(`{"ticket":"ticket-1","code_verifier":"verifier-1"}`), map[string]bool{})
 	if err != nil {
-		t.Fatalf("pollMFAToken() error = %v", err)
+		t.Fatalf("pollLoginOnce() error = %v", err)
 	}
 	if done {
-		t.Fatal("expected pending MFA poll to remain incomplete")
+		t.Fatal("expected pending poll to remain incomplete")
 	}
 	if result.Token != "" {
 		t.Fatalf("pending token = %q", result.Token)
 	}
 }
 
-func TestPollMFATokenCompleted(t *testing.T) {
+func TestPollLoginOnceCompleted(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		responseWriter.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(responseWriter).Encode(tokenExchangeResponse{
@@ -141,22 +134,18 @@ func TestPollMFATokenCompleted(t *testing.T) {
 			ExpiresAt: "2026-07-01T00:00:00Z",
 			TokenID:   "token-id",
 			TokenName: "CLI Login",
+			Status:    "issued",
 		})
 	}))
 	defer server.Close()
+	withShortLoginHTTPClient(t)
 
-	restoreLoginHTTPClient := loginHTTPClient
-	loginHTTPClient = &http.Client{Timeout: time.Second}
-	t.Cleanup(func() {
-		loginHTTPClient = restoreLoginHTTPClient
-	})
-
-	result, done, err := pollMFAToken(server.URL, []byte(`{"ticket":"ticket-1"}`))
+	result, done, err := pollLoginOnce(server.URL, []byte(`{}`), map[string]bool{})
 	if err != nil {
-		t.Fatalf("pollMFAToken() error = %v", err)
+		t.Fatalf("pollLoginOnce() error = %v", err)
 	}
 	if !done {
-		t.Fatal("expected completed MFA poll")
+		t.Fatal("expected completed poll")
 	}
 	if result.Token != "ankra-token" {
 		t.Fatalf("token = %q", result.Token)
@@ -166,21 +155,53 @@ func TestPollMFATokenCompleted(t *testing.T) {
 	}
 }
 
-func TestPollMFATokenExpired(t *testing.T) {
+// TestPollLoginOnceClientErrorIsFatal guards the fail-fast fix: 4xx answers
+// (expired session, refused verifier, upgrade required) must surface the
+// platform's message immediately instead of silently retrying for the full
+// ten-minute window.
+func TestPollLoginOnceClientErrorIsFatal(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		responseWriter.Header().Set("Content-Type", "application/json")
 		responseWriter.WriteHeader(http.StatusGone)
+		_, _ = responseWriter.Write([]byte(`{"detail":"Your login session expired. Please run ankra login again."}`))
 	}))
 	defer server.Close()
+	withShortLoginHTTPClient(t)
 
-	restoreLoginHTTPClient := loginHTTPClient
-	loginHTTPClient = &http.Client{Timeout: time.Second}
-	t.Cleanup(func() {
-		loginHTTPClient = restoreLoginHTTPClient
-	})
-
-	_, _, err := pollMFAToken(server.URL, []byte(`{"ticket":"gone"}`))
+	_, _, err := pollLoginOnce(server.URL, []byte(`{}`), map[string]bool{})
 	if err == nil {
-		t.Fatal("expected expired MFA ticket error")
+		t.Fatal("expected expired login session error")
+	}
+	if !strings.Contains(err.Error(), "Your login session expired") {
+		t.Fatalf("expected the platform detail in the error, got: %v", err)
+	}
+}
+
+func TestPollLoginOnceServerErrorKeepsPolling(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		responseWriter.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+	withShortLoginHTTPClient(t)
+
+	_, done, err := pollLoginOnce(server.URL, []byte(`{}`), map[string]bool{})
+	if err != nil {
+		t.Fatalf("expected 5xx to keep polling, got error: %v", err)
+	}
+	if done {
+		t.Fatal("expected 5xx poll to remain incomplete")
+	}
+}
+
+func TestApiErrorDetailPrefersDetailField(t *testing.T) {
+	if got := apiErrorDetail([]byte(`{"detail":"upgrade required"}`)); got != "upgrade required" {
+		t.Fatalf("detail = %q", got)
+	}
+	if got := apiErrorDetail([]byte(`plain text error`)); got != "plain text error" {
+		t.Fatalf("detail = %q", got)
+	}
+	if got := apiErrorDetail(nil); got != "the platform returned an error without details" {
+		t.Fatalf("detail = %q", got)
 	}
 }
 
@@ -287,5 +308,138 @@ func TestLoginSaveBlockPersistsSecureConfig(t *testing.T) {
 	}
 	if !strings.Contains(string(contents), "machine_id: "+machineID) {
 		t.Errorf("config missing persisted machine_id; got:\n%s", contents)
+	}
+}
+
+type logoutRevokeMock struct {
+	baseMock
+	revokedTokenID string
+	revokeErr      error
+}
+
+func (m *logoutRevokeMock) RevokeAPIToken(tokenID string) (*client.RevokeAPITokenResponse, error) {
+	m.revokedTokenID = tokenID
+	if m.revokeErr != nil {
+		return nil, m.revokeErr
+	}
+	return &client.RevokeAPITokenResponse{Success: true, Message: "Token revoked"}, nil
+}
+
+func resetLocalOnlyFlag(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		_ = logoutCmd.Flags().Set("local-only", "false")
+	})
+}
+
+func TestLogoutRevokesSavedToken(t *testing.T) {
+	withFreshViperAndEnv(t)
+	withTempHome(t)
+	resetLocalOnlyFlag(t)
+	writeAnkraConfig(t, map[string]string{
+		"token":    "saved-token",
+		"token_id": "token-id-42",
+		"base-url": "https://platform.ankra.dev",
+	})
+	mock := &logoutRevokeMock{}
+	setMockClient(t, mock)
+
+	output, err := executeCommand("logout")
+	if err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+	if mock.revokedTokenID != "token-id-42" {
+		t.Errorf("expected RevokeAPIToken called with token-id-42, got %q", mock.revokedTokenID)
+	}
+	if !strings.Contains(output, "Revoked the login token") {
+		t.Errorf("expected revocation confirmation in output, got:\n%s", output)
+	}
+
+	contents, err := os.ReadFile(getConfigPath())
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(contents), "saved-token") {
+		t.Errorf("token not cleared from config:\n%s", contents)
+	}
+}
+
+func TestLogoutLocalOnlySkipsRevocation(t *testing.T) {
+	withFreshViperAndEnv(t)
+	withTempHome(t)
+	resetLocalOnlyFlag(t)
+	writeAnkraConfig(t, map[string]string{
+		"token":    "saved-token",
+		"token_id": "token-id-42",
+	})
+	mock := &logoutRevokeMock{}
+	setMockClient(t, mock)
+
+	if _, err := executeCommand("logout", "--local-only"); err != nil {
+		t.Fatalf("logout --local-only: %v", err)
+	}
+	if mock.revokedTokenID != "" {
+		t.Errorf("expected no revocation call with --local-only, got token ID %q", mock.revokedTokenID)
+	}
+
+	contents, err := os.ReadFile(getConfigPath())
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(contents), "saved-token") {
+		t.Errorf("token not cleared from config:\n%s", contents)
+	}
+}
+
+func TestLogoutStillClearsCredentialsWhenRevocationFails(t *testing.T) {
+	withFreshViperAndEnv(t)
+	withTempHome(t)
+	resetLocalOnlyFlag(t)
+	writeAnkraConfig(t, map[string]string{
+		"token":    "saved-token",
+		"token_id": "token-id-42",
+	})
+	mock := &logoutRevokeMock{revokeErr: errors.New("platform unreachable")}
+	setMockClient(t, mock)
+
+	output, err := executeCommand("logout")
+	if err != nil {
+		t.Fatalf("logout should succeed despite revocation failure: %v", err)
+	}
+	if !strings.Contains(output, "could not revoke the token") {
+		t.Errorf("expected revocation warning, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Logged out successfully.") {
+		t.Errorf("expected logout success message, got:\n%s", output)
+	}
+
+	contents, err := os.ReadFile(getConfigPath())
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(contents), "saved-token") {
+		t.Errorf("token not cleared from config:\n%s", contents)
+	}
+}
+
+func TestLogoutWithoutTokenIDWarnsAndClears(t *testing.T) {
+	withFreshViperAndEnv(t)
+	withTempHome(t)
+	resetLocalOnlyFlag(t)
+	writeAnkraConfig(t, map[string]string{
+		"token": "saved-token",
+	})
+	mock := &logoutRevokeMock{}
+	setMockClient(t, mock)
+
+	output, err := executeCommand("logout")
+	if err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+	if mock.revokedTokenID != "" {
+		t.Errorf("expected no revocation call without token_id, got %q", mock.revokedTokenID)
+	}
+	if !strings.Contains(output, "cannot be revoked remotely") {
+		t.Errorf("expected warning about non-revocable token, got:\n%s", output)
 	}
 }
