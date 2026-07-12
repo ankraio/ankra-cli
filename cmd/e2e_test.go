@@ -417,6 +417,70 @@ func (m baseMock) GetClusterHealth(clusterID string, includeAI bool) (*client.Cl
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetAIProviderStatus() (*client.AIProviderStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetAIProvider(provider string) (*client.AIProviderStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SaveAnthropicKey(apiKey string) (*client.AIAnthropicStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteAnthropicKey() (*client.AIAnthropicStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SaveOpenAICompatible(baseURL, apiKey, model string) (*client.AIOpenAICompatibleStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteOpenAICompatible() (*client.AIOpenAICompatibleStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAIModels() ([]client.AICatalogModel, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateAIModel(request client.AIModelRequest) (*client.AICatalogModel, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAIModel(reference string, request client.AIModelRequest) (*client.AICatalogModel, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteAIModel(reference string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) ResetAIModels() ([]client.AICatalogModel, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAIEndpoints() ([]client.AIEndpoint, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateAIEndpoint(name, baseURL, apiKey string) (*client.AIEndpoint, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAIEndpoint(endpointID, name, baseURL, apiKey string) (*client.AIEndpoint, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteAIEndpoint(endpointID string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) DiscoverEndpointModels(endpointID string) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListCharts(page, pageSize int, onlySubscribed bool) (*client.ListChartsResponse, error) {
 	return nil, errors.New("not implemented")
 }

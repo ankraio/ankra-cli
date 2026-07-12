@@ -126,6 +126,23 @@ type APIClient interface {
 	DeleteChatConversation(conversationID string) (*client.DeleteConversationResponse, error)
 	GetClusterHealth(clusterID string, includeAI bool) (*client.ClusterHealth, error)
 
+	GetAIProviderStatus() (*client.AIProviderStatus, error)
+	SetAIProvider(provider string) (*client.AIProviderStatus, error)
+	SaveAnthropicKey(apiKey string) (*client.AIAnthropicStatus, error)
+	DeleteAnthropicKey() (*client.AIAnthropicStatus, error)
+	SaveOpenAICompatible(baseURL, apiKey, model string) (*client.AIOpenAICompatibleStatus, error)
+	DeleteOpenAICompatible() (*client.AIOpenAICompatibleStatus, error)
+	ListAIModels() ([]client.AICatalogModel, error)
+	CreateAIModel(request client.AIModelRequest) (*client.AICatalogModel, error)
+	UpdateAIModel(reference string, request client.AIModelRequest) (*client.AICatalogModel, error)
+	DeleteAIModel(reference string) error
+	ResetAIModels() ([]client.AICatalogModel, error)
+	ListAIEndpoints() ([]client.AIEndpoint, error)
+	CreateAIEndpoint(name, baseURL, apiKey string) (*client.AIEndpoint, error)
+	UpdateAIEndpoint(endpointID, name, baseURL, apiKey string) (*client.AIEndpoint, error)
+	DeleteAIEndpoint(endpointID string) error
+	DiscoverEndpointModels(endpointID string) ([]string, error)
+
 	ListCharts(page, pageSize int, onlySubscribed bool) (*client.ListChartsResponse, error)
 	SearchCharts(query string) ([]client.ChartItem, error)
 	GetChartDetails(chartName, repositoryURL string) (*client.ChartDetails, error)
