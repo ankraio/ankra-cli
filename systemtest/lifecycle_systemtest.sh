@@ -395,6 +395,7 @@ daytwo() {
     if printf '%s' "$out" | grep -qiE "operations in progress|409"; then
       log "  $desc rejected (ops in progress), retry $attempt"
       sleep 20
+      wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy before retry of $desc)"
       continue
     fi
     printf '%s\n' "$out" | tail -2
