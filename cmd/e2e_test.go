@@ -133,6 +133,10 @@ func (m baseMock) GetExecution(executionID string) (client.ExecutionDetail, erro
 	return client.ExecutionDetail{}, errors.New("not implemented")
 }
 
+func (m baseMock) EnrichExecutionDetailWithDrift(detail *client.ExecutionDetail) error {
+	return nil
+}
+
 func (m baseMock) ListExecutionSteps(executionID string) ([]client.ExecutionStep, error) {
 	return nil, errors.New("not implemented")
 }

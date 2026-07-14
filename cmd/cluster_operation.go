@@ -117,7 +117,7 @@ var clusterOperationsListCmd = &cobra.Command{
 		}
 
 		if !watch {
-			_, err := renderExecutionsOnce(options, executionID)
+			_, err := renderExecutionsOnce(options, executionID, true)
 			return err
 		}
 
@@ -125,7 +125,7 @@ var clusterOperationsListCmd = &cobra.Command{
 			clearScreen()
 			fmt.Printf("Watching executions (every %s, press Ctrl+C to stop) - %s\n\n",
 				interval, time.Now().Format("15:04:05"))
-			keepWatching, err := renderExecutionsOnce(options, executionID)
+			keepWatching, err := renderExecutionsOnce(options, executionID, false)
 			if err != nil {
 				return err
 			}
@@ -140,10 +140,16 @@ var clusterOperationsListCmd = &cobra.Command{
 
 // renderExecutionsOnce prints either the executions table or a single
 // execution detail, returning whether any rendered execution is still active
-// (used to decide whether a --watch loop keeps polling).
-func renderExecutionsOnce(options client.ListExecutionsOptions, executionID string) (keepWatching bool, err error) {
+// (used to decide whether a --watch loop keeps polling). Drift enrichment is
+// skipped in watch mode to avoid fetching full step results every poll tick.
+func renderExecutionsOnce(options client.ListExecutionsOptions, executionID string, includeDrift bool) (keepWatching bool, err error) {
 	if executionID != "" {
-		detail, err := loadExecutionDetailWithDrift(executionID)
+		var detail client.ExecutionDetail
+		if includeDrift {
+			detail, err = loadExecutionDetailWithDrift(executionID)
+		} else {
+			detail, err = apiClient.GetExecution(executionID)
+		}
 		if err != nil {
 			return false, err
 		}
@@ -389,13 +395,15 @@ func renderExecutionsTable(executions []client.ExecutionSummary) {
 	t.Render()
 }
 
+// loadExecutionDetailWithDrift enriches best-effort: older platforms without
+// the /result route (or permission failures) must not break the base command.
 func loadExecutionDetailWithDrift(executionID string) (client.ExecutionDetail, error) {
 	detail, detailError := apiClient.GetExecution(executionID)
 	if detailError != nil {
 		return client.ExecutionDetail{}, fmt.Errorf("fetching execution %s: %w", executionID, detailError)
 	}
 	if enrichError := apiClient.EnrichExecutionDetailWithDrift(&detail); enrichError != nil {
-		return client.ExecutionDetail{}, fmt.Errorf("fetching execution results: %w", enrichError)
+		fmt.Fprintf(os.Stderr, "Note: drift details unavailable: %v\n", enrichError)
 	}
 	return detail, nil
 }

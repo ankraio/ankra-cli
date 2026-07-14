@@ -39,7 +39,7 @@ func DriftResourcesFromStepResult(result map[string]any) []DriftResourceDetail {
 				DriftType:  stringField(driftEntry, "drift_type"),
 				Paths:      stringListField(driftEntry, "paths"),
 			}
-			if parsed.Kind != "" && len(parsed.Paths) > 0 {
+			if parsed.Kind != "" {
 				driftResources = append(driftResources, parsed)
 			}
 		}
