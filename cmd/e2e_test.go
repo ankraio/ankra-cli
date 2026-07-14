@@ -677,6 +677,14 @@ func (m baseMock) GetHetznerClusterNode(clusterID, nodeID string) (*client.NodeD
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) RestartHetznerClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateHetznerBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
 func (m baseMock) ListHetznerCredentials() ([]client.HetznerCredentialListItem, error) {
 	return nil, errors.New("not implemented")
 }
@@ -833,6 +841,14 @@ func (m baseMock) GetOvhClusterNode(clusterID, nodeID string) (*client.NodeDetai
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) RestartOvhClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateOvhBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
 func (m baseMock) ListOvhCredentials() ([]client.OvhCredentialListItem, error) {
 	return nil, errors.New("not implemented")
 }
@@ -921,6 +937,14 @@ func (m baseMock) GetUpcloudClusterNode(clusterID, nodeID string) (*client.NodeD
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) RestartUpcloudClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateUpcloudBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
 func (m baseMock) ListUpcloudCredentials() ([]client.UpcloudCredentialListItem, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1007,6 +1031,14 @@ func (m baseMock) ListDigitaloceanClusterNodes(clusterID string) (*client.NodeLi
 
 func (m baseMock) GetDigitaloceanClusterNode(clusterID, nodeID string) (*client.NodeDetail, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RestartDigitaloceanClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateDigitaloceanBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
 func (m baseMock) GetDigitaloceanClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
