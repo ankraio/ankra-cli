@@ -4,6 +4,16 @@
 
 ### Added
 
+- **Read-only API calls now retry transient platform errors.** Bodyless
+  `GET`/`HEAD` requests that fail with a transport-level timeout (for
+  example `http2: timeout awaiting response headers`), a connection
+  setup/reset error, a mid-exchange disconnect, an HTTP/2 GOAWAY, or a
+  502/503/504 gateway status are retried up to two more times with a
+  short backoff (1s, then 2s), with a warning on stderr per retry. A
+  seconds-long platform blip no longer hard-fails scripts and CI
+  pipelines on their first read (2026-07-14: a brief platform stall
+  failed a production rollout on `listing clusters`). Writes are never
+  retried.
 - **`ankra cluster <provider> nodes restart` restarts a single node.** For
   Hetzner, OVH, UpCloud, and DigitalOcean clusters you can now restart any
   provisioned node - a control plane node, a worker, or the bastion/gateway -
