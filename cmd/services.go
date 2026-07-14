@@ -37,6 +37,7 @@ type APIClient interface {
 
 	ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error)
 	GetExecution(executionID string) (client.ExecutionDetail, error)
+	EnrichExecutionDetailWithDrift(detail *client.ExecutionDetail) error
 	ListExecutionSteps(executionID string) ([]client.ExecutionStep, error)
 	CancelExecution(ctx context.Context, executionID string) (*client.CancelExecutionResponse, error)
 	CancelExecutionStep(ctx context.Context, executionID, stepID string) (*client.CancelStepResponse, error)

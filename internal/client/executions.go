@@ -35,24 +35,45 @@ type ExecutionSummary struct {
 }
 
 type ExecutionStep struct {
-	ID                 string  `json:"id"`
-	Name               string  `json:"name"`
-	Status             string  `json:"status"`
-	Type               *string `json:"type"`
-	TargetResourceKind *string `json:"target_resource_kind"`
-	TargetResourceID   *string `json:"target_resource_id"`
-	ErrorExcerpt       *string `json:"error_excerpt"`
-	SchedulerName      *string `json:"scheduler_name"`
-	StartAt            *string `json:"start_at"`
-	StopAt             *string `json:"stop_at"`
-	CreatedAt          *string `json:"created_at"`
-	UpdatedAt          *string `json:"updated_at"`
+	ID                 string                `json:"id"`
+	Name               string                `json:"name"`
+	Status             string                `json:"status"`
+	Type               *string               `json:"type"`
+	TargetResourceKind *string               `json:"target_resource_kind"`
+	TargetResourceID   *string               `json:"target_resource_id"`
+	ErrorExcerpt       *string               `json:"error_excerpt"`
+	SchedulerName      *string               `json:"scheduler_name"`
+	StartAt            *string               `json:"start_at"`
+	StopAt             *string               `json:"stop_at"`
+	CreatedAt          *string               `json:"created_at"`
+	UpdatedAt          *string               `json:"updated_at"`
+	DriftResources     []DriftResourceDetail `json:"drift_resources,omitempty"`
+}
+
+type DriftResourceDetail struct {
+	APIVersion string   `json:"api_version,omitempty"`
+	Kind       string   `json:"kind,omitempty"`
+	Namespace  string   `json:"namespace,omitempty"`
+	Name       string   `json:"name,omitempty"`
+	DriftType  string   `json:"drift_type,omitempty"`
+	Paths      []string `json:"paths,omitempty"`
 }
 
 type ExecutionDetail struct {
 	Execution   ExecutionSummary `json:"execution"`
 	Steps       []ExecutionStep  `json:"steps"`
 	StepSummary StepSummary      `json:"step_summary"`
+}
+
+type ExecutionResultResponse struct {
+	ExecutionID string       `json:"execution_id"`
+	Results     []StepResult `json:"results"`
+}
+
+type StepResult struct {
+	StepID    string         `json:"step_id"`
+	Result    map[string]any `json:"result"`
+	UpdatedAt *string        `json:"updated_at"`
 }
 
 type ExecutionListResponse struct {
@@ -136,6 +157,15 @@ func (c *Client) GetExecution(executionID string) (ExecutionDetail, error) {
 		return ExecutionDetail{}, err
 	}
 	return detail, nil
+}
+
+func (c *Client) GetExecutionResult(executionID string) (ExecutionResultResponse, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/org/executions/%s/result", c.BaseURL, executionID)
+	var response ExecutionResultResponse
+	if err := c.getJSON(endpoint, &response); err != nil {
+		return ExecutionResultResponse{}, err
+	}
+	return response, nil
 }
 
 func (c *Client) ListExecutionSteps(executionID string) ([]ExecutionStep, error) {
