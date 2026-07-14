@@ -66,8 +66,8 @@ func TestDriftResourcesFromStepResultKeepsMissingResourceEntries(t *testing.T) {
 
 func TestEnrichExecutionDetailWithDrift(t *testing.T) {
 	testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
-		switch {
-		case request.URL.Path == "/api/v1/org/executions/exec-1/result":
+		switch request.URL.Path {
+		case "/api/v1/org/executions/exec-1/result":
 			jsonResponse(t, writer, http.StatusOK, ExecutionResultResponse{
 				ExecutionID: "exec-1",
 				Results: []StepResult{
