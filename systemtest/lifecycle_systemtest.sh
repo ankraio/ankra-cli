@@ -248,18 +248,23 @@ trap cleanup EXIT INT TERM
 
 select_cluster() { ank cluster select "$1" >/dev/null 2>&1 || true; }
 
-# Echo the STATE column for a cluster name, or empty if not present.
-cluster_state() {
-  ank cluster list | awk -F'│' -v n="$1" '
-    { gsub(/ /,"",$2); if ($2==n) { gsub(/ /,"",$6); print $6; exit } }'
+# Echo the named column (header text, spaces stripped) for a cluster row, or
+# empty if not present. The column index is resolved from the table header so
+# added/reordered columns in `ankra cluster list` don't silently break us.
+cluster_list_field() {
+  ank cluster list | awk -F'│' -v n="$1" -v h="$2" '
+    col == 0 {
+      for (i = 1; i <= NF; i++) { f = $i; gsub(/ /, "", f); if (toupper(f) == h) { col = i; break } }
+      next
+    }
+    { name = $2; gsub(/ /, "", name)
+      if (name == n) { v = $col; gsub(/ /, "", v); print v; exit } }'
 }
+
+cluster_state()   { cluster_list_field "$1" "STATE"; }
+cluster_version() { cluster_list_field "$1" "KUBEVERSION"; }
 
 cluster_in_list() { ank cluster list | awk -F'│' -v n="$1" '{gsub(/ /,"",$2); if ($2==n) f=1} END{exit f?0:1}'; }
-
-cluster_version() {
-  ank cluster list | awk -F'│' -v n="$1" '
-    { gsub(/ /,"",$2); if ($2==n) { gsub(/ /,"",$3); print $3; exit } }'
-}
 
 ready_nodes() { select_cluster "$1"; ank cluster get nodes | grep -cE "Ready"; }
 
