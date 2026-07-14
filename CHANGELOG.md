@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster operations` now shows which fields drifted.** Single
+  execution views (`operations list <id>`, `operations steps <id>`) fetch
+  the step results and render each drifting resource with its drift type
+  and the exact field paths the agent compared (for example
+  `/spec/template/spec/hostNetwork`), instead of only step metadata and
+  timings. Structured output (`-o json|yaml`) carries the same data as
+  `drift_resources` on each step. Enrichment is best-effort: on platforms
+  without the execution result endpoint the commands work as before and
+  print a note to stderr.
+
 ### Fixed
 
 - **`ankra cluster agent token` no longer prints an empty token.** The
