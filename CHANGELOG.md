@@ -1,5 +1,28 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`ankra cluster agent token` no longer prints an empty token.** The
+  platform's token endpoints return the agent install command (and, on newer
+  platforms, `token` and `cluster_id` fields), while the CLI decoded a
+  `token`/`expires_at` shape that no longer existed and silently rendered an
+  empty string. The CLI now decodes all returned fields, extracts the
+  `ank_cai_…` token from the helm command when the platform only returns
+  `command`, and prints the token together with the full install/update
+  command. Structured output (`-o json|yaml`) now carries `token`,
+  `cluster_id`, and `command`; the never-populated `expires_at` field is
+  gone.
+- **`ankra cluster agent status` no longer reports a stale agent as
+  `connected`.** The status was derived from `checked_in_at` merely being
+  present, so an agent that had been rejected or offline for hours (even
+  days) still displayed `Status: connected`. The CLI now uses the platform's
+  `is_online` verdict when present (30-second check-in threshold, the same
+  one that flips clusters offline) and otherwise falls back to a two-minute
+  check-in recency test; a stale check-in renders as
+  `not connected (stale check-in)`.
+
 ## v0.7.0 — 2026-07-10
 
 The stable v0.7.0 release consolidates the v0.7.0 release candidates: the

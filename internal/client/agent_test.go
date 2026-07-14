@@ -38,11 +38,17 @@ func TestGetClusterAgent(t *testing.T) {
 	}
 }
 
+const agentInstallCommand = "helm upgrade --install ankra-agent oci://registry.ankra.cloud/ankra/ankra-agent " +
+	"--version 2.1.439 --set config.ankra_url=https://platform.ankra.app " +
+	"--set config.token=ank_cai_commandtoken --namespace=ankra --create-namespace"
+
 func TestGetAgentToken(t *testing.T) {
 	tests := []struct {
-		name    string
-		handler http.HandlerFunc
-		wantErr bool
+		name          string
+		handler       http.HandlerFunc
+		wantErr       bool
+		wantToken     string
+		wantClusterID string
 	}{
 		{
 			name: "success",
@@ -53,11 +59,22 @@ func TestGetAgentToken(t *testing.T) {
 				}
 				jsonResponse(t, w, http.StatusOK, AgentToken{
 					Token:     "existing-agent-token",
-					ExpiresAt: "2025-12-31",
 					ClusterID: "cluster-id",
+					Command:   agentInstallCommand,
 				})
 			},
-			wantErr: false,
+			wantErr:       false,
+			wantToken:     "existing-agent-token",
+			wantClusterID: "cluster-id",
+		},
+		{
+			name: "command_only_response_extracts_token",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				jsonResponse(t, w, http.StatusOK, map[string]string{"command": agentInstallCommand})
+			},
+			wantErr:       false,
+			wantToken:     "ank_cai_commandtoken",
+			wantClusterID: "cluster-id",
 		},
 		{
 			name: "unauthorized",
@@ -75,8 +92,14 @@ func TestGetAgentToken(t *testing.T) {
 				t.Errorf("GetAgentToken() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !tt.wantErr && got.Token != "existing-agent-token" {
-				t.Errorf("GetAgentToken() got.Token = %v, want existing-agent-token", got.Token)
+			if tt.wantErr {
+				return
+			}
+			if got.Token != tt.wantToken {
+				t.Errorf("GetAgentToken() got.Token = %v, want %v", got.Token, tt.wantToken)
+			}
+			if got.ClusterID != tt.wantClusterID {
+				t.Errorf("GetAgentToken() got.ClusterID = %v, want %v", got.ClusterID, tt.wantClusterID)
 			}
 		})
 	}
@@ -90,8 +113,8 @@ func TestGenerateAgentToken(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, AgentToken{
 			Token:     "new-agent-token",
-			ExpiresAt: "2025-12-31",
 			ClusterID: "cluster-id",
+			Command:   agentInstallCommand,
 		})
 	})
 	got, err := testClient.GenerateAgentToken(context.Background(), "cluster-id")
@@ -100,6 +123,22 @@ func TestGenerateAgentToken(t *testing.T) {
 	}
 	if got.Token != "new-agent-token" {
 		t.Errorf("GenerateAgentToken() got.Token = %v, want new-agent-token", got.Token)
+	}
+}
+
+func TestGenerateAgentTokenCommandOnlyResponse(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(t, w, http.StatusOK, map[string]string{"command": agentInstallCommand})
+	})
+	got, err := testClient.GenerateAgentToken(context.Background(), "cluster-id")
+	if err != nil {
+		t.Fatalf("GenerateAgentToken() error = %v", err)
+	}
+	if got.Token != "ank_cai_commandtoken" {
+		t.Errorf("GenerateAgentToken() got.Token = %v, want the token extracted from the command", got.Token)
+	}
+	if got.ClusterID != "cluster-id" {
+		t.Errorf("GenerateAgentToken() got.ClusterID = %v, want cluster-id", got.ClusterID)
 	}
 }
 
