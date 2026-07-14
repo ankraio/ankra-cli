@@ -52,7 +52,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "ankra",
 	Short: "CLI for the Ankra platform",
-	Long: `Ankra CLI allows you to manage clusters, operations,
+	Long: `Ankra CLI allows you to manage clusters, applications, operations,
 addons, persistent selection, and more.`,
 	SilenceUsage:      true,
 	PersistentPreRunE: persistentPreRunE,

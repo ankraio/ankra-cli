@@ -4,6 +4,11 @@
 
 ### Added
 
+- **Application management is available from the CLI.** `ankra application
+  add .` detects a local GitHub checkout and starts application setup, while
+  the application subcommands expose lifecycle, deployment, workflow,
+  repository, security, publishing, and demo operations through the bearer
+  API. `-o json|yaml` provides scriptable output.
 - **Read-only API calls now retry transient platform errors.** Bodyless
   `GET`/`HEAD` requests that fail with a transport-level timeout (for
   example `http2: timeout awaiting response headers`), a connection

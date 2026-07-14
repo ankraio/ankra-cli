@@ -101,6 +101,126 @@ func (m baseMock) InstantiateStackProfile(ctx context.Context, clusterID string,
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateApplication(requestContext context.Context, applicationRequest client.CreateApplicationRequest) (*client.CreateApplicationResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListApplicationsRaw(requestContext context.Context, page int, pageSize int, search string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationRaw(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationJobs(requestContext context.Context, applicationID string, page int, pageSize int) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RetryApplication(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReconcileApplication(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteApplication(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeployApplication(requestContext context.Context, applicationID string, deployRequest client.DeployApplicationRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationDeployments(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationInstallations(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationChartVersions(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationExistingPlatform(requestContext context.Context, applicationID string, clusterID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationWorkflowRuns(requestContext context.Context, applicationID string, status string, page int, pageSize int) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationWorkflowRunJobs(requestContext context.Context, applicationID string, runID int64) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RerunApplicationWorkflowRun(requestContext context.Context, applicationID string, runID int64) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationPullRequestReviews(requestContext context.Context, applicationID string, limit int) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpgradeApplicationWorkflow(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationBranches(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationBranchFiles(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateApplicationFiles(requestContext context.Context, applicationID string, filesRequest client.UpdateApplicationFilesRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationPublishReadiness(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationContainerSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationCodeSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationPackageVisibility(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetApplicationPackageVisibility(requestContext context.Context, applicationID string, visibilityRequest client.SetApplicationPackageVisibilityRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) MakeApplicationPackagesPublic(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationDemos(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CheckApplicationDemoBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeployApplicationDemo(requestContext context.Context, applicationID string, demoRequest client.DeployApplicationDemoRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StopApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error) {
 	return nil, errors.New("not implemented")
 }

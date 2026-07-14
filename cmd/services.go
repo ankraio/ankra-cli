@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 
 	"ankra/internal/client"
@@ -85,6 +86,37 @@ type APIClient interface {
 	ImportStackProfile(importRequest client.ImportStackProfileRequest) (*client.CreateStackProfileResult, error)
 	GetStackProfile(profileID string) (*client.StackProfileDetail, error)
 	InstantiateStackProfile(ctx context.Context, clusterID string, instantiateRequest client.InstantiateStackProfileRequest) (*client.InstantiateStackProfileResult, error)
+
+	CreateApplication(requestContext context.Context, applicationRequest client.CreateApplicationRequest) (*client.CreateApplicationResponse, error)
+	ListApplicationsRaw(requestContext context.Context, page int, pageSize int, search string) (json.RawMessage, error)
+	GetApplicationRaw(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	GetApplicationJobs(requestContext context.Context, applicationID string, page int, pageSize int) (json.RawMessage, error)
+	RetryApplication(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	ReconcileApplication(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	DeleteApplication(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	DeployApplication(requestContext context.Context, applicationID string, deployRequest client.DeployApplicationRequest) (json.RawMessage, error)
+	GetApplicationDeployments(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	GetApplicationInstallations(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	GetApplicationChartVersions(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	GetApplicationExistingPlatform(requestContext context.Context, applicationID string, clusterID string) (json.RawMessage, error)
+	GetApplicationWorkflowRuns(requestContext context.Context, applicationID string, status string, page int, pageSize int) (json.RawMessage, error)
+	GetApplicationWorkflowRunJobs(requestContext context.Context, applicationID string, runID int64) (json.RawMessage, error)
+	RerunApplicationWorkflowRun(requestContext context.Context, applicationID string, runID int64) (json.RawMessage, error)
+	GetApplicationPullRequestReviews(requestContext context.Context, applicationID string, limit int) (json.RawMessage, error)
+	UpgradeApplicationWorkflow(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	GetApplicationBranches(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	GetApplicationBranchFiles(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	UpdateApplicationFiles(requestContext context.Context, applicationID string, filesRequest client.UpdateApplicationFilesRequest) (json.RawMessage, error)
+	GetApplicationPublishReadiness(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	GetApplicationContainerSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	GetApplicationCodeSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	GetApplicationPackageVisibility(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	SetApplicationPackageVisibility(requestContext context.Context, applicationID string, visibilityRequest client.SetApplicationPackageVisibilityRequest) (json.RawMessage, error)
+	MakeApplicationPackagesPublic(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	GetApplicationDemos(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	CheckApplicationDemoBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error)
+	DeployApplicationDemo(requestContext context.Context, applicationID string, demoRequest client.DeployApplicationDemoRequest) (json.RawMessage, error)
+	StopApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error)
 
 	ListOrganisations() ([]client.OrganisationSummary, error)
 	SwitchOrganisation(orgID string) (*client.SwitchOrganisationResponse, error)
