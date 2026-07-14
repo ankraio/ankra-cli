@@ -1609,9 +1609,9 @@ func TestClusterAgentStatusCommand(t *testing.T) {
 			writeSelectedClusterJSON(t)
 			setMockClient(t, &clusterAgentStatusMock{agent: testCase.agent})
 
-			stdoutOutput := captureStdout(t, func() {
+			stdoutOutput := stripANSICodes(captureStdout(t, func() {
 				_, _ = executeCommand("cluster", "agent", "status")
-			})
+			}))
 
 			if !strings.Contains(stdoutOutput, "test-cluster") {
 				t.Errorf("expected output to contain 'test-cluster', got: %s", stdoutOutput)
