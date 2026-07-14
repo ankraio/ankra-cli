@@ -1,6 +1,10 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.8.0 — 2026-07-14
+
+The stable v0.8.0 release promotes v0.8.0-rc0: agent-token output and
+agent-status accuracy fixes, plus drift field-path visibility in
+`ankra cluster operations`.
 
 ### Added
 
