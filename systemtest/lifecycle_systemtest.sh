@@ -251,14 +251,16 @@ select_cluster() { ank cluster select "$1" >/dev/null 2>&1 || true; }
 # Echo the named column (header text, spaces stripped) for a cluster row, or
 # empty if not present. The column index is resolved from the table header so
 # added/reordered columns in `ankra cluster list` don't silently break us.
+# ANSI colour escapes are stripped too: the CLI paints e.g. online green when
+# it detects a tty, which the kubernetes attach runner provides.
 cluster_list_field() {
   ank cluster list | awk -F'│' -v n="$1" -v h="$2" '
+    function clean(s) { gsub(/\033\[[0-9;]*[a-zA-Z]/, "", s); gsub(/ /, "", s); return s }
     col == 0 {
-      for (i = 1; i <= NF; i++) { f = $i; gsub(/ /, "", f); if (toupper(f) == h) { col = i; break } }
+      for (i = 1; i <= NF; i++) if (toupper(clean($i)) == h) { col = i; break }
       next
     }
-    { name = $2; gsub(/ /, "", name)
-      if (name == n) { v = $col; gsub(/ /, "", v); print v; exit } }'
+    clean($2) == n { print clean($col); exit }'
 }
 
 cluster_state()   { cluster_list_field "$1" "STATE"; }
