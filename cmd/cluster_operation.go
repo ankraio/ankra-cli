@@ -143,11 +143,12 @@ var clusterOperationsListCmd = &cobra.Command{
 // (used to decide whether a --watch loop keeps polling).
 func renderExecutionsOnce(options client.ListExecutionsOptions, executionID string) (keepWatching bool, err error) {
 	if executionID != "" {
-		detail, err := apiClient.GetExecution(executionID)
+		detail, err := loadExecutionDetailWithDrift(executionID)
 		if err != nil {
-			return false, fmt.Errorf("fetching execution %s: %w", executionID, err)
+			return false, err
 		}
 		printExecutionDetail(detail)
+		printExecutionStepDrift(detail)
 		return !isTerminalExecutionStatus(detail.Execution.Status), nil
 	}
 
@@ -173,9 +174,9 @@ func renderExecutionsOnce(options client.ListExecutionsOptions, executionID stri
 // detail) using a structured -o format (json or yaml).
 func renderExecutionsStructured(format outputFormat, options client.ListExecutionsOptions, executionID string) error {
 	if executionID != "" {
-		detail, err := apiClient.GetExecution(executionID)
+		detail, err := loadExecutionDetailWithDrift(executionID)
 		if err != nil {
-			return fmt.Errorf("fetching execution %s: %w", executionID, err)
+			return err
 		}
 		return encodeStructured(os.Stdout, format, detail)
 	}
@@ -294,7 +295,7 @@ var clusterOperationsStepsCmd = &cobra.Command{
 			return err
 		}
 
-		detail, err := apiClient.GetExecution(executionID)
+		detail, err := loadExecutionDetailWithDrift(executionID)
 		if err != nil {
 			return fmt.Errorf("fetching execution: %w", err)
 		}
@@ -345,6 +346,7 @@ var clusterOperationsStepsCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		printExecutionStepDrift(detail)
 		return nil
 	},
 }
@@ -385,6 +387,44 @@ func renderExecutionsTable(executions []client.ExecutionSummary) {
 		})
 	}
 	t.Render()
+}
+
+func loadExecutionDetailWithDrift(executionID string) (client.ExecutionDetail, error) {
+	detail, detailError := apiClient.GetExecution(executionID)
+	if detailError != nil {
+		return client.ExecutionDetail{}, fmt.Errorf("fetching execution %s: %w", executionID, detailError)
+	}
+	if enrichError := apiClient.EnrichExecutionDetailWithDrift(&detail); enrichError != nil {
+		return client.ExecutionDetail{}, fmt.Errorf("fetching execution results: %w", enrichError)
+	}
+	return detail, nil
+}
+
+func printExecutionStepDrift(detail client.ExecutionDetail) {
+	hasDrift := false
+	for _, step := range detail.Steps {
+		if len(step.DriftResources) > 0 {
+			hasDrift = true
+			break
+		}
+	}
+	if !hasDrift {
+		return
+	}
+	fmt.Println()
+	fmt.Println("Drift detected:")
+	for _, step := range detail.Steps {
+		for _, driftResource := range step.DriftResources {
+			resourceLabel := driftResource.Kind + "/" + driftResource.Name
+			if driftResource.Namespace != "" {
+				resourceLabel = driftResource.Kind + "/" + driftResource.Namespace + "/" + driftResource.Name
+			}
+			fmt.Printf("  step %s: %s (%s)\n", step.ID, resourceLabel, driftResource.DriftType)
+			for _, path := range driftResource.Paths {
+				fmt.Printf("    %s\n", path)
+			}
+		}
+	}
 }
 
 func printExecutionDetail(detail client.ExecutionDetail) {
