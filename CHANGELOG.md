@@ -1,5 +1,27 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra cluster <provider> nodes restart` restarts a single node.** For
+  Hetzner, OVH, UpCloud, and DigitalOcean clusters you can now restart any
+  provisioned node - a control plane node, a worker, or the bastion/gateway -
+  as a tracked operation. The platform schedules a native reboot (falling
+  back to a power cycle); the node must be in the `up` state with no restart
+  already in flight. Find the node ID with `nodes list`.
+- **`ankra cluster <provider> bastion resize` changes the bastion instance
+  type.** A new `bastion` command family (Hetzner, OVH, UpCloud,
+  DigitalOcean) resizes the cluster's bastion/gateway node, following the
+  same async accept/wait contract as node-group instance-type upgrades:
+  submit-and-return by default, or block with `--wait`.
+- **`ankra cluster <provider> nodes list` now shows provider status.** The
+  node table gained a `PROVIDER_STATUS` column carrying the cloud provider's
+  live status/power state (for example OVH `ACTIVE`/`SHUTOFF`) as last
+  recorded by the provider read job, so a crashed or externally-stopped VM is
+  visible before you act on it. Structured output (`-o json|yaml`) carries
+  `provider_status` and `provider_power_state`.
+
 ## v0.8.0 — 2026-07-14
 
 The stable v0.8.0 release promotes v0.8.0-rc0: agent-token output and
