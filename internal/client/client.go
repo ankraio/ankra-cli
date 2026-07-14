@@ -48,7 +48,13 @@ func New(token, baseURL string) *Client {
 	sharedBase := &http.Transport{
 		ResponseHeaderTimeout: 30 * time.Second,
 	}
-	sharedTransport := &orgOverrideTransport{base: sharedBase, orgID: &c.orgOverride}
+	// Idempotent requests ride through transient platform errors (see
+	// retryTransport); the org override header is applied outside the
+	// retry loop so every attempt carries it.
+	sharedTransport := &orgOverrideTransport{
+		base:  &retryTransport{base: sharedBase},
+		orgID: &c.orgOverride,
+	}
 	c.HTTP = &http.Client{
 		Timeout:   5 * time.Minute,
 		Transport: sharedTransport,
