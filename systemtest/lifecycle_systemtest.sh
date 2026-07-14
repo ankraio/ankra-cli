@@ -547,6 +547,11 @@ run_provider() {
     pass "$label instance resize default -> $plan"; else fail "$label instance resize"; fi
 
   # 8. Deprovision -> removed (with a bounded force-deprovision fallback on stall)
+  # Let running reconciles (e.g. the resize's server replacement) settle first:
+  # a deprovision submitted mid-reconcile computes its teardown plan against an
+  # incomplete resource set and can strand the late-registered server after the
+  # credential is already deleted.
+  wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy; deprovisioning anyway)"
   log "deprovisioning $name ..."
   ank cluster deprovision "$id" --yes | tail -2
   if wait_for_removed "$name" "$DEPROVISION_TIMEOUT"; then
