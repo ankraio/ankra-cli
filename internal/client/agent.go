@@ -4,22 +4,41 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 )
 
 type AgentInfo struct {
-	UpgradeAvailable    bool    `json:"upgrade_available"`
-	Upgrading           bool    `json:"upgrading"`
-	CreatedAt           string  `json:"created_at"`
-	CheckedInAt         *string `json:"checked_in_at,omitempty"`
-	AgentVersion        *string `json:"agent_version,omitempty"`
-	LatestAgentVersion  *string `json:"latest_agent_version,omitempty"`
-	DisableAutoUpgrade  bool    `json:"disable_auto_upgrade"`
+	UpgradeAvailable   bool    `json:"upgrade_available"`
+	Upgrading          bool    `json:"upgrading"`
+	CreatedAt          string  `json:"created_at"`
+	CheckedInAt        *string `json:"checked_in_at,omitempty"`
+	AgentVersion       *string `json:"agent_version,omitempty"`
+	LatestAgentVersion *string `json:"latest_agent_version,omitempty"`
+	DisableAutoUpgrade bool    `json:"disable_auto_upgrade"`
+	IsOnline           *bool   `json:"is_online,omitempty"`
 }
 
 type AgentToken struct {
 	Token     string `json:"token"`
-	ExpiresAt string `json:"expires_at"`
 	ClusterID string `json:"cluster_id"`
+	Command   string `json:"command"`
+}
+
+// tokenInInstallCommandPattern matches the --set config.token=<token> value
+// inside the helm install command the token endpoints return.
+var tokenInInstallCommandPattern = regexp.MustCompile(`--set config\.token=(\S+)`)
+
+// fillFromCommand backfills Token and ClusterID for platform versions whose
+// token endpoints only return the helm install command.
+func (agentToken *AgentToken) fillFromCommand(clusterID string) {
+	if agentToken.Token == "" && agentToken.Command != "" {
+		if match := tokenInInstallCommandPattern.FindStringSubmatch(agentToken.Command); match != nil {
+			agentToken.Token = match[1]
+		}
+	}
+	if agentToken.ClusterID == "" {
+		agentToken.ClusterID = clusterID
+	}
 }
 
 type UpgradeAgentResult struct {
@@ -44,6 +63,7 @@ func (c *Client) GetAgentToken(clusterID string) (*AgentToken, error) {
 	if err := c.getJSON(url, &agentToken); err != nil {
 		return nil, fmt.Errorf("failed to get agent token: %w", err)
 	}
+	agentToken.fillFromCommand(clusterID)
 	return &agentToken, nil
 }
 
@@ -75,6 +95,7 @@ func (c *Client) GenerateAgentToken(ctx context.Context, clusterID string) (*Age
 	if err := parseJSON(body, &agentToken); err != nil {
 		return nil, err
 	}
+	agentToken.fillFromCommand(clusterID)
 	return &agentToken, nil
 }
 

@@ -3,8 +3,15 @@ package cmd
 import (
 	"bytes"
 	"os"
+	"regexp"
 	"testing"
 )
+
+var ansiEscapePattern = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+func stripANSICodes(input string) string {
+	return ansiEscapePattern.ReplaceAllString(input, "")
+}
 
 func executeCommand(args ...string) (string, error) {
 	buf := new(bytes.Buffer)

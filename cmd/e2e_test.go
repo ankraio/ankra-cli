@@ -1554,31 +1554,75 @@ func (m *clusterAgentStatusMock) GetClusterAgent(clusterID string) (*client.Agen
 }
 
 func TestClusterAgentStatusCommand(t *testing.T) {
-	writeSelectedClusterJSON(t)
 	agentVersion := "2.5.1"
-	checkedIn := "2024-05-01T08:00:00Z"
-	mock := &clusterAgentStatusMock{
-		agent: &client.AgentInfo{
-			AgentVersion: &agentVersion,
-			CreatedAt:    "2024-01-10T00:00:00Z",
-			CheckedInAt:  &checkedIn,
-			Upgrading:    false,
+	staleCheckin := "2024-05-01T08:00:00Z"
+	freshCheckin := time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339)
+	online := true
+	offline := false
+
+	cases := []struct {
+		name           string
+		agent          *client.AgentInfo
+		expectedStatus string
+	}{
+		{
+			name: "platform_reports_online",
+			agent: &client.AgentInfo{
+				AgentVersion: &agentVersion,
+				CreatedAt:    "2024-01-10T00:00:00Z",
+				CheckedInAt:  &staleCheckin,
+				IsOnline:     &online,
+			},
+			expectedStatus: "Status:     connected",
+		},
+		{
+			name: "platform_reports_offline_despite_checkin",
+			agent: &client.AgentInfo{
+				AgentVersion: &agentVersion,
+				CreatedAt:    "2024-01-10T00:00:00Z",
+				CheckedInAt:  &freshCheckin,
+				IsOnline:     &offline,
+			},
+			expectedStatus: "not connected (stale check-in)",
+		},
+		{
+			name: "fallback_fresh_checkin_is_connected",
+			agent: &client.AgentInfo{
+				AgentVersion: &agentVersion,
+				CreatedAt:    "2024-01-10T00:00:00Z",
+				CheckedInAt:  &freshCheckin,
+			},
+			expectedStatus: "Status:     connected",
+		},
+		{
+			name: "fallback_stale_checkin_is_not_connected",
+			agent: &client.AgentInfo{
+				AgentVersion: &agentVersion,
+				CreatedAt:    "2024-01-10T00:00:00Z",
+				CheckedInAt:  &staleCheckin,
+			},
+			expectedStatus: "not connected (stale check-in)",
 		},
 	}
-	setMockClient(t, mock)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			writeSelectedClusterJSON(t)
+			setMockClient(t, &clusterAgentStatusMock{agent: testCase.agent})
 
-	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "agent", "status")
-	})
+			stdoutOutput := stripANSICodes(captureStdout(t, func() {
+				_, _ = executeCommand("cluster", "agent", "status")
+			}))
 
-	if !strings.Contains(stdoutOutput, "test-cluster") {
-		t.Errorf("expected output to contain 'test-cluster', got: %s", stdoutOutput)
-	}
-	if !strings.Contains(stdoutOutput, "2.5.1") {
-		t.Errorf("expected output to contain '2.5.1', got: %s", stdoutOutput)
-	}
-	if !strings.Contains(stdoutOutput, "connected") {
-		t.Errorf("expected output to contain 'connected', got: %s", stdoutOutput)
+			if !strings.Contains(stdoutOutput, "test-cluster") {
+				t.Errorf("expected output to contain 'test-cluster', got: %s", stdoutOutput)
+			}
+			if !strings.Contains(stdoutOutput, "2.5.1") {
+				t.Errorf("expected output to contain '2.5.1', got: %s", stdoutOutput)
+			}
+			if !strings.Contains(stdoutOutput, testCase.expectedStatus) {
+				t.Errorf("expected output to contain %q, got: %s", testCase.expectedStatus, stdoutOutput)
+			}
+		})
 	}
 }
 

@@ -7,6 +7,8 @@ import (
 
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
+
+	"ankra/internal/client"
 )
 
 var clusterAgentCmd = &cobra.Command{
@@ -52,8 +54,10 @@ var clusterAgentStatusCmd = &cobra.Command{
 		switch {
 		case agent.Upgrading:
 			fmt.Printf("  Status:     %s\n", text.FgYellow.Sprint("upgrading"))
-		case agent.CheckedInAt != nil:
+		case agentIsConnected(agent):
 			fmt.Printf("  Status:     %s\n", text.FgGreen.Sprint("connected"))
+		case agent.CheckedInAt != nil:
+			fmt.Printf("  Status:     %s\n", text.FgRed.Sprint("not connected (stale check-in)"))
 		default:
 			fmt.Printf("  Status:     %s\n", text.FgRed.Sprint("not connected"))
 		}
@@ -67,6 +71,29 @@ var clusterAgentStatusCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// agentCheckinRecencyFallback bounds how old a check-in may be and still
+// count as connected when the platform does not report is_online. The
+// platform flips clusters offline after 30s without a check-in; two minutes
+// leaves headroom for clock skew without ever showing "connected" for an
+// agent that is being rejected.
+const agentCheckinRecencyFallback = 2 * time.Minute
+
+// agentIsConnected prefers the platform's is_online verdict and falls back
+// to a check-in recency test for older platform versions.
+func agentIsConnected(agent *client.AgentInfo) bool {
+	if agent.IsOnline != nil {
+		return *agent.IsOnline
+	}
+	if agent.CheckedInAt == nil {
+		return false
+	}
+	checkedInAt, parseError := time.Parse(time.RFC3339, *agent.CheckedInAt)
+	if parseError != nil {
+		return false
+	}
+	return time.Since(checkedInAt) <= agentCheckinRecencyFallback
 }
 
 var clusterAgentTokenCmd = &cobra.Command{
@@ -95,10 +122,9 @@ var clusterAgentTokenCmd = &cobra.Command{
 
 			fmt.Println("New agent token generated!")
 			fmt.Println()
-			fmt.Printf("Token (save this, it won't be shown again):\n")
-			fmt.Printf("  %s\n", token.Token)
+			printAgentToken(token)
 			fmt.Println()
-			fmt.Printf("Expires: %s\n", formatTimeAgo(token.ExpiresAt))
+			fmt.Println("The previous token is now invalid; redeploy the agent with the command above.")
 			return nil
 		}
 
@@ -113,10 +139,22 @@ var clusterAgentTokenCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Agent Token for cluster '%s':\n\n", cluster.Name)
-		fmt.Printf("  Token:   %s\n", token.Token)
-		fmt.Printf("  Expires: %s\n", formatTimeAgo(token.ExpiresAt))
+		printAgentToken(token)
 		return nil
 	},
+}
+
+func printAgentToken(token *client.AgentToken) {
+	if token.Token != "" {
+		fmt.Printf("  Token: %s\n", token.Token)
+	} else {
+		fmt.Printf("  Token: %s\n", text.FgRed.Sprint("unavailable (unexpected API response)"))
+	}
+	if token.Command != "" {
+		fmt.Println()
+		fmt.Println("  Install or update the agent with:")
+		fmt.Printf("    %s\n", token.Command)
+	}
 }
 
 var clusterAgentUpgradeCmd = &cobra.Command{
