@@ -14,6 +14,7 @@ type clusterNodesOps struct {
 	provider string
 	list     func(clusterID string) (*client.NodeListResult, error)
 	get      func(clusterID, nodeID string) (*client.NodeDetail, error)
+	restart  func(clusterID, nodeID string) (*client.RestartNodeResult, error)
 }
 
 func hetznerNodesOps() clusterNodesOps {
@@ -21,6 +22,7 @@ func hetznerNodesOps() clusterNodesOps {
 		provider: "hetzner",
 		list:     apiClient.ListHetznerClusterNodes,
 		get:      apiClient.GetHetznerClusterNode,
+		restart:  apiClient.RestartHetznerClusterNode,
 	}
 }
 
@@ -29,6 +31,7 @@ func ovhNodesOps() clusterNodesOps {
 		provider: "ovh",
 		list:     apiClient.ListOvhClusterNodes,
 		get:      apiClient.GetOvhClusterNode,
+		restart:  apiClient.RestartOvhClusterNode,
 	}
 }
 
@@ -37,6 +40,7 @@ func upcloudNodesOps() clusterNodesOps {
 		provider: "upcloud",
 		list:     apiClient.ListUpcloudClusterNodes,
 		get:      apiClient.GetUpcloudClusterNode,
+		restart:  apiClient.RestartUpcloudClusterNode,
 	}
 }
 
@@ -45,6 +49,7 @@ func digitaloceanNodesOps() clusterNodesOps {
 		provider: "digitalocean",
 		list:     apiClient.ListDigitaloceanClusterNodes,
 		get:      apiClient.GetDigitaloceanClusterNode,
+		restart:  apiClient.RestartDigitaloceanClusterNode,
 	}
 }
 
@@ -66,14 +71,14 @@ func runNodesList(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID st
 		return nil
 	}
 
-	fmt.Printf("%-36s  %-22s  %-13s  %-14s  %-16s  %-12s  %-15s\n",
-		"ID", "NAME", "ROLE", "NODE_GROUP", "INSTANCE_TYPE", "STATE", "PRIVATE_IP")
+	fmt.Printf("%-36s  %-22s  %-13s  %-14s  %-16s  %-12s  %-15s  %-15s\n",
+		"ID", "NAME", "ROLE", "NODE_GROUP", "INSTANCE_TYPE", "STATE", "PRIVATE_IP", "PROVIDER_STATUS")
 	for _, n := range result.Nodes {
 		state := n.State
 		if n.IsDeleted {
 			state = state + " (soft-deleted)"
 		}
-		fmt.Printf("%-36s  %-22s  %-13s  %-14s  %-16s  %-12s  %-15s\n",
+		fmt.Printf("%-36s  %-22s  %-13s  %-14s  %-16s  %-12s  %-15s  %-15s\n",
 			n.ID,
 			truncate(n.Name, 22),
 			truncate(stringValue(n.Role), 13),
@@ -81,8 +86,44 @@ func runNodesList(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID st
 			truncate(n.InstanceType, 16),
 			truncate(state, 12),
 			truncate(stringValue(n.PrivateIP), 15),
+			truncate(providerStatusDisplay(n.ProviderStatus, n.ProviderPowerState), 15),
 		)
 	}
+	return nil
+}
+
+// providerStatusDisplay combines the cloud provider's live status and power
+// state (e.g. OVH's ACTIVE/SHUTOFF plus its power state) into one column;
+// "-" when the provider has no read job or none has run yet.
+func providerStatusDisplay(status, powerState *string) string {
+	switch {
+	case status != nil && powerState != nil:
+		return *status + "/" + *powerState
+	case status != nil:
+		return *status
+	case powerState != nil:
+		return *powerState
+	default:
+		return "-"
+	}
+}
+
+func runNodesRestart(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID, nodeID string) error {
+	ops := opsFn()
+	result, err := ops.restart(clusterID, nodeID)
+	if err != nil {
+		return err
+	}
+
+	if handled, err := renderStructured(cmd, result); err != nil {
+		return err
+	} else if handled {
+		return nil
+	}
+
+	fmt.Printf("Restart scheduled for node %s (operation %s, job %s).\n", result.NodeID, result.OperationID, result.JobName)
+	fmt.Println("The node will reboot (or power-cycle); workloads on it are briefly unavailable until it comes back up.")
+	fmt.Printf("Track progress with: ankra cluster operations list %s\n", result.OperationID)
 	return nil
 }
 
@@ -213,8 +254,22 @@ included so the saved topology is visible before re-provisioning.`,
 		},
 	}
 
-	registerStructuredOutputFlags(listCmd, getCmd)
-	cmd.AddCommand(listCmd, getCmd)
+	restartCmd := &cobra.Command{
+		Use:   "restart <cluster_id> <node_id>",
+		Short: "Restart a node (control plane, worker, or bastion/gateway)",
+		Long: `Schedule a native reboot (falling back to a power cycle) of the node as a
+tracked operation. The node must be in the 'up' state and have no restart
+already in flight. Workloads on the node are briefly unavailable while it
+reboots. Works for any node returned by 'nodes list', including the
+bastion/gateway.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runNodesRestart(cmd, opsFn, args[0], args[1])
+		},
+	}
+
+	registerStructuredOutputFlags(listCmd, getCmd, restartCmd)
+	cmd.AddCommand(listCmd, getCmd, restartCmd)
 	return cmd
 }
 

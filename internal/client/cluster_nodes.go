@@ -1,6 +1,9 @@
 package client
 
-import "fmt"
+import (
+	"fmt"
+	"net/http"
+)
 
 type NodeSummary struct {
 	ID           string  `json:"id"`
@@ -15,6 +18,12 @@ type NodeSummary struct {
 	IsDeleted    bool    `json:"is_deleted"`
 	CreatedAt    string  `json:"created_at"`
 	UpdatedAt    string  `json:"updated_at"`
+	// ProviderStatus / ProviderPowerState surface the cloud provider's live
+	// status (e.g. OVH ACTIVE/SHUTOFF/ERROR) as last recorded by the
+	// provider's read job; nil until the first read, or always nil for
+	// providers without one.
+	ProviderStatus     *string `json:"provider_status,omitempty"`
+	ProviderPowerState *string `json:"provider_power_state,omitempty"`
 }
 
 type NodeListResult struct {
@@ -69,6 +78,41 @@ func (c *Client) GetUpcloudClusterNode(clusterID, nodeID string) (*NodeDetail, e
 
 func (c *Client) GetDigitaloceanClusterNode(clusterID, nodeID string) (*NodeDetail, error) {
 	return c.getClusterNode("digitalocean", clusterID, nodeID)
+}
+
+// RestartNodeResult reports the operation scheduled to restart a node.
+type RestartNodeResult struct {
+	OperationID string `json:"operation_id"`
+	NodeID      string `json:"node_id"`
+	JobName     string `json:"job_name"`
+}
+
+func (c *Client) RestartHetznerClusterNode(clusterID, nodeID string) (*RestartNodeResult, error) {
+	return c.restartClusterNode("hetzner", clusterID, nodeID)
+}
+
+func (c *Client) RestartOvhClusterNode(clusterID, nodeID string) (*RestartNodeResult, error) {
+	return c.restartClusterNode("ovh", clusterID, nodeID)
+}
+
+func (c *Client) RestartUpcloudClusterNode(clusterID, nodeID string) (*RestartNodeResult, error) {
+	return c.restartClusterNode("upcloud", clusterID, nodeID)
+}
+
+func (c *Client) RestartDigitaloceanClusterNode(clusterID, nodeID string) (*RestartNodeResult, error) {
+	return c.restartClusterNode("digitalocean", clusterID, nodeID)
+}
+
+// restartClusterNode schedules a one-shot restart operation. Unlike the
+// node-group writes, this endpoint has no async accept/wait contract - it
+// always runs synchronously and answers 200 with the scheduled operation.
+func (c *Client) restartClusterNode(provider, clusterID, nodeID string) (*RestartNodeResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/nodes/%s/restart", c.BaseURL, provider, clusterID, nodeID)
+	var result RestartNodeResult
+	if err := c.sendJSON(http.MethodPost, url, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func (c *Client) listClusterNodes(provider, clusterID string) (*NodeListResult, error) {
