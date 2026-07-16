@@ -30,6 +30,10 @@ func digitaloceanBastionOps() bastionOps {
 	return bastionOps{provider: "digitalocean", resize: apiClient.UpdateDigitaloceanBastionInstanceType}
 }
 
+func scalewayBastionOps() bastionOps {
+	return bastionOps{provider: "scaleway", resize: activeScalewayAPI().UpdateScalewayBastionInstanceType}
+}
+
 func runBastionResize(cmd *cobra.Command, opsFn func() bastionOps, clusterID, instanceType string) error {
 	ops := opsFn()
 	requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
@@ -91,4 +95,5 @@ func init() {
 	ovhCmd.AddCommand(newBastionCmd(ovhBastionOps, "OVH"))
 	upcloudCmd.AddCommand(newBastionCmd(upcloudBastionOps, "UpCloud"))
 	digitaloceanCmd.AddCommand(newBastionCmd(digitaloceanBastionOps, "DigitalOcean"))
+	scalewayCmd.AddCommand(newBastionCmd(scalewayBastionOps, "Scaleway"))
 }

@@ -29,6 +29,8 @@ func scaleFunctionForKind(kind string) (workerScaleFunc, bool) {
 		return apiClient.ScaleProxmoxWorkers, true
 	case "morpheus":
 		return apiClient.ScaleMorpheusWorkers, true
+	case "scaleway":
+		return activeScalewayAPI().ScaleScalewayWorkers, true
 	default:
 		return nil, false
 	}
@@ -39,10 +41,10 @@ var clusterScaleCmd = &cobra.Command{
 	Short: "Scale the default worker pool of a cloud cluster",
 	Long: `Scale the number of default-pool worker nodes up or down for a cloud cluster.
 
-The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, or HPE
-Morpheus) is detected automatically from the cluster, so you do not need to
-remember which provider it runs on. To scale a named node group instead, use
-'ankra cluster node-group scale'.
+The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, HPE
+Morpheus, or Scaleway) is detected automatically from the cluster, so you do
+not need to remember which provider it runs on. To scale a named node group
+instead, use 'ankra cluster node-group scale'.
 
 Example:
   ankra cluster scale 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 3`,
@@ -62,7 +64,7 @@ Example:
 		scale, supported := scaleFunctionForKind(cluster.Kind)
 		if !supported {
 			return fmt.Errorf(
-				"cluster %q (kind %q) does not support worker scaling. Only Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, and HPE Morpheus clusters can be scaled with this command",
+				"cluster %q (kind %q) does not support worker scaling. Only Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, HPE Morpheus, and Scaleway clusters can be scaled with this command",
 				clusterID, cluster.Kind)
 		}
 

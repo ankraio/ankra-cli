@@ -279,6 +279,7 @@ const (
 	cloudClusterKindDigitalocean cloudClusterKind = "digitalocean"
 	cloudClusterKindProxmox      cloudClusterKind = "proxmox"
 	cloudClusterKindMorpheus     cloudClusterKind = "morpheus"
+	cloudClusterKindScaleway     cloudClusterKind = "scaleway"
 )
 
 var clusterDeprovisionCmd = &cobra.Command{
@@ -288,7 +289,7 @@ var clusterDeprovisionCmd = &cobra.Command{
 
 If no cluster name is provided, uses the currently selected cluster.
 
-For cloud clusters (hetzner, ovh, upcloud, digitalocean, proxmox, morpheus) this command routes
+For cloud clusters (hetzner, ovh, upcloud, digitalocean, proxmox, morpheus, scaleway) this command routes
 to the provider-specific deprovision endpoint so cloud resources are released.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -305,12 +306,16 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 			return err
 		}
 
-		// Only the Hetzner deprovision endpoint honors force; every other
-		// lane would silently drop it, so say so instead of implying a
-		// forced teardown that never happens.
-		if force && cloudClusterKind(clusterKind) != cloudClusterKindHetzner {
-			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
-				"warning: --force has no effect for this cluster type (only Hetzner deprovision supports it)")
+		// Only the Hetzner and Scaleway deprovision endpoints honor force;
+		// every other lane would silently drop it, so say so instead of
+		// implying a forced teardown that never happens.
+		switch cloudClusterKind(clusterKind) {
+		case cloudClusterKindHetzner, cloudClusterKindScaleway:
+		default:
+			if force {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+					"warning: --force has no effect for this cluster type (only Hetzner and Scaleway deprovision support it)")
+			}
 		}
 
 		if err := confirmPrompt(
@@ -402,6 +407,20 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 				return encodeStructured(cmd.OutOrStdout(), format, result)
 			}
 			fmt.Printf("HPE Morpheus cluster deprovision initiated.\n")
+			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+			if result.OperationID != nil && *result.OperationID != "" {
+				fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+			}
+			return nil
+		case cloudClusterKindScaleway:
+			result, deprovisionError := activeScalewayAPI().DeprovisionScalewayCluster(clusterID, force)
+			if deprovisionError != nil {
+				return fmt.Errorf("deprovisioning Scaleway cluster: %w", deprovisionError)
+			}
+			if format != outputDefault {
+				return encodeStructured(cmd.OutOrStdout(), format, result)
+			}
+			fmt.Printf("Scaleway cluster deprovision initiated.\n")
 			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 			if result.OperationID != nil && *result.OperationID != "" {
 				fmt.Printf("  Operation ID: %s\n", *result.OperationID)

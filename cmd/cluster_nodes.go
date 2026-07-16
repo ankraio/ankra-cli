@@ -56,9 +56,9 @@ func digitaloceanNodesOps() clusterNodesOps {
 func scalewayNodesOps() clusterNodesOps {
 	return clusterNodesOps{
 		provider: "scaleway",
-		list:     apiClient.ListScalewayClusterNodes,
-		get:      apiClient.GetScalewayClusterNode,
-		restart:  apiClient.RestartScalewayClusterNode,
+		list:     activeScalewayAPI().ListScalewayClusterNodes,
+		get:      activeScalewayAPI().GetScalewayClusterNode,
+		restart:  activeScalewayAPI().RestartScalewayClusterNode,
 	}
 }
 

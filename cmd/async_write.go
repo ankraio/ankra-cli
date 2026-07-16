@@ -57,3 +57,16 @@ func printAsyncWriteSubmitted(operationLabel string) {
 	fmt.Println("Re-run the same command with --wait to block until completion and see the full result.")
 	fmt.Println("Avoid submitting the same change again while it may still be running (duplicate node groups can double cost).")
 }
+
+func renderAsyncWriteSubmitted(command *cobra.Command, operationLabel string, operationID *string) error {
+	result := newAsyncSubmittedResult(operationLabel)
+	result.OperationID = operationID
+	if handled, err := renderStructured(command, result); handled || err != nil {
+		return err
+	}
+	printAsyncWriteSubmitted(operationLabel)
+	if operationID != nil && *operationID != "" {
+		fmt.Printf("Operation ID: %s\n", *operationID)
+	}
+	return nil
+}
