@@ -7,13 +7,47 @@ on:
   workflow_dispatch:
     inputs:
       providers:
-        description: 'Space-separated providers to exercise (hetzner ovh upcloud).'
+        description: 'Scheduled-provider set only (hetzner ovh upcloud); Scaleway uses the protected manual jobs below.'
         required: false
         default: 'hetzner ovh upcloud'
       parallel:
         description: 'Run the selected providers concurrently (1) or one at a time (0).'
         required: false
         default: '1'
+      run_scaleway_instances:
+        description: 'MANUAL/BILLABLE: run Scaleway Instances acceptance in the protected environment.'
+        required: false
+        type: boolean
+        default: false
+      run_scaleway_kapsule:
+        description: 'MANUAL/BILLABLE: run Kapsule create plus separate provider-created import acceptance.'
+        required: false
+        type: boolean
+        default: false
+      scaleway_region:
+        description: 'Scaleway region for opted-in scenarios.'
+        required: false
+        default: 'fr-par'
+      scaleway_zone:
+        description: 'Scaleway zone for opted-in scenarios.'
+        required: false
+        default: 'fr-par-1'
+      scaleway_private_network_id:
+        description: 'Optional existing Private Network ID for Instances; required for Kapsule.'
+        required: false
+        default: ''
+      scaleway_gateway_allowed_ips:
+        description: 'Instances bastion source CIDRs; required for Instances and must not be 0.0.0.0/0.'
+        required: false
+        default: ''
+      kapsule_create_options_json:
+        description: 'Kapsule create options JSON: name, exact version, cni, and pool_size.'
+        required: false
+        default: '{"name":"systest-kapsule-created","version":"","cni":"cilium","pool_size":"DEV1-M"}'
+      kapsule_import_provider_cluster_id:
+        description: 'Region-qualified ID of a separate provider-created Kapsule fixture.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -55,6 +89,15 @@ jobs:
       - name: Build ankra binary
         run: go build -o bin/ankra .
 
+      - name: Reject protected providers in scheduled-provider job
+        run: |
+          case " $ANKRA_SYSTEMTEST_PROVIDERS " in
+            *" scaleway "*|*" kapsule "*)
+              echo "Scaleway scenarios must use their explicit protected manual inputs" >&2
+              exit 2
+              ;;
+          esac
+
       - name: Run lifecycle system test
         run: |
           mkdir -p "$TMPDIR"
@@ -65,6 +108,204 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lifecycle-system-test-logs
+          path: systemtest-artifacts/**
+          if-no-files-found: ignore
+          retention-days: 14
+
+  scaleway-instances-system-test:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_scaleway_instances
+    name: Scaleway Instances manual acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: scaleway-systemtest
+    env:
+      ANKRA_SYSTEMTEST_CONFIRM: 'yes'
+      ANKRA_SYSTEMTEST_PROVIDERS: 'scaleway'
+      ANKRA_SYSTEMTEST_PARALLEL: '0'
+      ANKRA_API_TOKEN: ${{ secrets.SYSTEMTEST_ANKRA_API_TOKEN }}
+      ANKRA_BASE_URL: ${{ vars.SYSTEMTEST_ANKRA_BASE_URL }}
+      ANKRA_ORG: ${{ vars.SYSTEMTEST_ANKRA_ORG }}
+      SSH_KEY_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_SSH_KEY_CREDENTIAL_ID }}
+      SCALEWAY_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_SCALEWAY_CREDENTIAL_ID }}
+      SCALEWAY_RUNTIME_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_SCALEWAY_RUNTIME_CREDENTIAL_ID }}
+      SCALEWAY_REGION: ${{ inputs.scaleway_region }}
+      SCALEWAY_ZONE: ${{ inputs.scaleway_zone }}
+      SCALEWAY_PRIVATE_NETWORK_ID: ${{ inputs.scaleway_private_network_id }}
+      SCALEWAY_GATEWAY_ALLOWED_IPS: ${{ inputs.scaleway_gateway_allowed_ips }}
+      SCALEWAY_ORPHAN_VERIFY_SCRIPT: /tmp/ankra-verify-scaleway-orphans
+      SCW_ACCESS_KEY: ${{ secrets.SYSTEMTEST_SCALEWAY_ACCESS_KEY }}
+      SCW_SECRET_KEY: ${{ secrets.SYSTEMTEST_SCALEWAY_SECRET_KEY }}
+      SCW_DEFAULT_PROJECT_ID: ${{ secrets.SYSTEMTEST_SCALEWAY_PROJECT_ID }}
+      GITOPS_CREDENTIAL_NAME: ${{ vars.SYSTEMTEST_GITOPS_CREDENTIAL_NAME }}
+      GITOPS_REPOSITORY: ${{ vars.SYSTEMTEST_GITOPS_REPOSITORY }}
+      TMPDIR: ${{ github.workspace }}/systemtest-artifacts
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Validate protected inputs
+        env:
+          ORPHAN_VERIFIER: ${{ secrets.SYSTEMTEST_SCALEWAY_ORPHAN_VERIFY_SCRIPT }}
+        run: |
+          set -euo pipefail
+          [ -n "$SCALEWAY_GATEWAY_ALLOWED_IPS" ] || {
+            echo "scaleway_gateway_allowed_ips is required" >&2
+            exit 2
+          }
+          case ",$SCALEWAY_GATEWAY_ALLOWED_IPS," in
+            *,0.0.0.0/0,*|*,::/0,*)
+              echo "world-open gateway CIDRs are refused" >&2
+              exit 2
+              ;;
+          esac
+          [ -n "$ORPHAN_VERIFIER" ] || {
+            echo "protected SYSTEMTEST_SCALEWAY_ORPHAN_VERIFY_SCRIPT is required" >&2
+            exit 2
+          }
+          for value in "$SCW_ACCESS_KEY" "$SCW_SECRET_KEY" "$SCW_DEFAULT_PROJECT_ID"; do
+            [ -n "$value" ] || {
+              echo "protected Scaleway verifier credentials are required" >&2
+              exit 2
+            }
+          done
+          umask 077
+          printf '%s\n' "$ORPHAN_VERIFIER" > "$SCALEWAY_ORPHAN_VERIFY_SCRIPT"
+          chmod 0700 "$SCALEWAY_ORPHAN_VERIFY_SCRIPT"
+
+      - name: Build ankra binary
+        run: go build -o bin/ankra .
+
+      - name: Run Scaleway Instances lifecycle and orphan verification
+        run: |
+          mkdir -p "$TMPDIR"
+          ./systemtest/lifecycle_systemtest.sh
+
+      - name: Upload Scaleway run logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scaleway-instances-system-test-logs
+          path: systemtest-artifacts/**
+          if-no-files-found: ignore
+          retention-days: 14
+
+  scaleway-kapsule-system-test:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_scaleway_kapsule
+    name: Scaleway Kapsule manual acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: scaleway-systemtest
+    env:
+      ANKRA_SYSTEMTEST_CONFIRM: 'yes'
+      ANKRA_API_TOKEN: ${{ secrets.SYSTEMTEST_ANKRA_API_TOKEN }}
+      ANKRA_BASE_URL: ${{ vars.SYSTEMTEST_ANKRA_BASE_URL }}
+      ANKRA_ORG: ${{ vars.SYSTEMTEST_ANKRA_ORG }}
+      KAPSULE_CREATE_FILE: /tmp/ankra-kapsule-create.json
+      KAPSULE_CREATE_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_KAPSULE_CREATE_CREDENTIAL_ID }}
+      KAPSULE_IMPORT_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_KAPSULE_IMPORT_CREDENTIAL_ID }}
+      KAPSULE_IMPORT_PROVIDER_CLUSTER_ID: ${{ inputs.kapsule_import_provider_cluster_id }}
+      KAPSULE_IMPORT_NAME: 'systest-kapsule-imported'
+      KAPSULE_ORPHAN_VERIFY_SCRIPT: /tmp/ankra-verify-scaleway-orphans
+      SCW_ACCESS_KEY: ${{ secrets.SYSTEMTEST_SCALEWAY_ACCESS_KEY }}
+      SCW_SECRET_KEY: ${{ secrets.SYSTEMTEST_SCALEWAY_SECRET_KEY }}
+      SCW_DEFAULT_PROJECT_ID: ${{ secrets.SYSTEMTEST_SCALEWAY_PROJECT_ID }}
+      TMPDIR: ${{ github.workspace }}/systemtest-artifacts
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build isolated Kapsule fixtures
+        env:
+          KAPSULE_REGION: ${{ inputs.scaleway_region }}
+          KAPSULE_ZONE: ${{ inputs.scaleway_zone }}
+          KAPSULE_CREATE_OPTIONS_JSON: ${{ inputs.kapsule_create_options_json }}
+          KAPSULE_PRIVATE_NETWORK_ID: ${{ inputs.scaleway_private_network_id }}
+          ORPHAN_VERIFIER: ${{ secrets.SYSTEMTEST_SCALEWAY_ORPHAN_VERIFY_SCRIPT }}
+        run: |
+          set -euo pipefail
+          KAPSULE_NAME="$(jq -er '.name | select(type == "string" and length > 0)' <<<"$KAPSULE_CREATE_OPTIONS_JSON")"
+          KAPSULE_VERSION="$(jq -er '.version | select(type == "string" and length > 0)' <<<"$KAPSULE_CREATE_OPTIONS_JSON")"
+          KAPSULE_CNI="$(jq -er '.cni | select(. == "cilium" or . == "cilium_native" or . == "calico")' <<<"$KAPSULE_CREATE_OPTIONS_JSON")"
+          KAPSULE_POOL_SIZE="$(jq -er '.pool_size | select(type == "string" and length > 0)' <<<"$KAPSULE_CREATE_OPTIONS_JSON")"
+          for value in \
+            "$KAPSULE_CREATE_CREDENTIAL_ID" \
+            "$KAPSULE_IMPORT_CREDENTIAL_ID" \
+            "$KAPSULE_IMPORT_PROVIDER_CLUSTER_ID" \
+            "$KAPSULE_PRIVATE_NETWORK_ID" \
+            "$SCW_ACCESS_KEY" \
+            "$SCW_SECRET_KEY" \
+            "$SCW_DEFAULT_PROJECT_ID" \
+            "$ORPHAN_VERIFIER"; do
+            [ -n "$value" ] || {
+              echo "all protected credentials, fixture IDs, network, version, and verifier are required" >&2
+              exit 2
+            }
+          done
+          case "$KAPSULE_IMPORT_PROVIDER_CLUSTER_ID" in
+            regions/*/clusters/*) ;;
+            *)
+              echo "kapsule_import_provider_cluster_id must be regions/<region>/clusters/<id>" >&2
+              exit 2
+              ;;
+          esac
+          umask 077
+          jq -n \
+            --arg name "$KAPSULE_NAME" \
+            --arg credential_id "$KAPSULE_CREATE_CREDENTIAL_ID" \
+            --arg location "$KAPSULE_REGION" \
+            --arg kubernetes_version "$KAPSULE_VERSION" \
+            --arg cni "$KAPSULE_CNI" \
+            --arg private_network_id "$KAPSULE_PRIVATE_NETWORK_ID" \
+            --arg zone "$KAPSULE_ZONE" \
+            --arg size "$KAPSULE_POOL_SIZE" \
+            '{
+              name: $name,
+              credential_id: $credential_id,
+              location: $location,
+              kubernetes_version: $kubernetes_version,
+              cni: $cni,
+              kapsule: {
+                private_network_id: $private_network_id,
+                private_endpoint: false
+              },
+              node_pools: [{
+                name: "default",
+                size: $size,
+                count: 2,
+                zone: $zone,
+                root_volume_type: "sbs-5k",
+                public_ip: false,
+                autohealing: true
+              }]
+            }' > "$KAPSULE_CREATE_FILE"
+          printf '%s\n' "$ORPHAN_VERIFIER" > "$KAPSULE_ORPHAN_VERIFY_SCRIPT"
+          chmod 0700 "$KAPSULE_ORPHAN_VERIFY_SCRIPT"
+
+      - name: Build ankra binary
+        run: go build -o bin/ankra .
+
+      - name: Run Kapsule create/import lifecycles and cleanup checks
+        env:
+          ANKRA_BIN: ${{ github.workspace }}/bin/ankra
+        run: |
+          mkdir -p "$TMPDIR"
+          ./systemtest/kapsule_systemtest.sh 2>&1 | tee "$TMPDIR/kapsule-systemtest.log"
+
+      - name: Upload Kapsule run logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scaleway-kapsule-system-test-logs
           path: systemtest-artifacts/**
           if-no-files-found: ignore
           retention-days: 14

@@ -24,6 +24,8 @@ func upgradeFunctionForKind(kind string) (k8sVersionUpgrade, bool) {
 		return apiClient.UpgradeUpcloudK8sVersion, true
 	case "digitalocean":
 		return apiClient.UpgradeDigitaloceanK8sVersion, true
+	case "scaleway":
+		return activeScalewayAPI().UpgradeScalewayK8sVersion, true
 	default:
 		return nil, false
 	}
@@ -36,7 +38,7 @@ var clusterUpgradeCmd = &cobra.Command{
 	Short: "Upgrade the Kubernetes version of a cloud cluster",
 	Long: `Upgrade the Kubernetes version on all nodes in a cloud cluster.
 
-The cloud provider (Hetzner, OVH, UpCloud, or DigitalOcean) is detected automatically from
+The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, or Scaleway) is detected automatically from
 the cluster, so you do not need to remember which provider it runs on. Both
 k3s and kubeadm clusters are supported; list the available target versions
 with 'ankra cluster k3s-versions' or 'ankra cluster kubeadm-versions'.
@@ -64,13 +66,16 @@ Examples:
 		upgrade, supported := upgradeFunctionForKind(cluster.Kind)
 		if !supported {
 			return fmt.Errorf(
-				"cluster %q (kind %q) does not support Kubernetes version upgrades. Only Hetzner, OVH, and UpCloud clusters can be upgraded with this command",
+				"cluster %q (kind %q) does not support Kubernetes version upgrades with this command",
 				clusterID, cluster.Kind)
 		}
 
 		result, err := upgrade(clusterID, targetVersion, clusterUpgradeForce)
 		if err != nil {
 			return fmt.Errorf("upgrading Kubernetes version: %w", err)
+		}
+		if handled, err := renderStructured(cmd, result); handled || err != nil {
+			return err
 		}
 
 		previousVersion := "none"
@@ -94,5 +99,6 @@ Examples:
 func init() {
 	clusterUpgradeCmd.Flags().BoolVar(&clusterUpgradeForce, "force", false,
 		"proceed even when a node drain is blocked (bypasses PodDisruptionBudget failures)")
+	registerStructuredOutputFlags(clusterUpgradeCmd)
 	clusterCmd.AddCommand(clusterUpgradeCmd)
 }

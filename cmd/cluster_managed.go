@@ -13,7 +13,7 @@ import (
 var managedCmd = &cobra.Command{
 	Use:   "managed",
 	Short: "Manage cloud-managed Kubernetes clusters",
-	Long:  "Create, delete, scale node pools, and upgrade cloud-managed Kubernetes clusters on DOKS, UpCloud UKS, GKE, OVH MKS, AKS, and EKS.",
+	Long:  "Create, discover/import, disconnect/delete, scale pools, and upgrade cloud-managed Kubernetes. Use the provider subcommand (for example `managed kapsule`) for strict provider-specific workflows.",
 }
 
 var managedCreateCmd = &cobra.Command{

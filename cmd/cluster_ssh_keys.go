@@ -25,11 +25,11 @@ func resolveSSHKeysClusterKind(clusterID string) (string, error) {
 		return "", fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
 	}
 	switch cluster.Kind {
-	case "hetzner", "ovh", "upcloud", "digitalocean":
+	case "hetzner", "ovh", "upcloud", "digitalocean", "scaleway":
 		return cluster.Kind, nil
 	default:
 		return "", fmt.Errorf(
-			"cluster %q (kind %q) does not support SSH key management; only Hetzner, OVH, UpCloud, and DigitalOcean clusters can use this command",
+			"cluster %q (kind %q) does not support SSH key management; supported providers are Hetzner, OVH, UpCloud, DigitalOcean, and Scaleway",
 			clusterID, cluster.Kind)
 	}
 }
@@ -44,6 +44,8 @@ func sshKeysGetForKind(kind string) sshKeysGetFunc {
 		return apiClient.GetUpcloudClusterSSHKeys
 	case "digitalocean":
 		return apiClient.GetDigitaloceanClusterSSHKeys
+	case "scaleway":
+		return activeScalewayAPI().GetScalewayClusterSSHKeys
 	}
 	return nil
 }
@@ -58,6 +60,8 @@ func sshKeysSetForKind(kind string) sshKeysSetFunc {
 		return apiClient.UpdateUpcloudClusterSSHKeys
 	case "digitalocean":
 		return apiClient.UpdateDigitaloceanClusterSSHKeys
+	case "scaleway":
+		return activeScalewayAPI().UpdateScalewayClusterSSHKeys
 	}
 	return nil
 }
@@ -72,6 +76,8 @@ func sshKeysResyncForKind(kind string) sshKeysResyncFunc {
 		return apiClient.ResyncUpcloudClusterSSHKeys
 	case "digitalocean":
 		return apiClient.ResyncDigitaloceanClusterSSHKeys
+	case "scaleway":
+		return activeScalewayAPI().ResyncScalewayClusterSSHKeys
 	}
 	return nil
 }
@@ -83,7 +89,7 @@ var clusterSSHKeysCmd = &cobra.Command{
 	Long: `Get, set, and re-sync the SSH key credentials authorised to access a cloud
 cluster's nodes.
 
-The cloud provider (Hetzner, OVH, UpCloud, or DigitalOcean) is detected automatically from
+The cloud provider is detected automatically from
 the cluster.`,
 }
 
