@@ -115,6 +115,7 @@ HETZNER_BIGGER_TYPE="${HETZNER_BIGGER_TYPE:-cpx32}"
 OVH_CP_FLAVOR="${OVH_CP_FLAVOR:-b2-15}"
 OVH_WORKER_FLAVOR="${OVH_WORKER_FLAVOR:-b2-15}"
 OVH_BIGGER_FLAVOR="${OVH_BIGGER_FLAVOR:-b2-30}"
+OVH_GATEWAY_FLAVOR="${OVH_GATEWAY_FLAVOR:-b2-7}"
 
 UPCLOUD_CP_PLAN="${UPCLOUD_CP_PLAN:-2xCPU-4GB}"
 UPCLOUD_WORKER_PLAN="${UPCLOUD_WORKER_PLAN:-2xCPU-4GB}"
@@ -448,6 +449,7 @@ create_cluster() {
     ovh)
       ank cluster ovh create --name "$name" --credential-id "$OVH_CREDENTIAL_ID" \
         --ssh-key-credential-id "$SSH_KEY_CREDENTIAL_ID" --region "$OVH_REGION" \
+        --gateway-flavor-id "$OVH_GATEWAY_FLAVOR" \
         --control-plane-flavor-id "$OVH_CP_FLAVOR" --control-plane-count 1 \
         --worker-flavor-id "$OVH_WORKER_FLAVOR" --worker-count 1 \
         --external-cloud-provider "${dist_args[@]}" "${gitops_args[@]}"
