@@ -52,6 +52,11 @@ agent-status accuracy fixes, plus drift field-path visibility in
 
 ### Fixed
 
+- **`ankra tokens create` now gives MCP-specific guidance for scoped tokens.**
+  The previous examples named permission scopes the platform rejects.
+  The help text now shows `mcp:read` and `mcp:write`, and successful scoped
+  token creation prints the MCP endpoint instead of suggesting a REST
+  `ANKRA_API_TOKEN` configuration that would be refused.
 - **`ankra cluster agent token` no longer prints an empty token.** The
   platform's token endpoints return the agent install command (and, on newer
   platforms, `token` and `cluster_id` fields), while the CLI decoded a
