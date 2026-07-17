@@ -14,7 +14,7 @@ func TestScalewaySystemtestParsesJSONBeforeCleanupRegistration(t *testing.T) {
 	if parse < 0 || register < 0 || firstLaterStep < 0 {
 		t.Fatalf("expected jq parse, cleanup registration, and later lifecycle step")
 	}
-	if !(parse < register && register < firstLaterStep) {
+	if parse >= register || register >= firstLaterStep {
 		t.Fatalf("unsafe order: parse=%d register=%d later=%d", parse, register, firstLaterStep)
 	}
 }
@@ -62,7 +62,7 @@ func TestKapsuleSystemtestVerifiesDeletionBeforeClearingCleanupState(t *testing.
 	absence := strings.LastIndex(script, "wait_for_provider_absence")
 	orphans := strings.LastIndex(script, "verify_no_tagged_orphans")
 	clearID := strings.LastIndex(script, `CREATED_CLUSTER_ID=""`)
-	if !(operation < absence && absence < orphans && orphans < clearID) {
+	if operation >= absence || absence >= orphans || orphans >= clearID {
 		t.Fatalf("unsafe deletion verification order: operation=%d absence=%d orphans=%d clear=%d",
 			operation, absence, orphans, clearID)
 	}

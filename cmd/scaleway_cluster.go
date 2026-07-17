@@ -22,11 +22,11 @@ func validateScalewayCNI(distribution, cni string, features client.ScalewayCNIFe
 	switch cni {
 	case "flannel":
 		if features != (client.ScalewayCNIFeatures{}) {
-			return errors.New("Flannel does not support the Scaleway CNI feature flags")
+			return errors.New("flannel does not support the Scaleway CNI feature flags")
 		}
 	case "calico":
 		if features.Hubble || features.KubeProxyReplacement || features.WireguardEncryption {
-			return errors.New("Calico supports only --cni-ebpf-dataplane; Hubble, kube-proxy replacement, and WireGuard are Cilium features")
+			return errors.New("calico supports only --cni-ebpf-dataplane; Hubble, kube-proxy replacement, and WireGuard are Cilium features")
 		}
 	case "cilium":
 		if features.EBPFDataplane {
@@ -152,7 +152,9 @@ func scalewayCreateRequestFromFlags(cmd *cobra.Command) (client.CreateScalewayCl
 		request.KubernetesVersion = &value
 	}
 	if request.RuntimeCredentialID == nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), "Warning: no --runtime-credential-id supplied; the provisioning credential will be reused by CCM/CSI at runtime. Prefer a dedicated least-privilege runtime credential.")
+		if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "Warning: no --runtime-credential-id supplied; the provisioning credential will be reused by CCM/CSI at runtime. Prefer a dedicated least-privilege runtime credential."); err != nil {
+			return client.CreateScalewayClusterRequest{}, fmt.Errorf("writing runtime credential warning: %w", err)
+		}
 	}
 	return request, nil
 }
@@ -201,7 +203,7 @@ func renderScalewayPreflight(cmd *cobra.Command, result *client.ScalewayPrefligh
 			return err
 		}
 		if !result.CanProceed {
-			return withExitCode(exitError, errors.New("Scaleway preflight failed; inspect structured items"))
+			return withExitCode(exitError, errors.New("scaleway preflight failed; inspect structured items"))
 		}
 		return nil
 	}
@@ -209,7 +211,7 @@ func renderScalewayPreflight(cmd *cobra.Command, result *client.ScalewayPrefligh
 		fmt.Printf("%-5s  %-24s  %s\n", strings.ToUpper(item.Status), item.Check, item.Message)
 	}
 	if !result.CanProceed {
-		return withExitCode(exitError, errors.New("Scaleway preflight failed; fix failed checks before creating the cluster"))
+		return withExitCode(exitError, errors.New("scaleway preflight failed; fix failed checks before creating the cluster"))
 	}
 	fmt.Println(text.FgGreen.Sprint("Scaleway preflight passed."))
 	return nil
@@ -295,7 +297,9 @@ func newScalewayCatalogCommand(use, short string, run func(*cobra.Command, strin
 				}
 			}
 			if !result.PricingComplete {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: pricing is incomplete: %s\n", strings.Join(result.IncompleteReasons, "; "))
+				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "Warning: pricing is incomplete: %s\n", strings.Join(result.IncompleteReasons, "; ")); err != nil {
+					return fmt.Errorf("writing pricing warning: %w", err)
+				}
 			}
 			return nil
 		},
