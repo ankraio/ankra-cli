@@ -68,6 +68,11 @@ ankra cluster operations retry <execution_id>
 ankra cluster hetzner create --name prod --credential-id <cred> \
   --location fsn1 --worker-count 3
 
+# Connect and manage an application
+ankra application add .
+ankra application list
+ankra application deployments <application-id>
+
 # Ask AI about your infrastructure
 ankra chat "why is my nginx pod crash-looping?" --cluster prod
 
