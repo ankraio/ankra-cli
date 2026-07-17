@@ -1,6 +1,6 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.9.0-rc1 — 2026-07-17
 
 ### Added
 
@@ -32,6 +32,14 @@
   visible before you act on it. Structured output (`-o json|yaml`) carries
   `provider_status` and `provider_power_state`.
 
+### Fixed
+
+- **`ankra tokens create` now gives MCP-specific guidance for scoped tokens.**
+  The previous examples named permission scopes the platform rejects.
+  The help text now shows `mcp:read` and `mcp:write`, and successful scoped
+  token creation prints the MCP endpoint instead of suggesting a REST
+  `ANKRA_API_TOKEN` configuration that would be refused.
+
 ## v0.8.0 — 2026-07-14
 
 The stable v0.8.0 release promotes v0.8.0-rc0: agent-token output and
@@ -52,11 +60,6 @@ agent-status accuracy fixes, plus drift field-path visibility in
 
 ### Fixed
 
-- **`ankra tokens create` now gives MCP-specific guidance for scoped tokens.**
-  The previous examples named permission scopes the platform rejects.
-  The help text now shows `mcp:read` and `mcp:write`, and successful scoped
-  token creation prints the MCP endpoint instead of suggesting a REST
-  `ANKRA_API_TOKEN` configuration that would be refused.
 - **`ankra cluster agent token` no longer prints an empty token.** The
   platform's token endpoints return the agent install command (and, on newer
   platforms, `token` and `cluster_id` fields), while the CLI decoded a
