@@ -108,6 +108,12 @@ var tokensCreateCmd = &cobra.Command{
 		fmt.Println("Token (save this, it won't be shown again):")
 		fmt.Printf("  %s\n", result.Token)
 		fmt.Println()
+		if len(scopes) > 0 {
+			fmt.Println("Use this token only with the Ankra MCP server:")
+			fmt.Println("  URL: https://platform.ankra.app/api/v1/mcp")
+			fmt.Printf("  Authorization: Bearer %s\n", result.Token)
+			return nil
+		}
 		fmt.Println("To use this token, set it as ANKRA_API_TOKEN environment variable:")
 		fmt.Printf("  export ANKRA_API_TOKEN='%s'\n", result.Token)
 		return nil
@@ -157,7 +163,7 @@ var tokensDeleteCmd = &cobra.Command{
 func init() {
 	tokensCreateCmd.Flags().String("expires", "", "Token expiration date (ISO 8601 format)")
 	tokensCreateCmd.Flags().StringSlice("scopes", nil,
-		"Permission allowlist for the token (e.g. clusters.read,stacks.deploy); omitted grants the user's full authority")
+		"MCP access scopes: mcp:read or mcp:read,mcp:write; omitted creates a REST-only token")
 
 	registerStructuredOutputFlags(tokensListCmd, tokensCreateCmd)
 
