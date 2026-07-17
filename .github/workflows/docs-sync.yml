@@ -8,7 +8,10 @@ name: Sync CLI reference to ankra-docs
 on:
   push:
     tags:
-      - "v*"
+      # Stable releases only (vMAJOR.MINOR.PATCH). Pre-release tags such as
+      # v0.9.0-rc1 must not open docs PRs; the docs update ships with the
+      # final release tag instead.
+      - "v[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch: {}
 
 permissions:
