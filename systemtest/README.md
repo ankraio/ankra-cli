@@ -62,6 +62,7 @@ Common optional (defaults in parentheses):
 | `HETZNER_LOCATION` / `OVH_REGION` / `UPCLOUD_ZONE` | `nbg1` / `GRA9` / `de-fra1` |
 | `HETZNER_CP_TYPE` / `HETZNER_WORKER_TYPE` / `HETZNER_BASTION_TYPE` / `HETZNER_BIGGER_TYPE` | `cpx32` / `cpx22` / `cpx22` / `cpx32` |
 | `OVH_CP_FLAVOR` / `OVH_WORKER_FLAVOR` / `OVH_BIGGER_FLAVOR` | `b2-15` / `b2-15` / `b2-30` |
+| `OVH_GATEWAY_FLAVOR` (NAT gateway instance; `b2-7` is unavailable in some regions e.g. `EU-WEST-PAR`, set a `b3-*` there) | `b2-7` |
 | `UPCLOUD_CP_PLAN` / `UPCLOUD_WORKER_PLAN` / `UPCLOUD_BIGGER_PLAN` | `2xCPU-4GB` / `2xCPU-4GB` / `4xCPU-8GB` |
 | `K8S_UPGRADE_TARGET` | highest version from `ankra cluster k3s-versions` |
 | `ONLINE_TIMEOUT` / `ADDONS_TIMEOUT` / `DAYTWO_TIMEOUT` / `DEPROVISION_TIMEOUT` | `1500` / `900` / `900` / `1500` (seconds) |
