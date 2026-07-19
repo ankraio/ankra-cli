@@ -178,6 +178,17 @@ func validateManagedCreateFile(document managedCreateFile, source string) error 
 		if pool.Count != nil && *pool.Count < 1 {
 			return fmt.Errorf("%s: validation error at $.node_pools[%d].count: must be at least 1", source, index)
 		}
+		if pool.RootVolumeType != nil {
+			if err := validateKapsuleRootVolumeType(source, index, *pool.RootVolumeType); err != nil {
+				return err
+			}
+		}
+		if pool.RootVolumeSizeGB != nil && *pool.RootVolumeSizeGB < 20 {
+			return fmt.Errorf(
+				"%s: validation error at $.node_pools[%d].root_volume_size_gb: must be at least 20",
+				source, index,
+			)
+		}
 	}
 	if document.CNI != nil {
 		switch *document.CNI {
@@ -190,6 +201,23 @@ func validateManagedCreateFile(document managedCreateFile, source string) error 
 		return fmt.Errorf("%s: validation error at $.kapsule.private_network_id: field is required", source)
 	}
 	return nil
+}
+
+func validateKapsuleRootVolumeType(source string, poolIndex int, value string) error {
+	switch strings.TrimSpace(value) {
+	case "l_ssd", "b_ssd", "sbs_5k", "sbs_15k":
+		return nil
+	case "sbs-5k", "sbs-15k", "l-ssd", "b-ssd":
+		return fmt.Errorf(
+			"%s: validation error at $.node_pools[%d].root_volume_type: use underscores (l_ssd, b_ssd, sbs_5k, sbs_15k), not hyphens",
+			source, poolIndex,
+		)
+	default:
+		return fmt.Errorf(
+			"%s: validation error at $.node_pools[%d].root_volume_type: expected l_ssd, b_ssd, sbs_5k, or sbs_15k",
+			source, poolIndex,
+		)
+	}
 }
 
 func managedCommandContext(command *cobra.Command) (context.Context, context.CancelFunc, error) {

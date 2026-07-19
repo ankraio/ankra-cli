@@ -34,6 +34,34 @@ func TestDecodeManagedCreateFileStrictJSONPreservesSemantics(t *testing.T) {
 	}
 }
 
+func TestValidateManagedCreateFileRejectsHyphenatedRootVolumeType(t *testing.T) {
+	input := []byte(`{
+	  "name":"prod",
+	  "credential_id":"cred",
+	  "location":"fr-par",
+	  "node_pools":[{"name":"default","size":"DEV1-M","count":1,"root_volume_type":"sbs-5k"}],
+	  "kapsule":{"private_network_id":"pn-1"}
+	}`)
+	_, _, err := decodeManagedCreateFile(input, "request.json")
+	if err == nil || !strings.Contains(err.Error(), "use underscores") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestValidateManagedCreateFileRejectsSmallRootVolume(t *testing.T) {
+	input := []byte(`{
+	  "name":"prod",
+	  "credential_id":"cred",
+	  "location":"fr-par",
+	  "node_pools":[{"name":"default","size":"DEV1-M","count":1,"root_volume_type":"sbs_5k","root_volume_size_gb":10}],
+	  "kapsule":{"private_network_id":"pn-1"}
+	}`)
+	_, _, err := decodeManagedCreateFile(input, "request.json")
+	if err == nil || !strings.Contains(err.Error(), "root_volume_size_gb: must be at least 20") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestDecodeManagedCreateFileRejectsUnknownJSONAndYAMLFieldsWithLocation(t *testing.T) {
 	jsonInput := []byte(`{"name":"x","credential_id":"c","location":"fr-par","node_pools":[{"name":"p","size":"s","count":1}],"kapsule":{"private_network_id":"pn"},"unknown":true}`)
 	_, _, err := decodeManagedCreateFile(jsonInput, "bad.json")
