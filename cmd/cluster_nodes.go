@@ -53,6 +53,15 @@ func digitaloceanNodesOps() clusterNodesOps {
 	}
 }
 
+func scalewayNodesOps() clusterNodesOps {
+	return clusterNodesOps{
+		provider: "scaleway",
+		list:     activeScalewayAPI().ListScalewayClusterNodes,
+		get:      activeScalewayAPI().GetScalewayClusterNode,
+		restart:  activeScalewayAPI().RestartScalewayClusterNode,
+	}
+}
+
 func runNodesList(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID string) error {
 	ops := opsFn()
 	result, err := ops.list(clusterID)
@@ -278,4 +287,5 @@ func init() {
 	ovhCmd.AddCommand(newNodesCmd(ovhNodesOps, "OVH"))
 	upcloudCmd.AddCommand(newNodesCmd(upcloudNodesOps, "UpCloud"))
 	digitaloceanCmd.AddCommand(newNodesCmd(digitaloceanNodesOps, "DigitalOcean"))
+	scalewayCmd.AddCommand(newNodesCmd(scalewayNodesOps, "Scaleway"))
 }

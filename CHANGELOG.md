@@ -9,6 +9,15 @@
   the application subcommands expose lifecycle, deployment, workflow,
   repository, security, publishing, and demo operations through the bearer
   API. `-o json|yaml` provides scriptable output.
+- **Complete Scaleway Instances and Kapsule CLI support.** New
+  `credentials scaleway` commands securely create/list/get/validate/delete the
+  shared project credential; `cluster scaleway` covers preflight, create,
+  catalogs, private networking/IPAM, CNI features, lifecycle, access, scaling,
+  node groups, control plane, nodes/restart, SSH keys, upgrades, and gateway
+  sizing. `cluster managed kapsule` is registry-driven and adds strict
+  YAML/JSON request files, discovery/import completeness guards, typed pool
+  lifecycle, status/CNI/provenance, upgrades with operation IDs, explicit
+  disconnect, and ownership-aware provider deletion.
 - **Read-only API calls now retry transient platform errors.** Bodyless
   `GET`/`HEAD` requests that fail with a transport-level timeout (for
   example `http2: timeout awaiting response headers`), a connection

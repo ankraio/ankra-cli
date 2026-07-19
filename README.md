@@ -5,7 +5,7 @@
 
 `ankra` is the command-line interface for the [Ankra platform](https://ankra.io).
 Manage Kubernetes clusters, deploy stacks and addons, provision managed clusters
-on Hetzner, OVHcloud, UpCloud, or DigitalOcean, and chat with AI about your
+on Hetzner, OVHcloud, UpCloud, DigitalOcean, or Scaleway, and chat with AI about your
 infrastructure — from your terminal or your CI scripts.
 
 ## Installation
@@ -73,6 +73,22 @@ ankra application add .
 ankra application list
 ankra application deployments <application-id>
 
+# Store Scaleway credentials (keys are masked when prompted)
+ankra credentials scaleway create --name scw-prod --project-id <project-id>
+
+# Inspect live Scaleway catalogs before provisioning
+ankra cluster scaleway locations --credential-id <scaleway-credential-id>
+ankra cluster scaleway instance-types --credential-id <scaleway-credential-id> --zone fr-par-1
+
+# Preflight/create Scaleway Kapsule from one strict YAML/JSON request
+ankra cluster managed kapsule preflight --file kapsule.yaml
+ankra cluster managed kapsule create --file kapsule.yaml
+
+# Discover and import an existing Kapsule cluster
+ankra cluster managed kapsule discover --credential-id <scaleway-credential-id> -o json
+ankra cluster managed kapsule import --credential-id <scaleway-credential-id> \
+  --provider-cluster-id regions/fr-par/clusters/<provider-id>
+
 # Ask AI about your infrastructure
 ankra chat "why is my nginx pod crash-looping?" --cluster prod
 
@@ -94,6 +110,13 @@ The full CLI documentation lives at [docs.ankra.ai](https://docs.ankra.ai):
 - **[CLI guide](https://docs.ankra.ai/integrations/ankra-cli)** — installation, authentication, configuration, and troubleshooting
 - **[Command reference](https://docs.ankra.ai/reference/cli)** — every command, flag, and default, generated from the CLI source
 - **[CLI changelog](https://docs.ankra.ai/integrations/ankra-cli-changelog)** — release history
+- **[Scaleway provider guide][scaleway-provider-guide]** — Instances and
+  Kapsule IAM, networking, lifecycle, retention, and troubleshooting
+- **[Scaleway operations runbook][scaleway-operations-runbook]** — rotation,
+  recovery, orphan sweeps, acceptance, metrics, and alerts
+
+[scaleway-provider-guide]: https://github.com/ankraio/cluster/blob/main/docs/providers/scaleway.md
+[scaleway-operations-runbook]: https://github.com/ankraio/cluster/blob/main/docs/runbooks/scaleway-operations.md
 
 `ankra --help` and `ankra <command> --help` document every command offline.
 Commands scheduled for removal are tracked in [DEPRECATIONS.md](DEPRECATIONS.md).

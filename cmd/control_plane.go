@@ -53,6 +53,15 @@ func digitaloceanControlPlaneOps() controlPlaneOps {
 	}
 }
 
+func scalewayControlPlaneOps() controlPlaneOps {
+	return controlPlaneOps{
+		provider:        "scaleway",
+		get:             activeScalewayAPI().GetScalewayControlPlane,
+		setCount:        activeScalewayAPI().ChangeScalewayControlPlaneCount,
+		setInstanceType: activeScalewayAPI().ChangeScalewayControlPlaneInstanceType,
+	}
+}
+
 func runControlPlaneGet(cmd *cobra.Command, opsFn func() controlPlaneOps, clusterID string) error {
 	ops := opsFn()
 	info, err := ops.get(clusterID)
@@ -163,4 +172,5 @@ func init() {
 	ovhCmd.AddCommand(newControlPlaneCmd(ovhControlPlaneOps, "OVH"))
 	upcloudCmd.AddCommand(newControlPlaneCmd(upcloudControlPlaneOps, "UpCloud"))
 	digitaloceanCmd.AddCommand(newControlPlaneCmd(digitaloceanControlPlaneOps, "DigitalOcean"))
+	scalewayCmd.AddCommand(newControlPlaneCmd(scalewayControlPlaneOps, "Scaleway"))
 }

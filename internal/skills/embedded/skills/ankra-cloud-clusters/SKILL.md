@@ -1,11 +1,11 @@
 ---
 name: ankra-cloud-clusters
-description: Provision and manage Ankra-managed Kubernetes clusters (K3s or kubeadm) on Hetzner Cloud, OVHcloud, UpCloud, and DigitalOcean - creating clusters, storing provider credentials, and managing node groups, scaling, Kubernetes versions, and upgrades. Use when the user wants to create or provision a new Kubernetes cluster (rather than import an existing one), or mentions Hetzner, OVH, UpCloud, or DigitalOcean clusters.
+description: Provision and manage Ankra-managed Kubernetes clusters on Hetzner Cloud, OVHcloud, UpCloud, DigitalOcean, and Scaleway, plus Scaleway Kapsule create/import and pool lifecycle.
 ---
 
 # Ankra Cloud Clusters
 
-Besides importing existing clusters, Ankra can provision managed Kubernetes clusters on Hetzner Cloud, OVHcloud, UpCloud, and DigitalOcean - K3s by default, or vanilla upstream Kubernetes via kubeadm. This skill covers the provision-and-manage lifecycle. Provider subcommands share a common shape: `ankra cluster hetzner|ovh|upcloud|digitalocean <verb>`.
+Besides importing existing clusters, Ankra can provision managed Kubernetes clusters on Hetzner Cloud, OVHcloud, UpCloud, DigitalOcean, and Scaleway Instances - K3s by default, or vanilla upstream Kubernetes via kubeadm. It also manages Scaleway Kapsule through `ankra cluster managed kapsule`.
 
 ## 1. Store provider credentials
 
@@ -17,6 +17,7 @@ ankra credentials hetzner ssh-key create --name ops-key      # SSH key credentia
 ankra credentials ovh create --name ovh-prod
 ankra credentials upcloud create --name upcloud-prod
 ankra credentials digitalocean create --name do-prod         # alias: ankra creds do
+ankra credentials scaleway create --name scw-prod --project-id <project-id>
 ankra credentials list                                       # find the IDs to pass below
 ankra credentials get <name>                                 # resolve a name to its ID
 ```
@@ -37,7 +38,7 @@ ankra cluster ovh create \
   --wait
 ```
 
-Hetzner/UpCloud/DigitalOcean `create` take equivalent flags (`--name`, `--credential-id`, location/region, control-plane and worker sizes/counts, `--ssh-key-credential-id[s]`, optional `--kubernetes-version`). Run `ankra cluster <provider> create --help` for the provider-specific server-type/location flags.
+Hetzner/UpCloud/DigitalOcean `create` take equivalent flags (`--name`, `--credential-id`, location/region, control-plane and worker sizes/counts, `--ssh-key-credential-id[s]`, optional `--kubernetes-version`). Scaleway additionally requires region/zone, an existing Private Network or new-network CIDR, and gateway allowed CIDRs. Prefer a dedicated `--runtime-credential-id` for CCM/CSI.
 
 DigitalOcean discovery before create:
 
@@ -74,7 +75,7 @@ ankra cluster hetzner create ... \
 
 ## 3. Manage the lifecycle
 
-Same verbs exist under `hetzner`, `ovh`, `upcloud`, and `digitalocean`:
+Same verbs exist under `hetzner`, `ovh`, `upcloud`, `digitalocean`, and `scaleway`:
 
 ```bash
 ankra cluster ovh k8s-version <cluster_id>                   # current Kubernetes version
@@ -111,16 +112,23 @@ ankra cluster ovh ssh-keys set <cluster_id> --ssh-key-credential-ids <id>,...  #
 
 (Hetzner, UpCloud, and DigitalOcean node groups support `add/list/scale/upgrade/delete`; labels/taints, start/stop, access-info, ssh-keys, and `regions` are OVH-specific today. DigitalOcean adds `regions` and `sizes` discovery commands.)
 
-## Provider-native managed Kubernetes (DOKS & UKS)
+## Provider-native managed Kubernetes
 
-For DigitalOcean Kubernetes (DOKS, kind `doks`) or UpCloud UKS (kind `uks`) instead of self-managed K3s on VMs, use the platform API:
+Kapsule uses the Scaleway credential and strict YAML/JSON request files:
 
 ```bash
-curl -X POST https://platform.ankra.app/org/clusters/managed/doks \
-  -H "Authorization: Bearer $ANKRA_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"prod","credential_id":"<do_cred_id>","location":"nyc3","node_pools":[{"name":"default","size":"s-2vcpu-4gb","count":2}]}'
+ankra cluster managed kapsule options --credential-id <scaleway_cred_id>
+ankra cluster managed kapsule preflight --file kapsule.yaml
+ankra cluster managed kapsule create --file kapsule.yaml
+ankra cluster managed kapsule discover --credential-id <scaleway_cred_id> -o json
+ankra cluster managed kapsule pool list <cluster_id>
+ankra cluster managed kapsule upgrades <cluster_id>
 ```
+
+Kapsule CNI is immutable. Choose `cilium`, `cilium_native`, or `calico` from
+the selected version's `available_cnis`. Incomplete regional discovery blocks
+import. `disconnect` retains Kapsule; `delete-provider-cluster` deletes it and
+requires force for imported/unknown provenance.
 
 ## 4. Deprovision / delete (destructive)
 
@@ -141,8 +149,22 @@ Confirm the target with `ankra cluster info` first; deprovisioning releases infr
 - **Use `--wait`** when a follow-up step depends on the result; otherwise treat creates and node-group mutations as in-flight and don't re-submit.
 - **Plan node groups** for workload isolation rather than one undifferentiated pool, and right-size them to avoid inflated cost.
 - **Upgrade deliberately** - review the target Kubernetes version and upgrade non-prod first.
+- **Use Scaleway structured access data** - its managed bastion is
+  `bastion@host:61000`; never assume port 22 or a default VM user.
 
 ## Related skills
 
 - `ankra-cli` for the broader command surface, auth, and async/`--wait` conventions.
 - `ankra-stacks-addons` / `ankra-gitops` to deploy workloads once the cluster exists.
+
+## Scaleway documentation
+
+- [Scaleway provider guide][scaleway-provider-guide] - Instances and Kapsule
+  IAM, networking, CNI, lifecycle, ownership, retention, costs, and
+  troubleshooting.
+- [Scaleway operations runbook][scaleway-operations-runbook] - credential
+  rotation, retries, recovery, orphan sweeps, acceptance checks, metrics, and
+  alerts.
+
+[scaleway-provider-guide]: https://github.com/ankraio/cluster/blob/main/docs/providers/scaleway.md
+[scaleway-operations-runbook]: https://github.com/ankraio/cluster/blob/main/docs/runbooks/scaleway-operations.md

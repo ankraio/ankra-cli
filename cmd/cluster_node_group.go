@@ -29,11 +29,11 @@ func resolveNodeGroupClusterKind(clusterID string) (string, error) {
 		return "", fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
 	}
 	switch cluster.Kind {
-	case "hetzner", "ovh", "upcloud", "digitalocean":
+	case "hetzner", "ovh", "upcloud", "digitalocean", "scaleway":
 		return cluster.Kind, nil
 	default:
 		return "", fmt.Errorf(
-			"cluster %q (kind %q) does not support node groups. Only Hetzner, OVH, UpCloud, and DigitalOcean clusters can use this command",
+			"cluster %q (kind %q) does not support node groups. Supported providers are Hetzner, OVH, UpCloud, DigitalOcean, and Scaleway",
 			clusterID, cluster.Kind)
 	}
 }
@@ -48,6 +48,8 @@ func nodeGroupListForKind(kind string) nodeGroupListFunc {
 		return apiClient.ListUpcloudNodeGroups
 	case "digitalocean":
 		return apiClient.ListDigitaloceanNodeGroups
+	case "scaleway":
+		return activeScalewayAPI().ListScalewayNodeGroups
 	}
 	return nil
 }
@@ -62,6 +64,8 @@ func nodeGroupAddForKind(kind string) nodeGroupAddFunc {
 		return apiClient.AddUpcloudNodeGroup
 	case "digitalocean":
 		return apiClient.AddDigitaloceanNodeGroup
+	case "scaleway":
+		return activeScalewayAPI().AddScalewayNodeGroup
 	}
 	return nil
 }
@@ -76,6 +80,8 @@ func nodeGroupScaleForKind(kind string) nodeGroupScaleFunc {
 		return apiClient.ScaleUpcloudNodeGroup
 	case "digitalocean":
 		return apiClient.ScaleDigitaloceanNodeGroup
+	case "scaleway":
+		return activeScalewayAPI().ScaleScalewayNodeGroup
 	}
 	return nil
 }
@@ -90,6 +96,8 @@ func nodeGroupUpgradeForKind(kind string) nodeGroupUpgradeFunc {
 		return apiClient.UpdateUpcloudNodeGroupInstanceType
 	case "digitalocean":
 		return apiClient.UpdateDigitaloceanNodeGroupInstanceType
+	case "scaleway":
+		return activeScalewayAPI().UpdateScalewayNodeGroupInstanceType
 	}
 	return nil
 }
@@ -104,6 +112,8 @@ func nodeGroupDeleteForKind(kind string) nodeGroupDeleteFunc {
 		return apiClient.DeleteUpcloudNodeGroup
 	case "digitalocean":
 		return apiClient.DeleteDigitaloceanNodeGroup
+	case "scaleway":
+		return activeScalewayAPI().DeleteScalewayNodeGroup
 	}
 	return nil
 }
@@ -116,6 +126,8 @@ func nodeGroupAutoscalingGetForKind(kind string) nodeGroupAutoscalingGetFunc {
 		return apiClient.GetOvhNodeGroupAutoscaling
 	case "upcloud":
 		return apiClient.GetUpcloudNodeGroupAutoscaling
+	case "scaleway":
+		return activeScalewayAPI().GetScalewayNodeGroupAutoscaling
 	}
 	return nil
 }
@@ -128,6 +140,8 @@ func nodeGroupAutoscalingSetForKind(kind string) nodeGroupAutoscalingSetFunc {
 		return apiClient.UpdateOvhNodeGroupAutoscaling
 	case "upcloud":
 		return apiClient.UpdateUpcloudNodeGroupAutoscaling
+	case "scaleway":
+		return activeScalewayAPI().UpdateScalewayNodeGroupAutoscaling
 	}
 	return nil
 }
@@ -137,7 +151,7 @@ var clusterNodeGroupCmd = &cobra.Command{
 	Short: "Manage node groups for a cloud cluster",
 	Long: `List, add, scale, upgrade, and delete node groups on a cloud cluster.
 
-The cloud provider (Hetzner, OVH, or UpCloud) is detected automatically from
+The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, or Scaleway) is detected automatically from
 the cluster.`,
 }
 

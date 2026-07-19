@@ -5,7 +5,8 @@
 # Real, end-to-end system test for Ankra cloud clusters, driven entirely through
 # the ankra CLI against a live platform (default: https://platform.ankra.dev).
 #
-# For each selected provider (hetzner, ovh, upcloud, digitalocean) and each
+# For each selected provider (hetzner, ovh, upcloud, digitalocean, or opt-in
+# scaleway) and each
 # selected Kubernetes distribution (k3s, kubeadm) it provisions a REAL cluster
 # and exercises the full lifecycle, asserting the outcome at every step:
 #
@@ -95,6 +96,9 @@ SSH_KEY_CREDENTIAL_ID="${SSH_KEY_CREDENTIAL_ID:-}"
 HETZNER_CREDENTIAL_ID="${HETZNER_CREDENTIAL_ID:-}"
 OVH_CREDENTIAL_ID="${OVH_CREDENTIAL_ID:-}"
 UPCLOUD_CREDENTIAL_ID="${UPCLOUD_CREDENTIAL_ID:-}"
+SCALEWAY_CREDENTIAL_ID="${SCALEWAY_CREDENTIAL_ID:-}"
+SCALEWAY_RUNTIME_CREDENTIAL_ID="${SCALEWAY_RUNTIME_CREDENTIAL_ID:-}"
+SCALEWAY_ORPHAN_VERIFY_SCRIPT="${SCALEWAY_ORPHAN_VERIFY_SCRIPT:-}"
 
 # GitOps target for the generated cloud-provider stack (required for stacks).
 GITOPS_CREDENTIAL_NAME="${GITOPS_CREDENTIAL_NAME:-}"
@@ -105,6 +109,10 @@ GITOPS_BRANCH="${GITOPS_BRANCH:-master}"
 HETZNER_LOCATION="${HETZNER_LOCATION:-nbg1}"
 OVH_REGION="${OVH_REGION:-GRA9}"
 UPCLOUD_ZONE="${UPCLOUD_ZONE:-de-fra1}"
+SCALEWAY_REGION="${SCALEWAY_REGION:-fr-par}"
+SCALEWAY_ZONE="${SCALEWAY_ZONE:-fr-par-1}"
+SCALEWAY_PRIVATE_NETWORK_ID="${SCALEWAY_PRIVATE_NETWORK_ID:-}"
+SCALEWAY_GATEWAY_ALLOWED_IPS="${SCALEWAY_GATEWAY_ALLOWED_IPS:-}"
 
 # Instance plans (create) and the bigger plan used by the resize step.
 HETZNER_CP_TYPE="${HETZNER_CP_TYPE:-cpx32}"
@@ -127,6 +135,10 @@ DIGITALOCEAN_BASTION_SIZE="${DIGITALOCEAN_BASTION_SIZE:-s-1vcpu-1gb}"
 DIGITALOCEAN_CP_SIZE="${DIGITALOCEAN_CP_SIZE:-s-2vcpu-4gb}"
 DIGITALOCEAN_WORKER_SIZE="${DIGITALOCEAN_WORKER_SIZE:-s-2vcpu-4gb}"
 DIGITALOCEAN_BIGGER_SIZE="${DIGITALOCEAN_BIGGER_SIZE:-s-4vcpu-8gb}"
+SCALEWAY_GATEWAY_TYPE="${SCALEWAY_GATEWAY_TYPE:-VPC-GW-S}"
+SCALEWAY_CP_TYPE="${SCALEWAY_CP_TYPE:-DEV1-M}"
+SCALEWAY_WORKER_TYPE="${SCALEWAY_WORKER_TYPE:-DEV1-M}"
+SCALEWAY_BIGGER_TYPE="${SCALEWAY_BIGGER_TYPE:-DEV1-L}"
 
 # Timeouts / polling (seconds).
 ONLINE_TIMEOUT="${ONLINE_TIMEOUT:-1500}"     # cluster create -> online
@@ -385,6 +397,11 @@ wait_for_removed() {
   return 1
 }
 
+verify_scaleway_orphans() {
+  local cluster_id="$1"
+  "$SCALEWAY_ORPHAN_VERIFY_SCRIPT" "$SCALEWAY_CREDENTIAL_ID" "$cluster_id"
+}
+
 # Run a day-2 write that the platform may reject with 409 while a reconcile runs.
 daytwo() {
   local desc="$1"; shift
@@ -471,6 +488,21 @@ create_cluster() {
         --worker-size "$DIGITALOCEAN_WORKER_SIZE" --worker-count 1 \
         --external-cloud-provider "${dist_args[@]}" "${gitops_args[@]}"
       ;;
+    scaleway)
+      local network_args=(--network-ip-range "$(worker_cidr)")
+      if [ -n "$SCALEWAY_PRIVATE_NETWORK_ID" ]; then
+        network_args=(--private-network-id "$SCALEWAY_PRIVATE_NETWORK_ID")
+      fi
+      ank cluster scaleway create --name "$name" --credential-id "$SCALEWAY_CREDENTIAL_ID" \
+        --runtime-credential-id "$SCALEWAY_RUNTIME_CREDENTIAL_ID" \
+        --ssh-key-credential-id "$SSH_KEY_CREDENTIAL_ID" \
+        --region "$SCALEWAY_REGION" --zone "$SCALEWAY_ZONE" \
+        "${network_args[@]}" --gateway-type "$SCALEWAY_GATEWAY_TYPE" \
+        --gateway-allowed-ips "$SCALEWAY_GATEWAY_ALLOWED_IPS" \
+        --control-plane-type "$SCALEWAY_CP_TYPE" --control-plane-count 1 \
+        --worker-type "$SCALEWAY_WORKER_TYPE" --worker-count 1 \
+        --cni cilium "${dist_args[@]}" "${gitops_args[@]}" -o json
+      ;;
     *) die "unknown provider $provider" ;;
   esac
 }
@@ -481,6 +513,7 @@ bigger_plan() {
     ovh)     echo "$OVH_BIGGER_FLAVOR" ;;
     upcloud) echo "$UPCLOUD_BIGGER_PLAN" ;;
     digitalocean) echo "$DIGITALOCEAN_BIGGER_SIZE" ;;
+    scaleway) echo "$SCALEWAY_BIGGER_TYPE" ;;
   esac
 }
 
@@ -490,6 +523,7 @@ ng_instance_type() {
     ovh)     echo "$OVH_WORKER_FLAVOR" ;;
     upcloud) echo "$UPCLOUD_WORKER_PLAN" ;;
     digitalocean) echo "$DIGITALOCEAN_WORKER_SIZE" ;;
+    scaleway) echo "$SCALEWAY_WORKER_TYPE" ;;
   esac
 }
 
@@ -501,7 +535,7 @@ run_provider() {
   local provider="$1" distribution="$2"
   local name="${NAME_PREFIX}-${provider}-${distribution}-${RUN_ID}"
   local label="$provider/$distribution"
-  local id target plan out
+  local id target plan out deprovision_verified=0
 
   section "$label :: $name"
 
@@ -509,14 +543,25 @@ run_provider() {
   log "creating $name (distribution=$distribution) ..."
   out="$(create_cluster "$provider" "$name" "$distribution")"
   printf '%s\n' "$out"
-  id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
+  if [ "$provider" = "scaleway" ]; then
+    id="$(jq -er '.cluster_id | select(type == "string" and length > 0)' <<<"$out")" ||
+      { fail "$label create (invalid structured cluster_id)"; return; }
+  else
+    id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
+  fi
   if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  # Register cleanup immediately after parsing the create response. Nothing
+  # after this point may fail without the trap knowing the billable cluster ID.
   register_cluster "$name" "$id"
   pass "$label create submitted (id=$id)"
 
   # 2. Online + nodes
   if wait_for_online "$name" "$ONLINE_TIMEOUT"; then pass "$label online"; else fail "$label did not reach online"; return; fi
   if wait_for_nodes "$name" 2 "$DAYTWO_TIMEOUT"; then pass "$label nodes Ready (cp+worker)"; else fail "$label nodes not Ready"; fi
+  if [ "$provider" = "scaleway" ]; then
+    if ank cluster scaleway access-info "$id" -o json | grep -q '"bastion_port": 61000'; then
+      pass "$label structured access-info"; else fail "$label structured access-info"; fi
+  fi
 
   # 3. Stacks
   if wait_for_addons "$name" 4 "$ADDONS_TIMEOUT"; then pass "$label stacks up (CCM/CSI/Traefik/cert-manager)"; else fail "$label stacks did not reach up"; fi
@@ -557,14 +602,23 @@ run_provider() {
   log "deprovisioning $name ..."
   ank cluster deprovision "$id" --yes | tail -2
   if wait_for_removed "$name" "$DEPROVISION_TIMEOUT"; then
+    deprovision_verified=1
     pass "$label deprovision -> deleted_at"
   else
     log "  $name deprovision stalled after ${DEPROVISION_TIMEOUT}s; attempting bounded force-deprovision fallback"
     ank cluster deprovision "$id" --force --yes | tail -2 || true
     if wait_for_removed "$name" "$DEPROVISION_FORCE_TIMEOUT"; then
+      deprovision_verified=1
       pass "$label deprovision -> deleted_at (after force fallback)"
     else
       fail "$label deprovision did not complete (even after force fallback)"
+    fi
+  fi
+  if [ "$provider" = "scaleway" ] && [ "$deprovision_verified" = "1" ]; then
+    if verify_scaleway_orphans "$id"; then
+      pass "$label provider tagged-orphan verification"
+    else
+      fail "$label provider tagged-orphan verification"
     fi
   fi
 }
@@ -637,6 +691,13 @@ preflight() {
       ovh)     [ -n "$OVH_CREDENTIAL_ID" ] || die "OVH_CREDENTIAL_ID required for ovh" ;;
       upcloud) [ -n "$UPCLOUD_CREDENTIAL_ID" ] || die "UPCLOUD_CREDENTIAL_ID required for upcloud" ;;
       digitalocean) [ -n "$DIGITALOCEAN_CREDENTIAL_ID" ] || die "DIGITALOCEAN_CREDENTIAL_ID required for digitalocean" ;;
+      scaleway)
+        command -v jq >/dev/null 2>&1 || die "jq is required for Scaleway structured create output"
+        [ -n "$SCALEWAY_CREDENTIAL_ID" ] || die "SCALEWAY_CREDENTIAL_ID required for scaleway"
+        [ -n "$SCALEWAY_RUNTIME_CREDENTIAL_ID" ] || die "SCALEWAY_RUNTIME_CREDENTIAL_ID required for scaleway"
+        [ -n "$SCALEWAY_GATEWAY_ALLOWED_IPS" ] || die "SCALEWAY_GATEWAY_ALLOWED_IPS required for scaleway"
+        [ -x "$SCALEWAY_ORPHAN_VERIFY_SCRIPT" ] || die "SCALEWAY_ORPHAN_VERIFY_SCRIPT must be an executable tagged/orphan verifier"
+        ;;
       *) die "unknown provider in ANKRA_SYSTEMTEST_PROVIDERS: $p" ;;
     esac
   done
