@@ -16,6 +16,7 @@ node_pools:
     size: DEV1-M
     count: 2
     zone: fr-par-1
-    root_volume_type: sbs-5k
+    root_volume_type: sbs_5k
+    root_volume_size_gb: 40
     public_ip: false
     autohealing: true

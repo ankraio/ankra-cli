@@ -283,7 +283,8 @@ jobs:
                 size: $size,
                 count: 2,
                 zone: $zone,
-                root_volume_type: "sbs-5k",
+                root_volume_type: "sbs_5k",
+                root_volume_size_gb: 40,
                 public_ip: false,
                 autohealing: true
               }]

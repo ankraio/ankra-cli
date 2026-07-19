@@ -275,7 +275,7 @@ var managedUpgradeCmd = &cobra.Command{
 	},
 }
 
-const managedProviderFlagHelp = "Managed Kubernetes provider (doks, uks, gke, ovh_mks, aks, eks)"
+const managedProviderFlagHelp = "Managed Kubernetes provider (doks, uks, gke, ovh_mks, aks, eks). For Kapsule use `ankra cluster managed kapsule`."
 
 func parseManagedProviderFlag(cmd *cobra.Command) (client.ManagedK8sProvider, error) {
 	providerValue, _ := cmd.Flags().GetString("provider")
@@ -292,8 +292,10 @@ func parseManagedProviderFlag(cmd *cobra.Command) (client.ManagedK8sProvider, er
 		return client.ManagedK8sProviderAks, nil
 	case "eks":
 		return client.ManagedK8sProviderEks, nil
+	case "kapsule", "scaleway":
+		return "", fmt.Errorf("kapsule requires the typed file workflow: use `ankra cluster managed kapsule create --file <request.yaml>`")
 	default:
-		return "", fmt.Errorf("invalid provider %q: must be one of doks, uks, gke, ovh_mks, aks, eks", providerValue)
+		return "", fmt.Errorf("invalid provider %q: must be one of doks, uks, gke, ovh_mks, aks, eks (kapsule uses `managed kapsule`)", providerValue)
 	}
 }
 
