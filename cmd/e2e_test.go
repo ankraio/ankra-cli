@@ -1197,6 +1197,14 @@ func (m baseMock) CreateDigitaloceanSSHKeyCredential(req client.CreateSSHKeyCred
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) StopScalewayCluster(clusterID string) (*client.ProviderStopClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartScalewayCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateManagedCluster(provider client.ManagedK8sProvider, request client.CreateManagedClusterRequest) (*client.CreateManagedClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }

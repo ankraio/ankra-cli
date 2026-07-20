@@ -4,6 +4,10 @@
 
 ### Added
 
+- **Scaleway clusters now support lifecycle commands.** Use
+  `ankra cluster scaleway stop <cluster_id>` to release compute while
+  preserving the cluster definition, then `ankra cluster scaleway start
+  <cluster_id>` to re-provision it.
 - **Application management is available from the CLI.** `ankra application
   add .` detects a local GitHub checkout and starts application setup, while
   the application subcommands expose lifecycle, deployment, workflow,
