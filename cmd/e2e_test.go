@@ -537,6 +537,22 @@ func (m baseMock) DeleteChatConversation(conversationID string) (*client.DeleteC
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListAgentRuns(taskID string, statuses []string, limit int) (*client.AgentRunListResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAgentRun(runID string) (*client.AgentRun, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAgentRunTranscript(runID string, since int64, limit int) (*client.AgentRunTranscript, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CancelAgentRun(runID string) (*client.CancelAgentRunResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetClusterHealth(clusterID string, includeAI bool) (*client.ClusterHealth, error) {
 	return nil, errors.New("not implemented")
 }
