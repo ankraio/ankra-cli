@@ -1,18 +1,25 @@
 # Ankra CLI Changelog
 
-## v0.9.0-rc1 — 2026-07-17
+## Unreleased
+
+## v0.9.0-rc2 — 2026-07-20
 
 ### Added
 
 - **Scaleway clusters now support lifecycle commands.** Use
   `ankra cluster scaleway stop <cluster_id>` to release compute while
   preserving the cluster definition, then `ankra cluster scaleway start
-  <cluster_id>` to re-provision it.
+  <cluster_id>` to re-provision it (optionally `--scope control_plane`).
 - **Application management is available from the CLI.** `ankra application
   add .` detects a local GitHub checkout and starts application setup, while
   the application subcommands expose lifecycle, deployment, workflow,
   repository, security, publishing, and demo operations through the bearer
   API. `-o json|yaml` provides scriptable output.
+
+## v0.9.0-rc1 — 2026-07-17
+
+### Added
+
 - **Read-only API calls now retry transient platform errors.** Bodyless
   `GET`/`HEAD` requests that fail with a transport-level timeout (for
   example `http2: timeout awaiting response headers`), a connection
