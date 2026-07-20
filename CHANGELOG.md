@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- **See and stop what your AI agents are doing with `ankra agents`.** The
+  new command family lists the organisation's dispatched AI agent runs
+  (`ankra agents runs`, filterable by agent and status), shows one run in
+  full (`ankra agents run <run_id>`), reads the run's session transcript —
+  what the agent actually said and did — (`ankra agents transcript
+  <run_id>`), and cancels a live run (`ankra agents cancel <run_id>`,
+  organisation admins only): the platform interrupts the in-flight turn
+  within seconds without pausing the agent itself. All four support
+  `-o json|yaml` for scripting.
+
 ## v0.9.0-rc2 — 2026-07-20
 
 ### Added

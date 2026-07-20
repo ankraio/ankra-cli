@@ -159,6 +159,11 @@ type APIClient interface {
 	DeleteChatConversation(conversationID string) (*client.DeleteConversationResponse, error)
 	GetClusterHealth(clusterID string, includeAI bool) (*client.ClusterHealth, error)
 
+	ListAgentRuns(taskID string, statuses []string, limit int) (*client.AgentRunListResponse, error)
+	GetAgentRun(runID string) (*client.AgentRun, error)
+	GetAgentRunTranscript(runID string, since int64, limit int) (*client.AgentRunTranscript, error)
+	CancelAgentRun(runID string) (*client.CancelAgentRunResponse, error)
+
 	GetAIProviderStatus() (*client.AIProviderStatus, error)
 	SetAIProvider(provider string) (*client.AIProviderStatus, error)
 	SaveAnthropicKey(apiKey string) (*client.AIAnthropicStatus, error)
