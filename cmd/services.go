@@ -336,6 +336,9 @@ type APIClient interface {
 	ListDigitaloceanSSHKeyCredentials() ([]client.DigitaloceanCredentialListItem, error)
 	CreateDigitaloceanSSHKeyCredential(req client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error)
 
+	StopScalewayCluster(clusterID string) (*client.ProviderStopClusterResponse, error)
+	StartScalewayCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error)
+
 	CreateManagedCluster(provider client.ManagedK8sProvider, request client.CreateManagedClusterRequest) (*client.CreateManagedClusterResponse, error)
 	DeprovisionManagedCluster(provider client.ManagedK8sProvider, clusterID string, force bool) (*client.DeprovisionManagedClusterResponse, error)
 	AddManagedNodePool(provider client.ManagedK8sProvider, clusterID string, request client.AddManagedNodePoolRequest) (*client.AddManagedNodePoolResponse, error)
