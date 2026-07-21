@@ -1315,6 +1315,10 @@ func (m baseMock) GetProxmoxClusterNode(clusterID, nodeID string) (*client.NodeD
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) RestartProxmoxClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetProxmoxClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
 	return nil, errors.New("not implemented")
 }

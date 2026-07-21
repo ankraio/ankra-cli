@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"ankra/internal/client"
 )
 
@@ -70,4 +72,46 @@ func TestClusterNodesRestartCommandRequiresBothArgs(t *testing.T) {
 	if _, err := executeCommand("cluster", "hetzner", "nodes", "restart", "cluster-1"); err == nil {
 		t.Fatal("expected an error when node_id is missing")
 	}
+}
+
+func TestClusterNodesRestartSurfaceMatchesProviderSupport(t *testing.T) {
+	expectations := map[string]bool{
+		"hetzner":      true,
+		"ovh":          true,
+		"upcloud":      true,
+		"digitalocean": true,
+		"proxmox":      true,
+		"morpheus":     false,
+	}
+	for providerName, shouldHaveRestart := range expectations {
+		nodesCmd := findSubcommandPath(t, "cluster", providerName, "nodes")
+		hasRestart := false
+		for _, child := range nodesCmd.Commands() {
+			if child.Name() == "restart" {
+				hasRestart = true
+			}
+		}
+		if hasRestart != shouldHaveRestart {
+			t.Errorf("cluster %s nodes restart offered=%v, want %v (the platform has no Morpheus restart lane)", providerName, hasRestart, shouldHaveRestart)
+		}
+	}
+}
+
+func findSubcommandPath(t *testing.T, path ...string) *cobra.Command {
+	t.Helper()
+	current := rootCmd
+	for _, name := range path {
+		var next *cobra.Command
+		for _, child := range current.Commands() {
+			if child.Name() == name {
+				next = child
+				break
+			}
+		}
+		if next == nil {
+			t.Fatalf("command path %v: %q not found", path, name)
+		}
+		current = next
+	}
+	return current
 }

@@ -58,6 +58,7 @@ func proxmoxNodesOps() clusterNodesOps {
 		provider: "proxmox",
 		list:     apiClient.ListProxmoxClusterNodes,
 		get:      apiClient.GetProxmoxClusterNode,
+		restart:  apiClient.RestartProxmoxClusterNode,
 	}
 }
 
@@ -243,7 +244,7 @@ func printEdges(title string, edges map[string][]string) {
 	}
 }
 
-func newNodesCmd(opsFn func() clusterNodesOps, provider string) *cobra.Command {
+func newNodesCmd(opsFn func() clusterNodesOps, provider string, supportsRestart bool) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "nodes",
 		Short: fmt.Sprintf("List and inspect %s cluster nodes", provider),
@@ -270,30 +271,34 @@ included so the saved topology is visible before re-provisioning.`,
 		},
 	}
 
-	restartCmd := &cobra.Command{
-		Use:   "restart <cluster_id> <node_id>",
-		Short: "Restart a node (control plane, worker, or bastion/gateway)",
-		Long: `Schedule a native reboot (falling back to a power cycle) of the node as a
+	registerStructuredOutputFlags(listCmd, getCmd)
+	cmd.AddCommand(listCmd, getCmd)
+
+	if supportsRestart {
+		restartCmd := &cobra.Command{
+			Use:   "restart <cluster_id> <node_id>",
+			Short: "Restart a node (control plane, worker, or bastion/gateway)",
+			Long: `Schedule a native reboot (falling back to a power cycle) of the node as a
 tracked operation. The node must be in the 'up' state and have no restart
 already in flight. Workloads on the node are briefly unavailable while it
 reboots. Works for any node returned by 'nodes list', including the
 bastion/gateway.`,
-		Args: cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runNodesRestart(cmd, opsFn, args[0], args[1])
-		},
+			Args: cobra.ExactArgs(2),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return runNodesRestart(cmd, opsFn, args[0], args[1])
+			},
+		}
+		registerStructuredOutputFlags(restartCmd)
+		cmd.AddCommand(restartCmd)
 	}
-
-	registerStructuredOutputFlags(listCmd, getCmd, restartCmd)
-	cmd.AddCommand(listCmd, getCmd, restartCmd)
 	return cmd
 }
 
 func init() {
-	hetznerCmd.AddCommand(newNodesCmd(hetznerNodesOps, "Hetzner"))
-	ovhCmd.AddCommand(newNodesCmd(ovhNodesOps, "OVH"))
-	upcloudCmd.AddCommand(newNodesCmd(upcloudNodesOps, "UpCloud"))
-	digitaloceanCmd.AddCommand(newNodesCmd(digitaloceanNodesOps, "DigitalOcean"))
-	proxmoxCmd.AddCommand(newNodesCmd(proxmoxNodesOps, "Proxmox VE"))
-	morpheusCmd.AddCommand(newNodesCmd(morpheusNodesOps, "HPE Morpheus"))
+	hetznerCmd.AddCommand(newNodesCmd(hetznerNodesOps, "Hetzner", true))
+	ovhCmd.AddCommand(newNodesCmd(ovhNodesOps, "OVH", true))
+	upcloudCmd.AddCommand(newNodesCmd(upcloudNodesOps, "UpCloud", true))
+	digitaloceanCmd.AddCommand(newNodesCmd(digitaloceanNodesOps, "DigitalOcean", true))
+	proxmoxCmd.AddCommand(newNodesCmd(proxmoxNodesOps, "Proxmox VE", true))
+	morpheusCmd.AddCommand(newNodesCmd(morpheusNodesOps, "HPE Morpheus", false))
 }

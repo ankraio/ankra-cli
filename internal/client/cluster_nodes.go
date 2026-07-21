@@ -103,6 +103,10 @@ func (c *Client) RestartDigitaloceanClusterNode(clusterID, nodeID string) (*Rest
 	return c.restartClusterNode("digitalocean", clusterID, nodeID)
 }
 
+func (c *Client) RestartProxmoxClusterNode(clusterID, nodeID string) (*RestartNodeResult, error) {
+	return c.restartClusterNode("proxmox", clusterID, nodeID)
+}
+
 // restartClusterNode schedules a one-shot restart operation. Unlike the
 // node-group writes, this endpoint has no async accept/wait contract - it
 // always runs synchronously and answers 200 with the scheduled operation.
