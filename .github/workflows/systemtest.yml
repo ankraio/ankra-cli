@@ -7,11 +7,15 @@ on:
   workflow_dispatch:
     inputs:
       providers:
-        description: 'Space-separated providers to exercise (hetzner ovh upcloud).'
+        description: 'Space-separated Ankra-managed providers to exercise (hetzner ovh upcloud digitalocean). Use "none" to skip the family.'
         required: false
-        default: 'hetzner ovh upcloud'
+        default: 'hetzner ovh upcloud digitalocean'
+      managed_providers:
+        description: 'Space-separated cloud-managed providers to exercise (doks uks gke ovh_mks aks eks). Use "none" to skip the family.'
+        required: false
+        default: 'doks uks gke ovh_mks aks eks'
       parallel:
-        description: 'Run the selected providers concurrently (1) or one at a time (0).'
+        description: 'Run the selected targets concurrently (1) or one at a time (0).'
         required: false
         default: '1'
 
@@ -31,7 +35,8 @@ jobs:
     timeout-minutes: 240
     env:
       ANKRA_SYSTEMTEST_CONFIRM: 'yes'
-      ANKRA_SYSTEMTEST_PROVIDERS: ${{ github.event.inputs.providers || 'hetzner ovh upcloud' }}
+      ANKRA_SYSTEMTEST_PROVIDERS: ${{ github.event.inputs.providers || 'hetzner ovh upcloud digitalocean' }}
+      ANKRA_SYSTEMTEST_MANAGED_PROVIDERS: ${{ github.event.inputs.managed_providers || 'doks uks gke ovh_mks aks eks' }}
       ANKRA_SYSTEMTEST_PARALLEL: ${{ github.event.inputs.parallel || '1' }}
       ANKRA_API_TOKEN: ${{ secrets.SYSTEMTEST_ANKRA_API_TOKEN }}
       ANKRA_BASE_URL: ${{ vars.SYSTEMTEST_ANKRA_BASE_URL }}
@@ -40,6 +45,10 @@ jobs:
       HETZNER_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_HETZNER_CREDENTIAL_ID }}
       OVH_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_OVH_CREDENTIAL_ID }}
       UPCLOUD_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_UPCLOUD_CREDENTIAL_ID }}
+      DIGITALOCEAN_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_DIGITALOCEAN_CREDENTIAL_ID }}
+      GKE_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_GKE_CREDENTIAL_ID }}
+      AKS_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_AKS_CREDENTIAL_ID }}
+      EKS_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_EKS_CREDENTIAL_ID }}
       GITOPS_CREDENTIAL_NAME: ${{ vars.SYSTEMTEST_GITOPS_CREDENTIAL_NAME }}
       GITOPS_REPOSITORY: ${{ vars.SYSTEMTEST_GITOPS_REPOSITORY }}
       TMPDIR: ${{ github.workspace }}/systemtest-artifacts
@@ -58,6 +67,10 @@ jobs:
       - name: Run lifecycle system test
         run: |
           mkdir -p "$TMPDIR"
+          # "none" lets a dispatch skip a whole family (an empty input would
+          # fall back to the default matrix instead).
+          if [ "$ANKRA_SYSTEMTEST_PROVIDERS" = "none" ]; then export ANKRA_SYSTEMTEST_PROVIDERS=""; fi
+          if [ "$ANKRA_SYSTEMTEST_MANAGED_PROVIDERS" = "none" ]; then export ANKRA_SYSTEMTEST_MANAGED_PROVIDERS=""; fi
           ./systemtest/lifecycle_systemtest.sh
 
       - name: Upload run logs

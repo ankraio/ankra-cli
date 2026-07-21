@@ -53,6 +53,24 @@ func digitaloceanControlPlaneOps() controlPlaneOps {
 	}
 }
 
+func proxmoxControlPlaneOps() controlPlaneOps {
+	return controlPlaneOps{
+		provider:        "proxmox",
+		get:             apiClient.GetProxmoxControlPlane,
+		setCount:        apiClient.ChangeProxmoxControlPlaneCount,
+		setInstanceType: apiClient.ChangeProxmoxControlPlaneInstanceType,
+	}
+}
+
+func morpheusControlPlaneOps() controlPlaneOps {
+	return controlPlaneOps{
+		provider:        "morpheus",
+		get:             apiClient.GetMorpheusControlPlane,
+		setCount:        apiClient.ChangeMorpheusControlPlaneCount,
+		setInstanceType: apiClient.ChangeMorpheusControlPlaneInstanceType,
+	}
+}
+
 func runControlPlaneGet(cmd *cobra.Command, opsFn func() controlPlaneOps, clusterID string) error {
 	ops := opsFn()
 	info, err := ops.get(clusterID)
@@ -163,4 +181,6 @@ func init() {
 	ovhCmd.AddCommand(newControlPlaneCmd(ovhControlPlaneOps, "OVH"))
 	upcloudCmd.AddCommand(newControlPlaneCmd(upcloudControlPlaneOps, "UpCloud"))
 	digitaloceanCmd.AddCommand(newControlPlaneCmd(digitaloceanControlPlaneOps, "DigitalOcean"))
+	proxmoxCmd.AddCommand(newControlPlaneCmd(proxmoxControlPlaneOps, "Proxmox VE"))
+	morpheusCmd.AddCommand(newControlPlaneCmd(morpheusControlPlaneOps, "HPE Morpheus"))
 }

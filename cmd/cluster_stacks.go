@@ -197,32 +197,6 @@ func formatDeployWave(wave *int) string {
 	return fmt.Sprintf("%d", *wave)
 }
 
-// clusterStacksCreateCmd is intentionally hidden and returns an error.
-//
-// The backend's POST /api/v1/org/clusters/imported/{cluster_id}/stacks
-// expects a full ResourceSpecification body (see
-// cluster/src/usecase/cluster/stacks/create_cluster_stack.py). The
-// old CLI shape `{ "name": "...", "description": "..." }` is rejected
-// with a 422.
-//
-// The supported workflow is:
-//  1. Write a cluster YAML containing the new stack
-//  2. Run `ankra cluster apply -f cluster.yaml`
-//
-// or use `ankra cluster clone` followed by `ankra cluster apply`.
-var clusterStacksCreateCmd = &cobra.Command{
-	Use:    "create <name>",
-	Short:  "(removed) Create a stack via the platform API",
-	Hidden: true,
-	Args:   cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf(
-			"`ankra cluster stacks create` is no longer supported; " +
-				"use `ankra cluster apply -f cluster.yaml` to add new stacks via the cluster YAML",
-		)
-	},
-}
-
 var clusterStacksDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a stack",
@@ -463,8 +437,6 @@ func resolveClusterID(nameOrID string) (string, error) {
 }
 
 func init() {
-	clusterStacksCreateCmd.Flags().String("description", "", "Description for the stack")
-
 	clusterStacksDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	// Clone command flags
@@ -476,7 +448,6 @@ func init() {
 	registerStructuredOutputFlags(clusterStacksListCmd, clusterStacksHistoryCmd, clusterStacksCloneCmd)
 
 	clusterStacksCmd.AddCommand(clusterStacksListCmd)
-	clusterStacksCmd.AddCommand(clusterStacksCreateCmd)
 	clusterStacksCmd.AddCommand(clusterStacksDeleteCmd)
 	clusterStacksCmd.AddCommand(clusterStacksRenameCmd)
 	clusterStacksCmd.AddCommand(clusterStacksHistoryCmd)

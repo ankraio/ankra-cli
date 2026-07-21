@@ -258,6 +258,8 @@ const (
 	cloudClusterKindOvh          cloudClusterKind = "ovh"
 	cloudClusterKindUpcloud      cloudClusterKind = "upcloud"
 	cloudClusterKindDigitalocean cloudClusterKind = "digitalocean"
+	cloudClusterKindProxmox      cloudClusterKind = "proxmox"
+	cloudClusterKindMorpheus     cloudClusterKind = "morpheus"
 )
 
 var clusterDeprovisionCmd = &cobra.Command{
@@ -267,8 +269,8 @@ var clusterDeprovisionCmd = &cobra.Command{
 
 If no cluster name is provided, uses the currently selected cluster.
 
-For cloud clusters (hetzner, ovh, upcloud, digitalocean) this command routes to the provider-specific
-deprovision endpoint so cloud resources are released.`,
+For cloud clusters (hetzner, ovh, upcloud, digitalocean, proxmox, morpheus) this command routes
+to the provider-specific deprovision endpoint so cloud resources are released.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		autoDelete, _ := cmd.Flags().GetBool("auto-delete")
@@ -346,6 +348,34 @@ deprovision endpoint so cloud resources are released.`,
 				return encodeStructured(cmd.OutOrStdout(), format, result)
 			}
 			fmt.Printf("DigitalOcean cluster deprovision initiated.\n")
+			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+			if result.OperationID != nil && *result.OperationID != "" {
+				fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+			}
+			return nil
+		case cloudClusterKindProxmox:
+			result, deprovisionError := apiClient.DeprovisionProxmoxCluster(clusterID)
+			if deprovisionError != nil {
+				return fmt.Errorf("deprovisioning Proxmox VE cluster: %w", deprovisionError)
+			}
+			if format != outputDefault {
+				return encodeStructured(cmd.OutOrStdout(), format, result)
+			}
+			fmt.Printf("Proxmox VE cluster deprovision initiated.\n")
+			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+			if result.OperationID != nil && *result.OperationID != "" {
+				fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+			}
+			return nil
+		case cloudClusterKindMorpheus:
+			result, deprovisionError := apiClient.DeprovisionMorpheusCluster(clusterID)
+			if deprovisionError != nil {
+				return fmt.Errorf("deprovisioning HPE Morpheus cluster: %w", deprovisionError)
+			}
+			if format != outputDefault {
+				return encodeStructured(cmd.OutOrStdout(), format, result)
+			}
+			fmt.Printf("HPE Morpheus cluster deprovision initiated.\n")
 			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 			if result.OperationID != nil && *result.OperationID != "" {
 				fmt.Printf("  Operation ID: %s\n", *result.OperationID)

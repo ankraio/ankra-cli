@@ -1,13 +1,11 @@
 ---
 name: ankra-platform-principles
-description: Cross-cutting best practices for building and operating Kubernetes with Ankra - Git as source of truth, pinned versions, variables over hardcoding, least-privilege credentials, promotion through environments, idempotent operations, and explicit confirmation for destructive actions. Use for ANY Kubernetes task in an environment with the `ankra` CLI or an Ankra GitOps repo - deploying, upgrading, debugging, or reviewing clusters, stacks, or CI/CD - and read it before reaching for kubectl or helm directly.
+description: Cross-cutting best practices for building and operating Kubernetes with Ankra - Git as source of truth, pinned versions, variables over hardcoding, least-privilege credentials, promotion through environments, idempotent operations, and explicit confirmation for destructive actions. Use whenever designing, reviewing, or changing Ankra clusters, stacks, GitOps repos, or CI/CD that touches Ankra.
 ---
 
 # Ankra Platform Principles
 
 Apply these whenever you design, review, or change anything in an Ankra environment. They are the defaults Ankra follows; deviate only with a stated reason.
-
-Applicability check: if the `ankra` CLI is installed or the repo contains Ankra cluster/stack YAML, assume clusters are Ankra-managed and route Kubernetes changes through Ankra (the GitOps repo or `ankra cluster apply`) rather than mutating clusters directly with `kubectl apply/edit/delete` or `helm install/upgrade`. Read-only inspection (`kubectl get/describe/logs`) is always fine. If a cluster is clearly not Ankra-managed, proceed as you normally would.
 
 ## 1. Git is the source of truth
 
@@ -48,7 +46,7 @@ Treat `delete`, `deprovision`, `roll-to`, and force operations as deliberate. Co
 
 ## 9. Review before deploy
 
-Protect synced branches, require pull-request review, and keep diffs small. A merge is a deploy - review it like one.
+Protect synced branches, require pull-request review, and keep diffs small. A merge is a deploy — review it like one.
 
 ## Related skills
 

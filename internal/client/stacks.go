@@ -78,16 +78,6 @@ type RenameStackResult struct {
 	Message string `json:"message"`
 }
 
-type CreateStackRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-}
-
-type CreateStackResult struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-}
-
 func (c *Client) ListClusterStacks(clusterID string) ([]ClusterStackListItem, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/%s/stacks", c.BaseURL, neturl.PathEscape(clusterID))
 
@@ -166,22 +156,6 @@ func (c *Client) RenameStack(ctx context.Context, clusterID, stackName, newName 
 	}
 
 	return &RenameStackResult{Success: true, Message: "Stack renamed"}, nil
-}
-
-// CreateStack is kept for interface compatibility with the APIClient
-// abstraction but is no longer used by any cobra command. The platform's
-// POST /api/v1/org/clusters/imported/{cluster_id}/stacks endpoint expects
-// a full ResourceSpecification (see cluster
-// usecase/cluster/stacks/create_cluster_stack.py:CreateClusterStackRequest);
-// the bare `{name, description}` payload this method used to send was
-// rejected with HTTP 422. New work should go through `cluster apply -f
-// cluster.yaml`.
-//
-// Returning an error here keeps the interface contract intact while
-// preventing any accidental future callers from sending an incompatible
-// request to production.
-func (c *Client) CreateStack(_ context.Context, _, _, _ string) (*CreateStackResult, error) {
-	return nil, fmt.Errorf("CreateStack: removed; use ApplyCluster with a cluster YAML instead")
 }
 
 type CloneStackToClusterRequest struct {

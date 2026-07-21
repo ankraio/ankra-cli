@@ -56,7 +56,7 @@ func TestProviderCommandsDeprecatedForGenericVerbs(t *testing.T) {
 	}
 }
 
-func TestOvhNodeGroupLabelsAndTaintsNotDeprecated(t *testing.T) {
+func TestOvhNodeGroupLabelsAndTaintsDeprecatedForGenericVerb(t *testing.T) {
 	ovhCommand := findChildCommand(clusterCmd, "ovh")
 	if ovhCommand == nil {
 		t.Fatal("ovh command not registered under cluster")
@@ -65,13 +65,20 @@ func TestOvhNodeGroupLabelsAndTaintsNotDeprecated(t *testing.T) {
 	if nodeGroupCommand == nil {
 		t.Fatal("ovh node-group not registered")
 	}
+	genericNodeGroupCommand := findChildCommand(clusterCmd, "node-group")
+	if genericNodeGroupCommand == nil {
+		t.Fatal("generic node-group not registered under cluster")
+	}
 	for _, verb := range []string{"labels", "taints"} {
+		if findChildCommand(genericNodeGroupCommand, verb) == nil {
+			t.Fatalf("generic node-group %s not registered", verb)
+		}
 		leaf := findChildCommand(nodeGroupCommand, verb)
 		if leaf == nil {
 			t.Fatalf("ovh node-group %s not registered", verb)
 		}
-		if leaf.Deprecated != "" {
-			t.Errorf("ovh node-group %s has no generic equivalent and must not be deprecated, got Deprecated=%q", verb, leaf.Deprecated)
+		if leaf.Deprecated == "" {
+			t.Errorf("ovh node-group %s now has a generic equivalent and must be deprecated toward it", verb)
 		}
 	}
 }

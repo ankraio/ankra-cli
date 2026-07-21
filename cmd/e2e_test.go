@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"ankra/internal/client"
+
+	"github.com/jedib0t/go-pretty/v6/text"
 )
 
 type baseMock struct{}
@@ -377,10 +379,6 @@ func (m baseMock) ListClusterStacks(clusterID string) ([]client.ClusterStackList
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) CreateStack(ctx context.Context, clusterID, name, description string) (*client.CreateStackResult, error) {
-	return nil, errors.New("not implemented")
-}
-
 func (m baseMock) DeleteStack(ctx context.Context, clusterID, stackName string) (*client.DeleteStackResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -730,6 +728,14 @@ func (m baseMock) CreateHetznerCluster(req client.CreateHetznerClusterRequest) (
 }
 
 func (m baseMock) DeprovisionHetznerCluster(clusterID string, force bool) (*client.DeprovisionHetznerClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StopHetznerCluster(clusterID string) (*client.ProviderStopClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartHetznerCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1141,6 +1147,14 @@ func (m baseMock) ScaleDigitaloceanNodeGroup(ctx context.Context, clusterID, gro
 	return nil, false, errors.New("not implemented")
 }
 
+func (m baseMock) GetDigitaloceanNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateDigitaloceanNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, req client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
 func (m baseMock) UpdateDigitaloceanNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
@@ -1221,6 +1235,262 @@ func (m baseMock) StartScalewayCluster(clusterID, scope string) (*client.Provide
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateProxmoxCluster(request client.CreateProxmoxClusterRequest) (*client.CreateProxmoxClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeprovisionProxmoxCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StopProxmoxCluster(clusterID string) (*client.ProviderStopClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartProxmoxCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetProxmoxWorkerCount(clusterID string) (*client.WorkerCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ScaleProxmoxWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetProxmoxK8sVersion(clusterID string) (*client.K8sVersionInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpgradeProxmoxK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListProxmoxNodeGroups(clusterID string) (*client.NodeGroupListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddProxmoxNodeGroup(ctx context.Context, clusterID string, request client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) ScaleProxmoxNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateProxmoxNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteProxmoxNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetProxmoxNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateProxmoxNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, request client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetProxmoxControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeProxmoxControlPlaneCount(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListProxmoxClusterNodes(clusterID string) (*client.NodeListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetProxmoxClusterNode(clusterID, nodeID string) (*client.NodeDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetProxmoxClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateProxmoxClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResyncProxmoxClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListProxmoxNodes(credentialID string) ([]client.ProxmoxNode, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListProxmoxStorages(credentialID, node string) ([]client.ProxmoxStorage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListProxmoxBridges(credentialID, node string) ([]client.ProxmoxBridge, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListProxmoxTemplates(credentialID, node string) ([]client.ProxmoxTemplate, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListProxmoxSizes() ([]client.ProxmoxSize, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListProxmoxCredentials() ([]client.ProxmoxCredentialListItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateProxmoxCredential(request client.CreateProxmoxCredentialRequest) (*client.CreateProxmoxCredentialResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListProxmoxSSHKeyCredentials() ([]client.ProxmoxCredentialListItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateProxmoxSSHKeyCredential(request client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateMorpheusCluster(request client.CreateMorpheusClusterRequest) (*client.CreateMorpheusClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeprovisionMorpheusCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StopMorpheusCluster(clusterID string) (*client.ProviderStopClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartMorpheusCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetMorpheusWorkerCount(clusterID string) (*client.WorkerCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ScaleMorpheusWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetMorpheusK8sVersion(clusterID string) (*client.K8sVersionInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpgradeMorpheusK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListMorpheusNodeGroups(clusterID string) (*client.NodeGroupListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddMorpheusNodeGroup(ctx context.Context, clusterID string, request client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) ScaleMorpheusNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateMorpheusNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteMorpheusNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetMorpheusNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateMorpheusNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, request client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetMorpheusControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeMorpheusControlPlaneCount(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeMorpheusControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListMorpheusClusterNodes(clusterID string) (*client.NodeListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetMorpheusClusterNode(clusterID, nodeID string) (*client.NodeDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetMorpheusClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateMorpheusClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResyncMorpheusClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListMorpheusGroups(credentialID string) ([]client.MorpheusGroup, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListMorpheusClouds(credentialID string) ([]client.MorpheusCloud, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListMorpheusPlans(credentialID string) ([]client.MorpheusPlan, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListMorpheusLayouts(credentialID string) ([]client.MorpheusLayout, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListMorpheusNetworks(credentialID string) ([]client.MorpheusNetwork, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListMorpheusCredentials() ([]client.MorpheusCredentialListItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateMorpheusCredential(request client.CreateMorpheusCredentialRequest) (*client.CreateMorpheusCredentialResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListMorpheusSSHKeyCredentials() ([]client.MorpheusCredentialListItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateMorpheusSSHKeyCredential(request client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateManagedCluster(provider client.ManagedK8sProvider, request client.CreateManagedClusterRequest) (*client.CreateManagedClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1241,7 +1511,19 @@ func (m baseMock) DeleteManagedNodePool(provider client.ManagedK8sProvider, clus
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) UpdateManagedNodePool(provider client.ManagedK8sProvider, clusterID, nodePoolName string, request client.UpdateManagedNodePoolRequest) (*client.UpdateManagedNodePoolResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) UpgradeManagedK8sVersion(provider client.ManagedK8sProvider, clusterID, version string) (*client.UpgradeManagedK8sVersionResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StopManagedCluster(provider client.ManagedK8sProvider, clusterID string) (*client.ManagedClusterLifecycleResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartManagedCluster(provider client.ManagedK8sProvider, clusterID string) (*client.ManagedClusterLifecycleResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1734,6 +2016,13 @@ func (m *clusterAgentStatusMock) GetClusterAgent(clusterID string) (*client.Agen
 }
 
 func TestClusterAgentStatusCommand(t *testing.T) {
+	// The status word is wrapped in ANSI color codes whenever go-pretty
+	// enables colors (its unix detection is unconditional and only NO_COLOR
+	// turns it off), which would break the plain-text assertions below.
+	// Colors stay disabled for the rest of the test binary on purpose: every
+	// assertion in this package expects plain text.
+	text.DisableColors()
+
 	agentVersion := "2.5.1"
 	staleCheckin := "2024-05-01T08:00:00Z"
 	freshCheckin := time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339)
@@ -2278,6 +2567,66 @@ func TestUpcloudCredentialsListCommand(t *testing.T) {
 	}
 }
 
+type proxmoxCredentialsListMock struct {
+	baseMock
+	creds []client.ProxmoxCredentialListItem
+}
+
+func (m *proxmoxCredentialsListMock) ListProxmoxCredentials() ([]client.ProxmoxCredentialListItem, error) {
+	return m.creds, nil
+}
+
+func TestProxmoxCredentialsListCommand(t *testing.T) {
+	mock := &proxmoxCredentialsListMock{
+		creds: []client.ProxmoxCredentialListItem{
+			{ID: "pve-cred-1", Name: "proxmox-lab", Available: true, CreatedAt: "2026-06-01T00:00:00Z"},
+			{ID: "pve-cred-2", Name: "proxmox-dc", Available: true, CreatedAt: "2026-06-15T00:00:00Z"},
+		},
+	}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("credentials", "proxmox", "list")
+	})
+
+	if !strings.Contains(stdoutOutput, "proxmox-lab") {
+		t.Errorf("expected output to contain 'proxmox-lab', got: %s", stdoutOutput)
+	}
+	if !strings.Contains(stdoutOutput, "proxmox-dc") {
+		t.Errorf("expected output to contain 'proxmox-dc', got: %s", stdoutOutput)
+	}
+}
+
+type morpheusCredentialsListMock struct {
+	baseMock
+	creds []client.MorpheusCredentialListItem
+}
+
+func (m *morpheusCredentialsListMock) ListMorpheusCredentials() ([]client.MorpheusCredentialListItem, error) {
+	return m.creds, nil
+}
+
+func TestMorpheusCredentialsListCommand(t *testing.T) {
+	mock := &morpheusCredentialsListMock{
+		creds: []client.MorpheusCredentialListItem{
+			{ID: "morpheus-cred-1", Name: "morpheus-prod", Available: true, CreatedAt: "2026-06-01T00:00:00Z"},
+			{ID: "morpheus-cred-2", Name: "morpheus-dev", Available: true, CreatedAt: "2026-06-15T00:00:00Z"},
+		},
+	}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("credentials", "morpheus", "list")
+	})
+
+	if !strings.Contains(stdoutOutput, "morpheus-prod") {
+		t.Errorf("expected output to contain 'morpheus-prod', got: %s", stdoutOutput)
+	}
+	if !strings.Contains(stdoutOutput, "morpheus-dev") {
+		t.Errorf("expected output to contain 'morpheus-dev', got: %s", stdoutOutput)
+	}
+}
+
 type hetznerNodeGroupsListMock struct {
 	baseMock
 	result *client.NodeGroupListResult
@@ -2375,4 +2724,44 @@ func TestClusterUpcloudNodeGroupListCommand(t *testing.T) {
 	if !strings.Contains(stdoutOutput, "uc-memory") {
 		t.Errorf("expected output to contain 'uc-memory', got: %s", stdoutOutput)
 	}
+}
+
+func (m baseMock) UpdateHetznerNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateHetznerNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateUpcloudNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateUpcloudNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateDigitaloceanNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateDigitaloceanNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateProxmoxNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateProxmoxNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateMorpheusNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateMorpheusNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }

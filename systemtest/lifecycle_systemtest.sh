@@ -5,9 +5,12 @@
 # Real, end-to-end system test for Ankra cloud clusters, driven entirely through
 # the ankra CLI against a live platform (default: https://platform.ankra.dev).
 #
-# For each selected provider (hetzner, ovh, upcloud, digitalocean) and each
-# selected Kubernetes distribution (k3s, kubeadm) it provisions a REAL cluster
-# and exercises the full lifecycle, asserting the outcome at every step:
+# It exercises BOTH cluster families the platform supports:
+#
+# A) Ankra-managed clusters (self-managed k3s/kubeadm on provider VMs):
+#    hetzner, ovh, upcloud, digitalocean. For each selected provider and each
+#    selected Kubernetes distribution (k3s, kubeadm) it provisions a REAL
+#    cluster and exercises the full lifecycle, asserting the outcome at every step:
 #
 #   1. create (with external cloud provider + GitOps -> CCM/CSI/Traefik/cert-manager)
 #   2. wait until the cluster is online and nodes are Ready
@@ -18,10 +21,24 @@
 #   7. resize the default node group to a bigger instance plan
 #   8. deprovision and confirm the cluster record is removed (deleted_at)
 #
-# Distributions run as an independent axis: with
+# B) Cloud-managed clusters (provider-native managed Kubernetes via
+#    `ankra cluster managed`): doks, uks, gke, ovh_mks, aks, eks. For each
+#    selected managed provider it provisions a REAL managed cluster and runs
+#    the managed lifecycle:
+#
+#   1. create (initial node pool, optional GitOps)
+#   2. wait until the cluster is online and nodes are Ready
+#   3. scale the initial node pool up (1 -> 3) and down (3 -> 1)
+#   4. add a second node pool, then delete it
+#   5. upgrade Kubernetes (only when MANAGED_UPGRADE_K8S_VERSION_<PROVIDER> is
+#      set -- the CLI has no managed version listing, so the target is explicit)
+#   6. delete and confirm the cluster record is removed
+#
+# Distributions run as an independent axis for the Ankra-managed family: with
 # ANKRA_SYSTEMTEST_DISTRIBUTIONS="k3s kubeadm" every selected provider gets one
 # cluster per distribution (e.g. systest-digitalocean-k3s-... and
 # systest-digitalocean-kubeadm-...), so a single run matrix-tests both.
+# Cloud-managed providers have no distribution axis.
 #
 # It tolerates the two real-world behaviours observed on UpCloud and the others:
 #   - transient provisioning timeouts (slow bastion/server boot) -> reconcile retry
@@ -45,15 +62,18 @@
 #
 # Usage:
 #   export ANKRA_SYSTEMTEST_CONFIRM=yes        # required (acknowledges real cost)
-#   export SSH_KEY_CREDENTIAL_ID=...           # required
+#   export SSH_KEY_CREDENTIAL_ID=...           # required for Ankra-managed providers
 #   export HETZNER_CREDENTIAL_ID=...           # required per selected provider
 #   export GITOPS_REPOSITORY=org/repo          # optional (GitOps commit step)
-#   ./systemtest/lifecycle_systemtest.sh                 # all three, in parallel
+#   ./systemtest/lifecycle_systemtest.sh                 # default matrix, in parallel
 #   ANKRA_SYSTEMTEST_PARALLEL=0 ./systemtest/lifecycle_systemtest.sh   # sequential
 #   ANKRA_SYSTEMTEST_PROVIDERS="upcloud" ./systemtest/lifecycle_systemtest.sh
 #   # DigitalOcean, both distributions:
 #   ANKRA_SYSTEMTEST_PROVIDERS="digitalocean" \
 #     ANKRA_SYSTEMTEST_DISTRIBUTIONS="k3s kubeadm" ./systemtest/lifecycle_systemtest.sh
+#   # Cloud-managed only (DOKS + UKS):
+#   ANKRA_SYSTEMTEST_PROVIDERS="" ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="doks uks" \
+#     ./systemtest/lifecycle_systemtest.sh
 #
 # See systemtest/README.md for the full list of configuration variables.
 
@@ -70,12 +90,19 @@ if [ ! -x "$ANKRA_BIN" ]; then
   ANKRA_BIN="ankra"
 fi
 
-ANKRA_SYSTEMTEST_PROVIDERS="${ANKRA_SYSTEMTEST_PROVIDERS:-hetzner ovh upcloud}"
+# Ankra-managed (self-managed VMs) providers. Set to "" to skip the family.
+ANKRA_SYSTEMTEST_PROVIDERS="${ANKRA_SYSTEMTEST_PROVIDERS-hetzner ovh upcloud digitalocean}"
 
-# Kubernetes distributions to exercise per provider. Each (provider,
-# distribution) pair becomes its own cluster with the distribution in its name,
-# so a single run can matrix-test both k3s and kubeadm side by side, e.g.
+# Cloud-managed (provider-native managed Kubernetes) providers, driven through
+# `ankra cluster managed`. Set to "" to skip the family.
+ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="${ANKRA_SYSTEMTEST_MANAGED_PROVIDERS-doks uks gke ovh_mks aks eks}"
+
+# Kubernetes distributions to exercise per Ankra-managed provider. Each
+# (provider, distribution) pair becomes its own cluster with the distribution
+# in its name, so a single run can matrix-test both k3s and kubeadm side by
+# side, e.g.
 #   ANKRA_SYSTEMTEST_DISTRIBUTIONS="k3s kubeadm"
+# Cloud-managed providers ignore this axis.
 ANKRA_SYSTEMTEST_DISTRIBUTIONS="${ANKRA_SYSTEMTEST_DISTRIBUTIONS:-k3s}"
 
 NAME_PREFIX="${NAME_PREFIX:-systest}"
@@ -128,6 +155,39 @@ DIGITALOCEAN_CP_SIZE="${DIGITALOCEAN_CP_SIZE:-s-2vcpu-4gb}"
 DIGITALOCEAN_WORKER_SIZE="${DIGITALOCEAN_WORKER_SIZE:-s-2vcpu-4gb}"
 DIGITALOCEAN_BIGGER_SIZE="${DIGITALOCEAN_BIGGER_SIZE:-s-4vcpu-8gb}"
 
+# Cloud-managed providers. Credentials default to the matching self-managed
+# provider credential where the platform reuses the same credential kind
+# (doks -> digitalocean, uks -> upcloud, ovh_mks -> ovh); gke/aks/eks need
+# their own cloud credential.
+DOKS_CREDENTIAL_ID="${DOKS_CREDENTIAL_ID:-$DIGITALOCEAN_CREDENTIAL_ID}"
+UKS_CREDENTIAL_ID="${UKS_CREDENTIAL_ID:-$UPCLOUD_CREDENTIAL_ID}"
+OVH_MKS_CREDENTIAL_ID="${OVH_MKS_CREDENTIAL_ID:-$OVH_CREDENTIAL_ID}"
+GKE_CREDENTIAL_ID="${GKE_CREDENTIAL_ID:-}"
+AKS_CREDENTIAL_ID="${AKS_CREDENTIAL_ID:-}"
+EKS_CREDENTIAL_ID="${EKS_CREDENTIAL_ID:-}"
+
+# Cloud-managed locations (region/zone per provider).
+DOKS_LOCATION="${DOKS_LOCATION:-$DIGITALOCEAN_REGION}"
+UKS_LOCATION="${UKS_LOCATION:-$UPCLOUD_ZONE}"
+OVH_MKS_LOCATION="${OVH_MKS_LOCATION:-$OVH_REGION}"
+GKE_LOCATION="${GKE_LOCATION:-europe-west1}"
+AKS_LOCATION="${AKS_LOCATION:-westeurope}"
+EKS_LOCATION="${EKS_LOCATION:-eu-west-1}"
+
+# Cloud-managed initial node pool sizes/plans.
+DOKS_NODE_POOL_SIZE="${DOKS_NODE_POOL_SIZE:-s-2vcpu-4gb}"
+UKS_NODE_POOL_SIZE="${UKS_NODE_POOL_SIZE:-2xCPU-4GB}"
+OVH_MKS_NODE_POOL_SIZE="${OVH_MKS_NODE_POOL_SIZE:-b2-15}"
+GKE_NODE_POOL_SIZE="${GKE_NODE_POOL_SIZE:-e2-standard-2}"
+AKS_NODE_POOL_SIZE="${AKS_NODE_POOL_SIZE:-Standard_D2s_v3}"
+EKS_NODE_POOL_SIZE="${EKS_NODE_POOL_SIZE:-t3.medium}"
+
+# Optional cloud-managed Kubernetes versions. The CLI has no managed version
+# listing, so both the create version and the upgrade target are explicit
+# per-provider env vars (e.g. MANAGED_CREATE_K8S_VERSION_DOKS=1.31.9-do.3 and
+# MANAGED_UPGRADE_K8S_VERSION_DOKS=1.32.5-do.0). When the upgrade target is
+# unset the managed upgrade step is skipped (recorded as SKIP, not FAIL).
+
 # Timeouts / polling (seconds).
 ONLINE_TIMEOUT="${ONLINE_TIMEOUT:-1500}"     # cluster create -> online
 ADDONS_TIMEOUT="${ADDONS_TIMEOUT:-900}"      # addons -> up
@@ -178,14 +238,19 @@ record() {
 
 pass() { log "PASS: $1"; record "PASS  $1"; }
 fail() { log "FAIL: $1"; record "FAIL  $1"; FAILURES=$((FAILURES + 1)); }
+skip() { log "SKIP: $1"; record "SKIP  $1"; }
 
-# Remember a created cluster for cleanup. Append to the shared file (so the
-# main-shell trap sees clusters created inside parallel worker subshells) and
-# also keep the in-memory array for sequential runs.
+# Remember a created cluster for cleanup. Entries are "name=id=managed_provider"
+# where the third field is empty for Ankra-managed (self-managed) clusters and
+# the managed provider slug (doks, uks, ...) for cloud-managed clusters, so the
+# cleanup trap knows which delete verb to use. Append to the shared file (so
+# the main-shell trap sees clusters created inside parallel worker subshells)
+# and also keep the in-memory array for sequential runs.
 register_cluster() {
-  CREATED_CLUSTERS+=("$1=$2")
+  local name="$1" id="$2" managed_provider="${3:-}"
+  CREATED_CLUSTERS+=("$name=$id=$managed_provider")
   if [ -n "${CREATED_FILE:-}" ]; then
-    printf '%s=%s\n' "$1" "$2" >> "$CREATED_FILE"
+    printf '%s=%s=%s\n' "$name" "$id" "$managed_provider" >> "$CREATED_FILE"
   fi
 }
 
@@ -220,8 +285,8 @@ cleanup() {
   done
 
   # Cleanup runs in the main shell with the default config (auth intact); the
-  # deprovision call takes the id explicitly so no selection is required.
-  local entry name id
+  # deprovision/delete call takes the id explicitly so no selection is required.
+  local entry name id rest managed_provider
   local -a entries=()
   if [ -n "${CREATED_FILE:-}" ] && [ -f "$CREATED_FILE" ]; then
     while IFS= read -r entry; do entries+=("$entry"); done < "$CREATED_FILE"
@@ -231,13 +296,21 @@ cleanup() {
   for entry in "${entries[@]:-}"; do
     [ -z "$entry" ] && continue
     name="${entry%%=*}"
-    id="${entry#*=}"
+    rest="${entry#*=}"
+    id="${rest%%=*}"
+    managed_provider=""
+    case "$rest" in *=*) managed_provider="${rest#*=}";; esac
     if ank cluster list | grep -q "$name"; then
       log "cleanup: deprovisioning leftover cluster $name ($id)"
-      # Best-effort: try a graceful deprovision, then force so we never leak
+      # Best-effort: try a graceful teardown, then force so we never leak
       # paid infrastructure on an aborted run.
-      ank cluster deprovision "$id" --yes >/dev/null 2>&1 || true
-      ank cluster deprovision "$id" --force --yes >/dev/null 2>&1 || true
+      if [ -n "$managed_provider" ]; then
+        ank cluster managed delete "$id" --provider "$managed_provider" --yes >/dev/null 2>&1 || true
+        ank cluster managed delete "$id" --provider "$managed_provider" --force --yes >/dev/null 2>&1 || true
+      else
+        ank cluster deprovision "$id" --yes >/dev/null 2>&1 || true
+        ank cluster deprovision "$id" --force --yes >/dev/null 2>&1 || true
+      fi
     fi
   done
 }
@@ -385,7 +458,9 @@ wait_for_removed() {
   return 1
 }
 
-# Run a day-2 write that the platform may reject with 409 while a reconcile runs.
+# Run a day-2 write that the platform may reject with 409 while a reconcile
+# runs. Managed clusters reject with "not in a state that allows ..." while a
+# provider-side operation is still settling; retry those the same way.
 daytwo() {
   local desc="$1"; shift
   local name="$1"; shift
@@ -393,7 +468,7 @@ daytwo() {
   wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy; attempting $desc anyway)"
   for attempt in $(seq 1 8); do
     out="$(ank cluster "$@" 2>&1)"
-    if printf '%s' "$out" | grep -qiE "operations in progress|409"; then
+    if printf '%s' "$out" | grep -qiE "operations in progress|409|not in a state"; then
       log "  $desc rejected (ops in progress), retry $attempt"
       sleep 20
       wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy before retry of $desc)"
@@ -494,6 +569,53 @@ ng_instance_type() {
 }
 
 # ---------------------------------------------------------------------------
+# Cloud-managed provider helpers
+# ---------------------------------------------------------------------------
+
+managed_credential_id() {
+  case "$1" in
+    doks)    echo "$DOKS_CREDENTIAL_ID" ;;
+    uks)     echo "$UKS_CREDENTIAL_ID" ;;
+    gke)     echo "$GKE_CREDENTIAL_ID" ;;
+    ovh_mks) echo "$OVH_MKS_CREDENTIAL_ID" ;;
+    aks)     echo "$AKS_CREDENTIAL_ID" ;;
+    eks)     echo "$EKS_CREDENTIAL_ID" ;;
+  esac
+}
+
+managed_location() {
+  case "$1" in
+    doks)    echo "$DOKS_LOCATION" ;;
+    uks)     echo "$UKS_LOCATION" ;;
+    gke)     echo "$GKE_LOCATION" ;;
+    ovh_mks) echo "$OVH_MKS_LOCATION" ;;
+    aks)     echo "$AKS_LOCATION" ;;
+    eks)     echo "$EKS_LOCATION" ;;
+  esac
+}
+
+managed_node_pool_size() {
+  case "$1" in
+    doks)    echo "$DOKS_NODE_POOL_SIZE" ;;
+    uks)     echo "$UKS_NODE_POOL_SIZE" ;;
+    gke)     echo "$GKE_NODE_POOL_SIZE" ;;
+    ovh_mks) echo "$OVH_MKS_NODE_POOL_SIZE" ;;
+    aks)     echo "$AKS_NODE_POOL_SIZE" ;;
+    eks)     echo "$EKS_NODE_POOL_SIZE" ;;
+  esac
+}
+
+managed_provider_upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+
+# Read an optional per-provider env var like MANAGED_UPGRADE_K8S_VERSION_DOKS
+# (bash-3.2-safe indirection, so the script still runs on stock macOS bash).
+managed_env() {
+  local variable_name
+  variable_name="${1}_$(managed_provider_upper "$2")"
+  eval "printf '%s' \"\${$variable_name:-}\""
+}
+
+# ---------------------------------------------------------------------------
 # Full lifecycle for one provider
 # ---------------------------------------------------------------------------
 
@@ -569,6 +691,91 @@ run_provider() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# Full lifecycle for one cloud-managed provider
+# ---------------------------------------------------------------------------
+
+run_managed_provider() {
+  local provider="$1"
+  local slug; slug="$(printf '%s' "$provider" | tr '_' '-')"
+  local name="${NAME_PREFIX}-${slug}-${RUN_ID}"
+  local label="managed/$provider"
+  local id out size target create_version
+  size="$(managed_node_pool_size "$provider")"
+
+  section "$label :: $name"
+
+  # 1. Create (capture the printed "Cluster ID: <uuid>")
+  local gitops_args=()
+  if [ -n "$GITOPS_CREDENTIAL_NAME" ] && [ -n "$GITOPS_REPOSITORY" ]; then
+    gitops_args=(--gitops-credential-name "$GITOPS_CREDENTIAL_NAME" --gitops-repository "$GITOPS_REPOSITORY" --gitops-branch "$GITOPS_BRANCH")
+  fi
+  local version_args=()
+  create_version="$(managed_env MANAGED_CREATE_K8S_VERSION "$provider")"
+  if [ -n "$create_version" ]; then
+    version_args=(--kubernetes-version "$create_version")
+  fi
+  log "creating managed $name ..."
+  out="$(ank cluster managed create --provider "$provider" --name "$name" \
+    --credential-id "$(managed_credential_id "$provider")" \
+    --location "$(managed_location "$provider")" \
+    --node-pool-name workers --node-pool-size "$size" --node-pool-count 1 \
+    "${version_args[@]}" "${gitops_args[@]}")"
+  printf '%s\n' "$out"
+  id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
+  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  register_cluster "$name" "$id" "$provider"
+  pass "$label create submitted (id=$id)"
+
+  # 2. Online + nodes (managed control planes are provider-hosted, so only the
+  # node pool's workers appear as nodes).
+  if wait_for_online "$name" "$ONLINE_TIMEOUT"; then pass "$label online"; else fail "$label did not reach online"; return; fi
+  if wait_for_nodes "$name" 1 "$DAYTWO_TIMEOUT"; then pass "$label nodes Ready (worker pool)"; else fail "$label nodes not Ready"; fi
+
+  # 3. Node pool scale up / down
+  if daytwo "node-pool scale up" "$name" managed node-pool scale "$id" workers --provider "$provider" --count 3 \
+     && wait_for_nodes "$name" 3 "$DAYTWO_TIMEOUT"; then
+    pass "$label node-pool scale up 1->3"; else fail "$label node-pool scale up"; fi
+  if daytwo "node-pool scale down" "$name" managed node-pool scale "$id" workers --provider "$provider" --count 1 \
+     && wait_for_nodes "$name" 1 "$DAYTWO_TIMEOUT"; then
+    pass "$label node-pool scale down 3->1"; else fail "$label node-pool scale down"; fi
+
+  # 4. Node pool add / delete
+  if daytwo "node-pool add" "$name" managed node-pool add "$id" --provider "$provider" --name pool-b --size "$size" --count 2 \
+     && wait_for_nodes "$name" 3 "$DAYTWO_TIMEOUT"; then
+    pass "$label node-pool add"; else fail "$label node-pool add"; fi
+  if daytwo "node-pool delete" "$name" managed node-pool delete "$id" pool-b --provider "$provider" --yes \
+     && wait_for_nodes "$name" 1 "$DAYTWO_TIMEOUT"; then
+    pass "$label node-pool delete"; else fail "$label node-pool delete"; fi
+
+  # 5. K8s upgrade (explicit target only -- the CLI has no managed version
+  # listing to pick one from, so without a target the step is a SKIP).
+  target="$(managed_env MANAGED_UPGRADE_K8S_VERSION "$provider")"
+  if [ -n "$target" ]; then
+    local want_ver="${target#v}"; want_ver="${want_ver%%[-+]*}"
+    if daytwo "k8s upgrade" "$name" managed upgrade "$id" --provider "$provider" --version "$target" --yes \
+       && wait_until_version "$name" "$want_ver" "$DAYTWO_TIMEOUT"; then
+      pass "$label k8s upgrade -> $target"; else fail "$label k8s upgrade did not reach $target"; fi
+  else
+    skip "$label k8s upgrade (MANAGED_UPGRADE_K8S_VERSION_$(managed_provider_upper "$provider") not set)"
+  fi
+
+  # 6. Delete -> removed (with a bounded force fallback on stall)
+  log "deleting managed $name ..."
+  ank cluster managed delete "$id" --provider "$provider" --yes | tail -2
+  if wait_for_removed "$name" "$DEPROVISION_TIMEOUT"; then
+    pass "$label delete -> removed"
+  else
+    log "  $name delete stalled after ${DEPROVISION_TIMEOUT}s; attempting bounded force-delete fallback"
+    ank cluster managed delete "$id" --provider "$provider" --force --yes | tail -2 || true
+    if wait_for_removed "$name" "$DEPROVISION_FORCE_TIMEOUT"; then
+      pass "$label delete -> removed (after force fallback)"
+    else
+      fail "$label delete did not complete (even after force fallback)"
+    fi
+  fi
+}
+
 wait_until_version() {
   local name="$1" want="$2" timeout="$3" deadline cur
   deadline=$(( $(date +%s) + timeout ))
@@ -607,11 +814,13 @@ confirm_cost() {
   #  WARNING: REAL, BILLABLE CLOUD INFRASTRUCTURE                            #
   #                                                                          #
   #  This system test provisions actual servers, load balancers, networks   #
-  #  and volumes on Hetzner / OVH / UpCloud and runs a multi-step lifecycle  #
-  #  (create, scale, node-groups, k8s upgrade, resize, deprovision).         #
-  #  A full three-provider run can take ~2 hours and WILL incur charges.     #
-  #  Clusters are deprovisioned at the end and on abort, but a crash of this #
-  #  script can still leave paid resources running -- verify afterwards.     #
+  #  and volumes on Hetzner / OVH / UpCloud / DigitalOcean plus provider-    #
+  #  native managed clusters (DOKS / UKS / GKE / OVH MKS / AKS / EKS) and    #
+  #  runs a multi-step lifecycle (create, scale, node-groups/pools, k8s      #
+  #  upgrade, resize, deprovision). A full run can take ~2 hours and WILL    #
+  #  incur charges. Clusters are deprovisioned at the end and on abort, but  #
+  #  a crash of this script can still leave paid resources running --        #
+  #  verify afterwards.                                                      #
   #                                                                          #
   #  Set ANKRA_SYSTEMTEST_CONFIRM=yes to acknowledge and proceed.           #
   ############################################################################
@@ -626,7 +835,12 @@ preflight() {
   command -v "$ANKRA_BIN" >/dev/null 2>&1 || [ -x "$ANKRA_BIN" ] || die "ankra binary not found ($ANKRA_BIN)"
   log "using ankra: $ANKRA_BIN ($($ANKRA_BIN --version 2>/dev/null | head -1))"
   confirm_cost
-  [ -n "$SSH_KEY_CREDENTIAL_ID" ] || die "SSH_KEY_CREDENTIAL_ID is required"
+  if [ -z "$ANKRA_SYSTEMTEST_PROVIDERS" ] && [ -z "$ANKRA_SYSTEMTEST_MANAGED_PROVIDERS" ]; then
+    die "nothing selected: both ANKRA_SYSTEMTEST_PROVIDERS and ANKRA_SYSTEMTEST_MANAGED_PROVIDERS are empty"
+  fi
+  if [ -n "$ANKRA_SYSTEMTEST_PROVIDERS" ]; then
+    [ -n "$SSH_KEY_CREDENTIAL_ID" ] || die "SSH_KEY_CREDENTIAL_ID is required for Ankra-managed providers"
+  fi
   if [ -z "$GITOPS_CREDENTIAL_NAME" ] || [ -z "$GITOPS_REPOSITORY" ]; then
     log "WARNING: GITOPS_CREDENTIAL_NAME/GITOPS_REPOSITORY not set -> the GitOps commit step is skipped (stacks still install)"
   fi
@@ -640,6 +854,14 @@ preflight() {
       *) die "unknown provider in ANKRA_SYSTEMTEST_PROVIDERS: $p" ;;
     esac
   done
+  local m
+  for m in $ANKRA_SYSTEMTEST_MANAGED_PROVIDERS; do
+    case "$m" in
+      doks|uks|gke|ovh_mks|aks|eks)
+        [ -n "$(managed_credential_id "$m")" ] || die "$(managed_provider_upper "$m")_CREDENTIAL_ID required for managed provider $m" ;;
+      *) die "unknown provider in ANKRA_SYSTEMTEST_MANAGED_PROVIDERS: $m (want doks, uks, gke, ovh_mks, aks or eks)" ;;
+    esac
+  done
   local d
   for d in $ANKRA_SYSTEMTEST_DISTRIBUTIONS; do
     case "$d" in
@@ -649,9 +871,21 @@ preflight() {
   done
 }
 
-# Run one provider's full lifecycle as an isolated worker: its own config copy
+# Dispatch a target to the right lifecycle: the "managed" distribution marks a
+# cloud-managed provider, everything else is an Ankra-managed (self-managed)
+# provider + distribution pair.
+run_target() {
+  local provider="$1" distribution="$2"
+  if [ "$distribution" = "managed" ]; then
+    run_managed_provider "$provider"
+  else
+    run_provider "$provider" "$distribution"
+  fi
+}
+
+# Run one target's full lifecycle as an isolated worker: its own config copy
 # (so `cluster select` is not shared), its own results file, and every line of
-# output tagged + tee'd to a per-provider log. Intended to be backgrounded.
+# output tagged + tee'd to a per-target log. Intended to be backgrounded.
 run_provider_bg() {
   local provider="$1" distribution="$2" WORKER_INDEX="${3:-0}"
   local slug="$provider-$distribution"
@@ -664,7 +898,7 @@ run_provider_bg() {
   if [ -f "$BASE_CONFIG" ]; then
     cp "$BASE_CONFIG" "$ANK_CONFIG" 2>/dev/null || true
   fi
-  run_provider "$provider" "$distribution" 2>&1 | sed -u "s/^/[$slug] /" | tee "$WORKDIR/log.$slug"
+  run_target "$provider" "$distribution" 2>&1 | sed -u "s/^/[$slug] /" | tee "$WORKDIR/log.$slug"
 }
 
 main() {
@@ -675,13 +909,18 @@ main() {
   CREATED_FILE="$WORKDIR/created_clusters"
   : > "$CREATED_FILE"
 
-  # Build the provider x distribution matrix ("provider:distribution" targets).
+  # Build the target list: the Ankra-managed provider x distribution matrix
+  # ("provider:distribution") plus one "provider:managed" target per selected
+  # cloud-managed provider (managed clusters have no distribution axis).
   local -a targets=()
-  local p d
+  local p d m
   for p in $ANKRA_SYSTEMTEST_PROVIDERS; do
     for d in $ANKRA_SYSTEMTEST_DISTRIBUTIONS; do
       targets+=("$p:$d")
     done
+  done
+  for m in $ANKRA_SYSTEMTEST_MANAGED_PROVIDERS; do
+    targets+=("$m:managed")
   done
 
   local t
@@ -706,28 +945,31 @@ main() {
     log "run artifacts: $WORKDIR"
     for t in "${targets[@]}"; do
       p="${t%%:*}"; d="${t#*:}"
-      RESULT_FILE="$WORKDIR/results.$p-$d" WORKER_INDEX="$worker_index" run_provider "$p" "$d"
+      RESULT_FILE="$WORKDIR/results.$p-$d" WORKER_INDEX="$worker_index" run_target "$p" "$d"
       worker_index=$((worker_index + 1))
     done
   fi
 
   # Aggregate results from every worker's file (works for both modes).
   local -a all_results=()
-  local total_failures=0 line slug
+  local total_failures=0 total_skips=0 line slug
   for t in "${targets[@]}"; do
     slug="${t%%:*}-${t#*:}"
     [ -f "$WORKDIR/results.$slug" ] || continue
     while IFS= read -r line; do
       [ -z "$line" ] && continue
       all_results+=("$line")
-      case "$line" in FAIL*) total_failures=$((total_failures + 1));; esac
+      case "$line" in
+        FAIL*) total_failures=$((total_failures + 1));;
+        SKIP*) total_skips=$((total_skips + 1));;
+      esac
     done < "$WORKDIR/results.$slug"
   done
 
   section "RESULTS"
   if [ "${#all_results[@]}" -gt 0 ]; then printf '%s\n' "${all_results[@]}"; fi
   section "SUMMARY"
-  log "$(( ${#all_results[@]} - total_failures )) passed, $total_failures failed"
+  log "$(( ${#all_results[@]} - total_failures - total_skips )) passed, $total_failures failed, $total_skips skipped"
   [ "$total_failures" -eq 0 ]
 }
 

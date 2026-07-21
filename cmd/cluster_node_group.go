@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -18,6 +19,8 @@ type (
 	nodeGroupDeleteFunc         func(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error)
 	nodeGroupAutoscalingGetFunc func(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error)
 	nodeGroupAutoscalingSetFunc func(ctx context.Context, clusterID, groupName string, req client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error)
+	nodeGroupLabelsFunc         func(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error)
+	nodeGroupTaintsFunc         func(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error)
 )
 
 // resolveNodeGroupClusterKind looks up the cluster and confirms it is a
@@ -29,11 +32,11 @@ func resolveNodeGroupClusterKind(clusterID string) (string, error) {
 		return "", fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
 	}
 	switch cluster.Kind {
-	case "hetzner", "ovh", "upcloud", "digitalocean":
+	case "hetzner", "ovh", "upcloud", "digitalocean", "proxmox", "morpheus":
 		return cluster.Kind, nil
 	default:
 		return "", fmt.Errorf(
-			"cluster %q (kind %q) does not support node groups. Only Hetzner, OVH, UpCloud, and DigitalOcean clusters can use this command",
+			"cluster %q (kind %q) does not support node groups. Only Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, and HPE Morpheus clusters can use this command",
 			clusterID, cluster.Kind)
 	}
 }
@@ -48,6 +51,10 @@ func nodeGroupListForKind(kind string) nodeGroupListFunc {
 		return apiClient.ListUpcloudNodeGroups
 	case "digitalocean":
 		return apiClient.ListDigitaloceanNodeGroups
+	case "proxmox":
+		return apiClient.ListProxmoxNodeGroups
+	case "morpheus":
+		return apiClient.ListMorpheusNodeGroups
 	}
 	return nil
 }
@@ -62,6 +69,10 @@ func nodeGroupAddForKind(kind string) nodeGroupAddFunc {
 		return apiClient.AddUpcloudNodeGroup
 	case "digitalocean":
 		return apiClient.AddDigitaloceanNodeGroup
+	case "proxmox":
+		return apiClient.AddProxmoxNodeGroup
+	case "morpheus":
+		return apiClient.AddMorpheusNodeGroup
 	}
 	return nil
 }
@@ -76,6 +87,10 @@ func nodeGroupScaleForKind(kind string) nodeGroupScaleFunc {
 		return apiClient.ScaleUpcloudNodeGroup
 	case "digitalocean":
 		return apiClient.ScaleDigitaloceanNodeGroup
+	case "proxmox":
+		return apiClient.ScaleProxmoxNodeGroup
+	case "morpheus":
+		return apiClient.ScaleMorpheusNodeGroup
 	}
 	return nil
 }
@@ -90,6 +105,10 @@ func nodeGroupUpgradeForKind(kind string) nodeGroupUpgradeFunc {
 		return apiClient.UpdateUpcloudNodeGroupInstanceType
 	case "digitalocean":
 		return apiClient.UpdateDigitaloceanNodeGroupInstanceType
+	case "proxmox":
+		return apiClient.UpdateProxmoxNodeGroupInstanceType
+	case "morpheus":
+		return apiClient.UpdateMorpheusNodeGroupInstanceType
 	}
 	return nil
 }
@@ -104,6 +123,10 @@ func nodeGroupDeleteForKind(kind string) nodeGroupDeleteFunc {
 		return apiClient.DeleteUpcloudNodeGroup
 	case "digitalocean":
 		return apiClient.DeleteDigitaloceanNodeGroup
+	case "proxmox":
+		return apiClient.DeleteProxmoxNodeGroup
+	case "morpheus":
+		return apiClient.DeleteMorpheusNodeGroup
 	}
 	return nil
 }
@@ -116,6 +139,12 @@ func nodeGroupAutoscalingGetForKind(kind string) nodeGroupAutoscalingGetFunc {
 		return apiClient.GetOvhNodeGroupAutoscaling
 	case "upcloud":
 		return apiClient.GetUpcloudNodeGroupAutoscaling
+	case "digitalocean":
+		return apiClient.GetDigitaloceanNodeGroupAutoscaling
+	case "proxmox":
+		return apiClient.GetProxmoxNodeGroupAutoscaling
+	case "morpheus":
+		return apiClient.GetMorpheusNodeGroupAutoscaling
 	}
 	return nil
 }
@@ -128,6 +157,48 @@ func nodeGroupAutoscalingSetForKind(kind string) nodeGroupAutoscalingSetFunc {
 		return apiClient.UpdateOvhNodeGroupAutoscaling
 	case "upcloud":
 		return apiClient.UpdateUpcloudNodeGroupAutoscaling
+	case "digitalocean":
+		return apiClient.UpdateDigitaloceanNodeGroupAutoscaling
+	case "proxmox":
+		return apiClient.UpdateProxmoxNodeGroupAutoscaling
+	case "morpheus":
+		return apiClient.UpdateMorpheusNodeGroupAutoscaling
+	}
+	return nil
+}
+
+func nodeGroupLabelsForKind(kind string) nodeGroupLabelsFunc {
+	switch kind {
+	case "hetzner":
+		return apiClient.UpdateHetznerNodeGroupLabels
+	case "ovh":
+		return apiClient.UpdateOvhNodeGroupLabels
+	case "upcloud":
+		return apiClient.UpdateUpcloudNodeGroupLabels
+	case "digitalocean":
+		return apiClient.UpdateDigitaloceanNodeGroupLabels
+	case "proxmox":
+		return apiClient.UpdateProxmoxNodeGroupLabels
+	case "morpheus":
+		return apiClient.UpdateMorpheusNodeGroupLabels
+	}
+	return nil
+}
+
+func nodeGroupTaintsForKind(kind string) nodeGroupTaintsFunc {
+	switch kind {
+	case "hetzner":
+		return apiClient.UpdateHetznerNodeGroupTaints
+	case "ovh":
+		return apiClient.UpdateOvhNodeGroupTaints
+	case "upcloud":
+		return apiClient.UpdateUpcloudNodeGroupTaints
+	case "digitalocean":
+		return apiClient.UpdateDigitaloceanNodeGroupTaints
+	case "proxmox":
+		return apiClient.UpdateProxmoxNodeGroupTaints
+	case "morpheus":
+		return apiClient.UpdateMorpheusNodeGroupTaints
 	}
 	return nil
 }
@@ -137,8 +208,8 @@ var clusterNodeGroupCmd = &cobra.Command{
 	Short: "Manage node groups for a cloud cluster",
 	Long: `List, add, scale, upgrade, and delete node groups on a cloud cluster.
 
-The cloud provider (Hetzner, OVH, or UpCloud) is detected automatically from
-the cluster.`,
+The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, or HPE
+Morpheus) is detected automatically from the cluster.`,
 }
 
 var clusterNodeGroupListCmd = &cobra.Command{
@@ -381,7 +452,12 @@ var clusterNodeGroupAutoscalingGetCmd = &cobra.Command{
 			return kindError
 		}
 
-		result, getError := nodeGroupAutoscalingGetForKind(kind)(clusterID, groupName)
+		autoscalingGet := nodeGroupAutoscalingGetForKind(kind)
+		if autoscalingGet == nil {
+			return fmt.Errorf("cluster %q (kind %q) does not support node-group autoscaling", clusterID, kind)
+		}
+
+		result, getError := autoscalingGet(clusterID, groupName)
 		if getError != nil {
 			return fmt.Errorf("fetching node group autoscaling: %w", getError)
 		}
@@ -428,7 +504,12 @@ the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 		}
 		defer cancelRequestContext()
 
-		result, submitted, setError := nodeGroupAutoscalingSetForKind(kind)(requestContext, clusterID, groupName, req, wait)
+		autoscalingSet := nodeGroupAutoscalingSetForKind(kind)
+		if autoscalingSet == nil {
+			return fmt.Errorf("cluster %q (kind %q) does not support node-group autoscaling", clusterID, kind)
+		}
+
+		result, submitted, setError := autoscalingSet(requestContext, clusterID, groupName, req, wait)
 		if setError != nil {
 			return asyncWriteError("updating node group autoscaling", wait, setError)
 		}
@@ -456,6 +537,120 @@ the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 	},
 }
 
+var clusterNodeGroupLabelsCmd = &cobra.Command{
+	Use:   "labels <cluster_id> <group_name>",
+	Short: "Set labels on all nodes in a node group",
+	Long:  "Replace the labels on every node in the group. Pass --labels as a comma-separated list of key=value pairs, or --clear to remove all labels. The cloud provider is detected automatically from the cluster.",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID := args[0]
+		groupName := args[1]
+		clear, _ := cmd.Flags().GetBool("clear")
+		labelsChanged := cmd.Flags().Changed("labels")
+		labelsFlag, _ := cmd.Flags().GetString("labels")
+
+		if clear && labelsChanged {
+			return withExitCode(exitUsage, errors.New("pass either --labels k=v or --clear, not both"))
+		}
+		if !clear && !labelsChanged {
+			return withExitCode(exitUsage, errors.New("provide --labels k=v to set labels, or pass --clear to remove all labels"))
+		}
+
+		labels, parseError := parseLabelsFlag(labelsFlag)
+		if parseError != nil {
+			return fmt.Errorf("invalid --labels: %w", parseError)
+		}
+		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		if kindError != nil {
+			return kindError
+		}
+
+		requestContext, cancelRequestContext, wait, contextError := nodeGroupAsyncContext(cmd)
+		if contextError != nil {
+			return contextError
+		}
+		defer cancelRequestContext()
+
+		result, submitted, updateError := nodeGroupLabelsForKind(kind)(requestContext, clusterID, groupName, labels, wait)
+		if updateError != nil {
+			return asyncWriteError("updating node group labels", wait, updateError)
+		}
+		if submitted {
+			if handled, renderError := renderStructured(cmd, newAsyncSubmittedResult("Node group labels update")); renderError != nil {
+				return renderError
+			} else if handled {
+				return nil
+			}
+			printAsyncWriteSubmitted("Node group labels update")
+			return nil
+		}
+		if handled, renderError := renderStructured(cmd, result); renderError != nil {
+			return renderError
+		} else if handled {
+			return nil
+		}
+		fmt.Printf("Node group '%s' labels updated. %d node(s) affected.\n", result.GroupName, result.Updated)
+		return nil
+	},
+}
+
+var clusterNodeGroupTaintsCmd = &cobra.Command{
+	Use:   "taints <cluster_id> <group_name>",
+	Short: "Set taints on all nodes in a node group",
+	Long:  "Replace the taints on every node in the group. Pass --taints as a comma-separated list of key=value:Effect (value optional, effect defaults to NoSchedule), or --clear to remove all taints. The cloud provider is detected automatically from the cluster.",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID := args[0]
+		groupName := args[1]
+		clear, _ := cmd.Flags().GetBool("clear")
+		taintsChanged := cmd.Flags().Changed("taints")
+		taintsFlag, _ := cmd.Flags().GetString("taints")
+
+		if clear && taintsChanged {
+			return withExitCode(exitUsage, errors.New("pass either --taints k=v:Effect or --clear, not both"))
+		}
+		if !clear && !taintsChanged {
+			return withExitCode(exitUsage, errors.New("provide --taints k=v:Effect to set taints, or pass --clear to remove all taints"))
+		}
+
+		taints, parseError := parseTaintsFlag(taintsFlag)
+		if parseError != nil {
+			return fmt.Errorf("invalid --taints: %w", parseError)
+		}
+		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		if kindError != nil {
+			return kindError
+		}
+
+		requestContext, cancelRequestContext, wait, contextError := nodeGroupAsyncContext(cmd)
+		if contextError != nil {
+			return contextError
+		}
+		defer cancelRequestContext()
+
+		result, submitted, updateError := nodeGroupTaintsForKind(kind)(requestContext, clusterID, groupName, taints, wait)
+		if updateError != nil {
+			return asyncWriteError("updating node group taints", wait, updateError)
+		}
+		if submitted {
+			if handled, renderError := renderStructured(cmd, newAsyncSubmittedResult("Node group taints update")); renderError != nil {
+				return renderError
+			} else if handled {
+				return nil
+			}
+			printAsyncWriteSubmitted("Node group taints update")
+			return nil
+		}
+		if handled, renderError := renderStructured(cmd, result); renderError != nil {
+			return renderError
+		} else if handled {
+			return nil
+		}
+		fmt.Printf("Node group '%s' taints updated. %d node(s) affected.\n", result.GroupName, result.Updated)
+		return nil
+	},
+}
+
 func init() {
 	clusterNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
 	clusterNodeGroupAddCmd.Flags().String("instance-type", "", "Server type / flavor / plan for nodes (required)")
@@ -467,11 +662,18 @@ func init() {
 	clusterNodeGroupAutoscalingSetCmd.Flags().Int("min", 1, "Minimum node count while autoscaling (>= 1)")
 	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 5, "Maximum node count while autoscaling")
 
+	clusterNodeGroupLabelsCmd.Flags().String("labels", "", "Comma-separated key=value pairs to set on the group")
+	clusterNodeGroupLabelsCmd.Flags().Bool("clear", false, "Remove all labels from the node group")
+	clusterNodeGroupTaintsCmd.Flags().String("taints", "", "Comma-separated key=value:Effect taints to set on the group")
+	clusterNodeGroupTaintsCmd.Flags().Bool("clear", false, "Remove all taints from the node group")
+
 	registerAsyncWriteFlags(clusterNodeGroupAddCmd)
 	registerAsyncWriteFlags(clusterNodeGroupScaleCmd)
 	registerAsyncWriteFlags(clusterNodeGroupUpgradeCmd)
 	registerAsyncWriteFlags(clusterNodeGroupDeleteCmd)
 	registerAsyncWriteFlags(clusterNodeGroupAutoscalingSetCmd)
+	registerAsyncWriteFlags(clusterNodeGroupLabelsCmd)
+	registerAsyncWriteFlags(clusterNodeGroupTaintsCmd)
 
 	clusterNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
@@ -483,6 +685,8 @@ func init() {
 		clusterNodeGroupDeleteCmd,
 		clusterNodeGroupAutoscalingGetCmd,
 		clusterNodeGroupAutoscalingSetCmd,
+		clusterNodeGroupLabelsCmd,
+		clusterNodeGroupTaintsCmd,
 	)
 
 	clusterNodeGroupAutoscalingCmd.AddCommand(clusterNodeGroupAutoscalingGetCmd)
@@ -494,6 +698,8 @@ func init() {
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupUpgradeCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupDeleteCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupAutoscalingCmd)
+	clusterNodeGroupCmd.AddCommand(clusterNodeGroupLabelsCmd)
+	clusterNodeGroupCmd.AddCommand(clusterNodeGroupTaintsCmd)
 
 	clusterCmd.AddCommand(clusterNodeGroupCmd)
 }

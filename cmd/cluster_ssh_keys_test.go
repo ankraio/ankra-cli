@@ -87,7 +87,7 @@ func TestSSHKeysSelectorsForKind(t *testing.T) {
 	mock := &clusterSSHKeysMock{}
 	setMockClient(t, mock)
 
-	for _, kind := range []string{"hetzner", "ovh", "upcloud"} {
+	for _, kind := range []string{"hetzner", "ovh", "upcloud", "digitalocean", "proxmox", "morpheus"} {
 		if sshKeysGetForKind(kind) == nil ||
 			sshKeysSetForKind(kind) == nil ||
 			sshKeysResyncForKind(kind) == nil {

@@ -1,6 +1,6 @@
 ---
 name: ankra-cicd
-description: Build CI/CD pipelines (GitHub Actions or GitLab CI) that deploy to Kubernetes the GitOps way - build a container image, push it with an immutable tag, and bump that tag in the Ankra GitOps repository so Ankra/ArgoCD syncs the change, rather than running kubectl/helm against the cluster from CI. Use when the user sets up CI/CD or automated deployment to a Kubernetes cluster in an Ankra environment, or asks how to deploy on push.
+description: Build CI/CD pipelines (GitHub Actions or GitLab CI) that build a container image, push it with an immutable tag, and bump that tag in the Ankra GitOps repository so Ankra/ArgoCD syncs the change - rather than running kubectl/helm against the cluster from CI. Use when the user wires CI/CD for an Ankra-managed app, mentions GitHub Actions or GitLab CI with Ankra, or asks how to deploy on push.
 ---
 
 # Ankra CI/CD
@@ -40,13 +40,18 @@ For full, copy-pasteable GitHub Actions and GitLab CI examples, see [reference.m
 
 ## Rules
 
-- **Immutable tags only** - commit SHA or semver, never `latest` or a moving tag.
+- **Immutable tags only** — commit SHA or semver, never `latest` or a moving tag.
 - **CI updates Git, Ankra deploys.** Do not run `kubectl apply` / `helm upgrade` against the cluster from CI.
 - **Least-privilege secrets.** CI needs registry push and GitOps-repo write; it does not need cluster admin.
 - **One image, many environments.** Promote by committing the same tag to the next environment's path, don't rebuild.
 - **Encrypt any secret** that lands in the repo with SOPS (`ankra-sops-secrets`).
 
+## AI pipeline-failure investigation and auto-fix PRs
+
+When a pipeline fails, Ankra AI can investigate and fix it for you: it reads the failing run's job logs (GitHub Actions, GitLab pipelines, Bitbucket Pipelines via short-lived minted tokens), clones the repo into an ephemeral workspace pod to reproduce, and proposes the exact file changes. In **Agent** mode it opens the fix as a pull request automatically (the PR is the review gate); in **Ask** mode it stops at the proposed patch. `@ankra`-mention a failing PR from an Agent-mode SCM binding to get a fix PR. See `ankra-ai-gateway` for enabling and scoping this.
+
 ## Related skills
 
 - `ankra-gitops` for the repo layout CI writes into.
 - `ankra-cli` for optional post-deploy verification (`ankra cluster operations list`).
+- `ankra-ai-gateway` for AI pipeline-failure investigation and auto-fix PRs, and the Ask/Agent safety modes.

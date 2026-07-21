@@ -234,6 +234,71 @@ var hetznerK8sVersionCmd = &cobra.Command{
 	},
 }
 
+var hetznerStopCmd = &cobra.Command{
+	Use:   "stop <cluster_id>",
+	Short: "Stop a Hetzner cluster",
+	Long:  "Stop a Hetzner cluster's compute while keeping its configuration so it can be started again later.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID := args[0]
+
+		result, stopError := apiClient.StopHetznerCluster(clusterID)
+		if stopError != nil {
+			return fmt.Errorf("stopping cluster: %w", stopError)
+		}
+
+		if handled, renderError := renderStructured(cmd, result); renderError != nil {
+			return renderError
+		} else if handled {
+			return nil
+		}
+
+		if result.Success {
+			fmt.Println(text.FgGreen.Sprint("Hetzner cluster stop initiated."))
+		} else {
+			fmt.Println("Cluster stop request submitted.")
+		}
+		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+		if result.OperationID != nil {
+			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+		}
+		return nil
+	},
+}
+
+var hetznerStartCmd = &cobra.Command{
+	Use:   "start <cluster_id>",
+	Short: "Start a stopped Hetzner cluster",
+	Long:  "Start (re-provision) a stopped Hetzner cluster. Use --scope control_plane to bring up only the control plane.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID := args[0]
+		scope, _ := cmd.Flags().GetString("scope")
+		if scope != "all" && scope != "control_plane" {
+			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
+		}
+
+		result, startError := apiClient.StartHetznerCluster(clusterID, scope)
+		if startError != nil {
+			return fmt.Errorf("starting cluster: %w", startError)
+		}
+
+		if handled, renderError := renderStructured(cmd, result); renderError != nil {
+			return renderError
+		} else if handled {
+			return nil
+		}
+
+		fmt.Println(text.FgGreen.Sprint("Hetzner cluster start initiated."))
+		fmt.Printf("  Scope: %s\n", result.Scope)
+		if result.MarkedToStartAt != "" {
+			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
+		}
+		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
+		return nil
+	},
+}
+
 var hetznerUpgradeCmd = &cobra.Command{
 	Use:        "upgrade <cluster_id> <target_version>",
 	Short:      "Upgrade Kubernetes version for a Hetzner cluster",
@@ -577,6 +642,8 @@ func init() {
 	registerAsyncWriteFlags(nodeGroupUpgradeCmd)
 	registerAsyncWriteFlags(nodeGroupDeleteCmd)
 
+	hetznerStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
+
 	registerStructuredOutputFlags(
 		hetznerCreateCmd,
 		hetznerDeprovisionCmd,
@@ -584,6 +651,8 @@ func init() {
 		hetznerScaleCmd,
 		hetznerK8sVersionCmd,
 		hetznerUpgradeCmd,
+		hetznerStopCmd,
+		hetznerStartCmd,
 		nodeGroupListCmd,
 		nodeGroupAddCmd,
 		nodeGroupScaleCmd,
@@ -612,6 +681,8 @@ func init() {
 	hetznerCmd.AddCommand(hetznerScaleCmd)
 	hetznerCmd.AddCommand(hetznerK8sVersionCmd)
 	hetznerCmd.AddCommand(hetznerUpgradeCmd)
+	hetznerCmd.AddCommand(hetznerStopCmd)
+	hetznerCmd.AddCommand(hetznerStartCmd)
 	hetznerCmd.AddCommand(nodeGroupCmd)
 
 	clusterCmd.AddCommand(hetznerCmd)

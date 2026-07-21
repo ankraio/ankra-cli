@@ -40,7 +40,7 @@ var deleteClusterCmd = &cobra.Command{
 		clusterInfo, lookupErr := apiClient.GetCluster(name)
 		if lookupErr == nil {
 			switch clusterInfo.Kind {
-			case "hetzner", "ovh", "upcloud", "digitalocean":
+			case "hetzner", "ovh", "upcloud", "digitalocean", "proxmox", "morpheus":
 				fmt.Printf(
 					"Cluster %q is a %s cloud cluster and cannot be deleted with this command.\n"+
 						"Run 'ankra cluster deprovision %s' instead so the cloud resources are released.\n",

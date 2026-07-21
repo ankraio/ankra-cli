@@ -150,7 +150,7 @@ func TestUpgradeFunctionForKind_SupportedKinds(t *testing.T) {
 	mock := &clusterUpgradeMock{}
 	setMockClient(t, mock)
 
-	for _, kind := range []string{"hetzner", "ovh", "upcloud"} {
+	for _, kind := range []string{"hetzner", "ovh", "upcloud", "digitalocean", "proxmox", "morpheus"} {
 		if _, supported := upgradeFunctionForKind(kind); !supported {
 			t.Errorf("kind %q should be upgradeable", kind)
 		}

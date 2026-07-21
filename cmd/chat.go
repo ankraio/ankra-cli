@@ -25,6 +25,11 @@ Use --cluster to provide cluster context for better answers.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterName, _ := cmd.Flags().GetString("cluster")
+		mode, _ := cmd.Flags().GetString("mode")
+		interactionMode, modeError := normalizeChatMode(mode)
+		if modeError != nil {
+			return modeError
+		}
 
 		var clusterID *string
 		if clusterName != "" {
@@ -41,14 +46,29 @@ Use --cluster to provide cluster context for better answers.`,
 		}
 
 		if len(args) > 0 {
-			return runChatMessage(clusterID, args[0])
+			return runChatMessage(clusterID, args[0], interactionMode)
 		}
-		return runInteractiveChat(clusterID)
+		return runInteractiveChat(clusterID, interactionMode)
 	},
 }
 
-func runChatMessage(clusterID *string, query string) error {
-	req := client.ChatRequest{Query: query}
+// normalizeChatMode validates the --mode flag: empty leaves the server
+// default; "ask" and "agent" map to the interaction_mode wire values.
+func normalizeChatMode(mode string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "":
+		return "", nil
+	case "ask":
+		return "ask", nil
+	case "agent", "agentic":
+		return "agentic", nil
+	default:
+		return "", fmt.Errorf("invalid --mode %q: use 'ask' (read-only + safe creations) or 'agent' (can act)", mode)
+	}
+}
+
+func runChatMessage(clusterID *string, query string, interactionMode string) error {
+	req := client.ChatRequest{Query: query, InteractionMode: interactionMode}
 	events, err := apiClient.StreamChat(clusterID, req)
 	if err != nil {
 		return fmt.Errorf("chat: %w", err)
@@ -99,13 +119,19 @@ func runChatMessage(clusterID *string, query string) error {
 	return nil
 }
 
-func runInteractiveChat(clusterID *string) error {
+func runInteractiveChat(clusterID *string, interactionMode string) error {
 	fmt.Println("Ankra AI Chat")
 	fmt.Println("─────────────")
 	if clusterID != nil {
 		fmt.Println("Cluster context: active")
 	} else {
 		fmt.Println("Cluster context: none (use --cluster to set)")
+	}
+	switch interactionMode {
+	case "ask":
+		fmt.Println("Mode: ask (read-only + safe creations)")
+	case "agentic":
+		fmt.Println("Mode: agent (can act)")
 	}
 	fmt.Println("Type 'exit' or 'quit' to exit, 'clear' to clear history")
 	fmt.Println()
@@ -141,6 +167,7 @@ func runInteractiveChat(clusterID *string) error {
 		req := client.ChatRequest{
 			Query:               input,
 			ConversationHistory: history,
+			InteractionMode:     interactionMode,
 		}
 
 		events, err := apiClient.StreamChat(clusterID, req)
@@ -384,6 +411,7 @@ var chatHealthCmd = &cobra.Command{
 
 func init() {
 	chatCmd.Flags().String("cluster", "", "Cluster name for context")
+	chatCmd.Flags().String("mode", "", "Safety mode: 'ask' (read-only + safe creations) or 'agent' (can act). Defaults to the server default.")
 
 	chatHistoryCmd.Flags().String("cluster", "", "Filter by cluster")
 	chatHistoryCmd.Flags().Int("limit", 20, "Maximum number of conversations to show")
