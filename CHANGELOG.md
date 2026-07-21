@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.9.0-rc3 — 2026-07-21
+
 ### Added
 
 - **See and stop what your AI agents are doing with `ankra agents`.** The
