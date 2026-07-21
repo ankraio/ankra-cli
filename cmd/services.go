@@ -374,6 +374,7 @@ type APIClient interface {
 	ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error)
 	ListProxmoxClusterNodes(clusterID string) (*client.NodeListResult, error)
 	GetProxmoxClusterNode(clusterID, nodeID string) (*client.NodeDetail, error)
+	RestartProxmoxClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error)
 	GetProxmoxClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error)
 	UpdateProxmoxClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error)
 	ResyncProxmoxClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error)

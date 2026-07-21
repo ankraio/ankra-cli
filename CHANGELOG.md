@@ -30,11 +30,12 @@
 - **Proxmox VE clusters are managed from the CLI.** The new `ankra cluster
   proxmox` family covers create, deprovision, stop/start, worker and
   node-group scaling, labels and taints, autoscaling, control-plane changes,
-  node inspection, SSH keys, Kubernetes upgrades, and discovery of Proxmox
+  node inspection and restart, SSH keys, Kubernetes upgrades, and discovery of Proxmox
   nodes, storages, bridges, and templates, plus `ankra credentials proxmox`
   for credential management.
 - **HPE Morpheus clusters are managed from the CLI.** The new `ankra
-  cluster morpheus` family mirrors the Proxmox surface — full lifecycle,
+  cluster morpheus` family mirrors the Proxmox surface (node restart excepted — the
+  platform has no Morpheus restart lane) — full lifecycle,
   node groups, control plane, SSH keys, and upgrades — plus discovery of
   Morpheus groups, clouds, plans, layouts, and networks, and `ankra
   credentials morpheus` for credential management.
