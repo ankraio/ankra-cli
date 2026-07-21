@@ -1,11 +1,11 @@
 ---
 name: ankra-cloud-clusters
-description: Provision and manage Ankra-managed Kubernetes clusters (K3s or kubeadm) on Hetzner Cloud, OVHcloud, UpCloud, and DigitalOcean - creating clusters, storing provider credentials, and managing node groups, scaling, Kubernetes versions, and upgrades. Use when the user wants to create or provision a new Kubernetes cluster (rather than import an existing one), or mentions Hetzner, OVH, UpCloud, or DigitalOcean clusters.
+description: Provision and manage Ankra-managed K3s clusters on Hetzner Cloud, OVHcloud, UpCloud, and DigitalOcean - creating clusters, storing provider credentials, and managing node groups, scaling, Kubernetes versions, and upgrades. Use when the user wants Ankra to provision a cluster (rather than import one), or mentions Hetzner, OVH, UpCloud, or DigitalOcean clusters.
 ---
 
 # Ankra Cloud Clusters
 
-Besides importing existing clusters, Ankra can provision managed Kubernetes clusters on Hetzner Cloud, OVHcloud, UpCloud, and DigitalOcean - K3s by default, or vanilla upstream Kubernetes via kubeadm. This skill covers the provision-and-manage lifecycle. Provider subcommands share a common shape: `ankra cluster hetzner|ovh|upcloud|digitalocean <verb>`.
+Besides importing existing clusters, Ankra can provision managed K3s clusters on Hetzner Cloud, OVHcloud, UpCloud, and DigitalOcean. This skill covers the provision-and-manage lifecycle. Provider subcommands share a common shape: `ankra cluster hetzner|ovh|upcloud|digitalocean <verb>`.
 
 ## 1. Store provider credentials
 
@@ -54,22 +54,6 @@ ankra cluster digitalocean create \
   --wait
 ```
 
-### Distribution: K3s (default) or kubeadm
-
-`--distribution kubeadm` provisions vanilla upstream Kubernetes (containerd, pinned pkgs.k8s.io packages, Cilium CNI) instead of K3s. kubeadm-only extras:
-
-```bash
-ankra cluster kubeadm-versions                               # supported upstream versions (plain v1.31.0 tags)
-ankra cluster hetzner create ... \
-  --distribution kubeadm \
-  --etcd-topology external \                                 # default: stacked (etcd on control planes)
-  --etcd-node-count 3 \                                      # 3 or 5, external only
-  --etcd-server-type cx33                                    # OVH: --etcd-flavor-id, UpCloud: --etcd-plan, DigitalOcean: --etcd-size
-```
-
-- Version tags differ per distribution: `ankra cluster k3s-versions` lists `v1.30.0+k3s1`-style tags; `kubeadm-versions` lists plain `v1.31.0` tags. Upgrades reject the wrong format.
-- External etcd is kubeadm-only, fixed at create time (no resize), on dedicated VMs.
-
 > `ankra cluster provision` and `ankra cluster deprovision` **start and stop** an already-created managed cluster - they are not how you create one. Creation is always `ankra cluster <provider> create`.
 
 ## 3. Manage the lifecycle
@@ -111,16 +95,9 @@ ankra cluster ovh ssh-keys set <cluster_id> --ssh-key-credential-ids <id>,...  #
 
 (Hetzner, UpCloud, and DigitalOcean node groups support `add/list/scale/upgrade/delete`; labels/taints, start/stop, access-info, ssh-keys, and `regions` are OVH-specific today. DigitalOcean adds `regions` and `sizes` discovery commands.)
 
-## Provider-native managed Kubernetes (DOKS & UKS)
+## Provider-native managed Kubernetes
 
-For DigitalOcean Kubernetes (DOKS, kind `doks`) or UpCloud UKS (kind `uks`) instead of self-managed K3s on VMs, use the platform API:
-
-```bash
-curl -X POST https://platform.ankra.app/org/clusters/managed/doks \
-  -H "Authorization: Bearer $ANKRA_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"prod","credential_id":"<do_cred_id>","location":"nyc3","node_pools":[{"name":"default","size":"s-2vcpu-4gb","count":2}]}'
-```
+For managed Kubernetes where the provider runs the control plane - DigitalOcean DOKS, UpCloud UKS, Google GKE, OVHcloud MKS, Azure AKS, or Amazon EKS - use `ankra cluster managed <verb> --provider <doks|uks|gke|mks|aks|eks>` instead of the per-provider K3s commands above, and see the `ankra-managed-kubernetes` skill for the full lifecycle (options, create, discover, import, node pools, upgrades, delete).
 
 ## 4. Deprovision / delete (destructive)
 
@@ -145,4 +122,5 @@ Confirm the target with `ankra cluster info` first; deprovisioning releases infr
 ## Related skills
 
 - `ankra-cli` for the broader command surface, auth, and async/`--wait` conventions.
+- `ankra-managed-kubernetes` for provider-native managed Kubernetes (DOKS, UKS, GKE, OVH MKS, AKS, EKS).
 - `ankra-stacks-addons` / `ankra-gitops` to deploy workloads once the cluster exists.

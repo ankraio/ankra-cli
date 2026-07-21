@@ -195,6 +195,24 @@ func (c *Client) UpdateUpcloudNodeGroupInstanceType(ctx context.Context, cluster
 	return c.doUpdateNodeGroup(ctx, url, payload, wait)
 }
 
+func (c *Client) UpdateUpcloudNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(UpdateLabelsRequest{Labels: labels})
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
+}
+
+func (c *Client) UpdateUpcloudNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(UpdateTaintsRequest{Taints: taints})
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
+}
+
 func (c *Client) DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
 	return c.doDeleteNodeGroup(ctx, url, wait)

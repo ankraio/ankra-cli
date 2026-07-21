@@ -20,6 +20,10 @@ type ChatRequest struct {
 	Query               string        `json:"query"`
 	ConversationID      *string       `json:"conversation_id,omitempty"`
 	ConversationHistory []ChatMessage `json:"conversation_history,omitempty"`
+	// InteractionMode selects the chat safety mode: "ask" (read-only plus
+	// the curated safe creations) or "agent" (can act). Empty leaves the
+	// server default.
+	InteractionMode string `json:"interaction_mode,omitempty"`
 }
 
 type ChatConversation struct {

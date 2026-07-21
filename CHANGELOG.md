@@ -13,6 +13,34 @@
   organisation admins only): the platform interrupts the in-flight turn
   within seconds without pausing the agent itself. All four support
   `-o json|yaml` for scripting.
+- **Hetzner clusters can be stopped and started.** `ankra cluster hetzner
+  stop <cluster_id>` releases the cluster's compute while preserving its
+  saved topology, and `ankra cluster hetzner start <cluster_id>` re-provisions
+  it (optionally `--scope control_plane`), matching the other self-managed
+  providers.
+- **The managed Kubernetes family reaches parity.** `ankra cluster managed
+  stop|start` drives provider-native stop/start where the provider supports
+  it (AKS today), the new `ankra cluster managed node-pool update` command
+  changes node counts and autoscaling settings in place, node pools take
+  autoscaling bounds at create and add (`--autoscaling`,
+  `--autoscaling-min`, `--autoscaling-max`), and Scaleway Kapsule joins the
+  provider list (`--provider kapsule`, with `--private-network-id`).
+- **Proxmox VE clusters are managed from the CLI.** The new `ankra cluster
+  proxmox` family covers create, deprovision, stop/start, worker and
+  node-group scaling, labels and taints, autoscaling, control-plane changes,
+  node inspection, SSH keys, Kubernetes upgrades, and discovery of Proxmox
+  nodes, storages, bridges, and templates, plus `ankra credentials proxmox`
+  for credential management.
+- **HPE Morpheus clusters are managed from the CLI.** The new `ankra
+  cluster morpheus` family mirrors the Proxmox surface — full lifecycle,
+  node groups, control plane, SSH keys, and upgrades — plus discovery of
+  Morpheus groups, clouds, plans, layouts, and networks, and `ankra
+  credentials morpheus` for credential management.
+- **The lifecycle systemtest covers managed clusters.** `systemtest/
+  lifecycle_systemtest.sh` now exercises both cluster families: the
+  self-managed provider lifecycle and, per managed provider, the managed
+  lifecycle (create, node-pool add/scale/update, stop/start where
+  supported, upgrade, delete).
 
 ## v0.9.0-rc2 — 2026-07-20
 

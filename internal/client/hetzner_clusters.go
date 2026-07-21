@@ -62,7 +62,7 @@ type CreateHetznerClusterRequest struct {
 	EtcdTopology           string                   `json:"etcd_topology,omitempty"`
 	EtcdNodeCount          int                      `json:"etcd_node_count,omitempty"`
 	EtcdServerType         string                   `json:"etcd_server_type,omitempty"`
-	NodeGroups             []CreateNodeGroupRequest  `json:"node_groups,omitempty"`
+	NodeGroups             []CreateNodeGroupRequest `json:"node_groups,omitempty"`
 	ExternalCloudProvider  bool                     `json:"external_cloud_provider"`
 	IncludeNetworking      bool                     `json:"include_networking"`
 	GitopsCredentialName   *string                  `json:"gitops_credential_name,omitempty"`
@@ -179,6 +179,14 @@ func (c *Client) DeprovisionHetznerCluster(clusterID string, force bool) (*Depro
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &result, nil
+}
+
+func (c *Client) StopHetznerCluster(clusterID string) (*ProviderStopClusterResponse, error) {
+	return c.stopProviderCluster("hetzner", clusterID)
+}
+
+func (c *Client) StartHetznerCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {
+	return c.startProviderCluster("hetzner", clusterID, scope)
 }
 
 func (c *Client) GetHetznerWorkerCount(clusterID string) (*WorkerCountResult, error) {
@@ -319,6 +327,24 @@ func (c *Client) UpdateHetznerNodeGroupInstanceType(ctx context.Context, cluster
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
 	return c.doUpdateNodeGroup(ctx, url, payload, wait)
+}
+
+func (c *Client) UpdateHetznerNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(UpdateLabelsRequest{Labels: labels})
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
+}
+
+func (c *Client) UpdateHetznerNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(UpdateTaintsRequest{Taints: taints})
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
 func (c *Client) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {

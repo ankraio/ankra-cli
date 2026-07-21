@@ -120,6 +120,20 @@ func (c *Client) postCSRFJSON(requestURL string, requestBody interface{}, target
 	return c.doJSON(request, target, operation)
 }
 
+func (c *Client) patchCSRFJSON(requestURL string, requestBody interface{}, target interface{}, operation string) error {
+	payload, err := marshalOptionalJSON(requestBody)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequest(http.MethodPatch, requestURL, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	c.applyAuthAndCSRFHeaders(request)
+	return c.doJSON(request, target, operation)
+}
+
 func (c *Client) deleteCSRFJSON(requestURL string, target interface{}, operation string) error {
 	request, err := http.NewRequest(http.MethodDelete, requestURL, nil)
 	if err != nil {

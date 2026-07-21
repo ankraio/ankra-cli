@@ -53,6 +53,22 @@ func digitaloceanNodesOps() clusterNodesOps {
 	}
 }
 
+func proxmoxNodesOps() clusterNodesOps {
+	return clusterNodesOps{
+		provider: "proxmox",
+		list:     apiClient.ListProxmoxClusterNodes,
+		get:      apiClient.GetProxmoxClusterNode,
+	}
+}
+
+func morpheusNodesOps() clusterNodesOps {
+	return clusterNodesOps{
+		provider: "morpheus",
+		list:     apiClient.ListMorpheusClusterNodes,
+		get:      apiClient.GetMorpheusClusterNode,
+	}
+}
+
 func runNodesList(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID string) error {
 	ops := opsFn()
 	result, err := ops.list(clusterID)
@@ -278,4 +294,6 @@ func init() {
 	ovhCmd.AddCommand(newNodesCmd(ovhNodesOps, "OVH"))
 	upcloudCmd.AddCommand(newNodesCmd(upcloudNodesOps, "UpCloud"))
 	digitaloceanCmd.AddCommand(newNodesCmd(digitaloceanNodesOps, "DigitalOcean"))
+	proxmoxCmd.AddCommand(newNodesCmd(proxmoxNodesOps, "Proxmox VE"))
+	morpheusCmd.AddCommand(newNodesCmd(morpheusNodesOps, "HPE Morpheus"))
 }

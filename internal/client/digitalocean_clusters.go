@@ -14,7 +14,7 @@ type CreateDigitaloceanClusterRequest struct {
 	Description           *string `json:"description,omitempty"`
 	CredentialID          string  `json:"credential_id"`
 	SSHKeyCredentialID    string  `json:"ssh_key_credential_id"`
-	Region                  string  `json:"region"`
+	Region                string  `json:"region"`
 	NetworkIPRange        string  `json:"network_ip_range"`
 	BastionSize           string  `json:"bastion_size"`
 	ControlPlaneCount     int     `json:"control_plane_count"`
@@ -172,6 +172,20 @@ func (c *Client) ScaleDigitaloceanNodeGroup(ctx context.Context, clusterID, grou
 	return c.doScaleNodeGroup(ctx, url, payload, wait)
 }
 
+func (c *Client) GetDigitaloceanNodeGroupAutoscaling(clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
+	return c.doGetNodeGroupAutoscaling(url)
+}
+
+func (c *Client) UpdateDigitaloceanNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, req NodeGroupAutoscalingRequest, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, wait)
+}
+
 func (c *Client) UpdateDigitaloceanNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
 	payload, err := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
@@ -179,6 +193,24 @@ func (c *Client) UpdateDigitaloceanNodeGroupInstanceType(ctx context.Context, cl
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
 	return c.doUpdateNodeGroup(ctx, url, payload, wait)
+}
+
+func (c *Client) UpdateDigitaloceanNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(UpdateLabelsRequest{Labels: labels})
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
+}
+
+func (c *Client) UpdateDigitaloceanNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(UpdateTaintsRequest{Taints: taints})
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
 func (c *Client) DeleteDigitaloceanNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {

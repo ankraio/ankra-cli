@@ -21,6 +21,7 @@ version; running one prints a warning pointing at the replacement.
 | Deprecated | Deprecated in | Replacement | Notes |
 |---|---|---|---|
 | `ankra cluster ovh ssh-keys <get\|set> <cluster_id>` | v0.4.0 | `ankra cluster ssh-keys <get\|set> <cluster_id>` | The provider is detected automatically from the cluster. The generic group also adds `resync` and works for Hetzner and UpCloud. |
+| `ankra cluster ovh node-group <labels\|taints> <cluster_id> <group_name>` | v0.5.0 | `ankra cluster node-group <labels\|taints> <cluster_id> <group_name>` | The provider is detected automatically from the cluster; the generic verbs work for all six providers. |
 
 ### v0.5.0
 

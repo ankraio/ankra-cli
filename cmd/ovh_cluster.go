@@ -956,6 +956,10 @@ func init() {
 	)
 	markDeprecatedForGenericVerb("ankra cluster ssh-keys get <cluster_id>", ovhSSHKeysGetCmd)
 	markDeprecatedForGenericVerb("ankra cluster ssh-keys set <cluster_id> --ssh-key-credential-ids ...", ovhSSHKeysSetCmd)
+	markDeprecatedForGenericVerb(
+		"ankra cluster node-group <labels|taints> <cluster_id> <group_name>",
+		ovhNodeGroupLabelsCmd, ovhNodeGroupTaintsCmd,
+	)
 
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupListCmd)
 	ovhNodeGroupCmd.AddCommand(ovhNodeGroupAddCmd)

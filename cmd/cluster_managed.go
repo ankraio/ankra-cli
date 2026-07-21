@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -13,7 +14,7 @@ import (
 var managedCmd = &cobra.Command{
 	Use:   "managed",
 	Short: "Manage cloud-managed Kubernetes clusters",
-	Long:  "Create, delete, scale node pools, and upgrade cloud-managed Kubernetes clusters on DOKS, UpCloud UKS, GKE, OVH MKS, AKS, and EKS.",
+	Long:  "Create, delete, stop and start, scale node pools, and upgrade cloud-managed Kubernetes clusters on DOKS, UpCloud UKS, GKE, OVH MKS, AKS, EKS, and Scaleway Kapsule.",
 }
 
 var managedCreateCmd = &cobra.Command{
@@ -35,6 +36,12 @@ var managedCreateCmd = &cobra.Command{
 		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
 		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
 		gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
+		privateNetworkID, _ := cmd.Flags().GetString("private-network-id")
+
+		autoscaling, autoscalingError := parseManagedAutoscalingFlags(cmd)
+		if autoscalingError != nil {
+			return autoscalingError
+		}
 
 		request := client.CreateManagedClusterRequest{
 			Name:         name,
@@ -42,11 +49,20 @@ var managedCreateCmd = &cobra.Command{
 			Location:     location,
 			NodePools: []client.ManagedClusterNodePoolRequest{
 				{
-					Name:  nodePoolName,
-					Size:  nodePoolSize,
-					Count: nodePoolCount,
+					Name:        nodePoolName,
+					Size:        nodePoolSize,
+					Count:       nodePoolCount,
+					Autoscaling: autoscaling,
 				},
 			},
+		}
+		if provider == client.ManagedK8sProviderKapsule {
+			if privateNetworkID == "" {
+				return withExitCode(exitUsage, errors.New("--private-network-id is required with --provider kapsule"))
+			}
+			request.Kapsule = &client.KapsuleClusterOptions{PrivateNetworkID: privateNetworkID}
+		} else if privateNetworkID != "" {
+			return withExitCode(exitUsage, fmt.Errorf("--private-network-id is only supported with --provider kapsule, not %q", provider))
 		}
 		if kubeVersion != "" {
 			request.KubernetesVersion = &kubeVersion
@@ -153,10 +169,16 @@ var managedNodePoolAddCmd = &cobra.Command{
 		size, _ := cmd.Flags().GetString("size")
 		count, _ := cmd.Flags().GetInt("count")
 
+		autoscaling, autoscalingError := parseManagedAutoscalingFlags(cmd)
+		if autoscalingError != nil {
+			return autoscalingError
+		}
+
 		result, err := apiClient.AddManagedNodePool(provider, clusterID, client.AddManagedNodePoolRequest{
-			Name:  name,
-			Size:  size,
-			Count: count,
+			Name:        name,
+			Size:        size,
+			Count:       count,
+			Autoscaling: autoscaling,
 		})
 		if err != nil {
 			return fmt.Errorf("adding node pool: %w", err)
@@ -239,6 +261,138 @@ var managedNodePoolDeleteCmd = &cobra.Command{
 	},
 }
 
+var managedNodePoolUpdateCmd = &cobra.Command{
+	Use:   "update <cluster_id> <node_pool_name>",
+	Short: "Update a managed cluster node pool",
+	Long: `Update the node count or autoscaling settings of a managed cluster node
+pool. Pass at least one of --count, --autoscaling, --autoscaling-min, or
+--autoscaling-max; unspecified settings are left unchanged.`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		provider, err := parseManagedProviderFlag(cmd)
+		if err != nil {
+			return err
+		}
+
+		clusterID := args[0]
+		nodePoolName := args[1]
+
+		var request client.UpdateManagedNodePoolRequest
+		if cmd.Flags().Changed("count") {
+			count, _ := cmd.Flags().GetInt("count")
+			request.Count = &count
+		}
+		if cmd.Flags().Changed("autoscaling") {
+			enabled, _ := cmd.Flags().GetBool("autoscaling")
+			request.AutoscalingEnabled = &enabled
+		}
+		if cmd.Flags().Changed("autoscaling-min") {
+			minCount, _ := cmd.Flags().GetInt("autoscaling-min")
+			request.AutoscalingMin = &minCount
+		}
+		if cmd.Flags().Changed("autoscaling-max") {
+			maxCount, _ := cmd.Flags().GetInt("autoscaling-max")
+			request.AutoscalingMax = &maxCount
+		}
+		if request == (client.UpdateManagedNodePoolRequest{}) {
+			return withExitCode(exitUsage, errors.New("pass at least one of --count, --autoscaling, --autoscaling-min, --autoscaling-max"))
+		}
+
+		result, err := apiClient.UpdateManagedNodePool(provider, clusterID, nodePoolName, request)
+		if err != nil {
+			return fmt.Errorf("updating node pool: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		fmt.Printf("Node pool %q updated on cluster %s\n", result.NodePoolName, result.ClusterID)
+		if result.Count != nil {
+			fmt.Printf("  Count: %d\n", *result.Count)
+		}
+		if result.AutoscalingEnabled != nil {
+			if *result.AutoscalingEnabled {
+				if result.AutoscalingMin != nil && result.AutoscalingMax != nil {
+					fmt.Printf("  Autoscaling: enabled (min %d, max %d)\n", *result.AutoscalingMin, *result.AutoscalingMax)
+				} else {
+					fmt.Println("  Autoscaling: enabled")
+				}
+			} else {
+				fmt.Println("  Autoscaling: disabled")
+			}
+		}
+		return nil
+	},
+}
+
+var managedStopCmd = &cobra.Command{
+	Use:   "stop <cluster_id>",
+	Short: "Stop a managed cluster's compute",
+	Long: `Stop a managed Kubernetes cluster's compute while keeping its configuration
+so it can be started again later. Currently only AKS supports stopping and
+starting managed clusters.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		provider, err := parseManagedProviderFlag(cmd)
+		if err != nil {
+			return err
+		}
+
+		result, stopError := apiClient.StopManagedCluster(provider, args[0])
+		if stopError != nil {
+			return managedLifecycleError("stopping", stopError)
+		}
+
+		if handled, renderError := renderStructured(cmd, result); renderError != nil {
+			return renderError
+		} else if handled {
+			return nil
+		}
+
+		fmt.Println(text.FgGreen.Sprint("Managed cluster stop initiated."))
+		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+		if result.Status != "" {
+			fmt.Printf("  Status: %s\n", result.Status)
+		}
+		return nil
+	},
+}
+
+var managedStartCmd = &cobra.Command{
+	Use:   "start <cluster_id>",
+	Short: "Start a stopped managed cluster",
+	Long: `Start a stopped managed Kubernetes cluster. Currently only AKS supports
+stopping and starting managed clusters.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		provider, err := parseManagedProviderFlag(cmd)
+		if err != nil {
+			return err
+		}
+
+		result, startError := apiClient.StartManagedCluster(provider, args[0])
+		if startError != nil {
+			return managedLifecycleError("starting", startError)
+		}
+
+		if handled, renderError := renderStructured(cmd, result); renderError != nil {
+			return renderError
+		} else if handled {
+			return nil
+		}
+
+		fmt.Println(text.FgGreen.Sprint("Managed cluster start initiated."))
+		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+		if result.Status != "" {
+			fmt.Printf("  Status: %s\n", result.Status)
+		}
+		return nil
+	},
+}
+
 var managedUpgradeCmd = &cobra.Command{
 	Use:   "upgrade <cluster_id>",
 	Short: "Upgrade a managed cluster Kubernetes version",
@@ -275,7 +429,7 @@ var managedUpgradeCmd = &cobra.Command{
 	},
 }
 
-const managedProviderFlagHelp = "Managed Kubernetes provider (doks, uks, gke, ovh_mks, aks, eks)"
+const managedProviderFlagHelp = "Managed Kubernetes provider (doks, uks, gke, ovh_mks, aks, eks, kapsule)"
 
 func parseManagedProviderFlag(cmd *cobra.Command) (client.ManagedK8sProvider, error) {
 	providerValue, _ := cmd.Flags().GetString("provider")
@@ -292,9 +446,43 @@ func parseManagedProviderFlag(cmd *cobra.Command) (client.ManagedK8sProvider, er
 		return client.ManagedK8sProviderAks, nil
 	case "eks":
 		return client.ManagedK8sProviderEks, nil
+	case "kapsule":
+		return client.ManagedK8sProviderKapsule, nil
 	default:
-		return "", fmt.Errorf("invalid provider %q: must be one of doks, uks, gke, ovh_mks, aks, eks", providerValue)
+		return "", fmt.Errorf("invalid provider %q: must be one of doks, uks, gke, ovh_mks, aks, eks, kapsule", providerValue)
 	}
+}
+
+// parseManagedAutoscalingFlags reads the shared --autoscaling trio on
+// node-pool-shaped commands. Bounds without --autoscaling, or --autoscaling
+// without both bounds, are usage errors.
+func parseManagedAutoscalingFlags(cmd *cobra.Command) (*client.ManagedNodePoolAutoscaling, error) {
+	enabled, _ := cmd.Flags().GetBool("autoscaling")
+	if !enabled {
+		if cmd.Flags().Changed("autoscaling-min") || cmd.Flags().Changed("autoscaling-max") {
+			return nil, withExitCode(exitUsage, errors.New("--autoscaling-min and --autoscaling-max require --autoscaling"))
+		}
+		return nil, nil
+	}
+	if !cmd.Flags().Changed("autoscaling-min") || !cmd.Flags().Changed("autoscaling-max") {
+		return nil, withExitCode(exitUsage, errors.New("--autoscaling requires both --autoscaling-min and --autoscaling-max"))
+	}
+	minCount, _ := cmd.Flags().GetInt("autoscaling-min")
+	maxCount, _ := cmd.Flags().GetInt("autoscaling-max")
+	return &client.ManagedNodePoolAutoscaling{Enabled: true, MinCount: minCount, MaxCount: maxCount}, nil
+}
+
+// managedLifecycleError decorates stop/start API refusals: when the backend
+// answers that the provider cannot stop or start clusters, remind the user
+// that only AKS currently supports it.
+func managedLifecycleError(action string, apiError error) error {
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(apiError, &unexpected) &&
+		unexpected.StatusCode >= 400 && unexpected.StatusCode < 500 &&
+		strings.Contains(strings.ToLower(unexpected.Error()), "support") {
+		return fmt.Errorf("%s managed cluster: %w (only AKS currently supports managed cluster stop/start)", action, apiError)
+	}
+	return fmt.Errorf("%s managed cluster: %w", action, apiError)
 }
 
 func init() {
@@ -309,6 +497,10 @@ func init() {
 	managedCreateCmd.Flags().String("gitops-credential-name", "", "GitOps credential name (optional)")
 	managedCreateCmd.Flags().String("gitops-repository", "", "GitOps repository URL (optional)")
 	managedCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch (optional)")
+	managedCreateCmd.Flags().String("private-network-id", "", "Scaleway private network ID (required with --provider kapsule)")
+	managedCreateCmd.Flags().Bool("autoscaling", false, "Enable autoscaling for the initial node pool")
+	managedCreateCmd.Flags().Int("autoscaling-min", 0, "Minimum node count while autoscaling (requires --autoscaling)")
+	managedCreateCmd.Flags().Int("autoscaling-max", 0, "Maximum node count while autoscaling (requires --autoscaling)")
 	_ = managedCreateCmd.MarkFlagRequired("provider")
 	_ = managedCreateCmd.MarkFlagRequired("name")
 	_ = managedCreateCmd.MarkFlagRequired("credential-id")
@@ -324,6 +516,9 @@ func init() {
 	managedNodePoolAddCmd.Flags().String("name", "", "Node pool name")
 	managedNodePoolAddCmd.Flags().String("size", "", "Node pool size/plan")
 	managedNodePoolAddCmd.Flags().Int("count", 1, "Node count")
+	managedNodePoolAddCmd.Flags().Bool("autoscaling", false, "Enable autoscaling for the node pool")
+	managedNodePoolAddCmd.Flags().Int("autoscaling-min", 0, "Minimum node count while autoscaling (requires --autoscaling)")
+	managedNodePoolAddCmd.Flags().Int("autoscaling-max", 0, "Maximum node count while autoscaling (requires --autoscaling)")
 	_ = managedNodePoolAddCmd.MarkFlagRequired("provider")
 	_ = managedNodePoolAddCmd.MarkFlagRequired("name")
 	_ = managedNodePoolAddCmd.MarkFlagRequired("size")
@@ -337,15 +532,28 @@ func init() {
 	managedNodePoolDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	_ = managedNodePoolDeleteCmd.MarkFlagRequired("provider")
 
+	managedNodePoolUpdateCmd.Flags().String("provider", "", managedProviderFlagHelp)
+	managedNodePoolUpdateCmd.Flags().Int("count", 0, "Target node count")
+	managedNodePoolUpdateCmd.Flags().Bool("autoscaling", false, "Enable (true) or disable (false) autoscaling")
+	managedNodePoolUpdateCmd.Flags().Int("autoscaling-min", 0, "Minimum node count while autoscaling")
+	managedNodePoolUpdateCmd.Flags().Int("autoscaling-max", 0, "Maximum node count while autoscaling")
+	_ = managedNodePoolUpdateCmd.MarkFlagRequired("provider")
+
+	managedStopCmd.Flags().String("provider", "", managedProviderFlagHelp)
+	_ = managedStopCmd.MarkFlagRequired("provider")
+
+	managedStartCmd.Flags().String("provider", "", managedProviderFlagHelp)
+	_ = managedStartCmd.MarkFlagRequired("provider")
+
 	managedUpgradeCmd.Flags().String("provider", "", managedProviderFlagHelp)
 	managedUpgradeCmd.Flags().String("version", "", "Target Kubernetes version")
 	managedUpgradeCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	_ = managedUpgradeCmd.MarkFlagRequired("provider")
 	_ = managedUpgradeCmd.MarkFlagRequired("version")
 
-	managedNodePoolCmd.AddCommand(managedNodePoolAddCmd, managedNodePoolScaleCmd, managedNodePoolDeleteCmd)
-	managedCmd.AddCommand(managedCreateCmd, managedDeleteCmd, managedNodePoolCmd, managedUpgradeCmd)
+	managedNodePoolCmd.AddCommand(managedNodePoolAddCmd, managedNodePoolScaleCmd, managedNodePoolDeleteCmd, managedNodePoolUpdateCmd)
+	managedCmd.AddCommand(managedCreateCmd, managedDeleteCmd, managedNodePoolCmd, managedUpgradeCmd, managedStopCmd, managedStartCmd)
 	clusterCmd.AddCommand(managedCmd)
 
-	registerStructuredOutputFlags(managedCreateCmd, managedDeleteCmd, managedNodePoolAddCmd, managedNodePoolScaleCmd, managedNodePoolDeleteCmd, managedUpgradeCmd)
+	registerStructuredOutputFlags(managedCreateCmd, managedDeleteCmd, managedNodePoolAddCmd, managedNodePoolScaleCmd, managedNodePoolDeleteCmd, managedNodePoolUpdateCmd, managedUpgradeCmd, managedStopCmd, managedStartCmd)
 }

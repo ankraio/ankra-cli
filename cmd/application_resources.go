@@ -87,9 +87,7 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 		newApplicationSubresourceCommand("reconcile", "Request an application refresh", func(command *cobra.Command, applicationID string) (json.RawMessage, error) {
 			return apiClient.ReconcileApplication(command.Context(), applicationID)
 		}),
-		newApplicationSubresourceCommand("delete", "Delete an application", func(command *cobra.Command, applicationID string) (json.RawMessage, error) {
-			return apiClient.DeleteApplication(command.Context(), applicationID)
-		}),
+		newApplicationDeleteCommand(),
 		newApplicationDeployCommand(),
 		newApplicationSubresourceCommand("deployments", "List an application's cluster deployments", func(command *cobra.Command, applicationID string) (json.RawMessage, error) {
 			return apiClient.GetApplicationDeployments(command.Context(), applicationID)
@@ -128,11 +126,69 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 			return apiClient.GetApplicationPackageVisibility(command.Context(), applicationID)
 		}),
 		newApplicationSetPackageVisibilityCommand(),
-		newApplicationSubresourceCommand("make-public", "Make the GHCR image and chart packages public", func(command *cobra.Command, applicationID string) (json.RawMessage, error) {
-			return apiClient.MakeApplicationPackagesPublic(command.Context(), applicationID)
-		}),
+		newApplicationMakePublicCommand(),
 	)
 	applicationCommand.AddCommand(newApplicationDemoCommand())
+}
+
+func newApplicationDeleteCommand() *cobra.Command {
+	deleteCommand := &cobra.Command{
+		Use:   "delete <application-id>",
+		Short: "Delete an application",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			applicationID := strings.TrimSpace(arguments[0])
+			yes, _ := command.Flags().GetBool("yes")
+			if confirmError := confirmPrompt(
+				command.InOrStdin(), command.OutOrStdout(),
+				fmt.Sprintf("Delete application %q? This removes its platform record and cannot be undone! [y/N]: ", applicationID),
+				yes,
+			); confirmError != nil {
+				return confirmError
+			}
+			payload, deleteError := apiClient.DeleteApplication(command.Context(), applicationID)
+			if deleteError != nil {
+				return deleteError
+			}
+			return renderApplicationPayload(command, payload)
+		},
+	}
+	deleteCommand.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	registerStructuredOutputFlags(deleteCommand)
+	return deleteCommand
+}
+
+func newApplicationMakePublicCommand() *cobra.Command {
+	makePublicCommand := &cobra.Command{
+		Use:   "make-public <application-id>",
+		Short: "Make the GHCR image and chart packages public",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			applicationID := strings.TrimSpace(arguments[0])
+			yes, _ := command.Flags().GetBool("yes")
+			if confirmError := confirmPrompt(
+				command.InOrStdin(), command.OutOrStdout(),
+				fmt.Sprintf("Make the GHCR image and chart packages of application %q publicly readable? [y/N]: ", applicationID),
+				yes,
+			); confirmError != nil {
+				return confirmError
+			}
+			payload, makePublicError := apiClient.MakeApplicationPackagesPublic(command.Context(), applicationID)
+			if makePublicError != nil {
+				return makePublicError
+			}
+			return renderApplicationPayload(command, payload)
+		},
+	}
+	makePublicCommand.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	registerStructuredOutputFlags(makePublicCommand)
+	return makePublicCommand
 }
 
 func newApplicationListCommand() *cobra.Command {
