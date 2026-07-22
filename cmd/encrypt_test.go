@@ -378,3 +378,105 @@ func TestGetEncryptedPathsFromConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestDeriveSopsEncryptedPaths(t *testing.T) {
+	t.Run("sops document with ciphertext leaves", func(t *testing.T) {
+		content := `apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+data:
+  username: YWRtaW4=
+  password: ENC[AES256_GCM,data:abc,iv:def,tag:ghi,type:str]
+  token: ENC[AES256_GCM,data:xyz,iv:def,tag:ghi,type:str]
+sops:
+  age:
+    - recipient: age1example
+  mac: ENC[AES256_GCM,data:mac]
+  encrypted_regex: ^(password|token)$
+`
+		paths, isSops, err := deriveSopsEncryptedPaths([]byte(content))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !isSops {
+			t.Error("expected isSopsDocument=true")
+		}
+		if len(paths) != 2 || paths[0] != "password" || paths[1] != "token" {
+			t.Errorf("paths = %v, want [password token]", paths)
+		}
+	})
+
+	t.Run("sops metadata subtree is not treated as user data", func(t *testing.T) {
+		content := `data:
+  password: ENC[AES256_GCM,data:abc]
+sops:
+  mac: ENC[AES256_GCM,data:mac]
+`
+		paths, isSops, err := deriveSopsEncryptedPaths([]byte(content))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !isSops {
+			t.Error("expected isSopsDocument=true")
+		}
+		for _, path := range paths {
+			if path == "mac" {
+				t.Errorf("sops metadata key leaked into paths: %v", paths)
+			}
+		}
+	})
+
+	t.Run("plain document is not sops", func(t *testing.T) {
+		content := "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: web\n"
+		paths, isSops, err := deriveSopsEncryptedPaths([]byte(content))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if isSops {
+			t.Error("expected isSopsDocument=false")
+		}
+		if len(paths) != 0 {
+			t.Errorf("paths = %v, want none", paths)
+		}
+	})
+
+	t.Run("multi-document detects sops in any document", func(t *testing.T) {
+		content := `apiVersion: v1
+kind: Namespace
+metadata:
+  name: web
+---
+data:
+  password: ENC[AES256_GCM,data:abc]
+sops:
+  version: 3.8.1
+`
+		paths, isSops, err := deriveSopsEncryptedPaths([]byte(content))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !isSops {
+			t.Error("expected isSopsDocument=true")
+		}
+		if len(paths) != 1 || paths[0] != "password" {
+			t.Errorf("paths = %v, want [password]", paths)
+		}
+	})
+
+	t.Run("invalid yaml errors", func(t *testing.T) {
+		if _, _, err := deriveSopsEncryptedPaths([]byte(":\n  - ][")); err == nil {
+			t.Error("expected a parse error")
+		}
+	})
+}
+
+func TestUnionStringLists(t *testing.T) {
+	merged := unionStringLists([]string{"password"}, []string{"token", "password"}, []string{"apiKey"})
+	if len(merged) != 3 || merged[0] != "password" || merged[1] != "token" || merged[2] != "apiKey" {
+		t.Errorf("merged = %v, want [password token apiKey]", merged)
+	}
+	if merged := unionStringLists(nil, nil); merged != nil {
+		t.Errorf("union of empties = %v, want nil", merged)
+	}
+}

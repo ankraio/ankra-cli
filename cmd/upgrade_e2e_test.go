@@ -1265,3 +1265,214 @@ func TestRunManifestsDelete_DryRunNoCall(t *testing.T) {
 		t.Errorf("expected dry-run notice, got:\n%s", out.String())
 	}
 }
+
+const sopsEncryptedFromFileYAML = `apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+  namespace: web
+type: Opaque
+data:
+  username: YWRtaW4=
+  password: ENC[AES256_GCM,data:abc,iv:def,tag:ghi,type:str]
+sops:
+  age:
+    - recipient: age1example
+  mac: ENC[AES256_GCM,data:mac]
+  encrypted_regex: ^(password)$
+`
+
+func TestRunManifestsUpgrade_FromFileSopsContentSetsEncryptedPaths(t *testing.T) {
+	mock := &upgradeMock{iac: sampleIaCYAMLForCmd}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	sourcePath := filepath.Join(t.TempDir(), "secret.yaml")
+	if err := os.WriteFile(sourcePath, []byte(sopsEncryptedFromFileYAML), 0o644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "manifests", "upgrade", "demo-namespace",
+		"--from-file", sourcePath,
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+
+	if len(mock.capturedRequests) != 1 {
+		t.Fatalf("expected one PATCH, got %d", len(mock.capturedRequests))
+	}
+	manifest := mock.capturedRequests[0].Body.Spec.Stacks[0].Manifests[0]
+	if len(manifest.EncryptedPaths) != 1 || manifest.EncryptedPaths[0] != "password" {
+		t.Errorf("manifest.encrypted_paths = %v, want [password]", manifest.EncryptedPaths)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(manifest.ManifestBase64)
+	if err != nil {
+		t.Fatalf("decode manifest_base64: %v", err)
+	}
+	if string(decoded) != sopsEncryptedFromFileYAML {
+		t.Errorf("manifest content altered:\n%s", decoded)
+	}
+}
+
+func TestRunManifestsUpgrade_FromFilePlainContentLeavesEncryptedPathsAlone(t *testing.T) {
+	mock := &upgradeMock{iac: sampleIaCYAMLForCmd}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	sourcePath := filepath.Join(t.TempDir(), "plain.yaml")
+	if err := os.WriteFile(sourcePath, []byte("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: web\n"), 0o644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "manifests", "upgrade", "demo-namespace",
+		"--from-file", sourcePath,
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	manifest := mock.capturedRequests[0].Body.Spec.Stacks[0].Manifests[0]
+	if len(manifest.EncryptedPaths) != 0 {
+		t.Errorf("manifest.encrypted_paths = %v, want none", manifest.EncryptedPaths)
+	}
+}
+
+func TestRunManifestsUpgrade_FromFileExplicitEncryptedPathFlagMerges(t *testing.T) {
+	mock := &upgradeMock{iac: sampleIaCYAMLForCmd}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	sourcePath := filepath.Join(t.TempDir(), "secret.yaml")
+	if err := os.WriteFile(sourcePath, []byte(sopsEncryptedFromFileYAML), 0o644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "manifests", "upgrade", "demo-namespace",
+		"--from-file", sourcePath,
+		"--encrypted-path", "token",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	manifest := mock.capturedRequests[0].Body.Spec.Stacks[0].Manifests[0]
+	if len(manifest.EncryptedPaths) != 2 || manifest.EncryptedPaths[0] != "password" || manifest.EncryptedPaths[1] != "token" {
+		t.Errorf("manifest.encrypted_paths = %v, want [password token]", manifest.EncryptedPaths)
+	}
+}
+
+func TestRunEncryptManifest_ClusterModeSetAppliesBeforeEncrypt(t *testing.T) {
+	mock := &upgradeMock{
+		iac:           sampleIaCYAMLForCmd,
+		manifestB64:   base64.StdEncoding.EncodeToString([]byte(plainSecretManifestYAML)),
+		encryptResult: encryptedSecretManifestYAML,
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "demo-namespace",
+		"--key", "password",
+		"--set", "data.password=bmV3LXNlY3JldA==",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+
+	if len(mock.encryptCalls) != 1 {
+		t.Fatalf("expected one EncryptYAML call, got %d", len(mock.encryptCalls))
+	}
+	if !strings.Contains(mock.encryptCalls[0].YamlContent, "bmV3LXNlY3JldA==") {
+		t.Errorf("EncryptYAML must receive the mutated plaintext, got:\n%s", mock.encryptCalls[0].YamlContent)
+	}
+	if strings.Contains(mock.encryptCalls[0].YamlContent, "aHVudGVyMg==") {
+		t.Errorf("old value must be replaced before encryption, got:\n%s", mock.encryptCalls[0].YamlContent)
+	}
+
+	if len(mock.capturedRequests) != 1 {
+		t.Fatalf("expected exactly one PATCH (single commit), got %d", len(mock.capturedRequests))
+	}
+	manifest := mock.capturedRequests[0].Body.Spec.Stacks[0].Manifests[0]
+	if len(manifest.EncryptedPaths) != 1 || manifest.EncryptedPaths[0] != "password" {
+		t.Errorf("manifest.encrypted_paths = %v, want [password]", manifest.EncryptedPaths)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(manifest.ManifestBase64)
+	if err != nil {
+		t.Fatalf("decode manifest_base64: %v", err)
+	}
+	if !strings.Contains(string(decoded), "ENC[AES256_GCM") {
+		t.Errorf("pushed content must be ciphertext, got:\n%s", decoded)
+	}
+}
+
+func TestRunEncryptManifest_SetAndFileMutuallyExclusive(t *testing.T) {
+	mock := &upgradeMock{iac: sampleIaCYAMLForCmd}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "demo-namespace",
+		"--key", "password",
+		"--set", "data.password=bmV3",
+		"-f", "cluster.yaml",
+	})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected mutually-exclusive flag error")
+	}
+	if !strings.Contains(err.Error(), "none of the others can be") && !strings.Contains(err.Error(), "set") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if len(mock.capturedRequests) != 0 {
+		t.Errorf("must not PATCH on flag conflict, got %d", len(mock.capturedRequests))
+	}
+}
+
+func TestRunEncryptManifest_ClusterModeSetFailureDoesNotPatch(t *testing.T) {
+	mock := &upgradeMock{
+		iac:         sampleIaCYAMLForCmd,
+		manifestB64: base64.StdEncoding.EncodeToString([]byte(plainSecretManifestYAML)),
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "demo-namespace",
+		"--key", "password",
+		"--set", "not-an-assignment",
+		"--cluster", fakeClusterUUID,
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error for a malformed --set assignment")
+	}
+	if len(mock.encryptCalls) != 0 {
+		t.Errorf("must not encrypt on --set failure, got %d calls", len(mock.encryptCalls))
+	}
+	if len(mock.capturedRequests) != 0 {
+		t.Errorf("must not PATCH on --set failure, got %d calls", len(mock.capturedRequests))
+	}
+}

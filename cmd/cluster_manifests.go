@@ -278,6 +278,12 @@ list items by a stable field (e.g. containers[name=app]) as well as by numeric
 index (containers[0]). --from-file / --manifest - REPLACE the whole manifest
 and are mutually exclusive with --set*.
 
+--from-file / --manifest - accept SOPS-encrypted content: when the file
+carries a top-level sops: metadata mapping, the keys holding ENC[...]
+ciphertext are detected and recorded as encrypted_paths automatically (merged
+with the manifest's existing encrypted_paths). Use --encrypted-path to declare
+keys explicitly when auto-detection cannot see them.
+
 When no content or --set flag is supplied, the existing content is re-sent
 unchanged (only namespace is updated). This is required because the backend's
 manifest validation rejects empty manifest_base64.`,
@@ -340,6 +346,17 @@ func runManifestsUpgrade(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("read manifest source: %w", readErr)
 		}
 		mutated.ManifestBase64 = base64.StdEncoding.EncodeToString(raw)
+		derivedPaths, isSopsDocument, deriveErr := deriveSopsEncryptedPaths(raw)
+		if deriveErr != nil {
+			return fmt.Errorf("inspect manifest for SOPS metadata: %w", deriveErr)
+		}
+		if isSopsDocument || len(flags.EncryptedPaths) > 0 {
+			mergedPaths := unionStringLists(manifest.EncryptedPaths, derivedPaths, flags.EncryptedPaths)
+			if len(mergedPaths) == 0 {
+				return errors.New("manifest content is SOPS-encrypted but no encrypted key paths could be derived; pass --encrypted-path <key> for each encrypted key so the backend keeps the encryption metadata")
+			}
+			mutated.EncryptedPaths = mergedPaths
+		}
 	case flags.HasSet():
 		existing, mErr := apiClient.GetClusterManifestConfiguration(ctx, clusterID, manifestName)
 		if mErr != nil {
@@ -381,8 +398,8 @@ func runManifestsUpgrade(cmd *cobra.Command, args []string) error {
 	beforeStack.Manifests = []client.ManifestSpec{*manifest}
 
 	var notices []string
-	if len(manifest.EncryptedPaths) > 0 {
-		notices = append(notices, fmt.Sprintf("manifest will be SOPS-encrypted on git push (encrypted_paths: %s)", strings.Join(manifest.EncryptedPaths, ", ")))
+	if len(mutated.EncryptedPaths) > 0 {
+		notices = append(notices, fmt.Sprintf("manifest will be SOPS-encrypted on git push (encrypted_paths: %s)", strings.Join(mutated.EncryptedPaths, ", ")))
 	}
 
 	if flags.DryRun {
@@ -417,6 +434,7 @@ func parseManifestsUpgradeFlags(cmd *cobra.Command) (manifestsUpgradeFlags, erro
 	setFiles, _ := cmd.Flags().GetStringArray("set-file")
 	targetKind, _ := cmd.Flags().GetString("target-kind")
 	targetName, _ := cmd.Flags().GetString("target-name")
+	encryptedPaths, _ := cmd.Flags().GetStringArray("encrypted-path")
 	addParents, _ := cmd.Flags().GetStringArray("add-parent")
 	removeParents, _ := cmd.Flags().GetStringArray("remove-parent")
 	setParents, _ := cmd.Flags().GetStringArray("set-parent")
@@ -432,21 +450,22 @@ func parseManifestsUpgradeFlags(cmd *cobra.Command) (manifestsUpgradeFlags, erro
 		return manifestsUpgradeFlags{}, err
 	}
 	return manifestsUpgradeFlags{
-		FromFile:      fromFile,
-		ManifestStdin: manifestStdin,
-		Namespace:     namespace,
-		SetEntries:    setEntries,
-		SetStrings:    setStrings,
-		SetFiles:      setFiles,
-		TargetKind:    targetKind,
-		TargetName:    targetName,
-		AddParents:    addParents,
-		RemoveParents: removeParents,
-		SetParents:    setParents,
-		Cluster:       cluster,
-		DryRun:        dryRun,
-		Yes:           yes,
-		Output:        out,
+		FromFile:       fromFile,
+		ManifestStdin:  manifestStdin,
+		Namespace:      namespace,
+		SetEntries:     setEntries,
+		SetStrings:     setStrings,
+		SetFiles:       setFiles,
+		TargetKind:     targetKind,
+		TargetName:     targetName,
+		EncryptedPaths: encryptedPaths,
+		AddParents:     addParents,
+		RemoveParents:  removeParents,
+		SetParents:     setParents,
+		Cluster:        cluster,
+		DryRun:         dryRun,
+		Yes:            yes,
+		Output:         out,
 	}, nil
 }
 
@@ -459,6 +478,7 @@ func init() {
 	clusterManifestsUpgradeCmd.Flags().StringArray("set-file", nil, "Like --set but reads the value from a file: key=path or key=@path")
 	clusterManifestsUpgradeCmd.Flags().String("target-kind", "", "With --set: select the document to edit by Kubernetes kind (e.g. Deployment) when the manifest holds multiple documents")
 	clusterManifestsUpgradeCmd.Flags().String("target-name", "", "With --set: select the document to edit by metadata.name when the manifest holds multiple documents")
+	clusterManifestsUpgradeCmd.Flags().StringArray("encrypted-path", nil, "With --from-file / --manifest -: declare a YAML key name that is (or must stay) SOPS-encrypted; merged with auto-detected ENC[...] keys and the manifest's existing encrypted_paths (repeatable)")
 	clusterManifestsUpgradeCmd.Flags().StringArray("add-parent", nil, "Add a dependency parent, e.g. --add-parent name=infisical-ns,kind=manifest (kind defaults to manifest; repeatable)")
 	clusterManifestsUpgradeCmd.Flags().StringArray("remove-parent", nil, "Remove a dependency parent, e.g. --remove-parent name=infisical-ns,kind=manifest (repeatable)")
 	clusterManifestsUpgradeCmd.Flags().StringArray("set-parent", nil, "Replace ALL dependency parents with the given set (repeatable)")

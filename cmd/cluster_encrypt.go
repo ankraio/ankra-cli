@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -50,6 +51,7 @@ var (
 	encryptAddonName   string
 	encryptClusterFlag string
 	encryptStackFlag   string
+	encryptSetEntries  []string
 )
 
 var clusterEncryptCmd = &cobra.Command{
@@ -79,12 +81,27 @@ Two modes:
     from_file in place, adding the key to encrypted_paths in the file. Used by
     GitOps workflows where the source of truth is on disk.
 
+In cluster mode, --set applies value edits in-memory BEFORE encrypting, so the
+new secret value and its encryption land in a single commit - the plaintext
+value never reaches git history. This is the recommended way to set a new
+secret value:
+
+  ankra cluster encrypt manifest db-secret --key password \
+    --set 'data.password=aHVudGVyMg==' --cluster prod
+
+(compared to "manifests upgrade --set" followed by "encrypt manifest", which
+commits the plaintext value first).
+
 Examples:
   # Cluster mode against the selected cluster
   ankra cluster encrypt manifest db-secret --key password
 
   # Cluster mode against a specific cluster
   ankra cluster encrypt manifest db-secret --key password --cluster prod
+
+  # Set a new value and encrypt it atomically (single commit, no plaintext)
+  ankra cluster encrypt manifest db-secret --key password \
+    --set 'data.password=bmV3LXNlY3JldA==' --cluster prod
 
   # File mode
   ankra cluster encrypt manifest db-secret --key password -f cluster.yaml`,
@@ -127,8 +144,10 @@ func init() {
 	clusterEncryptManifestCmd.Flags().StringVarP(&encryptClusterFile, "file", "f", "", "Path to a local cluster YAML (enables file mode)")
 	clusterEncryptManifestCmd.Flags().StringVar(&encryptKey, "key", "", "YAML key name to encrypt (required); dotted paths are normalised to the last segment, a leading-dot key like .dockerconfigjson is kept literally")
 	clusterEncryptManifestCmd.Flags().StringVar(&encryptClusterFlag, "cluster", "", "Target cluster (name or ID); defaults to the active selection (cluster mode)")
+	clusterEncryptManifestCmd.Flags().StringArrayVar(&encryptSetEntries, "set", nil, "Apply value edits in-memory before encrypting (same syntax as manifests upgrade --set, e.g. --set 'data.password=bmV3'); the plaintext value never reaches git (cluster mode only; repeatable)")
 	_ = clusterEncryptManifestCmd.MarkFlagRequired("key")
 	clusterEncryptManifestCmd.MarkFlagsMutuallyExclusive("file", "cluster")
+	clusterEncryptManifestCmd.MarkFlagsMutuallyExclusive("file", "set")
 
 	clusterEncryptAddonCmd.Flags().StringVarP(&encryptClusterFile, "file", "f", "", "Path to a local cluster YAML (enables file mode)")
 	clusterEncryptAddonCmd.Flags().StringVar(&encryptKey, "key", "", "YAML key name to encrypt (required); dotted paths are normalised to the last segment, a leading-dot key like .dockerconfigjson is kept literally")
@@ -487,6 +506,90 @@ func runEncryptAddonFile(cmd *cobra.Command, leafKey string) error {
 	return nil
 }
 
+// deriveSopsEncryptedPaths inspects raw manifest YAML for SOPS encryption
+// state. isSopsDocument reports whether any document carries a top-level
+// "sops" metadata mapping. The returned paths are the YAML key names whose
+// values are ENC[...] ciphertext - the same leaf-key convention that
+// `ankra cluster encrypt` records in encrypted_paths. The sops metadata
+// subtree itself is skipped (its mac/lastmodified entries are ciphertext but
+// are not user data).
+func deriveSopsEncryptedPaths(rawYAML []byte) (paths []string, isSopsDocument bool, err error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(rawYAML))
+	seenPaths := map[string]bool{}
+	for {
+		var document yaml.Node
+		decodeErr := decoder.Decode(&document)
+		if errors.Is(decodeErr, io.EOF) {
+			break
+		}
+		if decodeErr != nil {
+			return nil, false, fmt.Errorf("parse manifest YAML: %w", decodeErr)
+		}
+		rootNode := &document
+		if rootNode.Kind == yaml.DocumentNode && len(rootNode.Content) > 0 {
+			rootNode = rootNode.Content[0]
+		}
+		if rootNode.Kind != yaml.MappingNode {
+			continue
+		}
+		for entryIndex := 0; entryIndex+1 < len(rootNode.Content); entryIndex += 2 {
+			if rootNode.Content[entryIndex].Value == sopsMetadataKey &&
+				rootNode.Content[entryIndex+1].Kind == yaml.MappingNode {
+				isSopsDocument = true
+			}
+		}
+		collectEncryptedLeafKeys(rootNode, true, seenPaths, &paths)
+	}
+	return paths, isSopsDocument, nil
+}
+
+// collectEncryptedLeafKeys walks a YAML tree recording the mapping key names
+// whose scalar values are ENC[...] ciphertext, skipping the document-root
+// sops metadata mapping.
+func collectEncryptedLeafKeys(node *yaml.Node, isDocumentRoot bool, seenPaths map[string]bool, paths *[]string) {
+	if node == nil {
+		return
+	}
+	switch node.Kind {
+	case yaml.MappingNode:
+		for entryIndex := 0; entryIndex+1 < len(node.Content); entryIndex += 2 {
+			keyNode := node.Content[entryIndex]
+			valueNode := node.Content[entryIndex+1]
+			if isDocumentRoot && keyNode.Value == sopsMetadataKey {
+				continue
+			}
+			if valueNode.Kind == yaml.ScalarNode && strings.HasPrefix(valueNode.Value, sopsEncryptedValuePrefix) {
+				if !seenPaths[keyNode.Value] {
+					seenPaths[keyNode.Value] = true
+					*paths = append(*paths, keyNode.Value)
+				}
+				continue
+			}
+			collectEncryptedLeafKeys(valueNode, false, seenPaths, paths)
+		}
+	case yaml.SequenceNode:
+		for _, itemNode := range node.Content {
+			collectEncryptedLeafKeys(itemNode, false, seenPaths, paths)
+		}
+	}
+}
+
+// unionStringLists merges the given lists preserving first-seen order and
+// dropping duplicates.
+func unionStringLists(lists ...[]string) []string {
+	seenValues := map[string]bool{}
+	var merged []string
+	for _, list := range lists {
+		for _, value := range list {
+			if !seenValues[value] {
+				seenValues[value] = true
+				merged = append(merged, value)
+			}
+		}
+	}
+	return merged
+}
+
 func containsString(slice []string, str string) bool {
 	for _, s := range slice {
 		if s == str {
@@ -567,6 +670,20 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName, leafKey string)
 	if err != nil {
 		return fmt.Errorf("fetch current manifest content: %w", err)
 	}
+
+	if len(encryptSetEntries) > 0 {
+		assignments, assignErr := collectSetAssignments(encryptSetEntries, nil, nil)
+		if assignErr != nil {
+			return assignErr
+		}
+		mutatedB64, setErr := applyManifestSet(encoded, assignments, "", "")
+		if setErr != nil {
+			return setErr
+		}
+		encoded = mutatedB64
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Applied %d --set edit(s) in-memory; the new values are encrypted before anything is pushed.\n", len(assignments))
+	}
+
 	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return fmt.Errorf("base64-decode manifest content: %w", err)
