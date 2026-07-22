@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra helm registries list` supports pagination, search, and sorting.**
+  The command used to fetch only the server's first page (20 registries) and
+  gave no hint that more existed. It now accepts `--page` and `--page-size`
+  (up to 100 per page), `--search` for a case-insensitive name filter, and
+  `--sort-by` (`name`, `url`, `created_at`, `updated_at`, `chart_count`,
+  `last_indexed_at`, `is_global`) with `--sort-order asc|desc`, and every
+  listing ends with a `Page X of Y (total N)` footer so truncation is always
+  visible.
+
 ## v0.9.0-rc4 — 2026-07-21
 
 ### Added

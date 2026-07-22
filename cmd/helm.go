@@ -26,8 +26,29 @@ var helmRegistriesCmd = &cobra.Command{
 var helmRegistriesListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List Helm chart registries",
+	Long: `List Helm chart registries.
+
+Results are paginated (20 per page by default). Use --search to filter
+by name and --page/--page-size to navigate.
+
+Examples:
+  ankra helm registries list --search bitnami
+  ankra helm registries list --page 2 --page-size 100
+  ankra helm registries list --sort-by chart_count --sort-order desc`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		response, err := apiClient.ListHelmRegistries()
+		page, _ := cmd.Flags().GetInt("page")
+		pageSize, _ := cmd.Flags().GetInt("page-size")
+		search, _ := cmd.Flags().GetString("search")
+		sortBy, _ := cmd.Flags().GetString("sort-by")
+		sortOrder, _ := cmd.Flags().GetString("sort-order")
+
+		response, err := apiClient.ListHelmRegistries(&client.ListHelmRegistriesOptions{
+			Page:      page,
+			PageSize:  pageSize,
+			Search:    search,
+			SortBy:    sortBy,
+			SortOrder: sortOrder,
+		})
 		if err != nil {
 			return fmt.Errorf("listing registries: %w", err)
 		}
@@ -37,7 +58,11 @@ var helmRegistriesListCmd = &cobra.Command{
 		}
 
 		if len(response.Result) == 0 {
-			fmt.Println("No Helm registries found.")
+			if search != "" {
+				fmt.Printf("No Helm registries found matching '%s'.\n", search)
+			} else {
+				fmt.Println("No Helm registries found.")
+			}
 			return nil
 		}
 
@@ -62,6 +87,8 @@ var helmRegistriesListCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		fmt.Printf("\nPage %d of %d (total %d)\n",
+			response.Pagination.Page, response.Pagination.TotalPages, response.Pagination.TotalCount)
 		return nil
 	},
 }
@@ -432,6 +459,11 @@ var helmCredentialsDeleteCmd = &cobra.Command{
 }
 
 func init() {
+	helmRegistriesListCmd.Flags().Int("page", 1, "Page number")
+	helmRegistriesListCmd.Flags().Int("page-size", 20, "Number of registries per page (max 100)")
+	helmRegistriesListCmd.Flags().String("search", "", "Filter registries by name (case-insensitive substring)")
+	helmRegistriesListCmd.Flags().String("sort-by", "", "Sort column: name, url, created_at, updated_at, chart_count, last_indexed_at, is_global")
+	helmRegistriesListCmd.Flags().String("sort-order", "", "Sort order: asc or desc")
 	helmRegistriesCreateCmd.Flags().StringP("file", "f", "", "Path to registry spec JSON file (required)")
 	_ = helmRegistriesCreateCmd.MarkFlagRequired("file")
 	helmRegistriesDeleteCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")

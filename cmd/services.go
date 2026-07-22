@@ -192,7 +192,7 @@ type APIClient interface {
 	QueryPrometheusInstant(clusterID, query string, timeoutSeconds int) (*client.PrometheusQueryResult, error)
 	QueryPrometheusRange(clusterID string, opts client.PrometheusRangeOptions) (*client.PrometheusQueryResult, error)
 
-	ListHelmRegistries() (*client.ListHelmRegistriesResponse, error)
+	ListHelmRegistries(opts *client.ListHelmRegistriesOptions) (*client.ListHelmRegistriesResponse, error)
 	GetHelmRegistry(registryName string) (*client.GetHelmRegistryResponse, error)
 	CreateHelmRegistry(req client.CreateHelmRegistryRequest) (*client.CreateHelmRegistryResponse, error)
 	UpdateHelmRegistry(registryName string, readJobInterval *int) error
