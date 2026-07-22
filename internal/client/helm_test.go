@@ -11,15 +11,19 @@ func TestListHelmRegistries(t *testing.T) {
 	tests := []struct {
 		name    string
 		handler http.HandlerFunc
+		opts    *ListHelmRegistriesOptions
 		wantErr bool
 		wantLen int
 	}{
 		{
-			name: "success",
+			name: "success without options",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path != "/api/v1/org/helm/registries" {
 					w.WriteHeader(http.StatusNotFound)
 					return
+				}
+				if r.URL.RawQuery != "" {
+					t.Errorf("expected no query parameters, got %q", r.URL.RawQuery)
 				}
 				createdA := "2025-01-01T00:00:00Z"
 				createdB := "2025-02-01T00:00:00Z"
@@ -31,8 +35,35 @@ func TestListHelmRegistries(t *testing.T) {
 					Pagination: Pagination{TotalCount: 2, Page: 1, PageSize: 25, TotalPages: 1},
 				})
 			},
+			opts:    nil,
 			wantErr: false,
 			wantLen: 2,
+		},
+		{
+			name: "options become query parameters",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				q := r.URL.Query()
+				if q.Get("page") != "2" || q.Get("page_size") != "50" ||
+					q.Get("search") != "bitnami" ||
+					q.Get("sort_by") != "chart_count" || q.Get("sort_order") != "desc" {
+					t.Errorf("unexpected query parameters: %q", r.URL.RawQuery)
+				}
+				jsonResponse(t, w, http.StatusOK, ListHelmRegistriesResponse{
+					Result: []HelmRegistryListItem{
+						{Name: "bitnami", URL: "https://charts.bitnami.com/bitnami", ChartCount: 100},
+					},
+					Pagination: Pagination{TotalCount: 51, Page: 2, PageSize: 50, TotalPages: 2},
+				})
+			},
+			opts: &ListHelmRegistriesOptions{
+				Page:      2,
+				PageSize:  50,
+				Search:    "bitnami",
+				SortBy:    "chart_count",
+				SortOrder: "desc",
+			},
+			wantErr: false,
+			wantLen: 1,
 		},
 		{
 			name: "401 unauthorized",
@@ -46,7 +77,7 @@ func TestListHelmRegistries(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testClient := newTestClient(t, tt.handler)
-			got, err := testClient.ListHelmRegistries()
+			got, err := testClient.ListHelmRegistries(tt.opts)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ListHelmRegistries() error = %v, wantErr %v", err, tt.wantErr)
 				return

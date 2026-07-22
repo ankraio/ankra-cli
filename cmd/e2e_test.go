@@ -659,7 +659,7 @@ func (m baseMock) QueryPrometheusRange(clusterID string, opts client.PrometheusR
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListHelmRegistries() (*client.ListHelmRegistriesResponse, error) {
+func (m baseMock) ListHelmRegistries(opts *client.ListHelmRegistriesOptions) (*client.ListHelmRegistriesResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2102,11 +2102,19 @@ func TestClusterAgentStatusCommand(t *testing.T) {
 type helmRegistriesListMock struct {
 	baseMock
 	registries []client.HelmRegistryListItem
+	lastOpts   *client.ListHelmRegistriesOptions
 }
 
-func (m *helmRegistriesListMock) ListHelmRegistries() (*client.ListHelmRegistriesResponse, error) {
+func (m *helmRegistriesListMock) ListHelmRegistries(opts *client.ListHelmRegistriesOptions) (*client.ListHelmRegistriesResponse, error) {
+	m.lastOpts = opts
 	return &client.ListHelmRegistriesResponse{
 		Result: m.registries,
+		Pagination: client.Pagination{
+			TotalCount: len(m.registries),
+			TotalPages: 1,
+			Page:       1,
+			PageSize:   20,
+		},
 	}, nil
 }
 
@@ -2154,6 +2162,9 @@ func TestHelmRegistriesListCommand(t *testing.T) {
 	if !strings.Contains(stdoutOutput, "github-charts") {
 		t.Errorf("expected output to contain 'github-charts', got: %s", stdoutOutput)
 	}
+	if !strings.Contains(stdoutOutput, "Page 1 of 1 (total 2)") {
+		t.Errorf("expected pagination footer, got: %s", stdoutOutput)
+	}
 }
 
 func TestHelmRegistriesListEmptyCommand(t *testing.T) {
@@ -2168,6 +2179,41 @@ func TestHelmRegistriesListEmptyCommand(t *testing.T) {
 
 	if !strings.Contains(stdoutOutput, "No Helm registries found.") {
 		t.Errorf("expected 'No Helm registries found.' message, got: %s", stdoutOutput)
+	}
+}
+
+func TestHelmRegistriesListFlagsForwarded(t *testing.T) {
+	mock := &helmRegistriesListMock{
+		registries: []client.HelmRegistryListItem{},
+	}
+	setMockClient(t, mock)
+	// rootCmd is shared across tests, so restore flag defaults to avoid
+	// leaking values into later "helm registries list" invocations.
+	t.Cleanup(func() {
+		flags := helmRegistriesListCmd.Flags()
+		_ = flags.Set("page", "1")
+		_ = flags.Set("page-size", "20")
+		_ = flags.Set("search", "")
+		_ = flags.Set("sort-by", "")
+		_ = flags.Set("sort-order", "")
+	})
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("helm", "registries", "list",
+			"--page", "3", "--page-size", "50", "--search", "bitnami",
+			"--sort-by", "chart_count", "--sort-order", "desc")
+	})
+
+	if mock.lastOpts == nil {
+		t.Fatal("expected ListHelmRegistries to receive options")
+	}
+	if mock.lastOpts.Page != 3 || mock.lastOpts.PageSize != 50 ||
+		mock.lastOpts.Search != "bitnami" ||
+		mock.lastOpts.SortBy != "chart_count" || mock.lastOpts.SortOrder != "desc" {
+		t.Errorf("unexpected options forwarded: %+v", mock.lastOpts)
+	}
+	if !strings.Contains(stdoutOutput, "No Helm registries found matching 'bitnami'.") {
+		t.Errorf("expected search-aware empty message, got: %s", stdoutOutput)
 	}
 }
 

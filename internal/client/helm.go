@@ -88,8 +88,41 @@ type DeleteHelmRegistryResponse struct {
 	Success bool `json:"success"`
 }
 
-func (c *Client) ListHelmRegistries() (*ListHelmRegistriesResponse, error) {
+// ListHelmRegistriesOptions mirrors the query parameters accepted by the
+// backend's list endpoint (see cluster's helmapi handleListRegistries):
+// page (default 1), page_size (default 20, max 100), search (case-insensitive
+// substring match on registry name), sort_by and sort_order.
+type ListHelmRegistriesOptions struct {
+	Page      int
+	PageSize  int
+	Search    string
+	SortBy    string
+	SortOrder string
+}
+
+func (c *Client) ListHelmRegistries(opts *ListHelmRegistriesOptions) (*ListHelmRegistriesResponse, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/org/helm/registries", c.BaseURL)
+	params := url.Values{}
+	if opts != nil {
+		if opts.Page > 0 {
+			params.Set("page", fmt.Sprintf("%d", opts.Page))
+		}
+		if opts.PageSize > 0 {
+			params.Set("page_size", fmt.Sprintf("%d", opts.PageSize))
+		}
+		if opts.Search != "" {
+			params.Set("search", opts.Search)
+		}
+		if opts.SortBy != "" {
+			params.Set("sort_by", opts.SortBy)
+		}
+		if opts.SortOrder != "" {
+			params.Set("sort_order", opts.SortOrder)
+		}
+	}
+	if encoded := params.Encode(); encoded != "" {
+		endpoint += "?" + encoded
+	}
 	var response ListHelmRegistriesResponse
 	if err := c.getJSON(endpoint, &response); err != nil {
 		return nil, err
