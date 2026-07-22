@@ -546,6 +546,8 @@ type manifestsUpgradeFlags struct {
 	TargetKind string
 	TargetName string
 
+	EncryptedPaths []string
+
 	AddParents    []string
 	RemoveParents []string
 	SetParents    []string

@@ -4,6 +4,20 @@
 
 ### Added
 
+- **Secrets can be set and encrypted in a single commit.** `ankra cluster
+  encrypt manifest` (cluster mode) now accepts repeatable `--set` edits that
+  are applied in-memory before encryption, so the new value and its SOPS
+  encryption land in one partial-stack PATCH — the plaintext value never
+  reaches git history. Previously the documented flow (`manifests upgrade
+  --set` followed by `encrypt manifest`) committed the plaintext secret
+  first, leaving it recoverable from the repository history.
+- **`ankra cluster manifests upgrade --from-file` accepts SOPS-encrypted
+  files.** When the file carries SOPS metadata, the keys holding `ENC[...]`
+  ciphertext are detected and recorded as `encrypted_paths` automatically
+  (merged with the manifest's existing paths), and the new repeatable
+  `--encrypted-path` flag declares keys explicitly. Previously such uploads
+  dropped the encryption metadata and the backend rejected them with a
+  generic 500.
 - **`ankra helm registries list` supports pagination, search, and sorting.**
   The command used to fetch only the server's first page (20 registries) and
   gave no hint that more existed. It now accepts `--page` and `--page-size`
