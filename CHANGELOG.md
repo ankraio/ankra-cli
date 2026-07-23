@@ -4,6 +4,12 @@
 
 ### Added
 
+- **`ankra cluster info` now shows the cluster's provider network
+  identifiers.** For Ankra-provisioned clusters (DigitalOcean first) the
+  details include a Network section with the VPC UUID, IP range, NAT
+  gateway id, egress IP, and bastion droplet id/IPs — machine-readable via
+  `-o json` — so operators no longer have to dig through per-node
+  relationships to find the VPC a cluster lives in.
 - **Secrets can be set and encrypted in a single commit.** `ankra cluster
   encrypt manifest` (cluster mode) now accepts repeatable `--set` edits that
   are applied in-memory before encryption, so the new value and its SOPS

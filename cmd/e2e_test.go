@@ -1684,6 +1684,67 @@ func TestClusterInfoCommand(t *testing.T) {
 	}
 }
 
+func TestClusterInfoNetworkSectionCommand(t *testing.T) {
+	mock := &clusterGetMock{
+		cluster: client.ClusterListItem{
+			ID:          "test-cluster-id",
+			Name:        "my-cluster",
+			Environment: "production",
+			KubeVersion: "1.28.0",
+			State:       "online",
+			Network: &client.ClusterNetwork{
+				Provider:     "digitalocean",
+				VPCID:        "3f2a1b0c-1111-2222-3333-444455556666",
+				IPRange:      "10.116.0.0/20",
+				NATGatewayID: "nat-gateway-id",
+				EgressIP:     "203.0.113.10",
+				Bastion: &client.ClusterNetworkBastion{
+					ID:        "bastion-droplet-id",
+					PublicIP:  "198.51.100.7",
+					PrivateIP: "10.116.0.5",
+				},
+			},
+		},
+	}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "info", "my-cluster")
+	})
+
+	for _, expected := range []string{
+		"Network (digitalocean):",
+		"VPC ID: 3f2a1b0c-1111-2222-3333-444455556666",
+		"IP Range: 10.116.0.0/20",
+		"NAT Gateway ID: nat-gateway-id",
+		"Egress IP: 203.0.113.10",
+		"Bastion: bastion-droplet-id (public 198.51.100.7, private 10.116.0.5)",
+	} {
+		if !strings.Contains(stdoutOutput, expected) {
+			t.Errorf("expected output to contain %q, got: %s", expected, stdoutOutput)
+		}
+	}
+}
+
+func TestClusterInfoWithoutNetworkOmitsSection(t *testing.T) {
+	mock := &clusterGetMock{
+		cluster: client.ClusterListItem{
+			ID:    "test-cluster-id",
+			Name:  "my-cluster",
+			State: "online",
+		},
+	}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "info", "my-cluster")
+	})
+
+	if strings.Contains(stdoutOutput, "Network") {
+		t.Errorf("expected no Network section for a cluster without network identifiers, got: %s", stdoutOutput)
+	}
+}
+
 func TestClusterInfoNotFoundCommand(t *testing.T) {
 	mock := &clusterGetMock{
 		cluster: client.ClusterListItem{

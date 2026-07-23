@@ -138,6 +138,25 @@ If no name is provided, shows details for the currently selected cluster.`,
 		fmt.Printf("  Control Planes: %d\n", cluster.ControlPlanes)
 		fmt.Printf("  Nodes: %d\n", cluster.Nodes)
 		fmt.Printf("  Kind: %s\n", cluster.Kind)
+		if network := cluster.Network; network != nil {
+			fmt.Printf("  Network (%s):\n", network.Provider)
+			if network.VPCID != "" {
+				fmt.Printf("    VPC ID: %s\n", network.VPCID)
+			}
+			if network.IPRange != "" {
+				fmt.Printf("    IP Range: %s\n", network.IPRange)
+			}
+			if network.NATGatewayID != "" {
+				fmt.Printf("    NAT Gateway ID: %s\n", network.NATGatewayID)
+			}
+			if network.EgressIP != "" {
+				fmt.Printf("    Egress IP: %s\n", network.EgressIP)
+			}
+			if bastion := network.Bastion; bastion != nil {
+				fmt.Printf("    Bastion: %s (public %s, private %s)\n",
+					bastion.ID, bastion.PublicIP, bastion.PrivateIP)
+			}
+		}
 		return nil
 	},
 }

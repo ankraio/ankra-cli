@@ -15,20 +15,39 @@ import (
 // currently render (operation, agent_*, resources, *_count, etc.) are
 // silently ignored by Go's JSON decoder.
 type ClusterListItem struct {
-	ID                string  `json:"id"`
-	Name              string  `json:"name"`
-	State             string  `json:"state"`
-	Description       string  `json:"description"`
-	Environment       string  `json:"environment"`
-	OrganisationID    string  `json:"organisation_id"`
-	KubeVersion       string  `json:"kube_version"`
-	ControlPlanes     int     `json:"control_planes"`
-	Nodes             int     `json:"nodes"`
-	CreatedAt         string  `json:"created_at"`
-	OperationalAt     *string `json:"operational_at"`
-	SlatedForDeletion *string `json:"slated_for_deletion_at"`
-	DeletedAt         *string `json:"deleted_at"`
-	Kind              string  `json:"kind"`
+	ID                string          `json:"id"`
+	Name              string          `json:"name"`
+	State             string          `json:"state"`
+	Description       string          `json:"description"`
+	Environment       string          `json:"environment"`
+	OrganisationID    string          `json:"organisation_id"`
+	KubeVersion       string          `json:"kube_version"`
+	ControlPlanes     int             `json:"control_planes"`
+	Nodes             int             `json:"nodes"`
+	CreatedAt         string          `json:"created_at"`
+	OperationalAt     *string         `json:"operational_at"`
+	SlatedForDeletion *string         `json:"slated_for_deletion_at"`
+	DeletedAt         *string         `json:"deleted_at"`
+	Kind              string          `json:"kind"`
+	Network           *ClusterNetwork `json:"network,omitempty"`
+}
+
+// ClusterNetwork mirrors the backend's optional provider network identifiers
+// for Ankra-provisioned clusters (VPC, NAT gateway, bastion).
+type ClusterNetwork struct {
+	Provider     string                 `json:"provider"`
+	VPCID        string                 `json:"vpc_id,omitempty"`
+	IPRange      string                 `json:"ip_range,omitempty"`
+	NATGatewayID string                 `json:"nat_gateway_id,omitempty"`
+	EgressIP     string                 `json:"egress_ip,omitempty"`
+	Bastion      *ClusterNetworkBastion `json:"bastion,omitempty"`
+}
+
+// ClusterNetworkBastion carries the bastion identifiers inside ClusterNetwork.
+type ClusterNetworkBastion struct {
+	ID        string `json:"id,omitempty"`
+	PublicIP  string `json:"public_ip,omitempty"`
+	PrivateIP string `json:"private_ip,omitempty"`
 }
 
 type ClusterListResponse struct {
