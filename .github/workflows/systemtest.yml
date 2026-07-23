@@ -73,8 +73,11 @@ jobs:
           if [ "$ANKRA_SYSTEMTEST_MANAGED_PROVIDERS" = "none" ]; then export ANKRA_SYSTEMTEST_MANAGED_PROVIDERS=""; fi
           ./systemtest/lifecycle_systemtest.sh
 
+      # Debug aid only — an org storage-quota block on artifact uploads
+      # must not redden a run whose cloud lifecycle actually passed.
       - name: Upload run logs
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: lifecycle-system-test-logs
