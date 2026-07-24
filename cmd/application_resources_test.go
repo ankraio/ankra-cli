@@ -18,17 +18,15 @@ type applicationResourceMock struct {
 	payload json.RawMessage
 	fail    error
 
-	deployRequest     client.DeployApplicationRequest
-	deployCalls       int
-	demoRequest       client.DeployApplicationDemoRequest
-	demoCalls         int
-	filesRequest      client.UpdateApplicationFilesRequest
-	filesCalls        int
-	deploymentsAppID  string
-	workflowRunID     int64
-	visibilityRequest client.SetApplicationPackageVisibilityRequest
-	deleteCalls       int
-	makePublicCalls   int
+	deployRequest    client.DeployApplicationRequest
+	deployCalls      int
+	demoRequest      client.DeployApplicationDemoRequest
+	demoCalls        int
+	filesRequest     client.UpdateApplicationFilesRequest
+	filesCalls       int
+	deploymentsAppID string
+	workflowRunID    int64
+	deleteCalls      int
 }
 
 func (mock *applicationResourceMock) GetApplicationDeployments(requestContext context.Context, applicationID string) (json.RawMessage, error) {
@@ -74,24 +72,8 @@ func (mock *applicationResourceMock) GetApplicationWorkflowRunJobs(requestContex
 	return mock.payload, nil
 }
 
-func (mock *applicationResourceMock) SetApplicationPackageVisibility(requestContext context.Context, applicationID string, visibilityRequest client.SetApplicationPackageVisibilityRequest) (json.RawMessage, error) {
-	mock.visibilityRequest = visibilityRequest
-	if mock.fail != nil {
-		return nil, mock.fail
-	}
-	return mock.payload, nil
-}
-
 func (mock *applicationResourceMock) DeleteApplication(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	mock.deleteCalls++
-	if mock.fail != nil {
-		return nil, mock.fail
-	}
-	return mock.payload, nil
-}
-
-func (mock *applicationResourceMock) MakeApplicationPackagesPublic(requestContext context.Context, applicationID string) (json.RawMessage, error) {
-	mock.makePublicCalls++
 	if mock.fail != nil {
 		return nil, mock.fail
 	}
@@ -131,7 +113,7 @@ func TestApplicationResourceCommandsRegistered(t *testing.T) {
 		"workflow-runs", "workflow-run-jobs", "rerun-workflow",
 		"pull-request-reviews", "upgrade-workflow", "branches", "branch-files",
 		"files", "publish-readiness", "container-security", "code-security",
-		"package-visibility", "set-package-visibility", "make-public", "demo",
+		"demo",
 	} {
 		if !registered[expected] {
 			t.Errorf("subcommand %q is not registered", expected)
@@ -303,14 +285,6 @@ func TestApplicationWorkflowRunJobsRejectsNonNumericRunID(t *testing.T) {
 	}
 }
 
-func TestApplicationSetPackageVisibilityRequiresFlags(t *testing.T) {
-	mockClient := &applicationResourceMock{}
-	_, executeError := runApplicationCommand(t, mockClient, "set-package-visibility", "app-1", "--kind", "image")
-	if exitCodeFor(executeError) != exitUsage {
-		t.Errorf("exit code = %d, want %d: %v", exitCodeFor(executeError), exitUsage, executeError)
-	}
-}
-
 func TestApplicationRejectsInvalidOutputBeforeRequest(t *testing.T) {
 	mockClient := &applicationResourceMock{fail: errors.New("should not be called")}
 	_, executeError := runApplicationCommand(t, mockClient, "deployments", "app-1", "-o", "xml")
@@ -355,42 +329,6 @@ func TestApplicationDelete_PipedYesProceeds(t *testing.T) {
 	}
 	if mockClient.deleteCalls != 1 {
 		t.Errorf("expected one delete call with piped y, got %d", mockClient.deleteCalls)
-	}
-}
-
-func TestApplicationMakePublic_DeclineDoesNotCall(t *testing.T) {
-	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"success":true}`)}
-	_, executeError := runApplicationCommandWithInput(t, mockClient, "n\n", "make-public", "app-1")
-	if !errors.Is(executeError, errCancelled) {
-		t.Fatalf("expected errCancelled on decline, got %v", executeError)
-	}
-	if got := exitCodeFor(executeError); got != exitCancelled {
-		t.Errorf("expected exit code %d, got %d", exitCancelled, got)
-	}
-	if mockClient.makePublicCalls != 0 {
-		t.Errorf("expected no make-public call on decline, got %d", mockClient.makePublicCalls)
-	}
-}
-
-func TestApplicationMakePublic_YesFlagProceeds(t *testing.T) {
-	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"success":true}`)}
-	_, executeError := runApplicationCommandWithInput(t, mockClient, "", "make-public", "app-1", "--yes")
-	if executeError != nil {
-		t.Fatalf("expected success with --yes, got %v", executeError)
-	}
-	if mockClient.makePublicCalls != 1 {
-		t.Errorf("expected one make-public call with --yes, got %d", mockClient.makePublicCalls)
-	}
-}
-
-func TestApplicationMakePublic_PipedYesProceeds(t *testing.T) {
-	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"success":true}`)}
-	_, executeError := runApplicationCommandWithInput(t, mockClient, "y\n", "make-public", "app-1")
-	if executeError != nil {
-		t.Fatalf("expected success with piped y, got %v", executeError)
-	}
-	if mockClient.makePublicCalls != 1 {
-		t.Errorf("expected one make-public call with piped y, got %d", mockClient.makePublicCalls)
 	}
 }
 

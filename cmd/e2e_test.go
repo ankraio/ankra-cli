@@ -195,18 +195,6 @@ func (m baseMock) GetApplicationCodeSecurity(requestContext context.Context, app
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) GetApplicationPackageVisibility(requestContext context.Context, applicationID string) (json.RawMessage, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) SetApplicationPackageVisibility(requestContext context.Context, applicationID string, visibilityRequest client.SetApplicationPackageVisibilityRequest) (json.RawMessage, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) MakeApplicationPackagesPublic(requestContext context.Context, applicationID string) (json.RawMessage, error) {
-	return nil, errors.New("not implemented")
-}
-
 func (m baseMock) GetApplicationDemos(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }

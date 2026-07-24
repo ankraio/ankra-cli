@@ -21,13 +21,6 @@ type DeployApplicationRequest struct {
 	Inputs     map[string]string `json:"inputs,omitempty"`
 }
 
-// SetApplicationPackageVisibilityRequest mirrors the set_package_visibility
-// body.
-type SetApplicationPackageVisibilityRequest struct {
-	Kind       string `json:"kind"`
-	Visibility string `json:"visibility"`
-}
-
 // ApplicationFileUpdate mirrors a single FileUpdate entry.
 type ApplicationFileUpdate struct {
 	Path    string `json:"path"`
@@ -248,18 +241,6 @@ func (client *Client) GetApplicationContainerSecurity(requestContext context.Con
 
 func (client *Client) GetApplicationCodeSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/code-security"), nil, nil)
-}
-
-func (client *Client) GetApplicationPackageVisibility(requestContext context.Context, applicationID string) (json.RawMessage, error) {
-	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/package-visibility"), nil, nil)
-}
-
-func (client *Client) SetApplicationPackageVisibility(requestContext context.Context, applicationID string, visibilityRequest SetApplicationPackageVisibilityRequest) (json.RawMessage, error) {
-	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/package-visibility"), nil, visibilityRequest)
-}
-
-func (client *Client) MakeApplicationPackagesPublic(requestContext context.Context, applicationID string) (json.RawMessage, error) {
-	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/make-public"), nil, nil)
 }
 
 // --- demos ---
