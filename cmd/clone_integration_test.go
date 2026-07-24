@@ -217,6 +217,54 @@ func TestCopyStackFiles_LocalFiles(t *testing.T) {
 	}
 }
 
+func TestCopyStackFiles_AgentsMdFiles(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+
+	for relPath, content := range map[string]string{
+		"manifests/ns.AGENTS.md":      "# ns learnings",
+		"agents/prometheus.AGENTS.md": "# prometheus learnings",
+	} {
+		full := filepath.Join(srcDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stack := StackConfig{
+		Manifests: []ManifestConfig{
+			{Name: "namespace", Manifest: "kind: Namespace", AgentsMdFromFile: "manifests/ns.AGENTS.md"},
+		},
+		Addons: []AddonConfig{
+			{Name: "prometheus", ChartName: "kube-prometheus-stack", ChartVersion: "56.0.0", AgentsMdFromFile: "agents/prometheus.AGENTS.md"},
+		},
+	}
+
+	originalForce := forceFlag
+	forceFlag = false
+	t.Cleanup(func() { forceFlag = originalForce })
+
+	if err := copyStackFiles(stack, srcDir, dstDir, false, false); err != nil {
+		t.Fatalf("copyStackFiles failed: %v", err)
+	}
+
+	for relPath, want := range map[string]string{
+		"manifests/ns.AGENTS.md":      "# ns learnings",
+		"agents/prometheus.AGENTS.md": "# prometheus learnings",
+	} {
+		content, err := os.ReadFile(filepath.Join(dstDir, relPath))
+		if err != nil {
+			t.Fatalf("expected %s to be transferred: %v", relPath, err)
+		}
+		if string(content) != want {
+			t.Errorf("%s content = %q, want %q", relPath, string(content), want)
+		}
+	}
+}
+
 func TestWriteClusterFile_RoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 	outputPath := filepath.Join(tmpDir, "cluster.yaml")

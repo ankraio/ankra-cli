@@ -475,6 +475,37 @@ func parseDeployWave(raw interface{}) (*int, error) {
 	return &wave, nil
 }
 
+// parseAgentsMdFields extracts the optional 'agents_md' /
+// 'agents_md_from_file' pair shared by manifests and addons. The returned
+// pointers carry the backend's tri-state semantics: nil = key absent (the
+// backend preserves the stored AGENTS.md), pointer to "" = explicit clear.
+// When 'agents_md_from_file' is set, the file's content is read (mirroring
+// how the stack-level 'description_from_file' is handled) and the path is
+// passed through so the stored pointer matches the file the user authored;
+// a non-empty inline 'agents_md' wins over the file content.
+func parseAgentsMdFields(m map[string]interface{}, baseDir string) (*string, *string, error) {
+	var agentsMd, agentsMdFromFile *string
+	if inline, ok := m["agents_md"].(string); ok {
+		agentsMd = &inline
+	}
+	if fileRef, ok := m["agents_md_from_file"].(string); ok && fileRef != "" {
+		full, err := resolveSafePath(baseDir, fileRef)
+		if err != nil {
+			return nil, nil, fmt.Errorf("refusing to read the file referenced by 'agents_md_from_file' (%q): %w", fileRef, err)
+		}
+		fileContent, err := os.ReadFile(full)
+		if err != nil {
+			return nil, nil, fmt.Errorf("could not read the file referenced by 'agents_md_from_file' (%q): %w", full, err)
+		}
+		if agentsMd == nil || *agentsMd == "" {
+			content := string(fileContent)
+			agentsMd = &content
+		}
+		agentsMdFromFile = &fileRef
+	}
+	return agentsMd, agentsMdFromFile, nil
+}
+
 func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, error) {
 	name, _ := mm["name"].(string)
 	if name == "" {
@@ -519,12 +550,19 @@ func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, 
 		}
 	}
 
+	agentsMd, agentsMdFromFile, err := parseAgentsMdFields(mm, baseDir)
+	if err != nil {
+		return client.Manifest{}, err
+	}
+
 	return client.Manifest{
-		Name:           name,
-		ManifestBase64: encoded,
-		Namespace:      ns,
-		Parents:        parents,
-		EncryptedPaths: encryptedPaths,
+		Name:             name,
+		ManifestBase64:   encoded,
+		Namespace:        ns,
+		Parents:          parents,
+		EncryptedPaths:   encryptedPaths,
+		AgentsMd:         agentsMd,
+		AgentsMdFromFile: agentsMdFromFile,
 	}, nil
 }
 
@@ -601,6 +639,11 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 		}
 	}
 
+	agentsMd, agentsMdFromFile, err := parseAgentsMdFields(am, baseDir)
+	if err != nil {
+		return client.Addon{}, err
+	}
+
 	return client.Addon{
 		Name:                   name,
 		ChartName:              chart,
@@ -613,6 +656,8 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 		RegistryURL:            registryURL,
 		RegistryCredentialName: registryCredentialName,
 		Settings:               settings,
+		AgentsMd:               agentsMd,
+		AgentsMdFromFile:       agentsMdFromFile,
 	}, nil
 }
 

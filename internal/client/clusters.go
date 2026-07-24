@@ -283,6 +283,13 @@ type Addon struct {
 	RegistryURL            string                 `json:"registry_url,omitempty"`
 	RegistryCredentialName string                 `json:"registry_credential_name,omitempty"`
 	Settings               map[string]interface{} `json:"settings,omitempty"`
+	// AgentsMd is the addon's AGENTS.md content (operational learnings in
+	// plain markdown). Pointer semantics matter: nil = field absent, the
+	// backend preserves the stored value; pointer to "" = explicit clear.
+	AgentsMd *string `json:"agents_md,omitempty"`
+	// AgentsMdFromFile is the repo-relative path the AGENTS.md content was
+	// authored in, stored by the backend as the pointer in the exported IaC.
+	AgentsMdFromFile *string `json:"agents_md_from_file,omitempty"`
 }
 
 type Manifest struct {
@@ -291,6 +298,10 @@ type Manifest struct {
 	Namespace      string   `json:"namespace,omitempty"`
 	Parents        []Parent `json:"parents"`
 	EncryptedPaths []string `json:"encrypted_paths,omitempty"`
+	// AgentsMd / AgentsMdFromFile: see the Addon fields of the same name.
+	// nil = preserve stored value, pointer to "" = clear.
+	AgentsMd         *string `json:"agents_md,omitempty"`
+	AgentsMdFromFile *string `json:"agents_md_from_file,omitempty"`
 }
 
 type Stack struct {

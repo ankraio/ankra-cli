@@ -180,6 +180,110 @@ func TestBuildManifest(t *testing.T) {
 		}
 	})
 
+	t.Run("agents_md absent leaves both fields nil", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name":     "plain",
+			"manifest": "apiVersion: v1\nkind: Namespace",
+		}
+		m, err := buildManifest(mm, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if m.AgentsMd != nil {
+			t.Errorf("agents_md should be nil when absent, got %q", *m.AgentsMd)
+		}
+		if m.AgentsMdFromFile != nil {
+			t.Errorf("agents_md_from_file should be nil when absent, got %q", *m.AgentsMdFromFile)
+		}
+	})
+
+	t.Run("inline agents_md passes through", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name":      "with-agents",
+			"manifest":  "apiVersion: v1\nkind: Namespace",
+			"agents_md": "# Learnings\nnamespace must exist first",
+		}
+		m, err := buildManifest(mm, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if m.AgentsMd == nil || *m.AgentsMd != "# Learnings\nnamespace must exist first" {
+			t.Errorf("agents_md = %v, want inline content", m.AgentsMd)
+		}
+		if m.AgentsMdFromFile != nil {
+			t.Errorf("agents_md_from_file should stay nil for inline agents_md, got %q", *m.AgentsMdFromFile)
+		}
+	})
+
+	t.Run("empty agents_md is an explicit clear", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name":      "clear-agents",
+			"manifest":  "apiVersion: v1\nkind: Namespace",
+			"agents_md": "",
+		}
+		m, err := buildManifest(mm, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if m.AgentsMd == nil || *m.AgentsMd != "" {
+			t.Errorf("agents_md should be a pointer to \"\" (clear), got %v", m.AgentsMd)
+		}
+	})
+
+	t.Run("agents_md_from_file reads content and keeps the path", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		agentsContent := "# fluent-bit\nDo not touch the lua filter."
+		agentsPath := filepath.Join(tmpDir, "manifests", "fluent-bit.AGENTS.md")
+		if err := os.MkdirAll(filepath.Dir(agentsPath), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(agentsPath, []byte(agentsContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+		mm := map[string]interface{}{
+			"name":                "fluent-bit",
+			"manifest":            "apiVersion: v1\nkind: Namespace",
+			"agents_md_from_file": "manifests/fluent-bit.AGENTS.md",
+		}
+		m, err := buildManifest(mm, tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if m.AgentsMd == nil || *m.AgentsMd != agentsContent {
+			t.Errorf("agents_md = %v, want file content", m.AgentsMd)
+		}
+		if m.AgentsMdFromFile == nil || *m.AgentsMdFromFile != "manifests/fluent-bit.AGENTS.md" {
+			t.Errorf("agents_md_from_file = %v, want the authored path", m.AgentsMdFromFile)
+		}
+	})
+
+	t.Run("agents_md_from_file escaping baseDir is refused", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name":                "escape",
+			"manifest":            "apiVersion: v1\nkind: Namespace",
+			"agents_md_from_file": "../outside.AGENTS.md",
+		}
+		_, err := buildManifest(mm, t.TempDir())
+		if err == nil {
+			t.Fatal("expected error for path escaping the base directory")
+		}
+		if !strings.Contains(err.Error(), "agents_md_from_file") {
+			t.Errorf("error should name the field, got: %v", err)
+		}
+	})
+
+	t.Run("missing agents_md_from_file target errors", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name":                "missing-file",
+			"manifest":            "apiVersion: v1\nkind: Namespace",
+			"agents_md_from_file": "nope.AGENTS.md",
+		}
+		_, err := buildManifest(mm, t.TempDir())
+		if err == nil {
+			t.Fatal("expected error for missing agents_md_from_file target")
+		}
+	})
+
 	t.Run("invalid from_file YAML names the file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		manifestPath := filepath.Join(tmpDir, "broken.yaml")
@@ -304,6 +408,109 @@ func TestBuildAddon(t *testing.T) {
 		}
 		if a.Settings == nil {
 			t.Error("expected settings to be populated")
+		}
+	})
+
+	t.Run("agents_md absent leaves both fields nil", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "plain",
+			"chart_name":    "plain",
+			"chart_version": "1.0.0",
+		}
+		a, err := buildAddon(am, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if a.AgentsMd != nil || a.AgentsMdFromFile != nil {
+			t.Errorf("agents_md fields should be nil when absent, got %v / %v", a.AgentsMd, a.AgentsMdFromFile)
+		}
+	})
+
+	t.Run("inline agents_md passes through", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "with-agents",
+			"chart_name":    "test",
+			"chart_version": "1.0.0",
+			"agents_md":     "# cert-manager\nCRDs install separately.",
+		}
+		a, err := buildAddon(am, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if a.AgentsMd == nil || *a.AgentsMd != "# cert-manager\nCRDs install separately." {
+			t.Errorf("agents_md = %v, want inline content", a.AgentsMd)
+		}
+		if a.AgentsMdFromFile != nil {
+			t.Errorf("agents_md_from_file should stay nil for inline agents_md, got %q", *a.AgentsMdFromFile)
+		}
+	})
+
+	t.Run("agents_md_from_file reads content and keeps the path", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		agentsContent := "# website addon\nPin the registry credential."
+		agentsPath := filepath.Join(tmpDir, "agents", "website.AGENTS.md")
+		if err := os.MkdirAll(filepath.Dir(agentsPath), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(agentsPath, []byte(agentsContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+		am := map[string]interface{}{
+			"name":                "website",
+			"chart_name":          "website",
+			"chart_version":       "1.0.0",
+			"agents_md_from_file": "agents/website.AGENTS.md",
+		}
+		a, err := buildAddon(am, tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if a.AgentsMd == nil || *a.AgentsMd != agentsContent {
+			t.Errorf("agents_md = %v, want file content", a.AgentsMd)
+		}
+		if a.AgentsMdFromFile == nil || *a.AgentsMdFromFile != "agents/website.AGENTS.md" {
+			t.Errorf("agents_md_from_file = %v, want the authored path", a.AgentsMdFromFile)
+		}
+	})
+
+	t.Run("non-empty inline agents_md wins over agents_md_from_file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		agentsPath := filepath.Join(tmpDir, "a.AGENTS.md")
+		if err := os.WriteFile(agentsPath, []byte("file content"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		am := map[string]interface{}{
+			"name":                "both",
+			"chart_name":          "test",
+			"chart_version":       "1.0.0",
+			"agents_md":           "inline wins",
+			"agents_md_from_file": "a.AGENTS.md",
+		}
+		a, err := buildAddon(am, tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if a.AgentsMd == nil || *a.AgentsMd != "inline wins" {
+			t.Errorf("agents_md = %v, want the inline content to win", a.AgentsMd)
+		}
+		if a.AgentsMdFromFile == nil || *a.AgentsMdFromFile != "a.AGENTS.md" {
+			t.Errorf("agents_md_from_file = %v, want the authored path", a.AgentsMdFromFile)
+		}
+	})
+
+	t.Run("agents_md_from_file escaping baseDir is refused", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":                "escape",
+			"chart_name":          "test",
+			"chart_version":       "1.0.0",
+			"agents_md_from_file": "../outside.AGENTS.md",
+		}
+		_, err := buildAddon(am, t.TempDir())
+		if err == nil {
+			t.Fatal("expected error for path escaping the base directory")
+		}
+		if !strings.Contains(err.Error(), "agents_md_from_file") {
+			t.Errorf("error should name the field, got: %v", err)
 		}
 	})
 

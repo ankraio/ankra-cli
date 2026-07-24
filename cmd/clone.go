@@ -241,12 +241,14 @@ type StackConfig struct {
 }
 
 type ManifestConfig struct {
-	Name           string         `yaml:"name"`
-	Parents        []ParentConfig `yaml:"parents,omitempty"`
-	FromFile       string         `yaml:"from_file,omitempty"`
-	Manifest       string         `yaml:"manifest,omitempty"`
-	Namespace      string         `yaml:"namespace,omitempty"`
-	EncryptedPaths []string       `yaml:"encrypted_paths,omitempty"`
+	Name             string         `yaml:"name"`
+	Parents          []ParentConfig `yaml:"parents,omitempty"`
+	FromFile         string         `yaml:"from_file,omitempty"`
+	Manifest         string         `yaml:"manifest,omitempty"`
+	Namespace        string         `yaml:"namespace,omitempty"`
+	EncryptedPaths   []string       `yaml:"encrypted_paths,omitempty"`
+	AgentsMd         string         `yaml:"agents_md,omitempty"`
+	AgentsMdFromFile string         `yaml:"agents_md_from_file,omitempty"`
 }
 
 type AddonConfig struct {
@@ -261,6 +263,8 @@ type AddonConfig struct {
 	RegistryURL            string                 `yaml:"registry_url,omitempty"`
 	RegistryCredentialName string                 `yaml:"registry_credential_name,omitempty"`
 	Settings               map[string]interface{} `yaml:"settings,omitempty"`
+	AgentsMd               string                 `yaml:"agents_md,omitempty"`
+	AgentsMdFromFile       string                 `yaml:"agents_md_from_file,omitempty"`
 }
 
 type ParentConfig struct {
@@ -519,16 +523,24 @@ func copyStackFiles(stack StackConfig, existingBaseDir, newBaseDir string, onlyM
 	}
 
 	for i := range stack.Manifests {
-		fromFile := stack.Manifests[i].FromFile
-		if fromFile == "" {
-			continue
+		if fromFile := stack.Manifests[i].FromFile; fromFile != "" {
+			if err := transferStackFile(existingBaseDir, newBaseDir, fromFile, "manifest file", onlyMissing, fromURL); err != nil {
+				return err
+			}
 		}
-		if err := transferStackFile(existingBaseDir, newBaseDir, fromFile, "manifest file", onlyMissing, fromURL); err != nil {
-			return err
+		if agentsFile := stack.Manifests[i].AgentsMdFromFile; agentsFile != "" {
+			if err := transferStackFile(existingBaseDir, newBaseDir, agentsFile, "manifest AGENTS.md file", onlyMissing, fromURL); err != nil {
+				return err
+			}
 		}
 	}
 
 	for i := range stack.Addons {
+		if agentsFile := stack.Addons[i].AgentsMdFromFile; agentsFile != "" {
+			if err := transferStackFile(existingBaseDir, newBaseDir, agentsFile, "addon AGENTS.md file", onlyMissing, fromURL); err != nil {
+				return err
+			}
+		}
 		config := stack.Addons[i].Configuration
 		if config == nil {
 			continue

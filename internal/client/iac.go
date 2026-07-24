@@ -49,6 +49,14 @@ type AddonSpec struct {
 	// Group is the optional organizational grouping label within the stack
 	// (purely organizational; never triggers a redeploy).
 	Group string `json:"group,omitempty" yaml:"group,omitempty"`
+	// AgentsMd is the addon's AGENTS.md content (operational learnings,
+	// plain markdown; never encrypted; editing never redeploys). Pointer
+	// semantics: nil = absent, the backend preserves the stored file;
+	// pointer to "" = explicit clear (file deleted from the GitOps repo).
+	AgentsMd *string `json:"agents_md,omitempty" yaml:"agents_md,omitempty"`
+	// AgentsMdFromFile is the repo-relative path of the AGENTS.md file; the
+	// exported IaC YAML carries only this pointer, not the content.
+	AgentsMdFromFile *string `json:"agents_md_from_file,omitempty" yaml:"agents_md_from_file,omitempty"`
 }
 
 // ManifestSpec is the typed manifest shape used for partial-stack patches.
@@ -61,6 +69,10 @@ type ManifestSpec struct {
 	EncryptedPaths []string `json:"encrypted_paths,omitempty" yaml:"encrypted_paths,omitempty"`
 	// Group is the optional organizational grouping label within the stack.
 	Group string `json:"group,omitempty" yaml:"group,omitempty"`
+	// AgentsMd / AgentsMdFromFile: see the AddonSpec fields of the same
+	// name. nil = preserve stored value, pointer to "" = clear.
+	AgentsMd         *string `json:"agents_md,omitempty" yaml:"agents_md,omitempty"`
+	AgentsMdFromFile *string `json:"agents_md_from_file,omitempty" yaml:"agents_md_from_file,omitempty"`
 }
 
 // StackSpec is the typed stack shape used for partial-stack patches.

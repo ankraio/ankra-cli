@@ -507,6 +507,12 @@ func applyAddonMutations(orig client.AddonSpec, flags addonsUpgradeFlags, newVal
 		RegistryCredentialName: orig.RegistryCredentialName,
 		Parents:                orig.Parents,
 		Settings:               orig.Settings,
+		// Carry the AGENTS.md fields untouched so the patched addon keeps
+		// round-tripping the IaC's agents_md_from_file pointer verbatim
+		// (absent would also preserve server-side, but never rely on that
+		// here: this function's contract is "orig with only flags changed").
+		AgentsMd:         orig.AgentsMd,
+		AgentsMdFromFile: orig.AgentsMdFromFile,
 	}
 	if flags.ChartVersion != "" {
 		out.ChartVersion = flags.ChartVersion
