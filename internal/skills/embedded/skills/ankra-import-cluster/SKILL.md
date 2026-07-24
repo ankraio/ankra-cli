@@ -52,6 +52,7 @@ spec:
 - `spec.stacks[]` — each stack groups related `manifests` and `addons`.
 - `manifests[]` — raw Kubernetes YAML. Use `from_file: "path.yaml"` to reference a file, or `manifest: |-` for inline content.
 - `addons[]` — Helm releases. Required: `chart_name`, `chart_version`, `repository_url`, `namespace`. Configure via `configuration.values: |-` (inline) or `configuration.from_file:`.
+- `agents_md` / `agents_md_from_file` — optional per-manifest and per-addon AGENTS.md: operational learnings in plain markdown, stored as a sibling file in the GitOps repo (e.g. `agents_md_from_file: "manifests/fluent-bit.AGENTS.md"`). Omitting the field preserves the stored content, an explicit empty string clears it, and editing it never triggers a redeploy. Plaintext only — never put secrets in it. After any non-obvious operation (a values quirk, an upgrade pitfall, a dependency gotcha), record what you learned here so future agents working on the same addon or manifest benefit.
 - `parents` — the dependency edges that control deployment order. A resource only deploys after its parents succeed. Reference a parent as `- manifest: <name>` or `- addon: <name>`.
 
 ## Workflow

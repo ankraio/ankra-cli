@@ -96,6 +96,61 @@ func TestGetClusterIaC_Error(t *testing.T) {
 	}
 }
 
+// TestSpecAgentsMdWireSemantics pins the tri-state JSON encoding of the
+// AGENTS.md fields on AddonSpec and ManifestSpec: nil pointers are omitted
+// entirely (backend preserves the stored file), a pointer to "" is sent as an
+// explicit empty string (backend clears the file), and content passes
+// through verbatim.
+func TestSpecAgentsMdWireSemantics(t *testing.T) {
+	t.Run("nil is omitted", func(t *testing.T) {
+		b, err := json.Marshal(AddonSpec{Name: "x", ChartName: "c", ChartVersion: "1"})
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if strings.Contains(string(b), "agents_md") {
+			t.Errorf("nil agents_md fields must be omitted, got %s", string(b))
+		}
+	})
+
+	t.Run("empty string is an explicit clear", func(t *testing.T) {
+		empty := ""
+		b, err := json.Marshal(ManifestSpec{Name: "m", AgentsMd: &empty})
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		var generic map[string]any
+		if err := json.Unmarshal(b, &generic); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		v, present := generic["agents_md"]
+		if !present {
+			t.Fatalf("explicit empty agents_md must be serialized, got %s", string(b))
+		}
+		if s, _ := v.(string); s != "" {
+			t.Errorf("agents_md = %q, want empty string", s)
+		}
+	})
+
+	t.Run("content and pointer round-trip", func(t *testing.T) {
+		content := "# learnings\nplain markdown"
+		path := "stacks/demo/add-ons/x/AGENTS.md"
+		b, err := json.Marshal(AddonSpec{Name: "x", ChartName: "c", ChartVersion: "1", AgentsMd: &content, AgentsMdFromFile: &path})
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		var back AddonSpec
+		if err := json.Unmarshal(b, &back); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if back.AgentsMd == nil || *back.AgentsMd != content {
+			t.Errorf("agents_md round-trip = %v, want %q", back.AgentsMd, content)
+		}
+		if back.AgentsMdFromFile == nil || *back.AgentsMdFromFile != path {
+			t.Errorf("agents_md_from_file round-trip = %v, want %q", back.AgentsMdFromFile, path)
+		}
+	})
+}
+
 func TestPatchClusterStackPartial_OK(t *testing.T) {
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch {

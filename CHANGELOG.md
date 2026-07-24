@@ -4,6 +4,18 @@
 
 ### Added
 
+- **Stack manifests and addons can carry an AGENTS.md.** Every manifest and
+  addon entry in a stack spec now accepts `agents_md` (inline markdown) or
+  `agents_md_from_file` (a repo-relative path, mirroring how the stack-level
+  `description_from_file` works), so operational learnings live next to the
+  resource they describe. The platform stores the content as a sibling file
+  in the GitOps repo (`add-ons/<addon>/AGENTS.md`,
+  `manifests/<name>.AGENTS.md`); omitting the field preserves what is
+  stored, an explicit empty string clears it, and editing it never triggers
+  a redeploy. `ankra cluster clone` transfers the referenced AGENTS.md files
+  alongside the other stack files, and `ankra cluster addons upgrade` /
+  `manifests upgrade` keep them intact.
+
 - **`ankra cluster info` now shows the cluster's provider network
   identifiers.** For Ankra-provisioned clusters (DigitalOcean first) the
   details include a Network section with the VPC UUID, IP range, NAT

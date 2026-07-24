@@ -32,9 +32,11 @@ spec:
           chart_name: cert-manager
           chart_version: 1.14.0
           namespace: cert-manager
+          agents_md_from_file: stacks/demo-web-app/add-ons/cert-manager/AGENTS.md
       manifests:
         - name: demo-namespace
           namespace: web
+          agents_md_from_file: stacks/demo-web-app/manifests/demo-namespace.AGENTS.md
     - name: monitoring
       addons:
         - name: prometheus
@@ -67,6 +69,21 @@ func TestParseImportClusterYAML_OK(t *testing.T) {
 	}
 	if len(doc.Spec.Stacks[0].Addons) != 2 {
 		t.Errorf("stacks[0].Addons = %d, want 2", len(doc.Spec.Stacks[0].Addons))
+	}
+	certManager := doc.Spec.Stacks[0].Addons[1]
+	if certManager.AgentsMdFromFile == nil || *certManager.AgentsMdFromFile != "stacks/demo-web-app/add-ons/cert-manager/AGENTS.md" {
+		t.Errorf("addon agents_md_from_file = %v, want the exported pointer path", certManager.AgentsMdFromFile)
+	}
+	if certManager.AgentsMd != nil {
+		t.Errorf("addon agents_md should be nil in exported IaC, got %q", *certManager.AgentsMd)
+	}
+	demoNamespace := doc.Spec.Stacks[0].Manifests[0]
+	if demoNamespace.AgentsMdFromFile == nil || *demoNamespace.AgentsMdFromFile != "stacks/demo-web-app/manifests/demo-namespace.AGENTS.md" {
+		t.Errorf("manifest agents_md_from_file = %v, want the exported pointer path", demoNamespace.AgentsMdFromFile)
+	}
+	website := doc.Spec.Stacks[0].Addons[0]
+	if website.AgentsMdFromFile != nil {
+		t.Errorf("addon without AGENTS.md should have nil agents_md_from_file, got %q", *website.AgentsMdFromFile)
 	}
 }
 
@@ -234,6 +251,8 @@ func TestBuildPartialStackPatch_Shape(t *testing.T) {
 }
 
 func TestApplyAddonMutations_OnlyChangesRequestedFields(t *testing.T) {
+	agentsMd := "# website\nlearnings"
+	agentsMdFromFile := "stacks/demo/add-ons/website/AGENTS.md"
 	orig := client.AddonSpec{
 		Name:                   "website",
 		ChartName:              "website",
@@ -242,6 +261,8 @@ func TestApplyAddonMutations_OnlyChangesRequestedFields(t *testing.T) {
 		RegistryName:           "regA",
 		RegistryURL:            "oci://a",
 		RegistryCredentialName: "credA",
+		AgentsMd:               &agentsMd,
+		AgentsMdFromFile:       &agentsMdFromFile,
 	}
 	flags := addonsUpgradeFlags{ChartVersion: "1.0.146"}
 	out := applyAddonMutations(orig, flags, nil)
@@ -256,6 +277,12 @@ func TestApplyAddonMutations_OnlyChangesRequestedFields(t *testing.T) {
 	}
 	if out.Configuration != nil {
 		t.Errorf("configuration should remain nil when no values flags, got %v", out.Configuration)
+	}
+	if out.AgentsMd == nil || *out.AgentsMd != agentsMd {
+		t.Errorf("agents_md should be carried untouched, got %v", out.AgentsMd)
+	}
+	if out.AgentsMdFromFile == nil || *out.AgentsMdFromFile != agentsMdFromFile {
+		t.Errorf("agents_md_from_file should be carried untouched, got %v", out.AgentsMdFromFile)
 	}
 }
 

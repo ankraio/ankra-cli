@@ -9,10 +9,12 @@ A Stack is Ankra's reusable unit of deployment: it bundles Helm addons, raw mani
 
 ## Building blocks
 
-- **Addon** — a Helm release: `chart_name`, `chart_version`, `repository_url`, `namespace`, and `configuration.values`.
-- **Manifest** — raw Kubernetes YAML (namespaces, ConfigMaps, CRDs, RBAC, anything Helm does not own).
+- **Addon** — a Helm release: `chart_name`, `chart_version`, `repository_url`, `namespace`, and `configuration.values`. Optional `agents_md` (inline markdown) or `agents_md_from_file` (path) attaches an AGENTS.md of operational learnings, stored next to the addon in the GitOps repo.
+- **Manifest** — raw Kubernetes YAML (namespaces, ConfigMaps, CRDs, RBAC, anything Helm does not own). Also takes optional `agents_md` / `agents_md_from_file`.
 - **Variable** — a named value substituted into manifests/addon values, so the same stack works across environments.
 - **Parents** — dependency edges. A resource deploys only after every parent has succeeded.
+
+AGENTS.md semantics: omit the field to preserve what is stored, set `""` to clear it, and editing it never redeploys anything. Content is plain markdown (never encrypted — no secrets). Use it to record durable operational learnings after non-obvious operations so future agents benefit.
 
 ## Deployment order via `parents`
 
@@ -31,6 +33,7 @@ addons:
     chart_version: 65.1.1
     repository_url: https://prometheus-community.github.io/helm-charts
     namespace: monitoring
+    agents_md_from_file: agents/kube-prometheus-stack.AGENTS.md
     parents:
       - manifest: monitoring-ns
       - manifest: grafana-dashboards
