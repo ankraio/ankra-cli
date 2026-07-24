@@ -52,8 +52,8 @@ type applicationSubresourceInvoke func(command *cobra.Command, applicationID str
 
 // newApplicationSubresourceCommand builds a `<verb> <application-id>` command
 // that fetches a JSON payload and renders it. It covers the reads and the
-// bodyless action routes (retry, reconcile, delete, make-public,
-// upgrade-workflow) that only need the application id.
+// bodyless action routes (retry, reconcile, delete, upgrade-workflow) that
+// only need the application id.
 func newApplicationSubresourceCommand(name string, short string, invoke applicationSubresourceInvoke) *cobra.Command {
 	command := &cobra.Command{
 		Use:   name + " <application-id>",
@@ -113,7 +113,7 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 			return apiClient.GetApplicationBranchFiles(command.Context(), applicationID)
 		}),
 		newApplicationUpdateFilesCommand(),
-		newApplicationSubresourceCommand("publish-readiness", "Report whether the repository can publish to GHCR", func(command *cobra.Command, applicationID string) (json.RawMessage, error) {
+		newApplicationSubresourceCommand("publish-readiness", "Report whether the repository can publish to the private Ankra registry", func(command *cobra.Command, applicationID string) (json.RawMessage, error) {
 			return apiClient.GetApplicationPublishReadiness(command.Context(), applicationID)
 		}),
 		newApplicationSubresourceCommand("container-security", "Show container image vulnerability findings", func(command *cobra.Command, applicationID string) (json.RawMessage, error) {
@@ -122,11 +122,6 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 		newApplicationSubresourceCommand("code-security", "Show source code security findings", func(command *cobra.Command, applicationID string) (json.RawMessage, error) {
 			return apiClient.GetApplicationCodeSecurity(command.Context(), applicationID)
 		}),
-		newApplicationSubresourceCommand("package-visibility", "Show the GHCR image and chart package visibility", func(command *cobra.Command, applicationID string) (json.RawMessage, error) {
-			return apiClient.GetApplicationPackageVisibility(command.Context(), applicationID)
-		}),
-		newApplicationSetPackageVisibilityCommand(),
-		newApplicationMakePublicCommand(),
 	)
 	applicationCommand.AddCommand(newApplicationDemoCommand())
 }
@@ -159,36 +154,6 @@ func newApplicationDeleteCommand() *cobra.Command {
 	deleteCommand.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	registerStructuredOutputFlags(deleteCommand)
 	return deleteCommand
-}
-
-func newApplicationMakePublicCommand() *cobra.Command {
-	makePublicCommand := &cobra.Command{
-		Use:   "make-public <application-id>",
-		Short: "Make the GHCR image and chart packages public",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(command *cobra.Command, arguments []string) error {
-			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
-				return formatError
-			}
-			applicationID := strings.TrimSpace(arguments[0])
-			yes, _ := command.Flags().GetBool("yes")
-			if confirmError := confirmPrompt(
-				command.InOrStdin(), command.OutOrStdout(),
-				fmt.Sprintf("Make the GHCR image and chart packages of application %q publicly readable? [y/N]: ", applicationID),
-				yes,
-			); confirmError != nil {
-				return confirmError
-			}
-			payload, makePublicError := apiClient.MakeApplicationPackagesPublic(command.Context(), applicationID)
-			if makePublicError != nil {
-				return makePublicError
-			}
-			return renderApplicationPayload(command, payload)
-		},
-	}
-	makePublicCommand.Flags().Bool("yes", false, "Skip the confirmation prompt")
-	registerStructuredOutputFlags(makePublicCommand)
-	return makePublicCommand
 }
 
 func newApplicationListCommand() *cobra.Command {
@@ -414,39 +379,6 @@ func newApplicationPullRequestReviewsCommand() *cobra.Command {
 	reviewsCommand.Flags().Int("limit", 0, "Maximum number of reviews (1-20)")
 	registerStructuredOutputFlags(reviewsCommand)
 	return reviewsCommand
-}
-
-func newApplicationSetPackageVisibilityCommand() *cobra.Command {
-	setCommand := &cobra.Command{
-		Use:   "set-package-visibility <application-id>",
-		Short: "Set the GHCR image or chart package visibility",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(command *cobra.Command, arguments []string) error {
-			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
-				return formatError
-			}
-			kind, _ := command.Flags().GetString("kind")
-			kind = strings.TrimSpace(kind)
-			if kind == "" {
-				return withExitCode(exitUsage, errors.New("--kind is required"))
-			}
-			visibility, _ := command.Flags().GetString("visibility")
-			visibility = strings.TrimSpace(visibility)
-			if visibility == "" {
-				return withExitCode(exitUsage, errors.New("--visibility is required"))
-			}
-			payload, setError := apiClient.SetApplicationPackageVisibility(command.Context(), strings.TrimSpace(arguments[0]),
-				client.SetApplicationPackageVisibilityRequest{Kind: kind, Visibility: visibility})
-			if setError != nil {
-				return setError
-			}
-			return renderApplicationPayload(command, payload)
-		},
-	}
-	setCommand.Flags().String("kind", "", "Package kind: image or chart (required)")
-	setCommand.Flags().String("visibility", "", "Visibility: public or private (required)")
-	registerStructuredOutputFlags(setCommand)
-	return setCommand
 }
 
 func newApplicationUpdateFilesCommand() *cobra.Command {
