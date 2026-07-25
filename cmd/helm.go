@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"ankra/internal/client"
 
@@ -135,6 +136,15 @@ var helmRegistriesCreateCmd = &cobra.Command{
 	Short: "Create a Helm chart registry from a spec file",
 	Long: `Create a Helm chart registry by providing a JSON spec file.
 
+The registry must be nested under exactly one of "helm_oci_registry" or
+"helm_http_registry":
+
+  {"spec": {"helm_oci_registry": {"name": "my-charts", "url": "oci://ghcr.io/acme/charts"}}}
+  {"spec": {"helm_http_registry": {"name": "my-charts", "url": "https://charts.example.com"}}}
+
+A flat {"name": ..., "url": ...} file is accepted and nested automatically,
+inferring the registry type from the URL scheme (oci:// means OCI).
+
 Example:
   ankra helm registries create -f registry-spec.json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -145,9 +155,12 @@ Example:
 			return fmt.Errorf("reading file: %w", err)
 		}
 
-		var specJSON json.RawMessage
-		if err := json.Unmarshal(fileData, &specJSON); err != nil {
-			return fmt.Errorf("parsing JSON: %w", err)
+		specJSON, note, err := normalizeHelmRegistrySpec(fileData)
+		if err != nil {
+			return withExitCode(exitUsage, err)
+		}
+		if note != "" {
+			fmt.Fprintln(os.Stderr, note)
 		}
 
 		result, err := apiClient.CreateHelmRegistry(client.CreateHelmRegistryRequest{Spec: specJSON})
@@ -166,6 +179,67 @@ Example:
 		fmt.Println("Helm registry created successfully!")
 		return nil
 	},
+}
+
+const helmRegistrySpecHint = `the registry must be nested under exactly one of "helm_oci_registry" or "helm_http_registry", for example:
+  {"spec": {"helm_oci_registry": {"name": "my-charts", "url": "oci://ghcr.io/acme/charts"}}}
+  {"spec": {"helm_http_registry": {"name": "my-charts", "url": "https://charts.example.com"}}}`
+
+// normalizeHelmRegistrySpec validates the spec file before it is POSTed. The
+// API requires the registry nested under exactly one of helm_oci_registry /
+// helm_http_registry and answers a bare 500 "No registry provided!" to any
+// other shape, so shape problems must be caught client-side. A flat
+// {name, url} spec is auto-nested, inferring OCI from an oci:// URL; the
+// returned note tells the user when that happened.
+func normalizeHelmRegistrySpec(fileData []byte) (json.RawMessage, string, error) {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(fileData, &doc); err != nil {
+		if !json.Valid(fileData) {
+			return nil, "", fmt.Errorf("parsing JSON: %w", err)
+		}
+		return nil, "", fmt.Errorf("invalid registry spec: file must contain a JSON object; %s", helmRegistrySpecHint)
+	}
+
+	spec := doc
+	if rawSpec, ok := doc["spec"]; ok {
+		var inner map[string]json.RawMessage
+		if err := json.Unmarshal(rawSpec, &inner); err != nil {
+			return nil, "", fmt.Errorf(`invalid registry spec: "spec" must be a JSON object; %s`, helmRegistrySpecHint)
+		}
+		spec = inner
+	}
+
+	_, hasOCI := spec["helm_oci_registry"]
+	_, hasHTTP := spec["helm_http_registry"]
+	if hasOCI && hasHTTP {
+		return nil, "", fmt.Errorf(`invalid registry spec: found both "helm_oci_registry" and "helm_http_registry"; %s`, helmRegistrySpecHint)
+	}
+	if hasOCI || hasHTTP {
+		specJSON, err := json.Marshal(spec)
+		if err != nil {
+			return nil, "", fmt.Errorf("encoding spec: %w", err)
+		}
+		return specJSON, "", nil
+	}
+
+	// Flat spec: nest the whole object under the type inferred from the URL.
+	var registryURL string
+	if rawURL, ok := spec["url"]; ok {
+		_ = json.Unmarshal(rawURL, &registryURL)
+	}
+	if _, hasName := spec["name"]; !hasName || registryURL == "" {
+		return nil, "", fmt.Errorf("invalid registry spec: %s", helmRegistrySpecHint)
+	}
+	registryKey := "helm_http_registry"
+	if strings.HasPrefix(strings.ToLower(registryURL), "oci://") {
+		registryKey = "helm_oci_registry"
+	}
+	specJSON, err := json.Marshal(map[string]map[string]json.RawMessage{registryKey: spec})
+	if err != nil {
+		return nil, "", fmt.Errorf("encoding spec: %w", err)
+	}
+	note := fmt.Sprintf("Note: nested the flat registry spec under %q (inferred from url %q).", registryKey, registryURL)
+	return specJSON, note, nil
 }
 
 var helmRegistriesDeleteCmd = &cobra.Command{

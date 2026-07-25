@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra helm registries create` validates the spec file before sending
+  it.** The API requires the registry nested under exactly one of
+  `helm_oci_registry` or `helm_http_registry` and answers any other shape
+  with an unexplained server error (`No registry provided!`). The CLI now
+  catches malformed files up front with an example of the expected shape
+  (exit code 2), and accepts a flat `{"name": ..., "url": ...}` file by
+  nesting it automatically — inferring an OCI registry from an `oci://`
+  URL.
+
 ### Added
 
 - **Stack manifests and addons can carry an AGENTS.md.** Every manifest and
