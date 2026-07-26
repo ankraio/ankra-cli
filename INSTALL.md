@@ -94,6 +94,9 @@ explicitly.
    ankra cluster --help
    ```
 
+The full command reference — every command, flag, and default — lives at
+[docs.ankra.ai/reference/cli](https://docs.ankra.ai/reference/cli).
+
 ## Troubleshooting
 
 - Ensure that `/usr/local/bin` is on your `$PATH`. You may need to

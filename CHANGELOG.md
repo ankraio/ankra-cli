@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+
+- **The README now points at the hosted CLI reference instead of duplicating
+  it.** The full command reference — every command, flag, and default — lives
+  at [docs.ankra.ai/reference/cli](https://docs.ankra.ai/reference/cli),
+  regenerated from the CLI source on every release, so it can never drift from
+  the shipped binary the way the hand-maintained README reference could. The
+  README keeps installation, quick-start, and development documentation, plus
+  a per-command link table into the reference.
+
 ### Fixed
 
 - **`ankra helm registries create` validates the spec file before sending
