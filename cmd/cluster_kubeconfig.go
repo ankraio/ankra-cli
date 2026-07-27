@@ -49,26 +49,34 @@ These commands read and write a single file: --kubeconfig if given, otherwise
 the first entry of $KUBECONFIG, otherwise ~/.kube/config.
 
 Examples:
-  ankra cluster kubeconfig add --cluster my-cluster --use
+  ankra cluster kubeconfig add my-cluster --use
   ankra cluster kubeconfig add --all
-  ankra cluster kubeconfig add --cluster my-cluster --print > my-cluster.yaml
+  ankra cluster kubeconfig add my-cluster --print > my-cluster.yaml
   ankra cluster kubeconfig list
-  ankra cluster kubeconfig remove --cluster my-cluster
+  ankra cluster kubeconfig remove my-cluster
   ankra cluster kubeconfig remove --all`,
 }
 
 var clusterKubeconfigAddCmd = &cobra.Command{
-	Use:   "add",
+	Use:   "add [cluster]",
 	Short: "Add or update an Ankra context in your kubeconfig",
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := applyKubeconfigPositionalCluster(args); err != nil {
+			return err
+		}
 		return kubeconfigAdd(os.Stdout)
 	},
 }
 
 var clusterKubeconfigRemoveCmd = &cobra.Command{
-	Use:   "remove",
+	Use:   "remove [cluster]",
 	Short: "Remove Ankra contexts from your kubeconfig",
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := applyKubeconfigPositionalCluster(args); err != nil {
+			return err
+		}
 		return kubeconfigRemove(os.Stdout)
 	},
 }
@@ -76,9 +84,24 @@ var clusterKubeconfigRemoveCmd = &cobra.Command{
 var clusterKubeconfigListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List Ankra-managed contexts in your kubeconfig",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return kubeconfigList(os.Stdout)
 	},
+}
+
+// applyKubeconfigPositionalCluster folds an optional positional cluster
+// argument into the --cluster flag so both spellings behave identically
+// everywhere downstream.
+func applyKubeconfigPositionalCluster(args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	if kubeconfigClusterFlag != "" && kubeconfigClusterFlag != args[0] {
+		return withExitCode(exitUsage, fmt.Errorf("cluster specified twice: %q as argument and %q via --cluster; pass only one", args[0], kubeconfigClusterFlag))
+	}
+	kubeconfigClusterFlag = args[0]
+	return nil
 }
 
 func kubeconfigAdd(out io.Writer) error {
@@ -225,7 +248,7 @@ func printStandaloneKubeconfig(out io.Writer, entries []kubeconfig.Entry) error 
 
 func emitAddNotes() {
 	if kubeconfigAllFlag && kubeconfigClusterFlag != "" {
-		fmt.Fprintln(os.Stderr, "Note: --cluster is ignored when --all is set.")
+		fmt.Fprintln(os.Stderr, "Note: the specified cluster is ignored when --all is set.")
 	}
 	if kubeconfigAllFlag && kubeconfigEmbedToken {
 		fmt.Fprintln(os.Stderr, "Note: --embed-token mints one token per cluster and may hit the mint rate limit on large fleets; the default exec mode mints only once.")
@@ -377,7 +400,7 @@ func resolveKubeconfigTargets() ([]kubeTarget, error) {
 	}
 	selected, err := loadSelectedCluster()
 	if err != nil || selected.ID == "" {
-		return nil, errors.New("no cluster specified; pass --cluster <name|id>, use --all, or run 'ankra cluster select' first")
+		return nil, errors.New("no cluster specified; pass a cluster name or ID, use --all, or run 'ankra cluster select' first")
 	}
 	return []kubeTarget{{id: selected.ID, name: selected.Name, orgID: selected.OrganisationID}}, nil
 }
@@ -392,7 +415,7 @@ func resolveKubeconfigClusterName() (string, error) {
 	}
 	selected, err := loadSelectedCluster()
 	if err != nil || selected.Name == "" {
-		return "", errors.New("no cluster specified; pass --cluster <name|id> or --all")
+		return "", errors.New("no cluster specified; pass a cluster name or ID, or use --all")
 	}
 	return selected.Name, nil
 }
@@ -435,7 +458,7 @@ func resolveKubeconfigPath(flag string) (string, error) {
 }
 
 func init() {
-	clusterKubeconfigAddCmd.Flags().StringVar(&kubeconfigClusterFlag, "cluster", "", "Cluster name or ID (defaults to the selected cluster)")
+	clusterKubeconfigAddCmd.Flags().StringVar(&kubeconfigClusterFlag, "cluster", "", "Cluster name or ID (same as the positional argument; defaults to the selected cluster)")
 	clusterKubeconfigAddCmd.Flags().BoolVar(&kubeconfigAllFlag, "all", false, "Add every cluster you can access")
 	clusterKubeconfigAddCmd.Flags().BoolVar(&kubeconfigEmbedToken, "embed-token", false, "Embed a short-lived token instead of the exec credential plugin")
 	clusterKubeconfigAddCmd.Flags().StringVar(&kubeconfigNamespace, "namespace", "", "Default namespace for the context")
@@ -445,7 +468,7 @@ func init() {
 	clusterKubeconfigAddCmd.Flags().BoolVar(&kubeconfigInsecure, "insecure-skip-tls-verify", false, "Skip TLS verification for the cluster server (dev only)")
 	clusterKubeconfigAddCmd.Flags().StringVar(&kubeconfigExecCommand, "exec-command", "ankra", "Executable kubectl invokes for credentials in exec mode (use an absolute path if 'ankra' is not on PATH)")
 
-	clusterKubeconfigRemoveCmd.Flags().StringVar(&kubeconfigClusterFlag, "cluster", "", "Cluster name or ID")
+	clusterKubeconfigRemoveCmd.Flags().StringVar(&kubeconfigClusterFlag, "cluster", "", "Cluster name or ID (same as the positional argument)")
 	clusterKubeconfigRemoveCmd.Flags().BoolVar(&kubeconfigAllFlag, "all", false, "Remove all Ankra-managed contexts")
 	clusterKubeconfigRemoveCmd.Flags().StringVar(&kubeconfigPathFlag, "kubeconfig", "", "Path to the kubeconfig file (default: $KUBECONFIG or ~/.kube/config)")
 

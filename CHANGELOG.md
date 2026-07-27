@@ -14,6 +14,15 @@
 
 ### Fixed
 
+- **`ankra cluster kubeconfig add my-cluster` now works.** `kubeconfig add`
+  and `kubeconfig remove` accept the cluster as a positional argument, the
+  same way `ankra cluster select my-cluster` does. Previously the positional
+  was silently ignored, so `ankra cluster kubeconfig add production --use`
+  confusingly failed with "no cluster specified" even though the cluster was
+  right there in the command. `--cluster` still works; giving both spellings
+  with different values is rejected as a usage error (exit code 2), and a
+  second stray positional argument now errors instead of being dropped.
+
 - **`ankra helm registries create` validates the spec file before sending
   it.** The API requires the registry nested under exactly one of
   `helm_oci_registry` or `helm_http_registry` and answers any other shape
