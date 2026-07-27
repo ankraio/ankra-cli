@@ -3,8 +3,12 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"time"
+
+	"ankra/internal/client"
 
 	"github.com/spf13/cobra"
 )
@@ -52,7 +56,7 @@ It prints JSON to stdout and never prompts; run 'ankra login' first.`,
 
 		kubeToken, err := apiClient.GetClusterKubeToken(context.Background(), clusterID)
 		if err != nil {
-			return err
+			return suggestAccessOnKubeTokenDenied(err, kubeTokenClusterReference(clusterFlag, clusterID))
 		}
 
 		credential := execCredential{
@@ -70,6 +74,34 @@ It prints JSON to stdout and never prompts; run 'ankra login' first.`,
 		fmt.Println(string(output))
 		return nil
 	},
+}
+
+// suggestAccessOnKubeTokenDenied decorates a kube-token mint failure. A 403
+// from the token endpoint means the caller has no access grant on the cluster
+// (the gateway's per-user access check), not bad credentials — re-login won't
+// help, but an organisation admin running 'ankra cluster access grant' will,
+// so the error points at that command. Every other error passes through
+// untouched, and the original error stays in the chain so exit-code
+// classification is unchanged.
+func suggestAccessOnKubeTokenDenied(err error, clusterRef string) error {
+	var unexpected *client.UnexpectedResponseError
+	if !errors.As(err, &unexpected) || unexpected.StatusCode != http.StatusForbidden {
+		return err
+	}
+	return fmt.Errorf("%w\nYou have no access grant on this cluster. Ask an organisation admin to add one, then retry:\n  ankra cluster access grant <your-email> --cluster %s --role view", err, clusterRef)
+}
+
+// kubeTokenClusterReference picks the most readable cluster reference for the
+// access-grant suggestion: what the user typed, else the selected cluster's
+// name, else the resolved ID.
+func kubeTokenClusterReference(clusterFlag, clusterID string) string {
+	if clusterFlag != "" {
+		return clusterFlag
+	}
+	if selected, err := loadSelectedCluster(); err == nil && selected.Name != "" {
+		return selected.Name
+	}
+	return clusterID
 }
 
 func resolveKubeTokenClusterID(clusterFlag string) (string, error) {

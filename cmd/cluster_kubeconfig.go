@@ -279,7 +279,7 @@ func buildManagedEntries(targets []kubeTarget, names []string) ([]kubeconfig.Ent
 		for index, target := range targets {
 			token, err := apiClient.GetClusterKubeToken(context.Background(), target.id)
 			if err != nil {
-				return nil, fmt.Errorf("mint token for %s: %w", target.name, err)
+				return nil, suggestAccessOnKubeTokenDenied(fmt.Errorf("mint token for %s: %w", target.name, err), target.name)
 			}
 			entry, buildErr := kubeconfig.BuildTokenEntry(names[index], token.Server, token.Token, kubeconfigNamespace, kubeconfigInsecure)
 			if buildErr != nil {
@@ -345,7 +345,7 @@ func proxyServerPath(clusterID string) string {
 func resolveProxyBaseURL(sample kubeTarget) (string, error) {
 	token, err := apiClient.GetClusterKubeToken(context.Background(), sample.id)
 	if err != nil {
-		return "", fmt.Errorf("resolve kube proxy URL for %s: %w", sample.name, err)
+		return "", suggestAccessOnKubeTokenDenied(fmt.Errorf("resolve kube proxy URL for %s: %w", sample.name, err), sample.name)
 	}
 	suffix := proxyServerPath(sample.id)
 	if !strings.HasSuffix(token.Server, suffix) {
