@@ -14,6 +14,15 @@
 
 ### Fixed
 
+- **Every `ankra cluster managed` command now reaches the API instead of
+  failing with a 404.** The client built managed-cluster URLs under
+  `/api/v1/org/clusters/managed`, a path the backend never serves, so all
+  nine subcommands — create, deprovision, stop, start, upgrade, and the four
+  node-pool operations — failed with "not found" no matter what arguments
+  they were given. The client now calls the backend's token-authenticated
+  `/api/v1/clusters/managed` routes, which accept the CLI's bearer token and
+  serve every one of those operations.
+
 - **`ankra cluster kubeconfig add my-cluster` now works.** `kubeconfig add`
   and `kubeconfig remove` accept the cluster as a positional argument, the
   same way `ankra cluster select my-cluster` does. Previously the positional
