@@ -411,46 +411,6 @@ func (m baseMock) ListOrganisationUsers(orgID string) ([]client.OrganisationUser
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListRoles() ([]client.RoleDocument, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) CreateCustomRole(request client.CreateCustomRoleRequest) (*client.RoleDocument, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) ListMemberAssignments(ankraUserID string) ([]client.RoleAssignment, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) CreateRoleAssignment(request client.CreateRoleAssignmentRequest) (*client.RoleAssignment, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) DeleteRoleAssignment(assignmentID string) error {
-	return errors.New("not implemented")
-}
-
-func (m baseMock) ListClusterGroups() ([]client.ClusterGroup, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) CreateClusterGroup(request client.CreateClusterGroupRequest) (*client.ClusterGroup, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) SetClusterGroupMembers(groupID string, clusterIDs []string) error {
-	return errors.New("not implemented")
-}
-
-func (m baseMock) SetClusterGroupSelector(groupID string, selector map[string]string) error {
-	return errors.New("not implemented")
-}
-
-func (m baseMock) PreviewClusterGroup(groupID string) ([]string, error) {
-	return nil, errors.New("not implemented")
-}
-
 func (m baseMock) ListCredentials(provider *string) ([]client.Credential, error) {
 	return nil, errors.New("not implemented")
 }
@@ -480,30 +440,6 @@ func (m baseMock) RevokeAPIToken(tokenID string) (*client.RevokeAPITokenResponse
 }
 
 func (m baseMock) DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) GetMFAStatus() (*client.MFAStatus, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) StartTOTPEnrollment() (*client.StartTOTPEnrollmentResponse, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) ConfirmTOTPEnrollment(code string) (*client.RecoveryCodesResponse, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) RemoveMFAMethod(methodID string) (*client.RemoveMFAResponse, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) RegenerateRecoveryCodes() (*client.RecoveryCodesResponse, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m baseMock) RemovePasskey(credentialID string) (*client.RemoveMFAResponse, error) {
 	return nil, errors.New("not implemented")
 }
 

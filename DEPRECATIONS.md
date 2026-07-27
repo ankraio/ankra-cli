@@ -16,6 +16,12 @@ version; running one prints a warning pointing at the replacement.
 
 ## Upcoming removals
 
+### v0.10.0
+
+| Deprecated | Deprecated in | Replacement | Notes |
+|---|---|---|---|
+| `ankra profile auth passkeys ...` | v0.9.0 | `ankra profile auth open` | Passkeys and all other two-factor settings are managed in the browser (passkey enrollment needs a WebAuthn ceremony a terminal cannot run). The forwarder opens Profile Authentication in the browser; the sibling API-backed `profile auth` and `org` RBAC commands were removed outright because they never worked (see CHANGELOG). |
+
 ### v0.6.0
 
 | Deprecated | Deprecated in | Replacement | Notes |
