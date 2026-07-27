@@ -578,3 +578,86 @@ func TestResolveKubeconfigPath(t *testing.T) {
 		t.Fatalf("default path = %q, want %q, err=%v", got, want, err)
 	}
 }
+
+// runKubeconfigCommand executes a full 'ankra cluster kubeconfig ...'
+// invocation through the root command so cobra's argument handling
+// (positional args, flag binding) is exercised, not just the run helpers.
+func runKubeconfigCommand(t *testing.T, args ...string) error {
+	t.Helper()
+	t.Setenv("ANKRA_API_TOKEN", "test-token")
+	rootCmd.SetArgs(append([]string{"cluster", "kubeconfig"}, args...))
+	return rootCmd.Execute()
+}
+
+func TestKubeconfigAddPositionalCluster(t *testing.T) {
+	withKubeconfigMock(t, kubeconfigMock{cluster: client.ClusterListItem{ID: "id-1", Name: "production", OrganisationID: "org-1"}})
+	path := filepath.Join(t.TempDir(), "config")
+	resetKubeconfigFlags(path)
+
+	if err := runKubeconfigCommand(t, "add", "production", "--use", "--kubeconfig", path); err != nil {
+		t.Fatal(err)
+	}
+
+	config, err := kubeconfig.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := kubeconfig.ContextName("production")
+	names := config.ManagedContextNames()
+	if len(names) != 1 || names[0] != want {
+		t.Fatalf("managed contexts = %v, want [%s]", names, want)
+	}
+	if config.CurrentContext != want {
+		t.Errorf("current context = %q, want %q", config.CurrentContext, want)
+	}
+}
+
+func TestKubeconfigAddPositionalConflictsWithFlag(t *testing.T) {
+	withKubeconfigMock(t, kubeconfigMock{cluster: client.ClusterListItem{ID: "id-1", Name: "demo"}})
+	path := filepath.Join(t.TempDir(), "config")
+	resetKubeconfigFlags(path)
+
+	err := runKubeconfigCommand(t, "add", "other", "--cluster", "demo", "--kubeconfig", path)
+	if err == nil {
+		t.Fatal("expected an error when the cluster is given both positionally and via --cluster")
+	}
+	if code := exitCodeFor(err); code != exitUsage {
+		t.Errorf("exit code = %d, want %d", code, exitUsage)
+	}
+
+	resetKubeconfigFlags(path)
+	if err := runKubeconfigCommand(t, "add", "demo", "--cluster", "demo", "--kubeconfig", path); err != nil {
+		t.Fatalf("same cluster via both spellings should not error: %v", err)
+	}
+}
+
+func TestKubeconfigAddRejectsExtraArgs(t *testing.T) {
+	withKubeconfigMock(t, kubeconfigMock{})
+	path := filepath.Join(t.TempDir(), "config")
+	resetKubeconfigFlags(path)
+
+	if err := runKubeconfigCommand(t, "add", "one", "two", "--kubeconfig", path); err == nil {
+		t.Fatal("expected an error for more than one positional argument")
+	}
+}
+
+func TestKubeconfigRemovePositionalCluster(t *testing.T) {
+	withKubeconfigMock(t, kubeconfigMock{cluster: client.ClusterListItem{ID: "id-1", Name: "demo"}})
+	path := filepath.Join(t.TempDir(), "config")
+	resetKubeconfigFlags(path)
+	kubeconfigClusterFlag = "demo"
+
+	var out bytes.Buffer
+	if err := kubeconfigAdd(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	resetKubeconfigFlags(path)
+	if err := runKubeconfigCommand(t, "remove", "demo", "--kubeconfig", path); err != nil {
+		t.Fatal(err)
+	}
+	config, _ := kubeconfig.Load(path)
+	if len(config.ManagedContextNames()) != 0 {
+		t.Fatalf("expected no managed contexts after positional remove, got %v", config.ManagedContextNames())
+	}
+}
