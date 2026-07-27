@@ -34,6 +34,13 @@
 
 ### Added
 
+- **A kube-gateway access denial now suggests the command that fixes it.**
+  When `ankra cluster kubeconfig add` or `ankra cluster kube-token` is
+  rejected with a 403 because the caller has no access grant on the cluster,
+  the error now explains that an organisation admin can grant access and
+  shows the exact invocation (`ankra cluster access grant <email>
+  --cluster <name> --role view`) instead of leaving only the raw 403
+  response to decipher.
 - **Stack manifests and addons can carry an AGENTS.md.** Every manifest and
   addon entry in a stack spec now accepts `agents_md` (inline markdown) or
   `agents_md_from_file` (a repo-relative path, mirroring how the stack-level

@@ -19,6 +19,7 @@ type kubeconfigMock struct {
 	byIDCluster client.ClusterListItem
 	clusters    []client.ClusterListItem
 	token       string
+	tokenErr    error
 	proxyBase   string
 	orgOverride string
 }
@@ -40,6 +41,9 @@ func (m kubeconfigMock) GetClusterByID(clusterID string) (client.ClusterListItem
 }
 
 func (m kubeconfigMock) GetClusterKubeToken(ctx context.Context, clusterID string) (*client.KubeToken, error) {
+	if m.tokenErr != nil {
+		return nil, m.tokenErr
+	}
 	base := m.proxyBase
 	if base == "" {
 		base = "https://api.platform.ankra.dev"
@@ -537,6 +541,37 @@ func TestKubeconfigAddUnknownNameReturnsError(t *testing.T) {
 	}
 	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
 		t.Errorf("no kubeconfig should be written on failure: %s", path)
+	}
+}
+
+func TestKubeconfigAddDeniedSuggestsAccessGrant(t *testing.T) {
+	// A 403 from the token mint means the caller has no access grant on the
+	// cluster; the error must point at the command that fixes it.
+	withKubeconfigMock(t, kubeconfigMock{
+		cluster:  client.ClusterListItem{ID: "id-1", Name: "arm64-build", OrganisationID: "org-1"},
+		tokenErr: client.NewUnexpectedResponseError(403, `kube token request failed: status 403, body: {"detail":"You do not have access to this cluster"}`),
+	})
+	path := filepath.Join(t.TempDir(), "config")
+	resetKubeconfigFlags(path)
+	kubeconfigClusterFlag = "arm64-build"
+
+	var out bytes.Buffer
+	err := kubeconfigAdd(&out)
+	if err == nil {
+		t.Fatal("expected an error when the token mint is denied")
+	}
+	if !strings.Contains(err.Error(), "ankra cluster access grant <your-email> --cluster arm64-build --role view") {
+		t.Errorf("error = %v, want the access-grant suggestion", err)
+	}
+
+	// Embed-token mode mints per cluster through a different call site and
+	// must carry the same suggestion.
+	resetKubeconfigFlags(path)
+	kubeconfigClusterFlag = "arm64-build"
+	kubeconfigEmbedToken = true
+	err = kubeconfigAdd(&out)
+	if err == nil || !strings.Contains(err.Error(), "ankra cluster access grant <your-email> --cluster arm64-build --role view") {
+		t.Errorf("embed-token error = %v, want the access-grant suggestion", err)
 	}
 }
 
