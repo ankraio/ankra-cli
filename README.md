@@ -1,6 +1,6 @@
 # Ankra CLI
 
-A command-line interface for the [Ankra Platform](https://ankra.io) that allows you to manage Kubernetes clusters, operations, stacks, manifests, addons - and tap into platform-wide insights.
+A command-line interface for the [Ankra Platform](https://ankra.ai) that allows you to manage Kubernetes clusters, operations, stacks, manifests, addons - and tap into platform-wide insights.
 
 > 📖 **Documentation lives at [docs.ankra.ai](https://docs.ankra.ai).** The complete
 > [CLI command reference](https://docs.ankra.ai/reference/cli) - every command, flag,
@@ -231,10 +231,10 @@ and flag descriptions in `cmd/`.
 
 ## Learn More
 
-- **Platform Overview**: [ankra.io](https://ankra.io)
+- **Platform Overview**: [ankra.ai](https://ankra.ai)
 - **Documentation**: [docs.ankra.ai](https://docs.ankra.ai)
 - **CLI Command Reference**: [docs.ankra.ai/reference/cli](https://docs.ankra.ai/reference/cli)
-- **Blog & Tutorials**: [blog.ankra.io](https://blog.ankra.io)
+- **Blog & Tutorials**: [ankra.ai/blog](https://ankra.ai/blog)
 - **Community**: [community.ankra.io](https://community.ankra.io)
 
 ## Support
