@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -75,6 +76,59 @@ func (c *Client) getJSON(url string, target interface{}) error {
 
 func parseJSON(data []byte, target interface{}) error {
 	return json.Unmarshal(data, target)
+}
+
+// sendJSON issues an authenticated JSON request and decodes the response
+// into target (nil target discards the body). Non-2xx responses surface the
+// backend's detail string, and RBAC 403s map to PermissionDeniedError.
+func (c *Client) sendJSON(method string, url string, payload any, target any) error {
+	var bodyReader *bytes.Reader
+	if payload != nil {
+		encoded, marshalError := json.Marshal(payload)
+		if marshalError != nil {
+			return fmt.Errorf("marshal request: %w", marshalError)
+		}
+		bodyReader = bytes.NewReader(encoded)
+	} else {
+		bodyReader = bytes.NewReader(nil)
+	}
+
+	request, requestError := http.NewRequest(method, url, bodyReader)
+	if requestError != nil {
+		return fmt.Errorf("create request: %w", requestError)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+
+	response, doError := c.HTTP.Do(request)
+	if doError != nil {
+		return fmt.Errorf("request failed: %w", doError)
+	}
+	defer closeBody(response)
+
+	body, readError := readResponseBody(response)
+	if readError != nil {
+		return fmt.Errorf("read response: %w", readError)
+	}
+	if response.StatusCode == http.StatusUnauthorized {
+		return ErrUnauthorized
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if denied := PermissionDeniedFromResponse(response.StatusCode, body); denied != nil {
+			return denied
+		}
+		if detail := detailFromBody(body); detail != "" {
+			return newUnexpectedResponseErrorWithMessage(response.StatusCode, detail)
+		}
+		return newUnexpectedResponseError("request failed", response.StatusCode, redactedBodyForError(body, 500))
+	}
+	if target == nil {
+		return nil
+	}
+	if unmarshalError := json.Unmarshal(body, target); unmarshalError != nil {
+		return fmt.Errorf("parse response: %w", unmarshalError)
+	}
+	return nil
 }
 
 // detailFromBody extracts the FastAPI `detail` string from a JSON error

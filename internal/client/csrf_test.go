@@ -4,14 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
-func TestStartTOTPEnrollmentSendsCSRFHeaderAndCookie(t *testing.T) {
+func TestPostCSRFJSONSendsMatchingHeaderAndCookie(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/api/v1/org/account/mfa/totp/start" {
-			t.Fatalf("path = %s", request.URL.Path)
-		}
 		if request.Method != http.MethodPost {
 			t.Fatalf("method = %s", request.Method)
 		}
@@ -30,41 +28,42 @@ func TestStartTOTPEnrollmentSendsCSRFHeaderAndCookie(t *testing.T) {
 			t.Fatalf("csrf cookie = %q, header = %q", cookie.Value, headerToken)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(writer).Encode(StartTOTPEnrollmentResponse{
-			Secret:     "SECRET",
-			OtpAuthURI: "otpauth://totp/Ankra:test",
-		})
+		_ = json.NewEncoder(writer).Encode(map[string]string{"status": "ok"})
 	}))
 	defer server.Close()
 
 	apiClient := New("test-token", server.URL)
-	response, err := apiClient.StartTOTPEnrollment()
-	if err != nil {
-		t.Fatalf("StartTOTPEnrollment() error = %v", err)
+	var response struct {
+		Status string `json:"status"`
 	}
-	if response.Secret != "SECRET" {
-		t.Fatalf("secret = %q", response.Secret)
+	if err := apiClient.postCSRFJSON(server.URL+"/op", nil, &response, "test operation"); err != nil {
+		t.Fatalf("postCSRFJSON() error = %v", err)
+	}
+	if response.Status != "ok" {
+		t.Fatalf("status = %q", response.Status)
 	}
 }
 
-func TestRegenerateRecoveryCodesParsesCodes(t *testing.T) {
+func TestDeleteCSRFJSONSurfacesBackendDetail(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/api/v1/org/account/mfa/recovery-code" {
-			t.Fatalf("path = %s", request.URL.Path)
+		if request.Method != http.MethodDelete {
+			t.Fatalf("method = %s", request.Method)
+		}
+		if request.Header.Get(csrfHeaderName) == "" {
+			t.Fatal("missing csrf header")
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(writer).Encode(RecoveryCodesResponse{
-			RecoveryCodes: []string{"AAAAA-BBBBB", "CCCCC-DDDDD"},
-		})
+		writer.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(writer).Encode(map[string]string{"detail": "cannot delete right now"})
 	}))
 	defer server.Close()
 
 	apiClient := New("test-token", server.URL)
-	response, err := apiClient.RegenerateRecoveryCodes()
-	if err != nil {
-		t.Fatalf("RegenerateRecoveryCodes() error = %v", err)
+	err := apiClient.deleteCSRFJSON(server.URL+"/op", nil, "test operation")
+	if err == nil {
+		t.Fatal("expected error")
 	}
-	if len(response.RecoveryCodes) != 2 {
-		t.Fatalf("len(recovery_codes) = %d", len(response.RecoveryCodes))
+	if got := err.Error(); !strings.Contains(got, "cannot delete right now") {
+		t.Fatalf("error = %q, want backend detail surfaced", got)
 	}
 }

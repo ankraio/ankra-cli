@@ -136,7 +136,7 @@ per command family:
 | [ankra logout](https://docs.ankra.ai/reference/cli/logout) | Revoke the login token and remove saved credentials |
 | [ankra openclaw](https://docs.ankra.ai/reference/cli/openclaw) | Integrate Ankra with the OpenClaw assistant |
 | [ankra org](https://docs.ankra.ai/reference/cli/org) | Manage organisations, members, roles, and org variables |
-| [ankra profile](https://docs.ankra.ai/reference/cli/profile) | Manage your Ankra profile (MFA, passkeys) |
+| [ankra profile](https://docs.ankra.ai/reference/cli/profile) | Open profile authentication settings (MFA, passkeys) in the browser |
 | [ankra skills](https://docs.ankra.ai/reference/cli/skills) | Install Ankra Agent Skills into Cursor or Claude Code |
 | [ankra stack-profiles](https://docs.ankra.ai/reference/cli/stack-profiles) | Manage reusable stack profiles |
 | [ankra support](https://docs.ankra.ai/reference/cli/support) | Create and track Ankra support requests |
