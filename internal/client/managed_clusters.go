@@ -134,7 +134,7 @@ type UpgradeManagedK8sVersionResponse struct {
 }
 
 func (c *Client) managedClusterBasePath(provider ManagedK8sProvider) string {
-	return fmt.Sprintf("%s/api/v1/org/clusters/managed/%s", c.BaseURL, url.PathEscape(string(provider)))
+	return fmt.Sprintf("%s/api/v1/clusters/managed/%s", c.BaseURL, url.PathEscape(string(provider)))
 }
 
 func (c *Client) CreateManagedCluster(provider ManagedK8sProvider, request CreateManagedClusterRequest) (*CreateManagedClusterResponse, error) {

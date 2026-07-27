@@ -16,8 +16,8 @@ func TestCreateManagedCluster_SendsKapsuleAndAutoscaling(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", r.Method)
 		}
-		if r.URL.Path != "/api/v1/org/clusters/managed/kapsule" {
-			t.Errorf("path = %s, want /api/v1/org/clusters/managed/kapsule", r.URL.Path)
+		if r.URL.Path != "/api/v1/clusters/managed/kapsule" {
+			t.Errorf("path = %s, want /api/v1/clusters/managed/kapsule", r.URL.Path)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
 			t.Fatalf("decode request body: %v", err)
@@ -97,7 +97,7 @@ func TestUpdateManagedNodePool_SendsPatchWithChangedFieldsOnly(t *testing.T) {
 		if r.Method != http.MethodPatch {
 			t.Errorf("method = %s, want PATCH", r.Method)
 		}
-		wantPath := "/api/v1/org/clusters/managed/kapsule/cluster-1/node-pools/workers"
+		wantPath := "/api/v1/clusters/managed/kapsule/cluster-1/node-pools/workers"
 		if r.URL.Path != wantPath {
 			t.Errorf("path = %s, want %s", r.URL.Path, wantPath)
 		}
@@ -197,7 +197,7 @@ func TestStopManagedCluster_PostsEmptyBody(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", r.Method)
 		}
-		wantPath := "/api/v1/org/clusters/managed/aks/cluster-1/stop"
+		wantPath := "/api/v1/clusters/managed/aks/cluster-1/stop"
 		if r.URL.Path != wantPath {
 			t.Errorf("path = %s, want %s", r.URL.Path, wantPath)
 		}
@@ -225,7 +225,7 @@ func TestStartManagedCluster_Success(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", r.Method)
 		}
-		wantPath := "/api/v1/org/clusters/managed/aks/cluster-1/start"
+		wantPath := "/api/v1/clusters/managed/aks/cluster-1/start"
 		if r.URL.Path != wantPath {
 			t.Errorf("path = %s, want %s", r.URL.Path, wantPath)
 		}
