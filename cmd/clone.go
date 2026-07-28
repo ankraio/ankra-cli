@@ -129,6 +129,11 @@ func runClone(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("existing file is not an ImportCluster (kind: %s)", existingCluster.Kind)
 	}
 
+	existingDoc, err := parseClusterYAMLDoc(existingData)
+	if err != nil {
+		return fmt.Errorf("failed to parse existing cluster YAML: %w", err)
+	}
+
 	if len(stackFlag) > 0 {
 		availableStacks := make(map[string]bool)
 		for _, stack := range existingCluster.Spec.Stacks {
@@ -151,8 +156,12 @@ func runClone(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Read or create new cluster
+	// Read or create new cluster. The struct view drives lookups and the
+	// summary; the document node is what gets written back, so fields the
+	// structs do not model (deploy_wave, prometheus_metrics, future keys),
+	// comments, and ordering survive the rewrite.
 	var newCluster ImportClusterConfig
+	var newDoc *yaml.Node
 	var newClusterExists bool
 
 	if _, err := os.Stat(newClusterPath); err == nil {
@@ -169,6 +178,10 @@ func runClone(cmd *cobra.Command, args []string) error {
 		if newCluster.Kind != "ImportCluster" {
 			return fmt.Errorf("new file is not an ImportCluster (kind: %s)", newCluster.Kind)
 		}
+
+		if newDoc, err = parseClusterYAMLDoc(newData); err != nil {
+			return fmt.Errorf("failed to parse new cluster YAML: %w", err)
+		}
 	} else {
 		// Create new cluster structure
 		newCluster = ImportClusterConfig{
@@ -183,18 +196,21 @@ func runClone(cmd *cobra.Command, args []string) error {
 				Stacks:        []StackConfig{},
 			},
 		}
+		if newDoc, err = newImportClusterDoc(newCluster.Metadata.Name, newCluster.Metadata.Description, existingDoc); err != nil {
+			return fmt.Errorf("failed to build new cluster YAML: %w", err)
+		}
 	}
 
 	// Get base directories
 	newBaseDir := filepath.Dir(newClusterPath)
 
 	// Clone stacks with conflict resolution
-	if err := cloneStacks(&existingCluster, &newCluster, existingBaseDir, newBaseDir, isURL(existingFileOrURL)); err != nil {
+	if err := cloneStacks(&existingCluster, &newCluster, existingDoc, newDoc, existingBaseDir, newBaseDir, isURL(existingFileOrURL)); err != nil {
 		return fmt.Errorf("failed to clone stacks: %w", err)
 	}
 
 	// Write the new cluster file
-	if err := writeClusterFile(newClusterPath, &newCluster); err != nil {
+	if err := writeClusterFile(newClusterPath, newDoc); err != nil {
 		return fmt.Errorf("failed to write new cluster file: %w", err)
 	}
 
@@ -384,9 +400,23 @@ func downloadFileFromURL(baseURL, relPath, dstPath string) error {
 	return nil
 }
 
-func cloneStacks(existing, new *ImportClusterConfig, existingBaseDir, newBaseDir string, fromURL bool) error {
+// cloneStacks merges stacks from the existing cluster into the new one. The
+// struct views drive name/conflict decisions; every mutation is mirrored onto
+// the target document node (newDoc) by grafting the source's stack nodes, so
+// the written file keeps fields, comments, and ordering the structs would drop.
+func cloneStacks(existing, new *ImportClusterConfig, existingDoc, newDoc *yaml.Node, existingBaseDir, newBaseDir string, fromURL bool) error {
+	sourceStacks, err := clusterStacksNode(existingDoc, false)
+	if err != nil {
+		return err
+	}
+	targetStacks, err := clusterStacksNode(newDoc, true)
+	if err != nil {
+		return err
+	}
+
 	if cleanFlag {
 		new.Spec.Stacks = []StackConfig{}
+		targetStacks.Content = nil
 	}
 
 	existingStackNames := getStackNames(new.Spec.Stacks)
@@ -404,7 +434,7 @@ func cloneStacks(existing, new *ImportClusterConfig, existingBaseDir, newBaseDir
 	stacksSkipped := 0
 	stacksFiltered := 0
 
-	for _, existingStack := range existing.Spec.Stacks {
+	for stackIdx, existingStack := range existing.Spec.Stacks {
 		if len(stackFlag) > 0 && !requestedStacks[existingStack.Name] {
 			fmt.Printf("Filtering out stack %q - not in requested list\n", existingStack.Name)
 			stacksFiltered++
@@ -453,6 +483,11 @@ func cloneStacks(existing, new *ImportClusterConfig, existingBaseDir, newBaseDir
 			return fmt.Errorf("failed to copy files for stack %q: %w", clonedStack.Name, err)
 		}
 
+		if sourceStacks == nil || stackIdx >= len(sourceStacks.Content) {
+			return fmt.Errorf("internal error: no YAML node for source stack %q", existingStack.Name)
+		}
+		clonedStackNode := deepCopyYAMLNode(sourceStacks.Content[stackIdx])
+
 		if forceFlag && existingStackNames[existingStack.Name] {
 			for i, stack := range new.Spec.Stacks {
 				if stack.Name == existingStack.Name {
@@ -460,8 +495,20 @@ func cloneStacks(existing, new *ImportClusterConfig, existingBaseDir, newBaseDir
 					break
 				}
 			}
+			replaced := false
+			for i, item := range targetStacks.Content {
+				if stackNodeName(item) == existingStack.Name {
+					targetStacks.Content[i] = clonedStackNode
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				return fmt.Errorf("internal error: stack %q not found in target YAML for --force replace", existingStack.Name)
+			}
 		} else {
 			new.Spec.Stacks = append(new.Spec.Stacks, clonedStack)
+			targetStacks.Content = append(targetStacks.Content, clonedStackNode)
 		}
 
 		stacksAdded++
@@ -647,7 +694,10 @@ func generateNewClusterName(existingName string) string {
 	return existingName + "-cloned"
 }
 
-func writeClusterFile(path string, cluster *ImportClusterConfig) error {
+// writeClusterFile encodes a parsed cluster document node back to disk.
+// Callers mutate the node tree rather than the ImportClusterConfig structs so
+// fields the CLI does not model, comments, and key ordering survive the write.
+func writeClusterFile(path string, doc *yaml.Node) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create directory %q: %w", dir, err)
@@ -657,7 +707,7 @@ func writeClusterFile(path string, cluster *ImportClusterConfig) error {
 	encoder := yaml.NewEncoder(&buf)
 	encoder.SetIndent(2)
 
-	if err := encoder.Encode(cluster); err != nil {
+	if err := encoder.Encode(doc); err != nil {
 		return fmt.Errorf("failed to marshal cluster YAML: %w", err)
 	}
 	if err := encoder.Close(); err != nil {

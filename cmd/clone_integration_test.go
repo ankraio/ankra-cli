@@ -8,6 +8,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// mustClusterDoc builds the document-node view of a cluster config the same
+// way runClone does for files on disk: marshal, then parse into a yaml.Node.
+func mustClusterDoc(t *testing.T, cluster *ImportClusterConfig) *yaml.Node {
+	t.Helper()
+	data, err := yaml.Marshal(cluster)
+	if err != nil {
+		t.Fatalf("marshal cluster config: %v", err)
+	}
+	doc, err := parseClusterYAMLDoc(data)
+	if err != nil {
+		t.Fatalf("parse cluster config: %v", err)
+	}
+	return doc
+}
+
 func TestCloneStacks_CleanFlag(t *testing.T) {
 	tmpDir := t.TempDir()
 	srcDir := filepath.Join(tmpDir, "src")
@@ -47,7 +62,7 @@ func TestCloneStacks_CleanFlag(t *testing.T) {
 	stackFlag = []string{}
 	t.Cleanup(func() { stackFlag = originalStack })
 
-	if err := cloneStacks(existing, target, srcDir, dstDir, false); err != nil {
+	if err := cloneStacks(existing, target, mustClusterDoc(t, existing), mustClusterDoc(t, target), srcDir, dstDir, false); err != nil {
 		t.Fatalf("cloneStacks failed: %v", err)
 	}
 
@@ -91,7 +106,7 @@ func TestCloneStacks_SkipConflictingNames(t *testing.T) {
 	copyMissingFlag = false
 	t.Cleanup(func() { copyMissingFlag = originalCopyMissing })
 
-	if err := cloneStacks(existing, target, tmpDir, tmpDir, false); err != nil {
+	if err := cloneStacks(existing, target, mustClusterDoc(t, existing), mustClusterDoc(t, target), tmpDir, tmpDir, false); err != nil {
 		t.Fatalf("cloneStacks failed: %v", err)
 	}
 
@@ -130,7 +145,7 @@ func TestCloneStacks_ForceOverride(t *testing.T) {
 	stackFlag = []string{}
 	t.Cleanup(func() { stackFlag = originalStack })
 
-	if err := cloneStacks(existing, target, tmpDir, tmpDir, false); err != nil {
+	if err := cloneStacks(existing, target, mustClusterDoc(t, existing), mustClusterDoc(t, target), tmpDir, tmpDir, false); err != nil {
 		t.Fatalf("cloneStacks failed: %v", err)
 	}
 
@@ -172,7 +187,7 @@ func TestCloneStacks_StackFilter(t *testing.T) {
 	stackFlag = []string{"monitoring", "storage"}
 	t.Cleanup(func() { stackFlag = originalStack })
 
-	if err := cloneStacks(existing, target, tmpDir, tmpDir, false); err != nil {
+	if err := cloneStacks(existing, target, mustClusterDoc(t, existing), mustClusterDoc(t, target), tmpDir, tmpDir, false); err != nil {
 		t.Fatalf("cloneStacks failed: %v", err)
 	}
 
@@ -291,7 +306,7 @@ func TestWriteClusterFile_RoundTrip(t *testing.T) {
 		},
 	}
 
-	if err := writeClusterFile(outputPath, original); err != nil {
+	if err := writeClusterFile(outputPath, mustClusterDoc(t, original)); err != nil {
 		t.Fatalf("writeClusterFile failed: %v", err)
 	}
 
