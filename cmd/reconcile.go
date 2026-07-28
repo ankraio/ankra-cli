@@ -309,8 +309,8 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 		// lane would silently drop it, so say so instead of implying a
 		// forced teardown that never happens.
 		if force && cloudClusterKind(clusterKind) != cloudClusterKindHetzner {
-			fmt.Fprintf(cmd.ErrOrStderr(),
-				"warning: --force has no effect for this cluster type (only Hetzner deprovision supports it)\n")
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+				"warning: --force has no effect for this cluster type (only Hetzner deprovision supports it)")
 		}
 
 		if err := confirmPrompt(
