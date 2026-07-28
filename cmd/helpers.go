@@ -29,3 +29,28 @@ func extractKindFromBase64(manifestBase64 string) string {
 
 	return manifest.Kind
 }
+
+// extractNamespaceFromBase64 pulls metadata.namespace out of a base64
+// manifest document; the manifest listing itself carries no namespace.
+func extractNamespaceFromBase64(manifestBase64 string) string {
+	if manifestBase64 == "" {
+		return ""
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(manifestBase64)
+	if err != nil {
+		return ""
+	}
+
+	var manifest struct {
+		Metadata struct {
+			Namespace string `yaml:"namespace"`
+		} `yaml:"metadata"`
+	}
+
+	if err := yaml.Unmarshal(decoded, &manifest); err != nil {
+		return ""
+	}
+
+	return manifest.Metadata.Namespace
+}

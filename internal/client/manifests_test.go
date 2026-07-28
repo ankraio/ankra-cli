@@ -12,10 +12,12 @@ func TestListClusterManifests(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		stackName := "core"
 		jsonResponse(t, w, http.StatusOK, ListClusterManifestsResponse{
-			Manifests: []ClusterManifestListItem{
-				{Name: "manifest1", Namespace: "default", State: "synced"},
+			Result: []ClusterManifestListItem{
+				{Name: "manifest1", State: "synced", StackName: &stackName},
 			},
+			Pagination: Pagination{TotalCount: 1, Page: 1, PageSize: 1000, TotalPages: 1},
 		})
 	})
 	got, err := testClient.ListClusterManifests("cluster-id")

@@ -101,13 +101,19 @@ type PatchStackRequest struct {
 	PartialStack bool             `json:"partial_stack"`
 }
 
-// PatchStackResourceError mirrors the backend ResourceError shape returned in
-// UpdateClusterStackResult.errors when validation fails per-resource.
-type PatchStackResourceError struct {
-	Name    string `json:"name"`
-	Kind    string `json:"kind"`
+// PatchStackErrorDetail is one key/message pair inside a resource error.
+type PatchStackErrorDetail struct {
 	Key     string `json:"key"`
 	Message string `json:"message"`
+}
+
+// PatchStackResourceError mirrors the backend ResourceError shape returned in
+// UpdateClusterStackResult.errors when validation fails per-resource: the
+// key/message pairs are nested one level down.
+type PatchStackResourceError struct {
+	Name   string                  `json:"name"`
+	Kind   string                  `json:"kind"`
+	Errors []PatchStackErrorDetail `json:"errors"`
 }
 
 // PatchStackResult mirrors UpdateClusterStackResult on the backend.

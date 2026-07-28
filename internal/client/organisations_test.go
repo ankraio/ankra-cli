@@ -67,6 +67,9 @@ func TestSwitchOrganisation(t *testing.T) {
 
 func TestGetOrganisation(t *testing.T) {
 	orgName := "Test Org"
+	memberID := "user-1"
+	memberEmail := "admin@test.com"
+	memberRole := "admin"
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/org/organisation/org-123" {
 			w.WriteHeader(http.StatusNotFound)
@@ -77,7 +80,7 @@ func TestGetOrganisation(t *testing.T) {
 			Name:           &orgName,
 			CreatedAt:      "2025-01-01T00:00:00Z",
 			Members: []OrganisationMember{
-				{UserID: "user-1", Email: "admin@test.com", Role: "admin", JoinedAt: "2025-01-01T00:00:00Z"},
+				{ID: &memberID, Email: &memberEmail, Role: &memberRole},
 			},
 		})
 	})

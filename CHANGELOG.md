@@ -14,6 +14,34 @@
 
 ### Fixed
 
+- **Seven commands that decoded the wrong response shape now show real
+  data.** `cluster manifests list` always printed "No manifests found",
+  `org members` always printed "No members found", `chat health` printed an
+  empty status with a score of 0, and `cluster stacks history` rendered
+  blank rows — in every case the CLI was reading JSON keys the API never
+  sends. Each now decodes the actual response: manifests show their stack
+  and creation time, members show role and invite status, health shows the
+  scored report with issues and AI insights, and stack history lists every
+  version of each stack member. Validation errors from manifest/addon
+  upgrades and `encrypt` (which arrive nested per resource) are unpacked
+  instead of printing empty brackets, and OVH/UpCloud/DigitalOcean
+  deprovision report the created operation id instead of resource counts
+  the API never returned.
+
+- **`ankra cluster addons uninstall` can now actually uninstall.** The
+  uninstall endpoint takes an addon resource UUID, but the addon listing
+  carries no ids, so every uninstall attempt sent an empty id and failed
+  with a 404. The CLI now resolves the resource id through the stack
+  history before deleting. Addons that are not part of an Ankra-managed
+  stack are rejected with a clear message instead of a server error, and
+  `addons get`/`addons list` no longer show an always-empty ID column and
+  repository (the API sends the registry URL under a different key).
+
+- **`cluster stacks` and `cluster addons list` are no longer capped at 25
+  entries.** The API pages both listings at 25 by default and the CLI never
+  asked for more, silently hiding everything past the first page. Both now
+  walk every page.
+
 - **`ankra cluster kubeconfig add my-cluster` now works.** `kubeconfig add`
   and `kubeconfig remove` accept the cluster as a positional argument, the
   same way `ankra cluster select my-cluster` does. Previously the positional

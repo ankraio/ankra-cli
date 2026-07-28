@@ -50,12 +50,12 @@ type StartUpcloudClusterResult struct {
 	CreatedOperations int    `json:"created_operations"`
 }
 
+// DeprovisionUpcloudClusterResponse mirrors the backend's shared
+// DeprovisionClusterResponse.
 type DeprovisionUpcloudClusterResponse struct {
-	Success         bool     `json:"success"`
-	ClusterID       string   `json:"cluster_id"`
-	OperationID     *string  `json:"operation_id,omitempty"`
-	ResourcesMarked int      `json:"resources_marked"`
-	Errors          []string `json:"errors"`
+	Success     bool    `json:"success"`
+	ClusterID   string  `json:"cluster_id"`
+	OperationID *string `json:"operation_id,omitempty"`
 }
 
 func (c *Client) CreateUpcloudCluster(req CreateUpcloudClusterRequest) (*CreateUpcloudClusterResponse, error) {

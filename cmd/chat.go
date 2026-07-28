@@ -379,30 +379,41 @@ var chatHealthCmd = &cobra.Command{
 		fmt.Printf("Cluster Health for '%s'\n", cluster.Name)
 		fmt.Println("─────────────────────────────────────────")
 
+		report := health.HealthReport
+
 		// Color code health status
 		healthColor := text.FgGreen
-		switch strings.ToLower(health.OverallHealth) {
+		switch strings.ToLower(report.Status) {
 		case "degraded", "warning":
 			healthColor = text.FgYellow
 		case "critical", "unhealthy":
 			healthColor = text.FgRed
 		}
 
-		fmt.Printf("  Status: %s\n", healthColor.Sprint(health.OverallHealth))
-		fmt.Printf("  Score:  %d/100\n", health.Score)
-		fmt.Printf("  Last Updated: %s\n", formatTimeAgo(health.LastUpdated))
+		fmt.Printf("  Status: %s\n", healthColor.Sprint(report.Status))
+		fmt.Printf("  Score:  %d/100\n", report.Score)
+		fmt.Printf("  Last Updated: %s\n", formatTimeAgo(report.EvaluatedAt))
+		if health.Summary != "" {
+			fmt.Printf("  Summary: %s\n", health.Summary)
+		}
 
-		if len(health.Issues) > 0 {
+		if len(report.Issues) > 0 {
 			fmt.Println("\n  Issues:")
-			for _, issue := range health.Issues {
-				fmt.Printf("    - %s\n", text.FgYellow.Sprint(issue))
+			for _, issue := range report.Issues {
+				fmt.Printf("    - [%s] %s\n", issue.Severity, text.FgYellow.Sprint(issue.Title))
+				for _, action := range issue.SuggestedActions {
+					fmt.Printf("        · %s\n", action)
+				}
 			}
 		}
 
-		if len(health.Recommendations) > 0 {
-			fmt.Println("\n  Recommendations:")
-			for _, rec := range health.Recommendations {
-				fmt.Printf("    - %s\n", rec)
+		if len(health.AIInsights) > 0 {
+			fmt.Println("\n  AI Insights:")
+			for _, insight := range health.AIInsights {
+				fmt.Printf("    - [%s] %s\n", insight.Severity, insight.Title)
+				if insight.RootCauseAnalysis != "" {
+					fmt.Printf("        Root cause: %s\n", insight.RootCauseAnalysis)
+				}
 			}
 		}
 		return nil

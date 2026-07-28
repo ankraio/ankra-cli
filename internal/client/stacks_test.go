@@ -17,6 +17,7 @@ func TestListClusterStacks(t *testing.T) {
 			Stacks: []ClusterStackListItem{
 				{Name: "stack1", Description: "desc", State: "synced"},
 			},
+			Pagination: Pagination{TotalCount: 1, Page: 1, PageSize: 100, TotalPages: 1},
 		})
 	})
 	got, err := testClient.ListClusterStacks("cluster-id")
@@ -28,16 +29,43 @@ func TestListClusterStacks(t *testing.T) {
 	}
 }
 
+// TestListClusterStacks_Paginates verifies the client walks every page
+// instead of silently truncating at the backend's default page size.
+func TestListClusterStacks_Paginates(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		stacks := []ClusterStackListItem{{Name: "stack-page-" + page}}
+		jsonResponse(t, w, http.StatusOK, ListClusterStacksResponse{
+			Stacks:     stacks,
+			Pagination: Pagination{TotalCount: 2, Page: 1, PageSize: 100, TotalPages: 2},
+		})
+	})
+	got, err := testClient.ListClusterStacks("cluster-id")
+	if err != nil {
+		t.Fatalf("ListClusterStacks() error = %v", err)
+	}
+	if len(got) != 2 || got[0].Name != "stack-page-1" || got[1].Name != "stack-page-2" {
+		t.Errorf("ListClusterStacks() got = %v, want stacks from pages 1 and 2", got)
+	}
+}
+
 func TestGetStackHistory(t *testing.T) {
+	changeType := "create"
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, "/stacks/stack1/history") {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		jsonResponse(t, w, http.StatusOK, GetStackHistoryResponse{
-			StackName: "stack1",
-			History: []StackHistoryEntry{
-				{ID: "v1", Version: 1, CreatedAt: "2025-01-01", ChangeType: "create"},
+			History: []StackHistoryItem{
+				{
+					ResourceName: "ingress",
+					ResourceType: "addon",
+					ResourceID:   "res-1",
+					VersionHistory: []StackVersionHistoryEntry{
+						{VersionID: "v1", ChangeType: &changeType},
+					},
+				},
 			},
 		})
 	})
@@ -45,8 +73,37 @@ func TestGetStackHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetStackHistory() error = %v", err)
 	}
-	if got.StackName != "stack1" || len(got.History) != 1 {
+	if len(got.History) != 1 || got.History[0].ResourceName != "ingress" {
 		t.Errorf("GetStackHistory() got = %v", got)
+	}
+}
+
+func TestGetStackAddonResourceID(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/stacks/core/history") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Query().Get("resource_type") != "addon" {
+			t.Errorf("resource_type = %s, want addon", r.URL.Query().Get("resource_type"))
+		}
+		jsonResponse(t, w, http.StatusOK, GetStackHistoryResponse{
+			History: []StackHistoryItem{
+				{ResourceName: "other", ResourceType: "addon", ResourceID: "res-0"},
+				{ResourceName: "ingress", ResourceType: "addon", ResourceID: "res-1"},
+			},
+		})
+	})
+	got, err := testClient.GetStackAddonResourceID("cluster-id", "core", "ingress")
+	if err != nil {
+		t.Fatalf("GetStackAddonResourceID() error = %v", err)
+	}
+	if got != "res-1" {
+		t.Errorf("GetStackAddonResourceID() = %q, want res-1", got)
+	}
+
+	if _, err := testClient.GetStackAddonResourceID("cluster-id", "core", "absent"); err == nil {
+		t.Error("GetStackAddonResourceID() expected error for absent addon, got nil")
 	}
 }
 

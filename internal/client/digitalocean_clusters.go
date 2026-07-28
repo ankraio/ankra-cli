@@ -50,12 +50,12 @@ type StartDigitaloceanClusterResult struct {
 	CreatedOperations int    `json:"created_operations"`
 }
 
+// DeprovisionDigitaloceanClusterResponse mirrors the backend's shared
+// DeprovisionClusterResponse.
 type DeprovisionDigitaloceanClusterResponse struct {
-	Success         bool     `json:"success"`
-	ClusterID       string   `json:"cluster_id"`
-	OperationID     *string  `json:"operation_id,omitempty"`
-	ResourcesMarked int      `json:"resources_marked"`
-	Errors          []string `json:"errors"`
+	Success     bool    `json:"success"`
+	ClusterID   string  `json:"cluster_id"`
+	OperationID *string `json:"operation_id,omitempty"`
 }
 
 func (c *Client) CreateDigitaloceanCluster(req CreateDigitaloceanClusterRequest) (*CreateDigitaloceanClusterResponse, error) {

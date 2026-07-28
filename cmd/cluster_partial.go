@@ -336,6 +336,21 @@ func printAsOutput(out io.Writer, res *client.PatchStackResult, format outputFor
 	return nil
 }
 
+// renderPatchResourceErrors prints the per-resource validation errors from a
+// PATCH /stacks result — the backend nests the key/message pairs inside each
+// resource entry.
+func renderPatchResourceErrors(w io.Writer, resourceErrors []client.PatchStackResourceError) {
+	for _, resourceError := range resourceErrors {
+		if len(resourceError.Errors) == 0 {
+			_, _ = fmt.Fprintf(w, "  - %s %s: validation failed\n", resourceError.Kind, resourceError.Name)
+			continue
+		}
+		for _, detail := range resourceError.Errors {
+			_, _ = fmt.Fprintf(w, "  - %s %s [%s]: %s\n", resourceError.Kind, resourceError.Name, detail.Key, detail.Message)
+		}
+	}
+}
+
 // mapPatchError converts a typed PatchStackError into a friendly, actionable
 // message. The backend status code semantics are documented in the use-case
 // layer:
