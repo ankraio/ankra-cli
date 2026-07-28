@@ -2,7 +2,23 @@
 
 ## Unreleased
 
+### Deprecated
+
+- **`ankra cluster deprovision --auto-delete` is deprecated — it never did
+  anything.** The backend parses and discards the `auto_delete` parameter, so
+  the flag silently suggested a record deletion that never happened. The flag
+  is now hidden and prints a deprecation warning pointing at
+  `ankra delete cluster` for the record deletion; it will be removed in
+  v0.10.0 (see `DEPRECATIONS.md`).
+
 ### Changed
+
+- **`ankra cluster deprovision --force` now says when it is ignored.** Only
+  the Hetzner deprovision endpoint honors `force`; for every other cluster
+  type the CLI now prints a warning to stderr instead of implying a forced
+  teardown the backend never performs. The generic deprovision request also
+  no longer sends the `auto_delete`/`force` query parameters the backend
+  discards.
 
 - **The README now points at the hosted CLI reference instead of duplicating
   it.** The full command reference — every command, flag, and default — lives

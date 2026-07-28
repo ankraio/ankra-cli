@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	neturl "net/url"
-	"strings"
 )
 
 // ClusterListItem mirrors cluster's ClusterListItem from
@@ -170,18 +169,12 @@ func (c *Client) ProvisionCluster(ctx context.Context, clusterID string) (*Provi
 	return &result, nil
 }
 
-func (c *Client) DeprovisionCluster(ctx context.Context, clusterID string, autoDelete, force bool) (*DeprovisionClusterResult, error) {
+// DeprovisionCluster calls the generic deprovision endpoint. The historical
+// auto_delete/force query parameters are gone: the backend parses and
+// discards both (a preserved quirk of the original API), so sending them
+// only suggested behaviour that never happened.
+func (c *Client) DeprovisionCluster(ctx context.Context, clusterID string) (*DeprovisionClusterResult, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/deprovision", c.BaseURL, neturl.PathEscape(clusterID))
-	if autoDelete || force {
-		params := "?"
-		if autoDelete {
-			params += "auto_delete=true&"
-		}
-		if force {
-			params += "force=true&"
-		}
-		endpoint += strings.TrimRight(params, "&")
-	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
 	if err != nil {
