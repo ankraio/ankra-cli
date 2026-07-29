@@ -30,6 +30,17 @@
 
 ### Fixed
 
+- **`ankra cluster encrypt -f` and `ankra cluster clone` no longer strip
+  fields and comments from your cluster YAML.** Both commands used to rewrite
+  the file by re-serialising an internal struct, which silently deleted
+  anything the struct didn't model — `deploy_wave` on stacks and
+  `spec.prometheus_metrics` were lost outright, and comments, anchors, and key
+  ordering were destroyed — corrupting a file that is often the GitOps source
+  of truth. The commands now edit the parsed YAML document in place, touching
+  only the nodes they change: encrypting adds the key to `encrypted_paths` and
+  nothing else, and cloning grafts the source's stack entries verbatim
+  (comments and all) into the target file.
+
 - **Seven commands that decoded the wrong response shape now show real
   data.** `cluster manifests list` always printed "No manifests found",
   `org members` always printed "No members found", `chat health` printed an

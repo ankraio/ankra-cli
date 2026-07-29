@@ -326,14 +326,12 @@ func runEncryptManifestFile(cmd *cobra.Command, manifestName, leafKey string) er
 
 	// Find the manifest across all stacks
 	var foundManifest *ManifestConfig
-	var foundStackIdx, foundManifestIdx int
 
-	for stackIdx, stack := range cluster.Spec.Stacks {
-		for manifestIdx, manifest := range stack.Manifests {
-			if manifest.Name == manifestName {
-				foundManifest = &cluster.Spec.Stacks[stackIdx].Manifests[manifestIdx]
-				foundStackIdx = stackIdx
-				foundManifestIdx = manifestIdx
+	for stackIdx := range cluster.Spec.Stacks {
+		manifests := cluster.Spec.Stacks[stackIdx].Manifests
+		for manifestIdx := range manifests {
+			if manifests[manifestIdx].Name == manifestName {
+				foundManifest = &manifests[manifestIdx]
 				break
 			}
 		}
@@ -378,15 +376,19 @@ func runEncryptManifestFile(cmd *cobra.Command, manifestName, leafKey string) er
 
 	fmt.Printf("Updated manifest file: %s\n", manifestFilePath)
 
-	// Update the cluster YAML with encrypted_paths
+	// Update the cluster YAML with encrypted_paths. The file is mutated at
+	// the yaml.Node level so fields the CLI structs do not model
+	// (deploy_wave, prometheus_metrics, future keys), comments, and ordering
+	// survive the rewrite of this GitOps source of truth.
 	if !containsString(foundManifest.EncryptedPaths, leafKey) {
-		cluster.Spec.Stacks[foundStackIdx].Manifests[foundManifestIdx].EncryptedPaths = append(
-			cluster.Spec.Stacks[foundStackIdx].Manifests[foundManifestIdx].EncryptedPaths,
-			leafKey,
-		)
-
-		// Write the updated cluster YAML
-		if err := writeClusterFile(encryptClusterFile, &cluster); err != nil {
+		clusterDoc, err := parseClusterYAMLDoc(clusterData)
+		if err != nil {
+			return fmt.Errorf("failed to update cluster file: %w", err)
+		}
+		if err := appendManifestEncryptedPath(clusterDoc, manifestName, leafKey); err != nil {
+			return fmt.Errorf("failed to update cluster file: %w", err)
+		}
+		if err := writeClusterFile(encryptClusterFile, clusterDoc); err != nil {
 			return fmt.Errorf("failed to update cluster file: %w", err)
 		}
 
@@ -428,14 +430,12 @@ func runEncryptAddonFile(cmd *cobra.Command, leafKey string) error {
 
 	// Find the addon across all stacks
 	var foundAddon *AddonConfig
-	var foundStackIdx, foundAddonIdx int
 
-	for stackIdx, stack := range cluster.Spec.Stacks {
-		for addonIdx, addon := range stack.Addons {
-			if addon.Name == encryptAddonName {
-				foundAddon = &cluster.Spec.Stacks[stackIdx].Addons[addonIdx]
-				foundStackIdx = stackIdx
-				foundAddonIdx = addonIdx
+	for stackIdx := range cluster.Spec.Stacks {
+		addons := cluster.Spec.Stacks[stackIdx].Addons
+		for addonIdx := range addons {
+			if addons[addonIdx].Name == encryptAddonName {
+				foundAddon = &addons[addonIdx]
 				break
 			}
 		}
@@ -486,14 +486,20 @@ func runEncryptAddonFile(cmd *cobra.Command, leafKey string) error {
 
 	fmt.Printf("Updated addon configuration file: %s\n", addonFilePath)
 
-	// Update the cluster YAML with encrypted_paths in the configuration
+	// Update the cluster YAML with encrypted_paths in the configuration. The
+	// file is mutated at the yaml.Node level so fields the CLI structs do not
+	// model (deploy_wave, prometheus_metrics, future keys), comments, and
+	// ordering survive the rewrite of this GitOps source of truth.
 	encryptedPaths := getEncryptedPathsFromConfig(foundAddon.Configuration)
 	if !containsString(encryptedPaths, leafKey) {
-		encryptedPaths = append(encryptedPaths, leafKey)
-		cluster.Spec.Stacks[foundStackIdx].Addons[foundAddonIdx].Configuration["encrypted_paths"] = encryptedPaths
-
-		// Write the updated cluster YAML
-		if err := writeClusterFile(encryptClusterFile, &cluster); err != nil {
+		clusterDoc, err := parseClusterYAMLDoc(clusterData)
+		if err != nil {
+			return fmt.Errorf("failed to update cluster file: %w", err)
+		}
+		if err := appendAddonEncryptedPath(clusterDoc, encryptAddonName, leafKey); err != nil {
+			return fmt.Errorf("failed to update cluster file: %w", err)
+		}
+		if err := writeClusterFile(encryptClusterFile, clusterDoc); err != nil {
 			return fmt.Errorf("failed to update cluster file: %w", err)
 		}
 
