@@ -9,6 +9,7 @@ import (
 )
 
 func TestListClusterAddons(t *testing.T) {
+	now := time.Now()
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, "/addons") {
 			w.WriteHeader(http.StatusNotFound)
@@ -16,7 +17,7 @@ func TestListClusterAddons(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, ListClusterAddonsResponse{
 			Result: []ClusterAddonListItem{
-				{ID: "addon1", Name: "ingress", ChartName: "ingress-nginx", CreatedAt: time.Now(), UpdatedAt: time.Now()},
+				{Name: "ingress", ChartName: "ingress-nginx", RegistryURL: "https://charts.example.com", CreatedAt: &now, UpdatedAt: &now},
 			},
 			Pagination: Pagination{TotalCount: 1, Page: 1, PageSize: 25, TotalPages: 1},
 		})
@@ -107,6 +108,7 @@ func TestUninstallAddon(t *testing.T) {
 }
 
 func TestGetAddonByName(t *testing.T) {
+	now := time.Now()
 	tests := []struct {
 		name    string
 		handler http.HandlerFunc
@@ -117,7 +119,7 @@ func TestGetAddonByName(t *testing.T) {
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				jsonResponse(t, w, http.StatusOK, ListClusterAddonsResponse{
 					Result: []ClusterAddonListItem{
-						{ID: "addon1", Name: "ingress", ChartName: "ingress-nginx", CreatedAt: time.Now(), UpdatedAt: time.Now()},
+						{Name: "ingress", ChartName: "ingress-nginx", RegistryURL: "https://charts.example.com", CreatedAt: &now, UpdatedAt: &now},
 					},
 					Pagination: Pagination{TotalCount: 1, Page: 1, PageSize: 25, TotalPages: 1},
 				})

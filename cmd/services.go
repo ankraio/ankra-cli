@@ -78,6 +78,7 @@ type APIClient interface {
 	DeleteStack(ctx context.Context, clusterID, stackName string) (*client.DeleteStackResult, error)
 	RenameStack(ctx context.Context, clusterID, stackName, newName string) (*client.RenameStackResult, error)
 	GetStackHistory(clusterID, stackName string) (*client.GetStackHistoryResponse, error)
+	GetStackAddonResourceID(clusterID, stackName, addonName string) (string, error)
 	CloneStackToCluster(ctx context.Context, targetClusterID string, cloneReq client.CloneStackToClusterRequest) (*client.CloneStackToClusterResult, error)
 
 	ListStackProfiles(page, pageSize int, search string, category string) (*client.StackProfileListResponse, error)

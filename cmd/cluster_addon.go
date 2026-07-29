@@ -71,12 +71,14 @@ var clusterAddonsListCmd = &cobra.Command{
 			}
 
 			fmt.Println("Addon Details:")
-			fmt.Printf("  ID:              %s\n", found.ID)
 			fmt.Printf("  Name:            %s\n", found.Name)
 			fmt.Printf("  Chart:           %s\n", found.ChartName)
 			fmt.Printf("  Version:         %s\n", found.ChartVersion)
-			fmt.Printf("  Repository:      %s\n", found.RepositoryURL)
+			fmt.Printf("  Registry:        %s\n", found.RegistryURL)
 			fmt.Printf("  Namespace:       %s\n", found.Namespace)
+			if found.StackName != nil {
+				fmt.Printf("  Stack:           %s\n", *found.StackName)
+			}
 			fmt.Printf("  Through Ankra:   %t\n", found.ThroughAnkra)
 			if found.Health != nil {
 				fmt.Printf("  Health:          %s\n", *found.Health)
@@ -84,8 +86,11 @@ var clusterAddonsListCmd = &cobra.Command{
 			if found.State != nil {
 				fmt.Printf("  State:           %s\n", *found.State)
 			}
-			fmt.Printf("  Created:         %s\n", formatTimeAgo(found.CreatedAt.Format(time.RFC3339)))
-			fmt.Printf("  Updated:         %s\n", formatTimeAgo(found.UpdatedAt.Format(time.RFC3339)))
+			if found.LatestChartVersion != nil && *found.LatestChartVersion != found.ChartVersion {
+				fmt.Printf("  Latest Version:  %s\n", *found.LatestChartVersion)
+			}
+			fmt.Printf("  Created:         %s\n", formatOptionalTimeAgo(found.CreatedAt))
+			fmt.Printf("  Updated:         %s\n", formatOptionalTimeAgo(found.UpdatedAt))
 			return nil
 		}
 
@@ -123,8 +128,8 @@ var clusterAddonsListCmd = &cobra.Command{
 				a.Namespace,
 				health,
 				a.ThroughAnkra,
-				formatTimeAgo(a.CreatedAt.Format(time.RFC3339)),
-				formatTimeAgo(a.UpdatedAt.Format(time.RFC3339)),
+				formatOptionalTimeAgo(a.CreatedAt),
+				formatOptionalTimeAgo(a.UpdatedAt),
 				state,
 			})
 		}
@@ -278,6 +283,19 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 			return fmt.Errorf("finding addon: %w", err)
 		}
 
+		// The addon listing carries no resource id; the uninstall endpoint
+		// takes only the resource UUID, which the stack history exposes.
+		if addon.StackName == nil || *addon.StackName == "" {
+			return fmt.Errorf("addon %q is not part of an Ankra-managed stack and cannot be uninstalled via the CLI", addonName)
+		}
+		addonResourceID, err := apiClient.GetStackAddonResourceID(cluster.ID, *addon.StackName, addonName)
+		if err != nil {
+			if errors.Is(err, client.ErrAddonNotFound) {
+				return withExitCode(exitNotFound, fmt.Errorf("resolving addon: %w", err))
+			}
+			return fmt.Errorf("resolving addon: %w", err)
+		}
+
 		var msg string
 		if deletePermanently {
 			msg = fmt.Sprintf("Uninstall and PERMANENTLY delete addon %q from cluster %q? [y/N]: ", addonName, cluster.Name)
@@ -291,7 +309,7 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		result, err := apiClient.UninstallAddon(ctx, cluster.ID, addon.ID, deletePermanently)
+		result, err := apiClient.UninstallAddon(ctx, cluster.ID, addonResourceID, deletePermanently)
 		if err != nil {
 			return fmt.Errorf("uninstalling addon: %w", err)
 		}
@@ -520,9 +538,7 @@ func runAddonsUpgrade(cmd *cobra.Command, args []string) error {
 	}
 	if len(res.Errors) > 0 {
 		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Update completed with resource errors:")
-		for _, e := range res.Errors {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  - %s %s [%s]: %s\n", e.Kind, e.Name, e.Key, e.Message)
-		}
+		renderPatchResourceErrors(cmd.ErrOrStderr(), res.Errors)
 		return errors.New("update partially failed; see errors above")
 	}
 	return printAsOutput(cmd.OutOrStdout(), res, flags.Output)

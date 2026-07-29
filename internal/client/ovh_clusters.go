@@ -45,13 +45,13 @@ type CreateOvhClusterResponse struct {
 	Name      string `json:"name"`
 }
 
+// DeprovisionOvhClusterResponse mirrors the backend's shared
+// DeprovisionClusterResponse: deprovisioning is asynchronous, so the
+// response carries the created operation id rather than deleted resources.
 type DeprovisionOvhClusterResponse struct {
-	Success         bool     `json:"success"`
-	ClusterID       string   `json:"cluster_id"`
-	DeletedServers  []string `json:"deleted_servers"`
-	DeletedNetworks []string `json:"deleted_networks"`
-	DeletedSSHKeys  []string `json:"deleted_ssh_keys"`
-	Errors          []string `json:"errors"`
+	Success     bool    `json:"success"`
+	ClusterID   string  `json:"cluster_id"`
+	OperationID *string `json:"operation_id,omitempty"`
 }
 
 type StopOvhClusterResponse struct {

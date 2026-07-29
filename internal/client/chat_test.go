@@ -212,9 +212,13 @@ func TestGetClusterHealth_Success(t *testing.T) {
 			t.Errorf("include_ai_analysis = %s, want true", r.URL.Query().Get("include_ai_analysis"))
 		}
 		jsonResponse(t, w, http.StatusOK, ClusterHealth{
-			OverallHealth: "healthy",
-			Score:         95,
-			LastUpdated:   "2025-06-01T00:00:00Z",
+			ClusterID: "cluster-123",
+			HealthReport: ClusterHealthReport{
+				Status:      "healthy",
+				Score:       95,
+				EvaluatedAt: "2025-06-01T00:00:00Z",
+			},
+			Summary: "All good",
 		})
 	}
 	testClient := newTestClient(t, handler)
@@ -222,7 +226,7 @@ func TestGetClusterHealth_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetClusterHealth() error = %v", err)
 	}
-	if got.OverallHealth != "healthy" || got.Score != 95 {
+	if got.HealthReport.Status != "healthy" || got.HealthReport.Score != 95 {
 		t.Errorf("GetClusterHealth() got = %v", got)
 	}
 }

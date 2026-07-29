@@ -129,15 +129,6 @@ var upcloudDeprovisionCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
-		if result.ResourcesMarked > 0 {
-			fmt.Printf("  Resources queued for deletion: %d\n", result.ResourcesMarked)
-		}
-		if len(result.Errors) > 0 {
-			fmt.Println(text.FgYellow.Sprint("  Warnings:"))
-			for _, e := range result.Errors {
-				fmt.Printf("    - %s\n", e)
-			}
-		}
 		return nil
 	},
 }

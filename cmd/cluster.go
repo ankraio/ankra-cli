@@ -18,6 +18,15 @@ func formatTimeAgo(tStr string) string {
 	return humanize.Time(t)
 }
 
+// formatOptionalTimeAgo renders a nullable timestamp as a relative time,
+// with "-" for absent values.
+func formatOptionalTimeAgo(t *time.Time) string {
+	if t == nil {
+		return "-"
+	}
+	return humanize.Time(*t)
+}
+
 var clusterIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // isLikelyClusterID reports whether value has the shape of a cluster UUID. It
