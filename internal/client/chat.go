@@ -45,12 +45,43 @@ type DeleteConversationResponse struct {
 	Message string `json:"message"`
 }
 
+// ClusterHealthIssue mirrors the backend's ClusterIssueWire (the members
+// the CLI renders).
+type ClusterHealthIssue struct {
+	Title            string   `json:"title"`
+	Severity         string   `json:"severity"`
+	Description      string   `json:"description"`
+	Namespace        *string  `json:"namespace"`
+	SuggestedActions []string `json:"suggested_actions"`
+}
+
+// ClusterHealthReport mirrors the backend's ClusterHealthReportWire.
+type ClusterHealthReport struct {
+	Status      string               `json:"status"`
+	Score       int                  `json:"score"`
+	Issues      []ClusterHealthIssue `json:"issues"`
+	PodStats    map[string]int       `json:"pod_stats"`
+	NodeStats   map[string]int       `json:"node_stats"`
+	EvaluatedAt string               `json:"evaluated_at"`
+}
+
+// ClusterHealthAIInsight mirrors the backend's AIInsightWire (the members
+// the CLI renders).
+type ClusterHealthAIInsight struct {
+	Title             string `json:"title"`
+	RootCauseAnalysis string `json:"root_cause_analysis"`
+	Severity          string `json:"severity"`
+	ImpactAssessment  string `json:"impact_assessment"`
+}
+
+// ClusterHealth mirrors the backend's ProactiveInsightWire: the health
+// report is nested, not flat.
 type ClusterHealth struct {
-	OverallHealth   string   `json:"overall_health"`
-	Score           int      `json:"score"`
-	Issues          []string `json:"issues,omitempty"`
-	Recommendations []string `json:"recommendations,omitempty"`
-	LastUpdated     string   `json:"last_updated"`
+	ClusterID    string                   `json:"cluster_id"`
+	HealthReport ClusterHealthReport      `json:"health_report"`
+	AIInsights   []ClusterHealthAIInsight `json:"ai_insights"`
+	Summary      string                   `json:"summary"`
+	GeneratedAt  string                   `json:"generated_at"`
 }
 
 type ChatStreamEvent struct {

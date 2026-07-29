@@ -167,7 +167,7 @@ func (m *deprovisionMock) GetCluster(name string) (client.ClusterListItem, error
 	return client.ClusterListItem{}, errors.New("not found")
 }
 
-func (m *deprovisionMock) DeprovisionCluster(ctx context.Context, clusterID string, autoDelete, force bool) (*client.DeprovisionClusterResult, error) {
+func (m *deprovisionMock) DeprovisionCluster(ctx context.Context, clusterID string) (*client.DeprovisionClusterResult, error) {
 	m.deleteCalls++
 	return &client.DeprovisionClusterResult{}, nil
 }
@@ -199,6 +199,52 @@ func TestClusterDeprovision_YesFlagProceeds(t *testing.T) {
 	}
 	if mock.deleteCalls != 1 {
 		t.Errorf("expected one deprovision call with --yes, got %d", mock.deleteCalls)
+	}
+}
+
+func TestClusterDeprovision_ForceWarnsWhenIgnored(t *testing.T) {
+	// Empty kind routes to the generic deprovision endpoint, which is one of
+	// the lanes where the backend discards force.
+	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo"}}
+	output, err := runConfirmCommand(t, mock, "",
+		[]*cobra.Command{clusterDeprovisionCmd},
+		"cluster", "deprovision", "demo", "--yes", "--force")
+	if err != nil {
+		t.Fatalf("expected success with --yes --force, got %v", err)
+	}
+	if !strings.Contains(output, "--force has no effect") {
+		t.Errorf("expected ignored---force warning in output, got %q", output)
+	}
+	if mock.deleteCalls != 1 {
+		t.Errorf("expected one deprovision call, got %d", mock.deleteCalls)
+	}
+}
+
+func TestClusterDeprovision_NoForceNoWarning(t *testing.T) {
+	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo"}}
+	output, err := runConfirmCommand(t, mock, "",
+		[]*cobra.Command{clusterDeprovisionCmd},
+		"cluster", "deprovision", "demo", "--yes")
+	if err != nil {
+		t.Fatalf("expected success with --yes, got %v", err)
+	}
+	if strings.Contains(output, "--force has no effect") {
+		t.Errorf("unexpected force warning without --force: %q", output)
+	}
+}
+
+func TestClusterDeprovision_DeprecatedAutoDeleteStillParses(t *testing.T) {
+	// --auto-delete is a deprecated no-op kept so existing scripts don't
+	// break on an unknown flag; it must parse and the deprovision must run.
+	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo"}}
+	_, err := runConfirmCommand(t, mock, "",
+		[]*cobra.Command{clusterDeprovisionCmd},
+		"cluster", "deprovision", "demo", "--yes", "--auto-delete")
+	if err != nil {
+		t.Fatalf("expected success with deprecated --auto-delete, got %v", err)
+	}
+	if mock.deleteCalls != 1 {
+		t.Errorf("expected one deprovision call, got %d", mock.deleteCalls)
 	}
 }
 

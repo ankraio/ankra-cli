@@ -16,6 +16,12 @@ version; running one prints a warning pointing at the replacement.
 
 ## Upcoming removals
 
+### v0.10.0
+
+| Deprecated | Deprecated in | Replacement | Notes |
+|---|---|---|---|
+| `ankra cluster deprovision --auto-delete` | v0.9.0 | `ankra delete cluster <name>` after the deprovision completes | The backend parses and discards `auto_delete`, so the flag has never done anything. The flag is now hidden and warns when used; the CLI no longer sends the parameter. |
+
 ### v0.6.0
 
 | Deprecated | Deprecated in | Replacement | Notes |

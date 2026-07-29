@@ -167,21 +167,17 @@ var clusterManifestsListCmd = &cobra.Command{
 			fmt.Println("Manifest Details:")
 			fmt.Printf("  Name:        %s\n", found.Name)
 			fmt.Printf("  Kind:        %s\n", kind)
-			fmt.Printf("  Namespace:   %s\n", found.Namespace)
+			if namespace := extractNamespaceFromBase64(found.ManifestBase64); namespace != "" {
+				fmt.Printf("  Namespace:   %s\n", namespace)
+			}
 			fmt.Printf("  State:       %s\n", found.State)
 
-			if len(found.Parents) > 0 {
-				fmt.Printf("  Parents:     ")
-				for i, parent := range found.Parents {
-					if i > 0 {
-						fmt.Print(", ")
-					}
-					fmt.Printf("%s (%s)", parent.Name, parent.Kind)
-				}
-				fmt.Println()
-			} else {
-				fmt.Printf("  Parents:     none\n")
+			stackName := "none"
+			if found.StackName != nil && *found.StackName != "" {
+				stackName = *found.StackName
 			}
+			fmt.Printf("  Stack:       %s\n", stackName)
+			fmt.Printf("  Created:     %s\n", formatOptionalTimeAgo(found.CreatedAt))
 
 			if found.ManifestBase64 != "" {
 				fmt.Println("\n  Manifest Content:")
@@ -201,7 +197,7 @@ var clusterManifestsListCmd = &cobra.Command{
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
 		t.AppendHeader(table.Row{
-			"Name", "Kind", "Namespace", "State", "Parents",
+			"Name", "Kind", "Namespace", "State", "Stack",
 		})
 		t.SetColumnConfigs([]table.ColumnConfig{
 			{Number: 1, WidthMin: 25},
@@ -224,24 +220,17 @@ var clusterManifestsListCmd = &cobra.Command{
 				state = "✗ " + state
 			}
 
-			parents := "none"
-			if len(m.Parents) > 0 {
-				var parentList []string
-				for _, parent := range m.Parents {
-					parentList = append(parentList, fmt.Sprintf("%s (%s)", parent.Name, parent.Kind))
-				}
-				parents = strings.Join(parentList, ", ")
-				if len(parents) > 30 {
-					parents = parents[:27] + "..."
-				}
+			stackName := "none"
+			if m.StackName != nil && *m.StackName != "" {
+				stackName = *m.StackName
 			}
 
 			t.AppendRow(table.Row{
 				m.Name,
 				kind,
-				m.Namespace,
+				extractNamespaceFromBase64(m.ManifestBase64),
 				state,
-				parents,
+				stackName,
 			})
 		}
 		t.Render()
@@ -417,9 +406,7 @@ func runManifestsUpgrade(cmd *cobra.Command, args []string) error {
 	}
 	if len(res.Errors) > 0 {
 		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Update completed with resource errors:")
-		for _, e := range res.Errors {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  - %s %s [%s]: %s\n", e.Kind, e.Name, e.Key, e.Message)
-		}
+		renderPatchResourceErrors(cmd.ErrOrStderr(), res.Errors)
 		return errors.New("update partially failed; see errors above")
 	}
 	return printAsOutput(cmd.OutOrStdout(), res, flags.Output)

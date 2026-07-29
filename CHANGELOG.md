@@ -2,7 +2,23 @@
 
 ## Unreleased
 
+### Deprecated
+
+- **`ankra cluster deprovision --auto-delete` is deprecated — it never did
+  anything.** The backend parses and discards the `auto_delete` parameter, so
+  the flag silently suggested a record deletion that never happened. The flag
+  is now hidden and prints a deprecation warning pointing at
+  `ankra delete cluster` for the record deletion; it will be removed in
+  v0.10.0 (see `DEPRECATIONS.md`).
+
 ### Changed
+
+- **`ankra cluster deprovision --force` now says when it is ignored.** Only
+  the Hetzner deprovision endpoint honors `force`; for every other cluster
+  type the CLI now prints a warning to stderr instead of implying a forced
+  teardown the backend never performs. The generic deprovision request also
+  no longer sends the `auto_delete`/`force` query parameters the backend
+  discards.
 
 - **The README now points at the hosted CLI reference instead of duplicating
   it.** The full command reference — every command, flag, and default — lives
@@ -24,6 +40,34 @@
   only the nodes they change: encrypting adds the key to `encrypted_paths` and
   nothing else, and cloning grafts the source's stack entries verbatim
   (comments and all) into the target file.
+
+- **Seven commands that decoded the wrong response shape now show real
+  data.** `cluster manifests list` always printed "No manifests found",
+  `org members` always printed "No members found", `chat health` printed an
+  empty status with a score of 0, and `cluster stacks history` rendered
+  blank rows — in every case the CLI was reading JSON keys the API never
+  sends. Each now decodes the actual response: manifests show their stack
+  and creation time, members show role and invite status, health shows the
+  scored report with issues and AI insights, and stack history lists every
+  version of each stack member. Validation errors from manifest/addon
+  upgrades and `encrypt` (which arrive nested per resource) are unpacked
+  instead of printing empty brackets, and OVH/UpCloud/DigitalOcean
+  deprovision report the created operation id instead of resource counts
+  the API never returned.
+
+- **`ankra cluster addons uninstall` can now actually uninstall.** The
+  uninstall endpoint takes an addon resource UUID, but the addon listing
+  carries no ids, so every uninstall attempt sent an empty id and failed
+  with a 404. The CLI now resolves the resource id through the stack
+  history before deleting. Addons that are not part of an Ankra-managed
+  stack are rejected with a clear message instead of a server error, and
+  `addons get`/`addons list` no longer show an always-empty ID column and
+  repository (the API sends the registry URL under a different key).
+
+- **`cluster stacks` and `cluster addons list` are no longer capped at 25
+  entries.** The API pages both listings at 25 by default and the CLI never
+  asked for more, silently hiding everything past the first page. Both now
+  walk every page.
 
 - **Every `ankra cluster managed` command now reaches the API instead of
   failing with a 404.** The client built managed-cluster URLs under

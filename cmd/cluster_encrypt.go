@@ -729,9 +729,7 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName, leafKey string)
 	}
 	if len(res.Errors) > 0 {
 		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Encryption completed with resource errors:")
-		for _, e := range res.Errors {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  - %s %s [%s]: %s\n", e.Kind, e.Name, e.Key, e.Message)
-		}
+		renderPatchResourceErrors(cmd.ErrOrStderr(), res.Errors)
 		return errors.New("encryption partially failed; see errors above")
 	}
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Manifest %q encrypted in stack %q.\n", manifestName, stack.Name)
@@ -800,9 +798,7 @@ func runEncryptAddonCluster(cmd *cobra.Command, addonName, leafKey string) error
 	}
 	if len(res.Errors) > 0 {
 		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Encryption completed with resource errors:")
-		for _, e := range res.Errors {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  - %s %s [%s]: %s\n", e.Kind, e.Name, e.Key, e.Message)
-		}
+		renderPatchResourceErrors(cmd.ErrOrStderr(), res.Errors)
 		return errors.New("encryption partially failed; see errors above")
 	}
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Addon %q encrypted in stack %q.\n", addonName, stack.Name)

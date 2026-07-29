@@ -18,7 +18,7 @@ type APIClient interface {
 	DeleteCluster(ctx context.Context, name string) error
 	TriggerReconcile(ctx context.Context, clusterID string) (*client.TriggerReconcileResult, error)
 	ProvisionCluster(ctx context.Context, clusterID string) (*client.ProvisionClusterResult, error)
-	DeprovisionCluster(ctx context.Context, clusterID string, autoDelete, force bool) (*client.DeprovisionClusterResult, error)
+	DeprovisionCluster(ctx context.Context, clusterID string) (*client.DeprovisionClusterResult, error)
 	RollToClusterResourceVersion(ctx context.Context, clusterID, versionID string) (*client.RollToClusterResourceVersionResult, error)
 	ApplyCluster(ctx context.Context, clusterReq client.CreateImportClusterRequest, wait bool) (*client.ImportResponse, bool, error)
 	ValidateCluster(ctx context.Context, spec client.CreateResourceSpec, strictSecrets bool, clusterID string) (*client.ValidateClusterResponse, error)
@@ -78,6 +78,7 @@ type APIClient interface {
 	DeleteStack(ctx context.Context, clusterID, stackName string) (*client.DeleteStackResult, error)
 	RenameStack(ctx context.Context, clusterID, stackName, newName string) (*client.RenameStackResult, error)
 	GetStackHistory(clusterID, stackName string) (*client.GetStackHistoryResponse, error)
+	GetStackAddonResourceID(clusterID, stackName, addonName string) (string, error)
 	CloneStackToCluster(ctx context.Context, targetClusterID string, cloneReq client.CloneStackToClusterRequest) (*client.CloneStackToClusterResult, error)
 
 	ListStackProfiles(page, pageSize int, search string, category string) (*client.StackProfileListResponse, error)
