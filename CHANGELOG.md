@@ -98,6 +98,20 @@
 
 ### Added
 
+- **Agent-mode chat writes can now be approved from the terminal.** In agent
+  mode every mutating tool halts the turn and emits an `action_proposal`
+  frame, and the write only runs once that proposal is confirmed. The CLI
+  parsed the chat stream but silently dropped that frame and had no way to
+  answer it, so `ankra chat --mode agent "restart node worker-1"` appeared to
+  do nothing — the proposal existed server-side but was invisible and
+  unreachable. The stream now renders every proposal (tool, description, risk,
+  whether it is reversible, parameters, expiry, and the action id), an
+  interactive session prompts to run or discard each one, and
+  `ankra chat actions confirm|reject|list` drives the same decision from a
+  script. A confirmation refused because the cluster drifted since the
+  proposal reports what happened and prints the ready-to-run `--force`
+  invocation; a superseded action does not offer force, because forcing one
+  cannot work.
 - **Scaleway clusters now have the same `nodes` commands as every other
   Ankra-provisioned provider.** `ankra cluster scaleway nodes list`, `nodes
   get`, and `nodes restart` were the only provider node surface missing from
