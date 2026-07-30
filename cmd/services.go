@@ -349,6 +349,9 @@ type APIClient interface {
 
 	StopScalewayCluster(clusterID string) (*client.ProviderStopClusterResponse, error)
 	StartScalewayCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error)
+	ListScalewayClusterNodes(clusterID string) (*client.NodeListResult, error)
+	GetScalewayClusterNode(clusterID, nodeID string) (*client.NodeDetail, error)
+	RestartScalewayClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error)
 	CreateProxmoxCluster(request client.CreateProxmoxClusterRequest) (*client.CreateProxmoxClusterResponse, error)
 	DeprovisionProxmoxCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error)
 	StopProxmoxCluster(clusterID string) (*client.ProviderStopClusterResponse, error)

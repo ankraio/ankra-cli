@@ -43,6 +43,16 @@
 
 ### Added
 
+- **Scaleway clusters now have the same `nodes` commands as every other
+  Ankra-provisioned provider.** `ankra cluster scaleway nodes list`, `nodes
+  get`, and `nodes restart` were the only provider node surface missing from
+  the CLI, even though the platform has served the Scaleway node routes and
+  the `scaleway_restart_server` restart lane all along — so a Scaleway node
+  could be restarted from the portal or the AI chat, but not from the
+  terminal. `nodes restart` schedules a native reboot (falling back to a
+  power cycle) as a tracked operation for any node the cluster reports,
+  including the bastion/gateway. HPE Morpheus still has no `nodes restart`,
+  matching the platform, which has no Morpheus restart lane.
 - **A kube-gateway access denial now suggests the command that fixes it.**
   When `ankra cluster kubeconfig add` or `ankra cluster kube-token` is
   rejected with a 403 because the caller has no access grant on the cluster,
