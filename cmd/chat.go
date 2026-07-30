@@ -108,6 +108,16 @@ func runChatMessage(clusterID *string, query string, interactionMode string) err
 					hadStatus = true
 				}
 			}
+		case "action_proposal":
+			proposal, decodeError := decodeActionProposal(event.Data)
+			if decodeError != nil {
+				fmt.Printf("\nAn action is awaiting confirmation but could not be read: %v\n", decodeError)
+				continue
+			}
+			renderActionProposal(proposal)
+			fmt.Println("This write has NOT run. Confirm it to proceed:")
+			fmt.Printf("  ankra chat actions confirm %s\n", proposal.ActionID)
+			fmt.Printf("  ankra chat actions reject %s\n\n", proposal.ActionID)
 		case "error":
 			fmt.Printf("\nError: %s\n", event.Error)
 		case "done", "complete":
@@ -180,6 +190,7 @@ func runInteractiveChat(clusterID *string, interactionMode string) error {
 		var response strings.Builder
 		var hasStartedContent bool
 		var hadStatus bool
+		var pendingProposals []*client.ChatActionProposal
 		for event := range events {
 			switch event.Type {
 			case "content":
@@ -213,6 +224,13 @@ func runInteractiveChat(clusterID *string, interactionMode string) error {
 						hadStatus = true
 					}
 				}
+			case "action_proposal":
+				proposal, decodeError := decodeActionProposal(event.Data)
+				if decodeError != nil {
+					fmt.Printf("\nAn action is awaiting confirmation but could not be read: %v\n", decodeError)
+					continue
+				}
+				pendingProposals = append(pendingProposals, proposal)
 			case "error":
 				fmt.Printf("\nError: %s\n", event.Error)
 			case "done", "complete":
@@ -225,6 +243,7 @@ func runInteractiveChat(clusterID *string, interactionMode string) error {
 			}
 		}
 		fmt.Print("\n\n")
+		resolvePendingProposals(reader, pendingProposals)
 	}
 }
 

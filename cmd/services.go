@@ -151,6 +151,8 @@ type APIClient interface {
 	RemovePasskey(credentialID string) (*client.RemoveMFAResponse, error)
 
 	StreamChat(clusterID *string, chatReq client.ChatRequest) (<-chan client.ChatStreamEvent, error)
+	ConfirmChatAction(request client.ConfirmChatActionRequest) (*client.ConfirmChatActionResult, error)
+	ListPendingChatActions(conversationID string) (*client.PendingChatActionsResult, error)
 	ListChatHistory(clusterID *string, limit, offset int) (*client.ListConversationsResponse, error)
 	GetChatConversation(conversationID string) (*client.ChatConversation, error)
 	DeleteChatConversation(conversationID string) (*client.DeleteConversationResponse, error)

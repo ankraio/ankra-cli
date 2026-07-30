@@ -519,6 +519,14 @@ func (m baseMock) StreamChat(clusterID *string, chatReq client.ChatRequest) (<-c
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ConfirmChatAction(request client.ConfirmChatActionRequest) (*client.ConfirmChatActionResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListPendingChatActions(conversationID string) (*client.PendingChatActionsResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListChatHistory(clusterID *string, limit, offset int) (*client.ListConversationsResponse, error) {
 	return nil, errors.New("not implemented")
 }
