@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.9.0-rc5 — 2026-07-30
+
 ### Deprecated
 
 - **`ankra cluster deprovision --auto-delete` is deprecated — it never did
