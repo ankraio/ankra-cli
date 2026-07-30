@@ -72,6 +72,60 @@ func TestRestartDigitaloceanClusterNode_Success(t *testing.T) {
 	}
 }
 
+func TestRestartScalewayClusterNode_Success(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if r.URL.Path != "/api/v1/clusters/scaleway/cluster-1/nodes/node-1/restart" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		jsonResponse(t, w, http.StatusOK, RestartNodeResult{OperationID: "op-1", NodeID: "node-1", JobName: "scaleway_restart_server"})
+	}
+	testClient := newTestClient(t, handler)
+	result, err := testClient.RestartScalewayClusterNode("cluster-1", "node-1")
+	if err != nil {
+		t.Fatalf("RestartScalewayClusterNode: %v", err)
+	}
+	if result.JobName != "scaleway_restart_server" {
+		t.Errorf("JobName = %s, want scaleway_restart_server", result.JobName)
+	}
+}
+
+func TestListScalewayClusterNodes_Success(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/clusters/scaleway/cluster-1/nodes" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		jsonResponse(t, w, http.StatusOK, NodeListResult{Nodes: []NodeSummary{{ID: "node-1", Name: "worker-1"}}})
+	}
+	testClient := newTestClient(t, handler)
+	result, err := testClient.ListScalewayClusterNodes("cluster-1")
+	if err != nil {
+		t.Fatalf("ListScalewayClusterNodes: %v", err)
+	}
+	if len(result.Nodes) != 1 || result.Nodes[0].Name != "worker-1" {
+		t.Errorf("Nodes = %+v, want one node named worker-1", result.Nodes)
+	}
+}
+
+func TestGetScalewayClusterNode_Success(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/clusters/scaleway/cluster-1/nodes/node-1" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		jsonResponse(t, w, http.StatusOK, NodeDetail{ID: "node-1", Name: "worker-1", State: "up"})
+	}
+	testClient := newTestClient(t, handler)
+	result, err := testClient.GetScalewayClusterNode("cluster-1", "node-1")
+	if err != nil {
+		t.Fatalf("GetScalewayClusterNode: %v", err)
+	}
+	if result.Name != "worker-1" {
+		t.Errorf("Name = %s, want worker-1", result.Name)
+	}
+}
+
 func TestRestartHetznerClusterNode_ConflictSurfacesDetail(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(t, w, http.StatusConflict, map[string]string{

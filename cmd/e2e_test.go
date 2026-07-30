@@ -1239,6 +1239,18 @@ func (m baseMock) StartScalewayCluster(clusterID, scope string) (*client.Provide
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListScalewayClusterNodes(clusterID string) (*client.NodeListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetScalewayClusterNode(clusterID, nodeID string) (*client.NodeDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RestartScalewayClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateProxmoxCluster(request client.CreateProxmoxClusterRequest) (*client.CreateProxmoxClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
