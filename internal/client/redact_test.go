@@ -114,3 +114,19 @@ func TestKeyLooksSensitive(t *testing.T) {
 		})
 	}
 }
+
+func TestPatchStackErrorRedactsEchoedSecrets(t *testing.T) {
+	// The 422 echo can carry manifest and variable secret values verbatim;
+	// the rendered error reaches terminals and CI logs (ankra-dfq9).
+	patchError := &PatchStackError{
+		StatusCode: 422,
+		Body:       []byte(`{"detail":"invalid manifest","password":"hunter2","token":"ankra_pat_secret"}`),
+	}
+	rendered := patchError.Error()
+	if strings.Contains(rendered, "hunter2") || strings.Contains(rendered, "ankra_pat_secret") {
+		t.Fatalf("patch-stack error leaked a secret: %q", rendered)
+	}
+	if !strings.Contains(rendered, "<redacted>") || !strings.Contains(rendered, "invalid manifest") {
+		t.Fatalf("patch-stack error must keep the detail and mark redactions: %q", rendered)
+	}
+}

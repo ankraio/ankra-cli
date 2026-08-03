@@ -22,6 +22,17 @@
   connection goes silent for 3 minutes (the backend heartbeats every few
   seconds while working).
 
+- **`ankra login` now runs the same insecure-HTTP guard as every other
+  command.** The login flow sends the PKCE verifier and receives the minted
+  token; a plaintext `http://` base URL to a non-loopback host is refused
+  (loopback development and `ANKRA_ALLOW_INSECURE_HTTP=1` still work).
+
+- **Error messages that echo API response bodies now redact likely secret
+  material everywhere.** Several error paths (stack patch 422 echoes,
+  variable requests, manifest and add-on configuration reads, support
+  uploads) rendered raw response bodies to the terminal; they now pass
+  through the same redaction the other error paths already used.
+
 ## v0.9.0-rc5 — 2026-07-30
 
 ### Deprecated
