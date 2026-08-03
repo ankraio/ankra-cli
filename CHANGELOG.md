@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra chat` now surfaces server errors instead of printing a blank
+  `Error:` line and exiting 0.** The backend sends its message inside the
+  error frame's `data` member (rate limits, spend caps, busy conversations);
+  the CLI now reads it from there, prints it to stderr, and one-shot chat
+  exits non-zero so scripts can detect the failure.
+
+- **Chat progress is visible again.** Status frames became structured
+  objects on newer backends and the CLI silently dropped them; it now
+  renders the intent (and mechanism) as the familiar `[...]` progress line.
+
+- **Ctrl-D leaves interactive chat cleanly** like `exit`, instead of failing
+  with `reading input: EOF` and exit code 1.
+
+- **A stalled chat stream no longer hangs the CLI forever.** A watchdog
+  ends the stream with a clear `stream idle timeout` error when the
+  connection goes silent for 3 minutes (the backend heartbeats every few
+  seconds while working).
+
 ## v0.9.0-rc5 — 2026-07-30
 
 ### Deprecated
