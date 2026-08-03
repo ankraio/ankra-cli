@@ -234,6 +234,6 @@ func (c *Client) doVariableRequest(ctx context.Context, method, url string, body
 	case http.StatusConflict:
 		return nil, ErrVariableDuplicate
 	default:
-		return nil, newUnexpectedResponseError("variable request failed", resp.StatusCode, truncateForError(respBody, 500))
+		return nil, newUnexpectedResponseError("variable request failed", resp.StatusCode, redactedBodyForError(respBody, 500))
 	}
 }

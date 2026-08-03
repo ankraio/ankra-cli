@@ -294,7 +294,7 @@ func (c *Client) UploadSupportAttachment(ctx context.Context, ticketID, filePath
 	case http.StatusNotFound:
 		return nil, ErrSupportTicketNotFound
 	default:
-		return nil, newUnexpectedResponseError("attachment upload failed", resp.StatusCode, truncateForError(respBody, 500))
+		return nil, newUnexpectedResponseError("attachment upload failed", resp.StatusCode, redactedBodyForError(respBody, 500))
 	}
 }
 
@@ -351,7 +351,7 @@ func (c *Client) doSupportRequest(ctx context.Context, method, url string, body 
 	case http.StatusConflict:
 		return nil, fmt.Errorf("%w: %s", ErrSupportReviewRequired, extractDetail(respBody))
 	default:
-		return nil, newUnexpectedResponseError("support request failed", resp.StatusCode, truncateForError(respBody, 500))
+		return nil, newUnexpectedResponseError("support request failed", resp.StatusCode, redactedBodyForError(respBody, 500))
 	}
 }
 
@@ -362,5 +362,5 @@ func extractDetail(body []byte) string {
 	if err := json.Unmarshal(body, &parsed); err == nil && parsed.Detail != "" {
 		return parsed.Detail
 	}
-	return truncateForError(body, 300)
+	return redactedBodyForError(body, 300)
 }

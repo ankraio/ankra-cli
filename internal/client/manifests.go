@@ -75,7 +75,7 @@ func (c *Client) GetClusterManifestConfiguration(ctx context.Context, clusterID,
 		return "", ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", newUnexpectedResponseError("get manifest configuration failed", resp.StatusCode, truncateForError(body, 500))
+		return "", newUnexpectedResponseError("get manifest configuration failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var parsed getClusterManifestResponse
@@ -118,7 +118,7 @@ func (c *Client) DisconnectManifest(ctx context.Context, clusterID, stackName, m
 		return nil, ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, newUnexpectedResponseError("disconnect manifest failed", resp.StatusCode, truncateForError(body, 500))
+		return nil, newUnexpectedResponseError("disconnect manifest failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var parsed DisconnectManifestResult

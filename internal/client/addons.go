@@ -228,7 +228,7 @@ func (c *Client) GetClusterAddonValues(ctx context.Context, clusterID, addonName
 		return "", ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", newUnexpectedResponseError("get addon configuration failed", resp.StatusCode, truncateForError(body, 500))
+		return "", newUnexpectedResponseError("get addon configuration failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var parsed addonConfigurationV2Response
