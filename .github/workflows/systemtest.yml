@@ -249,10 +249,17 @@ jobs:
           ORPHAN_VERIFIER: ${{ secrets.SYSTEMTEST_SCALEWAY_ORPHAN_VERIFY_SCRIPT }}
         run: |
           set -euo pipefail
-          KAPSULE_NAME="$(jq -er '.name | select(type == "string" and length > 0)' <<<"$KAPSULE_CREATE_OPTIONS_JSON")"
-          KAPSULE_VERSION="$(jq -er '.version | select(type == "string" and length > 0)' <<<"$KAPSULE_CREATE_OPTIONS_JSON")"
-          KAPSULE_CNI="$(jq -er '.cni | select(. == "cilium" or . == "cilium_native" or . == "calico")' <<<"$KAPSULE_CREATE_OPTIONS_JSON")"
-          KAPSULE_POOL_SIZE="$(jq -er '.pool_size | select(type == "string" and length > 0)' <<<"$KAPSULE_CREATE_OPTIONS_JSON")"
+          # Validate the user-supplied JSON parses before feeding it to jq below,
+          # so a malformed input fails loudly here instead of silently yielding
+          # empty shell vars.
+          jq -e . >/dev/null <<<"$KAPSULE_CREATE_OPTIONS_JSON" || {
+            echo "kapsule_create_options_json is not valid JSON" >&2
+            exit 2
+          }
+          KAPSULE_NAME="$(jq -er '.name | select(type == "string" and length > 0)' <<<"$KAPSULE_CREATE_OPTIONS_JSON")" || exit 2
+          KAPSULE_VERSION="$(jq -er '.version | select(type == "string" and length > 0)' <<<"$KAPSULE_CREATE_OPTIONS_JSON")" || exit 2
+          KAPSULE_CNI="$(jq -er '.cni | select(. == "cilium" or . == "cilium_native" or . == "calico")' <<<"$KAPSULE_CREATE_OPTIONS_JSON")" || exit 2
+          KAPSULE_POOL_SIZE="$(jq -er '.pool_size | select(type == "string" and length > 0)' <<<"$KAPSULE_CREATE_OPTIONS_JSON")" || exit 2
           for value in \
             "$KAPSULE_CREATE_CREDENTIAL_ID" \
             "$KAPSULE_IMPORT_CREDENTIAL_ID" \
