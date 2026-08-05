@@ -152,9 +152,9 @@ func scalewayCreateRequestFromFlags(cmd *cobra.Command) (client.CreateScalewayCl
 		request.KubernetesVersion = &value
 	}
 	if request.RuntimeCredentialID == nil {
-		if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "Warning: no --runtime-credential-id supplied; the provisioning credential will be reused by CCM/CSI at runtime. Prefer a dedicated least-privilege runtime credential."); err != nil {
-			return client.CreateScalewayClusterRequest{}, fmt.Errorf("writing runtime credential warning: %w", err)
-		}
+		// A best-effort advisory: a failure to write it must not abort cluster
+		// creation, so the write error is deliberately ignored.
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: no --runtime-credential-id supplied; the provisioning credential will be reused by CCM/CSI at runtime. Prefer a dedicated least-privilege runtime credential.")
 	}
 	return request, nil
 }
@@ -232,7 +232,11 @@ func newScalewayCreateCommand(preflightOnly bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			preflight, err := activeScalewayAPI().PreflightScalewayCluster(cmd.Context(), request)
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			preflight, err := scalewayAPI.PreflightScalewayCluster(cmd.Context(), request)
 			if err != nil {
 				return fmt.Errorf("preflighting Scaleway cluster: %w", err)
 			}
@@ -242,7 +246,7 @@ func newScalewayCreateCommand(preflightOnly bool) *cobra.Command {
 			if !preflight.CanProceed {
 				return renderScalewayPreflight(cmd, preflight)
 			}
-			result, err := activeScalewayAPI().CreateScalewayCluster(cmd.Context(), request)
+			result, err := scalewayAPI.CreateScalewayCluster(cmd.Context(), request)
 			if err != nil {
 				return fmt.Errorf("creating Scaleway cluster: %w", err)
 			}
@@ -324,7 +328,11 @@ func scalewaySimpleCommands() []*cobra.Command {
 				fmt.Sprintf("Deprovision Scaleway cluster %q? Compute, gateway, IPAM and network resources will be released subject to retention policy. [y/N]: ", args[0]), yes); err != nil {
 				return err
 			}
-			result, err := activeScalewayAPI().DeprovisionScalewayCluster(args[0], force)
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.DeprovisionScalewayCluster(args[0], force)
 			if err != nil {
 				return err
 			}
@@ -341,7 +349,11 @@ func scalewaySimpleCommands() []*cobra.Command {
 	stop := &cobra.Command{
 		Use: "stop <cluster_id>", Short: "Stop compute while retaining cluster configuration", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := activeScalewayAPI().StopScalewayCluster(args[0])
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.StopScalewayCluster(args[0])
 			if err != nil {
 				return err
 			}
@@ -355,7 +367,11 @@ func scalewaySimpleCommands() []*cobra.Command {
 	start := &cobra.Command{
 		Use: "start <cluster_id>", Short: "Start a stopped Scaleway cluster", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := activeScalewayAPI().StartScalewayCluster(args[0])
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.StartScalewayCluster(args[0])
 			if err != nil {
 				return err
 			}
@@ -369,7 +385,11 @@ func scalewaySimpleCommands() []*cobra.Command {
 	workers := &cobra.Command{
 		Use: "workers <cluster_id>", Short: "Read the default worker count", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := activeScalewayAPI().GetScalewayWorkerCount(args[0])
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.GetScalewayWorkerCount(args[0])
 			if err != nil {
 				return err
 			}
@@ -387,7 +407,11 @@ func scalewaySimpleCommands() []*cobra.Command {
 			if err != nil {
 				return withExitCode(exitUsage, fmt.Errorf("invalid count: %w", err))
 			}
-			result, err := activeScalewayAPI().ScaleScalewayWorkers(args[0], count)
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.ScaleScalewayWorkers(args[0], count)
 			if err != nil {
 				return err
 			}
@@ -401,7 +425,11 @@ func scalewaySimpleCommands() []*cobra.Command {
 	version := &cobra.Command{
 		Use: "k8s-version <cluster_id>", Short: "Read Kubernetes version", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := activeScalewayAPI().GetScalewayK8sVersion(args[0])
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.GetScalewayK8sVersion(args[0])
 			if err != nil {
 				return err
 			}
@@ -416,7 +444,11 @@ func scalewaySimpleCommands() []*cobra.Command {
 		Use: "upgrade <cluster_id> <target_version>", Short: "Upgrade Kubernetes", Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			force, _ := cmd.Flags().GetBool("force")
-			result, err := activeScalewayAPI().UpgradeScalewayK8sVersion(args[0], args[1], force)
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.UpgradeScalewayK8sVersion(args[0], args[1], force)
 			if err != nil {
 				return err
 			}
@@ -431,7 +463,11 @@ func scalewaySimpleCommands() []*cobra.Command {
 	access := &cobra.Command{
 		Use: "access-info <cluster_id>", Short: "Show structured private access and ready-to-use SSH commands", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := activeScalewayAPI().GetScalewayAccessInfo(args[0])
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.GetScalewayAccessInfo(args[0])
 			if err != nil {
 				return err
 			}
@@ -463,7 +499,11 @@ func newScalewaySSHKeysCommand() *cobra.Command {
 	get := &cobra.Command{
 		Use: "get <cluster_id>", Short: "Read attached and available SSH-key credentials", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := activeScalewayAPI().GetScalewayClusterSSHKeys(args[0])
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.GetScalewayClusterSSHKeys(args[0])
 			if err != nil {
 				return err
 			}
@@ -484,7 +524,11 @@ func newScalewaySSHKeysCommand() *cobra.Command {
 			} else if len(ids) == 0 {
 				return withExitCode(exitUsage, errors.New("provide --ssh-key-credential-ids or --clear"))
 			}
-			result, err := activeScalewayAPI().UpdateScalewayClusterSSHKeys(args[0], ids)
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.UpdateScalewayClusterSSHKeys(args[0], ids)
 			if err != nil {
 				return err
 			}
@@ -500,7 +544,11 @@ func newScalewaySSHKeysCommand() *cobra.Command {
 	resync := &cobra.Command{
 		Use: "resync <cluster_id>", Short: "Repair provider SSH-key state and reapply keys", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := activeScalewayAPI().ResyncScalewayClusterSSHKeys(args[0])
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.ResyncScalewayClusterSSHKeys(args[0])
 			if err != nil {
 				return err
 			}
@@ -521,7 +569,11 @@ func newScalewayDayTwoCatalogCommand() *cobra.Command {
 	instanceTypes := &cobra.Command{
 		Use: "instance-types <cluster_id>", Short: "List instance types using stored provider context", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := activeScalewayAPI().GetScalewayClusterInstanceTypes(cmd.Context(), args[0])
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.GetScalewayClusterInstanceTypes(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -537,7 +589,11 @@ func newScalewayDayTwoCatalogCommand() *cobra.Command {
 	gatewayTypes := &cobra.Command{
 		Use: "gateway-types <cluster_id>", Short: "List Public Gateway types using stored provider context", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := activeScalewayAPI().GetScalewayClusterGatewayTypes(cmd.Context(), args[0])
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.GetScalewayClusterGatewayTypes(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -560,7 +616,11 @@ func newScalewayNodeGroupCommand() *cobra.Command {
 	list := &cobra.Command{
 		Use: "list <cluster_id>", Short: "List node groups", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := activeScalewayAPI().ListScalewayNodeGroups(args[0])
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.ListScalewayNodeGroups(args[0])
 			if err != nil {
 				return err
 			}
@@ -594,7 +654,11 @@ func newScalewayNodeGroupCommand() *cobra.Command {
 				return err
 			}
 			defer cancel()
-			result, submitted, err := activeScalewayAPI().AddScalewayNodeGroupFull(ctx, args[0], client.ScalewayCreateNodeGroupRequest{
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, submitted, err := scalewayAPI.AddScalewayNodeGroupFull(ctx, args[0], client.ScalewayCreateNodeGroupRequest{
 				Name: name, InstanceType: instanceType, Count: count, Labels: labels, Taints: taints,
 			}, wait)
 			if err != nil {
@@ -631,7 +695,11 @@ func newScalewayNodeGroupCommand() *cobra.Command {
 				return err
 			}
 			defer cancel()
-			result, submitted, err := activeScalewayAPI().ScaleScalewayNodeGroup(ctx, args[0], args[1], count, wait)
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, submitted, err := scalewayAPI.ScaleScalewayNodeGroup(ctx, args[0], args[1], count, wait)
 			if err != nil {
 				return asyncWriteError("scaling Scaleway node group", wait, err)
 			}
@@ -653,7 +721,11 @@ func newScalewayNodeGroupCommand() *cobra.Command {
 				return err
 			}
 			defer cancel()
-			result, submitted, err := activeScalewayAPI().UpdateScalewayNodeGroupInstanceType(ctx, args[0], args[1], args[2], wait)
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, submitted, err := scalewayAPI.UpdateScalewayNodeGroupInstanceType(ctx, args[0], args[1], args[2], wait)
 			if err != nil {
 				return asyncWriteError("resizing Scaleway node group", wait, err)
 			}
@@ -679,7 +751,11 @@ func newScalewayNodeGroupCommand() *cobra.Command {
 				return err
 			}
 			defer cancel()
-			result, submitted, err := activeScalewayAPI().DeleteScalewayNodeGroup(ctx, args[0], args[1], wait)
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, submitted, err := scalewayAPI.DeleteScalewayNodeGroup(ctx, args[0], args[1], wait)
 			if err != nil {
 				return asyncWriteError("deleting Scaleway node group", wait, err)
 			}
@@ -718,7 +794,11 @@ func newScalewayNodeGroupCommand() *cobra.Command {
 				return err
 			}
 			defer cancel()
-			result, submitted, err := activeScalewayAPI().UpdateScalewayNodeGroupLabels(ctx, args[0], args[1], values, wait)
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, submitted, err := scalewayAPI.UpdateScalewayNodeGroupLabels(ctx, args[0], args[1], values, wait)
 			if err != nil {
 				return asyncWriteError("updating Scaleway node-group labels", wait, err)
 			}
@@ -756,7 +836,11 @@ func newScalewayNodeGroupCommand() *cobra.Command {
 				return err
 			}
 			defer cancel()
-			result, submitted, err := activeScalewayAPI().UpdateScalewayNodeGroupTaints(ctx, args[0], args[1], values, wait)
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, submitted, err := scalewayAPI.UpdateScalewayNodeGroupTaints(ctx, args[0], args[1], values, wait)
 			if err != nil {
 				return asyncWriteError("updating Scaleway node-group taints", wait, err)
 			}
@@ -778,7 +862,11 @@ func newScalewayNodeGroupCommand() *cobra.Command {
 	autoscalingGet := &cobra.Command{
 		Use: "get <cluster_id> <group_name>", Short: "Read autoscaling settings", Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := activeScalewayAPI().GetScalewayNodeGroupAutoscaling(args[0], args[1])
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, err := scalewayAPI.GetScalewayNodeGroupAutoscaling(args[0], args[1])
 			if err != nil {
 				return err
 			}
@@ -800,7 +888,11 @@ func newScalewayNodeGroupCommand() *cobra.Command {
 				return err
 			}
 			defer cancel()
-			result, submitted, err := activeScalewayAPI().UpdateScalewayNodeGroupAutoscaling(ctx, args[0], args[1],
+			scalewayAPI, err := activeScalewayAPI()
+			if err != nil {
+				return err
+			}
+			result, submitted, err := scalewayAPI.UpdateScalewayNodeGroupAutoscaling(ctx, args[0], args[1],
 				client.NodeGroupAutoscalingRequest{Enabled: enabled, MinCount: minimum, MaxCount: maximum}, wait)
 			if err != nil {
 				return asyncWriteError("updating Scaleway node-group autoscaling", wait, err)
@@ -838,31 +930,59 @@ func init() {
 
 	scalewayCmd.AddCommand(newScalewayCatalogCommand("locations", "List Scaleway regions and zones",
 		func(cmd *cobra.Command, credentialID, _ string) (*client.ScalewayCatalogResult, error) {
-			return activeScalewayAPI().ListScalewayLocations(cmd.Context(), credentialID)
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ListScalewayLocations(cmd.Context(), credentialID)
 		}, ""))
 	scalewayCmd.AddCommand(newScalewayCatalogCommand("regions", "List Scaleway regions",
 		func(cmd *cobra.Command, credentialID, _ string) (*client.ScalewayCatalogResult, error) {
-			return activeScalewayAPI().ListScalewayRegions(cmd.Context(), credentialID)
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ListScalewayRegions(cmd.Context(), credentialID)
 		}, ""))
 	scalewayCmd.AddCommand(newScalewayCatalogCommand("zones", "List Scaleway zones",
 		func(cmd *cobra.Command, credentialID, _ string) (*client.ScalewayCatalogResult, error) {
-			return activeScalewayAPI().ListScalewayZones(cmd.Context(), credentialID)
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ListScalewayZones(cmd.Context(), credentialID)
 		}, ""))
 	scalewayCmd.AddCommand(newScalewayCatalogCommand("networks", "List regional Private Networks",
 		func(cmd *cobra.Command, credentialID, region string) (*client.ScalewayCatalogResult, error) {
-			return activeScalewayAPI().ListScalewayNetworks(cmd.Context(), credentialID, region)
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ListScalewayNetworks(cmd.Context(), credentialID, region)
 		}, "region"))
 	scalewayCmd.AddCommand(newScalewayCatalogCommand("instance-types", "List zonal Instance types and prices",
 		func(cmd *cobra.Command, credentialID, zone string) (*client.ScalewayCatalogResult, error) {
-			return activeScalewayAPI().ListScalewayInstanceTypes(cmd.Context(), credentialID, zone)
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ListScalewayInstanceTypes(cmd.Context(), credentialID, zone)
 		}, "zone"))
 	scalewayCmd.AddCommand(newScalewayCatalogCommand("gateway-types", "List zonal Public Gateway v2 types",
 		func(cmd *cobra.Command, credentialID, zone string) (*client.ScalewayCatalogResult, error) {
-			return activeScalewayAPI().ListScalewayGatewayTypes(cmd.Context(), credentialID, zone)
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ListScalewayGatewayTypes(cmd.Context(), credentialID, zone)
 		}, "zone"))
 	scalewayCmd.AddCommand(newScalewayCatalogCommand("pricing", "List live Scaleway compute and storage pricing",
 		func(cmd *cobra.Command, credentialID, zone string) (*client.ScalewayCatalogResult, error) {
-			return activeScalewayAPI().ListScalewayPricing(cmd.Context(), credentialID, zone)
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ListScalewayPricing(cmd.Context(), credentialID, zone)
 		}, "zone"))
 
 	clusterCmd.AddCommand(scalewayCmd)

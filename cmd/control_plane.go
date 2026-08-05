@@ -73,10 +73,28 @@ func morpheusControlPlaneOps() controlPlaneOps {
 
 func scalewayControlPlaneOps() controlPlaneOps {
 	return controlPlaneOps{
-		provider:        "scaleway",
-		get:             activeScalewayAPI().GetScalewayControlPlane,
-		setCount:        activeScalewayAPI().ChangeScalewayControlPlaneCount,
-		setInstanceType: activeScalewayAPI().ChangeScalewayControlPlaneInstanceType,
+		provider: "scaleway",
+		get: func(clusterID string) (*client.ControlPlaneInfo, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.GetScalewayControlPlane(clusterID)
+		},
+		setCount: func(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ChangeScalewayControlPlaneCount(clusterID, count)
+		},
+		setInstanceType: func(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ChangeScalewayControlPlaneInstanceType(clusterID, instanceType)
+		},
 	}
 }
 

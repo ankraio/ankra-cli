@@ -56,7 +56,13 @@ func nodeGroupListForKind(kind string) nodeGroupListFunc {
 	case "morpheus":
 		return apiClient.ListMorpheusNodeGroups
 	case "scaleway":
-		return activeScalewayAPI().ListScalewayNodeGroups
+		return func(clusterID string) (*client.NodeGroupListResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ListScalewayNodeGroups(clusterID)
+		}
 	}
 	return nil
 }
@@ -76,7 +82,13 @@ func nodeGroupAddForKind(kind string) nodeGroupAddFunc {
 	case "morpheus":
 		return apiClient.AddMorpheusNodeGroup
 	case "scaleway":
-		return activeScalewayAPI().AddScalewayNodeGroup
+		return func(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.AddScalewayNodeGroup(ctx, clusterID, req, wait)
+		}
 	}
 	return nil
 }
@@ -96,7 +108,13 @@ func nodeGroupScaleForKind(kind string) nodeGroupScaleFunc {
 	case "morpheus":
 		return apiClient.ScaleMorpheusNodeGroup
 	case "scaleway":
-		return activeScalewayAPI().ScaleScalewayNodeGroup
+		return func(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.ScaleScalewayNodeGroup(ctx, clusterID, groupName, count, wait)
+		}
 	}
 	return nil
 }
@@ -116,7 +134,13 @@ func nodeGroupUpgradeForKind(kind string) nodeGroupUpgradeFunc {
 	case "morpheus":
 		return apiClient.UpdateMorpheusNodeGroupInstanceType
 	case "scaleway":
-		return activeScalewayAPI().UpdateScalewayNodeGroupInstanceType
+		return func(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.UpdateScalewayNodeGroupInstanceType(ctx, clusterID, groupName, instanceType, wait)
+		}
 	}
 	return nil
 }
@@ -136,7 +160,13 @@ func nodeGroupDeleteForKind(kind string) nodeGroupDeleteFunc {
 	case "morpheus":
 		return apiClient.DeleteMorpheusNodeGroup
 	case "scaleway":
-		return activeScalewayAPI().DeleteScalewayNodeGroup
+		return func(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.DeleteScalewayNodeGroup(ctx, clusterID, groupName, wait)
+		}
 	}
 	return nil
 }
@@ -156,7 +186,13 @@ func nodeGroupAutoscalingGetForKind(kind string) nodeGroupAutoscalingGetFunc {
 	case "morpheus":
 		return apiClient.GetMorpheusNodeGroupAutoscaling
 	case "scaleway":
-		return activeScalewayAPI().GetScalewayNodeGroupAutoscaling
+		return func(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.GetScalewayNodeGroupAutoscaling(clusterID, groupName)
+		}
 	}
 	return nil
 }
@@ -176,7 +212,13 @@ func nodeGroupAutoscalingSetForKind(kind string) nodeGroupAutoscalingSetFunc {
 	case "morpheus":
 		return apiClient.UpdateMorpheusNodeGroupAutoscaling
 	case "scaleway":
-		return activeScalewayAPI().UpdateScalewayNodeGroupAutoscaling
+		return func(ctx context.Context, clusterID, groupName string, req client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.UpdateScalewayNodeGroupAutoscaling(ctx, clusterID, groupName, req, wait)
+		}
 	}
 	return nil
 }
@@ -196,7 +238,13 @@ func nodeGroupLabelsForKind(kind string) nodeGroupLabelsFunc {
 	case "morpheus":
 		return apiClient.UpdateMorpheusNodeGroupLabels
 	case "scaleway":
-		return activeScalewayAPI().UpdateScalewayNodeGroupLabels
+		return func(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.UpdateScalewayNodeGroupLabels(ctx, clusterID, groupName, labels, wait)
+		}
 	}
 	return nil
 }
@@ -216,7 +264,13 @@ func nodeGroupTaintsForKind(kind string) nodeGroupTaintsFunc {
 	case "morpheus":
 		return apiClient.UpdateMorpheusNodeGroupTaints
 	case "scaleway":
-		return activeScalewayAPI().UpdateScalewayNodeGroupTaints
+		return func(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.UpdateScalewayNodeGroupTaints(ctx, clusterID, groupName, taints, wait)
+		}
 	}
 	return nil
 }

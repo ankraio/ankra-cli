@@ -229,6 +229,20 @@ func managedCommandContext(command *cobra.Command) (context.Context, context.Can
 	return ctx, cancel, nil
 }
 
+// managedCreateCommandContext behaves like managedCommandContext but applies a
+// longer submission timeout for create when --timeout is left unset. Kapsule
+// create can take much longer than a read, and the bounded context only limits
+// the client's wait for the API to accept the request: the server-side
+// operation continues asynchronously, so cutting the client wait short would
+// only orphan an in-flight create from the caller's view.
+func managedCreateCommandContext(command *cobra.Command) (context.Context, context.CancelFunc, error) {
+	if !command.Flags().Changed("timeout") {
+		ctx, cancel := context.WithTimeout(command.Context(), 30*time.Minute)
+		return ctx, cancel, nil
+	}
+	return managedCommandContext(command)
+}
+
 func renderManagedValue(command *cobra.Command, value any, human func()) error {
 	if handled, err := renderStructured(command, value); handled || err != nil {
 		return err
@@ -247,7 +261,10 @@ func newManagedProviderCommand(registration managedProviderRegistration) *cobra.
 Create and preflight accept strict YAML/JSON request files so provider-specific
 fields remain typed without turning every capability into a global flag.`,
 	}
-	root.PersistentFlags().Duration("timeout", 2*time.Minute, "API request timeout")
+	root.PersistentFlags().Duration("timeout", 2*time.Minute,
+		"API-submission timeout only. It bounds the client's wait for the API to accept the request; "+
+			"server-side provisioning continues asynchronously and is not cancelled when this elapses. "+
+			"create defaults to a longer submission timeout when this flag is left unset.")
 
 	options := &cobra.Command{
 		Use: "options", Short: "List credential-scoped Kapsule options and capabilities",
@@ -258,7 +275,11 @@ fields remain typed without turning every capability into a global flag.`,
 				return err
 			}
 			defer cancel()
-			result, err := activeManagedK8sAPI().ManagedOptions(ctx, provider, credentialID)
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			result, err := managedAPI.ManagedOptions(ctx, provider, credentialID)
 			if err != nil {
 				return fmt.Errorf("listing %s options: %w", registration.DisplayName, err)
 			}
@@ -289,7 +310,11 @@ fields remain typed without turning every capability into a global flag.`,
 				return err
 			}
 			defer cancel()
-			result, err := activeManagedK8sAPI().ManagedPreflight(ctx, provider, request)
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			result, err := managedAPI.ManagedPreflight(ctx, provider, request)
 			if err != nil {
 				return fmt.Errorf("preflighting %s cluster: %w", registration.DisplayName, err)
 			}
@@ -312,6 +337,13 @@ fields remain typed without turning every capability into a global flag.`,
 
 	create := &cobra.Command{
 		Use: "create", Short: "Create a Kapsule cluster from a strict request file",
+		Long: `Create a Kapsule cluster from a strict YAML/JSON request file.
+
+--timeout bounds only the wait for the API to accept the create request; the
+provider provisions the cluster asynchronously afterwards, so a short client
+timeout does not cancel provisioning, it only stops the CLI from waiting. When
+--timeout is left unset, create uses a longer submission timeout than the read
+commands.`,
 		RunE: func(command *cobra.Command, _ []string) error {
 			data, source, err := readManagedRequestFile(command)
 			if err != nil {
@@ -321,19 +353,23 @@ fields remain typed without turning every capability into a global flag.`,
 			if err != nil {
 				return withExitCode(exitUsage, err)
 			}
-			ctx, cancel, err := managedCommandContext(command)
+			ctx, cancel, err := managedCreateCommandContext(command)
 			if err != nil {
 				return err
 			}
 			defer cancel()
-			check, err := activeManagedK8sAPI().ManagedPreflight(ctx, provider, request)
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			check, err := managedAPI.ManagedPreflight(ctx, provider, request)
 			if err != nil {
 				return fmt.Errorf("preflighting %s cluster: %w", registration.DisplayName, err)
 			}
 			if !check.CanProceed {
 				return withExitCode(exitError, errors.New("preflight reported can_proceed=false; run the preflight command to inspect checks"))
 			}
-			result, err := activeManagedK8sAPI().ManagedCreate(ctx, provider, request)
+			result, err := managedAPI.ManagedCreate(ctx, provider, request)
 			if err != nil {
 				return fmt.Errorf("creating %s cluster: %w", registration.DisplayName, err)
 			}
@@ -354,7 +390,11 @@ fields remain typed without turning every capability into a global flag.`,
 				return err
 			}
 			defer cancel()
-			result, err := activeManagedK8sAPI().ManagedDiscover(ctx, provider, credentialID)
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			result, err := managedAPI.ManagedDiscover(ctx, provider, credentialID)
 			if err != nil {
 				return fmt.Errorf("discovering %s clusters: %w", registration.DisplayName, err)
 			}
@@ -387,7 +427,11 @@ fields remain typed without turning every capability into a global flag.`,
 				return err
 			}
 			defer cancel()
-			discovery, err := activeManagedK8sAPI().ManagedDiscover(ctx, provider, credentialID)
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			discovery, err := managedAPI.ManagedDiscover(ctx, provider, credentialID)
 			if err != nil {
 				return fmt.Errorf("verifying discovery before import: %w", err)
 			}
@@ -409,7 +453,7 @@ fields remain typed without turning every capability into a global flag.`,
 			if name != "" {
 				request.Name = &name
 			}
-			result, err := activeManagedK8sAPI().ManagedImport(ctx, provider, request)
+			result, err := managedAPI.ManagedImport(ctx, provider, request)
 			if err != nil {
 				return fmt.Errorf("importing %s cluster: %w", registration.DisplayName, err)
 			}
@@ -432,7 +476,11 @@ fields remain typed without turning every capability into a global flag.`,
 				return err
 			}
 			defer cancel()
-			result, err := activeManagedK8sAPI().ManagedStatus(ctx, provider, args[0])
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			result, err := managedAPI.ManagedStatus(ctx, provider, args[0])
 			if err != nil {
 				return fmt.Errorf("reading managed cluster status: %w", err)
 			}
@@ -453,7 +501,11 @@ fields remain typed without turning every capability into a global flag.`,
 				return err
 			}
 			defer cancel()
-			state, err := activeManagedK8sAPI().ManagedStatus(ctx, provider, args[0])
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			state, err := managedAPI.ManagedStatus(ctx, provider, args[0])
 			if err != nil {
 				return fmt.Errorf("reading ownership before disconnect: %w", err)
 			}
@@ -461,7 +513,7 @@ fields remain typed without turning every capability into a global flag.`,
 				fmt.Sprintf("Disconnect %s cluster %q (ownership %s)? The provider cluster is retained. [y/N]: ", registration.DisplayName, args[0], state.Ownership), yes); err != nil {
 				return err
 			}
-			result, err := activeManagedK8sAPI().ManagedDisconnect(ctx, provider, args[0], force)
+			result, err := managedAPI.ManagedDisconnect(ctx, provider, args[0], force)
 			if err != nil {
 				return fmt.Errorf("disconnecting managed cluster: %w", err)
 			}
@@ -487,7 +539,11 @@ fields remain typed without turning every capability into a global flag.`,
 				return err
 			}
 			defer cancel()
-			state, err := activeManagedK8sAPI().ManagedStatus(ctx, provider, args[0])
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			state, err := managedAPI.ManagedStatus(ctx, provider, args[0])
 			if err != nil {
 				return fmt.Errorf("reading ownership before provider deletion: %w", err)
 			}
@@ -499,7 +555,7 @@ fields remain typed without turning every capability into a global flag.`,
 					state.ProviderClusterID, args[0], state.Ownership, retention), yes); err != nil {
 				return err
 			}
-			result, err := activeManagedK8sAPI().ManagedDeleteProviderCluster(ctx, provider, args[0], force, retention)
+			result, err := managedAPI.ManagedDeleteProviderCluster(ctx, provider, args[0], force, retention)
 			if err != nil {
 				return fmt.Errorf("deleting provider cluster: %w", err)
 			}
@@ -522,7 +578,11 @@ fields remain typed without turning every capability into a global flag.`,
 				return err
 			}
 			defer cancel()
-			result, err := activeManagedK8sAPI().ManagedUpgrades(ctx, provider, args[0])
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			result, err := managedAPI.ManagedUpgrades(ctx, provider, args[0])
 			if err != nil {
 				return err
 			}
@@ -547,7 +607,11 @@ fields remain typed without turning every capability into a global flag.`,
 				return err
 			}
 			defer cancel()
-			result, err := activeManagedK8sAPI().ManagedUpgrade(ctx, provider, args[0], args[1])
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			result, err := managedAPI.ManagedUpgrade(ctx, provider, args[0], args[1])
 			if err != nil {
 				return err
 			}
@@ -577,7 +641,11 @@ func newManagedPoolsCommand(registration managedProviderRegistration) *cobra.Com
 				return err
 			}
 			defer cancel()
-			result, err := activeManagedK8sAPI().ManagedListPools(ctx, provider, args[0])
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			result, err := managedAPI.ManagedListPools(ctx, provider, args[0])
 			if err != nil {
 				return err
 			}
@@ -597,7 +665,11 @@ func newManagedPoolsCommand(registration managedProviderRegistration) *cobra.Com
 				return err
 			}
 			defer cancel()
-			result, err := activeManagedK8sAPI().ManagedPoolCatalog(ctx, provider, args[0])
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			result, err := managedAPI.ManagedPoolCatalog(ctx, provider, args[0])
 			if err != nil {
 				return err
 			}
@@ -621,7 +693,11 @@ func newManagedPoolsCommand(registration managedProviderRegistration) *cobra.Com
 				return err
 			}
 			defer cancel()
-			result, err := activeManagedK8sAPI().ManagedAddPool(ctx, provider, args[0], request)
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			result, err := managedAPI.ManagedAddPool(ctx, provider, args[0], request)
 			if err != nil {
 				return err
 			}
@@ -660,7 +736,11 @@ func newManagedPoolsCommand(registration managedProviderRegistration) *cobra.Com
 				return err
 			}
 			defer cancel()
-			result, err := activeManagedK8sAPI().ManagedScalePool(ctx, provider, args[0], args[1], count)
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			result, err := managedAPI.ManagedScalePool(ctx, provider, args[0], args[1], count)
 			if err != nil {
 				return err
 			}
@@ -681,7 +761,11 @@ func newManagedPoolsCommand(registration managedProviderRegistration) *cobra.Com
 				return err
 			}
 			defer cancel()
-			result, err := activeManagedK8sAPI().ManagedUpdatePool(ctx, provider, args[0], args[1], request)
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			result, err := managedAPI.ManagedUpdatePool(ctx, provider, args[0], args[1], request)
 			if err != nil {
 				return err
 			}
@@ -715,7 +799,11 @@ func newManagedPoolsCommand(registration managedProviderRegistration) *cobra.Com
 				return err
 			}
 			defer cancel()
-			result, err := activeManagedK8sAPI().ManagedDeletePool(ctx, provider, args[0], args[1])
+			managedAPI, err := activeManagedK8sAPI()
+			if err != nil {
+				return err
+			}
+			result, err := managedAPI.ManagedDeletePool(ctx, provider, args[0], args[1])
 			if err != nil {
 				return err
 			}

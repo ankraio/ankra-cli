@@ -67,12 +67,11 @@ func writeGeneratedPrivateKey(path string, privateKey []byte) error {
 	if strings.TrimSpace(path) == "" {
 		return errors.New("private key output path is empty")
 	}
-	if _, err := os.Lstat(path); err == nil {
-		return fmt.Errorf("refusing to overwrite existing private key path %s", path)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("checking private key output path %s: %w", path, err)
-	}
 
+	// O_CREATE|O_EXCL is the sole existence guard: it fails with EEXIST for a
+	// regular file, a directory, or a symlink at the path (the kernel does not
+	// follow the final symlink under O_EXCL), closing the check-then-open race
+	// a preliminary Lstat would leave open.
 	file, err := openPrivateKeyOutput(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -160,7 +159,11 @@ recommended so values do not appear in shell history.`,
 		if err != nil {
 			return err
 		}
-		result, err := activeScalewayAPI().CreateScalewayCredential(client.CreateScalewayCredentialRequest{
+		scalewayAPI, err := activeScalewayAPI()
+		if err != nil {
+			return err
+		}
+		result, err := scalewayAPI.CreateScalewayCredential(client.CreateScalewayCredentialRequest{
 			Name: name, AccessKey: accessKey, SecretKey: secretKey, ProjectID: projectID,
 		})
 		if err != nil {
@@ -183,7 +186,11 @@ var scalewayCredentialsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List Scaleway credentials",
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		items, err := activeScalewayAPI().ListScalewayCredentials()
+		scalewayAPI, err := activeScalewayAPI()
+		if err != nil {
+			return err
+		}
+		items, err := scalewayAPI.ListScalewayCredentials()
 		if err != nil {
 			return fmt.Errorf("listing Scaleway credentials: %w", err)
 		}

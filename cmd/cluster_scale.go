@@ -30,7 +30,13 @@ func scaleFunctionForKind(kind string) (workerScaleFunc, bool) {
 	case "morpheus":
 		return apiClient.ScaleMorpheusWorkers, true
 	case "scaleway":
-		return activeScalewayAPI().ScaleScalewayWorkers, true
+		return func(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ScaleScalewayWorkers(clusterID, workerCount)
+		}, true
 	default:
 		return nil, false
 	}

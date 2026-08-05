@@ -49,7 +49,13 @@ func sshKeysGetForKind(kind string) sshKeysGetFunc {
 	case "morpheus":
 		return apiClient.GetMorpheusClusterSSHKeys
 	case "scaleway":
-		return activeScalewayAPI().GetScalewayClusterSSHKeys
+		return func(clusterID string) (*client.ClusterSSHKeysResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.GetScalewayClusterSSHKeys(clusterID)
+		}
 	}
 	return nil
 }
@@ -69,7 +75,13 @@ func sshKeysSetForKind(kind string) sshKeysSetFunc {
 	case "morpheus":
 		return apiClient.UpdateMorpheusClusterSSHKeys
 	case "scaleway":
-		return activeScalewayAPI().UpdateScalewayClusterSSHKeys
+		return func(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.UpdateScalewayClusterSSHKeys(clusterID, sshKeyCredentialIDs)
+		}
 	}
 	return nil
 }
@@ -89,7 +101,13 @@ func sshKeysResyncForKind(kind string) sshKeysResyncFunc {
 	case "morpheus":
 		return apiClient.ResyncMorpheusClusterSSHKeys
 	case "scaleway":
-		return activeScalewayAPI().ResyncScalewayClusterSSHKeys
+		return func(clusterID string) (*client.ResyncSSHKeysResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ResyncScalewayClusterSSHKeys(clusterID)
+		}
 	}
 	return nil
 }

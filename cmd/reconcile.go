@@ -413,7 +413,11 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 			}
 			return nil
 		case cloudClusterKindScaleway:
-			result, deprovisionError := activeScalewayAPI().DeprovisionScalewayCluster(clusterID, force)
+			scalewayAPI, apiErr := activeScalewayAPI()
+			if apiErr != nil {
+				return apiErr
+			}
+			result, deprovisionError := scalewayAPI.DeprovisionScalewayCluster(clusterID, force)
 			if deprovisionError != nil {
 				return fmt.Errorf("deprovisioning Scaleway cluster: %w", deprovisionError)
 			}

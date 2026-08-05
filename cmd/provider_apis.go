@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 
 	"ankra/internal/client"
 )
@@ -55,10 +56,24 @@ type ScalewayAPI interface {
 
 var _ ScalewayAPI = (*client.Client)(nil)
 
-func activeManagedK8sAPI() client.ManagedK8sAPI {
-	return apiClient.(client.ManagedK8sAPI)
+// activeManagedK8sAPI returns the configured client as a ManagedK8sAPI, or a
+// descriptive error when the client does not implement that surface (rather
+// than panicking on a bare type assertion, e.g. under a partial test mock).
+func activeManagedK8sAPI() (client.ManagedK8sAPI, error) {
+	api, ok := apiClient.(client.ManagedK8sAPI)
+	if !ok {
+		return nil, errors.New("the configured client does not support managed Kubernetes operations")
+	}
+	return api, nil
 }
 
-func activeScalewayAPI() ScalewayAPI {
-	return apiClient.(ScalewayAPI)
+// activeScalewayAPI returns the configured client as a ScalewayAPI, or a
+// descriptive error when the client does not implement that surface (rather
+// than panicking on a bare type assertion, e.g. under a partial test mock).
+func activeScalewayAPI() (ScalewayAPI, error) {
+	api, ok := apiClient.(ScalewayAPI)
+	if !ok {
+		return nil, errors.New("the configured client does not support Scaleway operations")
+	}
+	return api, nil
 }

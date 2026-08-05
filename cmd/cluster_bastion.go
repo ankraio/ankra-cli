@@ -31,7 +31,13 @@ func digitaloceanBastionOps() bastionOps {
 }
 
 func scalewayBastionOps() bastionOps {
-	return bastionOps{provider: "scaleway", resize: activeScalewayAPI().UpdateScalewayBastionInstanceType}
+	return bastionOps{provider: "scaleway", resize: func(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+		api, err := activeScalewayAPI()
+		if err != nil {
+			return nil, false, err
+		}
+		return api.UpdateScalewayBastionInstanceType(ctx, clusterID, instanceType, wait)
+	}}
 }
 
 func runBastionResize(cmd *cobra.Command, opsFn func() bastionOps, clusterID, instanceType string) error {

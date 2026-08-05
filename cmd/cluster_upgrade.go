@@ -29,7 +29,13 @@ func upgradeFunctionForKind(kind string) (k8sVersionUpgrade, bool) {
 	case "morpheus":
 		return apiClient.UpgradeMorpheusK8sVersion, true
 	case "scaleway":
-		return activeScalewayAPI().UpgradeScalewayK8sVersion, true
+		return func(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.UpgradeScalewayK8sVersion(clusterID, targetVersion, force)
+		}, true
 	default:
 		return nil, false
 	}
