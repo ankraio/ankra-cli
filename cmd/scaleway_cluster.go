@@ -60,6 +60,9 @@ func validateGatewayAllowedIPs(values []string) error {
 		if err != nil {
 			return fmt.Errorf("--gateway-allowed-ips entry %d %q is not a valid CIDR (example: 203.0.113.0/24)", index+1, value)
 		}
+		// Intentionally reject only world-open /0 masks (0.0.0.0/0, ::/0),
+		// mirroring the systemtest "Validate protected inputs" guard. Broad
+		// but nonzero prefixes such as /1 are deliberately allowed.
 		if ones, _ := network.Mask.Size(); ones == 0 {
 			return fmt.Errorf("--gateway-allowed-ips entry %d %q is world-open; 0.0.0.0/0 and ::/0 are refused - restrict access to trusted CIDRs", index+1, value)
 		}
