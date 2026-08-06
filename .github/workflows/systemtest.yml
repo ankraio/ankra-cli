@@ -45,9 +45,9 @@ on:
         required: false
         default: ''
       kapsule_create_options_json:
-        description: 'Kapsule create options JSON: name, exact version, cni, and pool_size.'
+        description: 'Kapsule create options JSON: name, cni, pool_size, and a caller-supplied exact "version" (no default; the run fails without one).'
         required: false
-        default: '{"name":"systest-kapsule-created","version":"","cni":"cilium","pool_size":"DEV1-M"}'
+        default: '{"name":"systest-kapsule-created","cni":"cilium","pool_size":"DEV1-M"}'
       kapsule_import_provider_cluster_id:
         description: 'Region-qualified ID of a separate provider-created Kapsule fixture.'
         required: false
@@ -149,8 +149,9 @@ jobs:
       SCALEWAY_PRIVATE_NETWORK_ID: ${{ inputs.scaleway_private_network_id }}
       SCALEWAY_GATEWAY_ALLOWED_IPS: ${{ inputs.scaleway_gateway_allowed_ips }}
       SCALEWAY_ORPHAN_VERIFY_SCRIPT: /tmp/ankra-verify-scaleway-orphans
+      # SCW_SECRET_KEY is deliberately step-scoped (not job env) to keep the
+      # secret out of steps that do not need it.
       SCW_ACCESS_KEY: ${{ secrets.SYSTEMTEST_SCALEWAY_ACCESS_KEY }}
-      SCW_SECRET_KEY: ${{ secrets.SYSTEMTEST_SCALEWAY_SECRET_KEY }}
       SCW_DEFAULT_PROJECT_ID: ${{ secrets.SYSTEMTEST_SCALEWAY_PROJECT_ID }}
       GITOPS_CREDENTIAL_NAME: ${{ vars.SYSTEMTEST_GITOPS_CREDENTIAL_NAME }}
       GITOPS_REPOSITORY: ${{ vars.SYSTEMTEST_GITOPS_REPOSITORY }}
@@ -167,6 +168,7 @@ jobs:
       - name: Validate protected inputs
         env:
           ORPHAN_VERIFIER: ${{ secrets.SYSTEMTEST_SCALEWAY_ORPHAN_VERIFY_SCRIPT }}
+          SCW_SECRET_KEY: ${{ secrets.SYSTEMTEST_SCALEWAY_SECRET_KEY }}
         run: |
           set -euo pipefail
           [ -n "$SCALEWAY_GATEWAY_ALLOWED_IPS" ] || {
@@ -197,6 +199,8 @@ jobs:
         run: go build -o bin/ankra .
 
       - name: Run Scaleway Instances lifecycle and orphan verification
+        env:
+          SCW_SECRET_KEY: ${{ secrets.SYSTEMTEST_SCALEWAY_SECRET_KEY }}
         run: |
           mkdir -p "$TMPDIR"
           ./systemtest/lifecycle_systemtest.sh
@@ -227,8 +231,9 @@ jobs:
       KAPSULE_IMPORT_PROVIDER_CLUSTER_ID: ${{ inputs.kapsule_import_provider_cluster_id }}
       KAPSULE_IMPORT_NAME: 'systest-kapsule-imported'
       KAPSULE_ORPHAN_VERIFY_SCRIPT: /tmp/ankra-verify-scaleway-orphans
+      # SCW_SECRET_KEY is deliberately step-scoped (not job env) to keep the
+      # secret out of steps that do not need it.
       SCW_ACCESS_KEY: ${{ secrets.SYSTEMTEST_SCALEWAY_ACCESS_KEY }}
-      SCW_SECRET_KEY: ${{ secrets.SYSTEMTEST_SCALEWAY_SECRET_KEY }}
       SCW_DEFAULT_PROJECT_ID: ${{ secrets.SYSTEMTEST_SCALEWAY_PROJECT_ID }}
       TMPDIR: ${{ github.workspace }}/systemtest-artifacts
     steps:
@@ -247,6 +252,7 @@ jobs:
           KAPSULE_CREATE_OPTIONS_JSON: ${{ inputs.kapsule_create_options_json }}
           KAPSULE_PRIVATE_NETWORK_ID: ${{ inputs.scaleway_private_network_id }}
           ORPHAN_VERIFIER: ${{ secrets.SYSTEMTEST_SCALEWAY_ORPHAN_VERIFY_SCRIPT }}
+          SCW_SECRET_KEY: ${{ secrets.SYSTEMTEST_SCALEWAY_SECRET_KEY }}
         run: |
           set -euo pipefail
           # Validate the user-supplied JSON parses before feeding it to jq below,
@@ -321,6 +327,7 @@ jobs:
       - name: Run Kapsule create/import lifecycles and cleanup checks
         env:
           ANKRA_BIN: ${{ github.workspace }}/bin/ankra
+          SCW_SECRET_KEY: ${{ secrets.SYSTEMTEST_SCALEWAY_SECRET_KEY }}
         run: |
           mkdir -p "$TMPDIR"
           ./systemtest/kapsule_systemtest.sh 2>&1 | tee "$TMPDIR/kapsule-systemtest.log"
