@@ -32,11 +32,11 @@ func resolveNodeGroupClusterKind(clusterID string) (string, error) {
 		return "", fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
 	}
 	switch cluster.Kind {
-	case "hetzner", "ovh", "upcloud", "digitalocean", "proxmox", "morpheus":
+	case "hetzner", "ovh", "upcloud", "digitalocean", "proxmox", "morpheus", "scaleway":
 		return cluster.Kind, nil
 	default:
 		return "", fmt.Errorf(
-			"cluster %q (kind %q) does not support node groups. Only Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, and HPE Morpheus clusters can use this command",
+			"cluster %q (kind %q) does not support node groups. Only Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, HPE Morpheus, and Scaleway clusters can use this command",
 			clusterID, cluster.Kind)
 	}
 }
@@ -55,6 +55,14 @@ func nodeGroupListForKind(kind string) nodeGroupListFunc {
 		return apiClient.ListProxmoxNodeGroups
 	case "morpheus":
 		return apiClient.ListMorpheusNodeGroups
+	case "scaleway":
+		return func(clusterID string) (*client.NodeGroupListResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ListScalewayNodeGroups(clusterID)
+		}
 	}
 	return nil
 }
@@ -73,6 +81,14 @@ func nodeGroupAddForKind(kind string) nodeGroupAddFunc {
 		return apiClient.AddProxmoxNodeGroup
 	case "morpheus":
 		return apiClient.AddMorpheusNodeGroup
+	case "scaleway":
+		return func(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.AddScalewayNodeGroup(ctx, clusterID, req, wait)
+		}
 	}
 	return nil
 }
@@ -91,6 +107,14 @@ func nodeGroupScaleForKind(kind string) nodeGroupScaleFunc {
 		return apiClient.ScaleProxmoxNodeGroup
 	case "morpheus":
 		return apiClient.ScaleMorpheusNodeGroup
+	case "scaleway":
+		return func(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.ScaleScalewayNodeGroup(ctx, clusterID, groupName, count, wait)
+		}
 	}
 	return nil
 }
@@ -109,6 +133,14 @@ func nodeGroupUpgradeForKind(kind string) nodeGroupUpgradeFunc {
 		return apiClient.UpdateProxmoxNodeGroupInstanceType
 	case "morpheus":
 		return apiClient.UpdateMorpheusNodeGroupInstanceType
+	case "scaleway":
+		return func(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.UpdateScalewayNodeGroupInstanceType(ctx, clusterID, groupName, instanceType, wait)
+		}
 	}
 	return nil
 }
@@ -127,6 +159,14 @@ func nodeGroupDeleteForKind(kind string) nodeGroupDeleteFunc {
 		return apiClient.DeleteProxmoxNodeGroup
 	case "morpheus":
 		return apiClient.DeleteMorpheusNodeGroup
+	case "scaleway":
+		return func(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.DeleteScalewayNodeGroup(ctx, clusterID, groupName, wait)
+		}
 	}
 	return nil
 }
@@ -145,6 +185,14 @@ func nodeGroupAutoscalingGetForKind(kind string) nodeGroupAutoscalingGetFunc {
 		return apiClient.GetProxmoxNodeGroupAutoscaling
 	case "morpheus":
 		return apiClient.GetMorpheusNodeGroupAutoscaling
+	case "scaleway":
+		return func(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.GetScalewayNodeGroupAutoscaling(clusterID, groupName)
+		}
 	}
 	return nil
 }
@@ -163,6 +211,14 @@ func nodeGroupAutoscalingSetForKind(kind string) nodeGroupAutoscalingSetFunc {
 		return apiClient.UpdateProxmoxNodeGroupAutoscaling
 	case "morpheus":
 		return apiClient.UpdateMorpheusNodeGroupAutoscaling
+	case "scaleway":
+		return func(ctx context.Context, clusterID, groupName string, req client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.UpdateScalewayNodeGroupAutoscaling(ctx, clusterID, groupName, req, wait)
+		}
 	}
 	return nil
 }
@@ -181,6 +237,14 @@ func nodeGroupLabelsForKind(kind string) nodeGroupLabelsFunc {
 		return apiClient.UpdateProxmoxNodeGroupLabels
 	case "morpheus":
 		return apiClient.UpdateMorpheusNodeGroupLabels
+	case "scaleway":
+		return func(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.UpdateScalewayNodeGroupLabels(ctx, clusterID, groupName, labels, wait)
+		}
 	}
 	return nil
 }
@@ -199,6 +263,14 @@ func nodeGroupTaintsForKind(kind string) nodeGroupTaintsFunc {
 		return apiClient.UpdateProxmoxNodeGroupTaints
 	case "morpheus":
 		return apiClient.UpdateMorpheusNodeGroupTaints
+	case "scaleway":
+		return func(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, false, err
+			}
+			return api.UpdateScalewayNodeGroupTaints(ctx, clusterID, groupName, taints, wait)
+		}
 	}
 	return nil
 }
@@ -208,8 +280,8 @@ var clusterNodeGroupCmd = &cobra.Command{
 	Short: "Manage node groups for a cloud cluster",
 	Long: `List, add, scale, upgrade, and delete node groups on a cloud cluster.
 
-The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, or HPE
-Morpheus) is detected automatically from the cluster.`,
+The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, HPE
+Morpheus, or Scaleway) is detected automatically from the cluster.`,
 }
 
 var clusterNodeGroupListCmd = &cobra.Command{

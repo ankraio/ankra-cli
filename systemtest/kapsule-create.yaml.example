@@ -1,0 +1,22 @@
+# Copy to an ignored temporary file and replace placeholders before an opt-in
+# live run. This fixture creates a NEW Kapsule cluster; do not reuse it for the
+# import scenario.
+name: systest-kapsule-created
+credential_id: 11111111-2222-4333-8444-555555555555
+location: fr-par
+kubernetes_version: "1.31"
+cni: cilium
+kapsule:
+  private_network_id: pn-replace-me
+  # The current Ankra Scaleway API integration supports public Kapsule API
+  # endpoints only. Private worker pools still use the Private Network below.
+  private_endpoint: false
+node_pools:
+  - name: default
+    size: DEV1-M
+    count: 2
+    zone: fr-par-1
+    root_volume_type: sbs_5k
+    root_volume_size_gb: 40
+    public_ip: false
+    autohealing: true

@@ -71,6 +71,33 @@ func morpheusControlPlaneOps() controlPlaneOps {
 	}
 }
 
+func scalewayControlPlaneOps() controlPlaneOps {
+	return controlPlaneOps{
+		provider: "scaleway",
+		get: func(clusterID string) (*client.ControlPlaneInfo, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.GetScalewayControlPlane(clusterID)
+		},
+		setCount: func(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ChangeScalewayControlPlaneCount(clusterID, count)
+		},
+		setInstanceType: func(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.ChangeScalewayControlPlaneInstanceType(clusterID, instanceType)
+		},
+	}
+}
+
 func runControlPlaneGet(cmd *cobra.Command, opsFn func() controlPlaneOps, clusterID string) error {
 	ops := opsFn()
 	info, err := ops.get(clusterID)
@@ -183,4 +210,5 @@ func init() {
 	digitaloceanCmd.AddCommand(newControlPlaneCmd(digitaloceanControlPlaneOps, "DigitalOcean"))
 	proxmoxCmd.AddCommand(newControlPlaneCmd(proxmoxControlPlaneOps, "Proxmox VE"))
 	morpheusCmd.AddCommand(newControlPlaneCmd(morpheusControlPlaneOps, "HPE Morpheus"))
+	scalewayCmd.AddCommand(newControlPlaneCmd(scalewayControlPlaneOps, "Scaleway"))
 }

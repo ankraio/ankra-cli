@@ -48,14 +48,17 @@ func renderStructured(cmd *cobra.Command, value interface{}) (bool, error) {
 // write was submitted without --wait, so scripted callers get a stable JSON
 // document instead of the human guidance text.
 type asyncSubmittedResult struct {
-	Submitted bool   `json:"submitted" yaml:"submitted"`
-	Operation string `json:"operation" yaml:"operation"`
-	Hint      string `json:"hint" yaml:"hint"`
+	Submitted   bool    `json:"submitted" yaml:"submitted"`
+	Status      string  `json:"status" yaml:"status"`
+	Operation   string  `json:"operation" yaml:"operation"`
+	OperationID *string `json:"operation_id,omitempty" yaml:"operation_id,omitempty"`
+	Hint        string  `json:"hint" yaml:"hint"`
 }
 
 func newAsyncSubmittedResult(operationLabel string) asyncSubmittedResult {
 	return asyncSubmittedResult{
 		Submitted: true,
+		Status:    "accepted",
 		Operation: operationLabel,
 		Hint:      "re-run with --wait to block until completion and see the full result",
 	}

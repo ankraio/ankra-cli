@@ -28,6 +28,14 @@ func upgradeFunctionForKind(kind string) (k8sVersionUpgrade, bool) {
 		return apiClient.UpgradeProxmoxK8sVersion, true
 	case "morpheus":
 		return apiClient.UpgradeMorpheusK8sVersion, true
+	case "scaleway":
+		return func(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
+			api, err := activeScalewayAPI()
+			if err != nil {
+				return nil, err
+			}
+			return api.UpgradeScalewayK8sVersion(clusterID, targetVersion, force)
+		}, true
 	default:
 		return nil, false
 	}
@@ -40,9 +48,9 @@ var clusterUpgradeCmd = &cobra.Command{
 	Short: "Upgrade the Kubernetes version of a cloud cluster",
 	Long: `Upgrade the Kubernetes version on all nodes in a cloud cluster.
 
-The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, or HPE
-Morpheus) is detected automatically from the cluster, so you do not need to
-remember which provider it runs on. Both
+The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, HPE
+Morpheus, or Scaleway) is detected automatically from the cluster, so you do
+not need to remember which provider it runs on. Both
 k3s and kubeadm clusters are supported; list the available target versions
 with 'ankra cluster k3s-versions' or 'ankra cluster kubeadm-versions'.
 
@@ -69,7 +77,7 @@ Examples:
 		upgrade, supported := upgradeFunctionForKind(cluster.Kind)
 		if !supported {
 			return fmt.Errorf(
-				"cluster %q (kind %q) does not support Kubernetes version upgrades. Only Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, and HPE Morpheus clusters can be upgraded with this command",
+				"cluster %q (kind %q) does not support Kubernetes version upgrades. Only Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, HPE Morpheus, and Scaleway clusters can be upgraded with this command",
 				clusterID, cluster.Kind)
 		}
 

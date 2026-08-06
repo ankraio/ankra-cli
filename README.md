@@ -100,6 +100,52 @@ ankra login                     # opens your browser, saves the token to ~/.ankr
 ankra cluster select            # pick the cluster subsequent commands act on
 ankra cluster stacks list       # browse stacks in the active cluster
 ankra cluster apply -f cluster.yaml
+ankra cluster operations list --watch
+
+# Bump a Deployment image tag in place
+ankra cluster manifests upgrade web \
+  --set 'spec.template.spec.containers[name=app].image=nginx:1.27'
+
+# Patch one Helm value on an installed addon
+ankra cluster addons upgrade grafana --set image.tag=11.2.0
+
+# Investigate and retry failures
+ankra cluster operations list --failed
+ankra cluster operations retry <execution_id>
+
+# Provision a managed cluster on Hetzner
+ankra cluster hetzner create --name prod --credential-id <cred> \
+  --location fsn1 --worker-count 3
+
+# Connect and manage an application
+ankra application add .
+ankra application list
+ankra application deployments <application-id>
+
+# Store Scaleway credentials (keys are masked when prompted)
+ankra credentials scaleway create --name scw-prod --project-id <project-id>
+
+# Inspect live Scaleway catalogs before provisioning
+ankra cluster scaleway locations --credential-id <scaleway-credential-id>
+ankra cluster scaleway instance-types --credential-id <scaleway-credential-id> --zone fr-par-1
+
+# Preflight/create Scaleway Kapsule from one strict YAML/JSON request
+ankra cluster managed kapsule preflight --file kapsule.yaml
+ankra cluster managed kapsule create --file kapsule.yaml
+
+# Discover and import an existing Kapsule cluster
+ankra cluster managed kapsule discover --credential-id <scaleway-credential-id> -o json
+ankra cluster managed kapsule import --credential-id <scaleway-credential-id> \
+  --provider-cluster-id regions/fr-par/clusters/<provider-id>
+
+# Ask AI about your infrastructure
+ankra chat "why is my nginx pod crash-looping?" --cluster prod
+
+# Install the Ankra Agent Skills into Cursor or Claude Code
+ankra skills install --editor claude-code
+
+# Machine-readable output for scripts and agents
+ankra cluster list -o json
 ```
 
 Alternatively provide a token directly via the `ANKRA_API_TOKEN` environment
@@ -118,6 +164,16 @@ parse tables or prose.
 The full reference - every subcommand, flag, and default - lives at
 **[docs.ankra.ai/reference/cli](https://docs.ankra.ai/reference/cli)**, one page
 per command family:
+
+Provider deep-dives:
+
+- **[Scaleway provider guide][scaleway-provider-guide]** — Instances and
+  Kapsule IAM, networking, lifecycle, retention, and troubleshooting
+- **[Scaleway operations runbook][scaleway-operations-runbook]** — rotation,
+  recovery, orphan sweeps, acceptance, metrics, and alerts
+
+[scaleway-provider-guide]: https://github.com/ankraio/cluster/blob/main/docs/providers/scaleway.md
+[scaleway-operations-runbook]: https://github.com/ankraio/cluster/blob/main/docs/runbooks/scaleway-operations.md
 
 | Command | Description |
 |---------|-------------|
