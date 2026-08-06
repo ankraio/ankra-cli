@@ -26,7 +26,7 @@ type ScalewayAPI interface {
 	GetScalewayClusterGatewayTypes(context.Context, string) (*client.ScalewayCatalogResult, error)
 	DeprovisionScalewayCluster(string, bool) (*client.ScalewayLifecycleResponse, error)
 	StopScalewayCluster(string) (*client.ScalewayLifecycleResponse, error)
-	StartScalewayCluster(string) (*client.StartUpcloudClusterResult, error)
+	StartScalewayCluster(string, string) (*client.StartUpcloudClusterResult, error)
 	GetScalewayAccessInfo(string) (*client.ScalewayAccessInfo, error)
 	GetScalewayWorkerCount(string) (*client.WorkerCountResult, error)
 	ScaleScalewayWorkers(string, int) (*client.ScaleWorkersResult, error)

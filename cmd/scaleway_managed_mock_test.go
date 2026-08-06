@@ -107,7 +107,7 @@ func (baseMock) DeprovisionScalewayCluster(string, bool) (*client.ScalewayLifecy
 func (baseMock) StopScalewayCluster(string) (*client.ScalewayLifecycleResponse, error) {
 	return nil, errScalewayManagedMockNotImplemented
 }
-func (baseMock) StartScalewayCluster(string) (*client.StartUpcloudClusterResult, error) {
+func (baseMock) StartScalewayCluster(string, string) (*client.StartUpcloudClusterResult, error) {
 	return nil, errScalewayManagedMockNotImplemented
 }
 func (baseMock) GetScalewayAccessInfo(string) (*client.ScalewayAccessInfo, error) {

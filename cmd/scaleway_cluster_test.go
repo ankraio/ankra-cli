@@ -265,7 +265,7 @@ func (scalewayLifecycleMock) StopScalewayCluster(id string) (*client.ScalewayLif
 	operationID := "operation-stop"
 	return &client.ScalewayLifecycleResponse{Success: true, ClusterID: id, OperationID: &operationID}, nil
 }
-func (scalewayLifecycleMock) StartScalewayCluster(string) (*client.StartUpcloudClusterResult, error) {
+func (scalewayLifecycleMock) StartScalewayCluster(string, string) (*client.StartUpcloudClusterResult, error) {
 	return &client.StartUpcloudClusterResult{CreatedOperations: 2}, nil
 }
 func (scalewayLifecycleMock) GetScalewayWorkerCount(string) (*client.WorkerCountResult, error) {
@@ -294,6 +294,53 @@ func TestScalewayStopStartWorkersHumanOutput(t *testing.T) {
 				t.Fatalf("missing %q in:\n%s", test.want, output)
 			}
 		})
+	}
+}
+
+type scalewayStartScopeMock struct {
+	baseMock
+	scopes *[]string
+}
+
+func (m scalewayStartScopeMock) StartScalewayCluster(_ string, scope string) (*client.StartUpcloudClusterResult, error) {
+	*m.scopes = append(*m.scopes, scope)
+	return &client.StartUpcloudClusterResult{CreatedOperations: 1, Scope: scope}, nil
+}
+
+func TestScalewayStartScopeFlag(t *testing.T) {
+	scopes := []string{}
+	setMockClient(t, scalewayStartScopeMock{scopes: &scopes})
+	// The start command is a package-level singleton: restore the flag
+	// default so later tests are unaffected by explicit --scope values.
+	t.Cleanup(func() {
+		for _, candidate := range scalewayCmd.Commands() {
+			if strings.HasPrefix(candidate.Use, "start ") {
+				_ = candidate.Flags().Set("scope", "all")
+			}
+		}
+	})
+
+	if _, err := executeCommand("cluster", "scaleway", "start", "cluster-id", "--scope", "bogus"); err == nil ||
+		!strings.Contains(err.Error(), "invalid --scope") {
+		t.Fatalf("invalid scope error = %v", err)
+	}
+	if len(scopes) != 0 {
+		t.Fatalf("API must not be called for an invalid scope, got %v", scopes)
+	}
+
+	output := captureStdout(t, func() {
+		if _, err := executeCommand("cluster", "scaleway", "start", "cluster-id", "--scope", "control_plane"); err != nil {
+			t.Fatalf("execute control_plane: %v", err)
+		}
+		if _, err := executeCommand("cluster", "scaleway", "start", "cluster-id", "--scope", "all"); err != nil {
+			t.Fatalf("execute all: %v", err)
+		}
+	})
+	if len(scopes) != 2 || scopes[0] != "control_plane" || scopes[1] != "all" {
+		t.Fatalf("scopes passed to API = %v", scopes)
+	}
+	if !strings.Contains(output, "Scaleway start created 1 operation(s).") {
+		t.Fatalf("output = %s", output)
 	}
 }
 

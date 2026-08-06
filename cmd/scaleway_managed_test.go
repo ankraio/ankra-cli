@@ -393,7 +393,7 @@ func (scalewayStructuredMutationMock) StopScalewayCluster(id string) (*client.Sc
 	operationID := "operation-stop"
 	return &client.ScalewayLifecycleResponse{Success: true, ClusterID: id, OperationID: &operationID}, nil
 }
-func (scalewayStructuredMutationMock) StartScalewayCluster(string) (*client.StartUpcloudClusterResult, error) {
+func (scalewayStructuredMutationMock) StartScalewayCluster(string, string) (*client.StartUpcloudClusterResult, error) {
 	return &client.StartUpcloudClusterResult{CreatedOperations: 2}, nil
 }
 func (scalewayStructuredMutationMock) ScaleScalewayWorkers(_ string, count int) (*client.ScaleWorkersResult, error) {

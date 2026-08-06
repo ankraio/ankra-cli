@@ -387,13 +387,20 @@ func scalewaySimpleCommands() []*cobra.Command {
 		},
 	}
 	start := &cobra.Command{
-		Use: "start <cluster_id>", Short: "Start a stopped Scaleway cluster", Args: cobra.ExactArgs(1),
+		Use:   "start <cluster_id>",
+		Short: "Start a stopped Scaleway cluster",
+		Long:  "Re-provision a stopped Scaleway cluster. Use --scope control_plane to bring up only the control plane.",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			scope, _ := cmd.Flags().GetString("scope")
+			if scope != "all" && scope != "control_plane" {
+				return withExitCode(exitUsage, fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope))
+			}
 			scalewayAPI, err := activeScalewayAPI()
 			if err != nil {
 				return err
 			}
-			result, err := scalewayAPI.StartScalewayCluster(args[0])
+			result, err := scalewayAPI.StartScalewayCluster(args[0], scope)
 			if err != nil {
 				return err
 			}
@@ -404,6 +411,7 @@ func scalewaySimpleCommands() []*cobra.Command {
 			return nil
 		},
 	}
+	start.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
 	workers := &cobra.Command{
 		Use: "workers <cluster_id>", Short: "Read the default worker count", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

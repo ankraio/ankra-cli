@@ -251,10 +251,13 @@ func (c *Client) StopScalewayCluster(clusterID string) (*ScalewayLifecycleRespon
 		fmt.Sprintf("%s/api/v1/clusters/scaleway/%s/stop", c.BaseURL, url.PathEscape(clusterID)), nil, &result)
 }
 
-func (c *Client) StartScalewayCluster(clusterID string) (*StartUpcloudClusterResult, error) {
+func (c *Client) StartScalewayCluster(clusterID, scope string) (*StartUpcloudClusterResult, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/scaleway/%s/start", c.BaseURL, url.PathEscape(clusterID))
+	if scope != "" {
+		endpoint += "?scope=" + url.QueryEscape(scope)
+	}
 	var result StartUpcloudClusterResult
-	return &result, c.doManagedJSON(context.Background(), http.MethodPost,
-		fmt.Sprintf("%s/api/v1/clusters/scaleway/%s/start", c.BaseURL, url.PathEscape(clusterID)), nil, &result)
+	return &result, c.doManagedJSON(context.Background(), http.MethodPost, endpoint, nil, &result)
 }
 
 func (c *Client) GetScalewayAccessInfo(clusterID string) (*ScalewayAccessInfo, error) {

@@ -71,6 +71,27 @@ func TestScalewayCreateAndPreflightPayloadIncludesCNIAndNetworkMode(t *testing.T
 	}
 }
 
+func TestStartScalewayClusterPassesScopeQuery(t *testing.T) {
+	var gotScopes []string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/clusters/scaleway/cluster-1/start" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		gotScopes = append(gotScopes, r.URL.Query().Get("scope"))
+		jsonResponse(t, w, http.StatusOK, StartUpcloudClusterResult{CreatedOperations: 2, Scope: "control_plane"})
+	})
+	result, err := c.StartScalewayCluster("cluster-1", "control_plane")
+	if err != nil || result.CreatedOperations != 2 {
+		t.Fatalf("result = %#v, err = %v", result, err)
+	}
+	if _, err := c.StartScalewayCluster("cluster-1", "all"); err != nil {
+		t.Fatal(err)
+	}
+	if len(gotScopes) != 2 || gotScopes[0] != "control_plane" || gotScopes[1] != "all" {
+		t.Fatalf("scopes = %v", gotScopes)
+	}
+}
+
 func TestScalewayCatalogQueriesAndEscapedDayTwoPaths(t *testing.T) {
 	calls := 0
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
