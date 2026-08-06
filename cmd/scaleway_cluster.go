@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 
@@ -40,6 +41,28 @@ func validateScalewayCNI(distribution, cni string, features client.ScalewayCNIFe
 	}
 	if distribution != "k3s" && distribution != "kubeadm" {
 		return fmt.Errorf("invalid --distribution %q: use k3s or kubeadm", distribution)
+	}
+	return nil
+}
+
+// validateGatewayAllowedIPs enforces the same guard as the systemtest
+// workflow's "Validate protected inputs" step: every entry must be a valid
+// CIDR, and world-open ranges (0.0.0.0/0, ::/0, or any /0 equivalent) are
+// refused because they would expose the managed bastion to the whole
+// internet.
+func validateGatewayAllowedIPs(values []string) error {
+	if len(values) == 0 {
+		return errors.New("at least one --gateway-allowed-ips CIDR is required")
+	}
+	for index, value := range values {
+		trimmed := strings.TrimSpace(value)
+		_, network, err := net.ParseCIDR(trimmed)
+		if err != nil {
+			return fmt.Errorf("--gateway-allowed-ips entry %d %q is not a valid CIDR (example: 203.0.113.0/24)", index+1, value)
+		}
+		if ones, _ := network.Mask.Size(); ones == 0 {
+			return fmt.Errorf("--gateway-allowed-ips entry %d %q is world-open; 0.0.0.0/0 and ::/0 are refused - restrict access to trusted CIDRs", index+1, value)
+		}
 	}
 	return nil
 }
@@ -102,9 +125,8 @@ func scalewayCreateRequestFromFlags(cmd *cobra.Command) (client.CreateScalewayCl
 			errors.New("choose existing network mode with --private-network-id or new network/IPAM mode with --network-ip-range"))
 	}
 	gatewayAllowedIPs, _ := cmd.Flags().GetStringSlice("gateway-allowed-ips")
-	if len(gatewayAllowedIPs) == 0 {
-		return client.CreateScalewayClusterRequest{}, withExitCode(exitUsage,
-			errors.New("at least one --gateway-allowed-ips CIDR is required; avoid 0.0.0.0/0"))
+	if err := validateGatewayAllowedIPs(gatewayAllowedIPs); err != nil {
+		return client.CreateScalewayClusterRequest{}, withExitCode(exitUsage, err)
 	}
 	nodeGroupValues, _ := cmd.Flags().GetStringArray("node-group")
 	nodeGroups, err := parseScalewayNodeGroups(nodeGroupValues)

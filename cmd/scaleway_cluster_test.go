@@ -158,6 +158,67 @@ func TestScalewayCreateRequestFromFlagsRequiresGatewayAllowedIPs(t *testing.T) {
 	}
 }
 
+func TestValidateGatewayAllowedIPs(t *testing.T) {
+	if err := validateGatewayAllowedIPs([]string{"203.0.113.0/24", "2001:db8::/32", " 198.51.100.7/32 "}); err != nil {
+		t.Fatalf("valid CIDRs rejected: %v", err)
+	}
+	if err := validateGatewayAllowedIPs(nil); err == nil {
+		t.Fatal("empty list must be rejected")
+	}
+	for _, test := range []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"ipv4 world-open", "0.0.0.0/0", "world-open"},
+		{"ipv6 world-open", "::/0", "world-open"},
+		{"zero prefix equivalent", "10.0.0.0/0", "world-open"},
+		{"malformed", "not-a-cidr", "not a valid CIDR"},
+		{"bare ip without prefix", "203.0.113.5", "not a valid CIDR"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateGatewayAllowedIPs([]string{"203.0.113.0/24", test.value})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestScalewayCreateRequestFromFlagsRejectsWorldOpenGatewayCIDR(t *testing.T) {
+	for _, worldOpen := range []string{"0.0.0.0/0", "::/0"} {
+		flags := map[string]string{
+			"name":                  "prod",
+			"credential-id":         "cred",
+			"ssh-key-credential-id": "ssh",
+			"region":                "fr-par",
+			"zone":                  "fr-par-1",
+			"private-network-id":    "pn-1",
+			"gateway-allowed-ips":   worldOpen,
+		}
+		_, err := scalewayCreateRequestFromFlags(newScalewayCreateTestCommand(t, flags, nil))
+		if err == nil || !strings.Contains(err.Error(), "world-open") {
+			t.Fatalf("error for %q = %v", worldOpen, err)
+		}
+	}
+}
+
+func TestScalewayCreateRequestFromFlagsRejectsMalformedGatewayCIDR(t *testing.T) {
+	flags := map[string]string{
+		"name":                  "prod",
+		"credential-id":         "cred",
+		"ssh-key-credential-id": "ssh",
+		"region":                "fr-par",
+		"zone":                  "fr-par-1",
+		"private-network-id":    "pn-1",
+		"gateway-allowed-ips":   "not-a-cidr",
+	}
+	_, err := scalewayCreateRequestFromFlags(newScalewayCreateTestCommand(t, flags, nil))
+	if err == nil || !strings.Contains(err.Error(), "not a valid CIDR") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestScalewayCreateRequestFromFlagsRejectsInvalidCNIFeatureCombo(t *testing.T) {
 	flags := map[string]string{
 		"name":                  "prod",
