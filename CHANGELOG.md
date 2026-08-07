@@ -1,5 +1,16 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`ankra ai models create|update` help now names the current Expert
+  model.** The `--model-id` examples still said `claude-opus-4-8` after the
+  platform's Expert tier moved to Claude Opus 5, so the help text suggested
+  a superseded model id. Because the hosted CLI reference is regenerated
+  from this help text on every release, the stale example also kept
+  reverting the corrected model id in `reference/cli/ai.mdx`.
+
 ## v0.9.0 — 2026-08-07
 
 The stable v0.9.0 release promotes the v0.9.0 release candidates out of
