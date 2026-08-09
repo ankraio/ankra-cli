@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Removed
+
+- **The MFA management and organisation RBAC commands are gone — none of
+  them ever worked.** Every `ankra profile auth` API command (`status`,
+  `totp start/confirm/remove`, `recovery-codes regenerate`, `passkeys
+  list/remove`) and the whole `ankra org cluster-groups` /
+  `ankra org assign` / `ankra org assignments` / `ankra org unassign` /
+  `ankra org roles create` family called `/api/v1` routes the backend only
+  serves to browser sessions, so every invocation since their introduction
+  in v0.6.0 has failed with an API error. Two-factor settings and passkeys
+  are browser flows by design (passkey enrollment needs a WebAuthn ceremony
+  a terminal cannot run), so the CLI now ships a single `ankra profile auth
+  open` command that opens Profile Authentication in the browser.
+  `ankra profile auth passkeys open` still works as a deprecated alias and
+  will be removed in v0.10.0. `ankra org roles` (listing the assignable
+  roles) and all other `ankra org` commands are unaffected.
+
 ### Fixed
 
 - **`ankra ai models create|update` help now names the current Expert

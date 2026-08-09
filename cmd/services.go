@@ -123,17 +123,6 @@ type APIClient interface {
 	RemoveUserFromOrganisation(removeReq client.RemoveUserRequest) (*client.RemoveUserResponse, error)
 	ListOrganisationUsers(orgID string) ([]client.OrganisationUser, error)
 
-	ListRoles() ([]client.RoleDocument, error)
-	CreateCustomRole(request client.CreateCustomRoleRequest) (*client.RoleDocument, error)
-	ListMemberAssignments(ankraUserID string) ([]client.RoleAssignment, error)
-	CreateRoleAssignment(request client.CreateRoleAssignmentRequest) (*client.RoleAssignment, error)
-	DeleteRoleAssignment(assignmentID string) error
-	ListClusterGroups() ([]client.ClusterGroup, error)
-	CreateClusterGroup(request client.CreateClusterGroupRequest) (*client.ClusterGroup, error)
-	SetClusterGroupMembers(groupID string, clusterIDs []string) error
-	SetClusterGroupSelector(groupID string, selector map[string]string) error
-	PreviewClusterGroup(groupID string) ([]string, error)
-
 	ListCredentials(provider *string) ([]client.Credential, error)
 	ValidateCredentialName(name string) (*client.CredentialValidationResult, error)
 	DeleteCredential(ctx context.Context, credentialID, organisationID string) (*client.DeleteCredentialResult, error)
@@ -143,12 +132,6 @@ type APIClient interface {
 	CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error)
 	RevokeAPIToken(tokenID string) (*client.RevokeAPITokenResponse, error)
 	DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error)
-	GetMFAStatus() (*client.MFAStatus, error)
-	StartTOTPEnrollment() (*client.StartTOTPEnrollmentResponse, error)
-	ConfirmTOTPEnrollment(code string) (*client.RecoveryCodesResponse, error)
-	RemoveMFAMethod(methodID string) (*client.RemoveMFAResponse, error)
-	RegenerateRecoveryCodes() (*client.RecoveryCodesResponse, error)
-	RemovePasskey(credentialID string) (*client.RemoveMFAResponse, error)
 
 	StreamChat(clusterID *string, chatReq client.ChatRequest) (<-chan client.ChatStreamEvent, error)
 	ConfirmChatAction(request client.ConfirmChatActionRequest) (*client.ConfirmChatActionResult, error)
