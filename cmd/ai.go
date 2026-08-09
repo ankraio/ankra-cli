@@ -139,7 +139,7 @@ var aiModelsCreateCmd = &cobra.Command{
 	Short: "Add a model to the catalog",
 	Long: `Add a model to the catalog.
 
-For an Ankra-managed Claude model pass --model-id (e.g. claude-opus-4-8). For a
+For an Ankra-managed Claude model pass --model-id (e.g. claude-opus-5). For a
 model served by a custom OpenAI-compatible endpoint, also pass --endpoint with
 the endpoint id (see 'ankra ai endpoints list').`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -587,7 +587,7 @@ func modelRequestFromExisting(model client.AICatalogModel) client.AIModelRequest
 func addModelWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().String("key", "", "Catalog key (lowercase slug; the model_mode value)")
 	cmd.Flags().String("name", "", "Display name shown in the picker")
-	cmd.Flags().String("model-id", "", "Provider model id (e.g. claude-opus-4-8 or gpt-4o)")
+	cmd.Flags().String("model-id", "", "Provider model id (e.g. claude-opus-5 or gpt-4o)")
 	cmd.Flags().String("description", "", "Short description")
 	cmd.Flags().String("tier", "", "Auto-routing tier: expert, think, quick, or empty")
 	cmd.Flags().String("endpoint", "", "OpenAI-compatible endpoint id (omit for Ankra-managed Claude)")

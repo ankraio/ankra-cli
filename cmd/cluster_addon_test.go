@@ -14,7 +14,10 @@ import (
 
 type clusterAddonUninstallMock struct {
 	baseMock
-	addons        []client.ClusterAddonListItem
+	addons []client.ClusterAddonListItem
+	// resourceIDs maps addon name -> resource id, mirroring the stack-history
+	// resolution the real client performs (the listing carries no id).
+	resourceIDs   map[string]string
 	uninstalls    []uninstallCall
 	uninstallErr  error
 	getClusterErr error
@@ -48,6 +51,15 @@ func (m *clusterAddonUninstallMock) GetAddonByName(clusterID, addonName string) 
 	return nil, fmt.Errorf("addon %q: %w", addonName, client.ErrAddonNotFound)
 }
 
+// GetStackAddonResourceID mirrors the real client: the resource id is
+// resolved through the stack history, not the addon listing.
+func (m *clusterAddonUninstallMock) GetStackAddonResourceID(clusterID, stackName, addonName string) (string, error) {
+	if id, ok := m.resourceIDs[addonName]; ok {
+		return id, nil
+	}
+	return "", fmt.Errorf("addon %q: %w", addonName, client.ErrAddonNotFound)
+}
+
 func (m *clusterAddonUninstallMock) UninstallAddon(ctx context.Context, clusterID, addonResourceID string, deletePermanently bool) (*client.UninstallAddonResult, error) {
 	m.uninstalls = append(m.uninstalls, uninstallCall{
 		ClusterID:       clusterID,
@@ -60,8 +72,9 @@ func (m *clusterAddonUninstallMock) UninstallAddon(ctx context.Context, clusterI
 	return &client.UninstallAddonResult{Success: true, Message: "Addon uninstalled"}, nil
 }
 
-func addonFixture(name, id string) client.ClusterAddonListItem {
-	return client.ClusterAddonListItem{ID: id, Name: name}
+func addonFixture(name string) client.ClusterAddonListItem {
+	stackName := "core"
+	return client.ClusterAddonListItem{Name: name, StackName: &stackName}
 }
 
 // executeAddonCommand runs the given args against rootCmd with stdin wired to
@@ -97,7 +110,8 @@ func resetAddonUninstallFlags() {
 
 func TestClusterAddonUninstall_MissingAddonExitsNotFound(t *testing.T) {
 	mock := &clusterAddonUninstallMock{
-		addons: []client.ClusterAddonListItem{addonFixture("present", "addon-1")},
+		addons:      []client.ClusterAddonListItem{addonFixture("present")},
+		resourceIDs: map[string]string{"present": "addon-1"},
 	}
 	setMockClient(t, mock)
 
@@ -118,7 +132,8 @@ func TestClusterAddonUninstall_MissingAddonExitsNotFound(t *testing.T) {
 
 func TestClusterAddonUninstall_DeclinedPromptCancels(t *testing.T) {
 	mock := &clusterAddonUninstallMock{
-		addons: []client.ClusterAddonListItem{addonFixture("present", "addon-1")},
+		addons:      []client.ClusterAddonListItem{addonFixture("present")},
+		resourceIDs: map[string]string{"present": "addon-1"},
 	}
 	setMockClient(t, mock)
 
@@ -139,7 +154,8 @@ func TestClusterAddonUninstall_DeclinedPromptCancels(t *testing.T) {
 
 func TestClusterAddonUninstall_ConfirmProceeds(t *testing.T) {
 	mock := &clusterAddonUninstallMock{
-		addons: []client.ClusterAddonListItem{addonFixture("present", "addon-1")},
+		addons:      []client.ClusterAddonListItem{addonFixture("present")},
+		resourceIDs: map[string]string{"present": "addon-1"},
 	}
 	setMockClient(t, mock)
 
@@ -160,7 +176,8 @@ func TestClusterAddonUninstall_ConfirmProceeds(t *testing.T) {
 
 func TestClusterAddonUninstall_YesSkipsPromptAndProceeds(t *testing.T) {
 	mock := &clusterAddonUninstallMock{
-		addons: []client.ClusterAddonListItem{addonFixture("present", "addon-1")},
+		addons:      []client.ClusterAddonListItem{addonFixture("present")},
+		resourceIDs: map[string]string{"present": "addon-1"},
 	}
 	setMockClient(t, mock)
 

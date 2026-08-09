@@ -292,7 +292,6 @@ For cloud clusters (hetzner, ovh, upcloud, digitalocean, proxmox, morpheus) this
 to the provider-specific deprovision endpoint so cloud resources are released.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		autoDelete, _ := cmd.Flags().GetBool("auto-delete")
 		force, _ := cmd.Flags().GetBool("force")
 		yes, _ := cmd.Flags().GetBool("yes")
 
@@ -304,6 +303,14 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 		clusterID, clusterName, clusterKind, err := resolveClusterFromArgsWithKind(cmd, args)
 		if err != nil {
 			return err
+		}
+
+		// Only the Hetzner deprovision endpoint honors force; every other
+		// lane would silently drop it, so say so instead of implying a
+		// forced teardown that never happens.
+		if force && cloudClusterKind(clusterKind) != cloudClusterKindHetzner {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+				"warning: --force has no effect for this cluster type (only Hetzner deprovision supports it)")
 		}
 
 		if err := confirmPrompt(
@@ -405,7 +412,7 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		result, err := apiClient.DeprovisionCluster(ctx, clusterID, autoDelete, force)
+		result, err := apiClient.DeprovisionCluster(ctx, clusterID)
 		if err != nil {
 			return fmt.Errorf("deprovisioning cluster: %w", err)
 		}
@@ -487,7 +494,12 @@ Example:
 
 func init() {
 	clusterDeprovisionCmd.Flags().Bool("auto-delete", false, "Automatically delete the cluster after deprovisioning")
-	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state")
+	// The backend never implemented auto_delete: it parsed and discarded the
+	// parameter, so the flag has always been a silent no-op. Kept (hidden)
+	// so existing scripts don't break on an unknown flag; see DEPRECATIONS.md.
+	_ = clusterDeprovisionCmd.Flags().MarkDeprecated("auto-delete",
+		"the backend does not support it; deprovision never deletes the cluster record (use 'ankra delete cluster' afterwards)")
+	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state (only honored for Hetzner clusters)")
 	clusterDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	clusterRollToCmd.Flags().String("version", "", "Resource version ID to roll to (required)")

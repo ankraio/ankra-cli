@@ -17,18 +17,24 @@ import (
 // it as a not-found condition (exit code 3) rather than a generic failure.
 var ErrAddonNotFound = errors.New("addon not found")
 
+// ClusterAddonListItem mirrors the backend's importedread
+// ClusterAddonListItem. The listing carries no resource id — uninstall
+// resolves it through the stack history (GetStackAddonResourceID) — and the
+// chart repository arrives as registry_url.
 type ClusterAddonListItem struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	ChartName     string    `json:"chart_name"`
-	ChartVersion  string    `json:"chart_version"`
-	RepositoryURL string    `json:"repository_url"`
-	Namespace     string    `json:"namespace"`
-	Health        *string   `json:"health,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
-	State         *string   `json:"state,omitempty"`
-	ThroughAnkra  bool      `json:"through_ankra"`
+	Name               string     `json:"name"`
+	ChartName          string     `json:"chart_name"`
+	ChartVersion       string     `json:"chart_version"`
+	RegistryURL        string     `json:"registry_url"`
+	RegistryName       *string    `json:"registry_name"`
+	Namespace          string     `json:"namespace"`
+	StackName          *string    `json:"stack_name"`
+	Health             *string    `json:"health,omitempty"`
+	CreatedAt          *time.Time `json:"created_at"`
+	UpdatedAt          *time.Time `json:"updated_at"`
+	State              *string    `json:"state,omitempty"`
+	ThroughAnkra       bool       `json:"through_ankra"`
+	LatestChartVersion *string    `json:"latest_chart_version"`
 }
 
 type ListClusterAddonsResponse struct {
@@ -83,13 +89,23 @@ type ListAvailableAddonsResponse struct {
 	Result []AvailableAddon `json:"result"`
 }
 
+// ListClusterAddons pages through the full addon listing (the backend
+// serves 25 per page by default and clamps page_size at 100).
 func (c *Client) ListClusterAddons(clusterID string) ([]ClusterAddonListItem, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/addons", c.BaseURL, neturl.PathEscape(clusterID))
-	var resp ListClusterAddonsResponse
-	if err := c.getJSON(url, &resp); err != nil {
-		return nil, fmt.Errorf("failed to get cluster addons: %w", err)
+	var addons []ClusterAddonListItem
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("%s/api/v1/clusters/%s/addons?page=%d&page_size=100",
+			c.BaseURL, neturl.PathEscape(clusterID), page)
+		var resp ListClusterAddonsResponse
+		if err := c.getJSON(url, &resp); err != nil {
+			return nil, fmt.Errorf("failed to get cluster addons: %w", err)
+		}
+		addons = append(addons, resp.Result...)
+		if page >= resp.Pagination.TotalPages || len(resp.Result) == 0 {
+			break
+		}
 	}
-	return resp.Result, nil
+	return addons, nil
 }
 
 func (c *Client) ListAvailableAddons(clusterID string) ([]AvailableAddon, error) {
@@ -212,7 +228,7 @@ func (c *Client) GetClusterAddonValues(ctx context.Context, clusterID, addonName
 		return "", ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", newUnexpectedResponseError("get addon configuration failed", resp.StatusCode, truncateForError(body, 500))
+		return "", newUnexpectedResponseError("get addon configuration failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var parsed addonConfigurationV2Response

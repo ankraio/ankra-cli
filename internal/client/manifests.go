@@ -6,19 +6,26 @@ import (
 	"fmt"
 	"net/http"
 	neturl "net/url"
+	"time"
 )
 
+// ClusterManifestListItem mirrors the backend's cliread ManifestItem: the
+// listing carries no namespace or parents — the stack a manifest belongs to
+// arrives as stack_name (nil for standalone manifests).
 type ClusterManifestListItem struct {
-	Name              string   `json:"name"`
-	ManifestBase64    string   `json:"manifest_base64"`
-	Namespace         string   `json:"namespace"`
-	Parents           []Parent `json:"parents"`
-	DeletePermanently bool     `json:"delete_permanently"`
-	State             string   `json:"state"`
+	Name              string     `json:"name"`
+	ManifestBase64    string     `json:"manifest_base64"`
+	State             string     `json:"state"`
+	DeletePermanently bool       `json:"delete_permanently"`
+	CreatedAt         *time.Time `json:"created_at"`
+	StackName         *string    `json:"stack_name"`
 }
 
+// ListClusterManifestsResponse mirrors ListClusterManifestsResult: the
+// backend wraps the page in a result/pagination envelope.
 type ListClusterManifestsResponse struct {
-	Manifests []ClusterManifestListItem `json:"manifests"`
+	Result     []ClusterManifestListItem `json:"result"`
+	Pagination Pagination                `json:"pagination"`
 }
 
 func (c *Client) ListClusterManifests(clusterID string) ([]ClusterManifestListItem, error) {
@@ -29,7 +36,7 @@ func (c *Client) ListClusterManifests(clusterID string) ([]ClusterManifestListIt
 		return nil, fmt.Errorf("failed to list cluster manifests: %w", err)
 	}
 
-	return response.Manifests, nil
+	return response.Result, nil
 }
 
 // getClusterManifestResponse mirrors GetClusterManifestResult from the
@@ -68,7 +75,7 @@ func (c *Client) GetClusterManifestConfiguration(ctx context.Context, clusterID,
 		return "", ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", newUnexpectedResponseError("get manifest configuration failed", resp.StatusCode, truncateForError(body, 500))
+		return "", newUnexpectedResponseError("get manifest configuration failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var parsed getClusterManifestResponse
@@ -111,7 +118,7 @@ func (c *Client) DisconnectManifest(ctx context.Context, clusterID, stackName, m
 		return nil, ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, newUnexpectedResponseError("disconnect manifest failed", resp.StatusCode, truncateForError(body, 500))
+		return nil, newUnexpectedResponseError("disconnect manifest failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var parsed DisconnectManifestResult

@@ -3,7 +3,9 @@ package client
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestStreamChat_Success(t *testing.T) {
@@ -212,9 +214,13 @@ func TestGetClusterHealth_Success(t *testing.T) {
 			t.Errorf("include_ai_analysis = %s, want true", r.URL.Query().Get("include_ai_analysis"))
 		}
 		jsonResponse(t, w, http.StatusOK, ClusterHealth{
-			OverallHealth: "healthy",
-			Score:         95,
-			LastUpdated:   "2025-06-01T00:00:00Z",
+			ClusterID: "cluster-123",
+			HealthReport: ClusterHealthReport{
+				Status:      "healthy",
+				Score:       95,
+				EvaluatedAt: "2025-06-01T00:00:00Z",
+			},
+			Summary: "All good",
 		})
 	}
 	testClient := newTestClient(t, handler)
@@ -222,7 +228,7 @@ func TestGetClusterHealth_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetClusterHealth() error = %v", err)
 	}
-	if got.OverallHealth != "healthy" || got.Score != 95 {
+	if got.HealthReport.Status != "healthy" || got.HealthReport.Score != 95 {
 		t.Errorf("GetClusterHealth() got = %v", got)
 	}
 }
@@ -266,5 +272,98 @@ func TestDeleteChatConversation_Error(t *testing.T) {
 	_, err := testClient.DeleteChatConversation("conv-123")
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestChatStreamEvent_ErrorMessage(t *testing.T) {
+	testCases := []struct {
+		name  string
+		event ChatStreamEvent
+		want  string
+	}{
+		{"local stream failure", ChatStreamEvent{Type: "error", Error: "connection reset"}, "connection reset"},
+		{"backend error frame", ChatStreamEvent{Type: "error",
+			Data: map[string]any{"message": "Rate limited.", "is_rate_limited": true}}, "Rate limited."},
+		{"legacy string data", ChatStreamEvent{Type: "error", Data: "plain text"}, "plain text"},
+		{"message missing", ChatStreamEvent{Type: "error", Data: map[string]any{"code": float64(1)}}, ""},
+		{"no payload at all", ChatStreamEvent{Type: "error"}, ""},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := testCase.event.ErrorMessage(); got != testCase.want {
+				t.Errorf("ErrorMessage() = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestStreamChat_BackendErrorFrameCarriesMessage(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"error\",\"schema_version\":2,\"data\":{\"message\":\"Your organisation's daily AI spend cap has been reached.\",\"is_spend_capped\":true}}\n\n")
+		flusher.Flush()
+	}
+	testClient := newTestClient(t, handler)
+	events, err := testClient.StreamChat(nil, ChatRequest{Query: "hi"})
+	if err != nil {
+		t.Fatalf("StreamChat: %v", err)
+	}
+	var received []ChatStreamEvent
+	for event := range events {
+		received = append(received, event)
+	}
+	if len(received) != 1 || received[0].Type != "error" {
+		t.Fatalf("expected one error event, got %v", received)
+	}
+	if got := received[0].ErrorMessage(); got != "Your organisation's daily AI spend cap has been reached." {
+		t.Errorf("ErrorMessage() = %q, want the backend message", got)
+	}
+}
+
+func TestStreamChat_IdleTimeoutEndsStalledStream(t *testing.T) {
+	previousTimeout := chatStreamIdleTimeout
+	chatStreamIdleTimeout = 150 * time.Millisecond
+	defer func() { chatStreamIdleTimeout = previousTimeout }()
+
+	handlerDone := make(chan struct{})
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		defer close(handlerDone)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"content\",\"content\":\"partial\"}\n\n")
+		flusher.Flush()
+		// Stall without closing: the client must not hang forever.
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	}
+	testClient := newTestClient(t, handler)
+	events, err := testClient.StreamChat(nil, ChatRequest{Query: "hi"})
+	if err != nil {
+		t.Fatalf("StreamChat: %v", err)
+	}
+	var received []ChatStreamEvent
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case event, open := <-events:
+			if !open {
+				if len(received) != 2 {
+					t.Fatalf("expected content + idle-timeout events, got %v", received)
+				}
+				if received[1].Type != "error" || !strings.Contains(received[1].Error, "stream idle timeout") {
+					t.Fatalf("expected an idle-timeout error event, got %+v", received[1])
+				}
+				<-handlerDone
+				return
+			}
+			received = append(received, event)
+		case <-deadline:
+			t.Fatal("stream never ended: idle watchdog did not fire")
+		}
 	}
 }

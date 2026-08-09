@@ -20,6 +20,7 @@ version; running one prints a warning pointing at the replacement.
 
 | Deprecated | Deprecated in | Replacement | Notes |
 |---|---|---|---|
+| `ankra cluster deprovision --auto-delete` | v0.9.0 | `ankra delete cluster <name>` after the deprovision completes | The backend parses and discards `auto_delete`, so the flag has never done anything. The flag is now hidden and warns when used; the CLI no longer sends the parameter. |
 | `ankra profile auth passkeys ...` | v0.9.0 | `ankra profile auth open` | Passkeys and all other two-factor settings are managed in the browser (passkey enrollment needs a WebAuthn ceremony a terminal cannot run). The forwarder opens Profile Authentication in the browser; the sibling API-backed `profile auth` and `org` RBAC commands were removed outright because they never worked (see CHANGELOG). |
 
 ### v0.6.0

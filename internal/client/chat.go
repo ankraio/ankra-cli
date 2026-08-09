@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
 type ChatMessage struct {
@@ -45,12 +47,43 @@ type DeleteConversationResponse struct {
 	Message string `json:"message"`
 }
 
+// ClusterHealthIssue mirrors the backend's ClusterIssueWire (the members
+// the CLI renders).
+type ClusterHealthIssue struct {
+	Title            string   `json:"title"`
+	Severity         string   `json:"severity"`
+	Description      string   `json:"description"`
+	Namespace        *string  `json:"namespace"`
+	SuggestedActions []string `json:"suggested_actions"`
+}
+
+// ClusterHealthReport mirrors the backend's ClusterHealthReportWire.
+type ClusterHealthReport struct {
+	Status      string               `json:"status"`
+	Score       int                  `json:"score"`
+	Issues      []ClusterHealthIssue `json:"issues"`
+	PodStats    map[string]int       `json:"pod_stats"`
+	NodeStats   map[string]int       `json:"node_stats"`
+	EvaluatedAt string               `json:"evaluated_at"`
+}
+
+// ClusterHealthAIInsight mirrors the backend's AIInsightWire (the members
+// the CLI renders).
+type ClusterHealthAIInsight struct {
+	Title             string `json:"title"`
+	RootCauseAnalysis string `json:"root_cause_analysis"`
+	Severity          string `json:"severity"`
+	ImpactAssessment  string `json:"impact_assessment"`
+}
+
+// ClusterHealth mirrors the backend's ProactiveInsightWire: the health
+// report is nested, not flat.
 type ClusterHealth struct {
-	OverallHealth   string   `json:"overall_health"`
-	Score           int      `json:"score"`
-	Issues          []string `json:"issues,omitempty"`
-	Recommendations []string `json:"recommendations,omitempty"`
-	LastUpdated     string   `json:"last_updated"`
+	ClusterID    string                   `json:"cluster_id"`
+	HealthReport ClusterHealthReport      `json:"health_report"`
+	AIInsights   []ClusterHealthAIInsight `json:"ai_insights"`
+	Summary      string                   `json:"summary"`
+	GeneratedAt  string                   `json:"generated_at"`
 }
 
 type ChatStreamEvent struct {
@@ -60,6 +93,32 @@ type ChatStreamEvent struct {
 	Error   string `json:"error,omitempty"`
 	Done    bool   `json:"done,omitempty"`
 }
+
+// ErrorMessage extracts the human message from an error event. Backend
+// error frames carry {"type":"error","data":{"message":...}}; the Error
+// member is only set by this client for local stream failures. Returns ""
+// when the event carries no readable message.
+func (event ChatStreamEvent) ErrorMessage() string {
+	if event.Error != "" {
+		return event.Error
+	}
+	switch data := event.Data.(type) {
+	case string:
+		return data
+	case map[string]any:
+		if message, ok := data["message"].(string); ok {
+			return message
+		}
+	}
+	return ""
+}
+
+// chatStreamIdleTimeout bounds how long a chat stream read may sit with no
+// bytes at all. The backend heartbeats every few seconds while working, so
+// a silent stream this long is a dead connection, not a slow answer;
+// without the watchdog a stalled stream hung the command forever. A var so
+// tests can shorten it.
+var chatStreamIdleTimeout = 3 * time.Minute
 
 func (c *Client) StreamChat(clusterID *string, chatReq ChatRequest) (<-chan ChatStreamEvent, error) {
 	var url string
@@ -111,11 +170,25 @@ func (c *Client) StreamChat(clusterID *string, chatReq ChatRequest) (<-chan Chat
 		defer closeBody(resp)
 		defer close(events)
 
+		// The watchdog closes the body when nothing arrives for the idle
+		// window, which unblocks the pending Read; heartbeat comment frames
+		// reset it, so only a genuinely dead connection trips it.
+		var idleTimedOut atomic.Bool
+		watchdog := time.AfterFunc(chatStreamIdleTimeout, func() {
+			idleTimedOut.Store(true)
+			closeBody(resp)
+		})
+		defer watchdog.Stop()
+
 		reader := bufio.NewReader(resp.Body)
 		for {
 			line, readErr := reader.ReadString('\n')
+			watchdog.Reset(chatStreamIdleTimeout)
 			if readErr != nil {
-				if readErr != io.EOF {
+				if idleTimedOut.Load() {
+					events <- ChatStreamEvent{Type: "error",
+						Error: fmt.Sprintf("stream idle timeout: no data received for %s", chatStreamIdleTimeout)}
+				} else if readErr != io.EOF {
 					events <- ChatStreamEvent{Type: "error", Error: readErr.Error()}
 				}
 				return

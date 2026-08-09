@@ -74,12 +74,70 @@ func TestClusterNodesRestartCommandRequiresBothArgs(t *testing.T) {
 	}
 }
 
+type scalewayNodesMock struct {
+	baseMock
+
+	restartResult *client.RestartNodeResult
+	restartCalls  []string
+	listResult    *client.NodeListResult
+	listCalls     []string
+}
+
+func (m *scalewayNodesMock) RestartScalewayClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error) {
+	m.restartCalls = append(m.restartCalls, clusterID+":"+nodeID)
+	return m.restartResult, nil
+}
+
+func (m *scalewayNodesMock) ListScalewayClusterNodes(clusterID string) (*client.NodeListResult, error) {
+	m.listCalls = append(m.listCalls, clusterID)
+	return m.listResult, nil
+}
+
+func TestClusterNodesRestartCommandDispatchesScaleway(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &scalewayNodesMock{
+		restartResult: &client.RestartNodeResult{OperationID: "op-9", NodeID: "node-9", JobName: "scaleway_restart_server"},
+	}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "scaleway", "nodes", "restart", "cluster-9", "node-9")
+	})
+
+	if len(mock.restartCalls) != 1 || mock.restartCalls[0] != "cluster-9:node-9" {
+		t.Fatalf("expected one Scaleway restart call for cluster-9:node-9, got %v", mock.restartCalls)
+	}
+	if !strings.Contains(stdoutOutput, "scaleway_restart_server") {
+		t.Errorf("expected the Scaleway job name in output, got: %s", stdoutOutput)
+	}
+}
+
+func TestClusterNodesListCommandDispatchesScaleway(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &scalewayNodesMock{
+		listResult: &client.NodeListResult{Nodes: []client.NodeSummary{{ID: "node-9", Name: "worker-1", State: "up"}}},
+	}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "scaleway", "nodes", "list", "cluster-9")
+	})
+
+	if len(mock.listCalls) != 1 || mock.listCalls[0] != "cluster-9" {
+		t.Fatalf("expected one Scaleway list call for cluster-9, got %v", mock.listCalls)
+	}
+	if !strings.Contains(stdoutOutput, "worker-1") {
+		t.Errorf("expected the node name in output, got: %s", stdoutOutput)
+	}
+}
+
 func TestClusterNodesRestartSurfaceMatchesProviderSupport(t *testing.T) {
 	expectations := map[string]bool{
 		"hetzner":      true,
 		"ovh":          true,
 		"upcloud":      true,
 		"digitalocean": true,
+		"scaleway":     true,
 		"proxmox":      true,
 		"morpheus":     false,
 	}

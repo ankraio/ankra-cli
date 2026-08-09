@@ -275,24 +275,36 @@ var orgMembersCmd = &cobra.Command{
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{"Email", "Name", "Role", "Joined"})
+		t.AppendHeader(table.Row{"Email", "Role", "Status", "Current"})
 		t.SetColumnConfigs([]table.ColumnConfig{
 			{Number: 1, WidthMin: 30},
-			{Number: 2, WidthMin: 20},
+			{Number: 2, WidthMin: 10},
 			{Number: 3, WidthMin: 10},
-			{Number: 4, WidthMin: 15},
+			{Number: 4, WidthMin: 8},
 		})
 
 		for _, member := range org.Members {
-			memberName := ""
-			if member.Name != nil {
-				memberName = *member.Name
+			email := ""
+			if member.Email != nil {
+				email = *member.Email
+			}
+			role := ""
+			if member.Role != nil {
+				role = *member.Role
+			}
+			status := ""
+			if member.Status != nil {
+				status = *member.Status
+			}
+			current := ""
+			if member.UserCurrent != nil && *member.UserCurrent {
+				current = text.FgGreen.Sprint("✓")
 			}
 			t.AppendRow(table.Row{
-				member.Email,
-				memberName,
-				member.Role,
-				formatTimeAgo(member.JoinedAt),
+				email,
+				role,
+				status,
+				current,
 			})
 		}
 		t.Render()

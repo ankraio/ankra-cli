@@ -101,13 +101,19 @@ type PatchStackRequest struct {
 	PartialStack bool             `json:"partial_stack"`
 }
 
-// PatchStackResourceError mirrors the backend ResourceError shape returned in
-// UpdateClusterStackResult.errors when validation fails per-resource.
-type PatchStackResourceError struct {
-	Name    string `json:"name"`
-	Kind    string `json:"kind"`
+// PatchStackErrorDetail is one key/message pair inside a resource error.
+type PatchStackErrorDetail struct {
 	Key     string `json:"key"`
 	Message string `json:"message"`
+}
+
+// PatchStackResourceError mirrors the backend ResourceError shape returned in
+// UpdateClusterStackResult.errors when validation fails per-resource: the
+// key/message pairs are nested one level down.
+type PatchStackResourceError struct {
+	Name   string                  `json:"name"`
+	Kind   string                  `json:"kind"`
+	Errors []PatchStackErrorDetail `json:"errors"`
 }
 
 // PatchStackResult mirrors UpdateClusterStackResult on the backend.
@@ -136,7 +142,7 @@ func (e *PatchStackError) Error() string {
 	if e.Err != nil {
 		return e.Err.Error()
 	}
-	return fmt.Sprintf("patch stack failed: status %d, body: %s", e.StatusCode, truncateForError(e.Body, 500))
+	return fmt.Sprintf("patch stack failed: status %d, body: %s", e.StatusCode, redactedBodyForError(e.Body, 500))
 }
 
 func (e *PatchStackError) Unwrap() error {
@@ -196,13 +202,13 @@ func (c *Client) GetClusterIaC(ctx context.Context, clusterID string) (string, e
 		if parsedErr.Detail != "" {
 			return "", fmt.Errorf("get IaC failed: %s", parsedErr.Detail)
 		}
-		return "", fmt.Errorf("get IaC failed: status 404, body: %s", truncateForError(body, 500))
+		return "", fmt.Errorf("get IaC failed: status 404, body: %s", redactedBodyForError(body, 500))
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		return "", ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("get IaC failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500)))
+		return "", newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("get IaC failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	var parsed IacResponse

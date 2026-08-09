@@ -443,3 +443,32 @@ func TestLogoutWithoutTokenIDWarnsAndClears(t *testing.T) {
 		t.Errorf("expected warning about non-revocable token, got:\n%s", output)
 	}
 }
+
+func TestRunLoginRefusesPlaintextHTTPBaseURL(t *testing.T) {
+	// login POSTs the PKCE verifier and receives the minted token; it must
+	// run the same insecure-HTTP guard as every other command (ankra-dfq9).
+	previousBaseURL := viper.GetString("base-url")
+	viper.Set("base-url", "http://api.example.com")
+	t.Cleanup(func() { viper.Set("base-url", previousBaseURL) })
+
+	err := runLogin()
+	if err == nil || !strings.Contains(err.Error(), "plaintext http") {
+		t.Fatalf("login must refuse a non-loopback http:// base URL, got %v", err)
+	}
+}
+
+func TestRunLoginAllowsLoopbackHTTPBaseURL(t *testing.T) {
+	previousBaseURL := viper.GetString("base-url")
+	viper.Set("base-url", "http://127.0.0.1:1")
+	t.Cleanup(func() { viper.Set("base-url", previousBaseURL) })
+
+	// The guard lets loopback through; the loopback port is closed, so the
+	// failure must be the connection, never the plaintext refusal.
+	err := runLogin()
+	if err == nil {
+		t.Fatal("expected the unreachable loopback to fail the login")
+	}
+	if strings.Contains(err.Error(), "plaintext http") {
+		t.Fatalf("loopback http:// must pass the guard, got %v", err)
+	}
+}

@@ -19,7 +19,199 @@
   will be removed in v0.10.0. `ankra org roles` (listing the assignable
   roles) and all other `ankra org` commands are unaffected.
 
+### Fixed
+
+- **`ankra ai models create|update` help now names the current Expert
+  model.** The `--model-id` examples still said `claude-opus-4-8` after the
+  platform's Expert tier moved to Claude Opus 5, so the help text suggested
+  a superseded model id. Because the hosted CLI reference is regenerated
+  from this help text on every release, the stale example also kept
+  reverting the corrected model id in `reference/cli/ai.mdx`.
+
+## v0.9.0 — 2026-08-07
+
+The stable v0.9.0 release promotes the v0.9.0 release candidates out of
+prerelease. It adds two self-managed cluster families (Proxmox VE and HPE
+Morpheus), brings the managed Kubernetes family to parity, gives every
+provisioned provider per-node restart and bastion resize, introduces the
+`agents` and `application` command families, lets agent-mode chat writes be
+confirmed from the terminal, and fixes a long list of commands that were
+decoding response shapes the API never sent.
+
+### Added
+
+- **Proxmox VE clusters are managed from the CLI.** The new `ankra cluster
+  proxmox` family covers create, deprovision, stop/start, worker and
+  node-group scaling, labels and taints, autoscaling, control-plane changes,
+  node inspection and restart, SSH keys, Kubernetes upgrades, and discovery of Proxmox
+  nodes, storages, bridges, and templates, plus `ankra credentials proxmox`
+  for credential management.
+
+- **HPE Morpheus clusters are managed from the CLI.** The new `ankra
+  cluster morpheus` family mirrors the Proxmox surface (node restart excepted — the
+  platform has no Morpheus restart lane) — full lifecycle,
+  node groups, control plane, SSH keys, and upgrades — plus discovery of
+  Morpheus groups, clouds, plans, layouts, and networks, and `ankra
+  credentials morpheus` for credential management.
+
+- **The managed Kubernetes family reaches parity.** `ankra cluster managed
+  stop|start` drives provider-native stop/start where the provider supports
+  it (AKS today), the new `ankra cluster managed node-pool update` command
+  changes node counts and autoscaling settings in place, node pools take
+  autoscaling bounds at create and add (`--autoscaling`,
+  `--autoscaling-min`, `--autoscaling-max`), and Scaleway Kapsule joins the
+  provider list (`--provider kapsule`, with `--private-network-id`).
+
+- **Hetzner clusters can be stopped and started.** `ankra cluster hetzner
+  stop <cluster_id>` releases the cluster's compute while preserving its
+  saved topology, and `ankra cluster hetzner start <cluster_id>` re-provisions
+  it (optionally `--scope control_plane`), matching the other self-managed
+  providers.
+
+- **Scaleway clusters now support lifecycle commands.** Use
+  `ankra cluster scaleway stop <cluster_id>` to release compute while
+  preserving the cluster definition, then `ankra cluster scaleway start
+  <cluster_id>` to re-provision it (optionally `--scope control_plane`).
+
+- **Scaleway clusters now have the same `nodes` commands as every other
+  Ankra-provisioned provider.** `ankra cluster scaleway nodes list`, `nodes
+  get`, and `nodes restart` were the only provider node surface missing from
+  the CLI, even though the platform has served the Scaleway node routes and
+  the `scaleway_restart_server` restart lane all along — so a Scaleway node
+  could be restarted from the portal or the AI chat, but not from the
+  terminal. `nodes restart` schedules a native reboot (falling back to a
+  power cycle) as a tracked operation for any node the cluster reports,
+  including the bastion/gateway. HPE Morpheus still has no `nodes restart`,
+  matching the platform, which has no Morpheus restart lane.
+
+- **`ankra cluster <provider> nodes restart` restarts a single node.** For
+  Hetzner, OVH, UpCloud, and DigitalOcean clusters you can now restart any
+  provisioned node - a control plane node, a worker, or the bastion/gateway -
+  as a tracked operation. The platform schedules a native reboot (falling
+  back to a power cycle); the node must be in the `up` state with no restart
+  already in flight. Find the node ID with `nodes list`.
+
+- **`ankra cluster <provider> bastion resize` changes the bastion instance
+  type.** A new `bastion` command family (Hetzner, OVH, UpCloud,
+  DigitalOcean) resizes the cluster's bastion/gateway node, following the
+  same async accept/wait contract as node-group instance-type upgrades:
+  submit-and-return by default, or block with `--wait`.
+
+- **`ankra cluster <provider> nodes list` now shows provider status.** The
+  node table gained a `PROVIDER_STATUS` column carrying the cloud provider's
+  live status/power state (for example OVH `ACTIVE`/`SHUTOFF`) as last
+  recorded by the provider read job, so a crashed or externally-stopped VM is
+  visible before you act on it. Structured output (`-o json|yaml`) carries
+  `provider_status` and `provider_power_state`.
+
+- **See and stop what your AI agents are doing with `ankra agents`.** The
+  new command family lists the organisation's dispatched AI agent runs
+  (`ankra agents runs`, filterable by agent and status), shows one run in
+  full (`ankra agents run <run_id>`), reads the run's session transcript —
+  what the agent actually said and did — (`ankra agents transcript
+  <run_id>`), and cancels a live run (`ankra agents cancel <run_id>`,
+  organisation admins only): the platform interrupts the in-flight turn
+  within seconds without pausing the agent itself. All four support
+  `-o json|yaml` for scripting.
+
+- **Agent-mode chat writes can now be approved from the terminal.** In agent
+  mode every mutating tool halts the turn and emits an `action_proposal`
+  frame, and the write only runs once that proposal is confirmed. The CLI
+  parsed the chat stream but silently dropped that frame and had no way to
+  answer it, so `ankra chat --mode agent "restart node worker-1"` appeared to
+  do nothing — the proposal existed server-side but was invisible and
+  unreachable. The stream now renders every proposal (tool, description, risk,
+  whether it is reversible, parameters, expiry, and the action id), an
+  interactive session prompts to run or discard each one, and
+  `ankra chat actions confirm|reject|list` drives the same decision from a
+  script. A confirmation refused because the cluster drifted since the
+  proposal reports what happened and prints the ready-to-run `--force`
+  invocation; a superseded action does not offer force, because forcing one
+  cannot work.
+
+- **Application management is available from the CLI.** `ankra application
+  add .` detects a local GitHub checkout and starts application setup, while
+  the application subcommands expose lifecycle, deployment, workflow,
+  repository, security, publishing, and demo operations through the bearer
+  API. `-o json|yaml` provides scriptable output.
+
+- **A kube-gateway access denial now suggests the command that fixes it.**
+  When `ankra cluster kubeconfig add` or `ankra cluster kube-token` is
+  rejected with a 403 because the caller has no access grant on the cluster,
+  the error now explains that an organisation admin can grant access and
+  shows the exact invocation (`ankra cluster access grant <email>
+  --cluster <name> --role view`) instead of leaving only the raw 403
+  response to decipher.
+
+- **Stack manifests and addons can carry an AGENTS.md.** Every manifest and
+  addon entry in a stack spec now accepts `agents_md` (inline markdown) or
+  `agents_md_from_file` (a repo-relative path, mirroring how the stack-level
+  `description_from_file` works), so operational learnings live next to the
+  resource they describe. The platform stores the content as a sibling file
+  in the GitOps repo (`add-ons/<addon>/AGENTS.md`,
+  `manifests/<name>.AGENTS.md`); omitting the field preserves what is
+  stored, an explicit empty string clears it, and editing it never triggers
+  a redeploy. `ankra cluster clone` transfers the referenced AGENTS.md files
+  alongside the other stack files, and `ankra cluster addons upgrade` /
+  `manifests upgrade` keep them intact.
+
+- **`ankra cluster info` now shows the cluster's provider network
+  identifiers.** For Ankra-provisioned clusters (DigitalOcean first) the
+  details include a Network section with the VPC UUID, IP range, NAT
+  gateway id, egress IP, and bastion droplet id/IPs — machine-readable via
+  `-o json` — so operators no longer have to dig through per-node
+  relationships to find the VPC a cluster lives in.
+
+- **Secrets can be set and encrypted in a single commit.** `ankra cluster
+  encrypt manifest` (cluster mode) now accepts repeatable `--set` edits that
+  are applied in-memory before encryption, so the new value and its SOPS
+  encryption land in one partial-stack PATCH — the plaintext value never
+  reaches git history. Previously the documented flow (`manifests upgrade
+  --set` followed by `encrypt manifest`) committed the plaintext secret
+  first, leaving it recoverable from the repository history.
+
+- **`ankra cluster manifests upgrade --from-file` accepts SOPS-encrypted
+  files.** When the file carries SOPS metadata, the keys holding `ENC[...]`
+  ciphertext are detected and recorded as `encrypted_paths` automatically
+  (merged with the manifest's existing paths), and the new repeatable
+  `--encrypted-path` flag declares keys explicitly. Previously such uploads
+  dropped the encryption metadata and the backend rejected them with a
+  generic 500.
+
+- **`ankra helm registries list` supports pagination, search, and sorting.**
+  The command used to fetch only the server's first page (20 registries) and
+  gave no hint that more existed. It now accepts `--page` and `--page-size`
+  (up to 100 per page), `--search` for a case-insensitive name filter, and
+  `--sort-by` (`name`, `url`, `created_at`, `updated_at`, `chart_count`,
+  `last_indexed_at`, `is_global`) with `--sort-order asc|desc`, and every
+  listing ends with a `Page X of Y (total N)` footer so truncation is always
+  visible.
+
+- **Read-only API calls now retry transient platform errors.** Bodyless
+  `GET`/`HEAD` requests that fail with a transport-level timeout (for
+  example `http2: timeout awaiting response headers`), a connection
+  setup/reset error, a mid-exchange disconnect, an HTTP/2 GOAWAY, or a
+  502/503/504 gateway status are retried up to two more times with a
+  short backoff (1s, then 2s), with a warning on stderr per retry. A
+  seconds-long platform blip no longer hard-fails scripts and CI
+  pipelines on their first read (2026-07-14: a brief platform stall
+  failed a production rollout on `listing clusters`). Writes are never
+  retried.
+
+- **The lifecycle systemtest covers managed clusters.** `systemtest/
+  lifecycle_systemtest.sh` now exercises both cluster families: the
+  self-managed provider lifecycle and, per managed provider, the managed
+  lifecycle (create, node-pool add/scale/update, stop/start where
+  supported, upgrade, delete).
+
 ### Changed
+
+- **`ankra cluster deprovision --force` now says when it is ignored.** Only
+  the Hetzner deprovision endpoint honors `force`; for every other cluster
+  type the CLI now prints a warning to stderr instead of implying a forced
+  teardown the backend never performs. The generic deprovision request also
+  no longer sends the `auto_delete`/`force` query parameters the backend
+  discards.
 
 - **The README now points at the hosted CLI reference instead of duplicating
   it.** The full command reference — every command, flag, and default — lives
@@ -29,7 +221,55 @@
   README keeps installation, quick-start, and development documentation, plus
   a per-command link table into the reference.
 
+### Deprecated
+
+- **`ankra cluster deprovision --auto-delete` is deprecated — it never did
+  anything.** The backend parses and discards the `auto_delete` parameter, so
+  the flag silently suggested a record deletion that never happened. The flag
+  is now hidden and prints a deprecation warning pointing at
+  `ankra delete cluster` for the record deletion; it will be removed in
+  v0.10.0 (see `DEPRECATIONS.md`).
+
 ### Fixed
+
+- **`ankra cluster encrypt -f` and `ankra cluster clone` no longer strip
+  fields and comments from your cluster YAML.** Both commands used to rewrite
+  the file by re-serialising an internal struct, which silently deleted
+  anything the struct didn't model — `deploy_wave` on stacks and
+  `spec.prometheus_metrics` were lost outright, and comments, anchors, and key
+  ordering were destroyed — corrupting a file that is often the GitOps source
+  of truth. The commands now edit the parsed YAML document in place, touching
+  only the nodes they change: encrypting adds the key to `encrypted_paths` and
+  nothing else, and cloning grafts the source's stack entries verbatim
+  (comments and all) into the target file.
+
+- **Seven commands that decoded the wrong response shape now show real
+  data.** `cluster manifests list` always printed "No manifests found",
+  `org members` always printed "No members found", `chat health` printed an
+  empty status with a score of 0, and `cluster stacks history` rendered
+  blank rows — in every case the CLI was reading JSON keys the API never
+  sends. Each now decodes the actual response: manifests show their stack
+  and creation time, members show role and invite status, health shows the
+  scored report with issues and AI insights, and stack history lists every
+  version of each stack member. Validation errors from manifest/addon
+  upgrades and `encrypt` (which arrive nested per resource) are unpacked
+  instead of printing empty brackets, and OVH/UpCloud/DigitalOcean
+  deprovision report the created operation id instead of resource counts
+  the API never returned.
+
+- **`ankra cluster addons uninstall` can now actually uninstall.** The
+  uninstall endpoint takes an addon resource UUID, but the addon listing
+  carries no ids, so every uninstall attempt sent an empty id and failed
+  with a 404. The CLI now resolves the resource id through the stack
+  history before deleting. Addons that are not part of an Ankra-managed
+  stack are rejected with a clear message instead of a server error, and
+  `addons get`/`addons list` no longer show an always-empty ID column and
+  repository (the API sends the registry URL under a different key).
+
+- **`cluster stacks` and `cluster addons list` are no longer capped at 25
+  entries.** The API pages both listings at 25 by default and the CLI never
+  asked for more, silently hiding everything past the first page. Both now
+  walk every page.
 
 - **Every `ankra cluster managed` command now reaches the API instead of
   failing with a 404.** The client built managed-cluster URLs under
@@ -58,150 +298,34 @@
   nesting it automatically — inferring an OCI registry from an `oci://`
   URL.
 
-### Added
+- **`ankra chat` now surfaces server errors instead of printing a blank
+  `Error:` line and exiting 0.** The backend sends its message inside the
+  error frame's `data` member (rate limits, spend caps, busy conversations);
+  the CLI now reads it from there, prints it to stderr, and one-shot chat
+  exits non-zero so scripts can detect the failure.
 
-- **A kube-gateway access denial now suggests the command that fixes it.**
-  When `ankra cluster kubeconfig add` or `ankra cluster kube-token` is
-  rejected with a 403 because the caller has no access grant on the cluster,
-  the error now explains that an organisation admin can grant access and
-  shows the exact invocation (`ankra cluster access grant <email>
-  --cluster <name> --role view`) instead of leaving only the raw 403
-  response to decipher.
-- **Stack manifests and addons can carry an AGENTS.md.** Every manifest and
-  addon entry in a stack spec now accepts `agents_md` (inline markdown) or
-  `agents_md_from_file` (a repo-relative path, mirroring how the stack-level
-  `description_from_file` works), so operational learnings live next to the
-  resource they describe. The platform stores the content as a sibling file
-  in the GitOps repo (`add-ons/<addon>/AGENTS.md`,
-  `manifests/<name>.AGENTS.md`); omitting the field preserves what is
-  stored, an explicit empty string clears it, and editing it never triggers
-  a redeploy. `ankra cluster clone` transfers the referenced AGENTS.md files
-  alongside the other stack files, and `ankra cluster addons upgrade` /
-  `manifests upgrade` keep them intact.
+- **Chat progress is visible again.** Status frames became structured
+  objects on newer backends and the CLI silently dropped them; it now
+  renders the intent (and mechanism) as the familiar `[...]` progress line.
 
-- **`ankra cluster info` now shows the cluster's provider network
-  identifiers.** For Ankra-provisioned clusters (DigitalOcean first) the
-  details include a Network section with the VPC UUID, IP range, NAT
-  gateway id, egress IP, and bastion droplet id/IPs — machine-readable via
-  `-o json` — so operators no longer have to dig through per-node
-  relationships to find the VPC a cluster lives in.
-- **Secrets can be set and encrypted in a single commit.** `ankra cluster
-  encrypt manifest` (cluster mode) now accepts repeatable `--set` edits that
-  are applied in-memory before encryption, so the new value and its SOPS
-  encryption land in one partial-stack PATCH — the plaintext value never
-  reaches git history. Previously the documented flow (`manifests upgrade
-  --set` followed by `encrypt manifest`) committed the plaintext secret
-  first, leaving it recoverable from the repository history.
-- **`ankra cluster manifests upgrade --from-file` accepts SOPS-encrypted
-  files.** When the file carries SOPS metadata, the keys holding `ENC[...]`
-  ciphertext are detected and recorded as `encrypted_paths` automatically
-  (merged with the manifest's existing paths), and the new repeatable
-  `--encrypted-path` flag declares keys explicitly. Previously such uploads
-  dropped the encryption metadata and the backend rejected them with a
-  generic 500.
-- **`ankra helm registries list` supports pagination, search, and sorting.**
-  The command used to fetch only the server's first page (20 registries) and
-  gave no hint that more existed. It now accepts `--page` and `--page-size`
-  (up to 100 per page), `--search` for a case-insensitive name filter, and
-  `--sort-by` (`name`, `url`, `created_at`, `updated_at`, `chart_count`,
-  `last_indexed_at`, `is_global`) with `--sort-order asc|desc`, and every
-  listing ends with a `Page X of Y (total N)` footer so truncation is always
-  visible.
+- **Ctrl-D leaves interactive chat cleanly** like `exit`, instead of failing
+  with `reading input: EOF` and exit code 1.
 
-## v0.9.0-rc4 — 2026-07-21
+- **A stalled chat stream no longer hangs the CLI forever.** A watchdog
+  ends the stream with a clear `stream idle timeout` error when the
+  connection goes silent for 3 minutes (the backend heartbeats every few
+  seconds while working).
 
-### Added
+- **`ankra login` now runs the same insecure-HTTP guard as every other
+  command.** The login flow sends the PKCE verifier and receives the minted
+  token; a plaintext `http://` base URL to a non-loopback host is refused
+  (loopback development and `ANKRA_ALLOW_INSECURE_HTTP=1` still work).
 
-- **Hetzner clusters can be stopped and started.** `ankra cluster hetzner
-  stop <cluster_id>` releases the cluster's compute while preserving its
-  saved topology, and `ankra cluster hetzner start <cluster_id>` re-provisions
-  it (optionally `--scope control_plane`), matching the other self-managed
-  providers.
-- **The managed Kubernetes family reaches parity.** `ankra cluster managed
-  stop|start` drives provider-native stop/start where the provider supports
-  it (AKS today), the new `ankra cluster managed node-pool update` command
-  changes node counts and autoscaling settings in place, node pools take
-  autoscaling bounds at create and add (`--autoscaling`,
-  `--autoscaling-min`, `--autoscaling-max`), and Scaleway Kapsule joins the
-  provider list (`--provider kapsule`, with `--private-network-id`).
-- **Proxmox VE clusters are managed from the CLI.** The new `ankra cluster
-  proxmox` family covers create, deprovision, stop/start, worker and
-  node-group scaling, labels and taints, autoscaling, control-plane changes,
-  node inspection and restart, SSH keys, Kubernetes upgrades, and discovery of Proxmox
-  nodes, storages, bridges, and templates, plus `ankra credentials proxmox`
-  for credential management.
-- **HPE Morpheus clusters are managed from the CLI.** The new `ankra
-  cluster morpheus` family mirrors the Proxmox surface (node restart excepted — the
-  platform has no Morpheus restart lane) — full lifecycle,
-  node groups, control plane, SSH keys, and upgrades — plus discovery of
-  Morpheus groups, clouds, plans, layouts, and networks, and `ankra
-  credentials morpheus` for credential management.
-- **The lifecycle systemtest covers managed clusters.** `systemtest/
-  lifecycle_systemtest.sh` now exercises both cluster families: the
-  self-managed provider lifecycle and, per managed provider, the managed
-  lifecycle (create, node-pool add/scale/update, stop/start where
-  supported, upgrade, delete).
-
-## v0.9.0-rc3 — 2026-07-21
-
-### Added
-
-- **See and stop what your AI agents are doing with `ankra agents`.** The
-  new command family lists the organisation's dispatched AI agent runs
-  (`ankra agents runs`, filterable by agent and status), shows one run in
-  full (`ankra agents run <run_id>`), reads the run's session transcript —
-  what the agent actually said and did — (`ankra agents transcript
-  <run_id>`), and cancels a live run (`ankra agents cancel <run_id>`,
-  organisation admins only): the platform interrupts the in-flight turn
-  within seconds without pausing the agent itself. All four support
-  `-o json|yaml` for scripting.
-## v0.9.0-rc2 — 2026-07-20
-
-### Added
-
-- **Scaleway clusters now support lifecycle commands.** Use
-  `ankra cluster scaleway stop <cluster_id>` to release compute while
-  preserving the cluster definition, then `ankra cluster scaleway start
-  <cluster_id>` to re-provision it (optionally `--scope control_plane`).
-- **Application management is available from the CLI.** `ankra application
-  add .` detects a local GitHub checkout and starts application setup, while
-  the application subcommands expose lifecycle, deployment, workflow,
-  repository, security, publishing, and demo operations through the bearer
-  API. `-o json|yaml` provides scriptable output.
-
-## v0.9.0-rc1 — 2026-07-17
-
-### Added
-
-- **Read-only API calls now retry transient platform errors.** Bodyless
-  `GET`/`HEAD` requests that fail with a transport-level timeout (for
-  example `http2: timeout awaiting response headers`), a connection
-  setup/reset error, a mid-exchange disconnect, an HTTP/2 GOAWAY, or a
-  502/503/504 gateway status are retried up to two more times with a
-  short backoff (1s, then 2s), with a warning on stderr per retry. A
-  seconds-long platform blip no longer hard-fails scripts and CI
-  pipelines on their first read (2026-07-14: a brief platform stall
-  failed a production rollout on `listing clusters`). Writes are never
-  retried.
-- **`ankra cluster <provider> nodes restart` restarts a single node.** For
-  Hetzner, OVH, UpCloud, and DigitalOcean clusters you can now restart any
-  provisioned node - a control plane node, a worker, or the bastion/gateway -
-  as a tracked operation. The platform schedules a native reboot (falling
-  back to a power cycle); the node must be in the `up` state with no restart
-  already in flight. Find the node ID with `nodes list`.
-- **`ankra cluster <provider> bastion resize` changes the bastion instance
-  type.** A new `bastion` command family (Hetzner, OVH, UpCloud,
-  DigitalOcean) resizes the cluster's bastion/gateway node, following the
-  same async accept/wait contract as node-group instance-type upgrades:
-  submit-and-return by default, or block with `--wait`.
-- **`ankra cluster <provider> nodes list` now shows provider status.** The
-  node table gained a `PROVIDER_STATUS` column carrying the cloud provider's
-  live status/power state (for example OVH `ACTIVE`/`SHUTOFF`) as last
-  recorded by the provider read job, so a crashed or externally-stopped VM is
-  visible before you act on it. Structured output (`-o json|yaml`) carries
-  `provider_status` and `provider_power_state`.
-
-### Fixed
+- **Error messages that echo API response bodies now redact likely secret
+  material everywhere.** Several error paths (stack patch 422 echoes,
+  variable requests, manifest and add-on configuration reads, support
+  uploads) rendered raw response bodies to the terminal; they now pass
+  through the same redaction the other error paths already used.
 
 - **`ankra tokens create` now gives MCP-specific guidance for scoped tokens.**
   The previous examples named permission scopes the platform rejects.

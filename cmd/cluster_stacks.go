@@ -289,36 +289,43 @@ var clusterStacksHistoryCmd = &cobra.Command{
 			return nil
 		}
 
-		fmt.Printf("History for stack '%s':\n\n", history.StackName)
+		fmt.Printf("History for stack '%s':\n\n", stackName)
 
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{"Version", "Change Type", "Created At", "Created By", "Description"})
+		t.AppendHeader(table.Row{"Resource", "Type", "Change Type", "Created At", "Created By"})
 		t.SetColumnConfigs([]table.ColumnConfig{
-			{Number: 1, WidthMin: 8},
-			{Number: 2, WidthMin: 12},
-			{Number: 3, WidthMin: 15},
-			{Number: 4, WidthMin: 20},
-			{Number: 5, WidthMin: 30},
+			{Number: 1, WidthMin: 20},
+			{Number: 2, WidthMin: 10},
+			{Number: 3, WidthMin: 12},
+			{Number: 4, WidthMin: 15},
+			{Number: 5, WidthMin: 20},
 		})
 
-		for _, entry := range history.History {
-			createdBy := "-"
-			if entry.CreatedBy != nil {
-				createdBy = *entry.CreatedBy
+		for _, item := range history.History {
+			for _, entry := range item.VersionHistory {
+				changeType := "-"
+				if entry.ChangeType != nil {
+					changeType = *entry.ChangeType
+				}
+				createdBy := "-"
+				switch {
+				case entry.UserName != nil && *entry.UserName != "":
+					createdBy = *entry.UserName
+				case entry.ExternalUser != nil && *entry.ExternalUser != "":
+					createdBy = *entry.ExternalUser
+				case entry.UserID != "":
+					createdBy = entry.UserID
+				}
+				t.AppendRow(table.Row{
+					item.ResourceName,
+					item.ResourceType,
+					changeType,
+					formatOptionalTimeAgo(entry.CreatedAt),
+					createdBy,
+				})
 			}
-			description := "-"
-			if entry.Description != nil {
-				description = *entry.Description
-			}
-			t.AppendRow(table.Row{
-				entry.Version,
-				entry.ChangeType,
-				formatTimeAgo(entry.CreatedAt),
-				createdBy,
-				description,
-			})
 		}
 		t.Render()
 		return nil

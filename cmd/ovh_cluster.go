@@ -127,26 +127,14 @@ var ovhDeprovisionCmd = &cobra.Command{
 		}
 
 		if result.Success {
-			fmt.Println(text.FgGreen.Sprint("OVH cluster deprovisioned successfully!"))
+			fmt.Println(text.FgGreen.Sprint("OVH cluster deprovision initiated!"))
 		} else {
-			fmt.Println("Cluster deprovisioned with issues.")
+			fmt.Println("Cluster deprovision requested with issues.")
 		}
 
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
-		if len(result.DeletedServers) > 0 {
-			fmt.Printf("  Deleted servers: %d\n", len(result.DeletedServers))
-		}
-		if len(result.DeletedNetworks) > 0 {
-			fmt.Printf("  Deleted networks: %d\n", len(result.DeletedNetworks))
-		}
-		if len(result.DeletedSSHKeys) > 0 {
-			fmt.Printf("  Deleted SSH keys: %d\n", len(result.DeletedSSHKeys))
-		}
-		if len(result.Errors) > 0 {
-			fmt.Println(text.FgYellow.Sprint("  Warnings:"))
-			for _, e := range result.Errors {
-				fmt.Printf("    - %s\n", e)
-			}
+		if result.OperationID != nil {
+			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
 		return nil
 	},

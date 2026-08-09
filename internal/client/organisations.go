@@ -16,21 +16,24 @@ type OrganisationSummary struct {
 	Role           *string `json:"role"`
 }
 
+// OrganisationMember mirrors the backend's OrganisationUser: every field is
+// nullable (pending invites have an invite_id but no user id).
 type OrganisationMember struct {
-	UserID    string  `json:"user_id"`
-	Email     string  `json:"email"`
-	Name      *string `json:"name"`
-	Role      string  `json:"role"`
-	JoinedAt  string  `json:"joined_at"`
-	AvatarURL *string `json:"avatar_url"`
+	ID          *string `json:"id"`
+	InviteID    *string `json:"invite_id"`
+	Email       *string `json:"email"`
+	Status      *string `json:"status"`
+	Role        *string `json:"role"`
+	UserCurrent *bool   `json:"user_current"`
 }
 
+// OrganisationFull mirrors the backend's OrganisationFull: the member list
+// arrives under the users key.
 type OrganisationFull struct {
 	OrganisationID string               `json:"organisation_id"`
 	Name           *string              `json:"name"`
 	Slug           *string              `json:"slug"`
-	Status         *string              `json:"status"`
-	Members        []OrganisationMember `json:"members"`
+	Members        []OrganisationMember `json:"users"`
 	CreatedAt      string               `json:"created_at"`
 }
 

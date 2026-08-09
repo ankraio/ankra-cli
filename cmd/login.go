@@ -239,6 +239,13 @@ func runLogin() error {
 	if loginURL == "" {
 		loginURL = "https://platform.ankra.app"
 	}
+	// The same insecure-HTTP guard every API command runs (root.go): the
+	// poll below sends the PKCE verifier and receives the minted token,
+	// which must never travel plaintext to a non-loopback host.
+	loginURL, err = client.NormalizeBaseURL(loginURL, os.Getenv(envAllowInsecureHTTP) == "1")
+	if err != nil {
+		return fmt.Errorf("invalid base URL: %w", err)
+	}
 
 	machineID := getOrCreateMachineID()
 	machineName, err := os.Hostname()

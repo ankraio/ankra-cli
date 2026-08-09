@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -12,6 +14,37 @@ import (
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
 )
+
+// chatStatusText renders a status frame's progress line. Newer backends
+// send an object ({intent, mechanism, ...}); older ones sent a plain
+// string. Empty means nothing worth showing.
+func chatStatusText(data any) string {
+	switch typed := data.(type) {
+	case string:
+		return typed
+	case map[string]any:
+		intent, _ := typed["intent"].(string)
+		mechanism, _ := typed["mechanism"].(string)
+		switch {
+		case intent != "" && mechanism != "":
+			return intent + " · " + mechanism
+		case intent != "":
+			return intent
+		case mechanism != "":
+			return mechanism
+		}
+	}
+	return ""
+}
+
+// chatErrorMessage never returns empty: an error frame without a readable
+// message still has to fail the command with something actionable.
+func chatErrorMessage(event client.ChatStreamEvent) string {
+	if message := event.ErrorMessage(); message != "" {
+		return message
+	}
+	return "the server reported an error without details"
+}
 
 var chatCmd = &cobra.Command{
 	Use:   "chat [message]",
@@ -77,6 +110,7 @@ func runChatMessage(clusterID *string, query string, interactionMode string) err
 	fmt.Print("\n")
 	var hasStartedContent bool
 	var hadStatus bool
+	var streamErrorMessage string
 	for event := range events {
 		switch event.Type {
 		case "content":
@@ -99,22 +133,41 @@ func runChatMessage(clusterID *string, query string, interactionMode string) err
 				fmt.Print(event.Content)
 			}
 		case "status":
-			// Show status
-			if str, ok := event.Data.(string); ok {
+			if status := chatStatusText(event.Data); status != "" {
 				if hasStartedContent {
-					fmt.Printf("\n\n[%s]\n\n", str)
+					fmt.Printf("\n\n[%s]\n\n", status)
 				} else {
-					fmt.Printf("[%s]", str)
+					fmt.Printf("[%s]", status)
 					hadStatus = true
 				}
 			}
+		case "action_proposal":
+			proposal, decodeError := decodeActionProposal(event.Data)
+			if decodeError != nil {
+				fmt.Printf("\nAn action is awaiting confirmation but could not be read: %v\n", decodeError)
+				continue
+			}
+			renderActionProposal(proposal)
+			fmt.Println("This write has NOT run. Confirm it to proceed:")
+			fmt.Printf("  ankra chat actions confirm %s\n", proposal.ActionID)
+			fmt.Printf("  ankra chat actions reject %s\n\n", proposal.ActionID)
 		case "error":
-			fmt.Printf("\nError: %s\n", event.Error)
+			// Fail the command once the stream drains: errors belong on
+			// stderr with a non-zero exit, not lost in the transcript.
+			if streamErrorMessage == "" {
+				streamErrorMessage = chatErrorMessage(event)
+			}
 		case "done", "complete":
 			fmt.Print("\n\n")
 		default:
 			// Ignore triage, context and other metadata events
 		}
+	}
+	if streamErrorMessage != "" {
+		if hasStartedContent {
+			fmt.Print("\n")
+		}
+		return errors.New(streamErrorMessage)
 	}
 	return nil
 }
@@ -143,6 +196,11 @@ func runInteractiveChat(clusterID *string, interactionMode string) error {
 		fmt.Print(text.FgCyan.Sprint("You: "))
 		input, err := reader.ReadString('\n')
 		if err != nil {
+			// Ctrl-D ends the session like 'exit', not like a failure.
+			if errors.Is(err, io.EOF) {
+				fmt.Println("\nGoodbye!")
+				return nil
+			}
 			return fmt.Errorf("reading input: %w", err)
 		}
 
@@ -180,6 +238,7 @@ func runInteractiveChat(clusterID *string, interactionMode string) error {
 		var response strings.Builder
 		var hasStartedContent bool
 		var hadStatus bool
+		var pendingProposals []*client.ChatActionProposal
 		for event := range events {
 			switch event.Type {
 			case "content":
@@ -205,16 +264,23 @@ func runInteractiveChat(clusterID *string, interactionMode string) error {
 				}
 			case "status":
 				// Show status, don't add to response
-				if str, ok := event.Data.(string); ok {
+				if status := chatStatusText(event.Data); status != "" {
 					if hasStartedContent {
-						fmt.Printf("\n\n[%s]\n\n", str)
+						fmt.Printf("\n\n[%s]\n\n", status)
 					} else {
-						fmt.Printf("[%s]", str)
+						fmt.Printf("[%s]", status)
 						hadStatus = true
 					}
 				}
+			case "action_proposal":
+				proposal, decodeError := decodeActionProposal(event.Data)
+				if decodeError != nil {
+					fmt.Printf("\nAn action is awaiting confirmation but could not be read: %v\n", decodeError)
+					continue
+				}
+				pendingProposals = append(pendingProposals, proposal)
 			case "error":
-				fmt.Printf("\nError: %s\n", event.Error)
+				fmt.Fprintf(os.Stderr, "\nError: %s\n", chatErrorMessage(event))
 			case "done", "complete":
 				// Add assistant response to history
 				if response.Len() > 0 {
@@ -225,6 +291,7 @@ func runInteractiveChat(clusterID *string, interactionMode string) error {
 			}
 		}
 		fmt.Print("\n\n")
+		resolvePendingProposals(reader, pendingProposals)
 	}
 }
 
@@ -379,30 +446,41 @@ var chatHealthCmd = &cobra.Command{
 		fmt.Printf("Cluster Health for '%s'\n", cluster.Name)
 		fmt.Println("─────────────────────────────────────────")
 
+		report := health.HealthReport
+
 		// Color code health status
 		healthColor := text.FgGreen
-		switch strings.ToLower(health.OverallHealth) {
+		switch strings.ToLower(report.Status) {
 		case "degraded", "warning":
 			healthColor = text.FgYellow
 		case "critical", "unhealthy":
 			healthColor = text.FgRed
 		}
 
-		fmt.Printf("  Status: %s\n", healthColor.Sprint(health.OverallHealth))
-		fmt.Printf("  Score:  %d/100\n", health.Score)
-		fmt.Printf("  Last Updated: %s\n", formatTimeAgo(health.LastUpdated))
+		fmt.Printf("  Status: %s\n", healthColor.Sprint(report.Status))
+		fmt.Printf("  Score:  %d/100\n", report.Score)
+		fmt.Printf("  Last Updated: %s\n", formatTimeAgo(report.EvaluatedAt))
+		if health.Summary != "" {
+			fmt.Printf("  Summary: %s\n", health.Summary)
+		}
 
-		if len(health.Issues) > 0 {
+		if len(report.Issues) > 0 {
 			fmt.Println("\n  Issues:")
-			for _, issue := range health.Issues {
-				fmt.Printf("    - %s\n", text.FgYellow.Sprint(issue))
+			for _, issue := range report.Issues {
+				fmt.Printf("    - [%s] %s\n", issue.Severity, text.FgYellow.Sprint(issue.Title))
+				for _, action := range issue.SuggestedActions {
+					fmt.Printf("        · %s\n", action)
+				}
 			}
 		}
 
-		if len(health.Recommendations) > 0 {
-			fmt.Println("\n  Recommendations:")
-			for _, rec := range health.Recommendations {
-				fmt.Printf("    - %s\n", rec)
+		if len(health.AIInsights) > 0 {
+			fmt.Println("\n  AI Insights:")
+			for _, insight := range health.AIInsights {
+				fmt.Printf("    - [%s] %s\n", insight.Severity, insight.Title)
+				if insight.RootCauseAnalysis != "" {
+					fmt.Printf("        Root cause: %s\n", insight.RootCauseAnalysis)
+				}
 			}
 		}
 		return nil

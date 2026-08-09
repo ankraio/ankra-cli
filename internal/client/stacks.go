@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	neturl "net/url"
+	"time"
 )
 
 type ClusterStackListItem struct {
@@ -47,21 +48,34 @@ type StackAddonConfig struct {
 }
 
 type ListClusterStacksResponse struct {
-	Stacks []ClusterStackListItem `json:"stacks"`
+	Stacks     []ClusterStackListItem `json:"stacks"`
+	Pagination Pagination             `json:"pagination"`
 }
 
-type StackHistoryEntry struct {
-	ID          string  `json:"id"`
-	Version     int     `json:"version"`
-	Description *string `json:"description,omitempty"`
-	CreatedAt   string  `json:"created_at"`
-	CreatedBy   *string `json:"created_by,omitempty"`
-	ChangeType  string  `json:"change_type"`
+// StackVersionHistoryEntry mirrors the backend's VersionHistoryEntry: one
+// stored version of a stack member resource.
+type StackVersionHistoryEntry struct {
+	VersionID    string           `json:"version_id"`
+	CreatedAt    *time.Time       `json:"created_at"`
+	Delta        []map[string]any `json:"delta"`
+	UserID       string           `json:"user_id"`
+	UserName     *string          `json:"user_name"`
+	ExternalUser *string          `json:"external_user"`
+	ChangeType   *string          `json:"change_type"`
 }
 
+// StackHistoryItem mirrors the backend's StackHistoryItem: the history is
+// grouped per stack member (addon or manifest), newest version first.
+type StackHistoryItem struct {
+	ResourceName   string                     `json:"resource_name"`
+	ResourceType   string                     `json:"resource_type"`
+	ResourceID     string                     `json:"resource_id"`
+	VersionHistory []StackVersionHistoryEntry `json:"version_history"`
+}
+
+// GetStackHistoryResponse mirrors GetClusterStackHistoryResult.
 type GetStackHistoryResponse struct {
-	StackName string              `json:"stack_name"`
-	History   []StackHistoryEntry `json:"history"`
+	History []StackHistoryItem `json:"history"`
 }
 
 type DeleteStackResult struct {
@@ -78,15 +92,25 @@ type RenameStackResult struct {
 	Message string `json:"message"`
 }
 
+// ListClusterStacks pages through the full stack listing. The
+// /api/v1/clusters/{id}/stacks twin always serves page 1 of 25, so this
+// uses the imported-cluster route, which accepts paging (page_size max 100)
+// and renders the identical stack items.
 func (c *Client) ListClusterStacks(clusterID string) ([]ClusterStackListItem, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/stacks", c.BaseURL, neturl.PathEscape(clusterID))
-
-	var response ListClusterStacksResponse
-	if err := c.getJSON(url, &response); err != nil {
-		return nil, fmt.Errorf("failed to list cluster stacks: %w", err)
+	var stacks []ClusterStackListItem
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks?page=%d&page_size=100",
+			c.BaseURL, neturl.PathEscape(clusterID), page)
+		var response ListClusterStacksResponse
+		if err := c.getJSON(url, &response); err != nil {
+			return nil, fmt.Errorf("failed to list cluster stacks: %w", err)
+		}
+		stacks = append(stacks, response.Stacks...)
+		if page >= response.Pagination.TotalPages || len(response.Stacks) == 0 {
+			break
+		}
 	}
-
-	return response.Stacks, nil
+	return stacks, nil
 }
 
 func (c *Client) GetStackHistory(clusterID, stackName string) (*GetStackHistoryResponse, error) {
@@ -97,6 +121,25 @@ func (c *Client) GetStackHistory(clusterID, stackName string) (*GetStackHistoryR
 		return nil, fmt.Errorf("failed to get stack history: %w", err)
 	}
 	return &resp, nil
+}
+
+// GetStackAddonResourceID resolves an addon's resource id through the stack
+// history endpoint — the addon listing carries no id, and the uninstall
+// endpoint takes only the resource UUID. max_versions=1 keeps the response
+// minimal; the resource ids arrive regardless of version depth.
+func (c *Client) GetStackAddonResourceID(clusterID, stackName, addonName string) (string, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/history?resource_type=addon&max_versions=1",
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName))
+	var resp GetStackHistoryResponse
+	if err := c.getJSON(url, &resp); err != nil {
+		return "", fmt.Errorf("failed to resolve addon resource id: %w", err)
+	}
+	for _, item := range resp.History {
+		if item.ResourceType == "addon" && item.ResourceName == addonName {
+			return item.ResourceID, nil
+		}
+	}
+	return "", fmt.Errorf("addon %q: %w", addonName, ErrAddonNotFound)
 }
 
 func (c *Client) DeleteStack(ctx context.Context, clusterID, stackName string) (*DeleteStackResult, error) {

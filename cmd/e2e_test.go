@@ -47,7 +47,7 @@ func (m baseMock) ProvisionCluster(ctx context.Context, clusterID string) (*clie
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionCluster(ctx context.Context, clusterID string, autoDelete, force bool) (*client.DeprovisionClusterResult, error) {
+func (m baseMock) DeprovisionCluster(ctx context.Context, clusterID string) (*client.DeprovisionClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -379,6 +379,14 @@ func (m baseMock) GetStackHistory(clusterID, stackName string) (*client.GetStack
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetStackAddonResourceID(clusterID, stackName, addonName string) (string, error) {
+	return "", errors.New("not implemented")
+}
+
+func timePtr(t time.Time) *time.Time {
+	return &t
+}
+
 func (m baseMock) CloneStackToCluster(ctx context.Context, targetClusterID string, cloneReq client.CloneStackToClusterRequest) (*client.CloneStackToClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -444,6 +452,14 @@ func (m baseMock) DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse
 }
 
 func (m baseMock) StreamChat(clusterID *string, chatReq client.ChatRequest) (<-chan client.ChatStreamEvent, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ConfirmChatAction(request client.ConfirmChatActionRequest) (*client.ConfirmChatActionResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListPendingChatActions(conversationID string) (*client.PendingChatActionsResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1159,6 +1175,18 @@ func (m baseMock) StartScalewayCluster(clusterID, scope string) (*client.Provide
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListScalewayClusterNodes(clusterID string) (*client.NodeListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetScalewayClusterNode(clusterID, nodeID string) (*client.NodeDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RestartScalewayClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateProxmoxCluster(request client.CreateProxmoxClusterRequest) (*client.CreateProxmoxClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1823,15 +1851,14 @@ func TestClusterAddonsListCommand(t *testing.T) {
 	mock := &clusterAddonsListMock{
 		addons: []client.ClusterAddonListItem{
 			{
-				ID:            "addon-res-id",
-				Name:          "nginx-ingress",
-				ChartName:     "ingress-nginx",
-				ChartVersion:  "4.11.0",
-				RepositoryURL: "https://kubernetes.github.io/ingress-nginx",
-				Namespace:     "ingress-nginx",
-				CreatedAt:     time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC),
-				UpdatedAt:     time.Date(2024, 3, 2, 12, 0, 0, 0, time.UTC),
-				ThroughAnkra:  true,
+				Name:         "nginx-ingress",
+				ChartName:    "ingress-nginx",
+				ChartVersion: "4.11.0",
+				RegistryURL:  "https://kubernetes.github.io/ingress-nginx",
+				Namespace:    "ingress-nginx",
+				CreatedAt:    timePtr(time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC)),
+				UpdatedAt:    timePtr(time.Date(2024, 3, 2, 12, 0, 0, 0, time.UTC)),
+				ThroughAnkra: true,
 			},
 		},
 	}
@@ -1892,13 +1919,12 @@ func (m *clusterManifestsListMock) ListClusterManifests(clusterID string) ([]cli
 
 func TestClusterManifestsListCommand(t *testing.T) {
 	writeSelectedClusterJSON(t)
-	yamlBody := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm1\n"
+	yamlBody := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm1\n  namespace: default\n"
 	mock := &clusterManifestsListMock{
 		manifests: []client.ClusterManifestListItem{
 			{
 				Name:           "cm-manifest",
 				ManifestBase64: base64.StdEncoding.EncodeToString([]byte(yamlBody)),
-				Namespace:      "default",
 				State:          "up",
 			},
 		},

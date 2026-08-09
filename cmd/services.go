@@ -18,7 +18,7 @@ type APIClient interface {
 	DeleteCluster(ctx context.Context, name string) error
 	TriggerReconcile(ctx context.Context, clusterID string) (*client.TriggerReconcileResult, error)
 	ProvisionCluster(ctx context.Context, clusterID string) (*client.ProvisionClusterResult, error)
-	DeprovisionCluster(ctx context.Context, clusterID string, autoDelete, force bool) (*client.DeprovisionClusterResult, error)
+	DeprovisionCluster(ctx context.Context, clusterID string) (*client.DeprovisionClusterResult, error)
 	RollToClusterResourceVersion(ctx context.Context, clusterID, versionID string) (*client.RollToClusterResourceVersionResult, error)
 	ApplyCluster(ctx context.Context, clusterReq client.CreateImportClusterRequest, wait bool) (*client.ImportResponse, bool, error)
 	ValidateCluster(ctx context.Context, spec client.CreateResourceSpec, strictSecrets bool, clusterID string) (*client.ValidateClusterResponse, error)
@@ -78,6 +78,7 @@ type APIClient interface {
 	DeleteStack(ctx context.Context, clusterID, stackName string) (*client.DeleteStackResult, error)
 	RenameStack(ctx context.Context, clusterID, stackName, newName string) (*client.RenameStackResult, error)
 	GetStackHistory(clusterID, stackName string) (*client.GetStackHistoryResponse, error)
+	GetStackAddonResourceID(clusterID, stackName, addonName string) (string, error)
 	CloneStackToCluster(ctx context.Context, targetClusterID string, cloneReq client.CloneStackToClusterRequest) (*client.CloneStackToClusterResult, error)
 
 	ListStackProfiles(page, pageSize int, search string, category string) (*client.StackProfileListResponse, error)
@@ -133,6 +134,8 @@ type APIClient interface {
 	DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error)
 
 	StreamChat(clusterID *string, chatReq client.ChatRequest) (<-chan client.ChatStreamEvent, error)
+	ConfirmChatAction(request client.ConfirmChatActionRequest) (*client.ConfirmChatActionResult, error)
+	ListPendingChatActions(conversationID string) (*client.PendingChatActionsResult, error)
 	ListChatHistory(clusterID *string, limit, offset int) (*client.ListConversationsResponse, error)
 	GetChatConversation(conversationID string) (*client.ChatConversation, error)
 	DeleteChatConversation(conversationID string) (*client.DeleteConversationResponse, error)
@@ -332,6 +335,9 @@ type APIClient interface {
 
 	StopScalewayCluster(clusterID string) (*client.ProviderStopClusterResponse, error)
 	StartScalewayCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error)
+	ListScalewayClusterNodes(clusterID string) (*client.NodeListResult, error)
+	GetScalewayClusterNode(clusterID, nodeID string) (*client.NodeDetail, error)
+	RestartScalewayClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error)
 	CreateProxmoxCluster(request client.CreateProxmoxClusterRequest) (*client.CreateProxmoxClusterResponse, error)
 	DeprovisionProxmoxCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error)
 	StopProxmoxCluster(clusterID string) (*client.ProviderStopClusterResponse, error)
