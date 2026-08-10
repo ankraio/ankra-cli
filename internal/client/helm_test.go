@@ -89,6 +89,28 @@ func TestListHelmRegistries(t *testing.T) {
 	}
 }
 
+func TestListHelmRegistriesPopulatesKind(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(t, w, http.StatusOK, ListHelmRegistriesResponse{
+			Result: []HelmRegistryListItem{
+				{Name: "oci-registry", URL: "oci://ghcr.io/acme/charts"},
+				{Name: "http-registry", URL: "https://charts.example.com"},
+			},
+			Pagination: Pagination{TotalCount: 2, Page: 1, PageSize: 20, TotalPages: 1},
+		})
+	})
+	got, err := testClient.ListHelmRegistries(nil)
+	if err != nil {
+		t.Fatalf("ListHelmRegistries() error = %v", err)
+	}
+	if got.Result[0].Kind != "oci" {
+		t.Errorf("expected oci:// URL to decode with kind %q, got %q", "oci", got.Result[0].Kind)
+	}
+	if got.Result[1].Kind != "http" {
+		t.Errorf("expected https:// URL to decode with kind %q, got %q", "http", got.Result[1].Kind)
+	}
+}
+
 func TestGetHelmRegistry(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -125,7 +147,7 @@ func TestGetHelmRegistry(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testClient := newTestClient(t, tt.handler)
-			got, err := testClient.GetHelmRegistry("my-registry")
+			got, err := testClient.GetHelmRegistry("my-registry", 0, 0)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetHelmRegistry() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -134,6 +156,29 @@ func TestGetHelmRegistry(t *testing.T) {
 				t.Errorf("GetHelmRegistry() got.Registry.Name = %v, want my-registry", got.Registry.Name)
 			}
 		})
+	}
+}
+
+func TestGetHelmRegistrySendsChartPagingParameters(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("page") != "2" || q.Get("page_size") != "50" {
+			t.Errorf("expected page=2&page_size=50, got %q", r.URL.RawQuery)
+		}
+		jsonResponse(t, w, http.StatusOK, GetHelmRegistryResponse{
+			Registry: HelmRegistryDetail{Name: "my-registry", URL: "oci://ghcr.io"},
+			Charts: []HelmChartVersionSummary{
+				{Name: "nginx", Version: "1.0.0"},
+			},
+			Pagination: Pagination{TotalCount: 120, Page: 2, PageSize: 50, TotalPages: 3},
+		})
+	})
+	got, err := testClient.GetHelmRegistry("my-registry", 2, 50)
+	if err != nil {
+		t.Fatalf("GetHelmRegistry() error = %v", err)
+	}
+	if got.Pagination.Page != 2 || got.Pagination.TotalCount != 120 {
+		t.Errorf("GetHelmRegistry() pagination = %+v, want page 2 of 120 charts", got.Pagination)
 	}
 }
 
