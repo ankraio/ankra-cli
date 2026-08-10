@@ -4,6 +4,12 @@
 
 ### Added
 
+- **`ankra cluster gitops status` shows which GitOps repository a cluster
+  actually syncs from.** Previously this was only visible in the browser: the
+  new command prints the repository (owner/name and web URL), branch, stored
+  Git credential, and provider, plus the last synced commit and time, the
+  sync status and phase, and any pending commit or sync error. Supports
+  `-o json|yaml` for scripting.
 - **`ankra charts template` renders a chart's manifests without deploying
   anything.** The `helm template` equivalent for the Ankra catalog: the
   chart version is rendered server-side (no cluster connection) and printed

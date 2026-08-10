@@ -35,6 +35,10 @@ func (m baseMock) GetClusterByID(clusterID string) (client.ClusterListItem, erro
 	return client.ClusterListItem{}, errors.New("not implemented")
 }
 
+func (m baseMock) GetClusterGitopsStatus(clusterID string) (*client.ClusterGitopsStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) DeleteCluster(ctx context.Context, name string) error {
 	return errors.New("not implemented")
 }

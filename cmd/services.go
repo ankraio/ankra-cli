@@ -15,6 +15,7 @@ type APIClient interface {
 	ListClusters(page int, pageSize int) (*client.ClusterListResponse, error)
 	GetCluster(name string) (client.ClusterListItem, error)
 	GetClusterByID(clusterID string) (client.ClusterListItem, error)
+	GetClusterGitopsStatus(clusterID string) (*client.ClusterGitopsStatus, error)
 	DeleteCluster(ctx context.Context, name string) error
 	TriggerReconcile(ctx context.Context, clusterID string) (*client.TriggerReconcileResult, error)
 	ProvisionCluster(ctx context.Context, clusterID string) (*client.ProvisionClusterResult, error)
