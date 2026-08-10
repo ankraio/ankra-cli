@@ -10,6 +10,23 @@
   Git credential, and provider, plus the last synced commit and time, the
   sync status and phase, and any pending commit or sync error. Supports
   `-o json|yaml` for scripting.
+- **`ankra charts template` renders a chart's manifests without deploying
+  anything.** The `helm template` equivalent for the Ankra catalog: the
+  chart version is rendered server-side (no cluster connection) and printed
+  to stdout as a `---`-separated multi-doc YAML stream with a `# Source:`
+  header per document, ready to pipe into `kubectl diff` or kubeconform.
+  `-f values.yaml` overrides the chart's defaults, `--release-name` and
+  `--namespace` control the render context, and values problems (bad YAML,
+  schema violations, template errors) fail with the exact Helm error a
+  deploy would have produced — so broken values are caught before they
+  reach a cluster. Chart NOTES.txt output goes to stderr, keeping stdout
+  parseable.
+- **`ankra charts values` prints a chart version's default values.** The
+  `helm show values` equivalent: the decoded YAML lands on stdout, ready to
+  redirect to a file, edit, and feed back to `ankra charts template -f`
+  (`-o raw` prints the base64-encoded form). For both new commands the
+  repository is resolved automatically when the chart name is unambiguous;
+  `--repository` pins it.
 
 ## v0.10.0-rc1 — 2026-08-11
 
