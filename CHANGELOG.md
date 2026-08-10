@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra helm registries create` accepts YAML spec files and pure flag
+  invocations.** `-f` now sniffs the file content, so the same command
+  takes a JSON or a YAML spec, and a registry can be created without a
+  file at all: `--name` plus `--url` (with optional `--credential-name`
+  and repeatable `--exclude-charts`) build the spec for you. Exactly one
+  of `-f` or `--name`/`--url` must be given. Flat specs with a URL scheme
+  other than `oci://`, `http://`, or `https://` are rejected client-side
+  as a usage error instead of being posted as an HTTP registry (the API
+  answers such specs with an unhelpful 500), and a successful create now
+  prints a reminder that `ankra helm registries sync <name>` triggers
+  indexing immediately.
+
 ### Removed
 
 - **The MFA management and organisation RBAC commands are gone — none of
