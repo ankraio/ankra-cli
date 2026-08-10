@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -30,11 +31,12 @@ var helmRegistriesListCmd = &cobra.Command{
 	Long: `List Helm chart registries.
 
 Results are paginated (20 per page by default). Use --search to filter
-by name and --page/--page-size to navigate.
+by name, --page/--page-size to navigate, or --all to fetch every page.
 
 Examples:
   ankra helm registries list --search bitnami
   ankra helm registries list --page 2 --page-size 100
+  ankra helm registries list --all
   ankra helm registries list --sort-by chart_count --sort-order desc`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		page, _ := cmd.Flags().GetInt("page")
@@ -42,14 +44,29 @@ Examples:
 		search, _ := cmd.Flags().GetString("search")
 		sortBy, _ := cmd.Flags().GetString("sort-by")
 		sortOrder, _ := cmd.Flags().GetString("sort-order")
+		allPages, _ := cmd.Flags().GetBool("all")
 
-		response, err := apiClient.ListHelmRegistries(&client.ListHelmRegistriesOptions{
-			Page:      page,
-			PageSize:  pageSize,
-			Search:    search,
-			SortBy:    sortBy,
-			SortOrder: sortOrder,
-		})
+		if allPages && cmd.Flags().Changed("page") {
+			return withExitCode(exitUsage, errors.New("--all and --page are mutually exclusive"))
+		}
+
+		var response *client.ListHelmRegistriesResponse
+		var err error
+		if allPages {
+			response, err = listAllHelmRegistries(client.ListHelmRegistriesOptions{
+				Search:    search,
+				SortBy:    sortBy,
+				SortOrder: sortOrder,
+			})
+		} else {
+			response, err = apiClient.ListHelmRegistries(&client.ListHelmRegistriesOptions{
+				Page:      page,
+				PageSize:  pageSize,
+				Search:    search,
+				SortBy:    sortBy,
+				SortOrder: sortOrder,
+			})
+		}
 		if err != nil {
 			return fmt.Errorf("listing registries: %w", err)
 		}
@@ -79,7 +96,7 @@ Examples:
 			}
 			t.AppendRow(table.Row{
 				reg.Name,
-				reg.Kind(),
+				reg.Kind,
 				reg.URL,
 				reg.ChartCount,
 				reg.Indexing,
@@ -94,14 +111,62 @@ Examples:
 	},
 }
 
+// listAllHelmRegistries pages through the registry list until the backend
+// reports no more pages and returns one merged response whose pagination
+// describes the merged result. The backend defaults to 20 per page and
+// clamps page_size at 100, so a plain list silently truncated organisations
+// with more registries than a single page. maxPages bounds the walk against
+// a backend that keeps reporting more pages.
+func listAllHelmRegistries(options client.ListHelmRegistriesOptions) (*client.ListHelmRegistriesResponse, error) {
+	const pageSize = 100
+	const maxPages = 100
+	var registries []client.HelmRegistryListItem
+	totalCount := 0
+	for page := 1; page <= maxPages; page++ {
+		options.Page = page
+		options.PageSize = pageSize
+		response, err := apiClient.ListHelmRegistries(&options)
+		if err != nil {
+			return nil, err
+		}
+		registries = append(registries, response.Result...)
+		totalCount = response.Pagination.TotalCount
+		if response.Pagination.TotalPages <= page || len(response.Result) == 0 {
+			break
+		}
+	}
+	if totalCount < len(registries) {
+		totalCount = len(registries)
+	}
+	return &client.ListHelmRegistriesResponse{
+		Result: registries,
+		Pagination: client.Pagination{
+			TotalCount: totalCount,
+			TotalPages: 1,
+			Page:       1,
+			PageSize:   len(registries),
+		},
+	}, nil
+}
+
 var helmRegistriesGetCmd = &cobra.Command{
 	Use:   "get <name>",
 	Short: "Get details of a Helm chart registry",
-	Args:  cobra.ExactArgs(1),
+	Long: `Get details of a Helm chart registry.
+
+The registry's chart listing is paginated; use --page/--page-size to select
+which chart page the response (and -o json/yaml output) carries.
+
+Examples:
+  ankra helm registries get bitnami
+  ankra helm registries get bitnami --page 2 --page-size 100 -o json`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		registryName := args[0]
+		page, _ := cmd.Flags().GetInt("page")
+		pageSize, _ := cmd.Flags().GetInt("page-size")
 
-		response, err := apiClient.GetHelmRegistry(registryName)
+		response, err := apiClient.GetHelmRegistry(registryName, page, pageSize)
 		if err != nil {
 			return fmt.Errorf("getting registry: %w", err)
 		}
@@ -535,9 +600,12 @@ var helmCredentialsDeleteCmd = &cobra.Command{
 func init() {
 	helmRegistriesListCmd.Flags().Int("page", 1, "Page number")
 	helmRegistriesListCmd.Flags().Int("page-size", 20, "Number of registries per page (max 100)")
+	helmRegistriesListCmd.Flags().Bool("all", false, "Fetch every page and list all registries (mutually exclusive with --page)")
 	helmRegistriesListCmd.Flags().String("search", "", "Filter registries by name (case-insensitive substring)")
 	helmRegistriesListCmd.Flags().String("sort-by", "", "Sort column: name, url, created_at, updated_at, chart_count, last_indexed_at, is_global")
 	helmRegistriesListCmd.Flags().String("sort-order", "", "Sort order: asc or desc")
+	helmRegistriesGetCmd.Flags().Int("page", 1, "Charts page number")
+	helmRegistriesGetCmd.Flags().Int("page-size", 20, "Number of charts per page (max 100)")
 	helmRegistriesCreateCmd.Flags().StringP("file", "f", "", "Path to registry spec JSON file (required)")
 	_ = helmRegistriesCreateCmd.MarkFlagRequired("file")
 	helmRegistriesDeleteCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")

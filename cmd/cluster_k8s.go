@@ -91,6 +91,10 @@ type kindConfig struct {
 	short         string
 	headers       table.Row
 	formatRow     func(obj map[string]interface{}) table.Row
+	// emptyHint, when set, is printed after the table-mode "No X found."
+	// message. The generic resources command uses it to point at --group
+	// for kinds that live outside the core API group.
+	emptyHint string
 }
 
 var kindConfigs = []kindConfig{
@@ -398,6 +402,20 @@ var kindConfigs = []kindConfig{
 			}
 		},
 	},
+	{
+		commandName: "storageclasses", kind: "StorageClass", group: "storage.k8s.io", version: "v1", clusterScoped: true,
+		short:   "List storage classes in the cluster",
+		headers: table.Row{"Name", "Provisioner", "Reclaim Policy", "Binding Mode", "Age"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			return table.Row{
+				getNestedString(obj, "metadata", "name"),
+				getNestedString(obj, "provisioner"),
+				getNestedString(obj, "reclaimPolicy"),
+				getNestedString(obj, "volumeBindingMode"),
+				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
+			}
+		},
+	},
 }
 
 // validateK8sOutputFormat guards the kubernetes command family's -o flag, which
@@ -456,18 +474,19 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 		return err
 	}
 
-	if len(response.ResourceResponses) == 0 || len(response.ResourceResponses[0].Items) == 0 {
-		fmt.Printf("No %s found.\n", cfg.commandName)
-		return nil
+	var items []interface{}
+	if len(response.ResourceResponses) > 0 {
+		items = response.ResourceResponses[0].Items
 	}
-
-	items := response.ResourceResponses[0].Items
 
 	isSingleResourceLookup := nameFilter != "" && len(items) == 1
 	if isSingleResourceLookup {
 		return renderSingleResource(items[0], outputFormat)
 	}
 
+	// Structured output renders before the empty-list early return so that
+	// -o json/yaml stays parseable even when nothing was found; the human
+	// "No X found." message is table-mode only.
 	if outputFormat == "json" {
 		jsonData, err := json.MarshalIndent(response, "", "  ")
 		if err != nil {
@@ -482,6 +501,14 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 			return fmt.Errorf("marshalling to YAML: %w", err)
 		}
 		fmt.Print(string(yamlData))
+		return nil
+	}
+
+	if len(items) == 0 {
+		fmt.Printf("No %s found.\n", cfg.commandName)
+		if cfg.emptyHint != "" {
+			fmt.Println(cfg.emptyHint)
+		}
 		return nil
 	}
 
@@ -584,6 +611,7 @@ var clusterPodsCmd = &cobra.Command{
 		}
 
 		allPods := []client.PodSummary{}
+		var firstResponse *client.ListPodsResponse
 		page := 1
 		for {
 			opts := &client.ListPodsOptions{
@@ -598,14 +626,11 @@ var clusterPodsCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
+			if firstResponse == nil {
+				firstResponse = response
+			}
 
 			allPods = append(allPods, response.Pods...)
-
-			if outputFormat == "json" && page == 1 && response.TotalPages <= 1 {
-				jsonData, _ := json.MarshalIndent(response, "", "  ")
-				fmt.Println(string(jsonData))
-				return nil
-			}
 
 			if page >= response.TotalPages {
 				break
@@ -614,7 +639,18 @@ var clusterPodsCmd = &cobra.Command{
 		}
 
 		if outputFormat == "json" {
-			jsonData, err := json.MarshalIndent(allPods, "", "  ")
+			// One shape regardless of how many pages were walked: the
+			// ListPodsResponse envelope with every page's pods merged and
+			// the pagination describing the merged result. Multi-page
+			// listings used to fall back to a bare pod array, so scripts
+			// saw a different document above 100 pods.
+			merged := *firstResponse
+			merged.Pods = allPods
+			merged.TotalCount = len(allPods)
+			merged.Page = 1
+			merged.PageSize = len(allPods)
+			merged.TotalPages = 1
+			jsonData, err := json.MarshalIndent(merged, "", "  ")
 			if err != nil {
 				return fmt.Errorf("marshalling to JSON: %w", err)
 			}
@@ -716,14 +752,58 @@ Example:
 	},
 }
 
+// coreV1Kinds enumerates the kinds served by the core ("") v1 API group,
+// for which the generic resources command's default empty --group is
+// correct. The resources/get backend echoes the request group back and
+// reports only a generic success/error status — there is no distinct
+// not-found signal on the wire — so the CLI infers the likely mistake
+// from the requested kind instead.
+var coreV1Kinds = map[string]bool{
+	"binding":               true,
+	"componentstatus":       true,
+	"configmap":             true,
+	"endpoints":             true,
+	"event":                 true,
+	"limitrange":            true,
+	"namespace":             true,
+	"node":                  true,
+	"persistentvolume":      true,
+	"persistentvolumeclaim": true,
+	"pod":                   true,
+	"podtemplate":           true,
+	"replicationcontroller": true,
+	"resourcequota":         true,
+	"secret":                true,
+	"service":               true,
+	"serviceaccount":        true,
+}
+
+// genericResourcesEmptyHint returns the guidance appended to the empty
+// "No <Kind> found." message of `cluster get resources <Kind>`: when
+// --group was left at its default and the kind is not a core/v1 kind, an
+// empty result usually means the group was simply not specified.
+func genericResourcesEmptyHint(kind, apiGroup string) string {
+	if apiGroup != "" {
+		return ""
+	}
+	lowered := strings.ToLower(kind)
+	if coreV1Kinds[lowered] || coreV1Kinds[strings.TrimSuffix(lowered, "s")] {
+		return ""
+	}
+	return fmt.Sprintf("If %s lives outside the core API group, pass --group (e.g. --group storage.k8s.io for StorageClass, --group networking.k8s.io for NetworkPolicy).", kind)
+}
+
 var clusterGenericResourcesCmd = &cobra.Command{
 	Use:   "resources <kind>",
 	Short: "Get any Kubernetes resource by kind",
 	Long: `Fetch any Kubernetes resource type. Use for kinds not covered by dedicated commands.
 
+Kinds outside the core API group need --group (and sometimes --api-version).
+
 Example:
   ankra cluster resources PersistentVolumeClaim -n default
-  ankra cluster resources NetworkPolicy --all-namespaces`,
+  ankra cluster resources NetworkPolicy --group networking.k8s.io --all-namespaces
+  ankra cluster resources StorageClass --group storage.k8s.io`,
 	Args:        cobra.ExactArgs(1),
 	Annotations: map[string]string{"group": "kubernetes"},
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -753,6 +833,7 @@ Example:
 			kind:        kind,
 			group:       apiGroup,
 			version:     apiVersion,
+			emptyHint:   genericResourcesEmptyHint(kind, apiGroup),
 			headers:     table.Row{"Name", "Namespace", "Age"},
 			formatRow: func(obj map[string]interface{}) table.Row {
 				return table.Row{

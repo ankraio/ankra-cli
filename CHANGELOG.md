@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra helm registries list --all` fetches every page.** The listing is
+  paginated server-side (20 per page), and the CLI only ever showed the
+  requested page — an organisation with 121 registries saw 20 rows with no
+  sign that more existed. `--all` walks every page client-side and prints
+  the complete set (mutually exclusive with `--page`).
+- **`ankra helm registries get` can page through a registry's charts.** The
+  chart listing attached to a registry only ever returned the first page;
+  the new `--page`/`--page-size` flags select which chart page the response
+  (and the `Charts: N (showing M on this page)` footer) reflects.
+- **`ankra cluster get storageclasses` lists StorageClasses directly.**
+  StorageClass was previously only reachable through `cluster get resources
+  StorageClass --group storage.k8s.io`, and nothing told you the `--group`
+  value it needed.
+
 ### Removed
 
 - **The MFA management and organisation RBAC commands are gone — none of
@@ -21,6 +37,28 @@
 
 ### Fixed
 
+- **`ankra cluster manifests list` no longer silently truncates.** The
+  client decoded the response's pagination envelope but never sent paging
+  parameters, so clusters with more manifests than the backend's first page
+  quietly lost the rest. The listing now walks every page.
+- **`ankra cluster get <kind> -o json` stays parseable when nothing is
+  found.** An empty listing printed `No <kind> found.` to stdout even in
+  JSON/YAML mode, breaking `jq` pipelines; empty results now render as the
+  structured envelope, and the human message is table-mode only.
+- **`ankra cluster get pods -o json` emits one consistent shape.** Clusters
+  that fit in one page got the full response envelope while clusters over
+  100 pods got a bare pod array, so scripts saw a different document
+  depending on cluster size. JSON output is now always the envelope, with
+  every page's pods merged and the pagination describing the merged result.
+- **`ankra cluster get resources <Kind>` now explains `--group`.** When a
+  lookup finds nothing, the kind is outside the core API group, and
+  `--group` was left unset, the empty message adds a hint naming the flag
+  (e.g. `--group storage.k8s.io` for StorageClass), instead of an
+  indistinguishable `No StorageClass found.`
+- **Structured chart and registry listings carry complete metadata.**
+  `ankra charts list -o json` pagination now includes `total_count`, and
+  `ankra helm registries list -o json` rows now include the `kind` field
+  the table always showed.
 - **`ankra ai models create|update` help now names the current Expert
   model.** The `--model-id` examples still said `claude-opus-4-8` after the
   platform's Expert tier moved to Claude Opus 5, so the help text suggested

@@ -176,7 +176,7 @@ type APIClient interface {
 	QueryPrometheusRange(clusterID string, opts client.PrometheusRangeOptions) (*client.PrometheusQueryResult, error)
 
 	ListHelmRegistries(opts *client.ListHelmRegistriesOptions) (*client.ListHelmRegistriesResponse, error)
-	GetHelmRegistry(registryName string) (*client.GetHelmRegistryResponse, error)
+	GetHelmRegistry(registryName string, page, pageSize int) (*client.GetHelmRegistryResponse, error)
 	CreateHelmRegistry(req client.CreateHelmRegistryRequest) (*client.CreateHelmRegistryResponse, error)
 	UpdateHelmRegistry(registryName string, readJobInterval *int) error
 	DeleteHelmRegistry(registryName string) (*client.DeleteHelmRegistryResponse, error)

@@ -603,7 +603,7 @@ func (m baseMock) ListHelmRegistries(opts *client.ListHelmRegistriesOptions) (*c
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) GetHelmRegistry(registryName string) (*client.GetHelmRegistryResponse, error) {
+func (m baseMock) GetHelmRegistry(registryName string, page, pageSize int) (*client.GetHelmRegistryResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2263,7 +2263,8 @@ type chartsListMock struct {
 func (m *chartsListMock) ListCharts(page, pageSize int, onlySubscribed bool) (*client.ListChartsResponse, error) {
 	return &client.ListChartsResponse{
 		Charts: m.charts,
-		Pagination: client.ChartsPagination{
+		Pagination: client.Pagination{
+			TotalCount: len(m.charts),
 			Page:       1,
 			PageSize:   pageSize,
 			TotalPages: 1,

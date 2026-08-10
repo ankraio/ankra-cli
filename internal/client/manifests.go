@@ -28,15 +28,25 @@ type ListClusterManifestsResponse struct {
 	Pagination Pagination                `json:"pagination"`
 }
 
+// ListClusterManifests pages through the full manifest listing (the backend
+// serves a default page size and clamps page_size at 100). The previous
+// implementation sent no paging parameters and returned only the first page,
+// silently truncating clusters with more manifests than one page.
 func (c *Client) ListClusterManifests(clusterID string) ([]ClusterManifestListItem, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/manifests", c.BaseURL, clusterID)
-
-	var response ListClusterManifestsResponse
-	if err := c.getJSON(url, &response); err != nil {
-		return nil, fmt.Errorf("failed to list cluster manifests: %w", err)
+	var manifests []ClusterManifestListItem
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("%s/api/v1/clusters/%s/manifests?page=%d&page_size=100",
+			c.BaseURL, neturl.PathEscape(clusterID), page)
+		var response ListClusterManifestsResponse
+		if err := c.getJSON(url, &response); err != nil {
+			return nil, fmt.Errorf("failed to list cluster manifests: %w", err)
+		}
+		manifests = append(manifests, response.Result...)
+		if page >= response.Pagination.TotalPages || len(response.Result) == 0 {
+			break
+		}
 	}
-
-	return response.Result, nil
+	return manifests, nil
 }
 
 // getClusterManifestResponse mirrors GetClusterManifestResult from the
