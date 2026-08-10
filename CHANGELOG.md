@@ -16,6 +16,28 @@
   notice, and pointing it at anything other than a Secret fails naming the
   actual kind.
 
+## v0.9.1 — 2026-08-10
+
+A patch release. `ankra helm registries create` gains YAML spec support and
+flag-based creation with a client-side URL scheme guard (closing the path to
+the API's bare 500 on malformed specs), the never-functional MFA and
+organisation RBAC command families are removed in favour of a browser
+hand-off, and the AI model help examples name the current Expert model.
+
+### Added
+
+- **`ankra helm registries create` accepts YAML spec files and pure flag
+  invocations.** `-f` now sniffs the file content, so the same command
+  takes a JSON or a YAML spec, and a registry can be created without a
+  file at all: `--name` plus `--url` (with optional `--credential-name`
+  and repeatable `--exclude-charts`) build the spec for you. Exactly one
+  of `-f` or `--name`/`--url` must be given. Flat specs with a URL scheme
+  other than `oci://`, `http://`, or `https://` are rejected client-side
+  as a usage error instead of being posted as an HTTP registry (the API
+  answers such specs with an unhelpful 500), and a successful create now
+  prints a reminder that `ankra helm registries sync <name>` triggers
+  indexing immediately.
+
 ### Removed
 
 - **The MFA management and organisation RBAC commands are gone — none of
