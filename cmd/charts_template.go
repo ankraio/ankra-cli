@@ -89,13 +89,13 @@ reach production:
 			if !strings.HasSuffix(text, "\n") {
 				text += "\n"
 			}
-			fmt.Fprintf(out, "---\n# Source: %s\n%s", manifest.Path, text)
+			_, _ = fmt.Fprintf(out, "---\n# Source: %s\n%s", manifest.Path, text)
 		}
 		if len(result.Rendered) == 0 {
-			fmt.Fprintln(cmd.ErrOrStderr(), "The chart rendered no manifests.")
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "The chart rendered no manifests.")
 		}
 		if result.Notes != nil && strings.TrimSpace(*result.Notes) != "" {
-			fmt.Fprintf(cmd.ErrOrStderr(), "\nNOTES:\n%s", *result.Notes)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nNOTES:\n%s", *result.Notes)
 		}
 		return nil
 	},
