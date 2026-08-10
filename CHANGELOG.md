@@ -1,6 +1,11 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.10.0-rc1 — 2026-08-11
+
+First release candidate for v0.10.0. Multi-key and whole-Secret encryption
+for `cluster encrypt`, complete paginated listings (`--all`, no more silent
+truncation), a dedicated StorageClass listing, and structured-output
+consistency fixes.
 
 ### Added
 
