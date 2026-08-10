@@ -1,6 +1,11 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.10.0-rc2 — 2026-08-11
+
+Second release candidate for v0.10.0. Two new command families: GitOps
+source visibility (`cluster gitops status`) and chart introspection
+(`charts template` and `charts values`), rendering a chart's manifests and
+default values server-side from the same package Ankra deploys.
 
 ### Added
 
