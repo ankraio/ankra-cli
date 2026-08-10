@@ -12,6 +12,7 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 var helmCmd = &cobra.Command{
@@ -198,29 +199,49 @@ Examples:
 
 var helmRegistriesCreateCmd = &cobra.Command{
 	Use:   "create",
-	Short: "Create a Helm chart registry from a spec file",
-	Long: `Create a Helm chart registry by providing a JSON spec file.
+	Short: "Create a Helm chart registry from a spec file or flags",
+	Long: `Create a Helm chart registry from a spec file (-f, JSON or YAML) or
+directly from --name and --url.
 
-The registry must be nested under exactly one of "helm_oci_registry" or
-"helm_http_registry":
+In a spec file the registry must be nested under exactly one of
+"helm_oci_registry" or "helm_http_registry":
 
   {"spec": {"helm_oci_registry": {"name": "my-charts", "url": "oci://ghcr.io/acme/charts"}}}
   {"spec": {"helm_http_registry": {"name": "my-charts", "url": "https://charts.example.com"}}}
 
 A flat {"name": ..., "url": ...} file is accepted and nested automatically,
-inferring the registry type from the URL scheme (oci:// means OCI).
+inferring the registry type from the URL scheme: oci:// creates an OCI
+registry, http:// or https:// an HTTP chart repository. The flag form uses
+the same inference.
 
-Example:
-  ankra helm registries create -f registry-spec.json`,
+Examples:
+  ankra helm registries create -f registry-spec.json
+  ankra helm registries create -f registry-spec.yaml
+  ankra helm registries create --name my-charts --url oci://ghcr.io/acme/charts
+  ankra helm registries create --name my-charts --url https://charts.example.com \
+    --credential-name my-cred --exclude-charts legacy-chart`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		filePath, _ := cmd.Flags().GetString("file")
 
-		fileData, err := os.ReadFile(filePath)
-		if err != nil {
-			return fmt.Errorf("reading file: %w", err)
+		var rawSpec []byte
+		if filePath != "" {
+			fileData, err := os.ReadFile(filePath)
+			if err != nil {
+				return fmt.Errorf("reading file: %w", err)
+			}
+			rawSpec, err = helmRegistrySpecFileToJSON(fileData)
+			if err != nil {
+				return withExitCode(exitUsage, err)
+			}
+		} else {
+			var err error
+			rawSpec, err = helmRegistrySpecFromFlags(cmd)
+			if err != nil {
+				return err
+			}
 		}
 
-		specJSON, note, err := normalizeHelmRegistrySpec(fileData)
+		specJSON, note, err := normalizeHelmRegistrySpec(rawSpec)
 		if err != nil {
 			return withExitCode(exitUsage, err)
 		}
@@ -242,6 +263,9 @@ Example:
 		}
 
 		fmt.Println("Helm registry created successfully!")
+		if registryName := helmRegistryNameFromSpec(specJSON); registryName != "" {
+			fmt.Fprintf(os.Stderr, "Indexing runs in the background; trigger it now with: ankra helm registries sync %s\n", registryName)
+		}
 		return nil
 	},
 }
@@ -250,12 +274,75 @@ const helmRegistrySpecHint = `the registry must be nested under exactly one of "
   {"spec": {"helm_oci_registry": {"name": "my-charts", "url": "oci://ghcr.io/acme/charts"}}}
   {"spec": {"helm_http_registry": {"name": "my-charts", "url": "https://charts.example.com"}}}`
 
-// normalizeHelmRegistrySpec validates the spec file before it is POSTed. The
+// helmRegistrySpecFileToJSON accepts a spec file in JSON or YAML. JSON
+// content passes through untouched so existing spec files behave exactly as
+// before; anything else is parsed as YAML and re-encoded as JSON, so
+// normalizeHelmRegistrySpec only ever sees one format.
+func helmRegistrySpecFileToJSON(fileData []byte) ([]byte, error) {
+	if json.Valid(fileData) {
+		return fileData, nil
+	}
+	var document any
+	if err := yaml.Unmarshal(fileData, &document); err != nil {
+		return nil, fmt.Errorf("parsing spec file (JSON and YAML are accepted): %w", err)
+	}
+	specJSON, err := json.Marshal(document)
+	if err != nil {
+		return nil, fmt.Errorf("converting YAML spec to JSON: %w", err)
+	}
+	return specJSON, nil
+}
+
+// helmRegistrySpecFromFlags builds a flat registry spec from the create
+// command's flags. The result goes through normalizeHelmRegistrySpec like a
+// spec file would, so the nesting logic lives in exactly one place.
+func helmRegistrySpecFromFlags(cmd *cobra.Command) ([]byte, error) {
+	name, _ := cmd.Flags().GetString("name")
+	registryURL, _ := cmd.Flags().GetString("url")
+	credentialName, _ := cmd.Flags().GetString("credential-name")
+	excludeCharts, _ := cmd.Flags().GetStringArray("exclude-charts")
+
+	spec := map[string]any{
+		"name": name,
+		"url":  registryURL,
+	}
+	if credentialName != "" {
+		spec["credential_name"] = credentialName
+	}
+	if len(excludeCharts) > 0 {
+		spec["exclude_charts"] = excludeCharts
+	}
+	specJSON, err := json.Marshal(spec)
+	if err != nil {
+		return nil, fmt.Errorf("encoding spec: %w", err)
+	}
+	return specJSON, nil
+}
+
+// helmRegistryNameFromSpec extracts the registry name from a normalized spec
+// so the post-create hint can name the exact sync command to run.
+func helmRegistryNameFromSpec(specJSON json.RawMessage) string {
+	var spec map[string]struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(specJSON, &spec); err != nil {
+		return ""
+	}
+	for _, registry := range spec {
+		if registry.Name != "" {
+			return registry.Name
+		}
+	}
+	return ""
+}
+
+// normalizeHelmRegistrySpec validates the spec before it is POSTed. The
 // API requires the registry nested under exactly one of helm_oci_registry /
 // helm_http_registry and answers a bare 500 "No registry provided!" to any
 // other shape, so shape problems must be caught client-side. A flat
-// {name, url} spec is auto-nested, inferring OCI from an oci:// URL; the
-// returned note tells the user when that happened.
+// {name, url} spec is auto-nested by URL scheme — oci:// becomes an OCI
+// registry, http:// or https:// an HTTP one, anything else is rejected —
+// and the returned note tells the user what was inferred.
 func normalizeHelmRegistrySpec(fileData []byte) (json.RawMessage, string, error) {
 	var doc map[string]json.RawMessage
 	if err := json.Unmarshal(fileData, &doc); err != nil {
@@ -295,9 +382,15 @@ func normalizeHelmRegistrySpec(fileData []byte) (json.RawMessage, string, error)
 	if _, hasName := spec["name"]; !hasName || registryURL == "" {
 		return nil, "", fmt.Errorf("invalid registry spec: %s", helmRegistrySpecHint)
 	}
-	registryKey := "helm_http_registry"
-	if strings.HasPrefix(strings.ToLower(registryURL), "oci://") {
+	var registryKey string
+	lowercaseURL := strings.ToLower(registryURL)
+	switch {
+	case strings.HasPrefix(lowercaseURL, "oci://"):
 		registryKey = "helm_oci_registry"
+	case strings.HasPrefix(lowercaseURL, "http://"), strings.HasPrefix(lowercaseURL, "https://"):
+		registryKey = "helm_http_registry"
+	default:
+		return nil, "", fmt.Errorf("invalid registry url %q: the URL scheme must be oci:// (OCI registry) or http:// / https:// (HTTP chart repository)", registryURL)
 	}
 	specJSON, err := json.Marshal(map[string]map[string]json.RawMessage{registryKey: spec})
 	if err != nil {
@@ -606,8 +699,17 @@ func init() {
 	helmRegistriesListCmd.Flags().String("sort-order", "", "Sort order: asc or desc")
 	helmRegistriesGetCmd.Flags().Int("page", 1, "Charts page number")
 	helmRegistriesGetCmd.Flags().Int("page-size", 20, "Number of charts per page (max 100)")
-	helmRegistriesCreateCmd.Flags().StringP("file", "f", "", "Path to registry spec JSON file (required)")
-	_ = helmRegistriesCreateCmd.MarkFlagRequired("file")
+	helmRegistriesCreateCmd.Flags().StringP("file", "f", "", "Path to a registry spec file, JSON or YAML")
+	helmRegistriesCreateCmd.Flags().String("name", "", "Registry name (with --url; alternative to --file)")
+	helmRegistriesCreateCmd.Flags().String("url", "", "Registry URL: oci:// for OCI registries, http:// or https:// for HTTP chart repositories")
+	helmRegistriesCreateCmd.Flags().String("credential-name", "", "Name of an existing Helm registry credential for private registries")
+	helmRegistriesCreateCmd.Flags().StringArray("exclude-charts", nil, "Chart name to exclude from indexing (repeatable)")
+	helmRegistriesCreateCmd.MarkFlagsOneRequired("file", "name")
+	helmRegistriesCreateCmd.MarkFlagsMutuallyExclusive("file", "name")
+	helmRegistriesCreateCmd.MarkFlagsMutuallyExclusive("file", "url")
+	helmRegistriesCreateCmd.MarkFlagsMutuallyExclusive("file", "credential-name")
+	helmRegistriesCreateCmd.MarkFlagsMutuallyExclusive("file", "exclude-charts")
+	helmRegistriesCreateCmd.MarkFlagsRequiredTogether("name", "url")
 	helmRegistriesDeleteCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
 	helmRegistriesUpdateCmd.Flags().Int("read-job-interval", 0, "Seconds between automatic background syncs (required)")
 	_ = helmRegistriesUpdateCmd.MarkFlagRequired("read-job-interval")

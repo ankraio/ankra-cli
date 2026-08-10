@@ -18,23 +18,6 @@
   StorageClass --group storage.k8s.io`, and nothing told you the `--group`
   value it needed.
 
-### Removed
-
-- **The MFA management and organisation RBAC commands are gone — none of
-  them ever worked.** Every `ankra profile auth` API command (`status`,
-  `totp start/confirm/remove`, `recovery-codes regenerate`, `passkeys
-  list/remove`) and the whole `ankra org cluster-groups` /
-  `ankra org assign` / `ankra org assignments` / `ankra org unassign` /
-  `ankra org roles create` family called `/api/v1` routes the backend only
-  serves to browser sessions, so every invocation since their introduction
-  in v0.6.0 has failed with an API error. Two-factor settings and passkeys
-  are browser flows by design (passkey enrollment needs a WebAuthn ceremony
-  a terminal cannot run), so the CLI now ships a single `ankra profile auth
-  open` command that opens Profile Authentication in the browser.
-  `ankra profile auth passkeys open` still works as a deprecated alias and
-  will be removed in v0.10.0. `ankra org roles` (listing the assignable
-  roles) and all other `ankra org` commands are unaffected.
-
 ### Fixed
 
 - **`ankra cluster manifests list` no longer silently truncates.** The
@@ -59,6 +42,48 @@
   `ankra charts list -o json` pagination now includes `total_count`, and
   `ankra helm registries list -o json` rows now include the `kind` field
   the table always showed.
+
+## v0.9.1 — 2026-08-10
+
+A patch release. `ankra helm registries create` gains YAML spec support and
+flag-based creation with a client-side URL scheme guard (closing the path to
+the API's bare 500 on malformed specs), the never-functional MFA and
+organisation RBAC command families are removed in favour of a browser
+hand-off, and the AI model help examples name the current Expert model.
+
+### Added
+
+- **`ankra helm registries create` accepts YAML spec files and pure flag
+  invocations.** `-f` now sniffs the file content, so the same command
+  takes a JSON or a YAML spec, and a registry can be created without a
+  file at all: `--name` plus `--url` (with optional `--credential-name`
+  and repeatable `--exclude-charts`) build the spec for you. Exactly one
+  of `-f` or `--name`/`--url` must be given. Flat specs with a URL scheme
+  other than `oci://`, `http://`, or `https://` are rejected client-side
+  as a usage error instead of being posted as an HTTP registry (the API
+  answers such specs with an unhelpful 500), and a successful create now
+  prints a reminder that `ankra helm registries sync <name>` triggers
+  indexing immediately.
+
+### Removed
+
+- **The MFA management and organisation RBAC commands are gone — none of
+  them ever worked.** Every `ankra profile auth` API command (`status`,
+  `totp start/confirm/remove`, `recovery-codes regenerate`, `passkeys
+  list/remove`) and the whole `ankra org cluster-groups` /
+  `ankra org assign` / `ankra org assignments` / `ankra org unassign` /
+  `ankra org roles create` family called `/api/v1` routes the backend only
+  serves to browser sessions, so every invocation since their introduction
+  in v0.6.0 has failed with an API error. Two-factor settings and passkeys
+  are browser flows by design (passkey enrollment needs a WebAuthn ceremony
+  a terminal cannot run), so the CLI now ships a single `ankra profile auth
+  open` command that opens Profile Authentication in the browser.
+  `ankra profile auth passkeys open` still works as a deprecated alias and
+  will be removed in v0.10.0. `ankra org roles` (listing the assignable
+  roles) and all other `ankra org` commands are unaffected.
+
+### Fixed
+
 - **`ankra ai models create|update` help now names the current Expert
   model.** The `--model-id` examples still said `claude-opus-4-8` after the
   platform's Expert tier moved to Claude Opus 5, so the help text suggested
