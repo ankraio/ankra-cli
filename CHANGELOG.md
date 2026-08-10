@@ -1,5 +1,16 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra cluster gitops status` shows which GitOps repository a cluster
+  actually syncs from.** Previously this was only visible in the browser: the
+  new command prints the repository (owner/name and web URL), branch, stored
+  Git credential, and provider, plus the last synced commit and time, the
+  sync status and phase, and any pending commit or sync error. Supports
+  `-o json|yaml` for scripting.
+
 ## v0.10.0-rc1 — 2026-08-11
 
 First release candidate for v0.10.0. Multi-key and whole-Secret encryption
