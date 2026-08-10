@@ -166,6 +166,8 @@ type APIClient interface {
 	ListCharts(page, pageSize int, onlySubscribed bool) (*client.ListChartsResponse, error)
 	SearchCharts(query string) ([]client.ChartItem, error)
 	GetChartDetails(chartName, repositoryURL string) (*client.ChartDetails, error)
+	GetChartDefaultValues(repositoryName, chartName, chartVersion string) (*client.GetChartDefaultValuesResult, error)
+	TemplateChart(request client.TemplateChartRequest) (*client.TemplateChartResult, error)
 
 	ListPods(clusterID string, opts *client.ListPodsOptions) (*client.ListPodsResponse, error)
 	GetResources(clusterID string, req client.GetResourcesRequest) (*client.GetResourcesResponse, error)

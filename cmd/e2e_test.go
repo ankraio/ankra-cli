@@ -571,6 +571,14 @@ func (m baseMock) GetChartDetails(chartName, repositoryURL string) (*client.Char
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetChartDefaultValues(repositoryName, chartName, chartVersion string) (*client.GetChartDefaultValuesResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) TemplateChart(request client.TemplateChartRequest) (*client.TemplateChartResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListPods(clusterID string, opts *client.ListPodsOptions) (*client.ListPodsResponse, error) {
 	return nil, errors.New("not implemented")
 }
