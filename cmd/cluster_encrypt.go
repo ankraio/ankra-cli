@@ -47,7 +47,8 @@ var clusterSopsConfigCmd = &cobra.Command{
 
 var (
 	encryptClusterFile string
-	encryptKey         string
+	encryptKeys        []string
+	encryptAllData     bool
 	encryptAddonName   string
 	encryptClusterFlag string
 	encryptStackFlag   string
@@ -62,15 +63,22 @@ var clusterEncryptCmd = &cobra.Command{
 
 var clusterEncryptManifestCmd = &cobra.Command{
 	Use:   "manifest <manifest_name>",
-	Short: "Encrypt a key in a manifest",
-	Long: `Encrypt a specific key in a manifest using SOPS.
+	Short: "Encrypt one or more keys in a manifest",
+	Long: `Encrypt one or more keys in a manifest using SOPS.
 
 --key takes the YAML key name whose values should be encrypted (for a Secret's
-data.password, that is "password"). SOPS matches key names anywhere in the
-document, not dotted paths; a dotted --key is normalised to its last segment.
-A key whose own name starts with a dot (such as ".dockerconfigjson" in a
-kubernetes.io/dockerconfigjson Secret) is kept literally. After encrypting, the
-CLI verifies the value is actually ENC[...] ciphertext and fails if it is not.
+data.password, that is "password"). Repeat --key to encrypt several keys in a
+single run; all keys are encrypted in one SOPS pass and one write. SOPS matches
+key names anywhere in the document, not dotted paths; a dotted --key is
+normalised to its last segment. A key whose own name starts with a dot (such as
+".dockerconfigjson" in a kubernetes.io/dockerconfigjson Secret) is kept
+literally. After encrypting, the CLI verifies every value is actually ENC[...]
+ciphertext and fails if any is not.
+
+--all-data selects every key under data and stringData of a Kubernetes Secret
+manifest instead of naming keys individually; keys whose values are already
+encrypted are skipped. The manifest must be a Secret. --all-data and --key are
+mutually exclusive.
 
 Two modes:
   Cluster mode (default): fetch the manifest from a live cluster, encrypt the
@@ -103,6 +111,12 @@ Examples:
   ankra cluster encrypt manifest db-secret --key password \
     --set 'data.password=bmV3LXNlY3JldA==' --cluster prod
 
+  # Encrypt several keys in one run
+  ankra cluster encrypt manifest db-secret --key password --key api-token
+
+  # Encrypt every data/stringData key of a Secret manifest
+  ankra cluster encrypt manifest db-secret --all-data --cluster prod
+
   # File mode
   ankra cluster encrypt manifest db-secret --key password -f cluster.yaml`,
 	Args: cobra.ExactArgs(1),
@@ -111,14 +125,16 @@ Examples:
 
 var clusterEncryptAddonCmd = &cobra.Command{
 	Use:   "addon",
-	Short: "Encrypt a key in an addon's values",
-	Long: `Encrypt a specific key in an addon's Helm values using SOPS.
+	Short: "Encrypt one or more keys in an addon's values",
+	Long: `Encrypt one or more keys in an addon's Helm values using SOPS.
 
---key takes the YAML key name whose values should be encrypted. SOPS matches
-key names anywhere in the document, not dotted paths; a dotted --key is
-normalised to its last segment. A key whose own name starts with a dot (such
-as ".dockerconfigjson") is kept literally. After encrypting, the CLI verifies
-the value is actually ENC[...] ciphertext and fails if it is not.
+--key takes the YAML key name whose values should be encrypted. Repeat --key to
+encrypt several keys in a single run; all keys are encrypted in one SOPS pass
+and one write. SOPS matches key names anywhere in the document, not dotted
+paths; a dotted --key is normalised to its last segment. A key whose own name
+starts with a dot (such as ".dockerconfigjson") is kept literally. After
+encrypting, the CLI verifies every value is actually ENC[...] ciphertext and
+fails if any is not.
 
 Two modes:
   Cluster mode (default): fetch the addon's values from a live cluster,
@@ -135,6 +151,9 @@ Examples:
   # Cluster mode against a specific cluster, disambiguating stack
   ankra cluster encrypt addon --name grafana --key adminPassword --cluster prod --stack monitoring
 
+  # Encrypt several keys in one run
+  ankra cluster encrypt addon --name grafana --key adminPassword --key smtpPassword
+
   # File mode
   ankra cluster encrypt addon --name grafana --key adminPassword -f cluster.yaml`,
 	RunE: runEncryptAddon,
@@ -142,15 +161,17 @@ Examples:
 
 func init() {
 	clusterEncryptManifestCmd.Flags().StringVarP(&encryptClusterFile, "file", "f", "", "Path to a local cluster YAML (enables file mode)")
-	clusterEncryptManifestCmd.Flags().StringVar(&encryptKey, "key", "", "YAML key name to encrypt (required); dotted paths are normalised to the last segment, a leading-dot key like .dockerconfigjson is kept literally")
+	clusterEncryptManifestCmd.Flags().StringArrayVar(&encryptKeys, "key", nil, "YAML key name to encrypt (repeatable); dotted paths are normalised to the last segment, a leading-dot key like .dockerconfigjson is kept literally")
+	clusterEncryptManifestCmd.Flags().BoolVar(&encryptAllData, "all-data", false, "Encrypt every key under data and stringData of a Secret manifest, skipping values that are already encrypted")
 	clusterEncryptManifestCmd.Flags().StringVar(&encryptClusterFlag, "cluster", "", "Target cluster (name or ID); defaults to the active selection (cluster mode)")
 	clusterEncryptManifestCmd.Flags().StringArrayVar(&encryptSetEntries, "set", nil, "Apply value edits in-memory before encrypting (same syntax as manifests upgrade --set, e.g. --set 'data.password=bmV3'); the plaintext value never reaches git (cluster mode only; repeatable)")
-	_ = clusterEncryptManifestCmd.MarkFlagRequired("key")
+	clusterEncryptManifestCmd.MarkFlagsOneRequired("key", "all-data")
+	clusterEncryptManifestCmd.MarkFlagsMutuallyExclusive("key", "all-data")
 	clusterEncryptManifestCmd.MarkFlagsMutuallyExclusive("file", "cluster")
 	clusterEncryptManifestCmd.MarkFlagsMutuallyExclusive("file", "set")
 
 	clusterEncryptAddonCmd.Flags().StringVarP(&encryptClusterFile, "file", "f", "", "Path to a local cluster YAML (enables file mode)")
-	clusterEncryptAddonCmd.Flags().StringVar(&encryptKey, "key", "", "YAML key name to encrypt (required); dotted paths are normalised to the last segment, a leading-dot key like .dockerconfigjson is kept literally")
+	clusterEncryptAddonCmd.Flags().StringArrayVar(&encryptKeys, "key", nil, "YAML key name to encrypt (required; repeatable); dotted paths are normalised to the last segment, a leading-dot key like .dockerconfigjson is kept literally")
 	clusterEncryptAddonCmd.Flags().StringVar(&encryptAddonName, "name", "", "Name of the addon (required)")
 	clusterEncryptAddonCmd.Flags().StringVar(&encryptClusterFlag, "cluster", "", "Target cluster (name or ID); defaults to the active selection (cluster mode)")
 	clusterEncryptAddonCmd.Flags().StringVar(&encryptStackFlag, "stack", "", "Stack name (cluster mode; required when the addon exists in multiple stacks)")
@@ -200,6 +221,128 @@ func announceEncryptKeyNormalization(cmd *cobra.Command, rawKey, leafKey string)
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(),
 		"Note: SOPS matches YAML key names, not dotted paths; encrypting key %q (derived from --key %q).\n",
 		leafKey, rawKey)
+}
+
+// normalizeAndAnnounceEncryptKeys runs every --key value through
+// normalizeEncryptKey, announces each normalisation, and drops duplicates after
+// normalisation while preserving first-seen order.
+func normalizeAndAnnounceEncryptKeys(cmd *cobra.Command, rawKeys []string) ([]string, error) {
+	if len(rawKeys) == 0 {
+		return nil, fmt.Errorf("at least one --key is required")
+	}
+	seenLeafKeys := map[string]bool{}
+	leafKeys := make([]string, 0, len(rawKeys))
+	for _, rawKey := range rawKeys {
+		leafKey, err := normalizeEncryptKey(rawKey)
+		if err != nil {
+			return nil, err
+		}
+		announceEncryptKeyNormalization(cmd, rawKey, leafKey)
+		if seenLeafKeys[leafKey] {
+			continue
+		}
+		seenLeafKeys[leafKey] = true
+		leafKeys = append(leafKeys, leafKey)
+	}
+	return leafKeys, nil
+}
+
+// describeEncryptKeys renders leaf keys for progress messages: `key "a"` for a
+// single key, `keys "a", "b"` for several.
+func describeEncryptKeys(leafKeys []string) string {
+	quotedKeys := make([]string, len(leafKeys))
+	for keyIndex, leafKey := range leafKeys {
+		quotedKeys[keyIndex] = fmt.Sprintf("%q", leafKey)
+	}
+	if len(quotedKeys) == 1 {
+		return "key " + quotedKeys[0]
+	}
+	return "keys " + strings.Join(quotedKeys, ", ")
+}
+
+// describeEncryptKeysCapitalised is describeEncryptKeys for sentence starts.
+func describeEncryptKeysCapitalised(leafKeys []string) string {
+	described := describeEncryptKeys(leafKeys)
+	return strings.ToUpper(described[:1]) + described[1:]
+}
+
+// selectSecretDataKeys implements --all-data key selection: it parses manifest
+// YAML, requires every document to be a Kubernetes Secret, and returns the
+// keys under data and stringData. Keys whose value is already ENC[...]
+// ciphertext are returned separately so callers can skip re-encrypting them.
+func selectSecretDataKeys(manifestYAML []byte) (plaintextKeys, alreadyEncryptedKeys []string, err error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(manifestYAML))
+	seenPlaintextKeys := map[string]bool{}
+	seenEncryptedKeys := map[string]bool{}
+	secretDocumentCount := 0
+	for {
+		var document yaml.Node
+		decodeErr := decoder.Decode(&document)
+		if errors.Is(decodeErr, io.EOF) {
+			break
+		}
+		if decodeErr != nil {
+			return nil, nil, fmt.Errorf("parse manifest YAML: %w", decodeErr)
+		}
+		rootNode := &document
+		if rootNode.Kind == yaml.DocumentNode && len(rootNode.Content) > 0 {
+			rootNode = resolveYAMLAlias(rootNode.Content[0])
+		}
+		if rootNode == nil || rootNode.Kind != yaml.MappingNode {
+			continue
+		}
+		manifestKind := yamlMapString(rootNode, "kind")
+		if manifestKind != "Secret" {
+			if manifestKind == "" {
+				return nil, nil, fmt.Errorf("--all-data requires a Secret manifest, but the manifest has no kind field")
+			}
+			return nil, nil, fmt.Errorf("--all-data requires a Secret manifest, but the manifest is a %s", manifestKind)
+		}
+		secretDocumentCount++
+		for _, sectionKey := range []string{"data", "stringData"} {
+			section := yamlMapValue(rootNode, sectionKey)
+			if section == nil || section.Kind != yaml.MappingNode {
+				continue
+			}
+			for entryIndex := 0; entryIndex+1 < len(section.Content); entryIndex += 2 {
+				dataKey := section.Content[entryIndex].Value
+				valueNode := resolveYAMLAlias(section.Content[entryIndex+1])
+				if valueNode != nil && valueNode.Kind == yaml.ScalarNode && strings.HasPrefix(valueNode.Value, sopsEncryptedValuePrefix) {
+					if !seenEncryptedKeys[dataKey] {
+						seenEncryptedKeys[dataKey] = true
+						alreadyEncryptedKeys = append(alreadyEncryptedKeys, dataKey)
+					}
+					continue
+				}
+				if !seenPlaintextKeys[dataKey] {
+					seenPlaintextKeys[dataKey] = true
+					plaintextKeys = append(plaintextKeys, dataKey)
+				}
+			}
+		}
+	}
+	if secretDocumentCount == 0 {
+		return nil, nil, fmt.Errorf("--all-data requires a Secret manifest, but the manifest contains no YAML documents")
+	}
+	if len(plaintextKeys) == 0 && len(alreadyEncryptedKeys) == 0 {
+		return nil, nil, fmt.Errorf("the Secret manifest has no data or stringData keys to encrypt")
+	}
+	skippedKeys := make([]string, 0, len(alreadyEncryptedKeys))
+	for _, dataKey := range alreadyEncryptedKeys {
+		if !seenPlaintextKeys[dataKey] {
+			skippedKeys = append(skippedKeys, dataKey)
+		}
+	}
+	return plaintextKeys, skippedKeys, nil
+}
+
+// announceSkippedEncryptedKeys reports --all-data keys left untouched because
+// their values are already ENC[...] ciphertext.
+func announceSkippedEncryptedKeys(out io.Writer, alreadyEncryptedKeys []string) {
+	if len(alreadyEncryptedKeys) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "Skipping already-encrypted %s.\n", describeEncryptKeys(alreadyEncryptedKeys))
 }
 
 // verifyKeyEncrypted guards against SOPS "succeeding" without encrypting
@@ -298,18 +441,21 @@ func isSubtreeEncrypted(node *yaml.Node) bool {
 
 func runEncryptManifest(cmd *cobra.Command, args []string) error {
 	manifestName := args[0]
-	leafKey, err := normalizeEncryptKey(encryptKey)
-	if err != nil {
-		return err
+	var leafKeys []string
+	if !encryptAllData {
+		normalizedKeys, err := normalizeAndAnnounceEncryptKeys(cmd, encryptKeys)
+		if err != nil {
+			return err
+		}
+		leafKeys = normalizedKeys
 	}
-	announceEncryptKeyNormalization(cmd, encryptKey, leafKey)
 	if encryptClusterFile == "" {
-		return runEncryptManifestCluster(cmd, manifestName, leafKey)
+		return runEncryptManifestCluster(cmd, manifestName, leafKeys)
 	}
-	return runEncryptManifestFile(cmd, manifestName, leafKey)
+	return runEncryptManifestFile(cmd, manifestName, leafKeys)
 }
 
-func runEncryptManifestFile(cmd *cobra.Command, manifestName, leafKey string) error {
+func runEncryptManifestFile(cmd *cobra.Command, manifestName string, leafKeys []string) error {
 	clusterData, err := os.ReadFile(encryptClusterFile)
 	if err != nil {
 		return fmt.Errorf("failed to read cluster file %q: %w", encryptClusterFile, err)
@@ -359,15 +505,30 @@ func runEncryptManifestFile(cmd *cobra.Command, manifestName, leafKey string) er
 		return fmt.Errorf("failed to read manifest file %q: %w", manifestFilePath, err)
 	}
 
-	fmt.Printf("Encrypting key %q in manifest %q...\n", leafKey, manifestName)
+	if encryptAllData {
+		plaintextKeys, alreadyEncryptedKeys, selectErr := selectSecretDataKeys(manifestContent)
+		if selectErr != nil {
+			return selectErr
+		}
+		announceSkippedEncryptedKeys(os.Stdout, alreadyEncryptedKeys)
+		if len(plaintextKeys) == 0 {
+			fmt.Printf("All data keys in manifest %q are already encrypted; nothing to encrypt.\n", manifestName)
+			return nil
+		}
+		leafKeys = plaintextKeys
+	}
 
-	encryptedContent, err := apiClient.EncryptYAML(string(manifestContent), []string{leafKey})
+	fmt.Printf("Encrypting %s in manifest %q...\n", describeEncryptKeys(leafKeys), manifestName)
+
+	encryptedContent, err := apiClient.EncryptYAML(string(manifestContent), leafKeys)
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
 	}
 
-	if err := verifyKeyEncrypted(encryptedContent, leafKey); err != nil {
-		return fmt.Errorf("encryption verification failed: %w", err)
+	for _, leafKey := range leafKeys {
+		if err := verifyKeyEncrypted(encryptedContent, leafKey); err != nil {
+			return fmt.Errorf("encryption verification failed: %w", err)
+		}
 	}
 
 	if err := os.WriteFile(manifestFilePath, []byte(encryptedContent), 0o644); err != nil {
@@ -380,13 +541,21 @@ func runEncryptManifestFile(cmd *cobra.Command, manifestName, leafKey string) er
 	// the yaml.Node level so fields the CLI structs do not model
 	// (deploy_wave, prometheus_metrics, future keys), comments, and ordering
 	// survive the rewrite of this GitOps source of truth.
-	if !containsString(foundManifest.EncryptedPaths, leafKey) {
+	missingKeys := make([]string, 0, len(leafKeys))
+	for _, leafKey := range leafKeys {
+		if !containsString(foundManifest.EncryptedPaths, leafKey) {
+			missingKeys = append(missingKeys, leafKey)
+		}
+	}
+	if len(missingKeys) > 0 {
 		clusterDoc, err := parseClusterYAMLDoc(clusterData)
 		if err != nil {
 			return fmt.Errorf("failed to update cluster file: %w", err)
 		}
-		if err := appendManifestEncryptedPath(clusterDoc, manifestName, leafKey); err != nil {
-			return fmt.Errorf("failed to update cluster file: %w", err)
+		for _, leafKey := range missingKeys {
+			if err := appendManifestEncryptedPath(clusterDoc, manifestName, leafKey); err != nil {
+				return fmt.Errorf("failed to update cluster file: %w", err)
+			}
 		}
 		if err := writeClusterFile(encryptClusterFile, clusterDoc); err != nil {
 			return fmt.Errorf("failed to update cluster file: %w", err)
@@ -394,7 +563,7 @@ func runEncryptManifestFile(cmd *cobra.Command, manifestName, leafKey string) er
 
 		fmt.Printf("Updated cluster file with encrypted_paths: %s\n", encryptClusterFile)
 	} else {
-		fmt.Printf("Key %q already in encrypted_paths, cluster file unchanged\n", leafKey)
+		fmt.Printf("%s already in encrypted_paths, cluster file unchanged\n", describeEncryptKeysCapitalised(leafKeys))
 	}
 
 	fmt.Println("Encryption complete!")
@@ -402,18 +571,17 @@ func runEncryptManifestFile(cmd *cobra.Command, manifestName, leafKey string) er
 }
 
 func runEncryptAddon(cmd *cobra.Command, args []string) error {
-	leafKey, err := normalizeEncryptKey(encryptKey)
+	leafKeys, err := normalizeAndAnnounceEncryptKeys(cmd, encryptKeys)
 	if err != nil {
 		return err
 	}
-	announceEncryptKeyNormalization(cmd, encryptKey, leafKey)
 	if encryptClusterFile == "" {
-		return runEncryptAddonCluster(cmd, encryptAddonName, leafKey)
+		return runEncryptAddonCluster(cmd, encryptAddonName, leafKeys)
 	}
-	return runEncryptAddonFile(cmd, leafKey)
+	return runEncryptAddonFile(cmd, leafKeys)
 }
 
-func runEncryptAddonFile(cmd *cobra.Command, leafKey string) error {
+func runEncryptAddonFile(cmd *cobra.Command, leafKeys []string) error {
 	clusterData, err := os.ReadFile(encryptClusterFile)
 	if err != nil {
 		return fmt.Errorf("failed to read cluster file %q: %w", encryptClusterFile, err)
@@ -469,15 +637,17 @@ func runEncryptAddonFile(cmd *cobra.Command, leafKey string) error {
 		return fmt.Errorf("failed to read addon configuration file %q: %w", addonFilePath, err)
 	}
 
-	fmt.Printf("Encrypting key %q in addon %q...\n", leafKey, encryptAddonName)
+	fmt.Printf("Encrypting %s in addon %q...\n", describeEncryptKeys(leafKeys), encryptAddonName)
 
-	encryptedContent, err := apiClient.EncryptYAML(string(addonContent), []string{leafKey})
+	encryptedContent, err := apiClient.EncryptYAML(string(addonContent), leafKeys)
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
 	}
 
-	if err := verifyKeyEncrypted(encryptedContent, leafKey); err != nil {
-		return fmt.Errorf("encryption verification failed: %w", err)
+	for _, leafKey := range leafKeys {
+		if err := verifyKeyEncrypted(encryptedContent, leafKey); err != nil {
+			return fmt.Errorf("encryption verification failed: %w", err)
+		}
 	}
 
 	if err := os.WriteFile(addonFilePath, []byte(encryptedContent), 0o644); err != nil {
@@ -491,13 +661,21 @@ func runEncryptAddonFile(cmd *cobra.Command, leafKey string) error {
 	// model (deploy_wave, prometheus_metrics, future keys), comments, and
 	// ordering survive the rewrite of this GitOps source of truth.
 	encryptedPaths := getEncryptedPathsFromConfig(foundAddon.Configuration)
-	if !containsString(encryptedPaths, leafKey) {
+	missingKeys := make([]string, 0, len(leafKeys))
+	for _, leafKey := range leafKeys {
+		if !containsString(encryptedPaths, leafKey) {
+			missingKeys = append(missingKeys, leafKey)
+		}
+	}
+	if len(missingKeys) > 0 {
 		clusterDoc, err := parseClusterYAMLDoc(clusterData)
 		if err != nil {
 			return fmt.Errorf("failed to update cluster file: %w", err)
 		}
-		if err := appendAddonEncryptedPath(clusterDoc, encryptAddonName, leafKey); err != nil {
-			return fmt.Errorf("failed to update cluster file: %w", err)
+		for _, leafKey := range missingKeys {
+			if err := appendAddonEncryptedPath(clusterDoc, encryptAddonName, leafKey); err != nil {
+				return fmt.Errorf("failed to update cluster file: %w", err)
+			}
 		}
 		if err := writeClusterFile(encryptClusterFile, clusterDoc); err != nil {
 			return fmt.Errorf("failed to update cluster file: %w", err)
@@ -505,7 +683,7 @@ func runEncryptAddonFile(cmd *cobra.Command, leafKey string) error {
 
 		fmt.Printf("Updated cluster file with encrypted_paths: %s\n", encryptClusterFile)
 	} else {
-		fmt.Printf("Key %q already in encrypted_paths, cluster file unchanged\n", leafKey)
+		fmt.Printf("%s already in encrypted_paths, cluster file unchanged\n", describeEncryptKeysCapitalised(leafKeys))
 	}
 
 	fmt.Println("Encryption complete!")
@@ -654,7 +832,7 @@ func fetchClusterIaCDoc(ctx context.Context, clusterFlag string) (clusterID, clu
 	return clusterID, clusterName, doc, nil
 }
 
-func runEncryptManifestCluster(cmd *cobra.Command, manifestName, leafKey string) error {
+func runEncryptManifestCluster(cmd *cobra.Command, manifestName string, leafKeys []string) error {
 	// The command ends in a partial-stack PATCH, which the backend serves
 	// synchronously (DB transaction + a full GitOps commit/push when the
 	// cluster has a linked repo) rather than enqueuing it - that can
@@ -695,19 +873,36 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName, leafKey string)
 		return fmt.Errorf("base64-decode manifest content: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Encrypting key %q in manifest %q (stack %q)...\n", leafKey, manifestName, stack.Name)
-	encryptedYAML, err := apiClient.EncryptYAML(string(decoded), []string{leafKey})
+	if encryptAllData {
+		plaintextKeys, alreadyEncryptedKeys, selectErr := selectSecretDataKeys(decoded)
+		if selectErr != nil {
+			return selectErr
+		}
+		announceSkippedEncryptedKeys(cmd.OutOrStdout(), alreadyEncryptedKeys)
+		if len(plaintextKeys) == 0 {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "All data keys in manifest %q are already encrypted; nothing to encrypt.\n", manifestName)
+			return nil
+		}
+		leafKeys = plaintextKeys
+	}
+
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Encrypting %s in manifest %q (stack %q)...\n", describeEncryptKeys(leafKeys), manifestName, stack.Name)
+	encryptedYAML, err := apiClient.EncryptYAML(string(decoded), leafKeys)
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
 	}
 
-	if err := verifyKeyEncrypted(encryptedYAML, leafKey); err != nil {
-		return fmt.Errorf("encryption verification failed: %w", err)
+	for _, leafKey := range leafKeys {
+		if err := verifyKeyEncrypted(encryptedYAML, leafKey); err != nil {
+			return fmt.Errorf("encryption verification failed: %w", err)
+		}
 	}
 
 	newPaths := append([]string{}, manifest.EncryptedPaths...)
-	if !containsString(newPaths, leafKey) {
-		newPaths = append(newPaths, leafKey)
+	for _, leafKey := range leafKeys {
+		if !containsString(newPaths, leafKey) {
+			newPaths = append(newPaths, leafKey)
+		}
 	}
 
 	mutated := *manifest
@@ -736,7 +931,7 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName, leafKey string)
 	return nil
 }
 
-func runEncryptAddonCluster(cmd *cobra.Command, addonName, leafKey string) error {
+func runEncryptAddonCluster(cmd *cobra.Command, addonName string, leafKeys []string) error {
 	// The command ends in a partial-stack PATCH, which the backend serves
 	// synchronously (DB transaction + a full GitOps commit/push when the
 	// cluster has a linked repo) rather than enqueuing it - that can
@@ -759,14 +954,16 @@ func runEncryptAddonCluster(cmd *cobra.Command, addonName, leafKey string) error
 		return fmt.Errorf("fetch current addon values: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Encrypting key %q in addon %q (stack %q)...\n", leafKey, addonName, stack.Name)
-	encryptedYAML, err := apiClient.EncryptYAML(currentValues, []string{leafKey})
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Encrypting %s in addon %q (stack %q)...\n", describeEncryptKeys(leafKeys), addonName, stack.Name)
+	encryptedYAML, err := apiClient.EncryptYAML(currentValues, leafKeys)
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
 	}
 
-	if err := verifyKeyEncrypted(encryptedYAML, leafKey); err != nil {
-		return fmt.Errorf("encryption verification failed: %w", err)
+	for _, leafKey := range leafKeys {
+		if err := verifyKeyEncrypted(encryptedYAML, leafKey); err != nil {
+			return fmt.Errorf("encryption verification failed: %w", err)
+		}
 	}
 
 	existingPaths := []string{}
@@ -774,8 +971,10 @@ func runEncryptAddonCluster(cmd *cobra.Command, addonName, leafKey string) error
 		existingPaths = addon.Configuration.EncryptedPaths
 	}
 	newPaths := append([]string{}, existingPaths...)
-	if !containsString(newPaths, leafKey) {
-		newPaths = append(newPaths, leafKey)
+	for _, leafKey := range leafKeys {
+		if !containsString(newPaths, leafKey) {
+			newPaths = append(newPaths, leafKey)
+		}
 	}
 
 	mutatedAddon := *addon

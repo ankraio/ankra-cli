@@ -1,5 +1,21 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra cluster encrypt` can encrypt several keys in one run.** `--key`
+  is now repeatable on both `encrypt manifest` and `encrypt addon`, in file
+  mode and cluster mode alike, so encrypting a Secret with a dozen entries
+  no longer takes a dozen invocations: all keys go through a single SOPS
+  pass and a single write (one commit in cluster mode), every key is
+  verified to be real ENC[...] ciphertext, and each one is recorded in
+  `encrypted_paths`. `encrypt manifest` additionally gains `--all-data`,
+  which selects every key under a Secret's `data` and `stringData`
+  automatically - values that are already encrypted are skipped with a
+  notice, and pointing it at anything other than a Secret fails naming the
+  actual kind.
+
 ## v0.9.1 — 2026-08-10
 
 A patch release. `ankra helm registries create` gains YAML spec support and

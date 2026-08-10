@@ -363,7 +363,7 @@ func TestRunEncryptManifestFile_PreservesUnmodeledFields(t *testing.T) {
 	encryptClusterFile = clusterPath
 	t.Cleanup(func() { encryptClusterFile = previousFile })
 
-	if err := runEncryptManifestFile(nil, "db-secret", "password"); err != nil {
+	if err := runEncryptManifestFile(nil, "db-secret", []string{"password"}); err != nil {
 		t.Fatalf("runEncryptManifestFile failed: %v", err)
 	}
 
