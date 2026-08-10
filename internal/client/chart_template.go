@@ -71,11 +71,11 @@ func (c *Client) GetChartDefaultValues(repositoryName, chartName, chartVersion s
 	if readErr != nil {
 		return nil, fmt.Errorf("read response: %w", readErr)
 	}
-	switch {
-	case resp.StatusCode == http.StatusOK:
-	case resp.StatusCode == http.StatusUnauthorized:
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
-	case resp.StatusCode == http.StatusNotFound:
+	case http.StatusNotFound:
 		return nil, fmt.Errorf("chart %q version %q in repository %q: %w",
 			chartName, chartVersion, repositoryName, ErrChartNotFound)
 	default:
@@ -115,14 +115,14 @@ func (c *Client) TemplateChart(request TemplateChartRequest) (*TemplateChartResu
 	if readErr != nil {
 		return nil, fmt.Errorf("read response: %w", readErr)
 	}
-	switch {
-	case resp.StatusCode == http.StatusOK:
-	case resp.StatusCode == http.StatusUnauthorized:
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
-	case resp.StatusCode == http.StatusNotFound:
+	case http.StatusNotFound:
 		return nil, fmt.Errorf("chart %q version %q in repository %q: %w",
 			request.ChartName, request.ChartVersion, request.RepositoryName, ErrChartNotFound)
-	case resp.StatusCode == http.StatusUnprocessableEntity:
+	case http.StatusUnprocessableEntity:
 		return nil, &ChartTemplateError{Message: helmErrorFromValidationBody(body)}
 	default:
 		if denied := PermissionDeniedFromResponse(resp.StatusCode, body); denied != nil {
