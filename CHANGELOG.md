@@ -1,6 +1,12 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.9.1 — 2026-08-10
+
+A patch release. `ankra helm registries create` gains YAML spec support and
+flag-based creation with a client-side URL scheme guard (closing the path to
+the API's bare 500 on malformed specs), the never-functional MFA and
+organisation RBAC command families are removed in favour of a browser
+hand-off, and the AI model help examples name the current Expert model.
 
 ### Added
 
