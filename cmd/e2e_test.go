@@ -931,6 +931,14 @@ func (m baseMock) ListKubeadmVersions() (*client.ListVersionsResult, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreatePlayground() (*client.CreatePlaygroundResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPlaygroundStatus(string) (*client.PlaygroundStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListOvhNodeGroups(clusterID string) (*client.NodeGroupListResult, error) {
 	return nil, errors.New("not implemented")
 }
