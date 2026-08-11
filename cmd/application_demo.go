@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -23,8 +24,211 @@ func newApplicationDemoCommand() *cobra.Command {
 		newApplicationDemoBuildCommand(),
 		newApplicationDemoDeployCommand(),
 		newApplicationDemoStopCommand(),
+		newApplicationDemoDetailCommand(),
+		newApplicationDemoLogsCommand(),
+		newApplicationDemoConfigCommand(),
+		newApplicationDemoFixCommand(),
 	)
 	return demoCommand
+}
+
+func newApplicationDemoDetailCommand() *cobra.Command {
+	detailCommand := &cobra.Command{
+		Use:   "detail <application-id> <workspace-id>",
+		Short: "Show a demo workspace's record, provisioning steps, and failure detail",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			payload, detailError := apiClient.GetApplicationDemoDetail(command.Context(),
+				strings.TrimSpace(arguments[0]), strings.TrimSpace(arguments[1]))
+			if detailError != nil {
+				return detailError
+			}
+			return renderApplicationPayload(command, payload)
+		},
+	}
+	registerStructuredOutputFlags(detailCommand)
+	return detailCommand
+}
+
+func newApplicationDemoLogsCommand() *cobra.Command {
+	logsCommand := &cobra.Command{
+		Use:   "logs <application-id> <workspace-id>",
+		Short: "Fetch a bounded tail of the demo container's logs",
+		Long:  "Fetch a bounded tail of the demo container's logs. One-shot: the command returns after the fetch instead of following the stream.",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			tailLines, _ := command.Flags().GetInt("tail")
+			payload, logsError := apiClient.GetApplicationDemoLogs(command.Context(),
+				strings.TrimSpace(arguments[0]), strings.TrimSpace(arguments[1]), tailLines)
+			if logsError != nil {
+				return logsError
+			}
+			return renderApplicationPayload(command, payload)
+		},
+	}
+	logsCommand.Flags().Int("tail", 200, "Number of log lines from the end")
+	registerStructuredOutputFlags(logsCommand)
+	return logsCommand
+}
+
+func newApplicationDemoConfigCommand() *cobra.Command {
+	configCommand := &cobra.Command{
+		Use:   "config",
+		Short: "Read or update the application's saved demo defaults",
+	}
+	configCommand.AddCommand(
+		newApplicationDemoConfigGetCommand(),
+		newApplicationDemoConfigSetCommand(),
+	)
+	return configCommand
+}
+
+func newApplicationDemoConfigGetCommand() *cobra.Command {
+	getCommand := &cobra.Command{
+		Use:   "get <application-id>",
+		Short: "Show the saved demo defaults (env, database, migration command, extensions)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			payload, getError := apiClient.GetApplicationDemoConfig(command.Context(), strings.TrimSpace(arguments[0]))
+			if getError != nil {
+				return getError
+			}
+			return renderApplicationPayload(command, payload)
+		},
+	}
+	registerStructuredOutputFlags(getCommand)
+	return getCommand
+}
+
+// demoConfigDocument is the demo-config wire shape this command edits. The
+// dependency blocks (stack profile, base stack) are deliberately absent:
+// the PUT preserves keys the body does not carry, and this command must
+// never rewrite designations it does not manage.
+type demoConfigDocument struct {
+	Env                []map[string]any `json:"env"`
+	Database           bool             `json:"database"`
+	MigrateCommand     *string          `json:"migrate_command,omitempty"`
+	DatabaseExtensions *[]string        `json:"database_extensions,omitempty"`
+}
+
+func newApplicationDemoConfigSetCommand() *cobra.Command {
+	setCommand := &cobra.Command{
+		Use:   "set <application-id>",
+		Short: "Update the saved demo defaults, preserving everything you do not name",
+		Long: `Update the application's saved demo defaults. The command fetches the
+current configuration first and applies only the flags you set: --env
+entries override by name, everything else is carried forward.`,
+		Example: `  ankra application demo config set <app-id> --database=true --env DATABASE_URL='${{ ankra.demo_database.url }}'
+  ankra application demo config set <app-id> --migrate-command 'pnpm run db:migrate' --database-extension vector`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			applicationID := strings.TrimSpace(arguments[0])
+			currentPayload, getError := apiClient.GetApplicationDemoConfig(command.Context(), applicationID)
+			if getError != nil {
+				return getError
+			}
+			var document demoConfigDocument
+			if unmarshalError := json.Unmarshal(currentPayload, &document); unmarshalError != nil {
+				return unmarshalError
+			}
+			if document.Env == nil {
+				document.Env = []map[string]any{}
+			}
+
+			environmentFlags, _ := command.Flags().GetStringArray("env")
+			for _, entry := range environmentFlags {
+				name, value, found := strings.Cut(entry, "=")
+				name = strings.TrimSpace(name)
+				if !found || name == "" {
+					return withExitCode(exitUsage, errors.New("--env entries must be NAME=VALUE"))
+				}
+				replaced := false
+				for _, existing := range document.Env {
+					if existingName, _ := existing["name"].(string); existingName == name {
+						existing["value"] = value
+						existing["secret"] = false
+						replaced = true
+					}
+				}
+				if !replaced {
+					document.Env = append(document.Env,
+						map[string]any{"name": name, "value": value, "secret": false})
+				}
+			}
+			removeFlags, _ := command.Flags().GetStringArray("remove-env")
+			for _, name := range removeFlags {
+				name = strings.TrimSpace(name)
+				kept := document.Env[:0]
+				for _, existing := range document.Env {
+					if existingName, _ := existing["name"].(string); existingName != name {
+						kept = append(kept, existing)
+					}
+				}
+				document.Env = kept
+			}
+			if command.Flags().Changed("database") {
+				document.Database, _ = command.Flags().GetBool("database")
+			}
+			if command.Flags().Changed("migrate-command") {
+				migrateCommand, _ := command.Flags().GetString("migrate-command")
+				document.MigrateCommand = &migrateCommand
+			}
+			if command.Flags().Changed("database-extension") {
+				extensions, _ := command.Flags().GetStringArray("database-extension")
+				document.DatabaseExtensions = &extensions
+			}
+
+			body, marshalError := json.Marshal(document)
+			if marshalError != nil {
+				return marshalError
+			}
+			payload, updateError := apiClient.UpdateApplicationDemoConfig(command.Context(), applicationID, body)
+			if updateError != nil {
+				return updateError
+			}
+			return renderApplicationPayload(command, payload)
+		},
+	}
+	setCommand.Flags().StringArray("env", nil, "Set an env entry as NAME=VALUE (repeatable; overrides by name)")
+	setCommand.Flags().StringArray("remove-env", nil, "Remove an env entry by name (repeatable)")
+	setCommand.Flags().Bool("database", false, "Provision the throwaway per-demo Postgres")
+	setCommand.Flags().String("migrate-command", "", "Command that provisions a fresh demo database's schema (empty clears)")
+	setCommand.Flags().StringArray("database-extension", nil, "Postgres extension the demo database creates at initdb (repeatable; replaces the saved list)")
+	registerStructuredOutputFlags(setCommand)
+	return setCommand
+}
+
+func newApplicationDemoFixCommand() *cobra.Command {
+	fixCommand := &cobra.Command{
+		Use:   "fix <application-id> <workspace-id>",
+		Short: "Dispatch the AI pre-setup mission for a failed demo",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			payload, fixError := apiClient.FixApplicationDemo(command.Context(),
+				strings.TrimSpace(arguments[0]), strings.TrimSpace(arguments[1]))
+			if fixError != nil {
+				return fixError
+			}
+			return renderApplicationPayload(command, payload)
+		},
+	}
+	registerStructuredOutputFlags(fixCommand)
+	return fixCommand
 }
 
 func newApplicationDemoListCommand() *cobra.Command {
