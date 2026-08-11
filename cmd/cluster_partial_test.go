@@ -567,3 +567,59 @@ func TestReadSource_StdinSentinel(t *testing.T) {
 		t.Error("expected error when no source provided")
 	}
 }
+
+// TestApplyAddonMutations_CarriesConfigurationBlock is the ankra-u8ho
+// repro: a same-version chart bump on an addon whose values live in the
+// GitOps repo used to propose a spec with no configuration block at all,
+// so applying it would re-deploy the addon with its values reference
+// stripped — default/empty values on a production logging stack.
+func TestApplyAddonMutations_CarriesConfigurationBlock(t *testing.T) {
+	orig := client.AddonSpec{
+		Name:         "fluent-bit",
+		ChartName:    "fluent-bit",
+		ChartVersion: "1.0.3",
+		Namespace:    "opensearch",
+		Configuration: &client.AddonConfigurationSpec{
+			FromFile:       "stacks/opensearch/add-ons/fluent-bit/values.yaml",
+			EncryptedPaths: []string{"secrets.password"},
+		},
+	}
+
+	out := applyAddonMutations(orig, addonsUpgradeFlags{ChartVersion: "1.0.3"}, nil)
+	if out.Configuration == nil {
+		t.Fatal("configuration block was dropped: applying this would wipe the addon's values reference")
+	}
+	if out.Configuration.FromFile != orig.Configuration.FromFile {
+		t.Errorf("from_file = %q, want %q", out.Configuration.FromFile, orig.Configuration.FromFile)
+	}
+	if len(out.Configuration.EncryptedPaths) != 1 || out.Configuration.EncryptedPaths[0] != "secrets.password" {
+		t.Errorf("encrypted_paths = %v, want the original list", out.Configuration.EncryptedPaths)
+	}
+
+	// A registry-only change keeps it too.
+	registryOut := applyAddonMutations(orig, addonsUpgradeFlags{RegistryName: "regB"}, nil)
+	if registryOut.Configuration == nil || registryOut.Configuration.FromFile != orig.Configuration.FromFile {
+		t.Errorf("registry-only change must keep the values reference, got %+v", registryOut.Configuration)
+	}
+
+	// Replacing the values inlines them, so the pointer is deliberately
+	// dropped (it would contradict the inline document) while the SOPS
+	// paths survive.
+	newB64 := "aGVsbG8="
+	replaced := applyAddonMutations(orig, addonsUpgradeFlags{}, &newB64)
+	if replaced.Configuration == nil || replaced.Configuration.ValuesBase64 != newB64 {
+		t.Fatalf("values replacement did not land: %+v", replaced.Configuration)
+	}
+	if replaced.Configuration.FromFile != "" {
+		t.Errorf("from_file = %q, want it cleared when values are sent inline", replaced.Configuration.FromFile)
+	}
+	if len(replaced.Configuration.EncryptedPaths) != 1 {
+		t.Errorf("encrypted_paths must survive a values replacement, got %v", replaced.Configuration.EncryptedPaths)
+	}
+
+	// The mutation never writes through to the parsed IaC document the
+	// dry-run renders as "before".
+	if orig.Configuration.FromFile == "" || len(orig.Configuration.EncryptedPaths) != 1 {
+		t.Errorf("the original spec was mutated: %+v", orig.Configuration)
+	}
+}
