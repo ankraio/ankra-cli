@@ -239,6 +239,22 @@ func (m baseMock) UninstallAddon(ctx context.Context, clusterID, addonResourceID
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListPowerSchedules(clusterID string) (*client.PowerScheduleListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreatePowerSchedule(clusterID string, request client.PowerScheduleRequest) (*client.PowerScheduleListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdatePowerSchedule(clusterID, scheduleID string, request client.PowerScheduleRequest) (*client.PowerScheduleListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeletePowerSchedule(clusterID, scheduleID string) (*client.DeletePowerScheduleResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error) {
 	return client.ExecutionListResponse{}, errors.New("not implemented")
 }
