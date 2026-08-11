@@ -30,6 +30,7 @@ type AIProviderStatus struct {
 	Provider         string                   `json:"provider"`
 	Anthropic        AIAnthropicStatus        `json:"anthropic"`
 	OpenAICompatible AIOpenAICompatibleStatus `json:"openai_compatible"`
+	OpenRouter       AIAnthropicStatus        `json:"openrouter"`
 }
 
 // AICatalogModel is one entry in the organisation model catalog. ID is null
@@ -118,6 +119,29 @@ func (c *Client) SaveAnthropicKey(apiKey string) (*AIAnthropicStatus, error) {
 func (c *Client) DeleteAnthropicKey() (*AIAnthropicStatus, error) {
 	var status AIAnthropicStatus
 	if err := c.sendJSON(http.MethodDelete, c.BaseURL+aiSettingsBasePath+"/anthropic", nil, &status); err != nil {
+		return nil, err
+	}
+	return &status, nil
+}
+
+// SaveOpenRouterKey stores the organisation's OpenRouter API key (BYOK).
+// The raw key never comes back; the returned status carries only the masked
+// preview the server derives.
+func (c *Client) SaveOpenRouterKey(apiKey string) (*AIAnthropicStatus, error) {
+	var status AIAnthropicStatus
+	payload := map[string]string{"api_key": apiKey}
+	if err := c.sendJSON(http.MethodPost, c.BaseURL+aiSettingsBasePath+"/openrouter", payload, &status); err != nil {
+		return nil, err
+	}
+	return &status, nil
+}
+
+// DeleteOpenRouterKey removes the organisation's OpenRouter API key. When
+// OpenRouter was the active provider the server resets the organisation to
+// the Ankra-managed default.
+func (c *Client) DeleteOpenRouterKey() (*AIAnthropicStatus, error) {
+	var status AIAnthropicStatus
+	if err := c.sendJSON(http.MethodDelete, c.BaseURL+aiSettingsBasePath+"/openrouter", nil, &status); err != nil {
 		return nil, err
 	}
 	return &status, nil

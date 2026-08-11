@@ -150,6 +150,8 @@ type APIClient interface {
 	SetAIProvider(provider string) (*client.AIProviderStatus, error)
 	SaveAnthropicKey(apiKey string) (*client.AIAnthropicStatus, error)
 	DeleteAnthropicKey() (*client.AIAnthropicStatus, error)
+	SaveOpenRouterKey(apiKey string) (*client.AIAnthropicStatus, error)
+	DeleteOpenRouterKey() (*client.AIAnthropicStatus, error)
 	SaveOpenAICompatible(baseURL, apiKey, model string) (*client.AIOpenAICompatibleStatus, error)
 	DeleteOpenAICompatible() (*client.AIOpenAICompatibleStatus, error)
 	ListAIModels() ([]client.AICatalogModel, error)
