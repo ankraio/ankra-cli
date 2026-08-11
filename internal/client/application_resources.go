@@ -262,3 +262,27 @@ func (client *Client) DeployApplicationDemo(requestContext context.Context, appl
 func (client *Client) StopApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error) {
 	return client.applicationResourceRequest(requestContext, http.MethodDelete, applicationPath(applicationID, "/demos/"+workspaceID), nil, nil)
 }
+
+func (client *Client) GetApplicationDemoDetail(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/demos/"+workspaceID+"/detail"), nil, nil)
+}
+
+func (client *Client) GetApplicationDemoLogs(requestContext context.Context, applicationID string, workspaceID string, tailLines int) (json.RawMessage, error) {
+	query := url.Values{}
+	if tailLines > 0 {
+		query.Set("tail", strconv.Itoa(tailLines))
+	}
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/demos/"+workspaceID+"/logs"), query, nil)
+}
+
+func (client *Client) GetApplicationDemoConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/demo-config"), nil, nil)
+}
+
+func (client *Client) UpdateApplicationDemoConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/demo-config"), nil, configuration)
+}
+
+func (client *Client) FixApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/demos/"+workspaceID+"/fix"), nil, nil)
+}
