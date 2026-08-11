@@ -114,6 +114,18 @@ hand-off, and the AI model help examples name the current Expert model.
   prints a reminder that `ankra helm registries sync <name>` triggers
   indexing immediately.
 
+### Added
+
+- **`ankra ai openrouter set|remove` makes OpenRouter bring-your-own-key
+  scriptable.** `set` stores the organisation's OpenRouter API key — pass it
+  with `--api-key`, pipe it on stdin, or omit both and a masked interactive
+  prompt asks for it; the key itself is never echoed. `remove` deletes the
+  stored key (confirming first, `--yes` to skip) and, when OpenRouter was
+  the active provider, the organisation falls back to the Ankra-managed
+  default. `ankra ai provider openrouter` activates a stored key and
+  `ankra ai status` now shows the OpenRouter block alongside Anthropic and
+  the legacy OpenAI-compatible endpoint.
+
 ### Removed
 
 - **The MFA management and organisation RBAC commands are gone — none of

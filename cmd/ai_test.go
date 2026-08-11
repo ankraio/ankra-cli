@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -9,16 +10,19 @@ import (
 
 type aiSettingsMock struct {
 	baseMock
-	status          *client.AIProviderStatus
-	models          []client.AICatalogModel
-	endpoints       []client.AIEndpoint
-	discovered      []string
-	createdModel    *client.AIModelRequest
-	updatedModelRef string
-	updatedModel    *client.AIModelRequest
-	deletedModelRef string
-	setProvider     string
-	resetCalled     bool
+	status             *client.AIProviderStatus
+	models             []client.AICatalogModel
+	endpoints          []client.AIEndpoint
+	discovered         []string
+	createdModel       *client.AIModelRequest
+	updatedModelRef    string
+	updatedModel       *client.AIModelRequest
+	deletedModelRef    string
+	setProvider        string
+	resetCalled        bool
+	savedOpenRouterKey string
+	openRouterSaveErr  error
+	openRouterDeleted  bool
 }
 
 func (m *aiSettingsMock) GetAIProviderStatus() (*client.AIProviderStatus, error) {
@@ -53,6 +57,20 @@ func (m *aiSettingsMock) DeleteAIModel(reference string) error {
 func (m *aiSettingsMock) ResetAIModels() ([]client.AICatalogModel, error) {
 	m.resetCalled = true
 	return m.models, nil
+}
+
+func (m *aiSettingsMock) SaveOpenRouterKey(apiKey string) (*client.AIAnthropicStatus, error) {
+	if m.openRouterSaveErr != nil {
+		return nil, m.openRouterSaveErr
+	}
+	m.savedOpenRouterKey = apiKey
+	preview := "sk-or-...cdef"
+	return &client.AIAnthropicStatus{Configured: true, KeyPreview: &preview}, nil
+}
+
+func (m *aiSettingsMock) DeleteOpenRouterKey() (*client.AIAnthropicStatus, error) {
+	m.openRouterDeleted = true
+	return &client.AIAnthropicStatus{Configured: false}, nil
 }
 
 func (m *aiSettingsMock) ListAIEndpoints() ([]client.AIEndpoint, error) {
@@ -217,5 +235,164 @@ func TestAIEndpointsDiscoverCommand(t *testing.T) {
 
 	if !strings.Contains(stdoutOutput, "gpt-4o-mini") {
 		t.Errorf("expected discovered model in output, got: %s", stdoutOutput)
+	}
+}
+
+func TestAIStatusShowsOpenRouter(t *testing.T) {
+	openRouterPreview := "sk-or-...wxyz"
+	mock := &aiSettingsMock{
+		status: &client.AIProviderStatus{
+			Provider:   "openrouter",
+			OpenRouter: client.AIAnthropicStatus{Configured: true, KeyPreview: &openRouterPreview},
+		},
+	}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("ai", "status")
+	})
+
+	if !strings.Contains(stdoutOutput, "OpenRouter (custom key):") {
+		t.Errorf("expected OpenRouter block in output, got: %s", stdoutOutput)
+	}
+	if !strings.Contains(stdoutOutput, openRouterPreview) {
+		t.Errorf("expected key preview in output, got: %s", stdoutOutput)
+	}
+}
+
+func TestAIOpenRouterSetWithFlag(t *testing.T) {
+	const rawKey = "sk-or-v1-flag-secret-000"
+	mock := &aiSettingsMock{}
+	setMockClient(t, mock)
+	t.Cleanup(func() { _ = aiOpenRouterSetCmd.Flags().Set("api-key", "") })
+
+	var commandOutput string
+	stdoutOutput := captureStdout(t, func() {
+		commandOutput, _ = executeCommand("ai", "openrouter", "set", "--api-key", rawKey)
+	})
+
+	if mock.savedOpenRouterKey != rawKey {
+		t.Errorf("expected SaveOpenRouterKey with the flag value, got: %q", mock.savedOpenRouterKey)
+	}
+	if !strings.Contains(stdoutOutput, "OpenRouter API key saved") {
+		t.Errorf("expected save confirmation, got: %s", stdoutOutput)
+	}
+	if strings.Contains(stdoutOutput, rawKey) || strings.Contains(commandOutput, rawKey) {
+		t.Errorf("the raw API key must never be echoed, got stdout %q and command output %q",
+			stdoutOutput, commandOutput)
+	}
+}
+
+func TestAIOpenRouterSetFromStdin(t *testing.T) {
+	const rawKey = "sk-or-v1-stdin-secret-111"
+	mock := &aiSettingsMock{}
+	setMockClient(t, mock)
+	rootCmd.SetIn(strings.NewReader(rawKey + "\n"))
+	t.Cleanup(func() { rootCmd.SetIn(nil) })
+
+	var commandOutput string
+	stdoutOutput := captureStdout(t, func() {
+		commandOutput, _ = executeCommand("ai", "openrouter", "set")
+	})
+
+	if mock.savedOpenRouterKey != rawKey {
+		t.Errorf("expected SaveOpenRouterKey with the stdin value, got: %q", mock.savedOpenRouterKey)
+	}
+	if strings.Contains(stdoutOutput, rawKey) || strings.Contains(commandOutput, rawKey) {
+		t.Errorf("the raw API key must never be echoed, got stdout %q and command output %q",
+			stdoutOutput, commandOutput)
+	}
+}
+
+func TestAIOpenRouterSetMissingKey(t *testing.T) {
+	mock := &aiSettingsMock{}
+	setMockClient(t, mock)
+	rootCmd.SetIn(strings.NewReader("\n"))
+	t.Cleanup(func() { rootCmd.SetIn(nil) })
+
+	var executeError error
+	_ = captureStdout(t, func() {
+		_, executeError = executeCommand("ai", "openrouter", "set")
+	})
+
+	if executeError == nil {
+		t.Fatalf("expected an error when no key is provided")
+	}
+	if mock.savedOpenRouterKey != "" {
+		t.Errorf("expected no save call, got: %q", mock.savedOpenRouterKey)
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("expected usage exit code, got: %d", exitCodeFor(executeError))
+	}
+}
+
+func TestAIOpenRouterSetPlatformRejects(t *testing.T) {
+	mock := &aiSettingsMock{
+		openRouterSaveErr: client.NewUnexpectedResponseError(400,
+			"Invalid OpenRouter API key format (must start with sk-or-)"),
+	}
+	setMockClient(t, mock)
+	t.Cleanup(func() { _ = aiOpenRouterSetCmd.Flags().Set("api-key", "") })
+
+	var executeError error
+	_ = captureStdout(t, func() {
+		_, executeError = executeCommand("ai", "openrouter", "set", "--api-key", "sk-bad-key")
+	})
+
+	if executeError == nil {
+		t.Fatalf("expected the platform rejection to surface as an error")
+	}
+	if !strings.Contains(executeError.Error(), "Invalid OpenRouter API key format") {
+		t.Errorf("expected the platform detail in the error, got: %v", executeError)
+	}
+}
+
+func TestAIOpenRouterRemoveCommand(t *testing.T) {
+	mock := &aiSettingsMock{}
+	setMockClient(t, mock)
+	t.Cleanup(func() { _ = aiOpenRouterRemoveCmd.Flags().Set("yes", "false") })
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("ai", "openrouter", "remove", "--yes")
+	})
+
+	if !mock.openRouterDeleted {
+		t.Errorf("expected DeleteOpenRouterKey to be called")
+	}
+	if !strings.Contains(stdoutOutput, "OpenRouter API key removed") {
+		t.Errorf("expected removal confirmation, got: %s", stdoutOutput)
+	}
+}
+
+func TestAIOpenRouterRemoveDeleteAlias(t *testing.T) {
+	mock := &aiSettingsMock{}
+	setMockClient(t, mock)
+	t.Cleanup(func() { _ = aiOpenRouterRemoveCmd.Flags().Set("yes", "false") })
+
+	_ = captureStdout(t, func() {
+		_, _ = executeCommand("ai", "openrouter", "delete", "--yes")
+	})
+
+	if !mock.openRouterDeleted {
+		t.Errorf("expected DeleteOpenRouterKey via the delete alias")
+	}
+}
+
+func TestAIOpenRouterRemoveDeclined(t *testing.T) {
+	mock := &aiSettingsMock{}
+	setMockClient(t, mock)
+	rootCmd.SetIn(strings.NewReader("n\n"))
+	t.Cleanup(func() { rootCmd.SetIn(nil) })
+
+	var executeError error
+	_ = captureStdout(t, func() {
+		_, executeError = executeCommand("ai", "openrouter", "remove")
+	})
+
+	if mock.openRouterDeleted {
+		t.Errorf("expected no delete call after a declined prompt")
+	}
+	if !errors.Is(executeError, errCancelled) {
+		t.Errorf("expected errCancelled, got: %v", executeError)
 	}
 }

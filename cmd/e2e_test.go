@@ -515,6 +515,14 @@ func (m baseMock) DeleteAnthropicKey() (*client.AIAnthropicStatus, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) SaveOpenRouterKey(apiKey string) (*client.AIAnthropicStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteOpenRouterKey() (*client.AIAnthropicStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) SaveOpenAICompatible(baseURL, apiKey, model string) (*client.AIOpenAICompatibleStatus, error) {
 	return nil, errors.New("not implemented")
 }

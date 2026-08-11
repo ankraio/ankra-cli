@@ -5,6 +5,7 @@ go 1.25.0
 toolchain go1.26.5
 
 require (
+	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
 	github.com/dustin/go-humanize v1.0.1
 	github.com/jedib0t/go-pretty/v6 v6.6.7
 	github.com/manifoldco/promptui v0.9.0
@@ -15,7 +16,6 @@ require (
 )
 
 require (
-	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
