@@ -544,12 +544,35 @@ func applyAddonMutations(orig client.AddonSpec, flags addonsUpgradeFlags, newVal
 	if flags.RegistryCredentialName != "" {
 		out.RegistryCredentialName = flags.RegistryCredentialName
 	}
+	// The configuration block is carried over, not rebuilt: it holds the
+	// GitOps values reference (from_file) and the encrypted_paths list, and
+	// dropping either would re-deploy the addon with default/empty values
+	// or with its SOPS paths unmarked (ankra-u8ho). A values replacement
+	// overwrites only values_base64 - and clears from_file, because the new
+	// values are inline and a stale pointer would contradict them.
+	out.Configuration = copyAddonConfiguration(orig.Configuration)
 	if newValuesB64 != nil {
-		out.Configuration = &client.AddonConfigurationSpec{
-			ValuesBase64: *newValuesB64,
+		if out.Configuration == nil {
+			out.Configuration = &client.AddonConfigurationSpec{}
 		}
+		out.Configuration.ValuesBase64 = *newValuesB64
+		out.Configuration.FromFile = ""
 	}
 	return out
+}
+
+// copyAddonConfiguration deep-copies the configuration block so a mutation
+// on the patch can never write through to the parsed IaC document the
+// dry-run preview renders as "before".
+func copyAddonConfiguration(original *client.AddonConfigurationSpec) *client.AddonConfigurationSpec {
+	if original == nil {
+		return nil
+	}
+	copied := *original
+	if original.EncryptedPaths != nil {
+		copied.EncryptedPaths = append([]string(nil), original.EncryptedPaths...)
+	}
+	return &copied
 }
 
 // manifestsUpgradeFlags is the parsed view of the flag set for

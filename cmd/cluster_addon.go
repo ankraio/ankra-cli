@@ -498,8 +498,12 @@ func runAddonsUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	mutatedAddon := applyAddonMutations(*addon, flags, newValuesB64)
-	if mutatedAddon.Configuration != nil && len(encryptedPaths) > 0 {
-		mutatedAddon.Configuration.EncryptedPaths = encryptedPaths
+	// Replacing the values inlines them, so the GitOps pointer they came
+	// from goes away: say so rather than letting it vanish from the diff
+	// unremarked. A non-values change keeps the pointer (ankra-u8ho).
+	if newValuesB64 != nil && addon.Configuration != nil && addon.Configuration.FromFile != "" {
+		notices = append(notices, fmt.Sprintf(
+			"values are sent inline, replacing the configuration.from_file reference %q", addon.Configuration.FromFile))
 	}
 	if flags.HasParentEdit() {
 		parents, pErr := mergeParents(addon.Parents, flags.AddParents, flags.RemoveParents, flags.SetParents)
