@@ -334,6 +334,13 @@ type CreateImportClusterRequest struct {
 	Name        string             `json:"name"`
 	Description string             `json:"description,omitempty"`
 	Spec        CreateResourceSpec `json:"spec"`
+	// AllowRepoint acknowledges that moving the cluster to a different GitOps
+	// repository or branch prunes whatever the new source does not define.
+	// Omitted unless asked for, so an ordinary apply carries neither flag.
+	AllowRepoint bool `json:"allow_repoint,omitempty"`
+	// AllowRepointDestroyingData is the separate acknowledgement the server
+	// requires when the cluster holds PersistentVolumeClaims.
+	AllowRepointDestroyingData bool `json:"allow_repoint_destroying_data,omitempty"`
 }
 
 type ImportResponseErrorItem struct {
