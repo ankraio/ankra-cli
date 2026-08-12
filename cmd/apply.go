@@ -25,6 +25,13 @@ var clusterApplyCmd = &cobra.Command{
 func init() {
 	clusterApplyCmd.Flags().StringP("file", "f", "", "Path to the ImportCluster YAML file to apply")
 	clusterApplyCmd.Flags().Bool("dry-run", false, "Validate the ImportCluster YAML locally without calling the API")
+	// Repointing a cluster's GitOps source removes whatever the new source does
+	// not define. The server refuses it without these, so they are the CLI half
+	// of that gate rather than a local check (ankra-po6d).
+	clusterApplyCmd.Flags().Bool("allow-repoint", false,
+		"Allow this apply to change the cluster's GitOps repository or branch. Resources the new source does not define are pruned")
+	clusterApplyCmd.Flags().Bool("allow-repoint-destroying-data", false,
+		"Additionally allow a repoint on a cluster holding PersistentVolumeClaims, whose data the prune destroys. Requires --allow-repoint")
 	registerAsyncWriteFlags(clusterApplyCmd)
 	// The shared wording ("wait for the operation to finish") is true of the
 	// node-group and bastion writes, but on apply it promises more than it
@@ -61,6 +68,20 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
 	}
+
+	allowRepoint, err := cmd.Flags().GetBool("allow-repoint")
+	if err != nil {
+		return fmt.Errorf("reading --allow-repoint: %w", err)
+	}
+	allowRepointDestroyingData, err := cmd.Flags().GetBool("allow-repoint-destroying-data")
+	if err != nil {
+		return fmt.Errorf("reading --allow-repoint-destroying-data: %w", err)
+	}
+	if allowRepointDestroyingData && !allowRepoint {
+		return errors.New("--allow-repoint-destroying-data requires --allow-repoint")
+	}
+	importRequest.AllowRepoint = allowRepoint
+	importRequest.AllowRepointDestroyingData = allowRepointDestroyingData
 
 	if err := validateResourceGraph(importRequest); err != nil {
 		return fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
