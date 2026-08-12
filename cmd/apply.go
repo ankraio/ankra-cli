@@ -26,6 +26,18 @@ func init() {
 	clusterApplyCmd.Flags().StringP("file", "f", "", "Path to the ImportCluster YAML file to apply")
 	clusterApplyCmd.Flags().Bool("dry-run", false, "Validate the ImportCluster YAML locally without calling the API")
 	registerAsyncWriteFlags(clusterApplyCmd)
+	// The shared wording ("wait for the operation to finish") is true of the
+	// node-group and bastion writes, but on apply it promises more than it
+	// delivers: the server commits the configuration, pushes to Git and
+	// returns, and the reconciler dispatches the add-on deploys afterwards.
+	// A reporter read the old text as a rollout gate and took a clean exit 0
+	// as proof the deploy had succeeded while three add-ons crash-looped
+	// (ankra-6j2w / PLA-748, from Ankra #1059).
+	if waitFlag := clusterApplyCmd.Flags().Lookup("wait"); waitFlag != nil {
+		waitFlag.Usage = "Wait for the configuration write to be applied and report its result. " +
+			"Add-on deploys are dispatched afterwards and are NOT covered by this flag - " +
+			"watch them with 'ankra cluster operations list'"
+	}
 	registerStructuredOutputFlags(clusterApplyCmd)
 	setDryRunOffline(clusterApplyCmd)
 	_ = clusterApplyCmd.MarkFlagRequired("file")
@@ -104,7 +116,9 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	}
 
 	if importResponse.ImportCommand == "" {
-		fmt.Printf("Cluster '%s' has been updated!\n\n", importResponse.Name)
+		fmt.Printf("Cluster '%s' configuration applied.\n\n", importResponse.Name)
+		fmt.Println("Add-on and manifest deploys run in the background from here.")
+		fmt.Println("Track them with 'ankra cluster operations list' before treating this as deployed.")
 	} else {
 		fmt.Printf("Cluster '%s' imported!\n\n", importResponse.Name)
 		fmt.Println("To install the Ankra agent, run:")
