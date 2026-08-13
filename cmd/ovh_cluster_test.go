@@ -207,6 +207,22 @@ func setStdin(t *testing.T, input string) {
 // resetOvhNodeGroupFlags clears flag state (notably Changed) that cobra retains
 // between Execute calls on the same command instance, so each test observes a
 // fresh invocation.
+// resetOvhCommandFlags clears flag state that cobra keeps on the command
+// between invocations; without it a slice flag set by one test is still set
+// for the next one.
+func resetOvhCommandFlags(t *testing.T, commands ...*cobra.Command) {
+	t.Helper()
+	for _, command := range commands {
+		command.Flags().VisitAll(func(flag *pflag.Flag) {
+			_ = flag.Value.Set(flag.DefValue)
+			if sliceValue, isSlice := flag.Value.(pflag.SliceValue); isSlice {
+				_ = sliceValue.Replace(nil)
+			}
+			flag.Changed = false
+		})
+	}
+}
+
 func resetOvhNodeGroupFlags(t *testing.T) {
 	t.Helper()
 	for _, command := range []*cobra.Command{
@@ -448,5 +464,131 @@ func TestOvhNodeGroupDelete_YesSkipsPrompt(t *testing.T) {
 	}
 	if !mock.called {
 		t.Error("API must be called when --yes skips the prompt")
+	}
+}
+
+type ovhCreateZonesMock struct {
+	baseMock
+	gotRequest client.CreateOvhClusterRequest
+}
+
+func (m *ovhCreateZonesMock) CreateOvhCluster(req client.CreateOvhClusterRequest) (*client.CreateOvhClusterResponse, error) {
+	m.gotRequest = req
+	return &client.CreateOvhClusterResponse{ClusterID: "ovh-123", Name: req.Name}, nil
+}
+
+// Without the flag reaching the request the cluster is created single-zone and
+// nothing downstream can tell, which is the failure this whole lane exists to
+// prevent.
+func TestOvhCreateSendsTheRequestedAvailabilityZones(t *testing.T) {
+	resetOvhCommandFlags(t, ovhCreateCmd)
+	mock := &ovhCreateZonesMock{}
+	setMockClient(t, mock)
+
+	_, err := executeCommand("cluster", "ovh", "create",
+		"--name", "prod-multi-az",
+		"--credential-id", "credential-1",
+		"--ssh-key-credential-id", "ssh-1",
+		"--region", "EU-WEST-PAR",
+		"--control-plane-count", "3",
+		"--availability-zones", "eu-west-par-a,eu-west-par-b,eu-west-par-c")
+	if err != nil {
+		t.Fatalf("creating the cluster: %v", err)
+	}
+
+	want := []string{"eu-west-par-a", "eu-west-par-b", "eu-west-par-c"}
+	if len(mock.gotRequest.AvailabilityZones) != len(want) {
+		t.Fatalf("availability zones = %v, want %v", mock.gotRequest.AvailabilityZones, want)
+	}
+	for index, zone := range want {
+		if mock.gotRequest.AvailabilityZones[index] != zone {
+			t.Fatalf("availability zones = %v, want %v in order (order decides where the first control plane lands)",
+				mock.gotRequest.AvailabilityZones, want)
+		}
+	}
+}
+
+// An unzoned create must keep sending no zones at all: an empty list would
+// change the stored definition shape of every single-zone cluster.
+func TestOvhCreateOmitsAvailabilityZonesWhenNotAsked(t *testing.T) {
+	resetOvhCommandFlags(t, ovhCreateCmd)
+	mock := &ovhCreateZonesMock{}
+	setMockClient(t, mock)
+
+	_, err := executeCommand("cluster", "ovh", "create",
+		"--name", "single-zone",
+		"--credential-id", "credential-1",
+		"--ssh-key-credential-id", "ssh-1",
+		"--region", "GRA")
+	if err != nil {
+		t.Fatalf("creating the cluster: %v", err)
+	}
+	if len(mock.gotRequest.AvailabilityZones) != 0 {
+		t.Fatalf("availability zones = %v, want none", mock.gotRequest.AvailabilityZones)
+	}
+}
+
+type ovhNodeGroupZoneMock struct {
+	baseMock
+	gotRequest client.AddNodeGroupRequest
+}
+
+func (m *ovhNodeGroupZoneMock) AddOvhNodeGroup(_ context.Context, _ string, req client.AddNodeGroupRequest, _ bool) (*client.AddNodeGroupResult, bool, error) {
+	m.gotRequest = req
+	return &client.AddNodeGroupResult{GroupName: req.Name, Count: req.Count}, false, nil
+}
+
+// Pinning is what a zonal-storage workload needs: an OVH volume cannot attach
+// from another zone, so the group has to stay where its volumes are.
+func TestOvhNodeGroupAddSendsTheAvailabilityZone(t *testing.T) {
+	resetOvhNodeGroupFlags(t)
+	mock := &ovhNodeGroupZoneMock{}
+	setMockClient(t, mock)
+
+	_, err := executeCommand("cluster", "ovh", "node-group", "add", "ovh-123",
+		"--name", "database", "--instance-type", "r3-128", "--count", "1",
+		"--availability-zone", "eu-west-par-c")
+	if err != nil {
+		t.Fatalf("adding the node group: %v", err)
+	}
+	if mock.gotRequest.AvailabilityZone != "eu-west-par-c" {
+		t.Fatalf("availability zone = %q, want eu-west-par-c", mock.gotRequest.AvailabilityZone)
+	}
+}
+
+type ovhRegionsZonesMock struct {
+	baseMock
+	gotWithDetails bool
+}
+
+func (m *ovhRegionsZonesMock) ListOvhRegions(_ string, withDetails bool) (*client.OvhRegionListResult, error) {
+	m.gotWithDetails = withDetails
+	return &client.OvhRegionListResult{
+		Regions: []string{"EU-WEST-PAR", "GRA"},
+		RegionDetails: []client.OvhRegionDetail{
+			{Name: "EU-WEST-PAR", Type: "region-3-az", AvailabilityZones: []string{"eu-west-par-a", "eu-west-par-b", "eu-west-par-c"}},
+			{Name: "GRA", Type: "region"},
+		},
+	}, nil
+}
+
+// The zone names are region-scoped, so this listing is the only place a
+// caller can discover how to spell an --availability-zone.
+func TestOvhRegionsWithZonesListsTheZoneNames(t *testing.T) {
+	resetOvhCommandFlags(t, ovhRegionsCmd)
+	mock := &ovhRegionsZonesMock{}
+	setMockClient(t, mock)
+
+	output := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "ovh", "regions", "--credential-id", "credential-1", "--with-zones")
+	})
+
+	if !mock.gotWithDetails {
+		t.Error("--with-zones must ask the API for region details")
+	}
+	for _, wanted := range []string{"EU-WEST-PAR", "region-3-az", "eu-west-par-a", "eu-west-par-c", "GRA"} {
+		if !strings.Contains(output, wanted) {
+			t.Errorf("expected %q in the listing, got: %s", wanted, output)
+		}
 	}
 }

@@ -11,6 +11,17 @@ import (
 
 type OvhRegionListResult struct {
 	Regions []string `json:"regions"`
+	// RegionDetails is populated only when details were requested.
+	RegionDetails []OvhRegionDetail `json:"region_details,omitempty"`
+}
+
+// OvhRegionDetail carries a region's placement shape. Zone names are
+// region-scoped ("eu-west-par-a"), so listing them is what lets a caller
+// spell an --availability-zone correctly without reading OVH's API docs.
+type OvhRegionDetail struct {
+	Name              string   `json:"name"`
+	Type              string   `json:"type"`
+	AvailabilityZones []string `json:"availability_zones"`
 }
 
 type CreateOvhClusterRequest struct {
@@ -38,6 +49,11 @@ type CreateOvhClusterRequest struct {
 	GitopsCredentialName  *string `json:"gitops_credential_name,omitempty"`
 	GitopsRepository      *string `json:"gitops_repository,omitempty"`
 	GitopsBranch          *string `json:"gitops_branch,omitempty"`
+
+	// AvailabilityZones spreads the cluster across the zones of a 3-AZ
+	// region. Omitted leaves placement to OVH, which puts every instance of
+	// the cluster in one zone.
+	AvailabilityZones []string `json:"availability_zones,omitempty"`
 }
 
 type CreateOvhClusterResponse struct {
@@ -155,8 +171,15 @@ func (c *Client) DeprovisionOvhCluster(clusterID string) (*DeprovisionOvhCluster
 	return &result, nil
 }
 
-func (c *Client) ListOvhRegions(credentialID string) (*OvhRegionListResult, error) {
+// ListOvhRegions lists the regions a credential's project can deploy in.
+// withDetails additionally resolves each region's type and availability
+// zones, which costs one OVH call per region server-side and so stays
+// opt-in.
+func (c *Client) ListOvhRegions(credentialID string, withDetails bool) (*OvhRegionListResult, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/regions?credential_id=%s", c.BaseURL, url.QueryEscape(credentialID))
+	if withDetails {
+		endpoint += "&details=true"
+	}
 	var result OvhRegionListResult
 	if err := c.getJSON(endpoint, &result); err != nil {
 		return nil, err

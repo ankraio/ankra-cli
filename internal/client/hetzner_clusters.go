@@ -238,6 +238,10 @@ type AddNodeGroupRequest struct {
 	Count        int               `json:"count"`
 	Labels       map[string]string `json:"labels,omitempty"`
 	Taints       []NodeTaint       `json:"taints,omitempty"`
+	// AvailabilityZone pins every node of the group to one zone, on OVH 3-AZ
+	// regions. Omitted spreads the group across the cluster's zone pool when
+	// it has one, and leaves placement to the provider when it does not.
+	AvailabilityZone string `json:"availability_zone,omitempty"`
 }
 
 type AddNodeGroupResult struct {
