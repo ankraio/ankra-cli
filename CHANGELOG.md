@@ -1,5 +1,16 @@
 # Ankra CLI Changelog
 
+## v0.10.1 — 2026-08-13
+
+### Fixed
+
+- **The OVH availability-zone flags render their type in `--help` again.**
+  Cobra takes the first backquoted text in a flag's usage string as the
+  value placeholder, so the pointer to the discovery command turned into the
+  placeholder itself and `--availability-zones` displayed as
+  `--availability-zones ankra cluster ovh regions --with-zones` instead of
+  `--availability-zones strings`. The flags themselves were never affected.
+
 ## v0.10.0 — 2026-08-13
 
 Promotes v0.10.0-rc1 and rc2, and adds everything since: OVH availability
