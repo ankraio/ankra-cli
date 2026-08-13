@@ -592,3 +592,30 @@ func TestOvhRegionsWithZonesListsTheZoneNames(t *testing.T) {
 		}
 	}
 }
+
+type ovhRegionsNoDetailsMock struct {
+	baseMock
+}
+
+func (m *ovhRegionsNoDetailsMock) ListOvhRegions(_ string, _ bool) (*client.OvhRegionListResult, error) {
+	return &client.OvhRegionListResult{Regions: []string{"EU-WEST-PAR", "GRA"}}, nil
+}
+
+// A CLI newer than the Ankra API it is talking to asks for details and gets
+// the bare list back. Printing the regions without zones beats printing a
+// header with nothing under it.
+func TestOvhRegionsWithZonesFallsBackOnAnOlderAPI(t *testing.T) {
+	resetOvhCommandFlags(t, ovhRegionsCmd)
+	mock := &ovhRegionsNoDetailsMock{}
+	setMockClient(t, mock)
+
+	output := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "ovh", "regions", "--credential-id", "credential-1", "--with-zones")
+	})
+
+	for _, wanted := range []string{"EU-WEST-PAR", "GRA", "does not report region details"} {
+		if !strings.Contains(output, wanted) {
+			t.Errorf("expected %q in the listing, got: %s", wanted, output)
+		}
+	}
+}

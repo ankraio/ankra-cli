@@ -286,9 +286,15 @@ var ovhRegionsCmd = &cobra.Command{
 			return nil
 		}
 		fmt.Printf("Regions available to credential %s:\n", credentialID)
-		if !withZones {
+		// An API that predates region details answers the bare list and
+		// ignores the query parameter. Printing the plain names beats
+		// printing nothing at all under a header.
+		if !withZones || len(result.RegionDetails) == 0 {
 			for _, region := range result.Regions {
 				fmt.Printf("  %s\n", region)
+			}
+			if withZones {
+				fmt.Println("\nThis Ankra API does not report region details yet, so no zones are shown.")
 			}
 			return nil
 		}
