@@ -39,6 +39,19 @@ ankra cluster ovh create \
 
 Hetzner/UpCloud/DigitalOcean `create` take equivalent flags (`--name`, `--credential-id`, location/region, control-plane and worker sizes/counts, `--ssh-key-credential-id[s]`, optional `--kubernetes-version`). Run `ankra cluster <provider> create --help` for the provider-specific server-type/location flags.
 
+OVH availability zones (3-AZ regions only, currently `EU-WEST-PAR`):
+
+```bash
+ankra cluster ovh regions --credential-id <id> --with-zones     # only region-3-az regions take zones
+ankra cluster ovh create --name prod --region EU-WEST-PAR \
+  --availability-zones eu-west-par-a,eu-west-par-b,eu-west-par-c \
+  --control-plane-count 3                                       # 3 CPs required to spread: etcd quorum
+ankra cluster ovh node-group add <cluster_id> --name db-par-a \
+  --availability-zone eu-west-par-a                              # pin a group to one zone
+```
+
+Zone names are region-scoped, so read them from `--with-zones` rather than guessing. An instance's zone is fixed at creation: workers can be re-placed by adding a pinned group and draining the old one, a control plane cannot. **Node spread alone is not zone fault tolerance** - OVH block storage is zonal and cannot attach across zones, so a stateful workload also needs one replica and one volume per zone.
+
 DigitalOcean discovery before create:
 
 ```bash

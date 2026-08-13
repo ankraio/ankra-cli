@@ -911,7 +911,7 @@ func (m baseMock) UpgradeOvhK8sVersion(clusterID, targetVersion string, force bo
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListOvhRegions(credentialID string) (*client.OvhRegionListResult, error) {
+func (m baseMock) ListOvhRegions(credentialID string, withDetails bool) (*client.OvhRegionListResult, error) {
 	return nil, errors.New("not implemented")
 }
 

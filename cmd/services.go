@@ -253,7 +253,7 @@ type APIClient interface {
 	ScaleOvhWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error)
 	GetOvhK8sVersion(clusterID string) (*client.K8sVersionInfo, error)
 	UpgradeOvhK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error)
-	ListOvhRegions(credentialID string) (*client.OvhRegionListResult, error)
+	ListOvhRegions(credentialID string, withDetails bool) (*client.OvhRegionListResult, error)
 	ListHetznerLocations(credentialID string) ([]client.HetznerLocation, error)
 	ListHetznerServerTypes(credentialID, location string) ([]client.HetznerServerType, error)
 	ListK3sVersions() (*client.ListVersionsResult, error)

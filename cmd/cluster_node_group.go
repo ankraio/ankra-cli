@@ -257,11 +257,13 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		instanceType, _ := cmd.Flags().GetString("instance-type")
 		count, _ := cmd.Flags().GetInt("count")
+		availabilityZone, _ := cmd.Flags().GetString("availability-zone")
 
 		req := client.AddNodeGroupRequest{
-			Name:         name,
-			InstanceType: instanceType,
-			Count:        count,
+			Name:             name,
+			InstanceType:     instanceType,
+			Count:            count,
+			AvailabilityZone: availabilityZone,
 		}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
@@ -655,6 +657,7 @@ func init() {
 	clusterNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
 	clusterNodeGroupAddCmd.Flags().String("instance-type", "", "Server type / flavor / plan for nodes (required)")
 	clusterNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes")
+	clusterNodeGroupAddCmd.Flags().String("availability-zone", "", "Pin every node of the group to one availability zone, on OVH 3-AZ regions (e.g. eu-west-par-b). See `ankra cluster ovh regions --with-zones`. Pin the group when it runs zonal storage: an OVH volume cannot attach from another zone")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("name")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("instance-type")
 
