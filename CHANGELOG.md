@@ -1,5 +1,47 @@
 # Ankra CLI Changelog
 
+## v0.10.0 — 2026-08-13
+
+Promotes v0.10.0-rc1 and rc2, and adds everything since: OVH availability
+zones, a playground cluster per organisation, demo inspection and repair,
+power schedules, GitOps repointing, and OpenRouter key management.
+
+### Added
+
+- **OVH availability zones.** An OVH cluster in a 3-AZ region such as
+  `EU-WEST-PAR` or `EU-SOUTH-MIL` used to put every node, control plane
+  included, in whichever single zone OVH picked. `ankra cluster ovh create`
+  now takes `--availability-zones eu-west-par-a,eu-west-par-b,eu-west-par-c`
+  to spread a cluster (control planes and etcd per role, workers per node
+  group), and `node-group add` takes `--availability-zone` to pin one group
+  to a single zone, which is what a workload on zonal storage needs. Zone
+  names are region-scoped, so `ankra cluster ovh regions --with-zones` lists
+  each region's type and its zones rather than leaving you to guess the
+  spelling. Spreading requires at least 3 control planes, since fewer cannot
+  hold etcd quorum through the loss of a zone.
+- **`ankra cluster playground` creates a throwaway cluster for an
+  organisation**, for trying the platform out without provisioning
+  infrastructure of your own.
+- **Demo inspection and repair.** `ankra application demo` gains detail,
+  logs, config and fix subcommands, so a demo that will not come up can be
+  diagnosed and corrected from the terminal.
+- **`ankra cluster power-schedules`** manages scheduled stop and start for a
+  cluster, so non-production estate can be parked outside working hours.
+- **`--allow-repoint` on cluster apply** permits changing a cluster's GitOps
+  source deliberately, instead of the change being refused or applied by
+  accident. Repointing prunes what the new source does not define, so it
+  stays opt-in.
+- **`ankra ai openrouter set-key` / `remove-key`** manage the OpenRouter API
+  key without going through the browser.
+
+### Fixed
+
+- **`ankra cluster apply` no longer implies it waited for the deploys.** It
+  reported success once the definition was accepted, which read as "the
+  workloads are up" when they had not started rolling out yet.
+- **An add-on's configuration block survives an upgrade.** Upgrading a chart
+  version dropped the configuration attached to the add-on.
+
 ## v0.10.0-rc2 — 2026-08-11
 
 Second release candidate for v0.10.0. Two new command families: GitOps
