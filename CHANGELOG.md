@@ -2,7 +2,26 @@
 
 ## Unreleased
 
+## v0.11.0-rc3 — 2026-08-16
+
+Release candidate, superseding v0.11.0-rc2 — rc2 predates `ankra org dns`
+entirely. Install it with `ankra config beta enable && ankra upgrade`, or
+download a binary from the release page; `ankra config beta disable` returns
+you to the stable channel.
+
 ### Added
+
+- **`ankra org dns` manages records in the organisation's own delegated
+  zone.** Every organisation gets a zone of its own (`ankra org dns zone`), and
+  until now the only way to point a memorable name at an add-on's generated
+  hostname was the API. `list` shows every record with its reconciliation
+  state, `add <name> <type> <content>` creates a CNAME, A, or TXT record under
+  the zone — the zone fqdn is appended for you — `update` re-points one at a
+  new target, and `delete` removes it. Records reconcile asynchronously, so a
+  new or edited record reads `pending` until it is published to the
+  authoritative nameservers and then turns `active`; a record that could not
+  be published reports why in the `ERROR` column rather than sitting silently
+  wrong.
 
 - **`ankra application registry` points an existing application at a container
   registry you operate.** An application publishes into the organisation's own
@@ -18,6 +37,16 @@
   Setting a registry without `--credential` is allowed but warns, because
   without a credential Ankra can describe where the images live and neither
   read nor pull them.
+
+### Fixed
+
+- **`ankra org dns --ttl` no longer offers a range the nameservers will not
+  serve.** The help advertised `30..604800`, but a record's ttl is capped at
+  one day upstream, and anything longer used to be quietly reduced to that —
+  so a record you set to a week reported a week back to you while resolvers
+  were told one day. The accepted range is now `30..86400` in both the help
+  and the platform, and a longer value is refused outright instead of being
+  silently rewritten.
 
 ## v0.11.0-rc2 — 2026-08-16
 
