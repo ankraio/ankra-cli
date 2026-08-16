@@ -277,8 +277,8 @@ func renderDnsRecords(out io.Writer, records []client.DnsRecord, format outputFo
 
 func init() {
 	registerStructuredOutputFlags(orgDnsZoneCmd, orgDnsListCmd)
-	orgDnsAddCmd.Flags().Int("ttl", 0, "TTL in seconds (30..604800); omitted means Auto")
-	orgDnsUpdateCmd.Flags().Int("ttl", 0, "TTL in seconds (30..604800); omitted keeps the record's current ttl")
+	orgDnsAddCmd.Flags().Int("ttl", 0, "TTL in seconds (30..86400); omitted means Auto")
+	orgDnsUpdateCmd.Flags().Int("ttl", 0, "TTL in seconds (30..86400); omitted keeps the record's current ttl")
 	orgDnsUpdateCmd.Flags().String("type", "", "Record type (CNAME, A, TXT) to disambiguate a name reference")
 	orgDnsDeleteCmd.Flags().String("type", "", "Record type (CNAME, A, TXT) to disambiguate a name reference")
 	orgDnsDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
