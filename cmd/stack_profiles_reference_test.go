@@ -8,6 +8,7 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -17,13 +18,24 @@ import (
 // profileLookupMock answers the profile listing used to resolve a name.
 type profileLookupMock struct {
 	baseMock
-	profiles  []client.StackProfileSummary
-	listError error
-	searched  string
+	profiles     []client.StackProfileSummary
+	listError    error
+	searched     string
+	pageSize     int
+	requestedAny bool
 }
 
-func (mock *profileLookupMock) ListStackProfiles(_, _ int, search string, _ string) (*client.StackProfileListResponse, error) {
+// ListStackProfiles records the paging the caller asked for and refuses
+// anything the real endpoint would reject, so a page size the API caps out is
+// a test failure here rather than a silent fallback in production.
+func (mock *profileLookupMock) ListStackProfiles(_, pageSize int, search string, _ string) (*client.StackProfileListResponse, error) {
 	mock.searched = search
+	mock.pageSize = pageSize
+	mock.requestedAny = true
+	if pageSize > maxProfileLookupPageSize {
+		return nil, fmt.Errorf("list stack profiles failed (422): page_size %d exceeds the API maximum of %d",
+			pageSize, maxProfileLookupPageSize)
+	}
 	if mock.listError != nil {
 		return nil, mock.listError
 	}
@@ -60,6 +72,36 @@ func TestResolveStackProfileIDResolvesAName(t *testing.T) {
 	}
 	if resolved != "3435f700-7f47-475c-9f69-864dcba502bc" {
 		t.Fatalf("resolved to the wrong profile: %q", resolved)
+	}
+}
+
+func TestResolveStackProfileIDAsksForAPageSizeTheAPIAccepts(t *testing.T) {
+	// Regression: the lookup asked for 200, the endpoint caps page_size at
+	// 100, so every resolution 422'd and fell back to the raw reference -
+	// which put the uuid_parsing error this whole path exists to remove
+	// straight back in front of the user. The shipped v0.11.0-rc1 binary had
+	// this bug; the unit tests missed it because the fake ignored paging.
+	mock := &profileLookupMock{profiles: []client.StackProfileSummary{
+		{ID: "3cd57498-062c-4dd8-878a-cd0372e5fcf6", Name: "llm-d"},
+	}}
+
+	resolved, resolveError := resolveStackProfileID(mock, "llm-d")
+
+	if resolveError != nil {
+		t.Fatalf("resolving a known name must not error: %v", resolveError)
+	}
+	if resolved != "3cd57498-062c-4dd8-878a-cd0372e5fcf6" {
+		t.Fatalf("the name did not resolve; got %q", resolved)
+	}
+	if !mock.requestedAny {
+		t.Fatal("a non-uuid reference must consult the listing")
+	}
+	if mock.pageSize > maxProfileLookupPageSize {
+		t.Fatalf("requested page_size %d exceeds the API maximum of %d",
+			mock.pageSize, maxProfileLookupPageSize)
+	}
+	if mock.searched != "llm-d" {
+		t.Fatalf("the name must be pushed down as the server-side search filter, got %q", mock.searched)
 	}
 }
 
