@@ -1,5 +1,21 @@
 # Ankra CLI Changelog
 
+## v0.11.0-rc2 — 2026-08-16
+
+Release candidate, superseding v0.11.0-rc1 — **do not use rc1**, the headline
+change in it did not work.
+
+### Fixed
+
+- **Profile-name resolution actually resolves now.** The lookup asked the
+  profiles endpoint for a page of 200, but it caps `page_size` at 100 and
+  rejects anything larger. Because the lookup falls back to the reference you
+  typed whenever listing fails — so that a working profile id never breaks on
+  account of an unrelated endpoint — every name silently fell through to the
+  API and produced exactly the `uuid_parsing` error the feature exists to
+  remove. `ankra stack-profiles get llm-d` works in rc2; in rc1 it still
+  failed.
+
 ## v0.11.0-rc1 — 2026-08-16
 
 Release candidate. Install it with `ankra config beta enable && ankra upgrade`,
