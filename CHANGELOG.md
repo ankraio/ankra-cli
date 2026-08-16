@@ -19,6 +19,58 @@
   without a credential Ankra can describe where the images live and neither
   read nor pull them.
 
+## v0.11.0-rc2 — 2026-08-16
+
+Release candidate, superseding v0.11.0-rc1 — **do not use rc1**, the headline
+change in it did not work.
+
+### Fixed
+
+- **Profile-name resolution actually resolves now.** The lookup asked the
+  profiles endpoint for a page of 200, but it caps `page_size` at 100 and
+  rejects anything larger. Because the lookup falls back to the reference you
+  typed whenever listing fails — so that a working profile id never breaks on
+  account of an unrelated endpoint — every name silently fell through to the
+  API and produced exactly the `uuid_parsing` error the feature exists to
+  remove. `ankra stack-profiles get llm-d` works in rc2; in rc1 it still
+  failed.
+
+## v0.11.0-rc1 — 2026-08-16
+
+Release candidate. Install it with `ankra config beta enable && ankra upgrade`,
+or download a binary from the release page; `ankra config beta disable` returns
+you to the stable channel.
+
+### Fixed
+
+- **`ankra stack-profiles get`, `export-iac` and `apply` accept a profile
+  name.** `stack-profiles list` prints a NAME column, so a name is the obvious
+  thing to pass to the next command — but doing so leaked the API's raw
+  validation dump (`uuid_parsing`, `expected an optional prefix of urn:uuid:`),
+  which says nothing about what to do instead. The commands now resolve a name
+  to its id, report an unknown name by pointing at `stack-profiles list`, and
+  list the candidates when a name is ambiguous. A profile id is still used
+  directly and costs no extra lookup, and if the profile listing is
+  unavailable the reference is passed through unchanged so a working id never
+  fails on account of it.
+
+- **`--version` accepts the `v1` form the CLI itself prints.** Every Ankra
+  surface labels profile versions `v1` — the LATEST column in
+  `stack-profiles list`, and "Latest version: v1" in `stack-profiles get` —
+  but the flag was an integer, so copying that value back gave
+  `strconv.ParseInt: parsing "v1": invalid syntax`. Both `1` and `v1` now
+  work, and anything unparseable fails with a message naming the accepted
+  forms. Omitting the flag still means "the profile's current version".
+
+### Security
+
+- **The binaries are built with Go 1.26.6.** The toolchain was pinned to Go
+  1.26.5, against which `govulncheck` reports four reachable standard-library
+  vulnerabilities — including `encoding/asn1` recursion depth (GO-2026-5972)
+  and Punycode label handling in `net/http` (GO-2026-5026) — all of them
+  reachable from the CLI's own HTTP client and login paths, and all fixed in
+  Go 1.26.6.
+
 ## v0.10.1 — 2026-08-13
 
 ### Fixed

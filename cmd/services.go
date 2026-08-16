@@ -72,6 +72,12 @@ type APIClient interface {
 	UpdateClusterVariable(ctx context.Context, clusterID, name, value, description string) (*client.ClusterVariableResult, error)
 	DeleteClusterVariable(ctx context.Context, clusterID, name string) error
 
+	GetOrganisationDnsZone(ctx context.Context) (*client.DnsZone, error)
+	ListOrganisationDnsRecords(ctx context.Context) (*client.DnsRecordsListResult, error)
+	CreateOrganisationDnsRecord(ctx context.Context, name, recordType, content string, ttl *int) (*client.DnsRecord, error)
+	UpdateOrganisationDnsRecord(ctx context.Context, recordID, content string, ttl *int) (*client.DnsRecord, error)
+	DeleteOrganisationDnsRecord(ctx context.Context, recordID string) error
+
 	CreateSupportTicket(ctx context.Context, req client.CreateSupportTicketRequest) (*client.SupportTicket, error)
 	ReviewSupportTicket(ctx context.Context, req client.ReviewSupportTicketRequest) (*client.SupportTicketReview, error)
 	ListSupportTickets(ctx context.Context, opts client.ListSupportTicketsOptions) (*client.SupportTicketListResponse, error)

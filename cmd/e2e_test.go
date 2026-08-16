@@ -351,6 +351,26 @@ func (m baseMock) DeleteClusterVariable(ctx context.Context, clusterID, name str
 	return errors.New("not implemented")
 }
 
+func (m baseMock) GetOrganisationDnsZone(ctx context.Context) (*client.DnsZone, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListOrganisationDnsRecords(ctx context.Context) (*client.DnsRecordsListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateOrganisationDnsRecord(ctx context.Context, name, recordType, content string, ttl *int) (*client.DnsRecord, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateOrganisationDnsRecord(ctx context.Context, recordID, content string, ttl *int) (*client.DnsRecord, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteOrganisationDnsRecord(ctx context.Context, recordID string) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) CreateSupportTicket(ctx context.Context, req client.CreateSupportTicketRequest) (*client.SupportTicket, error) {
 	return nil, errors.New("not implemented")
 }
