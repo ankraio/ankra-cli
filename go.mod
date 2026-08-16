@@ -2,7 +2,7 @@ module ankra
 
 go 1.25.0
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
