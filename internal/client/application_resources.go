@@ -44,6 +44,26 @@ type DeployApplicationDemoRequest struct {
 	ContainerPort *int    `json:"container_port,omitempty"`
 }
 
+// UpdateApplicationImageRegistryRequest mirrors the image-registry body. The
+// key is always sent: an explicit null is how the declaration is cleared and
+// the application handed back to the organisation's own registry project, so
+// the pointer must survive marshalling rather than being omitted.
+type UpdateApplicationImageRegistryRequest struct {
+	ImageRegistry *ApplicationImageRegistry `json:"image_registry"`
+}
+
+// ApplicationImageRegistry is the declared registry an application publishes
+// to and Ankra reads its images back from.
+type ApplicationImageRegistry struct {
+	URL                  string `json:"url"`
+	CredentialName       string `json:"credential_name,omitempty"`
+	APIURL               string `json:"api_url,omitempty"`
+	PullSecretName       string `json:"pull_secret_name,omitempty"`
+	UsernameSecretName   string `json:"username_secret_name,omitempty"`
+	PasswordSecretName   string `json:"password_secret_name,omitempty"`
+	ManageActionsSecrets bool   `json:"manage_actions_secrets,omitempty"`
+}
+
 // applicationResourceRequest performs a bearer-authenticated request against
 // an application subresource and returns the raw JSON body on success. The
 // FastAPI `detail` string is surfaced as the error message on non-200 so the
@@ -285,4 +305,14 @@ func (client *Client) UpdateApplicationDemoConfig(requestContext context.Context
 
 func (client *Client) FixApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error) {
 	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/demos/"+workspaceID+"/fix"), nil, nil)
+}
+
+// --- image registry ---
+
+func (client *Client) GetApplicationImageRegistry(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/image-registry"), nil, nil)
+}
+
+func (client *Client) UpdateApplicationImageRegistry(requestContext context.Context, applicationID string, registryRequest UpdateApplicationImageRegistryRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/image-registry"), nil, registryRequest)
 }
