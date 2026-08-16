@@ -235,6 +235,14 @@ func (m baseMock) FixApplicationDemo(requestContext context.Context, application
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetApplicationImageRegistry(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateApplicationImageRegistry(requestContext context.Context, applicationID string, registryRequest client.UpdateApplicationImageRegistryRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error) {
 	return nil, errors.New("not implemented")
 }

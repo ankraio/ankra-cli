@@ -124,6 +124,7 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 		}),
 	)
 	applicationCommand.AddCommand(newApplicationDemoCommand())
+	applicationCommand.AddCommand(newApplicationRegistryCommand())
 }
 
 func newApplicationDeleteCommand() *cobra.Command {

@@ -1,5 +1,24 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra application registry` points an existing application at a container
+  registry you operate.** An application publishes into the organisation's own
+  Ankra registry project unless it declares otherwise, and that declaration
+  could previously only be made when the application was created — so an
+  organisation whose builds push to their own Harbor had no way to correct an
+  already-onboarded application, and Ankra kept reporting its images as never
+  published. `registry get` shows the effective registry, the host and project
+  it resolves to, and the image repository each component is expected to
+  publish to, so you can compare them against where your builds actually push.
+  `registry set --url oci://<host>/<project> --credential <name>` declares one;
+  `registry clear` returns the application to the organisation's own registry.
+  Setting a registry without `--credential` is allowed but warns, because
+  without a credential Ankra can describe where the images live and neither
+  read nor pull them.
+
 ## v0.10.1 — 2026-08-13
 
 ### Fixed
