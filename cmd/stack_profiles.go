@@ -22,6 +22,15 @@ var stackProfilesCmd = &cobra.Command{
 	Long:  "List, export, and import organisation-level stack profiles.",
 }
 
+// maxProfileLookupPageSize is the largest page_size the profiles endpoint
+// accepts. Asking for more is rejected outright ("Input should be less than
+// or equal to 100"), which - because the lookup falls back to the raw
+// reference when listing fails - turned every name resolution back into the
+// uuid_parsing error it exists to prevent. The `search` filter runs
+// server-side on the name, so one page is more than enough to find an exact
+// match.
+const maxProfileLookupPageSize = 100
+
 // stackProfileIDPattern matches the canonical UUID form the API expects for a
 // profile id. Anything else is treated as a profile name to resolve.
 var stackProfileIDPattern = regexp.MustCompile(
@@ -37,7 +46,7 @@ func resolveStackProfileID(profiles APIClient, reference string) (string, error)
 	if stackProfileIDPattern.MatchString(reference) {
 		return reference, nil
 	}
-	listing, listError := profiles.ListStackProfiles(1, 200, reference, "")
+	listing, listError := profiles.ListStackProfiles(1, maxProfileLookupPageSize, reference, "")
 	if listError != nil {
 		// The lookup is a convenience, not the operation. If listing is
 		// unavailable, hand the reference to the API unchanged and let the
