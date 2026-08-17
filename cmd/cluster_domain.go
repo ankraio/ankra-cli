@@ -9,8 +9,11 @@ import (
 var clusterDomainCmd = &cobra.Command{
 	Use:   "domain <cluster>",
 	Short: "Show the cluster's generated public domain, enabling it if needed",
-	Long: `Show the cluster's generated public domain on ankra.cc, queueing the zone
-if the cluster does not have one yet.
+	Long: `Show the cluster's generated public domain, queueing the zone if the
+cluster does not have one yet. The domain nests under the organisation's
+Ankra-managed root (ankra.cc by default; organisations may select another
+offered root, such as smartoptics.dev, in the organisation's AI environment
+settings).
 
 The call is idempotent: a cluster that already has a zone reports its
 existing domain unchanged, so this doubles as a lookup. A fresh zone reads
