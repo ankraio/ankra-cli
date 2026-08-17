@@ -93,8 +93,11 @@ func (c *Client) CreateUpcloudCluster(req CreateUpcloudClusterRequest) (*CreateU
 	return &result, nil
 }
 
-func (c *Client) DeprovisionUpcloudCluster(clusterID string) (*DeprovisionUpcloudClusterResponse, error) {
+func (c *Client) DeprovisionUpcloudCluster(clusterID string, force bool) (*DeprovisionUpcloudClusterResponse, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s", c.BaseURL, clusterID)
+	if force {
+		url = url + "?force=true"
+	}
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -223,8 +226,11 @@ func (c *Client) ScaleUpcloudWorkers(clusterID string, workerCount int) (*ScaleW
 	return c.doScaleWorkers(scaleURL, workerCount)
 }
 
-func (c *Client) StopUpcloudCluster(clusterID string) (*StopUpcloudClusterResponse, error) {
+func (c *Client) StopUpcloudCluster(clusterID string, force bool) (*StopUpcloudClusterResponse, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/stop", c.BaseURL, url.PathEscape(clusterID))
+	if force {
+		endpoint = endpoint + "?force=true"
+	}
 	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

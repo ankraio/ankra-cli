@@ -1067,11 +1067,11 @@ func (m baseMock) CreateUpcloudCluster(req client.CreateUpcloudClusterRequest) (
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionUpcloudCluster(clusterID string) (*client.DeprovisionUpcloudClusterResponse, error) {
+func (m baseMock) DeprovisionUpcloudCluster(clusterID string, force bool) (*client.DeprovisionUpcloudClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopUpcloudCluster(clusterID string) (*client.StopUpcloudClusterResponse, error) {
+func (m baseMock) StopUpcloudCluster(clusterID string, force bool) (*client.StopUpcloudClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
