@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v0.11.0-rc4 — 2026-08-17
+
+Release candidate, superseding v0.11.0-rc3. Install it with `ankra config
+beta enable && ankra upgrade`, or download a binary from the release page;
+`ankra config beta disable` returns you to the stable channel.
+
 ### Added
 
 - **`ankra cluster managed discover` and `ankra cluster managed import` adopt
