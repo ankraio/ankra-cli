@@ -149,6 +149,10 @@
   neither `resize` (the CLI has no bastion instance-type call for these three)
   nor `diagnose` on Scaleway, whose managed Public Gateway is probed by the
   health loop but has no SSH job lane.
+- **`ankra cluster upcloud create --cni`** selects the container network
+  interface for k3s clusters (`flannel`, `calico`, or `cilium`; the platform
+  default applies when omitted), closing a gap where the CNI was only
+  choosable from the portal wizard and the API.
 
 ### Fixed
 

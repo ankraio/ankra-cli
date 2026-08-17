@@ -22,6 +22,7 @@ type CreateUpcloudClusterRequest struct {
 	WorkerCount           int     `json:"worker_count"`
 	WorkerPlan            string  `json:"worker_plan"`
 	Distribution          string  `json:"distribution"`
+	CNI                   string  `json:"cni,omitempty"`
 	KubernetesVersion     *string `json:"kubernetes_version,omitempty"`
 	EtcdTopology          string  `json:"etcd_topology,omitempty"`
 	EtcdNodeCount         int     `json:"etcd_node_count,omitempty"`

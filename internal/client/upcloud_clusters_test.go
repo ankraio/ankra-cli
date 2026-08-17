@@ -527,3 +527,52 @@ func TestCreateUpcloudCluster_SendsExplicitNetworkIPRange(t *testing.T) {
 		t.Errorf("network_ip_range = %v, want 10.90.0.0/24", receivedBody["network_ip_range"])
 	}
 }
+
+func TestCreateUpcloudCluster_SendsCNI(t *testing.T) {
+	expectedResponse := CreateUpcloudClusterResponse{ClusterID: "upcloud-cluster-456", Name: "gpu-chat"}
+	var receivedBody map[string]any
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	})
+	req := CreateUpcloudClusterRequest{
+		Name: "gpu-chat", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Zone: "fi-hel2", BastionPlan: "1xCPU-2GB",
+		ControlPlaneCount: 1, ControlPlanePlan: "2xCPU-4GB",
+		WorkerCount: 1, WorkerPlan: "GPU-8xCPU-64GB-1xL4", Distribution: "k3s",
+		CNI: "cilium",
+	}
+	if _, err := testClient.CreateUpcloudCluster(req); err != nil {
+		t.Fatalf("CreateUpcloudCluster: %v", err)
+	}
+	if got, ok := receivedBody["cni"].(string); !ok || got != "cilium" {
+		t.Errorf("cni = %v, want cilium", receivedBody["cni"])
+	}
+}
+
+// An unset CNI must stay off the wire so the platform applies its own
+// default instead of validating an empty string against its allowed values.
+func TestCreateUpcloudCluster_OmitsUnsetCNI(t *testing.T) {
+	expectedResponse := CreateUpcloudClusterResponse{ClusterID: "upcloud-cluster-456", Name: "gpu-chat"}
+	var receivedBody map[string]any
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	})
+	req := CreateUpcloudClusterRequest{
+		Name: "gpu-chat", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Zone: "fi-hel2", BastionPlan: "1xCPU-2GB",
+		ControlPlaneCount: 1, ControlPlanePlan: "2xCPU-4GB",
+		WorkerCount: 1, WorkerPlan: "2xCPU-4GB", Distribution: "k3s",
+	}
+	if _, err := testClient.CreateUpcloudCluster(req); err != nil {
+		t.Fatalf("CreateUpcloudCluster: %v", err)
+	}
+	if value, present := receivedBody["cni"]; present {
+		t.Errorf("cni must be omitted when unset, got %v", value)
+	}
+}
