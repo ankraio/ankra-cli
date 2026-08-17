@@ -454,4 +454,19 @@ type APIClient interface {
 	DiscoverManagedClusters(provider client.ManagedK8sProvider, credentialID string) (*client.DiscoverManagedClustersResponse, error)
 	ImportManagedCluster(provider client.ManagedK8sProvider, request client.ImportManagedClusterRequest) (*client.ImportManagedClusterResponse, error)
 	EnableClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error)
+
+	ListAlertDestinations(options client.ListAlertDestinationsOptions) (*client.AlertDestinationList, error)
+	GetAlertDestination(destinationID string) (*client.AlertDestination, error)
+	CreateAlertDestination(request client.CreateAlertDestinationRequest) (*client.AlertDestination, error)
+	UpdateAlertDestination(destinationID string, request client.UpdateAlertDestinationRequest) (*client.AlertDestination, error)
+	DeleteAlertDestination(destinationID string) (*client.DeleteAlertDestinationResult, error)
+	TestAlertDestination(destinationID string) (*client.AlertDestinationTestResult, error)
+	TestAlertDestinationURL(request client.TestAlertDestinationURLRequest) (*client.AlertDestinationTestResult, error)
+	ListSlackChannels() (*client.SlackChannelList, error)
+	ListTeamsChannels() (*client.TeamsChannelList, error)
+	ListNotificationRoutes() (*client.NotificationRouteList, error)
+	CreateNotificationRoute(request client.CreateNotificationRouteRequest) (*client.NotificationRoute, error)
+	UpdateNotificationRoute(routeID string, request client.UpdateNotificationRouteRequest) (*client.NotificationRoute, error)
+	DeleteNotificationRoute(routeID string) error
+	TestNotificationRoute(routeID string) (*client.NotificationRouteTestResult, error)
 }
