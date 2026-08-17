@@ -82,11 +82,11 @@ func (c *Client) CreateMorpheusCluster(request CreateMorpheusClusterRequest) (*C
 }
 
 func (c *Client) DeprovisionMorpheusCluster(clusterID string) (*ProviderDeprovisionClusterResponse, error) {
-	return c.deprovisionProviderCluster(morpheusKind, clusterID)
+	return c.deprovisionProviderCluster(morpheusKind, clusterID, false)
 }
 
 func (c *Client) StopMorpheusCluster(clusterID string) (*ProviderStopClusterResponse, error) {
-	return c.stopProviderCluster(morpheusKind, clusterID)
+	return c.stopProviderCluster(morpheusKind, clusterID, false)
 }
 
 func (c *Client) StartMorpheusCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {

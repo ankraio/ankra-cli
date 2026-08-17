@@ -130,12 +130,29 @@ func TestDeprovisionUpcloudCluster_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, err := testClient.DeprovisionUpcloudCluster("upcloud-cluster-123")
+	result, err := testClient.DeprovisionUpcloudCluster("upcloud-cluster-123", false)
 	if err != nil {
 		t.Fatalf("DeprovisionUpcloudCluster: %v", err)
 	}
 	if !result.Success {
 		t.Error("Success = false, want true")
+	}
+}
+
+func TestDeprovisionUpcloudCluster_ForceAppendsQuery(t *testing.T) {
+	expectedResponse := DeprovisionUpcloudClusterResponse{Success: true, ClusterID: "upcloud-cluster-123"}
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/api/v1/clusters/upcloud/upcloud-cluster-123" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Query().Get("force") != "true" {
+			t.Errorf("force query = %q, want true", r.URL.Query().Get("force"))
+		}
+		jsonResponse(t, w, http.StatusOK, expectedResponse)
+	})
+	if _, err := testClient.DeprovisionUpcloudCluster("upcloud-cluster-123", true); err != nil {
+		t.Fatalf("DeprovisionUpcloudCluster: %v", err)
 	}
 }
 

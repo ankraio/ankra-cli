@@ -101,14 +101,19 @@ var upcloudDeprovisionCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		yes, _ := cmd.Flags().GetBool("yes")
+		force, _ := cmd.Flags().GetBool("force")
 
+		warning := "This deletes all its servers, networks and SSH keys!"
+		if force {
+			warning = "This deletes all its servers, networks, SSH keys, CSI storage volumes and load balancers!"
+		}
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Deprovision UpCloud cluster %q? This deletes all its servers, networks and SSH keys! [y/N]: ", clusterID),
+			fmt.Sprintf("Deprovision UpCloud cluster %q? %s [y/N]: ", clusterID, warning),
 			yes); err != nil {
 			return err
 		}
 
-		result, err := apiClient.DeprovisionUpcloudCluster(clusterID)
+		result, err := apiClient.DeprovisionUpcloudCluster(clusterID, force)
 		if err != nil {
 			return fmt.Errorf("deprovisioning cluster: %w", err)
 		}
@@ -136,12 +141,15 @@ var upcloudDeprovisionCmd = &cobra.Command{
 var upcloudStopCmd = &cobra.Command{
 	Use:   "stop <cluster_id>",
 	Short: "Stop an UpCloud cluster",
-	Long:  "Stop an UpCloud cluster's compute while keeping its configuration so it can be started again later.",
-	Args:  cobra.ExactArgs(1),
+	Long: "Stop an UpCloud cluster's compute while keeping its configuration so it can be started again later.\n\n" +
+		"--force also deletes the cluster's CSI storage volumes and load balancers, which otherwise keep billing " +
+		"while the cluster is stopped - the persisted data is lost.",
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
+		force, _ := cmd.Flags().GetBool("force")
 
-		result, err := apiClient.StopUpcloudCluster(clusterID)
+		result, err := apiClient.StopUpcloudCluster(clusterID, force)
 		if err != nil {
 			return fmt.Errorf("stopping cluster: %w", err)
 		}
@@ -539,6 +547,8 @@ func init() {
 	upcloudStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
 
 	upcloudDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	upcloudDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's CSI storage volumes and load balancers, and tolerate unreachable infrastructure")
+	upcloudStopCmd.Flags().Bool("force", false, "Also delete the cluster's CSI storage volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
 	upcloudNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	upcloudNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")

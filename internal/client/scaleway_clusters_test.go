@@ -19,7 +19,7 @@ func TestStopScalewayCluster(t *testing.T) {
 		})
 	})
 
-	result, stopError := testClient.StopScalewayCluster("cluster-123")
+	result, stopError := testClient.StopScalewayCluster("cluster-123", false)
 	if stopError != nil {
 		t.Fatalf("StopScalewayCluster: %v", stopError)
 	}

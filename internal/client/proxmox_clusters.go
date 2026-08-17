@@ -86,11 +86,11 @@ func (c *Client) CreateProxmoxCluster(request CreateProxmoxClusterRequest) (*Cre
 }
 
 func (c *Client) DeprovisionProxmoxCluster(clusterID string) (*ProviderDeprovisionClusterResponse, error) {
-	return c.deprovisionProviderCluster(proxmoxKind, clusterID)
+	return c.deprovisionProviderCluster(proxmoxKind, clusterID, false)
 }
 
 func (c *Client) StopProxmoxCluster(clusterID string) (*ProviderStopClusterResponse, error) {
-	return c.stopProviderCluster(proxmoxKind, clusterID)
+	return c.stopProviderCluster(proxmoxKind, clusterID, false)
 }
 
 func (c *Client) StartProxmoxCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {
