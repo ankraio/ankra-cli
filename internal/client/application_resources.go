@@ -42,6 +42,21 @@ type DeployApplicationDemoRequest struct {
 	ImageTag      *string `json:"image_tag,omitempty"`
 	TTLHours      *int    `json:"ttl_hours,omitempty"`
 	ContainerPort *int    `json:"container_port,omitempty"`
+	// Components selects which of a monorepo's components the demo runs,
+	// each with optional overrides; omitted deploys every recorded
+	// component. EntryComponent names the one that owns the demo host's
+	// root path; omitted applies the backend's entry heuristic.
+	Components     []DeployApplicationDemoComponent `json:"components,omitempty"`
+	EntryComponent *string                          `json:"entry_component,omitempty"`
+}
+
+// DeployApplicationDemoComponent is one components[] entry of the deploy-demo
+// body: a selected component plus the overrides that apply to it alone.
+type DeployApplicationDemoComponent struct {
+	Name          string  `json:"name"`
+	ImageTag      *string `json:"image_tag,omitempty"`
+	ContainerPort *int    `json:"container_port,omitempty"`
+	IngressPath   *string `json:"ingress_path,omitempty"`
 }
 
 // UpdateApplicationImageRegistryRequest mirrors the image-registry body. The
@@ -287,10 +302,18 @@ func (client *Client) GetApplicationDemoDetail(requestContext context.Context, a
 	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/demos/"+workspaceID+"/detail"), nil, nil)
 }
 
-func (client *Client) GetApplicationDemoLogs(requestContext context.Context, applicationID string, workspaceID string, tailLines int) (json.RawMessage, error) {
+// GetApplicationDemoLogs fetches a bounded log tail. An empty podName lets
+// the backend pick the demo's own pod, which is the single-component case;
+// a multi-component demo has one pod per component and must name the one it
+// wants. The tail parameter is `tail_lines` — the endpoint ignores anything
+// else, so a demo's tail size silently defaulted while the CLI sent `tail`.
+func (client *Client) GetApplicationDemoLogs(requestContext context.Context, applicationID string, workspaceID string, podName string, tailLines int) (json.RawMessage, error) {
 	query := url.Values{}
 	if tailLines > 0 {
-		query.Set("tail", strconv.Itoa(tailLines))
+		query.Set("tail_lines", strconv.Itoa(tailLines))
+	}
+	if podName != "" {
+		query.Set("pod", podName)
 	}
 	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/demos/"+workspaceID+"/logs"), query, nil)
 }
