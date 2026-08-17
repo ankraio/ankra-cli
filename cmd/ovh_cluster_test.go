@@ -17,7 +17,7 @@ type ovhStopMock struct {
 	gotClusterID string
 }
 
-func (m *ovhStopMock) StopOvhCluster(clusterID string) (*client.StopOvhClusterResponse, error) {
+func (m *ovhStopMock) StopOvhCluster(clusterID string, force bool) (*client.StopOvhClusterResponse, error) {
 	m.gotClusterID = clusterID
 	return &client.StopOvhClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
@@ -392,7 +392,7 @@ type ovhDeprovisionMock struct {
 	called bool
 }
 
-func (m *ovhDeprovisionMock) DeprovisionOvhCluster(clusterID string) (*client.DeprovisionOvhClusterResponse, error) {
+func (m *ovhDeprovisionMock) DeprovisionOvhCluster(clusterID string, force bool) (*client.DeprovisionOvhClusterResponse, error) {
 	m.called = true
 	return &client.DeprovisionOvhClusterResponse{Success: true, ClusterID: clusterID}, nil
 }

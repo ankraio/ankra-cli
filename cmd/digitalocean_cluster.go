@@ -103,13 +103,18 @@ var digitaloceanDeprovisionCmd = &cobra.Command{
 		clusterID := args[0]
 		yes, _ := cmd.Flags().GetBool("yes")
 
+		force, _ := cmd.Flags().GetBool("force")
+		warning := "This deletes all its servers, networks and SSH keys!"
+		if force {
+			warning = "This deletes all its servers, networks, SSH keys, block storage volumes and load balancers!"
+		}
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Deprovision DigitalOcean cluster %q? This deletes all its servers, networks and SSH keys! [y/N]: ", clusterID),
+			fmt.Sprintf("Deprovision DigitalOcean cluster %q? %s [y/N]: ", clusterID, warning),
 			yes); err != nil {
 			return err
 		}
 
-		result, err := apiClient.DeprovisionDigitaloceanCluster(clusterID)
+		result, err := apiClient.DeprovisionDigitaloceanCluster(clusterID, force)
 		if err != nil {
 			return fmt.Errorf("deprovisioning cluster: %w", err)
 		}
@@ -141,8 +146,9 @@ var digitaloceanStopCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
+		force, _ := cmd.Flags().GetBool("force")
 
-		result, err := apiClient.StopDigitaloceanCluster(clusterID)
+		result, err := apiClient.StopDigitaloceanCluster(clusterID, force)
 		if err != nil {
 			return fmt.Errorf("stopping cluster: %w", err)
 		}
@@ -604,6 +610,8 @@ func init() {
 	digitaloceanStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
 
 	digitaloceanDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	digitaloceanDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's block storage volumes and load balancers, and tolerate unreachable infrastructure")
+	digitaloceanStopCmd.Flags().Bool("force", false, "Also delete the cluster's block storage volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
 	digitaloceanNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	digitaloceanNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")

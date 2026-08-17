@@ -110,14 +110,19 @@ var ovhDeprovisionCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		yes, _ := cmd.Flags().GetBool("yes")
+		force, _ := cmd.Flags().GetBool("force")
 
+		warning := "This deletes all its servers, networks and SSH keys!"
+		if force {
+			warning = "This deletes all its servers, networks, SSH keys, Cinder volumes and load balancers!"
+		}
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Deprovision OVH cluster %q? This deletes all its servers, networks and SSH keys! [y/N]: ", clusterID),
+			fmt.Sprintf("Deprovision OVH cluster %q? %s [y/N]: ", clusterID, warning),
 			yes); err != nil {
 			return err
 		}
 
-		result, err := apiClient.DeprovisionOvhCluster(clusterID)
+		result, err := apiClient.DeprovisionOvhCluster(clusterID, force)
 		if err != nil {
 			return fmt.Errorf("deprovisioning cluster: %w", err)
 		}
@@ -317,8 +322,9 @@ var ovhStopCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
+		force, _ := cmd.Flags().GetBool("force")
 
-		result, err := apiClient.StopOvhCluster(clusterID)
+		result, err := apiClient.StopOvhCluster(clusterID, force)
 		if err != nil {
 			return fmt.Errorf("stopping cluster: %w", err)
 		}
@@ -933,6 +939,8 @@ func init() {
 	ovhNodeGroupTaintsCmd.Flags().Bool("clear", false, "Remove all taints from the node group")
 
 	ovhDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	ovhDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's Cinder volumes and load balancers, and tolerate unreachable infrastructure")
+	ovhStopCmd.Flags().Bool("force", false, "Also delete the cluster's Cinder volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
 	ovhNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	ovhRegionsCmd.Flags().String("credential-id", "", "OVH API credential ID (required)")

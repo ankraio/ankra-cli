@@ -18,9 +18,10 @@ var scalewayStopCmd = &cobra.Command{
 	Short: "Stop a Scaleway cluster",
 	Long:  "Stop a Scaleway cluster by terminating its compute while preserving its configuration so it can be re-provisioned later.",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(_ *cobra.Command, arguments []string) error {
+	RunE: func(cmd *cobra.Command, arguments []string) error {
 		clusterID := arguments[0]
-		result, stopError := apiClient.StopScalewayCluster(clusterID)
+		force, _ := cmd.Flags().GetBool("force")
+		result, stopError := apiClient.StopScalewayCluster(clusterID, force)
 		if stopError != nil {
 			return fmt.Errorf("stopping Scaleway cluster: %w", stopError)
 		}
@@ -70,6 +71,7 @@ var scalewayStartCmd = &cobra.Command{
 
 func init() {
 	scalewayStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
+	scalewayStopCmd.Flags().Bool("force", false, "Also delete the cluster's tagged volumes and load balancers even when retention_policy is retain (destroys persisted data)")
 	scalewayCmd.AddCommand(scalewayStopCmd)
 	scalewayCmd.AddCommand(scalewayStartCmd)
 	clusterCmd.AddCommand(scalewayCmd)

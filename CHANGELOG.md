@@ -19,6 +19,27 @@
   same personal access token as the rest of the CLI and honours `-o json` and
   `-o yaml`, so the whole alerting setup can be scripted, diffed, and applied
   from CI alongside your clusters.
+- **`ankra stack-profiles drafts` edits and publishes profile versions from
+  the terminal.** Open a draft on an existing profile (or seed one from a
+  deployed stack), see every parameter with `get`, and give each one the
+  guidance the launch form shows under its field with
+  `annotate --parameter <name> --description "..."` — this is how a profile
+  author instructs the person filling in variables and secrets. `publish`
+  cuts the version, `list` and `delete` manage open drafts. Drafts were
+  browser-and-MCP-only until now; the platform gained bearer-token twins for
+  the whole draft family in the same change.
+- **`--force` on cloud cluster deprovision and stop now reclaims leaked cloud
+  resources, on every provider that leaks them.** `ankra cluster deprovision
+  --force` and the provider `stop|deprovision --force` commands (UpCloud,
+  Hetzner, OVH, DigitalOcean, plus Scaleway stop) also delete the cluster's
+  CSI-provisioned storage volumes and load balancers, which these providers
+  never reclaim on their own and which keep billing after a plain stop or
+  terminate. The backend deletes exactly the volumes recorded for the
+  cluster - never another cluster's disks. Without `--force`, behaviour is
+  unchanged, with one exception: a plain Hetzner stop or deprovision now
+  keeps the cluster's volumes (previously it always deleted them, so a
+  stopped Hetzner cluster restarted with empty storage); pass `--force` to
+  get the old reclaim-everything behaviour.
 
 ## v0.11.0-rc4 — 2026-08-17
 

@@ -107,6 +107,30 @@ func (m baseMock) InstantiateStackProfile(ctx context.Context, clusterID string,
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateStackProfileDraft(request client.CreateStackProfileDraftRequest) (*client.StackProfileDraft, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListStackProfileDrafts() ([]client.StackProfileDraftSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackProfileDraft(draftID string) (*client.StackProfileDraft, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateStackProfileDraft(draftID string, request client.UpdateStackProfileDraftRequest) (*client.StackProfileDraft, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteStackProfileDraft(draftID string) (*client.DeleteStackProfileDraftResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PublishStackProfileDraft(draftID string, request client.PublishStackProfileDraftRequest) (*client.PublishStackProfileDraftResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateApplication(requestContext context.Context, applicationRequest client.CreateApplicationRequest) (*client.CreateApplicationResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -755,7 +779,7 @@ func (m baseMock) DeprovisionHetznerCluster(clusterID string, force bool) (*clie
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopHetznerCluster(clusterID string) (*client.ProviderStopClusterResponse, error) {
+func (m baseMock) StopHetznerCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -871,11 +895,11 @@ func (m baseMock) CreateOvhCluster(req client.CreateOvhClusterRequest) (*client.
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionOvhCluster(clusterID string) (*client.DeprovisionOvhClusterResponse, error) {
+func (m baseMock) DeprovisionOvhCluster(clusterID string, force bool) (*client.DeprovisionOvhClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopOvhCluster(clusterID string) (*client.StopOvhClusterResponse, error) {
+func (m baseMock) StopOvhCluster(clusterID string, force bool) (*client.StopOvhClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1043,11 +1067,11 @@ func (m baseMock) CreateUpcloudCluster(req client.CreateUpcloudClusterRequest) (
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionUpcloudCluster(clusterID string) (*client.DeprovisionUpcloudClusterResponse, error) {
+func (m baseMock) DeprovisionUpcloudCluster(clusterID string, force bool) (*client.DeprovisionUpcloudClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopUpcloudCluster(clusterID string) (*client.StopUpcloudClusterResponse, error) {
+func (m baseMock) StopUpcloudCluster(clusterID string, force bool) (*client.StopUpcloudClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1139,11 +1163,11 @@ func (m baseMock) CreateDigitaloceanCluster(req client.CreateDigitaloceanCluster
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionDigitaloceanCluster(clusterID string) (*client.DeprovisionDigitaloceanClusterResponse, error) {
+func (m baseMock) DeprovisionDigitaloceanCluster(clusterID string, force bool) (*client.DeprovisionDigitaloceanClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopDigitaloceanCluster(clusterID string) (*client.StopDigitaloceanClusterResponse, error) {
+func (m baseMock) StopDigitaloceanCluster(clusterID string, force bool) (*client.StopDigitaloceanClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1259,7 +1283,7 @@ func (m baseMock) CreateDigitaloceanSSHKeyCredential(req client.CreateSSHKeyCred
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopScalewayCluster(clusterID string) (*client.ProviderStopClusterResponse, error) {
+func (m baseMock) StopScalewayCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 

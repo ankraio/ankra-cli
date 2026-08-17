@@ -98,6 +98,12 @@ type APIClient interface {
 	ImportStackProfile(importRequest client.ImportStackProfileRequest) (*client.CreateStackProfileResult, error)
 	GetStackProfile(profileID string) (*client.StackProfileDetail, error)
 	InstantiateStackProfile(ctx context.Context, clusterID string, instantiateRequest client.InstantiateStackProfileRequest) (*client.InstantiateStackProfileResult, error)
+	CreateStackProfileDraft(request client.CreateStackProfileDraftRequest) (*client.StackProfileDraft, error)
+	ListStackProfileDrafts() ([]client.StackProfileDraftSummary, error)
+	GetStackProfileDraft(draftID string) (*client.StackProfileDraft, error)
+	UpdateStackProfileDraft(draftID string, request client.UpdateStackProfileDraftRequest) (*client.StackProfileDraft, error)
+	DeleteStackProfileDraft(draftID string) (*client.DeleteStackProfileDraftResult, error)
+	PublishStackProfileDraft(draftID string, request client.PublishStackProfileDraftRequest) (*client.PublishStackProfileDraftResult, error)
 
 	CreateApplication(requestContext context.Context, applicationRequest client.CreateApplicationRequest) (*client.CreateApplicationResponse, error)
 	ListApplicationsRaw(requestContext context.Context, page int, pageSize int, search string) (json.RawMessage, error)
@@ -218,7 +224,7 @@ type APIClient interface {
 
 	CreateHetznerCluster(req client.CreateHetznerClusterRequest) (*client.CreateHetznerClusterResponse, error)
 	DeprovisionHetznerCluster(clusterID string, force bool) (*client.DeprovisionHetznerClusterResponse, error)
-	StopHetznerCluster(clusterID string) (*client.ProviderStopClusterResponse, error)
+	StopHetznerCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error)
 	StartHetznerCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error)
 	GetHetznerWorkerCount(clusterID string) (*client.WorkerCountResult, error)
 	ScaleHetznerWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error)
@@ -250,8 +256,8 @@ type APIClient interface {
 	CreateSSHKeyCredential(req client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error)
 
 	CreateOvhCluster(req client.CreateOvhClusterRequest) (*client.CreateOvhClusterResponse, error)
-	DeprovisionOvhCluster(clusterID string) (*client.DeprovisionOvhClusterResponse, error)
-	StopOvhCluster(clusterID string) (*client.StopOvhClusterResponse, error)
+	DeprovisionOvhCluster(clusterID string, force bool) (*client.DeprovisionOvhClusterResponse, error)
+	StopOvhCluster(clusterID string, force bool) (*client.StopOvhClusterResponse, error)
 	StartOvhCluster(clusterID, scope string) (*client.StartOvhClusterResult, error)
 	GetOvhClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error)
 	UpdateOvhClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error)
@@ -291,8 +297,8 @@ type APIClient interface {
 	CreateOvhSSHKeyCredential(req client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error)
 
 	CreateUpcloudCluster(req client.CreateUpcloudClusterRequest) (*client.CreateUpcloudClusterResponse, error)
-	DeprovisionUpcloudCluster(clusterID string) (*client.DeprovisionUpcloudClusterResponse, error)
-	StopUpcloudCluster(clusterID string) (*client.StopUpcloudClusterResponse, error)
+	DeprovisionUpcloudCluster(clusterID string, force bool) (*client.DeprovisionUpcloudClusterResponse, error)
+	StopUpcloudCluster(clusterID string, force bool) (*client.StopUpcloudClusterResponse, error)
 	StartUpcloudCluster(clusterID, scope string) (*client.StartUpcloudClusterResult, error)
 	GetUpcloudWorkerCount(clusterID string) (*client.WorkerCountResult, error)
 	ScaleUpcloudWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error)
@@ -324,8 +330,8 @@ type APIClient interface {
 	CreateUpcloudSSHKeyCredential(req client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error)
 
 	CreateDigitaloceanCluster(req client.CreateDigitaloceanClusterRequest) (*client.CreateDigitaloceanClusterResponse, error)
-	DeprovisionDigitaloceanCluster(clusterID string) (*client.DeprovisionDigitaloceanClusterResponse, error)
-	StopDigitaloceanCluster(clusterID string) (*client.StopDigitaloceanClusterResponse, error)
+	DeprovisionDigitaloceanCluster(clusterID string, force bool) (*client.DeprovisionDigitaloceanClusterResponse, error)
+	StopDigitaloceanCluster(clusterID string, force bool) (*client.StopDigitaloceanClusterResponse, error)
 	StartDigitaloceanCluster(clusterID, scope string) (*client.StartDigitaloceanClusterResult, error)
 	GetDigitaloceanWorkerCount(clusterID string) (*client.WorkerCountResult, error)
 	ScaleDigitaloceanWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error)
@@ -358,7 +364,7 @@ type APIClient interface {
 	ListDigitaloceanSSHKeyCredentials() ([]client.DigitaloceanCredentialListItem, error)
 	CreateDigitaloceanSSHKeyCredential(req client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error)
 
-	StopScalewayCluster(clusterID string) (*client.ProviderStopClusterResponse, error)
+	StopScalewayCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error)
 	StartScalewayCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error)
 	ListScalewayClusterNodes(clusterID string) (*client.NodeListResult, error)
 	GetScalewayClusterNode(clusterID, nodeID string) (*client.NodeDetail, error)
