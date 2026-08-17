@@ -29,3 +29,25 @@ func TestEnableClusterDNSZone_PostsAndDecodesZone(t *testing.T) {
 		t.Errorf("state = %s, want pending", result.State)
 	}
 }
+
+func TestDisableClusterDNSZone_DeletesAndDecodesZone(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method = %s, want DELETE", r.Method)
+		}
+		if r.URL.Path != "/api/v1/clusters/cluster-1/dns-zone" {
+			t.Errorf("path = %s, want /api/v1/clusters/cluster-1/dns-zone", r.URL.Path)
+		}
+		jsonResponse(t, w, http.StatusOK, ClusterDNSZoneResponse{
+			Success: true, FQDN: "abc123.org456.ankra.cc", State: "deleting"})
+	}
+	testClient := newTestClient(t, handler)
+
+	result, err := testClient.DisableClusterDNSZone("cluster-1")
+	if err != nil {
+		t.Fatalf("DisableClusterDNSZone: %v", err)
+	}
+	if result.State != "deleting" {
+		t.Errorf("state = %s, want deleting", result.State)
+	}
+}

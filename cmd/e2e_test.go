@@ -1587,6 +1587,10 @@ func (m baseMock) EnableClusterDNSZone(clusterID string) (*client.ClusterDNSZone
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) DisableClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 type clusterListMock struct {
 	baseMock
 	clusters []client.ClusterListItem
