@@ -305,12 +305,13 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 			return err
 		}
 
-		// Only the Hetzner deprovision endpoint honors force; every other
-		// lane would silently drop it, so say so instead of implying a
-		// forced teardown that never happens.
-		if force && cloudClusterKind(clusterKind) != cloudClusterKindHetzner {
+		// Only the Hetzner and UpCloud deprovision endpoints honor force;
+		// every other lane would silently drop it, so say so instead of
+		// implying a forced teardown that never happens.
+		if force && cloudClusterKind(clusterKind) != cloudClusterKindHetzner &&
+			cloudClusterKind(clusterKind) != cloudClusterKindUpcloud {
 			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
-				"warning: --force has no effect for this cluster type (only Hetzner deprovision supports it)")
+				"warning: --force has no effect for this cluster type (only Hetzner and UpCloud deprovision support it)")
 		}
 
 		if err := confirmPrompt(
@@ -352,7 +353,7 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 			return nil
 		case cloudClusterKindUpcloud:
-			result, err := apiClient.DeprovisionUpcloudCluster(clusterID)
+			result, err := apiClient.DeprovisionUpcloudCluster(clusterID, force)
 			if err != nil {
 				return fmt.Errorf("deprovisioning UpCloud cluster: %w", err)
 			}
@@ -499,7 +500,7 @@ func init() {
 	// so existing scripts don't break on an unknown flag; see DEPRECATIONS.md.
 	_ = clusterDeprovisionCmd.Flags().MarkDeprecated("auto-delete",
 		"the backend does not support it; deprovision never deletes the cluster record (use 'ankra delete cluster' afterwards)")
-	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state (only honored for Hetzner clusters)")
+	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state (Hetzner and UpCloud; on UpCloud also deletes leftover CSI storage volumes and load balancers)")
 	clusterDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	clusterRollToCmd.Flags().String("version", "", "Resource version ID to roll to (required)")

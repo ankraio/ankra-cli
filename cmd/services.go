@@ -297,8 +297,8 @@ type APIClient interface {
 	CreateOvhSSHKeyCredential(req client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error)
 
 	CreateUpcloudCluster(req client.CreateUpcloudClusterRequest) (*client.CreateUpcloudClusterResponse, error)
-	DeprovisionUpcloudCluster(clusterID string) (*client.DeprovisionUpcloudClusterResponse, error)
-	StopUpcloudCluster(clusterID string) (*client.StopUpcloudClusterResponse, error)
+	DeprovisionUpcloudCluster(clusterID string, force bool) (*client.DeprovisionUpcloudClusterResponse, error)
+	StopUpcloudCluster(clusterID string, force bool) (*client.StopUpcloudClusterResponse, error)
 	StartUpcloudCluster(clusterID, scope string) (*client.StartUpcloudClusterResult, error)
 	GetUpcloudWorkerCount(clusterID string) (*client.WorkerCountResult, error)
 	ScaleUpcloudWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error)

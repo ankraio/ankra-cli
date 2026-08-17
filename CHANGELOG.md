@@ -13,6 +13,13 @@
   cuts the version, `list` and `delete` manage open drafts. Drafts were
   browser-and-MCP-only until now; the platform gained bearer-token twins for
   the whole draft family in the same change.
+- **`--force` on UpCloud deprovision and stop now reclaims leaked cloud
+  resources.** `ankra cluster deprovision --force` and
+  `ankra cluster upcloud stop|deprovision --force` also delete the cluster's
+  CSI-provisioned storage volumes and load balancers, which UpCloud never
+  reclaims on its own and which keep billing after a plain stop or terminate.
+  The backend deletes exactly the volumes recorded for the cluster - never
+  another cluster's disks. Without `--force`, behaviour is unchanged.
 
 ## v0.11.0-rc4 — 2026-08-17
 

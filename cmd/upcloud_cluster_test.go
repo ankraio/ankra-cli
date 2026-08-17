@@ -14,7 +14,7 @@ type upcloudDeprovisionMock struct {
 	gotClusterID string
 }
 
-func (m *upcloudDeprovisionMock) DeprovisionUpcloudCluster(clusterID string) (*client.DeprovisionUpcloudClusterResponse, error) {
+func (m *upcloudDeprovisionMock) DeprovisionUpcloudCluster(clusterID string, force bool) (*client.DeprovisionUpcloudClusterResponse, error) {
 	m.called = true
 	m.gotClusterID = clusterID
 	return &client.DeprovisionUpcloudClusterResponse{Success: true, ClusterID: clusterID}, nil
