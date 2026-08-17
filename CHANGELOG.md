@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra stack-profiles drafts` edits and publishes profile versions from
+  the terminal.** Open a draft on an existing profile (or seed one from a
+  deployed stack), see every parameter with `get`, and give each one the
+  guidance the launch form shows under its field with
+  `annotate --parameter <name> --description "..."` — this is how a profile
+  author instructs the person filling in variables and secrets. `publish`
+  cuts the version, `list` and `delete` manage open drafts. Drafts were
+  browser-and-MCP-only until now; the platform gained bearer-token twins for
+  the whole draft family in the same change.
+
 ## v0.11.0-rc4 — 2026-08-17
 
 Release candidate, superseding v0.11.0-rc3. Install it with `ankra config
