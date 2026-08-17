@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster managed discover` and `ankra cluster managed import` adopt
+  clusters that already run at the provider.** Discovery lists every managed
+  Kubernetes cluster a credential can see (DOKS, UKS, GKE, OVH MKS, AKS, EKS,
+  Kapsule) with its provider cluster id, location, version, status, node
+  count, and whether it is already imported. Import adopts one by provider
+  cluster id: the backend fetches the kubeconfig through the provider API and
+  installs the agent automatically, so there is nothing to run against the
+  cluster. Both were portal-and-API-only until now.
+
 ## v0.11.0-rc3 — 2026-08-16
 
 Release candidate, superseding v0.11.0-rc2 — rc2 predates `ankra org dns`

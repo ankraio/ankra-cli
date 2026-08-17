@@ -1575,6 +1575,14 @@ func (m baseMock) StartManagedCluster(provider client.ManagedK8sProvider, cluste
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) DiscoverManagedClusters(provider client.ManagedK8sProvider, credentialID string) (*client.DiscoverManagedClustersResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ImportManagedCluster(provider client.ManagedK8sProvider, request client.ImportManagedClusterRequest) (*client.ImportManagedClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 type clusterListMock struct {
 	baseMock
 	clusters []client.ClusterListItem
