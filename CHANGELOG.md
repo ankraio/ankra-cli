@@ -1,6 +1,12 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.11.0 — 2026-08-18
+
+Promotes v0.11.0-rc1 through rc4 — stack profiles addressable by name,
+organisation DNS records, application registry declaration, managed-cluster
+discover and import, and the cluster domain command — and adds everything
+since: a non-following logs mode, per-step operation results, alerting as
+code, stack-profile drafts, and forced reclaim of leaked cloud resources.
 
 ### Added
 
