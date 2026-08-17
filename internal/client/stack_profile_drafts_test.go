@@ -65,8 +65,8 @@ func TestListStackProfileDrafts_UnwrapsResultEnvelope(t *testing.T) {
 func TestUpdateStackProfileDraft_RoundTripsUnknownParameterFields(t *testing.T) {
 	var receivedBody map[string]any
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet:
+		switch r.Method {
+		case http.MethodGet:
 			jsonResponse(t, w, http.StatusOK, map[string]any{
 				"id": "draft-1", "name": "hermes-agent", "version": 3,
 				"spec": map[string]any{"stacks": []any{}},
@@ -75,7 +75,7 @@ func TestUpdateStackProfileDraft_RoundTripsUnknownParameterFields(t *testing.T) 
 					"resource_kind": "manifest", "enum_values": []string{"a"},
 				}},
 			})
-		case r.Method == http.MethodPost:
+		case http.MethodPost:
 			if r.URL.Path != "/api/v1/org/stack-profiles/drafts/draft-1" {
 				t.Errorf("path = %s", r.URL.Path)
 			}
