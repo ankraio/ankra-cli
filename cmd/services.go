@@ -98,6 +98,12 @@ type APIClient interface {
 	ImportStackProfile(importRequest client.ImportStackProfileRequest) (*client.CreateStackProfileResult, error)
 	GetStackProfile(profileID string) (*client.StackProfileDetail, error)
 	InstantiateStackProfile(ctx context.Context, clusterID string, instantiateRequest client.InstantiateStackProfileRequest) (*client.InstantiateStackProfileResult, error)
+	CreateStackProfileDraft(request client.CreateStackProfileDraftRequest) (*client.StackProfileDraft, error)
+	ListStackProfileDrafts() ([]client.StackProfileDraftSummary, error)
+	GetStackProfileDraft(draftID string) (*client.StackProfileDraft, error)
+	UpdateStackProfileDraft(draftID string, request client.UpdateStackProfileDraftRequest) (*client.StackProfileDraft, error)
+	DeleteStackProfileDraft(draftID string) (*client.DeleteStackProfileDraftResult, error)
+	PublishStackProfileDraft(draftID string, request client.PublishStackProfileDraftRequest) (*client.PublishStackProfileDraftResult, error)
 
 	CreateApplication(requestContext context.Context, applicationRequest client.CreateApplicationRequest) (*client.CreateApplicationResponse, error)
 	ListApplicationsRaw(requestContext context.Context, page int, pageSize int, search string) (json.RawMessage, error)

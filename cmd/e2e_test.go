@@ -107,6 +107,30 @@ func (m baseMock) InstantiateStackProfile(ctx context.Context, clusterID string,
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateStackProfileDraft(request client.CreateStackProfileDraftRequest) (*client.StackProfileDraft, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListStackProfileDrafts() ([]client.StackProfileDraftSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackProfileDraft(draftID string) (*client.StackProfileDraft, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateStackProfileDraft(draftID string, request client.UpdateStackProfileDraftRequest) (*client.StackProfileDraft, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteStackProfileDraft(draftID string) (*client.DeleteStackProfileDraftResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PublishStackProfileDraft(draftID string, request client.PublishStackProfileDraftRequest) (*client.PublishStackProfileDraftResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateApplication(requestContext context.Context, applicationRequest client.CreateApplicationRequest) (*client.CreateApplicationResponse, error) {
 	return nil, errors.New("not implemented")
 }
