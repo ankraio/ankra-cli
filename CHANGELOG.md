@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra alerts destinations` and `ankra alerts routes` bring alerting as
+  code to the terminal.** Where alerts go and which notifications reach them
+  was portal-only until now. `destinations list|get|create|update|delete`
+  manage the webhook and chat-channel receivers (Slack, Microsoft Teams,
+  Discord, PagerDuty, or any custom URL; channel-based Slack and Teams
+  destinations take `--channel-id`, and `destinations channels` lists the
+  channels the Ankra bot can post to), `destinations test` and `test-url`
+  fire a sample notification and exit non-zero when the receiver rejects it,
+  and `routes list|create|update|delete|test` decide which notifications
+  reach which destination by kind, severity, cluster, and source, in priority
+  order with include/exclude modes. Updates send only the flags you pass, so
+  the rest of a destination or route stays untouched. Everything uses the
+  same personal access token as the rest of the CLI and honours `-o json` and
+  `-o yaml`, so the whole alerting setup can be scripted, diffed, and applied
+  from CI alongside your clusters.
+
 ## v0.11.0-rc4 — 2026-08-17
 
 Release candidate, superseding v0.11.0-rc3. Install it with `ankra config

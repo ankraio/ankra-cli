@@ -1587,6 +1587,62 @@ func (m baseMock) EnableClusterDNSZone(clusterID string) (*client.ClusterDNSZone
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListAlertDestinations(options client.ListAlertDestinationsOptions) (*client.AlertDestinationList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAlertDestination(destinationID string) (*client.AlertDestination, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateAlertDestination(request client.CreateAlertDestinationRequest) (*client.AlertDestination, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAlertDestination(destinationID string, request client.UpdateAlertDestinationRequest) (*client.AlertDestination, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteAlertDestination(destinationID string) (*client.DeleteAlertDestinationResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) TestAlertDestination(destinationID string) (*client.AlertDestinationTestResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) TestAlertDestinationURL(request client.TestAlertDestinationURLRequest) (*client.AlertDestinationTestResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSlackChannels() (*client.SlackChannelList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListTeamsChannels() (*client.TeamsChannelList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListNotificationRoutes() (*client.NotificationRouteList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateNotificationRoute(request client.CreateNotificationRouteRequest) (*client.NotificationRoute, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateNotificationRoute(routeID string, request client.UpdateNotificationRouteRequest) (*client.NotificationRoute, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteNotificationRoute(routeID string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) TestNotificationRoute(routeID string) (*client.NotificationRouteTestResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 type clusterListMock struct {
 	baseMock
 	clusters []client.ClusterListItem
