@@ -10,21 +10,22 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type PodSummary struct {
-	UID              string  `json:"uid"`
-	Name             string  `json:"name"`
-	Namespace        *string `json:"namespace"`
-	Phase            string  `json:"phase"`
-	Ready            string  `json:"ready"`
-	Restarts         int     `json:"restarts"`
-	LastRestartTime  *string `json:"last_restart_time"`
-	StartTime        *string `json:"start_time"`
-	PodIP            *string `json:"pod_ip"`
-	NodeName         *string `json:"node_name"`
-	NominatedNode    *string `json:"nominated_node_name"`
-	ReadinessGates   *string `json:"readiness_gates"`
+	UID             string  `json:"uid"`
+	Name            string  `json:"name"`
+	Namespace       *string `json:"namespace"`
+	Phase           string  `json:"phase"`
+	Ready           string  `json:"ready"`
+	Restarts        int     `json:"restarts"`
+	LastRestartTime *string `json:"last_restart_time"`
+	StartTime       *string `json:"start_time"`
+	PodIP           *string `json:"pod_ip"`
+	NodeName        *string `json:"node_name"`
+	NominatedNode   *string `json:"nominated_node_name"`
+	ReadinessGates  *string `json:"readiness_gates"`
 }
 
 type CacheInfo struct {
@@ -105,14 +106,14 @@ type GetResourcesRequest struct {
 }
 
 type ResourceResponseItem struct {
-	Status       string        `json:"status"`
-	Group        *string       `json:"group"`
-	Items        []interface{} `json:"items"`
-	Kind         string        `json:"kind"`
-	Name         *string       `json:"name"`
-	Namespace    *string       `json:"namespace"`
-	Version      string        `json:"version"`
-	TotalCount   *int          `json:"total_count"`
+	Status     string        `json:"status"`
+	Group      *string       `json:"group"`
+	Items      []interface{} `json:"items"`
+	Kind       string        `json:"kind"`
+	Name       *string       `json:"name"`
+	Namespace  *string       `json:"namespace"`
+	Version    string        `json:"version"`
+	TotalCount *int          `json:"total_count"`
 }
 
 type GetResourcesResponse struct {
@@ -164,7 +165,18 @@ type PodLogOptions struct {
 	ContainerName string
 	TailLines     int
 	SinceSeconds  int
+	// Follow keeps the stream open for new lines (kubectl logs -f). When
+	// false the client returns once the backlog has drained: the platform's
+	// log route only follows, so the drain is detected client-side as an
+	// idle gap after the first batch (or the server's keepalive comment,
+	// which it only sends once it has nothing buffered).
+	Follow bool
 }
+
+// podLogsDrainIdle is how long a non-follow read waits for another line
+// after the last one before deciding the backlog is drained. The agent
+// pushes the backlog in quick batches, so a genuine gap means it is done.
+const podLogsDrainIdle = 2 * time.Second
 
 func (c *Client) StreamPodLogs(ctx context.Context, clusterID string, opts PodLogOptions, writer io.Writer) error {
 	params := url.Values{}
@@ -213,24 +225,107 @@ func (c *Client) StreamPodLogs(ctx context.Context, clusterID string, opts PodLo
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "event: error" {
-			if scanner.Scan() {
-				errLine := strings.TrimPrefix(scanner.Text(), "data:")
-				errLine = strings.TrimPrefix(errLine, " ")
-				return fmt.Errorf("%s", errLine)
+	if opts.Follow {
+		for scanner.Scan() {
+			if done, lineError := writePodLogLine(scanner, writer); done || lineError != nil {
+				return lineError
 			}
 		}
-		if strings.HasPrefix(line, "data:") {
-			data := strings.TrimPrefix(line, "data:")
-			data = strings.TrimPrefix(data, " ")
-			if _, err := fmt.Fprintln(writer, data); err != nil {
-				return fmt.Errorf("write output: %w", err)
-			}
+		return scanner.Err()
+	}
+	return drainPodLogs(ctx, scanner, resp, writer)
+}
+
+// writePodLogLine handles one SSE line: an error event surfaces as the
+// error, a data line is written. done reports an error event was consumed.
+func writePodLogLine(scanner *bufio.Scanner, writer io.Writer) (bool, error) {
+	line := scanner.Text()
+	if line == "event: error" {
+		if scanner.Scan() {
+			errLine := strings.TrimPrefix(scanner.Text(), "data:")
+			errLine = strings.TrimPrefix(errLine, " ")
+			return true, fmt.Errorf("%s", errLine)
+		}
+		return true, nil
+	}
+	if strings.HasPrefix(line, "data:") {
+		data := strings.TrimPrefix(line, "data:")
+		data = strings.TrimPrefix(data, " ")
+		if _, err := fmt.Fprintln(writer, data); err != nil {
+			return false, fmt.Errorf("write output: %w", err)
 		}
 	}
-	return scanner.Err()
+	return false, nil
+}
+
+// drainPodLogs reads the follow stream until the backlog is drained - the
+// first idle gap after at least one line, or a server keepalive comment
+// (sent only when nothing is buffered) - then closes the response so the
+// server tears the stream down. A stream that ends on its own returns its
+// scanner error, if any.
+func drainPodLogs(ctx context.Context, scanner *bufio.Scanner, resp *http.Response, writer io.Writer) error {
+	lines := make(chan string)
+	scanErrors := make(chan error, 1)
+	go func() {
+		defer close(lines)
+		for scanner.Scan() {
+			select {
+			case lines <- scanner.Text():
+			case <-ctx.Done():
+				return
+			}
+		}
+		scanErrors <- scanner.Err()
+	}()
+	idle := time.NewTimer(podLogsDrainIdle)
+	defer idle.Stop()
+	sawLine := false
+	pendingError := false
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-idle.C:
+			if sawLine {
+				closeBody(resp)
+				return nil
+			}
+			idle.Reset(podLogsDrainIdle)
+		case line, open := <-lines:
+			if !open {
+				select {
+				case scanError := <-scanErrors:
+					return scanError
+				default:
+					return nil
+				}
+			}
+			switch {
+			case pendingError:
+				errLine := strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")
+				return fmt.Errorf("%s", errLine)
+			case line == "event: error":
+				pendingError = true
+				continue
+			case strings.HasPrefix(line, ":") && sawLine:
+				closeBody(resp)
+				return nil
+			case strings.HasPrefix(line, "data:"):
+				data := strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")
+				if _, err := fmt.Fprintln(writer, data); err != nil {
+					return fmt.Errorf("write output: %w", err)
+				}
+				sawLine = true
+			}
+			if !idle.Stop() {
+				select {
+				case <-idle.C:
+				default:
+				}
+			}
+			idle.Reset(podLogsDrainIdle)
+		}
+	}
 }
 
 type HelmReleasesRequestItem struct {
@@ -363,8 +458,8 @@ func (c *Client) UninstallHelmRelease(clusterID, releaseName, namespace string) 
 }
 
 type ApiErrorResponse struct {
-	ErrorCode string  `json:"error_code"`
-	Detail    string  `json:"detail"`
+	ErrorCode  string `json:"error_code"`
+	Detail     string `json:"detail"`
 	RetryAfter *int   `json:"retry_after"`
 }
 

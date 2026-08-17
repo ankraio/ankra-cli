@@ -712,8 +712,13 @@ var clusterLogsCmd = &cobra.Command{
 	Short: "Stream logs from a pod",
 	Long: `Stream log output from a pod in the active cluster.
 
+By default the stream stays open and prints new lines as they arrive, like
+kubectl logs -f. Pass --follow=false to print the current backlog and exit,
+which is what a pipeline into grep or a script wants.
+
 Example:
-  ankra cluster logs my-pod -n default -c my-container --tail 100`,
+  ankra cluster logs my-pod -n default -c my-container --tail 100
+  ankra cluster logs my-pod -n default --since 600 --follow=false | grep ERROR`,
 	Args:        cobra.ExactArgs(1),
 	Annotations: map[string]string{"group": "kubernetes"},
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -722,6 +727,7 @@ Example:
 		container, _ := cmd.Flags().GetString("container")
 		tailLines, _ := cmd.Flags().GetInt("tail")
 		sinceSeconds, _ := cmd.Flags().GetInt("since")
+		follow, _ := cmd.Flags().GetBool("follow")
 
 		if namespace == "" {
 			return withExitCode(exitUsage, errors.New("--namespace (-n) is required for logs"))
@@ -737,6 +743,7 @@ Example:
 			ContainerName: container,
 			TailLines:     tailLines,
 			SinceSeconds:  sinceSeconds,
+			Follow:        follow,
 		}
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -871,6 +878,7 @@ func init() {
 	clusterLogsCmd.Flags().StringP("container", "c", "", "Container name (defaults to pod name)")
 	clusterLogsCmd.Flags().Int("tail", 0, "Number of lines from the end of the logs")
 	clusterLogsCmd.Flags().Int("since", 0, "Seconds of logs to retrieve")
+	clusterLogsCmd.Flags().BoolP("follow", "f", true, "Keep the stream open for new lines; --follow=false prints the current backlog and exits")
 
 	clusterGenericResourcesCmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace")
 	clusterGenericResourcesCmd.Flags().BoolP("all-namespaces", "A", false, "List across all namespaces")
