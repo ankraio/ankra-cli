@@ -4,6 +4,11 @@
 
 ### Added
 
+- **`ankra cluster logs --follow=false` prints the backlog and exits.** The
+  logs command always followed, so piping it into `grep` or a script hung
+  until you killed it. `--follow` (`-f`) now defaults to true, keeping the
+  familiar `kubectl logs -f` behaviour, and `--follow=false` returns as soon
+  as the current backlog has drained.
 - **`ankra cluster operations steps --results` shows what each step actually
   did.** The steps table only ever carried a status and an error excerpt; the
   scheduler's per-step result payload - the resources a teardown deleted,
