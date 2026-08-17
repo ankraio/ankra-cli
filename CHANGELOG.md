@@ -60,6 +60,31 @@ code, stack-profile drafts, and forced reclaim of leaked cloud resources.
   keeps the cluster's volumes (previously it always deleted them, so a
   stopped Hetzner cluster restarted with empty storage); pass `--force` to
   get the old reclaim-everything behaviour.
+- **`ankra application demo` speaks multi-component.** A monorepo demo runs
+  every component as its own pod, and the CLI could neither steer that nor
+  show it. `demo deploy` gains `--component` (repeatable) to narrow a launch
+  to the components you name, `--component-tag`, `--component-port` and
+  `--component-path` to tune one component each as `NAME=VALUE`, and
+  `--entry-component` to say which one owns the demo host's root path
+  instead of leaving it to the entry heuristic. Because the selection and
+  the overrides ride the same request field, an override may only name a
+  component `--component` selects, and the CLI says so rather than letting
+  the launch silently narrow to that one component. `demo list` and
+  `demo detail` now print a summary — every demo's components, which one is
+  the entry, and each component's port, ingress path, image tag and pod —
+  instead of a raw JSON document; `-o json` and `-o yaml` still emit the
+  untouched payload, including the resource inventory and events the
+  summary leaves out. `demo logs` gains `--component` to read the pod
+  belonging to one component of a multi-component demo (and `--pod` to name
+  one directly), so reading the API's logs no longer means finding its pod
+  by hand.
+
+### Fixed
+
+- **`ankra application demo logs --tail` is no longer ignored.** The flag
+  was sent as `tail`, but the endpoint reads `tail_lines`, so every demo log
+  fetch silently returned the backend's default tail no matter what you
+  asked for.
 
 ## v0.11.0-rc4 — 2026-08-17
 

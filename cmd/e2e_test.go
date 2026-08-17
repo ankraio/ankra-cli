@@ -243,7 +243,7 @@ func (m baseMock) GetApplicationDemoDetail(requestContext context.Context, appli
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) GetApplicationDemoLogs(requestContext context.Context, applicationID string, workspaceID string, tailLines int) (json.RawMessage, error) {
+func (m baseMock) GetApplicationDemoLogs(requestContext context.Context, applicationID string, workspaceID string, podName string, tailLines int) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
 

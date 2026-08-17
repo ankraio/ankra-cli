@@ -134,7 +134,7 @@ type APIClient interface {
 	DeployApplicationDemo(requestContext context.Context, applicationID string, demoRequest client.DeployApplicationDemoRequest) (json.RawMessage, error)
 	StopApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error)
 	GetApplicationDemoDetail(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error)
-	GetApplicationDemoLogs(requestContext context.Context, applicationID string, workspaceID string, tailLines int) (json.RawMessage, error)
+	GetApplicationDemoLogs(requestContext context.Context, applicationID string, workspaceID string, podName string, tailLines int) (json.RawMessage, error)
 	GetApplicationDemoConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	UpdateApplicationDemoConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error)
 	FixApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error)
