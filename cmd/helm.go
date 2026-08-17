@@ -108,8 +108,33 @@ Examples:
 		t.Render()
 		fmt.Printf("\nPage %d of %d (total %d)\n",
 			response.Pagination.Page, response.Pagination.TotalPages, response.Pagination.TotalCount)
+		printRegistrySyncErrors(response.Result)
 		return nil
 	},
+}
+
+// printRegistrySyncErrors calls out registries whose last index sync failed.
+// A registry that cannot be indexed still reports a chart count and a recent
+// "Last Indexed", so without this the failure is invisible in the table.
+func printRegistrySyncErrors(registries []client.HelmRegistryListItem) {
+	var failing []client.HelmRegistryListItem
+	for _, registry := range registries {
+		if registry.LastSyncError != nil && *registry.LastSyncError != "" {
+			failing = append(failing, registry)
+		}
+	}
+	if len(failing) == 0 {
+		return
+	}
+	subject := "registries are"
+	if len(failing) == 1 {
+		subject = "registry is"
+	}
+	fmt.Printf("\n%d %s failing to sync:\n", len(failing), subject)
+	for _, registry := range failing {
+		fmt.Printf("  %s: %s\n", registry.Name, *registry.LastSyncError)
+	}
+	fmt.Println("\nInspect one with 'ankra helm registries get <name>'.")
 }
 
 // listAllHelmRegistries pages through the registry list until the backend
@@ -192,6 +217,11 @@ Examples:
 			response.Pagination.TotalCount, len(response.Charts))
 		if response.ResourceState != nil && *response.ResourceState != "" {
 			fmt.Printf("  State:         %s\n", *response.ResourceState)
+		}
+		// State stays "up" for a registry whose index cannot be fetched, so the
+		// sync error is the only signal that its chart list is stale.
+		if response.LastSyncError != nil && *response.LastSyncError != "" {
+			fmt.Printf("  Sync Error:    %s\n", *response.LastSyncError)
 		}
 		return nil
 	},
@@ -476,6 +506,10 @@ var helmRegistriesSyncJobsCmd = &cobra.Command{
 			return fmt.Errorf("listing sync jobs: %w", err)
 		}
 
+		if rendered, err := renderStructured(cmd, response); rendered || err != nil {
+			return err
+		}
+
 		if len(response.Jobs) == 0 {
 			fmt.Println("No sync jobs found.")
 			return nil
@@ -724,7 +758,7 @@ func init() {
 	_ = helmCredentialsUpdateCmd.MarkFlagRequired("username")
 	helmCredentialsDeleteCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
 
-	registerStructuredOutputFlags(helmRegistriesListCmd, helmRegistriesGetCmd, helmCredentialsListCmd)
+	registerStructuredOutputFlags(helmRegistriesListCmd, helmRegistriesGetCmd, helmRegistriesSyncJobsCmd, helmCredentialsListCmd)
 
 	helmRegistriesCmd.AddCommand(helmRegistriesListCmd)
 	helmRegistriesCmd.AddCommand(helmRegistriesGetCmd)

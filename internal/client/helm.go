@@ -29,6 +29,10 @@ type HelmRegistryListItem struct {
 	NextSyncAt     *string  `json:"next_sync_at,omitempty"`
 	ChartCount     int      `json:"chart_count"`
 	IsGlobal       bool     `json:"is_global"`
+	// LastSyncError carries the reason the most recent index sync failed. The
+	// API has always returned it; leaving it unmodelled made a broken registry
+	// indistinguishable from a healthy one.
+	LastSyncError *string `json:"last_sync_error,omitempty"`
 }
 
 // helmRegistryKindFromURL returns "oci" for an oci:// URL and "http"
@@ -55,6 +59,7 @@ type GetHelmRegistryResponse struct {
 	ReadJobInterval *int                      `json:"read_job_interval,omitempty"`
 	OrganisationID  *string                   `json:"organisation_id,omitempty"`
 	ResourceState   *string                   `json:"resource_state,omitempty"`
+	LastSyncError   *string                   `json:"last_sync_error,omitempty"`
 	Pagination      Pagination                `json:"pagination"`
 }
 
