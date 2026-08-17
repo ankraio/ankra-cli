@@ -12,6 +12,11 @@
   cluster id: the backend fetches the kubeconfig through the provider API and
   installs the agent automatically, so there is nothing to run against the
   cluster. Both were portal-and-API-only until now.
+- **`ankra cluster domain` shows the cluster's generated public domain,
+  enabling it if needed.** The call is idempotent, so it doubles as a lookup:
+  a cluster that already has its ankra.cc zone reports the existing domain, a
+  cluster without one gets the zone queued and reports it as `pending` until
+  it publishes. Previously the day-2 opt-in was a raw API call.
 
 ## v0.11.0-rc3 — 2026-08-16
 

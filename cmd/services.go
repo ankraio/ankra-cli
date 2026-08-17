@@ -447,4 +447,5 @@ type APIClient interface {
 	StartManagedCluster(provider client.ManagedK8sProvider, clusterID string) (*client.ManagedClusterLifecycleResponse, error)
 	DiscoverManagedClusters(provider client.ManagedK8sProvider, credentialID string) (*client.DiscoverManagedClustersResponse, error)
 	ImportManagedCluster(provider client.ManagedK8sProvider, request client.ImportManagedClusterRequest) (*client.ImportManagedClusterResponse, error)
+	EnableClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error)
 }

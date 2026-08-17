@@ -1583,6 +1583,10 @@ func (m baseMock) ImportManagedCluster(provider client.ManagedK8sProvider, reque
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) EnableClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 type clusterListMock struct {
 	baseMock
 	clusters []client.ClusterListItem
