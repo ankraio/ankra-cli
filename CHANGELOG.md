@@ -4,6 +4,15 @@
 
 ### Added
 
+- **`ankra cluster operations steps --results` shows what each step actually
+  did.** The steps table only ever carried a status and an error excerpt; the
+  scheduler's per-step result payload - the resources a teardown deleted,
+  skipped, or failed to reclaim, or the full error body behind a truncated
+  excerpt - was recorded by the platform but reachable only through the API.
+  `--results` fetches it and prints each step's result under the table, and
+  `-o json|yaml` gains a `step_results` list in step order so scripts can join
+  it without a second call. Steps that never finished are listed as having no
+  result rather than silently omitted.
 - **`ankra alerts destinations` and `ankra alerts routes` bring alerting as
   code to the terminal.** Where alerts go and which notifications reach them
   was portal-only until now. `destinations list|get|create|update|delete`
