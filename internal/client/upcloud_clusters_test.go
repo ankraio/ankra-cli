@@ -452,3 +452,39 @@ func TestDeleteUpcloudNodeGroup_Error(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+func TestCreateUpcloudCluster_OmitsUnsetNetworkRangeAndSendsParityFields(t *testing.T) {
+	expectedResponse := CreateUpcloudClusterResponse{ClusterID: "upcloud-cluster-456", Name: "gpu-chat"}
+	var receivedBody map[string]any
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	})
+	req := CreateUpcloudClusterRequest{
+		Name: "gpu-chat", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Zone: "fi-hel2", BastionPlan: "1xCPU-2GB",
+		ControlPlaneCount: 1, ControlPlanePlan: "2xCPU-4GB",
+		WorkerCount: 1, WorkerPlan: "GPU-8xCPU-64GB-1xL4", Distribution: "k3s",
+		CNI:                   "cilium",
+		ExternalCloudProvider: true,
+		IncludeNetworking:     true,
+		IncludeDNS:            true,
+	}
+	if _, err := testClient.CreateUpcloudCluster(req); err != nil {
+		t.Fatalf("CreateUpcloudCluster: %v", err)
+	}
+	// An unset range must be omitted entirely: sending a literal default made
+	// every create collide with any existing 10.0.x network in the account
+	// (UpCloud 409), while omission lets the platform pick a free range.
+	if _, present := receivedBody["network_ip_range"]; present {
+		t.Errorf("network_ip_range must be omitted when unset, got %v", receivedBody["network_ip_range"])
+	}
+	if got, ok := receivedBody["cni"].(string); !ok || got != "cilium" {
+		t.Errorf("cni = %v, want cilium", receivedBody["cni"])
+	}
+	if got, ok := receivedBody["include_dns"].(bool); !ok || !got {
+		t.Errorf("include_dns = %v, want true", receivedBody["include_dns"])
+	}
+}

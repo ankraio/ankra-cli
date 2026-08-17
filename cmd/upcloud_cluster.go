@@ -32,6 +32,7 @@ var upcloudCreateCmd = &cobra.Command{
 		workerCount, _ := cmd.Flags().GetInt("worker-count")
 		workerPlan, _ := cmd.Flags().GetString("worker-plan")
 		distribution, _ := cmd.Flags().GetString("distribution")
+		cni, _ := cmd.Flags().GetString("cni")
 		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
 		etcdTopology, _ := cmd.Flags().GetString("etcd-topology")
 		etcdNodeCount, _ := cmd.Flags().GetInt("etcd-node-count")
@@ -40,6 +41,7 @@ var upcloudCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		includeDNS, _ := cmd.Flags().GetBool("include-dns")
 		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
 		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
 		gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
@@ -56,11 +58,13 @@ var upcloudCreateCmd = &cobra.Command{
 			WorkerCount:           workerCount,
 			WorkerPlan:            workerPlan,
 			Distribution:          distribution,
+			CNI:                   cni,
 			EtcdTopology:          etcdTopology,
 			EtcdNodeCount:         etcdNodeCount,
 			EtcdPlan:              etcdPlan,
 			ExternalCloudProvider: externalCloudProvider,
 			IncludeNetworking:     includeNetworking,
+			IncludeDNS:            includeDNS,
 		}
 		if kubeVersion != "" {
 			req.KubernetesVersion = &kubeVersion
@@ -514,7 +518,7 @@ func init() {
 	upcloudCreateCmd.Flags().String("credential-id", "", "UpCloud API credential ID (required)")
 	upcloudCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
 	upcloudCreateCmd.Flags().String("zone", "", "UpCloud zone (required)")
-	upcloudCreateCmd.Flags().String("network-ip-range", "10.0.0.0/16", "Network IP range")
+	upcloudCreateCmd.Flags().String("network-ip-range", "", "Private network IP range. Omitted lets Ankra pick a range that is free in your UpCloud account; pass one only to pin it (a range that overlaps an existing network is rejected by UpCloud)")
 	upcloudCreateCmd.Flags().String("bastion-plan", "1xCPU-2GB", "Bastion plan")
 	upcloudCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
 	upcloudCreateCmd.Flags().String("control-plane-plan", "2xCPU-4GB", "Control plane plan")
@@ -526,6 +530,8 @@ func init() {
 	upcloudCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
 	upcloudCreateCmd.Flags().String("etcd-plan", "2xCPU-4GB", "Plan for dedicated etcd nodes when --etcd-topology=external")
 	upcloudCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the UpCloud CCM and CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
+	upcloudCreateCmd.Flags().String("cni", "", "Container network interface for k3s clusters: flannel (default), calico, or cilium. kubeadm clusters always use cilium")
+	upcloudCreateCmd.Flags().Bool("include-dns", true, "Give the cluster its own delegated ankra.cc subdomain with external-dns wired to it (default on; pass --include-dns=false to skip)")
 	upcloudCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
 	upcloudCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated upcloud-cloud-provider stack is committed to Git (optional)")
 	upcloudCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")

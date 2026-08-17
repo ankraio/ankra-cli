@@ -15,19 +15,21 @@ type CreateUpcloudClusterRequest struct {
 	CredentialID          string  `json:"credential_id"`
 	SSHKeyCredentialID    string  `json:"ssh_key_credential_id"`
 	Zone                  string  `json:"zone"`
-	NetworkIPRange        string  `json:"network_ip_range"`
+	NetworkIPRange        string  `json:"network_ip_range,omitempty"`
 	BastionPlan           string  `json:"bastion_plan"`
 	ControlPlaneCount     int     `json:"control_plane_count"`
 	ControlPlanePlan      string  `json:"control_plane_plan"`
 	WorkerCount           int     `json:"worker_count"`
 	WorkerPlan            string  `json:"worker_plan"`
 	Distribution          string  `json:"distribution"`
+	CNI                   string  `json:"cni,omitempty"`
 	KubernetesVersion     *string `json:"kubernetes_version,omitempty"`
 	EtcdTopology          string  `json:"etcd_topology,omitempty"`
 	EtcdNodeCount         int     `json:"etcd_node_count,omitempty"`
 	EtcdPlan              string  `json:"etcd_plan,omitempty"`
 	ExternalCloudProvider bool    `json:"external_cloud_provider"`
 	IncludeNetworking     bool    `json:"include_networking"`
+	IncludeDNS            bool    `json:"include_dns"`
 	GitopsCredentialName  *string `json:"gitops_credential_name,omitempty"`
 	GitopsRepository      *string `json:"gitops_repository,omitempty"`
 	GitopsBranch          *string `json:"gitops_branch,omitempty"`

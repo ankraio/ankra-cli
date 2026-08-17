@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra cluster upcloud create` no longer collides with existing networks.**
+  The command shipped `--network-ip-range` with a literal `10.0.0.0/16` default
+  and always sent it, so on any account that already had a `10.0.x` private
+  network the create wedged at the network step with `UpCloud API 409: Network
+  address 10.0.0.0/16 overlaps with an existing private network`. The flag now
+  defaults to empty and an unset range is omitted from the request, letting the
+  platform pick a range that is free in your account — the same behaviour the
+  portal's API and AI lanes always had. Pass `--network-ip-range` only to pin
+  a specific range.
+
+### Added
+
+- **`ankra cluster upcloud create --cni`** selects the container network
+  interface for k3s clusters (`flannel`, `calico`, or `cilium`; kubeadm
+  clusters always use cilium), closing a gap where the CNI was only choosable
+  from the portal wizard.
+- **`ankra cluster upcloud create --include-dns`** surfaces the delegated
+  ankra.cc subdomain opt-out (default on), completing the
+  `--external-cloud-provider` / `--include-networking` / `--include-dns` trio
+  the API and portal already expose.
+
 ## v0.11.0-rc3 — 2026-08-16
 
 Release candidate, superseding v0.11.0-rc2 — rc2 predates `ankra org dns`
