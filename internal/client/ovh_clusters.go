@@ -142,8 +142,11 @@ func (c *Client) CreateOvhCluster(req CreateOvhClusterRequest) (*CreateOvhCluste
 	return &result, nil
 }
 
-func (c *Client) DeprovisionOvhCluster(clusterID string) (*DeprovisionOvhClusterResponse, error) {
+func (c *Client) DeprovisionOvhCluster(clusterID string, force bool) (*DeprovisionOvhClusterResponse, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s", c.BaseURL, clusterID)
+	if force {
+		url = url + "?force=true"
+	}
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -288,8 +291,11 @@ func (c *Client) ScaleOvhWorkers(clusterID string, workerCount int) (*ScaleWorke
 	return c.doScaleWorkers(url, workerCount)
 }
 
-func (c *Client) StopOvhCluster(clusterID string) (*StopOvhClusterResponse, error) {
+func (c *Client) StopOvhCluster(clusterID string, force bool) (*StopOvhClusterResponse, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/stop", c.BaseURL, url.PathEscape(clusterID))
+	if force {
+		endpoint = endpoint + "?force=true"
+	}
 	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

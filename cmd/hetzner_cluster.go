@@ -241,8 +241,9 @@ var hetznerStopCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
+		force, _ := cmd.Flags().GetBool("force")
 
-		result, stopError := apiClient.StopHetznerCluster(clusterID)
+		result, stopError := apiClient.StopHetznerCluster(clusterID, force)
 		if stopError != nil {
 			return fmt.Errorf("stopping cluster: %w", stopError)
 		}
@@ -643,6 +644,7 @@ func init() {
 	registerAsyncWriteFlags(nodeGroupDeleteCmd)
 
 	hetznerStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
+	hetznerStopCmd.Flags().Bool("force", false, "Also delete the cluster's CSI volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
 
 	registerStructuredOutputFlags(
 		hetznerCreateCmd,

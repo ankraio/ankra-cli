@@ -80,8 +80,12 @@ func (c *Client) createProviderCluster(kind string, request interface{}, result 
 	return nil
 }
 
-func (c *Client) deprovisionProviderCluster(kind, clusterID string) (*ProviderDeprovisionClusterResponse, error) {
-	httpRequest, requestError := http.NewRequest(http.MethodDelete, c.providerClusterURL(kind, clusterID, ""), nil)
+func (c *Client) deprovisionProviderCluster(kind, clusterID string, force bool) (*ProviderDeprovisionClusterResponse, error) {
+	endpoint := c.providerClusterURL(kind, clusterID, "")
+	if force {
+		endpoint += "?force=true"
+	}
+	httpRequest, requestError := http.NewRequest(http.MethodDelete, endpoint, nil)
 	if requestError != nil {
 		return nil, fmt.Errorf("create request: %w", requestError)
 	}
@@ -108,8 +112,12 @@ func (c *Client) deprovisionProviderCluster(kind, clusterID string) (*ProviderDe
 	return &result, nil
 }
 
-func (c *Client) stopProviderCluster(kind, clusterID string) (*ProviderStopClusterResponse, error) {
-	httpRequest, requestError := http.NewRequest(http.MethodPost, c.providerClusterURL(kind, clusterID, "stop"), nil)
+func (c *Client) stopProviderCluster(kind, clusterID string, force bool) (*ProviderStopClusterResponse, error) {
+	endpoint := c.providerClusterURL(kind, clusterID, "stop")
+	if force {
+		endpoint += "?force=true"
+	}
+	httpRequest, requestError := http.NewRequest(http.MethodPost, endpoint, nil)
 	if requestError != nil {
 		return nil, fmt.Errorf("create request: %w", requestError)
 	}

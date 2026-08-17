@@ -181,8 +181,8 @@ func (c *Client) DeprovisionHetznerCluster(clusterID string, force bool) (*Depro
 	return &result, nil
 }
 
-func (c *Client) StopHetznerCluster(clusterID string) (*ProviderStopClusterResponse, error) {
-	return c.stopProviderCluster("hetzner", clusterID)
+func (c *Client) StopHetznerCluster(clusterID string, force bool) (*ProviderStopClusterResponse, error) {
+	return c.stopProviderCluster("hetzner", clusterID, force)
 }
 
 func (c *Client) StartHetznerCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {

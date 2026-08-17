@@ -2,8 +2,8 @@ package client
 
 const scalewayKind = "scaleway"
 
-func (c *Client) StopScalewayCluster(clusterID string) (*ProviderStopClusterResponse, error) {
-	return c.stopProviderCluster(scalewayKind, clusterID)
+func (c *Client) StopScalewayCluster(clusterID string, force bool) (*ProviderStopClusterResponse, error) {
+	return c.stopProviderCluster(scalewayKind, clusterID, force)
 }
 
 func (c *Client) StartScalewayCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {
