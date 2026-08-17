@@ -1667,6 +1667,10 @@ func (m baseMock) TestNotificationRoute(routeID string) (*client.NotificationRou
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) DisableClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 type clusterListMock struct {
 	baseMock
 	clusters []client.ClusterListItem

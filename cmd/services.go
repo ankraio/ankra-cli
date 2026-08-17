@@ -469,4 +469,5 @@ type APIClient interface {
 	UpdateNotificationRoute(routeID string, request client.UpdateNotificationRouteRequest) (*client.NotificationRoute, error)
 	DeleteNotificationRoute(routeID string) error
 	TestNotificationRoute(routeID string) (*client.NotificationRouteTestResult, error)
+	DisableClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error)
 }
