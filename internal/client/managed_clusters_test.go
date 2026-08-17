@@ -256,3 +256,76 @@ func TestStopManagedCluster_RefusalSurfacesDetail(t *testing.T) {
 		t.Errorf("expected refusal detail in error, got: %v", err)
 	}
 }
+
+func TestDiscoverManagedClusters_SendsCredentialAndDecodesImportedFlag(t *testing.T) {
+	version := "1.35"
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/v1/clusters/managed/uks/discover" {
+			t.Errorf("path = %s, want /api/v1/clusters/managed/uks/discover", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("credential_id"); got != "cred-1" {
+			t.Errorf("credential_id = %s, want cred-1", got)
+		}
+		jsonResponse(t, w, http.StatusOK, DiscoverManagedClustersResponse{
+			Clusters: []DiscoveredManagedCluster{
+				{ProviderClusterID: "uks-1", Name: "dev-md", Location: "fi-hel2",
+					Version: &version, Status: "running", NodeCount: 3, AlreadyImported: true},
+			},
+		})
+	}
+	testClient := newTestClient(t, handler)
+
+	result, err := testClient.DiscoverManagedClusters(ManagedK8sProviderUks, "cred-1")
+	if err != nil {
+		t.Fatalf("DiscoverManagedClusters: %v", err)
+	}
+	if len(result.Clusters) != 1 {
+		t.Fatalf("clusters = %d, want 1", len(result.Clusters))
+	}
+	if !result.Clusters[0].AlreadyImported {
+		t.Error("expected already_imported to decode true")
+	}
+	if result.Clusters[0].ProviderClusterID != "uks-1" {
+		t.Errorf("provider cluster id = %s, want uks-1", result.Clusters[0].ProviderClusterID)
+	}
+}
+
+func TestImportManagedCluster_SendsBodyAndDecodesResponse(t *testing.T) {
+	var receivedBody map[string]any
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if r.URL.Path != "/api/v1/clusters/managed/uks/import" {
+			t.Errorf("path = %s, want /api/v1/clusters/managed/uks/import", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusOK, ImportManagedClusterResponse{
+			ClusterID: "cluster-9", Name: "my-uks", ProviderClusterID: "uks-1"})
+	}
+	testClient := newTestClient(t, handler)
+
+	name := "my-uks"
+	result, err := testClient.ImportManagedCluster(ManagedK8sProviderUks, ImportManagedClusterRequest{
+		ProviderClusterID: "uks-1", CredentialID: "cred-1", Name: &name})
+	if err != nil {
+		t.Fatalf("ImportManagedCluster: %v", err)
+	}
+	if result.ClusterID != "cluster-9" {
+		t.Errorf("cluster id = %s, want cluster-9", result.ClusterID)
+	}
+	if receivedBody["provider_cluster_id"] != "uks-1" || receivedBody["credential_id"] != "cred-1" {
+		t.Errorf("body = %v, want provider_cluster_id uks-1 and credential_id cred-1", receivedBody)
+	}
+	if receivedBody["name"] != "my-uks" {
+		t.Errorf("name = %v, want my-uks", receivedBody["name"])
+	}
+	if _, present := receivedBody["description"]; present {
+		t.Error("empty description must be omitted from the body")
+	}
+}
