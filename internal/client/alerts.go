@@ -17,17 +17,22 @@ const (
 // through the CLI; a channel-based Slack or Teams destination carries a
 // channel_id instead and answers a null URL.
 type AlertDestination struct {
-	ID             string  `json:"id" yaml:"id"`
-	Name           string  `json:"name" yaml:"name"`
-	URL            *string `json:"url" yaml:"url"`
-	ChannelID      *string `json:"channel_id" yaml:"channel_id"`
-	ChannelName    *string `json:"channel_name" yaml:"channel_name"`
-	Description    *string `json:"description" yaml:"description"`
-	Template       *string `json:"template" yaml:"template"`
-	Enabled        bool    `json:"enabled" yaml:"enabled"`
-	OrganisationID *string `json:"organisation_id" yaml:"organisation_id"`
-	CreatedAt      string  `json:"created_at" yaml:"created_at"`
-	UpdatedAt      string  `json:"updated_at" yaml:"updated_at"`
+	ID          string  `json:"id" yaml:"id"`
+	Name        string  `json:"name" yaml:"name"`
+	URL         *string `json:"url" yaml:"url"`
+	ChannelID   *string `json:"channel_id" yaml:"channel_id"`
+	ChannelName *string `json:"channel_name" yaml:"channel_name"`
+	// IntegrationType is the receiver (slack, teams, discord, pagerduty,
+	// custom); empty from a backend that predates the field. TeamsTenantID
+	// travels with Teams channel destinations.
+	IntegrationType string  `json:"integration_type,omitempty" yaml:"integration_type,omitempty"`
+	TeamsTenantID   *string `json:"teams_tenant_id" yaml:"teams_tenant_id"`
+	Description     *string `json:"description" yaml:"description"`
+	Template        *string `json:"template" yaml:"template"`
+	Enabled         bool    `json:"enabled" yaml:"enabled"`
+	OrganisationID  *string `json:"organisation_id" yaml:"organisation_id"`
+	CreatedAt       string  `json:"created_at" yaml:"created_at"`
+	UpdatedAt       string  `json:"updated_at" yaml:"updated_at"`
 }
 
 // AlertDestinationPagination is the page envelope of the destinations list.

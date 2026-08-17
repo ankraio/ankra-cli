@@ -402,10 +402,14 @@ func printTeamsChannels(out io.Writer, list *client.TeamsChannelList) {
 	writer.Render()
 }
 
-// alertDestinationType names the delivery mechanism, since the read shape
-// carries no receiver type: a destination with a channel id posts through
-// the Ankra bot, everything else is a webhook.
+// alertDestinationType names the receiver from the read shape's
+// integration_type; a backend that predates the field yields the delivery
+// mechanism instead (channel = posted by the Ankra bot, webhook = direct
+// POST) so the column never goes blank.
 func alertDestinationType(destination client.AlertDestination) string {
+	if destination.IntegrationType != "" {
+		return destination.IntegrationType
+	}
 	if destination.ChannelID != nil && *destination.ChannelID != "" {
 		return "channel"
 	}

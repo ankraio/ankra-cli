@@ -158,14 +158,16 @@ func sampleAlertDestinations() []client.AlertDestination {
 			UpdatedAt: "2026-08-02T10:00:00Z",
 		},
 		{
-			ID:          "3d0f6a2e-0000-4000-8000-000000000002",
-			Name:        "ops-teams",
-			ChannelID:   strPtrCmd("19:abc@thread.tacv2"),
-			ChannelName: strPtrCmd("Platform Alerts"),
-			Description: strPtrCmd("Teams channel for the platform team"),
-			Enabled:     false,
-			CreatedAt:   "2026-08-01T10:00:00Z",
-			UpdatedAt:   "2026-08-02T10:00:00Z",
+			ID:              "3d0f6a2e-0000-4000-8000-000000000002",
+			Name:            "ops-teams",
+			ChannelID:       strPtrCmd("19:abc@thread.tacv2"),
+			ChannelName:     strPtrCmd("Platform Alerts"),
+			IntegrationType: "teams",
+			TeamsTenantID:   strPtrCmd("tenant-1"),
+			Description:     strPtrCmd("Teams channel for the platform team"),
+			Enabled:         false,
+			CreatedAt:       "2026-08-01T10:00:00Z",
+			UpdatedAt:       "2026-08-02T10:00:00Z",
 		},
 	}
 }
@@ -188,7 +190,7 @@ func TestAlertsDestinationsListRendersTableAndFilters(t *testing.T) {
 	}
 	for _, fragment := range []string{
 		"ops-slack", "webhook", "https://***",
-		"ops-teams", "channel", "Platform Alerts",
+		"ops-teams", "teams", "Platform Alerts",
 		"Page 1 of 1 (total 2)",
 	} {
 		if !strings.Contains(stdout, fragment) {
@@ -252,7 +254,7 @@ func TestAlertsDestinationsGetRendersDetails(t *testing.T) {
 	}
 	for _, fragment := range []string{
 		"Name:        ops-teams",
-		"Type:        channel",
+		"Type:        teams",
 		"Target:      Platform Alerts",
 		"Description: Teams channel for the platform team",
 		"Enabled:     false",
