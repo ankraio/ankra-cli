@@ -11,11 +11,17 @@ import (
 )
 
 // UpdateBastionInstanceTypeResult reports the mutated bastion/gateway node.
+// OperationID carries the execution the platform dispatched to perform the
+// cloud resize; it is null when the write scheduled no cloud work (a stopped
+// cluster applies the new type on start, and a resize already in flight keeps
+// its own operation) and absent altogether on platforms older than the release
+// that added the field.
 type UpdateBastionInstanceTypeResult struct {
-	NodeID       string `json:"node_id"`
-	Kind         string `json:"kind"`
-	Name         string `json:"name"`
-	InstanceType string `json:"instance_type"`
+	NodeID       string  `json:"node_id"`
+	Kind         string  `json:"kind"`
+	Name         string  `json:"name"`
+	InstanceType string  `json:"instance_type"`
+	OperationID  *string `json:"operation_id"`
 }
 
 func (c *Client) UpdateHetznerBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*UpdateBastionInstanceTypeResult, bool, error) {

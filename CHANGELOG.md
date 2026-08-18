@@ -1,5 +1,22 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Changed
+
+- **`ankra cluster <provider> bastion resize` no longer claims the node is
+  resized before the cloud has touched it.** The command reported
+  "resized to '<type>'" as soon as the platform had recorded the new instance
+  type, while the provider's update job — the power-off, the resize, the
+  power-on — had not started. The platform now hands back the operation
+  carrying that job, so the confirmation says the instance type was *set*,
+  names the operation, warns that SSH and NAT drop while the node cycles, and
+  points at `ankra cluster operations list <operation_id>` for the part that is
+  still running. A write that scheduled no cloud work (a stopped cluster, whose
+  new type applies on start, or a resize already in flight) says so instead of
+  printing an id there is nothing to poll for. `-o json|yaml` gains the
+  matching `operation_id` field.
+
 ## v0.12.0 — 2026-08-18
 
 Closes the loop on node-group cloud-init. A node group could already carry a

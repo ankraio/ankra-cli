@@ -88,8 +88,26 @@ func runBastionResize(cmd *cobra.Command, opsFn func() bastionOps, clusterID, in
 	} else if handled {
 		return nil
 	}
-	fmt.Printf("Bastion/gateway '%s' resized to '%s'.\n", result.Name, result.InstanceType)
+	printBastionResized(result)
 	return nil
+}
+
+// printBastionResized reports the write, not the cloud resize: the platform
+// records the new instance type and dispatches the provider's bastion update
+// job, which powers the node off, resizes it and powers it back on long after
+// this command has returned. The operation it hands back is the only thing
+// that says when that has finished, so the confirmation names it and points at
+// the poller instead of claiming the node is already resized.
+func printBastionResized(result *client.UpdateBastionInstanceTypeResult) {
+	if result.OperationID != nil && *result.OperationID != "" {
+		fmt.Printf("Bastion/gateway '%s' instance type set to '%s' (operation %s).\n", result.Name, result.InstanceType, *result.OperationID)
+		fmt.Println("The provider powers the node off, resizes it and powers it back on; SSH and NAT for the cluster are briefly unavailable until it is back.")
+		fmt.Printf("Track progress with: ankra cluster operations list %s\n", *result.OperationID)
+		return
+	}
+	fmt.Printf("Bastion/gateway '%s' instance type set to '%s'.\n", result.Name, result.InstanceType)
+	fmt.Println("The platform returned no operation to track for this write - a stopped cluster applies the new type on start, and a resize already running keeps its own operation.")
+	fmt.Println("List what is running with: ankra cluster operations list")
 }
 
 // runBastionStatus reports the verdict the platform's bastion health loop
@@ -233,7 +251,10 @@ Find its node ID with 'nodes list'.`,
 		Short: "Change the bastion/gateway instance type",
 		Long: `Resize the bastion/gateway node. The provider's bastion/gateway update job
 powers it off, resizes it, and powers it back on, causing brief SSH/NAT
-downtime for the cluster.`,
+downtime for the cluster.
+
+--wait covers the platform write only; the cloud resize runs as the operation
+reported on success. Follow it with 'ankra cluster operations list <operation_id>'.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runBastionResize(cmd, opsFn, args[0], args[1])
