@@ -1,5 +1,25 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra cluster <provider> bastion status` and `bastion diagnose`.** The
+  bastion is the one host the cluster agent sits behind, so when it goes down
+  the agent goes quiet with it and the CLI had nothing to say about why —
+  the platform's own verdict and its SSH diagnosis were reachable only from
+  the assistant. `bastion status` prints the recorded verdict (reachable or
+  not, which hop a failed probe stopped at, how many probes have failed in a
+  row, and when it was last checked) without touching the host, so it answers
+  even while the bastion is unreachable. `bastion diagnose` dispatches the
+  provider's read-only diagnose job — sshd configuration, failed-login volume,
+  disk, failed units, journal errors, listening ports, pending security
+  updates — and blocks for its report, handing back an operation id to poll
+  with `cluster operations list` if the job outruns the platform's two-minute
+  wait. Both accept `-o json|yaml`. Providers whose gateway carries no
+  diagnose job say so in `status` rather than offering a command that would
+  only refuse.
+
 ## v0.11.0 — 2026-08-18
 
 Promotes v0.11.0-rc1 through rc4 — stack profiles addressable by name,

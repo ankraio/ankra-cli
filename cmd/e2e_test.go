@@ -879,6 +879,14 @@ func (m baseMock) UpdateHetznerBastionInstanceType(ctx context.Context, clusterI
 	return nil, false, errors.New("not implemented")
 }
 
+func (m baseMock) GetHetznerBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DiagnoseHetznerBastion(ctx context.Context, clusterID string) (*client.BastionDiagnoseResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListHetznerCredentials() ([]client.HetznerCredentialListItem, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1051,6 +1059,14 @@ func (m baseMock) UpdateOvhBastionInstanceType(ctx context.Context, clusterID, i
 	return nil, false, errors.New("not implemented")
 }
 
+func (m baseMock) GetOvhBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DiagnoseOvhBastion(ctx context.Context, clusterID string) (*client.BastionDiagnoseResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListOvhCredentials() ([]client.OvhCredentialListItem, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1145,6 +1161,14 @@ func (m baseMock) RestartUpcloudClusterNode(clusterID, nodeID string) (*client.R
 
 func (m baseMock) UpdateUpcloudBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
 	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetUpcloudBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DiagnoseUpcloudBastion(ctx context.Context, clusterID string) (*client.BastionDiagnoseResult, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) ListUpcloudCredentials() ([]client.UpcloudCredentialListItem, error) {
@@ -1249,6 +1273,14 @@ func (m baseMock) RestartDigitaloceanClusterNode(clusterID, nodeID string) (*cli
 
 func (m baseMock) UpdateDigitaloceanBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
 	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetDigitaloceanBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DiagnoseDigitaloceanBastion(ctx context.Context, clusterID string) (*client.BastionDiagnoseResult, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) GetDigitaloceanClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
