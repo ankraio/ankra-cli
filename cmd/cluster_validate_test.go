@@ -32,14 +32,32 @@ func newValidateTestServer(t *testing.T, receivedClusterID *string) *httptest.Se
 	}))
 }
 
+// useTestClient points the command at the test server and satisfies the root
+// command's auth gate, which reads the token rather than the client: without
+// it the command fails with "not logged in" wherever no real credentials
+// exist, which is every CI runner.
+func useTestClient(t *testing.T, serverURL string) {
+	t.Helper()
+	previousClient := apiClient
+	previousToken := apiToken
+	previousBaseURL := baseURL
+	apiClient = client.New("test-token", serverURL)
+	apiToken = "test-token"
+	baseURL = serverURL
+	t.Setenv("ANKRA_API_TOKEN", "test-token")
+	t.Cleanup(func() {
+		apiClient = previousClient
+		apiToken = previousToken
+		baseURL = previousBaseURL
+	})
+}
+
 func TestClusterValidateResolvesClusterNameToID(t *testing.T) {
 	receivedClusterID := ""
 	server := newValidateTestServer(t, &receivedClusterID)
 	defer server.Close()
 
-	previousClient := apiClient
-	apiClient = client.New("test-token", server.URL)
-	t.Cleanup(func() { apiClient = previousClient })
+	useTestClient(t, server.URL)
 
 	_, err := executeCommand("cluster", "validate", "--file", writeMinimalImportCluster(t), "--cluster", "chat-ai-l4")
 	if err != nil {
@@ -55,9 +73,7 @@ func TestClusterValidatePassesClusterIDThrough(t *testing.T) {
 	server := newValidateTestServer(t, &receivedClusterID)
 	defer server.Close()
 
-	previousClient := apiClient
-	apiClient = client.New("test-token", server.URL)
-	t.Cleanup(func() { apiClient = previousClient })
+	useTestClient(t, server.URL)
 
 	_, err := executeCommand("cluster", "validate", "--file", writeMinimalImportCluster(t), "--cluster", validateTestClusterID)
 	if err != nil {
