@@ -163,7 +163,7 @@ func TestTriggerReconcile(t *testing.T) {
 					w.WriteHeader(http.StatusMethodNotAllowed)
 					return
 				}
-				jsonResponse(t, w, http.StatusOK, TriggerReconcileResult{Success: true, Message: "reconciling"})
+				jsonResponse(t, w, http.StatusOK, TriggerReconcileResult{CreatedOperations: 2})
 			},
 			wantErr: false,
 		},
@@ -184,8 +184,8 @@ func TestTriggerReconcile(t *testing.T) {
 				t.Errorf("TriggerReconcile() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !tt.wantErr && !got.Success {
-				t.Errorf("TriggerReconcile() got.Success = %v, want true", got.Success)
+			if !tt.wantErr && got.CreatedOperations != 2 {
+				t.Errorf("TriggerReconcile() got.CreatedOperations = %d, want 2 - the wire field is created_operations", got.CreatedOperations)
 			}
 		})
 	}

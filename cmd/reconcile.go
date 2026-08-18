@@ -196,13 +196,10 @@ If a cluster name is provided, reconciles that specific cluster.`,
 			return encodeStructured(cmd.OutOrStdout(), format, result)
 		}
 
-		if result.Success {
-			fmt.Println("Reconciliation triggered successfully!")
+		if result.CreatedOperations > 0 {
+			fmt.Printf("Reconciliation triggered: %d operation(s) created\n", result.CreatedOperations)
 		} else {
-			fmt.Printf("Reconciliation request completed: %s\n", result.Message)
-		}
-		if result.Message != "" {
-			fmt.Printf("Message: %s\n", result.Message)
+			fmt.Println("Reconciliation triggered: no operations created - stored state is already in sync")
 		}
 		return nil
 	},
