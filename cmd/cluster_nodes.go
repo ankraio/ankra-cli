@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -15,50 +16,59 @@ type clusterNodesOps struct {
 	list     func(clusterID string) (*client.NodeListResult, error)
 	get      func(clusterID, nodeID string) (*client.NodeDetail, error)
 	restart  func(clusterID, nodeID string) (*client.RestartNodeResult, error)
+	// cloudInitLog is nil for providers whose node-remediation SSH lane is
+	// not wired (Proxmox, Morpheus); the subcommand is only registered when
+	// it is set.
+	cloudInitLog func(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error)
 }
 
 func hetznerNodesOps() clusterNodesOps {
 	return clusterNodesOps{
-		provider: "hetzner",
-		list:     apiClient.ListHetznerClusterNodes,
-		get:      apiClient.GetHetznerClusterNode,
-		restart:  apiClient.RestartHetznerClusterNode,
+		provider:     "hetzner",
+		list:         apiClient.ListHetznerClusterNodes,
+		get:          apiClient.GetHetznerClusterNode,
+		restart:      apiClient.RestartHetznerClusterNode,
+		cloudInitLog: apiClient.HetznerNodeCloudInitLog,
 	}
 }
 
 func ovhNodesOps() clusterNodesOps {
 	return clusterNodesOps{
-		provider: "ovh",
-		list:     apiClient.ListOvhClusterNodes,
-		get:      apiClient.GetOvhClusterNode,
-		restart:  apiClient.RestartOvhClusterNode,
+		provider:     "ovh",
+		list:         apiClient.ListOvhClusterNodes,
+		get:          apiClient.GetOvhClusterNode,
+		restart:      apiClient.RestartOvhClusterNode,
+		cloudInitLog: apiClient.OvhNodeCloudInitLog,
 	}
 }
 
 func upcloudNodesOps() clusterNodesOps {
 	return clusterNodesOps{
-		provider: "upcloud",
-		list:     apiClient.ListUpcloudClusterNodes,
-		get:      apiClient.GetUpcloudClusterNode,
-		restart:  apiClient.RestartUpcloudClusterNode,
+		provider:     "upcloud",
+		list:         apiClient.ListUpcloudClusterNodes,
+		get:          apiClient.GetUpcloudClusterNode,
+		restart:      apiClient.RestartUpcloudClusterNode,
+		cloudInitLog: apiClient.UpcloudNodeCloudInitLog,
 	}
 }
 
 func digitaloceanNodesOps() clusterNodesOps {
 	return clusterNodesOps{
-		provider: "digitalocean",
-		list:     apiClient.ListDigitaloceanClusterNodes,
-		get:      apiClient.GetDigitaloceanClusterNode,
-		restart:  apiClient.RestartDigitaloceanClusterNode,
+		provider:     "digitalocean",
+		list:         apiClient.ListDigitaloceanClusterNodes,
+		get:          apiClient.GetDigitaloceanClusterNode,
+		restart:      apiClient.RestartDigitaloceanClusterNode,
+		cloudInitLog: apiClient.DigitaloceanNodeCloudInitLog,
 	}
 }
 
 func scalewayNodesOps() clusterNodesOps {
 	return clusterNodesOps{
-		provider: "scaleway",
-		list:     apiClient.ListScalewayClusterNodes,
-		get:      apiClient.GetScalewayClusterNode,
-		restart:  apiClient.RestartScalewayClusterNode,
+		provider:     "scaleway",
+		list:         apiClient.ListScalewayClusterNodes,
+		get:          apiClient.GetScalewayClusterNode,
+		restart:      apiClient.RestartScalewayClusterNode,
+		cloudInitLog: apiClient.ScalewayNodeCloudInitLog,
 	}
 }
 
@@ -150,6 +160,45 @@ func runNodesRestart(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID
 	fmt.Printf("Restart scheduled for node %s (operation %s, job %s).\n", result.NodeID, result.OperationID, result.JobName)
 	fmt.Println("The node will reboot (or power-cycle); workloads on it are briefly unavailable until it comes back up.")
 	fmt.Printf("Track progress with: ankra cluster operations list %s\n", result.OperationID)
+	return nil
+}
+
+func runNodesCloudInitLog(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID, nodeID string) error {
+	ops := opsFn()
+	result, err := ops.cloudInitLog(clusterID, nodeID)
+	if err != nil {
+		return err
+	}
+
+	if handled, err := renderStructured(cmd, result); err != nil {
+		return err
+	} else if handled {
+		return nil
+	}
+
+	if !result.Completed {
+		fmt.Printf("Cloud-init log fetch dispatched (operation %s, status %s) - the SSH round trip is still running.\n",
+			result.OperationID, result.Status)
+		fmt.Printf("Re-run this command to attach to the in-flight fetch, or track it with: ankra cluster operations list %s\n",
+			result.OperationID)
+		return nil
+	}
+	if result.ErrorExcerpt != "" {
+		fmt.Printf("Cloud-init log fetch failed: %s\n", result.ErrorExcerpt)
+		return nil
+	}
+	if status, ok := result.Report["cloud_init_status"].(string); ok && status != "" {
+		fmt.Println("cloud-init status:")
+		fmt.Printf("  %s\n\n", strings.ReplaceAll(status, "\n", "\n  "))
+	}
+	if logTail, ok := result.Report["log_tail"].(string); ok {
+		if truncated, _ := result.Report["truncated"].(bool); truncated {
+			fmt.Println("cloud-init output log (tail, truncated to the last 64 KiB):")
+		} else {
+			fmt.Println("cloud-init output log:")
+		}
+		fmt.Println(logTail)
+	}
 	return nil
 }
 
@@ -253,7 +302,7 @@ func printEdges(title string, edges map[string][]string) {
 	}
 }
 
-func newNodesCmd(opsFn func() clusterNodesOps, provider string, supportsRestart bool) *cobra.Command {
+func newNodesCmd(opsFn func() clusterNodesOps, provider string, supportsRestart bool, supportsCloudInitLog bool) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "nodes",
 		Short: fmt.Sprintf("List and inspect %s cluster nodes", provider),
@@ -300,15 +349,35 @@ bastion/gateway.`,
 		registerStructuredOutputFlags(restartCmd)
 		cmd.AddCommand(restartCmd)
 	}
+
+	if supportsCloudInitLog {
+		cloudInitLogCmd := &cobra.Command{
+			Use:   "cloud-init-log <cluster_id> <node_id>",
+			Short: "Read the node's cloud-init status and output-log tail",
+			Long: `Fetch 'cloud-init status --long' and the tail of
+/var/log/cloud-init-output.log from the node over the platform's bastion SSH
+lane, as a tracked read-only operation. This is the debug surface for
+node-group user-data: it shows whether the first-boot document ran and what
+it printed, without needing the cluster's SSH key. Repeated calls attach to
+an in-flight fetch instead of dispatching duplicates. Find node ids with
+'nodes list'.`,
+			Args: cobra.ExactArgs(2),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return runNodesCloudInitLog(cmd, opsFn, args[0], args[1])
+			},
+		}
+		registerStructuredOutputFlags(cloudInitLogCmd)
+		cmd.AddCommand(cloudInitLogCmd)
+	}
 	return cmd
 }
 
 func init() {
-	hetznerCmd.AddCommand(newNodesCmd(hetznerNodesOps, "Hetzner", true))
-	ovhCmd.AddCommand(newNodesCmd(ovhNodesOps, "OVH", true))
-	upcloudCmd.AddCommand(newNodesCmd(upcloudNodesOps, "UpCloud", true))
-	digitaloceanCmd.AddCommand(newNodesCmd(digitaloceanNodesOps, "DigitalOcean", true))
-	scalewayCmd.AddCommand(newNodesCmd(scalewayNodesOps, "Scaleway", true))
-	proxmoxCmd.AddCommand(newNodesCmd(proxmoxNodesOps, "Proxmox VE", true))
-	morpheusCmd.AddCommand(newNodesCmd(morpheusNodesOps, "HPE Morpheus", false))
+	hetznerCmd.AddCommand(newNodesCmd(hetznerNodesOps, "Hetzner", true, true))
+	ovhCmd.AddCommand(newNodesCmd(ovhNodesOps, "OVH", true, true))
+	upcloudCmd.AddCommand(newNodesCmd(upcloudNodesOps, "UpCloud", true, true))
+	digitaloceanCmd.AddCommand(newNodesCmd(digitaloceanNodesOps, "DigitalOcean", true, true))
+	scalewayCmd.AddCommand(newNodesCmd(scalewayNodesOps, "Scaleway", true, true))
+	proxmoxCmd.AddCommand(newNodesCmd(proxmoxNodesOps, "Proxmox VE", true, false))
+	morpheusCmd.AddCommand(newNodesCmd(morpheusNodesOps, "HPE Morpheus", false, false))
 }
