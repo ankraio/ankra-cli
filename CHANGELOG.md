@@ -4,6 +4,31 @@
 
 ### Added
 
+- **`ankra cluster <provider> nodes cloud-init-log` reads a node's first-boot
+  output.** Node groups can carry a cloud-init user-data document, but its
+  execution was invisible: there was no node-log surface, and the bastion SSH
+  key belongs to the platform, so a failed provisioning script could only be
+  inferred from symptoms. The new subcommand fetches `cloud-init status` and
+  the tail of `/var/log/cloud-init-output.log` over the platform's bastion
+  lane as a tracked read-only operation, for Hetzner, OVH, UpCloud,
+  DigitalOcean, and Scaleway clusters.
+
+- **`ankra cluster node-group add --user-data-file` attaches a cloud-init
+  document to a new node group.** The platform applies it verbatim at first
+  boot on every instance the group ever creates, replacements included (OVH
+  clusters only). A file flag rather than a string flag, because the document
+  is multi-KB YAML; documents over the platform's 65535-byte cap are refused
+  before the request is sent.
+
+### Fixed
+
+- **`ankra cluster reconcile` now reports what actually happened.** It parsed
+  a response shape the API never returns and printed an empty
+  "Reconciliation request completed:" with exit 0 on every cluster kind,
+  which read as "reconcile does not work for this cluster". It now reports
+  "Reconciliation triggered: N operation(s) created", or the explicit zero
+  case when stored state is already in sync.
+
 - **`ankra application add` declares the image registry at create time.** The
   registry an application publishes to could only be declared after it
   existed, with `application registry set` — but the setup job generates the

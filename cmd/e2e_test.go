@@ -871,6 +871,26 @@ func (m baseMock) GetHetznerClusterNode(clusterID, nodeID string) (*client.NodeD
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) HetznerNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) OvhNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpcloudNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DigitaloceanNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ScalewayNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) RestartHetznerClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error) {
 	return nil, errors.New("not implemented")
 }

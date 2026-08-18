@@ -107,6 +107,56 @@ func (c *Client) RestartProxmoxClusterNode(clusterID, nodeID string) (*RestartNo
 	return c.restartClusterNode("proxmox", clusterID, nodeID)
 }
 
+// NodeCloudInitLogResult mirrors the platform's NodeRemediationResult wire
+// shape for the cloud-init log fetch. When the SSH round trip finishes
+// within the platform's wait budget, Completed is true and Report carries
+// cloud_init_status / log_tail; otherwise the operation ids are the poll
+// handle.
+type NodeCloudInitLogResult struct {
+	OperationID  string                 `json:"operation_id"`
+	StepID       string                 `json:"step_id"`
+	NodeID       string                 `json:"node_id"`
+	JobName      string                 `json:"job_name"`
+	Status       string                 `json:"status"`
+	Completed    bool                   `json:"completed"`
+	Attached     bool                   `json:"attached_to_existing_run,omitempty"`
+	Report       map[string]interface{} `json:"report,omitempty"`
+	ErrorExcerpt string                 `json:"error_excerpt,omitempty"`
+}
+
+func (c *Client) HetznerNodeCloudInitLog(clusterID, nodeID string) (*NodeCloudInitLogResult, error) {
+	return c.nodeCloudInitLog("hetzner", clusterID, nodeID)
+}
+
+func (c *Client) OvhNodeCloudInitLog(clusterID, nodeID string) (*NodeCloudInitLogResult, error) {
+	return c.nodeCloudInitLog("ovh", clusterID, nodeID)
+}
+
+func (c *Client) UpcloudNodeCloudInitLog(clusterID, nodeID string) (*NodeCloudInitLogResult, error) {
+	return c.nodeCloudInitLog("upcloud", clusterID, nodeID)
+}
+
+func (c *Client) DigitaloceanNodeCloudInitLog(clusterID, nodeID string) (*NodeCloudInitLogResult, error) {
+	return c.nodeCloudInitLog("digitalocean", clusterID, nodeID)
+}
+
+func (c *Client) ScalewayNodeCloudInitLog(clusterID, nodeID string) (*NodeCloudInitLogResult, error) {
+	return c.nodeCloudInitLog("scaleway", clusterID, nodeID)
+}
+
+// nodeCloudInitLog fetches the node's cloud-init status and output-log tail
+// over the platform's bastion SSH lane. POST because the fetch runs as a
+// tracked execution; repeated calls attach to an in-flight run rather than
+// dispatching duplicates.
+func (c *Client) nodeCloudInitLog(provider, clusterID, nodeID string) (*NodeCloudInitLogResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/nodes/%s/cloud-init-log", c.BaseURL, provider, clusterID, nodeID)
+	var result NodeCloudInitLogResult
+	if err := c.sendJSON(http.MethodPost, url, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // restartClusterNode schedules a one-shot restart operation. Unlike the
 // node-group writes, this endpoint has no async accept/wait contract - it
 // always runs synchronously and answers 200 with the scheduled operation.
