@@ -1,6 +1,13 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.12.0 — 2026-08-18
+
+Closes the loop on node-group cloud-init. A node group could already carry a
+user-data document, but only over the raw API, and nothing could show what it
+did on first boot; `--user-data-file` attaches the document and
+`nodes cloud-init-log` reads the output back, so a provisioning script is no
+longer debugged blind. Also makes `cluster reconcile` report the operations it
+triggered instead of printing an empty success line on every cluster kind.
 
 ### Added
 
@@ -19,6 +26,33 @@
   clusters only). A file flag rather than a string flag, because the document
   is multi-KB YAML; documents over the platform's 65535-byte cap are refused
   before the request is sent.
+
+- **`ankra cluster <provider> bastion status` and `bastion diagnose`.** The
+  bastion is the one host the cluster agent sits behind, so when it goes down
+  the agent goes quiet with it and the CLI had nothing to say about why —
+  the platform's own verdict and its SSH diagnosis were reachable only from
+  the assistant. `bastion status` prints the recorded verdict (reachable or
+  not, which hop a failed probe stopped at, how many probes have failed in a
+  row, and when it was last checked) without touching the host, so it answers
+  even while the bastion is unreachable. `bastion diagnose` dispatches the
+  provider's read-only diagnose job — sshd configuration, failed-login volume,
+  disk, failed units, journal errors, listening ports, pending security
+  updates — and blocks for its report, handing back an operation id to poll
+  with `cluster operations list` if the job outruns the platform's two-minute
+  wait. Both accept `-o json|yaml`. Providers whose gateway carries no
+  diagnose job say so in `status` rather than offering a command that would
+  only refuse.
+
+- **`ankra demo deploy` selects and tunes individual components.** A monorepo
+  demo is deployed as one pod per component, but the CLI was still
+  single-workload: one global `--image-tag` and `--container-port` for the
+  whole demo, and `demo list`/`demo detail` printed the raw JSON document the
+  components were buried in. `--component NAME` (repeatable) narrows a launch
+  to the components you name, `--component-tag`, `--component-port` and
+  `--component-path` tune one component each, and `--entry-component` names
+  the component that owns the demo host's root path instead of leaving it to
+  the backend's heuristic. Omitting them all still deploys every recorded
+  component, and the demo output now reports components rather than raw JSON.
 
 ### Fixed
 
@@ -43,21 +77,12 @@
   application still publishes to the organisation's Ankra registry project,
   exactly as before; the other registry flags need it and are refused on
   their own.
-- **`ankra cluster <provider> bastion status` and `bastion diagnose`.** The
-  bastion is the one host the cluster agent sits behind, so when it goes down
-  the agent goes quiet with it and the CLI had nothing to say about why —
-  the platform's own verdict and its SSH diagnosis were reachable only from
-  the assistant. `bastion status` prints the recorded verdict (reachable or
-  not, which hop a failed probe stopped at, how many probes have failed in a
-  row, and when it was last checked) without touching the host, so it answers
-  even while the bastion is unreachable. `bastion diagnose` dispatches the
-  provider's read-only diagnose job — sshd configuration, failed-login volume,
-  disk, failed units, journal errors, listening ports, pending security
-  updates — and blocks for its report, handing back an operation id to poll
-  with `cluster operations list` if the job outruns the platform's two-minute
-  wait. Both accept `-o json|yaml`. Providers whose gateway carries no
-  diagnose job say so in `status` rather than offering a command that would
-  only refuse.
+
+- **`ankra cluster validate --cluster` accepts a name again.** It sent the
+  name verbatim as the `cluster_id` query parameter and the API rejected it
+  with a 422 `uuid_parsing` error, while every other cluster command takes a
+  name or an ID. It now resolves names through the clusters list; a 36-char
+  UUID still passes through untouched.
 
 ## v0.11.0 — 2026-08-18
 
