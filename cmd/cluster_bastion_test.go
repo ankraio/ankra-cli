@@ -36,8 +36,9 @@ func (m *bastionResizeMock) UpdateHetznerBastionInstanceType(ctx context.Context
 
 func TestClusterBastionResizeCommandWithWait(t *testing.T) {
 	writeSelectedClusterJSON(t)
+	operationID := "op-77"
 	mock := &bastionResizeMock{
-		result: &client.UpdateBastionInstanceTypeResult{NodeID: "node-9", Kind: "hetzner_bastion", Name: "bastion", InstanceType: "cx31"},
+		result: &client.UpdateBastionInstanceTypeResult{NodeID: "node-9", Kind: "hetzner_bastion", Name: "bastion", InstanceType: "cx31", OperationID: &operationID},
 	}
 	setMockClient(t, mock)
 
@@ -48,8 +49,40 @@ func TestClusterBastionResizeCommandWithWait(t *testing.T) {
 	if len(mock.resizeCalls) != 1 || mock.resizeCalls[0] != "cluster-1:cx31:true" {
 		t.Fatalf("expected one resize call with wait=true, got %v", mock.resizeCalls)
 	}
-	if !strings.Contains(stdoutOutput, "resized to 'cx31'") {
-		t.Errorf("expected resize confirmation, got: %s", stdoutOutput)
+	if !strings.Contains(stdoutOutput, "instance type set to 'cx31' (operation op-77)") {
+		t.Errorf("expected the write confirmation to name the operation, got: %s", stdoutOutput)
+	}
+	if !strings.Contains(stdoutOutput, "ankra cluster operations list op-77") {
+		t.Errorf("expected the operations-list hint, got: %s", stdoutOutput)
+	}
+	if strings.Contains(stdoutOutput, "resized to") {
+		t.Errorf("the cloud resize has not happened yet, so it must not be reported as done: %s", stdoutOutput)
+	}
+}
+
+// A platform that scheduled no cloud work (stopped cluster, resize already in
+// flight) - and any platform older than the release that added the field -
+// answers without an operation_id. The write is still confirmed, but nothing
+// is claimed about a resize and no unpollable id is printed.
+func TestClusterBastionResizeCommandWithoutOperationID(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &bastionResizeMock{
+		result: &client.UpdateBastionInstanceTypeResult{NodeID: "node-9", Kind: "hetzner_bastion", Name: "bastion", InstanceType: "cx31"},
+	}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "resize", "cluster-1", "cx31", "--wait")
+	})
+
+	if !strings.Contains(stdoutOutput, "instance type set to 'cx31'") {
+		t.Errorf("expected the write confirmation, got: %s", stdoutOutput)
+	}
+	if !strings.Contains(stdoutOutput, "no operation to track") {
+		t.Errorf("expected the missing-operation explanation, got: %s", stdoutOutput)
+	}
+	if strings.Contains(stdoutOutput, "(operation ") {
+		t.Errorf("expected no operation id, got: %s", stdoutOutput)
 	}
 }
 

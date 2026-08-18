@@ -43,11 +43,13 @@ func TestUpdateHetznerBastionInstanceType_SubmittedWithoutWait(t *testing.T) {
 }
 
 func TestUpdateHetznerBastionInstanceType_WaitReturnsResult(t *testing.T) {
+	operationID := "op-77"
 	expectedResponse := UpdateBastionInstanceTypeResult{
 		NodeID:       "node-789",
 		Kind:         "hetzner_bastion",
 		Name:         "bastion",
 		InstanceType: "cx31",
+		OperationID:  &operationID,
 	}
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("wait"); got != "true" {
@@ -65,6 +67,32 @@ func TestUpdateHetznerBastionInstanceType_WaitReturnsResult(t *testing.T) {
 	}
 	if result == nil || result.Name != "bastion" || result.InstanceType != "cx31" {
 		t.Errorf("result = %+v, want bastion resized to cx31", result)
+	}
+	if result.OperationID == nil || *result.OperationID != "op-77" {
+		t.Errorf("OperationID = %v, want op-77", result.OperationID)
+	}
+}
+
+// operation_id is additive and nullable: the platform omits it when the write
+// scheduled no cloud work, and a platform older than the release that added it
+// never sends the key at all. Both must decode to a nil OperationID rather
+// than failing the resize.
+func TestUpdateHetznerBastionInstanceType_MissingOperationIDDecodes(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(t, w, http.StatusOK, map[string]string{
+			"node_id":       "node-789",
+			"kind":          "hetzner_bastion",
+			"name":          "bastion",
+			"instance_type": "cx31",
+		})
+	}
+	testClient := newTestClient(t, handler)
+	result, _, err := testClient.UpdateHetznerBastionInstanceType(context.Background(), "cluster-123", "cx31", true)
+	if err != nil {
+		t.Fatalf("UpdateHetznerBastionInstanceType: %v", err)
+	}
+	if result == nil || result.OperationID != nil {
+		t.Errorf("result = %+v, want a decoded result with a nil OperationID", result)
 	}
 }
 
