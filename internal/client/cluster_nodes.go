@@ -31,21 +31,21 @@ type NodeListResult struct {
 }
 
 type NodeDetail struct {
-	ID            string                       `json:"id"`
-	Kind          string                       `json:"kind"`
-	Name          string                       `json:"name"`
-	Role          *string                      `json:"role,omitempty"`
-	NodeGroup     *string                      `json:"node_group,omitempty"`
-	State         string                       `json:"state"`
-	IsDeleted     bool                         `json:"is_deleted"`
-	CreatedAt     string                       `json:"created_at"`
-	UpdatedAt     string                       `json:"updated_at"`
-	Definition    map[string]interface{}       `json:"definition"`
-	Info          map[string]interface{}       `json:"info,omitempty"`
-	Data          map[string]interface{}       `json:"data,omitempty"`
-	Dependencies  map[string][]string          `json:"dependencies"`
-	Relationships map[string][]string          `json:"relationships"`
-	Groups        map[string][]string          `json:"groups"`
+	ID            string                 `json:"id"`
+	Kind          string                 `json:"kind"`
+	Name          string                 `json:"name"`
+	Role          *string                `json:"role,omitempty"`
+	NodeGroup     *string                `json:"node_group,omitempty"`
+	State         string                 `json:"state"`
+	IsDeleted     bool                   `json:"is_deleted"`
+	CreatedAt     string                 `json:"created_at"`
+	UpdatedAt     string                 `json:"updated_at"`
+	Definition    map[string]interface{} `json:"definition"`
+	Info          map[string]interface{} `json:"info,omitempty"`
+	Data          map[string]interface{} `json:"data,omitempty"`
+	Dependencies  map[string][]string    `json:"dependencies"`
+	Relationships map[string][]string    `json:"relationships"`
+	Groups        map[string][]string    `json:"groups"`
 }
 
 func (c *Client) ListHetznerClusterNodes(clusterID string) (*NodeListResult, error) {
