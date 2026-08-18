@@ -361,9 +361,13 @@ type ImportResponse struct {
 	Errors        []ImportResponseResourceError `json:"errors,omitempty"`
 }
 
+// TriggerReconcileResult mirrors the platform's reconcile response (openapi
+// TriggerReconcileResult): the number of operations the manual reconcile
+// planned. Zero is a success too - stored state was already in sync. The
+// route works for every cluster kind; "imported" in its path is historical
+// naming.
 type TriggerReconcileResult struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
+	CreatedOperations int `json:"created_operations"`
 }
 
 func (c *Client) TriggerReconcile(ctx context.Context, clusterID string) (*TriggerReconcileResult, error) {
