@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 
 	"ankra/internal/client"
@@ -244,6 +245,28 @@ var clusterNodeGroupListCmd = &cobra.Command{
 	},
 }
 
+// maxNodeGroupUserDataBytes mirrors the platform's refusal cap (the
+// OpenStack instance user-data limit); checking client-side turns a
+// round-trip rejection into an immediate, clearer error.
+const maxNodeGroupUserDataBytes = 65535
+
+// readNodeGroupUserDataFile loads the cloud-init document named by
+// --user-data-file; an empty path means the flag was not set.
+func readNodeGroupUserDataFile(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	content, readError := os.ReadFile(path)
+	if readError != nil {
+		return "", fmt.Errorf("reading --user-data-file: %w", readError)
+	}
+	if len(content) > maxNodeGroupUserDataBytes {
+		return "", fmt.Errorf("--user-data-file %s is %d bytes; the platform caps node-group user data at %d bytes",
+			path, len(content), maxNodeGroupUserDataBytes)
+	}
+	return string(content), nil
+}
+
 var clusterNodeGroupAddCmd = &cobra.Command{
 	Use:   "add <cluster_id>",
 	Short: "Add a node group",
@@ -258,12 +281,18 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 		instanceType, _ := cmd.Flags().GetString("instance-type")
 		count, _ := cmd.Flags().GetInt("count")
 		availabilityZone, _ := cmd.Flags().GetString("availability-zone")
+		userDataFile, _ := cmd.Flags().GetString("user-data-file")
+		userData, userDataError := readNodeGroupUserDataFile(userDataFile)
+		if userDataError != nil {
+			return userDataError
+		}
 
 		req := client.AddNodeGroupRequest{
 			Name:             name,
 			InstanceType:     instanceType,
 			Count:            count,
 			AvailabilityZone: availabilityZone,
+			UserData:         userData,
 		}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
@@ -658,6 +687,7 @@ func init() {
 	clusterNodeGroupAddCmd.Flags().String("instance-type", "", "Server type / flavor / plan for nodes (required)")
 	clusterNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes")
 	clusterNodeGroupAddCmd.Flags().String("availability-zone", "", "Pin every node of the group to one availability zone, on OVH 3-AZ regions (e.g. eu-west-par-b). See 'ankra cluster ovh regions --with-zones'. Pin the group when it runs zonal storage: an OVH volume cannot attach from another zone")
+	clusterNodeGroupAddCmd.Flags().String("user-data-file", "", "Path to a cloud-init user-data file for the group (OVH clusters only). Applied verbatim at first boot by every instance the group ever creates, replacements included; Ankra sends no cloud-init of its own, so the document is not merged with anything. Max 65535 bytes. Use for provision-time disk layouts, e.g. carving a partition for LUKS before growpart runs")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("name")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("instance-type")
 

@@ -242,6 +242,11 @@ type AddNodeGroupRequest struct {
 	// regions. Omitted spreads the group across the cluster's zone pool when
 	// it has one, and leaves placement to the provider when it does not.
 	AvailabilityZone string `json:"availability_zone,omitempty"`
+	// UserData is the group's opaque cloud-init document (OVH clusters
+	// only), applied verbatim at first boot by every instance the group
+	// ever creates, replacements included. The platform sends no cloud-init
+	// of its own, and refuses documents over 65535 bytes.
+	UserData string `json:"user_data,omitempty"`
 }
 
 type AddNodeGroupResult struct {
