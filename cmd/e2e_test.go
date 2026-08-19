@@ -131,6 +131,134 @@ func (m baseMock) PublishStackProfileDraft(draftID string, request client.Publis
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ValidateStackProfileDraft(requestContext context.Context, draftID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RebaseStackProfileDraft(requestContext context.Context, draftID string, rebaseRequest client.RebaseStackProfileDraftRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SubmitStackProfileSuggestion(requestContext context.Context, draftID string, title string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateStackProfile(requestContext context.Context, createRequest client.CreateStackProfileFromStackRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateStackProfile(requestContext context.Context, profileID string, updateRequest client.UpdateStackProfileRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteStackProfile(requestContext context.Context, profileID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackProfileVersion(requestContext context.Context, profileID string, version int) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SaveStackProfileVersion(requestContext context.Context, profileID string, saveRequest client.SaveStackProfileVersionRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetStackProfileCurrentVersion(requestContext context.Context, profileID string, version int) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DiffStackProfileVersions(requestContext context.Context, profileID string, fromVersion int, toVersion int) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListStackProfileInstantiations(requestContext context.Context, profileID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListStackProfileShares(requestContext context.Context, profileID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateStackProfileShare(requestContext context.Context, profileID string, organisationSlug string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteStackProfileShare(requestContext context.Context, profileID string, shareID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListStackProfileSuggestions(requestContext context.Context, profileID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackProfileSuggestion(requestContext context.Context, profileID string, suggestionID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ApproveStackProfileSuggestion(requestContext context.Context, profileID string, suggestionID string, approveRequest client.ApproveStackProfileSuggestionRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RejectStackProfileSuggestion(requestContext context.Context, profileID string, suggestionID string, note string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) WithdrawStackProfileSuggestion(requestContext context.Context, profileID string, suggestionID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListStackProfileDemos(requestContext context.Context, profileID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) LaunchStackProfileDemo(requestContext context.Context, profileID string, launchRequest client.LaunchStackProfileDemoRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackProfileDemoDetail(requestContext context.Context, profileID string, workspaceID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackProfileDemoLogs(requestContext context.Context, profileID string, workspaceID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StopStackProfileDemo(requestContext context.Context, profileID string, workspaceID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackProfileLogo(requestContext context.Context, profileID string) (*client.StackProfileLogo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PutStackProfileLogo(requestContext context.Context, profileID string, content []byte, contentType string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteStackProfileLogo(requestContext context.Context, profileID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateApplicationAIConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PublishApplicationAddon(requestContext context.Context, applicationID string, publishRequest client.PublishApplicationAddonRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationPublishedAddon(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateApplication(requestContext context.Context, applicationRequest client.CreateApplicationRequest) (*client.CreateApplicationResponse, error) {
 	return nil, errors.New("not implemented")
 }
