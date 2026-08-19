@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"ankra/internal/client"
 
@@ -239,6 +240,56 @@ var stackProfileDraftsDeleteCmd = &cobra.Command{
 	},
 }
 
+var stackProfileDraftsValidateCmd = &cobra.Command{
+	Use:   "validate <draft-id>",
+	Short: "Run the publish validations on a draft without publishing",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		payload, err := apiClient.ValidateStackProfileDraft(cmd.Context(), args[0])
+		if err != nil {
+			return fmt.Errorf("validating stack profile draft: %w", err)
+		}
+		return renderApplicationPayload(cmd, payload)
+	},
+}
+
+var stackProfileDraftsRebaseCmd = &cobra.Command{
+	Use:   "rebase <draft-id>",
+	Short: "Move a stale draft's base to the profile's latest version",
+	Long: `Move a draft's base to the profile's latest published version. A draft
+opened before someone else published cannot be published until it is
+rebased; the draft's contents are kept and the upstream changes reported.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		payload, err := apiClient.RebaseStackProfileDraft(cmd.Context(), args[0],
+			client.RebaseStackProfileDraftRequest{Strategy: "acknowledge"})
+		if err != nil {
+			return fmt.Errorf("rebasing stack profile draft: %w", err)
+		}
+		return renderApplicationPayload(cmd, payload)
+	},
+}
+
+var stackProfileDraftsSubmitSuggestionCmd = &cobra.Command{
+	Use:   "submit-suggestion <draft-id>",
+	Short: "Submit a draft as a suggestion to another organisation's profile",
+	Long: `Submit a draft that edits another organisation's public profile as a
+suggestion. The owning organisation reviews it with
+'ankra stack-profiles suggestions'; submitting retires the draft.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		title, _ := cmd.Flags().GetString("title")
+		if strings.TrimSpace(title) == "" {
+			return withExitCode(exitUsage, errors.New("--title is required: one line describing the change"))
+		}
+		payload, err := apiClient.SubmitStackProfileSuggestion(cmd.Context(), args[0], strings.TrimSpace(title))
+		if err != nil {
+			return fmt.Errorf("submitting stack profile suggestion: %w", err)
+		}
+		return renderApplicationPayload(cmd, payload)
+	},
+}
+
 func init() {
 	stackProfileDraftsCreateCmd.Flags().String("name", "", "Name for a brand-new profile draft")
 	stackProfileDraftsCreateCmd.Flags().String("profile", "", "Existing profile (name or ID) to open a draft on")
@@ -254,12 +305,18 @@ func init() {
 	stackProfileDraftsPublishCmd.Flags().String("changelog", "", "Changelog entry for the version")
 	stackProfileDraftsPublishCmd.Flags().String("visibility", "", "Profile visibility applied at publish (organisation or public)")
 
+	stackProfileDraftsSubmitSuggestionCmd.Flags().String("title", "", "One line describing the change (required)")
+
 	stackProfileDraftsCmd.AddCommand(stackProfileDraftsListCmd, stackProfileDraftsCreateCmd,
 		stackProfileDraftsGetCmd, stackProfileDraftsAnnotateCmd,
-		stackProfileDraftsPublishCmd, stackProfileDraftsDeleteCmd)
+		stackProfileDraftsPublishCmd, stackProfileDraftsDeleteCmd,
+		stackProfileDraftsValidateCmd, stackProfileDraftsRebaseCmd,
+		stackProfileDraftsSubmitSuggestionCmd)
 	stackProfilesCmd.AddCommand(stackProfileDraftsCmd)
 
 	registerStructuredOutputFlags(stackProfileDraftsListCmd, stackProfileDraftsCreateCmd,
 		stackProfileDraftsGetCmd, stackProfileDraftsAnnotateCmd,
-		stackProfileDraftsPublishCmd, stackProfileDraftsDeleteCmd)
+		stackProfileDraftsPublishCmd, stackProfileDraftsDeleteCmd,
+		stackProfileDraftsValidateCmd, stackProfileDraftsRebaseCmd,
+		stackProfileDraftsSubmitSuggestionCmd)
 }

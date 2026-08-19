@@ -339,3 +339,37 @@ func (client *Client) GetApplicationImageRegistry(requestContext context.Context
 func (client *Client) UpdateApplicationImageRegistry(requestContext context.Context, applicationID string, registryRequest UpdateApplicationImageRegistryRequest) (json.RawMessage, error) {
 	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/image-registry"), nil, registryRequest)
 }
+
+// --- AI lane configuration ---
+
+func (client *Client) GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/ai-config"), nil, nil)
+}
+
+func (client *Client) UpdateApplicationAIConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/ai-config"), nil, configuration)
+}
+
+func (client *Client) ResetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodDelete, applicationPath(applicationID, "/ai-config"), nil, nil)
+}
+
+// --- catalog publishing ---
+
+// PublishApplicationAddonRequest mirrors the publish-addon body; every field
+// is optional and defaults from the application's descriptor.
+type PublishApplicationAddonRequest struct {
+	Version     string `json:"version,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Category    string `json:"category,omitempty"`
+	Changelog   string `json:"changelog,omitempty"`
+}
+
+func (client *Client) PublishApplicationAddon(requestContext context.Context, applicationID string, publishRequest PublishApplicationAddonRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/publish-addon"), nil, publishRequest)
+}
+
+func (client *Client) GetApplicationPublishedAddon(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/published-addon"), nil, nil)
+}

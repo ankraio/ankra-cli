@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra stack-profiles` now carries the profile's whole life, not just the
+  read half.** The portal could create a profile from a deployed stack, edit
+  its catalogue metadata, snapshot new versions, roll the current-version
+  pointer, diff versions, list the fleet's deployments, share it with other
+  organisations, review community suggestions, run throwaway demos, manage
+  its logo, and delete it — the CLI could only list, get, export, import, and
+  apply. New subcommands close the gap: `create`, `update`, `delete`,
+  `save-version`, `set-current-version`, `version`, `diff`, `deployments`,
+  `share list|add|remove`, `suggestions list|get|approve|reject|withdraw`,
+  `demo list|launch|detail|logs|stop`, and `logo get|set|clear`. The
+  `drafts` family gains `validate`, `rebase`, and `submit-suggestion`.
+  `delete` prompts for confirmation unless `--yes` is passed; every new
+  command supports `-o json|yaml`, and `stack-profile`/`stackprofiles`/
+  `stackprofile` now resolve as aliases of the family.
+- **`ankra application ai-config get|set|clear`** reads, replaces, and resets
+  the per-application AI lane configuration (pull request review, demo URL,
+  and the rest) that the portal's application Settings page manages — `set`
+  takes the JSON document `get -o json` prints, and `clear` returns the
+  application to the organisation's defaults after a confirmation.
+- **`ankra application publish-addon` and `published-addon`** publish the
+  application's generated manifests to the organisation catalogue as a
+  manifest add-on and read the published state back.
+
 ### Fixed
 
 - **`ankra application add` no longer inspects the wrong repository when it is

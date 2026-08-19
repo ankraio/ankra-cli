@@ -17,9 +17,12 @@ import (
 )
 
 var stackProfilesCmd = &cobra.Command{
-	Use:   "stack-profiles",
-	Short: "Manage reusable stack profiles",
-	Long:  "List, export, and import organisation-level stack profiles.",
+	Use:     "stack-profiles",
+	Aliases: []string{"stack-profile", "stackprofiles", "stackprofile"},
+	Short:   "Manage reusable stack profiles",
+	Long: "Manage organisation-level stack profiles: create them from deployed " +
+		"stacks, list and describe them, apply them to clusters, version and " +
+		"share them, and export or import them as infrastructure-as-code.",
 }
 
 // maxProfileLookupPageSize is the largest page_size the profiles endpoint
