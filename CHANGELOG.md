@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra application add` no longer inspects the wrong repository when it is
+  run from inside a Git hook.** `git commit` exports `GIT_DIR`,
+  `GIT_INDEX_FILE` and friends into every hook it runs, and those variables
+  outrank the directory the CLI addresses, so the command run from a
+  pre-commit hook — or from `git rebase --exec`, or a CI step wrapped in one —
+  read the hook's repository instead of the path it was given: the wrong
+  owner/name, the wrong branch, and no error for a path that is not in a
+  repository at all. Git invocations now drop the inherited
+  repository-binding variables while keeping the user's SSH, credential and
+  proxy settings.
+
 ### Changed
 
 - **`ankra cluster <provider> bastion resize` no longer claims the node is

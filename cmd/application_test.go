@@ -161,6 +161,57 @@ func TestInspectLocalApplicationRepositoryUsesRemoteDefaultBranch(t *testing.T) 
 	}
 }
 
+func TestInspectLocalApplicationRepositoryIgnoresInheritedGitEnvironment(t *testing.T) {
+	repositoryPath := createTestGitRepository(
+		t,
+		"main",
+		"git@github.com:acme/payments.git",
+	)
+	hookRepositoryPath := createTestGitRepository(
+		t,
+		"master",
+		"git@github.com:acme/unrelated.git",
+	)
+
+	// What `git commit` exports into .githooks/pre-commit: without stripping
+	// these, every Git invocation below addresses the hook's repository no
+	// matter which directory it was pointed at.
+	t.Setenv("GIT_DIR", filepath.Join(hookRepositoryPath, ".git"))
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(hookRepositoryPath, ".git", "index"))
+	t.Setenv("GIT_PREFIX", "")
+
+	repository, inspectError := inspectLocalApplicationRepository(
+		context.Background(),
+		repositoryPath,
+		"origin",
+		"",
+	)
+	if inspectError != nil {
+		t.Fatalf("inspectLocalApplicationRepository() error = %v", inspectError)
+	}
+	if repository.Owner != "acme" || repository.Name != "payments" {
+		t.Errorf("repository = %s/%s, want acme/payments", repository.Owner, repository.Name)
+	}
+	if repository.Branch != "main" {
+		t.Errorf("branch = %q, want main", repository.Branch)
+	}
+
+	_, outsideError := inspectLocalApplicationRepository(
+		context.Background(),
+		t.TempDir(),
+		"origin",
+		"",
+	)
+	if exitCodeFor(outsideError) != exitUsage {
+		t.Errorf(
+			"exit code outside a repository = %d, want %d: %v",
+			exitCodeFor(outsideError),
+			exitUsage,
+			outsideError,
+		)
+	}
+}
+
 func TestInspectLocalApplicationRepositoryExitCodes(t *testing.T) {
 	t.Run("missing_path", func(t *testing.T) {
 		_, inspectError := inspectLocalApplicationRepository(
@@ -570,6 +621,10 @@ func runExternalCommand(
 ) {
 	t.Helper()
 	command := exec.Command(commandName, arguments...)
+	// Without this the temp repository these helpers build would be created
+	// and mutated inside whatever repository the test runner inherited from —
+	// `git commit` exports GIT_DIR and GIT_INDEX_FILE into the pre-commit hook.
+	command.Env = gitEnvironment()
 	if commandOutput, commandError := command.CombinedOutput(); commandError != nil {
 		t.Fatalf("%s failed: %v\n%s", commandName, commandError, commandOutput)
 	}

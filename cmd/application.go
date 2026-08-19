@@ -360,6 +360,39 @@ func inspectLocalApplicationRepository(
 	}, nil
 }
 
+// Variables through which Git binds a command to one specific repository,
+// index or work tree. `git commit` exports them into every hook it runs, so a
+// CLI invoked from a hook — or from `git rebase --exec`, or a CI step wrapped
+// in one — would silently address the hook's repository instead of the
+// directory named with -C.
+var gitRepositoryEnvironmentVariables = map[string]struct{}{
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES": {},
+	"GIT_COMMON_DIR":                   {},
+	"GIT_DIR":                          {},
+	"GIT_INDEX_FILE":                   {},
+	"GIT_NAMESPACE":                    {},
+	"GIT_OBJECT_DIRECTORY":             {},
+	"GIT_PREFIX":                       {},
+	"GIT_WORK_TREE":                    {},
+}
+
+// gitEnvironment is the process environment with those repository-binding
+// variables removed and the C locale forced, so a Git invocation addresses the
+// directory it was given and its output stays parseable. Everything else the
+// user configured (GIT_SSH_COMMAND, credential helpers, proxies) is preserved.
+func gitEnvironment() []string {
+	processEnvironment := os.Environ()
+	gitCommandEnvironment := make([]string, 0, len(processEnvironment)+1)
+	for _, environmentEntry := range processEnvironment {
+		variableName, _, _ := strings.Cut(environmentEntry, "=")
+		if _, isRepositoryBinding := gitRepositoryEnvironmentVariables[variableName]; isRepositoryBinding {
+			continue
+		}
+		gitCommandEnvironment = append(gitCommandEnvironment, environmentEntry)
+	}
+	return append(gitCommandEnvironment, "LC_ALL=C")
+}
+
 func executeGit(
 	requestContext context.Context,
 	directory string,
@@ -367,7 +400,7 @@ func executeGit(
 ) (string, error) {
 	commandArguments := append([]string{"-C", directory}, arguments...)
 	gitCommand := exec.CommandContext(requestContext, "git", commandArguments...)
-	gitCommand.Env = append(os.Environ(), "LC_ALL=C")
+	gitCommand.Env = gitEnvironment()
 	commandOutput, commandError := gitCommand.CombinedOutput()
 	if commandError != nil {
 		errorDetail := strings.TrimSpace(string(commandOutput))
