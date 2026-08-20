@@ -26,6 +26,15 @@
 - **`ankra application publish-addon` and `published-addon`** publish the
   application's generated manifests to the organisation catalogue as a
   manifest add-on and read the published state back.
+- **`--include-dns` on every `ankra cluster <provider> create`** (UpCloud,
+  DigitalOcean, Hetzner, OVH, Proxmox, Morpheus) completes the create flag
+  trio beside `--external-cloud-provider` and `--include-networking`. The
+  platform gives a new cluster its own subdomain under `ankra.cc` and installs
+  external-dns unless asked not to, and the CLI had no way to ask: every
+  CLI-created cluster took the delegated subzone whether or not it wanted one.
+  It stays on by default, matching the portal wizards and the server, and is
+  independent of the other two — `--include-dns=false` keeps the ingress
+  stack.
 
 ### Fixed
 

@@ -45,6 +45,7 @@ var ovhCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		includeDNS, _ := cmd.Flags().GetBool("include-dns")
 		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
 		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
 		gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
@@ -70,6 +71,7 @@ var ovhCreateCmd = &cobra.Command{
 			EtcdFlavorID:          etcdFlavorID,
 			ExternalCloudProvider: externalCloudProvider,
 			IncludeNetworking:     includeNetworking,
+			IncludeDNS:            includeDNS,
 		}
 		if kubeVersion != "" {
 			req.KubernetesVersion = &kubeVersion
@@ -903,6 +905,7 @@ func init() {
 	ovhCreateCmd.Flags().String("etcd-flavor-id", "b2-15", "Instance flavor for dedicated etcd nodes when --etcd-topology=external")
 	ovhCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the OpenStack CCM and Cinder CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
 	ovhCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
+	registerIncludeDNSFlag(ovhCreateCmd)
 	ovhCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated ovh-cloud stack is committed to Git (optional)")
 	ovhCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")
 	ovhCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch to commit to")

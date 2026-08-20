@@ -37,6 +37,18 @@ func isLikelyClusterID(value string) bool {
 	return clusterIDPattern.MatchString(value)
 }
 
+// registerIncludeDNSFlag adds --include-dns to a provider create command. The
+// server defaults include_dns to true on every provider lane, so the flag
+// exists to opt out; the delegated subzone is what makes an ingress hostname
+// resolve and get a certificate without bringing your own domain. external-dns
+// itself ships inside the networking stack, so opting out of that stack leaves
+// the zone delegated but unused.
+func registerIncludeDNSFlag(cmds ...*cobra.Command) {
+	for _, cmd := range cmds {
+		cmd.Flags().Bool("include-dns", true, "Give the cluster its own subdomain under ankra.cc and install external-dns, so an ingress hostname gets its DNS record and TLS certificate with no manual setup (default on; pass --include-dns=false to skip)")
+	}
+}
+
 // resolveCloudProviderNetworking reconciles the --external-cloud-provider and
 // --include-networking flags. Ingress networking (the Traefik LoadBalancer) is
 // provisioned by the cloud controller manager, so --include-networking requires

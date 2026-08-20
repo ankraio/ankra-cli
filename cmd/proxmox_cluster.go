@@ -42,6 +42,7 @@ var proxmoxCreateCmd = &cobra.Command{
 		etcdInstanceType, _ := cmd.Flags().GetString("etcd-instance-type")
 		cni, _ := cmd.Flags().GetString("cni")
 		includeNetworking, _ := cmd.Flags().GetBool("include-networking")
+		includeDNS, _ := cmd.Flags().GetBool("include-dns")
 
 		request := client.CreateProxmoxClusterRequest{
 			Name:                     name,
@@ -63,6 +64,7 @@ var proxmoxCreateCmd = &cobra.Command{
 			EtcdInstanceType:         etcdInstanceType,
 			CNI:                      cni,
 			IncludeNetworking:        includeNetworking,
+			IncludeDNS:               includeDNS,
 		}
 		if description != "" {
 			request.Description = &description
@@ -352,6 +354,7 @@ func init() {
 	proxmoxCreateCmd.Flags().String("etcd-instance-type", "px-medium", "Instance-size preset for dedicated etcd nodes when --etcd-topology=external")
 	proxmoxCreateCmd.Flags().String("cni", "", "CNI plugin (optional; the platform default is used when omitted)")
 	proxmoxCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager as Ankra-managed stacks for ingress (exposed via the built-in k3s service load balancer; default on)")
+	registerIncludeDNSFlag(proxmoxCreateCmd)
 
 	_ = proxmoxCreateCmd.MarkFlagRequired("name")
 	_ = proxmoxCreateCmd.MarkFlagRequired("credential-id")

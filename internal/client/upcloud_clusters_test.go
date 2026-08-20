@@ -49,6 +49,7 @@ func TestCreateUpcloudCluster_SendsCloudProviderNetworkingAndGitopsFields(t *tes
 		WorkerCount: 2, WorkerPlan: "2xCPU-4GB", Distribution: "k3s",
 		ExternalCloudProvider: true,
 		IncludeNetworking:     true,
+		IncludeDNS:            true,
 		GitopsCredentialName:  strPtr("github-cred"),
 		GitopsRepository:      strPtr("acme/infra"),
 		GitopsBranch:          &branch,
@@ -61,6 +62,9 @@ func TestCreateUpcloudCluster_SendsCloudProviderNetworkingAndGitopsFields(t *tes
 	}
 	if got, ok := receivedBody["include_networking"].(bool); !ok || !got {
 		t.Errorf("include_networking = %v, want true", receivedBody["include_networking"])
+	}
+	if got, ok := receivedBody["include_dns"].(bool); !ok || !got {
+		t.Errorf("include_dns = %v, want true", receivedBody["include_dns"])
 	}
 	if got, _ := receivedBody["gitops_credential_name"].(string); got != "github-cred" {
 		t.Errorf("gitops_credential_name = %q, want github-cred", got)
@@ -96,6 +100,11 @@ func TestCreateUpcloudCluster_OmitsGitopsWhenUnset(t *testing.T) {
 	}
 	if got, ok := receivedBody["include_networking"].(bool); !ok || got {
 		t.Errorf("include_networking = %v, want false", receivedBody["include_networking"])
+	}
+	// No omitempty on include_dns: a dropped false would be decoded as the
+	// server's default true and provision the subzone the user opted out of.
+	if got, ok := receivedBody["include_dns"].(bool); !ok || got {
+		t.Errorf("include_dns = %v, want false", receivedBody["include_dns"])
 	}
 	if _, present := receivedBody["gitops_credential_name"]; present {
 		t.Errorf("gitops_credential_name should be omitted when unset")
