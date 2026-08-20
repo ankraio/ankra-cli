@@ -303,6 +303,138 @@ func TestClusterBastionDiagnoseCommandTagsTheWaitExpiry(t *testing.T) {
 	}
 }
 
+// The platform mounts the bastion routes for all seven providers that carry
+// the node-group subrouter, so every one of them has a bastion group. What
+// differs is which subcommands it carries: resize only where internal/client
+// has an Update<Provider>BastionInstanceType method, diagnose only where the
+// platform has a <provider>_bastion_diagnose job lane.
+func TestClusterBastionGroupIsMountedForEveryProvider(t *testing.T) {
+	for _, testCase := range []struct {
+		provider     string
+		subcommands  []string
+		absentGroups []string
+	}{
+		{provider: "hetzner", subcommands: []string{"status", "resize", "diagnose"}},
+		{provider: "ovh", subcommands: []string{"status", "resize", "diagnose"}},
+		{provider: "upcloud", subcommands: []string{"status", "resize", "diagnose"}},
+		{provider: "digitalocean", subcommands: []string{"status", "resize", "diagnose"}},
+		{provider: "proxmox", subcommands: []string{"status", "diagnose"}, absentGroups: []string{"resize"}},
+		{provider: "morpheus", subcommands: []string{"status", "diagnose"}, absentGroups: []string{"resize"}},
+		// Scaleway's managed Public Gateway is probed by the health loop but
+		// has no SSH job lane, so its verdict is the whole surface.
+		{provider: "scaleway", subcommands: []string{"status"}, absentGroups: []string{"resize", "diagnose"}},
+	} {
+		t.Run(testCase.provider, func(t *testing.T) {
+			for _, subcommand := range testCase.subcommands {
+				found, _, findError := rootCmd.Find([]string{"cluster", testCase.provider, "bastion", subcommand})
+				if findError != nil || found.Name() != subcommand {
+					t.Errorf("cluster %s bastion %s is missing (%v)", testCase.provider, subcommand, findError)
+				}
+			}
+			for _, subcommand := range testCase.absentGroups {
+				found, _, _ := rootCmd.Find([]string{"cluster", testCase.provider, "bastion", subcommand})
+				if found.Name() == subcommand {
+					t.Errorf("cluster %s bastion %s must not exist - the CLI has no call behind it",
+						testCase.provider, subcommand)
+				}
+			}
+		})
+	}
+}
+
+type proxmoxBastionMock struct {
+	baseMock
+
+	healthCalls   []string
+	health        *client.BastionHealthResult
+	diagnoseCalls []string
+	diagnosis     *client.BastionDiagnoseResult
+}
+
+func (m *proxmoxBastionMock) GetProxmoxBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	m.healthCalls = append(m.healthCalls, clusterID)
+	return m.health, nil
+}
+
+func (m *proxmoxBastionMock) DiagnoseProxmoxBastion(ctx context.Context, clusterID string) (*client.BastionDiagnoseResult, error) {
+	m.diagnoseCalls = append(m.diagnoseCalls, clusterID)
+	return m.diagnosis, nil
+}
+
+// Each provider's group has to reach that provider's own client calls; a
+// mis-wired ops constructor would otherwise read another provider's bastion.
+func TestClusterBastionProxmoxUsesTheProxmoxCalls(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &proxmoxBastionMock{
+		health: &client.BastionHealthResult{
+			ResourceID: "res-px", Kind: "proxmox_bastion", Provider: "proxmox",
+			State: "healthy", DiagnoseSupported: true,
+		},
+		diagnosis: &client.BastionDiagnoseResult{
+			OperationID: "op-px", JobName: "proxmox_bastion_diagnose", Status: "completed", Completed: true,
+			Report: map[string]any{"failed_units": []any{}},
+		},
+	}
+	setMockClient(t, mock)
+
+	statusOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "proxmox", "bastion", "status", "cluster-1")
+	})
+	if len(mock.healthCalls) != 1 || mock.healthCalls[0] != "cluster-1" {
+		t.Fatalf("expected one proxmox health read for cluster-1, got %v", mock.healthCalls)
+	}
+	if !strings.Contains(statusOutput, "ankra cluster proxmox bastion diagnose cluster-1") {
+		t.Errorf("expected the proxmox diagnose hint, got: %s", statusOutput)
+	}
+
+	diagnoseOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "proxmox", "bastion", "diagnose", "cluster-1")
+	})
+	if len(mock.diagnoseCalls) != 1 || mock.diagnoseCalls[0] != "cluster-1" {
+		t.Fatalf("expected one proxmox diagnose call for cluster-1, got %v", mock.diagnoseCalls)
+	}
+	if !strings.Contains(diagnoseOutput, "proxmox_bastion_diagnose") {
+		t.Errorf("expected the proxmox job name, got: %s", diagnoseOutput)
+	}
+}
+
+type scalewayBastionMock struct {
+	baseMock
+
+	healthCalls []string
+	health      *client.BastionHealthResult
+}
+
+func (m *scalewayBastionMock) GetScalewayBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	m.healthCalls = append(m.healthCalls, clusterID)
+	return m.health, nil
+}
+
+// Scaleway carries status alone, and its verdict must not offer a diagnose
+// command the group does not have.
+func TestClusterBastionScalewayStatusOffersNoDiagnose(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &scalewayBastionMock{health: &client.BastionHealthResult{
+		ResourceID: "res-gw", Kind: "scaleway_gateway", Provider: "scaleway",
+		State: "healthy", DiagnoseSupported: false,
+	}}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "scaleway", "bastion", "status", "cluster-1")
+	})
+
+	if len(mock.healthCalls) != 1 || mock.healthCalls[0] != "cluster-1" {
+		t.Fatalf("expected one scaleway health read for cluster-1, got %v", mock.healthCalls)
+	}
+	if !strings.Contains(stdoutOutput, "Diagnosis is not available for this provider.") {
+		t.Errorf("expected the unavailable-diagnosis line, got: %s", stdoutOutput)
+	}
+	if strings.Contains(stdoutOutput, "bastion diagnose") {
+		t.Errorf("must not offer the diagnose command, got: %s", stdoutOutput)
+	}
+}
+
 // -o json must stay parseable: the human verdict lines would otherwise land
 // in the same stream a script is decoding.
 func TestClusterBastionStatusCommandStructuredOutputIsClean(t *testing.T) {

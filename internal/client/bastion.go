@@ -114,6 +114,18 @@ func (c *Client) GetDigitaloceanBastionHealth(clusterID string) (*BastionHealthR
 	return c.getBastionHealth("digitalocean", clusterID)
 }
 
+func (c *Client) GetScalewayBastionHealth(clusterID string) (*BastionHealthResult, error) {
+	return c.getBastionHealth("scaleway", clusterID)
+}
+
+func (c *Client) GetProxmoxBastionHealth(clusterID string) (*BastionHealthResult, error) {
+	return c.getBastionHealth("proxmox", clusterID)
+}
+
+func (c *Client) GetMorpheusBastionHealth(clusterID string) (*BastionHealthResult, error) {
+	return c.getBastionHealth("morpheus", clusterID)
+}
+
 func (c *Client) DiagnoseHetznerBastion(ctx context.Context, clusterID string) (*BastionDiagnoseResult, error) {
 	return c.diagnoseBastion(ctx, "hetzner", clusterID)
 }
@@ -129,6 +141,18 @@ func (c *Client) DiagnoseUpcloudBastion(ctx context.Context, clusterID string) (
 func (c *Client) DiagnoseDigitaloceanBastion(ctx context.Context, clusterID string) (*BastionDiagnoseResult, error) {
 	return c.diagnoseBastion(ctx, "digitalocean", clusterID)
 }
+
+func (c *Client) DiagnoseProxmoxBastion(ctx context.Context, clusterID string) (*BastionDiagnoseResult, error) {
+	return c.diagnoseBastion(ctx, "proxmox", clusterID)
+}
+
+func (c *Client) DiagnoseMorpheusBastion(ctx context.Context, clusterID string) (*BastionDiagnoseResult, error) {
+	return c.diagnoseBastion(ctx, "morpheus", clusterID)
+}
+
+// Scaleway has no bastion diagnose counterpart: its managed Public Gateway is
+// probed by the health loop but carries no SSH job lane, so the health
+// verdict's diagnose_supported=false is the whole answer there.
 
 // getBastionHealth reads the recorded verdict. sendJSON rather than getJSON
 // because the platform answers a cluster with no bastion resource - imported
