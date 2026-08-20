@@ -536,6 +536,12 @@ func buildStack(sm map[string]interface{}, baseDir string) (client.Stack, error)
 // conversion would mangle - a float such as 1.20, a nested structure, a key
 // with no value - is rejected with a hint to quote it, the same guard
 // requiredAddonString applies to chart_version.
+//
+// The int cases carry the common path, not the rare one: this file is decoded
+// by gopkg.in/yaml.v3, which yields a Go int for an unquoted 'REPLICAS: 2'.
+// A decoder that round-trips through JSON would hand every number over as a
+// float64 and send plain integers down the reject branch instead, so that
+// contract is pinned by a test rather than assumed.
 func parseStackVariables(raw interface{}) (map[string]string, error) {
 	if raw == nil {
 		return nil, nil

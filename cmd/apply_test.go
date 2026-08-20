@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"ankra/internal/client"
 )
 
@@ -892,6 +894,26 @@ func TestBuildStack(t *testing.T) {
 		}
 	})
 
+	// The int/int64/uint64 cases above only matter if the file decoder hands
+	// unquoted YAML integers over as Go ints. gopkg.in/yaml.v3 does; a decoder
+	// that round-trips through JSON (sigs.k8s.io/yaml, encoding/json) would
+	// instead yield float64 for every number, drop each one into the default
+	// branch and reject 'REPLICAS: 2' as unquotable - the ankra-yxxa symptom
+	// again, in a new coat. Pin that contract here so swapping the decoder
+	// fails loudly rather than at apply time.
+	t.Run("unquoted YAML scalars decode to Go ints and bools", func(t *testing.T) {
+		var raw map[string]interface{}
+		if err := yaml.Unmarshal([]byte("REPLICAS: 2\nDEBUG: false\n"), &raw); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, ok := raw["REPLICAS"].(int); !ok {
+			t.Fatalf("REPLICAS decoded as %T, want int - parseStackVariables would reject it", raw["REPLICAS"])
+		}
+		if _, ok := raw["DEBUG"].(bool); !ok {
+			t.Fatalf("DEBUG decoded as %T, want bool", raw["DEBUG"])
+		}
+	})
+
 	t.Run("variables reject values a string conversion would mangle", func(t *testing.T) {
 		sm := map[string]interface{}{
 			"name":      "gpu-chat",
@@ -1055,7 +1077,8 @@ spec:
     - name: gpu-chat
       variables:
         STORAGE_CLASS: longhorn
-        MODEL_REPLICAS: "3"
+        MODEL_REPLICAS: 3
+        DEBUG_LOGGING: false
       manifests: []
       addons:
         - name: vllm
@@ -1074,8 +1097,15 @@ spec:
 			t.Fatalf("unexpected error: %v", err)
 		}
 		stack := req.Spec.Stacks[0]
-		if stack.Variables["STORAGE_CLASS"] != "longhorn" || stack.Variables["MODEL_REPLICAS"] != "3" {
-			t.Errorf("variables = %v, want STORAGE_CLASS=longhorn and MODEL_REPLICAS=3", stack.Variables)
+		wantVariables := map[string]string{
+			"STORAGE_CLASS":  "longhorn",
+			"MODEL_REPLICAS": "3",
+			"DEBUG_LOGGING":  "false",
+		}
+		for key, value := range wantVariables {
+			if stack.Variables[key] != value {
+				t.Errorf("variable %q = %q, want %q", key, stack.Variables[key], value)
+			}
 		}
 		cfg, ok := stack.Addons[0].Configuration.(client.AddonStandaloneConfiguration)
 		if !ok {
