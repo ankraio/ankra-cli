@@ -673,6 +673,28 @@ func parseAgentsMdFields(m map[string]interface{}, baseDir string) (*string, *st
 	return agentsMd, agentsMdFromFile, nil
 }
 
+// parseGroupField extracts the optional 'group' organizational label shared
+// by manifests and addons - the key the platform's own IaC export writes to
+// record which group a resource sits in within its stack.
+//
+// A non-string value is an error rather than an empty string: the platform
+// types 'group' as a string and would answer 422, and quietly turning a
+// mistyped value into "no group" is the same silent drop that made the label
+// disappear from applied exports in the first place (ankra-o0k2f). An absent
+// key stays "ungrouped", which apply then prunes server-side like any other
+// value the file no longer declares.
+func parseGroupField(m map[string]interface{}) (string, error) {
+	raw, present := m["group"]
+	if !present || raw == nil {
+		return "", nil
+	}
+	group, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("'group' must be a quoted string (got %v)", raw)
+	}
+	return group, nil
+}
+
 func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, error) {
 	name, _ := mm["name"].(string)
 	if name == "" {
@@ -735,6 +757,11 @@ func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, 
 		}
 	}
 
+	group, err := parseGroupField(mm)
+	if err != nil {
+		return client.Manifest{}, err
+	}
+
 	agentsMd, agentsMdFromFile, err := parseAgentsMdFields(mm, baseDir)
 	if err != nil {
 		return client.Manifest{}, err
@@ -746,6 +773,7 @@ func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, 
 		Namespace:        ns,
 		Parents:          parents,
 		EncryptedPaths:   encryptedPaths,
+		Group:            group,
 		AgentsMd:         agentsMd,
 		AgentsMdFromFile: agentsMdFromFile,
 	}, nil
@@ -889,6 +917,11 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 		}
 	}
 
+	group, err := parseGroupField(am)
+	if err != nil {
+		return client.Addon{}, err
+	}
+
 	agentsMd, agentsMdFromFile, err := parseAgentsMdFields(am, baseDir)
 	if err != nil {
 		return client.Addon{}, err
@@ -906,6 +939,7 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 		RegistryURL:            registryURL,
 		RegistryCredentialName: registryCredentialName,
 		Settings:               settings,
+		Group:                  group,
 		AgentsMd:               agentsMd,
 		AgentsMdFromFile:       agentsMdFromFile,
 	}, nil
