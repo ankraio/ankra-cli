@@ -18,6 +18,12 @@ import (
 // about to answer.
 const defaultBastionDiagnoseTimeout = 3 * time.Minute
 
+// bastionOps binds one provider's bastion calls. Not every provider carries
+// every one of them: resize needs an Update<Provider>BastionInstanceType
+// client method, and diagnose needs a bastion job lane on the platform, so
+// resize and diagnose are nil for the providers that have neither. The
+// capability flags newBastionCmd takes decide which subcommands exist, so a
+// nil field is never reached.
 type bastionOps struct {
 	provider string
 	resize   func(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error)
@@ -58,6 +64,29 @@ func digitaloceanBastionOps() bastionOps {
 		resize:   apiClient.UpdateDigitaloceanBastionInstanceType,
 		health:   apiClient.GetDigitaloceanBastionHealth,
 		diagnose: apiClient.DiagnoseDigitaloceanBastion,
+	}
+}
+
+func scalewayBastionOps() bastionOps {
+	return bastionOps{
+		provider: "scaleway",
+		health:   apiClient.GetScalewayBastionHealth,
+	}
+}
+
+func proxmoxBastionOps() bastionOps {
+	return bastionOps{
+		provider: "proxmox",
+		health:   apiClient.GetProxmoxBastionHealth,
+		diagnose: apiClient.DiagnoseProxmoxBastion,
+	}
+}
+
+func morpheusBastionOps() bastionOps {
+	return bastionOps{
+		provider: "morpheus",
+		health:   apiClient.GetMorpheusBastionHealth,
+		diagnose: apiClient.DiagnoseMorpheusBastion,
 	}
 }
 
@@ -238,70 +267,115 @@ func printBastionDiagnosis(result *client.BastionDiagnoseResult) error {
 	return printJSONBlock(result.Report)
 }
 
-func newBastionCmd(opsFn func() bastionOps, provider string) *cobra.Command {
+// bastionGroupLong describes the group by what it can actually do for this
+// provider, so a group without resize does not advertise it in its own help.
+func bastionGroupLong(supportsResize, supportsDiagnose bool) string {
+	switch {
+	case supportsResize && supportsDiagnose:
+		return `Inspect, diagnose, and resize the cluster's single bastion/gateway node.
+Find its node ID with 'nodes list'.`
+	case supportsDiagnose:
+		return `Inspect and diagnose the cluster's single bastion/gateway node.
+Find its node ID with 'nodes list'.`
+	default:
+		return `Inspect the cluster's single bastion/gateway node.
+Find its node ID with 'nodes list'.`
+	}
+}
+
+// bastionStatusLong ends on where to go next, which is the diagnose command
+// only where there is one; a provider with no diagnose lane is told the
+// verdict is the whole answer rather than being pointed at a command its
+// group does not carry.
+func bastionStatusLong(supportsDiagnose bool) string {
+	const shared = `Report the verdict the platform's bastion health loop last recorded for the
+cluster's bastion/gateway: whether it is reachable, which hop a failed probe
+stopped at, and when it was last checked. Nothing is probed by this command,
+so it answers even while the bastion is unreachable`
+	if supportsDiagnose {
+		return shared + ` - use 'bastion diagnose'
+to SSH in and collect a fresh report.`
+	}
+	return shared + `. This provider has no bastion
+diagnose job lane, so the recorded verdict is all there is to read.`
+}
+
+// newBastionCmd builds one provider's bastion group. The capability flags
+// mirror newNodesCmd's: resize exists only where internal/client carries an
+// Update<Provider>BastionInstanceType method, and diagnose only where the
+// platform carries a <provider>_bastion_diagnose job lane. status is mounted
+// for every provider on the node-group subrouter, which is all seven.
+func newBastionCmd(opsFn func() bastionOps, provider string, supportsResize, supportsDiagnose bool) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "bastion",
 		Short: fmt.Sprintf("Manage the bastion/gateway node for a %s cluster", provider),
-		Long: `Inspect, diagnose, and resize the cluster's single bastion/gateway node.
-Find its node ID with 'nodes list'.`,
-	}
-
-	resizeCmd := &cobra.Command{
-		Use:   "resize <cluster_id> <instance_type>",
-		Short: "Change the bastion/gateway instance type",
-		Long: `Resize the bastion/gateway node. The provider's bastion/gateway update job
-powers it off, resizes it, and powers it back on, causing brief SSH/NAT
-downtime for the cluster.
-
---wait covers the platform write only; the cloud resize runs as the operation
-reported on success. Follow it with 'ankra cluster operations list <operation_id>'.`,
-		Args: cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBastionResize(cmd, opsFn, args[0], args[1])
-		},
+		Long:  bastionGroupLong(supportsResize, supportsDiagnose),
 	}
 
 	statusCmd := &cobra.Command{
 		Use:   "status <cluster_id>",
 		Short: "Show the recorded bastion/gateway health verdict",
-		Long: `Report the verdict the platform's bastion health loop last recorded for the
-cluster's bastion/gateway: whether it is reachable, which hop a failed probe
-stopped at, and when it was last checked. Nothing is probed by this command,
-so it answers even while the bastion is unreachable - use 'bastion diagnose'
-to SSH in and collect a fresh report.`,
-		Args: cobra.ExactArgs(1),
+		Long:  bastionStatusLong(supportsDiagnose),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runBastionStatus(cmd, opsFn, args[0])
 		},
 	}
+	registerStructuredOutputFlags(statusCmd)
+	cmd.AddCommand(statusCmd)
 
-	diagnoseCmd := &cobra.Command{
-		Use:   "diagnose <cluster_id>",
-		Short: "Run a read-only SSH diagnosis of the bastion/gateway",
-		Long: `Dispatch the provider's read-only bastion diagnose job and wait for its
+	if supportsResize {
+		resizeCmd := &cobra.Command{
+			Use:   "resize <cluster_id> <instance_type>",
+			Short: "Change the bastion/gateway instance type",
+			Long: `Resize the bastion/gateway node. The provider's bastion/gateway update job
+powers it off, resizes it, and powers it back on, causing brief SSH/NAT
+downtime for the cluster.
+
+--wait covers the platform write only; the cloud resize runs as the operation
+reported on success. Follow it with 'ankra cluster operations list <operation_id>'.`,
+			Args: cobra.ExactArgs(2),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return runBastionResize(cmd, opsFn, args[0], args[1])
+			},
+		}
+		registerAsyncWriteFlags(resizeCmd)
+		registerStructuredOutputFlags(resizeCmd)
+		cmd.AddCommand(resizeCmd)
+	}
+
+	if supportsDiagnose {
+		diagnoseCmd := &cobra.Command{
+			Use:   "diagnose <cluster_id>",
+			Short: "Run a read-only SSH diagnosis of the bastion/gateway",
+			Long: `Dispatch the provider's read-only bastion diagnose job and wait for its
 report: sshd configuration, failed-login volume, disk, failed units, journal
 errors, listening ports, and pending security updates. Nothing on the host is
 changed. The platform waits up to two minutes for the job; a slower run hands
 back the operation id to poll with 'cluster operations list'.`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBastionDiagnose(cmd, opsFn, args[0])
-		},
+			Args: cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return runBastionDiagnose(cmd, opsFn, args[0])
+			},
+		}
+		diagnoseCmd.Flags().Duration("timeout", defaultBastionDiagnoseTimeout,
+			"Maximum time to wait for the diagnosis report")
+		registerStructuredOutputFlags(diagnoseCmd)
+		cmd.AddCommand(diagnoseCmd)
 	}
-	diagnoseCmd.Flags().Duration("timeout", defaultBastionDiagnoseTimeout,
-		"Maximum time to wait for the diagnosis report")
 
-	registerAsyncWriteFlags(resizeCmd)
-	registerStructuredOutputFlags(resizeCmd, statusCmd, diagnoseCmd)
-	cmd.AddCommand(resizeCmd)
-	cmd.AddCommand(statusCmd)
-	cmd.AddCommand(diagnoseCmd)
 	return cmd
 }
 
 func init() {
-	hetznerCmd.AddCommand(newBastionCmd(hetznerBastionOps, "Hetzner"))
-	ovhCmd.AddCommand(newBastionCmd(ovhBastionOps, "OVH"))
-	upcloudCmd.AddCommand(newBastionCmd(upcloudBastionOps, "UpCloud"))
-	digitaloceanCmd.AddCommand(newBastionCmd(digitaloceanBastionOps, "DigitalOcean"))
+	hetznerCmd.AddCommand(newBastionCmd(hetznerBastionOps, "Hetzner", true, true))
+	ovhCmd.AddCommand(newBastionCmd(ovhBastionOps, "OVH", true, true))
+	upcloudCmd.AddCommand(newBastionCmd(upcloudBastionOps, "UpCloud", true, true))
+	digitaloceanCmd.AddCommand(newBastionCmd(digitaloceanBastionOps, "DigitalOcean", true, true))
+	// The remaining three carry the bastion routes but not the resize client
+	// method, and Scaleway's managed Public Gateway has no diagnose job lane
+	// at all - its health verdict answers diagnose_supported=false.
+	scalewayCmd.AddCommand(newBastionCmd(scalewayBastionOps, "Scaleway", false, false))
+	proxmoxCmd.AddCommand(newBastionCmd(proxmoxBastionOps, "Proxmox VE", false, true))
+	morpheusCmd.AddCommand(newBastionCmd(morpheusBastionOps, "HPE Morpheus", false, true))
 }

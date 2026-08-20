@@ -35,6 +35,15 @@
   It stays on by default, matching the portal wizards and the server, and is
   independent of the other two — `--include-dns=false` keeps the ingress
   stack.
+- **`ankra cluster scaleway|proxmox|morpheus bastion`** now exists. The
+  platform mounts the bastion health and diagnose endpoints for all seven
+  providers that carry node groups, but the CLI registered the group on only
+  four, so `ankra cluster proxmox bastion status` did not exist even though
+  the endpoint behind it answered. Each group carries what that provider can
+  actually do: `status` everywhere, `diagnose` on Proxmox and Morpheus, and
+  neither `resize` (the CLI has no bastion instance-type call for these three)
+  nor `diagnose` on Scaleway, whose managed Public Gateway is probed by the
+  health loop but has no SSH job lane.
 
 ### Fixed
 

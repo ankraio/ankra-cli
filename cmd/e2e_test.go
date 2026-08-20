@@ -1019,6 +1019,10 @@ func (m baseMock) ScalewayNodeCloudInitLog(clusterID, nodeID string) (*client.No
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetScalewayBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) RestartHetznerClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1571,6 +1575,14 @@ func (m baseMock) RestartProxmoxClusterNode(clusterID, nodeID string) (*client.R
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetProxmoxBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DiagnoseProxmoxBastion(ctx context.Context, clusterID string) (*client.BastionDiagnoseResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetProxmoxClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1696,6 +1708,14 @@ func (m baseMock) ListMorpheusClusterNodes(clusterID string) (*client.NodeListRe
 }
 
 func (m baseMock) GetMorpheusClusterNode(clusterID, nodeID string) (*client.NodeDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetMorpheusBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DiagnoseMorpheusBastion(ctx context.Context, clusterID string) (*client.BastionDiagnoseResult, error) {
 	return nil, errors.New("not implemented")
 }
 
