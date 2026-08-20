@@ -276,6 +276,10 @@ type Addon struct {
 	RegistryURL            string                 `json:"registry_url,omitempty"`
 	RegistryCredentialName string                 `json:"registry_credential_name,omitempty"`
 	Settings               map[string]interface{} `json:"settings,omitempty"`
+	// Group is the optional organizational grouping label within the stack,
+	// the same field AddonSpec carries in the exported IaC. Omitted when
+	// empty: apply is declarative, so an absent key means "ungrouped".
+	Group string `json:"group,omitempty"`
 	// AgentsMd is the addon's AGENTS.md content (operational learnings in
 	// plain markdown). Pointer semantics matter: nil = field absent, the
 	// backend preserves the stored value; pointer to "" = explicit clear.
@@ -291,6 +295,8 @@ type Manifest struct {
 	Namespace      string   `json:"namespace,omitempty"`
 	Parents        []Parent `json:"parents"`
 	EncryptedPaths []string `json:"encrypted_paths,omitempty"`
+	// Group: see the Addon field of the same name.
+	Group string `json:"group,omitempty"`
 	// AgentsMd / AgentsMdFromFile: see the Addon fields of the same name.
 	// nil = preserve stored value, pointer to "" = clear.
 	AgentsMd         *string `json:"agents_md,omitempty"`

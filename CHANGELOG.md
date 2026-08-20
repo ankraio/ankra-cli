@@ -47,6 +47,16 @@
 
 ### Fixed
 
+- **`ankra cluster apply` no longer drops a manifest's or addon's `group`
+  label.** The platform's IaC export writes an organizational `group` on
+  manifests and addons, but `apply` never read the key and the request it
+  built had nowhere to put it. Applying an exported ImportCluster therefore
+  flattened every group in the stack — silently, with `apply` and `validate`
+  both reporting success, and permanently, because apply also prunes what the
+  file no longer declares. Groups now survive the clone-edit-apply round trip,
+  and a `group:` that is not a quoted string is rejected instead of quietly
+  becoming no group at all.
+
 - **`ankra cluster upcloud create` no longer pins a network range that the
   platform refuses.** `--network-ip-range` defaulted to the literal
   `10.0.0.0/16` and the CLI always sent it, so on any UpCloud account that

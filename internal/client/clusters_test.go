@@ -391,6 +391,52 @@ func TestApplyCluster(t *testing.T) {
 	}
 }
 
+// TestApplyClusterSendsGroupLabels pins the wire half of ankra-o0k2f: the
+// organizational 'group' label reaches the import body for the manifests and
+// addons that carry one, and is omitted entirely for the ones that do not, so
+// an ungrouped resource sends the same bytes it always did.
+func TestApplyClusterSendsGroupLabels(t *testing.T) {
+	request := CreateImportClusterRequest{
+		Name: "grouped-cluster",
+		Spec: CreateResourceSpec{
+			Stacks: []Stack{{
+				Name:      "platform",
+				Manifests: []Manifest{{Name: "namespaces", Group: "bootstrap"}},
+				Addons: []Addon{
+					{Name: "cert-manager", ChartName: "cert-manager", ChartVersion: "1.14.5", Group: "platform services"},
+					{Name: "nginx", ChartName: "nginx", ChartVersion: "1.0.0"},
+				},
+			}},
+		},
+	}
+
+	var body map[string]any
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decoding request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusOK, ImportResponse{Name: "grouped-cluster", ClusterId: "cluster-123"})
+	}
+
+	testClient := newTestClient(t, handler)
+	if _, _, err := testClient.ApplyCluster(context.Background(), request, true); err != nil {
+		t.Fatalf("ApplyCluster() error = %v", err)
+	}
+
+	stack := body["spec"].(map[string]any)["stacks"].([]any)[0].(map[string]any)
+	manifest := stack["manifests"].([]any)[0].(map[string]any)
+	if manifest["group"] != "bootstrap" {
+		t.Errorf("manifest group = %v, want %q", manifest["group"], "bootstrap")
+	}
+	addons := stack["addons"].([]any)
+	if grouped := addons[0].(map[string]any); grouped["group"] != "platform services" {
+		t.Errorf("addon group = %v, want %q", grouped["group"], "platform services")
+	}
+	if ungrouped := addons[1].(map[string]any); ungrouped["group"] != nil {
+		t.Errorf("ungrouped addon must omit the key, got %v", ungrouped["group"])
+	}
+}
+
 func TestValidateCluster(t *testing.T) {
 	spec := CreateResourceSpec{Stacks: []Stack{{Name: "stack1"}}}
 

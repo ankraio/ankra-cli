@@ -182,6 +182,53 @@ func TestBuildManifest(t *testing.T) {
 		}
 	})
 
+	// ankra-o0k2f: the 'group' key the platform's IaC export writes was not
+	// read at all, so a clone-edit-apply round trip flattened the stack's
+	// grouping while apply and validate both reported success.
+	t.Run("group passes through", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name":     "fluent-bit",
+			"manifest": "apiVersion: v1\nkind: Namespace",
+			"group":    "observability",
+		}
+		m, err := buildManifest(mm, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if m.Group != "observability" {
+			t.Errorf("group = %q, want %q", m.Group, "observability")
+		}
+	})
+
+	t.Run("group absent stays empty", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name":     "ungrouped",
+			"manifest": "apiVersion: v1\nkind: Namespace",
+		}
+		m, err := buildManifest(mm, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if m.Group != "" {
+			t.Errorf("group = %q, want empty for an ungrouped manifest", m.Group)
+		}
+	})
+
+	t.Run("non-string group is rejected", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name":     "numeric-group",
+			"manifest": "apiVersion: v1\nkind: Namespace",
+			"group":    7,
+		}
+		_, err := buildManifest(mm, "")
+		if err == nil {
+			t.Fatal("expected error for a non-string group")
+		}
+		if !strings.Contains(err.Error(), "'group'") {
+			t.Errorf("error should name the field, got: %v", err)
+		}
+	})
+
 	t.Run("agents_md absent leaves both fields nil", func(t *testing.T) {
 		mm := map[string]interface{}{
 			"name":     "plain",
@@ -738,6 +785,54 @@ func TestBuildAddon(t *testing.T) {
 		}
 		if a.Settings == nil {
 			t.Error("expected settings to be populated")
+		}
+	})
+
+	// ankra-o0k2f, the addon half: same unread 'group' key, same silent drop.
+	t.Run("group passes through", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "cert-manager",
+			"chart_name":    "cert-manager",
+			"chart_version": "1.0.0",
+			"group":         "platform services",
+		}
+		a, err := buildAddon(am, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if a.Group != "platform services" {
+			t.Errorf("group = %q, want %q", a.Group, "platform services")
+		}
+	})
+
+	t.Run("group absent stays empty", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "ungrouped",
+			"chart_name":    "ungrouped",
+			"chart_version": "1.0.0",
+		}
+		a, err := buildAddon(am, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if a.Group != "" {
+			t.Errorf("group = %q, want empty for an ungrouped addon", a.Group)
+		}
+	})
+
+	t.Run("non-string group is rejected", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "numeric-group",
+			"chart_name":    "numeric-group",
+			"chart_version": "1.0.0",
+			"group":         1.20,
+		}
+		_, err := buildAddon(am, "")
+		if err == nil {
+			t.Fatal("expected error for a non-string group")
+		}
+		if !strings.Contains(err.Error(), "'group'") {
+			t.Errorf("error should name the field, got: %v", err)
 		}
 	})
 
@@ -1368,6 +1463,54 @@ spec:
 		}
 		if string(decoded) != values {
 			t.Errorf("decoded addon values = %q, want %q", string(decoded), values)
+		}
+	})
+
+	// ankra-o0k2f: apply also prunes what the file does not declare, so
+	// dropping the unread 'group' key flattened the stack's grouping on every
+	// clone-edit-apply round trip. The platform's write schema does take it
+	// (importedapi/specparse.go parses 'group' on manifests and addons), so
+	// the fix is to carry it rather than to warn about it.
+	t.Run("exported dialect keeps manifest and addon groups", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		manifestB64 := base64.StdEncoding.EncodeToString([]byte("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: obs"))
+		yamlContent := `kind: ImportCluster
+metadata:
+  name: grouped-cluster
+spec:
+  stacks:
+    - name: platform
+      manifests:
+        - name: namespaces
+          manifest_base64: ` + manifestB64 + `
+          group: bootstrap
+      addons:
+        - name: cert-manager
+          chart_name: cert-manager
+          chart_version: "1.14.5"
+          group: platform services
+        - name: ungrouped-addon
+          chart_name: nginx
+          chart_version: "1.0.0"
+`
+		yamlPath := filepath.Join(tmpDir, "cluster.yaml")
+		if err := os.WriteFile(yamlPath, []byte(yamlContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		req, err := buildImportRequest(yamlPath)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		stack := req.Spec.Stacks[0]
+		if stack.Manifests[0].Group != "bootstrap" {
+			t.Errorf("manifest group = %q, want %q", stack.Manifests[0].Group, "bootstrap")
+		}
+		if stack.Addons[0].Group != "platform services" {
+			t.Errorf("addon group = %q, want %q", stack.Addons[0].Group, "platform services")
+		}
+		if stack.Addons[1].Group != "" {
+			t.Errorf("ungrouped addon group = %q, want empty", stack.Addons[1].Group)
 		}
 	})
 
