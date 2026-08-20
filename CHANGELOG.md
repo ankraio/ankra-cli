@@ -66,6 +66,18 @@
   Because apply also prunes what the file does not declare, a config-only
   apply used to mis-configure and wipe in the same run.
 
+- **`ankra cluster apply` can now read a manifest's `manifest_base64`, so an
+  exported ImportCluster applies as exported.** The platform's IaC export
+  writes a stack's manifests as `manifest_base64`, but apply only ever read
+  the inline `manifest` or a `from_file` path and rejected anything else with
+  "a manifest must set either 'manifest' (inline YAML) or 'from_file'" — so
+  the ordinary clone-edit-apply loop failed on every exported file until each
+  manifest was hand-decoded back into YAML. Unlike the addon values drop above
+  this at least failed loudly, and nothing was ever mis-deployed. Apply now
+  accepts the encoded form and passes the same string through to the platform,
+  refusing content that is not base64 or does not decode to valid YAML.
+  `manifest` and `from_file` keep precedence where a file sets more than one.
+
 - **`ankra cluster logs --follow=false` now asks the platform for a bounded
   read instead of guessing when the backlog ended.** The route only ever
   followed, so the CLI had to infer the end of the tail from a two-second gap

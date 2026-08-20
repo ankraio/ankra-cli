@@ -681,8 +681,13 @@ func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, 
 
 	var content []byte
 	var contentSource string
+	// encoded is what actually goes to the platform. When the manifest arrived
+	// already base64-encoded it is that same string, passed straight through,
+	// so an export -> apply round trip sends back byte-for-byte what it read.
+	var encoded string
 	if inline, ok := mm["manifest"].(string); ok && inline != "" {
 		content = []byte(inline)
+		encoded = base64.StdEncoding.EncodeToString(content)
 		contentSource = "the inline 'manifest' content"
 	} else if fileRef, ok := mm["from_file"].(string); ok {
 		full, err := resolveSafePath(baseDir, fileRef)
@@ -694,16 +699,29 @@ func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, 
 			return client.Manifest{}, fmt.Errorf("could not read the file referenced by 'from_file' (%q): %w", full, err)
 		}
 		content = b
+		encoded = base64.StdEncoding.EncodeToString(content)
 		contentSource = fmt.Sprintf("the file referenced by 'from_file' (%q)", full)
+	} else if b64, ok := mm["manifest_base64"].(string); ok && b64 != "" {
+		// This is the form the platform's own IaC export emits (ManifestSpec),
+		// so it is what an export/clone -> apply round trip carries. Until
+		// ankra-62cvj nothing read it and every such manifest was rejected as
+		// having no content at all - loudly, unlike the ankra-yxxa addon drop,
+		// but it made an exported ImportCluster unappliable without hand-editing.
+		decoded, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			return client.Manifest{}, fmt.Errorf("the manifest 'manifest_base64' is not valid base64: %w", err)
+		}
+		content = decoded
+		encoded = b64
+		contentSource = "the 'manifest_base64' content"
 	} else {
-		return client.Manifest{}, errors.New("a manifest must set either 'manifest' (inline YAML) or 'from_file' (path to a YAML file)")
+		return client.Manifest{}, errors.New("a manifest must set either 'manifest' (inline YAML), 'from_file' (path to a YAML file) or 'manifest_base64' (base64-encoded YAML)")
 	}
 
 	if err := validateYAMLDocuments(content); err != nil {
 		return client.Manifest{}, fmt.Errorf("%s is not valid YAML: %w", contentSource, err)
 	}
 
-	encoded := base64.StdEncoding.EncodeToString(content)
 	ns, _ := mm["namespace"].(string)
 	parents := parseParentList(mm["parents"])
 

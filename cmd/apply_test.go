@@ -304,6 +304,110 @@ func TestBuildManifest(t *testing.T) {
 			t.Errorf("expected error naming the file and YAML problem, got: %v", err)
 		}
 	})
+
+	t.Run("manifest_base64 round trip", func(t *testing.T) {
+		manifestContent := "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: exported"
+		encoded := base64.StdEncoding.EncodeToString([]byte(manifestContent))
+		mm := map[string]interface{}{
+			"name":            "exported-ns",
+			"namespace":       "default",
+			"manifest_base64": encoded,
+		}
+		m, err := buildManifest(mm, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// The encoded string is passed straight through, not re-encoded, so
+		// what the platform stores is what its own export emitted.
+		if m.ManifestBase64 != encoded {
+			t.Errorf("manifest_base64 = %q, want the encoded string passed through (%q)", m.ManifestBase64, encoded)
+		}
+		decoded, _ := base64.StdEncoding.DecodeString(m.ManifestBase64)
+		if string(decoded) != manifestContent {
+			t.Errorf("decoded content = %q, want %q", string(decoded), manifestContent)
+		}
+	})
+
+	t.Run("manifest_base64 that is not base64 is refused", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name":            "not-base64",
+			"manifest_base64": "apiVersion: v1\nkind: Namespace",
+		}
+		_, err := buildManifest(mm, "")
+		if err == nil {
+			t.Fatal("expected error for non-base64 manifest_base64")
+		}
+		if !strings.Contains(err.Error(), "not valid base64") {
+			t.Errorf("expected a base64 error naming the field, got: %v", err)
+		}
+	})
+
+	t.Run("manifest_base64 that does not decode to YAML is refused", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name":            "not-yaml",
+			"manifest_base64": base64.StdEncoding.EncodeToString([]byte("key: value\n\tbad-tab-indent: x")),
+		}
+		_, err := buildManifest(mm, "")
+		if err == nil {
+			t.Fatal("expected error for manifest_base64 decoding to invalid YAML")
+		}
+		if !strings.Contains(err.Error(), "manifest_base64") || !strings.Contains(err.Error(), "not valid YAML") {
+			t.Errorf("expected a YAML error naming the field, got: %v", err)
+		}
+	})
+
+	t.Run("inline manifest wins over manifest_base64", func(t *testing.T) {
+		inline := "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: inline-wins"
+		mm := map[string]interface{}{
+			"name":            "precedence",
+			"manifest":        inline,
+			"manifest_base64": base64.StdEncoding.EncodeToString([]byte("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: loser")),
+		}
+		m, err := buildManifest(mm, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		decoded, _ := base64.StdEncoding.DecodeString(m.ManifestBase64)
+		if string(decoded) != inline {
+			t.Errorf("decoded content = %q, want the inline 'manifest' content", string(decoded))
+		}
+	})
+
+	t.Run("from_file wins over manifest_base64", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		fileContent := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: file-wins"
+		if err := os.WriteFile(filepath.Join(tmpDir, "cm.yaml"), []byte(fileContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+		mm := map[string]interface{}{
+			"name":            "precedence-file",
+			"from_file":       "cm.yaml",
+			"manifest_base64": base64.StdEncoding.EncodeToString([]byte("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: loser")),
+		}
+		m, err := buildManifest(mm, tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		decoded, _ := base64.StdEncoding.DecodeString(m.ManifestBase64)
+		if string(decoded) != fileContent {
+			t.Errorf("decoded content = %q, want the 'from_file' content", string(decoded))
+		}
+	})
+
+	t.Run("no content at all names every accepted key", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name": "no-content",
+		}
+		_, err := buildManifest(mm, "")
+		if err == nil {
+			t.Fatal("expected error for missing content")
+		}
+		for _, key := range []string{"manifest", "from_file", "manifest_base64"} {
+			if !strings.Contains(err.Error(), key) {
+				t.Errorf("error should name %q so the user can fix the file, got: %v", key, err)
+			}
+		}
+	})
 }
 
 func TestBuildAddon(t *testing.T) {

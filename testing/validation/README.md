@@ -36,7 +36,7 @@ addons are identified by name when present, otherwise by 1-based position
 | `missing-spec.yaml` | `the 'spec' section is missing (it must contain 'stacks' and optionally 'git_repository')` |
 | `stack-missing-name.yaml` | `stack #1: every stack needs a 'name'` |
 | `manifest-missing-name.yaml` | `stack "logging": manifest #1: every manifest needs a 'name'` |
-| `manifest-no-source.yaml` | `stack "logging": manifest "namespace-fluent-bit": a manifest must set either 'manifest' (inline YAML) or 'from_file' (path to a YAML file)` |
+| `manifest-no-source.yaml` | `stack "logging": manifest "namespace-fluent-bit": a manifest must set either 'manifest' (inline YAML), 'from_file' (path to a YAML file) or 'manifest_base64' (base64-encoded YAML)` |
 | `manifest-missing-file.yaml` | `stack "logging": manifest "namespace-fluent-bit": could not read the file referenced by 'from_file' ("..."): ... no such file or directory` |
 | `addon-missing-name.yaml` | `stack "logging": addon #1: every addon needs a 'name'` |
 | `stack-without-manifests-key.yaml` | Passes validation. A stack that omits the `manifests` key (and likewise `addons`) is handled gracefully - `cmd/apply.go` guards the map access, so no panic. |
