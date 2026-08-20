@@ -47,6 +47,17 @@
 
 ### Fixed
 
+- **`ankra cluster upcloud create` no longer pins a network range that the
+  platform refuses.** `--network-ip-range` defaulted to the literal
+  `10.0.0.0/16` and the CLI always sent it, so on any UpCloud account that
+  already holds a `10.0.x` private network the create came back
+  `400 ... Network address 10.0.0.0/16 overlaps with an existing private
+  network`. The guide's terminal equivalent of the create wizard broke exactly
+  as printed. The flag now defaults to unset and an unset range is left out of
+  the request, so Ankra derives a range that is free in the account — what the
+  API, AI and portal lanes already do. Pass `--network-ip-range` only to pin a
+  specific range.
+
 - **`ankra cluster apply` no longer drops an addon's values or a stack's
   variables on the way to the platform.** Two keys of the ImportCluster
   dialect were never read: `configuration.values_base64` on an addon, and the

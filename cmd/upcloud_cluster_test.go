@@ -87,3 +87,48 @@ func TestUpcloudNodeGroupDelete_YesProceeds(t *testing.T) {
 		t.Errorf("got cluster=%q group=%q, want uc-123/workers", mock.gotClusterID, mock.gotGroupName)
 	}
 }
+
+type upcloudCreateMock struct {
+	baseMock
+	gotRequest client.CreateUpcloudClusterRequest
+}
+
+func (m *upcloudCreateMock) CreateUpcloudCluster(req client.CreateUpcloudClusterRequest) (*client.CreateUpcloudClusterResponse, error) {
+	m.gotRequest = req
+	return &client.CreateUpcloudClusterResponse{ClusterID: "uc-123", Name: req.Name}, nil
+}
+
+// The flag used to default to the literal 10.0.0.0/16, so every CLI create
+// pinned the same range and the platform refused it as overlapping the
+// account's existing private network. Unset now means "let Ankra pick".
+func TestUpcloudCreate_NetworkIPRangeDefaultsToAuto(t *testing.T) {
+	mock := &upcloudCreateMock{}
+	resetConfirmFlag(t, upcloudCreateCmd)
+	_ = captureStdout(t, func() {
+		if _, err := runWithInput(t, mock, "", "cluster", "upcloud", "create",
+			"--name", "gpu-chat", "--credential-id", "cred-1",
+			"--ssh-key-credential-id", "ssh-1", "--zone", "fi-hel2"); err != nil {
+			t.Fatalf("execute failed: %v", err)
+		}
+	})
+	if mock.gotRequest.NetworkIPRange != "" {
+		t.Errorf("NetworkIPRange = %q, want empty so the platform picks a free range",
+			mock.gotRequest.NetworkIPRange)
+	}
+}
+
+func TestUpcloudCreate_NetworkIPRangeFlagPinsTheRange(t *testing.T) {
+	mock := &upcloudCreateMock{}
+	resetConfirmFlag(t, upcloudCreateCmd)
+	_ = captureStdout(t, func() {
+		if _, err := runWithInput(t, mock, "", "cluster", "upcloud", "create",
+			"--name", "gpu-chat", "--credential-id", "cred-1",
+			"--ssh-key-credential-id", "ssh-1", "--zone", "fi-hel2",
+			"--network-ip-range", "10.90.0.0/24"); err != nil {
+			t.Fatalf("execute failed: %v", err)
+		}
+	})
+	if mock.gotRequest.NetworkIPRange != "10.90.0.0/24" {
+		t.Errorf("NetworkIPRange = %q, want 10.90.0.0/24", mock.gotRequest.NetworkIPRange)
+	}
+}
