@@ -74,6 +74,9 @@ func TestMorpheusCreate_MapsFlagsToRequest(t *testing.T) {
 	if !request.IncludeNetworking {
 		t.Error("include_networking should default to true")
 	}
+	if !request.IncludeDNS {
+		t.Error("include_dns should default to true")
+	}
 	if request.VirtualImageID != nil || request.EtcdPlanID != nil {
 		t.Errorf("optional ids should be omitted when unset, got virtual_image_id=%v etcd_plan_id=%v",
 			request.VirtualImageID, request.EtcdPlanID)
@@ -109,6 +112,39 @@ func TestMorpheusCreate_SendsOptionalNumericIDs(t *testing.T) {
 	}
 	if mock.gotRequest.EtcdPlanID == nil || *mock.gotRequest.EtcdPlanID != 9 {
 		t.Errorf("etcd_plan_id = %v, want 9", mock.gotRequest.EtcdPlanID)
+	}
+}
+
+func TestMorpheusCreate_IncludeDNSCanBeDisabled(t *testing.T) {
+	// Cobra flag values live on the shared command, so put --include-dns back
+	// on its default rather than leaking the opt-out into later tests.
+	t.Cleanup(func() {
+		_ = morpheusCreateCmd.Flags().Set("include-dns", "true")
+		morpheusCreateCmd.Flags().Lookup("include-dns").Changed = false
+	})
+	mock := &morpheusCreateMock{}
+	out, runError := runWithInput(t, mock, "",
+		"cluster", "morpheus", "create",
+		"--name", "morpheus-test",
+		"--credential-id", "cred-1",
+		"--ssh-key-credential-id", "ssh-1",
+		"--group-id", "1",
+		"--cloud-id", "2",
+		"--network-id", "3",
+		"--layout-id", "4",
+		"--bastion-plan-id", "5",
+		"--control-plane-plan-id", "6",
+		"--worker-plan-id", "7",
+		"--include-dns=false",
+	)
+	if runError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", runError, out)
+	}
+	if mock.gotRequest.IncludeDNS {
+		t.Error("include_dns should be false when disabled")
+	}
+	if !mock.gotRequest.IncludeNetworking {
+		t.Error("opting out of the delegated subzone must not drop the ingress stack")
 	}
 }
 
