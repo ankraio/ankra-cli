@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"ankra/internal/client"
 )
 
@@ -364,6 +366,230 @@ func TestBuildAddon(t *testing.T) {
 		decoded, _ := base64.StdEncoding.DecodeString(cfg.ValuesBase64)
 		if string(decoded) != valuesContent {
 			t.Errorf("decoded values = %q, want %q", string(decoded), valuesContent)
+		}
+	})
+
+	// values_base64 is the form the platform's IaC export emits, so these
+	// cover the round trip that installed every addon with chart defaults
+	// before the CLI read the key at all (ankra-yxxa).
+	t.Run("standalone config values_base64", func(t *testing.T) {
+		valuesContent := "replicaCount: 3\nimage:\n  tag: latest"
+		encoded := base64.StdEncoding.EncodeToString([]byte(valuesContent))
+
+		am := map[string]interface{}{
+			"name":          "cert-manager",
+			"chart_name":    "cert-manager",
+			"chart_version": "1.14.0",
+			"configuration": map[string]interface{}{
+				"values_base64":   encoded,
+				"encrypted_paths": []interface{}{"secrets.token"},
+			},
+		}
+		a, err := buildAddon(am, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		cfg, ok := a.Configuration.(client.AddonStandaloneConfiguration)
+		if !ok {
+			t.Fatalf("configuration type = %T, want AddonStandaloneConfiguration", a.Configuration)
+		}
+		if cfg.ValuesBase64 != encoded {
+			t.Errorf("values_base64 = %q, want %q", cfg.ValuesBase64, encoded)
+		}
+		if len(cfg.EncryptedPaths) != 1 || cfg.EncryptedPaths[0] != "secrets.token" {
+			t.Errorf("encrypted_paths = %v, want [secrets.token]", cfg.EncryptedPaths)
+		}
+	})
+
+	t.Run("from_file and values still win over values_base64", func(t *testing.T) {
+		inline := "replicaCount: 1"
+		am := map[string]interface{}{
+			"name":          "cert-manager",
+			"chart_name":    "cert-manager",
+			"chart_version": "1.14.0",
+			"configuration": map[string]interface{}{
+				"values":        inline,
+				"values_base64": base64.StdEncoding.EncodeToString([]byte("replicaCount: 9")),
+			},
+		}
+		a, err := buildAddon(am, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		cfg := a.Configuration.(client.AddonStandaloneConfiguration)
+		decoded, _ := base64.StdEncoding.DecodeString(cfg.ValuesBase64)
+		if string(decoded) != inline {
+			t.Errorf("decoded values = %q, want the inline values %q", string(decoded), inline)
+		}
+	})
+
+	t.Run("values_base64 rejects undecodable content", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "cert-manager",
+			"chart_name":    "cert-manager",
+			"chart_version": "1.14.0",
+			"configuration": map[string]interface{}{"values_base64": "not base64!!"},
+		}
+		_, err := buildAddon(am, "")
+		if err == nil || !strings.Contains(err.Error(), "not valid base64") {
+			t.Errorf("error = %v, want a 'not valid base64' error", err)
+		}
+	})
+
+	t.Run("values_base64 rejects content that is not YAML", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "cert-manager",
+			"chart_name":    "cert-manager",
+			"chart_version": "1.14.0",
+			"configuration": map[string]interface{}{
+				"values_base64": base64.StdEncoding.EncodeToString([]byte("key: [unclosed")),
+			},
+		}
+		_, err := buildAddon(am, "")
+		if err == nil || !strings.Contains(err.Error(), "valid YAML") {
+			t.Errorf("error = %v, want a 'valid YAML' error", err)
+		}
+	})
+
+	t.Run("configuration with a key this CLI cannot read is rejected", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "cert-manager",
+			"chart_name":    "cert-manager",
+			"chart_version": "1.14.0",
+			"configuration": map[string]interface{}{"valuez": "replicaCount: 3"},
+		}
+		_, err := buildAddon(am, "")
+		if err == nil || !strings.Contains(err.Error(), "no values this CLI can read") {
+			t.Fatalf("error = %v, want an error about values the CLI cannot read", err)
+		}
+		if !strings.Contains(err.Error(), "valuez") {
+			t.Errorf("error = %v, want it to name the unrecognised key", err)
+		}
+	})
+
+	// A recognised key holding the wrong type failed its type assertion and
+	// left the block worth nothing, so the addon installed on chart defaults
+	// with apply reporting success - ankra-yxxa reached through a malformed
+	// value instead of an unread key, and invisible to the unrecognised-key
+	// error because the key itself is one this CLI reads.
+	t.Run("configuration keys holding the wrong type are rejected", func(t *testing.T) {
+		for label, conf := range map[string]map[string]interface{}{
+			"values_base64 as a map":  {"values_base64": map[string]interface{}{"replicaCount": 3}},
+			"values as a map":         {"values": map[string]interface{}{"replicaCount": 3}},
+			"values as a number":      {"values": 3},
+			"from_file as a list":     {"from_file": []interface{}{"values.yaml"}},
+			"encrypted_paths as text": {"encrypted_paths": "secrets.password"},
+		} {
+			am := map[string]interface{}{
+				"name":          "cert-manager",
+				"chart_name":    "cert-manager",
+				"chart_version": "1.14.0",
+				"configuration": conf,
+			}
+			a, err := buildAddon(am, "")
+			if err == nil {
+				t.Errorf("%s: expected an error, got configuration = %v", label, a.Configuration)
+				continue
+			}
+			if !strings.Contains(err.Error(), "must be a") {
+				t.Errorf("%s: error = %v, want it to name the expected type", label, err)
+			}
+		}
+	})
+
+	// Dropping a single non-string entry silently would ship the secret it
+	// names unencrypted.
+	t.Run("encrypted_paths entries that are not strings are rejected", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "cert-manager",
+			"chart_name":    "cert-manager",
+			"chart_version": "1.14.0",
+			"configuration": map[string]interface{}{
+				"values":          "replicaCount: 3",
+				"encrypted_paths": []interface{}{"secrets.password", map[string]interface{}{"secrets": "token"}},
+			},
+		}
+		_, err := buildAddon(am, "")
+		if err == nil || !strings.Contains(err.Error(), "encrypted_paths") {
+			t.Errorf("error = %v, want an error naming encrypted_paths", err)
+		}
+	})
+
+	// A typo next to a key that does work: the values still reach the addon,
+	// so failing the apply would be wrong (the platform's export writes these
+	// files, and a dialect that gains a key must not break older CLIs), but
+	// the ignored key has to be said out loud rather than dropped in silence.
+	t.Run("an unrecognised key beside a working one warns without failing", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "cert-manager",
+			"chart_name":    "cert-manager",
+			"chart_version": "1.14.0",
+			"configuration": map[string]interface{}{
+				"values": "replicaCount: 3",
+				"valuez": "replicaCount: 9",
+			},
+		}
+		var a client.Addon
+		var err error
+		warning := captureStderr(t, func() {
+			a, err = buildAddon(am, "")
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		cfg, ok := a.Configuration.(client.AddonStandaloneConfiguration)
+		if !ok {
+			t.Fatalf("configuration type = %T, want the values to still be sent", a.Configuration)
+		}
+		decoded, decodeErr := base64.StdEncoding.DecodeString(cfg.ValuesBase64)
+		if decodeErr != nil || string(decoded) != "replicaCount: 3" {
+			t.Errorf("values = %q (err %v), want the readable key to still win", string(decoded), decodeErr)
+		}
+		if !strings.Contains(warning, "valuez") {
+			t.Errorf("stderr = %q, want a warning naming the ignored key", warning)
+		}
+	})
+
+	// Both diagnostics only fire for a block that yielded no values, so the
+	// question is only which one you get: the typo is the actionable half.
+	t.Run("an unrecognised key is named even when encrypted_paths is set", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "cert-manager",
+			"chart_name":    "cert-manager",
+			"chart_version": "1.14.0",
+			"configuration": map[string]interface{}{
+				"valuez":          "replicaCount: 3",
+				"encrypted_paths": []interface{}{"secrets.password"},
+			},
+		}
+		_, err := buildAddon(am, "")
+		if err == nil || !strings.Contains(err.Error(), "valuez") {
+			t.Errorf("error = %v, want it to name the unrecognised key rather than the generic encrypted_paths message", err)
+		}
+	})
+
+	t.Run("configuration blocks that deliberately carry nothing stay configuration-free", func(t *testing.T) {
+		for label, conf := range map[string]map[string]interface{}{
+			"empty block":          {},
+			"empty values":         {"values": ""},
+			"empty values_base64":  {"values_base64": ""},
+			"null values":          {"values": nil},
+			"null encrypted_paths": {"encrypted_paths": nil},
+		} {
+			am := map[string]interface{}{
+				"name":          "cert-manager",
+				"chart_name":    "cert-manager",
+				"chart_version": "1.14.0",
+				"configuration": conf,
+			}
+			a, err := buildAddon(am, "")
+			if err != nil {
+				t.Errorf("%s: unexpected error: %v", label, err)
+				continue
+			}
+			if a.Configuration != nil {
+				t.Errorf("%s: configuration = %v, want nil", label, a.Configuration)
+			}
 		}
 	})
 
@@ -739,6 +965,121 @@ func TestBuildStack(t *testing.T) {
 		if s.DeployWave != nil {
 			t.Errorf("deploy wave = %v, want nil for a stack without deploy_wave", *s.DeployWave)
 		}
+		if s.Variables != nil {
+			t.Errorf("variables = %v, want nil for a stack without variables", s.Variables)
+		}
+	})
+
+	// Apply dropped the stack-level variables map entirely, so an applied
+	// stack came back with none and every '${VAR}' reached the cluster as a
+	// literal token (ankra-yxxa).
+	t.Run("variables are parsed", func(t *testing.T) {
+		sm := map[string]interface{}{
+			"name": "gpu-chat",
+			"variables": map[string]interface{}{
+				"STORAGE_CLASS": "longhorn",
+				"REPLICAS":      2,
+				"DEBUG":         false,
+			},
+		}
+		s, err := buildStack(sm, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := map[string]string{"STORAGE_CLASS": "longhorn", "REPLICAS": "2", "DEBUG": "false"}
+		if len(s.Variables) != len(want) {
+			t.Fatalf("variables = %v, want %v", s.Variables, want)
+		}
+		for key, value := range want {
+			if s.Variables[key] != value {
+				t.Errorf("variable %q = %q, want %q", key, s.Variables[key], value)
+			}
+		}
+	})
+
+	// The int/int64/uint64 cases above only matter if the file decoder hands
+	// unquoted YAML integers over as Go ints. gopkg.in/yaml.v3 does; a decoder
+	// that round-trips through JSON (sigs.k8s.io/yaml, encoding/json) would
+	// instead yield float64 for every number, drop each one into the default
+	// branch and reject 'REPLICAS: 2' as unquotable - the ankra-yxxa symptom
+	// again, in a new coat. Pin that contract here so swapping the decoder
+	// fails loudly rather than at apply time.
+	t.Run("unquoted YAML scalars decode to Go ints and bools", func(t *testing.T) {
+		var raw map[string]interface{}
+		if err := yaml.Unmarshal([]byte("REPLICAS: 2\nDEBUG: false\n"), &raw); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, ok := raw["REPLICAS"].(int); !ok {
+			t.Fatalf("REPLICAS decoded as %T, want int - parseStackVariables would reject it", raw["REPLICAS"])
+		}
+		if _, ok := raw["DEBUG"].(bool); !ok {
+			t.Fatalf("DEBUG decoded as %T, want bool", raw["DEBUG"])
+		}
+	})
+
+	// An integer above int64's range decodes as uint64 rather than int, which
+	// is the whole reason parseStackVariables carries a uint64 case. Verified
+	// against the decoder rather than assumed, so the branch is not mistaken
+	// for dead code and deleted.
+	t.Run("integers too large for int64 decode to uint64 and survive", func(t *testing.T) {
+		var raw map[string]interface{}
+		if err := yaml.Unmarshal([]byte("MAX_BYTES: 18446744073709551615\n"), &raw); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, ok := raw["MAX_BYTES"].(uint64); !ok {
+			t.Fatalf("MAX_BYTES decoded as %T, want uint64", raw["MAX_BYTES"])
+		}
+		s, err := buildStack(map[string]interface{}{"name": "gpu-chat", "variables": raw}, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if s.Variables["MAX_BYTES"] != "18446744073709551615" {
+			t.Errorf("MAX_BYTES = %q, want it carried through exactly", s.Variables["MAX_BYTES"])
+		}
+	})
+
+	t.Run("variables reject values a string conversion would mangle", func(t *testing.T) {
+		sm := map[string]interface{}{
+			"name":      "gpu-chat",
+			"variables": map[string]interface{}{"CHART_VERSION": 1.20},
+		}
+		_, err := buildStack(sm, "")
+		if err == nil || !strings.Contains(err.Error(), "CHART_VERSION") {
+			t.Errorf("error = %v, want an error naming the unquoted variable", err)
+		}
+	})
+
+	// The rejection message travels into CI logs, so a nested block - the one
+	// shape that could be hiding a credential - is described by type rather
+	// than printed. A scalar is still echoed: seeing the 1.20 is what makes
+	// the "quote it" hint land.
+	t.Run("rejecting a structured variable does not echo its contents", func(t *testing.T) {
+		sm := map[string]interface{}{
+			"name": "gpu-chat",
+			"variables": map[string]interface{}{
+				"DB": map[string]interface{}{"password": "hunter2-should-not-appear"},
+			},
+		}
+		_, err := buildStack(sm, "")
+		if err == nil {
+			t.Fatal("expected an error for a structured variable")
+		}
+		if !strings.Contains(err.Error(), "DB") {
+			t.Errorf("error = %v, want it to name the variable", err)
+		}
+		if strings.Contains(err.Error(), "hunter2") {
+			t.Errorf("error = %v, want the nested value described by type, not echoed", err)
+		}
+	})
+
+	t.Run("variables must be a map", func(t *testing.T) {
+		sm := map[string]interface{}{
+			"name":      "gpu-chat",
+			"variables": []interface{}{"STORAGE_CLASS=longhorn"},
+		}
+		if _, err := buildStack(sm, ""); err == nil {
+			t.Error("expected an error for a non-map 'variables'")
+		}
 	})
 
 	t.Run("deploy_wave is parsed", func(t *testing.T) {
@@ -863,6 +1204,66 @@ spec:
 		}
 		if len(req.Spec.Stacks) != 1 {
 			t.Errorf("stacks count = %d, want 1", len(req.Spec.Stacks))
+		}
+	})
+
+	// The gpu-chat-rag incident file (ankra-yxxa): an exported ImportCluster
+	// whose addons carry configuration.values_base64 and whose stack carries a
+	// variables map. Both used to be dropped on the way to the API, so the
+	// apply installed chart defaults and cleared the stack's variables while
+	// reporting success.
+	t.Run("exported dialect keeps addon values and stack variables", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		values := "resources:\n  limits:\n    nvidia.com/gpu: 1"
+		encoded := base64.StdEncoding.EncodeToString([]byte(values))
+		yamlContent := `kind: ImportCluster
+metadata:
+  name: gpu-chat-rag
+spec:
+  stacks:
+    - name: gpu-chat
+      variables:
+        STORAGE_CLASS: longhorn
+        MODEL_REPLICAS: 3
+        DEBUG_LOGGING: false
+      manifests: []
+      addons:
+        - name: vllm
+          chart_name: vllm
+          chart_version: "0.9.1"
+          configuration:
+            values_base64: ` + encoded + `
+`
+		yamlPath := filepath.Join(tmpDir, "cluster.yaml")
+		if err := os.WriteFile(yamlPath, []byte(yamlContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		req, err := buildImportRequest(yamlPath)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		stack := req.Spec.Stacks[0]
+		wantVariables := map[string]string{
+			"STORAGE_CLASS":  "longhorn",
+			"MODEL_REPLICAS": "3",
+			"DEBUG_LOGGING":  "false",
+		}
+		for key, value := range wantVariables {
+			if stack.Variables[key] != value {
+				t.Errorf("variable %q = %q, want %q", key, stack.Variables[key], value)
+			}
+		}
+		cfg, ok := stack.Addons[0].Configuration.(client.AddonStandaloneConfiguration)
+		if !ok {
+			t.Fatalf("addon configuration type = %T, want AddonStandaloneConfiguration", stack.Addons[0].Configuration)
+		}
+		decoded, decodeErr := base64.StdEncoding.DecodeString(cfg.ValuesBase64)
+		if decodeErr != nil {
+			t.Fatalf("decoding the addon values: %v", decodeErr)
+		}
+		if string(decoded) != values {
+			t.Errorf("decoded addon values = %q, want %q", string(decoded), values)
 		}
 	})
 

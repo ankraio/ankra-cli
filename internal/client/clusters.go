@@ -305,6 +305,12 @@ type Stack struct {
 	// DeployWave orders stacks against each other: stacks in wave N deploy
 	// only after every stack in a lower wave finished. Nil = unordered.
 	DeployWave *int `json:"deploy_wave,omitempty"`
+	// Variables are the stack-scoped rendering variables, the same map the
+	// partial-stack PATCH carries as StackSpec.Variables. The backend replaces
+	// the stored map with whatever apply sends, so omitting it clears the
+	// stack's variables - which is what happened before the CLI read them
+	// (ankra-yxxa).
+	Variables map[string]string `json:"variables,omitempty"`
 }
 
 type GitRepository struct {
