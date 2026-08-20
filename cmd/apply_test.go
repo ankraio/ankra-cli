@@ -1049,6 +1049,29 @@ func TestBuildStack(t *testing.T) {
 		}
 	})
 
+	// The rejection message travels into CI logs, so a nested block - the one
+	// shape that could be hiding a credential - is described by type rather
+	// than printed. A scalar is still echoed: seeing the 1.20 is what makes
+	// the "quote it" hint land.
+	t.Run("rejecting a structured variable does not echo its contents", func(t *testing.T) {
+		sm := map[string]interface{}{
+			"name": "gpu-chat",
+			"variables": map[string]interface{}{
+				"DB": map[string]interface{}{"password": "hunter2-should-not-appear"},
+			},
+		}
+		_, err := buildStack(sm, "")
+		if err == nil {
+			t.Fatal("expected an error for a structured variable")
+		}
+		if !strings.Contains(err.Error(), "DB") {
+			t.Errorf("error = %v, want it to name the variable", err)
+		}
+		if strings.Contains(err.Error(), "hunter2") {
+			t.Errorf("error = %v, want the nested value described by type, not echoed", err)
+		}
+	})
+
 	t.Run("variables must be a map", func(t *testing.T) {
 		sm := map[string]interface{}{
 			"name":      "gpu-chat",

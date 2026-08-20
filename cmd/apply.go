@@ -270,6 +270,19 @@ func unknownConfigurationKeys(conf map[string]interface{}) []string {
 	return unknown
 }
 
+// describeVariableValue renders a rejected variable for an error message: the
+// value itself when it is a scalar (the hint only lands if you can see the
+// 1.20 that provoked it), the type alone when it is a map or a list, whose
+// contents may be a credential and whose shape is the actual problem anyway.
+func describeVariableValue(value interface{}) string {
+	switch value.(type) {
+	case map[string]interface{}, []interface{}, map[interface{}]interface{}:
+		return fmt.Sprintf("a %T", value)
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
 // checkConfigurationTypes rejects a recognised addon 'configuration' key whose
 // value is not the type that key is read as. Without it the read below simply
 // fails its type assertion and the block collapses to no configuration at all,
@@ -590,9 +603,13 @@ func parseStackVariables(raw interface{}) (map[string]string, error) {
 		case bool:
 			variables[key] = strconv.FormatBool(typed)
 		default:
+			// Echo a scalar, because seeing 1.20 is what makes the hint land,
+			// but describe a map or a list by type only: a nested block is
+			// where a credential would be hiding, and this error travels into
+			// CI logs.
 			return nil, fmt.Errorf(
-				"variable %q must be a string (got %v - quote it, as variables are stored as strings and an unquoted value like 1.20 would be rewritten to \"1.2\")",
-				key, rawMap[key])
+				"variable %q must be a string (got %s - quote it, as variables are stored as strings and an unquoted value like 1.20 would be rewritten to \"1.2\")",
+				key, describeVariableValue(rawMap[key]))
 		}
 	}
 	return variables, nil
@@ -761,6 +778,11 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 			return client.Addon{}, err
 		}
 
+		// Computed once: the same list decides the hard error below (when the
+		// block yielded nothing) and the warning at the end (when it yielded
+		// values anyway), and two call sites would be free to drift apart.
+		unknownKeys := unknownConfigurationKeys(conf)
+
 		var encryptedPaths []string
 		if rawPaths, ok := conf["encrypted_paths"].([]interface{}); ok {
 			for i, p := range rawPaths {
@@ -816,7 +838,7 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 				ValuesBase64:   encoded,
 				EncryptedPaths: encryptedPaths,
 			}
-		} else if unknown := unknownConfigurationKeys(conf); len(unknown) > 0 {
+		} else if len(unknownKeys) > 0 {
 			// Keys we do not read are either a typo or a dialect newer than
 			// this CLI. Either way, say so - a configuration block that turns
 			// into nothing means the addon deploys with chart defaults over
@@ -829,7 +851,7 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 			// of files that apply is unchanged either way.
 			return client.Addon{}, fmt.Errorf(
 				"addon 'configuration' has no values this CLI can read: set 'from_file', 'values' or 'values_base64' (unrecognised: %s)",
-				strings.Join(unknown, ", "))
+				strings.Join(unknownKeys, ", "))
 		} else if len(encryptedPaths) > 0 {
 			return client.Addon{}, errors.New("addon 'configuration.encrypted_paths' is set but there is nothing to decrypt (set 'from_file', 'values' or 'values_base64')")
 		}
@@ -841,13 +863,11 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 		// would mean a dialect that gains a key breaks every older CLI on a
 		// file whose values it reads perfectly. Stderr keeps '-o json|yaml'
 		// parseable.
-		if cfg != nil {
-			if unknown := unknownConfigurationKeys(conf); len(unknown) > 0 {
-				_, _ = fmt.Fprintf(os.Stderr,
-					"Warning: addon %q has 'configuration' keys this CLI does not read, so they are ignored: %s. "+
-						"Check the spelling, or upgrade if the file came from a newer Ankra.\n",
-					name, strings.Join(unknown, ", "))
-			}
+		if cfg != nil && len(unknownKeys) > 0 {
+			_, _ = fmt.Fprintf(os.Stderr,
+				"Warning: addon %q has 'configuration' keys this CLI does not read, so they are ignored: %s. "+
+					"Check the spelling, or upgrade if the file came from a newer Ankra.\n",
+				name, strings.Join(unknownKeys, ", "))
 		}
 	}
 
