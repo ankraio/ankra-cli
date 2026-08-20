@@ -166,10 +166,12 @@ type PodLogOptions struct {
 	TailLines     int
 	SinceSeconds  int
 	// Follow keeps the stream open for new lines (kubectl logs -f). When
-	// false the client returns once the backlog has drained: the platform's
-	// log route only follows, so the drain is detected client-side as an
-	// idle gap after the first batch (or the server's keepalive comment,
-	// which it only sends once it has nothing buffered).
+	// false the request carries follow=false, so the route snapshots the
+	// selected tail and closes the response on the agent's end frame. A
+	// platform that predates that parameter ignores it and keeps following,
+	// so the client still detects the drain itself - an idle gap after the
+	// first batch, or the server's keepalive comment, which it only sends
+	// once it has nothing buffered.
 	Follow bool
 }
 
@@ -190,6 +192,12 @@ func (c *Client) StreamPodLogs(ctx context.Context, clusterID string, opts PodLo
 	}
 	if opts.SinceSeconds > 0 {
 		params.Set("since_seconds", fmt.Sprintf("%d", opts.SinceSeconds))
+	}
+	if !opts.Follow {
+		// The route defaults to follow=true; only the bounded read has to
+		// say so, which keeps the following request byte-identical to what
+		// every released CLI has always sent.
+		params.Set("follow", "false")
 	}
 
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/kubernetes/pod/logs?%s",
@@ -236,33 +244,44 @@ func (c *Client) StreamPodLogs(ctx context.Context, clusterID string, opts PodLo
 	return drainPodLogs(ctx, scanner, resp, writer)
 }
 
+// sseData strips the "data:" prefix and its optional space from an SSE
+// line, leaving the payload.
+func sseData(line string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")
+}
+
 // writePodLogLine handles one SSE line: an error event surfaces as the
-// error, a data line is written. done reports an error event was consumed.
+// error, an end event stops the read, a data line is written. done reports
+// the stream is over. Both terminating events carry their own data line
+// ("stream complete", "stream idle timeout") - that is protocol text, so it
+// is consumed with the event rather than printed as if it were a log line.
 func writePodLogLine(scanner *bufio.Scanner, writer io.Writer) (bool, error) {
 	line := scanner.Text()
-	if line == "event: error" {
+	switch line {
+	case "event: error":
 		if scanner.Scan() {
-			errLine := strings.TrimPrefix(scanner.Text(), "data:")
-			errLine = strings.TrimPrefix(errLine, " ")
-			return true, fmt.Errorf("%s", errLine)
+			return true, fmt.Errorf("%s", sseData(scanner.Text()))
 		}
+		return true, nil
+	case "event: end":
+		scanner.Scan()
 		return true, nil
 	}
 	if strings.HasPrefix(line, "data:") {
-		data := strings.TrimPrefix(line, "data:")
-		data = strings.TrimPrefix(data, " ")
-		if _, err := fmt.Fprintln(writer, data); err != nil {
+		if _, err := fmt.Fprintln(writer, sseData(line)); err != nil {
 			return false, fmt.Errorf("write output: %w", err)
 		}
 	}
 	return false, nil
 }
 
-// drainPodLogs reads the follow stream until the backlog is drained - the
-// first idle gap after at least one line, or a server keepalive comment
-// (sent only when nothing is buffered) - then closes the response so the
-// server tears the stream down. A stream that ends on its own returns its
-// scanner error, if any.
+// drainPodLogs reads a non-follow stream until the backlog is drained. A
+// route that honours follow=false ends it with its own "end" frame; against
+// an older one the drain is inferred client-side from the first idle gap
+// after at least one line, or from a server keepalive comment (sent only
+// when nothing is buffered), and the response is closed so the server tears
+// the stream down. A stream that ends on its own returns its scanner error,
+// if any.
 func drainPodLogs(ctx context.Context, scanner *bufio.Scanner, resp *http.Response, writer io.Writer) error {
 	lines := make(chan string)
 	scanErrors := make(chan error, 1)
@@ -281,6 +300,7 @@ func drainPodLogs(ctx context.Context, scanner *bufio.Scanner, resp *http.Respon
 	defer idle.Stop()
 	sawLine := false
 	pendingError := false
+	pendingEnd := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -302,17 +322,23 @@ func drainPodLogs(ctx context.Context, scanner *bufio.Scanner, resp *http.Respon
 			}
 			switch {
 			case pendingError:
-				errLine := strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")
-				return fmt.Errorf("%s", errLine)
+				return fmt.Errorf("%s", sseData(line))
+			case pendingEnd:
+				// The end frame's payload ("stream complete", "stream idle
+				// timeout") is protocol text, not a log line: swallow it and
+				// leave, the server has already closed its side.
+				return nil
 			case line == "event: error":
 				pendingError = true
+				continue
+			case line == "event: end":
+				pendingEnd = true
 				continue
 			case strings.HasPrefix(line, ":") && sawLine:
 				closeBody(resp)
 				return nil
 			case strings.HasPrefix(line, "data:"):
-				data := strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")
-				if _, err := fmt.Fprintln(writer, data); err != nil {
+				if _, err := fmt.Fprintln(writer, sseData(line)); err != nil {
 					return fmt.Errorf("write output: %w", err)
 				}
 				sawLine = true

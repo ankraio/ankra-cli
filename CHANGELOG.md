@@ -38,6 +38,18 @@
 
 ### Fixed
 
+- **`ankra cluster logs --follow=false` now asks the platform for a bounded
+  read instead of guessing when the backlog ended.** The route only ever
+  followed, so the CLI had to infer the end of the tail from a two-second gap
+  with no new line — which cost every scripted `--follow=false` run those two
+  seconds, and cut the tail short whenever a busy pod happened to pause.
+  The request now carries `follow=false`: the cluster snapshots the selected
+  tail and closes the stream itself, and the CLI exits on that. Against a
+  platform that predates the parameter nothing changes — the old idle-gap
+  drain still ends the read. The stream's terminating frames ("stream
+  complete", "stream idle timeout") also stop being printed as though they
+  were log lines, in both follow and non-follow mode.
+
 - **`ankra application add` no longer inspects the wrong repository when it is
   run from inside a Git hook.** `git commit` exports `GIT_DIR`,
   `GIT_INDEX_FILE` and friends into every hook it runs, and those variables
