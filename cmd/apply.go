@@ -833,6 +833,22 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 		} else if len(encryptedPaths) > 0 {
 			return client.Addon{}, errors.New("addon 'configuration.encrypted_paths' is set but there is nothing to decrypt (set 'from_file', 'values' or 'values_base64')")
 		}
+
+		// A key we cannot read alongside one we can: the values do reach the
+		// addon, so this is not the ankra-yxxa drop, but whatever the extra
+		// key meant to say is still being ignored. Warn rather than fail -
+		// the platform's own IaC export writes these files, and erroring
+		// would mean a dialect that gains a key breaks every older CLI on a
+		// file whose values it reads perfectly. Stderr keeps '-o json|yaml'
+		// parseable.
+		if cfg != nil {
+			if unknown := unknownConfigurationKeys(conf); len(unknown) > 0 {
+				_, _ = fmt.Fprintf(os.Stderr,
+					"Warning: addon %q has 'configuration' keys this CLI does not read, so they are ignored: %s. "+
+						"Check the spelling, or upgrade if the file came from a newer Ankra.\n",
+					name, strings.Join(unknown, ", "))
+			}
+		}
 	}
 
 	agentsMd, agentsMdFromFile, err := parseAgentsMdFields(am, baseDir)

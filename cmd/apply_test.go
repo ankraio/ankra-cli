@@ -515,6 +515,41 @@ func TestBuildAddon(t *testing.T) {
 		}
 	})
 
+	// A typo next to a key that does work: the values still reach the addon,
+	// so failing the apply would be wrong (the platform's export writes these
+	// files, and a dialect that gains a key must not break older CLIs), but
+	// the ignored key has to be said out loud rather than dropped in silence.
+	t.Run("an unrecognised key beside a working one warns without failing", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "cert-manager",
+			"chart_name":    "cert-manager",
+			"chart_version": "1.14.0",
+			"configuration": map[string]interface{}{
+				"values": "replicaCount: 3",
+				"valuez": "replicaCount: 9",
+			},
+		}
+		var a client.Addon
+		var err error
+		warning := captureStderr(t, func() {
+			a, err = buildAddon(am, "")
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		cfg, ok := a.Configuration.(client.AddonStandaloneConfiguration)
+		if !ok {
+			t.Fatalf("configuration type = %T, want the values to still be sent", a.Configuration)
+		}
+		decoded, decodeErr := base64.StdEncoding.DecodeString(cfg.ValuesBase64)
+		if decodeErr != nil || string(decoded) != "replicaCount: 3" {
+			t.Errorf("values = %q (err %v), want the readable key to still win", string(decoded), decodeErr)
+		}
+		if !strings.Contains(warning, "valuez") {
+			t.Errorf("stderr = %q, want a warning naming the ignored key", warning)
+		}
+	})
+
 	// Both diagnostics only fire for a block that yielded no values, so the
 	// question is only which one you get: the typo is the actionable half.
 	t.Run("an unrecognised key is named even when encrypted_paths is set", func(t *testing.T) {
@@ -979,6 +1014,27 @@ func TestBuildStack(t *testing.T) {
 		}
 		if _, ok := raw["DEBUG"].(bool); !ok {
 			t.Fatalf("DEBUG decoded as %T, want bool", raw["DEBUG"])
+		}
+	})
+
+	// An integer above int64's range decodes as uint64 rather than int, which
+	// is the whole reason parseStackVariables carries a uint64 case. Verified
+	// against the decoder rather than assumed, so the branch is not mistaken
+	// for dead code and deleted.
+	t.Run("integers too large for int64 decode to uint64 and survive", func(t *testing.T) {
+		var raw map[string]interface{}
+		if err := yaml.Unmarshal([]byte("MAX_BYTES: 18446744073709551615\n"), &raw); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, ok := raw["MAX_BYTES"].(uint64); !ok {
+			t.Fatalf("MAX_BYTES decoded as %T, want uint64", raw["MAX_BYTES"])
+		}
+		s, err := buildStack(map[string]interface{}{"name": "gpu-chat", "variables": raw}, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if s.Variables["MAX_BYTES"] != "18446744073709551615" {
+			t.Errorf("MAX_BYTES = %q, want it carried through exactly", s.Variables["MAX_BYTES"])
 		}
 	})
 

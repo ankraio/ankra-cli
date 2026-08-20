@@ -60,7 +60,9 @@
   what it did find, rather than a silent fall back to chart defaults — both
   when the block uses a key this CLI does not read and when it gives a key
   the CLI does read the wrong type, such as a nested map where
-  `values_base64` takes a string.
+  `values_base64` takes a string. A key it cannot read sitting *beside* one it
+  can is a warning on stderr naming the ignored key rather than an error, so a
+  file from a newer Ankra still applies.
   Because apply also prunes what the file does not declare, a config-only
   apply used to mis-configure and wipe in the same run.
 
