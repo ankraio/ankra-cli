@@ -524,7 +524,7 @@ func init() {
 	upcloudCreateCmd.Flags().String("credential-id", "", "UpCloud API credential ID (required)")
 	upcloudCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
 	upcloudCreateCmd.Flags().String("zone", "", "UpCloud zone (required)")
-	upcloudCreateCmd.Flags().String("network-ip-range", "10.0.0.0/16", "Network IP range")
+	upcloudCreateCmd.Flags().String("network-ip-range", "", "Private network IP range (optional). Left unset, Ankra picks a range that is free in your UpCloud account; pass one only to pin it (a range overlapping an existing network in the zone is refused)")
 	upcloudCreateCmd.Flags().String("bastion-plan", "1xCPU-2GB", "Bastion plan")
 	upcloudCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
 	upcloudCreateCmd.Flags().String("control-plane-plan", "2xCPU-4GB", "Control plane plan")

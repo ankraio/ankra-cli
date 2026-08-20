@@ -478,3 +478,52 @@ func TestDeleteUpcloudNodeGroup_Error(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+func TestCreateUpcloudCluster_OmitsUnsetNetworkIPRange(t *testing.T) {
+	expectedResponse := CreateUpcloudClusterResponse{ClusterID: "upcloud-cluster-789", Name: "gpu-chat"}
+	var receivedBody map[string]any
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	})
+	req := CreateUpcloudClusterRequest{
+		Name: "gpu-chat", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Zone: "fi-hel2", BastionPlan: "1xCPU-1GB",
+		ControlPlaneCount: 1, ControlPlanePlan: "2xCPU-4GB",
+		WorkerCount: 1, WorkerPlan: "2xCPU-4GB", Distribution: "k3s",
+	}
+	if _, err := testClient.CreateUpcloudCluster(req); err != nil {
+		t.Fatalf("CreateUpcloudCluster: %v", err)
+	}
+	// An unset range has to be absent from the body, not empty in it: the
+	// platform only derives a free range when the key is missing, and any
+	// literal range collides with the account's existing networks.
+	if value, present := receivedBody["network_ip_range"]; present {
+		t.Errorf("network_ip_range must be omitted when unset, got %v", value)
+	}
+}
+
+func TestCreateUpcloudCluster_SendsExplicitNetworkIPRange(t *testing.T) {
+	expectedResponse := CreateUpcloudClusterResponse{ClusterID: "upcloud-cluster-789", Name: "gpu-chat"}
+	var receivedBody map[string]any
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	})
+	req := CreateUpcloudClusterRequest{
+		Name: "gpu-chat", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Zone: "fi-hel2", NetworkIPRange: "10.90.0.0/24", BastionPlan: "1xCPU-1GB",
+		ControlPlaneCount: 1, ControlPlanePlan: "2xCPU-4GB",
+		WorkerCount: 1, WorkerPlan: "2xCPU-4GB", Distribution: "k3s",
+	}
+	if _, err := testClient.CreateUpcloudCluster(req); err != nil {
+		t.Fatalf("CreateUpcloudCluster: %v", err)
+	}
+	if got, ok := receivedBody["network_ip_range"].(string); !ok || got != "10.90.0.0/24" {
+		t.Errorf("network_ip_range = %v, want 10.90.0.0/24", receivedBody["network_ip_range"])
+	}
+}
