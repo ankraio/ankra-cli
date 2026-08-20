@@ -1,4 +1,4 @@
-.PHONY: build test lint generate verify-skills
+.PHONY: build test lint hooks generate verify-skills
 
 # Path to the canonical ankra-skills project (monorepo sibling). In the split
 # ankra-cli repo this does not exist and the vendored embedded copy is canonical.
@@ -14,6 +14,14 @@ test:
 
 lint:
 	golangci-lint run
+
+# hooks points this clone at the committed .githooks/ so the pre-commit gate
+# actually runs. git never sets core.hooksPath for you, so a fresh clone
+# commits with no gate at all and says nothing about it — run this once after
+# cloning. Idempotent.
+hooks:
+	@git config core.hooksPath .githooks
+	@echo "core.hooksPath = $$(git config core.hooksPath) (pre-commit gate active)"
 
 # generate vendors the canonical skills into the CLI for //go:embed and
 # regenerates the ankra-skills catalog. No-op when the sibling is absent.
