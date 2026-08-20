@@ -47,6 +47,15 @@
 
 ### Fixed
 
+- **`ankra cluster upcloud create` no longer hard-codes `10.0.0.0/16` as the
+  private network range.** The flag defaulted to that CIDR and always sent it,
+  so on any account that already holds a `10.0.0.0/x` network the create was
+  refused with `400 Invalid cluster configuration` before a single server was
+  ordered. `--network-ip-range` is now optional: leave it blank and the
+  platform assigns a free `/16` that does not overlap your existing networks
+  (the same auto-assignment the portal wizard uses); an explicit CIDR is still
+  sent unchanged.
+
 - **`ankra cluster apply` no longer drops an addon's values or a stack's
   variables on the way to the platform.** Two keys of the ImportCluster
   dialect were never read: `configuration.values_base64` on an addon, and the

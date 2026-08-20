@@ -66,6 +66,9 @@ func TestCreateUpcloudCluster_SendsCloudProviderNetworkingAndGitopsFields(t *tes
 	if got, ok := receivedBody["include_dns"].(bool); !ok || !got {
 		t.Errorf("include_dns = %v, want true", receivedBody["include_dns"])
 	}
+	if got, _ := receivedBody["network_ip_range"].(string); got != "10.0.0.0/16" {
+		t.Errorf("network_ip_range = %v, want 10.0.0.0/16", receivedBody["network_ip_range"])
+	}
 	if got, _ := receivedBody["gitops_credential_name"].(string); got != "github-cred" {
 		t.Errorf("gitops_credential_name = %q, want github-cred", got)
 	}
@@ -111,6 +114,30 @@ func TestCreateUpcloudCluster_OmitsGitopsWhenUnset(t *testing.T) {
 	}
 	if _, present := receivedBody["gitops_repository"]; present {
 		t.Errorf("gitops_repository should be omitted when unset")
+	}
+}
+
+// A blank network range must leave network_ip_range off the wire entirely:
+// the platform treats an absent key as "assign a free private range", but an
+// empty string would be validated as a CIDR and refused.
+func TestCreateUpcloudCluster_OmitsNetworkRangeWhenUnset(t *testing.T) {
+	expectedResponse := CreateUpcloudClusterResponse{ClusterID: "upcloud-cluster-123", Name: "upcloud-test"}
+	var receivedBody map[string]any
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	})
+	req := CreateUpcloudClusterRequest{
+		Name: "upcloud-test", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Zone: "fi-hel2", Distribution: "kubeadm",
+	}
+	if _, err := testClient.CreateUpcloudCluster(req); err != nil {
+		t.Fatalf("CreateUpcloudCluster: %v", err)
+	}
+	if _, present := receivedBody["network_ip_range"]; present {
+		t.Errorf("network_ip_range should be omitted when unset, got %v", receivedBody["network_ip_range"])
 	}
 }
 

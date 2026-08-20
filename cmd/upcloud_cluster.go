@@ -524,7 +524,7 @@ func init() {
 	upcloudCreateCmd.Flags().String("credential-id", "", "UpCloud API credential ID (required)")
 	upcloudCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
 	upcloudCreateCmd.Flags().String("zone", "", "UpCloud zone (required)")
-	upcloudCreateCmd.Flags().String("network-ip-range", "10.0.0.0/16", "Network IP range")
+	upcloudCreateCmd.Flags().String("network-ip-range", "", "Private network CIDR (optional; leave blank and the platform assigns a free /16 that does not overlap the networks already in your UpCloud account)")
 	upcloudCreateCmd.Flags().String("bastion-plan", "1xCPU-2GB", "Bastion plan")
 	upcloudCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
 	upcloudCreateCmd.Flags().String("control-plane-plan", "2xCPU-4GB", "Control plane plan")

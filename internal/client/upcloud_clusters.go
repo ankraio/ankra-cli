@@ -15,7 +15,7 @@ type CreateUpcloudClusterRequest struct {
 	CredentialID          string  `json:"credential_id"`
 	SSHKeyCredentialID    string  `json:"ssh_key_credential_id"`
 	Zone                  string  `json:"zone"`
-	NetworkIPRange        string  `json:"network_ip_range"`
+	NetworkIPRange        string  `json:"network_ip_range,omitempty"`
 	BastionPlan           string  `json:"bastion_plan"`
 	ControlPlaneCount     int     `json:"control_plane_count"`
 	ControlPlanePlan      string  `json:"control_plane_plan"`
