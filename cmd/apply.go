@@ -270,6 +270,32 @@ func unknownConfigurationKeys(conf map[string]interface{}) []string {
 	return unknown
 }
 
+// checkConfigurationTypes rejects a recognised addon 'configuration' key whose
+// value is not the type that key is read as. Without it the read below simply
+// fails its type assertion and the block collapses to no configuration at all,
+// which is the ankra-yxxa failure: the addon installs on chart defaults, over
+// whatever it was running, and apply reports success.
+//
+// A key present but explicitly nil is left alone - 'values:' with nothing
+// after it means the same deliberate "no configuration" as 'values: ""'.
+func checkConfigurationTypes(conf map[string]interface{}) error {
+	for _, key := range []string{"from_file", "values", "values_base64"} {
+		value, present := conf[key]
+		if !present || value == nil {
+			continue
+		}
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("addon 'configuration.%s' must be a string, got %T", key, value)
+		}
+	}
+	if value, present := conf["encrypted_paths"]; present && value != nil {
+		if _, ok := value.([]interface{}); !ok {
+			return fmt.Errorf("addon 'configuration.encrypted_paths' must be a list of strings, got %T", value)
+		}
+	}
+	return nil
+}
+
 // sortedKeys returns a map's keys in a stable order, so an error message that
 // lists what a block did contain reads the same on every run.
 func sortedKeys(m map[string]interface{}) []string {
@@ -725,12 +751,27 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 
 	var cfg interface{}
 	if conf, ok := am["configuration"].(map[string]interface{}); ok {
+		// A key we DO read, holding the wrong type, used to fail its type
+		// assertion and fall through to a nil configuration - the ankra-yxxa
+		// silent drop again, entered through a malformed value rather than an
+		// unread key, and invisible to unknownConfigurationKeys because the
+		// key itself is recognised. An explicit nil ('values:' with nothing
+		// after it) stays equivalent to the deliberately-empty 'values: ""'.
+		if err := checkConfigurationTypes(conf); err != nil {
+			return client.Addon{}, err
+		}
+
 		var encryptedPaths []string
 		if rawPaths, ok := conf["encrypted_paths"].([]interface{}); ok {
-			for _, p := range rawPaths {
-				if s, ok := p.(string); ok {
-					encryptedPaths = append(encryptedPaths, s)
+			for i, p := range rawPaths {
+				s, ok := p.(string)
+				if !ok {
+					// Skipping one silently would ship the secret it names
+					// unencrypted.
+					return client.Addon{}, fmt.Errorf(
+						"addon 'configuration.encrypted_paths' entry %d must be a string, got %T", i+1, p)
 				}
+				encryptedPaths = append(encryptedPaths, s)
 			}
 		}
 
@@ -775,16 +816,22 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 				ValuesBase64:   encoded,
 				EncryptedPaths: encryptedPaths,
 			}
-		} else if len(encryptedPaths) > 0 {
-			return client.Addon{}, errors.New("addon 'configuration.encrypted_paths' is set but there is nothing to decrypt (set 'from_file', 'values' or 'values_base64')")
 		} else if unknown := unknownConfigurationKeys(conf); len(unknown) > 0 {
 			// Keys we do not read are either a typo or a dialect newer than
 			// this CLI. Either way, say so - a configuration block that turns
 			// into nothing means the addon deploys with chart defaults over
 			// whatever it is running, which is how this went unnoticed.
+			//
+			// This runs ahead of the encrypted_paths complaint below because
+			// a block with both a typo'd key and encrypted_paths is better
+			// served by the message that names the typo. Neither branch is
+			// reached unless the block yielded no values at all, so the set
+			// of files that apply is unchanged either way.
 			return client.Addon{}, fmt.Errorf(
 				"addon 'configuration' has no values this CLI can read: set 'from_file', 'values' or 'values_base64' (unrecognised: %s)",
 				strings.Join(unknown, ", "))
+		} else if len(encryptedPaths) > 0 {
+			return client.Addon{}, errors.New("addon 'configuration.encrypted_paths' is set but there is nothing to decrypt (set 'from_file', 'values' or 'values_base64')")
 		}
 	}
 

@@ -467,11 +467,79 @@ func TestBuildAddon(t *testing.T) {
 		}
 	})
 
+	// A recognised key holding the wrong type failed its type assertion and
+	// left the block worth nothing, so the addon installed on chart defaults
+	// with apply reporting success - ankra-yxxa reached through a malformed
+	// value instead of an unread key, and invisible to the unrecognised-key
+	// error because the key itself is one this CLI reads.
+	t.Run("configuration keys holding the wrong type are rejected", func(t *testing.T) {
+		for label, conf := range map[string]map[string]interface{}{
+			"values_base64 as a map":  {"values_base64": map[string]interface{}{"replicaCount": 3}},
+			"values as a map":         {"values": map[string]interface{}{"replicaCount": 3}},
+			"values as a number":      {"values": 3},
+			"from_file as a list":     {"from_file": []interface{}{"values.yaml"}},
+			"encrypted_paths as text": {"encrypted_paths": "secrets.password"},
+		} {
+			am := map[string]interface{}{
+				"name":          "cert-manager",
+				"chart_name":    "cert-manager",
+				"chart_version": "1.14.0",
+				"configuration": conf,
+			}
+			a, err := buildAddon(am, "")
+			if err == nil {
+				t.Errorf("%s: expected an error, got configuration = %v", label, a.Configuration)
+				continue
+			}
+			if !strings.Contains(err.Error(), "must be a") {
+				t.Errorf("%s: error = %v, want it to name the expected type", label, err)
+			}
+		}
+	})
+
+	// Dropping a single non-string entry silently would ship the secret it
+	// names unencrypted.
+	t.Run("encrypted_paths entries that are not strings are rejected", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "cert-manager",
+			"chart_name":    "cert-manager",
+			"chart_version": "1.14.0",
+			"configuration": map[string]interface{}{
+				"values":          "replicaCount: 3",
+				"encrypted_paths": []interface{}{"secrets.password", map[string]interface{}{"secrets": "token"}},
+			},
+		}
+		_, err := buildAddon(am, "")
+		if err == nil || !strings.Contains(err.Error(), "encrypted_paths") {
+			t.Errorf("error = %v, want an error naming encrypted_paths", err)
+		}
+	})
+
+	// Both diagnostics only fire for a block that yielded no values, so the
+	// question is only which one you get: the typo is the actionable half.
+	t.Run("an unrecognised key is named even when encrypted_paths is set", func(t *testing.T) {
+		am := map[string]interface{}{
+			"name":          "cert-manager",
+			"chart_name":    "cert-manager",
+			"chart_version": "1.14.0",
+			"configuration": map[string]interface{}{
+				"valuez":          "replicaCount: 3",
+				"encrypted_paths": []interface{}{"secrets.password"},
+			},
+		}
+		_, err := buildAddon(am, "")
+		if err == nil || !strings.Contains(err.Error(), "valuez") {
+			t.Errorf("error = %v, want it to name the unrecognised key rather than the generic encrypted_paths message", err)
+		}
+	})
+
 	t.Run("configuration blocks that deliberately carry nothing stay configuration-free", func(t *testing.T) {
 		for label, conf := range map[string]map[string]interface{}{
-			"empty block":         {},
-			"empty values":        {"values": ""},
-			"empty values_base64": {"values_base64": ""},
+			"empty block":          {},
+			"empty values":         {"values": ""},
+			"empty values_base64":  {"values_base64": ""},
+			"null values":          {"values": nil},
+			"null encrypted_paths": {"encrypted_paths": nil},
 		} {
 			am := map[string]interface{}{
 				"name":          "cert-manager",

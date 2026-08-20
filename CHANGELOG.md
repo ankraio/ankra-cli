@@ -57,7 +57,10 @@
   add-ons then ran unconfigured and the manifests reached the cluster with
   `${VAR}` still in them, failing typed fields outright. Apply now sends both,
   and a `configuration:` block it cannot turn into values is an error naming
-  the keys it did find, rather than a silent fall back to chart defaults.
+  what it did find, rather than a silent fall back to chart defaults — both
+  when the block uses a key this CLI does not read and when it gives a key
+  the CLI does read the wrong type, such as a nested map where
+  `values_base64` takes a string.
   Because apply also prunes what the file does not declare, a config-only
   apply used to mis-configure and wipe in the same run.
 
