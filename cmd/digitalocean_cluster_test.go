@@ -8,6 +8,61 @@ import (
 	"ankra/internal/client"
 )
 
+type digitaloceanCreateMock struct {
+	baseMock
+	called     bool
+	gotRequest client.CreateDigitaloceanClusterRequest
+}
+
+func (m *digitaloceanCreateMock) CreateDigitaloceanCluster(req client.CreateDigitaloceanClusterRequest) (*client.CreateDigitaloceanClusterResponse, error) {
+	m.called = true
+	m.gotRequest = req
+	return &client.CreateDigitaloceanClusterResponse{ClusterID: "do-cluster-123", Name: req.Name}, nil
+}
+
+// --include-dns has to reach the wire on every provider lane, not just the
+// three that grew their own flag tests: the field carries no omitempty
+// precisely so an explicit false survives the round trip instead of being
+// re-defaulted to true server-side. It is also independent of the
+// cloud-provider/networking pair in both directions.
+func TestDigitaloceanCreateSendsIncludeDNS(t *testing.T) {
+	tests := []struct {
+		name           string
+		args           []string
+		wantDNS        bool
+		wantNetworking bool
+	}{
+		{name: "default", wantDNS: true, wantNetworking: true},
+		{name: "dns off", args: []string{"--include-dns=false"}, wantNetworking: true},
+		{name: "networking off keeps dns", args: []string{"--include-networking=false"}, wantDNS: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetConfirmFlag(t, digitaloceanCreateCmd)
+			mock := &digitaloceanCreateMock{}
+			args := append([]string{"cluster", "digitalocean", "create",
+				"--name", "dns-test",
+				"--credential-id", "cred-1",
+				"--ssh-key-credential-id", "ssh-1",
+				"--region", "fra1"}, tt.args...)
+			out, err := runWithInput(t, mock, "", args...)
+			if err != nil {
+				t.Fatalf("execute failed: %v\noutput: %s", err, out)
+			}
+			if !mock.called {
+				t.Fatal("expected CreateDigitaloceanCluster call")
+			}
+			if mock.gotRequest.IncludeDNS != tt.wantDNS {
+				t.Errorf("include_dns = %v, want %v", mock.gotRequest.IncludeDNS, tt.wantDNS)
+			}
+			if mock.gotRequest.IncludeNetworking != tt.wantNetworking {
+				t.Errorf("include_networking = %v, want %v", mock.gotRequest.IncludeNetworking, tt.wantNetworking)
+			}
+		})
+	}
+}
+
 type digitaloceanDeprovisionMock struct {
 	baseMock
 	called       bool

@@ -528,6 +528,45 @@ func TestOvhCreateOmitsAvailabilityZonesWhenNotAsked(t *testing.T) {
 	}
 }
 
+// --include-dns is independent of the cloud-provider/networking pair: opting
+// out of the delegated ankra.cc subzone must not quietly drop the ingress
+// stack that the other two flags govern.
+func TestOvhCreateSendsIncludeDNS(t *testing.T) {
+	tests := []struct {
+		name           string
+		args           []string
+		wantDNS        bool
+		wantNetworking bool
+	}{
+		{name: "default", wantDNS: true, wantNetworking: true},
+		{name: "dns off", args: []string{"--include-dns=false"}, wantNetworking: true},
+		{name: "networking off keeps dns", args: []string{"--include-networking=false"}, wantDNS: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetOvhCommandFlags(t, ovhCreateCmd)
+			mock := &ovhCreateZonesMock{}
+			setMockClient(t, mock)
+
+			args := append([]string{"cluster", "ovh", "create",
+				"--name", "dns-test",
+				"--credential-id", "credential-1",
+				"--ssh-key-credential-id", "ssh-1",
+				"--region", "GRA"}, tt.args...)
+			if _, err := executeCommand(args...); err != nil {
+				t.Fatalf("creating the cluster: %v", err)
+			}
+			if mock.gotRequest.IncludeDNS != tt.wantDNS {
+				t.Errorf("include_dns = %v, want %v", mock.gotRequest.IncludeDNS, tt.wantDNS)
+			}
+			if mock.gotRequest.IncludeNetworking != tt.wantNetworking {
+				t.Errorf("include_networking = %v, want %v", mock.gotRequest.IncludeNetworking, tt.wantNetworking)
+			}
+		})
+	}
+}
+
 type ovhNodeGroupZoneMock struct {
 	baseMock
 	gotRequest client.AddNodeGroupRequest

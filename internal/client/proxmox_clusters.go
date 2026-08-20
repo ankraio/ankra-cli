@@ -31,6 +31,7 @@ type CreateProxmoxClusterRequest struct {
 	EtcdInstanceType         string   `json:"etcd_instance_type,omitempty"`
 	CNI                      string   `json:"cni,omitempty"`
 	IncludeNetworking        bool     `json:"include_networking"`
+	IncludeDNS               bool     `json:"include_dns"`
 }
 
 type CreateProxmoxClusterResponse struct {
