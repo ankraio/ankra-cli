@@ -47,6 +47,20 @@
 
 ### Fixed
 
+- **`ankra cluster apply` no longer drops an addon's values or a stack's
+  variables on the way to the platform.** Two keys of the ImportCluster
+  dialect were never read: `configuration.values_base64` on an addon, and the
+  stack-level `variables` map. Both are what the platform's own IaC export
+  emits, so applying an exported file — the ordinary clone-edit-apply loop —
+  installed every addon with chart defaults and left the stack with no
+  variables at all, while `apply` and `validate` both reported success. The
+  add-ons then ran unconfigured and the manifests reached the cluster with
+  `${VAR}` still in them, failing typed fields outright. Apply now sends both,
+  and a `configuration:` block it cannot turn into values is an error naming
+  the keys it did find, rather than a silent fall back to chart defaults.
+  Because apply also prunes what the file does not declare, a config-only
+  apply used to mis-configure and wipe in the same run.
+
 - **`ankra cluster logs --follow=false` now asks the platform for a bounded
   read instead of guessing when the backlog ended.** The route only ever
   followed, so the CLI had to infer the end of the tail from a two-second gap

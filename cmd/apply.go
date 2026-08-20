@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"ankra/internal/client"
@@ -246,6 +248,39 @@ func buildImportRequest(path string) (client.CreateImportClusterRequest, error) 
 	}, nil
 }
 
+// addonConfigurationKeys is every key an addon's 'configuration' block may
+// carry. Anything else in there is a key this CLI would drop on the floor, so
+// buildAddon refuses the file rather than deploying chart defaults.
+var addonConfigurationKeys = map[string]bool{
+	"from_file":       true,
+	"values":          true,
+	"values_base64":   true,
+	"encrypted_paths": true,
+}
+
+// unknownConfigurationKeys lists, in a stable order, the keys of an addon
+// configuration block that this CLI does not read.
+func unknownConfigurationKeys(conf map[string]interface{}) []string {
+	unknown := make([]string, 0)
+	for _, key := range sortedKeys(conf) {
+		if !addonConfigurationKeys[key] {
+			unknown = append(unknown, key)
+		}
+	}
+	return unknown
+}
+
+// sortedKeys returns a map's keys in a stable order, so an error message that
+// lists what a block did contain reads the same on every run.
+func sortedKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func optString(m map[string]interface{}, key string) string {
 	value, ok := m[key]
 	if !ok || value == nil {
@@ -474,13 +509,61 @@ func buildStack(sm map[string]interface{}, baseDir string) (client.Stack, error)
 		return client.Stack{}, err
 	}
 
+	variables, err := parseStackVariables(sm["variables"])
+	if err != nil {
+		return client.Stack{}, err
+	}
+
 	return client.Stack{
 		Name:        name,
 		Description: desc,
 		Manifests:   manifests,
 		Addons:      addons,
 		DeployWave:  deployWave,
+		Variables:   variables,
 	}, nil
+}
+
+// parseStackVariables reads the optional stack-level 'variables' map, the
+// scope that shadows cluster and organisation variables when this stack's
+// manifests and addons are rendered. Apply used to drop it (ankra-yxxa): the
+// stack came back with no variables at all and every '${VAR}' reached the
+// cluster as a literal token, so string fields got nonsense and numeric ones
+// failed the typed patch outright.
+//
+// The backend stores variables as strings. Integers and booleans are written
+// out as their literal text because that conversion is exact; anything a
+// conversion would mangle - a float such as 1.20, a nested structure, a key
+// with no value - is rejected with a hint to quote it, the same guard
+// requiredAddonString applies to chart_version.
+func parseStackVariables(raw interface{}) (map[string]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	rawMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("'variables' must be a map of name to value, got %v", raw)
+	}
+	variables := make(map[string]string, len(rawMap))
+	for _, key := range sortedKeys(rawMap) {
+		switch typed := rawMap[key].(type) {
+		case string:
+			variables[key] = typed
+		case int:
+			variables[key] = strconv.Itoa(typed)
+		case int64:
+			variables[key] = strconv.FormatInt(typed, 10)
+		case uint64:
+			variables[key] = strconv.FormatUint(typed, 10)
+		case bool:
+			variables[key] = strconv.FormatBool(typed)
+		default:
+			return nil, fmt.Errorf(
+				"variable %q must be a string (got %v - quote it, as variables are stored as strings and an unquoted value like 1.20 would be rewritten to \"1.2\")",
+				key, rawMap[key])
+		}
+	}
+	return variables, nil
 }
 
 // parseDeployWave validates the optional 'deploy_wave' stack field: a
@@ -669,8 +752,33 @@ func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error)
 				ValuesBase64:   base64.StdEncoding.EncodeToString([]byte(inline)),
 				EncryptedPaths: encryptedPaths,
 			}
+		} else if encoded, ok := conf["values_base64"].(string); ok && encoded != "" {
+			// This is the form the platform's own IaC export emits, so it is
+			// what a clone/export -> apply round trip carries. Reading it was
+			// missing until ankra-yxxa: the block fell through to a nil
+			// configuration and every addon in the file installed with chart
+			// defaults, silently and with validate passing.
+			decoded, err := base64.StdEncoding.DecodeString(encoded)
+			if err != nil {
+				return client.Addon{}, fmt.Errorf("the addon 'configuration.values_base64' is not valid base64: %w", err)
+			}
+			if err := validateYAMLDocuments(decoded); err != nil {
+				return client.Addon{}, fmt.Errorf("the addon 'configuration.values_base64' does not decode to valid YAML: %w", err)
+			}
+			cfg = client.AddonStandaloneConfiguration{
+				ValuesBase64:   encoded,
+				EncryptedPaths: encryptedPaths,
+			}
 		} else if len(encryptedPaths) > 0 {
-			return client.Addon{}, errors.New("addon 'configuration.encrypted_paths' is set but there is nothing to decrypt (set 'from_file' or 'values')")
+			return client.Addon{}, errors.New("addon 'configuration.encrypted_paths' is set but there is nothing to decrypt (set 'from_file', 'values' or 'values_base64')")
+		} else if unknown := unknownConfigurationKeys(conf); len(unknown) > 0 {
+			// Keys we do not read are either a typo or a dialect newer than
+			// this CLI. Either way, say so - a configuration block that turns
+			// into nothing means the addon deploys with chart defaults over
+			// whatever it is running, which is how this went unnoticed.
+			return client.Addon{}, fmt.Errorf(
+				"addon 'configuration' has no values this CLI can read: set 'from_file', 'values' or 'values_base64' (unrecognised: %s)",
+				strings.Join(unknown, ", "))
 		}
 	}
 
