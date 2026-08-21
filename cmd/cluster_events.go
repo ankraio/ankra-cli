@@ -221,6 +221,16 @@ func eventTimestamp(event map[string]interface{}) time.Time {
 	return parsed
 }
 
+// formatEventAge renders an event's age, leaving the cell blank when the
+// event carried no parseable timestamp at all - a zero time would otherwise
+// render as two thousand years.
+func formatEventAge(timestamp time.Time) string {
+	if timestamp.IsZero() {
+		return ""
+	}
+	return formatK8sAge(timestamp.Format(time.RFC3339))
+}
+
 func renderEventsTable(events []map[string]interface{}) {
 	eventsTable := table.NewWriter()
 	eventsTable.SetOutputMirror(os.Stdout)
@@ -238,7 +248,7 @@ func renderEventsTable(events []map[string]interface{}) {
 			count = "1"
 		}
 		eventsTable.AppendRow(table.Row{
-			formatK8sAge(eventTimestamp(event).Format(time.RFC3339)),
+			formatEventAge(eventTimestamp(event)),
 			eventType,
 			getNestedString(event, "reason"),
 			fmt.Sprintf("%s/%s", involvedKind, involvedName),

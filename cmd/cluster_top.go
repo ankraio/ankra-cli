@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"ankra/internal/client"
@@ -486,8 +487,11 @@ func parseKubernetesQuantity(raw string) (float64, bool) {
 }
 
 func parseQuantityNumber(digits string, multiplier float64) (float64, bool) {
-	var parsed float64
-	if _, scanError := fmt.Sscanf(strings.TrimSpace(digits), "%g", &parsed); scanError != nil {
+	// ParseFloat rather than Sscanf: Sscanf("%g") stops at the first
+	// character it cannot use and reports success, so "12abc" would read as
+	// 12 and a malformed quantity would render as a plausible measurement.
+	parsed, parseError := strconv.ParseFloat(strings.TrimSpace(digits), 64)
+	if parseError != nil {
 		return 0, false
 	}
 	return parsed * multiplier, true
