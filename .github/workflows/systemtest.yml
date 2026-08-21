@@ -56,6 +56,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      # TMPDIR (set job-wide above) lives inside the workspace so the test's
+      # temp files survive for the log upload, but checkout starts from a
+      # clean workspace. It must exist before anything invokes Go: setup-go
+      # runs `go env`, and Go refuses to start with a missing TMPDIR.
+      - name: Create TMPDIR
+        run: mkdir -p "$TMPDIR"
+
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -66,7 +73,6 @@ jobs:
 
       - name: Run lifecycle system test
         run: |
-          mkdir -p "$TMPDIR"
           # "none" lets a dispatch skip a whole family (an empty input would
           # fall back to the default matrix instead).
           if [ "$ANKRA_SYSTEMTEST_PROVIDERS" = "none" ]; then export ANKRA_SYSTEMTEST_PROVIDERS=""; fi
