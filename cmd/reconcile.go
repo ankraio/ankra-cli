@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -29,10 +30,30 @@ var clusterCmd = &cobra.Command{
 	Long:  `Commands for managing and operating on clusters.`,
 }
 
+var clusterSortFields = []sortField[client.ClusterListItem]{
+	{"name", func(a, b client.ClusterListItem) int { return compareFold(a.Name, b.Name) }},
+	{"environment", func(a, b client.ClusterListItem) int { return compareFold(a.Environment, b.Environment) }},
+	{"kube-version", func(a, b client.ClusterListItem) int { return compareFold(a.KubeVersion, b.KubeVersion) }},
+	{"nodes", func(a, b client.ClusterListItem) int { return cmp.Compare(a.Nodes, b.Nodes) }},
+	{"control-planes", func(a, b client.ClusterListItem) int { return cmp.Compare(a.ControlPlanes, b.ControlPlanes) }},
+	{"state", func(a, b client.ClusterListItem) int { return compareFold(a.State, b.State) }},
+	{"kind", func(a, b client.ClusterListItem) int { return compareFold(a.Kind, b.Kind) }},
+	{"created", func(a, b client.ClusterListItem) int { return compareTimeStrings(a.CreatedAt, b.CreatedAt) }},
+}
+
 var clusterListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all clusters",
+	Example: `  # newest clusters first
+  ankra cluster list --sort created --order desc
+
+  # alphabetical by name
+  ankra cluster list --sort name`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		sortClusters, err := resolveSort(cmd, clusterSortFields)
+		if err != nil {
+			return err
+		}
 		clusters, err := listAllClusters()
 		if err != nil {
 			return fmt.Errorf("listing clusters: %w", err)
@@ -40,6 +61,7 @@ var clusterListCmd = &cobra.Command{
 		if clusters == nil {
 			clusters = []client.ClusterListItem{}
 		}
+		sortClusters(clusters)
 		if rendered, err := renderStructured(cmd, clusters); rendered || err != nil {
 			return err
 		}
@@ -515,6 +537,7 @@ func init() {
 		clusterProvisionCmd,
 		clusterDeprovisionCmd,
 	)
+	registerSortFlags(clusterListCmd, clusterSortFields)
 
 	clusterCmd.AddCommand(clusterListCmd)
 	clusterCmd.AddCommand(clusterInfoCmd)

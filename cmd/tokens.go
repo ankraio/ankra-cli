@@ -18,10 +18,23 @@ var tokensCmd = &cobra.Command{
 	Long:    "Commands to list, create, revoke, and delete API tokens.",
 }
 
+var tokenSortFields = []sortField[client.APIToken]{
+	{"id", func(a, b client.APIToken) int { return compareFold(a.ID, b.ID) }},
+	{"name", func(a, b client.APIToken) int { return compareFold(a.Name, b.Name) }},
+	{"status", func(a, b client.APIToken) int { return compareBools(a.Revoked, b.Revoked) }},
+	{"created", func(a, b client.APIToken) int { return compareTimeStrings(a.CreatedAt, b.CreatedAt) }},
+	{"expires", func(a, b client.APIToken) int { return compareTimeStrings(a.ExpiresAt, b.ExpiresAt) }},
+	{"last-used", func(a, b client.APIToken) int { return compareTimeStringPtrs(a.LastUsedAt, b.LastUsedAt) }},
+}
+
 var tokensListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all API tokens",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		sortTokens, err := resolveSort(cmd, tokenSortFields)
+		if err != nil {
+			return err
+		}
 		tokens, err := apiClient.ListAPITokens()
 		if err != nil {
 			return fmt.Errorf("listing tokens: %w", err)
@@ -30,6 +43,7 @@ var tokensListCmd = &cobra.Command{
 		if tokens == nil {
 			tokens = []client.APIToken{}
 		}
+		sortTokens(tokens)
 		if rendered, err := renderStructured(cmd, tokens); rendered || err != nil {
 			return err
 		}
@@ -166,6 +180,7 @@ func init() {
 		"MCP access scopes: mcp:read or mcp:read,mcp:write; omitted creates a REST-only token")
 
 	registerStructuredOutputFlags(tokensListCmd, tokensCreateCmd)
+	registerSortFlags(tokensListCmd, tokenSortFields)
 
 	tokensCmd.AddCommand(tokensListCmd)
 	tokensCmd.AddCommand(tokensCreateCmd)
