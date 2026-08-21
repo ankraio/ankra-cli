@@ -4,6 +4,54 @@
 
 ### Added
 
+- **`ankra cluster logs --previous` reads the log a crash-looping container
+  left behind.** When a container is in CrashLoopBackOff the only output
+  worth reading belongs to the instance that already died, and nothing in
+  the CLI could reach it — the one case where you most want to avoid handing
+  out a kubectl grant was the one case that forced you to. `--previous`
+  (`-p`) asks the platform for that terminated log; because the log is closed
+  it is always a bounded read, so it ends on its own instead of hanging on a
+  stream that can never produce another line. It needs a platform and a
+  cluster agent that carry the parameter; an older agent serves the current
+  container's log instead.
+- **`ankra cluster logs -l <selector>` and `--all-containers`** read more
+  than one container per invocation. A three-replica Deployment used to mean
+  listing pods to learn the hashed names and then three separate commands;
+  now one selector reads them all, and `--all-containers` expands each pod to
+  every container it declares — init and ephemeral containers included, which
+  is where a stuck pod's real error usually is. With more than one target
+  each line is prefixed `[pod]` or `[pod/container]` so the interleaved
+  output stays attributable, and a following read is capped at five
+  concurrent streams rather than silently opening one connection per replica.
+  `logs` also gains `-o json|yaml`, which groups the output per target for a
+  pipeline to parse.
+- **`ankra cluster describe <kind> <name>`** answers "why is this not ready?"
+  in one call. `cluster get` returned lists and manifests, so conditions,
+  per-container state, and the object's events had to be assembled by hand
+  from three commands. `describe` prints the object's conditions, a pod's
+  container statuses with the detail that explains them (CrashLoopBackOff and
+  its exit code, ImagePullBackOff and its registry error, restart counts),
+  and the events whose `involvedObject` is that resource. Kubectl's
+  spellings work — `pod`, `pods`, `po`, `Pod` — and a kind outside the
+  built-in set is reachable with `--group`/`--api-version`. `-o json|yaml`
+  emits `{object, events}`.
+- **`ankra cluster events --for <kind>/<name>`** (also `ankra cluster get
+  events --for`) scopes an event listing to a single object's
+  `involvedObject` with a server-side field selector, rather than filtering
+  a namespace-wide list by name. That is the difference between "the pod is
+  Pending" and "no node matches the nodeSelector". `--type Normal|Warning`
+  narrows further, and `-o json|yaml` prints the raw events.
+- **`ankra cluster top pods|nodes`** shows live CPU and memory from the
+  Kubernetes metrics API. `cluster metrics` queries Prometheus, which is the
+  right tool for trends but the wrong one for "which container just got
+  OOMKilled" — and it needs Prometheus to have been installed at all.
+  `top` reads metrics-server directly, so it works on any cluster that has
+  one. `top pods` takes `--containers` for a per-container breakdown and
+  `--sort-by cpu|memory`; `top nodes` shows usage against each node's
+  allocatable capacity. A measurement is only meaningful live, so the read
+  bypasses Ankra's resource cache, and an answer that comes back from the
+  cache anyway (an offline cluster) is refused rather than rendered as if it
+  were current.
 - **`--sort <column>` and `--order asc|desc` on the main list commands**
   (`cluster list`, `cluster addons list`, `org list`, `credentials list`,
   `tokens list`) let you order the output by any rendered column — e.g.

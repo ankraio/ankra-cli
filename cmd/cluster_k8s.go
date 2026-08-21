@@ -256,27 +256,6 @@ var kindConfigs = []kindConfig{
 		},
 	},
 	{
-		commandName: "events", kind: "Event", group: "", version: "v1",
-		short:   "List events in the cluster",
-		headers: table.Row{"Last Seen", "Type", "Reason", "Object", "Message"},
-		formatRow: func(obj map[string]interface{}) table.Row {
-			lastSeen := getNestedString(obj, "lastTimestamp")
-			if lastSeen == "" {
-				lastSeen = getNestedString(obj, "metadata", "creationTimestamp")
-			}
-			object := fmt.Sprintf("%s/%s",
-				strings.ToLower(getNestedString(obj, "involvedObject", "kind")),
-				getNestedString(obj, "involvedObject", "name"))
-			return table.Row{
-				formatK8sAge(lastSeen),
-				getNestedString(obj, "type"),
-				getNestedString(obj, "reason"),
-				object,
-				getNestedString(obj, "message"),
-			}
-		},
-	},
-	{
 		commandName: "configmaps", kind: "ConfigMap", group: "", version: "v1",
 		short:   "List configmaps in the cluster",
 		headers: table.Row{"Name", "Namespace", "Data", "Age"},
@@ -708,48 +687,124 @@ var clusterPodsCmd = &cobra.Command{
 }
 
 var clusterLogsCmd = &cobra.Command{
-	Use:   "logs <pod_name>",
-	Short: "Stream logs from a pod",
-	Long: `Stream log output from a pod in the active cluster.
+	Use:   "logs [pod_name]",
+	Short: "Stream logs from one pod, a label selector, or every container",
+	Long: `Stream log output from the active cluster.
 
 By default the stream stays open and prints new lines as they arrive, like
 kubectl logs -f. Pass --follow=false to print the current backlog and exit,
 which is what a pipeline into grep or a script wants.
 
-Example:
+--previous reads the log of the container instance that terminated. For a
+pod in CrashLoopBackOff that is the only log with the failure in it, and it
+is the case where reaching for kubectl through a broad access grant used to
+be the only option. A previous log is closed, so --previous always makes a
+bounded read.
+
+-l/--selector reads every pod matching a label selector instead of one pod
+name, and --all-containers expands each pod to all of its containers (init
+and ephemeral containers included). With more than one target each line is
+prefixed with [pod] or [pod/container] so the interleaved output stays
+attributable.
+
+Examples:
   ankra cluster logs my-pod -n default -c my-container --tail 100
-  ankra cluster logs my-pod -n default --since 600 --follow=false | grep ERROR`,
-	Args:        cobra.ExactArgs(1),
+  ankra cluster logs my-pod -n default --previous
+  ankra cluster logs -l app=web -n default --tail 50 --follow=false
+  ankra cluster logs my-pod -n default --all-containers --previous
+  ankra cluster logs -l app=web -n default --follow=false -o json`,
+	Args:        cobra.MaximumNArgs(1),
 	Annotations: map[string]string{"group": "kubernetes"},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		podName := args[0]
 		namespace, _ := cmd.Flags().GetString("namespace")
 		container, _ := cmd.Flags().GetString("container")
 		tailLines, _ := cmd.Flags().GetInt("tail")
 		sinceSeconds, _ := cmd.Flags().GetInt("since")
 		follow, _ := cmd.Flags().GetBool("follow")
+		previous, _ := cmd.Flags().GetBool("previous")
+		labelSelector, _ := cmd.Flags().GetString("selector")
+		allContainers, _ := cmd.Flags().GetBool("all-containers")
+		outputFormat, _ := cmd.Flags().GetString("output")
 
+		if err := validateK8sOutputFormat(outputFormat); err != nil {
+			return err
+		}
 		if namespace == "" {
 			return withExitCode(exitUsage, errors.New("--namespace (-n) is required for logs"))
 		}
+		podName := ""
+		if len(args) == 1 {
+			podName = args[0]
+		}
+		if podName == "" && labelSelector == "" {
+			return withExitCode(exitUsage,
+				errors.New("logs needs a pod name or a label selector (-l)"))
+		}
+		if podName != "" && labelSelector != "" {
+			return withExitCode(exitUsage,
+				errors.New("pass either a pod name or -l/--selector, not both"))
+		}
+		if container != "" && allContainers {
+			return withExitCode(exitUsage,
+				errors.New("--container and --all-containers select different things; pass only one"))
+		}
+
+		// A structured read has to terminate before it can be encoded, so
+		// -o json|yaml is a bounded read. Saying so is better than
+		// emitting a document that never closes.
+		isStructured := outputFormat == "json" || outputFormat == "yaml"
+		if isStructured {
+			if cmd.Flags().Changed("follow") && follow {
+				return withExitCode(exitUsage, errors.New(
+					"-o json|yaml cannot follow a stream; drop --follow or use -o table"))
+			}
+			follow = false
+		}
+		if previous {
+			follow = false
+		}
+
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
 			return err
 		}
 
+		targets, targetsError := resolveLogTargets(
+			cluster.ID, namespace, podName, labelSelector, container, allContainers)
+		if targetsError != nil {
+			return targetsError
+		}
+		if follow && len(targets) > maxConcurrentLogFollows {
+			return withExitCode(exitUsage, fmt.Errorf(
+				"following %d containers at once exceeds the limit of %d: narrow the selector or pass --follow=false",
+				len(targets), maxConcurrentLogFollows))
+		}
+
 		opts := client.PodLogOptions{
 			Namespace:     namespace,
-			PodName:       podName,
 			ContainerName: container,
 			TailLines:     tailLines,
 			SinceSeconds:  sinceSeconds,
 			Follow:        follow,
+			Previous:      previous,
 		}
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		if err := apiClient.StreamPodLogs(ctx, cluster.ID, opts, os.Stdout); err != nil {
+		if isStructured {
+			groups, collectError := collectLogTargets(ctx, cluster.ID, targets, opts)
+			if collectError != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return collectError
+			}
+			return renderLogGroups(groups, outputFormat)
+		}
+
+		showPrefix := len(targets) > 1
+		if err := streamLogTargets(ctx, cluster.ID, targets, opts, showPrefix, os.Stdout); err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -879,6 +934,10 @@ func init() {
 	clusterLogsCmd.Flags().Int("tail", 0, "Number of lines from the end of the logs")
 	clusterLogsCmd.Flags().Int("since", 0, "Seconds of logs to retrieve")
 	clusterLogsCmd.Flags().BoolP("follow", "f", true, "Keep the stream open for new lines; --follow=false prints the current backlog and exits")
+	clusterLogsCmd.Flags().BoolP("previous", "p", false, "Read the terminated container's log (the one a CrashLoopBackOff wrote); always a bounded read")
+	clusterLogsCmd.Flags().StringP("selector", "l", "", "Read every pod matching this label selector instead of one pod name")
+	clusterLogsCmd.Flags().Bool("all-containers", false, "Read every container of each selected pod, including init and ephemeral containers")
+	clusterLogsCmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
 
 	clusterGenericResourcesCmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace")
 	clusterGenericResourcesCmd.Flags().BoolP("all-namespaces", "A", false, "List across all namespaces")
