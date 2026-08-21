@@ -31,10 +31,22 @@ var orgCmd = &cobra.Command{
 	Long:    "Commands to list, switch, create, and manage organisations.",
 }
 
+var orgSortFields = []sortField[client.OrganisationSummary]{
+	{"id", func(a, b client.OrganisationSummary) int { return compareFold(a.OrganisationID, b.OrganisationID) }},
+	{"name", func(a, b client.OrganisationSummary) int { return compareFoldPtr(a.Name, b.Name) }},
+	{"slug", func(a, b client.OrganisationSummary) int { return compareFoldPtr(a.Slug, b.Slug) }},
+	{"role", func(a, b client.OrganisationSummary) int { return compareFoldPtr(a.Role, b.Role) }},
+	{"status", func(a, b client.OrganisationSummary) int { return compareFoldPtr(a.Status, b.Status) }},
+}
+
 var orgListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all organisations you belong to",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		sortOrgs, err := resolveSort(cmd, orgSortFields)
+		if err != nil {
+			return err
+		}
 		orgs, err := apiClient.ListOrganisations()
 		if err != nil {
 			return fmt.Errorf("listing organisations: %w", err)
@@ -43,6 +55,7 @@ var orgListCmd = &cobra.Command{
 		if orgs == nil {
 			orgs = []client.OrganisationSummary{}
 		}
+		sortOrgs(orgs)
 		if rendered, err := renderStructured(cmd, orgs); rendered || err != nil {
 			return err
 		}
@@ -616,6 +629,7 @@ func init() {
 	orgRemoveCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
 
 	registerStructuredOutputFlags(orgListCmd, orgCurrentCmd, orgCreateCmd, orgMembersCmd)
+	registerSortFlags(orgListCmd, orgSortFields)
 
 	orgCmd.AddCommand(orgListCmd)
 	orgCmd.AddCommand(orgSwitchCmd)

@@ -19,10 +19,25 @@ var credentialsCmd = &cobra.Command{
 	Long:    "Commands to list, view, validate, and delete credentials.",
 }
 
+var credentialSortFields = []sortField[client.Credential]{
+	{"id", func(a, b client.Credential) int { return compareFold(a.ID, b.ID) }},
+	{"name", func(a, b client.Credential) int { return compareFold(a.Name, b.Name) }},
+	{"provider", func(a, b client.Credential) int { return compareFold(a.Provider, b.Provider) }},
+	{"state", func(a, b client.Credential) int { return compareFoldPtr(a.State, b.State) }},
+	{"available", func(a, b client.Credential) int { return compareBools(a.Available, b.Available) }},
+	{"repos", func(a, b client.Credential) int { return compareIntPtrs(a.RepositoryCount, b.RepositoryCount) }},
+	{"last-synced", func(a, b client.Credential) int { return compareTimeStringPtrs(a.LastSyncedAt, b.LastSyncedAt) }},
+	{"created", func(a, b client.Credential) int { return compareTimeStrings(a.CreatedAt, b.CreatedAt) }},
+}
+
 var credentialsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all credentials",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		sortCreds, err := resolveSort(cmd, credentialSortFields)
+		if err != nil {
+			return err
+		}
 		provider, _ := cmd.Flags().GetString("provider")
 		var providerPtr *string
 		if provider != "" {
@@ -37,6 +52,7 @@ var credentialsListCmd = &cobra.Command{
 		if creds == nil {
 			creds = []client.Credential{}
 		}
+		sortCreds(creds)
 		if rendered, err := renderStructured(cmd, creds); rendered || err != nil {
 			return err
 		}
@@ -266,6 +282,7 @@ func init() {
 	credentialsDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	registerStructuredOutputFlags(credentialsListCmd, credentialsGetCmd)
+	registerSortFlags(credentialsListCmd, credentialSortFields)
 
 	credentialsCmd.AddCommand(credentialsListCmd)
 	credentialsCmd.AddCommand(credentialsValidateCmd)

@@ -4,6 +4,16 @@
 
 ### Added
 
+- **`--sort <column>` and `--order asc|desc` on the main list commands**
+  (`cluster list`, `cluster addons list`, `org list`, `credentials list`,
+  `tokens list`) let you order the output by any rendered column — e.g.
+  `ankra cluster list --sort created --order desc` puts the newest clusters
+  first. Sorting happens on the raw values, so timestamp columns order
+  chronologically rather than by their "2 days ago" display text, and the
+  same order applies to `-o json|yaml`. Without `--sort` the server order is
+  unchanged, and an unknown column exits with the usage code and lists the
+  valid ones. (`helm registries list` keeps its existing server-side
+  `--sort-by`/`--sort-order` flags.)
 - **`ankra stack-profiles` now carries the profile's whole life, not just the
   read half.** The portal could create a profile from a deployed stack, edit
   its catalogue metadata, snapshot new versions, roll the current-version
