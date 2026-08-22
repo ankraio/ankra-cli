@@ -68,7 +68,12 @@ under the organisation's current root.`,
 			return nil
 		}
 
-		if result.State == clusterDomainStateNone {
+		// Only the bare lookup can meaningfully report "none": --enable
+		// always returns a queued zone and --remove answers 404 when there
+		// was nothing to remove. Guarding the branch keeps it that way, so a
+		// backend that ever reported "none" from either verb could not make
+		// the CLI answer a removal with an "run --enable" hint.
+		if result.State == clusterDomainStateNone && !clusterDomainEnable && !clusterDomainRemove {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Domain: (none)\nState:  none\n")
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 				"\nThis cluster has no public domain. Run 'ankra cluster domain %s --enable' to create one.\n",

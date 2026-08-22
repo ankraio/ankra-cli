@@ -22,6 +22,7 @@ type clusterDomainMock struct {
 	enableCalls  []string
 	disableCalls []string
 	zone         client.ClusterDNSZoneResponse
+	disableState string
 }
 
 func (m *clusterDomainMock) GetClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error) {
@@ -37,7 +38,11 @@ func (m *clusterDomainMock) EnableClusterDNSZone(clusterID string) (*client.Clus
 
 func (m *clusterDomainMock) DisableClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error) {
 	m.disableCalls = append(m.disableCalls, clusterID)
-	return &client.ClusterDNSZoneResponse{Success: true, FQDN: "abc.org1234.ankra.cc", State: "deleting"}, nil
+	state := m.disableState
+	if state == "" {
+		state = "deleting"
+	}
+	return &client.ClusterDNSZoneResponse{Success: true, FQDN: "abc.org1234.ankra.cc", State: state}, nil
 }
 
 func resetClusterDomainFlags(t *testing.T) {
@@ -154,5 +159,20 @@ func TestRunClusterDomain_StructuredOutputStaysParseable(t *testing.T) {
 	}
 	if strings.Contains(output, "--enable") {
 		t.Errorf("the human hint leaked into stdout: %s", output)
+	}
+}
+
+func TestRunClusterDomain_RemoveDoesNotEmitTheEnableHint(t *testing.T) {
+	// A backend that answered a removal with state "none" must not send the
+	// operator back to --enable.
+	mock := &clusterDomainMock{}
+	mock.disableState = clusterDomainStateNone
+
+	output, executeError := runClusterDomain(t, mock, domainTestClusterID, "--remove")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if strings.Contains(output, "--enable") {
+		t.Errorf("the removal path emitted the enable hint:\n%s", output)
 	}
 }
