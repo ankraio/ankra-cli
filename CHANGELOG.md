@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.13.0-rc0 — 2026-08-22
+
 ### Added
 
 - **`ankra org mcp-servers` registers external MCP tool servers agent runs
