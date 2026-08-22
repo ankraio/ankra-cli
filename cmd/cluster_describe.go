@@ -110,9 +110,15 @@ Examples:
 const lastAppliedConfigurationAnnotation = "kubectl.kubernetes.io/last-applied-configuration"
 
 // minimumRedactableSecretLength is the shortest secret value worth scanning
-// annotations for. A one- or two-character value would match half the
-// annotations on the object by coincidence and redact them all.
-const minimumRedactableSecretLength = 8
+// *other* annotations for. The guaranteed leak vector,
+// last-applied-configuration, is redacted unconditionally at any value
+// length; this gate only bounds the heuristic substring scan, where a very
+// short value would match unrelated annotations by coincidence and redact
+// the lot. Four is low enough to catch a short token and high enough that a
+// coincidental hit is unlikely; a value below it has too little entropy to
+// be worth protecting at the cost of blanking every annotation that happens
+// to contain those bytes.
+const minimumRedactableSecretLength = 4
 
 // redactSecretData replaces a Secret's values with their byte lengths, in
 // place, before anything renders the object.

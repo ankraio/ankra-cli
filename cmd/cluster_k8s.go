@@ -99,7 +99,7 @@ type kindConfig struct {
 	// the generated command and turn them into server-side field selectors.
 	// Only events uses it today, for --for.
 	registerFlags     func(command *cobra.Command)
-	fieldSelectorsFor func(command *cobra.Command) ([]client.FieldSelector, error)
+	fieldSelectorsFor func(command *cobra.Command, namespace string, allNamespaces bool) ([]client.FieldSelector, error)
 	postFilter        func(items []interface{}, command *cobra.Command) []interface{}
 }
 
@@ -600,7 +600,10 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 			query := resourceQuery{}
 			if cfg.fieldSelectorsFor != nil {
 				var selectorError error
-				query.fieldSelectors, selectorError = cfg.fieldSelectorsFor(cmd)
+				// The resolved namespace is handed over rather than re-read,
+				// so a kind's selectors cannot scope differently from the
+				// request they travel on.
+				query.fieldSelectors, selectorError = cfg.fieldSelectorsFor(cmd, namespace, allNamespaces)
 				if selectorError != nil {
 					return selectorError
 				}

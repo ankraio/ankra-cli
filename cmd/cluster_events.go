@@ -78,16 +78,11 @@ func runClusterEvents(cmd *cobra.Command, _ []string) error {
 		if parseError != nil {
 			return parseError
 		}
-		if !targetKind.clusterScoped && namespace == "" && !allNamespaces {
-			return withExitCode(exitUsage, fmt.Errorf(
-				"--namespace (-n) is required with --for %s/%s", strings.ToLower(targetKind.kind), targetName))
+		scopedSelectors, selectorError := eventSelectorsForTarget(targetKind, targetName, namespace, allNamespaces)
+		if selectorError != nil {
+			return selectorError
 		}
-		if !targetKind.clusterScoped && allNamespaces {
-			fmt.Fprintf(os.Stderr,
-				"Note: --for with --all-namespaces matches every %s named %q in any namespace; the Namespace column tells them apart.\n",
-				strings.ToLower(targetKind.kind), targetName)
-		}
-		fieldSelectors = involvedObjectSelectors(targetKind.kind, targetName, namespace)
+		fieldSelectors = scopedSelectors
 	}
 
 	nameFilter, _ := cmd.Flags().GetString("name")
@@ -307,9 +302,10 @@ func init() {
 }
 
 // eventFieldSelectorsFromFlags turns `cluster get events --for kind/name`
-// into the involvedObject selectors. It runs on the get-family command, whose
-// namespace flag is absent for a cluster-scoped kind, hence the lookup guard.
-func eventFieldSelectorsFromFlags(command *cobra.Command) ([]client.FieldSelector, error) {
+// into the involvedObject selectors. The namespace arrives already resolved
+// from the command that owns the request, so the get-family mount and
+// `cluster events` cannot end up scoping the same --for differently.
+func eventFieldSelectorsFromFlags(command *cobra.Command, namespace string, allNamespaces bool) ([]client.FieldSelector, error) {
 	forTarget, _ := command.Flags().GetString("for")
 	eventType, _ := command.Flags().GetString("type")
 	if eventType != "" && !isKnownEventType(eventType) {
@@ -323,21 +319,21 @@ func eventFieldSelectorsFromFlags(command *cobra.Command) ([]client.FieldSelecto
 	if parseError != nil {
 		return nil, parseError
 	}
-	namespace := ""
-	if command.Flags().Lookup("namespace") != nil {
-		namespace, _ = command.Flags().GetString("namespace")
-	}
-	allNamespaces := false
-	if command.Flags().Lookup("all-namespaces") != nil {
-		allNamespaces, _ = command.Flags().GetBool("all-namespaces")
-	}
-	if allNamespaces {
-		namespace = ""
-	}
+	return eventSelectorsForTarget(targetKind, targetName, namespace, allNamespaces)
+}
+
+// eventSelectorsForTarget is the single place --for turns into selectors,
+// shared by both mounts.
+func eventSelectorsForTarget(targetKind k8sKind, targetName string, namespace string, allNamespaces bool) ([]client.FieldSelector, error) {
 	if !targetKind.clusterScoped && namespace == "" && !allNamespaces {
 		return nil, withExitCode(exitUsage, fmt.Errorf(
 			"--namespace (-n) is required with --for %s/%s",
 			strings.ToLower(targetKind.kind), targetName))
+	}
+	if !targetKind.clusterScoped && allNamespaces {
+		fmt.Fprintf(os.Stderr,
+			"Note: --for with --all-namespaces matches every %s named %q in any namespace; the Namespace column tells them apart.\n",
+			strings.ToLower(targetKind.kind), targetName)
 	}
 	return involvedObjectSelectors(targetKind.kind, targetName, namespace), nil
 }

@@ -1674,3 +1674,78 @@ func TestEventsNameFlagTargetsTheEventResourceNotTheWorkload(t *testing.T) {
 		}
 	}
 }
+
+// TestBothEventsMountsScopeForIdentically pins the fix for the divergence
+// risk: the namespace is resolved once by the command that owns the request
+// and handed to the selector builder, rather than re-derived from flags in a
+// second place where the two could drift apart.
+func TestBothEventsMountsScopeForIdentically(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	selectorsFor := func(t *testing.T, args ...string) []client.FieldSelector {
+		t.Helper()
+		mock := newDebugVerbsMock()
+		mock.responses["Event"] = client.ResourceResponseItem{Items: []interface{}{scopedEvent()}}
+		setMockClient(t, mock)
+		captureStdout(t, func() {
+			if _, executeError := executeCommand(args...); executeError != nil {
+				t.Fatalf("%v failed: %v", args, executeError)
+			}
+		})
+		return mock.requests[0].FieldSelectors
+	}
+
+	resetCommandFlags(t, clusterEventsCmd)
+	direct := selectorsFor(t, "cluster", "events", "--for", "pod/web-1", "-n", "default")
+	resetCommandFlags(t, getEventsCommand(t))
+	viaGet := selectorsFor(t, "cluster", "get", "events", "--for", "pod/web-1", "-n", "default")
+
+	if len(direct) != len(viaGet) || len(direct) == 0 {
+		t.Fatalf("the two mounts built different selector sets: %v vs %v", direct, viaGet)
+	}
+	for index := range direct {
+		if direct[index] != viaGet[index] {
+			t.Errorf("selector %d differs between mounts: %+v vs %+v", index, direct[index], viaGet[index])
+		}
+	}
+
+	// And the namespace-required rule fires the same way on both.
+	resetCommandFlags(t, getEventsCommand(t))
+	setMockClient(t, newDebugVerbsMock())
+	if _, executeError := executeCommand("cluster", "get", "events", "--for", "pod/web-1"); executeError == nil {
+		t.Error("get events --for without a namespace must be a usage error, like cluster events")
+	} else if got := exitCodeFor(executeError); got != exitUsage {
+		t.Errorf("should exit %d, got %d", exitUsage, got)
+	}
+}
+
+func TestDescribeSecretRedactsAShortValueFromAnnotations(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterDescribeCmd)
+	const shortSecret = "hunter2"
+	mock := newDebugVerbsMock()
+	mock.responses["Secret"] = client.ResourceResponseItem{
+		Items: []interface{}{objectMap(map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Secret",
+			"metadata": map[string]interface{}{
+				"name": "db", "namespace": "default",
+				"annotations": map[string]interface{}{
+					"backup.example/copy": "password=" + shortSecret,
+				},
+			},
+			"data": map[string]interface{}{"password": shortSecret},
+		})},
+	}
+	mock.responses["Event"] = client.ResourceResponseItem{Items: []interface{}{}}
+	setMockClient(t, mock)
+
+	output := captureStdout(t, func() {
+		if _, executeError := executeCommand("cluster", "describe", "secret", "db",
+			"-n", "default", "-o", "json"); executeError != nil {
+			t.Fatalf("describe secret failed: %v", executeError)
+		}
+	})
+	if strings.Contains(output, shortSecret) {
+		t.Errorf("a short secret value leaked through an annotation:\n%s", output)
+	}
+}
