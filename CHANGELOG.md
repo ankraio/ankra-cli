@@ -4,7 +4,24 @@
 
 ### Added
 
-- **`ankra cluster logs --previous` reads the log a crash-looping container
+- **`ankra org mcp-servers` registers external MCP tool servers agent runs
+  can call — without a credential ever crossing the wire in a form the
+  platform would store.** The group covers the whole lifecycle: `catalog`
+  lists the curated adapters (Sentry, and friends) with the exact credential
+  header form each provider expects; `add` registers a server; `get`, `list`,
+  `update`, `remove`, `enable`, and `disable` manage it; `health` and `tools`
+  probe reachability and the tool inventory; and `grants`/`grant`/
+  `revoke-grant` gate which organisation role may call which tool. The
+  interesting part is `add --secret-header`: the CLI first stores the header
+  value in an organisation secret slot and registers the server with the
+  slot's `${SECRET_SLOT:<id>}` sentinel, because the backend refuses
+  plaintext under sensitive-looking header names — pass
+  `Authorization=<value>` inline, or just `Authorization` to be prompted with
+  hidden input. Pairing `add --adapter <key>` with no `--allowed-tools` seeds
+  the allow-list from the adapter's recommended tools, so the safe default
+  configuration is also the laziest one to type. Servers resolve by name or
+  id everywhere, deletion confirms unless `--yes`, and every read supports
+  `-o json|yaml`.
   left behind.** When a container is in CrashLoopBackOff the only output
   worth reading belongs to the instance that already died, and nothing in
   the CLI could reach it — the one case where you most want to avoid handing

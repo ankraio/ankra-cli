@@ -539,6 +539,66 @@ func (m baseMock) SetOrganisationDomain(ctx context.Context, rootDomain string) 
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) MCPCatalog(ctx context.Context) (*client.MCPCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListMCPServers(ctx context.Context) ([]client.MCPServerListItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetMCPServer(ctx context.Context, serverID string) (*client.MCPServer, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateMCPServer(ctx context.Context, request client.CreateMCPServerRequest) (*client.MCPServer, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateMCPServer(ctx context.Context, serverID string, update client.MCPServerUpdate) (*client.MCPServer, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteMCPServer(ctx context.Context, serverID string) (*client.MCPServerActionResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetMCPServerEnabled(ctx context.Context, serverID string, enabled bool) (*client.MCPServerActionResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetMCPServerHealth(ctx context.Context, serverID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListMCPServerTools(ctx context.Context, serverID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListMCPToolGrants(ctx context.Context, serverID string) ([]client.MCPToolGrant, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GrantMCPTool(ctx context.Context, serverID, toolName, role string) (*client.MCPToolGrant, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevokeMCPToolGrant(ctx context.Context, serverID, toolName, role string) (*client.MCPToolGrantRevokeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateSecretSlot(ctx context.Context, label, value string) (*client.SecretSlot, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSecretSlots(ctx context.Context) (*client.SecretSlotListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteSecretSlot(ctx context.Context, slotID string) (*client.SecretSlotDeleteResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateSupportTicket(ctx context.Context, req client.CreateSupportTicketRequest) (*client.SupportTicket, error) {
 	return nil, errors.New("not implemented")
 }
