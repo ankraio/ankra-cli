@@ -132,3 +132,34 @@ func TestUpcloudCreate_NetworkIPRangeFlagPinsTheRange(t *testing.T) {
 		t.Errorf("NetworkIPRange = %q, want 10.90.0.0/24", mock.gotRequest.NetworkIPRange)
 	}
 }
+
+func TestUpcloudCreate_CNIFlagReachesRequest(t *testing.T) {
+	mock := &upcloudCreateMock{}
+	resetConfirmFlag(t, upcloudCreateCmd)
+	_ = captureStdout(t, func() {
+		if _, err := runWithInput(t, mock, "", "cluster", "upcloud", "create",
+			"--name", "gpu-chat", "--credential-id", "cred-1",
+			"--ssh-key-credential-id", "ssh-1", "--zone", "fi-hel2",
+			"--cni", "cilium"); err != nil {
+			t.Fatalf("execute failed: %v", err)
+		}
+	})
+	if mock.gotRequest.CNI != "cilium" {
+		t.Errorf("CNI = %q, want cilium", mock.gotRequest.CNI)
+	}
+}
+
+func TestUpcloudCreate_CNIDefaultsToPlatformChoice(t *testing.T) {
+	mock := &upcloudCreateMock{}
+	resetConfirmFlag(t, upcloudCreateCmd)
+	_ = captureStdout(t, func() {
+		if _, err := runWithInput(t, mock, "", "cluster", "upcloud", "create",
+			"--name", "gpu-chat", "--credential-id", "cred-1",
+			"--ssh-key-credential-id", "ssh-1", "--zone", "fi-hel2"); err != nil {
+			t.Fatalf("execute failed: %v", err)
+		}
+	})
+	if mock.gotRequest.CNI != "" {
+		t.Errorf("CNI = %q, want empty so the platform applies its default", mock.gotRequest.CNI)
+	}
+}

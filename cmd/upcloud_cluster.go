@@ -32,6 +32,7 @@ var upcloudCreateCmd = &cobra.Command{
 		workerCount, _ := cmd.Flags().GetInt("worker-count")
 		workerPlan, _ := cmd.Flags().GetString("worker-plan")
 		distribution, _ := cmd.Flags().GetString("distribution")
+		cni, _ := cmd.Flags().GetString("cni")
 		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
 		etcdTopology, _ := cmd.Flags().GetString("etcd-topology")
 		etcdNodeCount, _ := cmd.Flags().GetInt("etcd-node-count")
@@ -57,6 +58,7 @@ var upcloudCreateCmd = &cobra.Command{
 			WorkerCount:           workerCount,
 			WorkerPlan:            workerPlan,
 			Distribution:          distribution,
+			CNI:                   cni,
 			EtcdTopology:          etcdTopology,
 			EtcdNodeCount:         etcdNodeCount,
 			EtcdPlan:              etcdPlan,
@@ -536,6 +538,7 @@ func init() {
 	upcloudCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
 	upcloudCreateCmd.Flags().String("etcd-plan", "2xCPU-4GB", "Plan for dedicated etcd nodes when --etcd-topology=external")
 	upcloudCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the UpCloud CCM and CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
+	upcloudCreateCmd.Flags().String("cni", "", "CNI plugin: flannel, calico, or cilium (optional; the platform default is used when omitted)")
 	upcloudCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
 	registerIncludeDNSFlag(upcloudCreateCmd)
 	upcloudCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated upcloud-cloud-provider stack is committed to Git (optional)")
