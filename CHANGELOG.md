@@ -4,6 +4,16 @@
 
 ### Added
 
+- **`ankra stack-profiles get` shows what each choice of an input sets.** A
+  profile can now offer an input whose choices answer other inputs — a
+  **Model size** of `8b` or `32b` that also moves the model id, the context
+  length and the model-store size. Below the parameters table, `get` prints
+  a `Choices for <input> (--set <input>=<value>)` block per such input,
+  listing every choice, its label and reasoning, and the `sets name=value`
+  lines it applies, so you can read what `--set model_size=32b` will do
+  before you `apply`. The platform resolves the choice server-side, so
+  `apply --set model_size=32b` with no other bindings deploys the whole
+  set; a `--set` of your own on one of those inputs still wins.
 - **`--sort <column>` and `--order asc|desc` on the main list commands**
   (`cluster list`, `cluster addons list`, `org list`, `credentials list`,
   `tokens list`) let you order the output by any rendered column — e.g.
