@@ -131,10 +131,17 @@ func resolveK8sKind(rawKind string, groupOverride string, versionOverride string
 	if !isKnown {
 		if groupOverride == "" && versionOverride == "" {
 			return k8sKind{}, withExitCode(exitUsage, fmt.Errorf(
-				"unknown resource kind %q: pass --group and --api-version for a kind outside %s",
+				"unknown resource kind %q: pass --group and --api-version for a kind outside %s "+
+					"(spell it as the CamelCase singular, e.g. Certificate, not certificates)",
 				rawKind, strings.Join(knownK8sKindNames(), ", ")))
 		}
-		resolved = k8sKind{kind: rawKind, version: "v1"}
+		// The platform derives the API plural from the kind, so a plural
+		// spelling here becomes a double plural ("certificates" ->
+		// "certificateses") and the read comes back empty - reported as a
+		// confident "not found" for an object that exists. Singularise so
+		// the derivation lands on the real plural whichever spelling the
+		// caller used.
+		resolved = k8sKind{kind: singularKindSpelling(rawKind), version: "v1"}
 	}
 	if groupOverride != "" {
 		resolved.group = groupOverride
@@ -144,6 +151,25 @@ func resolveK8sKind(rawKind string, groupOverride string, versionOverride string
 		resolved.version = versionOverride
 	}
 	return resolved, nil
+}
+
+// singularKindSpelling trims a plural suffix while preserving the caller's
+// capitalisation, which for a custom resource is the only thing that carries
+// the CamelCase the API server expects.
+func singularKindSpelling(rawKind string) string {
+	trimmed := strings.TrimSpace(rawKind)
+	lowered := strings.ToLower(trimmed)
+	switch {
+	case strings.HasSuffix(lowered, "ies") && len(trimmed) > 3:
+		return trimmed[:len(trimmed)-3] + "y"
+	case strings.HasSuffix(lowered, "sses"), strings.HasSuffix(lowered, "xes"),
+		strings.HasSuffix(lowered, "ches"), strings.HasSuffix(lowered, "shes"):
+		return trimmed[:len(trimmed)-2]
+	case strings.HasSuffix(lowered, "s") && !strings.HasSuffix(lowered, "ss"):
+		return trimmed[:len(trimmed)-1]
+	default:
+		return trimmed
+	}
 }
 
 // knownK8sKindNames lists the table's canonical kinds for the usage error.

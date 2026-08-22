@@ -35,12 +35,15 @@
   spellings work — `pod`, `pods`, `po`, `Pod` — and a kind outside the
   built-in set is reachable with `--group`/`--api-version`. `-o json|yaml`
   emits `{object, events}`.
-- **`ankra cluster events --for <kind>/<name>`** (also `ankra cluster get
-  events --for`) scopes an event listing to a single object's
-  `involvedObject` with a server-side field selector, rather than filtering
-  a namespace-wide list by name. That is the difference between "the pod is
-  Pending" and "no node matches the nodeSelector". `--type Normal|Warning`
-  narrows further, and `-o json|yaml` prints the raw events.
+- **`ankra cluster events --for <kind>/<name>`** scopes an event listing to a
+  single object's `involvedObject` with a server-side field selector, rather
+  than filtering a namespace-wide list by name. That is the difference
+  between "the pod is Pending" and "no node matches the nodeSelector".
+  `--type Normal|Warning` narrows further, and `-o json|yaml` prints the raw
+  events. `ankra cluster get events` gains the same two flags while keeping
+  its existing output, its `[name]` argument, and its `resource_responses`
+  envelope under `-o json|yaml`, so nothing already scripted against it
+  changes.
 - **`ankra cluster top pods|nodes`** shows live CPU and memory from the
   Kubernetes metrics API. `cluster metrics` queries Prometheus, which is the
   right tool for trends but the wrong one for "which container just got

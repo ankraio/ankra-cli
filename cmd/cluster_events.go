@@ -80,9 +80,6 @@ func runClusterEvents(cmd *cobra.Command, _ []string) error {
 		}
 		fieldSelectors = involvedObjectSelectors(targetKind.kind, targetName, namespace)
 	}
-	if eventType != "" {
-		fieldSelectors = append(fieldSelectors, client.FieldSelector{Field: "type", Value: eventType})
-	}
 
 	nameFilter, _ := cmd.Flags().GetString("name")
 	labelSelector, _ := cmd.Flags().GetString("selector")
@@ -95,6 +92,7 @@ func runClusterEvents(cmd *cobra.Command, _ []string) error {
 	if eventsError != nil {
 		return eventsError
 	}
+	events = filterEventsByType(events, eventType)
 
 	switch outputFormat {
 	case "json":
@@ -122,6 +120,26 @@ func runClusterEvents(cmd *cobra.Command, _ []string) error {
 
 func isKnownEventType(eventType string) bool {
 	return eventType == "Normal" || eventType == "Warning"
+}
+
+// filterEventsByType applies --type in the CLI rather than as a field
+// selector. The platform answers an event listing from its resource cache
+// whenever the cache is fresh, and the cache honours only a whitelist of
+// field selectors - involvedObject.* and two spec.* fields - dropping
+// anything else without saying so. A type selector would therefore have
+// filtered against an unreachable cluster and silently not filtered against
+// a healthy one, which is the worst of both.
+func filterEventsByType(events []map[string]interface{}, eventType string) []map[string]interface{} {
+	if eventType == "" {
+		return events
+	}
+	filtered := make([]map[string]interface{}, 0, len(events))
+	for _, event := range events {
+		if getNestedString(event, "type") == eventType {
+			filtered = append(filtered, event)
+		}
+	}
+	return filtered
 }
 
 // parseEventTarget accepts the kubectl "kind/name" spelling that --for
@@ -259,16 +277,66 @@ func renderEventsTable(events []map[string]interface{}) {
 	eventsTable.Render()
 }
 
-// The listing is mounted twice from one implementation: `cluster events` is
-// the verb the debugging flow reaches for, `cluster get events` keeps the
-// spelling the rest of the get family uses. Cobra owns a command's flag
-// state, so each mount point needs its own instance.
-var (
-	clusterEventsCmd    = newClusterEventsCommand()
-	clusterGetEventsCmd = newClusterEventsCommand()
-)
+// `cluster events` is the dedicated debugging verb. `cluster get events`
+// keeps the get family's own command, envelope and positional-name form -
+// its --for and --type are wired through the kindConfig hooks below, so both
+// spellings scope by involvedObject without either changing shape.
+var clusterEventsCmd = newClusterEventsCommand()
 
 func init() {
 	clusterCmd.AddCommand(clusterEventsCmd)
-	clusterGetCmd.AddCommand(clusterGetEventsCmd)
+}
+
+// eventFieldSelectorsFromFlags turns `cluster get events --for kind/name`
+// into the involvedObject selectors. It runs on the get-family command, whose
+// namespace flag is absent for a cluster-scoped kind, hence the lookup guard.
+func eventFieldSelectorsFromFlags(command *cobra.Command) ([]client.FieldSelector, error) {
+	forTarget, _ := command.Flags().GetString("for")
+	eventType, _ := command.Flags().GetString("type")
+	if eventType != "" && !isKnownEventType(eventType) {
+		return nil, withExitCode(exitUsage, fmt.Errorf(
+			"unsupported --type %q: use Normal or Warning", eventType))
+	}
+	if forTarget == "" {
+		return nil, nil
+	}
+	targetKind, targetName, parseError := parseEventTarget(forTarget)
+	if parseError != nil {
+		return nil, parseError
+	}
+	namespace := ""
+	if command.Flags().Lookup("namespace") != nil {
+		namespace, _ = command.Flags().GetString("namespace")
+	}
+	allNamespaces := false
+	if command.Flags().Lookup("all-namespaces") != nil {
+		allNamespaces, _ = command.Flags().GetBool("all-namespaces")
+	}
+	if allNamespaces {
+		namespace = ""
+	}
+	if !targetKind.clusterScoped && namespace == "" && !allNamespaces {
+		return nil, withExitCode(exitUsage, fmt.Errorf(
+			"--namespace (-n) is required with --for %s/%s",
+			strings.ToLower(targetKind.kind), targetName))
+	}
+	return involvedObjectSelectors(targetKind.kind, targetName, namespace), nil
+}
+
+// eventTypeFilterFromFlags applies --type in the CLI for the get-family
+// command, for the same reason runClusterEvents does: the platform's cache
+// silently drops a type field selector.
+func eventTypeFilterFromFlags(items []interface{}, command *cobra.Command) []interface{} {
+	eventType, _ := command.Flags().GetString("type")
+	if eventType == "" {
+		return items
+	}
+	filtered := make([]interface{}, 0, len(items))
+	for _, item := range items {
+		event, isEvent := item.(map[string]interface{})
+		if isEvent && getNestedString(event, "type") == eventType {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }

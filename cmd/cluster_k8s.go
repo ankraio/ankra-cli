@@ -95,6 +95,12 @@ type kindConfig struct {
 	// message. The generic resources command uses it to point at --group
 	// for kinds that live outside the core API group.
 	emptyHint string
+	// registerFlags and fieldSelectorsFor let one kind add its own flags to
+	// the generated command and turn them into server-side field selectors.
+	// Only events uses it today, for --for.
+	registerFlags     func(command *cobra.Command)
+	fieldSelectorsFor func(command *cobra.Command) ([]client.FieldSelector, error)
+	postFilter        func(items []interface{}, command *cobra.Command) []interface{}
 }
 
 var kindConfigs = []kindConfig{
@@ -254,6 +260,33 @@ var kindConfigs = []kindConfig{
 				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
 			}
 		},
+	},
+	{
+		commandName: "events", kind: "Event", group: "", version: "v1",
+		short:   "List events in the cluster",
+		headers: table.Row{"Last Seen", "Type", "Reason", "Object", "Message"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			lastSeen := getNestedString(obj, "lastTimestamp")
+			if lastSeen == "" {
+				lastSeen = getNestedString(obj, "metadata", "creationTimestamp")
+			}
+			object := fmt.Sprintf("%s/%s",
+				strings.ToLower(getNestedString(obj, "involvedObject", "kind")),
+				getNestedString(obj, "involvedObject", "name"))
+			return table.Row{
+				formatK8sAge(lastSeen),
+				getNestedString(obj, "type"),
+				getNestedString(obj, "reason"),
+				object,
+				getNestedString(obj, "message"),
+			}
+		},
+		registerFlags: func(command *cobra.Command) {
+			command.Flags().String("for", "", "Scope to one object's events, as kind/name (e.g. pod/web-7d9f-2xkvp)")
+			command.Flags().String("type", "", "Filter by event type: Normal or Warning")
+		},
+		fieldSelectorsFor: eventFieldSelectorsFromFlags,
+		postFilter:        eventTypeFilterFromFlags,
 	},
 	{
 		commandName: "configmaps", kind: "ConfigMap", group: "", version: "v1",
@@ -428,10 +461,13 @@ func renderSingleResource(item interface{}, outputFormat string) error {
 	return nil
 }
 
-func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, outputFormat string, cfg kindConfig) error {
+func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, outputFormat string, cfg kindConfig, fieldSelectors []client.FieldSelector, postFilter func([]interface{}) []interface{}) error {
 	reqItem := client.ResourceRequestItem{
 		Kind:    cfg.kind,
 		Version: cfg.version,
+	}
+	if len(fieldSelectors) > 0 {
+		reqItem.FieldSelectors = fieldSelectors
 	}
 	if cfg.group != "" {
 		reqItem.Group = cfg.group
@@ -456,6 +492,15 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 	var items []interface{}
 	if len(response.ResourceResponses) > 0 {
 		items = response.ResourceResponses[0].Items
+	}
+	if postFilter != nil {
+		items = postFilter(items)
+		// Keep the structured envelope and the table showing the same set:
+		// a filter the caller asked for must not be visible in one and
+		// absent from the other.
+		if len(response.ResourceResponses) > 0 {
+			response.ResourceResponses[0].Items = items
+		}
 	}
 
 	isSingleResourceLookup := nameFilter != "" && len(items) == 1
@@ -537,8 +582,23 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 				namespace = ""
 			}
 
-			return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, cfg)
+			var fieldSelectors []client.FieldSelector
+			if cfg.fieldSelectorsFor != nil {
+				var selectorError error
+				fieldSelectors, selectorError = cfg.fieldSelectorsFor(cmd)
+				if selectorError != nil {
+					return selectorError
+				}
+			}
+			var postFilter func([]interface{}) []interface{}
+			if cfg.postFilter != nil {
+				postFilter = func(items []interface{}) []interface{} { return cfg.postFilter(items, cmd) }
+			}
+			return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, cfg, fieldSelectors, postFilter)
 		},
+	}
+	if cfg.registerFlags != nil {
+		cfg.registerFlags(cmd)
 	}
 
 	if !cfg.clusterScoped {
@@ -582,7 +642,7 @@ var clusterPodsCmd = &cobra.Command{
 				kind:        "Pod",
 				version:     "v1",
 			}
-			return fetchAndRenderResources(cluster.ID, namespace, podName, "", outputFormat, podCfg)
+			return fetchAndRenderResources(cluster.ID, namespace, podName, "", outputFormat, podCfg, nil, nil)
 		}
 
 		if allNamespaces {
@@ -906,7 +966,7 @@ Example:
 			},
 		}
 
-		return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, genericCfg)
+		return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, genericCfg, nil, nil)
 	},
 }
 

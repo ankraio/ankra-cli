@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -171,29 +172,71 @@ func streamLogTargets(
 		return nil
 	}
 
+	// A bounded multi-target read must not abandon the remaining targets on
+	// the first failure. --all-containers --previous is the case that makes
+	// this load-bearing: a container that never terminated has no previous
+	// log and the apiserver answers 400, so whichever container happens to
+	// sort first would otherwise decide whether the crash-looping one's log
+	// is ever printed.
 	if !options.Follow {
+		failures := []error{}
 		for _, target := range targets {
 			if streamError := streamOne(target); streamError != nil {
-				return streamError
+				failures = append(failures, streamError)
 			}
 		}
-		return nil
+		return reportTargetFailures(failures, len(targets))
 	}
 
+	// A following read only ends when the caller interrupts it, so a target
+	// that dies mid-follow must be reported the moment it happens: waiting
+	// for the others would hold the failure until interrupt, and by then the
+	// cancelled context makes the caller discard it. Report to stderr (stdout
+	// is the log stream) and leave the surviving targets following, which is
+	// what kubectl does with a partially broken selector.
 	var waitGroup sync.WaitGroup
 	streamErrors := make([]error, len(targets))
 	for index, target := range targets {
 		waitGroup.Add(1)
 		go func(slot int, streamTarget logTarget) {
 			defer waitGroup.Done()
-			streamErrors[slot] = streamOne(streamTarget)
+			streamError := streamOne(streamTarget)
+			streamErrors[slot] = streamError
+			if streamError != nil && ctx.Err() == nil {
+				fmt.Fprintln(os.Stderr, streamError.Error())
+			}
 		}(index, target)
 	}
 	waitGroup.Wait()
+
+	failures := []error{}
 	for _, streamError := range streamErrors {
 		if streamError != nil {
-			return streamError
+			failures = append(failures, streamError)
 		}
+	}
+	// The failures already reached stderr as they happened, so only the
+	// all-failed case has anything left to say.
+	if len(failures) == len(targets) && len(failures) > 0 {
+		return failures[0]
+	}
+	return nil
+}
+
+// reportTargetFailures decides what a partially failed multi-target read
+// returns. Every target failing means nothing was read, so the command
+// failed. A partial failure still produced logs, so the failures are named on
+// stderr (stdout is the log stream) and the command exits zero rather than
+// throwing away a successful read.
+func reportTargetFailures(failures []error, targetCount int) error {
+	if len(failures) == 0 {
+		return nil
+	}
+	if len(failures) == targetCount {
+		return failures[0]
+	}
+	for _, failure := range failures {
+		fmt.Fprintln(os.Stderr, failure.Error())
 	}
 	return nil
 }
@@ -218,7 +261,6 @@ type prefixingWriter struct {
 func (writer *prefixingWriter) Write(payload []byte) (int, error) {
 	writer.lock.Lock()
 	defer writer.lock.Unlock()
-	consumed := len(payload)
 	buffer := append(writer.remainder, payload...)
 	for {
 		newlineIndex := bytes.IndexByte(buffer, '\n')
@@ -228,11 +270,20 @@ func (writer *prefixingWriter) Write(payload []byte) (int, error) {
 		line := buffer[:newlineIndex]
 		buffer = buffer[newlineIndex+1:]
 		if _, writeError := fmt.Fprintf(writer.target, "[%s] %s\n", writer.prefix, line); writeError != nil {
+			// Keep only what is still unwritten, so a later Flush cannot
+			// re-emit a line this call already delivered. buffer opened with
+			// the previous remainder, so clamp to io.Writer's contract:
+			// 0 <= n <= len(payload).
+			writer.remainder = append([]byte(nil), buffer...)
+			consumed := len(payload) - len(buffer)
+			if consumed < 0 {
+				consumed = 0
+			}
 			return consumed, writeError
 		}
 	}
 	writer.remainder = append([]byte(nil), buffer...)
-	return consumed, nil
+	return len(payload), nil
 }
 
 // Flush emits a trailing partial line, which a stream that ended without a

@@ -1,14 +1,18 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 
 	"ankra/internal/client"
+
+	"github.com/spf13/cobra"
 )
 
 // debugVerbsMock answers resources/get from a per-kind table and records
@@ -22,9 +26,16 @@ type debugVerbsMock struct {
 	skipCacheSeen []bool
 	requestError  error
 
-	logOptions []client.PodLogOptions
-	logOutput  map[string]string
-	logError   error
+	logOptions     []client.PodLogOptions
+	logOptionsLock sync.Mutex
+	logOutput      map[string]string
+	logError       error
+	// failLogsForPod and failContainer fail only the named targets, so a test
+	// can drive a partially broken selector, or a --previous read where only
+	// some containers have a terminated instance, rather than an
+	// all-or-nothing one.
+	failLogsForPod map[string]error
+	failContainer  map[string]error
 }
 
 func (mock *debugVerbsMock) GetResources(clusterID string, request client.GetResourcesRequest) (*client.GetResourcesResponse, error) {
@@ -41,7 +52,15 @@ func (mock *debugVerbsMock) GetResources(clusterID string, request client.GetRes
 }
 
 func (mock *debugVerbsMock) StreamPodLogs(_ context.Context, _ string, options client.PodLogOptions, writer io.Writer) error {
+	mock.logOptionsLock.Lock()
 	mock.logOptions = append(mock.logOptions, options)
+	mock.logOptionsLock.Unlock()
+	if podError, shouldFail := mock.failLogsForPod[options.PodName]; shouldFail {
+		return podError
+	}
+	if containerError, shouldFail := mock.failContainer[options.ContainerName]; shouldFail {
+		return containerError
+	}
 	if mock.logError != nil {
 		return mock.logError
 	}
@@ -328,9 +347,23 @@ func TestEventsForScopesByInvolvedObject(t *testing.T) {
 	}
 }
 
+// getEventsCommand finds the events command the get family generates, so the
+// test can reset its flags without the production code exporting a handle to
+// a command it only ever mounts.
+func getEventsCommand(t *testing.T) *cobra.Command {
+	t.Helper()
+	for _, command := range clusterGetCmd.Commands() {
+		if command.Name() == "events" {
+			return command
+		}
+	}
+	t.Fatal("cluster get events is not registered")
+	return nil
+}
+
 func TestEventsForIsAlsoReachableUnderGet(t *testing.T) {
 	writeSelectedClusterJSON(t)
-	resetCommandFlags(t, clusterGetEventsCmd)
+	resetCommandFlags(t, getEventsCommand(t))
 	mock := newDebugVerbsMock()
 	mock.responses["Event"] = client.ResourceResponseItem{Items: []interface{}{scopedEvent()}}
 	setMockClient(t, mock)
@@ -405,6 +438,88 @@ func TestEventsSurfacesAPIFailure(t *testing.T) {
 	_, executeError := executeCommand("cluster", "events", "-n", "default")
 	if executeError == nil || !strings.Contains(executeError.Error(), "cluster is offline") {
 		t.Fatalf("an API failure must surface, got %v", executeError)
+	}
+}
+
+// TestEventsTypeFiltersInTheCLINotAsAFieldSelector pins the fix for a
+// silently-wrong filter. The platform answers an event listing from its
+// resource cache whenever the cache is fresh, and the cache honours only a
+// whitelist of field selectors, dropping a type selector without saying so.
+// The same command would then have filtered against an unreachable cluster
+// and not filtered against a healthy one.
+func TestEventsTypeFiltersInTheCLINotAsAFieldSelector(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterEventsCmd)
+	normalEvent := objectMap(map[string]interface{}{
+		"type": "Normal", "reason": "Pulled", "message": "pulled image",
+		"lastTimestamp":  "2026-08-22T09:00:00Z",
+		"involvedObject": map[string]interface{}{"kind": "Pod", "name": "web-1"},
+	})
+	mock := newDebugVerbsMock()
+	mock.responses["Event"] = client.ResourceResponseItem{
+		Items: []interface{}{normalEvent, scopedEvent()},
+	}
+	setMockClient(t, mock)
+
+	output := captureStdout(t, func() {
+		if _, executeError := executeCommand(
+			"cluster", "events", "-n", "default", "--type", "Warning"); executeError != nil {
+			t.Fatalf("events --type failed: %v", executeError)
+		}
+	})
+	plain := stripANSICodes(output)
+	if strings.Contains(plain, "Pulled") {
+		t.Errorf("--type Warning must drop the Normal event:\n%s", plain)
+	}
+	if !strings.Contains(plain, "BackOff") {
+		t.Errorf("--type Warning must keep the Warning event:\n%s", plain)
+	}
+	if got := fieldSelectorValue(mock.requests[0], "type"); got != "" {
+		t.Errorf("type must not ride as a field selector, got %q", got)
+	}
+}
+
+func TestGetEventsKeepsItsEnvelopeAndPositionalName(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, getEventsCommand(t))
+	mock := newDebugVerbsMock()
+	mock.responses["Event"] = client.ResourceResponseItem{
+		Status: "success", Kind: "Event", Version: "v1",
+		Items: []interface{}{scopedEvent()},
+	}
+	setMockClient(t, mock)
+
+	// The get family's structured output is the resource_responses envelope,
+	// and scripts read it. Sharing an implementation with `cluster events`
+	// must not quietly turn it into a bare array.
+	output := captureStdout(t, func() {
+		if _, executeError := executeCommand(
+			"cluster", "get", "events", "-n", "default", "-o", "json"); executeError != nil {
+			t.Fatalf("get events -o json failed: %v", executeError)
+		}
+	})
+	var envelope client.GetResourcesResponse
+	if unmarshalError := json.Unmarshal([]byte(output), &envelope); unmarshalError != nil {
+		t.Fatalf("get events -o json must stay parseable: %v\n%s", unmarshalError, output)
+	}
+	if len(envelope.ResourceResponses) != 1 || len(envelope.ResourceResponses[0].Items) != 1 {
+		t.Fatalf("the resource_responses envelope was lost: %s", output)
+	}
+
+	// A positional name still fetches that one object and renders it as a
+	// manifest, like every other get subcommand.
+	resetCommandFlags(t, getEventsCommand(t))
+	manifest := captureStdout(t, func() {
+		if _, executeError := executeCommand(
+			"cluster", "get", "events", "web-1.17abc", "-n", "default"); executeError != nil {
+			t.Fatalf("get events <name> failed: %v", executeError)
+		}
+	})
+	if !strings.Contains(manifest, "involvedObject") {
+		t.Errorf("a named get events should print the manifest, got:\n%s", manifest)
+	}
+	if mock.requests[1].Name != "web-1.17abc" {
+		t.Errorf("the positional name must reach the request, got %q", mock.requests[1].Name)
 	}
 }
 
@@ -613,6 +728,74 @@ func TestTopRejectsUnknownSortBy(t *testing.T) {
 	}
 	if len(mock.requests) != 0 {
 		t.Error("--sort-by must be validated before any API call")
+	}
+}
+
+// TestTopRendersUnmeasuredUsageAsDash pins the fix for a confident zero. A
+// container whose usage is missing or unparseable used to render as 0m/0Mi,
+// which is indistinguishable from a genuinely idle container.
+func TestTopRendersUnmeasuredUsageAsDash(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterTopNodesCmd)
+	mock := newDebugVerbsMock()
+	mock.responses["NodeMetrics"] = client.ResourceResponseItem{
+		Items: []interface{}{objectMap(map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "worker-1"},
+			"usage":    map[string]interface{}{"cpu": "not-a-quantity", "memory": "1Gi"},
+		})},
+	}
+	mock.responses["Node"] = client.ResourceResponseItem{Items: []interface{}{}}
+	setMockClient(t, mock)
+
+	output := captureStdout(t, func() {
+		if _, executeError := executeCommand("cluster", "top", "nodes"); executeError != nil {
+			t.Fatalf("top nodes failed: %v", executeError)
+		}
+	})
+	plain := stripANSICodes(output)
+	if strings.Contains(plain, "0m") || strings.Contains(plain, "0Mi") {
+		t.Errorf("an unparseable measurement must not render as zero:\n%s", plain)
+	}
+	if !strings.Contains(plain, "worker-1") {
+		t.Errorf("the node should still be listed:\n%s", plain)
+	}
+}
+
+// TestTopSurfacesAnErroredResponseInsteadOfBlamingMetricsServer pins the
+// other silently-wrong path: an errored response carries no items, which
+// looked exactly like "metrics-server is not installed" and exited zero.
+func TestTopSurfacesAnErroredResponseInsteadOfBlamingMetricsServer(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterTopPodsCmd)
+	mock := newDebugVerbsMock()
+	mock.responses["PodMetrics"] = client.ResourceResponseItem{
+		Status: "error", Items: []interface{}{},
+	}
+	setMockClient(t, mock)
+
+	_, executeError := executeCommand("cluster", "top", "pods", "-n", "default")
+	if executeError == nil {
+		t.Fatal("an errored metrics read must not be reported as a missing metrics-server")
+	}
+	if !strings.Contains(executeError.Error(), "could not answer") {
+		t.Errorf("the error should say the read failed, got %q", executeError.Error())
+	}
+}
+
+func TestTopStructuredOutputIsAnArrayWhenEmpty(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterTopPodsCmd)
+	mock := newDebugVerbsMock()
+	setMockClient(t, mock)
+
+	output := captureStdout(t, func() {
+		if _, executeError := executeCommand(
+			"cluster", "top", "pods", "-n", "default", "-o", "json"); executeError != nil {
+			t.Fatalf("top pods -o json failed: %v", executeError)
+		}
+	})
+	if strings.TrimSpace(output) != "[]" {
+		t.Errorf("an empty structured read must encode as [], got %q", strings.TrimSpace(output))
 	}
 }
 
@@ -890,6 +1073,62 @@ func TestLogsSurfacesAStreamFailureWithItsTarget(t *testing.T) {
 	}
 }
 
+// TestFollowingTargetsReportEachFailureAndSurviveAPartialOne drives the
+// concurrent follow path directly. A following read only ends when the caller
+// interrupts it, so a target that dies must reach stderr immediately rather
+// than being held until interrupt - at which point the cancelled context makes
+// the caller discard it. A target that survives means the command still
+// succeeded.
+func TestFollowingTargetsReportEachFailureAndSurviveAPartialOne(t *testing.T) {
+	mock := newDebugVerbsMock()
+	mock.logOutput["web-a"] = "from a\n"
+	mock.failLogsForPod = map[string]error{"web-b": fmt.Errorf("container gone")}
+	setMockClient(t, mock)
+
+	targets := []logTarget{{podName: "web-a"}, {podName: "web-b"}}
+	var output bytes.Buffer
+	var streamError error
+	stderrText := captureStderr(t, func() {
+		streamError = streamLogTargets(context.Background(), "cluster-1", targets,
+			client.PodLogOptions{Namespace: "default", Follow: true}, true, &output)
+	})
+	if streamError != nil {
+		t.Errorf("a partial failure must not fail the command, got %v", streamError)
+	}
+	if !strings.Contains(stderrText, "web-b") || !strings.Contains(stderrText, "container gone") {
+		t.Errorf("the failing target must be named on stderr, got %q", stderrText)
+	}
+	if !strings.Contains(output.String(), "[web-a] from a") {
+		t.Errorf("the surviving target must still stream, got %q", output.String())
+	}
+	if strings.Contains(output.String(), "container gone") {
+		t.Error("a failure must not be written into the log stream on stdout")
+	}
+}
+
+func TestFollowingTargetsFailWhenEveryTargetFails(t *testing.T) {
+	mock := newDebugVerbsMock()
+	mock.failLogsForPod = map[string]error{
+		"web-a": fmt.Errorf("container gone"),
+		"web-b": fmt.Errorf("container gone"),
+	}
+	setMockClient(t, mock)
+
+	targets := []logTarget{{podName: "web-a"}, {podName: "web-b"}}
+	var output bytes.Buffer
+	var streamError error
+	captureStderr(t, func() {
+		streamError = streamLogTargets(context.Background(), "cluster-1", targets,
+			client.PodLogOptions{Namespace: "default", Follow: true}, true, &output)
+	})
+	if streamError == nil {
+		t.Fatal("no target read anything, so the command must fail")
+	}
+	if !strings.Contains(streamError.Error(), "container gone") {
+		t.Errorf("the failure should carry the cause, got %v", streamError)
+	}
+}
+
 func TestLogsRejectsContainerWithAllContainers(t *testing.T) {
 	writeSelectedClusterJSON(t)
 	resetCommandFlags(t, clusterLogsCmd)
@@ -937,6 +1176,75 @@ func TestResolveK8sKindHonoursOverrides(t *testing.T) {
 	}
 	if resolved.kind != "Widget" || resolved.group != "example.com" || resolved.version != "v1alpha1" {
 		t.Errorf("overrides were not applied: %+v", resolved)
+	}
+}
+
+// TestResolveK8sKindSingularisesACustomResourcePlural pins the fix for a
+// false not-found. The platform derives the API plural from the kind, so a
+// plural spelling became a double plural ("certificates" -> "certificateses")
+// and the read came back empty - reported as "not found" for an object that
+// exists.
+func TestResolveK8sKindSingularisesACustomResourcePlural(t *testing.T) {
+	// The caller's capitalisation is preserved rather than guessed at: the
+	// CamelCase of a multi-word custom resource cannot be reconstructed from
+	// a lowercase plural (clusterissuers is ClusterIssuer, not
+	// Clusterissuer), and the platform lowercases the kind to derive the
+	// plural anyway, so only the singular form is load-bearing.
+	cases := map[string]string{
+		"certificates":   "certificate",
+		"Certificates":   "Certificate",
+		"Certificate":    "Certificate",
+		"ClusterIssuers": "ClusterIssuer",
+		"gateways":       "gateway",
+		"policies":       "policy",
+		"Policies":       "Policy",
+	}
+	for spelling, expected := range cases {
+		resolved, resolveError := resolveK8sKind(spelling, "example.com", "v1")
+		if resolveError != nil {
+			t.Errorf("resolveK8sKind(%q) failed: %v", spelling, resolveError)
+			continue
+		}
+		if resolved.kind != expected {
+			t.Errorf("resolveK8sKind(%q).kind = %q, want %q", spelling, resolved.kind, expected)
+		}
+	}
+}
+
+// TestLogsAllContainersPreviousPrintsTheContainersThatHaveOne pins the fix for
+// the case the --previous flag exists to serve: a container that never
+// terminated has no previous log and the apiserver answers an error, which
+// used to abandon the remaining containers - including the crash-looping one.
+func TestLogsAllContainersPreviousPrintsTheContainersThatHaveOne(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterLogsCmd)
+	mock := newDebugVerbsMock()
+	mock.responses["Pod"] = client.ResourceResponseItem{
+		Items: []interface{}{crashLoopingPod()},
+	}
+	mock.failLogsForPod = map[string]error{}
+	mock.logOutput["web-7d9f-2xkvp/web"] = "panic: config missing\n"
+	mock.failContainer = map[string]error{
+		"wait-for-db": fmt.Errorf("previous terminated container not found"),
+		"sidecar":     fmt.Errorf("previous terminated container not found"),
+	}
+	setMockClient(t, mock)
+
+	var executeError error
+	stderrText := captureStderr(t, func() {
+		output := captureStdout(t, func() {
+			_, executeError = executeCommand("cluster", "logs", "web-7d9f-2xkvp",
+				"-n", "default", "--all-containers", "--previous")
+		})
+		if !strings.Contains(output, "panic: config missing") {
+			t.Errorf("the container that does have a previous log must be printed:\n%s", output)
+		}
+	})
+	if executeError != nil {
+		t.Errorf("a partial failure must not lose the logs that were read: %v", executeError)
+	}
+	if !strings.Contains(stderrText, "wait-for-db") {
+		t.Errorf("the containers with no previous log should be named on stderr, got %q", stderrText)
 	}
 }
 

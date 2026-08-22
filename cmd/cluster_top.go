@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -47,6 +48,9 @@ var clusterTopPodsCmd = &cobra.Command{
 	Use:   "pods",
 	Short: "Show live CPU and memory usage per pod",
 	Long: `Show live CPU and memory usage per pod, measured by metrics-server.
+
+Without -n or --all-namespaces this reads every namespace, unlike kubectl
+top, which defaults to the current one.
 
 Examples:
   ankra cluster top pods -n default
@@ -201,10 +205,22 @@ func fetchLiveMetrics(clusterID string, kind string, resource string, namespace 
 		return nil, requestError
 	}
 	if len(response.ResourceResponses) == 0 {
-		return nil, nil
+		return []map[string]interface{}{}, nil
 	}
 	responseItem := response.ResourceResponses[0]
+	// Fix 5: an errored response carries no items, which would otherwise be
+	// diagnosed as "metrics-server is not installed" and exit zero. The
+	// platform reports the agent's message here.
+	if responseItem.Status != "" && responseItem.Status != "success" {
+		return nil, fmt.Errorf(
+			"the cluster could not answer the metrics read (status %q): check that metrics-server is healthy and that the agent can reach the aggregated API",
+			responseItem.Status)
+	}
 	if responseItem.CacheMetadata != nil {
+		if responseItem.CacheMetadata.SyncStatus == "sandbox" {
+			return nil, fmt.Errorf(
+				"live metrics are not available on a sandbox cluster: import a real cluster to read the metrics API")
+		}
 		return nil, fmt.Errorf(
 			"live metrics unavailable: the platform answered from its cached inventory (%s). "+
 				"Check that the cluster is online and its agent is connected",
@@ -226,46 +242,74 @@ func fetchLiveMetrics(clusterID string, kind string, resource string, namespace 
 	return measurements, nil
 }
 
+// hasUsageMeasurement distinguishes a metrics object from a plain Pod or
+// Node, which the platform's cache would return for the same request. A
+// NodeMetrics carries usage directly; a PodMetrics carries it per container,
+// and a containers list whose entries have no usage block is not a
+// measurement however much it looks like one.
 func hasUsageMeasurement(measurement map[string]interface{}) bool {
 	if _, hasUsage := getNestedMap(measurement, "usage"); hasUsage {
 		return true
 	}
 	containers, isList := measurement["containers"].([]interface{})
-	return isList && len(containers) > 0
-}
-
-// podUsage totals a PodMetrics across its containers.
-func podUsage(measurement map[string]interface{}) (int64, int64) {
-	var cpuNanocores int64
-	var memoryBytes int64
-	containers, isList := measurement["containers"].([]interface{})
-	if !isList {
-		return 0, 0
+	if !isList || len(containers) == 0 {
+		return false
 	}
 	for _, rawContainer := range containers {
 		container, isMap := rawContainer.(map[string]interface{})
 		if !isMap {
-			continue
+			return false
 		}
-		containerCPU, containerMemory := usageQuantities(container)
+		if _, hasUsage := getNestedMap(container, "usage"); !hasUsage {
+			return false
+		}
+	}
+	return true
+}
+
+// podUsage totals a PodMetrics across its containers. isMeasured is false if
+// any container's usage failed to parse: a partial total would under-report
+// the pod while looking like a real measurement.
+func podUsage(measurement map[string]interface{}) (int64, int64, bool) {
+	containers, isList := measurement["containers"].([]interface{})
+	if !isList || len(containers) == 0 {
+		return 0, 0, false
+	}
+	var cpuNanocores int64
+	var memoryBytes int64
+	for _, rawContainer := range containers {
+		container, isMap := rawContainer.(map[string]interface{})
+		if !isMap {
+			return 0, 0, false
+		}
+		containerCPU, containerMemory, isContainerMeasured := usageQuantities(container)
+		if !isContainerMeasured {
+			return 0, 0, false
+		}
 		cpuNanocores += containerCPU
 		memoryBytes += containerMemory
 	}
-	return cpuNanocores, memoryBytes
+	return cpuNanocores, memoryBytes, true
 }
 
 // usageQuantities reads the usage block of a metrics object, returning CPU
-// in nanocores and memory in bytes.
-func usageQuantities(object map[string]interface{}) (int64, int64) {
+// in nanocores and memory in bytes. isMeasured is false when either quantity
+// is missing or unparseable, so the caller renders "-" rather than a
+// confident zero that is indistinguishable from an idle container.
+func usageQuantities(object map[string]interface{}) (int64, int64, bool) {
 	usage, hasUsage := getNestedMap(object, "usage")
 	if !hasUsage {
-		return 0, 0
+		return 0, 0, false
 	}
-	cpuNanocores, _ := parseKubernetesQuantity(fmt.Sprintf("%v", usage["cpu"]))
-	memoryBytes, _ := parseKubernetesQuantity(fmt.Sprintf("%v", usage["memory"]))
+	cpuCores, isCPUParsed := parseKubernetesQuantity(fmt.Sprintf("%v", usage["cpu"]))
+	memoryBytes, isMemoryParsed := parseKubernetesQuantity(fmt.Sprintf("%v", usage["memory"]))
+	if !isCPUParsed || !isMemoryParsed {
+		return 0, 0, false
+	}
 	// CPU quantities are cores; nanocores keeps the millicore rendering
-	// exact for the "123456789n" values metrics-server emits.
-	return int64(cpuNanocores * 1e9), int64(memoryBytes)
+	// exact for the "123456789n" values metrics-server emits. Round rather
+	// than truncate so "100u" is 100000n, not 99999n.
+	return int64(math.Round(cpuCores * 1e9)), int64(math.Round(memoryBytes)), true
 }
 
 type usageRow struct {
@@ -274,9 +318,19 @@ type usageRow struct {
 	container    string
 	cpuNanocores int64
 	memoryBytes  int64
+	isMeasured   bool
 	cpuCapacity  int64
 	memCapacity  int64
 	hasCapacity  bool
+}
+
+// formatUsage renders a measurement, or "-" when the cluster did not give one
+// that parses. A zero would read as an idle container.
+func formatUsage(value int64, isMeasured bool, render func(int64) string) string {
+	if !isMeasured {
+		return "-"
+	}
+	return render(value)
 }
 
 func sortUsageRows(rows []usageRow, sortBy string) {
@@ -305,12 +359,13 @@ func sortUsageRows(rows []usageRow, sortBy string) {
 func renderPodUsageTable(items []map[string]interface{}, sortBy string) {
 	rows := make([]usageRow, 0, len(items))
 	for _, measurement := range items {
-		cpuNanocores, memoryBytes := podUsage(measurement)
+		cpuNanocores, memoryBytes, isMeasured := podUsage(measurement)
 		rows = append(rows, usageRow{
 			name:         getNestedString(measurement, "metadata", "name"),
 			namespace:    getNestedString(measurement, "metadata", "namespace"),
 			cpuNanocores: cpuNanocores,
 			memoryBytes:  memoryBytes,
+			isMeasured:   isMeasured,
 		})
 	}
 	sortUsageRows(rows, sortBy)
@@ -322,8 +377,8 @@ func renderPodUsageTable(items []map[string]interface{}, sortBy string) {
 	for _, row := range rows {
 		usageTable.AppendRow(table.Row{
 			row.name, row.namespace,
-			formatMillicores(row.cpuNanocores),
-			formatMebibytes(row.memoryBytes),
+			formatUsage(row.cpuNanocores, row.isMeasured, formatMillicores),
+			formatUsage(row.memoryBytes, row.isMeasured, formatMebibytes),
 		})
 	}
 	usageTable.Render()
@@ -341,13 +396,14 @@ func renderContainerUsageTable(items []map[string]interface{}, sortBy string) {
 			if !isMap {
 				continue
 			}
-			cpuNanocores, memoryBytes := usageQuantities(container)
+			cpuNanocores, memoryBytes, isMeasured := usageQuantities(container)
 			rows = append(rows, usageRow{
 				name:         getNestedString(measurement, "metadata", "name"),
 				namespace:    getNestedString(measurement, "metadata", "namespace"),
 				container:    getNestedString(container, "name"),
 				cpuNanocores: cpuNanocores,
 				memoryBytes:  memoryBytes,
+				isMeasured:   isMeasured,
 			})
 		}
 	}
@@ -360,8 +416,8 @@ func renderContainerUsageTable(items []map[string]interface{}, sortBy string) {
 	for _, row := range rows {
 		usageTable.AppendRow(table.Row{
 			row.name, row.namespace, row.container,
-			formatMillicores(row.cpuNanocores),
-			formatMebibytes(row.memoryBytes),
+			formatUsage(row.cpuNanocores, row.isMeasured, formatMillicores),
+			formatUsage(row.memoryBytes, row.isMeasured, formatMebibytes),
 		})
 	}
 	usageTable.Render()
@@ -370,9 +426,12 @@ func renderContainerUsageTable(items []map[string]interface{}, sortBy string) {
 func renderNodeUsageTable(items []map[string]interface{}, capacity map[string]nodeCapacity, sortBy string) {
 	rows := make([]usageRow, 0, len(items))
 	for _, measurement := range items {
-		cpuNanocores, memoryBytes := usageQuantities(measurement)
+		cpuNanocores, memoryBytes, isMeasured := usageQuantities(measurement)
 		name := getNestedString(measurement, "metadata", "name")
-		row := usageRow{name: name, cpuNanocores: cpuNanocores, memoryBytes: memoryBytes}
+		row := usageRow{
+			name: name, cpuNanocores: cpuNanocores,
+			memoryBytes: memoryBytes, isMeasured: isMeasured,
+		}
 		if allocatable, isKnown := capacity[name]; isKnown {
 			row.cpuCapacity = allocatable.cpuNanocores
 			row.memCapacity = allocatable.memoryBytes
@@ -389,10 +448,10 @@ func renderNodeUsageTable(items []map[string]interface{}, capacity map[string]no
 	for _, row := range rows {
 		usageTable.AppendRow(table.Row{
 			row.name,
-			formatMillicores(row.cpuNanocores),
-			formatUsagePercent(row.cpuNanocores, row.cpuCapacity, row.hasCapacity),
-			formatMebibytes(row.memoryBytes),
-			formatUsagePercent(row.memoryBytes, row.memCapacity, row.hasCapacity),
+			formatUsage(row.cpuNanocores, row.isMeasured, formatMillicores),
+			formatUsagePercent(row.cpuNanocores, row.cpuCapacity, row.hasCapacity && row.isMeasured),
+			formatUsage(row.memoryBytes, row.isMeasured, formatMebibytes),
+			formatUsagePercent(row.memoryBytes, row.memCapacity, row.hasCapacity && row.isMeasured),
 		})
 	}
 	usageTable.Render()
@@ -433,8 +492,8 @@ func nodeAllocatable(clusterID string) map[string]nodeCapacity {
 			continue
 		}
 		capacities[getNestedString(node, "metadata", "name")] = nodeCapacity{
-			cpuNanocores: int64(cpuCores * 1e9),
-			memoryBytes:  int64(memoryBytes),
+			cpuNanocores: int64(math.Round(cpuCores * 1e9)),
+			memoryBytes:  int64(math.Round(memoryBytes)),
 		}
 	}
 	return capacities
@@ -491,7 +550,7 @@ func parseQuantityNumber(digits string, multiplier float64) (float64, bool) {
 	// character it cannot use and reports success, so "12abc" would read as
 	// 12 and a malformed quantity would render as a plausible measurement.
 	parsed, parseError := strconv.ParseFloat(strings.TrimSpace(digits), 64)
-	if parseError != nil {
+	if parseError != nil || math.IsInf(parsed, 0) || math.IsNaN(parsed) {
 		return 0, false
 	}
 	return parsed * multiplier, true
