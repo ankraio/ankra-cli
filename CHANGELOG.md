@@ -24,6 +24,7 @@
   configuration is also the laziest one to type. Servers resolve by name or
   id everywhere, deletion confirms unless `--yes`, and every read supports
   `-o json|yaml`.
+- **`ankra cluster logs --previous` reads the log a crash-looping container
   left behind.** When a container is in CrashLoopBackOff the only output
   worth reading belongs to the instance that already died, and nothing in
   the CLI could reach it — the one case where you most want to avoid handing

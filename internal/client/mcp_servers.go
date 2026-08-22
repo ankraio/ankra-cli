@@ -231,8 +231,8 @@ func (c *Client) MCPCatalog(ctx context.Context) (*MCPCatalogResult, error) {
 		return nil, requestError
 	}
 	var catalog MCPCatalogResult
-	if decodeError := json.Unmarshal(body, &catalog); decodeError != nil {
-		return nil, fmt.Errorf("parse response: %w", decodeError)
+	if decodeError := decodeMCPResponse(body, &catalog, false); decodeError != nil {
+		return nil, decodeError
 	}
 	return &catalog, nil
 }
@@ -244,8 +244,8 @@ func (c *Client) ListMCPServers(ctx context.Context) ([]MCPServerListItem, error
 		return nil, requestError
 	}
 	var servers []MCPServerListItem
-	if decodeError := json.Unmarshal(body, &servers); decodeError != nil {
-		return nil, fmt.Errorf("parse response: %w", decodeError)
+	if decodeError := decodeMCPResponse(body, &servers, false); decodeError != nil {
+		return nil, decodeError
 	}
 	return servers, nil
 }
@@ -257,8 +257,8 @@ func (c *Client) GetMCPServer(ctx context.Context, serverID string) (*MCPServer,
 		return nil, requestError
 	}
 	var server MCPServer
-	if decodeError := json.Unmarshal(body, &server); decodeError != nil {
-		return nil, fmt.Errorf("parse response: %w", decodeError)
+	if decodeError := decodeMCPResponse(body, &server, false); decodeError != nil {
+		return nil, decodeError
 	}
 	return &server, nil
 }
@@ -276,8 +276,8 @@ func (c *Client) CreateMCPServer(ctx context.Context, request CreateMCPServerReq
 		return nil, requestError
 	}
 	var server MCPServer
-	if decodeError := json.Unmarshal(body, &server); decodeError != nil {
-		return nil, fmt.Errorf("parse response: %w", decodeError)
+	if decodeError := decodeMCPResponse(body, &server, false); decodeError != nil {
+		return nil, decodeError
 	}
 	return &server, nil
 }
@@ -293,8 +293,8 @@ func (c *Client) UpdateMCPServer(ctx context.Context, serverID string, update MC
 		return nil, requestError
 	}
 	var server MCPServer
-	if decodeError := json.Unmarshal(body, &server); decodeError != nil {
-		return nil, fmt.Errorf("parse response: %w", decodeError)
+	if decodeError := decodeMCPResponse(body, &server, false); decodeError != nil {
+		return nil, decodeError
 	}
 	return &server, nil
 }
@@ -306,8 +306,8 @@ func (c *Client) DeleteMCPServer(ctx context.Context, serverID string) (*MCPServ
 		return nil, requestError
 	}
 	var result MCPServerActionResult
-	if decodeError := json.Unmarshal(body, &result); decodeError != nil {
-		return nil, fmt.Errorf("parse response: %w", decodeError)
+	if decodeError := decodeMCPResponse(body, &result, true); decodeError != nil {
+		return nil, decodeError
 	}
 	return &result, nil
 }
@@ -324,8 +324,8 @@ func (c *Client) SetMCPServerEnabled(ctx context.Context, serverID string, enabl
 		return nil, requestError
 	}
 	var result MCPServerActionResult
-	if decodeError := json.Unmarshal(body, &result); decodeError != nil {
-		return nil, fmt.Errorf("parse response: %w", decodeError)
+	if decodeError := decodeMCPResponse(body, &result, true); decodeError != nil {
+		return nil, decodeError
 	}
 	return &result, nil
 }
@@ -358,8 +358,8 @@ func (c *Client) ListMCPToolGrants(ctx context.Context, serverID string) ([]MCPT
 		return nil, requestError
 	}
 	var grants []MCPToolGrant
-	if decodeError := json.Unmarshal(body, &grants); decodeError != nil {
-		return nil, fmt.Errorf("parse response: %w", decodeError)
+	if decodeError := decodeMCPResponse(body, &grants, false); decodeError != nil {
+		return nil, decodeError
 	}
 	return grants, nil
 }
@@ -376,8 +376,8 @@ func (c *Client) GrantMCPTool(ctx context.Context, serverID, toolName, role stri
 		return nil, requestError
 	}
 	var grant MCPToolGrant
-	if decodeError := json.Unmarshal(body, &grant); decodeError != nil {
-		return nil, fmt.Errorf("parse response: %w", decodeError)
+	if decodeError := decodeMCPResponse(body, &grant, false); decodeError != nil {
+		return nil, decodeError
 	}
 	return &grant, nil
 }
@@ -390,8 +390,8 @@ func (c *Client) RevokeMCPToolGrant(ctx context.Context, serverID, toolName, rol
 		return nil, requestError
 	}
 	var result MCPToolGrantRevokeResult
-	if decodeError := json.Unmarshal(body, &result); decodeError != nil {
-		return nil, fmt.Errorf("parse response: %w", decodeError)
+	if decodeError := decodeMCPResponse(body, &result, true); decodeError != nil {
+		return nil, decodeError
 	}
 	return &result, nil
 }
@@ -409,8 +409,8 @@ func (c *Client) CreateSecretSlot(ctx context.Context, label, value string) (*Se
 		return nil, requestError
 	}
 	var slot SecretSlot
-	if decodeError := json.Unmarshal(body, &slot); decodeError != nil {
-		return nil, fmt.Errorf("parse response: %w", decodeError)
+	if decodeError := decodeMCPResponse(body, &slot, false); decodeError != nil {
+		return nil, decodeError
 	}
 	return &slot, nil
 }
@@ -423,8 +423,8 @@ func (c *Client) ListSecretSlots(ctx context.Context) (*SecretSlotListResult, er
 		return nil, requestError
 	}
 	var slots SecretSlotListResult
-	if decodeError := json.Unmarshal(body, &slots); decodeError != nil {
-		return nil, fmt.Errorf("parse response: %w", decodeError)
+	if decodeError := decodeMCPResponse(body, &slots, false); decodeError != nil {
+		return nil, decodeError
 	}
 	return &slots, nil
 }
@@ -437,8 +437,8 @@ func (c *Client) DeleteSecretSlot(ctx context.Context, slotID string) (*SecretSl
 		return nil, requestError
 	}
 	var result SecretSlotDeleteResult
-	if decodeError := json.Unmarshal(body, &result); decodeError != nil {
-		return nil, fmt.Errorf("parse response: %w", decodeError)
+	if decodeError := decodeMCPResponse(body, &result, true); decodeError != nil {
+		return nil, decodeError
 	}
 	return &result, nil
 }
@@ -496,6 +496,27 @@ func (c *Client) doMCPRequest(ctx context.Context, method, url string, payload [
 		return nil, newUnexpectedResponseError("MCP server request failed",
 			response.StatusCode, redactedBodyForError(responseBody, 500))
 	}
+}
+
+// decodeMCPResponse unmarshals a success-response body into target.
+//
+// allowEmpty says whether an empty body - a 204, or a 200 with no content -
+// counts as success with target left zero-valued. Only the acknowledgement
+// calls (delete, enable/disable, revoke, secret-slot delete) pass true: for
+// them the action already happened and the body only restates it. Reads keep
+// failing loudly, because an empty answer decoded as a zero-valued server or
+// a nil list would silently turn "no answer" into a negative one.
+func decodeMCPResponse(body []byte, target any, allowEmpty bool) error {
+	if len(bytes.TrimSpace(body)) == 0 {
+		if allowEmpty {
+			return nil
+		}
+		return errors.New("parse response: the server returned an empty body")
+	}
+	if decodeError := json.Unmarshal(body, target); decodeError != nil {
+		return fmt.Errorf("parse response: %w", decodeError)
+	}
+	return nil
 }
 
 // mcpDetailFromBody extracts a human-readable message from a FastAPI error
