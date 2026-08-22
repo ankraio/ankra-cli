@@ -63,12 +63,15 @@
   were current.
 - **Profile choices can now be authored from the terminal, and `apply` can
   show what it would deploy.** `stack-profiles drafts annotate` gains
-  `--default`, `--type`, `--enum` and `--required`, and `--add` declares an
-  input the draft does not have - such as a **Model size** choice that no
-  manifest references. The new `stack-profiles drafts options set <draft>
+  `--default`, `--type`, `--enum` and `--required`, and `--add --enum a,b`
+  declares an input the draft does not have - such as a **Model size** choice
+  that no manifest references - born with its enum values as choices, which
+  is what keeps the platform from dropping it on the next save. The new
+  `stack-profiles drafts options set <draft>
   --parameter model_size --value 32b --set model_id=Qwen/Qwen3-32B --set
   max_model_len=28672` adds or updates one choice and the inputs it answers
-  (`--unset` drops one; `options remove` drops the choice), with the rules
+  (declaring the input if the draft does not have it yet; `--unset` drops an
+  assignment; `options remove` drops the choice), with the rules
   publish enforces - no secret targets, no choice driving another choice -
   refused on the spot. `drafts get` lists each input's choices. And
   `stack-profiles apply --dry-run` prints every input with the value it
