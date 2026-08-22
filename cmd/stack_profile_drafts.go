@@ -126,6 +126,9 @@ var stackProfileDraftsGetCmd = &cobra.Command{
 				description = text.Faint.Sprint("(no description yet)")
 			}
 			fmt.Printf("  %s  [%s]\n    %s\n", text.Bold.Sprint(name), parameterType, description)
+			if choices := describeDraftParameterChoices(parameter); choices != "" {
+				fmt.Printf("    choices: %s\n", choices)
+			}
 		}
 		return nil
 	},
@@ -143,42 +146,78 @@ annotations live.`,
 		parameterName, _ := cmd.Flags().GetString("parameter")
 		description, _ := cmd.Flags().GetString("description")
 		title, _ := cmd.Flags().GetString("title")
-		if description == "" && title == "" {
-			return withExitCode(exitUsage, errors.New("provide --description and/or --title"))
+		defaultValue, _ := cmd.Flags().GetString("default")
+		parameterType, _ := cmd.Flags().GetString("type")
+		enumList, _ := cmd.Flags().GetString("enum")
+		required, _ := cmd.Flags().GetBool("required")
+		add, _ := cmd.Flags().GetBool("add")
+		changed := cmd.Flags().Changed
+		if description == "" && title == "" && !changed("default") && !changed("type") && !changed("enum") && !changed("required") && !add {
+			return withExitCode(exitUsage, errors.New("provide at least one of --title, --description, --default, --type, --enum, --required or --add"))
+		}
+		if changed("type") {
+			if typeError := validateParameterType(parameterType); typeError != nil {
+				return typeError
+			}
 		}
 
 		draft, err := apiClient.GetStackProfileDraft(args[0])
 		if err != nil {
 			return fmt.Errorf("reading stack profile draft: %w", err)
 		}
-		found := false
-		for _, parameter := range draft.Parameters {
-			if name, _ := parameter["name"].(string); name == parameterName {
-				if description != "" {
-					parameter["description"] = description
-				}
-				if title != "" {
-					parameter["title"] = title
-				}
-				found = true
-				break
+		parameter := draftParameterByName(draft.Parameters, parameterName)
+		declared := false
+		if parameter == nil {
+			if !add {
+				return fmt.Errorf("parameter %q not found on the draft; it has: %v. Pass --add to declare an input no manifest references, such as a choice that sets other inputs",
+					parameterName, draftParameterNames(draft.Parameters))
+			}
+			// A declared input starts as the platform's detection would have
+			// shaped it; the flags below then apply on top, exactly like an
+			// annotation on a detected input.
+			parameter = map[string]any{
+				"name": parameterName, "title": parameterName, "type": "string",
+				"required": false, "enum_values": []any{}, "group": "variables",
+			}
+			draft.Parameters = append(draft.Parameters, parameter)
+			declared = true
+		}
+		if existingType, _ := parameter["type"].(string); existingType == "secret" &&
+			(changed("type") || changed("default") || changed("enum") || changed("required")) {
+			return withExitCode(exitUsage, fmt.Errorf("%q is a secret input: its type, default, enum and required flag are fixed; only --title and --description apply", parameterName))
+		}
+		if description != "" {
+			parameter["description"] = description
+		}
+		if title != "" {
+			parameter["title"] = title
+		}
+		if changed("default") {
+			if defaultValue == "" {
+				delete(parameter, "default")
+			} else {
+				parameter["default"] = defaultValue
 			}
 		}
-		if !found {
-			names := make([]string, 0, len(draft.Parameters))
-			for _, parameter := range draft.Parameters {
-				if name, _ := parameter["name"].(string); name != "" {
-					names = append(names, name)
-				}
+		if changed("type") {
+			parameter["type"] = parameterType
+		}
+		if changed("enum") {
+			values := splitEnumList(enumList)
+			enumValues := make([]any, 0, len(values))
+			for _, value := range values {
+				enumValues = append(enumValues, value)
 			}
-			return fmt.Errorf("parameter %q not found on the draft; it has: %v", parameterName, names)
+			parameter["enum_values"] = enumValues
+			if len(values) > 0 && !changed("type") {
+				parameter["type"] = "enum"
+			}
+		}
+		if changed("required") {
+			parameter["required"] = required
 		}
 
-		updated, err := apiClient.UpdateStackProfileDraft(draft.ID, client.UpdateStackProfileDraftRequest{
-			Spec:       draft.Spec,
-			Parameters: draft.Parameters,
-			Version:    draft.Version,
-		})
+		updated, err := writeDraftParameters(draft)
 		if err != nil {
 			return fmt.Errorf("annotating stack profile draft: %w", err)
 		}
@@ -187,7 +226,12 @@ annotations live.`,
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Annotated %s on draft '%s'.\n", parameterName, updated.Name)
+		if declared {
+			fmt.Printf("Declared input %s on draft '%s'.\n", parameterName, updated.Name)
+			fmt.Printf("Give it choices that set other inputs with:\n  ankra stack-profiles drafts options set %s --parameter %s --value <value> --set <input>=<value>\n", updated.ID, parameterName)
+		} else {
+			fmt.Printf("Annotated %s on draft '%s'.\n", parameterName, updated.Name)
+		}
 		fmt.Println("Publish to make it live:")
 		fmt.Printf("  ankra stack-profiles drafts publish %s --changelog \"...\"\n", updated.ID)
 		return nil
@@ -299,6 +343,11 @@ func init() {
 	stackProfileDraftsAnnotateCmd.Flags().String("parameter", "", "Parameter name to annotate")
 	stackProfileDraftsAnnotateCmd.Flags().String("description", "", "Guidance shown under the field in the launch form")
 	stackProfileDraftsAnnotateCmd.Flags().String("title", "", "Display title for the field (optional)")
+	stackProfileDraftsAnnotateCmd.Flags().String("default", "", "Default value (pass an empty string to clear it)")
+	stackProfileDraftsAnnotateCmd.Flags().String("type", "", "Input type: string, number, boolean or enum")
+	stackProfileDraftsAnnotateCmd.Flags().String("enum", "", "Allowed values, comma separated (implies --type enum)")
+	stackProfileDraftsAnnotateCmd.Flags().Bool("required", false, "Whether the input must be set when the profile is used (--required=false to relax)")
+	stackProfileDraftsAnnotateCmd.Flags().Bool("add", false, "Declare the input if the draft does not have it, e.g. a choice that sets other inputs and is referenced by no manifest")
 	_ = stackProfileDraftsAnnotateCmd.MarkFlagRequired("parameter")
 
 	stackProfileDraftsPublishCmd.Flags().String("channel", "stable", "Release channel for the version")

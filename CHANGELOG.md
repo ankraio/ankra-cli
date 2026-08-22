@@ -4,6 +4,20 @@
 
 ### Added
 
+- **Profile choices can now be authored from the terminal, and `apply` can
+  show what it would deploy.** `stack-profiles drafts annotate` gains
+  `--default`, `--type`, `--enum` and `--required`, and `--add` declares an
+  input the draft does not have - such as a **Model size** choice that no
+  manifest references. The new `stack-profiles drafts options set <draft>
+  --parameter model_size --value 32b --set model_id=Qwen/Qwen3-32B --set
+  max_model_len=28672` adds or updates one choice and the inputs it answers
+  (`--unset` drops one; `options remove` drops the choice), with the rules
+  publish enforces - no secret targets, no choice driving another choice -
+  refused on the spot. `drafts get` lists each input's choices. And
+  `stack-profiles apply --dry-run` prints every input with the value it
+  would deploy with and where that value comes from (`--set`, `choice
+  model_size=32b`, `default`), names the required inputs still unset, never
+  echoes a secret, and creates nothing - no cluster needed.
 - **`ankra stack-profiles get` shows what each choice of an input sets.** A
   profile can now offer an input whose choices answer other inputs — a
   **Model size** of `8b` or `32b` that also moves the model id, the context
