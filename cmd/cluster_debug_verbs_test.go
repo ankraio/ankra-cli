@@ -1527,3 +1527,116 @@ func TestGetEventsNamedLookupFilteredOutDegradesToAnEmptyListing(t *testing.T) {
 		t.Errorf("the empty envelope should still be well-formed, got:\n%s", output)
 	}
 }
+
+// TestDescribeSecretRedactsTheAppliedManifestAnnotation covers the bypass the
+// re-review found: kubectl apply stores the whole submitted manifest, base64
+// values and all, in an annotation, so redacting only data/stringData left
+// the values readable one field away.
+func TestDescribeSecretRedactsTheAppliedManifestAnnotation(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	const secretValue = "c3VwZXItc2VjcmV0LXZhbHVl"
+	mock := newDebugVerbsMock()
+	mock.responses["Secret"] = client.ResourceResponseItem{
+		Items: []interface{}{objectMap(map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Secret",
+			"metadata": map[string]interface{}{
+				"name": "db", "namespace": "default",
+				"annotations": map[string]interface{}{
+					lastAppliedConfigurationAnnotation: `{"data":{"password":"` + secretValue + `"}}`,
+					"backup.example/copy":              "password=" + secretValue,
+					"harmless":                         "managed-by=controller",
+				},
+			},
+			"data": map[string]interface{}{"password": secretValue},
+		})},
+	}
+	mock.responses["Event"] = client.ResourceResponseItem{Items: []interface{}{}}
+	setMockClient(t, mock)
+
+	for _, outputFormat := range []string{"table", "json", "yaml"} {
+		resetCommandFlags(t, clusterDescribeCmd)
+		output := captureStdout(t, func() {
+			if _, executeError := executeCommand("cluster", "describe", "secret", "db",
+				"-n", "default", "-o", outputFormat); executeError != nil {
+				t.Fatalf("describe secret -o %s failed: %v", outputFormat, executeError)
+			}
+		})
+		if strings.Contains(output, secretValue) {
+			t.Errorf("-o %s leaked the secret value through an annotation:\n%s", outputFormat, output)
+		}
+		if outputFormat != "table" && !strings.Contains(output, "harmless") {
+			t.Errorf("-o %s should keep annotations that carry no secret material:\n%s", outputFormat, output)
+		}
+	}
+}
+
+func TestDescribeSecretKeyListingUsesTheResolvedKind(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterDescribeCmd)
+	mock := newDebugVerbsMock()
+	// A cached item need not carry its own kind field. Redaction and the key
+	// listing must agree about what this object is, or one fires and the
+	// other silently does not.
+	mock.responses["Secret"] = client.ResourceResponseItem{
+		Items: []interface{}{objectMap(map[string]interface{}{
+			"apiVersion": "v1",
+			"metadata":   map[string]interface{}{"name": "db", "namespace": "default"},
+			"data":       map[string]interface{}{"password": "c3VwZXItc2VjcmV0LXZhbHVl"},
+		})},
+	}
+	mock.responses["Event"] = client.ResourceResponseItem{Items: []interface{}{}}
+	setMockClient(t, mock)
+
+	output := captureStdout(t, func() {
+		if _, executeError := executeCommand("cluster", "describe", "secret", "db", "-n", "default"); executeError != nil {
+			t.Fatalf("describe secret failed: %v", executeError)
+		}
+	})
+	plain := stripANSICodes(output)
+	if strings.Contains(plain, "c3VwZXItc2VjcmV0LXZhbHVl") {
+		t.Errorf("the value leaked:\n%s", plain)
+	}
+	if !strings.Contains(plain, "password") || !strings.Contains(plain, "redacted") {
+		t.Errorf("the key listing must fire on the resolved kind too:\n%s", plain)
+	}
+}
+
+func TestEventsShowTheInvolvedObjectNamespace(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterEventsCmd)
+	mock := newDebugVerbsMock()
+	// --for omits involvedObject.namespace under --all-namespaces, so a
+	// same-named object elsewhere also matches. The column is what stops one
+	// namespace's events being read as another's.
+	mock.responses["Event"] = client.ResourceResponseItem{
+		Items: []interface{}{
+			scopedEvent(),
+			objectMap(map[string]interface{}{
+				"type": "Warning", "reason": "BackOff", "message": "other namespace",
+				"lastTimestamp": "2026-08-22T09:07:00Z",
+				"involvedObject": map[string]interface{}{
+					"kind": "Pod", "name": "web-7d9f-2xkvp", "namespace": "staging",
+				},
+			}),
+		},
+	}
+	setMockClient(t, mock)
+
+	var output string
+	stderrText := captureStderr(t, func() {
+		output = captureStdout(t, func() {
+			if _, executeError := executeCommand("cluster", "events",
+				"--for", "pod/web-7d9f-2xkvp", "-A"); executeError != nil {
+				t.Fatalf("events --for -A failed: %v", executeError)
+			}
+		})
+	})
+	plain := stripANSICodes(output)
+	if !strings.Contains(plain, "default") || !strings.Contains(plain, "staging") {
+		t.Errorf("both namespaces must be distinguishable in the output:\n%s", plain)
+	}
+	if !strings.Contains(stderrText, "any namespace") {
+		t.Errorf("the cross-namespace match should be called out on stderr, got %q", stderrText)
+	}
+}

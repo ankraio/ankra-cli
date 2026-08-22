@@ -78,6 +78,11 @@ func runClusterEvents(cmd *cobra.Command, _ []string) error {
 			return withExitCode(exitUsage, fmt.Errorf(
 				"--namespace (-n) is required with --for %s/%s", strings.ToLower(targetKind.kind), targetName))
 		}
+		if !targetKind.clusterScoped && allNamespaces {
+			fmt.Fprintf(os.Stderr,
+				"Note: --for with --all-namespaces matches every %s named %q in any namespace; the Namespace column tells them apart.\n",
+				strings.ToLower(targetKind.kind), targetName)
+		}
 		fieldSelectors = involvedObjectSelectors(targetKind.kind, targetName, namespace)
 	}
 
@@ -253,7 +258,12 @@ func renderEventsTable(events []map[string]interface{}) {
 	eventsTable := table.NewWriter()
 	eventsTable.SetOutputMirror(os.Stdout)
 	eventsTable.SetStyle(table.StyleRounded)
-	eventsTable.AppendHeader(table.Row{"Last Seen", "Type", "Reason", "Object", "Count", "Message"})
+	// The object's namespace is a column rather than an omission: --for
+	// scopes by involvedObject.namespace only when a namespace is known, so
+	// under --all-namespaces a same-named object of the same kind in another
+	// namespace also matches. Showing the namespace makes that visible
+	// instead of letting one namespace's events be read as another's.
+	eventsTable.AppendHeader(table.Row{"Last Seen", "Type", "Reason", "Object", "Namespace", "Count", "Message"})
 	for _, event := range events {
 		eventType := getNestedString(event, "type")
 		if eventType == "Warning" {
@@ -265,11 +275,16 @@ func renderEventsTable(events []map[string]interface{}) {
 		if count == "" {
 			count = "1"
 		}
+		involvedNamespace := getNestedString(event, "involvedObject", "namespace")
+		if involvedNamespace == "" {
+			involvedNamespace = "<cluster>"
+		}
 		eventsTable.AppendRow(table.Row{
 			formatEventAge(eventTimestamp(event)),
 			eventType,
 			getNestedString(event, "reason"),
 			fmt.Sprintf("%s/%s", involvedKind, involvedName),
+			involvedNamespace,
 			count,
 			getNestedString(event, "message"),
 		})

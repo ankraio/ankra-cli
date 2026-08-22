@@ -104,6 +104,16 @@ Examples:
 	},
 }
 
+// lastAppliedConfigurationAnnotation is the annotation kubectl apply writes,
+// containing the entire submitted manifest verbatim - base64 Secret values
+// included.
+const lastAppliedConfigurationAnnotation = "kubectl.kubernetes.io/last-applied-configuration"
+
+// minimumRedactableSecretLength is the shortest secret value worth scanning
+// annotations for. A one- or two-character value would match half the
+// annotations on the object by coincidence and redact them all.
+const minimumRedactableSecretLength = 8
+
 // redactSecretData replaces a Secret's values with their byte lengths, in
 // place, before anything renders the object.
 //
@@ -115,12 +125,21 @@ Examples:
 // CI logs. Reading a Secret's contents deliberately remains the job of
 // `cluster get secrets <name> -o yaml`, which is an explicit request for
 // them rather than a debugging verb.
+//
+// Clearing data and stringData is not sufficient on its own: a Secret
+// created with `kubectl apply` carries the whole original manifest in the
+// last-applied-configuration annotation, which reproduces every value
+// verbatim. That annotation is always redacted for a Secret, and any other
+// annotation that turns out to embed one of the values is redacted too -
+// scanning for the values themselves catches a controller that copies them
+// somewhere this code does not know the name of.
 func redactSecretData(kind string, object map[string]interface{}) {
 	// The resolved kind is authoritative: a cached item is not guaranteed to
 	// carry its own kind field, so keying off the manifest could miss.
 	if kind != "Secret" && getNestedString(object, "kind") != "Secret" {
 		return
 	}
+	secretValues := []string{}
 	for _, field := range []string{"data", "stringData"} {
 		values, isMap := object[field].(map[string]interface{})
 		if !isMap {
@@ -128,9 +147,40 @@ func redactSecretData(kind string, object map[string]interface{}) {
 		}
 		redacted := make(map[string]interface{}, len(values))
 		for key, value := range values {
-			redacted[key] = fmt.Sprintf("<redacted: %d bytes>", len(fmt.Sprintf("%v", value)))
+			rendered := fmt.Sprintf("%v", value)
+			if len(rendered) >= minimumRedactableSecretLength {
+				secretValues = append(secretValues, rendered)
+			}
+			redacted[key] = fmt.Sprintf("<redacted: %d bytes>", len(rendered))
 		}
 		object[field] = redacted
+	}
+	redactSecretAnnotations(object, secretValues)
+}
+
+// redactSecretAnnotations removes the annotations that can reproduce a
+// Secret's values after data and stringData have been redacted.
+func redactSecretAnnotations(object map[string]interface{}, secretValues []string) {
+	metadata, hasMetadata := getNestedMap(object, "metadata")
+	if !hasMetadata {
+		return
+	}
+	annotations, isMap := metadata["annotations"].(map[string]interface{})
+	if !isMap {
+		return
+	}
+	for name, value := range annotations {
+		rendered := fmt.Sprintf("%v", value)
+		if name == lastAppliedConfigurationAnnotation {
+			annotations[name] = "<redacted: contains the applied Secret manifest>"
+			continue
+		}
+		for _, secretValue := range secretValues {
+			if strings.Contains(rendered, secretValue) {
+				annotations[name] = "<redacted: contains Secret data>"
+				break
+			}
+		}
 	}
 }
 
@@ -202,7 +252,7 @@ func renderDescribe(kind string, object map[string]interface{}, events []map[str
 
 	renderConditions(object)
 	renderContainerStatuses(object)
-	renderSecretKeys(object)
+	renderSecretKeys(kind, object)
 	renderObjectEvents(events)
 }
 
@@ -361,8 +411,11 @@ func containerStateSummary(containerStatus map[string]interface{}, key string) (
 // they are already redacted by the time this runs. "Is the mounted secret
 // present, and is it non-empty?" is one of the questions that used to need a
 // shell in the pod, and it is answerable without one.
-func renderSecretKeys(object map[string]interface{}) {
-	if getNestedString(object, "kind") != "Secret" {
+func renderSecretKeys(kind string, object map[string]interface{}) {
+	// Same authoritative check as redactSecretData: a cached item may not
+	// carry its own kind, and redacting a Secret while skipping its key
+	// listing would be a confusing pair of behaviours in one command.
+	if kind != "Secret" && getNestedString(object, "kind") != "Secret" {
 		return
 	}
 	for _, field := range []string{"data", "stringData"} {
