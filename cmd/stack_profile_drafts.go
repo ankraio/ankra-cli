@@ -169,8 +169,15 @@ annotations live.`,
 		declared := false
 		if parameter == nil {
 			if !add {
-				return fmt.Errorf("parameter %q not found on the draft; it has: %v. Pass --add to declare an input no manifest references, such as a choice that sets other inputs",
+				return fmt.Errorf("parameter %q not found on the draft; it has: %v. Pass --add --enum <choices> to declare an input no manifest references, such as a choice that sets other inputs",
 					parameterName, draftParameterNames(draft.Parameters))
+			}
+			// The platform re-detects a draft's inputs on every save and keeps
+			// an input no manifest references only while it offers choices, so
+			// a declared input must be born with its choices or the save drops
+			// it silently.
+			if len(splitEnumList(enumList)) == 0 {
+				return withExitCode(exitUsage, fmt.Errorf("--add needs --enum <choice,choice,...>: an input no manifest references is kept by the platform only while it offers choices"))
 			}
 			// A declared input starts as the platform's detection would have
 			// shaped it; the flags below then apply on top, exactly like an
@@ -211,6 +218,25 @@ annotations live.`,
 			parameter["enum_values"] = enumValues
 			if len(values) > 0 && !changed("type") {
 				parameter["type"] = "enum"
+			}
+			// On an input that offers choices, the enum values ARE the choices:
+			// keep the choices whose value is still listed (with their sets),
+			// add a bare choice for each new value. A declared input is born
+			// this way, which is what keeps it on the draft across saves.
+			if existing := draftParameterOptions(parameter); declared || len(existing) > 0 {
+				byValue := map[string]map[string]any{}
+				for _, option := range existing {
+					byValue[fmt.Sprint(option["value"])] = option
+				}
+				reconciled := make([]map[string]any, 0, len(values))
+				for _, value := range values {
+					if option, present := byValue[value]; present {
+						reconciled = append(reconciled, option)
+						continue
+					}
+					reconciled = append(reconciled, map[string]any{"value": value})
+				}
+				storeDraftParameterOptions(parameter, reconciled)
 			}
 		}
 		if changed("required") {

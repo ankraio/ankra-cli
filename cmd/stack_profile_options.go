@@ -199,9 +199,17 @@ var stackProfileDraftsOptionsSetCmd = &cobra.Command{
 			return fmt.Errorf("reading stack profile draft: %w", err)
 		}
 		parameter := draftParameterByName(draft.Parameters, parameterName)
+		declared := false
 		if parameter == nil {
-			return fmt.Errorf("parameter %q not found on the draft; it has: %v. Declare a choice input that no manifest references with 'ankra stack-profiles drafts annotate %s --parameter %s --add --type enum'",
-				parameterName, draftParameterNames(draft.Parameters), draft.ID, parameterName)
+			// An input no manifest references is kept by the platform only
+			// while it offers choices, so the first choice is what declares
+			// it; there is nothing to declare separately first.
+			parameter = map[string]any{
+				"name": parameterName, "title": parameterName, "type": "enum",
+				"required": false, "enum_values": []any{}, "group": "variables",
+			}
+			draft.Parameters = append(draft.Parameters, parameter)
+			declared = true
 		}
 		if parameterType, _ := parameter["type"].(string); parameterType == "secret" {
 			return withExitCode(exitUsage, fmt.Errorf("%q is a secret input and cannot offer choices", parameterName))
@@ -255,6 +263,9 @@ var stackProfileDraftsOptionsSetCmd = &cobra.Command{
 		verb := "Updated"
 		if created {
 			verb = "Added"
+		}
+		if declared {
+			fmt.Printf("Declared input %s on draft '%s'.\n", parameterName, updated.Name)
 		}
 		fmt.Printf("%s choice '%s' on %s (%d %s).\n", verb, value, parameterName, len(options), pluralise(len(options), "choice", "choices"))
 		for _, target := range sortedAssignmentTargets(sets) {

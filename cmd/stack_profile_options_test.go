@@ -112,8 +112,56 @@ func TestDraftsAnnotateDeclaresAChoiceInput(t *testing.T) {
 	if len(mock.updateRequest.Parameters) != 4 {
 		t.Errorf("expected the three detected inputs plus the declared one, got %d", len(mock.updateRequest.Parameters))
 	}
+	// The platform keeps an unreferenced input only while it offers choices,
+	// so a declared input is born with its enum values as choices.
+	options := draftParameterOptions(parameter)
+	if len(options) != 2 || options[0]["value"] != "8b" || options[1]["value"] != "32b" {
+		t.Errorf("expected the enum values seeded as choices, got %v", parameter["options"])
+	}
 	if !strings.Contains(stdout, "Declared input model_size") || !strings.Contains(stdout, "drafts options set draft-1 --parameter model_size") {
 		t.Errorf("expected the declare guidance, got: %s", stdout)
+	}
+}
+
+func TestDraftsAnnotateAddNeedsEnumSoTheInputSurvivesTheSave(t *testing.T) {
+	resetStackProfileDraftAuthoringFlags(t)
+	mock := &stackProfileDraftMock{draft: gpuChatDraft()}
+	setMockClient(t, mock)
+
+	_, err := executeCommand("stack-profiles", "drafts", "annotate", "draft-1", "--parameter", "model_size", "--add", "--title", "Model size")
+
+	if err == nil || !strings.Contains(err.Error(), "--add needs --enum") {
+		t.Fatalf("expected the --enum requirement, got %v", err)
+	}
+	if mock.updateRequest != nil {
+		t.Error("an input that would be dropped on save must not be written")
+	}
+}
+
+func TestDraftsAnnotateEnumReconcilesExistingChoices(t *testing.T) {
+	resetStackProfileDraftAuthoringFlags(t)
+	draft := gpuChatDraft()
+	draft.Parameters = append(draft.Parameters, map[string]any{
+		"name": "model_size", "type": "enum", "enum_values": []any{"8b", "32b"},
+		"options": []any{
+			map[string]any{"value": "8b", "sets": map[string]any{"model_id": "Qwen/Qwen3-8B"}},
+			map[string]any{"value": "32b", "sets": map[string]any{"model_id": "Qwen/Qwen3-32B"}},
+		},
+	})
+	mock := &stackProfileDraftMock{draft: draft}
+	setMockClient(t, mock)
+
+	_, _ = executeCommand("stack-profiles", "drafts", "annotate", "draft-1", "--parameter", "model_size", "--enum", "8b,70b")
+
+	options := draftParameterOptions(parameterFromRequest(t, mock.updateRequest, "model_size"))
+	if len(options) != 2 || options[0]["value"] != "8b" || options[1]["value"] != "70b" {
+		t.Fatalf("options = %v", options)
+	}
+	if draftOptionSets(options[0])["model_id"] != "Qwen/Qwen3-8B" {
+		t.Errorf("a kept choice must keep its sets, got %v", options[0])
+	}
+	if len(draftOptionSets(options[1])) != 0 {
+		t.Errorf("a new choice starts bare, got %v", options[1])
 	}
 }
 
@@ -273,7 +321,7 @@ func TestDraftsOptionsSetRefusesBadTargets(t *testing.T) {
 	}
 }
 
-func TestDraftsOptionsSetRefusesASecretSelectorAndUnknownInput(t *testing.T) {
+func TestDraftsOptionsSetRefusesASecretSelector(t *testing.T) {
 	resetStackProfileDraftAuthoringFlags(t)
 	mock := &stackProfileDraftMock{draft: gpuChatDraft()}
 	setMockClient(t, mock)
@@ -282,11 +330,33 @@ func TestDraftsOptionsSetRefusesASecretSelectorAndUnknownInput(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "secret input and cannot offer choices") {
 		t.Fatalf("expected the secret refusal, got %v", err)
 	}
+	if mock.updateRequest != nil {
+		t.Error("a refused selector must not write the draft")
+	}
+}
 
+// The platform keeps an unreferenced input only while it offers choices, so
+// the first choice is what declares it - no separate declare step.
+func TestDraftsOptionsSetDeclaresAMissingInputWithItsFirstChoice(t *testing.T) {
 	resetStackProfileDraftAuthoringFlags(t)
-	_, err = executeCommand("stack-profiles", "drafts", "options", "set", "draft-1", "--parameter", "model_size", "--value", "8b")
-	if err == nil || !strings.Contains(err.Error(), "--add --type enum") {
-		t.Fatalf("expected the declare hint, got %v", err)
+	mock := &stackProfileDraftMock{draft: gpuChatDraft()}
+	setMockClient(t, mock)
+
+	stdout := captureStdout(t, func() {
+		_, _ = executeCommand("stack-profiles", "drafts", "options", "set", "draft-1",
+			"--parameter", "model_size", "--value", "8b", "--set", "model_id=Qwen/Qwen3-8B")
+	})
+
+	parameter := parameterFromRequest(t, mock.updateRequest, "model_size")
+	if parameter["type"] != "enum" || parameter["title"] != "model_size" {
+		t.Errorf("declared parameter = %v", parameter)
+	}
+	options := draftParameterOptions(parameter)
+	if len(options) != 1 || draftOptionSets(options[0])["model_id"] != "Qwen/Qwen3-8B" {
+		t.Errorf("options = %v", parameter["options"])
+	}
+	if !strings.Contains(stdout, "Declared input model_size on draft 'gpu-chat'.") || !strings.Contains(stdout, "Added choice '8b' on model_size (1 choice).") {
+		t.Errorf("unexpected output: %s", stdout)
 	}
 }
 
