@@ -66,6 +66,37 @@ func (c *Client) GetOrganisationDnsZone(ctx context.Context) (*DnsZone, error) {
 	return &out, nil
 }
 
+// DnsClusterZone mirrors one cluster-level delegated zone in the
+// organisation: the cluster it belongs to, the zone fqdn, and its
+// reconciliation state. ClusterName is empty when the cluster row is already
+// gone and only the zone teardown is outstanding.
+type DnsClusterZone struct {
+	ClusterID   string  `json:"cluster_id"`
+	ClusterName string  `json:"cluster_name"`
+	FQDN        string  `json:"fqdn"`
+	State       string  `json:"state"`
+	LastError   *string `json:"last_error,omitempty"`
+}
+
+type DnsClusterZonesListResult struct {
+	Items []DnsClusterZone `json:"items"`
+}
+
+// ListOrganisationClusterDnsZones returns every cluster-level DNS zone in the
+// organisation - the inventory an admin has to clear before switching the
+// organisation's Ankra root domain. It is a read: it never creates a zone.
+func (c *Client) ListOrganisationClusterDnsZones(ctx context.Context) (*DnsClusterZonesListResult, error) {
+	body, err := c.doDnsRequest(ctx, http.MethodGet, c.BaseURL+"/api/v1/org/dns/cluster-zones", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out DnsClusterZonesListResult
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &out, nil
+}
+
 func (c *Client) ListOrganisationDnsRecords(ctx context.Context) (*DnsRecordsListResult, error) {
 	body, err := c.doDnsRequest(ctx, http.MethodGet, c.BaseURL+"/api/v1/org/dns/records", nil)
 	if err != nil {

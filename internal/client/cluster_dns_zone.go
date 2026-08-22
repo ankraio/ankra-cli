@@ -14,6 +14,20 @@ type ClusterDNSZoneResponse struct {
 	State   string `json:"state"`
 }
 
+// GetClusterDNSZone reads the cluster's generated public DNS zone without
+// creating one: the non-mutating lookup twin of EnableClusterDNSZone. A
+// cluster that has no zone reports state "none" with an empty fqdn, so
+// checking a cluster's domain never enables it - and never adds a blocker to
+// a pending organisation root-domain switch.
+func (c *Client) GetClusterDNSZone(clusterID string) (*ClusterDNSZoneResponse, error) {
+	requestURL := fmt.Sprintf("%s/api/v1/clusters/%s/dns-zone", c.BaseURL, url.PathEscape(clusterID))
+	var response ClusterDNSZoneResponse
+	if err := c.getJSON(requestURL, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
 // EnableClusterDNSZone queues the cluster's generated Ankra DNS zone (under
 // the organisation's selected root domain) and returns its fqdn and state.
 // The call is idempotent: a cluster that already has a zone reports the
