@@ -527,6 +527,18 @@ func (m baseMock) DeleteOrganisationDnsRecord(ctx context.Context, recordID stri
 	return errors.New("not implemented")
 }
 
+func (m baseMock) ListOrganisationClusterDnsZones(ctx context.Context) (*client.DnsClusterZonesListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetOrganisationDomain(ctx context.Context) (*client.OrganisationDomain, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetOrganisationDomain(ctx context.Context, rootDomain string) (*client.OrganisationDomain, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateSupportTicket(ctx context.Context, req client.CreateSupportTicketRequest) (*client.SupportTicket, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1812,6 +1824,10 @@ func (m baseMock) ImportManagedCluster(provider client.ManagedK8sProvider, reque
 }
 
 func (m baseMock) EnableClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error) {
 	return nil, errors.New("not implemented")
 }
 

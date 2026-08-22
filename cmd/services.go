@@ -78,6 +78,9 @@ type APIClient interface {
 	CreateOrganisationDnsRecord(ctx context.Context, name, recordType, content string, ttl *int) (*client.DnsRecord, error)
 	UpdateOrganisationDnsRecord(ctx context.Context, recordID, content string, ttl *int) (*client.DnsRecord, error)
 	DeleteOrganisationDnsRecord(ctx context.Context, recordID string) error
+	ListOrganisationClusterDnsZones(ctx context.Context) (*client.DnsClusterZonesListResult, error)
+	GetOrganisationDomain(ctx context.Context) (*client.OrganisationDomain, error)
+	SetOrganisationDomain(ctx context.Context, rootDomain string) (*client.OrganisationDomain, error)
 
 	CreateSupportTicket(ctx context.Context, req client.CreateSupportTicketRequest) (*client.SupportTicket, error)
 	ReviewSupportTicket(ctx context.Context, req client.ReviewSupportTicketRequest) (*client.SupportTicketReview, error)
@@ -505,6 +508,7 @@ type APIClient interface {
 	DiscoverManagedClusters(provider client.ManagedK8sProvider, credentialID string) (*client.DiscoverManagedClustersResponse, error)
 	ImportManagedCluster(provider client.ManagedK8sProvider, request client.ImportManagedClusterRequest) (*client.ImportManagedClusterResponse, error)
 	EnableClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error)
+	GetClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error)
 
 	ListAlertDestinations(options client.ListAlertDestinationsOptions) (*client.AlertDestinationList, error)
 	GetAlertDestination(destinationID string) (*client.AlertDestination, error)

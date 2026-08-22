@@ -25,6 +25,7 @@ a new or edited record starts in state pending and turns active once it is
 published to the authoritative nameservers.
 
   ankra org dns zone
+  ankra org dns zones
   ankra org dns list
   ankra org dns add chat CNAME lb-1234.example-lb.com --ttl 300
   ankra org dns update chat target.example.com
@@ -89,6 +90,71 @@ var orgDnsListCmd = &cobra.Command{
 		}
 		return renderDnsRecords(cmd.OutOrStdout(), list.Items, out)
 	},
+}
+
+var orgDnsZonesCmd = &cobra.Command{
+	Use:   "zones",
+	Short: "List the cluster domains in the organisation",
+	Long: `List every cluster-level DNS zone in the organisation: the cluster, the
+zone fqdn, and its reconciliation state.
+
+This is the inventory a root-domain switch has to clear. Switching the
+organisation's Ankra root domain ('ankra org domain set') is refused while any
+cluster zone still lives under the old root, and a zone is removed with
+'ankra cluster domain <cluster> --remove'.
+
+Listing is a read: it never creates a zone.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		out, err := structuredFormatFromFlags(cmd)
+		if err != nil {
+			return err
+		}
+
+		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+		defer cancel()
+
+		list, err := apiClient.ListOrganisationClusterDnsZones(ctx)
+		if err != nil {
+			return fmt.Errorf("list cluster DNS zones: %w", err)
+		}
+		return renderDnsClusterZones(cmd.OutOrStdout(), list.Items, out)
+	},
+}
+
+func renderDnsClusterZones(out io.Writer, zones []client.DnsClusterZone, format outputFormat) error {
+	switch format {
+	case outputJSON:
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(client.DnsClusterZonesListResult{Items: zones})
+	case outputYAML:
+		enc := yaml.NewEncoder(out)
+		enc.SetIndent(2)
+		defer func() { _ = enc.Close() }()
+		return enc.Encode(client.DnsClusterZonesListResult{Items: zones})
+	}
+	if len(zones) == 0 {
+		_, _ = fmt.Fprintln(out, "No cluster domains. Nothing blocks an organisation root-domain switch.")
+		return nil
+	}
+	t := table.NewWriter()
+	t.SetOutputMirror(out)
+	t.SetStyle(table.StyleRounded)
+	t.AppendHeader(table.Row{"CLUSTER", "DOMAIN", "STATE", "ERROR"})
+	for _, zone := range zones {
+		clusterName := zone.ClusterName
+		if clusterName == "" {
+			clusterName = zone.ClusterID
+		}
+		lastError := ""
+		if zone.LastError != nil {
+			lastError = truncateForDisplay(*zone.LastError, 40)
+		}
+		t.AppendRow(table.Row{clusterName, zone.FQDN, zone.State, lastError})
+	}
+	t.Render()
+	return nil
 }
 
 var orgDnsAddCmd = &cobra.Command{
@@ -276,7 +342,7 @@ func renderDnsRecords(out io.Writer, records []client.DnsRecord, format outputFo
 }
 
 func init() {
-	registerStructuredOutputFlags(orgDnsZoneCmd, orgDnsListCmd)
+	registerStructuredOutputFlags(orgDnsZoneCmd, orgDnsZonesCmd, orgDnsListCmd)
 	orgDnsAddCmd.Flags().Int("ttl", 0, "TTL in seconds (30..86400); omitted means Auto")
 	orgDnsUpdateCmd.Flags().Int("ttl", 0, "TTL in seconds (30..86400); omitted keeps the record's current ttl")
 	orgDnsUpdateCmd.Flags().String("type", "", "Record type (CNAME, A, TXT) to disambiguate a name reference")
@@ -284,6 +350,7 @@ func init() {
 	orgDnsDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	orgDnsCmd.AddCommand(orgDnsZoneCmd)
+	orgDnsCmd.AddCommand(orgDnsZonesCmd)
 	orgDnsCmd.AddCommand(orgDnsListCmd)
 	orgDnsCmd.AddCommand(orgDnsAddCmd)
 	orgDnsCmd.AddCommand(orgDnsUpdateCmd)

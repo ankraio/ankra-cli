@@ -4,6 +4,20 @@
 
 ### Added
 
+- **`ankra org domain get|set` reads and writes the organisation's own Ankra
+  root domain.** Every Ankra-generated hostname — the organisation's delegated
+  DNS zone, its clusters' domains, and the preview hostnames built from them —
+  nests under a root domain that defaults to `ankra.cc`. Registering your own
+  was portal-only; it is now scriptable against the same backend setting the
+  portal writes (AI > Settings > Workspaces, "Custom Ankra domain").
+  `set --default` returns the organisation to the platform default. When the
+  switch is refused because zones or records still live under the old root,
+  the error lists exactly which cluster domains and which DNS records are
+  blocking it, and the command that removes each.
+- **`ankra org dns zones` lists every cluster domain in the organisation.**
+  The inventory a root-domain switch has to clear: cluster, zone fqdn, and
+  state. Previously the only way to discover a cluster's domain was
+  `ankra cluster domain <cluster>`, which created one where none existed.
 - **`--sort <column>` and `--order asc|desc` on the main list commands**
   (`cluster list`, `cluster addons list`, `org list`, `credentials list`,
   `tokens list`) let you order the output by any rendered column — e.g.
@@ -57,6 +71,15 @@
 
 ### Fixed
 
+- **`ankra cluster domain <cluster>` no longer creates a DNS zone when you
+  are only looking.** The command's help called it an idempotent lookup, but
+  it was backed by a POST: checking a cluster's domain enabled one on a
+  cluster that did not have it — and every zone under the old root blocks an
+  organisation root-domain switch, so the read-looking command added blockers
+  to the very migration an operator was trying to run. The plain command is
+  now a read (a cluster without a zone reports state `none`), and creating a
+  zone is the explicit `--enable`. Scripts that relied on the bare command to
+  enable a domain must add `--enable`.
 - **`ankra cluster apply` no longer drops a manifest's or addon's `group`
   label.** The platform's IaC export writes an organizational `group` on
   manifests and addons, but `apply` never read the key and the request it
