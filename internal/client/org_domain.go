@@ -36,12 +36,25 @@ type OrganisationDomainBlockingClusterZone struct {
 }
 
 // OrganisationDomainBlockingDnsRecord is one DNS record that refuses a
-// root-domain switch until it is removed.
+// root-domain switch until it is removed. CreatedBy names the writer: a
+// record a platform lane owns comes back the moment it is deleted, so
+// telling the two kinds apart is what stops the advice being wrong.
 type OrganisationDomainBlockingDnsRecord struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
 	RecordType string `json:"record_type"`
 	State      string `json:"state"`
+	CreatedBy  string `json:"created_by"`
+}
+
+// OrganisationDomainBlockingPlayground is one live playground environment.
+// Its wildcard record is reconciled rather than written once, so while the
+// environment exists that record cannot be cleared - the playground is the
+// blocker, and the record is only how it shows up.
+type OrganisationDomainBlockingPlayground struct {
+	ClusterID   string `json:"cluster_id"`
+	ClusterName string `json:"cluster_name"`
+	Phase       string `json:"phase"`
 }
 
 // OrganisationDomainBlockedError is the backend's refusal of a root-domain
@@ -56,6 +69,7 @@ type OrganisationDomainBlockedError struct {
 	ClusterZonesTruncated bool
 	DnsRecords            []OrganisationDomainBlockingDnsRecord
 	DnsRecordsTruncated   bool
+	Playgrounds           []OrganisationDomainBlockingPlayground
 }
 
 func (e *OrganisationDomainBlockedError) Error() string { return e.Detail }
@@ -66,6 +80,7 @@ type organisationDomainRefusal struct {
 	BlockingClusterZonesTruncated bool                                    `json:"blocking_cluster_zones_truncated"`
 	BlockingDnsRecords            []OrganisationDomainBlockingDnsRecord   `json:"blocking_dns_records"`
 	BlockingDnsRecordsTruncated   bool                                    `json:"blocking_dns_records_truncated"`
+	BlockingPlaygrounds           []OrganisationDomainBlockingPlayground  `json:"blocking_playgrounds"`
 }
 
 type organisationDomainSettings struct {
@@ -160,6 +175,7 @@ func (c *Client) doOrganisationDomainRequest(ctx context.Context, method string,
 					ClusterZonesTruncated: refusal.BlockingClusterZonesTruncated,
 					DnsRecords:            refusal.BlockingDnsRecords,
 					DnsRecordsTruncated:   refusal.BlockingDnsRecordsTruncated,
+					Playgrounds:           refusal.BlockingPlaygrounds,
 				}
 			}
 			return nil, errors.New(refusal.Detail)

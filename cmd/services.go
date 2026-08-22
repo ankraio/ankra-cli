@@ -329,6 +329,7 @@ type APIClient interface {
 	ListKubeadmVersions() (*client.ListVersionsResult, error)
 	CreatePlayground() (*client.CreatePlaygroundResult, error)
 	GetPlaygroundStatus(clusterID string) (*client.PlaygroundStatus, error)
+	DestroyPlayground(clusterID string) (*client.DestroyPlaygroundResult, error)
 	ListOvhNodeGroups(clusterID string) (*client.NodeGroupListResult, error)
 	AddOvhNodeGroup(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error)
 	ScaleOvhNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error)

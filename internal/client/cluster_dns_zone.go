@@ -8,10 +8,16 @@ import (
 // ClusterDNSZoneResponse reports the cluster's generated public DNS zone
 // after the opt-in: the fqdn every ingress hostname can live under, and the
 // zone's reconciliation state (pending until published, then active).
+//
+// OptedOut separates the two ways state "none" happens: the cluster never
+// had a zone, or one was removed and the removal is being held so nothing
+// re-creates it. Older backends omit the member and it reads false, which is
+// the right answer for every cluster they know about.
 type ClusterDNSZoneResponse struct {
-	Success bool   `json:"success"`
-	FQDN    string `json:"fqdn"`
-	State   string `json:"state"`
+	Success  bool   `json:"success"`
+	FQDN     string `json:"fqdn"`
+	State    string `json:"state"`
+	OptedOut bool   `json:"opted_out"`
 }
 
 // GetClusterDNSZone reads the cluster's generated public DNS zone without

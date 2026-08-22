@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster playground destroy <cluster_id>` tears the organisation's
+  playground down.** The platform has served the DELETE since playgrounds
+  shipped; only the CLI could not reach it, so `create` and `status` had no
+  matching way out. It is idempotent — an environment already deprovisioning
+  or removed answers its current phase rather than an error. It also has a
+  second job: a live playground publishes a wildcard DNS record in the
+  organisation's zone, that record is reconciled rather than written once,
+  and it is therefore the one blocker of `ankra org domain set` that deleting
+  cannot clear. Destroying the environment is what clears it.
+
+### Changed
+
+- **`ankra cluster domain <cluster> --remove` now holds.** Removing a
+  cluster's domain and watching it reappear about fifty seconds later, active
+  and under the same label, was the reason the documented root-domain switch
+  could not be completed: every removal was reverted before the next one
+  could be made. The removal is now recorded as a deliberate act, so nothing
+  re-creates the zone — not the external-dns Ankra runs on the cluster, and
+  not the discovery that mints zones for clusters that have none. A read
+  reports `Opted out: yes` for as long as the hold stands, which is what
+  distinguishes a domain that is gone from one that is between passes.
+  `--enable` withdraws the hold and re-creates the zone under the
+  organisation's current root, under exactly the name it had before.
+- **A refused `ankra org domain set` now separates the blockers you can clear
+  from the ones you cannot, and names what to remove instead.** DNS records
+  the platform publishes and re-asserts are listed apart from your own, with
+  the writer named, because telling an admin to `ankra org dns delete` a
+  record the playground provisioner writes back on its next pass is advice
+  that cannot work. Live playground environments are listed outright, with
+  the command that destroys them. The cluster-domain section now also says
+  what those clusters' external-dns will do about the removal, and that a
+  root switch never re-labels a zone — labels come from the cluster id, so
+  `--txt-owner-id` and any GitOps path built from one survive the switch
+  unchanged.
+- **`ankra org domain --help` and `ankra org domain set --help` state what
+  Ankra does to the domain you register.** Ankra creates one subzone,
+  `<org_short_id>.<domain>`, and works only inside it: records already
+  published at the apex or under any other name are never read, written or
+  deleted, by the switch or by anything Ankra runs afterwards. A domain that
+  already serves production hostnames is safe to register on that count, and
+  it is now written down rather than something to infer.
+
 ## v0.13.0-rc0 — 2026-08-22
 
 ### Added

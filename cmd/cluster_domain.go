@@ -30,8 +30,16 @@ resolves with TLS.
 
 --remove hands the zone back for teardown: the removal step before an
 organisation switches its Ankra root domain (the switch is refused while
-cluster zones still live under the old root). A later --enable re-creates it
-under the organisation's current root.`,
+cluster zones still live under the old root). The removal is then HELD -
+nothing re-creates the zone, including the external-dns Ankra runs on the
+cluster and the discovery that mints zones for clusters that lack one - until
+you ask for it back. A read reports "opted out" for as long as the hold
+stands.
+
+--enable withdraws the hold and re-creates the zone under the organisation's
+current root. The cluster's label is derived from its id, so the zone comes
+back under exactly the name it had before, and the external-dns Ankra manages
+for it keeps the same --txt-owner-id.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if clusterDomainEnable && clusterDomainRemove {
@@ -75,6 +83,18 @@ under the organisation's current root.`,
 		// the CLI answer a removal with an "run --enable" hint.
 		if result.State == clusterDomainStateNone && !clusterDomainEnable && !clusterDomainRemove {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Domain: (none)\nState:  none\n")
+			if result.OptedOut {
+				// A removal that reports "none" is the exact moment PLA-771
+				// was watched from. Saying only "run --enable to create one"
+				// here reads as "nothing happened", which is what sent the
+				// reporter back to watch for the zone returning.
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Opted out: yes\n")
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+					"\nThis cluster's domain was removed and the removal is held: nothing will "+
+						"re-create it.\nRun 'ankra cluster domain %s --enable' when you want it back.\n",
+					args[0])
+				return nil
+			}
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 				"\nThis cluster has no public domain. Run 'ankra cluster domain %s --enable' to create one.\n",
 				args[0])
@@ -83,10 +103,15 @@ under the organisation's current root.`,
 
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Domain: %s\n", result.FQDN)
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "State:  %s\n", result.State)
+		if result.OptedOut {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Opted out: yes\n")
+		}
 		switch {
 		case clusterDomainRemove:
 			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
-				"\nThe zone is being torn down; hostnames under it stop resolving once the teardown completes.")
+				"\nThe zone is being torn down; hostnames under it stop resolving once the teardown completes."+
+					"\nThe removal is held once it finishes - nothing re-creates the zone until "+
+					"'ankra cluster domain <cluster> --enable'.")
 		case clusterDomainEnable && result.State != "active":
 			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
 				"\nThe zone publishes shortly; once active, any hostname under the domain is yours the moment an ingress claims it.")
