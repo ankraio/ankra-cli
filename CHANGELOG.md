@@ -33,8 +33,14 @@
   its exit code, ImagePullBackOff and its registry error, restart counts),
   and the events whose `involvedObject` is that resource. Kubectl's
   spellings work — `pod`, `pods`, `po`, `Pod` — and a kind outside the
-  built-in set is reachable with `--group`/`--api-version`. `-o json|yaml`
-  emits `{object, events}`.
+  built-in set is reachable with `--group`/`--api-version` (both are
+  required, so a custom resource that does not serve `v1` fails with a clear
+  message rather than an empty read). `-o json|yaml` emits
+  `{object, events}`. Describing a Secret redacts its values to byte counts
+  and lists the keys, like `kubectl describe` does: the point of these
+  commands is to need a kubectl grant less often, not to make reading secret
+  material easier than kubectl makes it. Use `cluster get secrets <name> -o
+  yaml` when you actually want the values.
 - **`ankra cluster events --for <kind>/<name>`** scopes an event listing to a
   single object's `involvedObject` with a server-side field selector, rather
   than filtering a namespace-wide list by name. That is the difference
