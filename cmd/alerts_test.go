@@ -31,6 +31,7 @@ func alertsCommandTree() []*cobra.Command {
 		alertsRoutesUpdateCmd,
 		alertsRoutesDeleteCmd,
 		alertsRoutesTestCmd,
+		alertsRoutesPreviewCmd,
 	}
 }
 
