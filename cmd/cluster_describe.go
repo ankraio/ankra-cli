@@ -76,6 +76,7 @@ Examples:
 		if objectError != nil {
 			return objectError
 		}
+		redactSecretData(resolvedKind.kind, object)
 		events, eventsError := fetchEventsForObject(cluster.ID, resolvedKind.kind, name, namespace)
 		if eventsError != nil {
 			return eventsError
@@ -101,6 +102,36 @@ Examples:
 		renderDescribe(resolvedKind.kind, object, events)
 		return nil
 	},
+}
+
+// redactSecretData replaces a Secret's values with their byte lengths, in
+// place, before anything renders the object.
+//
+// kubectl describe redacts a Secret to key lengths for a reason, and this
+// command is pitched as the narrower alternative to handing out a kubectl
+// grant - it must not be an easier way to exfiltrate secret material than
+// the tool it replaces. `describe secret X -o json` would otherwise print
+// the full base64 payload to stdout, and from there into shell history and
+// CI logs. Reading a Secret's contents deliberately remains the job of
+// `cluster get secrets <name> -o yaml`, which is an explicit request for
+// them rather than a debugging verb.
+func redactSecretData(kind string, object map[string]interface{}) {
+	// The resolved kind is authoritative: a cached item is not guaranteed to
+	// carry its own kind field, so keying off the manifest could miss.
+	if kind != "Secret" && getNestedString(object, "kind") != "Secret" {
+		return
+	}
+	for _, field := range []string{"data", "stringData"} {
+		values, isMap := object[field].(map[string]interface{})
+		if !isMap {
+			continue
+		}
+		redacted := make(map[string]interface{}, len(values))
+		for key, value := range values {
+			redacted[key] = fmt.Sprintf("<redacted: %d bytes>", len(fmt.Sprintf("%v", value)))
+		}
+		object[field] = redacted
+	}
 }
 
 // fetchSingleResource reads exactly one named object. The resources/get
@@ -171,6 +202,7 @@ func renderDescribe(kind string, object map[string]interface{}, events []map[str
 
 	renderConditions(object)
 	renderContainerStatuses(object)
+	renderSecretKeys(object)
 	renderObjectEvents(events)
 }
 
@@ -323,6 +355,36 @@ func containerStateSummary(containerStatus map[string]interface{}, key string) (
 		return stateName, strings.Join(details, ": ")
 	}
 	return "", ""
+}
+
+// renderSecretKeys lists a Secret's keys and value sizes, never the values -
+// they are already redacted by the time this runs. "Is the mounted secret
+// present, and is it non-empty?" is one of the questions that used to need a
+// shell in the pod, and it is answerable without one.
+func renderSecretKeys(object map[string]interface{}) {
+	if getNestedString(object, "kind") != "Secret" {
+		return
+	}
+	for _, field := range []string{"data", "stringData"} {
+		values, isMap := object[field].(map[string]interface{})
+		if !isMap || len(values) == 0 {
+			continue
+		}
+		fmt.Printf("\n%s\n", text.Bold.Sprint("Data ("+field+")"))
+		keys := make([]string, 0, len(values))
+		for key := range values {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		secretTable := table.NewWriter()
+		secretTable.SetOutputMirror(os.Stdout)
+		secretTable.SetStyle(table.StyleRounded)
+		secretTable.AppendHeader(table.Row{"Key", "Value"})
+		for _, key := range keys {
+			secretTable.AppendRow(table.Row{key, values[key]})
+		}
+		secretTable.Render()
+	}
 }
 
 func renderObjectEvents(events []map[string]interface{}) {

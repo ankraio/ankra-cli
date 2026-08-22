@@ -461,13 +461,22 @@ func renderSingleResource(item interface{}, outputFormat string) error {
 	return nil
 }
 
-func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, outputFormat string, cfg kindConfig, fieldSelectors []client.FieldSelector, postFilter func([]interface{}) []interface{}) error {
+// resourceQuery carries the optional narrowing a kind command can apply.
+// Both members are nil for every command except events, and bundling them
+// keeps two same-shaped optional arguments off the call signature where they
+// could be transposed silently.
+type resourceQuery struct {
+	fieldSelectors []client.FieldSelector
+	postFilter     func([]interface{}) []interface{}
+}
+
+func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, outputFormat string, cfg kindConfig, query resourceQuery) error {
 	reqItem := client.ResourceRequestItem{
 		Kind:    cfg.kind,
 		Version: cfg.version,
 	}
-	if len(fieldSelectors) > 0 {
-		reqItem.FieldSelectors = fieldSelectors
+	if len(query.fieldSelectors) > 0 {
+		reqItem.FieldSelectors = query.fieldSelectors
 	}
 	if cfg.group != "" {
 		reqItem.Group = cfg.group
@@ -493,8 +502,8 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 	if len(response.ResourceResponses) > 0 {
 		items = response.ResourceResponses[0].Items
 	}
-	if postFilter != nil {
-		items = postFilter(items)
+	if query.postFilter != nil {
+		items = query.postFilter(items)
 		// Keep the structured envelope and the table showing the same set:
 		// a filter the caller asked for must not be visible in one and
 		// absent from the other.
@@ -582,19 +591,18 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 				namespace = ""
 			}
 
-			var fieldSelectors []client.FieldSelector
+			query := resourceQuery{}
 			if cfg.fieldSelectorsFor != nil {
 				var selectorError error
-				fieldSelectors, selectorError = cfg.fieldSelectorsFor(cmd)
+				query.fieldSelectors, selectorError = cfg.fieldSelectorsFor(cmd)
 				if selectorError != nil {
 					return selectorError
 				}
 			}
-			var postFilter func([]interface{}) []interface{}
 			if cfg.postFilter != nil {
-				postFilter = func(items []interface{}) []interface{} { return cfg.postFilter(items, cmd) }
+				query.postFilter = func(items []interface{}) []interface{} { return cfg.postFilter(items, cmd) }
 			}
-			return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, cfg, fieldSelectors, postFilter)
+			return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, cfg, query)
 		},
 	}
 	if cfg.registerFlags != nil {
@@ -642,7 +650,7 @@ var clusterPodsCmd = &cobra.Command{
 				kind:        "Pod",
 				version:     "v1",
 			}
-			return fetchAndRenderResources(cluster.ID, namespace, podName, "", outputFormat, podCfg, nil, nil)
+			return fetchAndRenderResources(cluster.ID, namespace, podName, "", outputFormat, podCfg, resourceQuery{})
 		}
 
 		if allNamespaces {
@@ -821,6 +829,10 @@ Examples:
 			follow = false
 		}
 		if previous {
+			if cmd.Flags().Changed("follow") && follow {
+				return withExitCode(exitUsage, errors.New(
+					"--previous reads a terminated container's log, which is closed and cannot be followed; drop --follow"))
+			}
 			follow = false
 		}
 
@@ -838,6 +850,11 @@ Examples:
 			return withExitCode(exitUsage, fmt.Errorf(
 				"following %d containers at once exceeds the limit of %d: narrow the selector or pass --follow=false",
 				len(targets), maxConcurrentLogFollows))
+		}
+		if !follow && len(targets) > maxBoundedLogTargets {
+			return withExitCode(exitUsage, fmt.Errorf(
+				"reading %d containers in one command exceeds the limit of %d: narrow the selector with -l, or pass --tail to bound each read",
+				len(targets), maxBoundedLogTargets))
 		}
 
 		opts := client.PodLogOptions{
@@ -966,7 +983,7 @@ Example:
 			},
 		}
 
-		return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, genericCfg, nil, nil)
+		return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, genericCfg, resourceQuery{})
 	},
 }
 

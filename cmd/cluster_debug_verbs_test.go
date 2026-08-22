@@ -1253,3 +1253,277 @@ func TestResolveK8sKindRejectsEmpty(t *testing.T) {
 		t.Fatal("an empty kind must fail")
 	}
 }
+
+// --- review findings ---
+
+// TestDescribeSecretRedactsItsValues is the regression test for the review's
+// one high-severity finding. This command is pitched as the narrower
+// alternative to handing out a kubectl grant, so it must not be an easier way
+// to read secret material than the tool it replaces. kubectl describe redacts
+// a Secret to key lengths; so does this, in the structured output too, which
+// is where the full base64 payload would otherwise land in CI logs.
+func TestDescribeSecretRedactsItsValues(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterDescribeCmd)
+	mock := newDebugVerbsMock()
+	mock.responses["Secret"] = client.ResourceResponseItem{
+		Items: []interface{}{objectMap(map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Secret",
+			"metadata":   map[string]interface{}{"name": "db", "namespace": "default"},
+			"data": map[string]interface{}{
+				"password": "c3VwZXItc2VjcmV0LXZhbHVl",
+			},
+			"stringData": map[string]interface{}{"token": "plaintext-token"},
+		})},
+	}
+	mock.responses["Event"] = client.ResourceResponseItem{Items: []interface{}{}}
+	setMockClient(t, mock)
+
+	for _, outputFormat := range []string{"table", "json", "yaml"} {
+		resetCommandFlags(t, clusterDescribeCmd)
+		output := captureStdout(t, func() {
+			if _, executeError := executeCommand("cluster", "describe", "secret", "db",
+				"-n", "default", "-o", outputFormat); executeError != nil {
+				t.Fatalf("describe secret -o %s failed: %v", outputFormat, executeError)
+			}
+		})
+		if strings.Contains(output, "c3VwZXItc2VjcmV0LXZhbHVl") {
+			t.Errorf("-o %s leaked the secret value:\n%s", outputFormat, output)
+		}
+		if strings.Contains(output, "plaintext-token") {
+			t.Errorf("-o %s leaked the stringData value:\n%s", outputFormat, output)
+		}
+		if !strings.Contains(output, "redacted") {
+			t.Errorf("-o %s should say the value was redacted:\n%s", outputFormat, output)
+		}
+		if !strings.Contains(output, "password") {
+			t.Errorf("-o %s should still name the keys:\n%s", outputFormat, output)
+		}
+	}
+}
+
+// TestTopRefusesSandboxDataThatIsNotFlaggedAsCached pins why the cache guard
+// checks the pointer rather than CacheMetadata.ServedFromCache. The platform
+// attaches cache metadata on three paths and the sandbox one sets
+// ServedFromCache false while still returning synthesised objects, so gating
+// on the flag would render a sandbox cluster's fabricated pods as live
+// measurements.
+func TestTopRefusesSandboxDataThatIsNotFlaggedAsCached(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterTopPodsCmd)
+	mock := newDebugVerbsMock()
+	mock.responses["PodMetrics"] = client.ResourceResponseItem{
+		CacheMetadata: &client.ResourceCacheMetadata{
+			ServedFromCache: false, SyncStatus: "sandbox",
+		},
+		Items: []interface{}{podMetrics("fabricated", "100m", "64Mi")},
+	}
+	setMockClient(t, mock)
+
+	_, executeError := executeCommand("cluster", "top", "pods", "-n", "default")
+	if executeError == nil {
+		t.Fatal("sandbox data must not render as a live measurement even though ServedFromCache is false")
+	}
+	if !strings.Contains(executeError.Error(), "sandbox") {
+		t.Errorf("the refusal should name the sandbox, got %q", executeError.Error())
+	}
+}
+
+func TestLogsPreviousRejectsAnExplicitFollow(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterLogsCmd)
+	mock := newDebugVerbsMock()
+	setMockClient(t, mock)
+
+	_, executeError := executeCommand("cluster", "logs", "web-1", "-n", "default", "--previous", "--follow=true")
+	if executeError == nil {
+		t.Fatal("--previous with an explicit --follow=true must be rejected, not silently overridden")
+	}
+	if got := exitCodeFor(executeError); got != exitUsage {
+		t.Errorf("should exit %d, got %d", exitUsage, got)
+	}
+	if len(mock.logOptions) != 0 {
+		t.Error("the contradiction must be caught before any API call")
+	}
+}
+
+func TestLogsPreviousStillWorksWithTheDefaultFollow(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterLogsCmd)
+	mock := newDebugVerbsMock()
+	mock.logOutput["web-1"] = "panic\n"
+	setMockClient(t, mock)
+
+	// --follow defaults to true in this CLI, so rejecting the explicit form
+	// must not reject the ordinary one.
+	if _, executeError := executeCommand("cluster", "logs", "web-1", "-n", "default", "--previous"); executeError != nil {
+		t.Fatalf("--previous without an explicit --follow must work: %v", executeError)
+	}
+}
+
+func TestLogsBoundedReadIsAlsoCapped(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterLogsCmd)
+	mock := newDebugVerbsMock()
+	pods := []interface{}{}
+	for index := 0; index < maxBoundedLogTargets+1; index++ {
+		pods = append(pods, objectMap(map[string]interface{}{
+			"metadata": map[string]interface{}{"name": fmt.Sprintf("web-%03d", index)},
+			"spec": map[string]interface{}{
+				"containers": []interface{}{map[string]interface{}{"name": "web"}},
+			},
+		}))
+	}
+	mock.responses["Pod"] = client.ResourceResponseItem{Items: pods}
+	setMockClient(t, mock)
+
+	// The cap used to apply only to following reads, so a selector matching a
+	// busy namespace fanned out unbounded - and -o json buffered all of it.
+	_, executeError := executeCommand("cluster", "logs", "-l", "app=web", "-n", "default", "--follow=false")
+	if executeError == nil {
+		t.Fatal("an unbounded bounded-mode fan-out must be refused")
+	}
+	if got := exitCodeFor(executeError); got != exitUsage {
+		t.Errorf("should exit %d, got %d", exitUsage, got)
+	}
+	if len(mock.logOptions) != 0 {
+		t.Error("no stream should be opened once the cap is exceeded")
+	}
+}
+
+func TestTopNodesRefusesCachedCapacityRatherThanPairingItWithLiveUsage(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterTopNodesCmd)
+	mock := newDebugVerbsMock()
+	mock.responses["NodeMetrics"] = client.ResourceResponseItem{
+		Items: []interface{}{objectMap(map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "worker-1"},
+			"usage":    map[string]interface{}{"cpu": "500m", "memory": "1Gi"},
+		})},
+	}
+	// Nodes are a cached kind, so the capacity read has to ask for a live
+	// answer; a cached one must drop the percentage rather than pair a live
+	// measurement with a stale denominator.
+	mock.responses["Node"] = client.ResourceResponseItem{
+		CacheMetadata: &client.ResourceCacheMetadata{
+			ServedFromCache: true, SyncStatus: "cluster_offline",
+		},
+		Items: []interface{}{objectMap(map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "worker-1"},
+			"status": map[string]interface{}{
+				"allocatable": map[string]interface{}{"cpu": "2", "memory": "4Gi"},
+			},
+		})},
+	}
+	setMockClient(t, mock)
+
+	output := captureStdout(t, func() {
+		if _, executeError := executeCommand("cluster", "top", "nodes"); executeError != nil {
+			t.Fatalf("top nodes failed: %v", executeError)
+		}
+	})
+	nodeRow := ""
+	for _, line := range strings.Split(stripANSICodes(output), "\n") {
+		if strings.Contains(line, "worker-1") {
+			nodeRow = line
+		}
+	}
+	if strings.Contains(nodeRow, "%") {
+		t.Errorf("a cached capacity must not become a percentage: %q", nodeRow)
+	}
+	if !strings.Contains(nodeRow, "500m") {
+		t.Errorf("the live measurement should still render: %q", nodeRow)
+	}
+	// The capacity read must have asked for a live answer in the first place.
+	sawSkipCacheNodeRead := false
+	for index, request := range mock.requests {
+		if request.Kind == "Node" && mock.skipCacheSeen[index] {
+			sawSkipCacheNodeRead = true
+		}
+	}
+	if !sawSkipCacheNodeRead {
+		t.Error("the node capacity read must set skip_cache, like the measurement it divides")
+	}
+}
+
+func TestResolveK8sKindKeepsAnIrregularPluralWhenGroupIsOverridden(t *testing.T) {
+	// Clearing the explicit plural on --group handed the platform's heuristic
+	// kinds it cannot pluralise from the name alone, which 404s against a
+	// real object. The plural belongs to the kind, not to the group.
+	for _, spelling := range []string{"ingress", "endpoints", "networkpolicy", "storageclass"} {
+		withoutOverride, _ := resolveK8sKind(spelling, "", "")
+		withOverride, resolveError := resolveK8sKind(spelling, "example.com", "")
+		if resolveError != nil {
+			t.Errorf("resolveK8sKind(%q, group) failed: %v", spelling, resolveError)
+			continue
+		}
+		if withOverride.resource != withoutOverride.resource {
+			t.Errorf("resolveK8sKind(%q) lost its plural under --group: %q vs %q",
+				spelling, withOverride.resource, withoutOverride.resource)
+		}
+		if withOverride.group != "example.com" {
+			t.Errorf("resolveK8sKind(%q) should still take the group override", spelling)
+		}
+	}
+}
+
+func TestResolveK8sKindRequiresBothOverridesForAnUnknownKind(t *testing.T) {
+	// Defaulting an unknown CRD to v1 produces a confusing empty read when the
+	// resource does not serve v1, rather than a clear usage message.
+	if _, resolveError := resolveK8sKind("Widget", "example.com", ""); resolveError == nil {
+		t.Fatal("--group without --api-version must be a usage error for an unknown kind")
+	} else if got := exitCodeFor(resolveError); got != exitUsage {
+		t.Errorf("should exit %d, got %d", exitUsage, got)
+	}
+	if _, resolveError := resolveK8sKind("Widget", "", "v1alpha1"); resolveError == nil {
+		t.Fatal("--api-version without --group must be a usage error for an unknown kind")
+	}
+	if _, resolveError := resolveK8sKind("Widget", "example.com", "v1alpha1"); resolveError != nil {
+		t.Errorf("both overrides together must resolve: %v", resolveError)
+	}
+}
+
+func TestParseKubernetesQuantityRejectsAnUnknownUnit(t *testing.T) {
+	// The review suggested a bare number could fall through for an unknown
+	// unit. ParseFloat rejects the trailing garbage, so it cannot.
+	for _, malformed := range []string{"100x", "12abc", "5Gib", "1..2", "--3"} {
+		if parsed, isValid := parseKubernetesQuantity(malformed); isValid {
+			t.Errorf("parseKubernetesQuantity(%q) = %v, want rejected", malformed, parsed)
+		}
+	}
+}
+
+func TestGetEventsNamedLookupFilteredOutDegradesToAnEmptyListing(t *testing.T) {
+	// The review asked whether a postFilter dropping the only match confuses
+	// the named-lookup path. It does not: the listing renderer reports that
+	// nothing matched, which is exactly what happened.
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, getEventsCommand(t))
+	mock := newDebugVerbsMock()
+	mock.responses["Event"] = client.ResourceResponseItem{
+		Items: []interface{}{objectMap(map[string]interface{}{
+			"type": "Normal", "reason": "Pulled",
+			"metadata":       map[string]interface{}{"name": "web-1.17abc"},
+			"involvedObject": map[string]interface{}{"kind": "Pod", "name": "web-1"},
+		})},
+	}
+	setMockClient(t, mock)
+
+	output := captureStdout(t, func() {
+		if _, executeError := executeCommand("cluster", "get", "events", "web-1.17abc",
+			"-n", "default", "--type", "Warning"); executeError != nil {
+			t.Fatalf("get events <name> --type failed: %v", executeError)
+		}
+	})
+	// A named get lookup that matches nothing renders the empty envelope,
+	// which is what every other named lookup in the get family already does
+	// when the object is absent - the filter reaches the same place by a
+	// different route rather than a new confusing one.
+	if strings.Contains(output, "Pulled") {
+		t.Errorf("the filtered-out event must not render:\n%s", output)
+	}
+	if !strings.Contains(output, "items: []") {
+		t.Errorf("the empty envelope should still be well-formed, got:\n%s", output)
+	}
+}

@@ -216,6 +216,11 @@ func fetchLiveMetrics(clusterID string, kind string, resource string, namespace 
 			"the cluster could not answer the metrics read (status %q): check that metrics-server is healthy and that the agent can reach the aggregated API",
 			responseItem.Status)
 	}
+	// Deliberately the pointer, not CacheMetadata.ServedFromCache: the
+	// platform attaches cache metadata on three paths, and the sandbox one
+	// sets ServedFromCache false while still returning synthesised objects.
+	// Gating on the flag would let a sandbox cluster's fabricated pods render
+	// as live measurements.
 	if responseItem.CacheMetadata != nil {
 		if responseItem.CacheMetadata.SyncStatus == "sandbox" {
 			return nil, fmt.Errorf(
@@ -465,12 +470,22 @@ type nodeCapacity struct {
 // nodeAllocatable reads each node's allocatable capacity so the node view
 // can show percentages. A failure here is not fatal: the percentage columns
 // render as "-" rather than the command failing over a decoration.
+//
+// Nodes are one of the kinds the platform keeps in its resource cache, so
+// this read has to ask for a live answer explicitly - otherwise a percentage
+// would pair a live measurement with a cached capacity, which is the kind of
+// half-fresh number that reads as authoritative and is not. A cached answer
+// arriving anyway drops the capacities, and the column renders "-".
 func nodeAllocatable(clusterID string) map[string]nodeCapacity {
 	capacities := map[string]nodeCapacity{}
 	response, requestError := apiClient.GetResources(clusterID, client.GetResourcesRequest{
 		ResourceRequests: []client.ResourceRequestItem{{Kind: "Node", Version: "v1"}},
+		SkipCache:        true,
 	})
 	if requestError != nil || len(response.ResourceResponses) == 0 {
+		return capacities
+	}
+	if response.ResourceResponses[0].CacheMetadata != nil {
 		return capacities
 	}
 	for _, item := range response.ResourceResponses[0].Items {

@@ -129,9 +129,9 @@ func resolveK8sKind(rawKind string, groupOverride string, versionOverride string
 	}
 	resolved, isKnown := builtinK8sKinds[singularK8sKindKey(rawKind)]
 	if !isKnown {
-		if groupOverride == "" && versionOverride == "" {
+		if groupOverride == "" || versionOverride == "" {
 			return k8sKind{}, withExitCode(exitUsage, fmt.Errorf(
-				"unknown resource kind %q: pass --group and --api-version for a kind outside %s "+
+				"unknown resource kind %q: pass both --group and --api-version for a kind outside %s "+
 					"(spell it as the CamelCase singular, e.g. Certificate, not certificates)",
 				rawKind, strings.Join(knownK8sKindNames(), ", ")))
 		}
@@ -145,7 +145,14 @@ func resolveK8sKind(rawKind string, groupOverride string, versionOverride string
 	}
 	if groupOverride != "" {
 		resolved.group = groupOverride
-		resolved.resource = ""
+		// The explicit plural belongs to the kind, not to the group, so a
+		// matched builtin keeps it. Discarding it would hand the platform's
+		// heuristic kinds it cannot pluralise from the name alone
+		// (Endpoints, Ingress, NetworkPolicy, StorageClass) and 404 against
+		// an object that exists.
+		if !isKnown {
+			resolved.resource = ""
+		}
 	}
 	if versionOverride != "" {
 		resolved.version = versionOverride

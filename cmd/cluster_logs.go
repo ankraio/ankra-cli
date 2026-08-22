@@ -24,6 +24,14 @@ import (
 // than quietly truncating the match.
 const maxConcurrentLogFollows = 5
 
+// maxBoundedLogTargets caps a non-following multi-target read. Those run
+// sequentially, and the -o json|yaml path buffers every target's output
+// before it can encode, so an unnarrowed selector in a busy namespace would
+// otherwise be both very slow and unbounded in memory. The limit is high
+// enough for any realistic Deployment and low enough that hitting it means
+// the selector, not the CLI, is the thing to fix.
+const maxBoundedLogTargets = 50
+
 // logTarget is one pod/container pair to read.
 type logTarget struct {
 	podName       string
