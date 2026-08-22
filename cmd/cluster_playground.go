@@ -8,7 +8,7 @@ import (
 
 var clusterPlaygroundCmd = &cobra.Command{
 	Use:   "playground",
-	Short: "Create and inspect your organisation's playground",
+	Short: "Create, inspect and destroy your organisation's playground",
 	Long: "The playground is a real, writable Kubernetes environment Ankra provisions for you - " +
 		"a virtual cluster on Ankra's own infrastructure, with the agent already installed. " +
 		"Every organisation may hold one; it expires after a period of inactivity.",
@@ -51,8 +51,33 @@ var clusterPlaygroundStatusCmd = &cobra.Command{
 	},
 }
 
+var clusterPlaygroundDestroyCmd = &cobra.Command{
+	Use:   "destroy <cluster_id>",
+	Short: "Destroy your organisation's playground",
+	Long: "Tear the organisation's playground down. Teardown runs in the background: poll " +
+		"`ankra cluster playground status <cluster_id>` until the phase reaches removed.\n\n" +
+		"This is also how a refused `ankra org domain set` is cleared. A playground publishes a " +
+		"wildcard DNS record in the organisation's zone, and that record is reconciled rather " +
+		"than written once - deleting it with `ankra org dns delete` only lasts until the " +
+		"provisioner's next pass. Destroying the environment is what removes it for good.",
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		result, err := apiClient.DestroyPlayground(args[0])
+		if err != nil {
+			return fmt.Errorf("destroying the playground: %w", err)
+		}
+		// cmd.OutOrStdout() rather than fmt.Printf: the destroy verb is the
+		// one this group's output is asserted on, and a bare Printf writes
+		// past the writer a test sets.
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Cluster ID: %s\n", result.ClusterID)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Phase:      %s\n", result.Phase)
+		return nil
+	},
+}
+
 func init() {
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundCreateCmd)
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundStatusCmd)
+	clusterPlaygroundCmd.AddCommand(clusterPlaygroundDestroyCmd)
 	clusterCmd.AddCommand(clusterPlaygroundCmd)
 }

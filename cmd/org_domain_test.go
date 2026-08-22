@@ -306,3 +306,118 @@ func TestRunOrgDomainSet_HumanRefusalNamesTheTruncation(t *testing.T) {
 		t.Errorf("a truncated list must say so:\n%s", executeError.Error())
 	}
 }
+
+func TestRunOrgDomainSet_SeparatesPlatformOwnedRecordsAndNamesThePlayground(t *testing.T) {
+	// PLA-771: an admin was told to delete a record that the playground
+	// provisioner wrote back two minutes later. The refusal has to say which
+	// records deleting actually clears, and name the environment that has to
+	// go for the rest.
+	mock := &orgDomainMock{
+		domain: client.OrganisationDomain{DNSRootDomainDefault: "ankra.cc"},
+		setError: &client.OrganisationDomainBlockedError{
+			Detail: "Changing dns_root_domain requires removing the organisation's cluster DNS zones and DNS records first. Ankra then re-creates your zone under the new domain automatically.",
+			DnsRecords: []client.OrganisationDomainBlockingDnsRecord{
+				{ID: "r-1", Name: "chat.org1234.ankra.cc", RecordType: "A", State: "active", CreatedBy: "mark@example.com"},
+				{ID: "r-2", Name: "*.smdjc5s3hx", RecordType: "A", State: "active", CreatedBy: "playground_provisioner"},
+			},
+			Playgrounds: []client.OrganisationDomainBlockingPlayground{
+				{ClusterID: "pg-1", ClusterName: "playground-smartoptics", Phase: "ready"},
+			},
+		},
+	}
+	setMockClient(t, mock)
+	resetOrgDomainFlags(t)
+	output := new(bytes.Buffer)
+	rootCmd.SetOut(output)
+	rootCmd.SetErr(output)
+	rootCmd.SetArgs([]string{"org", "domain", "set", "smartoptics.dev"})
+	if executeError := rootCmd.Execute(); executeError == nil {
+		t.Fatalf("expected a refusal, output: %s", output.String())
+	} else {
+		message := executeError.Error()
+		for _, expected := range []string{
+			"DNS records still under the current root:",
+			"chat.org1234.ankra.cc",
+			"ankra org dns delete <record>",
+			"DNS records Ankra owns and re-creates:",
+			"*.smdjc5s3hx",
+			"created by playground_provisioner",
+			"Playground environments publishing those records:",
+			"playground-smartoptics",
+			"ankra cluster playground destroy <cluster_id>",
+		} {
+			if !strings.Contains(message, expected) {
+				t.Errorf("refusal message missing %q:\n%s", expected, message)
+			}
+		}
+		// The admin's own record must not be listed under the section that
+		// says deleting is futile, and the platform's must not be listed
+		// under the one that says to delete it. Both offsets are checked
+		// before slicing: strings.Index answers -1 for a missing header, and
+		// the loop above only calls t.Errorf, so a regression that drops a
+		// header would reach this line and panic instead of reporting.
+		adminStart := strings.Index(message, "DNS records still under the current root:")
+		platformStart := strings.Index(message, "DNS records Ankra owns and re-creates:")
+		if adminStart < 0 || platformStart < 0 || adminStart > platformStart {
+			t.Fatalf("expected both record sections in order, got adminStart=%d platformStart=%d:\n%s",
+				adminStart, platformStart, message)
+		}
+		if strings.Contains(message[adminStart:platformStart], "*.smdjc5s3hx") {
+			t.Errorf("a platform-owned record was listed as deletable:\n%s", message)
+		}
+		if strings.Contains(message[platformStart:], "chat.org1234.ankra.cc") {
+			t.Errorf("an admin's own record was listed as platform-owned:\n%s", message)
+		}
+	}
+}
+
+func TestRunOrgDomainSet_NamesTheExternalDNSInteractionOnBlockingZones(t *testing.T) {
+	// Ask 1 of PLA-771: the refusal must explain what the clusters it lists
+	// are going to do about it, and that their labels survive the switch.
+	mock := &orgDomainMock{
+		domain: client.OrganisationDomain{DNSRootDomainDefault: "ankra.cc"},
+		setError: &client.OrganisationDomainBlockedError{
+			Detail: "Changing dns_root_domain requires removing the organisation's cluster DNS zones and DNS records first. Ankra then re-creates your zone under the new domain automatically.",
+			ClusterZones: []client.OrganisationDomainBlockingClusterZone{
+				{ClusterID: "c-1", ClusterName: "so-development", FQDN: "axmndle4sl.qh4thi04cs.ankra.cc", State: "active"},
+			},
+		},
+	}
+	setMockClient(t, mock)
+	resetOrgDomainFlags(t)
+	output := new(bytes.Buffer)
+	rootCmd.SetOut(output)
+	rootCmd.SetErr(output)
+	rootCmd.SetArgs([]string{"org", "domain", "set", "smartoptics.dev"})
+	if executeError := rootCmd.Execute(); executeError == nil {
+		t.Fatalf("expected a refusal, output: %s", output.String())
+	} else {
+		message := executeError.Error()
+		for _, expected := range []string{
+			"so-development", "axmndle4sl.qh4thi04cs.ankra.cc",
+			"external-dns", "held", "--txt-owner-id", "never re-labels",
+		} {
+			if !strings.Contains(message, expected) {
+				t.Errorf("refusal message missing %q:\n%s", expected, message)
+			}
+		}
+	}
+}
+
+func TestOrganisationDomainBlockedMessage_TreatsAnUnknownWriterAsTheAdmins(t *testing.T) {
+	// An older backend does not send created_by. Reading the empty string as
+	// "platform-owned" would tell admins their own records cannot be deleted.
+	blocked := &client.OrganisationDomainBlockedError{
+		Detail: "refused",
+		DnsRecords: []client.OrganisationDomainBlockingDnsRecord{
+			{ID: "r-1", Name: "legacy.org1234.ankra.cc", RecordType: "CNAME", State: "active"},
+		},
+	}
+	message := organisationDomainBlockedMessage(blocked)
+	if !strings.Contains(message, "ankra org dns delete <record>") {
+		t.Errorf("a record with no writer must stay deletable:\n%s", message)
+	}
+	if strings.Contains(message, "DNS records Ankra owns and re-creates:") {
+		t.Errorf("a record with no writer must not be called platform-owned:\n%s", message)
+	}
+}

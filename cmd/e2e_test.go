@@ -1227,6 +1227,10 @@ func (m baseMock) GetPlaygroundStatus(string) (*client.PlaygroundStatus, error) 
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) DestroyPlayground(string) (*client.DestroyPlaygroundResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListOvhNodeGroups(clusterID string) (*client.NodeGroupListResult, error) {
 	return nil, errors.New("not implemented")
 }

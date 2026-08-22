@@ -163,8 +163,11 @@ func TestRunClusterDomain_StructuredOutputStaysParseable(t *testing.T) {
 }
 
 func TestRunClusterDomain_RemoveDoesNotEmitTheEnableHint(t *testing.T) {
-	// A backend that answered a removal with state "none" must not send the
-	// operator back to --enable.
+	// A backend that answered a removal with state "none" must not answer it
+	// with the empty-cluster hint - "this cluster has no public domain,
+	// create one" reads as though the removal did nothing. Naming --enable as
+	// the way back is a different statement and belongs there: the removal is
+	// held, and that is how the hold is withdrawn.
 	mock := &clusterDomainMock{}
 	mock.disableState = clusterDomainStateNone
 
@@ -172,7 +175,29 @@ func TestRunClusterDomain_RemoveDoesNotEmitTheEnableHint(t *testing.T) {
 	if executeError != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
 	}
-	if strings.Contains(output, "--enable") {
-		t.Errorf("the removal path emitted the enable hint:\n%s", output)
+	if strings.Contains(output, "has no public domain") {
+		t.Errorf("the removal path emitted the empty-cluster hint:\n%s", output)
+	}
+	if !strings.Contains(output, "held") {
+		t.Errorf("the removal path must say the removal is held:\n%s", output)
+	}
+}
+
+func TestRunClusterDomain_ReportsAHeldRemoval(t *testing.T) {
+	// The window PLA-771 was watched from: the teardown has finished, the
+	// zone row is gone, and the operator is looking for the difference
+	// between "removed and staying removed" and "removed a moment ago".
+	mock := &clusterDomainMock{zone: client.ClusterDNSZoneResponse{
+		Success: true, State: clusterDomainStateNone, OptedOut: true}}
+
+	output, executeError := runClusterDomain(t, mock, domainTestClusterID)
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "Opted out: yes") {
+		t.Errorf("a held removal must report the hold:\n%s", output)
+	}
+	if strings.Contains(output, "has no public domain") {
+		t.Errorf("a held removal is not an empty cluster:\n%s", output)
 	}
 }

@@ -45,3 +45,30 @@ func (c *Client) GetPlaygroundStatus(clusterID string) (*PlaygroundStatus, error
 	}
 	return &status, nil
 }
+
+// DestroyPlaygroundResult is the DELETE body: the phase the environment
+// holds after the call, which is `deprovisioning` once teardown is
+// scheduled, or the terminal phase it had already reached.
+type DestroyPlaygroundResult struct {
+	ClusterID string `json:"cluster_id"`
+	Phase     string `json:"phase"`
+}
+
+// DestroyPlayground tears the organisation's playground down. Idempotent -
+// an environment already deprovisioning or removed answers its current
+// phase rather than an error, so a retry after a dropped response is not a
+// failure.
+//
+// This is also the way out of a refused `ankra org domain set`: a live
+// playground's wildcard DNS record is reconciled, so it is re-created every
+// time an admin deletes it, and destroying the environment is what actually
+// clears that blocker.
+func (c *Client) DestroyPlayground(clusterID string) (*DestroyPlaygroundResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/playground/%s",
+		c.BaseURL, neturl.PathEscape(clusterID))
+	var result DestroyPlaygroundResult
+	if err := c.deleteCSRFJSON(url, &result, "destroy playground"); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
