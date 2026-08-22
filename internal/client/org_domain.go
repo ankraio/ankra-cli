@@ -47,18 +47,25 @@ type OrganisationDomainBlockingDnsRecord struct {
 // OrganisationDomainBlockedError is the backend's refusal of a root-domain
 // switch, with the exact rows that have to be cleared first. Callers use
 // errors.As to render the list instead of the message alone.
+//
+// The Truncated flags mean the backend capped that list and more blockers
+// exist, so clearing everything listed will not be enough on its own.
 type OrganisationDomainBlockedError struct {
-	Detail       string
-	ClusterZones []OrganisationDomainBlockingClusterZone
-	DnsRecords   []OrganisationDomainBlockingDnsRecord
+	Detail                string
+	ClusterZones          []OrganisationDomainBlockingClusterZone
+	ClusterZonesTruncated bool
+	DnsRecords            []OrganisationDomainBlockingDnsRecord
+	DnsRecordsTruncated   bool
 }
 
 func (e *OrganisationDomainBlockedError) Error() string { return e.Detail }
 
 type organisationDomainRefusal struct {
-	Detail               string                                  `json:"detail"`
-	BlockingClusterZones []OrganisationDomainBlockingClusterZone `json:"blocking_cluster_zones"`
-	BlockingDnsRecords   []OrganisationDomainBlockingDnsRecord   `json:"blocking_dns_records"`
+	Detail                        string                                  `json:"detail"`
+	BlockingClusterZones          []OrganisationDomainBlockingClusterZone `json:"blocking_cluster_zones"`
+	BlockingClusterZonesTruncated bool                                    `json:"blocking_cluster_zones_truncated"`
+	BlockingDnsRecords            []OrganisationDomainBlockingDnsRecord   `json:"blocking_dns_records"`
+	BlockingDnsRecordsTruncated   bool                                    `json:"blocking_dns_records_truncated"`
 }
 
 type organisationDomainSettings struct {
@@ -148,9 +155,11 @@ func (c *Client) doOrganisationDomainRequest(ctx context.Context, method string,
 		if unmarshalError := json.Unmarshal(responseBody, &refusal); unmarshalError == nil && refusal.Detail != "" {
 			if len(refusal.BlockingClusterZones) > 0 || len(refusal.BlockingDnsRecords) > 0 {
 				return nil, &OrganisationDomainBlockedError{
-					Detail:       refusal.Detail,
-					ClusterZones: refusal.BlockingClusterZones,
-					DnsRecords:   refusal.BlockingDnsRecords,
+					Detail:                refusal.Detail,
+					ClusterZones:          refusal.BlockingClusterZones,
+					ClusterZonesTruncated: refusal.BlockingClusterZonesTruncated,
+					DnsRecords:            refusal.BlockingDnsRecords,
+					DnsRecordsTruncated:   refusal.BlockingDnsRecordsTruncated,
 				}
 			}
 			return nil, errors.New(refusal.Detail)

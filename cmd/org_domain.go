@@ -96,6 +96,17 @@ still live under the old root; the refusal lists them.`,
 		if err != nil {
 			var blocked *client.OrganisationDomainBlockedError
 			if errors.As(err, &blocked) {
+				// A refused switch is the one failure whose payload a script
+				// wants: with -o json|yaml the blocker inventory goes to
+				// stdout in the requested format and the error stays short,
+				// so structured output is still parseable. The exit code is
+				// non-zero either way.
+				if out == outputJSON || out == outputYAML {
+					if renderError := renderOrganisationDomainBlocked(cmd, blocked, out); renderError != nil {
+						return renderError
+					}
+					return withExitCode(exitError, errors.New("the organisation domain was not changed"))
+				}
 				return withExitCode(exitError, errors.New(organisationDomainBlockedMessage(blocked)))
 			}
 			return fmt.Errorf("set organisation domain: %w", err)
@@ -105,6 +116,48 @@ still live under the old root; the refusal lists them.`,
 }
 
 var orgDomainUseDefault bool
+
+// organisationDomainBlockedDocument is the machine-readable rendering of a
+// refused switch: the same members the backend sent, so a script reading
+// -o json|yaml sees the blocker inventory rather than an unparseable error
+// string.
+type organisationDomainBlockedDocument struct {
+	Detail                        string                                         `json:"detail" yaml:"detail"`
+	BlockingClusterZones          []client.OrganisationDomainBlockingClusterZone `json:"blocking_cluster_zones" yaml:"blocking_cluster_zones"`
+	BlockingClusterZonesTruncated bool                                           `json:"blocking_cluster_zones_truncated,omitempty" yaml:"blocking_cluster_zones_truncated,omitempty"`
+	BlockingDnsRecords            []client.OrganisationDomainBlockingDnsRecord   `json:"blocking_dns_records" yaml:"blocking_dns_records"`
+	BlockingDnsRecordsTruncated   bool                                           `json:"blocking_dns_records_truncated,omitempty" yaml:"blocking_dns_records_truncated,omitempty"`
+}
+
+// renderOrganisationDomainBlocked writes the refusal inventory to stdout in
+// the requested structured format.
+func renderOrganisationDomainBlocked(cmd *cobra.Command, blocked *client.OrganisationDomainBlockedError, format outputFormat) error {
+	document := organisationDomainBlockedDocument{
+		Detail:                        blocked.Detail,
+		BlockingClusterZones:          blocked.ClusterZones,
+		BlockingClusterZonesTruncated: blocked.ClusterZonesTruncated,
+		BlockingDnsRecords:            blocked.DnsRecords,
+		BlockingDnsRecordsTruncated:   blocked.DnsRecordsTruncated,
+	}
+	if document.BlockingClusterZones == nil {
+		document.BlockingClusterZones = []client.OrganisationDomainBlockingClusterZone{}
+	}
+	if document.BlockingDnsRecords == nil {
+		document.BlockingDnsRecords = []client.OrganisationDomainBlockingDnsRecord{}
+	}
+	switch format {
+	case outputJSON:
+		encoder := json.NewEncoder(cmd.OutOrStdout())
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(document)
+	case outputYAML:
+		encoder := yaml.NewEncoder(cmd.OutOrStdout())
+		encoder.SetIndent(2)
+		defer func() { _ = encoder.Close() }()
+		return encoder.Encode(document)
+	}
+	return nil
+}
 
 // organisationDomainBlockedMessage turns the backend's structured refusal
 // into an actionable error: the refusal text, every blocking cluster zone and
@@ -120,12 +173,18 @@ func organisationDomainBlockedMessage(blocked *client.OrganisationDomainBlockedE
 			}
 			message += fmt.Sprintf("\n  %s  %s  (%s)", clusterName, zone.FQDN, zone.State)
 		}
+		if blocked.ClusterZonesTruncated {
+			message += "\n  ... and more; run 'ankra org dns zones' for the full list."
+		}
 		message += "\n  Remove each with: ankra cluster domain <cluster> --remove"
 	}
 	if len(blocked.DnsRecords) > 0 {
 		message += "\n\nDNS records still under the current root:"
 		for _, record := range blocked.DnsRecords {
 			message += fmt.Sprintf("\n  %s  %s  (%s)", record.RecordType, record.Name, record.State)
+		}
+		if blocked.DnsRecordsTruncated {
+			message += "\n  ... and more; run 'ankra org dns list' for the full list."
 		}
 		message += "\n  Remove each with: ankra org dns delete <record>"
 	}
