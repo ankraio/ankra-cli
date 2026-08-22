@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -313,8 +314,40 @@ var stackProfilesGetCmd = &cobra.Command{
 			parametersTable.AppendRow(table.Row{parameter.Name, parameter.Type, required, defaultValue, description})
 		}
 		parametersTable.Render()
+		printParameterChoices(parameters)
 		return nil
 	},
+}
+
+// printParameterChoices lists, for every parameter that offers choices, what
+// each choice sets on the other parameters - so a reader of `get` can tell
+// that `--set model_size=32b` also moves the model id and the context
+// length before they bind anything.
+func printParameterChoices(parameters []client.StackProfileParameter) {
+	for _, parameter := range parameters {
+		if len(parameter.Options) == 0 {
+			continue
+		}
+		fmt.Printf("\nChoices for %s (--set %s=<value>):\n", parameter.Name, parameter.Name)
+		for _, option := range parameter.Options {
+			label := option.Value
+			if option.Title != nil && *option.Title != "" && *option.Title != option.Value {
+				label = fmt.Sprintf("%s  %s", option.Value, *option.Title)
+			}
+			fmt.Printf("  %s\n", label)
+			if option.Description != nil && *option.Description != "" {
+				fmt.Printf("    %s\n", *option.Description)
+			}
+			targets := make([]string, 0, len(option.Sets))
+			for target := range option.Sets {
+				targets = append(targets, target)
+			}
+			sort.Strings(targets)
+			for _, target := range targets {
+				fmt.Printf("    sets %s=%s\n", target, option.Sets[target])
+			}
+		}
+	}
 }
 
 var stackProfilesApplyCmd = &cobra.Command{
