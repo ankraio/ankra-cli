@@ -417,3 +417,34 @@ func TestDeleteSecretSlot_DeletesBySlotID(t *testing.T) {
 		t.Errorf("deleted = false, want true")
 	}
 }
+
+func TestDeleteMCPServer_AcceptsAnEmpty204Response(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}
+	testClient := newTestClient(t, handler)
+
+	result, deleteError := testClient.DeleteMCPServer(context.Background(),
+		"11111111-2222-3333-4444-555555555555")
+	if deleteError != nil {
+		t.Fatalf("DeleteMCPServer: %v, want an empty 204 to be success", deleteError)
+	}
+	if result == nil || result.ServerID != "" || result.Status != "" {
+		t.Errorf("result = %+v, want a zero-valued acknowledgement for an empty body", result)
+	}
+}
+
+func TestDeleteSecretSlot_AcceptsAnEmpty204Response(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}
+	testClient := newTestClient(t, handler)
+
+	result, deleteError := testClient.DeleteSecretSlot(context.Background(), "slot-1")
+	if deleteError != nil {
+		t.Fatalf("DeleteSecretSlot: %v, want an empty 204 to be success", deleteError)
+	}
+	if result == nil || result.Deleted {
+		t.Errorf("result = %+v, want a zero-valued acknowledgement for an empty body", result)
+	}
+}

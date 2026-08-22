@@ -186,15 +186,22 @@ non-secret values only; the backend refuses plaintext under
 sensitive-looking names). --secret-header stores the value in an
 organisation secret slot labeled "<server-name> <Header>" and registers the
 server with the slot's "${SECRET_SLOT:<id>}" sentinel, so the secret never
-lands in the server record. Pass the value inline (--secret-header
-'Authorization=Bearer abc') or pass only the header name to be prompted with
-hidden input. The catalog documents the exact value form each curated
-provider expects.
+lands in the server record. Prefer passing only the header name
+(--secret-header Authorization) to be prompted with hidden input, or pipe
+the value on stdin - the inline Key=Value form works but leaves the secret
+in your shell history and visible in process listings. The catalog
+documents the exact value form each curated provider expects. If a later
+step of the registration fails, slots already created for it are removed
+again so no secret material is left orphaned.
 
 With --adapter and no --allowed-tools, the allowed-tools list is seeded from
 the adapter's recommended tools. Servers start enabled unless --disabled is
 given, and --cluster (repeatable) restricts which clusters' agent runs may
-use the server.`,
+use the server.
+
+--url is required for every transport. For --transport stdio the platform
+stores the value as the server's identifier only and never dials it, so a
+descriptive placeholder such as cmd://<binary-name> is expected there.`,
 	Example: `  ankra org mcp-servers add sentry --adapter sentry --url https://mcp.sentry.dev/mcp \
     --secret-header Authorization
   ankra org mcp-servers add internal-tools --url https://mcp.example.internal/sse \
@@ -233,6 +240,16 @@ use the server.`,
 			}
 			env[key] = value
 		}
+		// Secret slots created for this registration are tracked so a later
+		// failure (another slot, the catalog fetch, the registration itself)
+		// does not orphan slots holding real secret material.
+		var createdSlotIDs []string
+		cleanupSlots := cleanupRegistrationSecretSlots(cmd, &createdSlotIDs)
+
+		// One reader shared by every prompt in this invocation: a fresh
+		// bufio.Reader per prompt would read ahead past the first line and
+		// make a second piped secret see EOF.
+		secretStdinReader := bufio.NewReader(cmd.InOrStdin())
 		secretHeaders, _ := cmd.Flags().GetStringArray("secret-header")
 		for _, pair := range secretHeaders {
 			key, value, _ := strings.Cut(pair, "=")
@@ -240,16 +257,17 @@ use the server.`,
 				return withExitCode(exitUsage, fmt.Errorf("--secret-header wants Key=Value or Key, got %q", pair))
 			}
 			if value == "" {
-				promptedValue, promptError := promptMCPSecretHeaderValue(cmd, key)
+				promptedValue, promptError := promptMCPSecretHeaderValue(cmd, secretStdinReader, key)
 				if promptError != nil {
-					return promptError
+					return cleanupSlots(promptError)
 				}
 				value = promptedValue
 			}
 			slot, slotError := apiClient.CreateSecretSlot(requestContext, fmt.Sprintf("%s %s", name, key), value)
 			if slotError != nil {
-				return fmt.Errorf("create secret slot for header %s: %w", key, slotError)
+				return cleanupSlots(fmt.Errorf("create secret slot for header %s: %w", key, slotError))
 			}
+			createdSlotIDs = append(createdSlotIDs, slot.SlotID)
 			env[key] = slot.Sentinel
 		}
 
@@ -257,7 +275,7 @@ use the server.`,
 		if adapterKey != "" && !cmd.Flags().Changed("allowed-tools") {
 			catalog, catalogError := apiClient.MCPCatalog(requestContext)
 			if catalogError != nil {
-				return fmt.Errorf("read MCP adapter catalog to seed allowed tools: %w", catalogError)
+				return cleanupSlots(fmt.Errorf("read MCP adapter catalog to seed allowed tools: %w", catalogError))
 			}
 			for _, adapter := range catalog.Adapters {
 				if adapter.Key == adapterKey {
@@ -287,7 +305,7 @@ use the server.`,
 
 		server, createError := apiClient.CreateMCPServer(requestContext, request)
 		if createError != nil {
-			return fmt.Errorf("register MCP server: %w", createError)
+			return cleanupSlots(fmt.Errorf("register MCP server: %w", createError))
 		}
 		if handled, renderError := renderStructured(cmd, server); renderError != nil {
 			return renderError
@@ -749,8 +767,10 @@ func renderMCPServerDetail(out io.Writer, server *client.MCPServer) {
 // promptMCPSecretHeaderValue reads a secret header value that was not given
 // inline: a masked prompt on an interactive terminal, one line from stdin
 // otherwise. Modeled on resolveSecretInput (cmd/ai.go); the value is never
-// echoed back.
-func promptMCPSecretHeaderValue(cmd *cobra.Command, headerName string) (string, error) {
+// echoed back. stdinReader must be shared across every prompt of one
+// invocation: bufio read-ahead means a per-prompt reader would swallow the
+// lines meant for the prompts after it.
+func promptMCPSecretHeaderValue(cmd *cobra.Command, stdinReader *bufio.Reader, headerName string) (string, error) {
 	in := cmd.InOrStdin()
 	label := fmt.Sprintf("Value for secret header %s", headerName)
 	if file, isFile := in.(*os.File); isFile && readline.IsTerminal(int(file.Fd())) {
@@ -768,17 +788,47 @@ func promptMCPSecretHeaderValue(cmd *cobra.Command, headerName string) (string, 
 		}
 		return value, nil
 	}
-	line, readError := bufio.NewReader(in).ReadString('\n')
+	line, readError := stdinReader.ReadString('\n')
 	if readError != nil && !errors.Is(readError, io.EOF) {
 		return "", fmt.Errorf("reading secret header %s from stdin: %w", headerName, readError)
 	}
 	value := strings.TrimSpace(line)
 	if value == "" {
 		return "", withExitCode(exitUsage, fmt.Errorf(
-			"secret header %s needs a value: pass --secret-header %s=<value>, pipe the value on stdin, or run interactively to be prompted",
-			headerName, headerName))
+			"secret header %s needs a value: pass one line per prompted header on stdin, or run interactively to be prompted",
+			headerName))
 	}
 	return value, nil
+}
+
+// cleanupRegistrationSecretSlots returns a wrapper that, on a registration
+// failure, best-effort deletes the secret slots this invocation created so
+// the failed 'add' does not orphan stored secret material. Deletion runs on
+// a fresh context because the failure may be the request context expiring.
+// Slots that could not be removed are named in the error so they are never
+// silently abandoned.
+func cleanupRegistrationSecretSlots(cmd *cobra.Command, createdSlotIDs *[]string) func(error) error {
+	return func(cause error) error {
+		if len(*createdSlotIDs) == 0 {
+			return cause
+		}
+		cleanupContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		var undeletedSlotIDs []string
+		for _, slotID := range *createdSlotIDs {
+			if _, deleteError := apiClient.DeleteSecretSlot(cleanupContext, slotID); deleteError != nil {
+				undeletedSlotIDs = append(undeletedSlotIDs, slotID)
+			}
+		}
+		if len(undeletedSlotIDs) > 0 {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+				"Warning: could not remove secret slot(s) %s created for this registration; delete them with the platform so the secret material is not left behind.\n",
+				strings.Join(undeletedSlotIDs, ", "))
+			return cause
+		}
+		return fmt.Errorf("%w (removed the %d secret slot(s) created for this registration)", cause, len(*createdSlotIDs))
+	}
 }
 
 func validateMCPTier(tier string) error {
@@ -809,7 +859,7 @@ func init() {
 		mcpServersAddCmd, mcpServersUpdateCmd, mcpServersHealthCmd, mcpServersToolsCmd,
 		mcpServersGrantsCmd, mcpServersGrantCmd)
 
-	mcpServersAddCmd.Flags().String("url", "", "The MCP server endpoint URL (required)")
+	mcpServersAddCmd.Flags().String("url", "", "The MCP server endpoint URL (required for every transport; with --transport stdio it is stored as the server's identifier and never dialed, so use a placeholder like cmd://<binary-name>)")
 	_ = mcpServersAddCmd.MarkFlagRequired("url")
 	mcpServersAddCmd.Flags().String("adapter", "", "Curated adapter key from 'catalog' to pair with (seeds allowed tools)")
 	mcpServersAddCmd.Flags().String("transport", "http", "Transport: http, sse, or stdio")
@@ -818,7 +868,7 @@ func init() {
 	mcpServersAddCmd.Flags().StringSlice("allowed-tools", nil, "Comma-separated tool allow-list (default: the adapter's recommended tools when --adapter is set)")
 	mcpServersAddCmd.Flags().StringArray("cluster", nil, "Cluster UUID allowed to use the server (repeatable; default: all clusters)")
 	mcpServersAddCmd.Flags().StringArray("header", nil, "Plaintext header as Key=Value (repeatable; non-secret values only)")
-	mcpServersAddCmd.Flags().StringArray("secret-header", nil, "Secret header as Key=Value, or Key alone to be prompted; the value is stored in a secret slot and referenced by sentinel (repeatable)")
+	mcpServersAddCmd.Flags().StringArray("secret-header", nil, "Secret header stored in a secret slot and referenced by sentinel (repeatable). Prefer Key alone (hidden prompt, or one line per header on piped stdin); the inline Key=Value form lands in shell history and process listings")
 	mcpServersAddCmd.Flags().Bool("disabled", false, "Register the server disabled")
 
 	mcpServersUpdateCmd.Flags().String("description", "", "New description")

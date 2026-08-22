@@ -2,24 +2,47 @@ package cmd
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"ankra/internal/client"
+
+	"github.com/spf13/pflag"
 )
+
+// resetMCPServersAddFlags restores the add command's flags to their defaults
+// so tests do not inherit values from earlier executions of the shared cobra
+// tree. Array flags need SliceValue.Replace: re-setting their textual
+// default would append it as a literal element instead of clearing.
+func resetMCPServersAddFlags(t *testing.T) {
+	t.Helper()
+	mcpServersAddCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		if sliceValue, isSlice := flag.Value.(pflag.SliceValue); isSlice {
+			_ = sliceValue.Replace(nil)
+		} else {
+			_ = flag.Value.Set(flag.DefValue)
+		}
+		flag.Changed = false
+	})
+}
 
 const mcpTestServerID = "11111111-2222-3333-4444-555555555555"
 
 type mcpServersMock struct {
 	baseMock
-	servers          []client.MCPServerListItem
-	catalog          *client.MCPCatalogResult
-	createdRequest   *client.CreateMCPServerRequest
-	createdSlots     []createdSecretSlot
-	grantedTool      string
-	grantedRole      string
-	grantedServerID  string
-	deletedServerIDs []string
+	servers           []client.MCPServerListItem
+	catalog           *client.MCPCatalogResult
+	createdRequest    *client.CreateMCPServerRequest
+	createdSlots      []createdSecretSlot
+	createServerError error
+	deleteSlotError   error
+	deletedSlotIDs    []string
+	grantedTool       string
+	grantedRole       string
+	grantedServerID   string
+	deletedServerIDs  []string
 }
 
 type createdSecretSlot struct {
@@ -40,15 +63,27 @@ func (m *mcpServersMock) MCPCatalog(ctx context.Context) (*client.MCPCatalogResu
 
 func (m *mcpServersMock) CreateSecretSlot(ctx context.Context, label, value string) (*client.SecretSlot, error) {
 	m.createdSlots = append(m.createdSlots, createdSecretSlot{label: label, value: value})
+	slotID := fmt.Sprintf("slot-%d", len(m.createdSlots))
 	return &client.SecretSlot{
-		SlotID:   "slot-1",
+		SlotID:   slotID,
 		Label:    label,
-		Sentinel: "${SECRET_SLOT:slot-1}",
+		Sentinel: fmt.Sprintf("${SECRET_SLOT:%s}", slotID),
 	}, nil
+}
+
+func (m *mcpServersMock) DeleteSecretSlot(ctx context.Context, slotID string) (*client.SecretSlotDeleteResult, error) {
+	if m.deleteSlotError != nil {
+		return nil, m.deleteSlotError
+	}
+	m.deletedSlotIDs = append(m.deletedSlotIDs, slotID)
+	return &client.SecretSlotDeleteResult{Deleted: true}, nil
 }
 
 func (m *mcpServersMock) CreateMCPServer(ctx context.Context, request client.CreateMCPServerRequest) (*client.MCPServer, error) {
 	m.createdRequest = &request
+	if m.createServerError != nil {
+		return nil, m.createServerError
+	}
 	enabled := true
 	if request.Enabled != nil {
 		enabled = *request.Enabled
@@ -145,6 +180,7 @@ func TestOrgMCPServersAddSecretHeaderAndSeedingCommand(t *testing.T) {
 		RecommendedTools: []string{"get_issue", "list_issues"},
 	}}}}
 	setMockClient(t, mock)
+	resetMCPServersAddFlags(t)
 
 	output, executeError := executeCommand("org", "mcp-servers", "add", "sentry",
 		"--url", "https://mcp.sentry.dev/mcp",
@@ -193,6 +229,7 @@ func TestOrgMCPServersAddExplicitAllowedToolsSkipSeedingCommand(t *testing.T) {
 		RecommendedTools: []string{"get_issue", "list_issues"},
 	}}}}
 	setMockClient(t, mock)
+	resetMCPServersAddFlags(t)
 
 	_, executeError := executeCommand("org", "mcp-servers", "add", "sentry-custom",
 		"--url", "https://mcp.sentry.dev/mcp",
@@ -266,5 +303,80 @@ func TestOrgMCPServersResolveUnknownNameCommand(t *testing.T) {
 	}
 	if len(mock.deletedServerIDs) != 0 {
 		t.Errorf("nothing should be deleted on a resolve miss, got: %v (output: %s)", mock.deletedServerIDs, output)
+	}
+}
+
+func TestOrgMCPServersAddFailureCleansUpSecretSlotsCommand(t *testing.T) {
+	mock := &mcpServersMock{
+		createServerError: errors.New("An MCP server named 'sentry' already exists."),
+	}
+	setMockClient(t, mock)
+	resetMCPServersAddFlags(t)
+
+	_, executeError := executeCommand("org", "mcp-servers", "add", "sentry",
+		"--url", "https://mcp.sentry.dev/mcp",
+		"--secret-header", "Authorization=Sentry-Bearer tok-123")
+	if executeError == nil {
+		t.Fatal("expected the registration failure to surface")
+	}
+	if len(mock.createdSlots) != 1 {
+		t.Fatalf("expected one secret slot to have been created, got: %v", mock.createdSlots)
+	}
+	if len(mock.deletedSlotIDs) != 1 || mock.deletedSlotIDs[0] != "slot-1" {
+		t.Errorf("deleted slot ids = %v, want the orphaned slot-1 removed", mock.deletedSlotIDs)
+	}
+	if !strings.Contains(executeError.Error(), "already exists") {
+		t.Errorf("expected the backend refusal in the error, got: %v", executeError)
+	}
+	if !strings.Contains(executeError.Error(), "removed the 1 secret slot(s) created for this registration") {
+		t.Errorf("expected the cleanup note in the error, got: %v", executeError)
+	}
+}
+
+func TestOrgMCPServersAddFailureNamesUndeletableSlotsCommand(t *testing.T) {
+	mock := &mcpServersMock{
+		createServerError: errors.New("An MCP server named 'sentry' already exists."),
+		deleteSlotError:   errors.New("secret-slot service unavailable"),
+	}
+	setMockClient(t, mock)
+	resetMCPServersAddFlags(t)
+
+	output, executeError := executeCommand("org", "mcp-servers", "add", "sentry",
+		"--url", "https://mcp.sentry.dev/mcp",
+		"--secret-header", "Authorization=Sentry-Bearer tok-123")
+	if executeError == nil {
+		t.Fatal("expected the registration failure to surface")
+	}
+	if !strings.Contains(output, "could not remove secret slot(s) slot-1") {
+		t.Errorf("expected the undeletable slot id to be named, got output: %s (error: %v)", output, executeError)
+	}
+}
+
+func TestOrgMCPServersAddTwoPipedSecretHeadersCommand(t *testing.T) {
+	mock := &mcpServersMock{}
+	setMockClient(t, mock)
+	resetMCPServersAddFlags(t)
+	rootCmd.SetIn(strings.NewReader("value-one\nvalue-two\n"))
+	t.Cleanup(func() { rootCmd.SetIn(nil) })
+
+	_, executeError := executeCommand("org", "mcp-servers", "add", "piped-secrets",
+		"--url", "https://mcp.example.com/mcp",
+		"--secret-header", "Authorization",
+		"--secret-header", "X-Api-Key")
+	if executeError != nil {
+		t.Fatalf("execute: %v", executeError)
+	}
+	if len(mock.createdSlots) != 2 {
+		t.Fatalf("expected both piped secret headers to create slots, got: %v", mock.createdSlots)
+	}
+	if mock.createdSlots[0].value != "value-one" || mock.createdSlots[1].value != "value-two" {
+		t.Errorf("slot values = %+v, want one stdin line per prompted header (a per-prompt reader would drop the second line)", mock.createdSlots)
+	}
+	if mock.createdRequest == nil {
+		t.Fatal("expected a create request to be sent")
+	}
+	if mock.createdRequest.Env["Authorization"] != "${SECRET_SLOT:slot-1}" ||
+		mock.createdRequest.Env["X-Api-Key"] != "${SECRET_SLOT:slot-2}" {
+		t.Errorf("env = %v, want both sentinels", mock.createdRequest.Env)
 	}
 }
