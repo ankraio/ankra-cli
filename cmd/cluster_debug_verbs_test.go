@@ -1640,3 +1640,37 @@ func TestEventsShowTheInvolvedObjectNamespace(t *testing.T) {
 		t.Errorf("the cross-namespace match should be called out on stderr, got %q", stderrText)
 	}
 }
+
+// TestEventsNameFlagTargetsTheEventResourceNotTheWorkload pins what --name
+// actually does. The platform matches it against the Event resource's own
+// generated name, so a user reaching for it to find a pod's events gets an
+// empty result that reads as "no events" rather than "wrong flag" - which is
+// why the help text now says so and points at --for.
+func TestEventsNameFlagTargetsTheEventResourceNotTheWorkload(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterEventsCmd)
+	mock := newDebugVerbsMock()
+	mock.responses["Event"] = client.ResourceResponseItem{Items: []interface{}{scopedEvent()}}
+	setMockClient(t, mock)
+
+	captureStdout(t, func() {
+		if _, executeError := executeCommand("cluster", "events", "-n", "default",
+			"--name", "web-1.17abc"); executeError != nil {
+			t.Fatalf("events --name failed: %v", executeError)
+		}
+	})
+	if mock.requests[0].Name != "web-1.17abc" {
+		t.Errorf("--name must reach the request as the resource name, got %q", mock.requests[0].Name)
+	}
+	if fieldSelectorValue(mock.requests[0], "involvedObject.name") != "" {
+		t.Error("--name must not masquerade as an involvedObject scope; that is --for")
+	}
+
+	for _, command := range []*cobra.Command{clusterEventsCmd, getEventsCommand(t)} {
+		usage := command.Flags().Lookup("name").Usage
+		if !strings.Contains(usage, "Event resource's own name") || !strings.Contains(usage, "--for") {
+			t.Errorf("%s --name help must say what it matches and point at --for, got %q",
+				command.CommandPath(), usage)
+		}
+	}
+}

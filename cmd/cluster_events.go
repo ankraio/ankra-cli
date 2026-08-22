@@ -44,7 +44,11 @@ Examples:
 	command.Flags().BoolP("all-namespaces", "A", false, "List across all namespaces")
 	command.Flags().String("for", "", "Scope to one object's events, as kind/name (e.g. pod/web-7d9f-2xkvp)")
 	command.Flags().String("type", "", "Filter by event type: Normal or Warning")
-	command.Flags().String("name", "", "Filter by event object name")
+	// The platform matches this against the Event resource's own generated
+	// name (web-1.17abc...), not the workload the event is about. Saying
+	// "event object name" read as the latter, which returns nothing and
+	// looks like "there are no events" rather than "wrong flag".
+	command.Flags().String("name", "", "Filter by the Event resource's own name; to scope by the object an event is about, use --for")
 	command.Flags().StringP("selector", "l", "", "Label selector")
 	command.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
 	return command

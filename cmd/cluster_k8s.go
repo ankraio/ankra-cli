@@ -284,6 +284,12 @@ var kindConfigs = []kindConfig{
 		registerFlags: func(command *cobra.Command) {
 			command.Flags().String("for", "", "Scope to one object's events, as kind/name (e.g. pod/web-7d9f-2xkvp)")
 			command.Flags().String("type", "", "Filter by event type: Normal or Warning")
+			// The get family's shared --name matches the Event resource's own
+			// generated name, not the workload the event is about; --for is
+			// the flag for the latter.
+			if nameFlag := command.Flags().Lookup("name"); nameFlag != nil {
+				nameFlag.Usage = "Filter by the Event resource's own name; to scope by the object an event is about, use --for"
+			}
 		},
 		fieldSelectorsFor: eventFieldSelectorsFromFlags,
 		postFilter:        eventTypeFilterFromFlags,
@@ -605,9 +611,6 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 			return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, cfg, query)
 		},
 	}
-	if cfg.registerFlags != nil {
-		cfg.registerFlags(cmd)
-	}
 
 	if !cfg.clusterScoped {
 		cmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace")
@@ -616,6 +619,12 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 	cmd.Flags().String("name", "", "Filter by resource name")
 	cmd.Flags().StringP("selector", "l", "", "Label selector")
 	cmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
+
+	// After the shared flags, so a kind can both add its own and adjust the
+	// wording of one it inherits.
+	if cfg.registerFlags != nil {
+		cfg.registerFlags(cmd)
+	}
 
 	return cmd
 }
