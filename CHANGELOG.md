@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.13.0-rc0 — 2026-08-22
+
 ### Added
 
 - **`ankra cluster logs --previous` reads the log a crash-looping container
