@@ -11,12 +11,15 @@ import (
 
 type notificationRoutesMock struct {
 	baseMock
-	routes        []client.NotificationRoute
-	createRequest *client.CreateNotificationRouteRequest
-	updatedID     string
-	updateRequest *client.UpdateNotificationRouteRequest
-	deleteCalls   []string
-	testCalls     []string
+	routes         []client.NotificationRoute
+	createRequest  *client.CreateNotificationRouteRequest
+	updatedID      string
+	updateRequest  *client.UpdateNotificationRouteRequest
+	deleteCalls    []string
+	testCalls      []string
+	previewRequest *client.PreviewNotificationRoutesRequest
+	preview        *client.NotificationRoutePreview
+	previewError   error
 }
 
 func (m *notificationRoutesMock) ListNotificationRoutes() (*client.NotificationRouteList, error) {
@@ -37,6 +40,8 @@ func (m *notificationRoutesMock) CreateNotificationRoute(request client.CreateNo
 		ID:             "7c1e0d5a-0000-4000-8000-000000000010",
 		OrganisationID: "0f0f0f0f-0000-4000-8000-000000000001",
 		Kind:           request.Kind,
+		Kinds:          request.Kinds,
+		KindsNegated:   request.KindsNegated != nil && *request.KindsNegated,
 		Severity:       request.Severity,
 		ClusterID:      request.ClusterID,
 		SourceID:       request.SourceID,
@@ -76,6 +81,14 @@ func (m *notificationRoutesMock) DeleteNotificationRoute(routeID string) error {
 func (m *notificationRoutesMock) TestNotificationRoute(routeID string) (*client.NotificationRouteTestResult, error) {
 	m.testCalls = append(m.testCalls, routeID)
 	return &client.NotificationRouteTestResult{DeliveryID: "9e9e9e9e-0000-4000-8000-000000000042"}, nil
+}
+
+func (m *notificationRoutesMock) PreviewNotificationRoutes(request client.PreviewNotificationRoutesRequest) (*client.NotificationRoutePreview, error) {
+	m.previewRequest = &request
+	if m.previewError != nil {
+		return nil, m.previewError
+	}
+	return m.preview, nil
 }
 
 func sampleNotificationRoutes() []client.NotificationRoute {
@@ -429,5 +442,210 @@ func TestAlertsRoutesTestPrintsDeliveryID(t *testing.T) {
 	}
 	if decoded["delivery_id"] != "9e9e9e9e-0000-4000-8000-000000000042" {
 		t.Errorf("unexpected JSON document: %s", stdout)
+	}
+}
+
+func TestAlertsRoutesCreateSendsAKindList(t *testing.T) {
+	mock := &notificationRoutesMock{}
+	stdout, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "create",
+		"--destination-id", "3d0f6a2e-0000-4000-8000-000000000001",
+		"--kinds", "execution_failed,resource_reconcile_failed")
+	if runError != nil {
+		t.Fatalf("alerts routes create failed: %v", runError)
+	}
+	if mock.createRequest == nil {
+		t.Fatal("no create request was sent")
+	}
+	if len(mock.createRequest.Kinds) != 2 ||
+		mock.createRequest.Kinds[0] != "execution_failed" ||
+		mock.createRequest.Kinds[1] != "resource_reconcile_failed" {
+		t.Fatalf("the kind list was not sent: %+v", mock.createRequest.Kinds)
+	}
+	if mock.createRequest.KindsNegated == nil || *mock.createRequest.KindsNegated {
+		t.Fatalf("a positive list must not be negated: %+v", mock.createRequest.KindsNegated)
+	}
+	if !strings.Contains(stdout, "execution_failed, resource_reconcile_failed") {
+		t.Errorf("the kind list must be rendered, got:\n%s", stdout)
+	}
+}
+
+func TestAlertsRoutesCreateSendsAnExcludedKindList(t *testing.T) {
+	mock := &notificationRoutesMock{}
+	stdout, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "create",
+		"--destination-id", "3d0f6a2e-0000-4000-8000-000000000001",
+		"--exclude-kinds", "alert_trigger_fired")
+	if runError != nil {
+		t.Fatalf("alerts routes create failed: %v", runError)
+	}
+	if mock.createRequest.KindsNegated == nil || !*mock.createRequest.KindsNegated {
+		t.Fatal("--exclude-kinds must negate the list")
+	}
+	if !strings.Contains(stdout, "all except alert_trigger_fired") {
+		t.Errorf("a negated list must read as an exception, got:\n%s", stdout)
+	}
+}
+
+func TestAlertsRoutesCreateRejectsCompetingKindFlags(t *testing.T) {
+	mock := &notificationRoutesMock{}
+	_, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "create",
+		"--destination-id", "3d0f6a2e-0000-4000-8000-000000000001",
+		"--kind", "execution_failed", "--exclude-kinds", "alert_trigger_fired")
+	if runError == nil {
+		t.Fatal("two kind filters on one route must be rejected")
+	}
+	if !strings.Contains(runError.Error(), "mutually exclusive") {
+		t.Fatalf("the error must say why: %v", runError)
+	}
+	if mock.createRequest != nil {
+		t.Fatal("a rejected command must not reach the API")
+	}
+}
+
+func samplePreview() *client.NotificationRoutePreview {
+	routeID := "7c1e0d5a-0000-4000-8000-000000000001"
+	return &client.NotificationRoutePreview{
+		Kind:     "alert_trigger_fired",
+		Severity: "critical",
+		Routable: true,
+		Deliveries: []client.NotificationRoutePreviewDelivery{{
+			DestinationID:   "3d0f6a2e-0000-4000-8000-000000000001",
+			DestinationName: "infra-channel",
+			Via:             "alert_destination",
+			Reason:          "Attached to this alert's own Notifications -> Destinations list.",
+		}},
+		Suppressed: []client.NotificationRoutePreviewDelivery{{
+			DestinationID:   "3d0f6a2e-0000-4000-8000-000000000001",
+			DestinationName: "infra-channel",
+			Via:             "route",
+			RouteID:         &routeID,
+			Reason:          "Already delivered by the alert's own destination list.",
+		}},
+		RouteEvaluations: []client.NotificationRoutePreviewEvaluation{{
+			RouteID: routeID, DestinationID: "3d0f6a2e-0000-4000-8000-000000000001",
+			Priority: 100, Mode: "include", Matched: true, Outcome: "included",
+			Reason: "Include rule matched and adds its destination.",
+		}},
+	}
+}
+
+func TestAlertsRoutesPreviewRendersDeliveriesAndSuppressions(t *testing.T) {
+	mock := &notificationRoutesMock{preview: samplePreview()}
+	stdout, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "preview",
+		"--kind", "alert_trigger_fired", "--severity", "critical",
+		"--alert-id", "cb91430a-e432-4df1-b654-68a566b5910a")
+	if runError != nil {
+		t.Fatalf("alerts routes preview failed: %v", runError)
+	}
+	if mock.previewRequest == nil {
+		t.Fatal("no preview request was sent")
+	}
+	if mock.previewRequest.AlertID == nil ||
+		*mock.previewRequest.AlertID != "cb91430a-e432-4df1-b654-68a566b5910a" {
+		t.Fatalf("the alert id must reach the API: %+v", mock.previewRequest)
+	}
+	for _, fragment := range []string{
+		"This notification would be delivered to:",
+		"infra-channel",
+		"alert_destination",
+		"Not delivered:",
+		"Already delivered by the alert's own destination list.",
+		"Rule evaluation:",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Errorf("expected the preview to contain %q, got:\n%s", fragment, stdout)
+		}
+	}
+}
+
+func TestAlertsRoutesPreviewRendersNothingDelivered(t *testing.T) {
+	mock := &notificationRoutesMock{preview: &client.NotificationRoutePreview{
+		Kind: "execution_failed", Severity: "info", Routable: true,
+	}}
+	stdout, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "preview",
+		"--kind", "execution_failed", "--severity", "info")
+	if runError != nil {
+		t.Fatalf("alerts routes preview failed: %v", runError)
+	}
+	if !strings.Contains(stdout, "would not be delivered to any destination") {
+		t.Errorf("an empty preview must say so, got:\n%s", stdout)
+	}
+}
+
+func TestAlertsRoutesPreviewRejectsAnUnknownSeverity(t *testing.T) {
+	mock := &notificationRoutesMock{preview: samplePreview()}
+	_, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "preview",
+		"--kind", "execution_failed", "--severity", "urgent")
+	if runError == nil {
+		t.Fatal("an unknown severity must be rejected before the request")
+	}
+	if mock.previewRequest != nil {
+		t.Fatal("a rejected command must not reach the API")
+	}
+}
+
+func TestAlertsRoutesPreviewSurfacesApiFailure(t *testing.T) {
+	mock := &notificationRoutesMock{previewError: client.NewUnexpectedResponseError(404, "Alert not found")}
+	_, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "preview",
+		"--kind", "alert_trigger_fired", "--severity", "critical",
+		"--alert-id", "cb91430a-e432-4df1-b654-68a566b5910a")
+	if runError == nil {
+		t.Fatal("an API failure must surface")
+	}
+	if !strings.Contains(runError.Error(), "Alert not found") {
+		t.Fatalf("the backend detail must survive: %v", runError)
+	}
+}
+
+func TestAlertsRoutesPreviewRendersJSON(t *testing.T) {
+	mock := &notificationRoutesMock{preview: samplePreview()}
+	stdout, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "preview",
+		"--kind", "alert_trigger_fired", "--severity", "critical", "-o", "json")
+	if runError != nil {
+		t.Fatalf("alerts routes preview -o json failed: %v", runError)
+	}
+	var decoded client.NotificationRoutePreview
+	if unmarshalError := json.Unmarshal([]byte(stdout), &decoded); unmarshalError != nil {
+		t.Fatalf("preview json did not decode: %v\n%s", unmarshalError, stdout)
+	}
+	if len(decoded.Deliveries) != 1 || decoded.Deliveries[0].DestinationName != "infra-channel" {
+		t.Fatalf("the json body lost the delivery: %s", stdout)
+	}
+}
+
+func TestAlertsRoutesRejectsAnEmptyKindList(t *testing.T) {
+	// A subtest per flag: the cobra flag tree is process-global and
+	// runAlertsCommand only resets it on the enclosing test's cleanup, so two
+	// invocations in one function would see each other's Changed markers.
+	for _, flag := range []string{"--kinds", "--exclude-kinds"} {
+		t.Run(flag, func(subtest *testing.T) {
+			mock := &notificationRoutesMock{routes: sampleNotificationRoutes()}
+			_, _, runError := runAlertsCommand(subtest, mock, "", "alerts", "routes", "update",
+				"7c1e0d5a-0000-4000-8000-000000000001", flag, "")
+			if runError == nil {
+				subtest.Fatalf("%s with an empty value must be rejected", flag)
+			}
+			if !strings.Contains(runError.Error(), "needs at least one kind") {
+				subtest.Fatalf("%s: the error must say why: %v", flag, runError)
+			}
+			// The real hazard: the flag's branch still carries the negation,
+			// so without this guard an empty value would send kinds_negated
+			// with no kinds and silently invert an existing route.
+			if mock.updateRequest != nil {
+				subtest.Fatalf("%s: a rejected command must not reach the API: %+v", flag, mock.updateRequest)
+			}
+		})
+	}
+}
+
+func TestAlertsRoutesAcceptsAKindListWithStrayCommas(t *testing.T) {
+	mock := &notificationRoutesMock{}
+	_, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "create",
+		"--destination-id", "3d0f6a2e-0000-4000-8000-000000000001",
+		"--kinds", "execution_failed,,agent_offline,")
+	if runError != nil {
+		t.Fatalf("stray commas must not fail the command: %v", runError)
+	}
+	if len(mock.createRequest.Kinds) != 2 {
+		t.Fatalf("stray commas must be dropped, not sent: %+v", mock.createRequest.Kinds)
 	}
 }

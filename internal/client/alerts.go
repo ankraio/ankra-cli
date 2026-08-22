@@ -147,19 +147,21 @@ type TeamsChannelList struct {
 // "include") or withheld from (mode "exclude") the destination. Routes are
 // evaluated in ascending priority; StopOnMatch ends the walk at this rule.
 type NotificationRoute struct {
-	ID             string  `json:"id" yaml:"id"`
-	OrganisationID string  `json:"organisation_id" yaml:"organisation_id"`
-	Kind           *string `json:"kind" yaml:"kind"`
-	Severity       *string `json:"severity" yaml:"severity"`
-	ClusterID      *string `json:"cluster_id" yaml:"cluster_id"`
-	SourceID       *string `json:"source_id" yaml:"source_id"`
-	DestinationID  string  `json:"destination_id" yaml:"destination_id"`
-	Priority       int     `json:"priority" yaml:"priority"`
-	StopOnMatch    bool    `json:"stop_on_match" yaml:"stop_on_match"`
-	Mode           string  `json:"mode" yaml:"mode"`
-	Enabled        bool    `json:"enabled" yaml:"enabled"`
-	CreatedAt      string  `json:"created_at" yaml:"created_at"`
-	UpdatedAt      string  `json:"updated_at" yaml:"updated_at"`
+	ID             string   `json:"id" yaml:"id"`
+	OrganisationID string   `json:"organisation_id" yaml:"organisation_id"`
+	Kind           *string  `json:"kind" yaml:"kind"`
+	Kinds          []string `json:"kinds" yaml:"kinds"`
+	KindsNegated   bool     `json:"kinds_negated" yaml:"kinds_negated"`
+	Severity       *string  `json:"severity" yaml:"severity"`
+	ClusterID      *string  `json:"cluster_id" yaml:"cluster_id"`
+	SourceID       *string  `json:"source_id" yaml:"source_id"`
+	DestinationID  string   `json:"destination_id" yaml:"destination_id"`
+	Priority       int      `json:"priority" yaml:"priority"`
+	StopOnMatch    bool     `json:"stop_on_match" yaml:"stop_on_match"`
+	Mode           string   `json:"mode" yaml:"mode"`
+	Enabled        bool     `json:"enabled" yaml:"enabled"`
+	CreatedAt      string   `json:"created_at" yaml:"created_at"`
+	UpdatedAt      string   `json:"updated_at" yaml:"updated_at"`
 }
 
 // NotificationRouteList is the GET /api/v1/org/notifications/routes body.
@@ -171,30 +173,84 @@ type NotificationRouteList struct {
 // required; the backend defaults priority to 100, stop_on_match to false,
 // mode to "include", and enabled to true for omitted members.
 type CreateNotificationRouteRequest struct {
-	DestinationID string  `json:"destination_id"`
-	Kind          *string `json:"kind,omitempty"`
-	Severity      *string `json:"severity,omitempty"`
-	ClusterID     *string `json:"cluster_id,omitempty"`
-	SourceID      *string `json:"source_id,omitempty"`
-	Priority      *int    `json:"priority,omitempty"`
-	StopOnMatch   *bool   `json:"stop_on_match,omitempty"`
-	Mode          *string `json:"mode,omitempty"`
-	Enabled       *bool   `json:"enabled,omitempty"`
+	DestinationID string   `json:"destination_id"`
+	Kind          *string  `json:"kind,omitempty"`
+	Kinds         []string `json:"kinds,omitempty"`
+	KindsNegated  *bool    `json:"kinds_negated,omitempty"`
+	Severity      *string  `json:"severity,omitempty"`
+	ClusterID     *string  `json:"cluster_id,omitempty"`
+	SourceID      *string  `json:"source_id,omitempty"`
+	Priority      *int     `json:"priority,omitempty"`
+	StopOnMatch   *bool    `json:"stop_on_match,omitempty"`
+	Mode          *string  `json:"mode,omitempty"`
+	Enabled       *bool    `json:"enabled,omitempty"`
 }
 
 // UpdateNotificationRouteRequest is the PATCH body. The backend applies
 // only the members present in the JSON document, so a nil member is left
 // out of the wire body entirely rather than sent as null.
 type UpdateNotificationRouteRequest struct {
-	DestinationID *string `json:"destination_id,omitempty"`
-	Kind          *string `json:"kind,omitempty"`
-	Severity      *string `json:"severity,omitempty"`
-	ClusterID     *string `json:"cluster_id,omitempty"`
-	SourceID      *string `json:"source_id,omitempty"`
-	Priority      *int    `json:"priority,omitempty"`
-	StopOnMatch   *bool   `json:"stop_on_match,omitempty"`
-	Mode          *string `json:"mode,omitempty"`
-	Enabled       *bool   `json:"enabled,omitempty"`
+	DestinationID *string  `json:"destination_id,omitempty"`
+	Kind          *string  `json:"kind,omitempty"`
+	Kinds         []string `json:"kinds,omitempty"`
+	KindsNegated  *bool    `json:"kinds_negated,omitempty"`
+	Severity      *string  `json:"severity,omitempty"`
+	ClusterID     *string  `json:"cluster_id,omitempty"`
+	SourceID      *string  `json:"source_id,omitempty"`
+	Priority      *int     `json:"priority,omitempty"`
+	StopOnMatch   *bool    `json:"stop_on_match,omitempty"`
+	Mode          *string  `json:"mode,omitempty"`
+	Enabled       *bool    `json:"enabled,omitempty"`
+}
+
+// PreviewNotificationRoutesRequest is the POST .../routes/preview body: the
+// hypothetical notification to resolve. AlertID names the alert whose own
+// destinations compete with the routing rules, and is what lets the preview
+// report the de-duplication instead of over-promising deliveries.
+type PreviewNotificationRoutesRequest struct {
+	Kind      string  `json:"kind"`
+	Severity  string  `json:"severity"`
+	ClusterID *string `json:"cluster_id,omitempty"`
+	SourceID  *string `json:"source_id,omitempty"`
+	AlertID   *string `json:"alert_id,omitempty"`
+}
+
+// NotificationRoutePreviewDelivery is one destination the notification
+// would, or would not, reach.
+type NotificationRoutePreviewDelivery struct {
+	DestinationID   string  `json:"destination_id" yaml:"destination_id"`
+	DestinationName string  `json:"destination_name" yaml:"destination_name"`
+	Via             string  `json:"via" yaml:"via"`
+	RouteID         *string `json:"route_id" yaml:"route_id"`
+	Reason          string  `json:"reason" yaml:"reason"`
+}
+
+// NotificationRoutePreviewEvaluation is one routing rule's fate in the walk.
+type NotificationRoutePreviewEvaluation struct {
+	RouteID       string `json:"route_id" yaml:"route_id"`
+	DestinationID string `json:"destination_id" yaml:"destination_id"`
+	Priority      int    `json:"priority" yaml:"priority"`
+	Mode          string `json:"mode" yaml:"mode"`
+	StopOnMatch   bool   `json:"stop_on_match" yaml:"stop_on_match"`
+	Matched       bool   `json:"matched" yaml:"matched"`
+	Outcome       string `json:"outcome" yaml:"outcome"`
+	Reason        string `json:"reason" yaml:"reason"`
+}
+
+// NotificationRoutePreview is the dry-run answer to "this notification would
+// be delivered to: ...".
+type NotificationRoutePreview struct {
+	Kind                string                               `json:"kind" yaml:"kind"`
+	Severity            string                               `json:"severity" yaml:"severity"`
+	ClusterID           *string                              `json:"cluster_id" yaml:"cluster_id"`
+	SourceID            *string                              `json:"source_id" yaml:"source_id"`
+	AlertID             *string                              `json:"alert_id" yaml:"alert_id"`
+	Routable            bool                                 `json:"routable" yaml:"routable"`
+	RoutableReason      string                               `json:"routable_reason" yaml:"routable_reason"`
+	Deliveries          []NotificationRoutePreviewDelivery   `json:"deliveries" yaml:"deliveries"`
+	Suppressed          []NotificationRoutePreviewDelivery   `json:"suppressed" yaml:"suppressed"`
+	RouteEvaluations    []NotificationRoutePreviewEvaluation `json:"route_evaluations" yaml:"route_evaluations"`
+	HomeDestinationUsed bool                                 `json:"home_destination_used" yaml:"home_destination_used"`
 }
 
 // NotificationRouteTestResult is the 202 body of POST .../routes/{id}/test:
@@ -351,6 +407,17 @@ func (c *Client) UpdateNotificationRoute(routeID string, request UpdateNotificat
 // with no body.
 func (c *Client) DeleteNotificationRoute(routeID string) error {
 	return c.sendJSON(http.MethodDelete, c.notificationRouteURL(routeID), nil, nil)
+}
+
+// PreviewNotificationRoutes resolves a hypothetical notification against the
+// organisation's routing rules and alert destinations. It is a dry run: the
+// backend delivers nothing and writes nothing.
+func (c *Client) PreviewNotificationRoutes(request PreviewNotificationRoutesRequest) (*NotificationRoutePreview, error) {
+	var preview NotificationRoutePreview
+	if previewError := c.sendJSON(http.MethodPost, c.BaseURL+notificationRoutesBasePath+"/preview", request, &preview); previewError != nil {
+		return nil, previewError
+	}
+	return &preview, nil
 }
 
 // TestNotificationRoute queues a sample delivery through the route's
