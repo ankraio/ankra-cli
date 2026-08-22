@@ -352,13 +352,20 @@ func TestRunOrgDomainSet_SeparatesPlatformOwnedRecordsAndNamesThePlayground(t *t
 		}
 		// The admin's own record must not be listed under the section that
 		// says deleting is futile, and the platform's must not be listed
-		// under the one that says to delete it.
-		adminSection := message[strings.Index(message, "DNS records still under the current root:"):strings.Index(message, "DNS records Ankra owns and re-creates:")]
-		if strings.Contains(adminSection, "*.smdjc5s3hx") {
+		// under the one that says to delete it. Both offsets are checked
+		// before slicing: strings.Index answers -1 for a missing header, and
+		// the loop above only calls t.Errorf, so a regression that drops a
+		// header would reach this line and panic instead of reporting.
+		adminStart := strings.Index(message, "DNS records still under the current root:")
+		platformStart := strings.Index(message, "DNS records Ankra owns and re-creates:")
+		if adminStart < 0 || platformStart < 0 || adminStart > platformStart {
+			t.Fatalf("expected both record sections in order, got adminStart=%d platformStart=%d:\n%s",
+				adminStart, platformStart, message)
+		}
+		if strings.Contains(message[adminStart:platformStart], "*.smdjc5s3hx") {
 			t.Errorf("a platform-owned record was listed as deletable:\n%s", message)
 		}
-		platformSection := message[strings.Index(message, "DNS records Ankra owns and re-creates:"):]
-		if strings.Contains(platformSection, "chat.org1234.ankra.cc") {
+		if strings.Contains(message[platformStart:], "chat.org1234.ankra.cc") {
 			t.Errorf("an admin's own record was listed as platform-owned:\n%s", message)
 		}
 	}

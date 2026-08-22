@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -16,6 +17,10 @@ type playgroundMock struct {
 	status          *client.PlaygroundStatus
 	statusError     error
 	statusRequested string
+
+	destroyResult    *client.DestroyPlaygroundResult
+	destroyError     error
+	destroyRequested string
 }
 
 func (m *playgroundMock) CreatePlayground() (*client.CreatePlaygroundResult, error) {
@@ -25,6 +30,11 @@ func (m *playgroundMock) CreatePlayground() (*client.CreatePlaygroundResult, err
 func (m *playgroundMock) GetPlaygroundStatus(clusterID string) (*client.PlaygroundStatus, error) {
 	m.statusRequested = clusterID
 	return m.status, m.statusError
+}
+
+func (m *playgroundMock) DestroyPlayground(clusterID string) (*client.DestroyPlaygroundResult, error) {
+	m.destroyRequested = clusterID
+	return m.destroyResult, m.destroyError
 }
 
 func withPlaygroundMock(t *testing.T, mock *playgroundMock) {
@@ -102,5 +112,45 @@ func TestPlaygroundStatusOmitsAnAbsentMessage(t *testing.T) {
 	})
 	if strings.Contains(output, "Message:") {
 		t.Errorf("expected no Message line, got: %s", output)
+	}
+}
+
+func TestPlaygroundDestroyPrintsTheClusterIDAndPhase(t *testing.T) {
+	mock := &playgroundMock{
+		destroyResult: &client.DestroyPlaygroundResult{ClusterID: "cluster-42", Phase: "deprovisioning"},
+	}
+	withPlaygroundMock(t, mock)
+	output := new(bytes.Buffer)
+	clusterPlaygroundDestroyCmd.SetOut(output)
+	clusterPlaygroundDestroyCmd.SetErr(output)
+	t.Cleanup(func() {
+		clusterPlaygroundDestroyCmd.SetOut(nil)
+		clusterPlaygroundDestroyCmd.SetErr(nil)
+	})
+
+	if runError := clusterPlaygroundDestroyCmd.RunE(
+		clusterPlaygroundDestroyCmd, []string{"cluster-42"}); runError != nil {
+		t.Fatalf("destroy failed: %v", runError)
+	}
+	if mock.destroyRequested != "cluster-42" {
+		t.Errorf("destroy asked for %q, want cluster-42", mock.destroyRequested)
+	}
+	// The phase is what tells the caller teardown was scheduled rather than
+	// finished, so it has to be in the output, not just the cluster id.
+	for _, expected := range []string{"cluster-42", "deprovisioning"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Errorf("expected %q in the output, got: %s", expected, output.String())
+		}
+	}
+}
+
+func TestPlaygroundDestroySurfacesTheServerError(t *testing.T) {
+	withPlaygroundMock(t, &playgroundMock{destroyError: errors.New("Playground not found.")})
+	runError := clusterPlaygroundDestroyCmd.RunE(clusterPlaygroundDestroyCmd, []string{"cluster-42"})
+	if runError == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(runError.Error(), "Playground not found.") {
+		t.Errorf("the server detail must survive: %v", runError)
 	}
 }

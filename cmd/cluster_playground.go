@@ -66,8 +66,11 @@ var clusterPlaygroundDestroyCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("destroying the playground: %w", err)
 		}
-		fmt.Printf("Cluster ID: %s\n", result.ClusterID)
-		fmt.Printf("Phase:      %s\n", result.Phase)
+		// cmd.OutOrStdout() rather than fmt.Printf: the destroy verb is the
+		// one this group's output is asserted on, and a bare Printf writes
+		// past the writer a test sets.
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Cluster ID: %s\n", result.ClusterID)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Phase:      %s\n", result.Phase)
 		return nil
 	},
 }
