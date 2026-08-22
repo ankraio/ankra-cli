@@ -611,3 +611,41 @@ func TestAlertsRoutesPreviewRendersJSON(t *testing.T) {
 		t.Fatalf("the json body lost the delivery: %s", stdout)
 	}
 }
+
+func TestAlertsRoutesRejectsAnEmptyKindList(t *testing.T) {
+	// A subtest per flag: the cobra flag tree is process-global and
+	// runAlertsCommand only resets it on the enclosing test's cleanup, so two
+	// invocations in one function would see each other's Changed markers.
+	for _, flag := range []string{"--kinds", "--exclude-kinds"} {
+		t.Run(flag, func(subtest *testing.T) {
+			mock := &notificationRoutesMock{routes: sampleNotificationRoutes()}
+			_, _, runError := runAlertsCommand(subtest, mock, "", "alerts", "routes", "update",
+				"7c1e0d5a-0000-4000-8000-000000000001", flag, "")
+			if runError == nil {
+				subtest.Fatalf("%s with an empty value must be rejected", flag)
+			}
+			if !strings.Contains(runError.Error(), "needs at least one kind") {
+				subtest.Fatalf("%s: the error must say why: %v", flag, runError)
+			}
+			// The real hazard: the flag's branch still carries the negation,
+			// so without this guard an empty value would send kinds_negated
+			// with no kinds and silently invert an existing route.
+			if mock.updateRequest != nil {
+				subtest.Fatalf("%s: a rejected command must not reach the API: %+v", flag, mock.updateRequest)
+			}
+		})
+	}
+}
+
+func TestAlertsRoutesAcceptsAKindListWithStrayCommas(t *testing.T) {
+	mock := &notificationRoutesMock{}
+	_, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "create",
+		"--destination-id", "3d0f6a2e-0000-4000-8000-000000000001",
+		"--kinds", "execution_failed,,agent_offline,")
+	if runError != nil {
+		t.Fatalf("stray commas must not fail the command: %v", runError)
+	}
+	if len(mock.createRequest.Kinds) != 2 {
+		t.Fatalf("stray commas must be dropped, not sent: %+v", mock.createRequest.Kinds)
+	}
+}

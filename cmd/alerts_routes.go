@@ -51,11 +51,10 @@ var alertsRoutesListCmd = &cobra.Command{
 		writer.SetStyle(table.StyleRounded)
 		writer.AppendHeader(table.Row{"ID", "Priority", "Kind", "Severity", "Cluster", "Destination", "Mode", "Enabled"})
 		for _, route := range list.Items {
-			routeRow := route
 			writer.AppendRow(table.Row{
 				route.ID,
 				route.Priority,
-				renderRouteKindFilter(&routeRow),
+				renderRouteKindFilter(route),
 				valueOrAny(route.Severity),
 				valueOrAny(route.ClusterID),
 				route.DestinationID,
@@ -325,6 +324,16 @@ func validateRouteFilterFlags(cmd *cobra.Command) error {
 		return withExitCode(exitUsage, fmt.Errorf("%s are mutually exclusive: a route has one kind filter",
 			strings.Join(setKindFlags, " and ")))
 	}
+	// An empty value parses to no kinds, but the flag being present still
+	// carries the negation for that branch - so `--exclude-kinds ""` would
+	// send kinds_negated with no kinds and silently invert what an existing
+	// route matches. Neither flag is a way to clear a filter.
+	for _, name := range []string{"kinds", "exclude-kinds"} {
+		if cmd.Flags().Changed(name) && len(splitCommaList(mustFlagString(cmd, name))) == 0 {
+			return withExitCode(exitUsage,
+				fmt.Errorf("--%s needs at least one kind (it cannot be used to clear a route's kind filter)", name))
+		}
+	}
 	if mode := mustFlagString(cmd, "mode"); cmd.Flags().Changed("mode") && mode != "include" && mode != "exclude" {
 		return withExitCode(exitUsage, fmt.Errorf("unsupported --mode %q (use include or exclude)", mode))
 	}
@@ -377,7 +386,7 @@ func isEmptyRouteUpdate(request client.UpdateNotificationRouteRequest) bool {
 
 // renderRouteKindFilter renders a route's kind filter for humans: the list,
 // the negated list, or "any" when the route carries no kind filter.
-func renderRouteKindFilter(route *client.NotificationRoute) string {
+func renderRouteKindFilter(route client.NotificationRoute) string {
 	if len(route.Kinds) > 0 {
 		joined := strings.Join(route.Kinds, ", ")
 		if route.KindsNegated {
@@ -401,7 +410,7 @@ func printNotificationRoute(out io.Writer, route *client.NotificationRoute) {
 	_, _ = fmt.Fprintf(out, "ID:            %s\n", route.ID)
 	_, _ = fmt.Fprintf(out, "Destination:   %s\n", route.DestinationID)
 	_, _ = fmt.Fprintf(out, "Priority:      %d\n", route.Priority)
-	_, _ = fmt.Fprintf(out, "Kind:          %s\n", renderRouteKindFilter(route))
+	_, _ = fmt.Fprintf(out, "Kind:          %s\n", renderRouteKindFilter(*route))
 	_, _ = fmt.Fprintf(out, "Severity:      %s\n", valueOrAny(route.Severity))
 	_, _ = fmt.Fprintf(out, "Cluster:       %s\n", valueOrAny(route.ClusterID))
 	_, _ = fmt.Fprintf(out, "Source:        %s\n", valueOrAny(route.SourceID))
