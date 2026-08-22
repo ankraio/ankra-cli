@@ -35,14 +35,25 @@ type StackProfileIacExport struct {
 }
 
 type StackProfileParameter struct {
-	Name        string   `json:"name"`
-	Title       *string  `json:"title"`
-	Description *string  `json:"description"`
-	Type        string   `json:"type"`
-	Required    bool     `json:"required"`
-	Default     *string  `json:"default"`
-	EnumValues  []string `json:"enum_values"`
-	Group       *string  `json:"group"`
+	Name        string                        `json:"name"`
+	Title       *string                       `json:"title"`
+	Description *string                       `json:"description"`
+	Type        string                        `json:"type"`
+	Required    bool                          `json:"required"`
+	Default     *string                       `json:"default"`
+	EnumValues  []string                      `json:"enum_values"`
+	Group       *string                       `json:"group"`
+	Options     []StackProfileParameterOption `json:"options,omitempty"`
+}
+
+// StackProfileParameterOption is one choice of a parameter that also answers
+// other parameters: binding the parameter to Value lays Sets (parameter name
+// to value) underneath the caller's own --set bindings at instantiation.
+type StackProfileParameterOption struct {
+	Value       string            `json:"value"`
+	Title       *string           `json:"title,omitempty"`
+	Description *string           `json:"description,omitempty"`
+	Sets        map[string]string `json:"sets,omitempty"`
 }
 
 type StackProfileVersionSummary struct {

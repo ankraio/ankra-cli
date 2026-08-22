@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -313,8 +314,40 @@ var stackProfilesGetCmd = &cobra.Command{
 			parametersTable.AppendRow(table.Row{parameter.Name, parameter.Type, required, defaultValue, description})
 		}
 		parametersTable.Render()
+		printParameterChoices(parameters)
 		return nil
 	},
+}
+
+// printParameterChoices lists, for every parameter that offers choices, what
+// each choice sets on the other parameters - so a reader of `get` can tell
+// that `--set model_size=32b` also moves the model id and the context
+// length before they bind anything.
+func printParameterChoices(parameters []client.StackProfileParameter) {
+	for _, parameter := range parameters {
+		if len(parameter.Options) == 0 {
+			continue
+		}
+		fmt.Printf("\nChoices for %s (--set %s=<value>):\n", parameter.Name, parameter.Name)
+		for _, option := range parameter.Options {
+			label := option.Value
+			if option.Title != nil && *option.Title != "" && *option.Title != option.Value {
+				label = fmt.Sprintf("%s  %s", option.Value, *option.Title)
+			}
+			fmt.Printf("  %s\n", label)
+			if option.Description != nil && *option.Description != "" {
+				fmt.Printf("    %s\n", *option.Description)
+			}
+			targets := make([]string, 0, len(option.Sets))
+			for target := range option.Sets {
+				targets = append(targets, target)
+			}
+			sort.Strings(targets)
+			for _, target := range targets {
+				fmt.Printf("    sets %s=%s\n", target, option.Sets[target])
+			}
+		}
+	}
 }
 
 var stackProfilesApplyCmd = &cobra.Command{
@@ -343,16 +376,21 @@ which parameters a profile expects.`,
 			return versionError
 		}
 		deploy, _ := cmd.Flags().GetBool("deploy")
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		setValues, _ := cmd.Flags().GetStringArray("set")
 		setFiles, _ := cmd.Flags().GetStringArray("set-file")
 		setEnvs, _ := cmd.Flags().GetStringArray("set-env")
 
-		clusterID, clusterLabel, err := resolveApplyTargetCluster(clusterFlag)
+		parameters, err := buildParameterBindings(setValues, setFiles, setEnvs)
 		if err != nil {
 			return err
 		}
 
-		parameters, err := buildParameterBindings(setValues, setFiles, setEnvs)
+		if dryRun {
+			return previewApply(cmd, profileID, versionFlag, parameters)
+		}
+
+		clusterID, clusterLabel, err := resolveApplyTargetCluster(clusterFlag)
 		if err != nil {
 			return err
 		}
@@ -413,6 +451,58 @@ which parameters a profile expects.`,
 		}
 		return nil
 	},
+}
+
+// previewApply is `apply --dry-run`: it reads the profile version's inputs,
+// resolves the bindings the way the platform will (a --set value, then what
+// the selected choice sets, then the input's default) and prints the
+// result. Nothing is created, so no cluster is needed.
+func previewApply(cmd *cobra.Command, profileID string, versionFlag int, bindings []client.ParameterBinding) error {
+	detail, err := apiClient.GetStackProfile(profileID)
+	if err != nil {
+		return fmt.Errorf("reading stack profile: %w", err)
+	}
+	parameters, shownVersion, err := selectProfileParameters(detail, versionFlag, profileID)
+	if err != nil {
+		return err
+	}
+	rows := previewResolvedBindings(parameters, bindings)
+
+	format, err := structuredFormatFromFlags(cmd)
+	if err != nil {
+		return err
+	}
+	if format != outputDefault {
+		return encodeStructured(cmd.OutOrStdout(), format, map[string]any{
+			"profile_id": profileID,
+			"version":    shownVersion,
+			"bindings":   rows,
+		})
+	}
+
+	fmt.Printf("Dry run: inputs '%s' v%d would deploy with (nothing created):\n", detail.Profile.Name, shownVersion)
+	previewTable := table.NewWriter()
+	previewTable.SetOutputMirror(os.Stdout)
+	previewTable.SetStyle(table.StyleRounded)
+	previewTable.AppendHeader(table.Row{"Input", "Value", "Source"})
+	for _, row := range rows {
+		name := row.Name
+		if row.Required {
+			name += " *"
+		}
+		value := row.Value
+		if value == "" {
+			value = "-"
+		}
+		previewTable.AppendRow(table.Row{name, value, row.Source})
+	}
+	previewTable.Render()
+	if missing := unsetRequiredInputs(rows); len(missing) > 0 {
+		fmt.Printf("\n%d required %s still unset: %s\n", len(missing), pluralise(len(missing), "input", "inputs"), strings.Join(missing, ", "))
+		return nil
+	}
+	fmt.Println("\nEvery required input is set. Re-run without --dry-run to create the draft.")
+	return nil
 }
 
 func resolveApplyTargetCluster(clusterFlag string) (string, string, error) {
@@ -528,6 +618,7 @@ func init() {
 	stackProfilesApplyCmd.Flags().StringArray("set-file", nil, "Bind a parameter from a file: name=path (repeatable; secret-safe)")
 	stackProfilesApplyCmd.Flags().StringArray("set-env", nil, "Bind a parameter from an environment variable: name=ENV_VAR (repeatable; secret-safe)")
 	stackProfilesApplyCmd.Flags().Bool("deploy", false, "Deploy the stack immediately instead of leaving a draft for review")
+	stackProfilesApplyCmd.Flags().Bool("dry-run", false, "Show the value every input would deploy with (your --set, the selected choice, or the default) without creating anything")
 	registerStructuredOutputFlags(stackProfilesApplyCmd)
 
 	stackProfilesCmd.AddCommand(stackProfilesListCmd)

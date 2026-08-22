@@ -45,6 +45,7 @@ func resetStackProfileApplyFlags(t *testing.T) {
 		"stack-name": "",
 		"version":    "0",
 		"deploy":     "false",
+		"dry-run":    "false",
 		"output":     "",
 	} {
 		_ = flags.Set(name, value)
