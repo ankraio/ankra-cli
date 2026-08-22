@@ -1,15 +1,6 @@
 # Ankra CLI Changelog
 
-## v0.13.0 — 2026-08-22
-
-Makes the platform's IaC export round-trip. `cluster apply` now carries an
-exported ImportCluster back without dropping addon values, stack variables,
-group labels, or base64-encoded manifests — the clone-edit-apply loop deploys
-what the file says, or fails naming what it could not read, instead of
-silently installing chart defaults. Stack profiles gain the portal's whole
-lifecycle rather than just the read half, and the main list commands learn
-`--sort`/`--order` so `cluster list --sort created --order desc` puts the
-newest clusters first.
+## Unreleased
 
 ## v0.13.0-rc0 — 2026-08-22
 
