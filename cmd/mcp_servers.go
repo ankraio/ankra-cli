@@ -240,6 +240,29 @@ descriptive placeholder such as cmd://<binary-name> is expected there.`,
 			}
 			env[key] = value
 		}
+		// Validate every --secret-header pair before creating any slot. A
+		// malformed pair or a duplicate key discovered halfway through the
+		// creation loop would leave already-created slots behind - and a
+		// duplicate key would orphan its first slot even on success, because
+		// the second sentinel overwrites the first in env.
+		secretHeaders, _ := cmd.Flags().GetStringArray("secret-header")
+		secretHeaderSeen := make(map[string]bool, len(secretHeaders))
+		for _, pair := range secretHeaders {
+			key, _, _ := strings.Cut(pair, "=")
+			if key == "" {
+				return withExitCode(exitUsage, fmt.Errorf("--secret-header wants Key=Value or Key, got %q", pair))
+			}
+			if secretHeaderSeen[key] {
+				return withExitCode(exitUsage, fmt.Errorf(
+					"--secret-header %s given more than once; the second value would overwrite the first and orphan its secret slot - pass each header once", key))
+			}
+			if _, collidesWithPlain := env[key]; collidesWithPlain {
+				return withExitCode(exitUsage, fmt.Errorf(
+					"header %s given as both --header and --secret-header; the secret-slot sentinel would overwrite the plaintext value - pass it once, as --secret-header", key))
+			}
+			secretHeaderSeen[key] = true
+		}
+
 		// Secret slots created for this registration are tracked so a later
 		// failure (another slot, the catalog fetch, the registration itself)
 		// does not orphan slots holding real secret material.
@@ -250,12 +273,8 @@ descriptive placeholder such as cmd://<binary-name> is expected there.`,
 		// bufio.Reader per prompt would read ahead past the first line and
 		// make a second piped secret see EOF.
 		secretStdinReader := bufio.NewReader(cmd.InOrStdin())
-		secretHeaders, _ := cmd.Flags().GetStringArray("secret-header")
 		for _, pair := range secretHeaders {
 			key, value, _ := strings.Cut(pair, "=")
-			if key == "" {
-				return withExitCode(exitUsage, fmt.Errorf("--secret-header wants Key=Value or Key, got %q", pair))
-			}
 			if value == "" {
 				promptedValue, promptError := promptMCPSecretHeaderValue(cmd, secretStdinReader, key)
 				if promptError != nil {

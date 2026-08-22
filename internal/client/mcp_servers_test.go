@@ -448,3 +448,28 @@ func TestDeleteSecretSlot_AcceptsAnEmpty204Response(t *testing.T) {
 		t.Errorf("result = %+v, want a zero-valued acknowledgement for an empty body", result)
 	}
 }
+
+func TestGetMCPServer_RefusesAnEmpty200Body(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}
+	testClient := newTestClient(t, handler)
+
+	_, getError := testClient.GetMCPServer(context.Background(),
+		"11111111-2222-3333-4444-555555555555")
+	if getError == nil || !strings.Contains(getError.Error(), "empty body") {
+		t.Fatalf("error = %v, want a loud refusal - an empty read decoded as a zero-valued server would turn no answer into a negative one", getError)
+	}
+}
+
+func TestListMCPServers_RefusesAnEmpty200Body(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}
+	testClient := newTestClient(t, handler)
+
+	_, listError := testClient.ListMCPServers(context.Background())
+	if listError == nil || !strings.Contains(listError.Error(), "empty body") {
+		t.Fatalf("error = %v, want a loud refusal instead of a silent nil listing", listError)
+	}
+}

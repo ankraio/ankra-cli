@@ -380,3 +380,75 @@ func TestOrgMCPServersAddTwoPipedSecretHeadersCommand(t *testing.T) {
 		t.Errorf("env = %v, want both sentinels", mock.createdRequest.Env)
 	}
 }
+
+func TestOrgMCPServersAddMalformedSecondSecretHeaderCreatesNoSlotsCommand(t *testing.T) {
+	mock := &mcpServersMock{}
+	setMockClient(t, mock)
+	resetMCPServersAddFlags(t)
+
+	_, executeError := executeCommand("org", "mcp-servers", "add", "sentry",
+		"--url", "https://mcp.sentry.dev/mcp",
+		"--secret-header", "Authorization=Sentry-Bearer tok-123",
+		"--secret-header", "=broken")
+	if executeError == nil {
+		t.Fatal("expected the malformed pair to be refused")
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want exitUsage", exitCodeFor(executeError))
+	}
+	if !strings.Contains(executeError.Error(), "Key=Value or Key") {
+		t.Errorf("expected the usage hint, got: %v", executeError)
+	}
+	if len(mock.createdSlots) != 0 {
+		t.Errorf("validation runs before slot creation, so no slot may exist to leak; created: %v", mock.createdSlots)
+	}
+	if mock.createdRequest != nil {
+		t.Error("nothing may be registered after a refused pair")
+	}
+}
+
+func TestOrgMCPServersAddDuplicateSecretHeaderKeysRefusedBeforeSlotsCommand(t *testing.T) {
+	mock := &mcpServersMock{}
+	setMockClient(t, mock)
+	resetMCPServersAddFlags(t)
+
+	_, executeError := executeCommand("org", "mcp-servers", "add", "sentry",
+		"--url", "https://mcp.sentry.dev/mcp",
+		"--secret-header", "Authorization=first",
+		"--secret-header", "Authorization=second")
+	if executeError == nil {
+		t.Fatal("expected duplicate secret-header keys to be refused")
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want exitUsage", exitCodeFor(executeError))
+	}
+	if !strings.Contains(executeError.Error(), "more than once") {
+		t.Errorf("expected the duplicate-key explanation, got: %v", executeError)
+	}
+	if len(mock.createdSlots) != 0 {
+		t.Errorf("duplicates must be refused before any slot exists, created: %v", mock.createdSlots)
+	}
+}
+
+func TestOrgMCPServersAddSecretHeaderCollidingWithPlainHeaderRefusedCommand(t *testing.T) {
+	mock := &mcpServersMock{}
+	setMockClient(t, mock)
+	resetMCPServersAddFlags(t)
+
+	_, executeError := executeCommand("org", "mcp-servers", "add", "sentry",
+		"--url", "https://mcp.sentry.dev/mcp",
+		"--header", "X-Team=core",
+		"--secret-header", "X-Team=abc")
+	if executeError == nil {
+		t.Fatal("expected the plain/secret header collision to be refused")
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want exitUsage", exitCodeFor(executeError))
+	}
+	if !strings.Contains(executeError.Error(), "both --header and --secret-header") {
+		t.Errorf("expected the collision explanation, got: %v", executeError)
+	}
+	if len(mock.createdSlots) != 0 {
+		t.Errorf("the collision must be refused before any slot exists, created: %v", mock.createdSlots)
+	}
+}
