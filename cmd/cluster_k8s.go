@@ -95,6 +95,12 @@ type kindConfig struct {
 	// message. The generic resources command uses it to point at --group
 	// for kinds that live outside the core API group.
 	emptyHint string
+	// registerFlags and fieldSelectorsFor let one kind add its own flags to
+	// the generated command and turn them into server-side field selectors.
+	// Only events uses it today, for --for.
+	registerFlags     func(command *cobra.Command)
+	fieldSelectorsFor func(command *cobra.Command, namespace string, allNamespaces bool) ([]client.FieldSelector, error)
+	postFilter        func(items []interface{}, command *cobra.Command) []interface{}
 }
 
 var kindConfigs = []kindConfig{
@@ -275,6 +281,18 @@ var kindConfigs = []kindConfig{
 				getNestedString(obj, "message"),
 			}
 		},
+		registerFlags: func(command *cobra.Command) {
+			command.Flags().String("for", "", "Scope to one object's events, as kind/name (e.g. pod/web-7d9f-2xkvp)")
+			command.Flags().String("type", "", "Filter by event type: Normal or Warning")
+			// The get family's shared --name matches the Event resource's own
+			// generated name, not the workload the event is about; --for is
+			// the flag for the latter.
+			if nameFlag := command.Flags().Lookup("name"); nameFlag != nil {
+				nameFlag.Usage = "Filter by the Event resource's own name; to scope by the object an event is about, use --for"
+			}
+		},
+		fieldSelectorsFor: eventFieldSelectorsFromFlags,
+		postFilter:        eventTypeFilterFromFlags,
 	},
 	{
 		commandName: "configmaps", kind: "ConfigMap", group: "", version: "v1",
@@ -449,10 +467,22 @@ func renderSingleResource(item interface{}, outputFormat string) error {
 	return nil
 }
 
-func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, outputFormat string, cfg kindConfig) error {
+// resourceQuery carries the optional narrowing a kind command can apply.
+// Both members are nil for every command except events, and bundling them
+// keeps two same-shaped optional arguments off the call signature where they
+// could be transposed silently.
+type resourceQuery struct {
+	fieldSelectors []client.FieldSelector
+	postFilter     func([]interface{}) []interface{}
+}
+
+func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, outputFormat string, cfg kindConfig, query resourceQuery) error {
 	reqItem := client.ResourceRequestItem{
 		Kind:    cfg.kind,
 		Version: cfg.version,
+	}
+	if len(query.fieldSelectors) > 0 {
+		reqItem.FieldSelectors = query.fieldSelectors
 	}
 	if cfg.group != "" {
 		reqItem.Group = cfg.group
@@ -477,6 +507,15 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 	var items []interface{}
 	if len(response.ResourceResponses) > 0 {
 		items = response.ResourceResponses[0].Items
+	}
+	if query.postFilter != nil {
+		items = query.postFilter(items)
+		// Keep the structured envelope and the table showing the same set:
+		// a filter the caller asked for must not be visible in one and
+		// absent from the other.
+		if len(response.ResourceResponses) > 0 {
+			response.ResourceResponses[0].Items = items
+		}
 	}
 
 	isSingleResourceLookup := nameFilter != "" && len(items) == 1
@@ -558,7 +597,21 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 				namespace = ""
 			}
 
-			return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, cfg)
+			query := resourceQuery{}
+			if cfg.fieldSelectorsFor != nil {
+				var selectorError error
+				// The resolved namespace is handed over rather than re-read,
+				// so a kind's selectors cannot scope differently from the
+				// request they travel on.
+				query.fieldSelectors, selectorError = cfg.fieldSelectorsFor(cmd, namespace, allNamespaces)
+				if selectorError != nil {
+					return selectorError
+				}
+			}
+			if cfg.postFilter != nil {
+				query.postFilter = func(items []interface{}) []interface{} { return cfg.postFilter(items, cmd) }
+			}
+			return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, cfg, query)
 		},
 	}
 
@@ -569,6 +622,12 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 	cmd.Flags().String("name", "", "Filter by resource name")
 	cmd.Flags().StringP("selector", "l", "", "Label selector")
 	cmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
+
+	// After the shared flags, so a kind can both add its own and adjust the
+	// wording of one it inherits.
+	if cfg.registerFlags != nil {
+		cfg.registerFlags(cmd)
+	}
 
 	return cmd
 }
@@ -603,7 +662,7 @@ var clusterPodsCmd = &cobra.Command{
 				kind:        "Pod",
 				version:     "v1",
 			}
-			return fetchAndRenderResources(cluster.ID, namespace, podName, "", outputFormat, podCfg)
+			return fetchAndRenderResources(cluster.ID, namespace, podName, "", outputFormat, podCfg, resourceQuery{})
 		}
 
 		if allNamespaces {
@@ -708,48 +767,133 @@ var clusterPodsCmd = &cobra.Command{
 }
 
 var clusterLogsCmd = &cobra.Command{
-	Use:   "logs <pod_name>",
-	Short: "Stream logs from a pod",
-	Long: `Stream log output from a pod in the active cluster.
+	Use:   "logs [pod_name]",
+	Short: "Stream logs from one pod, a label selector, or every container",
+	Long: `Stream log output from the active cluster.
 
 By default the stream stays open and prints new lines as they arrive, like
 kubectl logs -f. Pass --follow=false to print the current backlog and exit,
 which is what a pipeline into grep or a script wants.
 
-Example:
+--previous reads the log of the container instance that terminated. For a
+pod in CrashLoopBackOff that is the only log with the failure in it, and it
+is the case where reaching for kubectl through a broad access grant used to
+be the only option. A previous log is closed, so --previous always makes a
+bounded read.
+
+-l/--selector reads every pod matching a label selector instead of one pod
+name, and --all-containers expands each pod to all of its containers (init
+and ephemeral containers included). With more than one target each line is
+prefixed with [pod] or [pod/container] so the interleaved output stays
+attributable.
+
+Examples:
   ankra cluster logs my-pod -n default -c my-container --tail 100
-  ankra cluster logs my-pod -n default --since 600 --follow=false | grep ERROR`,
-	Args:        cobra.ExactArgs(1),
+  ankra cluster logs my-pod -n default --previous
+  ankra cluster logs -l app=web -n default --tail 50 --follow=false
+  ankra cluster logs my-pod -n default --all-containers --previous
+  ankra cluster logs -l app=web -n default --follow=false -o json`,
+	Args:        cobra.MaximumNArgs(1),
 	Annotations: map[string]string{"group": "kubernetes"},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		podName := args[0]
 		namespace, _ := cmd.Flags().GetString("namespace")
 		container, _ := cmd.Flags().GetString("container")
 		tailLines, _ := cmd.Flags().GetInt("tail")
 		sinceSeconds, _ := cmd.Flags().GetInt("since")
 		follow, _ := cmd.Flags().GetBool("follow")
+		previous, _ := cmd.Flags().GetBool("previous")
+		labelSelector, _ := cmd.Flags().GetString("selector")
+		allContainers, _ := cmd.Flags().GetBool("all-containers")
+		outputFormat, _ := cmd.Flags().GetString("output")
 
+		if err := validateK8sOutputFormat(outputFormat); err != nil {
+			return err
+		}
 		if namespace == "" {
 			return withExitCode(exitUsage, errors.New("--namespace (-n) is required for logs"))
 		}
+		podName := ""
+		if len(args) == 1 {
+			podName = args[0]
+		}
+		if podName == "" && labelSelector == "" {
+			return withExitCode(exitUsage,
+				errors.New("logs needs a pod name or a label selector (-l)"))
+		}
+		if podName != "" && labelSelector != "" {
+			return withExitCode(exitUsage,
+				errors.New("pass either a pod name or -l/--selector, not both"))
+		}
+		if container != "" && allContainers {
+			return withExitCode(exitUsage,
+				errors.New("--container and --all-containers select different things; pass only one"))
+		}
+
+		// A structured read has to terminate before it can be encoded, so
+		// -o json|yaml is a bounded read. Saying so is better than
+		// emitting a document that never closes.
+		isStructured := outputFormat == "json" || outputFormat == "yaml"
+		if isStructured {
+			if cmd.Flags().Changed("follow") && follow {
+				return withExitCode(exitUsage, errors.New(
+					"-o json|yaml cannot follow a stream; drop --follow or use -o table"))
+			}
+			follow = false
+		}
+		if previous {
+			if cmd.Flags().Changed("follow") && follow {
+				return withExitCode(exitUsage, errors.New(
+					"--previous reads a terminated container's log, which is closed and cannot be followed; drop --follow"))
+			}
+			follow = false
+		}
+
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
 			return err
 		}
 
+		targets, targetsError := resolveLogTargets(
+			cluster.ID, namespace, podName, labelSelector, container, allContainers)
+		if targetsError != nil {
+			return targetsError
+		}
+		if follow && len(targets) > maxConcurrentLogFollows {
+			return withExitCode(exitUsage, fmt.Errorf(
+				"following %d containers at once exceeds the limit of %d: narrow the selector or pass --follow=false",
+				len(targets), maxConcurrentLogFollows))
+		}
+		if !follow && len(targets) > maxBoundedLogTargets {
+			return withExitCode(exitUsage, fmt.Errorf(
+				"reading %d containers in one command exceeds the limit of %d: narrow the selector with -l, or pass --tail to bound each read",
+				len(targets), maxBoundedLogTargets))
+		}
+
 		opts := client.PodLogOptions{
 			Namespace:     namespace,
-			PodName:       podName,
 			ContainerName: container,
 			TailLines:     tailLines,
 			SinceSeconds:  sinceSeconds,
 			Follow:        follow,
+			Previous:      previous,
 		}
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		if err := apiClient.StreamPodLogs(ctx, cluster.ID, opts, os.Stdout); err != nil {
+		if isStructured {
+			groups, collectError := collectLogTargets(ctx, cluster.ID, targets, opts)
+			if collectError != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return collectError
+			}
+			return renderLogGroups(groups, outputFormat)
+		}
+
+		showPrefix := len(targets) > 1
+		if err := streamLogTargets(ctx, cluster.ID, targets, opts, showPrefix, os.Stdout); err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -851,7 +995,7 @@ Example:
 			},
 		}
 
-		return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, genericCfg)
+		return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, genericCfg, resourceQuery{})
 	},
 }
 
@@ -879,6 +1023,10 @@ func init() {
 	clusterLogsCmd.Flags().Int("tail", 0, "Number of lines from the end of the logs")
 	clusterLogsCmd.Flags().Int("since", 0, "Seconds of logs to retrieve")
 	clusterLogsCmd.Flags().BoolP("follow", "f", true, "Keep the stream open for new lines; --follow=false prints the current backlog and exits")
+	clusterLogsCmd.Flags().BoolP("previous", "p", false, "Read the terminated container's log (the one a CrashLoopBackOff wrote); always a bounded read")
+	clusterLogsCmd.Flags().StringP("selector", "l", "", "Read every pod matching this label selector instead of one pod name")
+	clusterLogsCmd.Flags().Bool("all-containers", false, "Read every container of each selected pod, including init and ephemeral containers")
+	clusterLogsCmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
 
 	clusterGenericResourcesCmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace")
 	clusterGenericResourcesCmd.Flags().BoolP("all-namespaces", "A", false, "List across all namespaces")

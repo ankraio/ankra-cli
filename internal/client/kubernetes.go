@@ -91,10 +91,15 @@ type FieldSelector struct {
 }
 
 type ResourceRequestItem struct {
-	Kind           string          `json:"kind"`
-	Namespace      string          `json:"namespace,omitempty"`
-	Name           string          `json:"name,omitempty"`
-	Group          string          `json:"group,omitempty"`
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Group     string `json:"group,omitempty"`
+	// Resource is the API plural. The backend derives one from Kind when
+	// this is empty, and that derivation is wrong for the aggregated
+	// metrics API (PodMetrics is served as "pods", not "podmetricses"), so
+	// callers outside the ordinary kinds send it explicitly.
+	Resource       string          `json:"resource,omitempty"`
 	Version        string          `json:"version"`
 	LabelSelector  string          `json:"label_selector,omitempty"`
 	FieldSelectors []FieldSelector `json:"field_selectors,omitempty"`
@@ -105,15 +110,29 @@ type GetResourcesRequest struct {
 	SkipCache        bool                  `json:"skip_cache"`
 }
 
+// ResourceCacheMetadata is present only when the platform answered from its
+// Kubernetes cache instead of the live cluster. Reads that are only correct
+// live - the aggregated metrics API above all - must refuse a cached answer
+// rather than render yesterday's objects as today's measurements.
+type ResourceCacheMetadata struct {
+	ServedFromCache  bool    `json:"served_from_cache"`
+	StalenessSeconds int     `json:"staleness_seconds"`
+	SyncStatus       string  `json:"sync_status"`
+	Warning          *string `json:"warning"`
+	IsDeleted        bool    `json:"is_deleted"`
+	DeletedAt        *string `json:"deleted_at"`
+}
+
 type ResourceResponseItem struct {
-	Status     string        `json:"status"`
-	Group      *string       `json:"group"`
-	Items      []interface{} `json:"items"`
-	Kind       string        `json:"kind"`
-	Name       *string       `json:"name"`
-	Namespace  *string       `json:"namespace"`
-	Version    string        `json:"version"`
-	TotalCount *int          `json:"total_count"`
+	Status        string                 `json:"status"`
+	Group         *string                `json:"group"`
+	Items         []interface{}          `json:"items"`
+	Kind          string                 `json:"kind"`
+	Name          *string                `json:"name"`
+	Namespace     *string                `json:"namespace"`
+	Version       string                 `json:"version"`
+	TotalCount    *int                   `json:"total_count"`
+	CacheMetadata *ResourceCacheMetadata `json:"cache_metadata"`
 }
 
 type GetResourcesResponse struct {
@@ -173,6 +192,15 @@ type PodLogOptions struct {
 	// first batch, or the server's keepalive comment, which it only sends
 	// once it has nothing buffered.
 	Follow bool
+	// Previous reads the log of the container instance that terminated
+	// (kubectl logs --previous) - the only readable output of a container
+	// stuck in CrashLoopBackOff. The terminated log is closed, so the
+	// platform bounds the read regardless of Follow. A platform or agent
+	// that predates the parameter ignores it and serves the current
+	// container instead, which is why the CLI states the requirement in
+	// its help rather than silently presenting the wrong log as the right
+	// one.
+	Previous bool
 }
 
 // podLogsDrainIdle is how long a non-follow read waits for another line
@@ -197,6 +225,14 @@ func (c *Client) StreamPodLogs(ctx context.Context, clusterID string, opts PodLo
 		// The route defaults to follow=true; only the bounded read has to
 		// say so, which keeps the following request byte-identical to what
 		// every released CLI has always sent.
+		params.Set("follow", "false")
+	}
+	if opts.Previous {
+		params.Set("previous", "true")
+		// The route bounds a previous read whatever follow says, so the
+		// client has to take the drain path or it would sit waiting on a
+		// stream the server already closed.
+		opts.Follow = false
 		params.Set("follow", "false")
 	}
 
