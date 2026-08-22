@@ -70,3 +70,46 @@ func TestStackProfilesGetJSONOutput(t *testing.T) {
 		t.Errorf("expected json with profile field, got: %s", output)
 	}
 }
+
+func TestStackProfilesGetListsWhatEachChoiceSets(t *testing.T) {
+	resetStackProfileGetFlags(t)
+	large := "Qwen3 32B on one L40S"
+	reasoning := "Needs a 120Gi model store."
+	mock := &stackProfileMock{detail: &client.StackProfileDetail{
+		Profile: client.StackProfileSummary{ID: "profile-1", Name: "gpu-chat", CurrentVersion: 1, LatestVersion: 1},
+		CurrentVersionDetail: &client.StackProfileVersionDetail{
+			Version: 1,
+			Channel: "stable",
+			Parameters: []client.StackProfileParameter{
+				{
+					Name: "model_size", Type: "enum", EnumValues: []string{"8b", "32b"},
+					Options: []client.StackProfileParameterOption{
+						{Value: "8b", Sets: map[string]string{"model_id": "Qwen/Qwen3-8B"}},
+						{Value: "32b", Title: &large, Description: &reasoning, Sets: map[string]string{
+							"model_store_size": "120Gi", "model_id": "Qwen/Qwen3-32B"}},
+					},
+				},
+				{Name: "model_id", Type: "string"},
+				{Name: "model_store_size", Type: "string"},
+			},
+		},
+	}}
+	setMockClient(t, mock)
+
+	stdout := captureStdout(t, func() {
+		_, _ = executeCommand("stack-profiles", "get", "profile-1")
+	})
+
+	for _, expected := range []string{
+		"Choices for model_size (--set model_size=<value>):",
+		"  8b\n    sets model_id=Qwen/Qwen3-8B",
+		"  32b  Qwen3 32B on one L40S\n    Needs a 120Gi model store.\n    sets model_id=Qwen/Qwen3-32B\n    sets model_store_size=120Gi",
+	} {
+		if !strings.Contains(stdout, expected) {
+			t.Errorf("expected %q in output, got: %s", expected, stdout)
+		}
+	}
+	if strings.Contains(stdout, "Choices for model_id") {
+		t.Errorf("an input without options must not get a choices block, got: %s", stdout)
+	}
+}
