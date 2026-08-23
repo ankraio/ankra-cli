@@ -94,6 +94,9 @@ seal the stored values into the application's deployments and roll them.`,
 			}
 			applicationID := strings.TrimSpace(arguments[0])
 			secretKey := strings.TrimSpace(arguments[1])
+			if keyError := validateEnvSecretKey(secretKey); keyError != nil {
+				return keyError
+			}
 			value, valueError := resolveEnvSecretValue(command, secretKey)
 			if valueError != nil {
 				return valueError
@@ -114,6 +117,40 @@ seal the stored values into the application's deployments and roll them.`,
 	return setCommand
 }
 
+// maxEnvSecretKeyLength mirrors the platform's own bound on one Secret key
+// (enginekit/manifestenv.MaxKeyLength).
+const maxEnvSecretKeyLength = 63
+
+// validateEnvSecretKey refuses a key the platform would refuse anyway, before
+// the key is interpolated into a request path.
+//
+// The rule is the environment-variable rule the backend enforces
+// (manifestenv.IsValidKey): a letter or underscore, then letters, digits and
+// underscores. Checking it here is not duplicated validation for its own
+// sake - url.PathEscape does not escape dot segments, so a key of ".." would
+// otherwise build ".../env-secrets/.." and a server or proxy that normalises
+// request paths could resolve that onto the application resource itself,
+// which on the DELETE verb is the delete-application route.
+func validateEnvSecretKey(secretKey string) error {
+	if secretKey == "" || len(secretKey) > maxEnvSecretKeyLength {
+		return withExitCode(exitUsage, fmt.Errorf(
+			"%q is not a valid environment variable name: it must be 1 to %d characters",
+			secretKey, maxEnvSecretKeyLength))
+	}
+	for index := 0; index < len(secretKey); index++ {
+		symbol := secretKey[index]
+		isLetter := (symbol >= 'A' && symbol <= 'Z') || (symbol >= 'a' && symbol <= 'z')
+		isDigit := symbol >= '0' && symbol <= '9'
+		if isLetter || symbol == '_' || (isDigit && index > 0) {
+			continue
+		}
+		return withExitCode(exitUsage, fmt.Errorf(
+			"%q is not a valid environment variable name: use letters, digits and underscores, "+
+				"and do not start with a digit", secretKey))
+	}
+	return nil
+}
+
 // resolveEnvSecretValue reads the value from --value, from piped stdin, or
 // from a masked prompt, in that order.
 //
@@ -132,6 +169,16 @@ seal the stored values into the application's deployments and roll them.`,
 func resolveEnvSecretValue(command *cobra.Command, secretKey string) (string, error) {
 	if command.Flags().Changed("value") {
 		value, _ := command.Flags().GetString("value")
+		// An explicitly empty --value is refused, so that the flag path
+		// agrees with the stdin and prompt paths rather than being the one
+		// way to store an empty secret by accident. The script footgun is
+		// --value "$UNSET_VAR": it stores a value the workload never
+		// matches, and no route hands a stored value back to show it.
+		if value == "" {
+			return "", withExitCode(exitUsage, fmt.Errorf(
+				"--value is empty: pass a value, or use 'env-secrets delete %s' to clear the stored one",
+				secretKey))
+		}
 		return value, nil
 	}
 	input := command.InOrStdin()
@@ -181,6 +228,9 @@ sealed into them until the next apply.`,
 			}
 			applicationID := strings.TrimSpace(arguments[0])
 			secretKey := strings.TrimSpace(arguments[1])
+			if keyError := validateEnvSecretKey(secretKey); keyError != nil {
+				return keyError
+			}
 			yes, _ := command.Flags().GetBool("yes")
 			if confirmError := confirmPrompt(
 				command.InOrStdin(), command.OutOrStdout(),

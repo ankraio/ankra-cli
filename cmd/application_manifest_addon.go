@@ -153,6 +153,11 @@ may be repeated as --input key=value.`,
 // parseManifestAddonInputs turns repeated --input key=value flags into the
 // inputs map. A value may contain '=' - only the first one separates - and a
 // missing '=' is a usage error rather than a key silently answered with "".
+//
+// A repeated key is a usage error too. Last-one-wins can never be what
+// someone meant here (there is one value per input), so the usual cause is a
+// variable expanded twice in a script, and silently installing with the
+// second value hides it.
 func parseManifestAddonInputs(rawInputs []string) (map[string]string, error) {
 	if len(rawInputs) == 0 {
 		return nil, nil
@@ -164,6 +169,10 @@ func parseManifestAddonInputs(rawInputs []string) (map[string]string, error) {
 		if !found || key == "" {
 			return nil, withExitCode(exitUsage,
 				fmt.Errorf("--input %q is not key=value", rawInput))
+		}
+		if _, isDuplicate := inputs[key]; isDuplicate {
+			return nil, withExitCode(exitUsage,
+				fmt.Errorf("--input %s given more than once: name each input at most once", key))
 		}
 		inputs[key] = value
 	}

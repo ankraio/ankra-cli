@@ -510,3 +510,90 @@ func TestApplicationDemoFixBuildSendsTheBranch(t *testing.T) {
 		t.Errorf("branch = %q, want it trimmed", mockClient.fixBuildBranch)
 	}
 }
+
+// An explicitly empty --value is refused so the flag path agrees with the
+// stdin and prompt paths. The script footgun is `--value "$UNSET_VAR"`:
+// without this it stores a value the workload never matches, and no route
+// hands a stored value back to show it afterwards.
+func TestApplicationEnvSecretSetRefusesAnExplicitlyEmptyValue(t *testing.T) {
+	for _, argument := range []string{"--value=", "--value"} {
+		mockClient := &applicationLaneMock{}
+		arguments := []string{"env-secrets", "set", "app-1", "K", argument}
+		if argument == "--value" {
+			arguments = append(arguments, "")
+		}
+		_, executeError := runApplicationCommand(t, mockClient, arguments...)
+		if executeError == nil {
+			t.Fatalf("%s: an empty value must be refused", argument)
+		}
+		if exitCodeFor(executeError) != exitUsage {
+			t.Errorf("%s: exit code = %d, want %d", argument, exitCodeFor(executeError), exitUsage)
+		}
+		if !strings.Contains(executeError.Error(), "env-secrets delete") {
+			t.Errorf("%s: the refusal should point at the tool that clears a value: %v", argument, executeError)
+		}
+		if mockClient.envSecretSets != 0 {
+			t.Errorf("%s: SetApplicationEnvSecret calls = %d, want 0", argument, mockClient.envSecretSets)
+		}
+	}
+}
+
+// url.PathEscape does not escape dot segments, so a key of ".." would build
+// ".../env-secrets/.." and a server or proxy that normalises request paths
+// could resolve it onto the application resource - which on DELETE is the
+// delete-application route. The key is validated to the platform's own
+// environment-variable rule before it reaches a path.
+func TestApplicationEnvSecretRefusesAKeyThatIsNotAnEnvironmentVariableName(t *testing.T) {
+	for _, secretKey := range []string{"..", ".", "A/B", "1LEADING_DIGIT", "has space", "has-dash", ""} {
+		for _, verb := range []string{"set", "delete"} {
+			mockClient := &applicationLaneMock{}
+			arguments := []string{"env-secrets", verb, "app-1", secretKey}
+			if verb == "set" {
+				arguments = append(arguments, "--value", "v")
+			} else {
+				arguments = append(arguments, "--yes")
+			}
+			_, executeError := runApplicationCommand(t, mockClient, arguments...)
+			if executeError == nil {
+				t.Errorf("%s %q was accepted", verb, secretKey)
+				continue
+			}
+			if exitCodeFor(executeError) != exitUsage {
+				t.Errorf("%s %q: exit code = %d, want %d", verb, secretKey, exitCodeFor(executeError), exitUsage)
+			}
+			if mockClient.envSecretSets != 0 || mockClient.envSecretDeletes != 0 {
+				t.Errorf("%s %q reached the client", verb, secretKey)
+			}
+		}
+	}
+	// The rule must still accept an ordinary key.
+	mockClient := &applicationLaneMock{payload: json.RawMessage(`{"key":"DATABASE_URL"}`)}
+	if _, executeError := runApplicationCommand(t, mockClient,
+		"env-secrets", "set", "app-1", "DATABASE_URL", "--value", "v"); executeError != nil {
+		t.Fatalf("a valid key was refused: %v", executeError)
+	}
+	if mockClient.envSecretSets != 1 {
+		t.Errorf("SetApplicationEnvSecret calls = %d, want 1", mockClient.envSecretSets)
+	}
+}
+
+// There is one value per input, so last-one-wins can never be what someone
+// meant: the usual cause is a variable expanded twice in a script, and
+// installing with the second value silently hides it.
+func TestManifestAddonInstallRejectsADuplicateInputKey(t *testing.T) {
+	mockClient := &applicationLaneMock{}
+	_, executeError := runApplicationCommand(t, mockClient, "manifest-addon", "install", "addon-1",
+		"--cluster-id", "cluster-1", "--input", "replicas=2", "--input", "replicas=3")
+	if executeError == nil {
+		t.Fatal("a repeated --input key must be refused")
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitUsage)
+	}
+	if !strings.Contains(executeError.Error(), "replicas") {
+		t.Errorf("the refusal should name the duplicated key: %v", executeError)
+	}
+	if mockClient.installCalls != 0 {
+		t.Errorf("InstallManifestAddon calls = %d, want 0", mockClient.installCalls)
+	}
+}

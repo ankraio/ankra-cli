@@ -14,7 +14,10 @@
   Storing is deliberately not applying, and `set` says so. A value only ever
   travels inbound: no route hands a stored value back, `list` never carries
   one, and nothing here prints one. Pipe the value or let it prompt rather
-  than passing `--value`, which your shell records in its history.
+  than passing `--value`, which your shell records in its history. An empty
+  value is refused on every path, so the `--value "$UNSET_VAR"` footgun cannot
+  quietly store a secret the workload will never match, and a key that is not
+  an environment variable name is refused before it reaches a request path.
 - **`ankra application auto-deploy get|set` reads and flips push-to-deploy.**
   The read carries the newest build the platform observed on the tracked
   branch alongside the switch, so you can tell auto-deploy that is off from
