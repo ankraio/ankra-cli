@@ -1,0 +1,85 @@
+package client
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+)
+
+// OrganisationPreviewSettings is the preview half of the organisation's AI
+// environment settings (GET/PUT /api/v1/org/ai-environment) - the fields that
+// decide where a PR demo is published and how it terminates TLS. The root
+// domain on the same endpoint is a different setting with a much wider blast
+// radius and stays with 'ankra org domain'.
+//
+// Empty means unset in every field: the demos then hang off the staging
+// cluster's own Ankra subzone, or stay in-cluster-only.
+type OrganisationPreviewSettings struct {
+	DemoBaseDomain       string `json:"demo_base_domain"`
+	DemoIngressClassName string `json:"demo_ingress_class_name"`
+	DemoTLSSecretName    string `json:"demo_tls_secret_name"`
+	DemoCertIssuerName   string `json:"demo_cert_issuer_name"`
+}
+
+type organisationPreviewSettingsBody struct {
+	DemoBaseDomain       *string `json:"demo_base_domain"`
+	DemoIngressClassName *string `json:"demo_ingress_class_name"`
+	DemoTLSSecretName    *string `json:"demo_tls_secret_name"`
+	DemoCertIssuerName   *string `json:"demo_cert_issuer_name"`
+}
+
+// GetOrganisationPreviewSettings reads the organisation's preview settings.
+func (c *Client) GetOrganisationPreviewSettings(ctx context.Context) (*OrganisationPreviewSettings, error) {
+	body, requestError := c.doOrganisationDomainRequest(ctx, http.MethodGet, nil)
+	if requestError != nil {
+		return nil, requestError
+	}
+	return decodeOrganisationPreviewSettings(body)
+}
+
+// UpdateOrganisationPreviewSettings writes only the fields present in
+// changes. The endpoint reads presence, not emptiness: a key carrying nil
+// clears that field, and a key left out of the map is not touched - so
+// setting one field never silently clears its neighbours.
+func (c *Client) UpdateOrganisationPreviewSettings(ctx context.Context,
+	changes map[string]*string) (*OrganisationPreviewSettings, error) {
+	payload := make(map[string]any, len(changes))
+	for field, value := range changes {
+		if value == nil {
+			payload[field] = nil
+			continue
+		}
+		payload[field] = *value
+	}
+	encoded, marshalError := json.Marshal(payload)
+	if marshalError != nil {
+		return nil, fmt.Errorf("encode request: %w", marshalError)
+	}
+	body, requestError := c.doOrganisationDomainRequest(ctx, http.MethodPut, encoded)
+	if requestError != nil {
+		return nil, requestError
+	}
+	return decodeOrganisationPreviewSettings(body)
+}
+
+func decodeOrganisationPreviewSettings(body []byte) (*OrganisationPreviewSettings, error) {
+	var decoded organisationPreviewSettingsBody
+	if unmarshalError := json.Unmarshal(body, &decoded); unmarshalError != nil {
+		return nil, fmt.Errorf("parse response: %w", unmarshalError)
+	}
+	settings := OrganisationPreviewSettings{}
+	if decoded.DemoBaseDomain != nil {
+		settings.DemoBaseDomain = *decoded.DemoBaseDomain
+	}
+	if decoded.DemoIngressClassName != nil {
+		settings.DemoIngressClassName = *decoded.DemoIngressClassName
+	}
+	if decoded.DemoTLSSecretName != nil {
+		settings.DemoTLSSecretName = *decoded.DemoTLSSecretName
+	}
+	if decoded.DemoCertIssuerName != nil {
+		settings.DemoCertIssuerName = *decoded.DemoCertIssuerName
+	}
+	return &settings, nil
+}

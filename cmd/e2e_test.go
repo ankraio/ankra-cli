@@ -595,6 +595,15 @@ func (m baseMock) SetOrganisationDomain(ctx context.Context, rootDomain string) 
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetOrganisationPreviewSettings(ctx context.Context) (*client.OrganisationPreviewSettings, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateOrganisationPreviewSettings(ctx context.Context,
+	changes map[string]*string) (*client.OrganisationPreviewSettings, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) MCPCatalog(ctx context.Context) (*client.MCPCatalogResult, error) {
 	return nil, errors.New("not implemented")
 }

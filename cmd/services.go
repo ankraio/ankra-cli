@@ -80,6 +80,9 @@ type APIClient interface {
 	DeleteOrganisationDnsRecord(ctx context.Context, recordID string) error
 	ListOrganisationClusterDnsZones(ctx context.Context) (*client.DnsClusterZonesListResult, error)
 	GetOrganisationDomain(ctx context.Context) (*client.OrganisationDomain, error)
+	GetOrganisationPreviewSettings(ctx context.Context) (*client.OrganisationPreviewSettings, error)
+	UpdateOrganisationPreviewSettings(ctx context.Context,
+		changes map[string]*string) (*client.OrganisationPreviewSettings, error)
 	SetOrganisationDomain(ctx context.Context, rootDomain string) (*client.OrganisationDomain, error)
 
 	MCPCatalog(ctx context.Context) (*client.MCPCatalogResult, error)
