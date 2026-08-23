@@ -205,16 +205,30 @@ var previewSettingFlagFields = map[string]string{
 	"demo-cert-issuer":   "demo_cert_issuer_name",
 }
 
+// previewSettingFlagUsage is the help string for each flag in
+// previewSettingFlagFields. Kept beside it so registration can walk the field
+// map itself: a field added without a usage string then fails at init rather
+// than registering no flag at all, which the update loop would skip in
+// silence.
+var previewSettingFlagUsage = map[string]string{
+	"demo-base-domain":   "Wildcard zone demos are published under; empty clears it",
+	"demo-ingress-class": "Ingress class for demo ingresses; empty clears it",
+	"demo-tls-secret":    "Secret holding a certificate for the preview domain; empty clears it",
+	"demo-cert-issuer":   "cert-manager ClusterIssuer to ask instead of the cluster's own; empty clears it",
+}
+
 func init() {
 	registerStructuredOutputFlags(orgAIEnvironmentGetCmd, orgAIEnvironmentSetCmd)
-	for flagName, usage := range map[string]string{
-		"demo-base-domain":   "Wildcard zone demos are published under; empty clears it",
-		"demo-ingress-class": "Ingress class for demo ingresses; empty clears it",
-		"demo-tls-secret":    "Secret holding a certificate for the preview domain; empty clears it",
-		"demo-cert-issuer":   "cert-manager ClusterIssuer to ask instead of the cluster's own; empty clears it",
-	} {
-		if _, isKnown := previewSettingFlagFields[flagName]; !isKnown {
-			panic("preview setting flag " + flagName + " has no wire field")
+	// Both directions of drift are fatal here: walking the field map catches
+	// a field with no usage string, and the count check catches a usage
+	// string naming a flag that writes nothing.
+	if len(previewSettingFlagUsage) != len(previewSettingFlagFields) {
+		panic("preview setting flag usage and wire-field maps disagree")
+	}
+	for flagName := range previewSettingFlagFields {
+		usage, hasUsage := previewSettingFlagUsage[flagName]
+		if !hasUsage {
+			panic("preview setting flag " + flagName + " has no usage string")
 		}
 		orgAIEnvironmentSetCmd.Flags().String(flagName, "", usage)
 	}

@@ -233,6 +233,27 @@ func TestRunOrgAIEnvironmentGet_StaysTerseWhenNothingIsStored(t *testing.T) {
 	}
 }
 
+// The two maps have to stay in step in both directions: a wire field with no
+// usage string would register no flag (and the update loop would skip it in
+// silence), and a usage string naming no field would register a flag that
+// writes nothing. init() panics on either; this pins the pairing itself.
+func TestPreviewSettingFlagMapsAgree(t *testing.T) {
+	if len(previewSettingFlagUsage) != len(previewSettingFlagFields) {
+		t.Fatalf("usage map has %d entries, wire-field map has %d",
+			len(previewSettingFlagUsage), len(previewSettingFlagFields))
+	}
+	for flagName := range previewSettingFlagFields {
+		if previewSettingFlagUsage[flagName] == "" {
+			t.Errorf("wire field %q has no usage string, so init() would register no flag", flagName)
+		}
+	}
+	for flagName := range previewSettingFlagUsage {
+		if previewSettingFlagFields[flagName] == "" {
+			t.Errorf("usage string %q names no wire field, so the flag would write nothing", flagName)
+		}
+	}
+}
+
 // Registration and parsing read one map, so a renamed flag cannot become a
 // flag cobra accepts and the update loop never matches.
 func TestPreviewSettingFlagsAreRegisteredForEveryWireField(t *testing.T) {
