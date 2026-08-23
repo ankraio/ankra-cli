@@ -27,6 +27,13 @@
   (Actions billing in arrears, or a spending limit) was handed a pipeline it
   could not execute. Any member may read it; only an organisation admin may
   change it. `--clear` returns future generations to the default.
+- **`ankra application demo fix-build` repairs a branch with no demo image.**
+  `demo build` is the check that reports no image exists for a branch, and it
+  was already in the CLI; the remedy for exactly that answer was portal-only,
+  because the endpoint had no bearer twin. It has one now (cluster#1717), so
+  the check and its fix are finally on the same surface. Ankra applies its own
+  deterministic fixes first and, when those cannot produce an image, dispatches
+  a mission agent that investigates the repository and opens a pull request.
 - **`ankra application manifest-addon` completes the add-on publishing lane.**
   `publish-addon` and `published-addon` already turned an application's
   manifests into a catalog entry and reported what that produced; there was

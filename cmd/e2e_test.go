@@ -439,6 +439,10 @@ func (m baseMock) FixApplicationDemo(requestContext context.Context, application
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) FixApplicationBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetApplicationImageRegistry(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }

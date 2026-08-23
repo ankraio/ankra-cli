@@ -24,6 +24,7 @@ func newApplicationDemoCommand() *cobra.Command {
 	demoCommand.AddCommand(
 		newApplicationDemoListCommand(),
 		newApplicationDemoBuildCommand(),
+		newApplicationDemoFixBuildCommand(),
 		newApplicationDemoDeployCommand(),
 		newApplicationDemoStopCommand(),
 		newApplicationDemoDetailCommand(),
@@ -361,6 +362,48 @@ func newApplicationDemoBuildCommand() *cobra.Command {
 	buildCommand.Flags().String("branch", "", "Repository branch to inspect (required)")
 	registerStructuredOutputFlags(buildCommand)
 	return buildCommand
+}
+
+// newApplicationDemoFixBuildCommand is the remedy for the answer `demo build`
+// gives. Its sibling `demo fix` repairs a demo whose container crashed; this
+// one repairs the case where there is no image to run at all.
+func newApplicationDemoFixBuildCommand() *cobra.Command {
+	fixBuildCommand := &cobra.Command{
+		Use:   "fix-build <application-id>",
+		Short: "Fix a branch that has no demo-ready container image",
+		Long: `Fix a branch that has no demo-ready container image.
+
+This is what to run when 'demo build' reports that no image exists for a
+branch. Ankra applies its own deterministic fixes first (publish-readiness
+auto-fix, failed-run rerun, failed-setup retry) and, when those cannot produce
+an image, dispatches a one-shot mission agent that investigates the repository
+and opens a pull request with the fix.
+
+The answer points at the dispatched mission rather than carrying its result,
+so follow the agent run it names.`,
+		Example: `  ankra application demo build <application-id> --branch feature/checkout
+  ankra application demo fix-build <application-id> --branch feature/checkout`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			branch := strings.TrimSpace(mustFlagString(command, "branch"))
+			if branch == "" {
+				return withExitCode(exitUsage,
+					errors.New("--branch is required: the branch whose build is missing"))
+			}
+			payload, fixError := apiClient.FixApplicationBuild(command.Context(),
+				strings.TrimSpace(arguments[0]), branch)
+			if fixError != nil {
+				return fixError
+			}
+			return renderApplicationPayload(command, payload)
+		},
+	}
+	fixBuildCommand.Flags().String("branch", "", "Repository branch whose build is missing (required)")
+	registerStructuredOutputFlags(fixBuildCommand)
+	return fixBuildCommand
 }
 
 func newApplicationDemoDeployCommand() *cobra.Command {

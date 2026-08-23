@@ -443,3 +443,20 @@ func (client *Client) UpdateApplicationSettings(requestContext context.Context, 
 	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationsAPIPath+"/settings", nil,
 		UpdateApplicationSettingsRequest{CIRunnerLabel: ciRunnerLabel})
 }
+
+// --- branch build repair ---
+
+// FixApplicationBuildRequest mirrors the fix-build body: the branch whose
+// build is missing.
+type FixApplicationBuildRequest struct {
+	Branch string `json:"branch"`
+}
+
+// FixApplicationBuild dispatches the branch-build repair lane. It answers with
+// a pointer to the dispatched mission rather than its result, so the caller
+// follows the agent run it names.
+func (client *Client) FixApplicationBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost,
+		applicationPath(applicationID, "/demos/fix-build"), nil,
+		FixApplicationBuildRequest{Branch: branch})
+}

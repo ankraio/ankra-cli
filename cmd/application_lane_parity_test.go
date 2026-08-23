@@ -35,6 +35,15 @@ type applicationLaneMock struct {
 	installCalls     int
 	unpublishCalls   int
 	addonDeleteCalls int
+
+	fixBuildBranch string
+	fixBuildCalls  int
+}
+
+func (mock *applicationLaneMock) FixApplicationBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error) {
+	mock.fixBuildCalls++
+	mock.fixBuildBranch = branch
+	return mock.payload, nil
 }
 
 func (mock *applicationLaneMock) ListApplicationEnvSecrets(requestContext context.Context, applicationID string) (json.RawMessage, error) {
@@ -466,5 +475,38 @@ func TestManifestAddonWithdrawalsBothConfirm(t *testing.T) {
 	}
 	if mockClient.addonDeleteCalls != 0 {
 		t.Errorf("DeleteManifestAddon calls = %d, want 0", mockClient.addonDeleteCalls)
+	}
+}
+
+// fix-build is the remedy for the answer `demo build` gives, and the CLI had
+// the check without the remedy: the bearer twin for it landed in cluster#1717
+// (ankra-961wq). --branch is required because the lane repairs one branch's
+// build, and a defaulted branch would repair the wrong one silently.
+func TestApplicationDemoFixBuildRequiresABranch(t *testing.T) {
+	mockClient := &applicationLaneMock{}
+	_, executeError := runApplicationCommand(t, mockClient, "demo", "fix-build", "app-1")
+	if executeError == nil {
+		t.Fatal("expected a missing --branch to fail")
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitUsage)
+	}
+	if mockClient.fixBuildCalls != 0 {
+		t.Errorf("FixApplicationBuild calls = %d, want 0", mockClient.fixBuildCalls)
+	}
+}
+
+func TestApplicationDemoFixBuildSendsTheBranch(t *testing.T) {
+	mockClient := &applicationLaneMock{payload: json.RawMessage(`{"status":"dispatched"}`)}
+	_, executeError := runApplicationCommand(t, mockClient,
+		"demo", "fix-build", "app-1", "--branch", " feature/checkout ")
+	if executeError != nil {
+		t.Fatalf("demo fix-build error = %v", executeError)
+	}
+	if mockClient.fixBuildCalls != 1 {
+		t.Fatalf("FixApplicationBuild calls = %d, want 1", mockClient.fixBuildCalls)
+	}
+	if mockClient.fixBuildBranch != "feature/checkout" {
+		t.Errorf("branch = %q, want it trimmed", mockClient.fixBuildBranch)
 	}
 }
