@@ -259,6 +259,58 @@ func (m baseMock) GetApplicationPublishedAddon(requestContext context.Context, a
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListApplicationEnvSecrets(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetApplicationEnvSecret(requestContext context.Context, applicationID string, secretKey string, value string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteApplicationEnvSecret(requestContext context.Context, applicationID string, secretKey string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ApplyApplicationEnvSecrets(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationAutoDeploy(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetApplicationAutoDeploy(requestContext context.Context, applicationID string, enabled bool) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationSettings(requestContext context.Context) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateApplicationSettings(requestContext context.Context, ciRunnerLabel *string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetManifestAddon(requestContext context.Context, addonID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DiffManifestAddon(requestContext context.Context, addonID string, toVersion string, fromVersion string, paths []string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) InstallManifestAddon(requestContext context.Context, addonID string, installRequest client.InstallManifestAddonRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UnpublishManifestAddon(requestContext context.Context, addonID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteManifestAddon(requestContext context.Context, addonID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateApplication(requestContext context.Context, applicationRequest client.CreateApplicationRequest) (*client.CreateApplicationResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -384,6 +436,10 @@ func (m baseMock) UpdateApplicationDemoConfig(requestContext context.Context, ap
 }
 
 func (m baseMock) FixApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) FixApplicationBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
 

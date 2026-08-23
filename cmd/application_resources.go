@@ -128,6 +128,10 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 	applicationCommand.AddCommand(newApplicationAIConfigCommand())
 	applicationCommand.AddCommand(newApplicationPublishAddonCommand())
 	applicationCommand.AddCommand(newApplicationPublishedAddonCommand())
+	applicationCommand.AddCommand(newApplicationEnvSecretsCommand())
+	applicationCommand.AddCommand(newApplicationAutoDeployCommand())
+	applicationCommand.AddCommand(newApplicationSettingsCommand())
+	applicationCommand.AddCommand(newApplicationManifestAddonCommand())
 }
 
 func newApplicationDeleteCommand() *cobra.Command {

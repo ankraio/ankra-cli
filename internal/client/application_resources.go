@@ -373,3 +373,90 @@ func (client *Client) PublishApplicationAddon(requestContext context.Context, ap
 func (client *Client) GetApplicationPublishedAddon(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/published-addon"), nil, nil)
 }
+
+// --- environment secrets ---
+
+// SetApplicationEnvSecretRequest mirrors the env-secret PUT body. The value is
+// the only inbound secret on this surface and there is no route that hands a
+// stored value back, so nothing here is ever populated from a response.
+type SetApplicationEnvSecretRequest struct {
+	Value string `json:"value"`
+}
+
+// ListApplicationEnvSecrets reports the keys an application's generated
+// manifests need and the state of each. Values never travel outbound.
+func (client *Client) ListApplicationEnvSecrets(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/env-secrets"), nil, nil)
+}
+
+func (client *Client) SetApplicationEnvSecret(requestContext context.Context, applicationID string, secretKey string, value string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut,
+		applicationPath(applicationID, "/env-secrets/"+url.PathEscape(secretKey)), nil,
+		SetApplicationEnvSecretRequest{Value: value})
+}
+
+func (client *Client) DeleteApplicationEnvSecret(requestContext context.Context, applicationID string, secretKey string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodDelete,
+		applicationPath(applicationID, "/env-secrets/"+url.PathEscape(secretKey)), nil, nil)
+}
+
+// ApplyApplicationEnvSecrets re-seals the stored values into every deployment
+// of the application and rolls the workloads that read them. It carries no
+// body: the values it applies are the ones already stored.
+func (client *Client) ApplyApplicationEnvSecrets(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost,
+		applicationPath(applicationID, "/env-secrets/apply"), nil, nil)
+}
+
+// --- push-to-deploy switch ---
+
+// SetApplicationAutoDeployRequest mirrors the auto-deploy PUT body.
+type SetApplicationAutoDeployRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+func (client *Client) GetApplicationAutoDeploy(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/auto-deploy"), nil, nil)
+}
+
+func (client *Client) SetApplicationAutoDeploy(requestContext context.Context, applicationID string, enabled bool) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/auto-deploy"), nil,
+		SetApplicationAutoDeployRequest{Enabled: enabled})
+}
+
+// --- organisation-level application settings ---
+
+// UpdateApplicationSettingsRequest mirrors the settings PUT body. The key is
+// always sent and the pointer must survive marshalling: an explicit null is
+// how the organisation's runner choice is cleared, which is a different
+// request from not mentioning the field at all (the backend rejects that with
+// a 422 missing-field error).
+type UpdateApplicationSettingsRequest struct {
+	CIRunnerLabel *string `json:"ci_runner_label"`
+}
+
+func (client *Client) GetApplicationSettings(requestContext context.Context) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationsAPIPath+"/settings", nil, nil)
+}
+
+func (client *Client) UpdateApplicationSettings(requestContext context.Context, ciRunnerLabel *string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationsAPIPath+"/settings", nil,
+		UpdateApplicationSettingsRequest{CIRunnerLabel: ciRunnerLabel})
+}
+
+// --- branch build repair ---
+
+// FixApplicationBuildRequest mirrors the fix-build body: the branch whose
+// build is missing.
+type FixApplicationBuildRequest struct {
+	Branch string `json:"branch"`
+}
+
+// FixApplicationBuild dispatches the branch-build repair lane. It answers with
+// a pointer to the dispatched mission rather than its result, so the caller
+// follows the agent run it names.
+func (client *Client) FixApplicationBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost,
+		applicationPath(applicationID, "/demos/fix-build"), nil,
+		FixApplicationBuildRequest{Branch: branch})
+}
