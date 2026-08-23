@@ -90,7 +90,7 @@ type organisationDomainSettings struct {
 
 // GetOrganisationDomain reads the organisation's Ankra root domain.
 func (c *Client) GetOrganisationDomain(ctx context.Context) (*OrganisationDomain, error) {
-	body, err := c.doOrganisationDomainRequest(ctx, http.MethodGet, nil)
+	body, err := c.doAIEnvironmentRequest(ctx, http.MethodGet, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (c *Client) SetOrganisationDomain(ctx context.Context, rootDomain string) (
 	if marshalError != nil {
 		return nil, fmt.Errorf("encode request: %w", marshalError)
 	}
-	body, err := c.doOrganisationDomainRequest(ctx, http.MethodPut, encoded)
+	body, err := c.doAIEnvironmentRequest(ctx, http.MethodPut, encoded)
 	if err != nil {
 		return nil, err
 	}
@@ -130,11 +130,13 @@ func decodeOrganisationDomain(body []byte) (*OrganisationDomain, error) {
 	return &domain, nil
 }
 
-// doOrganisationDomainRequest sends an authenticated JSON request to the AI
-// environment settings routes. A 400 carrying the switch guard's blocker
-// inventory becomes an OrganisationDomainBlockedError; other 400/403 bodies
-// surface their detail verbatim - those texts are user-actionable.
-func (c *Client) doOrganisationDomainRequest(ctx context.Context, method string, body []byte) ([]byte, error) {
+// doAIEnvironmentRequest sends an authenticated JSON request to the org AI
+// environment settings route. That one endpoint backs both the root-domain
+// setting and the preview settings, so the name is deliberately neutral -
+// it does not belong to the domain lane. A 400 carrying the switch guard's
+// blocker inventory becomes an OrganisationDomainBlockedError; other 400/403
+// bodies surface their detail verbatim - those texts are user-actionable.
+func (c *Client) doAIEnvironmentRequest(ctx context.Context, method string, body []byte) ([]byte, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)

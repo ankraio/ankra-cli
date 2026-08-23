@@ -29,9 +29,17 @@ refused otherwise, naming the nameservers to point at.
   ankra org domain set --default
 
 This is the same setting the portal writes at AI > Settings > Workspaces
-("Custom Ankra domain"). Changing it is refused while cluster DNS zones or DNS
-records still live under the old root; the refusal lists exactly what to
-remove. Use 'ankra org dns zones' and 'ankra org dns list' to inventory them,
+("Custom Ankra domain").
+
+The SECOND domain field on that screen, "Preview domain", is a different
+setting: it decides only where PR demos and on-demand previews are published,
+it changes nothing else, and it is not gated by the guard below. If previews
+on your own domain are what you are after, you want
+'ankra org ai-environment set --demo-base-domain', not this command.
+
+Changing the root domain is refused while cluster DNS zones or DNS records
+still live under the old root; the refusal lists exactly what to remove. Use
+'ankra org dns zones' and 'ankra org dns list' to inventory them, and
 'ankra cluster domain <cluster> --remove' and 'ankra org dns delete <record>'
 to clear them. Ankra re-creates the organisation zone under the new domain
 automatically once the switch is accepted.
