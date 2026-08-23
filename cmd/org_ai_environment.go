@@ -166,12 +166,15 @@ func renderOrganisationPreviewSettings(cmd *cobra.Command,
 	out := cmd.OutOrStdout()
 	if settings.DemoBaseDomain == "" {
 		_, _ = fmt.Fprintln(out, "Preview domain:    (none - demos use the staging cluster's Ankra subzone)")
-		return nil
+	} else {
+		_, _ = fmt.Fprintf(out, "Preview domain:    %s\n", settings.DemoBaseDomain)
+		_, _ = fmt.Fprintf(out, "Ingress class:     %s\n", orEmptyDefault(settings.DemoIngressClassName))
+		_, _ = fmt.Fprintf(out, "TLS secret:        %s\n", orEmptyDefault(settings.DemoTLSSecretName))
+		_, _ = fmt.Fprintf(out, "Certificate issuer:%s\n", " "+orEmptyDefault(settings.DemoCertIssuerName))
 	}
-	_, _ = fmt.Fprintf(out, "Preview domain:    %s\n", settings.DemoBaseDomain)
-	_, _ = fmt.Fprintf(out, "Ingress class:     %s\n", orEmptyDefault(settings.DemoIngressClassName))
-	_, _ = fmt.Fprintf(out, "TLS secret:        %s\n", orEmptyDefault(settings.DemoTLSSecretName))
-	_, _ = fmt.Fprintf(out, "Certificate issuer:%s\n", " "+orEmptyDefault(settings.DemoCertIssuerName))
+	// Printed whatever the fields say. The backend decides when previews
+	// lack TLS, and tying the display to a field here would put this command
+	// back in the business of second-guessing that.
 	if settings.PreviewTLSWarning != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", settings.PreviewTLSWarning)
 	}

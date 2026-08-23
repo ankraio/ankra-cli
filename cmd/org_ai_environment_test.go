@@ -161,3 +161,21 @@ func TestRunOrgAIEnvironmentSet_RefusesACallThatChangesNothing(t *testing.T) {
 		t.Fatalf("nothing should have been sent, got %v", mock.updateSeen)
 	}
 }
+
+// The renderer must not decide for itself when a warning is relevant. Today
+// the backend only warns about an organisation's own preview domain, but a
+// display tied to that field would silently drop any future warning.
+func TestRunOrgAIEnvironmentGet_PrintsAWarningEvenWithNoPreviewDomain(t *testing.T) {
+	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
+		PreviewTLSWarning: "The staging cluster carries no ACME HTTP-01 ClusterIssuer."}}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "no ACME HTTP-01 ClusterIssuer") {
+		t.Errorf("the backend's warning must survive the no-preview-domain branch, got %s", output)
+	}
+	if !strings.Contains(output, "staging cluster's Ankra subzone") {
+		t.Errorf("the fallback line must still be printed, got %s", output)
+	}
+}

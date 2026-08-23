@@ -38,7 +38,7 @@ type organisationPreviewSettingsBody struct {
 
 // GetOrganisationPreviewSettings reads the organisation's preview settings.
 func (c *Client) GetOrganisationPreviewSettings(ctx context.Context) (*OrganisationPreviewSettings, error) {
-	body, requestError := c.doOrganisationDomainRequest(ctx, http.MethodGet, nil)
+	body, requestError := c.doAIEnvironmentRequest(ctx, http.MethodGet, nil)
 	if requestError != nil {
 		return nil, requestError
 	}
@@ -63,7 +63,7 @@ func (c *Client) UpdateOrganisationPreviewSettings(ctx context.Context,
 	if marshalError != nil {
 		return nil, fmt.Errorf("encode request: %w", marshalError)
 	}
-	body, requestError := c.doOrganisationDomainRequest(ctx, http.MethodPut, encoded)
+	body, requestError := c.doAIEnvironmentRequest(ctx, http.MethodPut, encoded)
 	if requestError != nil {
 		return nil, requestError
 	}
