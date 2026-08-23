@@ -61,7 +61,20 @@ func (c *Client) applyAuthAndCSRFHeaders(request *http.Request) {
 }
 
 func (c *Client) doJSON(request *http.Request, target interface{}, operation string) error {
-	response, err := c.HTTP.Do(request)
+	return c.doJSONWithClient(c.HTTP, request, target, operation)
+}
+
+// doJSONWithClient is doJSON against a caller-chosen http.Client, so a
+// long synchronous write can ride a transport without the shared 30s
+// response-header deadline (see slow_write.go) while keeping one copy of
+// the status and body handling.
+func (c *Client) doJSONWithClient(
+	httpClient *http.Client,
+	request *http.Request,
+	target interface{},
+	operation string,
+) error {
+	response, err := httpClient.Do(request)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
