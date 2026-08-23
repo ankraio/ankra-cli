@@ -90,6 +90,20 @@
 
 ### Fixed
 
+- **Publishing a stack profile draft no longer reports a failure on work
+  that succeeded.** Publishing does its whole job on the request path in one
+  transaction (redact, derive parameters, insert the version, move
+  latest/current), and on a profile of any size that can take longer to
+  answer than the shared client's 30-second response-header deadline. The
+  transport gave up while the platform was still working and the CLI printed
+  `http2: timeout awaiting response headers`, on a publish that then landed.
+  Publishing and instantiating a profile now ride a lane without that
+  deadline, bounded by the overall five-minute timeout instead. If one does
+  still time out, the CLI no longer calls it an error: it says the server may
+  have completed the write, names the command that settles it, and names what
+  a blind retry would do. Publishing a still-open draft twice mints two
+  versions, which is exactly what the old message invited.
+
 - **Every per-application command now accepts the application's name where it
   takes `<application-id>`.** `application list` prints names, so a name is
   what a user passes to `application branches`, `application demo list`,

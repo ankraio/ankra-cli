@@ -242,6 +242,11 @@ func (c *Client) GetStackProfile(profileID string) (*StackProfileDetail, error) 
 	return &result, nil
 }
 
+// InstantiateStackProfile materialises a profile onto a cluster as a new
+// stack. Like publishing, it does its work synchronously and is not
+// idempotent - a second call adds a second stack - so it rides the
+// slow-write lane and reports a timeout as an unknown outcome rather than
+// a failure (ankra-rs107).
 func (c *Client) InstantiateStackProfile(ctx context.Context, clusterID string, instantiateRequest InstantiateStackProfileRequest) (*InstantiateStackProfileResult, error) {
 	requestURL := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/from-profile",
 		c.BaseURL, neturl.PathEscape(clusterID))
@@ -255,9 +260,12 @@ func (c *Client) InstantiateStackProfile(ctx context.Context, clusterID string, 
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+c.Token)
-	response, err := c.HTTP.Do(request)
+	response, err := c.httpClientForSlowWrite().Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, unknownOutcome(fmt.Errorf("request failed: %w", err),
+			"instantiate stack profile",
+			"ankra cluster stacks list   # against this cluster; the stack is present when it landed",
+			"create a second stack from the same profile")
 	}
 	defer closeBody(response)
 	body, err := readResponseBody(response)

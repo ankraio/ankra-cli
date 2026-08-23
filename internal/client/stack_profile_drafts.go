@@ -123,10 +123,22 @@ func (c *Client) DeleteStackProfileDraft(draftID string) (*DeleteStackProfileDra
 
 // PublishStackProfileDraft publishes the draft as a new profile version
 // (or a brand-new profile for a draft opened with a name).
+//
+// Publishing does its whole job on the request path in one transaction -
+// redact, derive parameters, insert the version, move latest/current - so
+// it rides the slow-write lane rather than the shared client's 30s
+// response-header deadline, and a timeout is reported as an unknown
+// outcome. It is not idempotent: publishing a still-open draft twice mints
+// two versions, which is exactly what a retry after a misreported failure
+// would do (ankra-rs107).
 func (c *Client) PublishStackProfileDraft(draftID string, request PublishStackProfileDraftRequest) (*PublishStackProfileDraftResult, error) {
 	var result PublishStackProfileDraftResult
-	if err := c.postCSRFJSON(c.stackProfileDraftsBasePath()+"/"+url.PathEscape(draftID)+"/publish",
-		request, &result, "publish stack profile draft"); err != nil {
+	if err := c.postCSRFJSONSlowWrite(
+		c.stackProfileDraftsBasePath()+"/"+url.PathEscape(draftID)+"/publish",
+		request, &result, "publish stack profile draft",
+		"ankra stack-profiles list   # the draft is consumed and the profile carries a new version when it landed",
+		"publish a second version of the same profile",
+	); err != nil {
 		return nil, err
 	}
 	return &result, nil
