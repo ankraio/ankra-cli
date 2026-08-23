@@ -1,6 +1,6 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.13.0-rc1 — 2026-08-24
 
 ### Added
 
@@ -55,6 +55,20 @@
   organisation's zone, that record is reconciled rather than written once,
   and it is therefore the one blocker of `ankra org domain set` that deleting
   cannot clear. Destroying the environment is what clears it.
+- **`ankra org ai-environment get|set` reaches the preview settings.** The
+  demo base domain, ingress class, TLS secret and certificate issuer are the
+  fields you script when standing up on-demand environments on your own
+  domain, and until now the CLI wrapped only the organisation's root domain
+  through `ankra org domain`, a different setting on the same screen with a
+  far wider blast radius. Only the flags you pass are written, and passing
+  one with an empty value clears that field alone, so a script can set the
+  base domain without disturbing an issuer somebody else configured. Saving
+  reports back what previews will actually do: where they would be served
+  over plain http, or where their hostnames will not resolve, the response
+  says so rather than succeeding without comment. `ankra org domain --help`
+  now names the preview domain as the separate setting it is and points at
+  this command, which is the confusion that cost a customer a day.
+  (PLA-773)
 
 ### Changed
 
@@ -89,6 +103,21 @@
   it is now written down rather than something to infer.
 
 ### Fixed
+
+- **`cluster get services` and `cluster get ingresses` print the address the
+  load balancer actually has.** `EXTERNAL-IP` read `spec.externalIP`, a field
+  the Kubernetes Service API does not have (the real ones are
+  `spec.externalIPs` and `status.loadBalancer.ingress`), so the lookup
+  returned nothing and the column rendered `<none>` for every service no
+  matter what the API served. An ingress row hardcoded its `ADDRESS` and
+  `PORTS` cells to empty. Both now follow kubectl's rule, reading
+  `status.loadBalancer.ingress` and falling back to `<pending>` on a
+  LoadBalancer with no address yet. This one cost a customer two wrong turns:
+  reading `<none>` for 31 days, they reported their cloud load balancer as
+  unprovisioned when it was healthy the whole time and only the column was
+  lying. Addresses render in full rather than truncated, because these
+  commands reject `-o wide` and a truncated address would reintroduce the
+  same problem. (PLA-787)
 
 - **Publishing a stack profile draft no longer reports a failure on work
   that succeeded.** Publishing does its whole job on the request path in one
