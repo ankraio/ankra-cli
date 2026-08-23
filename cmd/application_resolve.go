@@ -10,10 +10,44 @@ import (
 )
 
 // maxApplicationLookupPageSize is the largest page_size the applications
-// endpoint accepts. The `search` filter runs server-side on the name, so one
-// page is more than enough to find an exact match (see
-// maxProfileLookupPageSize for the history of asking for more).
-const maxApplicationLookupPageSize = 100
+// endpoint accepts. It does not clamp an oversized value, it rejects the
+// request with a 422, so asking for one big page instead of paging is not an
+// option (see maxProfileLookupPageSize for what asking for more cost us
+// there).
+//
+// maxApplicationLookupPages bounds the walk against a backend that keeps
+// reporting more pages, matching listAllClusters and listAllHelmRegistries.
+const (
+	maxApplicationLookupPageSize = 100
+	maxApplicationLookupPages    = 100
+)
+
+// applicationListingPage is the slice of the applications listing the lookup
+// reads: the id/name pairs, and the paging metadata that says whether more
+// pages are waiting.
+type applicationListingPage struct {
+	Result []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"result"`
+	Pagination struct {
+		TotalPages int `json:"total_pages"`
+	} `json:"pagination"`
+}
+
+// applicationLookupFailure reports that a name could not be resolved because
+// the listing itself was unusable.
+//
+// The failure has to surface here. Only a name reaches the lookup - every
+// application id the platform issues is a canonical uuid, and looksLikeUUID
+// accepts every one of them - so handing the reference on unchanged would
+// put a name in a uuid-typed path parameter and reproduce the bare 500 this
+// resolver exists to prevent (PLA-786). The cause is wrapped so an
+// unauthorised or forbidden listing still classifies into its own exit code.
+func applicationLookupFailure(reference string, cause error) error {
+	return fmt.Errorf("could not look up the application named %q: %w - pass the application id "+
+		"to skip the lookup, or run 'ankra application list' to find it", reference, cause)
+}
 
 // resolveApplicationID accepts either an application id or an application
 // name.
@@ -27,33 +61,36 @@ func resolveApplicationID(requestContext context.Context, applications APIClient
 	if looksLikeUUID(reference) {
 		return reference, nil
 	}
-	payload, listError := applications.ListApplicationsRaw(requestContext, 1, maxApplicationLookupPageSize, reference)
-	if listError != nil {
-		// The lookup is a convenience, not the operation. If listing is
-		// unavailable, hand the reference to the API unchanged and let the
-		// real call decide - failing here would turn a working id into an
-		// error just because the search endpoint was unhappy.
-		return reference, nil
-	}
-	var listing struct {
-		Result []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"result"`
-	}
-	if unmarshalError := json.Unmarshal(payload, &listing); unmarshalError != nil {
-		return reference, nil
-	}
-	// The server-side search is a case-insensitive substring filter, so match
-	// exactly first and fall back to a case-insensitive match only when no
-	// exact one exists.
+	// The server-side `search` filter is a case-insensitive *substring* match
+	// (definition->>'name' ILIKE '%reference%') ordered by creation date, so
+	// the exact match has no reason to sit on the first page: an org with
+	// more than a page of applications whose names contain the reference
+	// would otherwise be told its application does not exist. Page until the
+	// listing is exhausted, the way resolveClusterID already does.
 	exactIDs := []string{}
 	foldedIDs := []string{}
-	for _, application := range listing.Result {
-		if application.Name == reference {
-			exactIDs = append(exactIDs, application.ID)
-		} else if strings.EqualFold(application.Name, reference) {
-			foldedIDs = append(foldedIDs, application.ID)
+	for page := 1; page <= maxApplicationLookupPages; page++ {
+		payload, listError := applications.ListApplicationsRaw(
+			requestContext, page, maxApplicationLookupPageSize, reference)
+		if listError != nil {
+			return "", applicationLookupFailure(reference, listError)
+		}
+		var listing applicationListingPage
+		if unmarshalError := json.Unmarshal(payload, &listing); unmarshalError != nil {
+			return "", applicationLookupFailure(reference, unmarshalError)
+		}
+		// Match exactly first, and keep case variants aside as a fallback for
+		// when no exact match exists anywhere in the listing.
+		for _, application := range listing.Result {
+			switch {
+			case application.Name == reference:
+				exactIDs = append(exactIDs, application.ID)
+			case strings.EqualFold(application.Name, reference):
+				foldedIDs = append(foldedIDs, application.ID)
+			}
+		}
+		if listing.Pagination.TotalPages <= page || len(listing.Result) == 0 {
+			break
 		}
 	}
 	matchedIDs := exactIDs

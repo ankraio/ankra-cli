@@ -154,7 +154,7 @@ func TestApplicationLaneParityCommandsRegistered(t *testing.T) {
 func TestApplicationEnvSecretSetReadsTheValueFromStdin(t *testing.T) {
 	mockClient := &applicationLaneMock{payload: json.RawMessage(`{"key":"API_TOKEN","has_value":true}`)}
 	output, executeError := runApplicationCommandWithInput(t, mockClient, "sk-live-abc\n",
-		"env-secrets", "set", "app-1", "API_TOKEN")
+		"env-secrets", "set", testApplicationID, "API_TOKEN")
 	if executeError != nil {
 		t.Fatalf("env-secrets set error = %v", executeError)
 	}
@@ -181,7 +181,7 @@ func TestApplicationEnvSecretSetReadsTheValueFromStdin(t *testing.T) {
 func TestApplicationEnvSecretSetNeverEchoesTheValue(t *testing.T) {
 	mockClient := &applicationLaneMock{payload: json.RawMessage(`{"key":"API_TOKEN","has_value":true}`)}
 	output, executeError := runApplicationCommand(t, mockClient,
-		"env-secrets", "set", "app-1", "API_TOKEN", "--value", "sk-live-secret")
+		"env-secrets", "set", testApplicationID, "API_TOKEN", "--value", "sk-live-secret")
 	if executeError != nil {
 		t.Fatalf("env-secrets set error = %v", executeError)
 	}
@@ -227,7 +227,7 @@ func TestApplicationEnvSecretSetPreservesSignificantWhitespace(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(subTest *testing.T) {
 			mockClient := &applicationLaneMock{payload: json.RawMessage(`{"key":"K"}`)}
-			arguments := append([]string{"env-secrets", "set", "app-1", "K"}, testCase.arguments...)
+			arguments := append([]string{"env-secrets", "set", testApplicationID, "K"}, testCase.arguments...)
 			_, executeError := runApplicationCommandWithInput(subTest, mockClient, testCase.piped, arguments...)
 			if executeError != nil {
 				subTest.Fatalf("env-secrets set error = %v", executeError)
@@ -241,7 +241,7 @@ func TestApplicationEnvSecretSetPreservesSignificantWhitespace(t *testing.T) {
 
 func TestApplicationEnvSecretSetRequiresAValue(t *testing.T) {
 	mockClient := &applicationLaneMock{}
-	_, executeError := runApplicationCommandWithInput(t, mockClient, "", "env-secrets", "set", "app-1", "K")
+	_, executeError := runApplicationCommandWithInput(t, mockClient, "", "env-secrets", "set", testApplicationID, "K")
 	if executeError == nil {
 		t.Fatal("expected an empty value to fail")
 	}
@@ -256,7 +256,7 @@ func TestApplicationEnvSecretSetRequiresAValue(t *testing.T) {
 func TestApplicationEnvSecretDeleteRefusesWhenDeclined(t *testing.T) {
 	mockClient := &applicationLaneMock{}
 	_, executeError := runApplicationCommandWithInput(t, mockClient, "n\n",
-		"env-secrets", "delete", "app-1", "API_TOKEN")
+		"env-secrets", "delete", testApplicationID, "API_TOKEN")
 	if executeError == nil {
 		t.Fatal("a declined confirmation must fail")
 	}
@@ -270,7 +270,7 @@ func TestApplicationEnvSecretDeleteRefusesWhenDeclined(t *testing.T) {
 
 func TestApplicationEnvSecretApplySendsTheApply(t *testing.T) {
 	mockClient := &applicationLaneMock{payload: json.RawMessage(`{"applied_count":2,"failed_count":0}`)}
-	output, executeError := runApplicationCommand(t, mockClient, "env-secrets", "apply", "app-1")
+	output, executeError := runApplicationCommand(t, mockClient, "env-secrets", "apply", testApplicationID)
 	if executeError != nil {
 		t.Fatalf("env-secrets apply error = %v", executeError)
 	}
@@ -286,7 +286,7 @@ func TestApplicationEnvSecretApplySendsTheApply(t *testing.T) {
 // a bare `set` is a usage error rather than defaulting to either.
 func TestApplicationAutoDeploySetRequiresTheFlag(t *testing.T) {
 	mockClient := &applicationLaneMock{}
-	_, executeError := runApplicationCommand(t, mockClient, "auto-deploy", "set", "app-1")
+	_, executeError := runApplicationCommand(t, mockClient, "auto-deploy", "set", testApplicationID)
 	if executeError == nil {
 		t.Fatal("expected a bare set to fail")
 	}
@@ -307,7 +307,7 @@ func TestApplicationAutoDeploySetCarriesBothStates(t *testing.T) {
 		{"--enabled=false", false},
 	} {
 		mockClient := &applicationLaneMock{payload: json.RawMessage(`{"enabled":true}`)}
-		_, executeError := runApplicationCommand(t, mockClient, "auto-deploy", "set", "app-1", testCase.argument)
+		_, executeError := runApplicationCommand(t, mockClient, "auto-deploy", "set", testApplicationID, testCase.argument)
 		if executeError != nil {
 			t.Fatalf("auto-deploy set %s error = %v", testCase.argument, executeError)
 		}
@@ -484,7 +484,7 @@ func TestManifestAddonWithdrawalsBothConfirm(t *testing.T) {
 // build, and a defaulted branch would repair the wrong one silently.
 func TestApplicationDemoFixBuildRequiresABranch(t *testing.T) {
 	mockClient := &applicationLaneMock{}
-	_, executeError := runApplicationCommand(t, mockClient, "demo", "fix-build", "app-1")
+	_, executeError := runApplicationCommand(t, mockClient, "demo", "fix-build", testApplicationID)
 	if executeError == nil {
 		t.Fatal("expected a missing --branch to fail")
 	}
@@ -499,7 +499,7 @@ func TestApplicationDemoFixBuildRequiresABranch(t *testing.T) {
 func TestApplicationDemoFixBuildSendsTheBranch(t *testing.T) {
 	mockClient := &applicationLaneMock{payload: json.RawMessage(`{"status":"dispatched"}`)}
 	_, executeError := runApplicationCommand(t, mockClient,
-		"demo", "fix-build", "app-1", "--branch", " feature/checkout ")
+		"demo", "fix-build", testApplicationID, "--branch", " feature/checkout ")
 	if executeError != nil {
 		t.Fatalf("demo fix-build error = %v", executeError)
 	}
@@ -518,7 +518,7 @@ func TestApplicationDemoFixBuildSendsTheBranch(t *testing.T) {
 func TestApplicationEnvSecretSetRefusesAnExplicitlyEmptyValue(t *testing.T) {
 	for _, argument := range []string{"--value=", "--value"} {
 		mockClient := &applicationLaneMock{}
-		arguments := []string{"env-secrets", "set", "app-1", "K", argument}
+		arguments := []string{"env-secrets", "set", testApplicationID, "K", argument}
 		if argument == "--value" {
 			arguments = append(arguments, "")
 		}
@@ -547,7 +547,7 @@ func TestApplicationEnvSecretRefusesAKeyThatIsNotAnEnvironmentVariableName(t *te
 	for _, secretKey := range []string{"..", ".", "A/B", "1LEADING_DIGIT", "has space", "has-dash", ""} {
 		for _, verb := range []string{"set", "delete"} {
 			mockClient := &applicationLaneMock{}
-			arguments := []string{"env-secrets", verb, "app-1", secretKey}
+			arguments := []string{"env-secrets", verb, testApplicationID, secretKey}
 			if verb == "set" {
 				arguments = append(arguments, "--value", "v")
 			} else {
@@ -569,7 +569,7 @@ func TestApplicationEnvSecretRefusesAKeyThatIsNotAnEnvironmentVariableName(t *te
 	// The rule must still accept an ordinary key.
 	mockClient := &applicationLaneMock{payload: json.RawMessage(`{"key":"DATABASE_URL"}`)}
 	if _, executeError := runApplicationCommand(t, mockClient,
-		"env-secrets", "set", "app-1", "DATABASE_URL", "--value", "v"); executeError != nil {
+		"env-secrets", "set", testApplicationID, "DATABASE_URL", "--value", "v"); executeError != nil {
 		t.Fatalf("a valid key was refused: %v", executeError)
 	}
 	if mockClient.envSecretSets != 1 {
@@ -603,7 +603,7 @@ func TestManifestAddonInstallRejectsADuplicateInputKey(t *testing.T) {
 func TestApplicationEnvSecretSetHintIsHumanOutputOnly(t *testing.T) {
 	mockClient := &applicationLaneMock{payload: json.RawMessage(`{"key":"K"}`)}
 	human, executeError := runApplicationCommand(t, mockClient,
-		"env-secrets", "set", "app-1", "K", "--value", "v")
+		"env-secrets", "set", testApplicationID, "K", "--value", "v")
 	if executeError != nil {
 		t.Fatalf("env-secrets set error = %v", executeError)
 	}
@@ -613,7 +613,7 @@ func TestApplicationEnvSecretSetHintIsHumanOutputOnly(t *testing.T) {
 
 	mockClient = &applicationLaneMock{payload: json.RawMessage(`{"key":"K"}`)}
 	structured, executeError := runApplicationCommand(t, mockClient,
-		"env-secrets", "set", "app-1", "K", "--value", "v", "-o", "json")
+		"env-secrets", "set", testApplicationID, "K", "--value", "v", "-o", "json")
 	if executeError != nil {
 		t.Fatalf("env-secrets set -o json error = %v", executeError)
 	}

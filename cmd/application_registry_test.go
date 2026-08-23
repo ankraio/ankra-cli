@@ -68,12 +68,12 @@ func TestApplicationRegistryGetRendersThePayload(t *testing.T) {
 	mockClient := &applicationRegistryMock{
 		payload: json.RawMessage(`{"declared":true,"host":"artifact.example.com","project":"commerce"}`),
 	}
-	output, executeError := runApplicationCommand(t, mockClient, "registry", "get", "app-1")
+	output, executeError := runApplicationCommand(t, mockClient, "registry", "get", testApplicationID)
 	if executeError != nil {
 		t.Fatalf("registry get error = %v", executeError)
 	}
-	if mockClient.getApplicationID != "app-1" {
-		t.Errorf("application id = %q, want app-1", mockClient.getApplicationID)
+	if mockClient.getApplicationID != testApplicationID {
+		t.Errorf("application id = %q, want %s", mockClient.getApplicationID, testApplicationID)
 	}
 	if !strings.Contains(output, "\"host\": \"artifact.example.com\"") {
 		t.Errorf("output is not indented JSON: %q", output)
@@ -83,7 +83,7 @@ func TestApplicationRegistryGetRendersThePayload(t *testing.T) {
 func TestApplicationRegistrySetMapsEveryFlag(t *testing.T) {
 	mockClient := &applicationRegistryMock{payload: json.RawMessage(`{"declared":true}`)}
 	_, executeError := runApplicationCommand(t, mockClient,
-		"registry", "set", "app-1",
+		"registry", "set", testApplicationID,
 		"--url", " oci://artifact.example.com/commerce ",
 		"--credential", "example-harbor",
 		"--api-url", "https://artifact.example.com",
@@ -114,7 +114,7 @@ func TestApplicationRegistrySetMapsEveryFlag(t *testing.T) {
 
 func TestApplicationRegistrySetRequiresURL(t *testing.T) {
 	mockClient := &applicationRegistryMock{}
-	_, executeError := runApplicationCommand(t, mockClient, "registry", "set", "app-1", "--credential", "harbor")
+	_, executeError := runApplicationCommand(t, mockClient, "registry", "set", testApplicationID, "--credential", "harbor")
 	if executeError == nil {
 		t.Fatal("expected a missing --url to fail")
 	}
@@ -133,7 +133,7 @@ func TestApplicationRegistrySetRequiresURL(t *testing.T) {
 func TestApplicationRegistrySetWarnsWithoutACredential(t *testing.T) {
 	mockClient := &applicationRegistryMock{payload: json.RawMessage(`{"declared":true}`)}
 	output, executeError := runApplicationCommand(t, mockClient,
-		"registry", "set", "app-1", "--url", "oci://artifact.example.com/commerce")
+		"registry", "set", testApplicationID, "--url", "oci://artifact.example.com/commerce")
 	if executeError != nil {
 		t.Fatalf("registry set error = %v", executeError)
 	}
@@ -149,7 +149,7 @@ func TestApplicationRegistrySetWarnsWithoutACredential(t *testing.T) {
 // key would leave the declaration in place.
 func TestApplicationRegistryClearSendsAnExplicitNull(t *testing.T) {
 	mockClient := &applicationRegistryMock{payload: json.RawMessage(`{"declared":false}`)}
-	_, executeError := runApplicationCommand(t, mockClient, "registry", "clear", "app-1", "--yes")
+	_, executeError := runApplicationCommand(t, mockClient, "registry", "clear", testApplicationID, "--yes")
 	if executeError != nil {
 		t.Fatalf("registry clear error = %v", executeError)
 	}
@@ -170,7 +170,7 @@ func TestApplicationRegistryClearSendsAnExplicitNull(t *testing.T) {
 
 func TestApplicationRegistryClearRefusesWhenDeclined(t *testing.T) {
 	mockClient := &applicationRegistryMock{}
-	_, executeError := runApplicationCommandWithInput(t, mockClient, "n\n", "registry", "clear", "app-1")
+	_, executeError := runApplicationCommandWithInput(t, mockClient, "n\n", "registry", "clear", testApplicationID)
 	if executeError == nil {
 		t.Fatal("a declined confirmation must fail")
 	}

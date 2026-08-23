@@ -100,7 +100,10 @@
   stack-profiles, credentials and clusters already resolve theirs: a uuid
   passes straight through, an unknown name says to check
   `ankra application list`, and a name two applications share lists the
-  candidate ids instead of picking one. (PLA-786)
+  candidate ids instead of picking one. The lookup walks every page of the
+  listing, so a name still resolves in an organisation with more
+  applications than one page holds, and a lookup that cannot run says so
+  rather than sending the name on to be rejected. (PLA-786)
 
 ## v0.13.0-rc0 — 2026-08-22
 
