@@ -333,3 +333,171 @@ func TestResourcesGroupHint(t *testing.T) {
 		})
 	}
 }
+
+// formatRowFor returns the table row a kind's formatter renders for obj.
+func formatRowFor(t *testing.T, commandName string, obj map[string]interface{}) []interface{} {
+	t.Helper()
+	for _, config := range kindConfigs {
+		if config.commandName == commandName {
+			if config.formatRow == nil {
+				t.Fatalf("%s has no formatRow", commandName)
+			}
+			return config.formatRow(obj)
+		}
+	}
+	t.Fatalf("no kind config named %s", commandName)
+	return nil
+}
+
+// loadBalancerStatus builds a status.loadBalancer.ingress[] array from
+// ip-or-hostname entries, matching the shape the API serves.
+func loadBalancerStatus(entries ...map[string]interface{}) map[string]interface{} {
+	ingress := make([]interface{}, 0, len(entries))
+	for _, entry := range entries {
+		ingress = append(ingress, entry)
+	}
+	return map[string]interface{}{
+		"loadBalancer": map[string]interface{}{"ingress": ingress},
+	}
+}
+
+// TestServiceExternalIPReadsLoadBalancerStatus pins the EXTERNAL-IP column to
+// kubectl's rule. The old code read a spec.externalIP field that the Service
+// API does not have, so a healthy LoadBalancer holding a public address
+// printed '<none>' - which a customer reasonably read as "the load balancer
+// was never provisioned".
+func TestServiceExternalIPReadsLoadBalancerStatus(t *testing.T) {
+	const externalIPCell = 4
+
+	cases := []struct {
+		name    string
+		service map[string]interface{}
+		want    string
+	}{
+		{
+			name: "load_balancer_with_dual_stack_status",
+			service: map[string]interface{}{
+				"spec":   map[string]interface{}{"type": "LoadBalancer"},
+				"status": loadBalancerStatus(map[string]interface{}{"ip": "129.212.253.107"}, map[string]interface{}{"ip": "2a03:b0c0:3:f0:0:2:b564:e000"}),
+			},
+			want: "129.212.253.107,2a03:b0c0:3:f0:0:2:b564:e000",
+		},
+		{
+			name: "load_balancer_with_hostname",
+			service: map[string]interface{}{
+				"spec":   map[string]interface{}{"type": "LoadBalancer"},
+				"status": loadBalancerStatus(map[string]interface{}{"hostname": "lb.example.com"}),
+			},
+			want: "lb.example.com",
+		},
+		{
+			name: "load_balancer_awaiting_the_cloud_controller",
+			service: map[string]interface{}{
+				"spec":   map[string]interface{}{"type": "LoadBalancer"},
+				"status": map[string]interface{}{"loadBalancer": map[string]interface{}{}},
+			},
+			want: "<pending>",
+		},
+		{
+			name: "load_balancer_also_carrying_spec_external_ips",
+			service: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"type":        "LoadBalancer",
+					"externalIPs": []interface{}{"203.0.113.9"},
+				},
+				"status": loadBalancerStatus(map[string]interface{}{"ip": "129.212.253.107"}),
+			},
+			want: "129.212.253.107,203.0.113.9",
+		},
+		{
+			name: "cluster_ip_with_external_ips",
+			service: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"type":        "ClusterIP",
+					"externalIPs": []interface{}{"203.0.113.9", "203.0.113.10"},
+				},
+			},
+			want: "203.0.113.9,203.0.113.10",
+		},
+		{
+			name:    "cluster_ip_without_external_ips",
+			service: map[string]interface{}{"spec": map[string]interface{}{"type": "ClusterIP"}},
+			want:    "<none>",
+		},
+		{
+			name: "external_name",
+			service: map[string]interface{}{
+				"spec": map[string]interface{}{"type": "ExternalName", "externalName": "db.example.com"},
+			},
+			want: "db.example.com",
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			row := formatRowFor(t, "services", testCase.service)
+			if got := row[externalIPCell]; got != testCase.want {
+				t.Errorf("EXTERNAL-IP = %v, want %v", got, testCase.want)
+			}
+		})
+	}
+}
+
+// TestIngressAddressAndPortsFromStatus covers the other half of the same
+// defect: the ingress row hardcoded its ADDRESS and PORTS cells to empty
+// strings, so every ingress looked unrouted no matter what the API served.
+func TestIngressAddressAndPortsFromStatus(t *testing.T) {
+	const (
+		addressCell = 3
+		portsCell   = 4
+	)
+
+	cases := []struct {
+		name        string
+		ingress     map[string]interface{}
+		wantAddress string
+		wantPorts   string
+	}{
+		{
+			name: "published_ingress",
+			ingress: map[string]interface{}{
+				"spec":   map[string]interface{}{"rules": []interface{}{map[string]interface{}{"host": "demo.example.com"}}},
+				"status": loadBalancerStatus(map[string]interface{}{"ip": "129.212.253.107"}),
+			},
+			wantAddress: "129.212.253.107",
+			wantPorts:   "80",
+		},
+		{
+			name: "tls_ingress_serves_443_too",
+			ingress: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"rules": []interface{}{map[string]interface{}{"host": "demo.example.com"}},
+					"tls":   []interface{}{map[string]interface{}{"secretName": "demo-tls"}},
+				},
+				"status": loadBalancerStatus(map[string]interface{}{"ip": "129.212.253.107"}),
+			},
+			wantAddress: "129.212.253.107",
+			wantPorts:   "80, 443",
+		},
+		{
+			name: "ingress_with_no_address_yet",
+			ingress: map[string]interface{}{
+				"spec": map[string]interface{}{"rules": []interface{}{map[string]interface{}{"host": "demo.example.com"}}},
+			},
+			wantAddress: "",
+			wantPorts:   "80",
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			row := formatRowFor(t, "ingresses", testCase.ingress)
+			if got := row[addressCell]; got != testCase.wantAddress {
+				t.Errorf("ADDRESS = %v, want %v", got, testCase.wantAddress)
+			}
+			if got := row[portsCell]; got != testCase.wantPorts {
+				t.Errorf("PORTS = %v, want %v", got, testCase.wantPorts)
+			}
+		})
+	}
+}

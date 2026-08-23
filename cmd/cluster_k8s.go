@@ -61,6 +61,103 @@ func getNestedMap(obj map[string]interface{}, key string) (map[string]interface{
 	return m, ok
 }
 
+// loadBalancerAddresses reads the ip-or-hostname list out of a
+// status.loadBalancer.ingress[] array - the field kubectl derives both a
+// Service's EXTERNAL-IP and an Ingress's ADDRESS from. Entries carrying
+// neither, and repeats, are skipped; the API's order is kept. kubectl elides
+// this to 16 columns unless asked for -o wide, which these commands do not
+// offer, so the addresses are rendered in full.
+func loadBalancerAddresses(obj map[string]interface{}) []string {
+	statusMap, ok := getNestedMap(obj, "status")
+	if !ok {
+		return nil
+	}
+	loadBalancer, ok := getNestedMap(statusMap, "loadBalancer")
+	if !ok {
+		return nil
+	}
+	entries, ok := loadBalancer["ingress"].([]interface{})
+	if !ok {
+		return nil
+	}
+	addresses := make([]string, 0, len(entries))
+	seen := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		entryMap, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		address := getNestedString(entryMap, "ip")
+		if address == "" {
+			address = getNestedString(entryMap, "hostname")
+		}
+		if address == "" || seen[address] {
+			continue
+		}
+		seen[address] = true
+		addresses = append(addresses, address)
+	}
+	return addresses
+}
+
+// stringListField reads a list-of-strings field one level down, such as
+// spec.externalIPs, skipping entries that are not non-empty strings.
+func stringListField(obj map[string]interface{}, parentKey string, key string) []string {
+	parent, ok := getNestedMap(obj, parentKey)
+	if !ok {
+		return nil
+	}
+	rawList, ok := parent[key].([]interface{})
+	if !ok {
+		return nil
+	}
+	values := make([]string, 0, len(rawList))
+	for _, raw := range rawList {
+		if value, ok := raw.(string); ok && value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+// serviceExternalIP renders the EXTERNAL-IP cell the way kubectl does: a
+// LoadBalancer reports whatever the cloud controller wrote into
+// status.loadBalancer.ingress (plus any spec.externalIPs), and <pending>
+// while that status is still empty; an ExternalName reports its target; every
+// other type reports only spec.externalIPs.
+func serviceExternalIP(obj map[string]interface{}) string {
+	externalIPs := stringListField(obj, "spec", "externalIPs")
+	switch getNestedString(obj, "spec", "type") {
+	case "ExternalName":
+		if externalName := getNestedString(obj, "spec", "externalName"); externalName != "" {
+			return externalName
+		}
+		return "<none>"
+	case "LoadBalancer":
+		addresses := append(loadBalancerAddresses(obj), externalIPs...)
+		if len(addresses) > 0 {
+			return strings.Join(addresses, ",")
+		}
+		return "<pending>"
+	default:
+		if len(externalIPs) > 0 {
+			return strings.Join(externalIPs, ",")
+		}
+		return "<none>"
+	}
+}
+
+// ingressPorts mirrors kubectl: an ingress serves 80, and 443 as well once it
+// carries any TLS block.
+func ingressPorts(obj map[string]interface{}) string {
+	if specMap, ok := getNestedMap(obj, "spec"); ok {
+		if tlsList, ok := specMap["tls"].([]interface{}); ok && len(tlsList) > 0 {
+			return "80, 443"
+		}
+	}
+	return "80"
+}
+
 func formatK8sAge(timestamp string) string {
 	if timestamp == "" {
 		return ""
@@ -157,16 +254,12 @@ var kindConfigs = []kindConfig{
 					}
 				}
 			}
-			externalIP := getNestedString(obj, "spec", "externalIP")
-			if externalIP == "" {
-				externalIP = "<none>"
-			}
 			return table.Row{
 				getNestedString(obj, "metadata", "name"),
 				getNestedString(obj, "metadata", "namespace"),
 				getNestedString(obj, "spec", "type"),
 				getNestedString(obj, "spec", "clusterIP"),
-				externalIP,
+				serviceExternalIP(obj),
 				ports,
 				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
 			}
@@ -256,7 +349,9 @@ var kindConfigs = []kindConfig{
 			return table.Row{
 				getNestedString(obj, "metadata", "name"),
 				getNestedString(obj, "metadata", "namespace"),
-				hosts, "", "",
+				hosts,
+				strings.Join(loadBalancerAddresses(obj), ","),
+				ingressPorts(obj),
 				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
 			}
 		},
