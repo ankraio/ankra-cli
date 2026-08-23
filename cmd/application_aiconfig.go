@@ -42,8 +42,12 @@ func newApplicationAIConfigGetCommand() *cobra.Command {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			payload, getError := apiClient.GetApplicationAIConfig(command.Context(),
-				strings.TrimSpace(arguments[0]))
+				applicationID)
 			if getError != nil {
 				return getError
 			}
@@ -87,8 +91,12 @@ edit it, and pass the file back with --file (or '-' to read stdin).`,
 				return withExitCode(exitUsage,
 					fmt.Errorf("%s does not contain valid JSON", filePath))
 			}
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			payload, updateError := apiClient.UpdateApplicationAIConfig(command.Context(),
-				strings.TrimSpace(arguments[0]), json.RawMessage(content))
+				applicationID, json.RawMessage(content))
 			if updateError != nil {
 				return updateError
 			}
@@ -109,12 +117,15 @@ func newApplicationAIConfigClearCommand() *cobra.Command {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			applicationID := strings.TrimSpace(arguments[0])
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			yes, _ := command.Flags().GetBool("yes")
 			if confirmError := confirmPrompt(
 				command.InOrStdin(), command.OutOrStdout(),
 				fmt.Sprintf("Reset the AI configuration of application %q to the organisation defaults? [y/N]: ",
-					applicationID),
+					strings.TrimSpace(arguments[0])),
 				yes,
 			); confirmError != nil {
 				return confirmError

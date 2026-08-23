@@ -48,8 +48,12 @@ Kubernetes events behind a stalled step.`,
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			payload, detailError := apiClient.GetApplicationDemoDetail(command.Context(),
-				strings.TrimSpace(arguments[0]), strings.TrimSpace(arguments[1]))
+				applicationID, strings.TrimSpace(arguments[1]))
 			if detailError != nil {
 				return detailError
 			}
@@ -78,7 +82,10 @@ belonging to that component; --pod addresses one by name (from
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			applicationID := strings.TrimSpace(arguments[0])
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			workspaceID := strings.TrimSpace(arguments[1])
 			tailLines, _ := command.Flags().GetInt("tail")
 			componentName, _ := command.Flags().GetString("component")
@@ -182,7 +189,11 @@ func newApplicationDemoConfigGetCommand() *cobra.Command {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			payload, getError := apiClient.GetApplicationDemoConfig(command.Context(), strings.TrimSpace(arguments[0]))
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, getError := apiClient.GetApplicationDemoConfig(command.Context(), applicationID)
 			if getError != nil {
 				return getError
 			}
@@ -218,7 +229,10 @@ entries override by name, everything else is carried forward.`,
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			applicationID := strings.TrimSpace(arguments[0])
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			currentPayload, getError := apiClient.GetApplicationDemoConfig(command.Context(), applicationID)
 			if getError != nil {
 				return getError
@@ -303,8 +317,12 @@ func newApplicationDemoFixCommand() *cobra.Command {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			payload, fixError := apiClient.FixApplicationDemo(command.Context(),
-				strings.TrimSpace(arguments[0]), strings.TrimSpace(arguments[1]))
+				applicationID, strings.TrimSpace(arguments[1]))
 			if fixError != nil {
 				return fixError
 			}
@@ -327,7 +345,11 @@ including the TTL policy and the staging cluster's status.`,
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			payload, listError := apiClient.GetApplicationDemos(command.Context(), strings.TrimSpace(arguments[0]))
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, listError := apiClient.GetApplicationDemos(command.Context(), applicationID)
 			if listError != nil {
 				return listError
 			}
@@ -352,7 +374,11 @@ func newApplicationDemoBuildCommand() *cobra.Command {
 			if branch == "" {
 				return withExitCode(exitUsage, errors.New("--branch is required"))
 			}
-			payload, buildError := apiClient.CheckApplicationDemoBuild(command.Context(), strings.TrimSpace(arguments[0]), branch)
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, buildError := apiClient.CheckApplicationDemoBuild(command.Context(), applicationID, branch)
 			if buildError != nil {
 				return buildError
 			}
@@ -393,8 +419,12 @@ so follow the agent run it names.`,
 				return withExitCode(exitUsage,
 					errors.New("--branch is required: the branch whose build is missing"))
 			}
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			payload, fixError := apiClient.FixApplicationBuild(command.Context(),
-				strings.TrimSpace(arguments[0]), branch)
+				applicationID, branch)
 			if fixError != nil {
 				return fixError
 			}
@@ -462,7 +492,11 @@ tune one component of a full launch, list them all.`,
 				entryComponent, _ := command.Flags().GetString("entry-component")
 				demoRequest.EntryComponent = &entryComponent
 			}
-			payload, deployError := apiClient.DeployApplicationDemo(command.Context(), strings.TrimSpace(arguments[0]), demoRequest)
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, deployError := apiClient.DeployApplicationDemo(command.Context(), applicationID, demoRequest)
 			if deployError != nil {
 				return deployError
 			}
@@ -598,7 +632,11 @@ func newApplicationDemoStopCommand() *cobra.Command {
 			if workspaceID == "" {
 				return withExitCode(exitUsage, errors.New("workspace id cannot be empty"))
 			}
-			payload, stopError := apiClient.StopApplicationDemo(command.Context(), strings.TrimSpace(arguments[0]), workspaceID)
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, stopError := apiClient.StopApplicationDemo(command.Context(), applicationID, workspaceID)
 			if stopError != nil {
 				return stopError
 			}

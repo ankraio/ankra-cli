@@ -60,8 +60,12 @@ one has a stored value. The values themselves are never returned.`,
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			payload, listError := apiClient.ListApplicationEnvSecrets(command.Context(),
-				strings.TrimSpace(arguments[0]))
+				applicationID)
 			if listError != nil {
 				return listError
 			}
@@ -93,7 +97,10 @@ seal the stored values into the application's deployments and roll them.`,
 			if formatError != nil {
 				return formatError
 			}
-			applicationID := strings.TrimSpace(arguments[0])
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			secretKey := strings.TrimSpace(arguments[1])
 			if keyError := validateEnvSecretKey(secretKey); keyError != nil {
 				return keyError
@@ -231,7 +238,10 @@ sealed into them until the next apply.`,
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			applicationID := strings.TrimSpace(arguments[0])
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			secretKey := strings.TrimSpace(arguments[1])
 			if keyError := validateEnvSecretKey(secretKey); keyError != nil {
 				return keyError
@@ -278,8 +288,12 @@ cannot be sealed - and the reason is reported as the error message.`,
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			payload, applyError := apiClient.ApplyApplicationEnvSecrets(command.Context(),
-				strings.TrimSpace(arguments[0]))
+				applicationID)
 			if applyError != nil {
 				return applyError
 			}

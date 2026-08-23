@@ -50,8 +50,12 @@ to - so you can compare them against where your builds actually push.`,
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			payload, getError := apiClient.GetApplicationImageRegistry(command.Context(),
-				strings.TrimSpace(arguments[0]))
+				applicationID)
 			if getError != nil {
 				return getError
 			}
@@ -109,8 +113,12 @@ write your repository's Actions secrets unless you ask it to with
 				PasswordSecretName:   strings.TrimSpace(passwordSecretName),
 				ManageActionsSecrets: manageActionsSecrets,
 			}
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			payload, updateError := apiClient.UpdateApplicationImageRegistry(command.Context(),
-				strings.TrimSpace(arguments[0]),
+				applicationID,
 				client.UpdateApplicationImageRegistryRequest{ImageRegistry: declaration})
 			if updateError != nil {
 				return updateError
@@ -149,12 +157,15 @@ from - the organisation's provisioned registry project again.`,
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			applicationID := strings.TrimSpace(arguments[0])
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			yes, _ := command.Flags().GetBool("yes")
 			if confirmError := confirmPrompt(
 				command.InOrStdin(), command.OutOrStdout(),
 				fmt.Sprintf("Clear the declared image registry of application %q? "+
-					"It will publish to the organisation's own registry again. [y/N]: ", applicationID),
+					"It will publish to the organisation's own registry again. [y/N]: ", strings.TrimSpace(arguments[0])),
 				yes,
 			); confirmError != nil {
 				return confirmError
