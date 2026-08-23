@@ -110,12 +110,7 @@ Requires organisation admin.`,
 		}
 
 		changes := map[string]*string{}
-		for flagName, field := range map[string]string{
-			"demo-base-domain":   "demo_base_domain",
-			"demo-ingress-class": "demo_ingress_class_name",
-			"demo-tls-secret":    "demo_tls_secret_name",
-			"demo-cert-issuer":   "demo_cert_issuer_name",
-		} {
+		for flagName, field := range previewSettingFlagFields {
 			flag := cmd.Flags().Lookup(flagName)
 			if flag == nil || !flag.Changed {
 				continue
@@ -164,13 +159,25 @@ func renderOrganisationPreviewSettings(cmd *cobra.Command,
 	}
 
 	out := cmd.OutOrStdout()
+	// The three overrides only take effect alongside a preview domain, but a
+	// stored value has to stay visible without one: clearing only the domain
+	// otherwise leaves settings on the organisation that nothing can show and
+	// that come back into force the moment a domain is set again.
+	hasStoredOverride := settings.DemoIngressClassName != "" ||
+		settings.DemoTLSSecretName != "" || settings.DemoCertIssuerName != ""
 	if settings.DemoBaseDomain == "" {
 		_, _ = fmt.Fprintln(out, "Preview domain:    (none - demos use the staging cluster's Ankra subzone)")
 	} else {
 		_, _ = fmt.Fprintf(out, "Preview domain:    %s\n", settings.DemoBaseDomain)
+	}
+	if settings.DemoBaseDomain != "" || hasStoredOverride {
 		_, _ = fmt.Fprintf(out, "Ingress class:     %s\n", orEmptyDefault(settings.DemoIngressClassName))
 		_, _ = fmt.Fprintf(out, "TLS secret:        %s\n", orEmptyDefault(settings.DemoTLSSecretName))
 		_, _ = fmt.Fprintf(out, "Certificate issuer:%s\n", " "+orEmptyDefault(settings.DemoCertIssuerName))
+	}
+	if settings.DemoBaseDomain == "" && hasStoredOverride {
+		_, _ = fmt.Fprintln(out,
+			"\nThese three apply only alongside a preview domain, so they are inert until one is set.")
 	}
 	// Printed whatever the fields say. The backend decides when previews
 	// lack TLS, and tying the display to a field here would put this command
@@ -188,16 +195,29 @@ func orEmptyDefault(value string) string {
 	return value
 }
 
+// previewSettingFlagFields maps each set flag to the wire field it writes.
+// Registration and parsing both read it, so a renamed flag cannot become a
+// silent no-op that cobra accepts and the update loop never matches.
+var previewSettingFlagFields = map[string]string{
+	"demo-base-domain":   "demo_base_domain",
+	"demo-ingress-class": "demo_ingress_class_name",
+	"demo-tls-secret":    "demo_tls_secret_name",
+	"demo-cert-issuer":   "demo_cert_issuer_name",
+}
+
 func init() {
 	registerStructuredOutputFlags(orgAIEnvironmentGetCmd, orgAIEnvironmentSetCmd)
-	orgAIEnvironmentSetCmd.Flags().String("demo-base-domain", "",
-		"Wildcard zone demos are published under; empty clears it")
-	orgAIEnvironmentSetCmd.Flags().String("demo-ingress-class", "",
-		"Ingress class for demo ingresses; empty clears it")
-	orgAIEnvironmentSetCmd.Flags().String("demo-tls-secret", "",
-		"Secret holding a wildcard certificate for the preview domain; empty clears it")
-	orgAIEnvironmentSetCmd.Flags().String("demo-cert-issuer", "",
-		"cert-manager ClusterIssuer for per-preview certificates; empty clears it")
+	for flagName, usage := range map[string]string{
+		"demo-base-domain":   "Wildcard zone demos are published under; empty clears it",
+		"demo-ingress-class": "Ingress class for demo ingresses; empty clears it",
+		"demo-tls-secret":    "Secret holding a certificate for the preview domain; empty clears it",
+		"demo-cert-issuer":   "cert-manager ClusterIssuer to ask instead of the cluster's own; empty clears it",
+	} {
+		if _, isKnown := previewSettingFlagFields[flagName]; !isKnown {
+			panic("preview setting flag " + flagName + " has no wire field")
+		}
+		orgAIEnvironmentSetCmd.Flags().String(flagName, "", usage)
+	}
 	orgAIEnvironmentCmd.AddCommand(orgAIEnvironmentGetCmd)
 	orgAIEnvironmentCmd.AddCommand(orgAIEnvironmentSetCmd)
 	orgCmd.AddCommand(orgAIEnvironmentCmd)

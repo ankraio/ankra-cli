@@ -16,16 +16,16 @@ import (
 // Empty means unset in every field: the demos then hang off the staging
 // cluster's own Ankra subzone, or stay in-cluster-only.
 type OrganisationPreviewSettings struct {
-	DemoBaseDomain       string `json:"demo_base_domain"`
-	DemoIngressClassName string `json:"demo_ingress_class_name"`
-	DemoTLSSecretName    string `json:"demo_tls_secret_name"`
-	DemoCertIssuerName   string `json:"demo_cert_issuer_name"`
+	DemoBaseDomain       string `json:"demo_base_domain" yaml:"demo_base_domain"`
+	DemoIngressClassName string `json:"demo_ingress_class_name" yaml:"demo_ingress_class_name"`
+	DemoTLSSecretName    string `json:"demo_tls_secret_name" yaml:"demo_tls_secret_name"`
+	DemoCertIssuerName   string `json:"demo_cert_issuer_name" yaml:"demo_cert_issuer_name"`
 
 	// PreviewTLSWarning is the backend's own verdict on whether these
 	// settings publish demos over plain http. It depends on what the
 	// staging cluster carries, so it cannot be worked out from the fields
 	// above alone. Empty when previews have a certificate story.
-	PreviewTLSWarning string `json:"demo_preview_tls_warning"`
+	PreviewTLSWarning string `json:"demo_preview_tls_warning" yaml:"demo_preview_tls_warning"`
 }
 
 type organisationPreviewSettingsBody struct {
