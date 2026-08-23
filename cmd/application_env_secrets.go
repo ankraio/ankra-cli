@@ -97,13 +97,16 @@ seal the stored values into the application's deployments and roll them.`,
 			if formatError != nil {
 				return formatError
 			}
-			applicationID, resolveError := resolveApplicationArgument(command, arguments)
-			if resolveError != nil {
-				return resolveError
-			}
+			// The key is checked before the application is resolved: it costs
+			// nothing, and a name now means a listing round-trip that a purely
+			// local mistake should not have to pay for.
 			secretKey := strings.TrimSpace(arguments[1])
 			if keyError := validateEnvSecretKey(secretKey); keyError != nil {
 				return keyError
+			}
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
 			}
 			value, valueError := resolveEnvSecretValue(command, secretKey)
 			if valueError != nil {
@@ -238,13 +241,16 @@ sealed into them until the next apply.`,
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			applicationID, resolveError := resolveApplicationArgument(command, arguments)
-			if resolveError != nil {
-				return resolveError
-			}
+			// The key is checked before the application is resolved: it costs
+			// nothing, and a name now means a listing round-trip that a purely
+			// local mistake should not have to pay for.
 			secretKey := strings.TrimSpace(arguments[1])
 			if keyError := validateEnvSecretKey(secretKey); keyError != nil {
 				return keyError
+			}
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
 			}
 			yes, _ := command.Flags().GetBool("yes")
 			if confirmError := confirmPrompt(

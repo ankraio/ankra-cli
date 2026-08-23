@@ -105,7 +105,9 @@
   applications than one page holds, and a lookup that cannot run says so
   rather than sending the name on to be rejected. An empty argument — an
   unset variable in a script — is now refused as the usage error it is,
-  instead of searching with no filter at all. (PLA-786)
+  instead of searching with no filter at all. A name that matches no
+  application exits 3 (not found), the same code an id that does not exist
+  already produced, and an ambiguous name exits 2. (PLA-786)
 
 ## v0.13.0-rc0 — 2026-08-22
 

@@ -419,3 +419,71 @@ func TestApplicationPublishedAddonResolvesAName(t *testing.T) {
 		t.Fatalf("the request must carry the resolved id, got %q", mock.publishedAddonID)
 	}
 }
+
+func TestResolveApplicationIDClassifiesAnUnknownNameAsNotFound(t *testing.T) {
+	// An id that does not exist reaches the API and comes back 404, which
+	// exitCodeFor maps to exitNotFound. A name that does not exist has to
+	// tell a script the same thing rather than the generic failure code.
+	mock := &applicationLookupMock{listPayload: applicationListingPayload(
+		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"},
+	)}
+
+	_, resolveError := resolveApplicationID(context.Background(), mock, "commerc")
+
+	if resolveError == nil {
+		t.Fatal("an unknown name must be reported")
+	}
+	if exitCodeFor(resolveError) != exitNotFound {
+		t.Fatalf("an unknown name is a not-found, got exit code %d", exitCodeFor(resolveError))
+	}
+}
+
+func TestResolveApplicationIDClassifiesAnAmbiguousNameAsAUsageError(t *testing.T) {
+	mock := &applicationLookupMock{listPayload: applicationListingPayload(
+		[2]string{"aaaaaaaa-062c-4dd8-878a-cd0372e5fcf6", "commerce"},
+		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"},
+	)}
+
+	_, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
+
+	if resolveError == nil {
+		t.Fatal("an ambiguous name must be reported")
+	}
+	if exitCodeFor(resolveError) != exitUsage {
+		t.Fatalf("an ambiguous name is a usage error, got exit code %d", exitCodeFor(resolveError))
+	}
+}
+
+func TestApplicationEnvSecretsChecksTheKeyBeforeResolvingTheApplication(t *testing.T) {
+	// A malformed key is a purely local mistake. Resolving the name first
+	// would spend a listing round-trip only to fail on something that never
+	// needed the network.
+	// The flags differ per verb: `set` takes --value and has no --yes, so
+	// passing the wrong one makes cobra fail on an unknown flag before the
+	// command body runs and the test would pass without proving anything.
+	for _, testCase := range []struct {
+		verb      string
+		arguments []string
+	}{
+		{verb: "set", arguments: []string{"--value", "v"}},
+		{verb: "delete", arguments: []string{"--yes"}},
+	} {
+		mock := &applicationLookupMock{listPayload: applicationListingPayload(
+			[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"},
+		)}
+		arguments := append([]string{"env-secrets", testCase.verb, "commerce", "bad key"},
+			testCase.arguments...)
+
+		_, executeError := runApplicationCommand(t, mock, arguments...)
+
+		if executeError == nil {
+			t.Fatalf("env-secrets %s must reject a malformed key", testCase.verb)
+		}
+		if strings.Contains(executeError.Error(), "unknown flag") {
+			t.Fatalf("env-secrets %s never reached the command body: %v", testCase.verb, executeError)
+		}
+		if mock.requested {
+			t.Fatalf("env-secrets %s resolved the application before checking the key", testCase.verb)
+		}
+	}
+}

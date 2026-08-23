@@ -111,11 +111,18 @@ func resolveApplicationID(requestContext context.Context, applications APIClient
 	case 1:
 		return matchedIDs[0], nil
 	case 0:
-		return "", fmt.Errorf(
-			"no application named %q - run 'ankra application list' to see the available applications", reference)
+		// exitNotFound keeps the name path and the id path telling scripts the
+		// same thing: an id that does not exist reaches the API and comes back
+		// 404, which exitCodeFor already maps to exitNotFound, so a name that
+		// does not exist must not exit with the generic failure code instead.
+		return "", withExitCode(exitNotFound, fmt.Errorf(
+			"no application named %q - run 'ankra application list' to see the available applications", reference))
 	default:
-		return "", fmt.Errorf("%d applications are named %q - pass the application id instead (%s)",
-			len(matchedIDs), reference, strings.Join(matchedIDs, ", "))
+		// An ambiguous name is a bad argument, not a missing application: the
+		// invocation has to change before it can succeed.
+		return "", withExitCode(exitUsage,
+			fmt.Errorf("%d applications are named %q - pass the application id instead (%s)",
+				len(matchedIDs), reference, strings.Join(matchedIDs, ", ")))
 	}
 }
 
