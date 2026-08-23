@@ -4,6 +4,38 @@
 
 ### Added
 
+- **`ankra application env-secrets` sets the environment an application's
+  manifests read.** The keys come from the application's own generated
+  manifests, and until now the only way to answer them was the portal, so a
+  pipeline that could create, build and deploy an application still stopped
+  at the one step that made it run. `list` reports which keys exist and
+  whether each has a value; `set` stores one; `delete` clears it; `apply`
+  seals the stored values into the running deployments and rolls them.
+  Storing is deliberately not applying, and `set` says so. A value only ever
+  travels inbound: no route hands a stored value back, `list` never carries
+  one, and nothing here prints one. Pipe the value or let it prompt rather
+  than passing `--value`, which your shell records in its history.
+- **`ankra application auto-deploy get|set` reads and flips push-to-deploy.**
+  The read carries the newest build the platform observed on the tracked
+  branch alongside the switch, so you can tell auto-deploy that is off from
+  auto-deploy that is on and has had nothing to pick up. `set` requires
+  `--enabled` explicitly: turning unattended deployment on and turning it off
+  are both deliberate acts, and neither is a safe default to infer.
+- **`ankra application settings get|set` reads and sets the organisation's CI
+  runner label.** Generated pipelines used to carry a hardcoded
+  `ubuntu-latest`, so an organisation whose GitHub-hosted runners are refused
+  (Actions billing in arrears, or a spending limit) was handed a pipeline it
+  could not execute. Any member may read it; only an organisation admin may
+  change it. `--clear` returns future generations to the default.
+- **`ankra application manifest-addon` completes the add-on publishing lane.**
+  `publish-addon` and `published-addon` already turned an application's
+  manifests into a catalog entry and reported what that produced; there was
+  then no way to inspect, compare, install or withdraw it without the portal.
+  `get`, `diff --to`, `install --cluster-id`, `unpublish` and `delete` close
+  that. `unpublish` and `delete` are not the same act and the prompts say
+  which is which: unpublishing withdraws the catalog entry and leaves what is
+  installed running, while deleting undeploys every installation that came
+  from it.
 - **`ankra cluster playground destroy <cluster_id>` tears the organisation's
   playground down.** The platform has served the DELETE since playgrounds
   shipped; only the CLI could not reach it, so `create` and `status` had no
