@@ -29,7 +29,8 @@ type applicationLookupMock struct {
 	requested    bool
 	pagesAsked   []int
 
-	branchesID string
+	branchesID       string
+	publishedAddonID string
 }
 
 // ListApplicationsRaw records the paging the caller asked for and refuses
@@ -60,6 +61,11 @@ func (mock *applicationLookupMock) ListApplicationsRaw(_ context.Context, page i
 func (mock *applicationLookupMock) GetApplicationBranches(_ context.Context, applicationID string) (json.RawMessage, error) {
 	mock.branchesID = applicationID
 	return json.RawMessage(`{"branches":[],"default_branch":null}`), nil
+}
+
+func (mock *applicationLookupMock) GetApplicationPublishedAddon(_ context.Context, applicationID string) (json.RawMessage, error) {
+	mock.publishedAddonID = applicationID
+	return json.RawMessage(`{"addon":null}`), nil
 }
 
 func applicationListingPayload(applications ...[2]string) json.RawMessage {
@@ -351,5 +357,65 @@ func TestApplicationBranchesDoesNotSendANameWhenTheLookupFails(t *testing.T) {
 	}
 	if mock.branchesID != "" {
 		t.Fatalf("a name must never reach the uuid-typed request path, got %q", mock.branchesID)
+	}
+}
+
+func TestResolveApplicationIDRefusesAnEmptyReference(t *testing.T) {
+	// An empty `search` is dropped from the query, so the filter disappears
+	// and the listing returns everything. An application whose definition
+	// carries no name then matches the empty reference exactly - so an unset
+	// shell variable could resolve to a real application and, on
+	// `delete --yes`, act on it.
+	for _, reference := range []string{"", "   "} {
+		mock := &applicationLookupMock{listPayload: applicationListingPayload(
+			[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", ""},
+		)}
+
+		resolved, resolveError := resolveApplicationID(context.Background(), mock, reference)
+
+		if resolveError == nil {
+			t.Fatalf("an empty reference (%q) must be refused, it resolved to %q", reference, resolved)
+		}
+		if mock.requested {
+			t.Fatalf("an empty reference (%q) must not run an unfiltered listing", reference)
+		}
+		if exitCodeFor(resolveError) != exitUsage {
+			t.Fatalf("an empty reference is a usage error, got exit code %d for %q",
+				exitCodeFor(resolveError), reference)
+		}
+	}
+}
+
+func TestApplicationBranchesRefusesAnEmptyArgument(t *testing.T) {
+	mock := &applicationLookupMock{listPayload: applicationListingPayload(
+		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", ""},
+	)}
+
+	_, executeError := runApplicationCommand(t, mock, "branches", "")
+
+	if executeError == nil {
+		t.Fatal("an empty argument must fail before any request is made")
+	}
+	if mock.branchesID != "" {
+		t.Fatalf("no request may be made for an empty argument, got %q", mock.branchesID)
+	}
+}
+
+func TestApplicationPublishedAddonResolvesAName(t *testing.T) {
+	// published-addon takes <application-id> but has no resolution hunk of its
+	// own: it is built by newApplicationSubresourceCommand, so it inherits the
+	// lookup from the shared factory. Pin that down, because reading the diff
+	// alone cannot tell the difference between "inherited" and "missed".
+	mock := &applicationLookupMock{listPayload: applicationListingPayload(
+		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"},
+	)}
+
+	_, executeError := runApplicationCommand(t, mock, "published-addon", "commerce")
+
+	if executeError != nil {
+		t.Fatalf("published-addon by name: %v", executeError)
+	}
+	if mock.publishedAddonID != "23298741-6a5a-401a-a681-66f31fbdebe1" {
+		t.Fatalf("the request must carry the resolved id, got %q", mock.publishedAddonID)
 	}
 }

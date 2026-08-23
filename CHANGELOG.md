@@ -103,7 +103,9 @@
   candidate ids instead of picking one. The lookup walks every page of the
   listing, so a name still resolves in an organisation with more
   applications than one page holds, and a lookup that cannot run says so
-  rather than sending the name on to be rejected. (PLA-786)
+  rather than sending the name on to be rejected. An empty argument — an
+  unset variable in a script — is now refused as the usage error it is,
+  instead of searching with no filter at all. (PLA-786)
 
 ## v0.13.0-rc0 — 2026-08-22
 

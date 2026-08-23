@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -58,6 +59,15 @@ func applicationLookupFailure(reference string, cause error) error {
 // 500 Internal Server Error (PLA-786).
 func resolveApplicationID(requestContext context.Context, applications APIClient, reference string) (string, error) {
 	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		// An empty reference must not reach the lookup: ListApplicationsRaw
+		// omits an empty `search`, so the filter disappears and the walk pages
+		// the whole organisation. Any application whose definition carries no
+		// name then matches the empty reference exactly, and an unset shell
+		// variable - `ankra application delete "$APP" --yes` - would act on
+		// it. It is a usage error, and it was one before this resolver too.
+		return "", withExitCode(exitUsage, errors.New("an application id or name is required"))
+	}
 	if looksLikeUUID(reference) {
 		return reference, nil
 	}
