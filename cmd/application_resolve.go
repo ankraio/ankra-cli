@@ -79,6 +79,7 @@ func resolveApplicationID(requestContext context.Context, applications APIClient
 	// listing is exhausted, the way resolveClusterID already does.
 	exactIDs := []string{}
 	foldedIDs := []string{}
+	listingExhausted := false
 	for page := 1; page <= maxApplicationLookupPages; page++ {
 		payload, listError := applications.ListApplicationsRaw(
 			requestContext, page, maxApplicationLookupPageSize, reference)
@@ -100,8 +101,19 @@ func resolveApplicationID(requestContext context.Context, applications APIClient
 			}
 		}
 		if listing.Pagination.TotalPages <= page || len(listing.Result) == 0 {
+			listingExhausted = true
 			break
 		}
+	}
+	if !listingExhausted {
+		// Stopping at the cap means the listing was only partly read, and
+		// neither answer below can be trusted on partial data: a second
+		// application sharing the name could sit past the cap, so a lone match
+		// is not provably unique, and "no application named" is not provably
+		// absent. Same rule as a failed listing - say so rather than answer
+		// from what happened to fit.
+		return "", applicationLookupFailure(reference, fmt.Errorf(
+			"the application listing did not end within %d pages", maxApplicationLookupPages))
 	}
 	matchedIDs := exactIDs
 	if len(matchedIDs) == 0 {

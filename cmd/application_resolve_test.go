@@ -23,11 +23,14 @@ type applicationLookupMock struct {
 	baseMock
 	listPayload  json.RawMessage
 	pagePayloads []json.RawMessage
-	listError    error
-	searched     string
-	pageSize     int
-	requested    bool
-	pagesAsked   []int
+	// endless makes every page claim more pages are waiting, so the walk runs
+	// into maxApplicationLookupPages instead of exhausting the listing.
+	endless    bool
+	listError  error
+	searched   string
+	pageSize   int
+	requested  bool
+	pagesAsked []int
 
 	branchesID       string
 	publishedAddonID string
@@ -48,6 +51,14 @@ func (mock *applicationLookupMock) ListApplicationsRaw(_ context.Context, page i
 	}
 	if mock.listError != nil {
 		return nil, mock.listError
+	}
+	if mock.endless {
+		if page == 1 {
+			return applicationListingPagePayload(9999,
+				[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"}), nil
+		}
+		return applicationListingPagePayload(9999,
+			[2]string{"3cd57498-062c-4dd8-878a-cd0372e5fcf6", "commerce-filler"}), nil
 	}
 	if len(mock.pagePayloads) > 0 {
 		if page < 1 || page > len(mock.pagePayloads) {
@@ -485,5 +496,27 @@ func TestApplicationEnvSecretsChecksTheKeyBeforeResolvingTheApplication(t *testi
 		if mock.requested {
 			t.Fatalf("env-secrets %s resolved the application before checking the key", testCase.verb)
 		}
+	}
+}
+
+func TestResolveApplicationIDRefusesToAnswerFromATruncatedListing(t *testing.T) {
+	// Hitting the page cap means the listing was only partly read. Even with a
+	// unique exact match already in hand, a second application sharing the
+	// name could sit past the cap - so the match is not provably unique and
+	// answering would be guessing, exactly what the failed-listing case
+	// refuses to do.
+	mock := &applicationLookupMock{endless: true}
+
+	resolved, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
+
+	if resolveError == nil {
+		t.Fatalf("a truncated listing must not be answered from, it resolved to %q", resolved)
+	}
+	if len(mock.pagesAsked) != maxApplicationLookupPages {
+		t.Fatalf("the walk must stop at the cap, asked for %d pages", len(mock.pagesAsked))
+	}
+	if !strings.Contains(resolveError.Error(), "application list") ||
+		!strings.Contains(resolveError.Error(), "application id") {
+		t.Fatalf("the error must say what to do next, got: %v", resolveError)
 	}
 }
