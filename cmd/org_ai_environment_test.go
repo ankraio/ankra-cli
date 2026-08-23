@@ -179,3 +179,95 @@ func TestRunOrgAIEnvironmentGet_PrintsAWarningEvenWithNoPreviewDomain(t *testing
 		t.Errorf("the fallback line must still be printed, got %s", output)
 	}
 }
+
+// -o yaml went through gopkg.in/yaml.v3, which ignores json tags and
+// lowercases the Go field names, so it emitted demobasedomain while -o json
+// emitted demo_base_domain. Anything scripted against the yaml form read the
+// wrong keys.
+func TestRunOrgAIEnvironmentGet_YAMLKeysMatchTheJSONKeys(t *testing.T) {
+	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
+		DemoBaseDomain: "previews.smartoptics.dev", DemoCertIssuerName: "letsencrypt-prod"}}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get", "-o", "yaml")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, key := range []string{
+		"demo_base_domain:", "demo_ingress_class_name:", "demo_tls_secret_name:",
+		"demo_cert_issuer_name:", "demo_preview_tls_warning:",
+	} {
+		if !strings.Contains(output, key) {
+			t.Errorf("yaml output is missing %q, got %s", key, output)
+		}
+	}
+	if strings.Contains(output, "demobasedomain") {
+		t.Errorf("yaml fell back to the lowercased Go field names, got %s", output)
+	}
+}
+
+// Clearing only the preview domain used to hide the three overrides, leaving
+// stored values nothing could show and that take effect again the moment a
+// domain is set.
+func TestRunOrgAIEnvironmentGet_ShowsStoredOverridesWithNoPreviewDomain(t *testing.T) {
+	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
+		DemoTLSSecretName: "previews-wildcard-tls"}}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "previews-wildcard-tls") {
+		t.Errorf("a stored override must stay visible, got %s", output)
+	}
+	if !strings.Contains(output, "inert until one is set") {
+		t.Errorf("and must say it is not in force, got %s", output)
+	}
+}
+
+func TestRunOrgAIEnvironmentGet_StaysTerseWhenNothingIsStored(t *testing.T) {
+	mock := &orgPreviewSettingsMock{}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if strings.Contains(output, "Ingress class") || strings.Contains(output, "inert") {
+		t.Errorf("nothing stored means nothing to list, got %s", output)
+	}
+}
+
+// The two maps have to stay in step in both directions: a wire field with no
+// usage string would register no flag (and the update loop would skip it in
+// silence), and a usage string naming no field would register a flag that
+// writes nothing. init() panics on either; this pins the pairing itself.
+func TestPreviewSettingFlagMapsAgree(t *testing.T) {
+	if len(previewSettingFlagUsage) != len(previewSettingFlagFields) {
+		t.Fatalf("usage map has %d entries, wire-field map has %d",
+			len(previewSettingFlagUsage), len(previewSettingFlagFields))
+	}
+	for flagName := range previewSettingFlagFields {
+		if previewSettingFlagUsage[flagName] == "" {
+			t.Errorf("wire field %q has no usage string, so init() would register no flag", flagName)
+		}
+	}
+	for flagName := range previewSettingFlagUsage {
+		if previewSettingFlagFields[flagName] == "" {
+			t.Errorf("usage string %q names no wire field, so the flag would write nothing", flagName)
+		}
+	}
+}
+
+// Registration and parsing read one map, so a renamed flag cannot become a
+// flag cobra accepts and the update loop never matches.
+func TestPreviewSettingFlagsAreRegisteredForEveryWireField(t *testing.T) {
+	for flagName := range previewSettingFlagFields {
+		if orgAIEnvironmentSetCmd.Flags().Lookup(flagName) == nil {
+			t.Errorf("flag %q maps to a wire field but is not registered", flagName)
+		}
+	}
+	orgAIEnvironmentSetCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		if !strings.HasPrefix(flag.Name, "demo-") {
+			return
+		}
+		if _, isKnown := previewSettingFlagFields[flag.Name]; !isKnown {
+			t.Errorf("flag %q is registered but writes no wire field", flag.Name)
+		}
+	})
+}
