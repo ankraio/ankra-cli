@@ -14,7 +14,12 @@ import (
 // catalog, or delete it outright.
 //
 // The add-on id is a catalog identity rather than an application subresource,
-// so these hang off their own path root.
+// so these hang off their own path root. They still go through
+// applicationResourceRequest: despite its name that helper is the bearer JSON
+// request path for this whole surface (auth header, FastAPI `detail` error
+// surfacing, status preserved for exit-code classification) and builds no
+// path of its own, so reusing it is what keeps the error contract identical
+// rather than a second one drifting alongside it.
 
 const manifestAddonsAPIPath = "/api/v1/org/manifest-addons"
 

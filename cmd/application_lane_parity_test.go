@@ -597,3 +597,27 @@ func TestManifestAddonInstallRejectsADuplicateInputKey(t *testing.T) {
 		t.Errorf("InstallManifestAddon calls = %d, want 0", mockClient.installCalls)
 	}
 }
+
+// The apply hint is for a person. A structured invocation is a script, which
+// gets a clean stderr rather than prose it has to ignore.
+func TestApplicationEnvSecretSetHintIsHumanOutputOnly(t *testing.T) {
+	mockClient := &applicationLaneMock{payload: json.RawMessage(`{"key":"K"}`)}
+	human, executeError := runApplicationCommand(t, mockClient,
+		"env-secrets", "set", "app-1", "K", "--value", "v")
+	if executeError != nil {
+		t.Fatalf("env-secrets set error = %v", executeError)
+	}
+	if !strings.Contains(human, "env-secrets apply") {
+		t.Errorf("the human run should carry the apply hint: %q", human)
+	}
+
+	mockClient = &applicationLaneMock{payload: json.RawMessage(`{"key":"K"}`)}
+	structured, executeError := runApplicationCommand(t, mockClient,
+		"env-secrets", "set", "app-1", "K", "--value", "v", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("env-secrets set -o json error = %v", executeError)
+	}
+	if strings.Contains(structured, "env-secrets apply") {
+		t.Errorf("a structured run must not carry the prose hint: %q", structured)
+	}
+}

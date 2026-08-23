@@ -89,7 +89,8 @@ seal the stored values into the application's deployments and roll them.`,
   printf '%s' "$TOKEN" | ankra application env-secrets set <application-id> API_TOKEN`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, arguments []string) error {
-			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+			outputFormatting, formatError := structuredFormatFromFlags(command)
+			if formatError != nil {
 				return formatError
 			}
 			applicationID := strings.TrimSpace(arguments[0])
@@ -106,9 +107,13 @@ seal the stored values into the application's deployments and roll them.`,
 			if setError != nil {
 				return setError
 			}
-			_, _ = fmt.Fprintf(command.ErrOrStderr(),
-				"Stored. Run 'ankra application env-secrets apply %s' to seal it into the running deployments.\n",
-				applicationID)
+			// The hint is for a person. A structured invocation is a script,
+			// which gets a clean stderr rather than prose it has to ignore.
+			if outputFormatting == outputDefault {
+				_, _ = fmt.Fprintf(command.ErrOrStderr(),
+					"Stored. Run 'ankra application env-secrets apply %s' to seal it into the running deployments.\n",
+					applicationID)
+			}
 			return renderApplicationPayload(command, payload)
 		},
 	}
