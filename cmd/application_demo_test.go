@@ -80,7 +80,7 @@ const demoDetailFixture = `{
 func TestApplicationDemoDeployMapsComponentFlags(t *testing.T) {
 	mockClient := &applicationDemoMock{deployPayload: json.RawMessage(`{"workspace_id":"ws-1"}`)}
 	_, executeError := runApplicationCommand(t, mockClient,
-		"demo", "deploy", "app-1",
+		"demo", "deploy", testApplicationID,
 		"--branch", "main",
 		"--component", "crm-frontend",
 		"--component", "crm-api",
@@ -121,7 +121,7 @@ func TestApplicationDemoDeployMapsComponentFlags(t *testing.T) {
 func TestApplicationDemoDeployWithoutComponentFlagsSendsNoSelection(t *testing.T) {
 	mockClient := &applicationDemoMock{deployPayload: json.RawMessage(`{"workspace_id":"ws-1"}`)}
 	if _, executeError := runApplicationCommand(t, mockClient,
-		"demo", "deploy", "app-1", "--branch", "main"); executeError != nil {
+		"demo", "deploy", testApplicationID, "--branch", "main"); executeError != nil {
 		t.Fatalf("demo deploy error = %v", executeError)
 	}
 	if mockClient.demoRequest.Components != nil {
@@ -147,7 +147,7 @@ func TestApplicationDemoDeployRejectsBadComponentFlags(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			mockClient := &applicationDemoMock{}
 			_, executeError := runApplicationCommand(t, mockClient,
-				append([]string{"demo", "deploy", "app-1", "--branch", "main"}, arguments...)...)
+				append([]string{"demo", "deploy", testApplicationID, "--branch", "main"}, arguments...)...)
 			if exitCodeFor(executeError) != exitUsage {
 				t.Errorf("exit code = %d, want %d: %v", exitCodeFor(executeError), exitUsage, executeError)
 			}
@@ -164,7 +164,7 @@ func TestApplicationDemoLogsResolvesComponentToReadyPod(t *testing.T) {
 		logsPayload:   json.RawMessage(`{"lines":["listening on 8090"]}`),
 	}
 	if _, executeError := runApplicationCommand(t, mockClient,
-		"demo", "logs", "app-1", "ws-1", "--component", "crm-api", "--tail", "500"); executeError != nil {
+		"demo", "logs", testApplicationID, "ws-1", "--component", "crm-api", "--tail", "500"); executeError != nil {
 		t.Fatalf("demo logs error = %v", executeError)
 	}
 	if mockClient.logsPod != "crm-api-new" {
@@ -178,7 +178,7 @@ func TestApplicationDemoLogsResolvesComponentToReadyPod(t *testing.T) {
 func TestApplicationDemoLogsWithoutComponentSkipsDetailLookup(t *testing.T) {
 	mockClient := &applicationDemoMock{logsPayload: json.RawMessage(`{"lines":[]}`)}
 	if _, executeError := runApplicationCommand(t, mockClient,
-		"demo", "logs", "app-1", "ws-1"); executeError != nil {
+		"demo", "logs", testApplicationID, "ws-1"); executeError != nil {
 		t.Fatalf("demo logs error = %v", executeError)
 	}
 	if mockClient.detailCalls != 0 {
@@ -192,7 +192,7 @@ func TestApplicationDemoLogsWithoutComponentSkipsDetailLookup(t *testing.T) {
 func TestApplicationDemoLogsRejectsUnknownComponent(t *testing.T) {
 	mockClient := &applicationDemoMock{detailPayload: json.RawMessage(demoDetailFixture)}
 	output, executeError := runApplicationCommand(t, mockClient,
-		"demo", "logs", "app-1", "ws-1", "--component", "billing")
+		"demo", "logs", testApplicationID, "ws-1", "--component", "billing")
 	if exitCodeFor(executeError) != exitNotFound {
 		t.Fatalf("exit code = %d, want %d: %v", exitCodeFor(executeError), exitNotFound, executeError)
 	}
@@ -207,7 +207,7 @@ func TestApplicationDemoLogsRejectsUnknownComponent(t *testing.T) {
 func TestApplicationDemoLogsRejectsComponentWithPod(t *testing.T) {
 	mockClient := &applicationDemoMock{detailPayload: json.RawMessage(demoDetailFixture)}
 	_, executeError := runApplicationCommand(t, mockClient,
-		"demo", "logs", "app-1", "ws-1", "--component", "crm-api", "--pod", "crm-api-new")
+		"demo", "logs", testApplicationID, "ws-1", "--component", "crm-api", "--pod", "crm-api-new")
 	if exitCodeFor(executeError) != exitUsage {
 		t.Errorf("exit code = %d, want %d: %v", exitCodeFor(executeError), exitUsage, executeError)
 	}
@@ -230,7 +230,7 @@ func TestApplicationDemoListRendersComponents(t *testing.T) {
 	    ]
 	  }]
 	}`)}
-	output, executeError := runApplicationCommand(t, mockClient, "demo", "list", "app-1")
+	output, executeError := runApplicationCommand(t, mockClient, "demo", "list", testApplicationID)
 	if executeError != nil {
 		t.Fatalf("demo list error = %v", executeError)
 	}
@@ -243,7 +243,7 @@ func TestApplicationDemoListRendersComponents(t *testing.T) {
 
 func TestApplicationDemoListEmpty(t *testing.T) {
 	mockClient := &applicationDemoMock{listPayload: json.RawMessage(`{"demos":[]}`)}
-	output, executeError := runApplicationCommand(t, mockClient, "demo", "list", "app-1")
+	output, executeError := runApplicationCommand(t, mockClient, "demo", "list", testApplicationID)
 	if executeError != nil {
 		t.Fatalf("demo list error = %v", executeError)
 	}
@@ -256,7 +256,7 @@ func TestApplicationDemoListFallsBackWhenPayloadCarriesNoDemosKey(t *testing.T) 
 	// "No active demo workspaces." is a claim about the application, so a
 	// payload that never carried the list must print raw instead.
 	mockClient := &applicationDemoMock{listPayload: json.RawMessage(`{"detail":"staging cluster missing"}`)}
-	output, executeError := runApplicationCommand(t, mockClient, "demo", "list", "app-1")
+	output, executeError := runApplicationCommand(t, mockClient, "demo", "list", testApplicationID)
 	if executeError != nil {
 		t.Fatalf("demo list error = %v", executeError)
 	}
@@ -270,7 +270,7 @@ func TestApplicationDemoListFallsBackWhenPayloadCarriesNoDemosKey(t *testing.T) 
 
 func TestApplicationDemoListStructuredOutputStaysRaw(t *testing.T) {
 	mockClient := &applicationDemoMock{listPayload: json.RawMessage(`{"demos":[],"default_container_port":3000}`)}
-	output, executeError := runApplicationCommand(t, mockClient, "demo", "list", "app-1", "-o", "json")
+	output, executeError := runApplicationCommand(t, mockClient, "demo", "list", testApplicationID, "-o", "json")
 	if executeError != nil {
 		t.Fatalf("demo list error = %v", executeError)
 	}
@@ -281,7 +281,7 @@ func TestApplicationDemoListStructuredOutputStaysRaw(t *testing.T) {
 
 func TestApplicationDemoDetailRendersComponentsAndSteps(t *testing.T) {
 	mockClient := &applicationDemoMock{detailPayload: json.RawMessage(demoDetailFixture)}
-	output, executeError := runApplicationCommand(t, mockClient, "demo", "detail", "app-1", "ws-1")
+	output, executeError := runApplicationCommand(t, mockClient, "demo", "detail", testApplicationID, "ws-1")
 	if executeError != nil {
 		t.Fatalf("demo detail error = %v", executeError)
 	}
@@ -300,7 +300,7 @@ func TestApplicationDemoDetailFallsBackToRawJSON(t *testing.T) {
 	// A payload this rendering cannot decode must still print: a wire shape
 	// the CLI has not caught up with is not a reason to fail a read.
 	mockClient := &applicationDemoMock{detailPayload: json.RawMessage(`{"demo":"not-an-object"}`)}
-	output, executeError := runApplicationCommand(t, mockClient, "demo", "detail", "app-1", "ws-1")
+	output, executeError := runApplicationCommand(t, mockClient, "demo", "detail", testApplicationID, "ws-1")
 	if executeError != nil {
 		t.Fatalf("demo detail error = %v", executeError)
 	}
@@ -315,7 +315,7 @@ func TestApplicationDemoDetailRendersLegacySingleComponent(t *testing.T) {
 	           "image_tag":"sha-abc","container_port":3000,"expires_at":"2099-01-01T00:00:00Z"},
 	  "inspection": {"cluster_reachable": true, "steps": [], "resources": []}
 	}`)}
-	output, executeError := runApplicationCommand(t, mockClient, "demo", "detail", "app-1", "ws-9")
+	output, executeError := runApplicationCommand(t, mockClient, "demo", "detail", testApplicationID, "ws-9")
 	if executeError != nil {
 		t.Fatalf("demo detail error = %v", executeError)
 	}

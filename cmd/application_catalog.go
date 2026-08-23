@@ -33,8 +33,12 @@ a version; other clusters install the add-on from the catalogue.`,
 			description, _ := command.Flags().GetString("description")
 			category, _ := command.Flags().GetString("category")
 			changelog, _ := command.Flags().GetString("changelog")
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			payload, publishError := apiClient.PublishApplicationAddon(command.Context(),
-				strings.TrimSpace(arguments[0]), client.PublishApplicationAddonRequest{
+				applicationID, client.PublishApplicationAddonRequest{
 					Version:     strings.TrimSpace(version),
 					DisplayName: strings.TrimSpace(displayName),
 					Description: description,

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"errors"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -48,8 +47,12 @@ auto-deploy that is off from one that is on but has had nothing to pick up.`,
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			payload, getError := apiClient.GetApplicationAutoDeploy(command.Context(),
-				strings.TrimSpace(arguments[0]))
+				applicationID)
 			if getError != nil {
 				return getError
 			}
@@ -81,8 +84,12 @@ safe default to infer from a bare 'set'.`,
 					errors.New("--enabled is required: pass --enabled to turn auto-deploy on, or --enabled=false to turn it off"))
 			}
 			enabled, _ := command.Flags().GetBool("enabled")
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			payload, setError := apiClient.SetApplicationAutoDeploy(command.Context(),
-				strings.TrimSpace(arguments[0]), enabled)
+				applicationID, enabled)
 			if setError != nil {
 				return setError
 			}

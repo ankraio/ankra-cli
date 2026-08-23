@@ -88,6 +88,30 @@
   already serves production hostnames is safe to register on that count, and
   it is now written down rather than something to infer.
 
+### Fixed
+
+- **Every per-application command now accepts the application's name where it
+  takes `<application-id>`.** `application list` prints names, so a name is
+  what a user passes to `application branches`, `application demo list`,
+  `application demo config get` and the rest — and each of those answered a
+  bare `500 Internal Server Error`, because the name travelled to the
+  backend's uuid-typed lookup unchecked. A name is now resolved through the
+  same server-side search the `list` command uses, exactly the way
+  stack-profiles, credentials and clusters already resolve theirs: a uuid
+  passes straight through, an unknown name says to check
+  `ankra application list`, and a name two applications share lists the
+  candidate ids instead of picking one. The lookup walks every page of the
+  listing, so a name still resolves in an organisation with more
+  applications than one page holds, and a lookup that cannot run says so
+  rather than sending the name on to be rejected. An empty argument — an
+  unset variable in a script — is now refused as the usage error it is,
+  instead of searching with no filter at all. A name that matches no
+  application exits 3 (not found), the same code an id that does not exist
+  already produced, and an ambiguous name exits 2. A lookup that cannot be
+  completed — the listing failed, was unreadable, or was too large to read
+  to the end — reports that instead of answering from what it managed to
+  read. (PLA-786)
+
 ## v0.13.0-rc0 — 2026-08-22
 
 ### Added

@@ -13,6 +13,12 @@ import (
 	"ankra/internal/client"
 )
 
+// testApplicationID is the application id the per-command tests pass where a
+// command takes <application-id>. It is a uuid because every id the platform
+// issues is one, so these tests exercise the command itself rather than the
+// name lookup, which a uuid short-circuits without a listing round-trip.
+const testApplicationID = "b7f4c1de-2a03-4d61-9f8e-51c0a6d3e742"
+
 type applicationResourceMock struct {
 	baseMock
 	payload json.RawMessage
@@ -123,12 +129,12 @@ func TestApplicationResourceCommandsRegistered(t *testing.T) {
 
 func TestApplicationSubresourceRendersJSON(t *testing.T) {
 	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"deployments":[{"cluster_id":"c1"}]}`)}
-	output, executeError := runApplicationCommand(t, mockClient, "deployments", "app-1")
+	output, executeError := runApplicationCommand(t, mockClient, "deployments", testApplicationID)
 	if executeError != nil {
 		t.Fatalf("deployments error = %v", executeError)
 	}
-	if mockClient.deploymentsAppID != "app-1" {
-		t.Errorf("application id = %q, want app-1", mockClient.deploymentsAppID)
+	if mockClient.deploymentsAppID != testApplicationID {
+		t.Errorf("application id = %q, want %s", mockClient.deploymentsAppID, testApplicationID)
 	}
 	if !strings.Contains(output, "\"cluster_id\": \"c1\"") {
 		t.Errorf("output is not indented JSON: %q", output)
@@ -137,7 +143,7 @@ func TestApplicationSubresourceRendersJSON(t *testing.T) {
 
 func TestApplicationSubresourceRendersYAML(t *testing.T) {
 	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"ready":true}`)}
-	output, executeError := runApplicationCommand(t, mockClient, "deployments", "app-1", "-o", "yaml")
+	output, executeError := runApplicationCommand(t, mockClient, "deployments", testApplicationID, "-o", "yaml")
 	if executeError != nil {
 		t.Fatalf("deployments error = %v", executeError)
 	}
@@ -148,7 +154,7 @@ func TestApplicationSubresourceRendersYAML(t *testing.T) {
 
 func TestApplicationDeployRequiresCluster(t *testing.T) {
 	mockClient := &applicationResourceMock{}
-	_, executeError := runApplicationCommand(t, mockClient, "deploy", "app-1")
+	_, executeError := runApplicationCommand(t, mockClient, "deploy", testApplicationID)
 	if executeError == nil {
 		t.Fatal("expected missing --cluster to fail")
 	}
@@ -163,7 +169,7 @@ func TestApplicationDeployRequiresCluster(t *testing.T) {
 func TestApplicationDeployMapsRequest(t *testing.T) {
 	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"status":"queued"}`)}
 	_, executeError := runApplicationCommand(t, mockClient,
-		"deploy", "app-1",
+		"deploy", testApplicationID,
 		"--cluster", "cluster-1",
 		"--namespace", "prod",
 		"--mode", "high_availability",
@@ -187,7 +193,7 @@ func TestApplicationDeployMapsRequest(t *testing.T) {
 
 func TestApplicationDeployRejectsInvalidMode(t *testing.T) {
 	mockClient := &applicationResourceMock{}
-	_, executeError := runApplicationCommand(t, mockClient, "deploy", "app-1", "--cluster", "c1", "--mode", "turbo")
+	_, executeError := runApplicationCommand(t, mockClient, "deploy", testApplicationID, "--cluster", "c1", "--mode", "turbo")
 	if exitCodeFor(executeError) != exitUsage {
 		t.Errorf("exit code = %d, want %d: %v", exitCodeFor(executeError), exitUsage, executeError)
 	}
@@ -198,7 +204,7 @@ func TestApplicationDeployRejectsInvalidMode(t *testing.T) {
 
 func TestApplicationDemoDeployOnlySendsSetFlags(t *testing.T) {
 	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"workspace_id":"w1"}`)}
-	_, executeError := runApplicationCommand(t, mockClient, "demo", "deploy", "app-1", "--branch", "feature/x")
+	_, executeError := runApplicationCommand(t, mockClient, "demo", "deploy", testApplicationID, "--branch", "feature/x")
 	if executeError != nil {
 		t.Fatalf("demo deploy error = %v", executeError)
 	}
@@ -221,7 +227,7 @@ func TestApplicationFilesReadsLocalFile(t *testing.T) {
 	}
 	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"committed":true}`)}
 	_, executeError := runApplicationCommand(t, mockClient,
-		"files", "app-1",
+		"files", testApplicationID,
 		"--file", "Dockerfile="+localPath,
 		"--delete", "old/path.yaml",
 		"--message", "Update image",
@@ -247,7 +253,7 @@ func TestApplicationFilesReadsLocalFile(t *testing.T) {
 func TestApplicationFilesMissingLocalFile(t *testing.T) {
 	mockClient := &applicationResourceMock{}
 	_, executeError := runApplicationCommand(t, mockClient,
-		"files", "app-1",
+		"files", testApplicationID,
 		"--file", "Dockerfile="+filepath.Join(t.TempDir(), "missing"),
 	)
 	if exitCodeFor(executeError) != exitNotFound {
@@ -260,7 +266,7 @@ func TestApplicationFilesMissingLocalFile(t *testing.T) {
 
 func TestApplicationFilesRequiresChange(t *testing.T) {
 	mockClient := &applicationResourceMock{}
-	_, executeError := runApplicationCommand(t, mockClient, "files", "app-1")
+	_, executeError := runApplicationCommand(t, mockClient, "files", testApplicationID)
 	if exitCodeFor(executeError) != exitUsage {
 		t.Errorf("exit code = %d, want %d: %v", exitCodeFor(executeError), exitUsage, executeError)
 	}
@@ -268,7 +274,7 @@ func TestApplicationFilesRequiresChange(t *testing.T) {
 
 func TestApplicationWorkflowRunJobsParsesRunID(t *testing.T) {
 	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"jobs":[]}`)}
-	_, executeError := runApplicationCommand(t, mockClient, "workflow-run-jobs", "app-1", "12345")
+	_, executeError := runApplicationCommand(t, mockClient, "workflow-run-jobs", testApplicationID, "12345")
 	if executeError != nil {
 		t.Fatalf("workflow-run-jobs error = %v", executeError)
 	}
@@ -279,7 +285,7 @@ func TestApplicationWorkflowRunJobsParsesRunID(t *testing.T) {
 
 func TestApplicationWorkflowRunJobsRejectsNonNumericRunID(t *testing.T) {
 	mockClient := &applicationResourceMock{}
-	_, executeError := runApplicationCommand(t, mockClient, "workflow-run-jobs", "app-1", "not-a-number")
+	_, executeError := runApplicationCommand(t, mockClient, "workflow-run-jobs", testApplicationID, "not-a-number")
 	if exitCodeFor(executeError) != exitUsage {
 		t.Errorf("exit code = %d, want %d: %v", exitCodeFor(executeError), exitUsage, executeError)
 	}
@@ -287,7 +293,7 @@ func TestApplicationWorkflowRunJobsRejectsNonNumericRunID(t *testing.T) {
 
 func TestApplicationRejectsInvalidOutputBeforeRequest(t *testing.T) {
 	mockClient := &applicationResourceMock{fail: errors.New("should not be called")}
-	_, executeError := runApplicationCommand(t, mockClient, "deployments", "app-1", "-o", "xml")
+	_, executeError := runApplicationCommand(t, mockClient, "deployments", testApplicationID, "-o", "xml")
 	if executeError == nil {
 		t.Fatal("expected invalid output format to fail")
 	}
@@ -298,7 +304,7 @@ func TestApplicationRejectsInvalidOutputBeforeRequest(t *testing.T) {
 
 func TestApplicationDelete_DeclineDoesNotDelete(t *testing.T) {
 	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"success":true}`)}
-	_, executeError := runApplicationCommandWithInput(t, mockClient, "n\n", "delete", "app-1")
+	_, executeError := runApplicationCommandWithInput(t, mockClient, "n\n", "delete", testApplicationID)
 	if !errors.Is(executeError, errCancelled) {
 		t.Fatalf("expected errCancelled on decline, got %v", executeError)
 	}
@@ -312,7 +318,7 @@ func TestApplicationDelete_DeclineDoesNotDelete(t *testing.T) {
 
 func TestApplicationDelete_YesFlagProceeds(t *testing.T) {
 	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"success":true}`)}
-	_, executeError := runApplicationCommandWithInput(t, mockClient, "", "delete", "app-1", "--yes")
+	_, executeError := runApplicationCommandWithInput(t, mockClient, "", "delete", testApplicationID, "--yes")
 	if executeError != nil {
 		t.Fatalf("expected success with --yes, got %v", executeError)
 	}
@@ -323,7 +329,7 @@ func TestApplicationDelete_YesFlagProceeds(t *testing.T) {
 
 func TestApplicationDelete_PipedYesProceeds(t *testing.T) {
 	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"success":true}`)}
-	_, executeError := runApplicationCommandWithInput(t, mockClient, "y\n", "delete", "app-1")
+	_, executeError := runApplicationCommandWithInput(t, mockClient, "y\n", "delete", testApplicationID)
 	if executeError != nil {
 		t.Fatalf("expected success with piped y, got %v", executeError)
 	}

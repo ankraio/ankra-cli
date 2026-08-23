@@ -44,7 +44,7 @@ func (mock *applicationAIConfigMock) GetApplicationPublishedAddon(requestContext
 
 func TestApplicationAIConfigSetRequiresValidJSONFile(t *testing.T) {
 	mock := &applicationAIConfigMock{}
-	if _, executeError := runApplicationCommand(t, mock, "ai-config", "set", "app-1"); executeError == nil {
+	if _, executeError := runApplicationCommand(t, mock, "ai-config", "set", testApplicationID); executeError == nil {
 		t.Fatal("expected an error without --file")
 	}
 	badJSONPath := filepath.Join(t.TempDir(), "lanes.json")
@@ -52,7 +52,7 @@ func TestApplicationAIConfigSetRequiresValidJSONFile(t *testing.T) {
 		t.Fatal(writeError)
 	}
 	if _, executeError := runApplicationCommand(t, mock,
-		"ai-config", "set", "app-1", "--file", badJSONPath); executeError == nil {
+		"ai-config", "set", testApplicationID, "--file", badJSONPath); executeError == nil {
 		t.Fatal("expected invalid JSON to be refused")
 	}
 	if mock.sentConfiguration != nil {
@@ -68,7 +68,7 @@ func TestApplicationAIConfigSetSendsConfiguration(t *testing.T) {
 		t.Fatal(writeError)
 	}
 	if _, executeError := runApplicationCommand(t, mock,
-		"ai-config", "set", "app-1", "--file", configurationPath); executeError != nil {
+		"ai-config", "set", testApplicationID, "--file", configurationPath); executeError != nil {
 		t.Fatalf("ai-config set failed: %v", executeError)
 	}
 	if string(mock.sentConfiguration) != configuration {
@@ -79,14 +79,14 @@ func TestApplicationAIConfigSetSendsConfiguration(t *testing.T) {
 func TestApplicationAIConfigClearConfirmation(t *testing.T) {
 	mock := &applicationAIConfigMock{}
 	if _, executeError := runApplicationCommandWithInput(t, mock, "n\n",
-		"ai-config", "clear", "app-1"); executeError == nil {
+		"ai-config", "clear", testApplicationID); executeError == nil {
 		t.Fatal("expected the declined confirmation to error")
 	}
 	if mock.resetCalls != 0 {
 		t.Fatalf("expected no reset call on decline, got %d", mock.resetCalls)
 	}
 	if _, executeError := runApplicationCommand(t, mock,
-		"ai-config", "clear", "app-1", "--yes"); executeError != nil {
+		"ai-config", "clear", testApplicationID, "--yes"); executeError != nil {
 		t.Fatalf("ai-config clear --yes failed: %v", executeError)
 	}
 	if mock.resetCalls != 1 {
@@ -96,7 +96,7 @@ func TestApplicationAIConfigClearConfirmation(t *testing.T) {
 
 func TestApplicationPublishAddonMapsFlags(t *testing.T) {
 	mock := &applicationAIConfigMock{}
-	if _, executeError := runApplicationCommand(t, mock, "publish-addon", "app-1",
+	if _, executeError := runApplicationCommand(t, mock, "publish-addon", testApplicationID,
 		"--version", "1.2.0", "--display-name", "Website",
 		"--category", "web", "--changelog", "TLS defaults"); executeError != nil {
 		t.Fatalf("publish-addon failed: %v", executeError)
@@ -113,7 +113,7 @@ func TestApplicationPublishAddonMapsFlags(t *testing.T) {
 
 func TestApplicationPublishedAddonReads(t *testing.T) {
 	mock := &applicationAIConfigMock{}
-	output, executeError := runApplicationCommand(t, mock, "published-addon", "app-1")
+	output, executeError := runApplicationCommand(t, mock, "published-addon", testApplicationID)
 	if executeError != nil {
 		t.Fatalf("published-addon failed: %v", executeError)
 	}
