@@ -69,21 +69,24 @@ func TestRunOrgAIEnvironmentGet_NamesTheFallbackWhenNoPreviewDomainIsSet(t *test
 	}
 }
 
-// The silent state this lane exists to end: a preview domain with neither a
-// wildcard secret nor an issuer serves plain http (PLA-773).
-func TestRunOrgAIEnvironmentGet_WarnsWhenPreviewsWouldBePlainHTTP(t *testing.T) {
+// The silent state this lane exists to end. Whether previews really land on
+// plain http depends on what the staging cluster carries, so the verdict is
+// the backend's and this command only has to surface it (PLA-773).
+func TestRunOrgAIEnvironmentGet_SurfacesTheBackendsPlainHTTPWarning(t *testing.T) {
 	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
-		DemoBaseDomain: "previews.smartoptics.dev"}}
+		DemoBaseDomain: "previews.smartoptics.dev",
+		PreviewTLSWarning: "Demos on previews.smartoptics.dev will be served over plain http: " +
+			"the staging cluster carries no ACME HTTP-01 ClusterIssuer to request a certificate from."}}
 	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
 	if executeError != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
 	}
 	if !strings.Contains(output, "plain http") {
-		t.Errorf("a preview domain with no TLS story must say so, got %s", output)
+		t.Errorf("the warning must reach the operator, got %s", output)
 	}
 }
 
-func TestRunOrgAIEnvironmentGet_StaysQuietOnceAnIssuerIsNamed(t *testing.T) {
+func TestRunOrgAIEnvironmentGet_StaysQuietWhenTheBackendReportsNoProblem(t *testing.T) {
 	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
 		DemoBaseDomain: "previews.smartoptics.dev", DemoCertIssuerName: "letsencrypt-prod"}}
 	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
@@ -91,10 +94,27 @@ func TestRunOrgAIEnvironmentGet_StaysQuietOnceAnIssuerIsNamed(t *testing.T) {
 		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
 	}
 	if strings.Contains(output, "plain http") {
-		t.Errorf("a named issuer answers the TLS question, got %s", output)
+		t.Errorf("no warning from the backend means nothing to say, got %s", output)
 	}
 	if !strings.Contains(output, "letsencrypt-prod") {
 		t.Errorf("the stored issuer must be shown, got %s", output)
+	}
+}
+
+// A set that leaves previews on plain http must say so in its own output
+// rather than reporting success and nothing else.
+func TestRunOrgAIEnvironmentSet_ReportsThePlainHTTPWarningOnTheWrite(t *testing.T) {
+	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
+		DemoBaseDomain:    "previews.smartoptics.dev",
+		PreviewTLSWarning: "Demos on previews.smartoptics.dev will be served over plain http.",
+	}}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "set",
+		"--demo-base-domain", "previews.smartoptics.dev")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "plain http") {
+		t.Errorf("the write must not succeed silently, got %s", output)
 	}
 }
 

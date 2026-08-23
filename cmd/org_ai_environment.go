@@ -43,16 +43,19 @@ If you only want demos on your own domain, this command is the one you want.
 
 TLS ON YOUR OWN PREVIEW DOMAIN
 
-With a demo base domain set, Ankra will not order a certificate unless you say
-how. Give it one of:
+Demos on your own base domain request a per-preview certificate from the
+staging cluster's cert-manager issuer, the same way demos on an Ankra subzone
+do. Each demo hostname is concrete when the ingress is written, so an HTTP-01
+challenge answers for it; no wildcard is involved. Two flags change that:
 
-  --demo-tls-secret     An existing secret on the staging cluster holding a
-                        wildcard certificate for the preview domain.
-  --demo-cert-issuer    A cert-manager ClusterIssuer. Ankra annotates each demo
-                        ingress with it, so cert-manager issues a per-preview
-                        certificate. Use this when you hold no wildcard.
+  --demo-tls-secret     A secret already holding a certificate for the preview
+                        domain. Ankra serves it and requests nothing.
+  --demo-cert-issuer    A different cert-manager ClusterIssuer to ask, for a
+                        cluster whose issuer is not the one Ankra's networking
+                        stack installs.
 
-With neither, previews are served over plain http.
+A cluster carrying no ACME HTTP-01 issuer cannot be asked for a certificate,
+so its previews stay on plain http. 'get' says so when that is the case.
 
 Reading requires organisation membership; changing it requires organisation
 admin.`,
@@ -94,6 +97,9 @@ flag with an empty value to clear that field:
 --demo-cert-issuer only applies alongside a demo base domain: on the Ankra
 subzone Ankra picks the issuer itself, from the networking stack it can
 verify. Naming one without a base domain is refused rather than stored.
+
+A write that leaves previews on plain http reports it in the output rather
+than succeeding silently.
 
 Requires organisation admin.`,
 	Args: cobra.NoArgs,
@@ -139,9 +145,10 @@ Requires organisation admin.`,
 }
 
 // renderOrganisationPreviewSettings prints the settings, naming what an empty
-// field falls back to. The TLS line is the one worth spelling out: a preview
-// domain with neither a secret nor an issuer serves plain http, which is the
-// state that used to be invisible until someone opened a preview.
+// field falls back to. The plain-http verdict is the backend's rather than
+// this command's: whether a certificate can be requested depends on what the
+// staging cluster carries, and that state used to be invisible until someone
+// opened a preview.
 func renderOrganisationPreviewSettings(cmd *cobra.Command,
 	settings *client.OrganisationPreviewSettings, format outputFormat) error {
 	switch format {
@@ -165,11 +172,8 @@ func renderOrganisationPreviewSettings(cmd *cobra.Command,
 	_, _ = fmt.Fprintf(out, "Ingress class:     %s\n", orEmptyDefault(settings.DemoIngressClassName))
 	_, _ = fmt.Fprintf(out, "TLS secret:        %s\n", orEmptyDefault(settings.DemoTLSSecretName))
 	_, _ = fmt.Fprintf(out, "Certificate issuer:%s\n", " "+orEmptyDefault(settings.DemoCertIssuerName))
-	if settings.DemoTLSSecretName == "" && settings.DemoCertIssuerName == "" {
-		_, _ = fmt.Fprintln(out,
-			"\nPreviews on this domain are served over plain http. Set --demo-tls-secret to a\n"+
-				"wildcard certificate, or --demo-cert-issuer to a cert-manager ClusterIssuer for\n"+
-				"per-preview certificates.")
+	if settings.PreviewTLSWarning != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", settings.PreviewTLSWarning)
 	}
 	return nil
 }

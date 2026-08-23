@@ -20,6 +20,12 @@ type OrganisationPreviewSettings struct {
 	DemoIngressClassName string `json:"demo_ingress_class_name"`
 	DemoTLSSecretName    string `json:"demo_tls_secret_name"`
 	DemoCertIssuerName   string `json:"demo_cert_issuer_name"`
+
+	// PreviewTLSWarning is the backend's own verdict on whether these
+	// settings publish demos over plain http. It depends on what the
+	// staging cluster carries, so it cannot be worked out from the fields
+	// above alone. Empty when previews have a certificate story.
+	PreviewTLSWarning string `json:"demo_preview_tls_warning"`
 }
 
 type organisationPreviewSettingsBody struct {
@@ -27,6 +33,7 @@ type organisationPreviewSettingsBody struct {
 	DemoIngressClassName *string `json:"demo_ingress_class_name"`
 	DemoTLSSecretName    *string `json:"demo_tls_secret_name"`
 	DemoCertIssuerName   *string `json:"demo_cert_issuer_name"`
+	PreviewTLSWarning    *string `json:"demo_preview_tls_warning"`
 }
 
 // GetOrganisationPreviewSettings reads the organisation's preview settings.
@@ -80,6 +87,9 @@ func decodeOrganisationPreviewSettings(body []byte) (*OrganisationPreviewSetting
 	}
 	if decoded.DemoCertIssuerName != nil {
 		settings.DemoCertIssuerName = *decoded.DemoCertIssuerName
+	}
+	if decoded.PreviewTLSWarning != nil {
+		settings.PreviewTLSWarning = *decoded.PreviewTLSWarning
 	}
 	return &settings, nil
 }
