@@ -41,6 +41,27 @@ they are easy to confuse, so:
 
 If you only want demos on your own domain, this command is the one you want.
 
+PUBLISHING DNS FOR PREVIEW HOSTS IS YOURS
+
+Ankra writes DNS only inside its own subzones, and a demo on your preview
+domain is served at <namespace>.<that domain> - at the apex of a zone Ankra
+does not write in. So nothing here creates a record for the host it just
+generated: your own external-dns has to, publishing from the demo's Ingress.
+
+That needs the ingress controller's Service to carry a real EXTERNAL-IP.
+external-dns only publishes for an Ingress with a status address, so a
+LoadBalancer stuck on <none> publishes nothing, silently, however healthy
+external-dns itself looks.
+
+It gates TLS as well as reachability: an HTTP-01 challenge is answered over
+the preview host, so no certificate is issued until that host resolves
+publicly. A demo can be deployed and routable at the ingress IP while its
+https URL does not work at all.
+
+None of this applies with no preview domain set - demos then hang off the
+staging cluster's own Ankra subzone, where Ankra owns the zone and writes the
+record itself.
+
 TLS ON YOUR OWN PREVIEW DOMAIN
 
 Demos on your own base domain request a per-preview certificate from the
