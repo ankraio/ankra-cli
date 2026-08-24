@@ -812,6 +812,18 @@ func (m baseMock) RemoveClusterCustomDNSZone(clusterID string, zone string) (str
 	return "", errors.New("not implemented")
 }
 
+func (m baseMock) ListOrganisationCustomDNSZones() ([]client.OrganisationCustomDNSZone, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddOrganisationCustomDNSZone(zone string, credentialName string) (*client.OrganisationCustomDNSZone, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveOrganisationCustomDNSZone(zone string) (string, error) {
+	return "", errors.New("not implemented")
+}
+
 func (m baseMock) ListDNSCredentials() ([]client.DNSCredentialSummary, error) {
 	return nil, errors.New("not implemented")
 }
