@@ -4,6 +4,23 @@
 
 ### Added
 
+- **`ankra cluster custom-dns-zones` serves your own zones from a managed
+  external-dns.** The external-dns Ankra provisions publishes only under the
+  cluster's generated subdomain - its credential is scoped to that zone by the
+  DNS provider - so ingress hostnames on your own zones were dropped silently
+  and the answer was a hand-rolled second external-dns maintained outside the
+  platform. Now `ankra org dns credentials create` stores your webhook
+  credential (into the platform's secret store; no read surface returns it,
+  because the URL embeds the token), and `ankra cluster custom-dns-zones
+  add <cluster> --zone <zone> --credential <name>` has Ankra render and
+  reconcile one isolated controller for that zone, pinned to exactly it with
+  its own record ownership so it can never fight Ankra's controller, yours, or
+  another cluster's. `list` shows what a cluster serves, `remove` withdraws a
+  zone and tears down only the controller Ankra rendered - the zone's records
+  are yours and are left untouched. Re-creating a credential under the same
+  name re-points every binding at once, which is how a rotated token rolls
+  out. (PLA-788)
+
 - **`ankra credentials repositories <id|name>` says which repositories a
   GitHub credential can actually reach.** `credentials list` prints a REPOS
   count and nothing anywhere broke it down, so when the count disagreed with
