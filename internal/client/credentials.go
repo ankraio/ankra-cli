@@ -71,6 +71,43 @@ type DeleteCredentialResult struct {
 	Message string `json:"message"`
 }
 
+// CredentialRepositorySubject is the credential the coverage answer is about,
+// echoed back so a rendered report names what it inspected.
+type CredentialRepositorySubject struct {
+	ID             string  `json:"id"`
+	Name           string  `json:"name"`
+	Provider       string  `json:"provider"`
+	State          string  `json:"state"`
+	Available      bool    `json:"available"`
+	AccountLogin   *string `json:"account_login,omitempty"`
+	AccountType    *string `json:"account_type,omitempty"`
+	InstallationID *int64  `json:"installation_id,omitempty"`
+	AppBacked      bool    `json:"app_backed"`
+	LastSyncedAt   *string `json:"last_synced_at,omitempty"`
+	Syncing        bool    `json:"syncing"`
+}
+
+// CredentialRepositoryCoverage answers which repositories a credential can
+// actually reach against the ones Ankra needs from it.
+//
+// AccessibleRepositories is a pointer on purpose: the server sends null, not
+// an empty list, when the listing could not be read. The two mean opposite
+// things - "this credential reaches nothing" versus "we could not find out" -
+// and the whole point of the endpoint is that the second was previously
+// indistinguishable from a healthy credential (PLA-786).
+type CredentialRepositoryCoverage struct {
+	Credential                     CredentialRepositorySubject `json:"credential"`
+	Coverage                       string                      `json:"coverage"`
+	CoverageMessage                string                      `json:"coverage_message"`
+	AccessibleRepositories         *[]string                   `json:"accessible_repositories"`
+	AccessibleRepositoriesComplete bool                        `json:"accessible_repositories_complete"`
+	AccessibleRepositoriesError    *string                     `json:"accessible_repositories_error"`
+	RequiredRepositories           []string                    `json:"required_repositories"`
+	RequiredRepositoriesComplete   bool                        `json:"required_repositories_complete"`
+	UnreachableRepositories        []string                    `json:"unreachable_repositories"`
+	UnverifiedRepositories         []string                    `json:"unverified_repositories"`
+}
+
 func (c *Client) ListCredentials(provider *string) ([]Credential, error) {
 	url := c.BaseURL + "/api/v1/org/credentials"
 	if provider != nil && *provider != "" {
@@ -90,6 +127,20 @@ func (c *Client) GetCredential(credentialID string) (*CredentialDetail, error) {
 		return nil, err
 	}
 	return &cred, nil
+}
+
+// GetCredentialRepositories reads the credential's live repository coverage.
+// The route is separate from the credential detail because that one is gated
+// on credentials.reveal (it decrypts Vault material) while this names no
+// secret and needs only credentials.read.
+func (c *Client) GetCredentialRepositories(credentialID string) (*CredentialRepositoryCoverage, error) {
+	url := fmt.Sprintf("%s/api/v1/org/credentials/%s/repositories",
+		c.BaseURL, neturl.PathEscape(credentialID))
+	var coverage CredentialRepositoryCoverage
+	if err := c.getJSON(url, &coverage); err != nil {
+		return nil, err
+	}
+	return &coverage, nil
 }
 
 func (c *Client) ValidateCredentialName(name string) (*CredentialValidationResult, error) {

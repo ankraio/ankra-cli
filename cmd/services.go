@@ -221,6 +221,7 @@ type APIClient interface {
 	ValidateCredentialName(name string) (*client.CredentialValidationResult, error)
 	DeleteCredential(ctx context.Context, credentialID, organisationID string) (*client.DeleteCredentialResult, error)
 	GetCredential(credentialID string) (*client.CredentialDetail, error)
+	GetCredentialRepositories(credentialID string) (*client.CredentialRepositoryCoverage, error)
 
 	ListAPITokens() ([]client.APIToken, error)
 	CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error)
