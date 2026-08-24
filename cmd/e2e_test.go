@@ -800,6 +800,26 @@ func (m baseMock) GetCredentialRepositories(credentialID string) (*client.Creden
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListClusterCustomDNSZones(clusterID string) ([]client.CustomDNSZone, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddClusterCustomDNSZone(clusterID string, zone string, credentialName string) (*client.CustomDNSZone, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveClusterCustomDNSZone(clusterID string, zone string) (string, error) {
+	return "", errors.New("not implemented")
+}
+
+func (m baseMock) ListDNSCredentials() ([]client.DNSCredentialSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateDNSCredential(name string, webhookProviderURL string) (*client.CreateDNSCredentialResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListAPITokens() ([]client.APIToken, error) {
 	return nil, errors.New("not implemented")
 }
