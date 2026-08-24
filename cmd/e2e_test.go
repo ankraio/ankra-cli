@@ -796,6 +796,10 @@ func (m baseMock) GetCredential(credentialID string) (*client.CredentialDetail, 
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetCredentialRepositories(credentialID string) (*client.CredentialRepositoryCoverage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListAPITokens() ([]client.APIToken, error) {
 	return nil, errors.New("not implemented")
 }

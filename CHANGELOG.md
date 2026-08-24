@@ -1,5 +1,25 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra credentials repositories <id|name>` says which repositories a
+  GitHub credential can actually reach.** `credentials list` prints a REPOS
+  count and nothing anywhere broke it down, so when the count disagreed with
+  reality there was no way to see which repository was missing. That is
+  exactly the state a customer spent a day in: a credential reporting one
+  repository, up, available and freshly synced, while every call against the
+  repository it was bound to answered 404. The new command reads the
+  installation's repositories live from the provider, lists them against the
+  repositories Ankra needs from that credential, and names the ones required
+  but unreachable. Worth knowing why the old number misled: the REPOS count is
+  a cache refreshed by a sweep that only runs while the credential reports
+  healthy, so a credential that breaks stops refreshing the very rows that
+  would show it broke. This command does not read that cache. A listing that
+  could not be read is reported as exactly that, never as an installation that
+  reaches nothing. (PLA-786)
+
 ## v0.13.0-rc1 — 2026-08-24
 
 ### Added
