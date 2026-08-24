@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"ankra/internal/client"
 
@@ -238,11 +239,28 @@ var clusterNodeGroupListCmd = &cobra.Command{
 			return nil
 		}
 		for _, nodeGroup := range result.NodeGroups {
-			fmt.Printf("%-20s  type=%-8s  count=%d  labels=%d  taints=%d\n",
-				nodeGroup.Name, nodeGroup.InstanceType, nodeGroup.Count, len(nodeGroup.Labels), len(nodeGroup.Taints))
+			fmt.Printf("%-20s  type=%-8s  count=%d  labels=%d  taints=%d%s\n",
+				nodeGroup.Name, nodeGroup.InstanceType, nodeGroup.Count,
+				len(nodeGroup.Labels), len(nodeGroup.Taints), nodeGroupZoneSuffix(nodeGroup))
 		}
 		return nil
 	},
+}
+
+// nodeGroupZoneSuffix renders a node group's availability zones for a list
+// line, or "" when the group requested none - so the line is unchanged for
+// every provider without zone placement, and against a platform that does
+// not serve the field yet.
+//
+// The zones are named rather than counted. "az=eu-west-par-c" on a group
+// called general-par-a is the entire reason this is on the list line: a
+// count would report "1" for a group correctly pinned to one zone and "1"
+// for a group that silently collapsed into the wrong one.
+func nodeGroupZoneSuffix(nodeGroup client.NodeGroupInfo) string {
+	if len(nodeGroup.AvailabilityZones) == 0 {
+		return ""
+	}
+	return "  az=" + strings.Join(nodeGroup.AvailabilityZones, ",")
 }
 
 // maxNodeGroupUserDataBytes mirrors the platform's refusal cap (the

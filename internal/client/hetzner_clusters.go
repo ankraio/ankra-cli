@@ -227,6 +227,11 @@ type NodeGroupInfo struct {
 	AutoscalingEnabled bool              `json:"autoscaling_enabled"`
 	Labels             map[string]string `json:"labels"`
 	Taints             []NodeTaint       `json:"taints"`
+	// AvailabilityZones lists the zones the group's nodes were requested
+	// into, on OVH 3-AZ regions. Empty for every provider without zone
+	// placement, for a group created before it existed, and against a
+	// platform that predates the field.
+	AvailabilityZones []string `json:"availability_zones,omitempty"`
 }
 
 type NodeGroupListResult struct {

@@ -643,8 +643,9 @@ var ovhNodeGroupListCmd = &cobra.Command{
 			return nil
 		}
 		for _, ng := range result.NodeGroups {
-			fmt.Printf("%-20s  type=%-8s  count=%d  labels=%d  taints=%d\n",
-				ng.Name, ng.InstanceType, ng.Count, len(ng.Labels), len(ng.Taints))
+			fmt.Printf("%-20s  type=%-8s  count=%d  labels=%d  taints=%d%s\n",
+				ng.Name, ng.InstanceType, ng.Count, len(ng.Labels), len(ng.Taints),
+				nodeGroupZoneSuffix(ng))
 		}
 		return nil
 	},
