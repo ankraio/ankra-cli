@@ -53,6 +53,27 @@ func TestProviderCreateCommandsExposeTheFlagTrio(t *testing.T) {
 	}
 }
 
+// external-dns runs with a credential pinned to the generated subzone, so it
+// ignores ingress hosts on any other domain without saying so. The help text
+// is the only place a user learns that before they hit it, so pin the scope
+// sentence rather than let a reword drop it (PLA-788).
+func TestIncludeDNSHelpNamesItsScope(t *testing.T) {
+	for _, cmd := range []*cobra.Command{
+		upcloudCreateCmd, digitaloceanCreateCmd, hetznerCreateCmd,
+		ovhCreateCmd, proxmoxCreateCmd, morpheusCreateCmd,
+	} {
+		flag := cmd.Flags().Lookup("include-dns")
+		if flag == nil {
+			t.Fatalf("%s create must expose --include-dns", cmd.Name())
+		}
+		for _, want := range []string{"only manages the generated subdomain", "your own domains are ignored"} {
+			if !strings.Contains(flag.Usage, want) {
+				t.Errorf("--include-dns usage on %q is missing %q; it reads: %s", cmd.CommandPath(), want, flag.Usage)
+			}
+		}
+	}
+}
+
 func TestResolveCloudProviderNetworking(t *testing.T) {
 	tests := []struct {
 		name              string

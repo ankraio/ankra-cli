@@ -43,9 +43,16 @@ func isLikelyClusterID(value string) bool {
 // resolve and get a certificate without bringing your own domain. external-dns
 // itself ships inside the networking stack, so opting out of that stack leaves
 // the zone delegated but unused.
+//
+// The help text has to name the boundary. The cluster's DNS credential is
+// pinned to the delegated subzone, so external-dns manages hostnames under it
+// and silently ignores every other ingress host - it logs "All records are
+// already up to date" and publishes nothing. A user who reads "an ingress
+// hostname" as "any ingress hostname" only finds out when their own zone never
+// resolves and HTTP-01 issuance stalls behind it.
 func registerIncludeDNSFlag(cmds ...*cobra.Command) {
 	for _, cmd := range cmds {
-		cmd.Flags().Bool("include-dns", true, "Give the cluster its own subdomain under ankra.cc and install external-dns, so an ingress hostname gets its DNS record and TLS certificate with no manual setup (default on; pass --include-dns=false to skip)")
+		cmd.Flags().Bool("include-dns", true, "Give the cluster its own subdomain under ankra.cc and install external-dns, so an ingress hostname under that subdomain gets its DNS record and TLS certificate with no manual setup. Scope: external-dns only manages the generated subdomain - ingress hosts on your own domains are ignored, and their DNS records stay yours to create (default on; pass --include-dns=false to skip)")
 	}
 }
 
