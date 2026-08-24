@@ -41,6 +41,27 @@ they are easy to confuse, so:
 
 If you only want demos on your own domain, this command is the one you want.
 
+PUBLISHING THE RECORDS IS YOURS
+
+Ankra mints each demo a hostname under the preview domain, but it publishes
+DNS only inside the subzones it delegates, and the external-dns credential it
+provisions for a cluster is scoped to that cluster's own Ankra subzone and
+nothing else. Nothing in the platform can create a record on your domain, so
+a preview hostname resolves only because you published it - in practice a
+wildcard pointing at the staging cluster's ingress.
+
+Without it a demo still deploys and still reports ready, and its URL does not
+load. The certificate goes the same way: an HTTP-01 challenge is answered
+over the hostname being certified, so if the name does not resolve Let's
+Encrypt cannot reach the solver and none is ever issued. An unpublished
+preview domain costs you the URL and the TLS together.
+
+'get' relays the platform's verdict, which names the wildcard to create and
+the address to point it at when the domain answers nothing. A platform that
+reports no verdict at all is called out as that, rather than left to read as
+an all-clear. On the Ankra subzone none of this applies: the platform provisions the zone and the in-cluster external-dns
+publishes each preview record itself.
+
 TLS ON YOUR OWN PREVIEW DOMAIN
 
 Demos on your own base domain request a per-preview certificate from the
@@ -182,6 +203,20 @@ func renderOrganisationPreviewSettings(cmd *cobra.Command,
 	// Printed whatever the fields say. The backend decides when previews
 	// lack TLS, and tying the display to a field here would put this command
 	// back in the business of second-guessing that.
+	// DNS first: an unresolvable hostname is why the TLS one is usually
+	// there too, and reading the certificate complaint before the reason for
+	// it sends people to the wrong setting.
+	if settings.PreviewDNSWarning != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", settings.PreviewDNSWarning)
+	}
+	// Saying nothing here would be read as "your hostnames resolve", which is
+	// the one thing this platform has not told us.
+	if !settings.PreviewDNSReported && settings.DemoBaseDomain != "" {
+		_, _ = fmt.Fprintln(out,
+			"\nThis platform does not report whether preview hostnames resolve, so the silence above\n"+
+				"is not an all-clear. Check that a wildcard for this domain points at the staging\n"+
+				"cluster's ingress.")
+	}
 	if settings.PreviewTLSWarning != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", settings.PreviewTLSWarning)
 	}

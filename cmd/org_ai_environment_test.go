@@ -271,3 +271,93 @@ func TestPreviewSettingFlagsAreRegisteredForEveryWireField(t *testing.T) {
 		}
 	})
 }
+
+// The backend emits demo_preview_dns_warning and the portal renders it; the
+// CLI was dropping it on the floor, so 'get' stayed quiet about the one
+// thing that costs you the URL and the certificate together (PLA-773).
+func TestRunOrgAIEnvironmentGet_SurfacesTheBackendsDNSWarning(t *testing.T) {
+	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
+		DemoBaseDomain: "smartoptics.dev",
+		PreviewDNSWarning: "Demos on smartoptics.dev will be given hostnames that do not resolve: " +
+			"Ankra publishes DNS only inside its own subzones."}}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "do not resolve") {
+		t.Errorf("the DNS verdict must reach the operator, got %s", output)
+	}
+}
+
+// An unresolvable hostname is usually why the certificate one is there too,
+// so reading the TLS complaint first sends people to the wrong setting.
+func TestRunOrgAIEnvironmentGet_PutsTheDNSWarningBeforeTheTLSOne(t *testing.T) {
+	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
+		DemoBaseDomain:    "smartoptics.dev",
+		PreviewDNSWarning: "hostnames that do not resolve",
+		PreviewTLSWarning: "served over plain http",
+	}}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	dnsAt := strings.Index(output, "do not resolve")
+	tlsAt := strings.Index(output, "plain http")
+	if dnsAt < 0 || tlsAt < 0 {
+		t.Fatalf("both verdicts must be shown, got %s", output)
+	}
+	if dnsAt > tlsAt {
+		t.Errorf("the cause must be read before the symptom, got %s", output)
+	}
+}
+
+func TestRunOrgAIEnvironmentGet_YAMLCarriesTheDNSWarningKey(t *testing.T) {
+	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
+		DemoBaseDomain: "smartoptics.dev", PreviewDNSWarning: "hostnames that do not resolve"}}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get", "-o", "yaml")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "demo_preview_dns_warning:") {
+		t.Errorf("yaml must use the wire key, got %s", output)
+	}
+}
+
+// An absent field and an empty one both leave PreviewDNSWarning blank. Letting
+// the older platform's silence read as "your hostnames resolve" is the
+// absent-answer trap this lane has spent its length undoing.
+func TestRunOrgAIEnvironmentGet_SaysWhenThePlatformNeverReportedDNS(t *testing.T) {
+	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
+		DemoBaseDomain: "smartoptics.dev", PreviewDNSReported: false}}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "not an all-clear") {
+		t.Errorf("an unreported verdict must not pass for a good one, got %s", output)
+	}
+}
+
+func TestRunOrgAIEnvironmentGet_StaysQuietWhenThePlatformReportedNoDNSProblem(t *testing.T) {
+	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
+		DemoBaseDomain: "smartoptics.dev", PreviewDNSReported: true}}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if strings.Contains(output, "not an all-clear") {
+		t.Errorf("a platform that checked and found nothing has nothing to caveat, got %s", output)
+	}
+}
+
+// No preview domain, no preview hostnames, nothing to be unsure about.
+func TestRunOrgAIEnvironmentGet_DoesNotCaveatDNSWithNoPreviewDomain(t *testing.T) {
+	mock := &orgPreviewSettingsMock{}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if strings.Contains(output, "not an all-clear") {
+		t.Errorf("nothing is published, so there is nothing to caveat, got %s", output)
+	}
+}

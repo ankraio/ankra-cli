@@ -26,6 +26,25 @@ type OrganisationPreviewSettings struct {
 	// staging cluster carries, so it cannot be worked out from the fields
 	// above alone. Empty when previews have a certificate story.
 	PreviewTLSWarning string `json:"demo_preview_tls_warning" yaml:"demo_preview_tls_warning"`
+
+	// PreviewDNSWarning is the backend's verdict on whether the preview
+	// hostnames resolve at all. It is a separate answer from the TLS one and
+	// the more fundamental of the two: nothing in the platform publishes DNS
+	// on an organisation's own domain, so an unpublished preview domain costs
+	// the URL and the certificate together.
+	PreviewDNSWarning string `json:"demo_preview_dns_warning" yaml:"demo_preview_dns_warning"`
+
+	// PreviewDNSReported is false when the platform did not send the field at
+	// all, which is not the same as sending it empty. Both leave
+	// PreviewDNSWarning blank, and without this the two are indistinguishable
+	// - a platform too old to check would read exactly like one that checked
+	// and found nothing wrong. Letting an absent answer pass for a good one
+	// is the failure this whole lane has been undoing, so it is not repeated
+	// here for the sake of one bool.
+	//
+	// Kept out of the structured output: it describes the platform that
+	// answered, not the organisation's settings, and -o json mirrors the wire.
+	PreviewDNSReported bool `json:"-" yaml:"-"`
 }
 
 type organisationPreviewSettingsBody struct {
@@ -34,6 +53,15 @@ type organisationPreviewSettingsBody struct {
 	DemoTLSSecretName    *string `json:"demo_tls_secret_name"`
 	DemoCertIssuerName   *string `json:"demo_cert_issuer_name"`
 	PreviewTLSWarning    *string `json:"demo_preview_tls_warning"`
+
+	// Decoded as raw JSON, not *string, because those two answer different
+	// questions here. The platform sends this field without omitempty, so a
+	// healthy organisation gets an explicit null - and *string cannot tell an
+	// explicit null from a key that was never sent, since both decode to nil.
+	// Reading one as the other would have put the "not an all-clear" caveat
+	// in front of every healthy organisation. RawMessage is nil only when the
+	// key is genuinely absent.
+	PreviewDNSWarning json.RawMessage `json:"demo_preview_dns_warning"`
 }
 
 // GetOrganisationPreviewSettings reads the organisation's preview settings.
@@ -90,6 +118,14 @@ func decodeOrganisationPreviewSettings(body []byte) (*OrganisationPreviewSetting
 	}
 	if decoded.PreviewTLSWarning != nil {
 		settings.PreviewTLSWarning = *decoded.PreviewTLSWarning
+	}
+	if decoded.PreviewDNSWarning != nil {
+		settings.PreviewDNSReported = true
+		var warning *string
+		if unmarshalError := json.Unmarshal(decoded.PreviewDNSWarning, &warning); unmarshalError == nil &&
+			warning != nil {
+			settings.PreviewDNSWarning = *warning
+		}
 	}
 	return &settings, nil
 }
