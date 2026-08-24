@@ -1664,7 +1664,7 @@ func (m baseMock) DeprovisionProxmoxCluster(clusterID string) (*client.ProviderD
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopProxmoxCluster(clusterID string) (*client.ProviderStopClusterResponse, error) {
+func (m baseMock) StopProxmoxCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1804,7 +1804,7 @@ func (m baseMock) DeprovisionMorpheusCluster(clusterID string) (*client.Provider
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopMorpheusCluster(clusterID string) (*client.ProviderStopClusterResponse, error) {
+func (m baseMock) StopMorpheusCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 

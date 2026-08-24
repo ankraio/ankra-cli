@@ -99,8 +99,9 @@ var proxmoxStopCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
+		force, _ := cmd.Flags().GetBool("force")
 
-		result, stopError := apiClient.StopProxmoxCluster(clusterID)
+		result, stopError := apiClient.StopProxmoxCluster(clusterID, force)
 		if stopError != nil {
 			return fmt.Errorf("stopping cluster: %w", stopError)
 		}
@@ -385,6 +386,7 @@ func init() {
 	proxmoxCmd.AddCommand(proxmoxBridgesCmd)
 	proxmoxCmd.AddCommand(proxmoxTemplatesCmd)
 	proxmoxCmd.AddCommand(proxmoxSizesCmd)
+	proxmoxStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands (also stops a cluster that is still being created)")
 	proxmoxCmd.AddCommand(proxmoxStopCmd)
 	proxmoxCmd.AddCommand(proxmoxStartCmd)
 	proxmoxCmd.AddCommand(proxmoxWorkersCmd)

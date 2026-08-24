@@ -102,8 +102,9 @@ var morpheusStopCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
+		force, _ := cmd.Flags().GetBool("force")
 
-		result, stopError := apiClient.StopMorpheusCluster(clusterID)
+		result, stopError := apiClient.StopMorpheusCluster(clusterID, force)
 		if stopError != nil {
 			return fmt.Errorf("stopping cluster: %w", stopError)
 		}
@@ -397,6 +398,7 @@ func init() {
 	morpheusCmd.AddCommand(morpheusPlansCmd)
 	morpheusCmd.AddCommand(morpheusLayoutsCmd)
 	morpheusCmd.AddCommand(morpheusNetworksCmd)
+	morpheusStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands (also stops a cluster that is still being created)")
 	morpheusCmd.AddCommand(morpheusStopCmd)
 	morpheusCmd.AddCommand(morpheusStartCmd)
 	morpheusCmd.AddCommand(morpheusWorkersCmd)

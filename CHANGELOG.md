@@ -1,5 +1,19 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra cluster <provider> stop <id> --force` is now a true force stop on
+  every self-managed provider.** The platform side of `--force` grew teeth:
+  it cancels every in-flight operation on the cluster, blocks new operations
+  for 60 seconds so nothing freshly planned races the teardown, and lets the
+  stop itself run no matter what - including on a cluster still being
+  created. Proxmox VE and HPE Morpheus, the two providers whose `stop` had
+  no `--force` at all, now accept it like the rest, and every provider's
+  flag help spells out the full effect so you know an operation-cancelling
+  stop is what you are asking for.
+
 ## v0.13.0-rc2 — 2026-08-24
 
 ### Added

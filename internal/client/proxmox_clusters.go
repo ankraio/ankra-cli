@@ -90,8 +90,8 @@ func (c *Client) DeprovisionProxmoxCluster(clusterID string) (*ProviderDeprovisi
 	return c.deprovisionProviderCluster(proxmoxKind, clusterID, false)
 }
 
-func (c *Client) StopProxmoxCluster(clusterID string) (*ProviderStopClusterResponse, error) {
-	return c.stopProviderCluster(proxmoxKind, clusterID, false)
+func (c *Client) StopProxmoxCluster(clusterID string, force bool) (*ProviderStopClusterResponse, error) {
+	return c.stopProviderCluster(proxmoxKind, clusterID, force)
 }
 
 func (c *Client) StartProxmoxCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {
