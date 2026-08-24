@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"ankra/internal/client"
 )
 
 func TestReadNodeGroupUserDataFileEmptyPathMeansUnset(t *testing.T) {
@@ -47,5 +49,30 @@ func TestReadNodeGroupUserDataFileRefusesOversizedDocuments(t *testing.T) {
 	_, err := readNodeGroupUserDataFile(path)
 	if err == nil || !strings.Contains(err.Error(), "65535") {
 		t.Fatalf("error = %v, want the size-cap refusal naming the limit", err)
+	}
+}
+
+func TestNodeGroupZoneSuffixIsEmptyWithoutZonePlacement(t *testing.T) {
+	// Every provider but OVH, and an OVH group created before zone
+	// placement existed: the list line must read exactly as it always did.
+	if suffix := nodeGroupZoneSuffix(client.NodeGroupInfo{Name: "default"}); suffix != "" {
+		t.Fatalf("suffix = %q, want empty for a group with no zones", suffix)
+	}
+}
+
+func TestNodeGroupZoneSuffixNamesTheZones(t *testing.T) {
+	// The shape that matters: a group whose name promises one zone and
+	// whose nodes are all in another has to be readable off the list line.
+	drifted := client.NodeGroupInfo{Name: "general-par-a", AvailabilityZones: []string{"eu-west-par-c"}}
+	if suffix := nodeGroupZoneSuffix(drifted); suffix != "  az=eu-west-par-c" {
+		t.Fatalf("suffix = %q, want the single zone named", suffix)
+	}
+
+	spread := client.NodeGroupInfo{
+		Name:              "ts",
+		AvailabilityZones: []string{"eu-west-par-a", "eu-west-par-b", "eu-west-par-c"},
+	}
+	if suffix := nodeGroupZoneSuffix(spread); suffix != "  az=eu-west-par-a,eu-west-par-b,eu-west-par-c" {
+		t.Fatalf("suffix = %q, want every zone of a spread group", suffix)
 	}
 }

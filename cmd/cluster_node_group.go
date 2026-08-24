@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"ankra/internal/client"
 
@@ -238,11 +239,28 @@ var clusterNodeGroupListCmd = &cobra.Command{
 			return nil
 		}
 		for _, nodeGroup := range result.NodeGroups {
-			fmt.Printf("%-20s  type=%-8s  count=%d  labels=%d  taints=%d\n",
-				nodeGroup.Name, nodeGroup.InstanceType, nodeGroup.Count, len(nodeGroup.Labels), len(nodeGroup.Taints))
+			fmt.Printf("%-20s  type=%-8s  count=%d  labels=%d  taints=%d%s\n",
+				nodeGroup.Name, nodeGroup.InstanceType, nodeGroup.Count,
+				len(nodeGroup.Labels), len(nodeGroup.Taints), nodeGroupZoneSuffix(nodeGroup))
 		}
 		return nil
 	},
+}
+
+// nodeGroupZoneSuffix renders a node group's availability zones for a list
+// line, or "" when the group requested none - so the line is unchanged for
+// every provider without zone placement, and against a platform that does
+// not serve the field yet.
+//
+// The zones are named rather than counted. "az=eu-west-par-c" on a group
+// called general-par-a is the entire reason this is on the list line: a
+// count would report "1" for a group correctly pinned to one zone and "1"
+// for a group that silently collapsed into the wrong one.
+func nodeGroupZoneSuffix(nodeGroup client.NodeGroupInfo) string {
+	if len(nodeGroup.AvailabilityZones) == 0 {
+		return ""
+	}
+	return "  az=" + strings.Join(nodeGroup.AvailabilityZones, ",")
 }
 
 // maxNodeGroupUserDataBytes mirrors the platform's refusal cap (the
@@ -686,7 +704,7 @@ func init() {
 	clusterNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
 	clusterNodeGroupAddCmd.Flags().String("instance-type", "", "Server type / flavor / plan for nodes (required)")
 	clusterNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes")
-	clusterNodeGroupAddCmd.Flags().String("availability-zone", "", "Pin every node of the group to one availability zone, on OVH 3-AZ regions (e.g. eu-west-par-b). See 'ankra cluster ovh regions --with-zones'. Pin the group when it runs zonal storage: an OVH volume cannot attach from another zone")
+	clusterNodeGroupAddCmd.Flags().String("availability-zone", "", "Pin every node of the group to one availability zone, on OVH 3-AZ regions (e.g. eu-west-par-b). See 'ankra cluster ovh regions --with-zones'. Pin the group when it runs zonal storage: an OVH volume cannot attach from another zone. Omitted on a zone-spread cluster, each node takes the zone with the fewest instances cluster-wide, so a one-node group lands wherever the cluster is thinnest, not where its name suggests; on a cluster with no zone pool OVH chooses")
 	clusterNodeGroupAddCmd.Flags().String("user-data-file", "", "Path to a cloud-init user-data file for the group (OVH clusters only). Applied verbatim at first boot by every instance the group ever creates, replacements included; Ankra sends no cloud-init of its own, so the document is not merged with anything. Max 65535 bytes. Use for provision-time disk layouts, e.g. carving a partition for LUKS before growpart runs")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("name")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("instance-type")
