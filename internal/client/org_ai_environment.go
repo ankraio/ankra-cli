@@ -53,7 +53,15 @@ type organisationPreviewSettingsBody struct {
 	DemoTLSSecretName    *string `json:"demo_tls_secret_name"`
 	DemoCertIssuerName   *string `json:"demo_cert_issuer_name"`
 	PreviewTLSWarning    *string `json:"demo_preview_tls_warning"`
-	PreviewDNSWarning    *string `json:"demo_preview_dns_warning"`
+
+	// Decoded as raw JSON, not *string, because those two answer different
+	// questions here. The platform sends this field without omitempty, so a
+	// healthy organisation gets an explicit null - and *string cannot tell an
+	// explicit null from a key that was never sent, since both decode to nil.
+	// Reading one as the other would have put the "not an all-clear" caveat
+	// in front of every healthy organisation. RawMessage is nil only when the
+	// key is genuinely absent.
+	PreviewDNSWarning json.RawMessage `json:"demo_preview_dns_warning"`
 }
 
 // GetOrganisationPreviewSettings reads the organisation's preview settings.
@@ -113,7 +121,11 @@ func decodeOrganisationPreviewSettings(body []byte) (*OrganisationPreviewSetting
 	}
 	if decoded.PreviewDNSWarning != nil {
 		settings.PreviewDNSReported = true
-		settings.PreviewDNSWarning = *decoded.PreviewDNSWarning
+		var warning *string
+		if unmarshalError := json.Unmarshal(decoded.PreviewDNSWarning, &warning); unmarshalError == nil &&
+			warning != nil {
+			settings.PreviewDNSWarning = *warning
+		}
 	}
 	return &settings, nil
 }

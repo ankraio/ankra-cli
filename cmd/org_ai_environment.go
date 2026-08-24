@@ -56,9 +56,10 @@ over the hostname being certified, so if the name does not resolve Let's
 Encrypt cannot reach the solver and none is ever issued. An unpublished
 preview domain costs you the URL and the TLS together.
 
-'get' says so when the domain answers nothing, and names the wildcard to
-create and the address to point it at. On the Ankra subzone none of this
-applies: the platform provisions the zone and the in-cluster external-dns
+'get' relays the platform's verdict, which names the wildcard to create and
+the address to point it at when the domain answers nothing. A platform that
+reports no verdict at all is called out as that, rather than left to read as
+an all-clear. On the Ankra subzone none of this applies: the platform provisions the zone and the in-cluster external-dns
 publishes each preview record itself.
 
 TLS ON YOUR OWN PREVIEW DOMAIN
