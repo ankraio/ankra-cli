@@ -41,26 +41,25 @@ they are easy to confuse, so:
 
 If you only want demos on your own domain, this command is the one you want.
 
-PUBLISHING DNS FOR PREVIEW HOSTS IS YOURS
+PUBLISHING THE RECORDS IS YOURS
 
-Ankra writes DNS only inside its own subzones, and a demo on your preview
-domain is served at <namespace>.<that domain> - at the apex of a zone Ankra
-does not write in. So nothing here creates a record for the host it just
-generated: your own external-dns has to, publishing from the demo's Ingress.
+Ankra mints each demo a hostname under the preview domain, but it publishes
+DNS only inside the subzones it delegates, and the external-dns credential it
+provisions for a cluster is scoped to that cluster's own Ankra subzone and
+nothing else. Nothing in the platform can create a record on your domain, so
+a preview hostname resolves only because you published it - in practice a
+wildcard pointing at the staging cluster's ingress.
 
-That needs the ingress controller's Service to carry a real EXTERNAL-IP.
-external-dns only publishes for an Ingress with a status address, so a
-LoadBalancer stuck on <none> publishes nothing, silently, however healthy
-external-dns itself looks.
+Without it a demo still deploys and still reports ready, and its URL does not
+load. The certificate goes the same way: an HTTP-01 challenge is answered
+over the hostname being certified, so if the name does not resolve Let's
+Encrypt cannot reach the solver and none is ever issued. An unpublished
+preview domain costs you the URL and the TLS together.
 
-It gates TLS as well as reachability: an HTTP-01 challenge is answered over
-the preview host, so no certificate is issued until that host resolves
-publicly. A demo can be deployed and routable at the ingress IP while its
-https URL does not work at all.
-
-None of this applies with no preview domain set - demos then hang off the
-staging cluster's own Ankra subzone, where Ankra owns the zone and writes the
-record itself.
+'get' says so when the domain answers nothing, and names the wildcard to
+create and the address to point it at. On the Ankra subzone none of this
+applies: the platform provisions the zone and the in-cluster external-dns
+publishes each preview record itself.
 
 TLS ON YOUR OWN PREVIEW DOMAIN
 
