@@ -480,3 +480,137 @@ func TestUnionStringLists(t *testing.T) {
 		t.Errorf("union of empties = %v, want nil", merged)
 	}
 }
+
+// --- glob: key entries (PLA-798) ---
+
+// TestEncryptKeyGlobGrammarMirrorsThePlatform pins the prefix and the
+// rejection rules to the platform's encrypted_paths grammar
+// (clusterengine.EncryptedPathGlobPrefix / ParseEncryptedPathGlob in the
+// cluster repo's enginekit): the CLI cannot import that module, so the
+// literal and the four refusals are mirrored here and held by this test.
+func TestEncryptKeyGlobGrammarMirrorsThePlatform(t *testing.T) {
+	if encryptKeyGlobPrefix != "glob:" {
+		t.Fatalf("prefix drifted from the platform's: %q", encryptKeyGlobPrefix)
+	}
+	accepted := map[string][]string{
+		"glob:stringData.DB_*": {"DB_PASSWORD", "DB_"},
+		"glob:data.*_KEY":      {"API_KEY"},
+		"glob:*password*":      {"adminpassword", "password"},
+		"glob:cloud.*":         {"cloud.conf"},
+		"glob:.docker*":        {".dockerconfigjson"},
+		"glob:a+b(c)*":         {"a+b(c)d"},
+	}
+	rejectedKeys := map[string][]string{
+		"glob:stringData.DB_*": {"MYDB_PASSWORD", "db_password"},
+		"glob:cloud.*":         {"cloudXconf"},
+		"glob:.docker*":        {"dockerconfigjson"},
+		"glob:a+b(c)*":         {"aab(c)"},
+	}
+	for entry, keys := range accepted {
+		matcher, err := parseEncryptKeyGlob(entry)
+		if err != nil {
+			t.Fatalf("%s: %v", entry, err)
+		}
+		for _, key := range keys {
+			if !matcher.MatchString(key) {
+				t.Errorf("%s: key %q must match", entry, key)
+			}
+		}
+		for _, key := range rejectedKeys[entry] {
+			if matcher.MatchString(key) {
+				t.Errorf("%s: key %q must not match", entry, key)
+			}
+		}
+	}
+	rejected := map[string]string{
+		"glob:":                       "must be followed by a key-name pattern",
+		"glob:stringData.":            "names a section but no key-name pattern",
+		"glob:stringData.DB_PASSWORD": "contains no * wildcard",
+		"glob:*":                      "would match every key",
+		"glob:stringData.*":           "would match every key",
+		"glob:**":                     "would match every key",
+	}
+	for entry, reason := range rejected {
+		_, err := parseEncryptKeyGlob(entry)
+		if err == nil || !strings.Contains(err.Error(), reason) {
+			t.Errorf("%s: expected refusal mentioning %q, got %v", entry, reason, err)
+		}
+	}
+}
+
+func TestNormalizeEncryptKeyKeepsGlobEntriesVerbatim(t *testing.T) {
+	for _, rawKey := range []string{"glob:stringData.DB_*", "  glob:*Password  ", "glob:DB_*_KEY"} {
+		entry, err := normalizeEncryptKey(rawKey)
+		if err != nil {
+			t.Fatalf("normalizeEncryptKey(%q): %v", rawKey, err)
+		}
+		if entry != strings.TrimSpace(rawKey) {
+			t.Errorf("normalizeEncryptKey(%q) = %q, want the entry verbatim (prefix included, never split on dots)", rawKey, entry)
+		}
+	}
+	for _, rawKey := range []string{"glob:", "glob:stringData.DB_PASSWORD", "glob:*"} {
+		if entry, err := normalizeEncryptKey(rawKey); err == nil {
+			t.Errorf("normalizeEncryptKey(%q) accepted an invalid glob as %q", rawKey, entry)
+		}
+	}
+	// A literal that merely looks like a pattern is not one: the prefix is
+	// the opt-in, so "DB_*" stays an exact (and useless) key name.
+	if entry, err := normalizeEncryptKey("stringData.DB_*"); err != nil || entry != "DB_*" {
+		t.Errorf("literal with a star must stay a literal leaf key, got %q %v", entry, err)
+	}
+}
+
+func TestVerifyKeyEncryptedHonoursGlobEntries(t *testing.T) {
+	sealed := `apiVersion: v1
+kind: Secret
+stringData:
+  DB_PASSWORD: ENC[AES256_GCM,data:abc,iv:def,tag:ghi,type:str]
+  DB_USER: ENC[AES256_GCM,data:jkl,iv:mno,tag:pqr,type:str]
+  LOG_LEVEL: debug
+sops:
+  mac: ENC[AES256_GCM,data:mac]
+  encrypted_regex: ^(DB_.*)$
+`
+	t.Run("every glob-matched key sealed passes", func(t *testing.T) {
+		if err := verifyKeyEncrypted(sealed, "glob:stringData.DB_*"); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+	t.Run("glob matching no key fails", func(t *testing.T) {
+		err := verifyKeyEncrypted(sealed, "glob:stringData.REDIS_*")
+		if err == nil || !strings.Contains(err.Error(), "SOPS encrypted nothing") {
+			t.Errorf("expected the encrypted-nothing refusal, got %v", err)
+		}
+	})
+	t.Run("plaintext under a glob-matched key fails", func(t *testing.T) {
+		partiallySealed := strings.Replace(sealed, "DB_USER: ENC[AES256_GCM,data:jkl,iv:mno,tag:pqr,type:str]", "DB_USER: trinity", 1)
+		err := verifyKeyEncrypted(partiallySealed, "glob:stringData.DB_*")
+		if err == nil || !strings.Contains(err.Error(), "still plaintext") {
+			t.Errorf("expected the plaintext refusal, got %v", err)
+		}
+	})
+	t.Run("sops metadata keys never count", func(t *testing.T) {
+		if err := verifyKeyEncrypted(sealed, "glob:ma*"); err == nil {
+			t.Error("expected refusal: 'mac' only exists inside the sops metadata block")
+		}
+	})
+	t.Run("invalid glob is refused", func(t *testing.T) {
+		if err := verifyKeyEncrypted(sealed, "glob:*"); err == nil {
+			t.Error("expected refusal for a glob that would match every key")
+		}
+	})
+}
+
+func TestDescribeEncryptKeysRendersGlobEntries(t *testing.T) {
+	cases := map[string][]string{
+		`key "password"`:                                        {"password"},
+		`keys "password", "token"`:                              {"password", "token"},
+		`keys matching glob:stringData.DB_*`:                    {"glob:stringData.DB_*"},
+		`key "password" and keys matching glob:DB_*, glob:*Key`: {"password", "glob:DB_*", "glob:*Key"},
+	}
+	for expected, entries := range cases {
+		if actual := describeEncryptKeys(entries); actual != expected {
+			t.Errorf("describeEncryptKeys(%v) = %q, want %q", entries, actual, expected)
+		}
+	}
+}

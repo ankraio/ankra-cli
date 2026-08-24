@@ -619,3 +619,142 @@ type: Opaque
 		t.Error("expected an error for a Secret without data or stringData keys")
 	}
 }
+
+// --- glob: key entries (PLA-798) ---
+
+const globPlainSecretManifestYAML = `apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+  namespace: web
+type: Opaque
+stringData:
+  DB_PASSWORD: hunter2
+  DB_USER: trinity
+  LOG_LEVEL: debug
+`
+
+const globSealedSecretManifestYAML = `apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+  namespace: web
+type: Opaque
+stringData:
+  DB_PASSWORD: ENC[AES256_GCM,data:pwd,iv:abc,tag:def,type:str]
+  DB_USER: ENC[AES256_GCM,data:usr,iv:abc,tag:def,type:str]
+  LOG_LEVEL: debug
+sops:
+  mac: ENC[AES256_GCM,data:mac]
+  encrypted_regex: ^(DB_.*)$
+`
+
+// The glob entry travels to the platform verbatim and lands in
+// encrypted_paths verbatim - the platform's push lane is what re-expands it
+// into the SOPS selector on every re-render, so the CLI must never rewrite
+// it into a leaf key.
+func TestRunEncryptManifest_FileModeGlobEntryRecordedVerbatim(t *testing.T) {
+	clusterPath, manifestPath := writeEncryptFileModeFixture(t, globPlainSecretManifestYAML)
+
+	mock := &upgradeMock{encryptResult: globSealedSecretManifestYAML}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "my-secret",
+		"--key", "glob:stringData.DB_*",
+		"-f", clusterPath,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+
+	if len(mock.encryptCalls) != 1 {
+		t.Fatalf("expected exactly one EncryptYAML call, got %d", len(mock.encryptCalls))
+	}
+	if paths := mock.encryptCalls[0].EncryptedPaths; len(paths) != 1 || paths[0] != "glob:stringData.DB_*" {
+		t.Errorf("encrypted paths sent to the platform = %v, want the glob entry verbatim", paths)
+	}
+	writtenManifest, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read written manifest: %v", err)
+	}
+	if string(writtenManifest) != globSealedSecretManifestYAML {
+		t.Errorf("manifest file = %q, want the sealed content", writtenManifest)
+	}
+	writtenCluster, err := os.ReadFile(clusterPath)
+	if err != nil {
+		t.Fatalf("read written cluster file: %v", err)
+	}
+	assertContainsAll(t, string(writtenCluster), []string{"- glob:stringData.DB_*"})
+	if strings.Contains(string(writtenCluster), "- DB_*") {
+		t.Errorf("glob entry was rewritten into a leaf key:\n%s", writtenCluster)
+	}
+	assertContainsAll(t, out.String(), []string{"Note: glob:stringData.DB_* is recorded in encrypted_paths as written"})
+}
+
+// A glob that selects nothing has encrypted nothing: the CLI refuses to
+// write the file the platform returned, exactly as it does for a misspelled
+// exact key.
+func TestRunEncryptManifest_FileModeGlobMatchingNoKeyRefused(t *testing.T) {
+	clusterPath, manifestPath := writeEncryptFileModeFixture(t, globPlainSecretManifestYAML)
+
+	inertResult := strings.Replace(globPlainSecretManifestYAML, "  LOG_LEVEL: debug\n",
+		"  LOG_LEVEL: debug\nsops:\n  mac: ENC[AES256_GCM,data:mac]\n  encrypted_regex: ^(REDIS_.*)$\n", 1)
+	mock := &upgradeMock{encryptResult: inertResult}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "my-secret",
+		"--key", "glob:stringData.REDIS_*",
+		"-f", clusterPath,
+	})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "SOPS encrypted nothing") {
+		t.Fatalf("expected the encrypted-nothing refusal, got %v\noutput: %s", err, out.String())
+	}
+	writtenManifest, readErr := os.ReadFile(manifestPath)
+	if readErr != nil {
+		t.Fatalf("read manifest: %v", readErr)
+	}
+	if string(writtenManifest) != globPlainSecretManifestYAML {
+		t.Errorf("manifest file was rewritten with a document that only looks encrypted:\n%s", writtenManifest)
+	}
+	writtenCluster, readErr := os.ReadFile(clusterPath)
+	if readErr != nil {
+		t.Fatalf("read cluster file: %v", readErr)
+	}
+	if strings.Contains(string(writtenCluster), "encrypted_paths") {
+		t.Errorf("cluster file must stay untouched after a refusal:\n%s", writtenCluster)
+	}
+}
+
+func TestRunEncryptManifest_InvalidGlobRefusedBeforeAnyCall(t *testing.T) {
+	clusterPath, _ := writeEncryptFileModeFixture(t, globPlainSecretManifestYAML)
+	mock := &upgradeMock{encryptResult: globSealedSecretManifestYAML}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "my-secret",
+		"--key", "glob:stringData.DB_PASSWORD",
+		"-f", clusterPath,
+	})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "contains no * wildcard") {
+		t.Fatalf("expected the grammar refusal, got %v", err)
+	}
+	if len(mock.encryptCalls) != 0 {
+		t.Errorf("must not call EncryptYAML for an invalid glob, got %d calls", len(mock.encryptCalls))
+	}
+}

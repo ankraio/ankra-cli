@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,7 +22,80 @@ import (
 const (
 	sopsMetadataKey          = "sops"
 	sopsEncryptedValuePrefix = "ENC["
+
+	// encryptKeyGlobPrefix marks a --key value as a key-name glob rather than
+	// an exact key: "glob:stringData.DB_*" encrypts every key whose name
+	// starts with DB_, including keys added later. It mirrors the platform's
+	// encrypted_paths grammar (clusterengine.EncryptedPathGlobPrefix in the
+	// cluster repo's enginekit) byte-for-byte, so the entry the CLI records
+	// in encrypted_paths is the entry the platform's push lane re-expands on
+	// every re-render. Only "*" is a wildcard; an optional leading "data." or
+	// "stringData." section is accepted and stripped, as it is for exact
+	// keys. TestEncryptKeyGlobGrammarMirrorsThePlatform pins both.
+	encryptKeyGlobPrefix   = "glob:"
+	encryptKeyGlobWildcard = "*"
 )
+
+// encryptKeySectionPrefixes are the Secret sections a --key value may name
+// in front of the key; the platform strips the same two.
+var encryptKeySectionPrefixes = []string{"data.", "stringData."}
+
+// isEncryptKeyGlob reports whether an encrypted_paths entry uses the glob
+// form.
+func isEncryptKeyGlob(entry string) bool {
+	return strings.HasPrefix(entry, encryptKeyGlobPrefix)
+}
+
+// parseEncryptKeyGlob compiles a glob: entry into an anchored key-name
+// matcher, refusing the shapes the platform refuses: nothing after the
+// prefix, a section with no pattern, no wildcard (an exact key in disguise
+// - pass it without the prefix), and a pattern that is only wildcards (it
+// would encrypt every key, metadata.name and kind included).
+func parseEncryptKeyGlob(entry string) (*regexp.Regexp, error) {
+	body := strings.TrimPrefix(entry, encryptKeyGlobPrefix)
+	if body == "" {
+		return nil, fmt.Errorf("invalid --key %q: the %s prefix must be followed by a key-name pattern such as glob:stringData.DB_*", entry, encryptKeyGlobPrefix)
+	}
+	keyPattern := body
+	for _, sectionPrefix := range encryptKeySectionPrefixes {
+		if strings.HasPrefix(body, sectionPrefix) {
+			keyPattern = body[len(sectionPrefix):]
+			break
+		}
+	}
+	if keyPattern == "" {
+		return nil, fmt.Errorf("invalid --key %q: names a section but no key-name pattern; add the pattern after the section, such as glob:stringData.DB_*", entry)
+	}
+	if !strings.Contains(keyPattern, encryptKeyGlobWildcard) {
+		return nil, fmt.Errorf("invalid --key %q: contains no * wildcard; pass the exact key name without the %s prefix", entry, encryptKeyGlobPrefix)
+	}
+	if strings.Trim(keyPattern, encryptKeyGlobWildcard) == "" {
+		return nil, fmt.Errorf("invalid --key %q: would match every key in the document; keep at least one literal character, such as glob:stringData.DB_*", entry)
+	}
+	literalPieces := strings.Split(keyPattern, encryptKeyGlobWildcard)
+	quotedPieces := make([]string, 0, len(literalPieces))
+	for _, piece := range literalPieces {
+		quotedPieces = append(quotedPieces, regexp.QuoteMeta(piece))
+	}
+	matcher, compileErr := regexp.Compile("^" + strings.Join(quotedPieces, ".*") + "$")
+	if compileErr != nil {
+		return nil, fmt.Errorf("invalid --key %q: %w", entry, compileErr)
+	}
+	return matcher, nil
+}
+
+// encryptKeyMatcher returns the key-name predicate for one encrypted_paths
+// entry: the glob's pattern, or exact equality for a leaf key.
+func encryptKeyMatcher(entry string) (func(keyName string) bool, error) {
+	if !isEncryptKeyGlob(entry) {
+		return func(keyName string) bool { return keyName == entry }, nil
+	}
+	matcher, parseErr := parseEncryptKeyGlob(entry)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+	return matcher.MatchString, nil
+}
 
 var clusterSopsConfigCmd = &cobra.Command{
 	Use:   "sops-config",
@@ -75,6 +149,15 @@ normalised to its last segment. A key whose own name starts with a dot (such as
 literally. After encrypting, the CLI verifies every value is actually ENC[...]
 ciphertext and fails if any is not.
 
+--key glob:<pattern> encrypts every key whose name matches the pattern, now
+and on every later platform re-encrypt - including keys added afterwards.
+Only "*" is a wildcard (any run of characters); everything else is literal,
+and a leading "data." or "stringData." is accepted and ignored, exactly as for
+an exact key. The entry is recorded in encrypted_paths as written
+("glob:stringData.DB_*"), which is the form the platform re-expands into the
+SOPS encrypted_regex on every push. A pattern that matches no key fails, the
+same way a misspelled exact key does. Requires cluster#1867 on the platform.
+
 --all-data selects every key under data and stringData of a Kubernetes Secret
 manifest instead of naming keys individually; keys whose values are already
 encrypted are skipped. The manifest must be a Secret. --all-data and --key are
@@ -117,6 +200,9 @@ Examples:
   # Encrypt every data/stringData key of a Secret manifest
   ankra cluster encrypt manifest db-secret --all-data --cluster prod
 
+  # Encrypt every DB_* key, including ones added later
+  ankra cluster encrypt manifest db-secret --key 'glob:stringData.DB_*' --cluster prod
+
   # File mode
   ankra cluster encrypt manifest db-secret --key password -f cluster.yaml`,
 	Args: cobra.ExactArgs(1),
@@ -136,6 +222,13 @@ starts with a dot (such as ".dockerconfigjson") is kept literally. After
 encrypting, the CLI verifies every value is actually ENC[...] ciphertext and
 fails if any is not.
 
+--key glob:<pattern> encrypts every key whose name matches the pattern, now
+and on every later platform re-encrypt - including keys added afterwards.
+Only "*" is a wildcard; everything else is literal. The entry is recorded in
+encrypted_paths as written ("glob:*Password"). A pattern that matches no key
+fails, the same way a misspelled exact key does. Requires cluster#1867 on the
+platform.
+
 Two modes:
   Cluster mode (default): fetch the addon's values from a live cluster,
     encrypt the key, and push the result back via the partial-stack PATCH
@@ -154,6 +247,9 @@ Examples:
   # Encrypt several keys in one run
   ankra cluster encrypt addon --name grafana --key adminPassword --key smtpPassword
 
+  # Encrypt every *Password key, including ones added later
+  ankra cluster encrypt addon --name grafana --key 'glob:*Password' --cluster prod
+
   # File mode
   ankra cluster encrypt addon --name grafana --key adminPassword -f cluster.yaml`,
 	RunE: runEncryptAddon,
@@ -161,7 +257,7 @@ Examples:
 
 func init() {
 	clusterEncryptManifestCmd.Flags().StringVarP(&encryptClusterFile, "file", "f", "", "Path to a local cluster YAML (enables file mode)")
-	clusterEncryptManifestCmd.Flags().StringArrayVar(&encryptKeys, "key", nil, "YAML key name to encrypt (repeatable); dotted paths are normalised to the last segment, a leading-dot key like .dockerconfigjson is kept literally")
+	clusterEncryptManifestCmd.Flags().StringArrayVar(&encryptKeys, "key", nil, "YAML key name to encrypt (repeatable), or glob:<pattern> to encrypt every key whose name matches (only * is a wildcard, e.g. glob:stringData.DB_*); dotted paths are normalised to the last segment, a leading-dot key like .dockerconfigjson is kept literally")
 	clusterEncryptManifestCmd.Flags().BoolVar(&encryptAllData, "all-data", false, "Encrypt every key under data and stringData of a Secret manifest, skipping values that are already encrypted")
 	clusterEncryptManifestCmd.Flags().StringVar(&encryptClusterFlag, "cluster", "", "Target cluster (name or ID); defaults to the active selection (cluster mode)")
 	clusterEncryptManifestCmd.Flags().StringArrayVar(&encryptSetEntries, "set", nil, "Apply value edits in-memory before encrypting (same syntax as manifests upgrade --set, e.g. --set 'data.password=bmV3'); the plaintext value never reaches git (cluster mode only; repeatable)")
@@ -171,7 +267,7 @@ func init() {
 	clusterEncryptManifestCmd.MarkFlagsMutuallyExclusive("file", "set")
 
 	clusterEncryptAddonCmd.Flags().StringVarP(&encryptClusterFile, "file", "f", "", "Path to a local cluster YAML (enables file mode)")
-	clusterEncryptAddonCmd.Flags().StringArrayVar(&encryptKeys, "key", nil, "YAML key name to encrypt (required; repeatable); dotted paths are normalised to the last segment, a leading-dot key like .dockerconfigjson is kept literally")
+	clusterEncryptAddonCmd.Flags().StringArrayVar(&encryptKeys, "key", nil, "YAML key name to encrypt (required; repeatable), or glob:<pattern> to encrypt every key whose name matches (only * is a wildcard, e.g. glob:*Password); dotted paths are normalised to the last segment, a leading-dot key like .dockerconfigjson is kept literally")
 	clusterEncryptAddonCmd.Flags().StringVar(&encryptAddonName, "name", "", "Name of the addon (required)")
 	clusterEncryptAddonCmd.Flags().StringVar(&encryptClusterFlag, "cluster", "", "Target cluster (name or ID); defaults to the active selection (cluster mode)")
 	clusterEncryptAddonCmd.Flags().StringVar(&encryptStackFlag, "stack", "", "Stack name (cluster mode; required when the addon exists in multiple stacks)")
@@ -195,10 +291,20 @@ func init() {
 // A leading dot marks a literal key whose own name contains a dot, such as the
 // ".dockerconfigjson" key in a kubernetes.io/dockerconfigjson Secret. Those are
 // kept verbatim instead of being split on the dot.
+//
+// A glob: entry is validated against the platform's grammar and kept
+// verbatim, prefix included: the platform expands it into the SOPS
+// encrypted_regex itself, on this encrypt and on every later re-render.
 func normalizeEncryptKey(rawKey string) (string, error) {
 	trimmedKey := strings.TrimSpace(rawKey)
 	if trimmedKey == "" {
 		return "", fmt.Errorf("--key must not be empty")
+	}
+	if isEncryptKeyGlob(trimmedKey) {
+		if _, parseErr := parseEncryptKeyGlob(trimmedKey); parseErr != nil {
+			return "", parseErr
+		}
+		return trimmedKey, nil
 	}
 	if strings.HasPrefix(trimmedKey, ".") {
 		if trimmedKey == "." {
@@ -215,6 +321,12 @@ func normalizeEncryptKey(rawKey string) (string, error) {
 }
 
 func announceEncryptKeyNormalization(cmd *cobra.Command, rawKey, leafKey string) {
+	if isEncryptKeyGlob(leafKey) {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(),
+			"Note: %s is recorded in encrypted_paths as written; every key whose name matches it is encrypted now and on every later platform re-encrypt, including keys added afterwards.\n",
+			leafKey)
+		return
+	}
 	if leafKey == strings.TrimSpace(rawKey) {
 		return
 	}
@@ -248,16 +360,28 @@ func normalizeAndAnnounceEncryptKeys(cmd *cobra.Command, rawKeys []string) ([]st
 }
 
 // describeEncryptKeys renders leaf keys for progress messages: `key "a"` for a
-// single key, `keys "a", "b"` for several.
+// single key, `keys "a", "b"` for several; a glob entry reads `keys matching
+// glob:DB_*` because it names a set, not one key.
 func describeEncryptKeys(leafKeys []string) string {
-	quotedKeys := make([]string, len(leafKeys))
-	for keyIndex, leafKey := range leafKeys {
-		quotedKeys[keyIndex] = fmt.Sprintf("%q", leafKey)
+	quotedKeys := make([]string, 0, len(leafKeys))
+	globEntries := make([]string, 0, len(leafKeys))
+	for _, leafKey := range leafKeys {
+		if isEncryptKeyGlob(leafKey) {
+			globEntries = append(globEntries, leafKey)
+			continue
+		}
+		quotedKeys = append(quotedKeys, fmt.Sprintf("%q", leafKey))
 	}
+	parts := make([]string, 0, 2)
 	if len(quotedKeys) == 1 {
-		return "key " + quotedKeys[0]
+		parts = append(parts, "key "+quotedKeys[0])
+	} else if len(quotedKeys) > 1 {
+		parts = append(parts, "keys "+strings.Join(quotedKeys, ", "))
 	}
-	return "keys " + strings.Join(quotedKeys, ", ")
+	if len(globEntries) > 0 {
+		parts = append(parts, "keys matching "+strings.Join(globEntries, ", "))
+	}
+	return strings.Join(parts, " and ")
 }
 
 // describeEncryptKeysCapitalised is describeEncryptKeys for sentence starts.
@@ -348,8 +472,14 @@ func announceSkippedEncryptedKeys(out io.Writer, alreadyEncryptedKeys []string) 
 // verifyKeyEncrypted guards against SOPS "succeeding" without encrypting
 // anything: it checks that the target key exists in the encrypted output and
 // that every value under it is ENC[...] ciphertext. Without this guard a bad
-// key silently produces a file with sops metadata and plaintext values.
+// key silently produces a file with sops metadata and plaintext values. A
+// glob: entry must select at least one key - a pattern matching nothing has
+// encrypted nothing - and every key it selects must be ciphertext.
 func verifyKeyEncrypted(encryptedYAML, keyName string) error {
+	keyMatches, matcherErr := encryptKeyMatcher(keyName)
+	if matcherErr != nil {
+		return matcherErr
+	}
 	decoder := yaml.NewDecoder(strings.NewReader(encryptedYAML))
 	matchedKeyCount := 0
 	plaintextValueCount := 0
@@ -366,15 +496,26 @@ func verifyKeyEncrypted(encryptedYAML, keyName string) error {
 		if rootNode.Kind == yaml.DocumentNode && len(rootNode.Content) > 0 {
 			rootNode = rootNode.Content[0]
 		}
-		inspectEncryptedKey(rootNode, keyName, true, &matchedKeyCount, &plaintextValueCount)
+		inspectEncryptedKey(rootNode, keyMatches, true, &matchedKeyCount, &plaintextValueCount)
 	}
 	if matchedKeyCount == 0 {
+		if isEncryptKeyGlob(keyName) {
+			return fmt.Errorf(
+				"no YAML key matching %s exists in the encrypted output, so SOPS encrypted nothing while still writing sops metadata; "+
+					"pass a pattern that selects at least one key in the document",
+				keyName)
+		}
 		return fmt.Errorf(
 			"no YAML key named %q exists in the encrypted output, so SOPS encrypted nothing while still writing sops metadata; "+
 				"pass the key name itself (for data.password use --key password)",
 			keyName)
 	}
 	if plaintextValueCount > 0 {
+		if isEncryptKeyGlob(keyName) {
+			return fmt.Errorf(
+				"a value under a key matching %s is still plaintext after encryption; refusing to write a file that only looks encrypted",
+				keyName)
+		}
 		return fmt.Errorf(
 			"value under key %q is still plaintext after encryption; refusing to write a file that only looks encrypted",
 			keyName)
@@ -382,7 +523,7 @@ func verifyKeyEncrypted(encryptedYAML, keyName string) error {
 	return nil
 }
 
-func inspectEncryptedKey(node *yaml.Node, keyName string, isDocumentRoot bool, matchedKeyCount, plaintextValueCount *int) {
+func inspectEncryptedKey(node *yaml.Node, keyMatches func(keyName string) bool, isDocumentRoot bool, matchedKeyCount, plaintextValueCount *int) {
 	if node == nil {
 		return
 	}
@@ -394,18 +535,18 @@ func inspectEncryptedKey(node *yaml.Node, keyName string, isDocumentRoot bool, m
 			if isDocumentRoot && keyNode.Value == sopsMetadataKey {
 				continue
 			}
-			if keyNode.Value == keyName {
+			if keyMatches(keyNode.Value) {
 				*matchedKeyCount++
 				if !isSubtreeEncrypted(valueNode) {
 					*plaintextValueCount++
 				}
 				continue
 			}
-			inspectEncryptedKey(valueNode, keyName, false, matchedKeyCount, plaintextValueCount)
+			inspectEncryptedKey(valueNode, keyMatches, false, matchedKeyCount, plaintextValueCount)
 		}
 	case yaml.SequenceNode:
 		for _, itemNode := range node.Content {
-			inspectEncryptedKey(itemNode, keyName, false, matchedKeyCount, plaintextValueCount)
+			inspectEncryptedKey(itemNode, keyMatches, false, matchedKeyCount, plaintextValueCount)
 		}
 	}
 }

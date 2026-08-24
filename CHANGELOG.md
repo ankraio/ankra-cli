@@ -4,6 +4,22 @@
 
 ### Added
 
+- **`ankra cluster encrypt --key 'glob:<pattern>'` encrypts every key whose
+  name matches - now and on every later platform re-encrypt, including keys
+  added afterwards.** A pattern in `encrypted_paths` used to be escaped into
+  a literal that matched nothing, and a hand-widened `encrypted_regex` in
+  the sealed file was replaced by the platform's next write-back, so a
+  Secret with a growing set of `DB_*` keys needed one `encrypt` per key and
+  a new key committed in plaintext until someone noticed. `--key
+  'glob:stringData.DB_*'` (only `*` is a wildcard; a leading `data.` or
+  `stringData.` is accepted and ignored, as for an exact key) is recorded in
+  `encrypted_paths` as written, which is the form the platform re-expands
+  into the SOPS selector on every push. Exact keys keep their meaning
+  byte-for-byte - a literal key containing a dot or a star is still matched
+  literally; only the `glob:` prefix opts in. A pattern that matches no key
+  fails, the same way a misspelled exact key does. Requires cluster#1867 on
+  the platform. (PLA-798, support #1094)
+
 - **`ankra org custom-dns-zones` serves your own zone from every cluster in
   the organisation - the ones you have and the ones you create next.**
   `ankra cluster custom-dns-zones` declared a zone on one named cluster, so a
