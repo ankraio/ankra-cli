@@ -32,6 +32,14 @@ type OrganisationPreviewSettings struct {
 	// the more fundamental of the two: nothing in the platform publishes DNS
 	// on an organisation's own domain, so an unpublished preview domain costs
 	// the URL and the certificate together.
+	//
+	// Empty means either "checked, nothing to report" or "this platform does
+	// not send the field at all", and the two are not distinguished. Against
+	// a platform predating demo_preview_dns_warning the silence is therefore
+	// unknown rather than all-clear. Left as version skew deliberately: the
+	// field ships on the hosted platform, and a per-field "could not be
+	// determined" state would cost every reader a distinction almost nobody
+	// is on the wrong side of.
 	PreviewDNSWarning string `json:"demo_preview_dns_warning" yaml:"demo_preview_dns_warning"`
 }
 
