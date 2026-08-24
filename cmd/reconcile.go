@@ -245,8 +245,17 @@ func resolveClusterFromArgs(cmd *cobra.Command, args []string) (string, string, 
 
 var clusterProvisionCmd = &cobra.Command{
 	Use:   "provision [cluster_name]",
-	Short: "Provision (start) a managed cluster",
-	Long: `Start a managed cluster that was previously created but is not yet running.
+	Short: "Provision a managed cluster (build its infrastructure and redeploy its stacks)",
+	Long: `Provision a managed cluster that was created or deprovisioned but is not running.
+
+Provisioning rebuilds the cluster's infrastructure and then redeploys its stack
+resources from the cluster's stored stack definition. Verify anything you patched
+in place afterwards - see "ankra cluster addons list <addon>" and
+"ankra cluster manifests list".
+
+This is not a power-on. To resume a cluster you powered off, use the provider's
+start command (for example "ankra hetzner cluster start") or
+"ankra cluster power-schedules".
 
 If no cluster name is provided, uses the currently selected cluster.`,
 	Args: cobra.MaximumNArgs(1),
@@ -281,6 +290,11 @@ If no cluster name is provided, uses the currently selected cluster.`,
 		if result.MarkedToStartAt != "" {
 			fmt.Printf("  Scheduled at: %s\n", result.MarkedToStartAt)
 		}
+		// Stack resources are redeployed from the stored stack definition, so an
+		// in-place patch is worth re-checking once the cluster is back online.
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+			"note: stacks are redeployed from the cluster's stored stack definition; "+
+				"verify in-place patches with 'ankra cluster addons list <addon>' once the cluster is online")
 		return nil
 	},
 }
@@ -302,8 +316,19 @@ const (
 
 var clusterDeprovisionCmd = &cobra.Command{
 	Use:   "deprovision [cluster_name]",
-	Short: "Deprovision (stop) a managed cluster",
-	Long: `Stop a running managed cluster. This will shut down the cluster but not delete it.
+	Short: "Deprovision a managed cluster (tear it down; the cluster record is kept)",
+	Long: `Tear down a managed cluster. The cluster record is kept so it can be provisioned
+again later, but everything it runs on is released.
+
+This is a teardown, not a power-off:
+
+  - all cloud resources are released (servers, networks, SSH keys);
+  - every stack resource on the cluster is uninstalled, and a later
+    "ankra cluster provision" redeploys them from the stored stack definition.
+
+To power a cluster off and back on while keeping its state, use the provider's
+stop/start commands (for example "ankra hetzner cluster stop" and
+"ankra hetzner cluster start") or "ankra cluster power-schedules" instead.
 
 If no cluster name is provided, uses the currently selected cluster.
 
@@ -340,7 +365,8 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 
 		if err := confirmPrompt(
 			cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Deprovision cluster %q? This deletes all its cloud resources (servers, networks, SSH keys)! [y/N]: ", clusterName),
+			fmt.Sprintf("Deprovision cluster %q? This deletes all its cloud resources (servers, networks, SSH keys) "+
+				"and uninstalls every stack resource on it - this is a teardown, not a power-off. [y/N]: ", clusterName),
 			yes,
 		); err != nil {
 			return err
