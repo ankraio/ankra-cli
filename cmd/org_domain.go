@@ -46,16 +46,20 @@ automatically once the switch is accepted.
 
 WHAT ANKRA TOUCHES IN YOUR DOMAIN
 
-Ankra creates one subzone in the domain you register - <org_short_id>.<domain>
-- and works only inside it. It does not read, write or delete records anywhere
-else in the domain. Records you already publish at the apex or under any other
-name are untouched by registering the domain, by the switch itself, and by
-everything Ankra does afterwards. A domain that already serves your production
-hostnames is safe to register on that count.
+The domain you register becomes the organisation's zone itself: Ankra adopts
+it as the apex rather than carving a subzone out of it, and each cluster
+gets its own <cluster_short_id>.<domain> subzone under it. The external-dns
+Ankra installs on every cluster in the organisation holds a token pinned to
+the whole domain, so an Ingress on any hostname under it - a top-level name
+like app.<domain> included - is published by the cluster serving it, with no
+credential of your own. Records you already publish that no cluster's
+Ingress claims are left alone: each cluster's external-dns owns only the
+records it created.
 
-The delegation is strict below that too: each cluster gets its own subzone
-under the organisation zone, and the external-dns Ankra installs on a cluster
-holds a token pinned to that cluster's subzone alone.
+That is the lane for a domain hosted in Ankra's own DNS account. For a zone
+you hold in your own provider account, declare it with your own credential
+instead ('ankra org dns credentials create' + 'ankra org custom-dns-zones
+add').
 
 WHAT A SWITCH DOES NOT CHANGE
 

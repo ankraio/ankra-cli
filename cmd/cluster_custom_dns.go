@@ -24,6 +24,13 @@ DNS credential you supply ('ankra org dns credentials'). Each controller is
 pinned to exactly its zone with its own record ownership, so it can never
 fight Ankra's controller or another cluster's.
 
+To serve a zone from every cluster in the organisation - including clusters
+created later - declare it once with 'ankra org custom-dns-zones add'
+instead. 'list' shows those inherited zones with source 'organisation'; a
+zone declared here on the cluster itself takes precedence over the
+organisation's on this cluster, which is how one cluster serves a zone with
+a different credential.
+
 Withdrawing a zone removes the controller Ankra rendered; the zone's records
 are yours and are left untouched.`,
 }
@@ -51,13 +58,23 @@ var clusterCustomDNSListCmd = &cobra.Command{
 		zoneTable := table.NewWriter()
 		zoneTable.SetOutputMirror(os.Stdout)
 		zoneTable.SetStyle(table.StyleRounded)
-		zoneTable.AppendHeader(table.Row{"Zone", "Credential"})
+		zoneTable.AppendHeader(table.Row{"Zone", "Credential", "Source"})
 		for _, zone := range zones {
-			zoneTable.AppendRow(table.Row{zone.Zone, zone.CredentialName})
+			zoneTable.AppendRow(table.Row{zone.Zone, zone.CredentialName, customDNSZoneSourceLabel(zone.Source)})
 		}
 		zoneTable.Render()
 		return nil
 	},
+}
+
+// customDNSZoneSourceLabel names where a listed zone was declared. A platform
+// that predates the organisation-wide lane sends no source; that is the
+// cluster's own declaration, the only kind it could hold.
+func customDNSZoneSourceLabel(source string) string {
+	if source == "" {
+		return "cluster"
+	}
+	return source
 }
 
 var (

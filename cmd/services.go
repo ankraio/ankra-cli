@@ -225,6 +225,9 @@ type APIClient interface {
 	ListClusterCustomDNSZones(clusterID string) ([]client.CustomDNSZone, error)
 	AddClusterCustomDNSZone(clusterID string, zone string, credentialName string) (*client.CustomDNSZone, error)
 	RemoveClusterCustomDNSZone(clusterID string, zone string) (string, error)
+	ListOrganisationCustomDNSZones() ([]client.OrganisationCustomDNSZone, error)
+	AddOrganisationCustomDNSZone(zone string, credentialName string) (*client.OrganisationCustomDNSZone, error)
+	RemoveOrganisationCustomDNSZone(zone string) (string, error)
 	ListDNSCredentials() ([]client.DNSCredentialSummary, error)
 	CreateDNSCredential(name string, webhookProviderURL string) (*client.CreateDNSCredentialResponse, error)
 

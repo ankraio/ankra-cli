@@ -1,5 +1,38 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra org custom-dns-zones` serves your own zone from every cluster in
+  the organisation - the ones you have and the ones you create next.**
+  `ankra cluster custom-dns-zones` declared a zone on one named cluster, so a
+  freshly created cluster came up with its ingress hostnames on your own
+  domain dropped silently and its certificates stuck waiting for DNS that
+  nothing was publishing. `ankra org custom-dns-zones add --zone <zone>
+  --credential <name>` declares the zone once for the organisation: Ankra
+  renders and reconciles one isolated external-dns for it on every cluster,
+  each pinned to exactly the zone with its own record ownership, and on
+  every cluster created afterwards without further declaration. `list` shows
+  the organisation's declarations; `remove` withdraws one and tears down
+  only the controllers Ankra rendered - clusters that declared the zone
+  themselves keep theirs, and the zone's records are yours and are left
+  untouched. `ankra cluster custom-dns-zones list` now shows a SOURCE column
+  telling an inherited zone apart from the cluster's own, and a cluster's own
+  declaration of a zone takes precedence over the organisation's on that
+  cluster - the way to serve one zone with a different credential on one
+  cluster. Requires cluster#1852 on the platform.
+
+### Fixed
+
+- **`ankra org domain --help` described the custom-domain lane as it was
+  before cluster#1841.** It still said Ankra confines itself to one
+  `<org_short_id>.<domain>` subzone and pins each cluster's external-dns to
+  that cluster's subzone alone; a registered domain is adopted as the
+  organisation's zone apex and every cluster's external-dns publishes
+  anywhere under it. The help now says so, and points a zone hosted outside
+  Ankra's own DNS account at `ankra org custom-dns-zones` instead.
+
 ## v0.13.0-rc2 — 2026-08-24
 
 ### Added

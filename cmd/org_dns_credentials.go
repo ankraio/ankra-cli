@@ -14,8 +14,9 @@ var orgDnsCredentialsCmd = &cobra.Command{
 	Aliases: []string{"credential"},
 	Short:   "DNS webhook credentials for zones you own",
 	Long: `Store and list the organisation's DNS webhook credentials - the ones the
-custom DNS zone lane serves your own zones with ('ankra cluster
-custom-dns-zones').
+custom DNS zone lane serves your own zones with ('ankra org
+custom-dns-zones' for every cluster in the organisation, 'ankra cluster
+custom-dns-zones' for one cluster).
 
 The webhook provider URL embeds the provider token, so it is written to the
 platform's secret store on create and never returned by any read: 'list'
@@ -89,7 +90,7 @@ URL, which re-points every cluster binding that names it - the rotation path.`,
 }
 
 func init() {
-	orgDnsCredentialsCreateCmd.Flags().StringVar(&orgDnsCredentialName, "name", "", "Credential name, referenced by 'cluster custom-dns-zones add --credential' (required)")
+	orgDnsCredentialsCreateCmd.Flags().StringVar(&orgDnsCredentialName, "name", "", "Credential name, referenced by 'org custom-dns-zones add --credential' and 'cluster custom-dns-zones add --credential' (required)")
 	orgDnsCredentialsCreateCmd.Flags().StringVar(&orgDnsCredentialWebhookURL, "webhook-provider-url", "", "external-dns webhook endpoint including its token (required)")
 	_ = orgDnsCredentialsCreateCmd.MarkFlagRequired("name")
 	_ = orgDnsCredentialsCreateCmd.MarkFlagRequired("webhook-provider-url")
