@@ -202,6 +202,12 @@ func renderOrganisationPreviewSettings(cmd *cobra.Command,
 	// Printed whatever the fields say. The backend decides when previews
 	// lack TLS, and tying the display to a field here would put this command
 	// back in the business of second-guessing that.
+	// DNS first: an unresolvable hostname is why the TLS one is usually
+	// there too, and reading the certificate complaint before the reason for
+	// it sends people to the wrong setting.
+	if settings.PreviewDNSWarning != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", settings.PreviewDNSWarning)
+	}
 	if settings.PreviewTLSWarning != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", settings.PreviewTLSWarning)
 	}

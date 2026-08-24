@@ -26,6 +26,13 @@ type OrganisationPreviewSettings struct {
 	// staging cluster carries, so it cannot be worked out from the fields
 	// above alone. Empty when previews have a certificate story.
 	PreviewTLSWarning string `json:"demo_preview_tls_warning" yaml:"demo_preview_tls_warning"`
+
+	// PreviewDNSWarning is the backend's verdict on whether the preview
+	// hostnames resolve at all. It is a separate answer from the TLS one and
+	// the more fundamental of the two: nothing in the platform publishes DNS
+	// on an organisation's own domain, so an unpublished preview domain costs
+	// the URL and the certificate together.
+	PreviewDNSWarning string `json:"demo_preview_dns_warning" yaml:"demo_preview_dns_warning"`
 }
 
 type organisationPreviewSettingsBody struct {
@@ -34,6 +41,7 @@ type organisationPreviewSettingsBody struct {
 	DemoTLSSecretName    *string `json:"demo_tls_secret_name"`
 	DemoCertIssuerName   *string `json:"demo_cert_issuer_name"`
 	PreviewTLSWarning    *string `json:"demo_preview_tls_warning"`
+	PreviewDNSWarning    *string `json:"demo_preview_dns_warning"`
 }
 
 // GetOrganisationPreviewSettings reads the organisation's preview settings.
@@ -90,6 +98,9 @@ func decodeOrganisationPreviewSettings(body []byte) (*OrganisationPreviewSetting
 	}
 	if decoded.PreviewTLSWarning != nil {
 		settings.PreviewTLSWarning = *decoded.PreviewTLSWarning
+	}
+	if decoded.PreviewDNSWarning != nil {
+		settings.PreviewDNSWarning = *decoded.PreviewDNSWarning
 	}
 	return &settings, nil
 }
