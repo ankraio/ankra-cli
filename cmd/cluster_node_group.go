@@ -704,7 +704,7 @@ func init() {
 	clusterNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
 	clusterNodeGroupAddCmd.Flags().String("instance-type", "", "Server type / flavor / plan for nodes (required)")
 	clusterNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes")
-	clusterNodeGroupAddCmd.Flags().String("availability-zone", "", "Pin every node of the group to one availability zone, on OVH 3-AZ regions (e.g. eu-west-par-b). See 'ankra cluster ovh regions --with-zones'. Pin the group when it runs zonal storage: an OVH volume cannot attach from another zone")
+	clusterNodeGroupAddCmd.Flags().String("availability-zone", "", "Pin every node of the group to one availability zone, on OVH 3-AZ regions (e.g. eu-west-par-b). See 'ankra cluster ovh regions --with-zones'. Pin the group when it runs zonal storage: an OVH volume cannot attach from another zone. Omitted on a zone-spread cluster, each node takes the zone with the fewest instances cluster-wide, so a one-node group lands wherever the cluster is thinnest, not where its name suggests; on a cluster with no zone pool OVH chooses")
 	clusterNodeGroupAddCmd.Flags().String("user-data-file", "", "Path to a cloud-init user-data file for the group (OVH clusters only). Applied verbatim at first boot by every instance the group ever creates, replacements included; Ankra sends no cloud-init of its own, so the document is not merged with anything. Max 65535 bytes. Use for provision-time disk layouts, e.g. carving a partition for LUKS before growpart runs")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("name")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("instance-type")

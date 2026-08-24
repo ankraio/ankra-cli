@@ -928,7 +928,7 @@ func init() {
 	ovhNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
 	ovhNodeGroupAddCmd.Flags().String("labels", "", "Comma-separated key=value labels to apply to the node group")
 	ovhNodeGroupAddCmd.Flags().String("taints", "", "Comma-separated key=value:Effect taints to apply to the node group")
-	ovhNodeGroupAddCmd.Flags().String("availability-zone", "", "Pin every node of the group to one availability zone, in a 3-AZ region (e.g. eu-west-par-b). See 'ankra cluster ovh regions --with-zones'. Pin the group when it runs zonal storage: an OVH volume cannot attach from another zone")
+	ovhNodeGroupAddCmd.Flags().String("availability-zone", "", "Pin every node of the group to one availability zone, in a 3-AZ region (e.g. eu-west-par-b). See 'ankra cluster ovh regions --with-zones'. Pin the group when it runs zonal storage: an OVH volume cannot attach from another zone. Omitted on a zone-spread cluster, each node takes the zone with the fewest instances cluster-wide, so a one-node group lands wherever the cluster is thinnest, not where its name suggests; on a cluster with no zone pool OVH chooses")
 	_ = ovhNodeGroupAddCmd.MarkFlagRequired("name")
 	registerAsyncWriteFlags(ovhNodeGroupAddCmd)
 	registerAsyncWriteFlags(ovhNodeGroupScaleCmd)
