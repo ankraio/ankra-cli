@@ -32,15 +32,19 @@ type OrganisationPreviewSettings struct {
 	// the more fundamental of the two: nothing in the platform publishes DNS
 	// on an organisation's own domain, so an unpublished preview domain costs
 	// the URL and the certificate together.
-	//
-	// Empty means either "checked, nothing to report" or "this platform does
-	// not send the field at all", and the two are not distinguished. Against
-	// a platform predating demo_preview_dns_warning the silence is therefore
-	// unknown rather than all-clear. Left as version skew deliberately: the
-	// field ships on the hosted platform, and a per-field "could not be
-	// determined" state would cost every reader a distinction almost nobody
-	// is on the wrong side of.
 	PreviewDNSWarning string `json:"demo_preview_dns_warning" yaml:"demo_preview_dns_warning"`
+
+	// PreviewDNSReported is false when the platform did not send the field at
+	// all, which is not the same as sending it empty. Both leave
+	// PreviewDNSWarning blank, and without this the two are indistinguishable
+	// - a platform too old to check would read exactly like one that checked
+	// and found nothing wrong. Letting an absent answer pass for a good one
+	// is the failure this whole lane has been undoing, so it is not repeated
+	// here for the sake of one bool.
+	//
+	// Kept out of the structured output: it describes the platform that
+	// answered, not the organisation's settings, and -o json mirrors the wire.
+	PreviewDNSReported bool `json:"-" yaml:"-"`
 }
 
 type organisationPreviewSettingsBody struct {
@@ -108,6 +112,7 @@ func decodeOrganisationPreviewSettings(body []byte) (*OrganisationPreviewSetting
 		settings.PreviewTLSWarning = *decoded.PreviewTLSWarning
 	}
 	if decoded.PreviewDNSWarning != nil {
+		settings.PreviewDNSReported = true
 		settings.PreviewDNSWarning = *decoded.PreviewDNSWarning
 	}
 	return &settings, nil

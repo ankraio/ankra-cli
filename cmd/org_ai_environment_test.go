@@ -322,3 +322,42 @@ func TestRunOrgAIEnvironmentGet_YAMLCarriesTheDNSWarningKey(t *testing.T) {
 		t.Errorf("yaml must use the wire key, got %s", output)
 	}
 }
+
+// An absent field and an empty one both leave PreviewDNSWarning blank. Letting
+// the older platform's silence read as "your hostnames resolve" is the
+// absent-answer trap this lane has spent its length undoing.
+func TestRunOrgAIEnvironmentGet_SaysWhenThePlatformNeverReportedDNS(t *testing.T) {
+	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
+		DemoBaseDomain: "smartoptics.dev", PreviewDNSReported: false}}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "not an all-clear") {
+		t.Errorf("an unreported verdict must not pass for a good one, got %s", output)
+	}
+}
+
+func TestRunOrgAIEnvironmentGet_StaysQuietWhenThePlatformReportedNoDNSProblem(t *testing.T) {
+	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
+		DemoBaseDomain: "smartoptics.dev", PreviewDNSReported: true}}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if strings.Contains(output, "not an all-clear") {
+		t.Errorf("a platform that checked and found nothing has nothing to caveat, got %s", output)
+	}
+}
+
+// No preview domain, no preview hostnames, nothing to be unsure about.
+func TestRunOrgAIEnvironmentGet_DoesNotCaveatDNSWithNoPreviewDomain(t *testing.T) {
+	mock := &orgPreviewSettingsMock{}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if strings.Contains(output, "not an all-clear") {
+		t.Errorf("nothing is published, so there is nothing to caveat, got %s", output)
+	}
+}

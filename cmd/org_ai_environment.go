@@ -208,6 +208,14 @@ func renderOrganisationPreviewSettings(cmd *cobra.Command,
 	if settings.PreviewDNSWarning != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", settings.PreviewDNSWarning)
 	}
+	// Saying nothing here would be read as "your hostnames resolve", which is
+	// the one thing this platform has not told us.
+	if !settings.PreviewDNSReported && settings.DemoBaseDomain != "" {
+		_, _ = fmt.Fprintln(out,
+			"\nThis platform does not report whether preview hostnames resolve, so the silence above\n"+
+				"is not an all-clear. Check that a wildcard for this domain points at the staging\n"+
+				"cluster's ingress.")
+	}
 	if settings.PreviewTLSWarning != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", settings.PreviewTLSWarning)
 	}
