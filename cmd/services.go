@@ -484,7 +484,7 @@ type APIClient interface {
 	GetScalewayBastionHealth(clusterID string) (*client.BastionHealthResult, error)
 	CreateProxmoxCluster(request client.CreateProxmoxClusterRequest) (*client.CreateProxmoxClusterResponse, error)
 	DeprovisionProxmoxCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error)
-	StopProxmoxCluster(clusterID string) (*client.ProviderStopClusterResponse, error)
+	StopProxmoxCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error)
 	StartProxmoxCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error)
 	GetProxmoxWorkerCount(clusterID string) (*client.WorkerCountResult, error)
 	ScaleProxmoxWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error)
@@ -523,7 +523,7 @@ type APIClient interface {
 
 	CreateMorpheusCluster(request client.CreateMorpheusClusterRequest) (*client.CreateMorpheusClusterResponse, error)
 	DeprovisionMorpheusCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error)
-	StopMorpheusCluster(clusterID string) (*client.ProviderStopClusterResponse, error)
+	StopMorpheusCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error)
 	StartMorpheusCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error)
 	GetMorpheusWorkerCount(clusterID string) (*client.WorkerCountResult, error)
 	ScaleMorpheusWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error)

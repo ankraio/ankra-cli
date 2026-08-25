@@ -155,14 +155,29 @@ func TestStopMorpheusCluster_Success(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		if r.URL.Query().Get("force") != "" {
+			t.Errorf("plain stop must not send force, got %q", r.URL.Query().Get("force"))
+		}
 		jsonResponse(t, w, http.StatusOK, ProviderStopClusterResponse{Success: true, ClusterID: "cluster-123"})
 	})
-	result, stopError := testClient.StopMorpheusCluster("cluster-123")
+	result, stopError := testClient.StopMorpheusCluster("cluster-123", false)
 	if stopError != nil {
 		t.Fatalf("StopMorpheusCluster: %v", stopError)
 	}
 	if !result.Success {
 		t.Error("Success = false, want true")
+	}
+}
+
+func TestStopMorpheusCluster_ForceOnTheWire(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("force"); got != "true" {
+			t.Errorf("force = %q, want true", got)
+		}
+		jsonResponse(t, w, http.StatusOK, ProviderStopClusterResponse{Success: true, ClusterID: "cluster-123"})
+	})
+	if _, stopError := testClient.StopMorpheusCluster("cluster-123", true); stopError != nil {
+		t.Fatalf("StopMorpheusCluster: %v", stopError)
 	}
 }
 
