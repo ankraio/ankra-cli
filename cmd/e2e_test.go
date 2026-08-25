@@ -3448,3 +3448,23 @@ func (m baseMock) TransitionTicket(ticketID string, status string, note string) 
 func (m baseMock) DecideTicket(ticketID string, decision client.TicketDecision) (*client.Ticket, error) {
 	return nil, errors.New("not implemented")
 }
+
+func (m baseMock) GetBoardIdentity() (*client.BoardIdentity, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ProvisionBoardIdentity(roleSlug string) (*client.BoardIdentity, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevokeBoardIdentity() (*client.BoardIdentity, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAIPauseState() (*client.AIPauseState, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetAIPause(paused bool, reason string) (*client.AIPauseOutcome, error) {
+	return nil, errors.New("not implemented")
+}
