@@ -1,5 +1,142 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra skills install` now installs into every AI assistant you use, not
+  just Cursor and Claude Code.** `--editor cursor|claude-code` covered two of
+  the tools a team actually has open, so everyone else - Codex, GitHub
+  Copilot, Windsurf, Gemini CLI, OpenCode, Cline, Zed, OpenClaw, the Claude
+  app - either went without the skills or hand-copied them somewhere their
+  assistant never read. `--client` replaces `--editor` (kept as a deprecated
+  alias) and takes a repeatable, comma-separated list, `all`, or `auto`; with
+  no `--client` at all, install now detects the assistants configured on the
+  machine and does them together, falling back to Claude Code and Cursor when
+  it finds none. `ankra skills clients` lists every supported assistant, what
+  was detected, and where each one's skills would land.
+
+- **Assistants that have no skills directory now get an index instead of
+  nothing.** Claude Code and Cursor discover `SKILL.md` files by themselves;
+  Codex, Copilot, Gemini, Windsurf and everything behind `AGENTS.md` do not.
+  For those, install writes the skills into a client-neutral library and adds
+  an index to the assistant's always-loaded instructions file - naming each
+  skill, what it covers, and the path to open - inside the same managed block
+  that already carried the Ankra routing rule. A project-scoped index names
+  the repository-relative directory, so a committed `AGENTS.md` or
+  `.github/copilot-instructions.md` works on every teammate's machine.
+
+- **`ankra skills install --client claude-app` writes uploadable skill
+  bundles.** The Claude app cannot read your filesystem, so install produces
+  one `.zip` per skill - the skill directory at the archive root - ready to
+  upload at claude.ai under Settings, Capabilities, Skills.
+
+- **Ankra workflow commands are installed alongside the skills.** Skills are
+  matched against whatever the user happens to say; a workflow is a named
+  entry point for a job that spans several of them. `/ankra-ship-service`,
+  `/ankra-connect-app`, `/ankra-triage`, `/ankra-promote`, `/ankra-harden`
+  and `/ankra-profile` are written in each assistant's own command format
+  (Claude Code and Cursor commands, Codex prompts, Copilot `.prompt.md`,
+  Gemini TOML, Windsurf workflows, Cline workflows). Skip them with
+  `--no-workflows`.
+
+- **Two new skills for the parts of onboarding that had none, and a
+  `/ankra-new-cluster` workflow.** `ankra-getting-started` is the ordered path
+  from an empty organisation to a running application - credentials, the
+  GitOps repository and the domain settled before the first cluster, because
+  all three are wired at create time and painful to retrofit.
+  `ankra-domains-dns` separates the four things that get conflated: the
+  organisation root domain, a cluster's generated subdomain, a custom DNS zone
+  served with your own credential, and the preview domain PR demos publish
+  under - including that Ankra publishes nothing on a preview domain you own,
+  so an unpublished wildcard costs you the URL and the TLS together.
+
+- **Six new skills covering the work that spans several parts of the
+  platform.** `ankra-applications` (source code to a running deployment on one
+  or many clusters, registries, environment secrets, auto-deploy, PR demos,
+  publishing as a catalogue add-on), `ankra-app-integrations` (wiring an app
+  to an LLM gateway, Harbor, a database or an internal API with the
+  credentials that already exist), `ankra-stack-profiles` (builder drafts,
+  parameters, option sets, publishing and launching across a fleet),
+  `ankra-troubleshooting` (operations, events, `--previous` logs, `top`,
+  PromQL, and what each symptom classifies as), `ankra-security` (tokens and
+  MCP scopes, roles, cluster access grants, credential scope, scanning
+  findings, agent autonomy) and `ankra-ai-agents` (model provider and
+  catalogue, MCP tool servers and per-tool role grants, agent runs and
+  transcripts, the AI board).
+
+### Changed
+
+- **`ankra-cloud-clusters` and `ankra-managed-kubernetes` documented commands
+  and flags that do not exist.** Between them they told an agent to run
+  `ankra cluster ovh node-group|upgrade|scale|ssh-keys` (all removed in favour
+  of the provider-agnostic `ankra cluster node-group|upgrade|scale|ssh-keys`),
+  `--wait` on a provider `create` (never existed), `deprovision --auto-delete`
+  (removed), `ankra cluster managed options` and `managed upgrades` (neither
+  exists), `--provider mks` (it is `ovh_mks`), `--cluster-id` on
+  `managed import` (it is `--provider-cluster-id`), and
+  `--node-pool-autoscaling-min/max` / `--autoscaling-enabled` (they are
+  `--autoscaling`, `--autoscaling-min`, `--autoscaling-max`). Every one of
+  those makes an agent emit a command that fails. `ankra-cloud-clusters` also
+  claimed `provision`/`deprovision` were a power-off, when deprovision is a
+  teardown that releases cloud resources and uninstalls every stack.
+
+- **`ankra-cloud-clusters` now covers cluster creation properly**: all seven
+  providers, the discovery commands that list the regions and instance
+  families a credential can actually deploy, k3s vs kubeadm and etcd topology,
+  the `--external-cloud-provider` / `--include-networking` / `--include-dns`
+  batteries, committing the generated stack to a GitOps repository with
+  `--gitops-repository` at create time, OVH availability zones, and the
+  difference between power, teardown and delete. A new `reference.md` carries
+  the per-provider instance-family guide, role sizing, GPU node groups, the
+  create-flag map and the cost traps.
+
+- **`ankra-import-cluster` and `ankra-observability` taught the silently-broken
+  `parents` shorthand.** Both showed `parents: - manifest: <name>` in their YAML
+  examples, and the import skill's field reference endorsed it - but the
+  parser requires a `kind` + `name` pair and silently drops anything else, so
+  every dependency edge written that way vanishes while local and server-side
+  validation both pass. This is the exact trap `ankra-stacks-addons` already
+  warned about; the other two skills were teaching it. Both now use the
+  `kind`/`name` form, and the import skill documents the trap and the
+  `ankra cluster stacks list <stack> -o json` verification.
+
+- **`ankra-alerts-webhooks` rewritten against the real `ankra alerts`
+  surface.** The skill predated the CLI entirely - no commands, just concepts.
+  It now covers destinations (webhook URLs, Slack/Teams bot channels via
+  `destinations channels`, payload templates), routes (kind/severity/cluster
+  filters, include/exclude modes, priorities and `--stop-on-match`),
+  `routes preview` with the `--alert-id` dedup caveat, and the
+  `test`/`test-url` delivery checks that exit non-zero for CI.
+
+- **Gaps filled across the catalogue.** `ankra-helm-registries` gained the
+  registry management surface (`registries create|sync|sync-jobs`, spec-file
+  form, `--exclude-charts`) and chart discovery (`ankra charts
+  list|search|info|values|template`); `ankra-observability` gained the
+  metrics wiring and reading surface (`cluster metrics`, `top`);
+  `ankra-getting-started` gained the organisation playground as the
+  zero-credential first cluster; `ankra-cli` gained the support-request
+  surface and the beta update channel; `ankra-gitops` gained
+  `ankra cluster gitops status` and the create-time `--gitops-repository`
+  wiring. `ankra-gitops` and `ankra-cicd` no longer credit syncing to
+  ArgoCD - deploys roll out via the Ankra engine.
+
+- **The `ankra-cli`, `ankra-sops-secrets`, `ankra-stacks-addons`,
+  `ankra-cicd` and `ankra-platform-principles` skills now match the CLI they
+  describe.** `ankra-cli` documented `ankra org select`, which does not
+  exist - the command is `ankra org switch` - and predated applications,
+  stack profiles, tickets, agents and the exit-code contract.
+  `ankra-sops-secrets` documented `ankra cluster encrypt -f <file>`, which is
+  not the signature: `encrypt` names keys with `--key` and takes cluster mode
+  or file mode, and `encrypt --set` is how a new secret value is changed
+  without committing plaintext first. `ankra-platform-principles` gained the
+  routing map from a request to the right skill.
+
+- **`ankra skills uninstall` with no `--client` now undoes what install
+  did.** It resolves to the assistants that actually carry an Ankra install,
+  rather than defaulting to Cursor, and a full uninstall also removes the
+  workflow commands it wrote.
+
 ## v0.13.0-rc4 — 2026-08-25
 
 ### Added
