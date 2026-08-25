@@ -102,7 +102,7 @@ Later versions from a deployed stack, without reopening the builder:
 ```bash
 ankra stack-profiles save-version payments --stack payments --cluster staging \
   --changelog "Bump CloudNativePG to 1.30" --channel stable
-ankra stack-profiles set-current-version payments --version 3
+ankra stack-profiles set-current-version payments v3
 ```
 
 `save-version` re-snapshots a source stack and makes the result the current version;
@@ -113,7 +113,7 @@ ankra stack-profiles set-current-version payments --version 3
 ```bash
 ankra stack-profiles list
 ankra stack-profiles get payments                     # versions and the parameters they expect
-ankra stack-profiles version payments --version 3     # one version's contents
+ankra stack-profiles version payments v3              # one version's contents
 
 ankra stack-profiles apply payments --cluster eu-prod --dry-run
 ankra stack-profiles apply payments --cluster eu-prod \

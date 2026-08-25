@@ -23,7 +23,7 @@ a live pod and lost at the next roll.
 ankra cluster stacks list                          # what is deployed, by stack
 ankra cluster addons list                          # the Helm releases
 ankra cluster get services -n <namespace>          # in-cluster DNS name and port
-ankra cluster get ingress -n <namespace>           # the public name, if any
+ankra cluster get ingresses -n <namespace>         # the public name, if any
 ankra cluster addons values <addon>                # how the service itself is configured
 ```
 
