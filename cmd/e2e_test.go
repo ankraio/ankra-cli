@@ -3416,3 +3416,11 @@ func (m baseMock) EnsureApplicationRegistryRobot(requestContext context.Context,
 func (m baseMock) RevokeApplicationRegistryRobot(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
+
+func (m baseMock) GetApplicationRepositoryCredential(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest client.SetApplicationRepositoryCredentialRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}

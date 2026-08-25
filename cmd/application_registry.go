@@ -112,6 +112,7 @@ secrets to you unless you ask it to write the declared credential with
 			passwordSecretName, _ := command.Flags().GetString("password-secret")
 			manageActionsSecrets, _ := command.Flags().GetBool("manage-actions-secrets")
 			adminCredentialName, _ := command.Flags().GetString("admin-credential")
+			flatRepositories, _ := command.Flags().GetBool("flat-repositories")
 
 			declaration := &client.ApplicationImageRegistry{
 				URL:                  registryURL,
@@ -122,6 +123,7 @@ secrets to you unless you ask it to write the declared credential with
 				PasswordSecretName:   strings.TrimSpace(passwordSecretName),
 				ManageActionsSecrets: manageActionsSecrets,
 				AdminCredentialName:  strings.TrimSpace(adminCredentialName),
+				FlatRepositories:     flatRepositories,
 			}
 			applicationID, resolveError := resolveApplicationArgument(command, arguments)
 			if resolveError != nil {
@@ -151,6 +153,8 @@ secrets to you unless you ask it to write the declared credential with
 		"Let Ankra write the named credential into the repository's Actions secrets")
 	setCommand.Flags().String("admin-credential", "",
 		"Registry credential with project administrator rights, for Ankra to mint the application's robot")
+	setCommand.Flags().Bool("flat-repositories", false,
+		"Publish monorepo components as <project>/<component> instead of <project>/<app>/<component>")
 	registerStructuredOutputFlags(setCommand)
 	return setCommand
 }
