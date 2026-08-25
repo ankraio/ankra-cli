@@ -254,6 +254,13 @@ type APIClient interface {
 	GetAgentRunTranscript(runID string, since int64, limit int) (*client.AgentRunTranscript, error)
 	CancelAgentRun(runID string) (*client.CancelAgentRunResponse, error)
 
+	ListTickets(filter client.TicketListFilter) (*client.TicketListResponse, error)
+	GetTicket(ticketID string) (*client.Ticket, error)
+	ListTicketEvents(ticketID string, limit int) (*client.TicketEventListResponse, error)
+	CommentOnTicket(ticketID string, body string) (*client.TicketEvent, error)
+	TransitionTicket(ticketID string, status string, note string) (*client.Ticket, error)
+	DecideTicket(ticketID string, decision client.TicketDecision) (*client.Ticket, error)
+
 	GetAIProviderStatus() (*client.AIProviderStatus, error)
 	SetAIProvider(provider string) (*client.AIProviderStatus, error)
 	SaveAnthropicKey(apiKey string) (*client.AIAnthropicStatus, error)

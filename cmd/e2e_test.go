@@ -3424,3 +3424,27 @@ func (m baseMock) GetApplicationRepositoryCredential(requestContext context.Cont
 func (m baseMock) SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest client.SetApplicationRepositoryCredentialRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
+
+func (m baseMock) ListTickets(filter client.TicketListFilter) (*client.TicketListResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetTicket(ticketID string) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListTicketEvents(ticketID string, limit int) (*client.TicketEventListResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CommentOnTicket(ticketID string, body string) (*client.TicketEvent, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) TransitionTicket(ticketID string, status string, note string) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DecideTicket(ticketID string, decision client.TicketDecision) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
