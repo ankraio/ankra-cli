@@ -113,17 +113,23 @@ secrets to you unless you ask it to write the declared credential with
 			manageActionsSecrets, _ := command.Flags().GetBool("manage-actions-secrets")
 			adminCredentialName, _ := command.Flags().GetString("admin-credential")
 			flatRepositories, _ := command.Flags().GetBool("flat-repositories")
+			componentRepositoryFlags, _ := command.Flags().GetStringArray("component-repository")
+			componentRepositories, componentRepositoriesError := parseComponentRepositories(componentRepositoryFlags)
+			if componentRepositoriesError != nil {
+				return componentRepositoriesError
+			}
 
 			declaration := &client.ApplicationImageRegistry{
-				URL:                  registryURL,
-				CredentialName:       strings.TrimSpace(credentialName),
-				APIURL:               strings.TrimSpace(apiURL),
-				PullSecretName:       strings.TrimSpace(pullSecretName),
-				UsernameSecretName:   strings.TrimSpace(usernameSecretName),
-				PasswordSecretName:   strings.TrimSpace(passwordSecretName),
-				ManageActionsSecrets: manageActionsSecrets,
-				AdminCredentialName:  strings.TrimSpace(adminCredentialName),
-				FlatRepositories:     flatRepositories,
+				URL:                   registryURL,
+				CredentialName:        strings.TrimSpace(credentialName),
+				APIURL:                strings.TrimSpace(apiURL),
+				PullSecretName:        strings.TrimSpace(pullSecretName),
+				UsernameSecretName:    strings.TrimSpace(usernameSecretName),
+				PasswordSecretName:    strings.TrimSpace(passwordSecretName),
+				ManageActionsSecrets:  manageActionsSecrets,
+				AdminCredentialName:   strings.TrimSpace(adminCredentialName),
+				FlatRepositories:      flatRepositories,
+				ComponentRepositories: componentRepositories,
 			}
 			applicationID, resolveError := resolveApplicationArgument(command, arguments)
 			if resolveError != nil {
@@ -155,6 +161,8 @@ secrets to you unless you ask it to write the declared credential with
 		"Registry credential with project administrator rights, for Ankra to mint the application's robot")
 	setCommand.Flags().Bool("flat-repositories", false,
 		"Publish monorepo components as <project>/<component> instead of <project>/<app>/<component>")
+	setCommand.Flags().StringArray("component-repository", nil,
+		"Repository inside the project for one component, as <component>=<repository> (repeatable)")
 	registerStructuredOutputFlags(setCommand)
 	return setCommand
 }
@@ -197,4 +205,24 @@ from - the organisation's provisioned registry project again.`,
 	clearCommand.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	registerStructuredOutputFlags(clearCommand)
 	return clearCommand
+}
+
+// parseComponentRepositories reads the repeatable --component-repository
+// flags (<component>=<repository>) into the declaration's map.
+func parseComponentRepositories(flags []string) (map[string]string, error) {
+	if len(flags) == 0 {
+		return nil, nil
+	}
+	repositories := map[string]string{}
+	for _, flag := range flags {
+		componentName, repository, found := strings.Cut(flag, "=")
+		componentName = strings.TrimSpace(componentName)
+		repository = strings.TrimSpace(repository)
+		if !found || componentName == "" || repository == "" {
+			return nil, withExitCode(exitUsage,
+				fmt.Errorf("--component-repository %q must be <component>=<repository>", flag))
+		}
+		repositories[componentName] = repository
+	}
+	return repositories, nil
 }

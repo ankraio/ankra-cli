@@ -86,6 +86,9 @@ type ApplicationImageRegistry struct {
 	// instead of <project>/<app>/<component>, matching a registry laid out
 	// flat before Ankra.
 	FlatRepositories bool `json:"flat_repositories,omitempty"`
+	// ComponentRepositories names a component's repository inside the project
+	// outright, keyed by component name.
+	ComponentRepositories map[string]string `json:"component_repositories,omitempty"`
 }
 
 // SetApplicationRepositoryCredentialRequest mirrors the repository-credential
