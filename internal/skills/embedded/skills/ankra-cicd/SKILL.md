@@ -1,11 +1,13 @@
 ---
 name: ankra-cicd
-description: Build CI/CD pipelines (GitHub Actions or GitLab CI) that build a container image, push it with an immutable tag, and bump that tag in the Ankra GitOps repository so the Ankra engine syncs the change - rather than running kubectl/helm against the cluster from CI. Use when the user wires CI/CD for an Ankra-managed app, mentions GitHub Actions or GitLab CI with Ankra, or asks how to deploy on push.
+description: Build CI/CD pipelines (GitHub Actions or GitLab CI) that build a container image, push it with an immutable tag, and bump that tag in the Ankra GitOps repository so the Ankra engine syncs the change - rather than running kubectl/helm against the cluster from CI. For an application repository, reach for `ankra application add` FIRST - it generates this whole pipeline (build, security scans, immutable sha- tags, managed registry login) plus the deploy contract, with push-to-deploy built in; use the manual pattern here when the repository is not an Ankra application or the pipeline must stay hand-rolled. Use when the user wires CI/CD for an Ankra-managed app, mentions GitHub Actions or GitLab CI with Ankra, or asks how to deploy on push.
 ---
 
 # Ankra CI/CD
 
 The Ankra deploy pattern is **GitOps-driven**: CI builds and pushes an image, then updates the image tag in the GitOps repo. The Ankra engine detects the commit and reconciles the cluster. CI never applies to the cluster directly.
+
+For an application repository, `ankra application add .` generates this whole pipeline - security gates, immutable `sha-` tags, managed registry login and the deploy contract, with push-to-deploy built in. Read "When Ankra generates the pipeline for you" below and the `ankra-applications` skill before hand-rolling anything here.
 
 ## Pipeline shape (provider-agnostic)
 
