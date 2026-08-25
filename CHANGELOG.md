@@ -1,5 +1,66 @@
 # Ankra CLI Changelog
 
+## v0.13.0-rc4 — 2026-08-25
+
+### Added
+
+- **`ankra tickets` works the AI board from the terminal, and answers the
+  choice a blocked ticket is waiting on.** When an Ankra agent finds more
+  than one way forward it blocks the ticket on a decision, and until now
+  that choice could only be answered on the ticket page. `ankra tickets
+  list` shows the board with a WAITING ON column that tells "your decision"
+  apart from a plain block, a plan awaiting approval and a review; `ankra
+  tickets get T-8` prints the agent's question with every option it offered,
+  its summary, and a `*` on the one the agent recommends; `ankra tickets
+  decide T-8 --option a` records that choice, `--answer "..."` answers with
+  something else in your own words, and both together record the option with
+  your note beside it. The answer lands on the timeline as a `Decision:`
+  comment and the agent resumes from it without re-asking. `events`,
+  `comment` and `transition` complete the lane, every command takes
+  `-o json|yaml`, and a ticket is named by number (`8`, `T-8`) or UUID. An
+  option that was never offered, and a ticket that is not waiting on a
+  decision, are refused before the call is made. Requires cluster#1904 on
+  the platform.
+
+- **`ankra application registry robot` mints, rotates and revokes the push
+  robot for one application.** Applications used to log in to the registry
+  with a robot shared by the whole organisation, and an application
+  publishing to a Harbor you operate got none from Ankra at all - you
+  created one by hand and pasted it into the repository's Actions secrets.
+  `robot ensure` mints the application's own robot and stores its login in
+  the repository, `robot get` shows it, `robot rotate` replaces the secret,
+  and `robot revoke` deletes it, so a leaked secret is rotated for that one
+  application. On a registry you operate, name a credential with project
+  administrator rights as `ankra application registry set
+  --admin-credential <name>` and Ankra mints there too; without it your
+  robots stay yours and untouched. Requires cluster#1868 on the platform.
+
+- **`ankra application registry set` describes a registry whose repository
+  layout is not Ankra's.** A monorepo's images were always addressed as
+  `<project>/<app>/<component>`, so a registry that had been publishing
+  `commerce-images/backend` for months looked unpublished.
+  `--flat-repositories` uses `<project>/<component>` instead, and
+  `--component-repository backend=commerce-backend` names a component's
+  repository outright where the names differ altogether - both are used by
+  publish readiness, the deploy gate and the generated workflows. Requires
+  cluster#1878 and cluster#1884 on the platform.
+
+- **`ankra application credential get|set` re-binds an application to
+  another GitHub credential.** An application created against an App
+  installation that cannot reach its repository had to be deleted and
+  recreated; `ankra application credential set <application-id> --credential
+  <name>` moves it instead, and `get` shows what it is bound to. Requires
+  cluster#1878 on the platform.
+
+- **`ankra cluster domain` reports the domain hostnames are actually
+  published under.** An organisation serving its own domain from a custom
+  DNS zone was still told its cluster domain was the generated
+  `<cluster>.<org>.ankra.cc`. The command now prints a **Public domain**
+  line whenever the resolved domain differs from the generated zone, and
+  says which zone publishes it - the same value `${{ ankra.cluster_domain }}`
+  resolves to. A backend too old to report one prints nothing extra.
+  Requires cluster#1888 on the platform.
+
 ## v0.13.0-rc3 — 2026-08-25
 
 ### Added
