@@ -1,11 +1,11 @@
 ---
 name: ankra-gitops
-description: Structure an Ankra GitOps repository with modular include paths so cluster and stack definitions are stored in Git and synced by Ankra/ArgoCD. Use when the user connects a Git repository to a cluster, organizes a GitOps repo layout, or wants Git to be the source of truth for their Kubernetes configuration.
+description: Structure an Ankra GitOps repository with modular include paths so cluster and stack definitions are stored in Git and synced to the cluster by the Ankra engine. Use when the user connects a Git repository to a cluster, organizes a GitOps repo layout, or wants Git to be the source of truth for their Kubernetes configuration.
 ---
 
 # Ankra GitOps
 
-With GitOps enabled, a cluster's stacks are stored in a Git repository and synced to the cluster (ArgoCD-backed). Git becomes the single source of truth; changes flow through commits and pull requests, not manual edits.
+With GitOps enabled, a cluster's stacks are stored in a Git repository and synced to the cluster by the Ankra engine. Git becomes the single source of truth; changes flow through commits and pull requests, not manual edits.
 
 ## Connect a repo
 
@@ -20,7 +20,17 @@ spec:
     branch: main
 ```
 
-The `credential_name` references a Git credential stored in Ankra (least-privilege deploy token / app install). See `ankra-helm-registries` and the credentials docs for storing credentials.
+The `credential_name` references a Git credential stored in Ankra (least-privilege deploy token /
+app install); `ankra credentials repositories <name>` shows what it can actually reach.
+
+When Ankra *builds* the cluster, skip the retrofit entirely: every provider `create` and
+`ankra cluster managed create` take `--gitops-repository`, `--gitops-credential-name` and
+`--gitops-branch`, and the generated cloud-provider stack lands in the repo as a commit from day
+one (`ankra-cloud-clusters`). Inspect the wiring later with:
+
+```bash
+ankra cluster gitops status        # repository, branch, credential, last synced commit, sync errors
+```
 
 ## Modular layout with include paths
 
@@ -50,8 +60,9 @@ gitops-repo/
 
 1. Branch from `main`, edit the relevant `stack.yaml` / manifests.
 2. Open a pull request; review the diff.
-3. Merge to the synced branch — Ankra/ArgoCD reconciles the change onto the cluster.
-4. Confirm with `ankra cluster operations list` and `ankra cluster info`.
+3. Merge to the synced branch — the Ankra engine reconciles the change onto the cluster.
+4. Confirm with `ankra cluster gitops status` (repository, branch, last synced commit, any sync
+   error) and `ankra cluster operations list`.
 
 ## Rules
 

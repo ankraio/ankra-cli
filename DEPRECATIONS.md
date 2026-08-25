@@ -16,6 +16,13 @@ version; running one prints a warning pointing at the replacement.
 
 ## Upcoming removals
 
+### v0.15.0
+
+| Deprecated | Deprecated in | Replacement | Notes |
+|---|---|---|---|
+| `ankra skills <list\|install\|uninstall> --editor <name>` | v0.14.0 | `--client <name>` | `--client` takes a repeatable, comma-separated list plus `all` and `auto`, and reaches every supported assistant rather than only Cursor and Claude Code. `--editor` still resolves as an alias and warns. |
+| `ankra skills <list\|install\|uninstall> --personal` | v0.14.0 | *(nothing — it is the default)* | A home-directory install is what happens without `--project`; the flag never did anything else. |
+
 ### v0.10.0
 
 | Deprecated | Deprecated in | Replacement | Notes |

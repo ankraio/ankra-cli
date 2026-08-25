@@ -32,6 +32,7 @@ image tags, verify builds, and pull demo images from there instead.`,
 	registryCommand.AddCommand(newApplicationRegistryGetCommand())
 	registryCommand.AddCommand(newApplicationRegistrySetCommand())
 	registryCommand.AddCommand(newApplicationRegistryClearCommand())
+	registryCommand.AddCommand(newApplicationRegistryRobotCommand())
 	return registryCommand
 }
 
@@ -77,15 +78,22 @@ optional). --credential names an existing registry credential of this
 organisation; without one Ankra can describe where the images live but cannot
 read or pull them, so builds keep reporting as never published.
 
-Ankra never mints robots for a registry it does not administer, so it will not
-write your repository's Actions secrets unless you ask it to with
+Ankra never mints robots for a registry it was not handed the keys to. Name a
+credential with project administrator rights as --admin-credential to have
+Ankra mint, rotate and revoke a push robot for the application there and
+store it in the repository's Actions secrets; without one it leaves the
+secrets to you unless you ask it to write the declared credential with
 --manage-actions-secrets.`,
 		Example: `  ankra application registry set 23298741-6a5a-401a-a681-66f31fbdebe1 \
     --url oci://artifact.example.com/commerce --credential example-harbor
 
   ankra application registry set <application-id> \
     --url artifact.example.com/commerce --credential example-harbor \
-    --username-secret HARBOR_USERNAME --password-secret HARBOR_PASSWORD`,
+    --username-secret HARBOR_USERNAME --password-secret HARBOR_PASSWORD
+
+  ankra application registry set <application-id> \
+    --url oci://artifact.example.com/commerce --credential example-harbor-pull \
+    --admin-credential example-harbor-admin`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -103,15 +111,25 @@ write your repository's Actions secrets unless you ask it to with
 			usernameSecretName, _ := command.Flags().GetString("username-secret")
 			passwordSecretName, _ := command.Flags().GetString("password-secret")
 			manageActionsSecrets, _ := command.Flags().GetBool("manage-actions-secrets")
+			adminCredentialName, _ := command.Flags().GetString("admin-credential")
+			flatRepositories, _ := command.Flags().GetBool("flat-repositories")
+			componentRepositoryFlags, _ := command.Flags().GetStringArray("component-repository")
+			componentRepositories, componentRepositoriesError := parseComponentRepositories(componentRepositoryFlags)
+			if componentRepositoriesError != nil {
+				return componentRepositoriesError
+			}
 
 			declaration := &client.ApplicationImageRegistry{
-				URL:                  registryURL,
-				CredentialName:       strings.TrimSpace(credentialName),
-				APIURL:               strings.TrimSpace(apiURL),
-				PullSecretName:       strings.TrimSpace(pullSecretName),
-				UsernameSecretName:   strings.TrimSpace(usernameSecretName),
-				PasswordSecretName:   strings.TrimSpace(passwordSecretName),
-				ManageActionsSecrets: manageActionsSecrets,
+				URL:                   registryURL,
+				CredentialName:        strings.TrimSpace(credentialName),
+				APIURL:                strings.TrimSpace(apiURL),
+				PullSecretName:        strings.TrimSpace(pullSecretName),
+				UsernameSecretName:    strings.TrimSpace(usernameSecretName),
+				PasswordSecretName:    strings.TrimSpace(passwordSecretName),
+				ManageActionsSecrets:  manageActionsSecrets,
+				AdminCredentialName:   strings.TrimSpace(adminCredentialName),
+				FlatRepositories:      flatRepositories,
+				ComponentRepositories: componentRepositories,
 			}
 			applicationID, resolveError := resolveApplicationArgument(command, arguments)
 			if resolveError != nil {
@@ -139,6 +157,12 @@ write your repository's Actions secrets unless you ask it to with
 	setCommand.Flags().String("password-secret", "", "Repository Actions secret holding the registry password")
 	setCommand.Flags().Bool("manage-actions-secrets", false,
 		"Let Ankra write the named credential into the repository's Actions secrets")
+	setCommand.Flags().String("admin-credential", "",
+		"Registry credential with project administrator rights, for Ankra to mint the application's robot")
+	setCommand.Flags().Bool("flat-repositories", false,
+		"Publish monorepo components as <project>/<component> instead of <project>/<app>/<component>")
+	setCommand.Flags().StringArray("component-repository", nil,
+		"Repository inside the project for one component, as <component>=<repository> (repeatable)")
 	registerStructuredOutputFlags(setCommand)
 	return setCommand
 }
@@ -181,4 +205,24 @@ from - the organisation's provisioned registry project again.`,
 	clearCommand.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	registerStructuredOutputFlags(clearCommand)
 	return clearCommand
+}
+
+// parseComponentRepositories reads the repeatable --component-repository
+// flags (<component>=<repository>) into the declaration's map.
+func parseComponentRepositories(flags []string) (map[string]string, error) {
+	if len(flags) == 0 {
+		return nil, nil
+	}
+	repositories := map[string]string{}
+	for _, flag := range flags {
+		componentName, repository, found := strings.Cut(flag, "=")
+		componentName = strings.TrimSpace(componentName)
+		repository = strings.TrimSpace(repository)
+		if !found || componentName == "" || repository == "" {
+			return nil, withExitCode(exitUsage,
+				fmt.Errorf("--component-repository %q must be <component>=<repository>", flag))
+		}
+		repositories[componentName] = repository
+	}
+	return repositories, nil
 }

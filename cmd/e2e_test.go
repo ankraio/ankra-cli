@@ -812,6 +812,18 @@ func (m baseMock) RemoveClusterCustomDNSZone(clusterID string, zone string) (str
 	return "", errors.New("not implemented")
 }
 
+func (m baseMock) ListOrganisationCustomDNSZones() ([]client.OrganisationCustomDNSZone, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddOrganisationCustomDNSZone(zone string, credentialName string) (*client.OrganisationCustomDNSZone, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveOrganisationCustomDNSZone(zone string) (string, error) {
+	return "", errors.New("not implemented")
+}
+
 func (m baseMock) ListDNSCredentials() ([]client.DNSCredentialSummary, error) {
 	return nil, errors.New("not implemented")
 }
@@ -3391,4 +3403,76 @@ func (m baseMock) UpdateMorpheusNodeGroupLabels(ctx context.Context, clusterID, 
 
 func (m baseMock) UpdateMorpheusNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationRegistryRobot(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) EnsureApplicationRegistryRobot(requestContext context.Context, applicationID string, robotRequest client.EnsureApplicationRegistryRobotRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevokeApplicationRegistryRobot(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationRepositoryCredential(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest client.SetApplicationRepositoryCredentialRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListTickets(filter client.TicketListFilter) (*client.TicketListResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetTicket(ticketID string) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListTicketEvents(ticketID string, limit int) (*client.TicketEventListResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CommentOnTicket(ticketID string, body string) (*client.TicketEvent, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) TransitionTicket(ticketID string, status string, note string) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DecideTicket(ticketID string, decision client.TicketDecision) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetBoardIdentity() (*client.BoardIdentity, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ProvisionBoardIdentity(roleSlug string) (*client.BoardIdentity, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevokeBoardIdentity() (*client.BoardIdentity, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAIPauseState() (*client.AIPauseState, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetAIPause(paused bool, reason string) (*client.AIPauseOutcome, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAIAutonomyState() (*client.AIAutonomyState, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetAIAutonomyPause(paused bool, reason string) (*client.AIAutonomyOutcome, error) {
+	return nil, errors.New("not implemented")
 }

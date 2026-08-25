@@ -1,11 +1,11 @@
 ---
 name: ankra-cicd
-description: Build CI/CD pipelines (GitHub Actions or GitLab CI) that build a container image, push it with an immutable tag, and bump that tag in the Ankra GitOps repository so Ankra/ArgoCD syncs the change - rather than running kubectl/helm against the cluster from CI. Use when the user wires CI/CD for an Ankra-managed app, mentions GitHub Actions or GitLab CI with Ankra, or asks how to deploy on push.
+description: Build CI/CD pipelines (GitHub Actions or GitLab CI) that build a container image, push it with an immutable tag, and bump that tag in the Ankra GitOps repository so the Ankra engine syncs the change - rather than running kubectl/helm against the cluster from CI. Use when the user wires CI/CD for an Ankra-managed app, mentions GitHub Actions or GitLab CI with Ankra, or asks how to deploy on push.
 ---
 
 # Ankra CI/CD
 
-The Ankra deploy pattern is **GitOps-driven**: CI builds and pushes an image, then updates the image tag in the GitOps repo. Ankra/ArgoCD detects the commit and reconciles the cluster. CI never applies to the cluster directly.
+The Ankra deploy pattern is **GitOps-driven**: CI builds and pushes an image, then updates the image tag in the GitOps repo. The Ankra engine detects the commit and reconciles the cluster. CI never applies to the cluster directly.
 
 ## Pipeline shape (provider-agnostic)
 
@@ -13,7 +13,7 @@ The Ankra deploy pattern is **GitOps-driven**: CI builds and pushes an image, th
 1. Build the image
 2. Push with an immutable tag (commit SHA or semver, never `latest`)
 3. Bump the tag in the GitOps repo (commit / PR)
-4. Ankra syncs the change to the cluster
+4. The Ankra engine syncs the change to the cluster
 5. (optional) Verify rollout with the Ankra CLI / API
 ```
 
@@ -50,8 +50,18 @@ For full, copy-pasteable GitHub Actions and GitLab CI examples, see [reference.m
 
 When a pipeline fails, Ankra AI can investigate and fix it for you: it reads the failing run's job logs (GitHub Actions, GitLab pipelines, Bitbucket Pipelines via short-lived minted tokens), clones the repo into an ephemeral workspace pod to reproduce, and proposes the exact file changes. In **Agent** mode it opens the fix as a pull request automatically (the PR is the review gate); in **Ask** mode it stops at the proposed patch. `@ankra`-mention a failing PR from an Agent-mode SCM binding to get a fix PR. See `ankra-ai-gateway` for enabling and scoping this.
 
+## When Ankra generates the pipeline for you
+
+For an application registered with `ankra application add`, Ankra writes the Dockerfile, the chart
+and the build workflow itself, and `ankra application auto-deploy` decides whether a build on the
+tracked branch rolls itself out. Read `ankra-applications` first in that case — this skill is the
+shape to aim for, and the reference below is for pipelines you own by hand.
+
 ## Related skills
 
+- `ankra-applications` for Ankra-generated builds, registries, env-secrets and deploys.
 - `ankra-gitops` for the repo layout CI writes into.
-- `ankra-cli` for optional post-deploy verification (`ankra cluster operations list`).
+- `ankra-cli` for post-deploy verification (`ankra cluster operations list`).
+- `ankra-troubleshooting` when the rollout does not come up.
+- `ankra-security` for scanning findings and least-privilege CI credentials.
 - `ankra-ai-gateway` for AI pipeline-failure investigation and auto-fix PRs, and the Ask/Agent safety modes.

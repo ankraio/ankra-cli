@@ -1,6 +1,6 @@
 # Ankra CI/CD — pipeline examples
 
-Both examples follow the same pattern: build, push an immutable tag, then commit the new tag into the GitOps repository so Ankra/ArgoCD syncs it. Neither talks to the cluster directly.
+Both examples follow the same pattern: build, push an immutable tag, then commit the new tag into the GitOps repository so the Ankra engine syncs it. Neither talks to the cluster directly.
 
 Assumptions:
 - App source repo and GitOps repo may be the same or different. Below they are separate.

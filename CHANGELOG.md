@@ -14,6 +14,249 @@
   flag help spells out the full effect so you know an operation-cancelling
   stop is what you are asking for.
 
+- **`ankra skills install` now installs into every AI assistant you use, not
+  just Cursor and Claude Code.** `--editor cursor|claude-code` covered two of
+  the tools a team actually has open, so everyone else - Codex, GitHub
+  Copilot, Windsurf, Gemini CLI, OpenCode, Cline, Zed, OpenClaw, the Claude
+  app - either went without the skills or hand-copied them somewhere their
+  assistant never read. `--client` replaces `--editor` (kept as a deprecated
+  alias) and takes a repeatable, comma-separated list, `all`, or `auto`; with
+  no `--client` at all, install now detects the assistants configured on the
+  machine and does them together, falling back to Claude Code and Cursor when
+  it finds none. `ankra skills clients` lists every supported assistant, what
+  was detected, and where each one's skills would land.
+
+- **Assistants that have no skills directory now get an index instead of
+  nothing.** Claude Code and Cursor discover `SKILL.md` files by themselves;
+  Codex, Copilot, Gemini, Windsurf and everything behind `AGENTS.md` do not.
+  For those, install writes the skills into a client-neutral library and adds
+  an index to the assistant's always-loaded instructions file - naming each
+  skill, what it covers, and the path to open - inside the same managed block
+  that already carried the Ankra routing rule. A project-scoped index names
+  the repository-relative directory, so a committed `AGENTS.md` or
+  `.github/copilot-instructions.md` works on every teammate's machine.
+
+- **`ankra skills install --client claude-app` writes uploadable skill
+  bundles.** The Claude app cannot read your filesystem, so install produces
+  one `.zip` per skill - the skill directory at the archive root - ready to
+  upload at claude.ai under Settings, Capabilities, Skills.
+
+- **Ankra workflow commands are installed alongside the skills.** Skills are
+  matched against whatever the user happens to say; a workflow is a named
+  entry point for a job that spans several of them. `/ankra-ship-service`,
+  `/ankra-connect-app`, `/ankra-triage`, `/ankra-promote`, `/ankra-harden`
+  and `/ankra-profile` are written in each assistant's own command format
+  (Claude Code and Cursor commands, Codex prompts, Copilot `.prompt.md`,
+  Gemini TOML, Windsurf workflows, Cline workflows). Skip them with
+  `--no-workflows`.
+
+- **Two new skills for the parts of onboarding that had none, and a
+  `/ankra-new-cluster` workflow.** `ankra-getting-started` is the ordered path
+  from an empty organisation to a running application - credentials, the
+  GitOps repository and the domain settled before the first cluster, because
+  all three are wired at create time and painful to retrofit.
+  `ankra-domains-dns` separates the four things that get conflated: the
+  organisation root domain, a cluster's generated subdomain, a custom DNS zone
+  served with your own credential, and the preview domain PR demos publish
+  under - including that Ankra publishes nothing on a preview domain you own,
+  so an unpublished wildcard costs you the URL and the TLS together.
+
+- **Six new skills covering the work that spans several parts of the
+  platform.** `ankra-applications` (source code to a running deployment on one
+  or many clusters, registries, environment secrets, auto-deploy, PR demos,
+  publishing as a catalogue add-on), `ankra-app-integrations` (wiring an app
+  to an LLM gateway, Harbor, a database or an internal API with the
+  credentials that already exist), `ankra-stack-profiles` (builder drafts,
+  parameters, option sets, publishing and launching across a fleet),
+  `ankra-troubleshooting` (operations, events, `--previous` logs, `top`,
+  PromQL, and what each symptom classifies as), `ankra-security` (tokens and
+  MCP scopes, roles, cluster access grants, credential scope, scanning
+  findings, agent autonomy) and `ankra-ai-agents` (model provider and
+  catalogue, MCP tool servers and per-tool role grants, agent runs and
+  transcripts, the AI board).
+
+### Changed
+
+- **`ankra-cloud-clusters` and `ankra-managed-kubernetes` documented commands
+  and flags that do not exist.** Between them they told an agent to run
+  `ankra cluster ovh node-group|upgrade|scale|ssh-keys` (all removed in favour
+  of the provider-agnostic `ankra cluster node-group|upgrade|scale|ssh-keys`),
+  `--wait` on a provider `create` (never existed), `deprovision --auto-delete`
+  (removed), `ankra cluster managed options` and `managed upgrades` (neither
+  exists), `--provider mks` (it is `ovh_mks`), `--cluster-id` on
+  `managed import` (it is `--provider-cluster-id`), and
+  `--node-pool-autoscaling-min/max` / `--autoscaling-enabled` (they are
+  `--autoscaling`, `--autoscaling-min`, `--autoscaling-max`). Every one of
+  those makes an agent emit a command that fails. `ankra-cloud-clusters` also
+  claimed `provision`/`deprovision` were a power-off, when deprovision is a
+  teardown that releases cloud resources and uninstalls every stack.
+
+- **`ankra-cloud-clusters` now covers cluster creation properly**: all seven
+  providers, the discovery commands that list the regions and instance
+  families a credential can actually deploy, k3s vs kubeadm and etcd topology,
+  the `--external-cloud-provider` / `--include-networking` / `--include-dns`
+  batteries, committing the generated stack to a GitOps repository with
+  `--gitops-repository` at create time, OVH availability zones, and the
+  difference between power, teardown and delete. A new `reference.md` carries
+  the per-provider instance-family guide, role sizing, GPU node groups, the
+  create-flag map and the cost traps.
+
+- **`ankra-import-cluster` and `ankra-observability` taught the silently-broken
+  `parents` shorthand.** Both showed `parents: - manifest: <name>` in their YAML
+  examples, and the import skill's field reference endorsed it - but the
+  parser requires a `kind` + `name` pair and silently drops anything else, so
+  every dependency edge written that way vanishes while local and server-side
+  validation both pass. This is the exact trap `ankra-stacks-addons` already
+  warned about; the other two skills were teaching it. Both now use the
+  `kind`/`name` form, and the import skill documents the trap and the
+  `ankra cluster stacks list <stack> -o json` verification.
+
+- **`ankra-alerts-webhooks` rewritten against the real `ankra alerts`
+  surface.** The skill predated the CLI entirely - no commands, just concepts.
+  It now covers destinations (webhook URLs, Slack/Teams bot channels via
+  `destinations channels`, payload templates), routes (kind/severity/cluster
+  filters, include/exclude modes, priorities and `--stop-on-match`),
+  `routes preview` with the `--alert-id` dedup caveat, and the
+  `test`/`test-url` delivery checks that exit non-zero for CI.
+
+- **Gaps filled across the catalogue.** `ankra-helm-registries` gained the
+  registry management surface (`registries create|sync|sync-jobs`, spec-file
+  form, `--exclude-charts`) and chart discovery (`ankra charts
+  list|search|info|values|template`); `ankra-observability` gained the
+  metrics wiring and reading surface (`cluster metrics`, `top`);
+  `ankra-getting-started` gained the organisation playground as the
+  zero-credential first cluster; `ankra-cli` gained the support-request
+  surface and the beta update channel; `ankra-gitops` gained
+  `ankra cluster gitops status` and the create-time `--gitops-repository`
+  wiring. `ankra-gitops` and `ankra-cicd` no longer credit syncing to
+  ArgoCD - deploys roll out via the Ankra engine.
+
+- **The `ankra-cli`, `ankra-sops-secrets`, `ankra-stacks-addons`,
+  `ankra-cicd` and `ankra-platform-principles` skills now match the CLI they
+  describe.** `ankra-cli` documented `ankra org select`, which does not
+  exist - the command is `ankra org switch` - and predated applications,
+  stack profiles, tickets, agents and the exit-code contract.
+  `ankra-sops-secrets` documented `ankra cluster encrypt -f <file>`, which is
+  not the signature: `encrypt` names keys with `--key` and takes cluster mode
+  or file mode, and `encrypt --set` is how a new secret value is changed
+  without committing plaintext first. `ankra-platform-principles` gained the
+  routing map from a request to the right skill.
+
+- **`ankra skills uninstall` with no `--client` now undoes what install
+  did.** It resolves to the assistants that actually carry an Ankra install,
+  rather than defaulting to Cursor, and a full uninstall also removes the
+  workflow commands it wrote.
+
+## v0.13.0-rc4 — 2026-08-25
+
+### Added
+
+- **`ankra tickets` works the AI board from the terminal, and answers the
+  choice a blocked ticket is waiting on.** When an Ankra agent finds more
+  than one way forward it blocks the ticket on a decision, and until now
+  that choice could only be answered on the ticket page. `ankra tickets
+  list` shows the board with a WAITING ON column that tells "your decision"
+  apart from a plain block, a plan awaiting approval and a review; `ankra
+  tickets get T-8` prints the agent's question with every option it offered,
+  its summary, and a `*` on the one the agent recommends; `ankra tickets
+  decide T-8 --option a` records that choice, `--answer "..."` answers with
+  something else in your own words, and both together record the option with
+  your note beside it. The answer lands on the timeline as a `Decision:`
+  comment and the agent resumes from it without re-asking. `events`,
+  `comment` and `transition` complete the lane, every command takes
+  `-o json|yaml`, and a ticket is named by number (`8`, `T-8`) or UUID. An
+  option that was never offered, and a ticket that is not waiting on a
+  decision, are refused before the call is made. Requires cluster#1904 on
+  the platform.
+
+- **`ankra application registry robot` mints, rotates and revokes the push
+  robot for one application.** Applications used to log in to the registry
+  with a robot shared by the whole organisation, and an application
+  publishing to a Harbor you operate got none from Ankra at all - you
+  created one by hand and pasted it into the repository's Actions secrets.
+  `robot ensure` mints the application's own robot and stores its login in
+  the repository, `robot get` shows it, `robot rotate` replaces the secret,
+  and `robot revoke` deletes it, so a leaked secret is rotated for that one
+  application. On a registry you operate, name a credential with project
+  administrator rights as `ankra application registry set
+  --admin-credential <name>` and Ankra mints there too; without it your
+  robots stay yours and untouched. Requires cluster#1868 on the platform.
+
+- **`ankra application registry set` describes a registry whose repository
+  layout is not Ankra's.** A monorepo's images were always addressed as
+  `<project>/<app>/<component>`, so a registry that had been publishing
+  `commerce-images/backend` for months looked unpublished.
+  `--flat-repositories` uses `<project>/<component>` instead, and
+  `--component-repository backend=commerce-backend` names a component's
+  repository outright where the names differ altogether - both are used by
+  publish readiness, the deploy gate and the generated workflows. Requires
+  cluster#1878 and cluster#1884 on the platform.
+
+- **`ankra application credential get|set` re-binds an application to
+  another GitHub credential.** An application created against an App
+  installation that cannot reach its repository had to be deleted and
+  recreated; `ankra application credential set <application-id> --credential
+  <name>` moves it instead, and `get` shows what it is bound to. Requires
+  cluster#1878 on the platform.
+
+- **`ankra cluster domain` reports the domain hostnames are actually
+  published under.** An organisation serving its own domain from a custom
+  DNS zone was still told its cluster domain was the generated
+  `<cluster>.<org>.ankra.cc`. The command now prints a **Public domain**
+  line whenever the resolved domain differs from the generated zone, and
+  says which zone publishes it - the same value `${{ ankra.cluster_domain }}`
+  resolves to. A backend too old to report one prints nothing extra.
+  Requires cluster#1888 on the platform.
+
+## v0.13.0-rc3 — 2026-08-25
+
+### Added
+
+- **`ankra cluster encrypt --key 'glob:<pattern>'` encrypts every key whose
+  name matches - now and on every later platform re-encrypt, including keys
+  added afterwards.** A pattern in `encrypted_paths` used to be escaped into
+  a literal that matched nothing, and a hand-widened `encrypted_regex` in
+  the sealed file was replaced by the platform's next write-back, so a
+  Secret with a growing set of `DB_*` keys needed one `encrypt` per key and
+  a new key committed in plaintext until someone noticed. `--key
+  'glob:stringData.DB_*'` (only `*` is a wildcard; a leading `data.` or
+  `stringData.` is accepted and ignored, as for an exact key) is recorded in
+  `encrypted_paths` as written, which is the form the platform re-expands
+  into the SOPS selector on every push. Exact keys keep their meaning
+  byte-for-byte - a literal key containing a dot or a star is still matched
+  literally; only the `glob:` prefix opts in. A pattern that matches no key
+  fails, the same way a misspelled exact key does. Requires cluster#1867 on
+  the platform. (PLA-798, support #1094)
+
+- **`ankra org custom-dns-zones` serves your own zone from every cluster in
+  the organisation - the ones you have and the ones you create next.**
+  `ankra cluster custom-dns-zones` declared a zone on one named cluster, so a
+  freshly created cluster came up with its ingress hostnames on your own
+  domain dropped silently and its certificates stuck waiting for DNS that
+  nothing was publishing. `ankra org custom-dns-zones add --zone <zone>
+  --credential <name>` declares the zone once for the organisation: Ankra
+  renders and reconciles one isolated external-dns for it on every cluster,
+  each pinned to exactly the zone with its own record ownership, and on
+  every cluster created afterwards without further declaration. `list` shows
+  the organisation's declarations; `remove` withdraws one and tears down
+  only the controllers Ankra rendered - clusters that declared the zone
+  themselves keep theirs, and the zone's records are yours and are left
+  untouched. `ankra cluster custom-dns-zones list` now shows a SOURCE column
+  telling an inherited zone apart from the cluster's own, and a cluster's own
+  declaration of a zone takes precedence over the organisation's on that
+  cluster - the way to serve one zone with a different credential on one
+  cluster. Requires cluster#1852 on the platform.
+
+### Fixed
+
+- **`ankra org domain --help` described the custom-domain lane as it was
+  before cluster#1841.** It still said Ankra confines itself to one
+  `<org_short_id>.<domain>` subzone and pins each cluster's external-dns to
+  that cluster's subzone alone; a registered domain is adopted as the
+  organisation's zone apex and every cluster's external-dns publishes
+  anywhere under it. The help now says so, and points a zone hosted outside
+  Ankra's own DNS account at `ankra org custom-dns-zones` instead.
+
 ## v0.13.0-rc2 — 2026-08-24
 
 ### Added

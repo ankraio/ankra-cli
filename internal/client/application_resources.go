@@ -77,6 +77,30 @@ type ApplicationImageRegistry struct {
 	UsernameSecretName   string `json:"username_secret_name,omitempty"`
 	PasswordSecretName   string `json:"password_secret_name,omitempty"`
 	ManageActionsSecrets bool   `json:"manage_actions_secrets,omitempty"`
+	// AdminCredentialName names a registry credential with project
+	// administrator rights on the declared project, which is what lets Ankra
+	// mint and rotate the application's own push robot on a registry the
+	// organisation operates.
+	AdminCredentialName string `json:"admin_credential_name,omitempty"`
+	// FlatRepositories publishes monorepo components as <project>/<component>
+	// instead of <project>/<app>/<component>, matching a registry laid out
+	// flat before Ankra.
+	FlatRepositories bool `json:"flat_repositories,omitempty"`
+	// ComponentRepositories names a component's repository inside the project
+	// outright, keyed by component name.
+	ComponentRepositories map[string]string `json:"component_repositories,omitempty"`
+}
+
+// SetApplicationRepositoryCredentialRequest mirrors the repository-credential
+// body: the GitHub credential the application's repository calls ride on.
+type SetApplicationRepositoryCredentialRequest struct {
+	CredentialName string `json:"credential_name"`
+}
+
+// EnsureApplicationRegistryRobotRequest mirrors the registry-robot body:
+// rotate refreshes the secret of a robot that already backs the application.
+type EnsureApplicationRegistryRobotRequest struct {
+	Rotate bool `json:"rotate"`
 }
 
 // applicationResourceRequest performs a bearer-authenticated request against
@@ -338,6 +362,30 @@ func (client *Client) GetApplicationImageRegistry(requestContext context.Context
 
 func (client *Client) UpdateApplicationImageRegistry(requestContext context.Context, applicationID string, registryRequest UpdateApplicationImageRegistryRequest) (json.RawMessage, error) {
 	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/image-registry"), nil, registryRequest)
+}
+
+// --- registry robot ---
+
+func (client *Client) GetApplicationRegistryRobot(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/registry-robot"), nil, nil)
+}
+
+func (client *Client) EnsureApplicationRegistryRobot(requestContext context.Context, applicationID string, robotRequest EnsureApplicationRegistryRobotRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/registry-robot"), nil, robotRequest)
+}
+
+func (client *Client) RevokeApplicationRegistryRobot(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodDelete, applicationPath(applicationID, "/registry-robot"), nil, nil)
+}
+
+// --- repository credential ---
+
+func (client *Client) GetApplicationRepositoryCredential(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/repository-credential"), nil, nil)
+}
+
+func (client *Client) SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest SetApplicationRepositoryCredentialRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/repository-credential"), nil, credentialRequest)
 }
 
 // --- AI lane configuration ---

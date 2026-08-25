@@ -87,6 +87,12 @@ registry added later leaves a workflow that logs in with the wrong one.`,
 		"Repository Actions secret holding the registry password")
 	addCommand.Flags().Bool("registry-manage-actions-secrets", false,
 		"Let Ankra write the named credential into the repository's Actions secrets")
+	addCommand.Flags().String("registry-admin-credential", "",
+		"Registry credential with project administrator rights, for Ankra to mint the application's robot")
+	addCommand.Flags().Bool("registry-flat-repositories", false,
+		"Publish monorepo components as <project>/<component> instead of <project>/<app>/<component>")
+	addCommand.Flags().StringArray("registry-component-repository", nil,
+		"Repository inside the project for one component, as <component>=<repository> (repeatable)")
 	registerStructuredOutputFlags(addCommand)
 	return addCommand
 }
@@ -101,6 +107,9 @@ var applicationAddRegistryFlags = []string{
 	"registry-username-secret",
 	"registry-password-secret",
 	"registry-manage-actions-secrets",
+	"registry-admin-credential",
+	"registry-flat-repositories",
+	"registry-component-repository",
 }
 
 // applicationAddImageRegistry reads the --registry-* flags into the optional
@@ -132,15 +141,25 @@ func applicationAddImageRegistry(command *cobra.Command) (*client.ApplicationIma
 	usernameSecretName, _ := command.Flags().GetString("registry-username-secret")
 	passwordSecretName, _ := command.Flags().GetString("registry-password-secret")
 	manageActionsSecrets, _ := command.Flags().GetBool("registry-manage-actions-secrets")
+	adminCredentialName, _ := command.Flags().GetString("registry-admin-credential")
+	flatRepositories, _ := command.Flags().GetBool("registry-flat-repositories")
+	componentRepositoryFlags, _ := command.Flags().GetStringArray("registry-component-repository")
+	componentRepositories, componentRepositoriesError := parseComponentRepositories(componentRepositoryFlags)
+	if componentRepositoriesError != nil {
+		return nil, componentRepositoriesError
+	}
 
 	return &client.ApplicationImageRegistry{
-		URL:                  registryURL,
-		CredentialName:       strings.TrimSpace(credentialName),
-		APIURL:               strings.TrimSpace(apiURL),
-		PullSecretName:       strings.TrimSpace(pullSecretName),
-		UsernameSecretName:   strings.TrimSpace(usernameSecretName),
-		PasswordSecretName:   strings.TrimSpace(passwordSecretName),
-		ManageActionsSecrets: manageActionsSecrets,
+		URL:                   registryURL,
+		CredentialName:        strings.TrimSpace(credentialName),
+		APIURL:                strings.TrimSpace(apiURL),
+		PullSecretName:        strings.TrimSpace(pullSecretName),
+		UsernameSecretName:    strings.TrimSpace(usernameSecretName),
+		PasswordSecretName:    strings.TrimSpace(passwordSecretName),
+		ManageActionsSecrets:  manageActionsSecrets,
+		AdminCredentialName:   strings.TrimSpace(adminCredentialName),
+		FlatRepositories:      flatRepositories,
+		ComponentRepositories: componentRepositories,
 	}, nil
 }
 
