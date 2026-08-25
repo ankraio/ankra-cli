@@ -158,6 +158,25 @@ Per-target logs and result files are written under a `mktemp -d` work directory
 printed at the start of the run; output on the console is line-tagged
 `[provider-distribution]` (cloud-managed targets use `[provider-managed]`).
 
+## Scheduled runs in CI
+
+`.github/workflows/systemtest.yml` runs this suite at 03:00 UTC every Monday,
+Wednesday and Friday, and on manual dispatch. Every value in its `env:` block
+comes from a repository secret or variable named `SYSTEMTEST_*` — the same
+names as the environment variables above, prefixed:
+
+| Kind | Names |
+|---|---|
+| Secrets | `SYSTEMTEST_ANKRA_API_TOKEN`, `SYSTEMTEST_SSH_KEY_CREDENTIAL_ID`, `SYSTEMTEST_HETZNER_CREDENTIAL_ID`, `SYSTEMTEST_OVH_CREDENTIAL_ID`, `SYSTEMTEST_UPCLOUD_CREDENTIAL_ID`, `SYSTEMTEST_DIGITALOCEAN_CREDENTIAL_ID`, `SYSTEMTEST_GKE_CREDENTIAL_ID`, `SYSTEMTEST_AKS_CREDENTIAL_ID`, `SYSTEMTEST_EKS_CREDENTIAL_ID` |
+| Variables | `SYSTEMTEST_ANKRA_BASE_URL`, `SYSTEMTEST_ANKRA_ORG`, `SYSTEMTEST_GITOPS_CREDENTIAL_NAME`, `SYSTEMTEST_GITOPS_REPOSITORY` |
+
+None of them are defaulted, because a run provisions real, billable
+infrastructure and the target org must be a deliberate choice. A repository
+without `SYSTEMTEST_ANKRA_API_TOKEN` therefore skips the job with a notice
+rather than failing: an unconfigured repository is not a broken build. If the
+token is present but a provider credential is missing, the preflight still
+fails loudly — that repository *is* misconfigured.
+
 ## Output
 
 The script prints a per-step `PASS`/`FAIL`/`SKIP` (tagged with the target in
