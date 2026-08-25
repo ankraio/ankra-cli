@@ -13,11 +13,21 @@ import (
 // had a zone, or one was removed and the removal is being held so nothing
 // re-creates it. Older backends omit the member and it reads false, which is
 // the right answer for every cluster they know about.
+//
+// PublicDomain is the domain hostnames on the cluster are published under -
+// what ${{ ankra.cluster_domain }} resolves to: the organisation's preview
+// domain when a custom DNS zone on the cluster publishes it
+// (PublicDomainSource "preview_domain", PublicDomainPublishedZone the zone),
+// otherwise the generated zone itself ("cluster_zone"), or nothing ("none").
+// Older backends omit the members and they read empty.
 type ClusterDNSZoneResponse struct {
-	Success  bool   `json:"success"`
-	FQDN     string `json:"fqdn"`
-	State    string `json:"state"`
-	OptedOut bool   `json:"opted_out"`
+	Success                   bool   `json:"success"`
+	FQDN                      string `json:"fqdn"`
+	State                     string `json:"state"`
+	OptedOut                  bool   `json:"opted_out"`
+	PublicDomain              string `json:"public_domain"`
+	PublicDomainSource        string `json:"public_domain_source"`
+	PublicDomainPublishedZone string `json:"public_domain_published_zone"`
 }
 
 // GetClusterDNSZone reads the cluster's generated public DNS zone without
