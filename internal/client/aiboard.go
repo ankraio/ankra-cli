@@ -93,3 +93,58 @@ func (c *Client) SetAIPause(paused bool, reason string) (*AIPauseOutcome, error)
 	}
 	return &outcome, nil
 }
+
+// AutonomyAgent names an agent task the autonomy pause switched off.
+type AutonomyAgent struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// AIAutonomyState is the softer stop: autonomous actions paused, with a
+// durable record of what the pause switched off so any operator can
+// release it. RestorableAgents is what an operator could choose to switch
+// back on when the pause was not engaged through this switch.
+type AIAutonomyState struct {
+	Paused           bool            `json:"paused"`
+	PausedAt         *string         `json:"paused_at"`
+	PausedBy         *string         `json:"paused_by"`
+	Reason           *string         `json:"reason"`
+	DisabledPolicy   bool            `json:"disabled_policy"`
+	PausedAgents     []AutonomyAgent `json:"paused_agents"`
+	PolicyEnabled    bool            `json:"policy_enabled"`
+	RestorableAgents []AutonomyAgent `json:"restorable_agents"`
+}
+
+// AIAutonomyOutcome reports what engaging or releasing the switch changed.
+type AIAutonomyOutcome struct {
+	AIAutonomyState
+	DisabledPolicyNow bool            `json:"disabled_policy_now"`
+	PausedNow         []AutonomyAgent `json:"paused_now"`
+	ReEnabledPolicy   bool            `json:"re_enabled_policy"`
+	ResumedAgents     []AutonomyAgent `json:"resumed_agents"`
+	AgentsGone        int             `json:"agents_gone"`
+}
+
+const aiAutonomyPath = "/api/v1/org/ai-settings/autonomy"
+
+// GetAIAutonomyState reads the autonomous-actions pause.
+func (c *Client) GetAIAutonomyState() (*AIAutonomyState, error) {
+	var state AIAutonomyState
+	if err := c.getJSON(c.BaseURL+aiAutonomyPath, &state); err != nil {
+		return nil, fmt.Errorf("reading the autonomy pause: %w", err)
+	}
+	return &state, nil
+}
+
+// SetAIAutonomyPause engages or releases the autonomous-actions pause.
+func (c *Client) SetAIAutonomyPause(paused bool, reason string) (*AIAutonomyOutcome, error) {
+	payload := map[string]any{"paused": paused}
+	if reason != "" {
+		payload["reason"] = reason
+	}
+	var outcome AIAutonomyOutcome
+	if err := c.sendJSON(http.MethodPut, c.BaseURL+aiAutonomyPath, payload, &outcome); err != nil {
+		return nil, fmt.Errorf("setting the autonomy pause: %w", err)
+	}
+	return &outcome, nil
+}

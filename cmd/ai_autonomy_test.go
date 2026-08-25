@@ -18,6 +18,11 @@ type aiAutonomyMock struct {
 	pauseCalls    []bool
 	pauseReasons  []string
 	provisionRole string
+
+	autonomyState   client.AIAutonomyState
+	autonomyCalls   []bool
+	autonomyReasons []string
+	autonomyOutcome *client.AIAutonomyOutcome
 }
 
 func (m *aiAutonomyMock) GetBoardIdentity() (*client.BoardIdentity, error) {
@@ -138,7 +143,7 @@ func TestAutonomyStatusReadsTheKillSwitch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status failed: %v", err)
 	}
-	for _, want := range []string{"STOPPED", "incident 42", "ankra ai autonomy resume"} {
+	for _, want := range []string{"STOPPED", "incident 42", "ankra ai autonomy start-all"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("status output lacks %q: %s", want, out)
 		}
@@ -150,8 +155,8 @@ func TestAutonomyStatusReadsTheKillSwitch(t *testing.T) {
 func TestAutonomyPauseConfirmsAndReportsWhatItCancelled(t *testing.T) {
 	mock := &aiAutonomyMock{}
 
-	_, err := runConfirmCommand(t, mock, "n\n", []*cobra.Command{aiAutonomyPauseCmd},
-		"ai", "autonomy", "pause")
+	_, err := runConfirmCommand(t, mock, "n\n", []*cobra.Command{aiAutonomyStopAllCmd},
+		"ai", "autonomy", "stop-all")
 	if err == nil || exitCodeFor(err) != exitCancelled {
 		t.Fatalf("declining must cancel, got %v", err)
 	}
@@ -159,9 +164,9 @@ func TestAutonomyPauseConfirmsAndReportsWhatItCancelled(t *testing.T) {
 		t.Fatalf("paused despite declining: %+v", mock.pauseCalls)
 	}
 
-	resetTreeFlags(t, aiAutonomyPauseCmd)
-	out, err := runConfirmCommand(t, mock, "", []*cobra.Command{aiAutonomyPauseCmd},
-		"ai", "autonomy", "pause", "--yes", "--reason", "  incident 42  ")
+	resetTreeFlags(t, aiAutonomyStopAllCmd)
+	out, err := runConfirmCommand(t, mock, "", []*cobra.Command{aiAutonomyStopAllCmd},
+		"ai", "autonomy", "stop-all", "--yes", "--reason", "  incident 42  ")
 	if err != nil {
 		t.Fatalf("pause failed: %v", err)
 	}
@@ -176,8 +181,8 @@ func TestAutonomyPauseConfirmsAndReportsWhatItCancelled(t *testing.T) {
 func TestAutonomyResumeReleasesTheSwitch(t *testing.T) {
 	mock := &aiAutonomyMock{pauseState: client.AIPauseState{Paused: true}}
 
-	out, err := runConfirmCommand(t, mock, "", []*cobra.Command{aiAutonomyResumeCmd},
-		"ai", "autonomy", "resume")
+	out, err := runConfirmCommand(t, mock, "", []*cobra.Command{aiAutonomyStartAllCmd},
+		"ai", "autonomy", "start-all")
 	if err != nil {
 		t.Fatalf("resume failed: %v", err)
 	}
@@ -186,5 +191,96 @@ func TestAutonomyResumeReleasesTheSwitch(t *testing.T) {
 	}
 	if !strings.Contains(out, "available") {
 		t.Fatalf("resume output = %s", out)
+	}
+}
+
+func (m *aiAutonomyMock) GetAIAutonomyState() (*client.AIAutonomyState, error) {
+	state := m.autonomyState
+	return &state, nil
+}
+
+func (m *aiAutonomyMock) SetAIAutonomyPause(paused bool, reason string) (*client.AIAutonomyOutcome, error) {
+	m.autonomyCalls = append(m.autonomyCalls, paused)
+	m.autonomyReasons = append(m.autonomyReasons, reason)
+	if m.autonomyOutcome != nil {
+		return m.autonomyOutcome, nil
+	}
+	return &client.AIAutonomyOutcome{
+		AIAutonomyState:   client.AIAutonomyState{Paused: paused},
+		DisabledPolicyNow: paused,
+		PausedNow:         []client.AutonomyAgent{{ID: "a1", Name: "Gap Scanner"}},
+	}, nil
+}
+
+// Pausing autonomous actions reports what it switched off, because that is
+// exactly what a later resume will restore - the record the browser used to
+// keep to itself.
+func TestAutonomyPauseReportsWhatItSwitchedOff(t *testing.T) {
+	mock := &aiAutonomyMock{}
+
+	out, err := runConfirmCommand(t, mock, "", []*cobra.Command{aiAutonomyPauseCmd},
+		"ai", "autonomy", "pause", "--reason", "  change freeze  ")
+	if err != nil {
+		t.Fatalf("pause failed: %v", err)
+	}
+	if len(mock.autonomyCalls) != 1 || !mock.autonomyCalls[0] ||
+		mock.autonomyReasons[0] != "change freeze" {
+		t.Fatalf("pause sent %+v / %+v", mock.autonomyCalls, mock.autonomyReasons)
+	}
+	for _, want := range []string{"1 agent(s) switched off and auto-remediation",
+		"Gap Scanner", "ankra ai autonomy resume"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("pause output lacks %q: %s", want, out)
+		}
+	}
+}
+
+func TestAutonomyResumeReportsWhatItRestored(t *testing.T) {
+	mock := &aiAutonomyMock{autonomyOutcome: &client.AIAutonomyOutcome{
+		AIAutonomyState: client.AIAutonomyState{Paused: false},
+		ReEnabledPolicy: true,
+		ResumedAgents:   []client.AutonomyAgent{{ID: "a1", Name: "Gap Scanner"}},
+		AgentsGone:      2,
+	}}
+
+	out, err := runConfirmCommand(t, mock, "", []*cobra.Command{aiAutonomyResumeCmd},
+		"ai", "autonomy", "resume")
+	if err != nil {
+		t.Fatalf("resume failed: %v", err)
+	}
+	if len(mock.autonomyCalls) != 1 || mock.autonomyCalls[0] {
+		t.Fatalf("resume sent %+v", mock.autonomyCalls)
+	}
+	if !strings.Contains(out, "1 agent(s) restored and auto-remediation") {
+		t.Fatalf("resume output = %s", out)
+	}
+	// Agents deleted while paused are reported, not silently dropped.
+	if !strings.Contains(out, "2 agent(s) the pause switched off no longer exist") {
+		t.Fatalf("resume output hides the gone agents: %s", out)
+	}
+}
+
+// One status answers "is anything switched off?" for both stops.
+func TestAutonomyStatusReportsBothStops(t *testing.T) {
+	reason := "change freeze"
+	pausedAt := "2026-08-25T19:00:00Z"
+	mock := &aiAutonomyMock{autonomyState: client.AIAutonomyState{
+		Paused: true, PausedAt: &pausedAt, Reason: &reason, DisabledPolicy: true,
+		PausedAgents: []client.AutonomyAgent{{ID: "a1", Name: "Gap Scanner"}},
+	}}
+
+	out, err := runConfirmCommand(t, mock, "", []*cobra.Command{aiAutonomyStatusCmd},
+		"ai", "autonomy", "status")
+	if err != nil {
+		t.Fatalf("status failed: %v", err)
+	}
+	if !strings.Contains(out, "AI is available for this organisation.") {
+		t.Fatalf("status must report the hard stop too: %s", out)
+	}
+	for _, want := range []string{"Autonomous actions: PAUSED", "change freeze",
+		"switched off 1 agent(s) and auto-remediation", "ankra ai autonomy resume"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status output lacks %q: %s", want, out)
+		}
 	}
 }

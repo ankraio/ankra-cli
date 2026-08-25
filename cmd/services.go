@@ -259,6 +259,8 @@ type APIClient interface {
 	RevokeBoardIdentity() (*client.BoardIdentity, error)
 	GetAIPauseState() (*client.AIPauseState, error)
 	SetAIPause(paused bool, reason string) (*client.AIPauseOutcome, error)
+	GetAIAutonomyState() (*client.AIAutonomyState, error)
+	SetAIAutonomyPause(paused bool, reason string) (*client.AIAutonomyOutcome, error)
 
 	ListTickets(filter client.TicketListFilter) (*client.TicketListResponse, error)
 	GetTicket(ticketID string) (*client.Ticket, error)

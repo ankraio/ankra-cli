@@ -3468,3 +3468,11 @@ func (m baseMock) GetAIPauseState() (*client.AIPauseState, error) {
 func (m baseMock) SetAIPause(paused bool, reason string) (*client.AIPauseOutcome, error) {
 	return nil, errors.New("not implemented")
 }
+
+func (m baseMock) GetAIAutonomyState() (*client.AIAutonomyState, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetAIAutonomyPause(paused bool, reason string) (*client.AIAutonomyOutcome, error) {
+	return nil, errors.New("not implemented")
+}
