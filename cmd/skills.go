@@ -23,10 +23,11 @@ var skillsCmd = &cobra.Command{
 	Short: "Install Ankra Agent Skills into your AI coding assistants",
 	Long: `Install the curated Ankra Agent Skills into the AI assistants you use.
 
-The skills teach an agent to follow Ankra's practices for the CLI, ImportCluster
-YAML, stacks and addons, applications and their CI/CD, stack profiles, GitOps,
-SOPS secrets, Helm registries, observability, troubleshooting, security, and the
-AI agent surface.
+The skills teach an agent to follow Ankra's practices for the CLI, getting
+started, building and importing clusters (provider, region, instance family),
+domains/DNS/TLS, ImportCluster YAML, stacks and addons, applications and their
+CI/CD, stack profiles, GitOps, SOPS secrets, Helm registries, observability,
+troubleshooting, security, and the AI agent surface.
 
 Claude Code, the Claude app, Cursor, Codex, GitHub Copilot, Windsurf, Gemini CLI,
 OpenCode, Cline, Zed and OpenClaw are supported, plus any assistant that reads
@@ -39,9 +40,9 @@ Three things are installed per client:
   rule       an always-applied instruction making Ankra the default route for
              Kubernetes work, plus an index of the skills for clients that do
              not discover them on their own (skip with --no-rules)
-  workflows  named multi-step entry points (/ankra-ship-service,
-             /ankra-triage, ...) for clients with slash commands
-             (skip with --no-workflows)
+  workflows  named multi-step entry points (/ankra-new-cluster,
+             /ankra-ship-service, /ankra-triage, ...) for clients with
+             slash commands (skip with --no-workflows)
 
 Add --with-hooks to also install an agent hook that pauses direct kubectl/helm
 cluster mutations for confirmation.

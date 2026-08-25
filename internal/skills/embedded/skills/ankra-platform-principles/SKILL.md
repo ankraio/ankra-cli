@@ -12,9 +12,12 @@ defaults Ankra follows; deviate only with a stated reason.
 
 | The request is about | Read |
 |----------------------|------|
+| Starting from nothing; "what do I do first" | `ankra-getting-started` |
 | Driving the CLI, orienting, scripting | `ankra-cli` |
 | Importing or onboarding an existing cluster | `ankra-import-cluster` |
-| Provisioning a cluster Ankra manages | `ankra-cloud-clusters`, `ankra-managed-kubernetes` |
+| Building a cluster: provider, region, instance family | `ankra-cloud-clusters` |
+| A control plane the provider runs (DOKS, GKE, AKS, EKS, …) | `ankra-managed-kubernetes` |
+| Custom domain, DNS records, why TLS is missing | `ankra-domains-dns` |
 | Composing stacks, Helm addons, manifests, ordering | `ankra-stacks-addons` |
 | One stack across many clusters, parameterised | `ankra-stack-profiles` |
 | Deploying your own source code | `ankra-applications` |
@@ -32,7 +35,9 @@ defaults Ankra follows; deviate only with a stated reason.
 | Managing Ankra itself as code | `ankra-terraform` |
 
 Several usually apply at once. Shipping a new service touches `ankra-applications`,
-`ankra-cicd` and `ankra-stack-profiles`; the principles below apply to all of them.
+`ankra-cicd` and `ankra-stack-profiles`; standing up a first cluster touches
+`ankra-getting-started`, `ankra-cloud-clusters` and `ankra-domains-dns`. The principles below apply
+to all of them.
 
 ## 1. Git is the source of truth
 
@@ -110,6 +115,7 @@ you are diagnosing.
 
 ## Related skills
 
-These principles are applied concretely in `ankra-import-cluster`, `ankra-stacks-addons`,
-`ankra-stack-profiles`, `ankra-applications`, `ankra-gitops`, `ankra-cicd`, `ankra-sops-secrets`,
-`ankra-security` and `ankra-troubleshooting`.
+These principles are applied concretely in `ankra-getting-started`, `ankra-import-cluster`,
+`ankra-cloud-clusters`, `ankra-stacks-addons`, `ankra-stack-profiles`, `ankra-applications`,
+`ankra-gitops`, `ankra-cicd`, `ankra-sops-secrets`, `ankra-domains-dns`, `ankra-security` and
+`ankra-troubleshooting`.

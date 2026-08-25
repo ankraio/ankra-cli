@@ -40,6 +40,17 @@
   Gemini TOML, Windsurf workflows, Cline workflows). Skip them with
   `--no-workflows`.
 
+- **Two new skills for the parts of onboarding that had none, and a
+  `/ankra-new-cluster` workflow.** `ankra-getting-started` is the ordered path
+  from an empty organisation to a running application - credentials, the
+  GitOps repository and the domain settled before the first cluster, because
+  all three are wired at create time and painful to retrofit.
+  `ankra-domains-dns` separates the four things that get conflated: the
+  organisation root domain, a cluster's generated subdomain, a custom DNS zone
+  served with your own credential, and the preview domain PR demos publish
+  under - including that Ankra publishes nothing on a preview domain you own,
+  so an unpublished wildcard costs you the URL and the TLS together.
+
 - **Six new skills covering the work that spans several parts of the
   platform.** `ankra-applications` (source code to a running deployment on one
   or many clusters, registries, environment secrets, auto-deploy, PR demos,
@@ -55,6 +66,30 @@
   transcripts, the AI board).
 
 ### Changed
+
+- **`ankra-cloud-clusters` and `ankra-managed-kubernetes` documented commands
+  and flags that do not exist.** Between them they told an agent to run
+  `ankra cluster ovh node-group|upgrade|scale|ssh-keys` (all removed in favour
+  of the provider-agnostic `ankra cluster node-group|upgrade|scale|ssh-keys`),
+  `--wait` on a provider `create` (never existed), `deprovision --auto-delete`
+  (removed), `ankra cluster managed options` and `managed upgrades` (neither
+  exists), `--provider mks` (it is `ovh_mks`), `--cluster-id` on
+  `managed import` (it is `--provider-cluster-id`), and
+  `--node-pool-autoscaling-min/max` / `--autoscaling-enabled` (they are
+  `--autoscaling`, `--autoscaling-min`, `--autoscaling-max`). Every one of
+  those makes an agent emit a command that fails. `ankra-cloud-clusters` also
+  claimed `provision`/`deprovision` were a power-off, when deprovision is a
+  teardown that releases cloud resources and uninstalls every stack.
+
+- **`ankra-cloud-clusters` now covers cluster creation properly**: all seven
+  providers, the discovery commands that list the regions and instance
+  families a credential can actually deploy, k3s vs kubeadm and etcd topology,
+  the `--external-cloud-provider` / `--include-networking` / `--include-dns`
+  batteries, committing the generated stack to a GitOps repository with
+  `--gitops-repository` at create time, OVH availability zones, and the
+  difference between power, teardown and delete. A new `reference.md` carries
+  the per-provider instance-family guide, role sizing, GPU node groups, the
+  create-flag map and the cost traps.
 
 - **The `ankra-cli`, `ankra-sops-secrets`, `ankra-stacks-addons`,
   `ankra-cicd` and `ankra-platform-principles` skills now match the CLI they
