@@ -254,6 +254,14 @@ type APIClient interface {
 	GetAgentRunTranscript(runID string, since int64, limit int) (*client.AgentRunTranscript, error)
 	CancelAgentRun(runID string) (*client.CancelAgentRunResponse, error)
 
+	GetBoardIdentity() (*client.BoardIdentity, error)
+	ProvisionBoardIdentity(roleSlug string) (*client.BoardIdentity, error)
+	RevokeBoardIdentity() (*client.BoardIdentity, error)
+	GetAIPauseState() (*client.AIPauseState, error)
+	SetAIPause(paused bool, reason string) (*client.AIPauseOutcome, error)
+	GetAIAutonomyState() (*client.AIAutonomyState, error)
+	SetAIAutonomyPause(paused bool, reason string) (*client.AIAutonomyOutcome, error)
+
 	ListTickets(filter client.TicketListFilter) (*client.TicketListResponse, error)
 	GetTicket(ticketID string) (*client.Ticket, error)
 	ListTicketEvents(ticketID string, limit int) (*client.TicketEventListResponse, error)
