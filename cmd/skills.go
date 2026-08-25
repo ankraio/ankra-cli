@@ -206,11 +206,16 @@ mutations and asks for confirmation.`,
 		options.workflows = !noWorkflows
 		options.hooks, _ = cmd.Flags().GetBool("with-hooks")
 
+		// Several assistants share the client-neutral library, so the same
+		// directory can be the target twice in one run. Copying it again would
+		// report every skill as "already present, use --force", which is both
+		// noise and wrong advice.
+		writtenDirectories := make(map[string]string)
 		for index, target := range targets {
 			if index > 0 {
 				fmt.Println()
 			}
-			if err := installForTarget(fsys, target, args, options); err != nil {
+			if err := installForTarget(fsys, target, args, options, writtenDirectories); err != nil {
 				return err
 			}
 		}
@@ -302,22 +307,27 @@ type skillsInstallOptions struct {
 // installForTarget installs the selected skills and the client's supporting
 // artefacts (rule, skill index, workflow commands, guard hook) for one
 // target, reporting each step.
-func installForTarget(fsys fs.FS, target skills.Target, names []string, options skillsInstallOptions) error {
+func installForTarget(fsys fs.FS, target skills.Target, names []string, options skillsInstallOptions, writtenDirectories map[string]string) error {
 	fmt.Printf("%s (%s) → %s\n", target.Client.DisplayName, target.Scope, skills.DisplayPath(target.SkillsDirectory))
 
 	if err := os.MkdirAll(target.SkillsDirectory, 0o755); err != nil {
 		return fmt.Errorf("could not create %s: %w", target.SkillsDirectory, err)
 	}
 
-	installed, skipped, err := installSkillPayload(fsys, target, names, options.force)
-	if err != nil {
-		return err
-	}
-	for _, name := range installed {
-		fmt.Printf("  skill     %s\n", name)
-	}
-	if len(skipped) > 0 {
-		fmt.Printf("  skipped   %s (already present; use --force to overwrite)\n", strings.Join(skipped, ", "))
+	if owner, shared := writtenDirectories[target.SkillsDirectory]; shared {
+		fmt.Printf("  skills    already written here for %s\n", owner)
+	} else {
+		installed, skipped, err := installSkillPayload(fsys, target, names, options.force)
+		if err != nil {
+			return err
+		}
+		for _, name := range installed {
+			fmt.Printf("  skill     %s\n", name)
+		}
+		if len(skipped) > 0 {
+			fmt.Printf("  skipped   %s (already present; use --force to overwrite)\n", strings.Join(skipped, ", "))
+		}
+		writtenDirectories[target.SkillsDirectory] = target.Client.DisplayName
 	}
 
 	if options.rules {

@@ -547,6 +547,30 @@ func TestSkillsInstallWithHooksSkipsClientsWithoutHooks(t *testing.T) {
 	}
 }
 
+// Several assistants share the client-neutral library. Installing for all of
+// them in one run must not report the second one's skills as "already
+// present, use --force" - they were written seconds earlier by this run.
+func TestSkillsInstallSharesOneLibraryAcrossClients(t *testing.T) {
+	project := t.TempDir()
+	c := skillsTestCmdFor(t, newSkillsInstallTestCmd(), project, "codex,zed")
+	var err error
+	output := captureStdout(t, func() {
+		err = skillsInstallCmd.RunE(c, nil)
+	})
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if strings.Contains(output, "use --force to overwrite") {
+		t.Errorf("a directory this run just wrote must not be reported as a skip:\n%s", output)
+	}
+	if !strings.Contains(output, "already written here for Codex CLI") {
+		t.Errorf("expected the shared-library line:\n%s", output)
+	}
+	if !dirExists(filepath.Join(project, ".ankra", "skills", "ankra-cli")) {
+		t.Error("the shared library was not populated")
+	}
+}
+
 // Personal scope routes the Cursor rule into a local plugin (there is no
 // supported user-level rules directory) and the Claude rule into
 // ~/.claude/CLAUDE.md.
