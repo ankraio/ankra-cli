@@ -201,3 +201,59 @@ func TestRunClusterDomain_ReportsAHeldRemoval(t *testing.T) {
 		t.Errorf("a held removal is not an empty cluster:\n%s", output)
 	}
 }
+
+func TestRunClusterDomain_ReportsThePreviewDomainAsThePublicDomain(t *testing.T) {
+	// ankra-ehxts: the organisation's preview domain is published by a custom
+	// DNS zone the cluster serves, so "the cluster domain" is that domain and
+	// the generated ankra.cc zone is only the row behind it.
+	mock := &clusterDomainMock{zone: client.ClusterDNSZoneResponse{
+		Success: true, FQDN: "41k4sso94j.qh4thi04cs.ankra.cc", State: "active",
+		PublicDomain: "smartoptics.dev", PublicDomainSource: clusterPublicDomainSourcePreviewDomain,
+		PublicDomainPublishedZone: "smartoptics.dev"}}
+
+	output, executeError := runClusterDomain(t, mock, domainTestClusterID)
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "Domain: 41k4sso94j.qh4thi04cs.ankra.cc") {
+		t.Errorf("the generated zone must still be reported:\n%s", output)
+	}
+	if !strings.Contains(output, "Public domain: smartoptics.dev") {
+		t.Errorf("the public domain must be reported:\n%s", output)
+	}
+	if !strings.Contains(output, "${{ ankra.cluster_domain }}") || !strings.Contains(output, "custom DNS zone") {
+		t.Errorf("the explanation must tie the public domain to the built-in and the custom zone:\n%s", output)
+	}
+}
+
+func TestRunClusterDomain_OmitsThePublicDomainWhenItIsTheGeneratedZone(t *testing.T) {
+	mock := &clusterDomainMock{zone: client.ClusterDNSZoneResponse{
+		Success: true, FQDN: "abc.org1234.ankra.cc", State: "active",
+		PublicDomain: "abc.org1234.ankra.cc", PublicDomainSource: "cluster_zone",
+		PublicDomainPublishedZone: "abc.org1234.ankra.cc"}}
+
+	output, executeError := runClusterDomain(t, mock, domainTestClusterID)
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if strings.Contains(output, "Public domain:") {
+		t.Errorf("a public domain equal to the generated zone adds nothing:\n%s", output)
+	}
+}
+
+func TestRunClusterDomain_ReportsThePublicDomainOnAClusterWithoutAZone(t *testing.T) {
+	// No generated zone at all, but the organisation's custom zone publishes
+	// the preview domain from this cluster: hostnames still have a home.
+	mock := &clusterDomainMock{zone: client.ClusterDNSZoneResponse{
+		Success: true, State: clusterDomainStateNone,
+		PublicDomain: "smartoptics.dev", PublicDomainSource: clusterPublicDomainSourcePreviewDomain,
+		PublicDomainPublishedZone: "smartoptics.dev"}}
+
+	output, executeError := runClusterDomain(t, mock, domainTestClusterID)
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "Domain: (none)") || !strings.Contains(output, "Public domain: smartoptics.dev") {
+		t.Errorf("both the missing zone and the public domain must be reported:\n%s", output)
+	}
+}

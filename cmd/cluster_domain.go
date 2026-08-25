@@ -17,6 +17,16 @@ organisation's Ankra-managed root - ankra.cc by default, or the organisation's
 own domain when one is registered (portal: AI > Settings > Workspaces, field
 "Custom Ankra domain"; CLI: 'ankra org domain').
 
+The read also reports the cluster's PUBLIC domain: the domain hostnames on the
+cluster are published under, and what ${{ ankra.cluster_domain }} resolves to
+in stacks and stack profiles. It is the organisation's preview domain
+('ankra org ai-environment set --demo-base-domain') whenever a custom DNS zone
+declared for the organisation or the cluster ('ankra org custom-dns-zones',
+'ankra cluster custom-dns-zones') covers it - the cluster's own external-dns
+then publishes every hostname under it - and the generated domain otherwise.
+An organisation whose domain cannot be registered as the Ankra root (it lives
+in its own DNS account) gets its own domain as the cluster domain this way.
+
 The plain command is a read: it never creates a zone. A cluster that has no
 domain reports state "none", and 'ankra org dns zones' lists every cluster in
 the organisation that does have one.
@@ -83,6 +93,7 @@ for it keeps the same --txt-owner-id.`,
 		// the CLI answer a removal with an "run --enable" hint.
 		if result.State == clusterDomainStateNone && !clusterDomainEnable && !clusterDomainRemove {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Domain: (none)\nState:  none\n")
+			printClusterPublicDomain(cmd, result)
 			if result.OptedOut {
 				// A removal that reports "none" is the exact moment PLA-771
 				// was watched from. Saying only "run --enable to create one"
@@ -106,6 +117,7 @@ for it keeps the same --txt-owner-id.`,
 		if result.OptedOut {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Opted out: yes\n")
 		}
+		printClusterPublicDomain(cmd, result)
 		switch {
 		case clusterDomainRemove:
 			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
@@ -123,6 +135,30 @@ for it keeps the same --txt-owner-id.`,
 // clusterDomainStateNone is the state the read surface reports for a cluster
 // that holds no DNS zone at all.
 const clusterDomainStateNone = "none"
+
+// clusterPublicDomainSourcePreviewDomain is the public_domain_source a backend
+// reports when the cluster domain is the organisation's preview domain,
+// published by a custom DNS zone the cluster serves.
+const clusterPublicDomainSourcePreviewDomain = "preview_domain"
+
+// printClusterPublicDomain reports the domain hostnames on the cluster are
+// actually published under when the backend resolved one that is not simply
+// the generated zone - the organisation's own preview domain, which is what
+// "the cluster domain" means to an organisation that configured one. A
+// backend too old to report it, or a public domain equal to the generated
+// zone, prints nothing extra.
+func printClusterPublicDomain(cmd *cobra.Command, result *client.ClusterDNSZoneResponse) {
+	if result.PublicDomain == "" || result.PublicDomain == result.FQDN {
+		return
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Public domain: %s\n", result.PublicDomain)
+	if result.PublicDomainSource == clusterPublicDomainSourcePreviewDomain {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+			"\nThe cluster domain (${{ ankra.cluster_domain }}) is the organisation's preview domain %s: "+
+				"a custom DNS zone this cluster serves (%s) publishes every hostname under it.\n",
+			result.PublicDomain, result.PublicDomainPublishedZone)
+	}
+}
 
 var (
 	clusterDomainEnable bool
