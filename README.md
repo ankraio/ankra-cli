@@ -235,11 +235,11 @@ and flag descriptions in `cmd/`.
 - **Documentation**: [docs.ankra.ai](https://docs.ankra.ai)
 - **CLI Command Reference**: [docs.ankra.ai/reference/cli](https://docs.ankra.ai/reference/cli)
 - **Blog & Tutorials**: [ankra.ai/blog](https://ankra.ai/blog)
-- **Community**: [community.ankra.io](https://community.ankra.io)
+- **Community**: [community.ankra.ai](https://community.ankra.ai)
 
 ## Support
 
 - Issues: https://github.com/ankraio/ankra-cli/issues
 - Documentation: [docs.ankra.ai](https://docs.ankra.ai)
-- Community Slack: [community.ankra.io](https://community.ankra.io)
+- Community Slack: [community.ankra.ai](https://community.ankra.ai)
 - Email: hello@ankra.io
