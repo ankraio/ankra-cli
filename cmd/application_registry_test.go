@@ -181,3 +181,23 @@ func TestApplicationRegistryClearRefusesWhenDeclined(t *testing.T) {
 		t.Errorf("UpdateApplicationImageRegistry calls = %d, want 0", mockClient.updateCalls)
 	}
 }
+
+func TestApplicationRegistrySetParsesComponentRepositories(t *testing.T) {
+	mockClient := &applicationRegistryMock{payload: json.RawMessage(`{"declared":true}`)}
+	_, executeError := runApplicationCommand(t, mockClient,
+		"registry", "set", testApplicationID, "--url", "oci://artifact.example.com/sggame-images",
+		"--component-repository", "backend=suitcase-backend", "--component-repository", " frontend = suitcase-frontend ")
+	if executeError != nil {
+		t.Fatalf("registry set error = %v", executeError)
+	}
+	repositories := mockClient.updateRequest.ImageRegistry.ComponentRepositories
+	if repositories["backend"] != "suitcase-backend" || repositories["frontend"] != "suitcase-frontend" {
+		t.Errorf("component repositories = %+v", repositories)
+	}
+	_, malformedError := runApplicationCommand(t, mockClient,
+		"registry", "set", testApplicationID, "--url", "oci://artifact.example.com/sggame-images",
+		"--component-repository", "backend")
+	if malformedError == nil || exitCodeFor(malformedError) != exitUsage {
+		t.Fatalf("a flag without '=' must be a usage error, got %v", malformedError)
+	}
+}
