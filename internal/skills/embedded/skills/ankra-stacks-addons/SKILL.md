@@ -68,8 +68,18 @@ ankra cluster addons upgrade <addon>       # change version/values/parents
 ankra cluster manifests upgrade <name>
 ```
 
+## One stack, many clusters
+
+The moment a stack would be copy-pasted to a second cluster and edited, stop and capture it as a
+stack profile instead: every per-cluster difference becomes a parameter, and the two clusters
+cannot drift apart silently. `ankra cluster stacks clone <stack> --to <cluster>` is the one-off
+route (it lands as a draft on the target and strips encrypted values, which must be reconfigured
+there); a profile is the durable one. See `ankra-stack-profiles`.
+
 ## Related skills
 
 - `ankra-import-cluster` for the surrounding ImportCluster document.
+- `ankra-stack-profiles` for reusing a stack across a fleet, with parameters.
 - `ankra-helm-registries` for private chart sources.
 - `ankra-gitops` for storing stacks in Git.
+- `ankra-troubleshooting` when a resource deploys before its dependency.

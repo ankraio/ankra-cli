@@ -36,7 +36,11 @@ the un-injected fallback; never bump it for a release.
 - `internal/kubeconfig` — kubeconfig read/merge/write.
 - `internal/skills` — embedded agent skills, vendored from the sibling
   `ankra-skills` repo (`make generate` / `make verify-skills`; in the split
-  repo the embedded copy is canonical).
+  repo the embedded copy is canonical). `clients.go` is the table of every
+  assistant `ankra skills install` targets: supporting one more is a registry
+  entry (paths per scope, rule/command/hook format), not a new branch. `clients.go` is the table of every
+  assistant `ankra skills install` targets: supporting one more is a registry
+  entry (paths per scope, rule/command/hook format), not a new branch.
 - `tools/gendocs` — generates the Mintlify CLI reference; run on release tags
   by `.github/workflows/docs-sync.yml`, which PRs `ankraio/ankra-docs`.
 - `systemtest/` — end-to-end lifecycle shell test (CI: `systemtest.yml`).

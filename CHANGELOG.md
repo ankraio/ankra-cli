@@ -1,5 +1,77 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra skills install` now installs into every AI assistant you use, not
+  just Cursor and Claude Code.** `--editor cursor|claude-code` covered two of
+  the tools a team actually has open, so everyone else - Codex, GitHub
+  Copilot, Windsurf, Gemini CLI, OpenCode, Cline, Zed, OpenClaw, the Claude
+  app - either went without the skills or hand-copied them somewhere their
+  assistant never read. `--client` replaces `--editor` (kept as a deprecated
+  alias) and takes a repeatable, comma-separated list, `all`, or `auto`; with
+  no `--client` at all, install now detects the assistants configured on the
+  machine and does them together, falling back to Claude Code and Cursor when
+  it finds none. `ankra skills clients` lists every supported assistant, what
+  was detected, and where each one's skills would land.
+
+- **Assistants that have no skills directory now get an index instead of
+  nothing.** Claude Code and Cursor discover `SKILL.md` files by themselves;
+  Codex, Copilot, Gemini, Windsurf and everything behind `AGENTS.md` do not.
+  For those, install writes the skills into a client-neutral library and adds
+  an index to the assistant's always-loaded instructions file - naming each
+  skill, what it covers, and the path to open - inside the same managed block
+  that already carried the Ankra routing rule. A project-scoped index names
+  the repository-relative directory, so a committed `AGENTS.md` or
+  `.github/copilot-instructions.md` works on every teammate's machine.
+
+- **`ankra skills install --client claude-app` writes uploadable skill
+  bundles.** The Claude app cannot read your filesystem, so install produces
+  one `.zip` per skill - the skill directory at the archive root - ready to
+  upload at claude.ai under Settings, Capabilities, Skills.
+
+- **Ankra workflow commands are installed alongside the skills.** Skills are
+  matched against whatever the user happens to say; a workflow is a named
+  entry point for a job that spans several of them. `/ankra-ship-service`,
+  `/ankra-connect-app`, `/ankra-triage`, `/ankra-promote`, `/ankra-harden`
+  and `/ankra-profile` are written in each assistant's own command format
+  (Claude Code and Cursor commands, Codex prompts, Copilot `.prompt.md`,
+  Gemini TOML, Windsurf workflows, Cline workflows). Skip them with
+  `--no-workflows`.
+
+- **Six new skills covering the work that spans several parts of the
+  platform.** `ankra-applications` (source code to a running deployment on one
+  or many clusters, registries, environment secrets, auto-deploy, PR demos,
+  publishing as a catalogue add-on), `ankra-app-integrations` (wiring an app
+  to an LLM gateway, Harbor, a database or an internal API with the
+  credentials that already exist), `ankra-stack-profiles` (builder drafts,
+  parameters, option sets, publishing and launching across a fleet),
+  `ankra-troubleshooting` (operations, events, `--previous` logs, `top`,
+  PromQL, and what each symptom classifies as), `ankra-security` (tokens and
+  MCP scopes, roles, cluster access grants, credential scope, scanning
+  findings, agent autonomy) and `ankra-ai-agents` (model provider and
+  catalogue, MCP tool servers and per-tool role grants, agent runs and
+  transcripts, the AI board).
+
+### Changed
+
+- **The `ankra-cli`, `ankra-sops-secrets`, `ankra-stacks-addons`,
+  `ankra-cicd` and `ankra-platform-principles` skills now match the CLI they
+  describe.** `ankra-cli` documented `ankra org select`, which does not
+  exist - the command is `ankra org switch` - and predated applications,
+  stack profiles, tickets, agents and the exit-code contract.
+  `ankra-sops-secrets` documented `ankra cluster encrypt -f <file>`, which is
+  not the signature: `encrypt` names keys with `--key` and takes cluster mode
+  or file mode, and `encrypt --set` is how a new secret value is changed
+  without committing plaintext first. `ankra-platform-principles` gained the
+  routing map from a request to the right skill.
+
+- **`ankra skills uninstall` with no `--client` now undoes what install
+  did.** It resolves to the assistants that actually carry an Ankra install,
+  rather than defaulting to Cursor, and a full uninstall also removes the
+  workflow commands it wrote.
+
 ## v0.13.0-rc3 — 2026-08-25
 
 ### Added
