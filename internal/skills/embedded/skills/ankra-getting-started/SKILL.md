@@ -82,6 +82,18 @@ Retrofitting GitOps onto a running cluster is strictly more work. See `ankra-git
 
 ## 4. The first cluster
 
+**No cloud account yet? Use the playground.** Every organisation may hold one: a real, writable
+virtual cluster on Ankra's own infrastructure, agent already installed, expiring after inactivity.
+It is the fastest way to try stacks, addons and deploys before any credential exists:
+
+```bash
+ankra cluster playground create
+ankra cluster playground status
+ankra cluster playground destroy
+```
+
+Everything below works against it, except the provider-specific lifecycle commands.
+
 **Adopting one that already exists** — write an ImportCluster YAML and apply it
 (`ankra-import-cluster`):
 

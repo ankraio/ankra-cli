@@ -91,6 +91,36 @@
   the per-provider instance-family guide, role sizing, GPU node groups, the
   create-flag map and the cost traps.
 
+- **`ankra-import-cluster` and `ankra-observability` taught the silently-broken
+  `parents` shorthand.** Both showed `parents: - manifest: <name>` in their YAML
+  examples, and the import skill's field reference endorsed it - but the
+  parser requires a `kind` + `name` pair and silently drops anything else, so
+  every dependency edge written that way vanishes while local and server-side
+  validation both pass. This is the exact trap `ankra-stacks-addons` already
+  warned about; the other two skills were teaching it. Both now use the
+  `kind`/`name` form, and the import skill documents the trap and the
+  `ankra cluster stacks list <stack> -o json` verification.
+
+- **`ankra-alerts-webhooks` rewritten against the real `ankra alerts`
+  surface.** The skill predated the CLI entirely - no commands, just concepts.
+  It now covers destinations (webhook URLs, Slack/Teams bot channels via
+  `destinations channels`, payload templates), routes (kind/severity/cluster
+  filters, include/exclude modes, priorities and `--stop-on-match`),
+  `routes preview` with the `--alert-id` dedup caveat, and the
+  `test`/`test-url` delivery checks that exit non-zero for CI.
+
+- **Gaps filled across the catalogue.** `ankra-helm-registries` gained the
+  registry management surface (`registries create|sync|sync-jobs`, spec-file
+  form, `--exclude-charts`) and chart discovery (`ankra charts
+  list|search|info|values|template`); `ankra-observability` gained the
+  metrics wiring and reading surface (`cluster metrics`, `top`);
+  `ankra-getting-started` gained the organisation playground as the
+  zero-credential first cluster; `ankra-cli` gained the support-request
+  surface and the beta update channel; `ankra-gitops` gained
+  `ankra cluster gitops status` and the create-time `--gitops-repository`
+  wiring. `ankra-gitops` and `ankra-cicd` no longer credit syncing to
+  ArgoCD - deploys roll out via the Ankra engine.
+
 - **The `ankra-cli`, `ankra-sops-secrets`, `ankra-stacks-addons`,
   `ankra-cicd` and `ankra-platform-principles` skills now match the CLI they
   describe.** `ankra-cli` documented `ankra org select`, which does not

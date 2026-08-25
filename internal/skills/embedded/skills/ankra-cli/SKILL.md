@@ -15,6 +15,7 @@ bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/in
 ankra --version
 ankra completion install            # once per machine
 ankra upgrade                       # later, to update
+ankra config beta enable            # opt in to pre-release builds (disable to leave)
 ```
 
 Docs: https://docs.ankra.ai
@@ -51,7 +52,7 @@ never rely on the selection — pass both explicitly.
 | AI provider, tools, runs, board | `ankra ai ...`, `ankra org mcp-servers ...`, `ankra agents ...`, `ankra tickets ...` | `ankra-ai-agents` |
 | Tokens, roles, cluster access | `ankra tokens`, `ankra org members\|roles`, `ankra cluster access` | `ankra-security` |
 | Credentials | `ankra credentials ...` | `ankra-security` |
-| Support | `ankra support ...` | — |
+| Support requests | `ankra support create\|list\|get\|comment\|attach\|close` | below |
 
 ## Applying configuration
 
@@ -118,6 +119,20 @@ ankra agents runs --status running
 Omit `--mode` to use the server default. MCP token scopes mirror the modes:
 `ankra tokens create <name> --scopes mcp:read` for the Ask surface, `--scopes mcp:read,mcp:write`
 for the Agent surface. See `ankra-ai-agents` and `ankra-ai-gateway`.
+
+## Support requests
+
+```bash
+ankra support create --subject "Nodes NotReady" --description "..." --cluster prod
+ankra support list
+ankra support get <ticket-id>
+ankra support comment <ticket-id> --message "Any update?"
+ankra support attach <ticket-id> ./screenshot.png
+ankra support close <ticket-id>
+```
+
+Every request is reviewed by Ankra AI before it reaches the team; `--force` on `create` submits a
+flagged request anyway. Attach the evidence (operations output, logs) rather than describing it.
 
 ## Scripting
 

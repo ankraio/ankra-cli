@@ -1,11 +1,11 @@
 ---
 name: ankra-cicd
-description: Build CI/CD pipelines (GitHub Actions or GitLab CI) that build a container image, push it with an immutable tag, and bump that tag in the Ankra GitOps repository so Ankra/ArgoCD syncs the change - rather than running kubectl/helm against the cluster from CI. Use when the user wires CI/CD for an Ankra-managed app, mentions GitHub Actions or GitLab CI with Ankra, or asks how to deploy on push.
+description: Build CI/CD pipelines (GitHub Actions or GitLab CI) that build a container image, push it with an immutable tag, and bump that tag in the Ankra GitOps repository so the Ankra engine syncs the change - rather than running kubectl/helm against the cluster from CI. Use when the user wires CI/CD for an Ankra-managed app, mentions GitHub Actions or GitLab CI with Ankra, or asks how to deploy on push.
 ---
 
 # Ankra CI/CD
 
-The Ankra deploy pattern is **GitOps-driven**: CI builds and pushes an image, then updates the image tag in the GitOps repo. Ankra/ArgoCD detects the commit and reconciles the cluster. CI never applies to the cluster directly.
+The Ankra deploy pattern is **GitOps-driven**: CI builds and pushes an image, then updates the image tag in the GitOps repo. The Ankra engine detects the commit and reconciles the cluster. CI never applies to the cluster directly.
 
 ## Pipeline shape (provider-agnostic)
 
@@ -13,7 +13,7 @@ The Ankra deploy pattern is **GitOps-driven**: CI builds and pushes an image, th
 1. Build the image
 2. Push with an immutable tag (commit SHA or semver, never `latest`)
 3. Bump the tag in the GitOps repo (commit / PR)
-4. Ankra syncs the change to the cluster
+4. The Ankra engine syncs the change to the cluster
 5. (optional) Verify rollout with the Ankra CLI / API
 ```
 
