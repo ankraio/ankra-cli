@@ -1,6 +1,16 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.13.0 — 2026-08-25
+
+Promotes v0.13.0-rc0 through rc4 — the kubectl-shaped read surface
+(`describe`, `events --for`, `top`, selector logs, `--previous`), stack
+profiles carried from first draft to published version, organisation domains
+and custom DNS zones, external MCP tool servers, the application CI
+settings, env-secrets and registry-robot lanes, and working the AI board
+from the terminal — and adds everything since: Ankra skills installed into
+every AI assistant you use, the board's identity and the organisation's AI
+kill switch from the terminal, and a true force stop on every self-managed
+provider.
 
 ### Added
 
@@ -13,6 +23,20 @@
   no `--force` at all, now accept it like the rest, and every provider's
   flag help spells out the full effect so you know an operation-cancelling
   stop is what you are asking for.
+
+- **`ankra ai board-identity` and `ankra ai autonomy` put the AI settings a
+  runbook needs behind a token instead of a browser session.** The sharpest
+  gap cost real time: an organisation designates a board worker, every
+  ticket escalates anyway, and the fix - giving the board an identity -
+  existed only in the portal. `board-identity status` says outright when the
+  board has none and names the fix, `provision` creates the identity
+  (`--role operator|member|viewer`), and `revoke` stands it down.
+  `ankra ai autonomy` is the organisation's AI switchboard: `status` reports
+  whether AI is stopped, since when, by whom and why; `stop-all` and
+  `start-all` work the hard kill switch; `pause --reason` and `resume` work
+  the softer autonomy pause, and a pause reports what it switched off
+  rather than claiming a silent success. The destructive verbs confirm and
+  take `--yes`, and every command supports `-o json|yaml`.
 
 - **`ankra skills install` now installs into every AI assistant you use, not
   just Cursor and Claude Code.** `--editor cursor|claude-code` covered two of
