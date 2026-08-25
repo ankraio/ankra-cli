@@ -5,7 +5,7 @@
 # There is deliberately no `version` stanza: `brew audit` fails a tap whose
 # declared version it can already scan from the stable URL (redundant_version),
 # and every release URL below carries the tag. That is why the URLs interpolate
-# nothing - the release workflow substitutes __VERSION__ into them directly.
+# nothing - the release workflow substitutes the version into them directly.
 class Ankra < Formula
   desc "Command-line interface for the Ankra Kubernetes platform"
   homepage "https://ankra.io"
