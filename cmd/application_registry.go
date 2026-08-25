@@ -32,6 +32,7 @@ image tags, verify builds, and pull demo images from there instead.`,
 	registryCommand.AddCommand(newApplicationRegistryGetCommand())
 	registryCommand.AddCommand(newApplicationRegistrySetCommand())
 	registryCommand.AddCommand(newApplicationRegistryClearCommand())
+	registryCommand.AddCommand(newApplicationRegistryRobotCommand())
 	return registryCommand
 }
 
@@ -77,15 +78,22 @@ optional). --credential names an existing registry credential of this
 organisation; without one Ankra can describe where the images live but cannot
 read or pull them, so builds keep reporting as never published.
 
-Ankra never mints robots for a registry it does not administer, so it will not
-write your repository's Actions secrets unless you ask it to with
+Ankra never mints robots for a registry it was not handed the keys to. Name a
+credential with project administrator rights as --admin-credential to have
+Ankra mint, rotate and revoke a push robot for the application there and
+store it in the repository's Actions secrets; without one it leaves the
+secrets to you unless you ask it to write the declared credential with
 --manage-actions-secrets.`,
 		Example: `  ankra application registry set 23298741-6a5a-401a-a681-66f31fbdebe1 \
     --url oci://artifact.example.com/commerce --credential example-harbor
 
   ankra application registry set <application-id> \
     --url artifact.example.com/commerce --credential example-harbor \
-    --username-secret HARBOR_USERNAME --password-secret HARBOR_PASSWORD`,
+    --username-secret HARBOR_USERNAME --password-secret HARBOR_PASSWORD
+
+  ankra application registry set <application-id> \
+    --url oci://artifact.example.com/commerce --credential example-harbor-pull \
+    --admin-credential example-harbor-admin`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -103,6 +111,7 @@ write your repository's Actions secrets unless you ask it to with
 			usernameSecretName, _ := command.Flags().GetString("username-secret")
 			passwordSecretName, _ := command.Flags().GetString("password-secret")
 			manageActionsSecrets, _ := command.Flags().GetBool("manage-actions-secrets")
+			adminCredentialName, _ := command.Flags().GetString("admin-credential")
 
 			declaration := &client.ApplicationImageRegistry{
 				URL:                  registryURL,
@@ -112,6 +121,7 @@ write your repository's Actions secrets unless you ask it to with
 				UsernameSecretName:   strings.TrimSpace(usernameSecretName),
 				PasswordSecretName:   strings.TrimSpace(passwordSecretName),
 				ManageActionsSecrets: manageActionsSecrets,
+				AdminCredentialName:  strings.TrimSpace(adminCredentialName),
 			}
 			applicationID, resolveError := resolveApplicationArgument(command, arguments)
 			if resolveError != nil {
@@ -139,6 +149,8 @@ write your repository's Actions secrets unless you ask it to with
 	setCommand.Flags().String("password-secret", "", "Repository Actions secret holding the registry password")
 	setCommand.Flags().Bool("manage-actions-secrets", false,
 		"Let Ankra write the named credential into the repository's Actions secrets")
+	setCommand.Flags().String("admin-credential", "",
+		"Registry credential with project administrator rights, for Ankra to mint the application's robot")
 	registerStructuredOutputFlags(setCommand)
 	return setCommand
 }
