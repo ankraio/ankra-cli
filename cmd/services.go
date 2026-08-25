@@ -193,6 +193,8 @@ type APIClient interface {
 	GetApplicationRegistryRobot(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	EnsureApplicationRegistryRobot(requestContext context.Context, applicationID string, robotRequest client.EnsureApplicationRegistryRobotRequest) (json.RawMessage, error)
 	RevokeApplicationRegistryRobot(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	GetApplicationRepositoryCredential(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest client.SetApplicationRepositoryCredentialRequest) (json.RawMessage, error)
 	GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	UpdateApplicationAIConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error)
 	ResetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)

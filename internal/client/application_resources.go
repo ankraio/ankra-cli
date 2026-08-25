@@ -82,6 +82,16 @@ type ApplicationImageRegistry struct {
 	// mint and rotate the application's own push robot on a registry the
 	// organisation operates.
 	AdminCredentialName string `json:"admin_credential_name,omitempty"`
+	// FlatRepositories publishes monorepo components as <project>/<component>
+	// instead of <project>/<app>/<component>, matching a registry laid out
+	// flat before Ankra.
+	FlatRepositories bool `json:"flat_repositories,omitempty"`
+}
+
+// SetApplicationRepositoryCredentialRequest mirrors the repository-credential
+// body: the GitHub credential the application's repository calls ride on.
+type SetApplicationRepositoryCredentialRequest struct {
+	CredentialName string `json:"credential_name"`
 }
 
 // EnsureApplicationRegistryRobotRequest mirrors the registry-robot body:
@@ -363,6 +373,16 @@ func (client *Client) EnsureApplicationRegistryRobot(requestContext context.Cont
 
 func (client *Client) RevokeApplicationRegistryRobot(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return client.applicationResourceRequest(requestContext, http.MethodDelete, applicationPath(applicationID, "/registry-robot"), nil, nil)
+}
+
+// --- repository credential ---
+
+func (client *Client) GetApplicationRepositoryCredential(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/repository-credential"), nil, nil)
+}
+
+func (client *Client) SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest SetApplicationRepositoryCredentialRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/repository-credential"), nil, credentialRequest)
 }
 
 // --- AI lane configuration ---

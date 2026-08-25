@@ -89,6 +89,8 @@ registry added later leaves a workflow that logs in with the wrong one.`,
 		"Let Ankra write the named credential into the repository's Actions secrets")
 	addCommand.Flags().String("registry-admin-credential", "",
 		"Registry credential with project administrator rights, for Ankra to mint the application's robot")
+	addCommand.Flags().Bool("registry-flat-repositories", false,
+		"Publish monorepo components as <project>/<component> instead of <project>/<app>/<component>")
 	registerStructuredOutputFlags(addCommand)
 	return addCommand
 }
@@ -104,6 +106,7 @@ var applicationAddRegistryFlags = []string{
 	"registry-password-secret",
 	"registry-manage-actions-secrets",
 	"registry-admin-credential",
+	"registry-flat-repositories",
 }
 
 // applicationAddImageRegistry reads the --registry-* flags into the optional
@@ -136,6 +139,7 @@ func applicationAddImageRegistry(command *cobra.Command) (*client.ApplicationIma
 	passwordSecretName, _ := command.Flags().GetString("registry-password-secret")
 	manageActionsSecrets, _ := command.Flags().GetBool("registry-manage-actions-secrets")
 	adminCredentialName, _ := command.Flags().GetString("registry-admin-credential")
+	flatRepositories, _ := command.Flags().GetBool("registry-flat-repositories")
 
 	return &client.ApplicationImageRegistry{
 		URL:                  registryURL,
@@ -146,6 +150,7 @@ func applicationAddImageRegistry(command *cobra.Command) (*client.ApplicationIma
 		PasswordSecretName:   strings.TrimSpace(passwordSecretName),
 		ManageActionsSecrets: manageActionsSecrets,
 		AdminCredentialName:  strings.TrimSpace(adminCredentialName),
+		FlatRepositories:     flatRepositories,
 	}, nil
 }
 
