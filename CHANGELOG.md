@@ -32,9 +32,13 @@
   `ankra cluster access` do the same lookup, so an id from another
   organisation writes a context pinned to the real owner instead of a
   context that 404s on first use. Your selected organisation is never
-  changed, and `ANKRA_ORG=<org> kubectl ...` still short-circuits the
-  lookup. When the cluster genuinely is nowhere, the error now names the
-  organisation the request was scoped to and the ones that were searched.
+  changed, and neither is an organisation you pinned yourself: `--org` and
+  `ANKRA_ORG` are honoured as given, so a cluster that is not in the one you
+  named is reported rather than quietly fetched from somewhere else. When
+  the cluster genuinely is nowhere, the error names the organisation the
+  request was scoped to and the ones that were searched - and only the ones
+  that actually answered, so a lookup that failed is never reported as an
+  absence.
 
 ## v0.13.0 — 2026-08-25
 

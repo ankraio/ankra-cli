@@ -4,10 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	neturl "net/url"
 )
+
+// ErrClusterNotFound marks a lookup that completed and found nothing, as
+// opposed to one that could not be completed. Callers that act on a cluster's
+// absence must test for it: a transport or authorisation failure says nothing
+// about whether the cluster exists.
+var ErrClusterNotFound = errors.New("cluster not found")
 
 // ClusterListItem mirrors cluster's ClusterListItem from
 // src/usecase/cluster/list_clusters.py. Backend fields the CLI does not
@@ -85,7 +92,7 @@ func (c *Client) GetCluster(name string) (ClusterListItem, error) {
 			return cluster, nil
 		}
 	}
-	return ClusterListItem{}, fmt.Errorf("no cluster found for name %q", name)
+	return ClusterListItem{}, fmt.Errorf("no cluster found for name %q: %w", name, ErrClusterNotFound)
 }
 
 // GetClusterByID looks up a cluster by its UUID. Passing an explicit page
@@ -103,7 +110,7 @@ func (c *Client) GetClusterByID(clusterID string) (ClusterListItem, error) {
 			return cluster, nil
 		}
 	}
-	return ClusterListItem{}, fmt.Errorf("no cluster found for id %q", clusterID)
+	return ClusterListItem{}, fmt.Errorf("no cluster found for id %q: %w", clusterID, ErrClusterNotFound)
 }
 
 func (c *Client) DeleteCluster(ctx context.Context, name string) error {

@@ -78,20 +78,34 @@ func findClusterInOtherOrganisations(clusterID string) organisationScopeSearch {
 
 	restore := apiClient.OrganisationOverride()
 	defer apiClient.SetOrganisationOverride(restore)
+
+	// A lookup that failed is not a miss. Counting one as a miss would put
+	// the organisation in searchedLabels and let the caller report "searched
+	// everywhere, found nothing" about an organisation that never answered —
+	// the same unknown-as-absence reading this whole file exists to prevent.
+	var firstFailure error
 	for _, organisation := range organisations {
 		if organisation.OrganisationID == "" || organisation.OrganisationID == scopedID {
 			continue
 		}
-		search.searchedLabels = append(search.searchedLabels, organisationLabel(organisation))
 		apiClient.SetOrganisationOverride(organisation.OrganisationID)
 		cluster, lookupErr := apiClient.GetClusterByID(clusterID)
-		if lookupErr != nil || cluster.ID != clusterID {
-			continue
+		switch {
+		case lookupErr == nil && cluster.ID == clusterID:
+			search.cluster = cluster
+			search.owner = organisation
+			search.found = true
+			return search
+		case lookupErr != nil && !errors.Is(lookupErr, client.ErrClusterNotFound):
+			if firstFailure == nil {
+				firstFailure = fmt.Errorf("%s: %w", organisationLabel(organisation), lookupErr)
+			}
+		default:
+			search.searchedLabels = append(search.searchedLabels, organisationLabel(organisation))
 		}
-		search.cluster = cluster
-		search.owner = organisation
-		search.found = true
-		break
+	}
+	if firstFailure != nil {
+		search.err = firstFailure
 	}
 	return search
 }
@@ -117,9 +131,21 @@ func adoptOwningOrganisation(clusterID string, notify io.Writer) (organisationSc
 	apiClient.SetOrganisationOverride(search.owner.OrganisationID)
 	if notify != nil {
 		_, _ = fmt.Fprintf(notify, "Note: cluster %s is in organisation %s, not %s; running against the owning organisation.\n",
-			clusterID, organisationLabel(search.owner), search.scopedLabel)
+			clusterID, organisationLabel(search.owner), scopedOrganisationPhrase(search.scopedLabel))
 	}
 	return search, true
+}
+
+// resolveOwningOrganisation is the entry point the gateway commands use: it
+// adopts the organisation that owns clusterID, except when the caller pinned
+// one explicitly with --org or ANKRA_ORG. An explicit pin is a statement about
+// which organisation to use, so it is never silently replaced; the search
+// still runs, but only so the error can name the owner and the exact retry.
+func resolveOwningOrganisation(clusterID string, notify io.Writer) (organisationScopeSearch, bool) {
+	if apiClient.OrganisationOverride() != "" {
+		return findClusterInOtherOrganisations(clusterID), false
+	}
+	return adoptOwningOrganisation(clusterID, notify)
 }
 
 // notInScopedOrganisationError explains a cluster the scoped organisation
@@ -128,7 +154,7 @@ func adoptOwningOrganisation(clusterID string, notify io.Writer) (organisationSc
 // chain so exit-code classification still sees the original response.
 func notInScopedOrganisationError(search organisationScopeSearch, reference string, cause error) error {
 	var message strings.Builder
-	fmt.Fprintf(&message, "cluster %s is not in organisation %s", reference, search.scopedLabel)
+	fmt.Fprintf(&message, "cluster %s is not in %s", reference, scopedOrganisationPhrase(search.scopedLabel))
 	switch {
 	case search.found:
 		fmt.Fprintf(&message, "; it belongs to %s.\nRetry scoped to the owning organisation:\n  ankra --org %s <command>   (or ANKRA_ORG=%s)",
@@ -163,7 +189,7 @@ func effectiveOrganisationID() string {
 
 // scopedOrganisationLabel names the organisation this invocation runs
 // against, without an API call — error messages must not depend on a second
-// request succeeding.
+// request succeeding. Returns "" when nothing local identifies it.
 func scopedOrganisationLabel() string {
 	if override := apiClient.OrganisationOverride(); override != "" {
 		return override
@@ -174,7 +200,17 @@ func scopedOrganisationLabel() string {
 		}
 		return selected.OrganisationID
 	}
-	return "the selected organisation"
+	return ""
+}
+
+// scopedOrganisationPhrase renders a scope label for prose, so an
+// unidentifiable scope reads as a sentence instead of naming an organisation
+// called "the selected organisation".
+func scopedOrganisationPhrase(label string) string {
+	if label == "" {
+		return "the organisation this command is scoped to"
+	}
+	return "organisation " + label
 }
 
 // organisationLabel renders an organisation as name-and-ID, falling back to

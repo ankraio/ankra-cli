@@ -385,9 +385,18 @@ func resolveKubeconfigTargets() ([]kubeTarget, error) {
 			// cluster you were handed the ID of is exactly when the selection
 			// is wrong, so find the owner rather than writing a context that
 			// pins the wrong organisation and 404s on first use.
-			if search, adopted := adoptOwningOrganisation(kubeconfigClusterFlag, os.Stderr); adopted {
+			search, adopted := resolveOwningOrganisation(kubeconfigClusterFlag, os.Stderr)
+			if adopted {
 				return []kubeTarget{{id: search.cluster.ID, name: search.cluster.Name, orgID: search.owner.OrganisationID}}, nil
 			}
+			if search.err == nil {
+				// The search settled the question: the cluster is either
+				// somewhere the caller pinned away from, or nowhere. Writing
+				// a raw-ID context now would pin the wrong organisation and
+				// produce a context that fails on first use.
+				return nil, withExitCode(exitNotFound, notInScopedOrganisationError(search, kubeconfigClusterFlag, nil))
+			}
+			// Inconclusive: leave the ID to the backend, as before.
 			return []kubeTarget{{id: kubeconfigClusterFlag, name: kubeconfigClusterFlag}}, nil
 		}
 		return nil, fmt.Errorf("cluster %q not found; pass a cluster name or ID: %w", kubeconfigClusterFlag, err)

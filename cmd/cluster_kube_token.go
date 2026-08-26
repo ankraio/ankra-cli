@@ -179,7 +179,7 @@ func resolveGatewayClusterByID(clusterID string, notify io.Writer) (string, erro
 	if cluster, err := apiClient.GetClusterByID(clusterID); err == nil && cluster.ID == clusterID {
 		return clusterID, nil
 	}
-	search, adopted := adoptOwningOrganisation(clusterID, notify)
+	search, adopted := resolveOwningOrganisation(clusterID, notify)
 	if adopted || search.err != nil {
 		return clusterID, nil
 	}

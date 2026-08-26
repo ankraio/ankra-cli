@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,7 +68,7 @@ func (m *orgScopeMock) GetCluster(name string) (client.ClusterListItem, error) {
 			return cluster, nil
 		}
 	}
-	return client.ClusterListItem{}, errors.New("no cluster found for name " + name)
+	return client.ClusterListItem{}, fmt.Errorf("no cluster found for name %q: %w", name, client.ErrClusterNotFound)
 }
 
 func (m *orgScopeMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
@@ -81,7 +82,7 @@ func (m *orgScopeMock) GetClusterByID(clusterID string) (client.ClusterListItem,
 			return cluster, nil
 		}
 	}
-	return client.ClusterListItem{}, errors.New("no cluster found for id " + clusterID)
+	return client.ClusterListItem{}, fmt.Errorf("no cluster found for id %q: %w", clusterID, client.ErrClusterNotFound)
 }
 
 func (m *orgScopeMock) GetClusterKubeToken(_ context.Context, clusterID string) (*client.KubeToken, error) {
@@ -384,6 +385,98 @@ func TestKubeconfigAddPinsTheOwningOrganisationForACrossOrgID(t *testing.T) {
 	want := "cluster kube-token --cluster " + otherOrgClusterID + " --org " + owningOrgID
 	if got := strings.Join(execArgsForUser(t, config, "ankra-ankra-prod"), " "); got != want {
 		t.Errorf("exec args = %q, want %q", got, want)
+	}
+}
+
+func TestFindClusterInOtherOrganisationsNeverCountsAFailedLookupAsAMiss(t *testing.T) {
+	// A lookup that failed is not a miss. Counting one would claim an
+	// organisation was searched when it never answered, and turn "we do not
+	// know" into "it does not exist".
+	mock := withOrgScopeMock(t, crossOrgMock())
+	// Two organisations are searched (Acme, then Ankra AB); fail both.
+	mock.failByIDCalls = 3 // the in-scope lookup plus both searches
+	const unknown = "99999999-9999-9999-9999-999999999999"
+
+	search := findClusterInOtherOrganisations(unknown)
+	if search.found {
+		t.Fatal("no organisation answered; nothing can have been found")
+	}
+	if search.err == nil {
+		t.Fatal("failed lookups must make the search inconclusive")
+	}
+	if len(search.searchedLabels) != 0 {
+		t.Errorf("searched labels = %v, want none: those organisations never answered", search.searchedLabels)
+	}
+
+	// And an inconclusive search must not fail the command.
+	mock.failByIDCalls = 3
+	if _, err := resolveGatewayClusterID(unknown, nil); err != nil {
+		t.Errorf("inconclusive search failed the command: %v", err)
+	}
+}
+
+func TestResolveGatewayClusterIDNeverReplacesAnExplicitOrganisation(t *testing.T) {
+	// --org / ANKRA_ORG states which organisation to use. Silently running
+	// somewhere else would defeat the point, so the search only informs the
+	// error: it names the owner and the exact retry.
+	mock := withOrgScopeMock(t, crossOrgMock())
+	mock.override = "org-acme"
+
+	_, err := resolveGatewayClusterID(otherOrgClusterID, nil)
+	if err == nil {
+		t.Fatal("expected an error rather than a silent switch away from the pinned organisation")
+	}
+	if mock.override != "org-acme" {
+		t.Errorf("organisation scope = %q, want the explicit pin %q to survive", mock.override, "org-acme")
+	}
+	for _, fragment := range []string{
+		`it belongs to "Ankra AB" (` + owningOrgID + `)`,
+		"ankra --org " + owningOrgID,
+	} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Errorf("error %q is missing %q", err, fragment)
+		}
+	}
+}
+
+func TestKubeconfigAddRefusesToWriteAContextItKnowsIsBroken(t *testing.T) {
+	// A raw-ID context pins whatever organisation is in scope, so writing one
+	// after a search that settled the question just moves the 404 to first
+	// use.
+	withOrgScopeMock(t, crossOrgMock())
+	path := filepath.Join(t.TempDir(), "config")
+	resetKubeconfigFlags(path)
+	kubeconfigClusterFlag = "99999999-9999-9999-9999-999999999999"
+
+	var out bytes.Buffer
+	err := kubeconfigAdd(&out)
+	if err == nil {
+		t.Fatal("expected an error for a cluster no organisation has")
+	}
+	if !strings.Contains(err.Error(), "not found in the 2 other organisation(s) you belong to") {
+		t.Errorf("error = %v, want the organisations searched to be named", err)
+	}
+	if code := exitCodeFor(err); code != exitNotFound {
+		t.Errorf("exit code = %d, want %d", code, exitNotFound)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Errorf("no kubeconfig should be written on failure: %s", path)
+	}
+}
+
+func TestNotInScopedOrganisationErrorReadsAsProseWithoutAScopeLabel(t *testing.T) {
+	// Nothing local identifies the scope (no override, no saved selection),
+	// so the message must not name an organisation called "the selected
+	// organisation".
+	search := organisationScopeSearch{err: errors.New("dial tcp: connection refused")}
+
+	err := notInScopedOrganisationError(search, otherOrgClusterID, nil)
+	want := "cluster " + otherOrgClusterID + " is not in the organisation this command is scoped to"
+	if !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("error = %q, want it to start with %q", err, want)
+	}
+	if !strings.Contains(err.Error(), "could not be checked") {
+		t.Errorf("error = %q, want it to admit the search did not run", err)
 	}
 }
 
