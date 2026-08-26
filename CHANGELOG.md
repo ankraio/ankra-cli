@@ -1,5 +1,21 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra backup vaults` manages the organisation's backup vaults from the
+  terminal.** A vault is an S3-compatible bucket cluster backups are written
+  to: `create` registers one (the access keys are prompted for when not
+  passed as flags, the secret hidden, so they stay out of your shell
+  history) and reports the platform's immediate credential check - a vault
+  that fails verification exits non-zero with the failure excerpt instead
+  of a green create. `list` shows every vault with its status and when it
+  last verified, `get` describes one - including the failure excerpt when
+  the last check failed - `verify` re-runs the check after rotating or
+  fixing keys, and `delete` confirms first (or takes `--yes`). `get` and
+  `list` take a vault name as well as an id and support `-o json|yaml`.
+
 ## v0.13.0 — 2026-08-25
 
 Promotes v0.13.0-rc0 through rc4 — the kubectl-shaped read surface

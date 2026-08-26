@@ -491,6 +491,26 @@ func (m baseMock) DeletePowerSchedule(clusterID, scheduleID string) (*client.Del
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListBackupVaults() (*client.BackupVaultListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetBackupVault(vaultID string) (*client.BackupVault, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateBackupVault(request client.CreateBackupVaultRequest) (*client.BackupVault, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) VerifyBackupVault(vaultID string) (*client.BackupVault, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteBackupVault(vaultID string) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error) {
 	return client.ExecutionListResponse{}, errors.New("not implemented")
 }
