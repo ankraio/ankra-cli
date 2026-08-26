@@ -142,15 +142,6 @@ func kubeTokenClusterReference(clusterFlag, clusterID string) string {
 	return clusterID
 }
 
-// resolveKubeTokenClusterID resolves the cluster reference the kube-gateway
-// commands were given (kube-token, cluster access) to a cluster ID. It is the
-// quiet variant: kubectl re-runs the credential plugin on every command, so
-// nothing here may write to stderr.
-func resolveKubeTokenClusterID(clusterFlag string) (string, error) {
-	clusterID, _, err := resolveGatewayClusterID(clusterFlag, nil)
-	return clusterID, err
-}
-
 // resolveGatewayClusterID resolves the cluster reference and, for an ID the
 // organisation in scope does not have, re-scopes this invocation to the
 // organisation that owns it. Without that the ID is forwarded as-is and

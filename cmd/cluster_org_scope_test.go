@@ -170,13 +170,14 @@ func writeSelectedCluster(t *testing.T, clusterID, name string) {
 	}
 }
 
-func TestResolveKubeTokenClusterIDAdoptsTheOwningOrganisation(t *testing.T) {
+func TestKubeTokenPathAdoptsTheOwningOrganisation(t *testing.T) {
 	// The bug: the exec credential plugin passes no organisation, so a
 	// cluster ID from another organisation used to be forwarded verbatim and
 	// 404'd. It must resolve against the organisation that owns it instead.
+	// kube-token resolves with notify=nil, which is what this exercises.
 	mock := withOrgScopeMock(t, crossOrgMock())
 
-	clusterID, err := resolveKubeTokenClusterID(otherOrgClusterID)
+	clusterID, _, err := resolveGatewayClusterID(otherOrgClusterID, nil)
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
@@ -211,9 +212,9 @@ func TestResolveGatewayClusterIDNotifiesWhenAdopting(t *testing.T) {
 	}
 }
 
-func TestResolveKubeTokenClusterIDStaysQuiet(t *testing.T) {
-	// kubectl re-runs the credential plugin on every command, so the quiet
-	// variant must not write a per-invocation note anywhere.
+func TestKubeTokenPathStaysQuiet(t *testing.T) {
+	// kubectl re-runs the credential plugin on every command, so resolving
+	// with notify=nil must not write a per-invocation note anywhere.
 	mock := withOrgScopeMock(t, crossOrgMock())
 	stderr := os.Stderr
 	read, write, err := os.Pipe()
@@ -221,7 +222,7 @@ func TestResolveKubeTokenClusterIDStaysQuiet(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Stderr = write
-	_, resolveErr := resolveKubeTokenClusterID(otherOrgClusterID)
+	_, _, resolveErr := resolveGatewayClusterID(otherOrgClusterID, nil)
 	os.Stderr = stderr
 	if err := write.Close(); err != nil {
 		t.Fatal(err)
