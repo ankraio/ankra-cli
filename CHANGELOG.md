@@ -31,7 +31,10 @@
   an `ankra org switch`. `ankra cluster kubeconfig add <id>` and
   `ankra cluster access` do the same lookup, so an id from another
   organisation writes a context pinned to the real owner instead of a
-  context that 404s on first use. Your selected organisation is never
+  context that 404s on first use. The cluster from `ankra cluster select`
+  gets the same treatment, since that selection outlives the organisation
+  chosen alongside it: omitting `--cluster` no longer fails where passing
+  that very same id succeeds. Your selected organisation is never
   changed, and neither is an organisation you pinned yourself: `--org` and
   `ANKRA_ORG` are honoured as given, so a cluster that is not in the one you
   named is reported rather than quietly fetched from somewhere else. When

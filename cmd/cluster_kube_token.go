@@ -172,13 +172,7 @@ func resolveGatewayClusterID(clusterFlag string, notify io.Writer) (string, bool
 			return cluster.ID, true, nil
 		}
 		if isLikelyClusterID(clusterFlag) {
-			resolution := resolveClusterOrganisation(clusterFlag, notify)
-			if resolution.absent {
-				return "", false, withExitCode(exitNotFound, notInScopedOrganisationError(resolution.search, clusterFlag, nil))
-			}
-			// Settled or unknown: either way the backend gets the ID, but
-			// only "unknown" leaves an organisation question to explain.
-			return clusterFlag, resolution.settled(), nil
+			return resolveGatewayClusterByID(clusterFlag, notify)
 		}
 		return "", false, fmt.Errorf("cluster %q not found; pass a cluster name or ID (not the kubeconfig context name): %w", clusterFlag, err)
 	}
@@ -186,9 +180,26 @@ func resolveGatewayClusterID(clusterFlag string, notify io.Writer) (string, bool
 	if err != nil {
 		return "", false, fmt.Errorf("no cluster specified and no active cluster selected; pass --cluster <name|id>")
 	}
-	// The selection is a local file and can name a cluster in an organisation
-	// this invocation is not scoped to, so nothing is settled here.
+	// The selection is a local file written by 'ankra cluster select', so it
+	// long outlives the organisation that was selected alongside it. Give it
+	// the same treatment as an ID typed at the prompt rather than trusting it:
+	// omitting --cluster must not fail where passing the very same ID
+	// succeeds.
+	if isLikelyClusterID(cluster.ID) {
+		return resolveGatewayClusterByID(cluster.ID, notify)
+	}
 	return cluster.ID, false, nil
+}
+
+// resolveGatewayClusterByID settles the organisation for a cluster ID and
+// reports whether the owner ended up known. Absent is the only outcome that
+// fails: unknown leaves the ID to the backend, as before the lookup existed.
+func resolveGatewayClusterByID(clusterID string, notify io.Writer) (string, bool, error) {
+	resolution := resolveClusterOrganisation(clusterID, notify)
+	if resolution.absent {
+		return "", false, withExitCode(exitNotFound, notInScopedOrganisationError(resolution.search, clusterID, nil))
+	}
+	return clusterID, resolution.settled(), nil
 }
 
 func normalizeExpirationTimestamp(expiresAt string) string {

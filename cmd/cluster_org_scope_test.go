@@ -153,6 +153,23 @@ func withOrgScopeMock(t *testing.T, mock *orgScopeMock) *orgScopeMock {
 	return mock
 }
 
+// writeSelectedCluster plants what 'ankra cluster select' would have written,
+// so the no-flag path has a selection to read.
+func writeSelectedCluster(t *testing.T, clusterID, name string) {
+	t.Helper()
+	path, err := selectedClusterFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	selection := `{"id":"` + clusterID + `","name":"` + name + `"}`
+	if err := os.WriteFile(path, []byte(selection), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestResolveKubeTokenClusterIDAdoptsTheOwningOrganisation(t *testing.T) {
 	// The bug: the exec credential plugin passes no organisation, so a
 	// cluster ID from another organisation used to be forwarded verbatim and
@@ -573,6 +590,42 @@ func TestDecorateKubeTokenErrorSkipsTheSweepWhenTheOrganisationIsKnown(t *testin
 	}
 	if mock.listOrganisationsCalls != 1 {
 		t.Errorf("organisations listed %d times, want 1", mock.listOrganisationsCalls)
+	}
+}
+
+func TestResolveGatewayClusterIDTreatsTheSelectionLikeATypedID(t *testing.T) {
+	// 'ankra cluster select' writes a local file that outlives the
+	// organisation selected alongside it, so omitting --cluster must not fail
+	// where passing the very same id succeeds.
+	// The explicit path, for comparison.
+	explicitMock := withOrgScopeMock(t, crossOrgMock())
+	wantID, wantSettled, wantErr := resolveGatewayClusterID(otherOrgClusterID, nil)
+	if wantErr != nil {
+		t.Fatalf("explicit --cluster failed: %v", wantErr)
+	}
+	wantScope := explicitMock.override
+
+	// The same id, supplied by the selection file instead of the flag.
+	mock := withOrgScopeMock(t, crossOrgMock())
+	writeSelectedCluster(t, otherOrgClusterID, "ankra-prod")
+
+	gotID, gotSettled, err := resolveGatewayClusterID("", nil)
+	if err != nil {
+		t.Fatalf("selected cluster in another organisation failed where the same id via --cluster succeeded: %v", err)
+	}
+	if gotID != wantID || gotSettled != wantSettled {
+		t.Errorf("no-flag path = (%q, %v), explicit path = (%q, %v); the same id must resolve the same way",
+			gotID, gotSettled, wantID, wantSettled)
+	}
+	if mock.override != wantScope {
+		t.Errorf("no-flag organisation scope = %q, explicit = %q", mock.override, wantScope)
+	}
+	if mock.override != owningOrgID {
+		t.Errorf("organisation scope = %q, want the owner %q adopted", mock.override, owningOrgID)
+	}
+	// And the mint that follows now succeeds, which is the whole point.
+	if _, err := apiClient.GetClusterKubeToken(context.Background(), gotID); err != nil {
+		t.Errorf("token mint after adoption failed: %v", err)
 	}
 }
 
