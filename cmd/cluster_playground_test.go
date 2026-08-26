@@ -25,6 +25,9 @@ type playgroundMock struct {
 	createRequestedPlan string
 	plansCatalog        *client.PlaygroundPlanCatalog
 	plansError          error
+	resizeRequested     string
+	resizeResult        *client.ResizePlaygroundResult
+	resizeError         error
 }
 
 func (m *playgroundMock) CreatePlayground(planID string) (*client.CreatePlaygroundResult, error) {
@@ -34,6 +37,19 @@ func (m *playgroundMock) CreatePlayground(planID string) (*client.CreatePlaygrou
 
 func (m *playgroundMock) ListPlaygroundPlans() (*client.PlaygroundPlanCatalog, error) {
 	return m.plansCatalog, m.plansError
+}
+
+func (m *playgroundMock) ResizePlayground(clusterID string, planID string) (*client.ResizePlaygroundResult, error) {
+	m.resizeRequested = clusterID + ":" + planID
+	return m.resizeResult, m.resizeError
+}
+
+func (m *playgroundMock) ListLimitRequests() (*client.LimitRequestList, error) {
+	return &client.LimitRequestList{Requests: []client.LimitRequest{}}, nil
+}
+
+func (m *playgroundMock) SubmitLimitRequest(string, int64, string) (*client.LimitRequest, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m *playgroundMock) GetPlaygroundStatus(clusterID string) (*client.PlaygroundStatus, error) {
@@ -118,6 +134,44 @@ func TestPlaygroundPlansListsSizesWithPricesAndAvailability(t *testing.T) {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected %q in the listing, got: %s", expected, output)
 		}
+	}
+}
+
+func TestPlaygroundResizePassesTheSizeAndPrintsTheOutcome(t *testing.T) {
+	mock := &playgroundMock{
+		resizeResult: &client.ResizePlaygroundResult{
+			ClusterID: "cluster-42",
+			Plan: client.PlaygroundOrderedPlan{
+				ID: "medium", DisplayName: "Medium", Vcpus: 4, MemoryGB: 8,
+				PriceMonthlyCents: 2880, Currency: "eur",
+			},
+		},
+	}
+	withPlaygroundMock(t, mock)
+	clusterPlaygroundResizeSize = "medium"
+	t.Cleanup(func() { clusterPlaygroundResizeSize = "" })
+	buffer := &strings.Builder{}
+	clusterPlaygroundResizeCmd.SetOut(buffer)
+	t.Cleanup(func() { clusterPlaygroundResizeCmd.SetOut(nil) })
+	if err := clusterPlaygroundResizeCmd.RunE(clusterPlaygroundResizeCmd, []string{"cluster-42"}); err != nil {
+		t.Fatalf("resize failed: %v", err)
+	}
+	if mock.resizeRequested != "cluster-42:medium" {
+		t.Errorf("resize call = %q, want cluster-42:medium", mock.resizeRequested)
+	}
+	output := buffer.String()
+	for _, expected := range []string{"Medium", "€28.80/mo", "pro-rata"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected %q in output, got: %s", expected, output)
+		}
+	}
+}
+
+func TestPlaygroundResizeRequiresTheSizeFlag(t *testing.T) {
+	withPlaygroundMock(t, &playgroundMock{})
+	clusterPlaygroundResizeSize = ""
+	if err := clusterPlaygroundResizeCmd.RunE(clusterPlaygroundResizeCmd, []string{"cluster-42"}); err == nil {
+		t.Fatal("resize without --size must refuse")
 	}
 }
 

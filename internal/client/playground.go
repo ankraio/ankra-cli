@@ -50,6 +50,12 @@ type PlaygroundPlan struct {
 	Available         bool    `json:"available"`
 }
 
+// PlaygroundMemoryQuota is the organisation's playground memory budget.
+type PlaygroundMemoryQuota struct {
+	LimitMiB int `json:"limit_mib"`
+	UsedMiB  int `json:"used_mib"`
+}
+
 // PlaygroundPlanCatalog is the GET body of the plans route.
 type PlaygroundPlanCatalog struct {
 	Plans         []PlaygroundPlan `json:"plans"`
@@ -58,6 +64,12 @@ type PlaygroundPlanCatalog struct {
 	// OrganisationHasPaidPlan reports whether a paid size can be ordered at
 	// all - ordering one without a paid billing plan is refused with 402.
 	OrganisationHasPaidPlan bool `json:"organisation_has_paid_plan"`
+	// OrganisationHasPaymentCard is the second half of that answer: paid
+	// orders also refuse without a card on file.
+	OrganisationHasPaymentCard bool `json:"organisation_has_payment_card"`
+	// Quota is the memory budget paid playgrounds share (the free trial
+	// sits outside it).
+	Quota PlaygroundMemoryQuota `json:"quota"`
 }
 
 // ListPlaygroundPlans reads the orderable sizes with their prices and
@@ -90,6 +102,25 @@ func (c *Client) CreatePlayground(planID string) (*CreatePlaygroundResult, error
 	}
 	var result CreatePlaygroundResult
 	if err := c.postCSRFJSON(url, body, &result, "create playground"); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ResizePlaygroundResult is the resize POST body.
+type ResizePlaygroundResult struct {
+	ClusterID string                `json:"cluster_id"`
+	Plan      PlaygroundOrderedPlan `json:"plan"`
+}
+
+// ResizePlayground changes a paid playground to another paid size in place:
+// only the namespace quota and the price change (billed pro-rata across the
+// change), nothing deployed inside is touched.
+func (c *Client) ResizePlayground(clusterID string, planID string) (*ResizePlaygroundResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/playground/%s/resize",
+		c.BaseURL, neturl.PathEscape(clusterID))
+	var result ResizePlaygroundResult
+	if err := c.postCSRFJSON(url, createPlaygroundRequest{Plan: planID}, &result, "resize playground"); err != nil {
 		return nil, err
 	}
 	return &result, nil

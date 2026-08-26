@@ -1348,6 +1348,18 @@ func (m baseMock) ListPlaygroundPlans() (*client.PlaygroundPlanCatalog, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ResizePlayground(string, string) (*client.ResizePlaygroundResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListLimitRequests() (*client.LimitRequestList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SubmitLimitRequest(string, int64, string) (*client.LimitRequest, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetPlaygroundStatus(string) (*client.PlaygroundStatus, error) {
 	return nil, errors.New("not implemented")
 }
