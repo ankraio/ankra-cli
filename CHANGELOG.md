@@ -16,6 +16,26 @@
   fixing keys, and `delete` confirms first (or takes `--yes`). `get` and
   `list` take a vault name as well as an id and support `-o json|yaml`.
 
+### Fixed
+
+- **`kubectl` against an Ankra context no longer fails with "Cluster not
+  found" when your selected organisation is not the one that owns the
+  cluster.** The platform resolves a cluster reference inside the
+  organisation the request is scoped to, so a cluster you have a grant on,
+  whose id is right there in the kubeconfig server URL, came back as a bare
+  404 that blamed the cluster - sending you to check access grants and RBAC
+  for what was an organisation-selection problem. A cluster id the selected
+  organisation does not have is now looked up across the organisations you
+  belong to and the request runs against the one that owns it, so contexts
+  written before `--org` was pinned into the exec args keep working across
+  an `ankra org switch`. `ankra cluster kubeconfig add <id>` and
+  `ankra cluster access` do the same lookup, so an id from another
+  organisation writes a context pinned to the real owner instead of a
+  context that 404s on first use. Your selected organisation is never
+  changed, and `ANKRA_ORG=<org> kubectl ...` still short-circuits the
+  lookup. When the cluster genuinely is nowhere, the error now names the
+  organisation the request was scoped to and the ones that were searched.
+
 ## v0.13.0 — 2026-08-25
 
 Promotes v0.13.0-rc0 through rc4 — the kubectl-shaped read surface

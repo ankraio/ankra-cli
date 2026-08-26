@@ -302,7 +302,7 @@ func buildManagedEntries(targets []kubeTarget, names []string) ([]kubeconfig.Ent
 		for index, target := range targets {
 			token, err := apiClient.GetClusterKubeToken(context.Background(), target.id)
 			if err != nil {
-				return nil, suggestAccessOnKubeTokenDenied(fmt.Errorf("mint token for %s: %w", target.name, err), target.name)
+				return nil, decorateKubeTokenError(fmt.Errorf("mint token for %s: %w", target.name, err), target.name, target.id)
 			}
 			entry, buildErr := kubeconfig.BuildTokenEntry(names[index], token.Server, token.Token, kubeconfigNamespace, kubeconfigInsecure)
 			if buildErr != nil {
@@ -322,6 +322,10 @@ func buildManagedEntries(targets []kubeTarget, names []string) ([]kubeconfig.Ent
 		server := base + proxyServerPath(target.id)
 		orgID := target.orgID
 		if orgID == "" {
+			// The backend lookup supplied no owner (a raw cluster-ID
+			// passthrough). The token mint only succeeds inside the owning
+			// organisation, so whatever this invocation is scoped to is that
+			// organisation.
 			if fallbackOrgID == "" {
 				fallbackOrgID = effectiveOrganisationID()
 			}
@@ -340,23 +344,6 @@ func buildManagedEntries(targets []kubeTarget, names []string) ([]kubeconfig.Ent
 	return entries, nil
 }
 
-// effectiveOrganisationID returns the organisation ID this invocation is
-// scoped to: the resolved --org/ANKRA_ORG override when one was applied,
-// otherwise the persistently selected organisation. Used as the fallback for
-// targets whose owning organisation the backend lookup did not supply (a raw
-// cluster-ID passthrough): the token mint during add only succeeds within the
-// owning organisation, so the effective scope is that organisation. Returns
-// "" when no organisation can be determined.
-func effectiveOrganisationID() string {
-	if override := apiClient.OrganisationOverride(); override != "" {
-		return override
-	}
-	if orgID, err := resolveOrganisationID(); err == nil {
-		return orgID
-	}
-	return ""
-}
-
 func proxyServerPath(clusterID string) string {
 	return "/api/v1/clusters/" + clusterID + "/k8s"
 }
@@ -368,7 +355,7 @@ func proxyServerPath(clusterID string) string {
 func resolveProxyBaseURL(sample kubeTarget) (string, error) {
 	token, err := apiClient.GetClusterKubeToken(context.Background(), sample.id)
 	if err != nil {
-		return "", suggestAccessOnKubeTokenDenied(fmt.Errorf("resolve kube proxy URL for %s: %w", sample.name, err), sample.name)
+		return "", decorateKubeTokenError(fmt.Errorf("resolve kube proxy URL for %s: %w", sample.name, err), sample.name, sample.id)
 	}
 	suffix := proxyServerPath(sample.id)
 	if !strings.HasSuffix(token.Server, suffix) {
@@ -393,6 +380,13 @@ func resolveKubeconfigTargets() ([]kubeTarget, error) {
 			// kubeconfig whenever the selection has diverged from the owner.
 			if byID, idErr := apiClient.GetClusterByID(kubeconfigClusterFlag); idErr == nil {
 				return []kubeTarget{{id: byID.ID, name: byID.Name, orgID: byID.OrganisationID}}, nil
+			}
+			// Not in the organisation in scope. Adding a context for a
+			// cluster you were handed the ID of is exactly when the selection
+			// is wrong, so find the owner rather than writing a context that
+			// pins the wrong organisation and 404s on first use.
+			if search, adopted := adoptOwningOrganisation(kubeconfigClusterFlag, os.Stderr); adopted {
+				return []kubeTarget{{id: search.cluster.ID, name: search.cluster.Name, orgID: search.owner.OrganisationID}}, nil
 			}
 			return []kubeTarget{{id: kubeconfigClusterFlag, name: kubeconfigClusterFlag}}, nil
 		}
