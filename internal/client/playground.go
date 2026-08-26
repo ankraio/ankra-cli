@@ -15,12 +15,25 @@ type CreatePlaygroundResult struct {
 	Success   bool   `json:"success"`
 }
 
+// PlaygroundOrderedPlan is the size the environment was ordered at and its
+// price of record; OrderedAt is null for a free environment nobody ordered.
+type PlaygroundOrderedPlan struct {
+	ID                string  `json:"id"`
+	DisplayName       string  `json:"display_name"`
+	Vcpus             int     `json:"vcpus"`
+	MemoryGB          float64 `json:"memory_gb"`
+	PriceMonthlyCents int     `json:"price_monthly_cents"`
+	Currency          string  `json:"currency"`
+	OrderedAt         *string `json:"ordered_at"`
+}
+
 // PlaygroundStatus is the provisioning state machine's public shape.
 type PlaygroundStatus struct {
-	ClusterID     string  `json:"cluster_id"`
-	Phase         string  `json:"phase"`
-	StatusMessage *string `json:"status_message"`
-	ExpiresAt     string  `json:"expires_at"`
+	ClusterID     string                 `json:"cluster_id"`
+	Phase         string                 `json:"phase"`
+	StatusMessage *string                `json:"status_message"`
+	ExpiresAt     string                 `json:"expires_at"`
+	Plan          *PlaygroundOrderedPlan `json:"plan"`
 }
 
 // PlaygroundPlan is one orderable playground size with its price.

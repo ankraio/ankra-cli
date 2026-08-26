@@ -91,7 +91,25 @@ var clusterPlaygroundStatusCmd = &cobra.Command{
 		}
 		fmt.Printf("Cluster ID: %s\n", status.ClusterID)
 		fmt.Printf("Phase:      %s\n", status.Phase)
-		fmt.Printf("Expires at: %s\n", status.ExpiresAt)
+		if status.Plan != nil {
+			memory := status.Plan.MemoryGB
+			memoryLabel := fmt.Sprintf("%.0f", memory)
+			if memory != float64(int(memory)) {
+				memoryLabel = fmt.Sprintf("%.1f", memory)
+			}
+			fmt.Printf("Size:       %s (%d vCPU / %s GB)\n", status.Plan.DisplayName, status.Plan.Vcpus, memoryLabel)
+			if status.Plan.PriceMonthlyCents > 0 {
+				fmt.Printf("Price:      %s%.2f/mo\n", currencySymbol(status.Plan.Currency),
+					float64(status.Plan.PriceMonthlyCents)/100)
+			}
+			// A paid order does not idle-expire; showing its expires_at would
+			// promise a teardown the platform never performs.
+			if status.Plan.OrderedAt == nil {
+				fmt.Printf("Expires at: %s\n", status.ExpiresAt)
+			}
+		} else {
+			fmt.Printf("Expires at: %s\n", status.ExpiresAt)
+		}
 		if status.StatusMessage != nil && *status.StatusMessage != "" {
 			fmt.Printf("Message:    %s\n", *status.StatusMessage)
 		}
