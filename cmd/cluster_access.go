@@ -44,7 +44,7 @@ var clusterAccessListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List access grants for a cluster",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID, err := resolveGatewayClusterID(accessClusterFlag, os.Stderr)
+		clusterID, _, err := resolveGatewayClusterID(accessClusterFlag, os.Stderr)
 		if err != nil {
 			return err
 		}
@@ -83,7 +83,7 @@ admin, cluster-admin.`,
 		if err := validateAccessRole(accessRoleFlag); err != nil {
 			return err
 		}
-		clusterID, err := resolveGatewayClusterID(accessClusterFlag, os.Stderr)
+		clusterID, _, err := resolveGatewayClusterID(accessClusterFlag, os.Stderr)
 		if err != nil {
 			return err
 		}
@@ -128,7 +128,7 @@ or an email address to revoke every grant that member has on the cluster.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		target := args[0]
-		clusterID, err := resolveGatewayClusterID(accessClusterFlag, os.Stderr)
+		clusterID, _, err := resolveGatewayClusterID(accessClusterFlag, os.Stderr)
 		if err != nil {
 			return err
 		}

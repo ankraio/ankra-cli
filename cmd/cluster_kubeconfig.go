@@ -302,7 +302,7 @@ func buildManagedEntries(targets []kubeTarget, names []string) ([]kubeconfig.Ent
 		for index, target := range targets {
 			token, err := apiClient.GetClusterKubeToken(context.Background(), target.id)
 			if err != nil {
-				return nil, decorateKubeTokenError(fmt.Errorf("mint token for %s: %w", target.name, err), target.name, target.id)
+				return nil, decorateKubeTokenError(fmt.Errorf("mint token for %s: %w", target.name, err), target.name, target.id, target.orgID != "")
 			}
 			entry, buildErr := kubeconfig.BuildTokenEntry(names[index], token.Server, token.Token, kubeconfigNamespace, kubeconfigInsecure)
 			if buildErr != nil {
@@ -355,7 +355,7 @@ func proxyServerPath(clusterID string) string {
 func resolveProxyBaseURL(sample kubeTarget) (string, error) {
 	token, err := apiClient.GetClusterKubeToken(context.Background(), sample.id)
 	if err != nil {
-		return "", decorateKubeTokenError(fmt.Errorf("resolve kube proxy URL for %s: %w", sample.name, err), sample.name, sample.id)
+		return "", decorateKubeTokenError(fmt.Errorf("resolve kube proxy URL for %s: %w", sample.name, err), sample.name, sample.id, sample.orgID != "")
 	}
 	suffix := proxyServerPath(sample.id)
 	if !strings.HasSuffix(token.Server, suffix) {
@@ -378,25 +378,18 @@ func resolveKubeconfigTargets() ([]kubeTarget, error) {
 			// the ID properly to learn the owning organisation — pinning the
 			// locally selected org instead would bake a wrong --org into the
 			// kubeconfig whenever the selection has diverged from the owner.
-			if byID, idErr := apiClient.GetClusterByID(kubeconfigClusterFlag); idErr == nil {
-				return []kubeTarget{{id: byID.ID, name: byID.Name, orgID: byID.OrganisationID}}, nil
+			// Adding a context for a cluster you were handed the ID of is
+			// exactly when the selection is wrong.
+			resolution := resolveClusterOrganisation(kubeconfigClusterFlag, os.Stderr)
+			switch {
+			case resolution.settled():
+				return []kubeTarget{{id: resolution.cluster.ID, name: resolution.cluster.Name, orgID: resolution.organisationID}}, nil
+			case resolution.absent:
+				// Writing a raw-ID context now would pin whatever organisation
+				// is in scope and produce a context that fails on first use.
+				return nil, withExitCode(exitNotFound, notInScopedOrganisationError(resolution.search, kubeconfigClusterFlag, nil))
 			}
-			// Not in the organisation in scope. Adding a context for a
-			// cluster you were handed the ID of is exactly when the selection
-			// is wrong, so find the owner rather than writing a context that
-			// pins the wrong organisation and 404s on first use.
-			search, adopted := resolveOwningOrganisation(kubeconfigClusterFlag, os.Stderr)
-			if adopted {
-				return []kubeTarget{{id: search.cluster.ID, name: search.cluster.Name, orgID: search.owner.OrganisationID}}, nil
-			}
-			if search.err == nil {
-				// The search settled the question: the cluster is either
-				// somewhere the caller pinned away from, or nowhere. Writing
-				// a raw-ID context now would pin the wrong organisation and
-				// produce a context that fails on first use.
-				return nil, withExitCode(exitNotFound, notInScopedOrganisationError(search, kubeconfigClusterFlag, nil))
-			}
-			// Inconclusive: leave the ID to the backend, as before.
+			// Unknown: leave the ID to the backend, as before the lookup existed.
 			return []kubeTarget{{id: kubeconfigClusterFlag, name: kubeconfigClusterFlag}}, nil
 		}
 		return nil, fmt.Errorf("cluster %q not found; pass a cluster name or ID: %w", kubeconfigClusterFlag, err)

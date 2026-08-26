@@ -24,6 +24,52 @@ import (
 // request to the owner, and — when the cluster really is nowhere — say which
 // organisations were searched instead of repeating the bare 404.
 
+// clusterLookup is the answer to "does the organisation in scope have this
+// cluster?". It has three states, not two, and that is the point: this bug
+// was written three separate times (the search loop, the in-scope retry, and
+// the kubeconfig target lookup) because a (cluster, error) pair spells "the
+// backend said no" and "the backend said nothing" identically, and `err !=
+// nil` reads naturally as absence at every one of those call sites.
+type clusterLookup struct {
+	cluster client.ClusterListItem
+
+	// present is true only when the backend answered and the cluster was in
+	// the answer.
+	present bool
+
+	// unanswered holds the reason the lookup could not be completed. While it
+	// is non-nil, present being false means nothing at all.
+	unanswered error
+}
+
+// found reports that the cluster is definitely in the scoped organisation.
+func (l clusterLookup) found() bool { return l.present }
+
+// absent reports that the backend answered and the cluster was not in the
+// answer. It is deliberately not the negation of found: a lookup that never
+// completed is neither.
+func (l clusterLookup) absent() bool { return !l.present && l.unanswered == nil }
+
+// lookUpClusterInScope asks the organisation in scope for a cluster ID.
+//
+// This is the only place in the gateway flow permitted to turn a
+// (cluster, error) pair into a judgement about existence. Everything else
+// reads found()/absent(), so "we did not get an answer" cannot be spelled the
+// same way as "there is no such cluster" — which is the whole failure mode
+// this file exists to remove, and which kept reappearing while each call site
+// classified the error itself.
+func lookUpClusterInScope(clusterID string) clusterLookup {
+	cluster, err := apiClient.GetClusterByID(clusterID)
+	switch {
+	case err == nil && cluster.ID == clusterID:
+		return clusterLookup{cluster: cluster, present: true}
+	case err == nil, errors.Is(err, client.ErrClusterNotFound):
+		return clusterLookup{}
+	default:
+		return clusterLookup{unanswered: err}
+	}
+}
+
 // organisationScopeSearch is the outcome of looking for a cluster ID outside
 // the organisation this invocation is scoped to.
 type organisationScopeSearch struct {
@@ -79,29 +125,27 @@ func findClusterInOtherOrganisations(clusterID string) organisationScopeSearch {
 	restore := apiClient.OrganisationOverride()
 	defer apiClient.SetOrganisationOverride(restore)
 
-	// A lookup that failed is not a miss. Counting one as a miss would put
-	// the organisation in searchedLabels and let the caller report "searched
-	// everywhere, found nothing" about an organisation that never answered —
-	// the same unknown-as-absence reading this whole file exists to prevent.
+	// A lookup that failed is not a miss. Counting one as a miss would put the
+	// organisation in searchedLabels and let the caller report "searched
+	// everywhere, found nothing" about an organisation that never answered.
 	var firstFailure error
 	for _, organisation := range organisations {
 		if organisation.OrganisationID == "" || organisation.OrganisationID == scopedID {
 			continue
 		}
 		apiClient.SetOrganisationOverride(organisation.OrganisationID)
-		cluster, lookupErr := apiClient.GetClusterByID(clusterID)
-		switch {
-		case lookupErr == nil && cluster.ID == clusterID:
-			search.cluster = cluster
+		switch answer := lookUpClusterInScope(clusterID); {
+		case answer.found():
+			search.cluster = answer.cluster
 			search.owner = organisation
 			search.found = true
 			return search
-		case lookupErr != nil && !errors.Is(lookupErr, client.ErrClusterNotFound):
-			if firstFailure == nil {
-				firstFailure = fmt.Errorf("%s: %w", organisationLabel(organisation), lookupErr)
-			}
-		default:
+		case answer.absent():
 			search.searchedLabels = append(search.searchedLabels, organisationLabel(organisation))
+		default:
+			if firstFailure == nil {
+				firstFailure = fmt.Errorf("%s: %w", organisationLabel(organisation), answer.unanswered)
+			}
 		}
 	}
 	if firstFailure != nil {
@@ -146,6 +190,80 @@ func resolveOwningOrganisation(clusterID string, notify io.Writer) (organisation
 		return findClusterInOtherOrganisations(clusterID), false
 	}
 	return adoptOwningOrganisation(clusterID, notify)
+}
+
+// clusterOrganisationResolution settles which organisation a cluster ID
+// should be requested in. It carries the same three-state discipline as
+// clusterLookup, one level up: settled() and absent() are separate questions,
+// and neither is the negation of the other.
+type clusterOrganisationResolution struct {
+	// cluster and organisationID are populated when settled() is true.
+	cluster        client.ClusterListItem
+	organisationID string
+
+	// inScope: the organisation already in scope has the cluster.
+	inScope bool
+	// adopted: another organisation owns it and the client was re-scoped.
+	adopted bool
+	// absent: every organisation answered, and none has it.
+	absent bool
+
+	search organisationScopeSearch
+}
+
+// settled reports that the owning organisation is known, either because it
+// was already in scope or because the client was re-scoped to it. A mint that
+// fails after this is not an organisation-scoping problem.
+func (r clusterOrganisationResolution) settled() bool { return r.inScope || r.adopted }
+
+// resolveClusterOrganisation is the single door the gateway commands use to
+// decide which organisation a cluster ID belongs to.
+//
+// Exactly one of three things is true when it returns, and a caller that
+// handles only two has the bug this file is about:
+//   - settled():   the owner is known (in scope, or adopted).
+//   - absent:      every organisation answered and none has the cluster.
+//   - neither:     nothing answered usefully. Unknown is not absence, so the
+//     caller must fall back to letting the backend answer for the ID, which
+//     is the behaviour that predates the cross-organisation lookup.
+func resolveClusterOrganisation(clusterID string, notify io.Writer) clusterOrganisationResolution {
+	if answer := lookUpClusterInScope(clusterID); answer.found() {
+		return clusterOrganisationResolution{
+			cluster:        answer.cluster,
+			organisationID: answer.cluster.OrganisationID,
+			inScope:        true,
+		}
+	}
+	search, adopted := resolveOwningOrganisation(clusterID, notify)
+	if adopted {
+		return clusterOrganisationResolution{
+			cluster:        search.cluster,
+			organisationID: search.owner.OrganisationID,
+			adopted:        true,
+			search:         search,
+		}
+	}
+	if search.err != nil {
+		return clusterOrganisationResolution{search: search}
+	}
+	// The first lookup may have failed for a reason that says nothing about
+	// the cluster. The search has just proved the API is reachable, so ask the
+	// organisation in scope once more before settling on absent.
+	switch retry := lookUpClusterInScope(clusterID); {
+	case retry.found():
+		return clusterOrganisationResolution{
+			cluster:        retry.cluster,
+			organisationID: retry.cluster.OrganisationID,
+			inScope:        true,
+			search:         search,
+		}
+	case retry.absent():
+		return clusterOrganisationResolution{absent: true, search: search}
+	default:
+		// The organisation in scope still has not answered, so its silence is
+		// not an absence either.
+		return clusterOrganisationResolution{search: search}
+	}
 }
 
 // notInScopedOrganisationError explains a cluster the scoped organisation

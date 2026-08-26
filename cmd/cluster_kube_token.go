@@ -53,14 +53,14 @@ It prints JSON to stdout and never prompts; run 'ankra login' first.`,
 	Annotations: map[string]string{"group": "kubernetes"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterFlag, _ := cmd.Flags().GetString("cluster")
-		clusterID, err := resolveKubeTokenClusterID(clusterFlag)
+		clusterID, organisationKnown, err := resolveGatewayClusterID(clusterFlag, nil)
 		if err != nil {
 			return err
 		}
 
 		kubeToken, err := apiClient.GetClusterKubeToken(context.Background(), clusterID)
 		if err != nil {
-			return decorateKubeTokenError(err, kubeTokenClusterReference(clusterFlag, clusterID), clusterID)
+			return decorateKubeTokenError(err, kubeTokenClusterReference(clusterFlag, clusterID), clusterID, organisationKnown)
 		}
 
 		credential := execCredential{
@@ -84,9 +84,15 @@ It prints JSON to stdout and never prompts; run 'ankra login' first.`,
 // a cluster problem but are not into errors that name the real cause. Both
 // decorations keep the original error in the chain, so exit-code
 // classification is unchanged; every other failure passes through untouched.
-func decorateKubeTokenError(err error, clusterRef, clusterID string) error {
+//
+// organisationKnown says the caller already established which organisation has
+// this cluster. The cross-organisation sweep then cannot change the answer, so
+// it is skipped: on the kubectl credential-plugin path, which reruns on every
+// command, it would be an organisation list plus a lookup per organisation on
+// an already-failing invocation.
+func decorateKubeTokenError(err error, clusterRef, clusterID string, organisationKnown bool) error {
 	var unexpected *client.UnexpectedResponseError
-	if errors.As(err, &unexpected) && unexpected.StatusCode == http.StatusNotFound {
+	if !organisationKnown && errors.As(err, &unexpected) && unexpected.StatusCode == http.StatusNotFound {
 		return explainKubeTokenNotFound(err, clusterRef, clusterID)
 	}
 	return suggestAccessOnKubeTokenDenied(err, clusterRef)
@@ -141,7 +147,8 @@ func kubeTokenClusterReference(clusterFlag, clusterID string) string {
 // quiet variant: kubectl re-runs the credential plugin on every command, so
 // nothing here may write to stderr.
 func resolveKubeTokenClusterID(clusterFlag string) (string, error) {
-	return resolveGatewayClusterID(clusterFlag, nil)
+	clusterID, _, err := resolveGatewayClusterID(clusterFlag, nil)
+	return clusterID, err
 }
 
 // resolveGatewayClusterID resolves the cluster reference and, for an ID the
@@ -150,47 +157,38 @@ func resolveKubeTokenClusterID(clusterFlag string) (string, error) {
 // resolved inside the selected organisation, which answers 404 for a cluster
 // that plainly exists.
 //
+// The second return value reports whether the owning organisation ended up
+// known. A mint that fails afterwards is then not an organisation-scoping
+// problem, so the error path can skip the cross-organisation sweep.
+//
 // notify, when non-nil, receives a note whenever the organisation was
 // re-scoped.
-func resolveGatewayClusterID(clusterFlag string, notify io.Writer) (string, error) {
+func resolveGatewayClusterID(clusterFlag string, notify io.Writer) (string, bool, error) {
 	if clusterFlag != "" {
 		cluster, err := apiClient.GetCluster(clusterFlag)
 		if err == nil {
-			return cluster.ID, nil
+			// A name only resolves inside the organisation in scope, so a hit
+			// here settles the organisation question by construction.
+			return cluster.ID, true, nil
 		}
 		if isLikelyClusterID(clusterFlag) {
-			return resolveGatewayClusterByID(clusterFlag, notify)
+			resolution := resolveClusterOrganisation(clusterFlag, notify)
+			if resolution.absent {
+				return "", false, withExitCode(exitNotFound, notInScopedOrganisationError(resolution.search, clusterFlag, nil))
+			}
+			// Settled or unknown: either way the backend gets the ID, but
+			// only "unknown" leaves an organisation question to explain.
+			return clusterFlag, resolution.settled(), nil
 		}
-		return "", fmt.Errorf("cluster %q not found; pass a cluster name or ID (not the kubeconfig context name): %w", clusterFlag, err)
+		return "", false, fmt.Errorf("cluster %q not found; pass a cluster name or ID (not the kubeconfig context name): %w", clusterFlag, err)
 	}
 	cluster, err := loadSelectedCluster()
 	if err != nil {
-		return "", fmt.Errorf("no cluster specified and no active cluster selected; pass --cluster <name|id>")
+		return "", false, fmt.Errorf("no cluster specified and no active cluster selected; pass --cluster <name|id>")
 	}
-	return cluster.ID, nil
-}
-
-// resolveGatewayClusterByID confirms a cluster UUID in the organisation this
-// invocation is scoped to, and failing that adopts the organisation that owns
-// it. A search that could not run leaves the ID untouched for the backend to
-// answer for, which is the behaviour that predates the cross-organisation
-// lookup: an unreachable organisation list is not evidence about a cluster.
-func resolveGatewayClusterByID(clusterID string, notify io.Writer) (string, error) {
-	if cluster, err := apiClient.GetClusterByID(clusterID); err == nil && cluster.ID == clusterID {
-		return clusterID, nil
-	}
-	search, adopted := resolveOwningOrganisation(clusterID, notify)
-	if adopted || search.err != nil {
-		return clusterID, nil
-	}
-	// The first lookup can also fail for a reason that says nothing about the
-	// cluster. The search has just proved the API is reachable, so ask the
-	// scoped organisation once more rather than turning one bad response into
-	// "this cluster does not exist".
-	if cluster, err := apiClient.GetClusterByID(clusterID); err == nil && cluster.ID == clusterID {
-		return clusterID, nil
-	}
-	return "", withExitCode(exitNotFound, notInScopedOrganisationError(search, clusterID, nil))
+	// The selection is a local file and can name a cluster in an organisation
+	// this invocation is not scoped to, so nothing is settled here.
+	return cluster.ID, false, nil
 }
 
 func normalizeExpirationTimestamp(expiresAt string) string {

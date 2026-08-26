@@ -39,6 +39,10 @@ type orgScopeMock struct {
 	// failByIDCalls makes the first n by-ID lookups fail for a reason that
 	// says nothing about the cluster, modelling a single bad response.
 	failByIDCalls int
+
+	// failByIDCallNumbers fails specific by-ID lookups by 1-based call
+	// number, for the cases where which lookup fails is the whole point.
+	failByIDCallNumbers map[int]bool
 }
 
 // scope is the organisation the current request resolves against: the
@@ -75,6 +79,9 @@ func (m *orgScopeMock) GetClusterByID(clusterID string) (client.ClusterListItem,
 	m.byIDScopes = append(m.byIDScopes, m.scope())
 	if m.failByIDCalls > 0 {
 		m.failByIDCalls--
+		return client.ClusterListItem{}, errors.New("request failed: unexpected EOF")
+	}
+	if m.failByIDCallNumbers[len(m.byIDScopes)] {
 		return client.ClusterListItem{}, errors.New("request failed: unexpected EOF")
 	}
 	for _, cluster := range m.clustersByOrg[m.scope()] {
@@ -176,7 +183,7 @@ func TestResolveGatewayClusterIDNotifiesWhenAdopting(t *testing.T) {
 	withOrgScopeMock(t, crossOrgMock())
 
 	var notes bytes.Buffer
-	if _, err := resolveGatewayClusterID(otherOrgClusterID, &notes); err != nil {
+	if _, _, err := resolveGatewayClusterID(otherOrgClusterID, &notes); err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
 	note := notes.String()
@@ -223,7 +230,7 @@ func TestResolveGatewayClusterIDLeavesScopeAloneWhenTheClusterIsInScope(t *testi
 	mock := withOrgScopeMock(t, crossOrgMock())
 
 	const inScope = "22222222-2222-2222-2222-222222222222"
-	if _, err := resolveGatewayClusterID(inScope, nil); err != nil {
+	if _, _, err := resolveGatewayClusterID(inScope, nil); err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
 	if mock.override != "" {
@@ -244,7 +251,7 @@ func TestResolveGatewayClusterIDHonoursAnExplicitOrganisationOverride(t *testing
 	mock := withOrgScopeMock(t, crossOrgMock())
 	mock.override = owningOrgID
 
-	if _, err := resolveGatewayClusterID(otherOrgClusterID, nil); err != nil {
+	if _, _, err := resolveGatewayClusterID(otherOrgClusterID, nil); err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
 	if mock.override != owningOrgID {
@@ -261,7 +268,7 @@ func TestResolveGatewayClusterIDNamesTheOrganisationsSearched(t *testing.T) {
 	mock := withOrgScopeMock(t, crossOrgMock())
 	const unknown = "99999999-9999-9999-9999-999999999999"
 
-	_, err := resolveGatewayClusterID(unknown, nil)
+	_, _, err := resolveGatewayClusterID(unknown, nil)
 	if err == nil {
 		t.Fatal("expected an error for a cluster no organisation has")
 	}
@@ -289,7 +296,7 @@ func TestResolveGatewayClusterIDPassesThroughWhenTheSearchCannotRun(t *testing.T
 	mock := withOrgScopeMock(t, crossOrgMock())
 	mock.listOrganisationsErr = errors.New("dial tcp: connection refused")
 
-	clusterID, err := resolveGatewayClusterID(otherOrgClusterID, nil)
+	clusterID, _, err := resolveGatewayClusterID(otherOrgClusterID, nil)
 	if err != nil {
 		t.Fatalf("an inconclusive search must not fail the command: %v", err)
 	}
@@ -306,7 +313,7 @@ func TestResolveGatewayClusterIDSurvivesOneBadLookup(t *testing.T) {
 	mock.failByIDCalls = 1
 	const inScope = "22222222-2222-2222-2222-222222222222"
 
-	clusterID, err := resolveGatewayClusterID(inScope, nil)
+	clusterID, _, err := resolveGatewayClusterID(inScope, nil)
 	if err != nil {
 		t.Fatalf("one bad lookup failed the command: %v", err)
 	}
@@ -324,7 +331,7 @@ func TestExplainKubeTokenNotFoundNamesTheOwningOrganisation(t *testing.T) {
 	withOrgScopeMock(t, crossOrgMock())
 	original := client.NewUnexpectedResponseError(404, `kube token request failed: status 404, body: {"detail":"Cluster not found"}`)
 
-	err := decorateKubeTokenError(original, otherOrgClusterID, otherOrgClusterID)
+	err := decorateKubeTokenError(original, otherOrgClusterID, otherOrgClusterID, false)
 	for _, fragment := range []string{
 		`is not in organisation "Depict" (` + selectedOrgID + `)`,
 		`it belongs to "Ankra AB" (` + owningOrgID + `)`,
@@ -350,13 +357,13 @@ func TestDecorateKubeTokenErrorLeavesOtherStatusesToTheAccessSuggestion(t *testi
 	withOrgScopeMock(t, crossOrgMock())
 	denied := client.NewUnexpectedResponseError(403, `kube token request failed: status 403, body: {"detail":"You do not have access to this cluster"}`)
 
-	err := decorateKubeTokenError(denied, "ankra-prod", otherOrgClusterID)
+	err := decorateKubeTokenError(denied, "ankra-prod", otherOrgClusterID, false)
 	if !strings.Contains(err.Error(), "ankra cluster access grant <your-email> --cluster ankra-prod --role view") {
 		t.Errorf("403 error = %v, want the access-grant suggestion", err)
 	}
 
 	transport := errors.New("dial tcp: connection refused")
-	if got := decorateKubeTokenError(transport, "ankra-prod", otherOrgClusterID); got != transport {
+	if got := decorateKubeTokenError(transport, "ankra-prod", otherOrgClusterID, false); got != transport {
 		t.Errorf("transport error = %v, want it passed through unchanged", got)
 	}
 }
@@ -410,8 +417,32 @@ func TestFindClusterInOtherOrganisationsNeverCountsAFailedLookupAsAMiss(t *testi
 
 	// And an inconclusive search must not fail the command.
 	mock.failByIDCalls = 3
-	if _, err := resolveGatewayClusterID(unknown, nil); err != nil {
+	if _, _, err := resolveGatewayClusterID(unknown, nil); err != nil {
 		t.Errorf("inconclusive search failed the command: %v", err)
+	}
+}
+
+func TestResolveGatewayClusterIDNeverCallsAFailedRetryAnAbsence(t *testing.T) {
+	// Both lookups against the scoped organisation fail for a reason that
+	// says nothing about the cluster, and the search finds it nowhere else.
+	// The scoped organisation has still never answered, so this is UNKNOWN,
+	// not "no such cluster": the id goes to the backend as before.
+	mock := withOrgScopeMock(t, crossOrgMock())
+	const unknown = "99999999-9999-9999-9999-999999999999"
+	// Fail the in-scope lookup and the in-scope retry, but let the two
+	// cross-organisation lookups answer cleanly so the search itself is
+	// conclusive.
+	mock.failByIDCallNumbers = map[int]bool{1: true, 4: true}
+
+	clusterID, _, err := resolveGatewayClusterID(unknown, nil)
+	if err != nil {
+		t.Fatalf("a scoped organisation that never answered must not become an absence: %v", err)
+	}
+	if clusterID != unknown {
+		t.Errorf("cluster id = %q, want the input passed through", clusterID)
+	}
+	if len(mock.byIDScopes) != 4 {
+		t.Errorf("by-id lookups = %v, want 4 (in-scope, two searches, in-scope retry)", mock.byIDScopes)
 	}
 }
 
@@ -422,7 +453,7 @@ func TestResolveGatewayClusterIDNeverReplacesAnExplicitOrganisation(t *testing.T
 	mock := withOrgScopeMock(t, crossOrgMock())
 	mock.override = "org-acme"
 
-	_, err := resolveGatewayClusterID(otherOrgClusterID, nil)
+	_, _, err := resolveGatewayClusterID(otherOrgClusterID, nil)
 	if err == nil {
 		t.Fatal("expected an error rather than a silent switch away from the pinned organisation")
 	}
@@ -461,6 +492,115 @@ func TestKubeconfigAddRefusesToWriteAContextItKnowsIsBroken(t *testing.T) {
 	}
 	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
 		t.Errorf("no kubeconfig should be written on failure: %s", path)
+	}
+}
+
+func TestKubeconfigAddDoesNotCallASilentOrganisationAnAbsence(t *testing.T) {
+	// The fourth site of the same class, latent until both callers were put
+	// through one resolver: kubeconfig had its own in-scope lookup whose
+	// failure fell straight into the definitive not-found branch. Here the
+	// scoped organisation never answers while the search answers cleanly, so
+	// the outcome is unknown and the command must still reach the backend.
+	mock := withOrgScopeMock(t, crossOrgMock())
+	mock.failByIDCallNumbers = map[int]bool{1: true, 4: true}
+	path := filepath.Join(t.TempDir(), "config")
+	resetKubeconfigFlags(path)
+	kubeconfigClusterFlag = "99999999-9999-9999-9999-999999999999"
+
+	var out bytes.Buffer
+	err := kubeconfigAdd(&out)
+	if err == nil {
+		t.Fatal("the backend still 404s the mint, so this must fail")
+	}
+	if len(mock.tokenScopes) == 0 {
+		t.Errorf("resolution stopped before the mint: an organisation that never answered was read as an absence (error: %v)", err)
+	}
+}
+
+func TestLookUpClusterInScopeSeparatesAbsenceFromSilence(t *testing.T) {
+	// The primitive the whole flow now goes through. found() and absent() are
+	// deliberately not each other's negation: a lookup that never completed is
+	// neither, which is what stops "no answer" being spelled as "no cluster".
+	mock := withOrgScopeMock(t, crossOrgMock())
+	const inScope = "22222222-2222-2222-2222-222222222222"
+	const unknown = "99999999-9999-9999-9999-999999999999"
+
+	present := lookUpClusterInScope(inScope)
+	if !present.found() || present.absent() || present.cluster.Name != "depict-prod" {
+		t.Errorf("present lookup = %+v, want found and not absent", present)
+	}
+
+	missing := lookUpClusterInScope(unknown)
+	if missing.found() || !missing.absent() {
+		t.Errorf("clean miss = %+v, want absent and not found", missing)
+	}
+
+	mock.failByIDCalls = 1
+	silent := lookUpClusterInScope(inScope)
+	if silent.found() {
+		t.Errorf("failed lookup = %+v, must not be found", silent)
+	}
+	if silent.absent() {
+		t.Errorf("failed lookup = %+v, must not be absent either: no answer is not an absence", silent)
+	}
+	if silent.unanswered == nil {
+		t.Error("a failed lookup must carry why it could not be completed")
+	}
+}
+
+func TestDecorateKubeTokenErrorSkipsTheSweepWhenTheOrganisationIsKnown(t *testing.T) {
+	// When the caller already established which organisation has the cluster,
+	// a mint 404 is not an organisation-scoping problem, so the N+1 sweep
+	// cannot change the answer. kubectl reruns the plugin constantly, so it
+	// must not pay for it.
+	mock := withOrgScopeMock(t, crossOrgMock())
+	notFound := client.NewUnexpectedResponseError(404, `kube token request failed: status 404, body: {"detail":"Cluster not found"}`)
+
+	err := decorateKubeTokenError(notFound, otherOrgClusterID, otherOrgClusterID, true)
+	if mock.listOrganisationsCalls != 0 {
+		t.Errorf("organisations listed %d times, want 0", mock.listOrganisationsCalls)
+	}
+	if len(mock.byIDScopes) != 0 {
+		t.Errorf("by-id lookups = %v, want none", mock.byIDScopes)
+	}
+	if err != notFound {
+		t.Errorf("error = %v, want the original 404 passed through", err)
+	}
+
+	// Unknown organisation: the sweep is exactly what produces the message.
+	if err := decorateKubeTokenError(notFound, otherOrgClusterID, otherOrgClusterID, false); !strings.Contains(err.Error(), "it belongs to") {
+		t.Errorf("error = %v, want the owning organisation named", err)
+	}
+	if mock.listOrganisationsCalls != 1 {
+		t.Errorf("organisations listed %d times, want 1", mock.listOrganisationsCalls)
+	}
+}
+
+func TestResolveGatewayClusterIDReportsWhetherTheOrganisationIsSettled(t *testing.T) {
+	// The flag that gates the sweep has to be true exactly when the owner is
+	// known, or the gate either wastes calls or suppresses the message.
+	const inScope = "22222222-2222-2222-2222-222222222222"
+	const unknown = "99999999-9999-9999-9999-999999999999"
+
+	withOrgScopeMock(t, crossOrgMock())
+	if _, settled, err := resolveGatewayClusterID(inScope, nil); err != nil || !settled {
+		t.Errorf("in-scope id: settled = %v, err = %v; want settled", settled, err)
+	}
+
+	withOrgScopeMock(t, crossOrgMock())
+	if _, settled, err := resolveGatewayClusterID(otherOrgClusterID, nil); err != nil || !settled {
+		t.Errorf("adopted id: settled = %v, err = %v; want settled", settled, err)
+	}
+
+	withOrgScopeMock(t, crossOrgMock())
+	if _, settled, err := resolveGatewayClusterID("depict-prod", nil); err != nil || !settled {
+		t.Errorf("name hit: settled = %v, err = %v; want settled", settled, err)
+	}
+
+	inconclusive := withOrgScopeMock(t, crossOrgMock())
+	inconclusive.listOrganisationsErr = errors.New("dial tcp: connection refused")
+	if _, settled, err := resolveGatewayClusterID(unknown, nil); err != nil || settled {
+		t.Errorf("inconclusive: settled = %v, err = %v; want unsettled so the error can still explain", settled, err)
 	}
 }
 
