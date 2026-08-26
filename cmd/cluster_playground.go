@@ -59,10 +59,48 @@ var clusterPlaygroundPlansCmd = &cobra.Command{
 			_, _ = fmt.Fprintf(writer, "%-8s  %2d vCPU / %2.0f GB RAM / %3d GB storage  %10s%s\n",
 				plan.ID, plan.Vcpus, plan.MemoryGB, plan.StorageGB, price, availability)
 		}
+		if catalog.Quota.LimitMiB > 0 {
+			_, _ = fmt.Fprintf(writer, "\nMemory budget: %d of %d GB used by paid playgrounds (the free trial does not count).\n",
+				catalog.Quota.UsedMiB/1024, catalog.Quota.LimitMiB/1024)
+			_, _ = fmt.Fprintf(writer, "Need more? ankra org limits request --kind playground-memory --gb <n> --justification \"...\"\n")
+		}
 		_, _ = fmt.Fprintf(writer, "\nOrder one with: ankra cluster playground create --size <id>\n")
 		if !catalog.OrganisationHasPaidPlan {
 			_, _ = fmt.Fprintf(writer,
 				"Paid sizes need a billing plan - choose one on the billing page first.\n")
+		} else if !catalog.OrganisationHasPaymentCard {
+			_, _ = fmt.Fprintf(writer,
+				"Paid sizes need a payment card on file - add one on the billing page first.\n")
+		}
+		return nil
+	},
+}
+
+var clusterPlaygroundResizeSize string
+
+var clusterPlaygroundResizeCmd = &cobra.Command{
+	Use:   "resize <cluster_id>",
+	Short: "Resize a paid playground to another size",
+	Long: "Change a paid playground to another paid size in place: only the namespace quota and " +
+		"the monthly price change (the month is billed pro-rata across the change), nothing you " +
+		"deployed is touched. The free trial cannot be resized - order a paid size instead.",
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if clusterPlaygroundResizeSize == "" {
+			return fmt.Errorf("--size is required; list sizes with `ankra cluster playground plans`")
+		}
+		result, err := apiClient.ResizePlayground(args[0], clusterPlaygroundResizeSize)
+		if err != nil {
+			return fmt.Errorf("resizing the playground: %w", err)
+		}
+		writer := cmd.OutOrStdout()
+		_, _ = fmt.Fprintf(writer, "Playground resized.\n")
+		_, _ = fmt.Fprintf(writer, "  Cluster ID: %s\n", result.ClusterID)
+		_, _ = fmt.Fprintf(writer, "  Size:       %s (%d vCPU / %.0f GB)\n",
+			result.Plan.DisplayName, result.Plan.Vcpus, result.Plan.MemoryGB)
+		if result.Plan.PriceMonthlyCents > 0 {
+			_, _ = fmt.Fprintf(writer, "  Price:      %s%.2f/mo (billed pro-rata across the change)\n",
+				currencySymbol(result.Plan.Currency), float64(result.Plan.PriceMonthlyCents)/100)
 		}
 		return nil
 	},
@@ -144,8 +182,11 @@ var clusterPlaygroundDestroyCmd = &cobra.Command{
 func init() {
 	clusterPlaygroundCreateCmd.Flags().StringVar(&clusterPlaygroundCreateSize, "size", "",
 		"size to order, from `ankra cluster playground plans` (default: the free trial)")
+	clusterPlaygroundResizeCmd.Flags().StringVar(&clusterPlaygroundResizeSize, "size", "",
+		"the new size, from `ankra cluster playground plans`")
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundCreateCmd)
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundPlansCmd)
+	clusterPlaygroundCmd.AddCommand(clusterPlaygroundResizeCmd)
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundStatusCmd)
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundDestroyCmd)
 	clusterCmd.AddCommand(clusterPlaygroundCmd)
