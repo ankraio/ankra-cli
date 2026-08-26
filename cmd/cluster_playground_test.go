@@ -21,10 +21,19 @@ type playgroundMock struct {
 	destroyResult    *client.DestroyPlaygroundResult
 	destroyError     error
 	destroyRequested string
+
+	createRequestedPlan string
+	plansCatalog        *client.PlaygroundPlanCatalog
+	plansError          error
 }
 
-func (m *playgroundMock) CreatePlayground() (*client.CreatePlaygroundResult, error) {
+func (m *playgroundMock) CreatePlayground(planID string) (*client.CreatePlaygroundResult, error) {
+	m.createRequestedPlan = planID
 	return m.createResult, m.createError
+}
+
+func (m *playgroundMock) ListPlaygroundPlans() (*client.PlaygroundPlanCatalog, error) {
+	return m.plansCatalog, m.plansError
 }
 
 func (m *playgroundMock) GetPlaygroundStatus(clusterID string) (*client.PlaygroundStatus, error) {
@@ -60,6 +69,55 @@ func TestPlaygroundCreatePrintsTheClusterIDAndTheFollowUpCommand(t *testing.T) {
 	// to follow it rather than implying the playground is ready.
 	if !strings.Contains(output, "ankra cluster playground status cluster-42") {
 		t.Errorf("expected the follow-up command in the output, got: %s", output)
+	}
+}
+
+// The --size flag is the order: it must reach the client verbatim, and its
+// absence must order the free trial (an empty plan on the wire).
+func TestPlaygroundCreatePassesTheOrderedSizeThrough(t *testing.T) {
+	mock := &playgroundMock{
+		createResult: &client.CreatePlaygroundResult{ClusterID: "cluster-42", Success: true},
+	}
+	withPlaygroundMock(t, mock)
+	clusterPlaygroundCreateSize = "medium"
+	t.Cleanup(func() { clusterPlaygroundCreateSize = "" })
+	captureStdout(t, func() {
+		if err := clusterPlaygroundCreateCmd.RunE(clusterPlaygroundCreateCmd, nil); err != nil {
+			t.Fatalf("create failed: %v", err)
+		}
+	})
+	if mock.createRequestedPlan != "medium" {
+		t.Errorf("ordered size %q did not reach the client, got %q", "medium", mock.createRequestedPlan)
+	}
+}
+
+func TestPlaygroundPlansListsSizesWithPricesAndAvailability(t *testing.T) {
+	withPlaygroundMock(t, &playgroundMock{
+		plansCatalog: &client.PlaygroundPlanCatalog{
+			DefaultPlanID: "trial",
+			Currency:      "eur",
+			// No paid billing plan: the listing must say so instead of
+			// letting the order fail at the end.
+			OrganisationHasPaidPlan: false,
+			Plans: []client.PlaygroundPlan{
+				{ID: "trial", DisplayName: "Trial", Vcpus: 1, MemoryGB: 2, StorageGB: 20, PriceMonthlyCents: 0, Currency: "eur", Available: true},
+				{ID: "small", DisplayName: "Small", Vcpus: 2, MemoryGB: 4, StorageGB: 50, PriceMonthlyCents: 1350, Currency: "eur", Available: true},
+				{ID: "large", DisplayName: "Large", Vcpus: 8, MemoryGB: 16, StorageGB: 200, PriceMonthlyCents: 7200, Currency: "eur", Available: false},
+			},
+		},
+	})
+	buffer := &strings.Builder{}
+	clusterPlaygroundPlansCmd.SetOut(buffer)
+	t.Cleanup(func() { clusterPlaygroundPlansCmd.SetOut(nil) })
+	if err := clusterPlaygroundPlansCmd.RunE(clusterPlaygroundPlansCmd, nil); err != nil {
+		t.Fatalf("plans failed: %v", err)
+	}
+	output := buffer.String()
+	for _, expected := range []string{"trial", "free", "small", "€13.50/mo", "large", "at capacity right now",
+		"create --size", "billing plan"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected %q in the listing, got: %s", expected, output)
+		}
 	}
 }
 

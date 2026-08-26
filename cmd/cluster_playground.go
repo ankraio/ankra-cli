@@ -14,13 +14,17 @@ var clusterPlaygroundCmd = &cobra.Command{
 		"Every organisation may hold one; it expires after a period of inactivity.",
 }
 
+var clusterPlaygroundCreateSize string
+
 var clusterPlaygroundCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create your organisation's playground",
-	Long: "Create the organisation's playground. Provisioning runs in the background: poll " +
+	Long: "Create the organisation's playground, optionally at a paid size from " +
+		"`ankra cluster playground plans`. Without --size the free trial is created. " +
+		"Provisioning runs in the background: poll " +
 		"`ankra cluster playground status <cluster_id>` until the phase reaches ready.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		result, err := apiClient.CreatePlayground()
+		result, err := apiClient.CreatePlayground(clusterPlaygroundCreateSize)
 		if err != nil {
 			return fmt.Errorf("creating the playground: %w", err)
 		}
@@ -30,6 +34,50 @@ var clusterPlaygroundCreateCmd = &cobra.Command{
 		fmt.Printf("  ankra cluster playground status %s\n", result.ClusterID)
 		return nil
 	},
+}
+
+var clusterPlaygroundPlansCmd = &cobra.Command{
+	Use:   "plans",
+	Short: "List the playground sizes you can order",
+	Long: "List every playground size with its monthly price and whether the pool can place " +
+		"it right now. Order one with `ankra cluster playground create --size <id>`.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		catalog, err := apiClient.ListPlaygroundPlans()
+		if err != nil {
+			return fmt.Errorf("listing the playground plans: %w", err)
+		}
+		writer := cmd.OutOrStdout()
+		for _, plan := range catalog.Plans {
+			price := "free"
+			if plan.PriceMonthlyCents > 0 {
+				price = fmt.Sprintf("%s%.2f/mo", currencySymbol(plan.Currency), float64(plan.PriceMonthlyCents)/100)
+			}
+			availability := ""
+			if !plan.Available {
+				availability = "  (at capacity right now)"
+			}
+			_, _ = fmt.Fprintf(writer, "%-8s  %2d vCPU / %2.0f GB RAM / %3d GB storage  %10s%s\n",
+				plan.ID, plan.Vcpus, plan.MemoryGB, plan.StorageGB, price, availability)
+		}
+		_, _ = fmt.Fprintf(writer, "\nOrder one with: ankra cluster playground create --size <id>\n")
+		if !catalog.OrganisationHasPaidPlan {
+			_, _ = fmt.Fprintf(writer,
+				"Paid sizes need a billing plan - choose one on the billing page first.\n")
+		}
+		return nil
+	},
+}
+
+// currencySymbol renders the catalog's currency for terminal output.
+func currencySymbol(currency string) string {
+	switch currency {
+	case "eur":
+		return "€"
+	case "usd":
+		return "$"
+	default:
+		return currency + " "
+	}
 }
 
 var clusterPlaygroundStatusCmd = &cobra.Command{
@@ -43,7 +91,25 @@ var clusterPlaygroundStatusCmd = &cobra.Command{
 		}
 		fmt.Printf("Cluster ID: %s\n", status.ClusterID)
 		fmt.Printf("Phase:      %s\n", status.Phase)
-		fmt.Printf("Expires at: %s\n", status.ExpiresAt)
+		if status.Plan != nil {
+			memory := status.Plan.MemoryGB
+			memoryLabel := fmt.Sprintf("%.0f", memory)
+			if memory != float64(int(memory)) {
+				memoryLabel = fmt.Sprintf("%.1f", memory)
+			}
+			fmt.Printf("Size:       %s (%d vCPU / %s GB)\n", status.Plan.DisplayName, status.Plan.Vcpus, memoryLabel)
+			if status.Plan.PriceMonthlyCents > 0 {
+				fmt.Printf("Price:      %s%.2f/mo\n", currencySymbol(status.Plan.Currency),
+					float64(status.Plan.PriceMonthlyCents)/100)
+			}
+			// A paid order does not idle-expire; showing its expires_at would
+			// promise a teardown the platform never performs.
+			if status.Plan.OrderedAt == nil {
+				fmt.Printf("Expires at: %s\n", status.ExpiresAt)
+			}
+		} else {
+			fmt.Printf("Expires at: %s\n", status.ExpiresAt)
+		}
 		if status.StatusMessage != nil && *status.StatusMessage != "" {
 			fmt.Printf("Message:    %s\n", *status.StatusMessage)
 		}
@@ -76,7 +142,10 @@ var clusterPlaygroundDestroyCmd = &cobra.Command{
 }
 
 func init() {
+	clusterPlaygroundCreateCmd.Flags().StringVar(&clusterPlaygroundCreateSize, "size", "",
+		"size to order, from `ankra cluster playground plans` (default: the free trial)")
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundCreateCmd)
+	clusterPlaygroundCmd.AddCommand(clusterPlaygroundPlansCmd)
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundStatusCmd)
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundDestroyCmd)
 	clusterCmd.AddCommand(clusterPlaygroundCmd)

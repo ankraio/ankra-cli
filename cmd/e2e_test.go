@@ -1340,7 +1340,11 @@ func (m baseMock) ListKubeadmVersions() (*client.ListVersionsResult, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) CreatePlayground() (*client.CreatePlaygroundResult, error) {
+func (m baseMock) CreatePlayground(string) (*client.CreatePlaygroundResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListPlaygroundPlans() (*client.PlaygroundPlanCatalog, error) {
 	return nil, errors.New("not implemented")
 }
 

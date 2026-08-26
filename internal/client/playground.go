@@ -15,21 +15,81 @@ type CreatePlaygroundResult struct {
 	Success   bool   `json:"success"`
 }
 
-// PlaygroundStatus is the provisioning state machine's public shape.
-type PlaygroundStatus struct {
-	ClusterID     string  `json:"cluster_id"`
-	Phase         string  `json:"phase"`
-	StatusMessage *string `json:"status_message"`
-	ExpiresAt     string  `json:"expires_at"`
+// PlaygroundOrderedPlan is the size the environment was ordered at and its
+// price of record; OrderedAt is null for a free environment nobody ordered.
+type PlaygroundOrderedPlan struct {
+	ID                string  `json:"id"`
+	DisplayName       string  `json:"display_name"`
+	Vcpus             int     `json:"vcpus"`
+	MemoryGB          float64 `json:"memory_gb"`
+	PriceMonthlyCents int     `json:"price_monthly_cents"`
+	Currency          string  `json:"currency"`
+	OrderedAt         *string `json:"ordered_at"`
 }
 
-// CreatePlayground provisions the organisation's playground. A 409 means one
-// already exists; a 503 means the shared host is at capacity. Both surface as
-// the server's detail text through the shared unexpected-response error.
-func (c *Client) CreatePlayground() (*CreatePlaygroundResult, error) {
+// PlaygroundStatus is the provisioning state machine's public shape.
+type PlaygroundStatus struct {
+	ClusterID     string                 `json:"cluster_id"`
+	Phase         string                 `json:"phase"`
+	StatusMessage *string                `json:"status_message"`
+	ExpiresAt     string                 `json:"expires_at"`
+	Plan          *PlaygroundOrderedPlan `json:"plan"`
+}
+
+// PlaygroundPlan is one orderable playground size with its price.
+type PlaygroundPlan struct {
+	ID                string  `json:"id"`
+	DisplayName       string  `json:"display_name"`
+	Summary           string  `json:"summary"`
+	Vcpus             int     `json:"vcpus"`
+	MemoryGB          float64 `json:"memory_gb"`
+	StorageGB         int     `json:"storage_gb"`
+	MaxPods           int     `json:"max_pods"`
+	PriceMonthlyCents int     `json:"price_monthly_cents"`
+	Currency          string  `json:"currency"`
+	Available         bool    `json:"available"`
+}
+
+// PlaygroundPlanCatalog is the GET body of the plans route.
+type PlaygroundPlanCatalog struct {
+	Plans         []PlaygroundPlan `json:"plans"`
+	DefaultPlanID string           `json:"default_plan_id"`
+	Currency      string           `json:"currency"`
+	// OrganisationHasPaidPlan reports whether a paid size can be ordered at
+	// all - ordering one without a paid billing plan is refused with 402.
+	OrganisationHasPaidPlan bool `json:"organisation_has_paid_plan"`
+}
+
+// ListPlaygroundPlans reads the orderable sizes with their prices and
+// current availability.
+func (c *Client) ListPlaygroundPlans() (*PlaygroundPlanCatalog, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/playground/plans", c.BaseURL)
+	var catalog PlaygroundPlanCatalog
+	if err := c.getJSON(url, &catalog); err != nil {
+		return nil, err
+	}
+	return &catalog, nil
+}
+
+// createPlaygroundRequest is the order body; an empty plan is omitted and
+// means the free trial.
+type createPlaygroundRequest struct {
+	Plan string `json:"plan"`
+}
+
+// CreatePlayground provisions the organisation's playground at the given
+// size; an empty planID orders the free trial. A 409 means one already
+// exists; a 503 means the shared host is at capacity; a 402 means a paid
+// size needs a billing plan. All surface as the server's detail text through
+// the shared unexpected-response error.
+func (c *Client) CreatePlayground(planID string) (*CreatePlaygroundResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/playground", c.BaseURL)
+	var body any
+	if planID != "" {
+		body = createPlaygroundRequest{Plan: planID}
+	}
 	var result CreatePlaygroundResult
-	if err := c.postCSRFJSON(url, nil, &result, "create playground"); err != nil {
+	if err := c.postCSRFJSON(url, body, &result, "create playground"); err != nil {
 		return nil, err
 	}
 	return &result, nil
