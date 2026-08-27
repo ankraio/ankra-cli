@@ -222,3 +222,30 @@ See `ankra-stack-profiles`. Either way you build once and promote; you never for
 | Deploy succeeded, service unreachable | Container port, ingress path, or health probe path does not match what the code serves. |
 | Auto-deploy did not fire | Auto-deploy is off, or the build was not on the tracked branch. Check `auto-deploy get`. |
 | Demo has no image | The branch has no demo-ready build — `ankra application demo build`, then `demo fix-build`. |
+| `ankra application build` 404s on an application you can read | The `platform_builds` flag is off for the organisation. It is off by default; the routes 404 rather than 403 so the surface stays invisible while the lane rolls out. |
+| `build start` refuses the commit as 422 | The sha was abbreviated. The queue deduplicates on the string it is given, so it takes full 40- or 64-character shas only. |
+| `build start` reports `already_requested` | A live request for that commit already existed and this ask joined it. That is the queue converging, not a refusal — one commit is one build. |
+| `build list` is empty right after `build start` | A request is not yet a build: the build row is created when the scheduler claims the request. Read `build request <request-id>` to see the ask itself. |
+| A build failed with `capacity` | No builder had room. That is Ankra's failure, not the repository's, and Ankra can already see it. |
+
+## Platform builds over the API
+
+Both surfaces carry the lane — the browser session the portal uses, and the bearer PAT the CLI and
+any API client use. Everything below is also at `/org/applications/...` for a session.
+
+| Method | Path | Answers |
+|--------|------|---------|
+| `POST` | `/api/v1/org/applications/{application_id}/builds` | `{request_id, build_id, already_requested}` |
+| `GET` | `/api/v1/org/applications/{application_id}/builds` | `{builds: [...], capped}` — newest first, capped at 50 |
+| `GET` | `/api/v1/org/applications/{application_id}/builds/{build_id}` | one build |
+| `GET` | `/api/v1/org/applications/{application_id}/builds/requests/{request_id}` | one queued request, and the build it became |
+
+The POST body takes `head_sha` (required, full sha), and optionally `ref`, `component` and `reason`
+(`first_onboard`, `push`, `retry` — the default — or `demo`). Queueing needs the
+`applications.deploy` permission; the reads need `applications.read`.
+
+Follow a build you queued in two steps, because a request and a build are different rows: poll the
+request until `build_id` is set, then poll that build until `status` is `succeeded` or `failed`.
+Watching the listing instead is a trap — a previous failed build of the same commit is still the
+newest one for that commit, so it would report an old failure as your ask's result. `ankra
+application build start --wait` does exactly this two-step for you.
