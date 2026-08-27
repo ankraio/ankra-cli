@@ -148,7 +148,7 @@ var ErrCloudflareNotConnected = errors.New("no Cloudflare credential is connecte
 // ErrCloudflareNotFound is returned for a domain or record the organisation's
 // credential cannot see. It covers "does not exist" and "not this token's
 // zone", which the backend does not distinguish and neither may this.
-var ErrCloudflareNotFound = errors.New("Cloudflare domain or record not found")
+var ErrCloudflareNotFound = errors.New("domain or record not found in Cloudflare")
 
 func (c *Client) cloudflareURL(path string, credentialName string, extra neturl.Values) string {
 	query := neturl.Values{}
@@ -356,7 +356,7 @@ func (c *Client) doCloudflareRequest(ctx context.Context, method, url string, bo
 		}
 		if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
 			if seconds, parseErr := strconv.Atoi(retryAfter); parseErr == nil && seconds > 0 {
-				return nil, fmt.Errorf("%s Try again in %ds.", detail, seconds)
+				return nil, fmt.Errorf("%s Cloudflare asked for a %d second wait", detail, seconds)
 			}
 		}
 		return nil, errors.New(detail)

@@ -391,7 +391,7 @@ func readCloudflareToken(cmd *cobra.Command) (string, error) {
 func cloudflareError(err error, action string) error {
 	if errors.Is(err, client.ErrCloudflareNotConnected) {
 		return errors.New("no Cloudflare credential is connected for this organisation.\n" +
-			"Connect one with 'ankra org cloudflare connect <name>'.")
+			"Connect one with 'ankra org cloudflare connect <name>'")
 	}
 	if errors.Is(err, client.ErrCloudflareNotFound) {
 		return err
