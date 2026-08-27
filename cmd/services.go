@@ -84,6 +84,15 @@ type APIClient interface {
 	CreateOrganisationDnsRecord(ctx context.Context, name, recordType, content string, ttl *int) (*client.DnsRecord, error)
 	UpdateOrganisationDnsRecord(ctx context.Context, recordID, content string, ttl *int) (*client.DnsRecord, error)
 	DeleteOrganisationDnsRecord(ctx context.Context, recordID string) error
+
+	ListCloudflareCredentials(ctx context.Context) (*client.CloudflareCredentialsListResult, error)
+	VerifyCloudflareToken(ctx context.Context, apiToken, accountID string) (*client.CloudflareVerification, error)
+	ConnectCloudflareCredential(ctx context.Context, name, apiToken, accountID string) (*client.CloudflareVerification, error)
+	ListCloudflareDomains(ctx context.Context, credentialName, domainName string) (*client.CloudflareDomainsListResult, error)
+	ListCloudflareRecords(ctx context.Context, credentialName, domainID, nameFilter, typeFilter string) (*client.CloudflareRecordsListResult, error)
+	CreateCloudflareRecord(ctx context.Context, credentialName, domainID string, input client.CreateCloudflareRecordInput) (*client.CloudflareRecord, error)
+	UpdateCloudflareRecord(ctx context.Context, credentialName, domainID, recordID string, input client.UpdateCloudflareRecordInput) (*client.CloudflareRecord, error)
+	DeleteCloudflareRecord(ctx context.Context, credentialName, domainID, recordID string) error
 	ListOrganisationClusterDnsZones(ctx context.Context) (*client.DnsClusterZonesListResult, error)
 	GetOrganisationDomain(ctx context.Context) (*client.OrganisationDomain, error)
 	GetOrganisationPreviewSettings(ctx context.Context) (*client.OrganisationPreviewSettings, error)
