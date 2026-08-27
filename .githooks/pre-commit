@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -e
 
+# git exports GIT_DIR / GIT_INDEX_FILE to hooks. Tests that spawn git inside
+# a temp repository then act on THIS repository instead ("remote origin
+# already exists" from TestApplicationAddCommand was a `git remote add` aimed
+# at the real checkout). Strip them so the tests see the repo they created.
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX
+
 echo "Running tests..."
 go test ./...
 

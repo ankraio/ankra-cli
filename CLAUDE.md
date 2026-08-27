@@ -29,6 +29,20 @@ the un-injected fallback; never bump it for a release.
 - `internal/client` — typed HTTP client for the platform API, one file per
   resource family.
 - `internal/kubeconfig` — kubeconfig read/merge/write.
+- `internal/migrate` — `ankra migrate`: the module contract (`Module`,
+  `Description`, `Detection`, `Result`), the registry that discovers
+  `ankra-module-<name>` executables, and the JSON-over-stdio protocol they
+  speak. `internal/migrate/docker` is the built-in module and the reference
+  implementation; `examples/modules/` holds a complete external one.
+  Nothing under `migrate` may call the platform API - every command there is
+  annotated `annotationRequiresAuth: "false"` and must work offline.
+- `internal/migrate` — `ankra migrate`: the module contract (`Module`,
+  `Description`, `Detection`, `Result`), the registry that discovers
+  `ankra-module-<name>` executables, and the JSON-over-stdio protocol they
+  speak. `internal/migrate/docker` is the built-in module and the reference
+  implementation; `examples/modules/` holds a complete external one.
+  Nothing under `migrate` may call the platform API - every command there is
+  annotated `annotationRequiresAuth: "false"` and must work offline.
 - `internal/skills` — embedded agent skills, vendored from the sibling
   `ankra-skills` repo (`make generate` / `make verify-skills`; in the split
   repo the embedded copy is canonical).

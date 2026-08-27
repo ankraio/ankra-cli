@@ -98,6 +98,19 @@
 
 ### Added
 
+- **`ankra migrate` converts an existing Docker deployment into Ankra
+  resources.** `ankra migrate convert` reads a docker-compose file, a bare
+  Dockerfile, or the running Docker daemon and writes an ImportCluster
+  manifest plus the Kubernetes manifests its stack refers to - compose
+  `depends_on` becomes stack `parents`, credentials land in Secrets, named
+  volumes become claims, healthchecks become readiness probes - with a
+  warning for everything it could not carry over and the fix for each.
+  Conversion is done by modules: `docker` is built in, and anyone can add a
+  format by putting an executable named `ankra-module-<name>` on PATH that
+  answers `describe`, `detect`, and `convert` over JSON (see
+  `ankra migrate modules --help` and `examples/modules/`). None of it needs
+  a login.
+
 - **A kube-gateway access denial now suggests the command that fixes it.**
   When `ankra cluster kubeconfig add` or `ankra cluster kube-token` is
   rejected with a 403 because the caller has no access grant on the cluster,

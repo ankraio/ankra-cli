@@ -138,6 +138,7 @@ per command family:
 | [ankra org](https://docs.ankra.ai/reference/cli/org) | Manage organisations, members, roles, and org variables |
 | [ankra profile](https://docs.ankra.ai/reference/cli/profile) | Manage your Ankra profile (MFA, passkeys) |
 | [ankra skills](https://docs.ankra.ai/reference/cli/skills) | Install Ankra Agent Skills into Cursor or Claude Code |
+| [ankra migrate](https://docs.ankra.ai/reference/cli/migrate) | Convert a docker-compose file, Dockerfile, or running containers into Ankra cluster and stack definitions; extensible with `ankra-module-<name>` executables |
 | [ankra stack-profiles](https://docs.ankra.ai/reference/cli/stack-profiles) | Manage reusable stack profiles |
 | [ankra support](https://docs.ankra.ai/reference/cli/support) | Create and track Ankra support requests |
 | [ankra tokens](https://docs.ankra.ai/reference/cli/tokens) | Manage API tokens |
@@ -171,6 +172,9 @@ ankra-cli/
 │   ├── clusters.go         # Cluster operations
 │   ├── organisations.go    # Organisation management
 │   └── ...                 # Addons, stacks, tokens, credentials, chat, etc.
+├── internal/migrate/       # `ankra migrate`: module contract, registry, external-module protocol
+│   └── docker/             # Built-in module: compose, Dockerfile, live daemon -> Kubernetes
+├── examples/modules/       # A complete external migrate module, for module authors
 ├── tools/gendocs/          # Generates the docs.ankra.ai CLI reference
 ├── testing/stack_test/     # YAML fixtures for testing
 ├── main.go                 # Entry point
