@@ -15,6 +15,11 @@
   the last check failed - `verify` re-runs the check after rotating or
   fixing keys, and `delete` confirms first (or takes `--yes`). `get` and
   `list` take a vault name as well as an id and support `-o json|yaml`.
+  Backup vaults are rolling out gradually: while the `backups` feature is
+  not enabled for the selected organisation every vault command exits
+  non-zero with "Backups are not enabled for this organisation." and says
+  what to do about it (ask Ankra to enable the feature, or check `ankra
+  org current`), rather than a bare 403.
 
 ### Fixed
 
