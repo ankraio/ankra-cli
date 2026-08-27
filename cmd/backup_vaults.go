@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"ankra/internal/client"
 
@@ -118,6 +120,9 @@ func printBackupVault(vault *client.BackupVault) {
 	fmt.Printf("  Name:          %s\n", vault.Name)
 	fmt.Printf("  ID:            %s\n", vault.ID)
 	fmt.Printf("  Provider:      %s\n", vault.Provider)
+	if vault.ProvisionedViaCredentialID != nil {
+		fmt.Printf("  Provisioned:   by Ankra via credential %s\n", *vault.ProvisionedViaCredentialID)
+	}
 	fmt.Printf("  Endpoint:      %s\n", vault.Endpoint)
 	region := vault.Region
 	if region == "" {
@@ -289,6 +294,175 @@ Example:
 	},
 }
 
+// backupVaultPollInterval paces the --wait poll of a provisioning vault.
+var backupVaultPollInterval = 5 * time.Second
+
+// provisionableBackupVaultProviders mirrors the platform's set; the CLI
+// uses it only to decide whether to prompt for Hetzner's Object Storage
+// keys, the platform decides everything else.
+var provisionableBackupVaultProviders = map[string]bool{
+	"hetzner": true, "upcloud": true, "digitalocean": true, "scaleway": true,
+}
+
+// resolveProvisionCredential finds one of the organisation's provider
+// credentials by name or id, so the command can tell Hetzner apart before
+// it asks for keys.
+func resolveProvisionCredential(reference string) (client.Credential, error) {
+	credentials, listError := apiClient.ListCredentials(nil)
+	if listError != nil {
+		return client.Credential{}, fmt.Errorf("listing credentials: %w", listError)
+	}
+	var matches []client.Credential
+	for _, credential := range credentials {
+		if credential.ID == reference || credential.Name == reference {
+			matches = append(matches, credential)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return client.Credential{}, fmt.Errorf("credential %q not found; run 'ankra credentials list' to see the organisation's credentials", reference)
+	case 1:
+		return matches[0], nil
+	}
+	return client.Credential{}, fmt.Errorf("multiple credentials are named %q; pass the credential ID instead", reference)
+}
+
+// waitForBackupVaultProvisioning polls the vault until it leaves
+// "provisioning" or the context expires.
+func waitForBackupVaultProvisioning(ctx context.Context, vaults APIClient, vaultID string) (*client.BackupVault, error) {
+	for {
+		vault, getError := vaults.GetBackupVault(vaultID)
+		if getError != nil {
+			return nil, getError
+		}
+		if vault.Status != "provisioning" {
+			return vault, nil
+		}
+		timer := time.NewTimer(backupVaultPollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return vault, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+var backupVaultsProvisionCmd = &cobra.Command{
+	Use:   "provision <name>",
+	Short: "Create a backup vault by letting Ankra provision the bucket from a provider credential",
+	Long: `Create a backup vault and let Ankra create the bucket for it, using one of
+the organisation's provider credentials (Hetzner, UpCloud, DigitalOcean or
+Scaleway). Ankra creates the bucket in the given region, mints or stores the
+access keys, verifies the bucket and registers the vault; the vault shows
+"provisioning" until that finishes.
+
+Hetzner alone needs its Object Storage key pair passed in (or prompted for):
+Hetzner issues those in the Cloud Console (Object Storage > Manage
+credentials) and its Cloud API cannot mint them. The other providers need
+nothing beyond the credential.
+
+Examples:
+  ankra backup vaults provision offsite --credential upcloud-main --region europe-1 --wait
+  ankra backup vaults provision offsite --credential hetzner-main --region fsn1`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+		credentialReference, _ := cmd.Flags().GetString("credential")
+		region, _ := cmd.Flags().GetString("region")
+		bucket, _ := cmd.Flags().GetString("bucket")
+		accessKeyID, _ := cmd.Flags().GetString("access-key-id")
+		secretAccessKey, _ := cmd.Flags().GetString("secret-access-key")
+
+		credential, resolveError := resolveProvisionCredential(credentialReference)
+		if resolveError != nil {
+			return resolveError
+		}
+		if !provisionableBackupVaultProviders[credential.Provider] {
+			return fmt.Errorf("credential %q is a %s credential; Ankra can provision buckets from hetzner, upcloud, "+
+				"digitalocean and scaleway credentials - use 'ankra backup vaults create' to register a bucket you own",
+				credentialReference, credential.Provider)
+		}
+		if credential.Provider == "hetzner" {
+			if accessKeyID == "" {
+				prompt := promptui.Prompt{
+					Label: "Hetzner Object Storage access key",
+					Validate: func(input string) error {
+						if len(input) == 0 {
+							return fmt.Errorf("access key cannot be empty")
+						}
+						return nil
+					},
+				}
+				promptedValue, promptError := prompt.Run()
+				if promptError != nil {
+					return errors.New("prompt cancelled")
+				}
+				accessKeyID = promptedValue
+			}
+			if secretAccessKey == "" {
+				prompt := promptui.Prompt{
+					Label: "Hetzner Object Storage secret key",
+					Mask:  '*',
+					Validate: func(input string) error {
+						if len(input) == 0 {
+							return fmt.Errorf("secret key cannot be empty")
+						}
+						return nil
+					},
+				}
+				promptedValue, promptError := prompt.Run()
+				if promptError != nil {
+					return errors.New("prompt cancelled")
+				}
+				secretAccessKey = promptedValue
+			}
+		} else if accessKeyID != "" || secretAccessKey != "" {
+			return fmt.Errorf("--access-key-id/--secret-access-key are only used for hetzner credentials; %s keys are minted from the credential",
+				credential.Provider)
+		}
+
+		request := client.ProvisionBackupVaultRequest{
+			Name: name, CredentialID: credential.ID, Region: region, Bucket: bucket,
+		}
+		if credential.Provider == "hetzner" {
+			request.AccessKeyID, request.SecretAccessKey = accessKeyID, secretAccessKey
+		}
+		vault, provisionError := apiClient.ProvisionBackupVault(request)
+		if provisionError != nil {
+			return backupLaneError("provisioning backup vault", provisionError)
+		}
+
+		wait, waitFlagError := asyncWriteWaitFlag(cmd)
+		if waitFlagError != nil {
+			return waitFlagError
+		}
+		if !wait {
+			printBackupVault(vault)
+			fmt.Printf("\nBackup vault '%s' is being provisioned on %s. Check on it with "+
+				"'ankra backup vaults get %s', or re-run with --wait to block until it is ready.\n",
+				vault.Name, vault.Provider, vault.Name)
+			return nil
+		}
+		ctx, cancel, contextError := asyncWriteRequestContext(cmd)
+		if contextError != nil {
+			return contextError
+		}
+		defer cancel()
+		fmt.Printf("Provisioning backup vault '%s' on %s...\n", vault.Name, vault.Provider)
+		final, waitError := waitForBackupVaultProvisioning(ctx, apiClient, vault.ID)
+		if waitError != nil {
+			return asyncWriteError("provisioning backup vault", true, waitError)
+		}
+		printBackupVault(final)
+		if final.Status == "error" {
+			return backupVaultStatusError(final)
+		}
+		fmt.Printf("\nBackup vault '%s' is ready.\n", final.Name)
+		return nil
+	},
+}
+
 var backupVaultsVerifyCmd = &cobra.Command{
 	Use:   "verify [vault-name|vault-id]",
 	Short: "Re-check a backup vault's credentials against its bucket",
@@ -345,6 +519,15 @@ func init() {
 	_ = backupVaultsCreateCmd.MarkFlagRequired("endpoint")
 	_ = backupVaultsCreateCmd.MarkFlagRequired("bucket")
 
+	backupVaultsProvisionCmd.Flags().String("credential", "", "Provider credential (name or id) Ankra creates the bucket with")
+	backupVaultsProvisionCmd.Flags().String("region", "", "Provider region for the bucket (e.g. fsn1, europe-1, fra1, fr-par)")
+	backupVaultsProvisionCmd.Flags().String("bucket", "", "Bucket name (default: a unique name derived from the vault name)")
+	backupVaultsProvisionCmd.Flags().String("access-key-id", "", "Hetzner Object Storage access key (Hetzner only; prompted for when omitted)")
+	backupVaultsProvisionCmd.Flags().String("secret-access-key", "", "Hetzner Object Storage secret key (Hetzner only; prompted for hidden when omitted)")
+	_ = backupVaultsProvisionCmd.MarkFlagRequired("credential")
+	_ = backupVaultsProvisionCmd.MarkFlagRequired("region")
+	registerAsyncWriteFlags(backupVaultsProvisionCmd)
+
 	backupVaultsDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	registerStructuredOutputFlags(backupVaultsListCmd, backupVaultsGetCmd)
@@ -352,6 +535,7 @@ func init() {
 	backupVaultsCmd.AddCommand(backupVaultsListCmd)
 	backupVaultsCmd.AddCommand(backupVaultsGetCmd)
 	backupVaultsCmd.AddCommand(backupVaultsCreateCmd)
+	backupVaultsCmd.AddCommand(backupVaultsProvisionCmd)
 	backupVaultsCmd.AddCommand(backupVaultsVerifyCmd)
 	backupVaultsCmd.AddCommand(backupVaultsDeleteCmd)
 

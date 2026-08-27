@@ -45,6 +45,7 @@ type APIClient interface {
 	ListBackupVaults() (*client.BackupVaultListResult, error)
 	GetBackupVault(vaultID string) (*client.BackupVault, error)
 	CreateBackupVault(request client.CreateBackupVaultRequest) (*client.BackupVault, error)
+	ProvisionBackupVault(request client.ProvisionBackupVaultRequest) (*client.BackupVault, error)
 	VerifyBackupVault(vaultID string) (*client.BackupVault, error)
 	DeleteBackupVault(vaultID string) error
 
@@ -221,10 +222,6 @@ type APIClient interface {
 	ApplyApplicationEnvSecrets(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationAutoDeploy(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	SetApplicationAutoDeploy(requestContext context.Context, applicationID string, enabled bool) (json.RawMessage, error)
-	StartApplicationPlatformBuild(requestContext context.Context, applicationID string, request client.StartApplicationPlatformBuildRequest) (json.RawMessage, error)
-	ListApplicationPlatformBuilds(requestContext context.Context, applicationID string) (json.RawMessage, error)
-	GetApplicationPlatformBuild(requestContext context.Context, applicationID string, buildID string) (json.RawMessage, error)
-	GetApplicationPlatformBuildRequest(requestContext context.Context, applicationID string, buildRequestID string) (json.RawMessage, error)
 	GetApplicationSettings(requestContext context.Context) (json.RawMessage, error)
 	UpdateApplicationSettings(requestContext context.Context, ciRunnerLabel *string) (json.RawMessage, error)
 	GetManifestAddon(requestContext context.Context, addonID string) (json.RawMessage, error)
