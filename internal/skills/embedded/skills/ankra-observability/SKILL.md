@@ -25,7 +25,8 @@ stacks:
         repository_url: https://prometheus-community.github.io/helm-charts
         namespace: monitoring
         parents:
-          - manifest: monitoring-ns
+          - kind: manifest
+            name: monitoring-ns
         configuration:
           values: |-
             grafana:
@@ -36,19 +37,38 @@ stacks:
         repository_url: https://grafana.github.io/helm-charts
         namespace: monitoring
         parents:
-          - manifest: monitoring-ns
+          - kind: manifest
+            name: monitoring-ns
       - name: promtail                      # log shipping
         chart_name: promtail
         chart_version: 6.16.4
         repository_url: https://grafana.github.io/helm-charts
         namespace: monitoring
         parents:
-          - addon: loki
+          - kind: addon
+            name: loki
 ```
 
 ## External metrics sources
 
 Instead of (or in addition to) in-cluster Prometheus, connect a Prometheus-compatible source so Ankra reads metrics for dashboards/insights: Grafana Cloud, Amazon Managed Prometheus, Google Cloud Managed Prometheus, Thanos, or VictoriaMetrics. Provide the query endpoint URL and scoped, read-only credentials stored in Ankra.
+
+The source a cluster queries is configured in **Cluster Settings → Metrics**; that is the endpoint
+`ankra cluster metrics` proxies to.
+
+## Reading what you deployed
+
+```bash
+ankra cluster metrics query 'sum by (pod) (rate(container_cpu_usage_seconds_total[5m]))'
+ankra cluster metrics query-range 'up' --range 6h --step 5m
+ankra cluster top nodes                       # metrics-server, works without Prometheus
+ankra cluster top pods -n monitoring
+ankra cluster logs -l app.kubernetes.io/name=grafana -n monitoring --follow=false --tail 50
+```
+
+`top` reads the aggregated metrics API directly and works on clusters where Prometheus was never
+installed; `metrics` is the PromQL surface for trends. Use these to verify the stack itself came up
+before wiring dashboards to it.
 
 ## Rules
 
@@ -62,3 +82,4 @@ Instead of (or in addition to) in-cluster Prometheus, connect a Prometheus-compa
 
 - `ankra-stacks-addons` for stack composition.
 - `ankra-alerts-webhooks` to route alerts from this stack to Slack/Teams/PagerDuty with AI analysis.
+- `ankra-troubleshooting` for the diagnosis workflow these metrics feed.

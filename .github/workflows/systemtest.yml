@@ -31,7 +31,7 @@ concurrency:
 jobs:
   lifecycle-system-test:
     name: Cloud lifecycle system test
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 240
     env:
       ANKRA_SYSTEMTEST_CONFIRM: 'yes'
@@ -53,20 +53,53 @@ jobs:
       GITOPS_REPOSITORY: ${{ vars.SYSTEMTEST_GITOPS_REPOSITORY }}
       TMPDIR: ${{ github.workspace }}/systemtest-artifacts
     steps:
+      # Every SYSTEMTEST_* value above is a repository secret or variable, and a
+      # repository without them cannot run this suite at all: the preflight in
+      # lifecycle_systemtest.sh dies on the first empty credential seconds in.
+      # On a schedule that reads as a broken build every Monday, Wednesday and
+      # Friday, which is what the 30 consecutive red runs since 2026-06-22
+      # actually were - nobody had created the secrets. Skip with a notice
+      # instead, the way the cluster repo's nightly skips its live-model eval
+      # tier when ANTHROPIC_API_KEY is absent.
+      #
+      # Only the API token is gated on. A repository that has the token but is
+      # missing a provider credential IS misconfigured, and the preflight has
+      # to keep failing loudly for it.
+      - name: Check systemtest configuration
+        id: configuration
+        run: |
+          if [ -n "$ANKRA_API_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SYSTEMTEST_ANKRA_API_TOKEN is not configured in this repository, so the cloud lifecycle system test is skipped. Each run provisions real billable cloud infrastructure, so these credentials are deliberately not defaulted."
+          fi
+
       - name: Checkout code
+        if: steps.configuration.outputs.configured == 'true'
         uses: actions/checkout@v6
 
+      # TMPDIR (set job-wide above) lives inside the workspace so the test's
+      # temp files survive for the log upload, but checkout starts from a
+      # clean workspace. It must exist before anything invokes Go: setup-go
+      # runs `go env`, and Go refuses to start with a missing TMPDIR.
+      - name: Create TMPDIR
+        if: steps.configuration.outputs.configured == 'true'
+        run: mkdir -p "$TMPDIR"
+
       - name: Set up Go
+        if: steps.configuration.outputs.configured == 'true'
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
       - name: Build ankra binary
+        if: steps.configuration.outputs.configured == 'true'
         run: go build -o bin/ankra .
 
       - name: Run lifecycle system test
+        if: steps.configuration.outputs.configured == 'true'
         run: |
-          mkdir -p "$TMPDIR"
           # "none" lets a dispatch skip a whole family (an empty input would
           # fall back to the default matrix instead).
           if [ "$ANKRA_SYSTEMTEST_PROVIDERS" = "none" ]; then export ANKRA_SYSTEMTEST_PROVIDERS=""; fi
@@ -76,7 +109,7 @@ jobs:
       # Debug aid only — an org storage-quota block on artifact uploads
       # must not redden a run whose cloud lifecycle actually passed.
       - name: Upload run logs
-        if: always()
+        if: always() && steps.configuration.outputs.configured == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:

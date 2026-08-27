@@ -22,6 +22,37 @@ type applicationAddMock struct {
 	createCalls         int
 }
 
+// newApplicationAddMock is an add mock that succeeds: one available GitHub
+// credential for the acme owner, and a created application.
+func newApplicationAddMock() *applicationAddMock {
+	applicationID := "application-id"
+	acmeLogin := "acme"
+	return &applicationAddMock{
+		credentials: []client.Credential{
+			{
+				ID:           "credential-id",
+				Name:         "github-acme",
+				Provider:     "github",
+				Available:    true,
+				AccountLogin: &acmeLogin,
+			},
+		},
+		applicationResponse: &client.CreateApplicationResponse{
+			ID:     &applicationID,
+			Errors: []client.ApplicationResourceError{},
+		},
+	}
+}
+
+func withApplicationAPIClient(t *testing.T, mockClient APIClient) {
+	t.Helper()
+	previousClient := apiClient
+	apiClient = mockClient
+	t.Cleanup(func() {
+		apiClient = previousClient
+	})
+}
+
 func (mock *applicationAddMock) ListCredentials(provider *string) ([]client.Credential, error) {
 	return mock.credentials, nil
 }
@@ -127,6 +158,57 @@ func TestInspectLocalApplicationRepositoryUsesRemoteDefaultBranch(t *testing.T) 
 	}
 	if repository.Branch != "main" {
 		t.Errorf("branch = %q, want main", repository.Branch)
+	}
+}
+
+func TestInspectLocalApplicationRepositoryIgnoresInheritedGitEnvironment(t *testing.T) {
+	repositoryPath := createTestGitRepository(
+		t,
+		"main",
+		"git@github.com:acme/payments.git",
+	)
+	hookRepositoryPath := createTestGitRepository(
+		t,
+		"master",
+		"git@github.com:acme/unrelated.git",
+	)
+
+	// What `git commit` exports into .githooks/pre-commit: without stripping
+	// these, every Git invocation below addresses the hook's repository no
+	// matter which directory it was pointed at.
+	t.Setenv("GIT_DIR", filepath.Join(hookRepositoryPath, ".git"))
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(hookRepositoryPath, ".git", "index"))
+	t.Setenv("GIT_PREFIX", "")
+
+	repository, inspectError := inspectLocalApplicationRepository(
+		context.Background(),
+		repositoryPath,
+		"origin",
+		"",
+	)
+	if inspectError != nil {
+		t.Fatalf("inspectLocalApplicationRepository() error = %v", inspectError)
+	}
+	if repository.Owner != "acme" || repository.Name != "payments" {
+		t.Errorf("repository = %s/%s, want acme/payments", repository.Owner, repository.Name)
+	}
+	if repository.Branch != "main" {
+		t.Errorf("branch = %q, want main", repository.Branch)
+	}
+
+	_, outsideError := inspectLocalApplicationRepository(
+		context.Background(),
+		t.TempDir(),
+		"origin",
+		"",
+	)
+	if exitCodeFor(outsideError) != exitUsage {
+		t.Errorf(
+			"exit code outside a repository = %d, want %d: %v",
+			exitCodeFor(outsideError),
+			exitUsage,
+			outsideError,
+		)
 	}
 }
 
@@ -373,6 +455,133 @@ func TestApplicationAddCommandRejectsInvalidOutputBeforeCreating(t *testing.T) {
 	}
 }
 
+func TestApplicationAddCommandMapsEveryRegistryFlag(t *testing.T) {
+	repositoryPath := createTestGitRepository(
+		t,
+		"main",
+		"https://github.com/acme/payments.git",
+	)
+	mockClient := newApplicationAddMock()
+
+	applicationCommand := newApplicationCommand()
+	var output bytes.Buffer
+	applicationCommand.SetOut(&output)
+	applicationCommand.SetErr(&output)
+	applicationCommand.SetArgs([]string{
+		"add", repositoryPath,
+		"--registry-url", " oci://artifact.example.com/commerce ",
+		"--registry-credential", "example-harbor",
+		"--registry-api-url", "https://artifact.example.com",
+		"--registry-pull-secret", "harbor-pull",
+		"--registry-username-secret", "HARBOR_USERNAME",
+		"--registry-password-secret", "HARBOR_PASSWORD",
+		"--registry-manage-actions-secrets",
+	})
+	withApplicationAPIClient(t, mockClient)
+	if executeError := applicationCommand.Execute(); executeError != nil {
+		t.Fatalf("application add error = %v", executeError)
+	}
+
+	declaration := mockClient.applicationRequest.ImageRegistry
+	if declaration == nil {
+		t.Fatal("the declaration must ride along with the create request")
+	}
+	if declaration.URL != "oci://artifact.example.com/commerce" {
+		t.Errorf("url = %q, want it trimmed", declaration.URL)
+	}
+	if declaration.CredentialName != "example-harbor" || declaration.APIURL != "https://artifact.example.com" ||
+		declaration.PullSecretName != "harbor-pull" || declaration.UsernameSecretName != "HARBOR_USERNAME" ||
+		declaration.PasswordSecretName != "HARBOR_PASSWORD" || !declaration.ManageActionsSecrets {
+		t.Errorf("declaration = %+v", declaration)
+	}
+	if !strings.Contains(output.String(), "oci://artifact.example.com/commerce") {
+		t.Errorf("the declared registry is not reported: %q", output.String())
+	}
+}
+
+// An application added without --registry-url publishes to the organisation's
+// own Ankra registry project. The key is omitted entirely rather than sent
+// empty: an empty declaration would name a registry with no host.
+func TestApplicationAddCommandOmitsTheRegistryWhenUndeclared(t *testing.T) {
+	repositoryPath := createTestGitRepository(
+		t,
+		"main",
+		"https://github.com/acme/payments.git",
+	)
+	mockClient := newApplicationAddMock()
+
+	applicationCommand := newApplicationCommand()
+	var output bytes.Buffer
+	applicationCommand.SetOut(&output)
+	applicationCommand.SetErr(&output)
+	applicationCommand.SetArgs([]string{"add", repositoryPath})
+	withApplicationAPIClient(t, mockClient)
+	if executeError := applicationCommand.Execute(); executeError != nil {
+		t.Fatalf("application add error = %v", executeError)
+	}
+
+	if mockClient.applicationRequest.ImageRegistry != nil {
+		t.Errorf("undeclared registry must stay nil, got %+v", mockClient.applicationRequest.ImageRegistry)
+	}
+	encoded, marshalError := json.Marshal(mockClient.applicationRequest)
+	if marshalError != nil {
+		t.Fatalf("marshalling the request: %v", marshalError)
+	}
+	if strings.Contains(string(encoded), "image_registry") {
+		t.Errorf("the key must be omitted entirely, got %s", encoded)
+	}
+	if strings.Contains(output.String(), "Registry:") {
+		t.Errorf("nothing to report without a declaration: %q", output.String())
+	}
+}
+
+// The other --registry-* flags only mean something alongside a URL, so
+// passing one without it is a usage error rather than a half declaration.
+func TestApplicationAddCommandRefusesRegistryFlagsWithoutURL(t *testing.T) {
+	for _, flagAndValue := range [][]string{
+		{"--registry-credential", "example-harbor"},
+		{"--registry-api-url", "https://artifact.example.com"},
+		{"--registry-pull-secret", "harbor-pull"},
+		{"--registry-username-secret", "HARBOR_USERNAME"},
+		{"--registry-password-secret", "HARBOR_PASSWORD"},
+		{"--registry-manage-actions-secrets"},
+	} {
+		t.Run(flagAndValue[0], func(t *testing.T) {
+			mockClient := newApplicationAddMock()
+			applicationCommand := newApplicationCommand()
+			applicationCommand.SetArgs(append([]string{"add", "."}, flagAndValue...))
+			withApplicationAPIClient(t, mockClient)
+			executeError := applicationCommand.Execute()
+			if executeError == nil {
+				t.Fatalf("expected %s without --registry-url to fail", flagAndValue[0])
+			}
+			if exitCodeFor(executeError) != exitUsage {
+				t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitUsage)
+			}
+			if mockClient.createCalls != 0 {
+				t.Errorf("CreateApplication() calls = %d, want 0", mockClient.createCalls)
+			}
+		})
+	}
+}
+
+func TestApplicationAddCommandRejectsAnEmptyRegistryURL(t *testing.T) {
+	mockClient := newApplicationAddMock()
+	applicationCommand := newApplicationCommand()
+	applicationCommand.SetArgs([]string{"add", ".", "--registry-url", "  "})
+	withApplicationAPIClient(t, mockClient)
+	executeError := applicationCommand.Execute()
+	if executeError == nil {
+		t.Fatal("expected an empty --registry-url to fail")
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitUsage)
+	}
+	if mockClient.createCalls != 0 {
+		t.Errorf("CreateApplication() calls = %d, want 0", mockClient.createCalls)
+	}
+}
+
 func TestApplicationCreationError(t *testing.T) {
 	creationError := applicationCreationError([]client.ApplicationResourceError{
 		{
@@ -412,6 +621,10 @@ func runExternalCommand(
 ) {
 	t.Helper()
 	command := exec.Command(commandName, arguments...)
+	// Without this the temp repository these helpers build would be created
+	// and mutated inside whatever repository the test runner inherited from —
+	// `git commit` exports GIT_DIR and GIT_INDEX_FILE into the pre-commit hook.
+	command.Env = gitEnvironment()
 	if commandOutput, commandError := command.CombinedOutput(); commandError != nil {
 		t.Fatalf("%s failed: %v\n%s", commandName, commandError, commandOutput)
 	}

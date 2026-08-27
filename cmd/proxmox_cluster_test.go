@@ -88,6 +88,9 @@ func TestProxmoxCreate_MapsFlagsToRequest(t *testing.T) {
 	if !request.IncludeNetworking {
 		t.Error("include_networking should default to true")
 	}
+	if !request.IncludeDNS {
+		t.Error("include_dns should default to true")
+	}
 	if request.Description != nil || request.KubernetesVersion != nil {
 		t.Errorf("optional fields should be omitted when unset, got description=%v kubernetes_version=%v",
 			request.Description, request.KubernetesVersion)
@@ -110,6 +113,31 @@ func TestProxmoxCreate_IncludeNetworkingCanBeDisabled(t *testing.T) {
 	}
 	if mock.gotRequest.IncludeNetworking {
 		t.Error("include_networking should be false when disabled")
+	}
+}
+
+func TestProxmoxCreate_IncludeDNSCanBeDisabled(t *testing.T) {
+	// Cobra flag values live on the shared command, so put --include-dns back
+	// on its default rather than leaking the opt-out into later tests.
+	t.Cleanup(func() {
+		_ = proxmoxCreateCmd.Flags().Set("include-dns", "true")
+		proxmoxCreateCmd.Flags().Lookup("include-dns").Changed = false
+	})
+	mock := &proxmoxCreateMock{}
+	out, runError := runWithInput(t, mock, "",
+		"cluster", "proxmox", "create",
+		"--name", "pve-test",
+		"--credential-id", "cred-1",
+		"--ssh-key-credential-id", "ssh-1",
+		"--node", "pve1",
+		"--bridge", "vmbr0",
+		"--include-dns=false",
+	)
+	if runError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", runError, out)
+	}
+	if mock.gotRequest.IncludeDNS {
+		t.Error("include_dns should be false when disabled")
 	}
 }
 

@@ -49,6 +49,7 @@ func TestCreateUpcloudCluster_SendsCloudProviderNetworkingAndGitopsFields(t *tes
 		WorkerCount: 2, WorkerPlan: "2xCPU-4GB", Distribution: "k3s",
 		ExternalCloudProvider: true,
 		IncludeNetworking:     true,
+		IncludeDNS:            true,
 		GitopsCredentialName:  strPtr("github-cred"),
 		GitopsRepository:      strPtr("acme/infra"),
 		GitopsBranch:          &branch,
@@ -61,6 +62,9 @@ func TestCreateUpcloudCluster_SendsCloudProviderNetworkingAndGitopsFields(t *tes
 	}
 	if got, ok := receivedBody["include_networking"].(bool); !ok || !got {
 		t.Errorf("include_networking = %v, want true", receivedBody["include_networking"])
+	}
+	if got, ok := receivedBody["include_dns"].(bool); !ok || !got {
+		t.Errorf("include_dns = %v, want true", receivedBody["include_dns"])
 	}
 	if got, _ := receivedBody["gitops_credential_name"].(string); got != "github-cred" {
 		t.Errorf("gitops_credential_name = %q, want github-cred", got)
@@ -97,6 +101,11 @@ func TestCreateUpcloudCluster_OmitsGitopsWhenUnset(t *testing.T) {
 	if got, ok := receivedBody["include_networking"].(bool); !ok || got {
 		t.Errorf("include_networking = %v, want false", receivedBody["include_networking"])
 	}
+	// No omitempty on include_dns: a dropped false would be decoded as the
+	// server's default true and provision the subzone the user opted out of.
+	if got, ok := receivedBody["include_dns"].(bool); !ok || got {
+		t.Errorf("include_dns = %v, want false", receivedBody["include_dns"])
+	}
 	if _, present := receivedBody["gitops_credential_name"]; present {
 		t.Errorf("gitops_credential_name should be omitted when unset")
 	}
@@ -130,12 +139,29 @@ func TestDeprovisionUpcloudCluster_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, err := testClient.DeprovisionUpcloudCluster("upcloud-cluster-123")
+	result, err := testClient.DeprovisionUpcloudCluster("upcloud-cluster-123", false)
 	if err != nil {
 		t.Fatalf("DeprovisionUpcloudCluster: %v", err)
 	}
 	if !result.Success {
 		t.Error("Success = false, want true")
+	}
+}
+
+func TestDeprovisionUpcloudCluster_ForceAppendsQuery(t *testing.T) {
+	expectedResponse := DeprovisionUpcloudClusterResponse{Success: true, ClusterID: "upcloud-cluster-123"}
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/api/v1/clusters/upcloud/upcloud-cluster-123" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Query().Get("force") != "true" {
+			t.Errorf("force query = %q, want true", r.URL.Query().Get("force"))
+		}
+		jsonResponse(t, w, http.StatusOK, expectedResponse)
+	})
+	if _, err := testClient.DeprovisionUpcloudCluster("upcloud-cluster-123", true); err != nil {
+		t.Fatalf("DeprovisionUpcloudCluster: %v", err)
 	}
 }
 
@@ -450,5 +476,103 @@ func TestDeleteUpcloudNodeGroup_Error(t *testing.T) {
 	_, _, err := testClient.DeleteUpcloudNodeGroup(context.Background(), clusterID, groupName, true)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestCreateUpcloudCluster_OmitsUnsetNetworkIPRange(t *testing.T) {
+	expectedResponse := CreateUpcloudClusterResponse{ClusterID: "upcloud-cluster-789", Name: "gpu-chat"}
+	var receivedBody map[string]any
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	})
+	req := CreateUpcloudClusterRequest{
+		Name: "gpu-chat", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Zone: "fi-hel2", BastionPlan: "1xCPU-1GB",
+		ControlPlaneCount: 1, ControlPlanePlan: "2xCPU-4GB",
+		WorkerCount: 1, WorkerPlan: "2xCPU-4GB", Distribution: "k3s",
+	}
+	if _, err := testClient.CreateUpcloudCluster(req); err != nil {
+		t.Fatalf("CreateUpcloudCluster: %v", err)
+	}
+	// An unset range has to be absent from the body, not empty in it: the
+	// platform only derives a free range when the key is missing, and any
+	// literal range collides with the account's existing networks.
+	if value, present := receivedBody["network_ip_range"]; present {
+		t.Errorf("network_ip_range must be omitted when unset, got %v", value)
+	}
+}
+
+func TestCreateUpcloudCluster_SendsExplicitNetworkIPRange(t *testing.T) {
+	expectedResponse := CreateUpcloudClusterResponse{ClusterID: "upcloud-cluster-789", Name: "gpu-chat"}
+	var receivedBody map[string]any
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	})
+	req := CreateUpcloudClusterRequest{
+		Name: "gpu-chat", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Zone: "fi-hel2", NetworkIPRange: "10.90.0.0/24", BastionPlan: "1xCPU-1GB",
+		ControlPlaneCount: 1, ControlPlanePlan: "2xCPU-4GB",
+		WorkerCount: 1, WorkerPlan: "2xCPU-4GB", Distribution: "k3s",
+	}
+	if _, err := testClient.CreateUpcloudCluster(req); err != nil {
+		t.Fatalf("CreateUpcloudCluster: %v", err)
+	}
+	if got, ok := receivedBody["network_ip_range"].(string); !ok || got != "10.90.0.0/24" {
+		t.Errorf("network_ip_range = %v, want 10.90.0.0/24", receivedBody["network_ip_range"])
+	}
+}
+
+func TestCreateUpcloudCluster_SendsCNI(t *testing.T) {
+	expectedResponse := CreateUpcloudClusterResponse{ClusterID: "upcloud-cluster-456", Name: "gpu-chat"}
+	var receivedBody map[string]any
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	})
+	req := CreateUpcloudClusterRequest{
+		Name: "gpu-chat", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Zone: "fi-hel2", BastionPlan: "1xCPU-2GB",
+		ControlPlaneCount: 1, ControlPlanePlan: "2xCPU-4GB",
+		WorkerCount: 1, WorkerPlan: "GPU-8xCPU-64GB-1xL4", Distribution: "k3s",
+		CNI: "cilium",
+	}
+	if _, err := testClient.CreateUpcloudCluster(req); err != nil {
+		t.Fatalf("CreateUpcloudCluster: %v", err)
+	}
+	if got, ok := receivedBody["cni"].(string); !ok || got != "cilium" {
+		t.Errorf("cni = %v, want cilium", receivedBody["cni"])
+	}
+}
+
+// An unset CNI must stay off the wire so the platform applies its own
+// default instead of validating an empty string against its allowed values.
+func TestCreateUpcloudCluster_OmitsUnsetCNI(t *testing.T) {
+	expectedResponse := CreateUpcloudClusterResponse{ClusterID: "upcloud-cluster-456", Name: "gpu-chat"}
+	var receivedBody map[string]any
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		jsonResponse(t, w, http.StatusCreated, expectedResponse)
+	})
+	req := CreateUpcloudClusterRequest{
+		Name: "gpu-chat", CredentialID: "cred-1", SSHKeyCredentialID: "ssh-1",
+		Zone: "fi-hel2", BastionPlan: "1xCPU-2GB",
+		ControlPlaneCount: 1, ControlPlanePlan: "2xCPU-4GB",
+		WorkerCount: 1, WorkerPlan: "2xCPU-4GB", Distribution: "k3s",
+	}
+	if _, err := testClient.CreateUpcloudCluster(req); err != nil {
+		t.Fatalf("CreateUpcloudCluster: %v", err)
+	}
+	if value, present := receivedBody["cni"]; present {
+		t.Errorf("cni must be omitted when unset, got %v", value)
 	}
 }

@@ -237,3 +237,59 @@ func (c *Client) UpgradeManagedK8sVersion(provider ManagedK8sProvider, clusterID
 	}
 	return &response, nil
 }
+
+// DiscoveredManagedCluster is one cluster the provider account already runs,
+// as returned by the discover endpoint. Fields the CLI does not render
+// (node pools, CNI, ownership) are deliberately left undecoded.
+type DiscoveredManagedCluster struct {
+	ProviderClusterID string  `json:"provider_cluster_id"`
+	Name              string  `json:"name"`
+	Location          string  `json:"location"`
+	Version           *string `json:"version"`
+	Status            string  `json:"status"`
+	NodeCount         int     `json:"node_count"`
+	AlreadyImported   bool    `json:"already_imported"`
+}
+
+type DiscoverManagedClustersResponse struct {
+	Clusters          []DiscoveredManagedCluster `json:"clusters"`
+	Incomplete        bool                       `json:"incomplete"`
+	IncompleteRegions []string                   `json:"incomplete_regions"`
+}
+
+// DiscoverManagedClusters lists the managed Kubernetes clusters the
+// credential can see at the provider, marking the ones already imported.
+func (c *Client) DiscoverManagedClusters(provider ManagedK8sProvider, credentialID string) (*DiscoverManagedClustersResponse, error) {
+	requestURL := fmt.Sprintf("%s/discover?credential_id=%s",
+		c.managedClusterBasePath(provider), url.QueryEscape(credentialID))
+	var response DiscoverManagedClustersResponse
+	if err := c.getJSON(requestURL, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+type ImportManagedClusterRequest struct {
+	ProviderClusterID string  `json:"provider_cluster_id"`
+	CredentialID      string  `json:"credential_id"`
+	Name              *string `json:"name,omitempty"`
+	Description       *string `json:"description,omitempty"`
+}
+
+type ImportManagedClusterResponse struct {
+	ClusterID         string `json:"cluster_id"`
+	Name              string `json:"name"`
+	ProviderClusterID string `json:"provider_cluster_id"`
+}
+
+// ImportManagedCluster adopts an existing provider-side managed cluster into
+// Ankra: the backend fetches the kubeconfig through the provider API and
+// installs the agent, so there is nothing to run against the cluster.
+func (c *Client) ImportManagedCluster(provider ManagedK8sProvider, request ImportManagedClusterRequest) (*ImportManagedClusterResponse, error) {
+	requestURL := c.managedClusterBasePath(provider) + "/import"
+	var response ImportManagedClusterResponse
+	if err := c.postCSRFJSON(requestURL, request, &response, "import managed cluster"); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}

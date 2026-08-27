@@ -28,15 +28,22 @@ You need Go (the version pinned by the `toolchain` directive in `go.mod` —
 git clone https://github.com/ankraio/ankra-cli.git
 cd ankra-cli
 
+make hooks        # once per clone: git config core.hooksPath .githooks
 make build        # go build ./...
 make test         # go test -race -count=1 ./...
 make lint         # golangci-lint run
 ./build.sh        # dist/ankra with release-identical ldflags (--install → /usr/local/bin)
 ```
 
-A pre-commit hook (`core.hooksPath` → `.githooks/`) runs `go test ./...` and
-`golangci-lint run` on every commit, so commits take ~30s and a red test
-blocks the commit. Please don't bypass it with `--no-verify`.
+`make hooks` installs the pre-commit gate, and it is the step people miss:
+git does not read `.githooks/` unless `core.hooksPath` points at it, so until
+you run it your commits go through with no gate and no warning. Run it once
+per clone (it is idempotent, and `git config core.hooksPath` tells you whether
+a clone already has it).
+
+The hook then runs `go test ./...` and `golangci-lint run` on every commit, so
+commits take ~30s and a red test blocks the commit. Please don't bypass it
+with `--no-verify`.
 
 ## Making changes
 

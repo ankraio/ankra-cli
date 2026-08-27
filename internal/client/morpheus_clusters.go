@@ -31,6 +31,7 @@ type CreateMorpheusClusterRequest struct {
 	EtcdPlanID         *int64  `json:"etcd_plan_id,omitempty"`
 	CNI                string  `json:"cni,omitempty"`
 	IncludeNetworking  bool    `json:"include_networking"`
+	IncludeDNS         bool    `json:"include_dns"`
 }
 
 type CreateMorpheusClusterResponse struct {
@@ -82,11 +83,11 @@ func (c *Client) CreateMorpheusCluster(request CreateMorpheusClusterRequest) (*C
 }
 
 func (c *Client) DeprovisionMorpheusCluster(clusterID string) (*ProviderDeprovisionClusterResponse, error) {
-	return c.deprovisionProviderCluster(morpheusKind, clusterID)
+	return c.deprovisionProviderCluster(morpheusKind, clusterID, false)
 }
 
-func (c *Client) StopMorpheusCluster(clusterID string) (*ProviderStopClusterResponse, error) {
-	return c.stopProviderCluster(morpheusKind, clusterID)
+func (c *Client) StopMorpheusCluster(clusterID string, force bool) (*ProviderStopClusterResponse, error) {
+	return c.stopProviderCluster(morpheusKind, clusterID, force)
 }
 
 func (c *Client) StartMorpheusCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {

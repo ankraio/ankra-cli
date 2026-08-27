@@ -1,11 +1,15 @@
 package cmd
 
-// Tests for `ankra cluster <provider> bastion resize`: the async
-// accept/wait contract (submit-and-return by default, block with --wait)
-// mirrors node-group instance-type upgrades.
+// Tests for `ankra cluster <provider> bastion`. `resize` follows the async
+// accept/wait contract (submit-and-return by default, block with --wait),
+// mirroring node-group instance-type upgrades. `status` reads the verdict the
+// platform's bastion health loop recorded, and `diagnose` dispatches the
+// read-only SSH job and blocks for its report - the endpoint has no
+// submit-and-return half, so it carries --timeout without a --wait twin.
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -32,8 +36,9 @@ func (m *bastionResizeMock) UpdateHetznerBastionInstanceType(ctx context.Context
 
 func TestClusterBastionResizeCommandWithWait(t *testing.T) {
 	writeSelectedClusterJSON(t)
+	operationID := "op-77"
 	mock := &bastionResizeMock{
-		result: &client.UpdateBastionInstanceTypeResult{NodeID: "node-9", Kind: "hetzner_bastion", Name: "bastion", InstanceType: "cx31"},
+		result: &client.UpdateBastionInstanceTypeResult{NodeID: "node-9", Kind: "hetzner_bastion", Name: "bastion", InstanceType: "cx31", OperationID: &operationID},
 	}
 	setMockClient(t, mock)
 
@@ -44,8 +49,40 @@ func TestClusterBastionResizeCommandWithWait(t *testing.T) {
 	if len(mock.resizeCalls) != 1 || mock.resizeCalls[0] != "cluster-1:cx31:true" {
 		t.Fatalf("expected one resize call with wait=true, got %v", mock.resizeCalls)
 	}
-	if !strings.Contains(stdoutOutput, "resized to 'cx31'") {
-		t.Errorf("expected resize confirmation, got: %s", stdoutOutput)
+	if !strings.Contains(stdoutOutput, "instance type set to 'cx31' (operation op-77)") {
+		t.Errorf("expected the write confirmation to name the operation, got: %s", stdoutOutput)
+	}
+	if !strings.Contains(stdoutOutput, "ankra cluster operations list op-77") {
+		t.Errorf("expected the operations-list hint, got: %s", stdoutOutput)
+	}
+	if strings.Contains(stdoutOutput, "resized to") {
+		t.Errorf("the cloud resize has not happened yet, so it must not be reported as done: %s", stdoutOutput)
+	}
+}
+
+// A platform that scheduled no cloud work (stopped cluster, resize already in
+// flight) - and any platform older than the release that added the field -
+// answers without an operation_id. The write is still confirmed, but nothing
+// is claimed about a resize and no unpollable id is printed.
+func TestClusterBastionResizeCommandWithoutOperationID(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &bastionResizeMock{
+		result: &client.UpdateBastionInstanceTypeResult{NodeID: "node-9", Kind: "hetzner_bastion", Name: "bastion", InstanceType: "cx31"},
+	}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "resize", "cluster-1", "cx31", "--wait")
+	})
+
+	if !strings.Contains(stdoutOutput, "instance type set to 'cx31'") {
+		t.Errorf("expected the write confirmation, got: %s", stdoutOutput)
+	}
+	if !strings.Contains(stdoutOutput, "no operation to track") {
+		t.Errorf("expected the missing-operation explanation, got: %s", stdoutOutput)
+	}
+	if strings.Contains(stdoutOutput, "(operation ") {
+		t.Errorf("expected no operation id, got: %s", stdoutOutput)
 	}
 }
 
@@ -78,5 +115,353 @@ func TestClusterBastionResizeCommandSurfacesError(t *testing.T) {
 	_, commandError := executeCommand("cluster", "hetzner", "bastion", "resize", "cluster-1", "cx31", "--wait")
 	if commandError == nil || !strings.Contains(commandError.Error(), "No bastion or gateway node found") {
 		t.Fatalf("expected the not-found error, got %v", commandError)
+	}
+}
+
+type bastionHealthMock struct {
+	baseMock
+
+	healthCalls   []string
+	health        *client.BastionHealthResult
+	healthError   error
+	diagnoseCalls []string
+	diagnosis     *client.BastionDiagnoseResult
+	diagnoseError error
+}
+
+func (m *bastionHealthMock) GetHetznerBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	m.healthCalls = append(m.healthCalls, clusterID)
+	if m.healthError != nil {
+		return nil, m.healthError
+	}
+	return m.health, nil
+}
+
+func (m *bastionHealthMock) DiagnoseHetznerBastion(ctx context.Context, clusterID string) (*client.BastionDiagnoseResult, error) {
+	m.diagnoseCalls = append(m.diagnoseCalls, clusterID)
+	if m.diagnoseError != nil {
+		return nil, m.diagnoseError
+	}
+	return m.diagnosis, nil
+}
+
+func TestClusterBastionStatusCommandRendersTheVerdict(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &bastionHealthMock{health: &client.BastionHealthResult{
+		ResourceID:          "res-1",
+		Kind:                "hetzner_bastion",
+		Provider:            "hetzner",
+		State:               "offline",
+		Hop:                 "bastion",
+		Detail:              "ssh dial timed out",
+		ConsecutiveFailures: 3,
+		VMStatus:            "running",
+		CheckedAt:           "2026-08-17T10:00:00",
+		DiagnoseSupported:   true,
+	}}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "status", "cluster-1")
+	})
+
+	if len(mock.healthCalls) != 1 || mock.healthCalls[0] != "cluster-1" {
+		t.Fatalf("expected one health read for cluster-1, got %v", mock.healthCalls)
+	}
+	for _, expected := range []string{
+		"offline", "bastion", "ssh dial timed out", "3 probe(s) in a row", "running", "2026-08-17T10:00:00",
+	} {
+		if !strings.Contains(stdoutOutput, expected) {
+			t.Errorf("expected %q in the verdict, got: %s", expected, stdoutOutput)
+		}
+	}
+	if !strings.Contains(stdoutOutput, "bastion diagnose cluster-1") {
+		t.Errorf("a diagnosable bastion should point at the diagnose command, got: %s", stdoutOutput)
+	}
+}
+
+// A provider with no bastion diagnose job lane still carries a verdict; the
+// command must say the diagnosis is unavailable rather than offering a
+// command that would only refuse.
+func TestClusterBastionStatusCommandSaysDiagnosisIsUnavailable(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &bastionHealthMock{health: &client.BastionHealthResult{
+		ResourceID:        "res-1",
+		Kind:              "scaleway_gateway",
+		Provider:          "scaleway",
+		State:             "healthy",
+		DiagnoseSupported: false,
+	}}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "status", "cluster-1")
+	})
+
+	if !strings.Contains(stdoutOutput, "Diagnosis is not available for this provider.") {
+		t.Errorf("expected the unavailable-diagnosis line, got: %s", stdoutOutput)
+	}
+	if strings.Contains(stdoutOutput, "bastion diagnose") {
+		t.Errorf("must not offer the diagnose command, got: %s", stdoutOutput)
+	}
+}
+
+// The loop stamps nothing until its first pass, so an unprobed bastion has to
+// say so instead of printing an empty state.
+func TestClusterBastionStatusCommandReportsAnUnprobedBastion(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &bastionHealthMock{health: &client.BastionHealthResult{
+		ResourceID: "res-1", Kind: "hetzner_bastion", Provider: "hetzner", DiagnoseSupported: true,
+	}}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "status", "cluster-1")
+	})
+
+	if !strings.Contains(stdoutOutput, "not probed yet") {
+		t.Errorf("expected the unprobed wording, got: %s", stdoutOutput)
+	}
+}
+
+func TestClusterBastionStatusCommandSurfacesTheNoBastionRefusal(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &bastionHealthMock{healthError: fmt.Errorf("This cluster has no bastion resource.")}
+	setMockClient(t, mock)
+
+	_, commandError := executeCommand("cluster", "hetzner", "bastion", "status", "cluster-1")
+	if commandError == nil || !strings.Contains(commandError.Error(), "no bastion resource") {
+		t.Fatalf("expected the no-bastion refusal, got %v", commandError)
+	}
+}
+
+func TestClusterBastionDiagnoseCommandRendersTheReport(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &bastionHealthMock{diagnosis: &client.BastionDiagnoseResult{
+		OperationID: "op-1",
+		StepID:      "step-1",
+		ResourceID:  "res-1",
+		JobName:     "hetzner_bastion_diagnose",
+		Status:      "completed",
+		Completed:   true,
+		Report:      map[string]any{"failed_units": []any{"chrony.service"}},
+		Health:      map[string]any{"state": "healthy"},
+	}}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "diagnose", "cluster-1")
+	})
+
+	if len(mock.diagnoseCalls) != 1 || mock.diagnoseCalls[0] != "cluster-1" {
+		t.Fatalf("expected one diagnose call for cluster-1, got %v", mock.diagnoseCalls)
+	}
+	for _, expected := range []string{"hetzner_bastion_diagnose", "op-1", "Report:", "chrony.service"} {
+		if !strings.Contains(stdoutOutput, expected) {
+			t.Errorf("expected %q in the diagnosis, got: %s", expected, stdoutOutput)
+		}
+	}
+}
+
+// The platform hands back the operation handle when its own wait budget
+// elapses first; the command has to say where the report will show up rather
+// than implying the diagnosis produced nothing.
+func TestClusterBastionDiagnoseCommandPrintsThePollHintWhenStillRunning(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &bastionHealthMock{diagnosis: &client.BastionDiagnoseResult{
+		OperationID: "op-2",
+		JobName:     "hetzner_bastion_diagnose",
+		Status:      "running",
+		Completed:   false,
+		Health:      map[string]any{"state": "offline"},
+	}}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "diagnose", "cluster-1")
+	})
+
+	if !strings.Contains(stdoutOutput, "still running") ||
+		!strings.Contains(stdoutOutput, "ankra cluster operations list op-2") {
+		t.Errorf("expected the poll hint, got: %s", stdoutOutput)
+	}
+}
+
+// A client budget that expires leaves the job running on the platform, so the
+// failure is a wait expiry (exit 5) and not a rejected request.
+func TestClusterBastionDiagnoseCommandTagsTheWaitExpiry(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &bastionHealthMock{diagnoseError: fmt.Errorf("request failed: %w", context.DeadlineExceeded)}
+	setMockClient(t, mock)
+
+	_, commandError := executeCommand("cluster", "hetzner", "bastion", "diagnose", "cluster-1")
+	if commandError == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	if code := exitCodeFor(commandError); code != exitWaitTimeout {
+		t.Errorf("exit code = %d, want %d", code, exitWaitTimeout)
+	}
+}
+
+// The platform mounts the bastion routes for all seven providers that carry
+// the node-group subrouter, so every one of them has a bastion group. What
+// differs is which subcommands it carries: resize only where internal/client
+// has an Update<Provider>BastionInstanceType method, diagnose only where the
+// platform has a <provider>_bastion_diagnose job lane.
+func TestClusterBastionGroupIsMountedForEveryProvider(t *testing.T) {
+	for _, testCase := range []struct {
+		provider     string
+		subcommands  []string
+		absentGroups []string
+	}{
+		{provider: "hetzner", subcommands: []string{"status", "resize", "diagnose"}},
+		{provider: "ovh", subcommands: []string{"status", "resize", "diagnose"}},
+		{provider: "upcloud", subcommands: []string{"status", "resize", "diagnose"}},
+		{provider: "digitalocean", subcommands: []string{"status", "resize", "diagnose"}},
+		{provider: "proxmox", subcommands: []string{"status", "diagnose"}, absentGroups: []string{"resize"}},
+		{provider: "morpheus", subcommands: []string{"status", "diagnose"}, absentGroups: []string{"resize"}},
+		// Scaleway's managed Public Gateway is probed by the health loop but
+		// has no SSH job lane, so its verdict is the whole surface.
+		{provider: "scaleway", subcommands: []string{"status"}, absentGroups: []string{"resize", "diagnose"}},
+	} {
+		t.Run(testCase.provider, func(t *testing.T) {
+			for _, subcommand := range testCase.subcommands {
+				found, _, findError := rootCmd.Find([]string{"cluster", testCase.provider, "bastion", subcommand})
+				if findError != nil || found.Name() != subcommand {
+					t.Errorf("cluster %s bastion %s is missing (%v)", testCase.provider, subcommand, findError)
+				}
+			}
+			for _, subcommand := range testCase.absentGroups {
+				found, _, _ := rootCmd.Find([]string{"cluster", testCase.provider, "bastion", subcommand})
+				if found.Name() == subcommand {
+					t.Errorf("cluster %s bastion %s must not exist - the CLI has no call behind it",
+						testCase.provider, subcommand)
+				}
+			}
+		})
+	}
+}
+
+type proxmoxBastionMock struct {
+	baseMock
+
+	healthCalls   []string
+	health        *client.BastionHealthResult
+	diagnoseCalls []string
+	diagnosis     *client.BastionDiagnoseResult
+}
+
+func (m *proxmoxBastionMock) GetProxmoxBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	m.healthCalls = append(m.healthCalls, clusterID)
+	return m.health, nil
+}
+
+func (m *proxmoxBastionMock) DiagnoseProxmoxBastion(ctx context.Context, clusterID string) (*client.BastionDiagnoseResult, error) {
+	m.diagnoseCalls = append(m.diagnoseCalls, clusterID)
+	return m.diagnosis, nil
+}
+
+// Each provider's group has to reach that provider's own client calls; a
+// mis-wired ops constructor would otherwise read another provider's bastion.
+func TestClusterBastionProxmoxUsesTheProxmoxCalls(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &proxmoxBastionMock{
+		health: &client.BastionHealthResult{
+			ResourceID: "res-px", Kind: "proxmox_bastion", Provider: "proxmox",
+			State: "healthy", DiagnoseSupported: true,
+		},
+		diagnosis: &client.BastionDiagnoseResult{
+			OperationID: "op-px", JobName: "proxmox_bastion_diagnose", Status: "completed", Completed: true,
+			Report: map[string]any{"failed_units": []any{}},
+		},
+	}
+	setMockClient(t, mock)
+
+	statusOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "proxmox", "bastion", "status", "cluster-1")
+	})
+	if len(mock.healthCalls) != 1 || mock.healthCalls[0] != "cluster-1" {
+		t.Fatalf("expected one proxmox health read for cluster-1, got %v", mock.healthCalls)
+	}
+	if !strings.Contains(statusOutput, "ankra cluster proxmox bastion diagnose cluster-1") {
+		t.Errorf("expected the proxmox diagnose hint, got: %s", statusOutput)
+	}
+
+	diagnoseOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "proxmox", "bastion", "diagnose", "cluster-1")
+	})
+	if len(mock.diagnoseCalls) != 1 || mock.diagnoseCalls[0] != "cluster-1" {
+		t.Fatalf("expected one proxmox diagnose call for cluster-1, got %v", mock.diagnoseCalls)
+	}
+	if !strings.Contains(diagnoseOutput, "proxmox_bastion_diagnose") {
+		t.Errorf("expected the proxmox job name, got: %s", diagnoseOutput)
+	}
+}
+
+type scalewayBastionMock struct {
+	baseMock
+
+	healthCalls []string
+	health      *client.BastionHealthResult
+}
+
+func (m *scalewayBastionMock) GetScalewayBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	m.healthCalls = append(m.healthCalls, clusterID)
+	return m.health, nil
+}
+
+// Scaleway carries status alone, and its verdict must not offer a diagnose
+// command the group does not have.
+func TestClusterBastionScalewayStatusOffersNoDiagnose(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &scalewayBastionMock{health: &client.BastionHealthResult{
+		ResourceID: "res-gw", Kind: "scaleway_gateway", Provider: "scaleway",
+		State: "healthy", DiagnoseSupported: false,
+	}}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "scaleway", "bastion", "status", "cluster-1")
+	})
+
+	if len(mock.healthCalls) != 1 || mock.healthCalls[0] != "cluster-1" {
+		t.Fatalf("expected one scaleway health read for cluster-1, got %v", mock.healthCalls)
+	}
+	if !strings.Contains(stdoutOutput, "Diagnosis is not available for this provider.") {
+		t.Errorf("expected the unavailable-diagnosis line, got: %s", stdoutOutput)
+	}
+	if strings.Contains(stdoutOutput, "bastion diagnose") {
+		t.Errorf("must not offer the diagnose command, got: %s", stdoutOutput)
+	}
+}
+
+// -o json must stay parseable: the human verdict lines would otherwise land
+// in the same stream a script is decoding.
+func TestClusterBastionStatusCommandStructuredOutputIsClean(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &bastionHealthMock{health: &client.BastionHealthResult{
+		ResourceID: "res-1", Kind: "hetzner_bastion", Provider: "hetzner",
+		State: "healthy", DiagnoseSupported: true,
+	}}
+	setMockClient(t, mock)
+	// -o is a persistent flag value on a package-level command singleton, so
+	// leaving it set would silently turn every later status test into JSON.
+	statusCmd, _, findError := rootCmd.Find([]string{"cluster", "hetzner", "bastion", "status"})
+	if findError != nil {
+		t.Fatalf("locating the status command: %v", findError)
+	}
+	t.Cleanup(func() { resetTreeFlags(t, statusCmd) })
+
+	commandOutput, commandError := executeCommand("cluster", "hetzner", "bastion", "status", "cluster-1", "-o", "json")
+	if commandError != nil {
+		t.Fatalf("status -o json: %v", commandError)
+	}
+
+	var decoded client.BastionHealthResult
+	if err := json.Unmarshal([]byte(commandOutput), &decoded); err != nil {
+		t.Fatalf("output is not parseable JSON (%v): %s", err, commandOutput)
+	}
+	if decoded.State != "healthy" || !decoded.DiagnoseSupported {
+		t.Errorf("decoded = %+v", decoded)
 	}
 }

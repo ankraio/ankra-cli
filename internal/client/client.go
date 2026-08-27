@@ -19,7 +19,19 @@ type Client struct {
 	// orgOverride, when non-empty, is sent as the orgOverrideHeader on every
 	// request so commands run against a non-selected organisation.
 	orgOverride string
+
+	// slowWriteTimeout bounds the writes that do their whole job on the
+	// request path (see slow_write.go). They drop the response-header
+	// deadline, so this is the only thing standing between a wedged server
+	// and a CLI that never returns.
+	slowWriteTimeout time.Duration
 }
+
+// defaultSlowWriteTimeout is the overall bound for a long synchronous
+// write. It matches the shared client's Timeout: the point of the slow
+// lane is to stop the transport giving up while the server is still
+// making progress, not to wait indefinitely.
+const defaultSlowWriteTimeout = 5 * time.Minute
 
 // orgOverrideTransport injects the organisation override header on every
 // request routed through the client, so no individual call site needs to be
@@ -42,8 +54,9 @@ func (t *orgOverrideTransport) RoundTrip(req *http.Request) (*http.Response, err
 // expected to already be validated and normalized via NormalizeBaseURL.
 func New(token, baseURL string) *Client {
 	c := &Client{
-		Token:   token,
-		BaseURL: baseURL,
+		Token:            token,
+		BaseURL:          baseURL,
+		slowWriteTimeout: defaultSlowWriteTimeout,
 	}
 	sharedBase := &http.Transport{
 		ResponseHeaderTimeout: 30 * time.Second,
@@ -88,8 +101,12 @@ func (c *Client) httpClientForSlowWrite() *http.Client {
 		ResponseHeaderTimeout: 0,
 	}
 	slowWriteTransport := &orgOverrideTransport{base: slowWriteBase, orgID: &c.orgOverride}
+	timeout := c.slowWriteTimeout
+	if timeout <= 0 {
+		timeout = defaultSlowWriteTimeout
+	}
 	return &http.Client{
-		Timeout:   5 * time.Minute,
+		Timeout:   timeout,
 		Transport: slowWriteTransport,
 	}
 }

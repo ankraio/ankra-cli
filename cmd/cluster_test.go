@@ -14,6 +14,66 @@ func newCloudProviderNetworkingCommand() *cobra.Command {
 	return cmd
 }
 
+// The create flag trio (--external-cloud-provider, --include-networking,
+// --include-dns) is the CLI's half of a contract the server defaults on: a
+// provider create command that is missing one of them silently opts the user
+// into it with no way to say no.
+func TestProviderCreateCommandsExposeTheFlagTrio(t *testing.T) {
+	tests := []struct {
+		name                  string
+		cmd                   *cobra.Command
+		externalCloudProvider bool
+	}{
+		{name: "upcloud", cmd: upcloudCreateCmd, externalCloudProvider: true},
+		{name: "digitalocean", cmd: digitaloceanCreateCmd, externalCloudProvider: true},
+		{name: "hetzner", cmd: hetznerCreateCmd, externalCloudProvider: true},
+		{name: "ovh", cmd: ovhCreateCmd, externalCloudProvider: true},
+		{name: "proxmox", cmd: proxmoxCreateCmd},
+		{name: "morpheus", cmd: morpheusCreateCmd},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, flagName := range []string{"include-networking", "include-dns"} {
+				flag := tt.cmd.Flags().Lookup(flagName)
+				if flag == nil {
+					t.Fatalf("%s create must expose --%s", tt.name, flagName)
+				}
+				if flag.DefValue != "true" {
+					t.Errorf("--%s default = %q, want true (the server defaults it on)", flagName, flag.DefValue)
+				}
+			}
+			// Proxmox and Morpheus have no CCM; the backend refuses the flag
+			// for them, which TestProxmoxCreate_HasNoExternalCloudProviderFlag
+			// pins for its own command.
+			if got := tt.cmd.Flags().Lookup("external-cloud-provider") != nil; got != tt.externalCloudProvider {
+				t.Errorf("--external-cloud-provider present = %v, want %v", got, tt.externalCloudProvider)
+			}
+		})
+	}
+}
+
+// external-dns runs with a credential pinned to the generated subzone, so it
+// ignores ingress hosts on any other domain without saying so. The help text
+// is the only place a user learns that before they hit it, so pin the scope
+// sentence rather than let a reword drop it (PLA-788).
+func TestIncludeDNSHelpNamesItsScope(t *testing.T) {
+	for _, cmd := range []*cobra.Command{
+		upcloudCreateCmd, digitaloceanCreateCmd, hetznerCreateCmd,
+		ovhCreateCmd, proxmoxCreateCmd, morpheusCreateCmd,
+	} {
+		flag := cmd.Flags().Lookup("include-dns")
+		if flag == nil {
+			t.Fatalf("%s create must expose --include-dns", cmd.Name())
+		}
+		for _, want := range []string{"only manages the generated subdomain", "your own domains are ignored"} {
+			if !strings.Contains(flag.Usage, want) {
+				t.Errorf("--include-dns usage on %q is missing %q; it reads: %s", cmd.CommandPath(), want, flag.Usage)
+			}
+		}
+	}
+}
+
 func TestResolveCloudProviderNetworking(t *testing.T) {
 	tests := []struct {
 		name              string

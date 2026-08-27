@@ -13,55 +13,116 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// skillsCmd installs the curated Ankra Agent Skills (SKILL.md files) into a
-// Cursor/Claude Code skills directory. The skills are embedded in the binary,
-// so installation works offline and is versioned with the CLI release. This is
-// distinct from `ankra openclaw skill`, which generates a per-cluster skill.
+// skillsCmd installs the curated Ankra Agent Skills (SKILL.md files) into
+// every agent client on the machine. The skills are embedded in the binary,
+// so installation works offline and is versioned with the CLI release. This
+// is distinct from `ankra openclaw skill`, which generates a per-cluster
+// skill.
 var skillsCmd = &cobra.Command{
 	Use:   "skills",
-	Short: "Install Ankra Agent Skills into your editor",
-	Long: `Install the curated Ankra Agent Skills into a Cursor/Claude Code skills
-directory. The skills teach your agent to follow Ankra's recommended practices
-for the CLI, ImportCluster YAML, stacks/addons, GitOps, CI/CD, SOPS secrets,
-Helm registries, observability, alerts, Terraform, and cloud clusters.
+	Short: "Install Ankra Agent Skills into your AI coding assistants",
+	Long: `Install the curated Ankra Agent Skills into the AI assistants you use.
 
-Because skills are only picked up when they match the conversation, install
-also writes a small always-applied rule (Cursor rule / CLAUDE.md block) that
-tells the agent Kubernetes here is managed by Ankra and to route changes
-through the GitOps repo or the ankra CLI instead of raw kubectl/helm. Skip it
-with --no-rules. Add --with-hooks to also install an agent hook that pauses
-direct kubectl/helm cluster mutations for confirmation.
+The skills teach an agent to follow Ankra's practices for the CLI, getting
+started, building and importing clusters (provider, region, instance family),
+domains/DNS/TLS, ImportCluster YAML, stacks and addons, applications and their
+CI/CD, stack profiles, GitOps, SOPS secrets, Helm registries, observability,
+troubleshooting, security, and the AI agent surface.
 
-Skills are embedded in the CLI, so installation works offline.
+Claude Code, the Claude app, Cursor, Codex, GitHub Copilot, Windsurf, Gemini CLI,
+OpenCode, Cline, Zed and OpenClaw are supported, plus any assistant that reads
+AGENTS.md. With no --client, install picks the assistants configured on this
+machine; 'ankra skills clients' shows what was detected.
 
+Three things are installed per client:
+
+  skills     the SKILL.md files themselves
+  rule       an always-applied instruction making Ankra the default route for
+             Kubernetes work, plus an index of the skills for clients that do
+             not discover them on their own (skip with --no-rules)
+  workflows  named multi-step entry points (/ankra-new-cluster,
+             /ankra-ship-service, /ankra-triage, ...) for clients with
+             slash commands (skip with --no-workflows)
+
+Add --with-hooks to also install an agent hook that pauses direct kubectl/helm
+cluster mutations for confirmation.
+
+  ankra skills clients
   ankra skills list
   ankra skills install
-  ankra skills install --editor claude-code
-  ankra skills install --project .
+  ankra skills install --client all
+  ankra skills install --client claude-code --client cursor
+  ankra skills install --client copilot --project .
+  ankra skills install --client claude-app
   ankra skills install --with-hooks
   ankra skills install ankra-cli ankra-gitops`,
-}
-
-type skillsEditor struct {
-	Name                   string
-	ConfigurationDirectory string
-	GuardFormat            string
-}
-
-type skillsTarget struct {
-	Directory  string
-	Scope      string
-	EditorName string
-	// Root anchors the editor's non-skill artefacts: the user's home
-	// directory for personal scope, the project directory for project scope.
-	Root   string
-	Editor skillsEditor
 }
 
 type skillListEntry struct {
 	Name        string `json:"name" yaml:"name"`
 	Description string `json:"description" yaml:"description"`
 	Installed   bool   `json:"installed" yaml:"installed"`
+}
+
+type clientListEntry struct {
+	ID          string `json:"id" yaml:"id"`
+	DisplayName string `json:"display_name" yaml:"display_name"`
+	Detected    bool   `json:"detected" yaml:"detected"`
+	Installed   bool   `json:"installed" yaml:"installed"`
+	Scope       string `json:"scope" yaml:"scope"`
+	Directory   string `json:"directory" yaml:"directory"`
+	Delivery    string `json:"delivery" yaml:"delivery"`
+}
+
+var skillsClientsCmd = &cobra.Command{
+	Use:   "clients",
+	Short: "List the AI assistants skills can be installed into",
+	Long: `List every supported assistant, whether it is configured here, and where
+skills would be installed for it. Detection is what --client auto (the default)
+selects; pass --project <DIR> to see the repository-scoped locations instead.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		scope, root, err := skillsScope(cmd)
+		if err != nil {
+			return err
+		}
+		detected := make(map[string]bool)
+		for _, client := range skills.DetectClients(root, scope) {
+			detected[client.ID] = true
+		}
+		entries := make([]clientListEntry, 0, len(skills.Clients()))
+		for _, client := range skills.Clients() {
+			target, targetError := skills.ResolveTarget(client, scope, root)
+			if targetError != nil {
+				continue
+			}
+			entries = append(entries, clientListEntry{
+				ID:          client.ID,
+				DisplayName: client.DisplayName,
+				Detected:    detected[client.ID],
+				Installed:   skillsDirectoryHasAnkraSkills(target),
+				Scope:       scope,
+				Directory:   skills.DisplayPath(target.SkillsDirectory),
+				Delivery:    clientDelivery(client),
+			})
+		}
+		if rendered, renderError := renderStructured(cmd, entries); rendered || renderError != nil {
+			return renderError
+		}
+		for _, entry := range entries {
+			marker := ""
+			switch {
+			case entry.Installed:
+				marker = " [installed]"
+			case entry.Detected:
+				marker = " [detected]"
+			}
+			fmt.Printf("%s%s\n  %s — %s, installs to %s\n",
+				entry.ID, marker, entry.DisplayName, entry.Delivery, entry.Directory)
+		}
+		fmt.Printf("\nInstall with: ankra skills install --client <id> (or --client all).\n")
+		return nil
+	},
 }
 
 var skillsListCmd = &cobra.Command{
@@ -73,7 +134,7 @@ var skillsListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		target, err := skillsTargetForCommand(cmd)
+		targets, err := skillsTargetsForCommand(cmd)
 		if err != nil {
 			return err
 		}
@@ -82,11 +143,11 @@ var skillsListCmd = &cobra.Command{
 			return err
 		}
 		entries := make([]skillListEntry, 0, len(list))
-		for _, s := range list {
+		for _, skill := range list {
 			entries = append(entries, skillListEntry{
-				Name:        s.Name,
-				Description: s.Description,
-				Installed:   dirExists(filepath.Join(target.Directory, s.Name)),
+				Name:        skill.Name,
+				Description: skill.Description,
+				Installed:   skillInstalledInAnyTarget(targets, skill.Name),
 			})
 		}
 		if rendered, err := renderStructured(cmd, entries); rendered || err != nil {
@@ -106,67 +167,60 @@ var skillsListCmd = &cobra.Command{
 
 var skillsInstallCmd = &cobra.Command{
 	Use:   "install [skill ...]",
-	Short: "Install Ankra skills into your skills directory",
+	Short: "Install Ankra skills into your AI assistants",
 	Long: `Install all skills (default) or only the named ones.
 
-By default skills install into ~/.cursor/skills/ (personal, available in every
-project). Use --editor claude-code to install into ~/.claude/skills/ instead.
-Use --project <DIR> to install into the selected editor's project skills
-directory (--project . for the current directory).
+Without --client, install targets every assistant configured on this machine
+(see 'ankra skills clients'), falling back to Claude Code and Cursor when none
+is detected. --client all installs everywhere; --client <id> (repeatable, or
+comma-separated) picks specific ones.
+
+By default skills install for your user, available in every project. Use
+--project <DIR> to install into a repository instead (--project . for the
+current directory) - the right scope for GitHub Copilot, whose instructions
+file is per repository.
+
+The Claude app cannot read your filesystem, so --client claude-app writes one
+uploadable .zip bundle per skill and prints where to upload them.
 
 Install also writes an always-applied rule so the agent treats Ankra as the
-default route for Kubernetes work (skip with --no-rules): a local Cursor
-plugin rule or project .cursor/rules/ankra.mdc for Cursor, a managed CLAUDE.md
-block for Claude Code. With --with-hooks it additionally installs an agent
+default route for Kubernetes work, and - for clients that do not discover
+skills on their own - an index naming each skill and its path (skip both with
+--no-rules). Clients with slash commands additionally get the Ankra workflow
+commands (skip with --no-workflows). With --with-hooks it installs the agent
 hook ('ankra skills guard') that intercepts direct kubectl/helm cluster
-mutations and asks for confirmation, pointing back at the Ankra workflow.`,
+mutations and asks for confirmation.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fsys, err := skillsSourceFS(cmd)
 		if err != nil {
 			return err
 		}
-		target, err := skillsTargetForCommand(cmd)
+		targets, err := skillsTargetsForCommand(cmd)
 		if err != nil {
 			return err
 		}
-		force, _ := cmd.Flags().GetBool("force")
+		options := skillsInstallOptions{}
+		options.force, _ = cmd.Flags().GetBool("force")
 		noRules, _ := cmd.Flags().GetBool("no-rules")
-		withHooks, _ := cmd.Flags().GetBool("with-hooks")
+		noWorkflows, _ := cmd.Flags().GetBool("no-workflows")
+		options.rules = !noRules
+		options.workflows = !noWorkflows
+		options.hooks, _ = cmd.Flags().GetBool("with-hooks")
 
-		if err := os.MkdirAll(target.Directory, 0o755); err != nil {
-			return fmt.Errorf("could not create %s: %w", target.Directory, err)
-		}
-
-		installed, skipped, err := skills.Install(fsys, target.Directory, args, force)
-		if err != nil {
-			return err
-		}
-
-		for _, name := range installed {
-			fmt.Printf("installed %s\n", name)
-		}
-		for _, name := range skipped {
-			fmt.Printf("skipped   %s (already exists; use --force to overwrite)\n", name)
-		}
-
-		if !noRules {
-			rulePath, err := installAgentRule(target)
-			if err != nil {
-				return fmt.Errorf("could not install the agent rule: %w", err)
+		// Several assistants share the client-neutral library, so the same
+		// directory can be the target twice in one run. Copying it again would
+		// report every skill as "already present, use --force", which is both
+		// noise and wrong advice.
+		writtenDirectories := make(map[string]string)
+		for index, target := range targets {
+			if index > 0 {
+				fmt.Println()
 			}
-			fmt.Printf("rule      %s (always applied; makes Ankra the default for Kubernetes work)\n", rulePath)
-		}
-		if withHooks {
-			hookPath, err := installAgentHook(target)
-			if err != nil {
-				return fmt.Errorf("could not install the agent hook: %w", err)
+			if err := installForTarget(fsys, target, args, options, writtenDirectories); err != nil {
+				return err
 			}
-			fmt.Printf("hook      %s (kubectl/helm cluster mutations ask for confirmation)\n", hookPath)
 		}
-
-		fmt.Printf("\nInstalled %d skill(s) to %s (%s, skipped %d).\n",
-			len(installed), target.Directory, target.Scope, len(skipped))
-		fmt.Printf("Restart %s to load the skills.\n", target.EditorName)
+		fmt.Printf("\nRestart your assistant to load the skills. Ask it to \"use ankra-platform-principles\" to check.\n")
 		return nil
 	},
 }
@@ -176,60 +230,37 @@ var skillsUninstallCmd = &cobra.Command{
 	Short: "Remove installed Ankra skills",
 	Long: `Remove the named skills, or all Ankra skills when none are given.
 
-A full uninstall (no skill names) also removes the always-applied agent rule
-and the 'ankra skills guard' hook that install added for this editor and
-scope; uninstalling named skills leaves them in place.`,
+The client selection works as it does for install, except that --client auto
+(the default) resolves to the assistants that actually have Ankra skills
+installed, so a plain 'ankra skills uninstall' undoes a plain install.
+
+A full uninstall (no skill names) also removes the always-applied rule, the
+workflow commands, and the 'ankra skills guard' hook that install added for
+each client and scope; uninstalling named skills leaves them in place.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		target, err := skillsTargetForCommand(cmd)
+		targets, err := skillsUninstallTargets(cmd)
 		if err != nil {
 			return err
 		}
 		names := args
 		if len(names) == 0 {
-			fsys, err := skillsSourceFS(cmd)
-			if err != nil {
+			fsys, sourceError := skillsSourceFS(cmd)
+			if sourceError != nil {
+				return sourceError
+			}
+			names, sourceError = skills.Names(fsys)
+			if sourceError != nil {
+				return sourceError
+			}
+		}
+		for index, target := range targets {
+			if index > 0 {
+				fmt.Println()
+			}
+			if err := uninstallForTarget(target, names, len(args) == 0); err != nil {
 				return err
 			}
-			names, err = skills.Names(fsys)
-			if err != nil {
-				return err
-			}
 		}
-		// Validate every name before removing anything, so one bad argument
-		// (e.g. "." or "../x") cannot delete the skills directory or escape it.
-		for _, name := range names {
-			if err := validateSkillName(target.Directory, name); err != nil {
-				return err
-			}
-		}
-		removed := 0
-		for _, name := range names {
-			dest := filepath.Join(target.Directory, name)
-			if dirExists(dest) {
-				if err := os.RemoveAll(dest); err != nil {
-					return fmt.Errorf("could not remove %s: %w", dest, err)
-				}
-				fmt.Printf("removed %s\n", name)
-				removed++
-			}
-		}
-		if len(args) == 0 {
-			rulePath, found, err := removeAgentRule(target)
-			if err != nil {
-				return fmt.Errorf("could not remove the agent rule: %w", err)
-			}
-			if found {
-				fmt.Printf("removed rule %s\n", rulePath)
-			}
-			hookPath, found, err := removeAgentHook(target)
-			if err != nil {
-				return fmt.Errorf("could not remove the agent hook: %w", err)
-			}
-			if found {
-				fmt.Printf("removed hook %s\n", hookPath)
-			}
-		}
-		fmt.Printf("\nRemoved %d skill(s) from %s (%s).\n", removed, target.Directory, target.Scope)
 		return nil
 	},
 }
@@ -267,29 +298,175 @@ read-only commands and anything unparseable pass through unchanged.`,
 	},
 }
 
-// installAgentRule writes the always-applied rule for the target editor and
-// scope, returning the path of what was written. Cursor has no supported
+type skillsInstallOptions struct {
+	force     bool
+	rules     bool
+	workflows bool
+	hooks     bool
+}
+
+// installForTarget installs the selected skills and the client's supporting
+// artefacts (rule, skill index, workflow commands, guard hook) for one
+// target, reporting each step.
+func installForTarget(fsys fs.FS, target skills.Target, names []string, options skillsInstallOptions, writtenDirectories map[string]string) error {
+	fmt.Printf("%s (%s) → %s\n", target.Client.DisplayName, target.Scope, skills.DisplayPath(target.SkillsDirectory))
+
+	if err := os.MkdirAll(target.SkillsDirectory, 0o755); err != nil {
+		return fmt.Errorf("could not create %s: %w", target.SkillsDirectory, err)
+	}
+
+	if owner, shared := writtenDirectories[target.SkillsDirectory]; shared {
+		fmt.Printf("  skills    already written here for %s\n", owner)
+	} else {
+		installed, skipped, err := installSkillPayload(fsys, target, names, options.force)
+		if err != nil {
+			return err
+		}
+		for _, name := range installed {
+			fmt.Printf("  skill     %s\n", name)
+		}
+		if len(skipped) > 0 {
+			fmt.Printf("  skipped   %s (already present; use --force to overwrite)\n", strings.Join(skipped, ", "))
+		}
+		writtenDirectories[target.SkillsDirectory] = target.Client.DisplayName
+	}
+
+	if options.rules {
+		rulePath, ruleError := installAgentRule(target)
+		if ruleError != nil {
+			return fmt.Errorf("could not install the agent rule for %s: %w", target.Client.DisplayName, ruleError)
+		}
+		if rulePath != "" {
+			fmt.Printf("  rule      %s\n", skills.DisplayPath(rulePath))
+		}
+	}
+
+	if options.workflows {
+		written, workflowError := skills.WriteWorkflows(target)
+		if workflowError != nil {
+			return fmt.Errorf("could not install the workflow commands for %s: %w", target.Client.DisplayName, workflowError)
+		}
+		if len(written) > 0 {
+			fmt.Printf("  workflows %d in %s\n", len(written), skills.DisplayPath(target.CommandsDirectory))
+		}
+	}
+
+	if options.hooks {
+		if !target.SupportsHooks() {
+			fmt.Printf("  hook      not supported by %s; skipped\n", target.Client.DisplayName)
+		} else {
+			hookPath, hookError := installAgentHook(target)
+			if hookError != nil {
+				return fmt.Errorf("could not install the agent hook for %s: %w", target.Client.DisplayName, hookError)
+			}
+			fmt.Printf("  hook      %s (kubectl/helm cluster mutations ask for confirmation)\n", skills.DisplayPath(hookPath))
+		}
+	}
+
+	if target.Client.Note != "" {
+		fmt.Printf("  note      %s\n", target.Client.Note)
+	}
+	return nil
+}
+
+// installSkillPayload copies the skills into the target, as directories for
+// clients that read the filesystem and as uploadable bundles for those that
+// cannot.
+func installSkillPayload(fsys fs.FS, target skills.Target, names []string, force bool) (installed, skipped []string, err error) {
+	if target.Client.Packaged {
+		return skills.PackageBundles(fsys, target.SkillsDirectory, names, force)
+	}
+	return skills.Install(fsys, target.SkillsDirectory, names, force)
+}
+
+// uninstallForTarget removes the named skills from one target and, on a full
+// uninstall, the rule, workflow commands and hook install wrote for it.
+func uninstallForTarget(target skills.Target, names []string, full bool) error {
+	fmt.Printf("%s (%s) → %s\n", target.Client.DisplayName, target.Scope, skills.DisplayPath(target.SkillsDirectory))
+
+	for _, name := range names {
+		if err := validateSkillName(target.SkillsDirectory, name); err != nil {
+			return err
+		}
+	}
+	removed := 0
+	if target.Client.Packaged {
+		count, err := skills.RemoveBundles(target.SkillsDirectory, names)
+		if err != nil {
+			return err
+		}
+		removed = count
+	} else {
+		for _, name := range names {
+			destination := filepath.Join(target.SkillsDirectory, name)
+			if !dirExists(destination) {
+				continue
+			}
+			if err := os.RemoveAll(destination); err != nil {
+				return fmt.Errorf("could not remove %s: %w", destination, err)
+			}
+			removed++
+		}
+	}
+	fmt.Printf("  removed   %d skill(s)\n", removed)
+
+	if !full {
+		return nil
+	}
+	rulePath, found, err := removeAgentRule(target)
+	if err != nil {
+		return fmt.Errorf("could not remove the agent rule: %w", err)
+	}
+	if found {
+		fmt.Printf("  rule      removed %s\n", skills.DisplayPath(rulePath))
+	}
+	workflowCount, err := skills.RemoveWorkflows(target)
+	if err != nil {
+		return fmt.Errorf("could not remove the workflow commands: %w", err)
+	}
+	if workflowCount > 0 {
+		fmt.Printf("  workflows removed %d from %s\n", workflowCount, skills.DisplayPath(target.CommandsDirectory))
+	}
+	hookPath, found, err := removeAgentHook(target)
+	if err != nil {
+		return fmt.Errorf("could not remove the agent hook: %w", err)
+	}
+	if found {
+		fmt.Printf("  hook      removed from %s\n", skills.DisplayPath(hookPath))
+	}
+	return nil
+}
+
+// installAgentRule writes the always-applied rule for a target, returning the
+// path written (empty when the client takes no rule). Cursor has no supported
 // user-level rules directory, so personal scope installs a local plugin
-// (~/.cursor/plugins/local/ankra) whose rules apply to every project.
-func installAgentRule(target skillsTarget) (string, error) {
-	switch target.Editor.GuardFormat {
+// (~/.cursor/plugins/local/ankra) whose rules apply to every project. Every
+// other client takes a managed block in its instructions file, which also
+// carries the index of installed skills.
+func installAgentRule(target skills.Target) (string, error) {
+	switch target.Client.RuleFormat {
 	case "cursor":
-		if target.Scope == "personal" {
+		if target.Scope == skills.ScopePersonal {
 			return skills.WriteCursorPlugin(cursorPluginDir(target), version)
 		}
 		return skills.WriteCursorRule(filepath.Join(target.Root, ".cursor", "rules"))
+	case "block":
+		if target.InstructionsPath == "" {
+			return "", nil
+		}
+		block := skills.InstructionsBlock(target, installedSkillsIn(target))
+		return target.InstructionsPath, skills.UpsertManagedBlock(target.InstructionsPath, block)
 	default:
-		path := claudeMemoryPath(target)
-		return path, skills.UpsertClaudeRule(path)
+		return "", nil
 	}
 }
 
 // removeAgentRule undoes installAgentRule, reporting whether anything was
 // found to remove.
-func removeAgentRule(target skillsTarget) (string, bool, error) {
-	switch target.Editor.GuardFormat {
+func removeAgentRule(target skills.Target) (string, bool, error) {
+	switch target.Client.RuleFormat {
 	case "cursor":
-		if target.Scope == "personal" {
+		if target.Scope == skills.ScopePersonal {
 			dir := cursorPluginDir(target)
 			found, err := skills.RemoveCursorPlugin(dir)
 			return dir, found, err
@@ -297,66 +474,111 @@ func removeAgentRule(target skillsTarget) (string, bool, error) {
 		rulesDir := filepath.Join(target.Root, ".cursor", "rules")
 		found, err := skills.RemoveCursorRule(rulesDir)
 		return filepath.Join(rulesDir, skills.CursorRuleFilename), found, err
+	case "block":
+		if target.InstructionsPath == "" {
+			return "", false, nil
+		}
+		found, err := skills.RemoveManagedBlock(target.InstructionsPath)
+		return target.InstructionsPath, found, err
 	default:
-		path := claudeMemoryPath(target)
-		found, err := skills.RemoveClaudeRule(path)
-		return path, found, err
+		return "", false, nil
 	}
 }
 
-// installAgentHook wires the guard into the editor's hook config for the
+// installAgentHook wires the guard into the client's hook config for the
 // target scope, returning the config path it wrote.
-func installAgentHook(target skillsTarget) (string, error) {
-	path := hookConfigPath(target)
-	guardCommand := skills.GuardCommandLine(currentExecutable(), target.Editor.GuardFormat)
-	if target.Editor.GuardFormat == "cursor" {
-		return path, skills.UpsertCursorHook(path, guardCommand)
+func installAgentHook(target skills.Target) (string, error) {
+	guardCommand := skills.GuardCommandLine(currentExecutable(), target.Client.HookFormat)
+	if target.Client.HookFormat == "cursor" {
+		return target.HooksPath, skills.UpsertCursorHook(target.HooksPath, guardCommand)
 	}
-	return path, skills.UpsertClaudeHook(path, guardCommand)
+	return target.HooksPath, skills.UpsertClaudeHook(target.HooksPath, guardCommand)
 }
 
 // removeAgentHook undoes installAgentHook, reporting whether a guard entry
 // was found.
-func removeAgentHook(target skillsTarget) (string, bool, error) {
-	path := hookConfigPath(target)
-	if target.Editor.GuardFormat == "cursor" {
-		found, err := skills.RemoveCursorHook(path)
-		return path, found, err
+func removeAgentHook(target skills.Target) (string, bool, error) {
+	if !target.SupportsHooks() {
+		return "", false, nil
 	}
-	found, err := skills.RemoveClaudeHook(path)
-	return path, found, err
-}
-
-func cursorPluginDir(target skillsTarget) string {
-	return filepath.Join(target.Root, ".cursor", "plugins", "local", skills.CursorPluginName)
-}
-
-// claudeMemoryPath returns the CLAUDE.md Claude Code actually loads for the
-// scope: ~/.claude/CLAUDE.md for personal, <project>/CLAUDE.md for projects.
-func claudeMemoryPath(target skillsTarget) string {
-	if target.Scope == "personal" {
-		return filepath.Join(target.Root, ".claude", "CLAUDE.md")
+	if target.Client.HookFormat == "cursor" {
+		found, err := skills.RemoveCursorHook(target.HooksPath)
+		return target.HooksPath, found, err
 	}
-	return filepath.Join(target.Root, "CLAUDE.md")
-}
-
-// hookConfigPath returns the hook config file for the target: Cursor's
-// hooks.json or Claude Code's settings.json, at the matching scope.
-func hookConfigPath(target skillsTarget) string {
-	if target.Editor.GuardFormat == "cursor" {
-		return filepath.Join(target.Root, ".cursor", "hooks.json")
-	}
-	return filepath.Join(target.Root, ".claude", "settings.json")
+	found, err := skills.RemoveClaudeHook(target.HooksPath)
+	return target.HooksPath, found, err
 }
 
 // currentExecutable resolves the running binary so hook configs keep working
 // regardless of PATH; the install path is stable across 'ankra upgrade'.
 func currentExecutable() string {
-	exe, err := os.Executable()
-	if err != nil || exe == "" {
+	executable, err := os.Executable()
+	if err != nil || executable == "" {
 		return "ankra"
 	}
-	return exe
+	return executable
+}
+
+func cursorPluginDir(target skills.Target) string {
+	return filepath.Join(target.Root, ".cursor", "plugins", "local", skills.CursorPluginName)
+}
+
+// installedSkillsIn reads back what is actually present in a target's skills
+// directory, so the managed index names the skills the agent can really open
+// rather than everything the binary carries.
+func installedSkillsIn(target skills.Target) []skills.Skill {
+	if target.Client.Packaged {
+		return nil
+	}
+	list, err := skills.List(os.DirFS(target.SkillsDirectory))
+	if err != nil {
+		return nil
+	}
+	return list
+}
+
+// skillsDirectoryHasAnkraSkills reports whether a target already carries an
+// Ankra install, for the [installed] marker in 'skills clients'.
+func skillsDirectoryHasAnkraSkills(target skills.Target) bool {
+	if target.Client.Packaged {
+		entries, err := os.ReadDir(target.SkillsDirectory)
+		if err != nil {
+			return false
+		}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), "ankra-") && strings.HasSuffix(entry.Name(), ".zip") {
+				return true
+			}
+		}
+		return false
+	}
+	return len(installedSkillsIn(target)) > 0
+}
+
+func skillInstalledInAnyTarget(targets []skills.Target, name string) bool {
+	for _, target := range targets {
+		if target.Client.Packaged {
+			if _, err := os.Stat(filepath.Join(target.SkillsDirectory, name+".zip")); err == nil {
+				return true
+			}
+			continue
+		}
+		if dirExists(filepath.Join(target.SkillsDirectory, name)) {
+			return true
+		}
+	}
+	return false
+}
+
+func clientDelivery(client skills.Client) string {
+	switch {
+	case client.Packaged:
+		return "uploadable bundles"
+	case client.LoadsSkillsNatively:
+		return "native skills directory"
+	default:
+		return "skills directory + indexed instructions"
+	}
 }
 
 // validateSkillName rejects skill arguments that would resolve outside dir
@@ -385,72 +607,102 @@ func skillsSourceFS(cmd *cobra.Command) (fs.FS, error) {
 	return skills.EmbeddedFS()
 }
 
-// skillsTargetDir resolves the install directory and a human-readable scope.
-func skillsTargetDir(cmd *cobra.Command) (string, string, error) {
-	target, err := skillsTargetForCommand(cmd)
-	if err != nil {
-		return "", "", err
-	}
-	return target.Directory, target.Scope, nil
-}
-
-func skillsTargetForCommand(cmd *cobra.Command) (skillsTarget, error) {
-	editor, err := skillsEditorForCommand(cmd)
-	if err != nil {
-		return skillsTarget{}, err
-	}
+// skillsScope resolves the install scope and its root directory: the project
+// directory when --project is given, the home directory otherwise.
+func skillsScope(cmd *cobra.Command) (scope, root string, err error) {
 	projectFlag := cmd.Flags().Lookup("project")
 	if projectFlag != nil && projectFlag.Changed {
-		dir := projectFlag.Value.String()
-		if dir == "" {
-			dir = "."
+		directory := projectFlag.Value.String()
+		if directory == "" {
+			directory = "."
 		}
-		return skillsTarget{
-			Directory:  filepath.Join(dir, editor.ConfigurationDirectory, "skills"),
-			Scope:      "project",
-			EditorName: editor.Name,
-			Root:       dir,
-			Editor:     editor,
-		}, nil
+		return skills.ScopeProject, directory, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return skillsTarget{}, fmt.Errorf("could not determine home directory: %w", err)
+		return "", "", fmt.Errorf("could not determine home directory: %w", err)
 	}
-	return skillsTarget{
-		Directory:  filepath.Join(home, editor.ConfigurationDirectory, "skills"),
-		Scope:      "personal",
-		EditorName: editor.Name,
-		Root:       home,
-		Editor:     editor,
-	}, nil
+	return skills.ScopePersonal, home, nil
 }
 
-func skillsEditorForCommand(cmd *cobra.Command) (skillsEditor, error) {
-	editor, _ := cmd.Flags().GetString("editor")
-	switch strings.ToLower(strings.TrimSpace(editor)) {
-	case "", "cursor":
-		return skillsEditor{Name: "Cursor", ConfigurationDirectory: ".cursor", GuardFormat: "cursor"}, nil
-	case "claude", "claude-code", "claudecode":
-		return skillsEditor{Name: "Claude Code", ConfigurationDirectory: ".claude", GuardFormat: "claude"}, nil
-	default:
-		return skillsEditor{}, fmt.Errorf("unsupported editor %q (expected cursor or claude-code)", editor)
+// skillsTargetsForCommand resolves --client (and the deprecated --editor)
+// into the install targets for the current scope.
+func skillsTargetsForCommand(cmd *cobra.Command) ([]skills.Target, error) {
+	scope, root, err := skillsScope(cmd)
+	if err != nil {
+		return nil, err
 	}
+	selected, err := skills.ResolveClients(skillsRequestedClients(cmd), root, scope)
+	if err != nil {
+		return nil, withExitCode(exitUsage, err)
+	}
+	targets := make([]skills.Target, 0, len(selected))
+	for _, client := range selected {
+		target, targetError := skills.ResolveTarget(client, scope, root)
+		if targetError != nil {
+			return nil, targetError
+		}
+		targets = append(targets, target)
+	}
+	return targets, nil
+}
+
+// skillsUninstallTargets resolves the uninstall targets. With no explicit
+// --client, it narrows the detected set to the clients that actually carry an
+// Ankra install, so a plain uninstall undoes a plain install and does not
+// report on assistants that never had the skills.
+func skillsUninstallTargets(cmd *cobra.Command) ([]skills.Target, error) {
+	targets, err := skillsTargetsForCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if len(skillsRequestedClients(cmd)) > 0 {
+		return targets, nil
+	}
+	withInstall := make([]skills.Target, 0, len(targets))
+	for _, target := range targets {
+		if skillsDirectoryHasAnkraSkills(target) {
+			withInstall = append(withInstall, target)
+		}
+	}
+	if len(withInstall) == 0 {
+		return targets, nil
+	}
+	return withInstall, nil
+}
+
+// skillsRequestedClients merges --client with the deprecated --editor alias.
+func skillsRequestedClients(cmd *cobra.Command) []string {
+	requested, _ := cmd.Flags().GetStringArray("client")
+	editorFlag := cmd.Flags().Lookup("editor")
+	if editorFlag != nil && editorFlag.Changed {
+		requested = append(requested, editorFlag.Value.String())
+	}
+	return requested
 }
 
 func init() {
-	for _, c := range []*cobra.Command{skillsListCmd, skillsInstallCmd, skillsUninstallCmd} {
-		c.Flags().Bool("personal", false, "install into the selected editor's personal skills directory (default)")
-		c.Flags().String("project", "", "install into <DIR>/<editor config>/skills (use \".\" for the current directory)")
-		c.Flags().String("editor", "cursor", "skills app to target: cursor or claude-code")
-		c.Flags().String("source", "", "read skills from a local directory instead of the embedded copy")
+	for _, command := range []*cobra.Command{skillsListCmd, skillsInstallCmd, skillsUninstallCmd, skillsClientsCmd} {
+		command.Flags().String("project", "", "install into <DIR> instead of your home directory (use \".\" for the current directory)")
+		command.Flags().StringArray("client", nil,
+			"assistant to target, repeatable or comma-separated: "+strings.Join(skills.ClientIDs(), ", ")+
+				", plus \"all\" and \"auto\" (default: the assistants configured here)")
+		command.Flags().String("editor", "", "deprecated alias for --client")
+		_ = command.Flags().MarkDeprecated("editor", "use --client instead")
+		command.Flags().Bool("personal", false, "install for your user (default)")
+		_ = command.Flags().MarkDeprecated("personal", "personal scope is the default; use --project for a repository install")
+	}
+	for _, command := range []*cobra.Command{skillsListCmd, skillsInstallCmd, skillsUninstallCmd} {
+		command.Flags().String("source", "", "read skills from a local directory instead of the embedded copy")
 	}
 	skillsInstallCmd.Flags().Bool("force", false, "overwrite existing skills without prompting")
-	skillsInstallCmd.Flags().Bool("no-rules", false, "skip installing the always-applied agent rule")
+	skillsInstallCmd.Flags().Bool("no-rules", false, "skip the always-applied agent rule and skill index")
+	skillsInstallCmd.Flags().Bool("no-workflows", false, "skip the Ankra workflow commands")
 	skillsInstallCmd.Flags().Bool("with-hooks", false, "also install the agent hook that gates direct kubectl/helm cluster mutations")
 	skillsGuardCmd.Flags().String("format", "cursor", "hook event format: cursor or claude")
-	registerStructuredOutputFlags(skillsListCmd)
+	registerStructuredOutputFlags(skillsListCmd, skillsClientsCmd)
 
+	skillsCmd.AddCommand(skillsClientsCmd)
 	skillsCmd.AddCommand(skillsListCmd)
 	skillsCmd.AddCommand(skillsInstallCmd)
 	skillsCmd.AddCommand(skillsUninstallCmd)

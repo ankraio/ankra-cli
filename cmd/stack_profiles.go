@@ -5,6 +5,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,9 +18,88 @@ import (
 )
 
 var stackProfilesCmd = &cobra.Command{
-	Use:   "stack-profiles",
-	Short: "Manage reusable stack profiles",
-	Long:  "List, export, and import organisation-level stack profiles.",
+	Use:     "stack-profiles",
+	Aliases: []string{"stack-profile", "stackprofiles", "stackprofile"},
+	Short:   "Manage reusable stack profiles",
+	Long: "Manage organisation-level stack profiles: create them from deployed " +
+		"stacks, list and describe them, apply them to clusters, version and " +
+		"share them, and export or import them as infrastructure-as-code.",
+}
+
+// maxProfileLookupPageSize is the largest page_size the profiles endpoint
+// accepts. Asking for more is rejected outright ("Input should be less than
+// or equal to 100"), which - because the lookup falls back to the raw
+// reference when listing fails - turned every name resolution back into the
+// uuid_parsing error it exists to prevent. The `search` filter runs
+// server-side on the name, so one page is more than enough to find an exact
+// match.
+const maxProfileLookupPageSize = 100
+
+// stackProfileIDPattern matches the canonical UUID form the API expects for a
+// profile id. Anything else is treated as a profile name to resolve.
+var stackProfileIDPattern = regexp.MustCompile(
+	`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// resolveStackProfileID accepts either a profile id or a profile name.
+//
+// `stack-profiles list` prints a NAME column, so a name is the obvious thing
+// to pass to the next command; before this the API answered with a raw
+// pydantic uuid_parsing dump, which tells the user nothing about what to do
+// instead (ankra-ql3t).
+func resolveStackProfileID(profiles APIClient, reference string) (string, error) {
+	if stackProfileIDPattern.MatchString(reference) {
+		return reference, nil
+	}
+	listing, listError := profiles.ListStackProfiles(1, maxProfileLookupPageSize, reference, "")
+	if listError != nil {
+		// The lookup is a convenience, not the operation. If listing is
+		// unavailable, hand the reference to the API unchanged and let the
+		// real call decide - failing here would turn a working id into an
+		// error just because the search endpoint was unhappy.
+		return reference, nil
+	}
+	matched := []client.StackProfileSummary{}
+	for _, profile := range listing.Result {
+		if profile.Name == reference {
+			matched = append(matched, profile)
+		}
+	}
+	switch len(matched) {
+	case 1:
+		return matched[0].ID, nil
+	case 0:
+		return "", fmt.Errorf(
+			"no stack profile named %q - run 'ankra stack-profiles list' to see the available profiles", reference)
+	default:
+		identifiers := make([]string, 0, len(matched))
+		for _, profile := range matched {
+			identifiers = append(identifiers, profile.ID)
+		}
+		return "", fmt.Errorf("%d stack profiles are named %q - pass the id instead (%s)",
+			len(matched), reference, strings.Join(identifiers, ", "))
+	}
+}
+
+// parseProfileVersionFlag accepts both the bare integer and the v-prefixed
+// form every Ankra surface prints ("Latest version: v1", and a LATEST column
+// reading v1), so a version copied straight out of `list` or `get` works.
+// An empty value means "use the profile's current version".
+func parseProfileVersionFlag(raw string) (int, error) {
+	trimmed := strings.TrimSpace(raw)
+	// "0" kept its old meaning from when this was an int flag: unset, i.e.
+	// fall back to the profile's current version.
+	if trimmed == "" || trimmed == "0" {
+		return 0, nil
+	}
+	trimmed = strings.TrimPrefix(strings.TrimPrefix(trimmed, "v"), "V")
+	version, parseError := strconv.Atoi(trimmed)
+	if parseError != nil {
+		return 0, fmt.Errorf("invalid --version %q: use a version number such as 1 or v1", raw)
+	}
+	if version <= 0 {
+		return 0, fmt.Errorf("invalid --version %q: profile versions start at 1", raw)
+	}
+	return version, nil
 }
 
 var stackProfilesListCmd = &cobra.Command{
@@ -59,12 +141,19 @@ var stackProfilesListCmd = &cobra.Command{
 }
 
 var stackProfilesExportIacCmd = &cobra.Command{
-	Use:   "export-iac [profile-id]",
+	Use:   "export-iac [profile-id|profile-name]",
 	Short: "Export a profile version as ClusterInfrastructureAsCode YAML",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		profileID := args[0]
-		version, _ := cmd.Flags().GetInt("version")
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		versionRaw, _ := cmd.Flags().GetString("version")
+		version, versionError := parseProfileVersionFlag(versionRaw)
+		if versionError != nil {
+			return versionError
+		}
 		outputPath, _ := cmd.Flags().GetString("output")
 
 		if version <= 0 {
@@ -139,13 +228,20 @@ var stackProfilesImportCmd = &cobra.Command{
 }
 
 var stackProfilesGetCmd = &cobra.Command{
-	Use:   "get [profile-id]",
+	Use:   "get [profile-id|profile-name]",
 	Short: "Show a stack profile's versions and parameters",
 	Long:  "Describe a stack profile: its metadata, published versions, and the parameters you can bind when applying it.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		profileID := args[0]
-		versionFlag, _ := cmd.Flags().GetInt("version")
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		versionRaw, _ := cmd.Flags().GetString("version")
+		versionFlag, versionError := parseProfileVersionFlag(versionRaw)
+		if versionError != nil {
+			return versionError
+		}
 
 		detail, err := apiClient.GetStackProfile(profileID)
 		if err != nil {
@@ -218,12 +314,44 @@ var stackProfilesGetCmd = &cobra.Command{
 			parametersTable.AppendRow(table.Row{parameter.Name, parameter.Type, required, defaultValue, description})
 		}
 		parametersTable.Render()
+		printParameterChoices(parameters)
 		return nil
 	},
 }
 
+// printParameterChoices lists, for every parameter that offers choices, what
+// each choice sets on the other parameters - so a reader of `get` can tell
+// that `--set model_size=32b` also moves the model id and the context
+// length before they bind anything.
+func printParameterChoices(parameters []client.StackProfileParameter) {
+	for _, parameter := range parameters {
+		if len(parameter.Options) == 0 {
+			continue
+		}
+		fmt.Printf("\nChoices for %s (--set %s=<value>):\n", parameter.Name, parameter.Name)
+		for _, option := range parameter.Options {
+			label := option.Value
+			if option.Title != nil && *option.Title != "" && *option.Title != option.Value {
+				label = fmt.Sprintf("%s  %s", option.Value, *option.Title)
+			}
+			fmt.Printf("  %s\n", label)
+			if option.Description != nil && *option.Description != "" {
+				fmt.Printf("    %s\n", *option.Description)
+			}
+			targets := make([]string, 0, len(option.Sets))
+			for target := range option.Sets {
+				targets = append(targets, target)
+			}
+			sort.Strings(targets)
+			for _, target := range targets {
+				fmt.Printf("    sets %s=%s\n", target, option.Sets[target])
+			}
+		}
+	}
+}
+
 var stackProfilesApplyCmd = &cobra.Command{
-	Use:   "apply [profile-id]",
+	Use:   "apply [profile-id|profile-name]",
 	Short: "Apply a stack profile to a cluster as a draft (optionally deploy)",
 	Long: `Apply (instantiate) a stack profile onto a cluster.
 
@@ -236,21 +364,33 @@ shell history or process list. Use 'ankra stack-profiles get <profile-id>' to se
 which parameters a profile expects.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		profileID := args[0]
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		clusterFlag, _ := cmd.Flags().GetString("cluster")
 		stackName, _ := cmd.Flags().GetString("stack-name")
-		versionFlag, _ := cmd.Flags().GetInt("version")
+		versionRaw, _ := cmd.Flags().GetString("version")
+		versionFlag, versionError := parseProfileVersionFlag(versionRaw)
+		if versionError != nil {
+			return versionError
+		}
 		deploy, _ := cmd.Flags().GetBool("deploy")
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		setValues, _ := cmd.Flags().GetStringArray("set")
 		setFiles, _ := cmd.Flags().GetStringArray("set-file")
 		setEnvs, _ := cmd.Flags().GetStringArray("set-env")
 
-		clusterID, clusterLabel, err := resolveApplyTargetCluster(clusterFlag)
+		parameters, err := buildParameterBindings(setValues, setFiles, setEnvs)
 		if err != nil {
 			return err
 		}
 
-		parameters, err := buildParameterBindings(setValues, setFiles, setEnvs)
+		if dryRun {
+			return previewApply(cmd, profileID, versionFlag, parameters)
+		}
+
+		clusterID, clusterLabel, err := resolveApplyTargetCluster(clusterFlag)
 		if err != nil {
 			return err
 		}
@@ -311,6 +451,58 @@ which parameters a profile expects.`,
 		}
 		return nil
 	},
+}
+
+// previewApply is `apply --dry-run`: it reads the profile version's inputs,
+// resolves the bindings the way the platform will (a --set value, then what
+// the selected choice sets, then the input's default) and prints the
+// result. Nothing is created, so no cluster is needed.
+func previewApply(cmd *cobra.Command, profileID string, versionFlag int, bindings []client.ParameterBinding) error {
+	detail, err := apiClient.GetStackProfile(profileID)
+	if err != nil {
+		return fmt.Errorf("reading stack profile: %w", err)
+	}
+	parameters, shownVersion, err := selectProfileParameters(detail, versionFlag, profileID)
+	if err != nil {
+		return err
+	}
+	rows := previewResolvedBindings(parameters, bindings)
+
+	format, err := structuredFormatFromFlags(cmd)
+	if err != nil {
+		return err
+	}
+	if format != outputDefault {
+		return encodeStructured(cmd.OutOrStdout(), format, map[string]any{
+			"profile_id": profileID,
+			"version":    shownVersion,
+			"bindings":   rows,
+		})
+	}
+
+	fmt.Printf("Dry run: inputs '%s' v%d would deploy with (nothing created):\n", detail.Profile.Name, shownVersion)
+	previewTable := table.NewWriter()
+	previewTable.SetOutputMirror(os.Stdout)
+	previewTable.SetStyle(table.StyleRounded)
+	previewTable.AppendHeader(table.Row{"Input", "Value", "Source"})
+	for _, row := range rows {
+		name := row.Name
+		if row.Required {
+			name += " *"
+		}
+		value := row.Value
+		if value == "" {
+			value = "-"
+		}
+		previewTable.AppendRow(table.Row{name, value, row.Source})
+	}
+	previewTable.Render()
+	if missing := unsetRequiredInputs(rows); len(missing) > 0 {
+		fmt.Printf("\n%d required %s still unset: %s\n", len(missing), pluralise(len(missing), "input", "inputs"), strings.Join(missing, ", "))
+		return nil
+	}
+	fmt.Println("\nEvery required input is set. Re-run without --dry-run to create the draft.")
+	return nil
 }
 
 func resolveApplyTargetCluster(clusterFlag string) (string, string, error) {
@@ -410,22 +602,23 @@ func init() {
 	stackProfilesListCmd.Flags().String("category", "", "Filter profiles by category (e.g. 'monitoring')")
 	registerStructuredOutputFlags(stackProfilesListCmd)
 
-	stackProfilesExportIacCmd.Flags().Int("version", 0, "Profile version to export (defaults to the profile's current version)")
+	stackProfilesExportIacCmd.Flags().String("version", "", "Profile version to export, as 1 or v1 (defaults to the profile's current version)")
 	stackProfilesExportIacCmd.Flags().StringP("output", "o", "", "Write YAML to this file instead of stdout")
 
 	stackProfilesImportCmd.Flags().String("name", "", "Profile name (defaults to metadata.name in the file)")
 	stackProfilesImportCmd.Flags().String("category", "general", "Profile category")
 
-	stackProfilesGetCmd.Flags().Int("version", 0, "Profile version to describe (defaults to the current version)")
+	stackProfilesGetCmd.Flags().String("version", "", "Profile version to describe, as 1 or v1 (defaults to the current version)")
 	registerStructuredOutputFlags(stackProfilesGetCmd)
 
 	stackProfilesApplyCmd.Flags().String("cluster", "", "Target cluster name or ID (defaults to the selected cluster)")
-	stackProfilesApplyCmd.Flags().Int("version", 0, "Profile version to apply (defaults to the profile's current version)")
+	stackProfilesApplyCmd.Flags().String("version", "", "Profile version to apply, as 1 or v1 (defaults to the profile's current version)")
 	stackProfilesApplyCmd.Flags().String("stack-name", "", "Name for the new stack (defaults to the profile's stack name)")
 	stackProfilesApplyCmd.Flags().StringArray("set", nil, "Bind a parameter: name=value (repeatable; not for secrets)")
 	stackProfilesApplyCmd.Flags().StringArray("set-file", nil, "Bind a parameter from a file: name=path (repeatable; secret-safe)")
 	stackProfilesApplyCmd.Flags().StringArray("set-env", nil, "Bind a parameter from an environment variable: name=ENV_VAR (repeatable; secret-safe)")
 	stackProfilesApplyCmd.Flags().Bool("deploy", false, "Deploy the stack immediately instead of leaving a draft for review")
+	stackProfilesApplyCmd.Flags().Bool("dry-run", false, "Show the value every input would deploy with (your --set, the selected choice, or the default) without creating anything")
 	registerStructuredOutputFlags(stackProfilesApplyCmd)
 
 	stackProfilesCmd.AddCommand(stackProfilesListCmd)

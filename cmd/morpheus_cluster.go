@@ -41,6 +41,7 @@ var morpheusCreateCmd = &cobra.Command{
 		etcdPlanID, _ := cmd.Flags().GetInt64("etcd-plan-id")
 		cni, _ := cmd.Flags().GetString("cni")
 		includeNetworking, _ := cmd.Flags().GetBool("include-networking")
+		includeDNS, _ := cmd.Flags().GetBool("include-dns")
 
 		request := client.CreateMorpheusClusterRequest{
 			Name:               name,
@@ -60,6 +61,7 @@ var morpheusCreateCmd = &cobra.Command{
 			EtcdNodeCount:      etcdNodeCount,
 			CNI:                cni,
 			IncludeNetworking:  includeNetworking,
+			IncludeDNS:         includeDNS,
 		}
 		if description != "" {
 			request.Description = &description
@@ -100,8 +102,9 @@ var morpheusStopCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
+		force, _ := cmd.Flags().GetBool("force")
 
-		result, stopError := apiClient.StopMorpheusCluster(clusterID)
+		result, stopError := apiClient.StopMorpheusCluster(clusterID, force)
 		if stopError != nil {
 			return fmt.Errorf("stopping cluster: %w", stopError)
 		}
@@ -363,6 +366,7 @@ func init() {
 	morpheusCreateCmd.Flags().Int64("etcd-plan-id", 0, "Service plan ID for dedicated etcd nodes when --etcd-topology=external (optional)")
 	morpheusCreateCmd.Flags().String("cni", "", "CNI plugin (optional; the platform default is used when omitted)")
 	morpheusCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager as Ankra-managed stacks for ingress (exposed via the built-in k3s service load balancer; default on)")
+	registerIncludeDNSFlag(morpheusCreateCmd)
 
 	_ = morpheusCreateCmd.MarkFlagRequired("name")
 	_ = morpheusCreateCmd.MarkFlagRequired("credential-id")
@@ -394,6 +398,7 @@ func init() {
 	morpheusCmd.AddCommand(morpheusPlansCmd)
 	morpheusCmd.AddCommand(morpheusLayoutsCmd)
 	morpheusCmd.AddCommand(morpheusNetworksCmd)
+	morpheusStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands (also stops a cluster that is still being created)")
 	morpheusCmd.AddCommand(morpheusStopCmd)
 	morpheusCmd.AddCommand(morpheusStartCmd)
 	morpheusCmd.AddCommand(morpheusWorkersCmd)

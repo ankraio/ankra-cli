@@ -20,15 +20,12 @@ type ChartItem struct {
 	RegistryCredentialName *string `json:"registry_credential_name,omitempty"`
 }
 
-type ChartsPagination struct {
-	Page       int `json:"page"`
-	PageSize   int `json:"page_size"`
-	TotalPages int `json:"total_pages"`
-}
-
+// ListChartsResponse carries the chart page and its pagination envelope.
+// The pagination reuses the shared Pagination struct so structured output
+// includes total_count alongside page/page_size/total_pages.
 type ListChartsResponse struct {
-	Charts     []ChartItem      `json:"charts"`
-	Pagination ChartsPagination `json:"pagination"`
+	Charts     []ChartItem `json:"charts"`
+	Pagination Pagination  `json:"pagination"`
 }
 
 type ChartProfile struct {

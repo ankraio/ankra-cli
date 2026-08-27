@@ -20,7 +20,7 @@ offline checks cannot perform:
   - plaintext Kubernetes Secret / unencrypted addon value detection
   - parent references resolved against a cluster's existing resources
 
-Nothing is applied. Use --cluster <id> to validate the spec against an
+Nothing is applied. Use --cluster <name|id> to validate the spec against an
 existing cluster's deployed resources, and --strict-secrets to treat
 plaintext secrets as errors instead of warnings.`,
 	Args: cobra.NoArgs,
@@ -30,7 +30,7 @@ plaintext secrets as errors instead of warnings.`,
 func init() {
 	clusterValidateCmd.Flags().StringP("file", "f", "", "Path to the ImportCluster YAML file to validate")
 	clusterValidateCmd.Flags().Bool("strict-secrets", false, "Treat plaintext secrets as errors instead of warnings")
-	clusterValidateCmd.Flags().String("cluster", "", "Validate against an existing cluster's resources (cluster ID)")
+	clusterValidateCmd.Flags().String("cluster", "", "Validate against an existing cluster's resources (cluster name or ID)")
 	registerStructuredOutputFlags(clusterValidateCmd)
 	_ = clusterValidateCmd.MarkFlagRequired("file")
 	clusterCmd.AddCommand(clusterValidateCmd)
@@ -42,7 +42,15 @@ func runClusterValidate(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("reading --file: %w", err)
 	}
 	strictSecrets, _ := cmd.Flags().GetBool("strict-secrets")
-	clusterID, _ := cmd.Flags().GetString("cluster")
+	clusterFlagValue, _ := cmd.Flags().GetString("cluster")
+	clusterID := ""
+	if clusterFlagValue != "" {
+		resolvedClusterID, resolveError := resolveClusterID(clusterFlagValue)
+		if resolveError != nil {
+			return fmt.Errorf("resolving --cluster %q: %w", clusterFlagValue, resolveError)
+		}
+		clusterID = resolvedClusterID
+	}
 
 	importRequest, err := buildImportRequest(filePath)
 	if err != nil {

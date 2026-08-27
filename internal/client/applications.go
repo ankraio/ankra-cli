@@ -8,12 +8,19 @@ import (
 	"net/http"
 )
 
+// CreateApplicationRequest mirrors the platform create_application body.
+//
+// ImageRegistry is optional and omitted entirely when no registry is
+// declared: an application created without one publishes into the
+// organisation's own Ankra registry project, and an empty declaration is not
+// the same as none.
 type CreateApplicationRequest struct {
-	Name                     string `json:"name"`
-	RepositoryCredentialName string `json:"app_repo_credential_name"`
-	RepositoryOwner          string `json:"app_repo_owner"`
-	RepositoryName           string `json:"app_repo_name"`
-	RepositoryBranch         string `json:"app_repo_branch"`
+	Name                     string                    `json:"name"`
+	RepositoryCredentialName string                    `json:"app_repo_credential_name"`
+	RepositoryOwner          string                    `json:"app_repo_owner"`
+	RepositoryName           string                    `json:"app_repo_name"`
+	RepositoryBranch         string                    `json:"app_repo_branch"`
+	ImageRegistry            *ApplicationImageRegistry `json:"image_registry,omitempty"`
 }
 
 type ApplicationErrorItem struct {

@@ -65,6 +65,7 @@ type CreateHetznerClusterRequest struct {
 	NodeGroups             []CreateNodeGroupRequest `json:"node_groups,omitempty"`
 	ExternalCloudProvider  bool                     `json:"external_cloud_provider"`
 	IncludeNetworking      bool                     `json:"include_networking"`
+	IncludeDNS             bool                     `json:"include_dns"`
 	GitopsCredentialName   *string                  `json:"gitops_credential_name,omitempty"`
 	GitopsRepository       *string                  `json:"gitops_repository,omitempty"`
 	GitopsBranch           *string                  `json:"gitops_branch,omitempty"`
@@ -181,8 +182,8 @@ func (c *Client) DeprovisionHetznerCluster(clusterID string, force bool) (*Depro
 	return &result, nil
 }
 
-func (c *Client) StopHetznerCluster(clusterID string) (*ProviderStopClusterResponse, error) {
-	return c.stopProviderCluster("hetzner", clusterID)
+func (c *Client) StopHetznerCluster(clusterID string, force bool) (*ProviderStopClusterResponse, error) {
+	return c.stopProviderCluster("hetzner", clusterID, force)
 }
 
 func (c *Client) StartHetznerCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {
@@ -226,6 +227,11 @@ type NodeGroupInfo struct {
 	AutoscalingEnabled bool              `json:"autoscaling_enabled"`
 	Labels             map[string]string `json:"labels"`
 	Taints             []NodeTaint       `json:"taints"`
+	// AvailabilityZones lists the zones the group's nodes were requested
+	// into, on OVH 3-AZ regions. Empty for every provider without zone
+	// placement, for a group created before it existed, and against a
+	// platform that predates the field.
+	AvailabilityZones []string `json:"availability_zones,omitempty"`
 }
 
 type NodeGroupListResult struct {
@@ -238,6 +244,15 @@ type AddNodeGroupRequest struct {
 	Count        int               `json:"count"`
 	Labels       map[string]string `json:"labels,omitempty"`
 	Taints       []NodeTaint       `json:"taints,omitempty"`
+	// AvailabilityZone pins every node of the group to one zone, on OVH 3-AZ
+	// regions. Omitted spreads the group across the cluster's zone pool when
+	// it has one, and leaves placement to the provider when it does not.
+	AvailabilityZone string `json:"availability_zone,omitempty"`
+	// UserData is the group's opaque cloud-init document (OVH clusters
+	// only), applied verbatim at first boot by every instance the group
+	// ever creates, replacements included. The platform sends no cloud-init
+	// of its own, and refuses documents over 65535 bytes.
+	UserData string `json:"user_data,omitempty"`
 }
 
 type AddNodeGroupResult struct {

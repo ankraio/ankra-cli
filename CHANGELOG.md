@@ -2,14 +2,1485 @@
 
 ## Unreleased
 
-### Deprecated
+### Added
 
-- **`ankra cluster deprovision --auto-delete` is deprecated — it never did
-  anything.** The backend parses and discards the `auto_delete` parameter, so
-  the flag silently suggested a record deletion that never happened. The flag
-  is now hidden and prints a deprecation warning pointing at
-  `ankra delete cluster` for the record deletion; it will be removed in
-  v0.10.0 (see `DEPRECATIONS.md`).
+- **`ankra application build` builds an application's image on Ankra's own
+  builders, without the repository's CI running at all.** Ankra clones the
+  commit, resolves a recipe for it (the repository's Dockerfile, else a
+  generated one, else buildpacks), builds it and pushes the image. Until now
+  the first image could only come from the generated GitHub Actions workflow,
+  which means it could only come after a human merged the setup PR - a
+  critical path Ankra can neither watch nor repair, and one no unattended
+  caller could drive at all. `start` queues a build for a commit and reports
+  whether it queued a fresh one or joined the build already running for that
+  commit; `list` and `get` read what the builder did, including the
+  `error_class` that says whether a failure was the repository's or Ankra's.
+  `start --wait` follows the request through to the finished build and exits
+  non-zero if the build failed, so a pipeline step can be exactly "build this
+  commit, and fail if it does not build" - `--timeout` expiring exits 5 and
+  says the build is still running. `request` shows a queued request and the
+  build it became, which is what makes the gap between the two followable.
+  The routes answer 404 for organisations without the `platform_builds`
+  feature flag, which is off by default while the lane rolls out.
+
+- **`ankra backup vaults` manages the organisation's backup vaults from the
+  terminal.** A vault is an S3-compatible bucket cluster backups are written
+  to: `create` registers one (the access keys are prompted for when not
+  passed as flags, the secret hidden, so they stay out of your shell
+  history) and reports the platform's immediate credential check - a vault
+  that fails verification exits non-zero with the failure excerpt instead
+  of a green create. `list` shows every vault with its status and when it
+  last verified, `get` describes one - including the failure excerpt when
+  the last check failed - `verify` re-runs the check after rotating or
+  fixing keys, and `delete` confirms first (or takes `--yes`). `get` and
+  `list` take a vault name as well as an id and support `-o json|yaml`.
+
+### Fixed
+
+- **`kubectl` against an Ankra context no longer fails with "Cluster not
+  found" when your selected organisation is not the one that owns the
+  cluster.** The platform resolves a cluster reference inside the
+  organisation the request is scoped to, so a cluster you have a grant on,
+  whose id is right there in the kubeconfig server URL, came back as a bare
+  404 that blamed the cluster - sending you to check access grants and RBAC
+  for what was an organisation-selection problem. A cluster id the selected
+  organisation does not have is now looked up across the organisations you
+  belong to and the request runs against the one that owns it, so contexts
+  written before `--org` was pinned into the exec args keep working across
+  an `ankra org switch`. `ankra cluster kubeconfig add <id>` and
+  `ankra cluster access` do the same lookup, so an id from another
+  organisation writes a context pinned to the real owner instead of a
+  context that 404s on first use. The cluster from `ankra cluster select`
+  gets the same treatment, since that selection outlives the organisation
+  chosen alongside it: omitting `--cluster` no longer fails where passing
+  that very same id succeeds. Your selected organisation is never
+  changed, and neither is an organisation you pinned yourself: `--org` and
+  `ANKRA_ORG` are honoured as given, so a cluster that is not in the one you
+  named is reported rather than quietly fetched from somewhere else. When
+  the cluster genuinely is nowhere, the error names the organisation the
+  request was scoped to and the ones that were searched - and only the ones
+  that actually answered, so a lookup that failed is never reported as an
+  absence.
+
+## v0.13.0 — 2026-08-25
+
+Promotes v0.13.0-rc0 through rc4 — the kubectl-shaped read surface
+(`describe`, `events --for`, `top`, selector logs, `--previous`), stack
+profiles carried from first draft to published version, organisation domains
+and custom DNS zones, external MCP tool servers, the application CI
+settings, env-secrets and registry-robot lanes, and working the AI board
+from the terminal — and adds everything since: Ankra skills installed into
+every AI assistant you use, the board's identity and the organisation's AI
+kill switch from the terminal, and a true force stop on every self-managed
+provider.
+
+### Added
+
+- **`ankra cluster <provider> stop <id> --force` is now a true force stop on
+  every self-managed provider.** The platform side of `--force` grew teeth:
+  it cancels every in-flight operation on the cluster, blocks new operations
+  for 60 seconds so nothing freshly planned races the teardown, and lets the
+  stop itself run no matter what - including on a cluster still being
+  created. Proxmox VE and HPE Morpheus, the two providers whose `stop` had
+  no `--force` at all, now accept it like the rest, and every provider's
+  flag help spells out the full effect so you know an operation-cancelling
+  stop is what you are asking for.
+
+- **`ankra ai board-identity` and `ankra ai autonomy` put the AI settings a
+  runbook needs behind a token instead of a browser session.** The sharpest
+  gap cost real time: an organisation designates a board worker, every
+  ticket escalates anyway, and the fix - giving the board an identity -
+  existed only in the portal. `board-identity status` says outright when the
+  board has none and names the fix, `provision` creates the identity
+  (`--role operator|member|viewer`), and `revoke` stands it down.
+  `ankra ai autonomy` is the organisation's AI switchboard: `status` reports
+  whether AI is stopped, since when, by whom and why; `stop-all` and
+  `start-all` work the hard kill switch; `pause --reason` and `resume` work
+  the softer autonomy pause, and a pause reports what it switched off
+  rather than claiming a silent success. The destructive verbs confirm and
+  take `--yes`, and every command supports `-o json|yaml`.
+
+- **`ankra skills install` now installs into every AI assistant you use, not
+  just Cursor and Claude Code.** `--editor cursor|claude-code` covered two of
+  the tools a team actually has open, so everyone else - Codex, GitHub
+  Copilot, Windsurf, Gemini CLI, OpenCode, Cline, Zed, OpenClaw, the Claude
+  app - either went without the skills or hand-copied them somewhere their
+  assistant never read. `--client` replaces `--editor` (kept as a deprecated
+  alias) and takes a repeatable, comma-separated list, `all`, or `auto`; with
+  no `--client` at all, install now detects the assistants configured on the
+  machine and does them together, falling back to Claude Code and Cursor when
+  it finds none. `ankra skills clients` lists every supported assistant, what
+  was detected, and where each one's skills would land.
+
+- **Assistants that have no skills directory now get an index instead of
+  nothing.** Claude Code and Cursor discover `SKILL.md` files by themselves;
+  Codex, Copilot, Gemini, Windsurf and everything behind `AGENTS.md` do not.
+  For those, install writes the skills into a client-neutral library and adds
+  an index to the assistant's always-loaded instructions file - naming each
+  skill, what it covers, and the path to open - inside the same managed block
+  that already carried the Ankra routing rule. A project-scoped index names
+  the repository-relative directory, so a committed `AGENTS.md` or
+  `.github/copilot-instructions.md` works on every teammate's machine.
+
+- **`ankra skills install --client claude-app` writes uploadable skill
+  bundles.** The Claude app cannot read your filesystem, so install produces
+  one `.zip` per skill - the skill directory at the archive root - ready to
+  upload at claude.ai under Settings, Capabilities, Skills.
+
+- **Ankra workflow commands are installed alongside the skills.** Skills are
+  matched against whatever the user happens to say; a workflow is a named
+  entry point for a job that spans several of them. `/ankra-ship-service`,
+  `/ankra-connect-app`, `/ankra-triage`, `/ankra-promote`, `/ankra-harden`
+  and `/ankra-profile` are written in each assistant's own command format
+  (Claude Code and Cursor commands, Codex prompts, Copilot `.prompt.md`,
+  Gemini TOML, Windsurf workflows, Cline workflows). Skip them with
+  `--no-workflows`.
+
+- **Two new skills for the parts of onboarding that had none, and a
+  `/ankra-new-cluster` workflow.** `ankra-getting-started` is the ordered path
+  from an empty organisation to a running application - credentials, the
+  GitOps repository and the domain settled before the first cluster, because
+  all three are wired at create time and painful to retrofit.
+  `ankra-domains-dns` separates the four things that get conflated: the
+  organisation root domain, a cluster's generated subdomain, a custom DNS zone
+  served with your own credential, and the preview domain PR demos publish
+  under - including that Ankra publishes nothing on a preview domain you own,
+  so an unpublished wildcard costs you the URL and the TLS together.
+
+- **Six new skills covering the work that spans several parts of the
+  platform.** `ankra-applications` (source code to a running deployment on one
+  or many clusters, registries, environment secrets, auto-deploy, PR demos,
+  publishing as a catalogue add-on), `ankra-app-integrations` (wiring an app
+  to an LLM gateway, Harbor, a database or an internal API with the
+  credentials that already exist), `ankra-stack-profiles` (builder drafts,
+  parameters, option sets, publishing and launching across a fleet),
+  `ankra-troubleshooting` (operations, events, `--previous` logs, `top`,
+  PromQL, and what each symptom classifies as), `ankra-security` (tokens and
+  MCP scopes, roles, cluster access grants, credential scope, scanning
+  findings, agent autonomy) and `ankra-ai-agents` (model provider and
+  catalogue, MCP tool servers and per-tool role grants, agent runs and
+  transcripts, the AI board).
+
+### Changed
+
+- **`ankra-cloud-clusters` and `ankra-managed-kubernetes` documented commands
+  and flags that do not exist.** Between them they told an agent to run
+  `ankra cluster ovh node-group|upgrade|scale|ssh-keys` (all removed in favour
+  of the provider-agnostic `ankra cluster node-group|upgrade|scale|ssh-keys`),
+  `--wait` on a provider `create` (never existed), `deprovision --auto-delete`
+  (removed), `ankra cluster managed options` and `managed upgrades` (neither
+  exists), `--provider mks` (it is `ovh_mks`), `--cluster-id` on
+  `managed import` (it is `--provider-cluster-id`), and
+  `--node-pool-autoscaling-min/max` / `--autoscaling-enabled` (they are
+  `--autoscaling`, `--autoscaling-min`, `--autoscaling-max`). Every one of
+  those makes an agent emit a command that fails. `ankra-cloud-clusters` also
+  claimed `provision`/`deprovision` were a power-off, when deprovision is a
+  teardown that releases cloud resources and uninstalls every stack.
+
+- **`ankra-cloud-clusters` now covers cluster creation properly**: all seven
+  providers, the discovery commands that list the regions and instance
+  families a credential can actually deploy, k3s vs kubeadm and etcd topology,
+  the `--external-cloud-provider` / `--include-networking` / `--include-dns`
+  batteries, committing the generated stack to a GitOps repository with
+  `--gitops-repository` at create time, OVH availability zones, and the
+  difference between power, teardown and delete. A new `reference.md` carries
+  the per-provider instance-family guide, role sizing, GPU node groups, the
+  create-flag map and the cost traps.
+
+- **`ankra-import-cluster` and `ankra-observability` taught the silently-broken
+  `parents` shorthand.** Both showed `parents: - manifest: <name>` in their YAML
+  examples, and the import skill's field reference endorsed it - but the
+  parser requires a `kind` + `name` pair and silently drops anything else, so
+  every dependency edge written that way vanishes while local and server-side
+  validation both pass. This is the exact trap `ankra-stacks-addons` already
+  warned about; the other two skills were teaching it. Both now use the
+  `kind`/`name` form, and the import skill documents the trap and the
+  `ankra cluster stacks list <stack> -o json` verification.
+
+- **`ankra-alerts-webhooks` rewritten against the real `ankra alerts`
+  surface.** The skill predated the CLI entirely - no commands, just concepts.
+  It now covers destinations (webhook URLs, Slack/Teams bot channels via
+  `destinations channels`, payload templates), routes (kind/severity/cluster
+  filters, include/exclude modes, priorities and `--stop-on-match`),
+  `routes preview` with the `--alert-id` dedup caveat, and the
+  `test`/`test-url` delivery checks that exit non-zero for CI.
+
+- **Gaps filled across the catalogue.** `ankra-helm-registries` gained the
+  registry management surface (`registries create|sync|sync-jobs`, spec-file
+  form, `--exclude-charts`) and chart discovery (`ankra charts
+  list|search|info|values|template`); `ankra-observability` gained the
+  metrics wiring and reading surface (`cluster metrics`, `top`);
+  `ankra-getting-started` gained the organisation playground as the
+  zero-credential first cluster; `ankra-cli` gained the support-request
+  surface and the beta update channel; `ankra-gitops` gained
+  `ankra cluster gitops status` and the create-time `--gitops-repository`
+  wiring. `ankra-gitops` and `ankra-cicd` no longer credit syncing to
+  ArgoCD - deploys roll out via the Ankra engine.
+
+- **The `ankra-cli`, `ankra-sops-secrets`, `ankra-stacks-addons`,
+  `ankra-cicd` and `ankra-platform-principles` skills now match the CLI they
+  describe.** `ankra-cli` documented `ankra org select`, which does not
+  exist - the command is `ankra org switch` - and predated applications,
+  stack profiles, tickets, agents and the exit-code contract.
+  `ankra-sops-secrets` documented `ankra cluster encrypt -f <file>`, which is
+  not the signature: `encrypt` names keys with `--key` and takes cluster mode
+  or file mode, and `encrypt --set` is how a new secret value is changed
+  without committing plaintext first. `ankra-platform-principles` gained the
+  routing map from a request to the right skill.
+
+- **`ankra skills uninstall` with no `--client` now undoes what install
+  did.** It resolves to the assistants that actually carry an Ankra install,
+  rather than defaulting to Cursor, and a full uninstall also removes the
+  workflow commands it wrote.
+
+## v0.13.0-rc4 — 2026-08-25
+
+### Added
+
+- **`ankra tickets` works the AI board from the terminal, and answers the
+  choice a blocked ticket is waiting on.** When an Ankra agent finds more
+  than one way forward it blocks the ticket on a decision, and until now
+  that choice could only be answered on the ticket page. `ankra tickets
+  list` shows the board with a WAITING ON column that tells "your decision"
+  apart from a plain block, a plan awaiting approval and a review; `ankra
+  tickets get T-8` prints the agent's question with every option it offered,
+  its summary, and a `*` on the one the agent recommends; `ankra tickets
+  decide T-8 --option a` records that choice, `--answer "..."` answers with
+  something else in your own words, and both together record the option with
+  your note beside it. The answer lands on the timeline as a `Decision:`
+  comment and the agent resumes from it without re-asking. `events`,
+  `comment` and `transition` complete the lane, every command takes
+  `-o json|yaml`, and a ticket is named by number (`8`, `T-8`) or UUID. An
+  option that was never offered, and a ticket that is not waiting on a
+  decision, are refused before the call is made. Requires cluster#1904 on
+  the platform.
+
+- **`ankra application registry robot` mints, rotates and revokes the push
+  robot for one application.** Applications used to log in to the registry
+  with a robot shared by the whole organisation, and an application
+  publishing to a Harbor you operate got none from Ankra at all - you
+  created one by hand and pasted it into the repository's Actions secrets.
+  `robot ensure` mints the application's own robot and stores its login in
+  the repository, `robot get` shows it, `robot rotate` replaces the secret,
+  and `robot revoke` deletes it, so a leaked secret is rotated for that one
+  application. On a registry you operate, name a credential with project
+  administrator rights as `ankra application registry set
+  --admin-credential <name>` and Ankra mints there too; without it your
+  robots stay yours and untouched. Requires cluster#1868 on the platform.
+
+- **`ankra application registry set` describes a registry whose repository
+  layout is not Ankra's.** A monorepo's images were always addressed as
+  `<project>/<app>/<component>`, so a registry that had been publishing
+  `commerce-images/backend` for months looked unpublished.
+  `--flat-repositories` uses `<project>/<component>` instead, and
+  `--component-repository backend=commerce-backend` names a component's
+  repository outright where the names differ altogether - both are used by
+  publish readiness, the deploy gate and the generated workflows. Requires
+  cluster#1878 and cluster#1884 on the platform.
+
+- **`ankra application credential get|set` re-binds an application to
+  another GitHub credential.** An application created against an App
+  installation that cannot reach its repository had to be deleted and
+  recreated; `ankra application credential set <application-id> --credential
+  <name>` moves it instead, and `get` shows what it is bound to. Requires
+  cluster#1878 on the platform.
+
+- **`ankra cluster domain` reports the domain hostnames are actually
+  published under.** An organisation serving its own domain from a custom
+  DNS zone was still told its cluster domain was the generated
+  `<cluster>.<org>.ankra.cc`. The command now prints a **Public domain**
+  line whenever the resolved domain differs from the generated zone, and
+  says which zone publishes it - the same value `${{ ankra.cluster_domain }}`
+  resolves to. A backend too old to report one prints nothing extra.
+  Requires cluster#1888 on the platform.
+
+## v0.13.0-rc3 — 2026-08-25
+
+### Added
+
+- **`ankra cluster encrypt --key 'glob:<pattern>'` encrypts every key whose
+  name matches - now and on every later platform re-encrypt, including keys
+  added afterwards.** A pattern in `encrypted_paths` used to be escaped into
+  a literal that matched nothing, and a hand-widened `encrypted_regex` in
+  the sealed file was replaced by the platform's next write-back, so a
+  Secret with a growing set of `DB_*` keys needed one `encrypt` per key and
+  a new key committed in plaintext until someone noticed. `--key
+  'glob:stringData.DB_*'` (only `*` is a wildcard; a leading `data.` or
+  `stringData.` is accepted and ignored, as for an exact key) is recorded in
+  `encrypted_paths` as written, which is the form the platform re-expands
+  into the SOPS selector on every push. Exact keys keep their meaning
+  byte-for-byte - a literal key containing a dot or a star is still matched
+  literally; only the `glob:` prefix opts in. A pattern that matches no key
+  fails, the same way a misspelled exact key does. Requires cluster#1867 on
+  the platform. (PLA-798, support #1094)
+
+- **`ankra org custom-dns-zones` serves your own zone from every cluster in
+  the organisation - the ones you have and the ones you create next.**
+  `ankra cluster custom-dns-zones` declared a zone on one named cluster, so a
+  freshly created cluster came up with its ingress hostnames on your own
+  domain dropped silently and its certificates stuck waiting for DNS that
+  nothing was publishing. `ankra org custom-dns-zones add --zone <zone>
+  --credential <name>` declares the zone once for the organisation: Ankra
+  renders and reconciles one isolated external-dns for it on every cluster,
+  each pinned to exactly the zone with its own record ownership, and on
+  every cluster created afterwards without further declaration. `list` shows
+  the organisation's declarations; `remove` withdraws one and tears down
+  only the controllers Ankra rendered - clusters that declared the zone
+  themselves keep theirs, and the zone's records are yours and are left
+  untouched. `ankra cluster custom-dns-zones list` now shows a SOURCE column
+  telling an inherited zone apart from the cluster's own, and a cluster's own
+  declaration of a zone takes precedence over the organisation's on that
+  cluster - the way to serve one zone with a different credential on one
+  cluster. Requires cluster#1852 on the platform.
+
+### Fixed
+
+- **`ankra org domain --help` described the custom-domain lane as it was
+  before cluster#1841.** It still said Ankra confines itself to one
+  `<org_short_id>.<domain>` subzone and pins each cluster's external-dns to
+  that cluster's subzone alone; a registered domain is adopted as the
+  organisation's zone apex and every cluster's external-dns publishes
+  anywhere under it. The help now says so, and points a zone hosted outside
+  Ankra's own DNS account at `ankra org custom-dns-zones` instead.
+
+## v0.13.0-rc2 — 2026-08-24
+
+### Added
+
+- **`ankra cluster custom-dns-zones` serves your own zones from a managed
+  external-dns.** The external-dns Ankra provisions publishes only under the
+  cluster's generated subdomain - its credential is scoped to that zone by the
+  DNS provider - so ingress hostnames on your own zones were dropped silently
+  and the answer was a hand-rolled second external-dns maintained outside the
+  platform. Now `ankra org dns credentials create` stores your webhook
+  credential (into the platform's secret store; no read surface returns it,
+  because the URL embeds the token), and `ankra cluster custom-dns-zones
+  add <cluster> --zone <zone> --credential <name>` has Ankra render and
+  reconcile one isolated controller for that zone, pinned to exactly it with
+  its own record ownership so it can never fight Ankra's controller, yours, or
+  another cluster's. `list` shows what a cluster serves, `remove` withdraws a
+  zone and tears down only the controller Ankra rendered - the zone's records
+  are yours and are left untouched. Re-creating a credential under the same
+  name re-points every binding at once, which is how a rotated token rolls
+  out. (PLA-788)
+
+- **`ankra credentials repositories <id|name>` says which repositories a
+  GitHub credential can actually reach.** `credentials list` prints a REPOS
+  count and nothing anywhere broke it down, so when the count disagreed with
+  reality there was no way to see which repository was missing. That is
+  exactly the state a customer spent a day in: a credential reporting one
+  repository, up, available and freshly synced, while every call against the
+  repository it was bound to answered 404. The new command reads the
+  installation's repositories live from the provider, lists them against the
+  repositories Ankra needs from that credential, and names the ones required
+  but unreachable. Worth knowing why the old number misled: the REPOS count is
+  a cache refreshed by a sweep that only runs while the credential reports
+  healthy, so a credential that breaks stops refreshing the very rows that
+  would show it broke. This command does not read that cache. A listing that
+  could not be read is reported as exactly that, never as an installation that
+  reaches nothing. (PLA-786)
+
+## v0.13.0-rc1 — 2026-08-24
+
+### Added
+
+- **`ankra application env-secrets` sets the environment an application's
+  manifests read.** The keys come from the application's own generated
+  manifests, and until now the only way to answer them was the portal, so a
+  pipeline that could create, build and deploy an application still stopped
+  at the one step that made it run. `list` reports which keys exist and
+  whether each has a value; `set` stores one; `delete` clears it; `apply`
+  seals the stored values into the running deployments and rolls them.
+  Storing is deliberately not applying, and `set` says so. A value only ever
+  travels inbound: no route hands a stored value back, `list` never carries
+  one, and nothing here prints one. Pipe the value or let it prompt rather
+  than passing `--value`, which your shell records in its history. An empty
+  value is refused on every path, so the `--value "$UNSET_VAR"` footgun cannot
+  quietly store a secret the workload will never match, and a key that is not
+  an environment variable name is refused before it reaches a request path.
+- **`ankra application auto-deploy get|set` reads and flips push-to-deploy.**
+  The read carries the newest build the platform observed on the tracked
+  branch alongside the switch, so you can tell auto-deploy that is off from
+  auto-deploy that is on and has had nothing to pick up. `set` requires
+  `--enabled` explicitly: turning unattended deployment on and turning it off
+  are both deliberate acts, and neither is a safe default to infer.
+- **`ankra application settings get|set` reads and sets the organisation's CI
+  runner label.** Generated pipelines used to carry a hardcoded
+  `ubuntu-latest`, so an organisation whose GitHub-hosted runners are refused
+  (Actions billing in arrears, or a spending limit) was handed a pipeline it
+  could not execute. Any member may read it; only an organisation admin may
+  change it. `--clear` returns future generations to the default.
+- **`ankra application demo fix-build` repairs a branch with no demo image.**
+  `demo build` is the check that reports no image exists for a branch, and it
+  was already in the CLI; the remedy for exactly that answer was portal-only,
+  because the endpoint had no bearer twin. It has one now (cluster#1717), so
+  the check and its fix are finally on the same surface. Ankra applies its own
+  deterministic fixes first and, when those cannot produce an image, dispatches
+  a mission agent that investigates the repository and opens a pull request.
+- **`ankra application manifest-addon` completes the add-on publishing lane.**
+  `publish-addon` and `published-addon` already turned an application's
+  manifests into a catalog entry and reported what that produced; there was
+  then no way to inspect, compare, install or withdraw it without the portal.
+  `get`, `diff --to`, `install --cluster-id`, `unpublish` and `delete` close
+  that. `unpublish` and `delete` are not the same act and the prompts say
+  which is which: unpublishing withdraws the catalog entry and leaves what is
+  installed running, while deleting undeploys every installation that came
+  from it.
+- **`ankra cluster playground destroy <cluster_id>` tears the organisation's
+  playground down.** The platform has served the DELETE since playgrounds
+  shipped; only the CLI could not reach it, so `create` and `status` had no
+  matching way out. It is idempotent — an environment already deprovisioning
+  or removed answers its current phase rather than an error. It also has a
+  second job: a live playground publishes a wildcard DNS record in the
+  organisation's zone, that record is reconciled rather than written once,
+  and it is therefore the one blocker of `ankra org domain set` that deleting
+  cannot clear. Destroying the environment is what clears it.
+- **`ankra org ai-environment get|set` reaches the preview settings.** The
+  demo base domain, ingress class, TLS secret and certificate issuer are the
+  fields you script when standing up on-demand environments on your own
+  domain, and until now the CLI wrapped only the organisation's root domain
+  through `ankra org domain`, a different setting on the same screen with a
+  far wider blast radius. Only the flags you pass are written, and passing
+  one with an empty value clears that field alone, so a script can set the
+  base domain without disturbing an issuer somebody else configured. Saving
+  reports back what previews will actually do: where they would be served
+  over plain http, or where their hostnames will not resolve, the response
+  says so rather than succeeding without comment. `ankra org domain --help`
+  now names the preview domain as the separate setting it is and points at
+  this command, which is the confusion that cost a customer a day.
+  (PLA-773)
+
+### Changed
+
+- **`ankra cluster domain <cluster> --remove` now holds.** Removing a
+  cluster's domain and watching it reappear about fifty seconds later, active
+  and under the same label, was the reason the documented root-domain switch
+  could not be completed: every removal was reverted before the next one
+  could be made. The removal is now recorded as a deliberate act, so nothing
+  re-creates the zone — not the external-dns Ankra runs on the cluster, and
+  not the discovery that mints zones for clusters that have none. A read
+  reports `Opted out: yes` for as long as the hold stands, which is what
+  distinguishes a domain that is gone from one that is between passes.
+  `--enable` withdraws the hold and re-creates the zone under the
+  organisation's current root, under exactly the name it had before.
+- **A refused `ankra org domain set` now separates the blockers you can clear
+  from the ones you cannot, and names what to remove instead.** DNS records
+  the platform publishes and re-asserts are listed apart from your own, with
+  the writer named, because telling an admin to `ankra org dns delete` a
+  record the playground provisioner writes back on its next pass is advice
+  that cannot work. Live playground environments are listed outright, with
+  the command that destroys them. The cluster-domain section now also says
+  what those clusters' external-dns will do about the removal, and that a
+  root switch never re-labels a zone — labels come from the cluster id, so
+  `--txt-owner-id` and any GitOps path built from one survive the switch
+  unchanged.
+- **`ankra org domain --help` and `ankra org domain set --help` state what
+  Ankra does to the domain you register.** Ankra creates one subzone,
+  `<org_short_id>.<domain>`, and works only inside it: records already
+  published at the apex or under any other name are never read, written or
+  deleted, by the switch or by anything Ankra runs afterwards. A domain that
+  already serves production hostnames is safe to register on that count, and
+  it is now written down rather than something to infer.
+
+### Fixed
+
+- **`cluster get services` and `cluster get ingresses` print the address the
+  load balancer actually has.** `EXTERNAL-IP` read `spec.externalIP`, a field
+  the Kubernetes Service API does not have (the real ones are
+  `spec.externalIPs` and `status.loadBalancer.ingress`), so the lookup
+  returned nothing and the column rendered `<none>` for every service no
+  matter what the API served. An ingress row hardcoded its `ADDRESS` and
+  `PORTS` cells to empty. Both now follow kubectl's rule, reading
+  `status.loadBalancer.ingress` and falling back to `<pending>` on a
+  LoadBalancer with no address yet. This one cost a customer two wrong turns:
+  reading `<none>` for 31 days, they reported their cloud load balancer as
+  unprovisioned when it was healthy the whole time and only the column was
+  lying. Addresses render in full rather than truncated, because these
+  commands reject `-o wide` and a truncated address would reintroduce the
+  same problem. (PLA-787)
+
+- **Publishing a stack profile draft no longer reports a failure on work
+  that succeeded.** Publishing does its whole job on the request path in one
+  transaction (redact, derive parameters, insert the version, move
+  latest/current), and on a profile of any size that can take longer to
+  answer than the shared client's 30-second response-header deadline. The
+  transport gave up while the platform was still working and the CLI printed
+  `http2: timeout awaiting response headers`, on a publish that then landed.
+  Publishing and instantiating a profile now ride a lane without that
+  deadline, bounded by the overall five-minute timeout instead. If one does
+  still time out, the CLI no longer calls it an error: it says the server may
+  have completed the write, names the command that settles it, and names what
+  a blind retry would do. Publishing a still-open draft twice mints two
+  versions, which is exactly what the old message invited.
+
+- **Every per-application command now accepts the application's name where it
+  takes `<application-id>`.** `application list` prints names, so a name is
+  what a user passes to `application branches`, `application demo list`,
+  `application demo config get` and the rest — and each of those answered a
+  bare `500 Internal Server Error`, because the name travelled to the
+  backend's uuid-typed lookup unchecked. A name is now resolved through the
+  same server-side search the `list` command uses, exactly the way
+  stack-profiles, credentials and clusters already resolve theirs: a uuid
+  passes straight through, an unknown name says to check
+  `ankra application list`, and a name two applications share lists the
+  candidate ids instead of picking one. The lookup walks every page of the
+  listing, so a name still resolves in an organisation with more
+  applications than one page holds, and a lookup that cannot run says so
+  rather than sending the name on to be rejected. An empty argument — an
+  unset variable in a script — is now refused as the usage error it is,
+  instead of searching with no filter at all. A name that matches no
+  application exits 3 (not found), the same code an id that does not exist
+  already produced, and an ambiguous name exits 2. A lookup that cannot be
+  completed — the listing failed, was unreadable, or was too large to read
+  to the end — reports that instead of answering from what it managed to
+  read. (PLA-786)
+
+## v0.13.0-rc0 — 2026-08-22
+
+### Added
+
+- **`ankra org mcp-servers` registers external MCP tool servers agent runs
+  can call — without a credential ever crossing the wire in a form the
+  platform would store.** The group covers the whole lifecycle: `catalog`
+  lists the curated adapters (Sentry, and friends) with the exact credential
+  header form each provider expects; `add` registers a server; `get`, `list`,
+  `update`, `remove`, `enable`, and `disable` manage it; `health` and `tools`
+  probe reachability and the tool inventory; and `grants`/`grant`/
+  `revoke-grant` gate which organisation role may call which tool. The
+  interesting part is `add --secret-header`: the CLI first stores the header
+  value in an organisation secret slot and registers the server with the
+  slot's `${SECRET_SLOT:<id>}` sentinel, because the backend refuses
+  plaintext under sensitive-looking header names — pass
+  `Authorization=<value>` inline, or just `Authorization` to be prompted with
+  hidden input. Pairing `add --adapter <key>` with no `--allowed-tools` seeds
+  the allow-list from the adapter's recommended tools, so the safe default
+  configuration is also the laziest one to type. Servers resolve by name or
+  id everywhere, deletion confirms unless `--yes`, and every read supports
+  `-o json|yaml`.
+- **`ankra cluster logs --previous` reads the log a crash-looping container
+  left behind.** When a container is in CrashLoopBackOff the only output
+  worth reading belongs to the instance that already died, and nothing in
+  the CLI could reach it — the one case where you most want to avoid handing
+  out a kubectl grant was the one case that forced you to. `--previous`
+  (`-p`) asks the platform for that terminated log; because the log is closed
+  it is always a bounded read, so it ends on its own instead of hanging on a
+  stream that can never produce another line. It needs a platform and a
+  cluster agent that carry the parameter; an older agent serves the current
+  container's log instead.
+- **`ankra cluster logs -l <selector>` and `--all-containers`** read more
+  than one container per invocation. A three-replica Deployment used to mean
+  listing pods to learn the hashed names and then three separate commands;
+  now one selector reads them all, and `--all-containers` expands each pod to
+  every container it declares — init and ephemeral containers included, which
+  is where a stuck pod's real error usually is. With more than one target
+  each line is prefixed `[pod]` or `[pod/container]` so the interleaved
+  output stays attributable, and a following read is capped at five
+  concurrent streams rather than silently opening one connection per replica.
+  `logs` also gains `-o json|yaml`, which groups the output per target for a
+  pipeline to parse.
+- **`ankra cluster describe <kind> <name>`** answers "why is this not ready?"
+  in one call. `cluster get` returned lists and manifests, so conditions,
+  per-container state, and the object's events had to be assembled by hand
+  from three commands. `describe` prints the object's conditions, a pod's
+  container statuses with the detail that explains them (CrashLoopBackOff and
+  its exit code, ImagePullBackOff and its registry error, restart counts),
+  and the events whose `involvedObject` is that resource. Kubectl's
+  spellings work — `pod`, `pods`, `po`, `Pod` — and a kind outside the
+  built-in set is reachable with `--group`/`--api-version` (both are
+  required, so a custom resource that does not serve `v1` fails with a clear
+  message rather than an empty read). `-o json|yaml` emits
+  `{object, events}`. Describing a Secret redacts its values to byte counts
+  and lists the keys, like `kubectl describe` does: the point of these
+  commands is to need a kubectl grant less often, not to make reading secret
+  material easier than kubectl makes it. Use `cluster get secrets <name> -o
+  yaml` when you actually want the values.
+- **`ankra cluster events --for <kind>/<name>`** scopes an event listing to a
+  single object's `involvedObject` with a server-side field selector, rather
+  than filtering a namespace-wide list by name. That is the difference
+  between "the pod is Pending" and "no node matches the nodeSelector".
+  `--type Normal|Warning` narrows further, and `-o json|yaml` prints the raw
+  events. `ankra cluster get events` gains the same two flags while keeping
+  its existing output, its `[name]` argument, and its `resource_responses`
+  envelope under `-o json|yaml`, so nothing already scripted against it
+  changes.
+- **`ankra cluster top pods|nodes`** shows live CPU and memory from the
+  Kubernetes metrics API. `cluster metrics` queries Prometheus, which is the
+  right tool for trends but the wrong one for "which container just got
+  OOMKilled" — and it needs Prometheus to have been installed at all.
+  `top` reads metrics-server directly, so it works on any cluster that has
+  one. `top pods` takes `--containers` for a per-container breakdown and
+  `--sort-by cpu|memory`; `top nodes` shows usage against each node's
+  allocatable capacity. A measurement is only meaningful live, so the read
+  bypasses Ankra's resource cache, and an answer that comes back from the
+  cache anyway (an offline cluster) is refused rather than rendered as if it
+  were current.
+- **Profile choices can now be authored from the terminal, and `apply` can
+  show what it would deploy.** `stack-profiles drafts annotate` gains
+  `--default`, `--type`, `--enum` and `--required`, and `--add --enum a,b`
+  declares an input the draft does not have - such as a **Model size** choice
+  that no manifest references - born with its enum values as choices, which
+  is what keeps the platform from dropping it on the next save. The new
+  `stack-profiles drafts options set <draft>
+  --parameter model_size --value 32b --set model_id=Qwen/Qwen3-32B --set
+  max_model_len=28672` adds or updates one choice and the inputs it answers
+  (declaring the input if the draft does not have it yet; `--unset` drops an
+  assignment; `options remove` drops the choice), with the rules
+  publish enforces - no secret targets, no choice driving another choice -
+  refused on the spot. `drafts get` lists each input's choices. And
+  `stack-profiles apply --dry-run` prints every input with the value it
+  would deploy with and where that value comes from (`--set`, `choice
+  model_size=32b`, `default`), names the required inputs still unset, never
+  echoes a secret, and creates nothing - no cluster needed.
+- **`ankra stack-profiles get` shows what each choice of an input sets.** A
+  profile can now offer an input whose choices answer other inputs — a
+  **Model size** of `8b` or `32b` that also moves the model id, the context
+  length and the model-store size. Below the parameters table, `get` prints
+  a `Choices for <input> (--set <input>=<value>)` block per such input,
+  listing every choice, its label and reasoning, and the `sets name=value`
+  lines it applies, so you can read what `--set model_size=32b` will do
+  before you `apply`. The platform resolves the choice server-side, so
+  `apply --set model_size=32b` with no other bindings deploys the whole
+  set; a `--set` of your own on one of those inputs still wins.
+- **`ankra org domain get|set` reads and writes the organisation's own Ankra
+  root domain.** Every Ankra-generated hostname — the organisation's delegated
+  DNS zone, its clusters' domains, and the preview hostnames built from them —
+  nests under a root domain that defaults to `ankra.cc`. Registering your own
+  was portal-only; it is now scriptable against the same backend setting the
+  portal writes (AI > Settings > Workspaces, "Custom Ankra domain").
+  `set --default` returns the organisation to the platform default. When the
+  switch is refused because zones or records still live under the old root,
+  the error lists exactly which cluster domains and which DNS records are
+  blocking it, and the command that removes each.
+- **`ankra org dns zones` lists every cluster domain in the organisation.**
+  The inventory a root-domain switch has to clear: cluster, zone fqdn, and
+  state. Previously the only way to discover a cluster's domain was
+  `ankra cluster domain <cluster>`, which created one where none existed.
+- **`--sort <column>` and `--order asc|desc` on the main list commands**
+  (`cluster list`, `cluster addons list`, `org list`, `credentials list`,
+  `tokens list`) let you order the output by any rendered column — e.g.
+  `ankra cluster list --sort created --order desc` puts the newest clusters
+  first. Sorting happens on the raw values, so timestamp columns order
+  chronologically rather than by their "2 days ago" display text, and the
+  same order applies to `-o json|yaml`. Without `--sort` the server order is
+  unchanged, and an unknown column exits with the usage code and lists the
+  valid ones. (`helm registries list` keeps its existing server-side
+  `--sort-by`/`--sort-order` flags.)
+- **`ankra stack-profiles` now carries the profile's whole life, not just the
+  read half.** The portal could create a profile from a deployed stack, edit
+  its catalogue metadata, snapshot new versions, roll the current-version
+  pointer, diff versions, list the fleet's deployments, share it with other
+  organisations, review community suggestions, run throwaway demos, manage
+  its logo, and delete it — the CLI could only list, get, export, import, and
+  apply. New subcommands close the gap: `create`, `update`, `delete`,
+  `save-version`, `set-current-version`, `version`, `diff`, `deployments`,
+  `share list|add|remove`, `suggestions list|get|approve|reject|withdraw`,
+  `demo list|launch|detail|logs|stop`, and `logo get|set|clear`. The
+  `drafts` family gains `validate`, `rebase`, and `submit-suggestion`.
+  `delete` prompts for confirmation unless `--yes` is passed; every new
+  command supports `-o json|yaml`, and `stack-profile`/`stackprofiles`/
+  `stackprofile` now resolve as aliases of the family.
+- **`ankra application ai-config get|set|clear`** reads, replaces, and resets
+  the per-application AI lane configuration (pull request review, demo URL,
+  and the rest) that the portal's application Settings page manages — `set`
+  takes the JSON document `get -o json` prints, and `clear` returns the
+  application to the organisation's defaults after a confirmation.
+- **`ankra application publish-addon` and `published-addon`** publish the
+  application's generated manifests to the organisation catalogue as a
+  manifest add-on and read the published state back.
+- **`--include-dns` on every `ankra cluster <provider> create`** (UpCloud,
+  DigitalOcean, Hetzner, OVH, Proxmox, Morpheus) completes the create flag
+  trio beside `--external-cloud-provider` and `--include-networking`. The
+  platform gives a new cluster its own subdomain under `ankra.cc` and installs
+  external-dns unless asked not to, and the CLI had no way to ask: every
+  CLI-created cluster took the delegated subzone whether or not it wanted one.
+  It stays on by default, matching the portal wizards and the server, and is
+  independent of the other two — `--include-dns=false` keeps the ingress
+  stack.
+- **`ankra cluster scaleway|proxmox|morpheus bastion`** now exists. The
+  platform mounts the bastion health and diagnose endpoints for all seven
+  providers that carry node groups, but the CLI registered the group on only
+  four, so `ankra cluster proxmox bastion status` did not exist even though
+  the endpoint behind it answered. Each group carries what that provider can
+  actually do: `status` everywhere, `diagnose` on Proxmox and Morpheus, and
+  neither `resize` (the CLI has no bastion instance-type call for these three)
+  nor `diagnose` on Scaleway, whose managed Public Gateway is probed by the
+  health loop but has no SSH job lane.
+- **`ankra cluster upcloud create --cni`** selects the container network
+  interface for k3s clusters (`flannel`, `calico`, or `cilium`; the platform
+  default applies when omitted), closing a gap where the CNI was only
+  choosable from the portal wizard and the API.
+
+### Fixed
+
+- **`ankra cluster domain <cluster>` no longer creates a DNS zone when you
+  are only looking.** The command's help called it an idempotent lookup, but
+  it was backed by a POST: checking a cluster's domain enabled one on a
+  cluster that did not have it — and every zone under the old root blocks an
+  organisation root-domain switch, so the read-looking command added blockers
+  to the very migration an operator was trying to run. The plain command is
+  now a read (a cluster without a zone reports state `none`), and creating a
+  zone is the explicit `--enable`. Scripts that relied on the bare command to
+  enable a domain must add `--enable`.
+- **`ankra cluster apply` no longer drops a manifest's or addon's `group`
+  label.** The platform's IaC export writes an organizational `group` on
+  manifests and addons, but `apply` never read the key and the request it
+  built had nowhere to put it. Applying an exported ImportCluster therefore
+  flattened every group in the stack — silently, with `apply` and `validate`
+  both reporting success, and permanently, because apply also prunes what the
+  file no longer declares. Groups now survive the clone-edit-apply round trip,
+  and a `group:` that is not a quoted string is rejected instead of quietly
+  becoming no group at all.
+
+- **`ankra cluster upcloud create` no longer pins a network range that the
+  platform refuses.** `--network-ip-range` defaulted to the literal
+  `10.0.0.0/16` and the CLI always sent it, so on any UpCloud account that
+  already holds a `10.0.x` private network the create came back
+  `400 ... Network address 10.0.0.0/16 overlaps with an existing private
+  network`. The guide's terminal equivalent of the create wizard broke exactly
+  as printed. The flag now defaults to unset and an unset range is left out of
+  the request, so Ankra derives a range that is free in the account — what the
+  API, AI and portal lanes already do. Pass `--network-ip-range` only to pin a
+  specific range.
+
+- **`ankra cluster apply` no longer drops an addon's values or a stack's
+  variables on the way to the platform.** Two keys of the ImportCluster
+  dialect were never read: `configuration.values_base64` on an addon, and the
+  stack-level `variables` map. Both are what the platform's own IaC export
+  emits, so applying an exported file — the ordinary clone-edit-apply loop —
+  installed every addon with chart defaults and left the stack with no
+  variables at all, while `apply` and `validate` both reported success. The
+  add-ons then ran unconfigured and the manifests reached the cluster with
+  `${VAR}` still in them, failing typed fields outright. Apply now sends both,
+  and a `configuration:` block it cannot turn into values is an error naming
+  what it did find, rather than a silent fall back to chart defaults — both
+  when the block uses a key this CLI does not read and when it gives a key
+  the CLI does read the wrong type, such as a nested map where
+  `values_base64` takes a string. A key it cannot read sitting *beside* one it
+  can is a warning on stderr naming the ignored key rather than an error, so a
+  file from a newer Ankra still applies.
+  Because apply also prunes what the file does not declare, a config-only
+  apply used to mis-configure and wipe in the same run.
+
+- **`ankra cluster apply` can now read a manifest's `manifest_base64`, so an
+  exported ImportCluster applies as exported.** The platform's IaC export
+  writes a stack's manifests as `manifest_base64`, but apply only ever read
+  the inline `manifest` or a `from_file` path and rejected anything else with
+  "a manifest must set either 'manifest' (inline YAML) or 'from_file'" — so
+  the ordinary clone-edit-apply loop failed on every exported file until each
+  manifest was hand-decoded back into YAML. Unlike the addon values drop above
+  this at least failed loudly, and nothing was ever mis-deployed. Apply now
+  accepts the encoded form and passes the same string through to the platform,
+  refusing content that is not base64 or does not decode to valid YAML.
+  `manifest` and `from_file` keep precedence where a file sets more than one.
+
+- **`ankra cluster logs --follow=false` now asks the platform for a bounded
+  read instead of guessing when the backlog ended.** The route only ever
+  followed, so the CLI had to infer the end of the tail from a two-second gap
+  with no new line — which cost every scripted `--follow=false` run those two
+  seconds, and cut the tail short whenever a busy pod happened to pause.
+  The request now carries `follow=false`: the cluster snapshots the selected
+  tail and closes the stream itself, and the CLI exits on that. Against a
+  platform that predates the parameter nothing changes — the old idle-gap
+  drain still ends the read. The stream's terminating frames ("stream
+  complete", "stream idle timeout") also stop being printed as though they
+  were log lines, in both follow and non-follow mode.
+
+- **`ankra application add` no longer inspects the wrong repository when it is
+  run from inside a Git hook.** `git commit` exports `GIT_DIR`,
+  `GIT_INDEX_FILE` and friends into every hook it runs, and those variables
+  outrank the directory the CLI addresses, so the command run from a
+  pre-commit hook — or from `git rebase --exec`, or a CI step wrapped in one —
+  read the hook's repository instead of the path it was given: the wrong
+  owner/name, the wrong branch, and no error for a path that is not in a
+  repository at all. Git invocations now drop the inherited
+  repository-binding variables while keeping the user's SSH, credential and
+  proxy settings.
+
+### Changed
+
+- **`ankra cluster <provider> bastion resize` no longer claims the node is
+  resized before the cloud has touched it.** The command reported
+  "resized to '<type>'" as soon as the platform had recorded the new instance
+  type, while the provider's update job — the power-off, the resize, the
+  power-on — had not started. The platform now hands back the operation
+  carrying that job, so the confirmation says the instance type was *set*,
+  names the operation, warns that SSH and NAT drop while the node cycles, and
+  points at `ankra cluster operations list <operation_id>` for the part that is
+  still running. A write that scheduled no cloud work (a stopped cluster, whose
+  new type applies on start, or a resize already in flight) says so instead of
+  printing an id there is nothing to poll for. `-o json|yaml` gains the
+  matching `operation_id` field.
+
+## v0.12.0 — 2026-08-18
+
+Closes the loop on node-group cloud-init. A node group could already carry a
+user-data document, but only over the raw API, and nothing could show what it
+did on first boot; `--user-data-file` attaches the document and
+`nodes cloud-init-log` reads the output back, so a provisioning script is no
+longer debugged blind. Also makes `cluster reconcile` report the operations it
+triggered instead of printing an empty success line on every cluster kind.
+
+### Added
+
+- **`ankra cluster <provider> nodes cloud-init-log` reads a node's first-boot
+  output.** Node groups can carry a cloud-init user-data document, but its
+  execution was invisible: there was no node-log surface, and the bastion SSH
+  key belongs to the platform, so a failed provisioning script could only be
+  inferred from symptoms. The new subcommand fetches `cloud-init status` and
+  the tail of `/var/log/cloud-init-output.log` over the platform's bastion
+  lane as a tracked read-only operation, for Hetzner, OVH, UpCloud,
+  DigitalOcean, and Scaleway clusters.
+
+- **`ankra cluster node-group add --user-data-file` attaches a cloud-init
+  document to a new node group.** The platform applies it verbatim at first
+  boot on every instance the group ever creates, replacements included (OVH
+  clusters only). A file flag rather than a string flag, because the document
+  is multi-KB YAML; documents over the platform's 65535-byte cap are refused
+  before the request is sent.
+
+- **`ankra cluster <provider> bastion status` and `bastion diagnose`.** The
+  bastion is the one host the cluster agent sits behind, so when it goes down
+  the agent goes quiet with it and the CLI had nothing to say about why —
+  the platform's own verdict and its SSH diagnosis were reachable only from
+  the assistant. `bastion status` prints the recorded verdict (reachable or
+  not, which hop a failed probe stopped at, how many probes have failed in a
+  row, and when it was last checked) without touching the host, so it answers
+  even while the bastion is unreachable. `bastion diagnose` dispatches the
+  provider's read-only diagnose job — sshd configuration, failed-login volume,
+  disk, failed units, journal errors, listening ports, pending security
+  updates — and blocks for its report, handing back an operation id to poll
+  with `cluster operations list` if the job outruns the platform's two-minute
+  wait. Both accept `-o json|yaml`. Providers whose gateway carries no
+  diagnose job say so in `status` rather than offering a command that would
+  only refuse.
+
+- **`ankra demo deploy` selects and tunes individual components.** A monorepo
+  demo is deployed as one pod per component, but the CLI was still
+  single-workload: one global `--image-tag` and `--container-port` for the
+  whole demo, and `demo list`/`demo detail` printed the raw JSON document the
+  components were buried in. `--component NAME` (repeatable) narrows a launch
+  to the components you name, `--component-tag`, `--component-port` and
+  `--component-path` tune one component each, and `--entry-component` names
+  the component that owns the demo host's root path instead of leaving it to
+  the backend's heuristic. Omitting them all still deploys every recorded
+  component, and the demo output now reports components rather than raw JSON.
+
+### Fixed
+
+- **`ankra cluster reconcile` now reports what actually happened.** It parsed
+  a response shape the API never returns and printed an empty
+  "Reconciliation request completed:" with exit 0 on every cluster kind,
+  which read as "reconcile does not work for this cluster". It now reports
+  "Reconciliation triggered: N operation(s) created", or the explicit zero
+  case when stored state is already in sync.
+
+- **`ankra application add` declares the image registry at create time.** The
+  registry an application publishes to could only be declared after it
+  existed, with `application registry set` — but the setup job generates the
+  build workflow from the declaration the application is *created* with, so
+  an application onboarded from the CLI got a workflow that logs in to the
+  organisation's own Ankra registry and had to be regenerated by hand.
+  `--registry-url` (with `--registry-credential`, `--registry-api-url`,
+  `--registry-pull-secret`, `--registry-username-secret`,
+  `--registry-password-secret` and `--registry-manage-actions-secrets`,
+  mirroring `application registry set`) declares it up front, and the created
+  application reports the registry it landed on. Without `--registry-url` the
+  application still publishes to the organisation's Ankra registry project,
+  exactly as before; the other registry flags need it and are refused on
+  their own.
+
+- **`ankra cluster validate --cluster` accepts a name again.** It sent the
+  name verbatim as the `cluster_id` query parameter and the API rejected it
+  with a 422 `uuid_parsing` error, while every other cluster command takes a
+  name or an ID. It now resolves names through the clusters list; a 36-char
+  UUID still passes through untouched.
+
+## v0.11.0 — 2026-08-18
+
+Promotes v0.11.0-rc1 through rc4 — stack profiles addressable by name,
+organisation DNS records, application registry declaration, managed-cluster
+discover and import, and the cluster domain command — and adds everything
+since: a non-following logs mode, per-step operation results, alerting as
+code, stack-profile drafts, and forced reclaim of leaked cloud resources.
+
+### Added
+
+- **`ankra cluster logs --follow=false` prints the backlog and exits.** The
+  logs command always followed, so piping it into `grep` or a script hung
+  until you killed it. `--follow` (`-f`) now defaults to true, keeping the
+  familiar `kubectl logs -f` behaviour, and `--follow=false` returns as soon
+  as the current backlog has drained.
+- **`ankra cluster operations steps --results` shows what each step actually
+  did.** The steps table only ever carried a status and an error excerpt; the
+  scheduler's per-step result payload - the resources a teardown deleted,
+  skipped, or failed to reclaim, or the full error body behind a truncated
+  excerpt - was recorded by the platform but reachable only through the API.
+  `--results` fetches it and prints each step's result under the table, and
+  `-o json|yaml` gains a `step_results` list in step order so scripts can join
+  it without a second call. Steps that never finished are listed as having no
+  result rather than silently omitted.
+- **`ankra alerts destinations` and `ankra alerts routes` bring alerting as
+  code to the terminal.** Where alerts go and which notifications reach them
+  was portal-only until now. `destinations list|get|create|update|delete`
+  manage the webhook and chat-channel receivers (Slack, Microsoft Teams,
+  Discord, PagerDuty, or any custom URL; channel-based Slack and Teams
+  destinations take `--channel-id`, and `destinations channels` lists the
+  channels the Ankra bot can post to), `destinations test` and `test-url`
+  fire a sample notification and exit non-zero when the receiver rejects it,
+  and `routes list|create|update|delete|test` decide which notifications
+  reach which destination by kind, severity, cluster, and source, in priority
+  order with include/exclude modes. Updates send only the flags you pass, so
+  the rest of a destination or route stays untouched. Everything uses the
+  same personal access token as the rest of the CLI and honours `-o json` and
+  `-o yaml`, so the whole alerting setup can be scripted, diffed, and applied
+  from CI alongside your clusters.
+- **`ankra stack-profiles drafts` edits and publishes profile versions from
+  the terminal.** Open a draft on an existing profile (or seed one from a
+  deployed stack), see every parameter with `get`, and give each one the
+  guidance the launch form shows under its field with
+  `annotate --parameter <name> --description "..."` — this is how a profile
+  author instructs the person filling in variables and secrets. `publish`
+  cuts the version, `list` and `delete` manage open drafts. Drafts were
+  browser-and-MCP-only until now; the platform gained bearer-token twins for
+  the whole draft family in the same change.
+- **`--force` on cloud cluster deprovision and stop now reclaims leaked cloud
+  resources, on every provider that leaks them.** `ankra cluster deprovision
+  --force` and the provider `stop|deprovision --force` commands (UpCloud,
+  Hetzner, OVH, DigitalOcean, plus Scaleway stop) also delete the cluster's
+  CSI-provisioned storage volumes and load balancers, which these providers
+  never reclaim on their own and which keep billing after a plain stop or
+  terminate. The backend deletes exactly the volumes recorded for the
+  cluster - never another cluster's disks. Without `--force`, behaviour is
+  unchanged, with one exception: a plain Hetzner stop or deprovision now
+  keeps the cluster's volumes (previously it always deleted them, so a
+  stopped Hetzner cluster restarted with empty storage); pass `--force` to
+  get the old reclaim-everything behaviour.
+- **`ankra application demo` speaks multi-component.** A monorepo demo runs
+  every component as its own pod, and the CLI could neither steer that nor
+  show it. `demo deploy` gains `--component` (repeatable) to narrow a launch
+  to the components you name, `--component-tag`, `--component-port` and
+  `--component-path` to tune one component each as `NAME=VALUE`, and
+  `--entry-component` to say which one owns the demo host's root path
+  instead of leaving it to the entry heuristic. Because the selection and
+  the overrides ride the same request field, an override may only name a
+  component `--component` selects, and the CLI says so rather than letting
+  the launch silently narrow to that one component. `demo list` and
+  `demo detail` now print a summary — every demo's components, which one is
+  the entry, and each component's port, ingress path, image tag and pod —
+  instead of a raw JSON document; `-o json` and `-o yaml` still emit the
+  untouched payload, including the resource inventory and events the
+  summary leaves out. `demo logs` gains `--component` to read the pod
+  belonging to one component of a multi-component demo (and `--pod` to name
+  one directly), so reading the API's logs no longer means finding its pod
+  by hand.
+
+### Fixed
+
+- **`ankra application demo logs --tail` is no longer ignored.** The flag
+  was sent as `tail`, but the endpoint reads `tail_lines`, so every demo log
+  fetch silently returned the backend's default tail no matter what you
+  asked for.
+
+## v0.11.0-rc4 — 2026-08-17
+
+Release candidate, superseding v0.11.0-rc3. Install it with `ankra config
+beta enable && ankra upgrade`, or download a binary from the release page;
+`ankra config beta disable` returns you to the stable channel.
+
+### Added
+
+- **`ankra cluster managed discover` and `ankra cluster managed import` adopt
+  clusters that already run at the provider.** Discovery lists every managed
+  Kubernetes cluster a credential can see (DOKS, UKS, GKE, OVH MKS, AKS, EKS,
+  Kapsule) with its provider cluster id, location, version, status, node
+  count, and whether it is already imported. Import adopts one by provider
+  cluster id: the backend fetches the kubeconfig through the provider API and
+  installs the agent automatically, so there is nothing to run against the
+  cluster. Both were portal-and-API-only until now.
+- **`ankra cluster domain` shows the cluster's generated public domain,
+  enabling it if needed.** The call is idempotent, so it doubles as a lookup:
+  a cluster that already has its ankra.cc zone reports the existing domain, a
+  cluster without one gets the zone queued and reports it as `pending` until
+  it publishes. Previously the day-2 opt-in was a raw API call.
+
+## v0.11.0-rc3 — 2026-08-16
+
+Release candidate, superseding v0.11.0-rc2 — rc2 predates `ankra org dns`
+entirely. Install it with `ankra config beta enable && ankra upgrade`, or
+download a binary from the release page; `ankra config beta disable` returns
+you to the stable channel.
+
+### Added
+
+- **`ankra org dns` manages records in the organisation's own delegated
+  zone.** Every organisation gets a zone of its own (`ankra org dns zone`), and
+  until now the only way to point a memorable name at an add-on's generated
+  hostname was the API. `list` shows every record with its reconciliation
+  state, `add <name> <type> <content>` creates a CNAME, A, or TXT record under
+  the zone — the zone fqdn is appended for you — `update` re-points one at a
+  new target, and `delete` removes it. Records reconcile asynchronously, so a
+  new or edited record reads `pending` until it is published to the
+  authoritative nameservers and then turns `active`; a record that could not
+  be published reports why in the `ERROR` column rather than sitting silently
+  wrong.
+
+- **`ankra application registry` points an existing application at a container
+  registry you operate.** An application publishes into the organisation's own
+  Ankra registry project unless it declares otherwise, and that declaration
+  could previously only be made when the application was created — so an
+  organisation whose builds push to their own Harbor had no way to correct an
+  already-onboarded application, and Ankra kept reporting its images as never
+  published. `registry get` shows the effective registry, the host and project
+  it resolves to, and the image repository each component is expected to
+  publish to, so you can compare them against where your builds actually push.
+  `registry set --url oci://<host>/<project> --credential <name>` declares one;
+  `registry clear` returns the application to the organisation's own registry.
+  Setting a registry without `--credential` is allowed but warns, because
+  without a credential Ankra can describe where the images live and neither
+  read nor pull them.
+
+### Fixed
+
+- **`ankra org dns --ttl` no longer offers a range the nameservers will not
+  serve.** The help advertised `30..604800`, but a record's ttl is capped at
+  one day upstream, and anything longer used to be quietly reduced to that —
+  so a record you set to a week reported a week back to you while resolvers
+  were told one day. The accepted range is now `30..86400` in both the help
+  and the platform, and a longer value is refused outright instead of being
+  silently rewritten.
+
+## v0.11.0-rc2 — 2026-08-16
+
+Release candidate, superseding v0.11.0-rc1 — **do not use rc1**, the headline
+change in it did not work.
+
+### Fixed
+
+- **Profile-name resolution actually resolves now.** The lookup asked the
+  profiles endpoint for a page of 200, but it caps `page_size` at 100 and
+  rejects anything larger. Because the lookup falls back to the reference you
+  typed whenever listing fails — so that a working profile id never breaks on
+  account of an unrelated endpoint — every name silently fell through to the
+  API and produced exactly the `uuid_parsing` error the feature exists to
+  remove. `ankra stack-profiles get llm-d` works in rc2; in rc1 it still
+  failed.
+
+## v0.11.0-rc1 — 2026-08-16
+
+Release candidate. Install it with `ankra config beta enable && ankra upgrade`,
+or download a binary from the release page; `ankra config beta disable` returns
+you to the stable channel.
+
+### Fixed
+
+- **`ankra stack-profiles get`, `export-iac` and `apply` accept a profile
+  name.** `stack-profiles list` prints a NAME column, so a name is the obvious
+  thing to pass to the next command — but doing so leaked the API's raw
+  validation dump (`uuid_parsing`, `expected an optional prefix of urn:uuid:`),
+  which says nothing about what to do instead. The commands now resolve a name
+  to its id, report an unknown name by pointing at `stack-profiles list`, and
+  list the candidates when a name is ambiguous. A profile id is still used
+  directly and costs no extra lookup, and if the profile listing is
+  unavailable the reference is passed through unchanged so a working id never
+  fails on account of it.
+
+- **`--version` accepts the `v1` form the CLI itself prints.** Every Ankra
+  surface labels profile versions `v1` — the LATEST column in
+  `stack-profiles list`, and "Latest version: v1" in `stack-profiles get` —
+  but the flag was an integer, so copying that value back gave
+  `strconv.ParseInt: parsing "v1": invalid syntax`. Both `1` and `v1` now
+  work, and anything unparseable fails with a message naming the accepted
+  forms. Omitting the flag still means "the profile's current version".
+
+### Security
+
+- **The binaries are built with Go 1.26.6.** The toolchain was pinned to Go
+  1.26.5, against which `govulncheck` reports four reachable standard-library
+  vulnerabilities — including `encoding/asn1` recursion depth (GO-2026-5972)
+  and Punycode label handling in `net/http` (GO-2026-5026) — all of them
+  reachable from the CLI's own HTTP client and login paths, and all fixed in
+  Go 1.26.6.
+
+## v0.10.1 — 2026-08-13
+
+### Fixed
+
+- **The OVH availability-zone flags render their type in `--help` again.**
+  Cobra takes the first backquoted text in a flag's usage string as the
+  value placeholder, so the pointer to the discovery command turned into the
+  placeholder itself and `--availability-zones` displayed as
+  `--availability-zones ankra cluster ovh regions --with-zones` instead of
+  `--availability-zones strings`. The flags themselves were never affected.
+
+## v0.10.0 — 2026-08-13
+
+Promotes v0.10.0-rc1 and rc2, and adds everything since: OVH availability
+zones, a playground cluster per organisation, demo inspection and repair,
+power schedules, GitOps repointing, and OpenRouter key management.
+
+### Added
+
+- **OVH availability zones.** An OVH cluster in a 3-AZ region such as
+  `EU-WEST-PAR` or `EU-SOUTH-MIL` used to put every node, control plane
+  included, in whichever single zone OVH picked. `ankra cluster ovh create`
+  now takes `--availability-zones eu-west-par-a,eu-west-par-b,eu-west-par-c`
+  to spread a cluster (control planes and etcd per role, workers per node
+  group), and `node-group add` takes `--availability-zone` to pin one group
+  to a single zone, which is what a workload on zonal storage needs. Zone
+  names are region-scoped, so `ankra cluster ovh regions --with-zones` lists
+  each region's type and its zones rather than leaving you to guess the
+  spelling. Spreading requires at least 3 control planes, since fewer cannot
+  hold etcd quorum through the loss of a zone.
+- **`ankra cluster playground` creates a throwaway cluster for an
+  organisation**, for trying the platform out without provisioning
+  infrastructure of your own.
+- **Demo inspection and repair.** `ankra application demo` gains detail,
+  logs, config and fix subcommands, so a demo that will not come up can be
+  diagnosed and corrected from the terminal.
+- **`ankra cluster power-schedules`** manages scheduled stop and start for a
+  cluster, so non-production estate can be parked outside working hours.
+- **`--allow-repoint` on cluster apply** permits changing a cluster's GitOps
+  source deliberately, instead of the change being refused or applied by
+  accident. Repointing prunes what the new source does not define, so it
+  stays opt-in.
+- **`ankra ai openrouter set-key` / `remove-key`** manage the OpenRouter API
+  key without going through the browser.
+
+### Fixed
+
+- **`ankra cluster apply` no longer implies it waited for the deploys.** It
+  reported success once the definition was accepted, which read as "the
+  workloads are up" when they had not started rolling out yet.
+- **An add-on's configuration block survives an upgrade.** Upgrading a chart
+  version dropped the configuration attached to the add-on.
+
+## v0.10.0-rc2 — 2026-08-11
+
+Second release candidate for v0.10.0. Two new command families: GitOps
+source visibility (`cluster gitops status`) and chart introspection
+(`charts template` and `charts values`), rendering a chart's manifests and
+default values server-side from the same package Ankra deploys.
+
+### Added
+
+- **`ankra cluster gitops status` shows which GitOps repository a cluster
+  actually syncs from.** Previously this was only visible in the browser: the
+  new command prints the repository (owner/name and web URL), branch, stored
+  Git credential, and provider, plus the last synced commit and time, the
+  sync status and phase, and any pending commit or sync error. Supports
+  `-o json|yaml` for scripting.
+- **`ankra charts template` renders a chart's manifests without deploying
+  anything.** The `helm template` equivalent for the Ankra catalog: the
+  chart version is rendered server-side (no cluster connection) and printed
+  to stdout as a `---`-separated multi-doc YAML stream with a `# Source:`
+  header per document, ready to pipe into `kubectl diff` or kubeconform.
+  `-f values.yaml` overrides the chart's defaults, `--release-name` and
+  `--namespace` control the render context, and values problems (bad YAML,
+  schema violations, template errors) fail with the exact Helm error a
+  deploy would have produced — so broken values are caught before they
+  reach a cluster. Chart NOTES.txt output goes to stderr, keeping stdout
+  parseable.
+- **`ankra charts values` prints a chart version's default values.** The
+  `helm show values` equivalent: the decoded YAML lands on stdout, ready to
+  redirect to a file, edit, and feed back to `ankra charts template -f`
+  (`-o raw` prints the base64-encoded form). For both new commands the
+  repository is resolved automatically when the chart name is unambiguous;
+  `--repository` pins it.
+
+## v0.10.0-rc1 — 2026-08-11
+
+First release candidate for v0.10.0. Multi-key and whole-Secret encryption
+for `cluster encrypt`, complete paginated listings (`--all`, no more silent
+truncation), a dedicated StorageClass listing, and structured-output
+consistency fixes.
+
+### Added
+
+- **`ankra cluster encrypt` can encrypt several keys in one run.** `--key`
+  is now repeatable on both `encrypt manifest` and `encrypt addon`, in file
+  mode and cluster mode alike, so encrypting a Secret with a dozen entries
+  no longer takes a dozen invocations: all keys go through a single SOPS
+  pass and a single write (one commit in cluster mode), every key is
+  verified to be real ENC[...] ciphertext, and each one is recorded in
+  `encrypted_paths`. `encrypt manifest` additionally gains `--all-data`,
+  which selects every key under a Secret's `data` and `stringData`
+  automatically - values that are already encrypted are skipped with a
+  notice, and pointing it at anything other than a Secret fails naming the
+  actual kind.
+- **`ankra helm registries list --all` fetches every page.** The listing is
+  paginated server-side (20 per page), and the CLI only ever showed the
+  requested page — an organisation with 121 registries saw 20 rows with no
+  sign that more existed. `--all` walks every page client-side and prints
+  the complete set (mutually exclusive with `--page`).
+- **`ankra helm registries get` can page through a registry's charts.** The
+  chart listing attached to a registry only ever returned the first page;
+  the new `--page`/`--page-size` flags select which chart page the response
+  (and the `Charts: N (showing M on this page)` footer) reflects.
+- **`ankra cluster get storageclasses` lists StorageClasses directly.**
+  StorageClass was previously only reachable through `cluster get resources
+  StorageClass --group storage.k8s.io`, and nothing told you the `--group`
+  value it needed.
+
+### Fixed
+
+- **`ankra cluster manifests list` no longer silently truncates.** The
+  client decoded the response's pagination envelope but never sent paging
+  parameters, so clusters with more manifests than the backend's first page
+  quietly lost the rest. The listing now walks every page.
+- **`ankra cluster get <kind> -o json` stays parseable when nothing is
+  found.** An empty listing printed `No <kind> found.` to stdout even in
+  JSON/YAML mode, breaking `jq` pipelines; empty results now render as the
+  structured envelope, and the human message is table-mode only.
+- **`ankra cluster get pods -o json` emits one consistent shape.** Clusters
+  that fit in one page got the full response envelope while clusters over
+  100 pods got a bare pod array, so scripts saw a different document
+  depending on cluster size. JSON output is now always the envelope, with
+  every page's pods merged and the pagination describing the merged result.
+- **`ankra cluster get resources <Kind>` now explains `--group`.** When a
+  lookup finds nothing, the kind is outside the core API group, and
+  `--group` was left unset, the empty message adds a hint naming the flag
+  (e.g. `--group storage.k8s.io` for StorageClass), instead of an
+  indistinguishable `No StorageClass found.`
+- **Structured chart and registry listings carry complete metadata.**
+  `ankra charts list -o json` pagination now includes `total_count`, and
+  `ankra helm registries list -o json` rows now include the `kind` field
+  the table always showed.
+
+## v0.9.1 — 2026-08-10
+
+A patch release. `ankra helm registries create` gains YAML spec support and
+flag-based creation with a client-side URL scheme guard (closing the path to
+the API's bare 500 on malformed specs), the never-functional MFA and
+organisation RBAC command families are removed in favour of a browser
+hand-off, and the AI model help examples name the current Expert model.
+
+### Added
+
+- **`ankra helm registries create` accepts YAML spec files and pure flag
+  invocations.** `-f` now sniffs the file content, so the same command
+  takes a JSON or a YAML spec, and a registry can be created without a
+  file at all: `--name` plus `--url` (with optional `--credential-name`
+  and repeatable `--exclude-charts`) build the spec for you. Exactly one
+  of `-f` or `--name`/`--url` must be given. Flat specs with a URL scheme
+  other than `oci://`, `http://`, or `https://` are rejected client-side
+  as a usage error instead of being posted as an HTTP registry (the API
+  answers such specs with an unhelpful 500), and a successful create now
+  prints a reminder that `ankra helm registries sync <name>` triggers
+  indexing immediately.
+
+### Added
+
+- **`ankra ai openrouter set|remove` makes OpenRouter bring-your-own-key
+  scriptable.** `set` stores the organisation's OpenRouter API key — pass it
+  with `--api-key`, pipe it on stdin, or omit both and a masked interactive
+  prompt asks for it; the key itself is never echoed. `remove` deletes the
+  stored key (confirming first, `--yes` to skip) and, when OpenRouter was
+  the active provider, the organisation falls back to the Ankra-managed
+  default. `ankra ai provider openrouter` activates a stored key and
+  `ankra ai status` now shows the OpenRouter block alongside Anthropic and
+  the legacy OpenAI-compatible endpoint.
+
+### Removed
+
+- **The MFA management and organisation RBAC commands are gone — none of
+  them ever worked.** Every `ankra profile auth` API command (`status`,
+  `totp start/confirm/remove`, `recovery-codes regenerate`, `passkeys
+  list/remove`) and the whole `ankra org cluster-groups` /
+  `ankra org assign` / `ankra org assignments` / `ankra org unassign` /
+  `ankra org roles create` family called `/api/v1` routes the backend only
+  serves to browser sessions, so every invocation since their introduction
+  in v0.6.0 has failed with an API error. Two-factor settings and passkeys
+  are browser flows by design (passkey enrollment needs a WebAuthn ceremony
+  a terminal cannot run), so the CLI now ships a single `ankra profile auth
+  open` command that opens Profile Authentication in the browser.
+  `ankra profile auth passkeys open` still works as a deprecated alias and
+  will be removed in v0.10.0. `ankra org roles` (listing the assignable
+  roles) and all other `ankra org` commands are unaffected.
+
+### Fixed
+
+- **`ankra ai models create|update` help now names the current Expert
+  model.** The `--model-id` examples still said `claude-opus-4-8` after the
+  platform's Expert tier moved to Claude Opus 5, so the help text suggested
+  a superseded model id. Because the hosted CLI reference is regenerated
+  from this help text on every release, the stale example also kept
+  reverting the corrected model id in `reference/cli/ai.mdx`.
+
+## v0.9.0 — 2026-08-07
+
+The stable v0.9.0 release promotes the v0.9.0 release candidates out of
+prerelease. It adds two self-managed cluster families (Proxmox VE and HPE
+Morpheus), brings the managed Kubernetes family to parity, gives every
+provisioned provider per-node restart and bastion resize, introduces the
+`agents` and `application` command families, lets agent-mode chat writes be
+confirmed from the terminal, and fixes a long list of commands that were
+decoding response shapes the API never sent.
+
+### Added
+
+- **Proxmox VE clusters are managed from the CLI.** The new `ankra cluster
+  proxmox` family covers create, deprovision, stop/start, worker and
+  node-group scaling, labels and taints, autoscaling, control-plane changes,
+  node inspection and restart, SSH keys, Kubernetes upgrades, and discovery of Proxmox
+  nodes, storages, bridges, and templates, plus `ankra credentials proxmox`
+  for credential management.
+
+- **HPE Morpheus clusters are managed from the CLI.** The new `ankra
+  cluster morpheus` family mirrors the Proxmox surface (node restart excepted — the
+  platform has no Morpheus restart lane) — full lifecycle,
+  node groups, control plane, SSH keys, and upgrades — plus discovery of
+  Morpheus groups, clouds, plans, layouts, and networks, and `ankra
+  credentials morpheus` for credential management.
+
+- **The managed Kubernetes family reaches parity.** `ankra cluster managed
+  stop|start` drives provider-native stop/start where the provider supports
+  it (AKS today), the new `ankra cluster managed node-pool update` command
+  changes node counts and autoscaling settings in place, node pools take
+  autoscaling bounds at create and add (`--autoscaling`,
+  `--autoscaling-min`, `--autoscaling-max`), and Scaleway Kapsule joins the
+  provider list (`--provider kapsule`, with `--private-network-id`).
+
+- **Hetzner clusters can be stopped and started.** `ankra cluster hetzner
+  stop <cluster_id>` releases the cluster's compute while preserving its
+  saved topology, and `ankra cluster hetzner start <cluster_id>` re-provisions
+  it (optionally `--scope control_plane`), matching the other self-managed
+  providers.
+
+- **Scaleway clusters now support lifecycle commands.** Use
+  `ankra cluster scaleway stop <cluster_id>` to release compute while
+  preserving the cluster definition, then `ankra cluster scaleway start
+  <cluster_id>` to re-provision it (optionally `--scope control_plane`).
+
+- **Scaleway clusters now have the same `nodes` commands as every other
+  Ankra-provisioned provider.** `ankra cluster scaleway nodes list`, `nodes
+  get`, and `nodes restart` were the only provider node surface missing from
+  the CLI, even though the platform has served the Scaleway node routes and
+  the `scaleway_restart_server` restart lane all along — so a Scaleway node
+  could be restarted from the portal or the AI chat, but not from the
+  terminal. `nodes restart` schedules a native reboot (falling back to a
+  power cycle) as a tracked operation for any node the cluster reports,
+  including the bastion/gateway. HPE Morpheus still has no `nodes restart`,
+  matching the platform, which has no Morpheus restart lane.
+
+- **`ankra cluster <provider> nodes restart` restarts a single node.** For
+  Hetzner, OVH, UpCloud, and DigitalOcean clusters you can now restart any
+  provisioned node - a control plane node, a worker, or the bastion/gateway -
+  as a tracked operation. The platform schedules a native reboot (falling
+  back to a power cycle); the node must be in the `up` state with no restart
+  already in flight. Find the node ID with `nodes list`.
+
+- **`ankra cluster <provider> bastion resize` changes the bastion instance
+  type.** A new `bastion` command family (Hetzner, OVH, UpCloud,
+  DigitalOcean) resizes the cluster's bastion/gateway node, following the
+  same async accept/wait contract as node-group instance-type upgrades:
+  submit-and-return by default, or block with `--wait`.
+
+- **`ankra cluster <provider> nodes list` now shows provider status.** The
+  node table gained a `PROVIDER_STATUS` column carrying the cloud provider's
+  live status/power state (for example OVH `ACTIVE`/`SHUTOFF`) as last
+  recorded by the provider read job, so a crashed or externally-stopped VM is
+  visible before you act on it. Structured output (`-o json|yaml`) carries
+  `provider_status` and `provider_power_state`.
+
+- **See and stop what your AI agents are doing with `ankra agents`.** The
+  new command family lists the organisation's dispatched AI agent runs
+  (`ankra agents runs`, filterable by agent and status), shows one run in
+  full (`ankra agents run <run_id>`), reads the run's session transcript —
+  what the agent actually said and did — (`ankra agents transcript
+  <run_id>`), and cancels a live run (`ankra agents cancel <run_id>`,
+  organisation admins only): the platform interrupts the in-flight turn
+  within seconds without pausing the agent itself. All four support
+  `-o json|yaml` for scripting.
+
+- **Agent-mode chat writes can now be approved from the terminal.** In agent
+  mode every mutating tool halts the turn and emits an `action_proposal`
+  frame, and the write only runs once that proposal is confirmed. The CLI
+  parsed the chat stream but silently dropped that frame and had no way to
+  answer it, so `ankra chat --mode agent "restart node worker-1"` appeared to
+  do nothing — the proposal existed server-side but was invisible and
+  unreachable. The stream now renders every proposal (tool, description, risk,
+  whether it is reversible, parameters, expiry, and the action id), an
+  interactive session prompts to run or discard each one, and
+  `ankra chat actions confirm|reject|list` drives the same decision from a
+  script. A confirmation refused because the cluster drifted since the
+  proposal reports what happened and prints the ready-to-run `--force`
+  invocation; a superseded action does not offer force, because forcing one
+  cannot work.
+
+- **Application management is available from the CLI.** `ankra application
+  add .` detects a local GitHub checkout and starts application setup, while
+  the application subcommands expose lifecycle, deployment, workflow,
+  repository, security, publishing, and demo operations through the bearer
+  API. `-o json|yaml` provides scriptable output.
+
+- **A kube-gateway access denial now suggests the command that fixes it.**
+  When `ankra cluster kubeconfig add` or `ankra cluster kube-token` is
+  rejected with a 403 because the caller has no access grant on the cluster,
+  the error now explains that an organisation admin can grant access and
+  shows the exact invocation (`ankra cluster access grant <email>
+  --cluster <name> --role view`) instead of leaving only the raw 403
+  response to decipher.
+
+- **Stack manifests and addons can carry an AGENTS.md.** Every manifest and
+  addon entry in a stack spec now accepts `agents_md` (inline markdown) or
+  `agents_md_from_file` (a repo-relative path, mirroring how the stack-level
+  `description_from_file` works), so operational learnings live next to the
+  resource they describe. The platform stores the content as a sibling file
+  in the GitOps repo (`add-ons/<addon>/AGENTS.md`,
+  `manifests/<name>.AGENTS.md`); omitting the field preserves what is
+  stored, an explicit empty string clears it, and editing it never triggers
+  a redeploy. `ankra cluster clone` transfers the referenced AGENTS.md files
+  alongside the other stack files, and `ankra cluster addons upgrade` /
+  `manifests upgrade` keep them intact.
+
+- **`ankra cluster info` now shows the cluster's provider network
+  identifiers.** For Ankra-provisioned clusters (DigitalOcean first) the
+  details include a Network section with the VPC UUID, IP range, NAT
+  gateway id, egress IP, and bastion droplet id/IPs — machine-readable via
+  `-o json` — so operators no longer have to dig through per-node
+  relationships to find the VPC a cluster lives in.
+
+- **Secrets can be set and encrypted in a single commit.** `ankra cluster
+  encrypt manifest` (cluster mode) now accepts repeatable `--set` edits that
+  are applied in-memory before encryption, so the new value and its SOPS
+  encryption land in one partial-stack PATCH — the plaintext value never
+  reaches git history. Previously the documented flow (`manifests upgrade
+  --set` followed by `encrypt manifest`) committed the plaintext secret
+  first, leaving it recoverable from the repository history.
+
+- **`ankra cluster manifests upgrade --from-file` accepts SOPS-encrypted
+  files.** When the file carries SOPS metadata, the keys holding `ENC[...]`
+  ciphertext are detected and recorded as `encrypted_paths` automatically
+  (merged with the manifest's existing paths), and the new repeatable
+  `--encrypted-path` flag declares keys explicitly. Previously such uploads
+  dropped the encryption metadata and the backend rejected them with a
+  generic 500.
+
+- **`ankra helm registries list` supports pagination, search, and sorting.**
+  The command used to fetch only the server's first page (20 registries) and
+  gave no hint that more existed. It now accepts `--page` and `--page-size`
+  (up to 100 per page), `--search` for a case-insensitive name filter, and
+  `--sort-by` (`name`, `url`, `created_at`, `updated_at`, `chart_count`,
+  `last_indexed_at`, `is_global`) with `--sort-order asc|desc`, and every
+  listing ends with a `Page X of Y (total N)` footer so truncation is always
+  visible.
+
+- **Read-only API calls now retry transient platform errors.** Bodyless
+  `GET`/`HEAD` requests that fail with a transport-level timeout (for
+  example `http2: timeout awaiting response headers`), a connection
+  setup/reset error, a mid-exchange disconnect, an HTTP/2 GOAWAY, or a
+  502/503/504 gateway status are retried up to two more times with a
+  short backoff (1s, then 2s), with a warning on stderr per retry. A
+  seconds-long platform blip no longer hard-fails scripts and CI
+  pipelines on their first read (2026-07-14: a brief platform stall
+  failed a production rollout on `listing clusters`). Writes are never
+  retried.
+
+- **The lifecycle systemtest covers managed clusters.** `systemtest/
+  lifecycle_systemtest.sh` now exercises both cluster families: the
+  self-managed provider lifecycle and, per managed provider, the managed
+  lifecycle (create, node-pool add/scale/update, stop/start where
+  supported, upgrade, delete).
 
 ### Changed
 
@@ -27,6 +1498,15 @@
   the shipped binary the way the hand-maintained README reference could. The
   README keeps installation, quick-start, and development documentation, plus
   a per-command link table into the reference.
+
+### Deprecated
+
+- **`ankra cluster deprovision --auto-delete` is deprecated — it never did
+  anything.** The backend parses and discards the `auto_delete` parameter, so
+  the flag silently suggested a record deletion that never happened. The flag
+  is now hidden and prints a deprecation warning pointing at
+  `ankra delete cluster` for the record deletion; it will be removed in
+  v0.10.0 (see `DEPRECATIONS.md`).
 
 ### Fixed
 
@@ -96,7 +1576,11 @@
   nesting it automatically — inferring an OCI registry from an `oci://`
   URL.
 
-### Added
+- **`ankra chat` now surfaces server errors instead of printing a blank
+  `Error:` line and exiting 0.** The backend sends its message inside the
+  error frame's `data` member (rate limits, spend caps, busy conversations);
+  the CLI now reads it from there, prints it to stderr, and one-shot chat
+  exits non-zero so scripts can detect the failure.
 
 - **`ankra migrate` converts an existing Docker deployment into Ankra
   resources.** `ankra migrate convert` reads a docker-compose file, a bare
@@ -111,148 +1595,29 @@
   `ankra migrate modules --help` and `examples/modules/`). None of it needs
   a login.
 
-- **A kube-gateway access denial now suggests the command that fixes it.**
-  When `ankra cluster kubeconfig add` or `ankra cluster kube-token` is
-  rejected with a 403 because the caller has no access grant on the cluster,
-  the error now explains that an organisation admin can grant access and
-  shows the exact invocation (`ankra cluster access grant <email>
-  --cluster <name> --role view`) instead of leaving only the raw 403
-  response to decipher.
-- **Stack manifests and addons can carry an AGENTS.md.** Every manifest and
-  addon entry in a stack spec now accepts `agents_md` (inline markdown) or
-  `agents_md_from_file` (a repo-relative path, mirroring how the stack-level
-  `description_from_file` works), so operational learnings live next to the
-  resource they describe. The platform stores the content as a sibling file
-  in the GitOps repo (`add-ons/<addon>/AGENTS.md`,
-  `manifests/<name>.AGENTS.md`); omitting the field preserves what is
-  stored, an explicit empty string clears it, and editing it never triggers
-  a redeploy. `ankra cluster clone` transfers the referenced AGENTS.md files
-  alongside the other stack files, and `ankra cluster addons upgrade` /
-  `manifests upgrade` keep them intact.
 
-- **`ankra cluster info` now shows the cluster's provider network
-  identifiers.** For Ankra-provisioned clusters (DigitalOcean first) the
-  details include a Network section with the VPC UUID, IP range, NAT
-  gateway id, egress IP, and bastion droplet id/IPs — machine-readable via
-  `-o json` — so operators no longer have to dig through per-node
-  relationships to find the VPC a cluster lives in.
-- **Secrets can be set and encrypted in a single commit.** `ankra cluster
-  encrypt manifest` (cluster mode) now accepts repeatable `--set` edits that
-  are applied in-memory before encryption, so the new value and its SOPS
-  encryption land in one partial-stack PATCH — the plaintext value never
-  reaches git history. Previously the documented flow (`manifests upgrade
-  --set` followed by `encrypt manifest`) committed the plaintext secret
-  first, leaving it recoverable from the repository history.
-- **`ankra cluster manifests upgrade --from-file` accepts SOPS-encrypted
-  files.** When the file carries SOPS metadata, the keys holding `ENC[...]`
-  ciphertext are detected and recorded as `encrypted_paths` automatically
-  (merged with the manifest's existing paths), and the new repeatable
-  `--encrypted-path` flag declares keys explicitly. Previously such uploads
-  dropped the encryption metadata and the backend rejected them with a
-  generic 500.
-- **`ankra helm registries list` supports pagination, search, and sorting.**
-  The command used to fetch only the server's first page (20 registries) and
-  gave no hint that more existed. It now accepts `--page` and `--page-size`
-  (up to 100 per page), `--search` for a case-insensitive name filter, and
-  `--sort-by` (`name`, `url`, `created_at`, `updated_at`, `chart_count`,
-  `last_indexed_at`, `is_global`) with `--sort-order asc|desc`, and every
-  listing ends with a `Page X of Y (total N)` footer so truncation is always
-  visible.
+- **Chat progress is visible again.** Status frames became structured
+  objects on newer backends and the CLI silently dropped them; it now
+  renders the intent (and mechanism) as the familiar `[...]` progress line.
 
-## v0.9.0-rc4 — 2026-07-21
+- **Ctrl-D leaves interactive chat cleanly** like `exit`, instead of failing
+  with `reading input: EOF` and exit code 1.
 
-### Added
+- **A stalled chat stream no longer hangs the CLI forever.** A watchdog
+  ends the stream with a clear `stream idle timeout` error when the
+  connection goes silent for 3 minutes (the backend heartbeats every few
+  seconds while working).
 
-- **Hetzner clusters can be stopped and started.** `ankra cluster hetzner
-  stop <cluster_id>` releases the cluster's compute while preserving its
-  saved topology, and `ankra cluster hetzner start <cluster_id>` re-provisions
-  it (optionally `--scope control_plane`), matching the other self-managed
-  providers.
-- **The managed Kubernetes family reaches parity.** `ankra cluster managed
-  stop|start` drives provider-native stop/start where the provider supports
-  it (AKS today), the new `ankra cluster managed node-pool update` command
-  changes node counts and autoscaling settings in place, node pools take
-  autoscaling bounds at create and add (`--autoscaling`,
-  `--autoscaling-min`, `--autoscaling-max`), and Scaleway Kapsule joins the
-  provider list (`--provider kapsule`, with `--private-network-id`).
-- **Proxmox VE clusters are managed from the CLI.** The new `ankra cluster
-  proxmox` family covers create, deprovision, stop/start, worker and
-  node-group scaling, labels and taints, autoscaling, control-plane changes,
-  node inspection and restart, SSH keys, Kubernetes upgrades, and discovery of Proxmox
-  nodes, storages, bridges, and templates, plus `ankra credentials proxmox`
-  for credential management.
-- **HPE Morpheus clusters are managed from the CLI.** The new `ankra
-  cluster morpheus` family mirrors the Proxmox surface (node restart excepted — the
-  platform has no Morpheus restart lane) — full lifecycle,
-  node groups, control plane, SSH keys, and upgrades — plus discovery of
-  Morpheus groups, clouds, plans, layouts, and networks, and `ankra
-  credentials morpheus` for credential management.
-- **The lifecycle systemtest covers managed clusters.** `systemtest/
-  lifecycle_systemtest.sh` now exercises both cluster families: the
-  self-managed provider lifecycle and, per managed provider, the managed
-  lifecycle (create, node-pool add/scale/update, stop/start where
-  supported, upgrade, delete).
+- **`ankra login` now runs the same insecure-HTTP guard as every other
+  command.** The login flow sends the PKCE verifier and receives the minted
+  token; a plaintext `http://` base URL to a non-loopback host is refused
+  (loopback development and `ANKRA_ALLOW_INSECURE_HTTP=1` still work).
 
-## v0.9.0-rc3 — 2026-07-21
-
-### Added
-
-- **See and stop what your AI agents are doing with `ankra agents`.** The
-  new command family lists the organisation's dispatched AI agent runs
-  (`ankra agents runs`, filterable by agent and status), shows one run in
-  full (`ankra agents run <run_id>`), reads the run's session transcript —
-  what the agent actually said and did — (`ankra agents transcript
-  <run_id>`), and cancels a live run (`ankra agents cancel <run_id>`,
-  organisation admins only): the platform interrupts the in-flight turn
-  within seconds without pausing the agent itself. All four support
-  `-o json|yaml` for scripting.
-## v0.9.0-rc2 — 2026-07-20
-
-### Added
-
-- **Scaleway clusters now support lifecycle commands.** Use
-  `ankra cluster scaleway stop <cluster_id>` to release compute while
-  preserving the cluster definition, then `ankra cluster scaleway start
-  <cluster_id>` to re-provision it (optionally `--scope control_plane`).
-- **Application management is available from the CLI.** `ankra application
-  add .` detects a local GitHub checkout and starts application setup, while
-  the application subcommands expose lifecycle, deployment, workflow,
-  repository, security, publishing, and demo operations through the bearer
-  API. `-o json|yaml` provides scriptable output.
-
-## v0.9.0-rc1 — 2026-07-17
-
-### Added
-
-- **Read-only API calls now retry transient platform errors.** Bodyless
-  `GET`/`HEAD` requests that fail with a transport-level timeout (for
-  example `http2: timeout awaiting response headers`), a connection
-  setup/reset error, a mid-exchange disconnect, an HTTP/2 GOAWAY, or a
-  502/503/504 gateway status are retried up to two more times with a
-  short backoff (1s, then 2s), with a warning on stderr per retry. A
-  seconds-long platform blip no longer hard-fails scripts and CI
-  pipelines on their first read (2026-07-14: a brief platform stall
-  failed a production rollout on `listing clusters`). Writes are never
-  retried.
-- **`ankra cluster <provider> nodes restart` restarts a single node.** For
-  Hetzner, OVH, UpCloud, and DigitalOcean clusters you can now restart any
-  provisioned node - a control plane node, a worker, or the bastion/gateway -
-  as a tracked operation. The platform schedules a native reboot (falling
-  back to a power cycle); the node must be in the `up` state with no restart
-  already in flight. Find the node ID with `nodes list`.
-- **`ankra cluster <provider> bastion resize` changes the bastion instance
-  type.** A new `bastion` command family (Hetzner, OVH, UpCloud,
-  DigitalOcean) resizes the cluster's bastion/gateway node, following the
-  same async accept/wait contract as node-group instance-type upgrades:
-  submit-and-return by default, or block with `--wait`.
-- **`ankra cluster <provider> nodes list` now shows provider status.** The
-  node table gained a `PROVIDER_STATUS` column carrying the cloud provider's
-  live status/power state (for example OVH `ACTIVE`/`SHUTOFF`) as last
-  recorded by the provider read job, so a crashed or externally-stopped VM is
-  visible before you act on it. Structured output (`-o json|yaml`) carries
-  `provider_status` and `provider_power_state`.
-
-### Fixed
+- **Error messages that echo API response bodies now redact likely secret
+  material everywhere.** Several error paths (stack patch 422 echoes,
+  variable requests, manifest and add-on configuration reads, support
+  uploads) rendered raw response bodies to the terminal; they now pass
+  through the same redaction the other error paths already used.
 
 - **`ankra tokens create` now gives MCP-specific guidance for scoped tokens.**
   The previous examples named permission scopes the platform rejects.

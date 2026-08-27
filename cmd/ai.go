@@ -1,14 +1,19 @@
 package cmd
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"ankra/internal/client"
 
+	"github.com/chzyer/readline"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
+	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
 
@@ -60,6 +65,15 @@ var aiStatusCmd = &cobra.Command{
 		} else {
 			fmt.Printf("  configured: %s\n", "no")
 		}
+		fmt.Println("\nOpenRouter (custom key):")
+		if status.OpenRouter.Configured {
+			fmt.Printf("  configured: %s\n", text.FgGreen.Sprint("yes"))
+			if status.OpenRouter.KeyPreview != nil {
+				fmt.Printf("  key:        %s\n", *status.OpenRouter.KeyPreview)
+			}
+		} else {
+			fmt.Printf("  configured: %s\n", "no")
+		}
 		return nil
 	},
 }
@@ -67,13 +81,14 @@ var aiStatusCmd = &cobra.Command{
 // --- provider ---
 
 var aiProviderCmd = &cobra.Command{
-	Use:   "provider <ankra|anthropic|openai_compatible>",
+	Use:   "provider <ankra|anthropic|openai_compatible|openrouter>",
 	Short: "Set the active AI provider",
 	Long: `Set the active AI provider for the organisation.
 
   ankra              Ankra-managed Claude models (the default).
   anthropic          Your own Anthropic API key (set it first with 'ankra ai anthropic set').
-  openai_compatible  Your OpenAI-compatible endpoint (set it first with 'ankra ai openai set').`,
+  openai_compatible  Your OpenAI-compatible endpoint (set it first with 'ankra ai openai set').
+  openrouter         Your own OpenRouter API key (set it first with 'ankra ai openrouter set').`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		status, err := apiClient.SetAIProvider(args[0])
@@ -139,7 +154,7 @@ var aiModelsCreateCmd = &cobra.Command{
 	Short: "Add a model to the catalog",
 	Long: `Add a model to the catalog.
 
-For an Ankra-managed Claude model pass --model-id (e.g. claude-opus-4-8). For a
+For an Ankra-managed Claude model pass --model-id (e.g. claude-opus-5). For a
 model served by a custom OpenAI-compatible endpoint, also pass --endpoint with
 the endpoint id (see 'ankra ai endpoints list').`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -466,6 +481,99 @@ var aiAnthropicDeleteCmd = &cobra.Command{
 	},
 }
 
+// --- openrouter credentials ---
+
+var aiOpenRouterCmd = &cobra.Command{
+	Use:   "openrouter",
+	Short: "Manage the OpenRouter API key",
+	Long: `Manage the organisation's OpenRouter API key (bring your own key).
+
+Store a key with 'set', then activate it with 'ankra ai provider openrouter'.
+Removing the key while OpenRouter is the active provider resets the
+organisation to the Ankra-managed default.`,
+}
+
+var aiOpenRouterSetCmd = &cobra.Command{
+	Use:   "set",
+	Short: "Store an OpenRouter API key",
+	Long: `Store and validate an OpenRouter API key (must start with sk-or-).
+
+Pass the key with --api-key, pipe it on stdin, or omit both to be prompted
+interactively. The interactive prompt masks the input; the key is never
+echoed or logged.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		apiKey, err := resolveSecretInput(cmd, "api-key", "OpenRouter API key")
+		if err != nil {
+			return err
+		}
+		status, err := apiClient.SaveOpenRouterKey(apiKey)
+		if err != nil {
+			return fmt.Errorf("saving OpenRouter key: %w", err)
+		}
+		if rendered, err := renderStructured(cmd, status); rendered || err != nil {
+			return err
+		}
+		fmt.Println("OpenRouter API key saved. Activate it with: ankra ai provider openrouter")
+		return nil
+	},
+}
+
+var aiOpenRouterRemoveCmd = &cobra.Command{
+	Use:     "remove",
+	Aliases: []string{"delete"},
+	Short:   "Remove the OpenRouter API key",
+	Long: `Remove the organisation's OpenRouter API key. When OpenRouter is the
+active provider the organisation falls back to the Ankra-managed default.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		yes, _ := cmd.Flags().GetBool("yes")
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			"Remove the OpenRouter API key? [y/N]: ", yes); err != nil {
+			return err
+		}
+		if _, err := apiClient.DeleteOpenRouterKey(); err != nil {
+			return fmt.Errorf("deleting OpenRouter key: %w", err)
+		}
+		fmt.Println("OpenRouter API key removed.")
+		return nil
+	},
+}
+
+// resolveSecretInput returns the secret from the named flag when set, and
+// otherwise reads it from stdin: piped or redirected input is read as a
+// single line, while an interactive terminal gets a masked prompt. The
+// secret value itself is never printed back in either path.
+func resolveSecretInput(cmd *cobra.Command, flagName, label string) (string, error) {
+	if value := mustFlagString(cmd, flagName); value != "" {
+		return value, nil
+	}
+	in := cmd.InOrStdin()
+	if file, ok := in.(*os.File); ok && readline.IsTerminal(int(file.Fd())) {
+		prompt := promptui.Prompt{Label: label, Mask: '*', Stdin: file}
+		value, promptError := prompt.Run()
+		if promptError != nil {
+			if isPromptCancellation(promptError) {
+				return "", errCancelled
+			}
+			return "", fmt.Errorf("reading %s: %w", label, promptError)
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return "", withExitCode(exitUsage, fmt.Errorf("%s is required", label))
+		}
+		return value, nil
+	}
+	line, readError := bufio.NewReader(in).ReadString('\n')
+	if readError != nil && !errors.Is(readError, io.EOF) {
+		return "", fmt.Errorf("reading %s from stdin: %w", label, readError)
+	}
+	value := strings.TrimSpace(line)
+	if value == "" {
+		return "", withExitCode(exitUsage,
+			fmt.Errorf("%s is required: pass --%s, pipe it on stdin, or run interactively to be prompted", label, flagName))
+	}
+	return value, nil
+}
+
 // --- openai-compatible (legacy single endpoint) credentials ---
 
 var aiOpenAICmd = &cobra.Command{
@@ -587,7 +695,7 @@ func modelRequestFromExisting(model client.AICatalogModel) client.AIModelRequest
 func addModelWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().String("key", "", "Catalog key (lowercase slug; the model_mode value)")
 	cmd.Flags().String("name", "", "Display name shown in the picker")
-	cmd.Flags().String("model-id", "", "Provider model id (e.g. claude-opus-4-8 or gpt-4o)")
+	cmd.Flags().String("model-id", "", "Provider model id (e.g. claude-opus-5 or gpt-4o)")
 	cmd.Flags().String("description", "", "Short description")
 	cmd.Flags().String("tier", "", "Auto-routing tier: expert, think, quick, or empty")
 	cmd.Flags().String("endpoint", "", "OpenAI-compatible endpoint id (omit for Ankra-managed Claude)")
@@ -624,6 +732,9 @@ func init() {
 	_ = aiAnthropicSetCmd.MarkFlagRequired("api-key")
 	aiAnthropicDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
+	aiOpenRouterSetCmd.Flags().String("api-key", "", "OpenRouter API key (starts with sk-or-; omit to read stdin or be prompted)")
+	aiOpenRouterRemoveCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+
 	aiOpenAISetCmd.Flags().String("base-url", "", "OpenAI-compatible base URL")
 	aiOpenAISetCmd.Flags().String("api-key", "", "API key for the endpoint")
 	aiOpenAISetCmd.Flags().String("model", "", "Model id to use")
@@ -635,13 +746,14 @@ func init() {
 	registerStructuredOutputFlags(aiStatusCmd, aiProviderCmd,
 		aiModelsListCmd, aiModelsCreateCmd, aiModelsUpdateCmd, aiModelsResetCmd,
 		aiEndpointsListCmd, aiEndpointsCreateCmd, aiEndpointsUpdateCmd, aiEndpointsDiscoverCmd,
-		aiAnthropicSetCmd, aiOpenAISetCmd)
+		aiAnthropicSetCmd, aiOpenRouterSetCmd, aiOpenAISetCmd)
 
 	aiModelsCmd.AddCommand(aiModelsListCmd, aiModelsCreateCmd, aiModelsUpdateCmd, aiModelsDeleteCmd, aiModelsResetCmd)
 	aiEndpointsCmd.AddCommand(aiEndpointsListCmd, aiEndpointsCreateCmd, aiEndpointsUpdateCmd, aiEndpointsDeleteCmd, aiEndpointsDiscoverCmd)
 	aiAnthropicCmd.AddCommand(aiAnthropicSetCmd, aiAnthropicDeleteCmd)
+	aiOpenRouterCmd.AddCommand(aiOpenRouterSetCmd, aiOpenRouterRemoveCmd)
 	aiOpenAICmd.AddCommand(aiOpenAISetCmd, aiOpenAIDeleteCmd)
 
-	aiCmd.AddCommand(aiStatusCmd, aiProviderCmd, aiModelsCmd, aiEndpointsCmd, aiAnthropicCmd, aiOpenAICmd)
+	aiCmd.AddCommand(aiStatusCmd, aiProviderCmd, aiModelsCmd, aiEndpointsCmd, aiAnthropicCmd, aiOpenRouterCmd, aiOpenAICmd)
 	rootCmd.AddCommand(aiCmd)
 }

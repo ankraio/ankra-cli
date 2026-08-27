@@ -31,6 +31,7 @@ type CreateProxmoxClusterRequest struct {
 	EtcdInstanceType         string   `json:"etcd_instance_type,omitempty"`
 	CNI                      string   `json:"cni,omitempty"`
 	IncludeNetworking        bool     `json:"include_networking"`
+	IncludeDNS               bool     `json:"include_dns"`
 }
 
 type CreateProxmoxClusterResponse struct {
@@ -86,11 +87,11 @@ func (c *Client) CreateProxmoxCluster(request CreateProxmoxClusterRequest) (*Cre
 }
 
 func (c *Client) DeprovisionProxmoxCluster(clusterID string) (*ProviderDeprovisionClusterResponse, error) {
-	return c.deprovisionProviderCluster(proxmoxKind, clusterID)
+	return c.deprovisionProviderCluster(proxmoxKind, clusterID, false)
 }
 
-func (c *Client) StopProxmoxCluster(clusterID string) (*ProviderStopClusterResponse, error) {
-	return c.stopProviderCluster(proxmoxKind, clusterID)
+func (c *Client) StopProxmoxCluster(clusterID string, force bool) (*ProviderStopClusterResponse, error) {
+	return c.stopProviderCluster(proxmoxKind, clusterID, force)
 }
 
 func (c *Client) StartProxmoxCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {

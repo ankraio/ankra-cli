@@ -19,10 +19,25 @@ var credentialsCmd = &cobra.Command{
 	Long:    "Commands to list, view, validate, and delete credentials.",
 }
 
+var credentialSortFields = []sortField[client.Credential]{
+	{"id", func(a, b client.Credential) int { return compareFold(a.ID, b.ID) }},
+	{"name", func(a, b client.Credential) int { return compareFold(a.Name, b.Name) }},
+	{"provider", func(a, b client.Credential) int { return compareFold(a.Provider, b.Provider) }},
+	{"state", func(a, b client.Credential) int { return compareFoldPtr(a.State, b.State) }},
+	{"available", func(a, b client.Credential) int { return compareBools(a.Available, b.Available) }},
+	{"repos", func(a, b client.Credential) int { return compareIntPtrs(a.RepositoryCount, b.RepositoryCount) }},
+	{"last-synced", func(a, b client.Credential) int { return compareTimeStringPtrs(a.LastSyncedAt, b.LastSyncedAt) }},
+	{"created", func(a, b client.Credential) int { return compareTimeStrings(a.CreatedAt, b.CreatedAt) }},
+}
+
 var credentialsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all credentials",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		sortCreds, err := resolveSort(cmd, credentialSortFields)
+		if err != nil {
+			return err
+		}
 		provider, _ := cmd.Flags().GetString("provider")
 		var providerPtr *string
 		if provider != "" {
@@ -37,6 +52,7 @@ var credentialsListCmd = &cobra.Command{
 		if creds == nil {
 			creds = []client.Credential{}
 		}
+		sortCreds(creds)
 		if rendered, err := renderStructured(cmd, creds); rendered || err != nil {
 			return err
 		}
@@ -261,16 +277,100 @@ func looksLikeUUID(s string) bool {
 	return true
 }
 
+// renderRepositoryList prints one titled block of repository full names, or
+// says the set is empty. Kept separate from the unknown case below because an
+// empty set is an answer and an unread listing is not.
+func renderRepositoryList(title string, repositories []string, emptyNote string) {
+	if len(repositories) == 0 {
+		fmt.Printf("  %s: %s\n", title, emptyNote)
+		return
+	}
+	fmt.Printf("  %s (%d):\n", title, len(repositories))
+	for _, repository := range repositories {
+		fmt.Printf("    %s\n", repository)
+	}
+}
+
+var credentialsRepositoriesCmd = &cobra.Command{
+	Use:   "repositories <credential_id|name>",
+	Short: "Show which repositories a credential can actually reach",
+	Long: "Read the repositories a GitHub credential's installation can reach right now, " +
+		"against the repositories Ankra needs from it, and report where they disagree.\n\n" +
+		"The accessible list is read live from the provider rather than from the cached " +
+		"count shown in `ankra credentials list`, because that count is only refreshed " +
+		"while the credential reports healthy - so a credential that has stopped being " +
+		"able to read its repository keeps reporting the count it had before it broke.",
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		credentialID, resolveError := resolveCredentialID(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+
+		coverage, coverageError := apiClient.GetCredentialRepositories(credentialID)
+		if coverageError != nil {
+			return fmt.Errorf("reading credential repositories: %w", coverageError)
+		}
+
+		if rendered, err := renderStructured(cmd, coverage); rendered || err != nil {
+			return err
+		}
+
+		fmt.Printf("Credential: %s (%s)\n", coverage.Credential.Name, coverage.Credential.Provider)
+		if coverage.Credential.AccountLogin != nil && *coverage.Credential.AccountLogin != "" {
+			fmt.Printf("  Account:  %s\n", *coverage.Credential.AccountLogin)
+		}
+		fmt.Printf("  Coverage: %s\n", coverage.Coverage)
+		if coverage.CoverageMessage != "" {
+			fmt.Printf("  %s\n", coverage.CoverageMessage)
+		}
+		fmt.Println()
+
+		// A nil accessible list is the provider listing failing, which is a
+		// different fact from an installation that reaches nothing. Printing
+		// "none" for both would recreate the confusion this command exists to
+		// end, so the unread case says so and names the error.
+		if coverage.AccessibleRepositories == nil {
+			fmt.Printf("  Reachable now: could not be read\n")
+			if coverage.AccessibleRepositoriesError != nil && *coverage.AccessibleRepositoriesError != "" {
+				fmt.Printf("    %s\n", *coverage.AccessibleRepositoriesError)
+			}
+		} else {
+			renderRepositoryList("Reachable now", *coverage.AccessibleRepositories,
+				"none - the installation reaches no repository at all")
+			if !coverage.AccessibleRepositoriesComplete {
+				fmt.Printf("    (listing truncated; more repositories exist than were read)\n")
+			}
+		}
+
+		renderRepositoryList("Required by Ankra", coverage.RequiredRepositories,
+			"none - nothing is configured to use this credential yet")
+		if !coverage.RequiredRepositoriesComplete {
+			fmt.Printf("    (listing truncated; more repositories require this credential)\n")
+		}
+
+		if len(coverage.UnreachableRepositories) > 0 {
+			renderRepositoryList("Required but NOT reachable", coverage.UnreachableRepositories, "")
+		}
+		if len(coverage.UnverifiedRepositories) > 0 {
+			renderRepositoryList("Required but unverified", coverage.UnverifiedRepositories, "")
+		}
+		return nil
+	},
+}
+
 func init() {
 	credentialsListCmd.Flags().String("provider", "", "Filter by provider (e.g., github)")
 	credentialsDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
-	registerStructuredOutputFlags(credentialsListCmd, credentialsGetCmd)
+	registerStructuredOutputFlags(credentialsListCmd, credentialsGetCmd, credentialsRepositoriesCmd)
+	registerSortFlags(credentialsListCmd, credentialSortFields)
 
 	credentialsCmd.AddCommand(credentialsListCmd)
 	credentialsCmd.AddCommand(credentialsValidateCmd)
 	credentialsCmd.AddCommand(credentialsDeleteCmd)
 	credentialsCmd.AddCommand(credentialsGetCmd)
+	credentialsCmd.AddCommand(credentialsRepositoriesCmd)
 
 	rootCmd.AddCommand(credentialsCmd)
 }

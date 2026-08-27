@@ -114,52 +114,14 @@ func RemoveCursorPlugin(pluginDir string) (bool, error) {
 // path, creating the file if needed. Content outside the markers is preserved
 // byte for byte.
 func UpsertClaudeRule(path string) error {
-	existing, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	content := string(existing)
-	block := ClaudeManagedBlock()
-
-	if begin, end, ok := findManagedBlock(content); ok {
-		content = content[:begin] + block + content[end:]
-	} else {
-		if trimmed := strings.TrimRight(content, "\n"); trimmed != "" {
-			content = trimmed + "\n\n" + block + "\n"
-		} else {
-			content = block + "\n"
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(content), 0o644)
+	return UpsertManagedBlock(path, ClaudeManagedBlock())
 }
 
 // RemoveClaudeRule strips the managed block from the CLAUDE.md at path. When
 // nothing but the block was in the file, the file itself is removed. Reports
 // whether a block was found.
 func RemoveClaudeRule(path string) (bool, error) {
-	existing, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	content := string(existing)
-	begin, end, ok := findManagedBlock(content)
-	if !ok {
-		return false, nil
-	}
-	remainder := strings.TrimRight(content[:begin], "\n") + content[end:]
-	if strings.TrimSpace(remainder) == "" {
-		return true, os.Remove(path)
-	}
-	if !strings.HasSuffix(remainder, "\n") {
-		remainder += "\n"
-	}
-	return true, os.WriteFile(path, []byte(remainder), 0o644)
+	return RemoveManagedBlock(path)
 }
 
 // findManagedBlock locates the managed block including its markers and

@@ -7,16 +7,21 @@ template in `.github/pull_request_template.md`.
 ## Build, test, lint
 
 ```bash
+make hooks        # once per clone: git config core.hooksPath .githooks
 make build        # go build ./...
 make test         # go test -race -count=1 ./...
 make lint         # golangci-lint run
 ./build.sh        # dist/ankra with release-identical ldflags (--install → /usr/local/bin)
 ```
 
-A pre-commit hook (`core.hooksPath` → `.githooks/`) runs `go test ./...` and
-`golangci-lint run` on every commit, so commits take ~30s and a red test
-blocks the commit. Do not bypass it with `--no-verify` unless explicitly
-asked.
+The pre-commit gate is opt-in per clone: git ignores `.githooks/` until
+`core.hooksPath` points at it, and nothing sets that automatically, so a clone
+that never ran `make hooks` commits with no gate and says nothing. Check with
+`git config core.hooksPath` — empty output means the gate is not installed.
+
+Once installed, the hook runs `go test ./...` and `golangci-lint run` on every
+commit, so commits take ~30s and a red test blocks the commit. Do not bypass
+it with `--no-verify` unless explicitly asked.
 
 The version string is injected at build time via `-X main.version` →
 `cmd.SetVersion`. The `version = "0.3.0"` constant in `cmd/root.go` is only
@@ -45,7 +50,11 @@ the un-injected fallback; never bump it for a release.
   annotated `annotationRequiresAuth: "false"` and must work offline.
 - `internal/skills` — embedded agent skills, vendored from the sibling
   `ankra-skills` repo (`make generate` / `make verify-skills`; in the split
-  repo the embedded copy is canonical).
+  repo the embedded copy is canonical). `clients.go` is the table of every
+  assistant `ankra skills install` targets: supporting one more is a registry
+  entry (paths per scope, rule/command/hook format), not a new branch. `clients.go` is the table of every
+  assistant `ankra skills install` targets: supporting one more is a registry
+  entry (paths per scope, rule/command/hook format), not a new branch.
 - `tools/gendocs` — generates the Mintlify CLI reference; run on release tags
   by `.github/workflows/docs-sync.yml`, which PRs `ankraio/ankra-docs`.
 - `systemtest/` — end-to-end lifecycle shell test (CI: `systemtest.yml`).

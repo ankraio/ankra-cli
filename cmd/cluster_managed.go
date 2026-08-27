@@ -431,6 +431,100 @@ var managedUpgradeCmd = &cobra.Command{
 
 const managedProviderFlagHelp = "Managed Kubernetes provider (doks, uks, gke, ovh_mks, aks, eks, kapsule)"
 
+var managedDiscoverCmd = &cobra.Command{
+	Use:   "discover",
+	Short: "List managed clusters your credential can see at the provider",
+	Long:  "List the managed Kubernetes clusters that already run in the provider account behind a credential, marking the ones already imported into Ankra.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		provider, err := parseManagedProviderFlag(cmd)
+		if err != nil {
+			return err
+		}
+		credentialID, _ := cmd.Flags().GetString("credential-id")
+
+		result, err := apiClient.DiscoverManagedClusters(provider, credentialID)
+		if err != nil {
+			return fmt.Errorf("discovering managed clusters: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		if len(result.Clusters) == 0 {
+			fmt.Printf("No %s clusters found for this credential.\n", provider)
+			return nil
+		}
+		for _, cluster := range result.Clusters {
+			version := "-"
+			if cluster.Version != nil {
+				version = *cluster.Version
+			}
+			imported := ""
+			if cluster.AlreadyImported {
+				imported = "  " + text.FgGreen.Sprint("(already imported)")
+			}
+			fmt.Printf("%s%s\n", text.Bold.Sprint(cluster.Name), imported)
+			fmt.Printf("  Provider cluster ID: %s\n", cluster.ProviderClusterID)
+			fmt.Printf("  Location: %s   Version: %s   Status: %s   Nodes: %d\n",
+				cluster.Location, version, cluster.Status, cluster.NodeCount)
+		}
+		if result.Incomplete {
+			fmt.Printf("\nNote: discovery was incomplete for regions: %s\n",
+				strings.Join(result.IncompleteRegions, ", "))
+		}
+		return nil
+	},
+}
+
+var managedImportCmd = &cobra.Command{
+	Use:   "import",
+	Short: "Import an existing managed cluster into Ankra",
+	Long:  "Adopt a managed Kubernetes cluster that already runs at the provider: Ankra fetches the kubeconfig through the provider API and installs the agent automatically, so there is nothing to run against the cluster.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		provider, err := parseManagedProviderFlag(cmd)
+		if err != nil {
+			return err
+		}
+		credentialID, _ := cmd.Flags().GetString("credential-id")
+		providerClusterID, _ := cmd.Flags().GetString("provider-cluster-id")
+		name, _ := cmd.Flags().GetString("name")
+		description, _ := cmd.Flags().GetString("description")
+
+		request := client.ImportManagedClusterRequest{
+			ProviderClusterID: providerClusterID,
+			CredentialID:      credentialID,
+		}
+		if name != "" {
+			request.Name = &name
+		}
+		if description != "" {
+			request.Description = &description
+		}
+
+		result, err := apiClient.ImportManagedCluster(provider, request)
+		if err != nil {
+			return fmt.Errorf("importing managed cluster: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		fmt.Printf("Managed %s cluster '%s' imported successfully!\n", provider, result.Name)
+		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+		fmt.Printf("  Provider cluster ID: %s\n", result.ProviderClusterID)
+		fmt.Printf("\nThe agent installs automatically; the cluster flips online once it connects.\n")
+		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
+			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		return nil
+	},
+}
+
 func parseManagedProviderFlag(cmd *cobra.Command) (client.ManagedK8sProvider, error) {
 	providerValue, _ := cmd.Flags().GetString("provider")
 	switch strings.ToLower(strings.TrimSpace(providerValue)) {
@@ -551,9 +645,23 @@ func init() {
 	_ = managedUpgradeCmd.MarkFlagRequired("provider")
 	_ = managedUpgradeCmd.MarkFlagRequired("version")
 
+	managedDiscoverCmd.Flags().String("provider", "", managedProviderFlagHelp)
+	managedDiscoverCmd.Flags().String("credential-id", "", "Cloud credential ID")
+	_ = managedDiscoverCmd.MarkFlagRequired("provider")
+	_ = managedDiscoverCmd.MarkFlagRequired("credential-id")
+
+	managedImportCmd.Flags().String("provider", "", managedProviderFlagHelp)
+	managedImportCmd.Flags().String("credential-id", "", "Cloud credential ID")
+	managedImportCmd.Flags().String("provider-cluster-id", "", "Provider-side cluster ID (from discover)")
+	managedImportCmd.Flags().String("name", "", "Name for the cluster in Ankra (defaults to the provider-side name)")
+	managedImportCmd.Flags().String("description", "", "Description for the cluster in Ankra (optional)")
+	_ = managedImportCmd.MarkFlagRequired("provider")
+	_ = managedImportCmd.MarkFlagRequired("credential-id")
+	_ = managedImportCmd.MarkFlagRequired("provider-cluster-id")
+
 	managedNodePoolCmd.AddCommand(managedNodePoolAddCmd, managedNodePoolScaleCmd, managedNodePoolDeleteCmd, managedNodePoolUpdateCmd)
-	managedCmd.AddCommand(managedCreateCmd, managedDeleteCmd, managedNodePoolCmd, managedUpgradeCmd, managedStopCmd, managedStartCmd)
+	managedCmd.AddCommand(managedCreateCmd, managedDeleteCmd, managedNodePoolCmd, managedUpgradeCmd, managedStopCmd, managedStartCmd, managedDiscoverCmd, managedImportCmd)
 	clusterCmd.AddCommand(managedCmd)
 
-	registerStructuredOutputFlags(managedCreateCmd, managedDeleteCmd, managedNodePoolAddCmd, managedNodePoolScaleCmd, managedNodePoolDeleteCmd, managedNodePoolUpdateCmd, managedUpgradeCmd, managedStopCmd, managedStartCmd)
+	registerStructuredOutputFlags(managedCreateCmd, managedDeleteCmd, managedNodePoolAddCmd, managedNodePoolScaleCmd, managedNodePoolDeleteCmd, managedNodePoolUpdateCmd, managedUpgradeCmd, managedStopCmd, managedStartCmd, managedDiscoverCmd, managedImportCmd)
 }

@@ -42,6 +42,65 @@ type DeployApplicationDemoRequest struct {
 	ImageTag      *string `json:"image_tag,omitempty"`
 	TTLHours      *int    `json:"ttl_hours,omitempty"`
 	ContainerPort *int    `json:"container_port,omitempty"`
+	// Components selects which of a monorepo's components the demo runs,
+	// each with optional overrides; omitted deploys every recorded
+	// component. EntryComponent names the one that owns the demo host's
+	// root path; omitted applies the backend's entry heuristic.
+	Components     []DeployApplicationDemoComponent `json:"components,omitempty"`
+	EntryComponent *string                          `json:"entry_component,omitempty"`
+}
+
+// DeployApplicationDemoComponent is one components[] entry of the deploy-demo
+// body: a selected component plus the overrides that apply to it alone.
+type DeployApplicationDemoComponent struct {
+	Name          string  `json:"name"`
+	ImageTag      *string `json:"image_tag,omitempty"`
+	ContainerPort *int    `json:"container_port,omitempty"`
+	IngressPath   *string `json:"ingress_path,omitempty"`
+}
+
+// UpdateApplicationImageRegistryRequest mirrors the image-registry body. The
+// key is always sent: an explicit null is how the declaration is cleared and
+// the application handed back to the organisation's own registry project, so
+// the pointer must survive marshalling rather than being omitted.
+type UpdateApplicationImageRegistryRequest struct {
+	ImageRegistry *ApplicationImageRegistry `json:"image_registry"`
+}
+
+// ApplicationImageRegistry is the declared registry an application publishes
+// to and Ankra reads its images back from.
+type ApplicationImageRegistry struct {
+	URL                  string `json:"url"`
+	CredentialName       string `json:"credential_name,omitempty"`
+	APIURL               string `json:"api_url,omitempty"`
+	PullSecretName       string `json:"pull_secret_name,omitempty"`
+	UsernameSecretName   string `json:"username_secret_name,omitempty"`
+	PasswordSecretName   string `json:"password_secret_name,omitempty"`
+	ManageActionsSecrets bool   `json:"manage_actions_secrets,omitempty"`
+	// AdminCredentialName names a registry credential with project
+	// administrator rights on the declared project, which is what lets Ankra
+	// mint and rotate the application's own push robot on a registry the
+	// organisation operates.
+	AdminCredentialName string `json:"admin_credential_name,omitempty"`
+	// FlatRepositories publishes monorepo components as <project>/<component>
+	// instead of <project>/<app>/<component>, matching a registry laid out
+	// flat before Ankra.
+	FlatRepositories bool `json:"flat_repositories,omitempty"`
+	// ComponentRepositories names a component's repository inside the project
+	// outright, keyed by component name.
+	ComponentRepositories map[string]string `json:"component_repositories,omitempty"`
+}
+
+// SetApplicationRepositoryCredentialRequest mirrors the repository-credential
+// body: the GitHub credential the application's repository calls ride on.
+type SetApplicationRepositoryCredentialRequest struct {
+	CredentialName string `json:"credential_name"`
+}
+
+// EnsureApplicationRegistryRobotRequest mirrors the registry-robot body:
+// rotate refreshes the secret of a robot that already backs the application.
+type EnsureApplicationRegistryRobotRequest struct {
+	Rotate bool `json:"rotate"`
 }
 
 // applicationResourceRequest performs a bearer-authenticated request against
@@ -261,4 +320,240 @@ func (client *Client) DeployApplicationDemo(requestContext context.Context, appl
 
 func (client *Client) StopApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error) {
 	return client.applicationResourceRequest(requestContext, http.MethodDelete, applicationPath(applicationID, "/demos/"+workspaceID), nil, nil)
+}
+
+func (client *Client) GetApplicationDemoDetail(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/demos/"+workspaceID+"/detail"), nil, nil)
+}
+
+// GetApplicationDemoLogs fetches a bounded log tail. An empty podName lets
+// the backend pick the demo's own pod, which is the single-component case;
+// a multi-component demo has one pod per component and must name the one it
+// wants. The tail parameter is `tail_lines` — the endpoint ignores anything
+// else, so a demo's tail size silently defaulted while the CLI sent `tail`.
+func (client *Client) GetApplicationDemoLogs(requestContext context.Context, applicationID string, workspaceID string, podName string, tailLines int) (json.RawMessage, error) {
+	query := url.Values{}
+	if tailLines > 0 {
+		query.Set("tail_lines", strconv.Itoa(tailLines))
+	}
+	if podName != "" {
+		query.Set("pod", podName)
+	}
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/demos/"+workspaceID+"/logs"), query, nil)
+}
+
+func (client *Client) GetApplicationDemoConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/demo-config"), nil, nil)
+}
+
+func (client *Client) UpdateApplicationDemoConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/demo-config"), nil, configuration)
+}
+
+func (client *Client) FixApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/demos/"+workspaceID+"/fix"), nil, nil)
+}
+
+// --- image registry ---
+
+func (client *Client) GetApplicationImageRegistry(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/image-registry"), nil, nil)
+}
+
+func (client *Client) UpdateApplicationImageRegistry(requestContext context.Context, applicationID string, registryRequest UpdateApplicationImageRegistryRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/image-registry"), nil, registryRequest)
+}
+
+// --- registry robot ---
+
+func (client *Client) GetApplicationRegistryRobot(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/registry-robot"), nil, nil)
+}
+
+func (client *Client) EnsureApplicationRegistryRobot(requestContext context.Context, applicationID string, robotRequest EnsureApplicationRegistryRobotRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/registry-robot"), nil, robotRequest)
+}
+
+func (client *Client) RevokeApplicationRegistryRobot(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodDelete, applicationPath(applicationID, "/registry-robot"), nil, nil)
+}
+
+// --- repository credential ---
+
+func (client *Client) GetApplicationRepositoryCredential(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/repository-credential"), nil, nil)
+}
+
+func (client *Client) SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest SetApplicationRepositoryCredentialRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/repository-credential"), nil, credentialRequest)
+}
+
+// --- AI lane configuration ---
+
+func (client *Client) GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/ai-config"), nil, nil)
+}
+
+func (client *Client) UpdateApplicationAIConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/ai-config"), nil, configuration)
+}
+
+func (client *Client) ResetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodDelete, applicationPath(applicationID, "/ai-config"), nil, nil)
+}
+
+// --- catalog publishing ---
+
+// PublishApplicationAddonRequest mirrors the publish-addon body; every field
+// is optional and defaults from the application's descriptor.
+type PublishApplicationAddonRequest struct {
+	Version     string `json:"version,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Category    string `json:"category,omitempty"`
+	Changelog   string `json:"changelog,omitempty"`
+}
+
+func (client *Client) PublishApplicationAddon(requestContext context.Context, applicationID string, publishRequest PublishApplicationAddonRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/publish-addon"), nil, publishRequest)
+}
+
+func (client *Client) GetApplicationPublishedAddon(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/published-addon"), nil, nil)
+}
+
+// --- environment secrets ---
+
+// SetApplicationEnvSecretRequest mirrors the env-secret PUT body. The value is
+// the only inbound secret on this surface and there is no route that hands a
+// stored value back, so nothing here is ever populated from a response.
+type SetApplicationEnvSecretRequest struct {
+	Value string `json:"value"`
+}
+
+// ListApplicationEnvSecrets reports the keys an application's generated
+// manifests need and the state of each. Values never travel outbound.
+func (client *Client) ListApplicationEnvSecrets(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/env-secrets"), nil, nil)
+}
+
+func (client *Client) SetApplicationEnvSecret(requestContext context.Context, applicationID string, secretKey string, value string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut,
+		applicationPath(applicationID, "/env-secrets/"+url.PathEscape(secretKey)), nil,
+		SetApplicationEnvSecretRequest{Value: value})
+}
+
+func (client *Client) DeleteApplicationEnvSecret(requestContext context.Context, applicationID string, secretKey string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodDelete,
+		applicationPath(applicationID, "/env-secrets/"+url.PathEscape(secretKey)), nil, nil)
+}
+
+// ApplyApplicationEnvSecrets re-seals the stored values into every deployment
+// of the application and rolls the workloads that read them. It carries no
+// body: the values it applies are the ones already stored.
+func (client *Client) ApplyApplicationEnvSecrets(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost,
+		applicationPath(applicationID, "/env-secrets/apply"), nil, nil)
+}
+
+// --- push-to-deploy switch ---
+
+// SetApplicationAutoDeployRequest mirrors the auto-deploy PUT body.
+type SetApplicationAutoDeployRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+func (client *Client) GetApplicationAutoDeploy(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/auto-deploy"), nil, nil)
+}
+
+func (client *Client) SetApplicationAutoDeploy(requestContext context.Context, applicationID string, enabled bool) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/auto-deploy"), nil,
+		SetApplicationAutoDeployRequest{Enabled: enabled})
+}
+
+// --- organisation-level application settings ---
+
+// UpdateApplicationSettingsRequest mirrors the settings PUT body. The key is
+// always sent and the pointer must survive marshalling: an explicit null is
+// how the organisation's runner choice is cleared, which is a different
+// request from not mentioning the field at all (the backend rejects that with
+// a 422 missing-field error).
+type UpdateApplicationSettingsRequest struct {
+	CIRunnerLabel *string `json:"ci_runner_label"`
+}
+
+func (client *Client) GetApplicationSettings(requestContext context.Context) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationsAPIPath+"/settings", nil, nil)
+}
+
+func (client *Client) UpdateApplicationSettings(requestContext context.Context, ciRunnerLabel *string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationsAPIPath+"/settings", nil,
+		UpdateApplicationSettingsRequest{CIRunnerLabel: ciRunnerLabel})
+}
+
+// --- branch build repair ---
+
+// FixApplicationBuildRequest mirrors the fix-build body: the branch whose
+// build is missing.
+type FixApplicationBuildRequest struct {
+	Branch string `json:"branch"`
+}
+
+// FixApplicationBuild dispatches the branch-build repair lane. It answers with
+// a pointer to the dispatched mission rather than its result, so the caller
+// follows the agent run it names.
+func (client *Client) FixApplicationBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost,
+		applicationPath(applicationID, "/demos/fix-build"), nil,
+		FixApplicationBuildRequest{Branch: branch})
+}
+
+// --- platform builds ---
+
+// StartApplicationPlatformBuildRequest mirrors the platform-build POST body.
+// Only the commit is required; the queue deduplicates on (component,
+// head_sha) while a request is live, so naming the commit is what gives a
+// request its identity. Ref and Component are omitted when empty rather than
+// sent blank, because the queue stores them verbatim into the builder's
+// environment.
+type StartApplicationPlatformBuildRequest struct {
+	HeadSHA   string `json:"head_sha"`
+	Ref       string `json:"ref,omitempty"`
+	Component string `json:"component,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// StartApplicationPlatformBuild queues a build of the application's image on
+// Ankra's own builders. It answers the queue's decision - a fresh request, or
+// the live one this ask joined - not the finished build; follow the build
+// with GetApplicationPlatformBuild.
+func (client *Client) StartApplicationPlatformBuild(requestContext context.Context, applicationID string,
+	request StartApplicationPlatformBuildRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost,
+		applicationPath(applicationID, "/builds"), nil, request)
+}
+
+// ListApplicationPlatformBuilds reads the application's platform builds,
+// newest first. The platform caps the listing and reports the cap in the
+// payload's capped field.
+func (client *Client) ListApplicationPlatformBuilds(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet,
+		applicationPath(applicationID, "/builds"), nil, nil)
+}
+
+// GetApplicationPlatformBuild reads one platform build.
+func (client *Client) GetApplicationPlatformBuild(requestContext context.Context, applicationID string,
+	buildID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet,
+		applicationPath(applicationID, "/builds/"+url.PathEscape(buildID)), nil, nil)
+}
+
+// GetApplicationPlatformBuildRequest reads one queued build request, so a
+// caller can follow the id StartApplicationPlatformBuild answered with from
+// "queued" through to the build it became.
+func (client *Client) GetApplicationPlatformBuildRequest(requestContext context.Context, applicationID string,
+	buildRequestID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet,
+		applicationPath(applicationID, "/builds/requests/"+url.PathEscape(buildRequestID)), nil, nil)
 }

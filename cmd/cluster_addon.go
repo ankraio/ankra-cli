@@ -23,11 +23,26 @@ var clusterAddonsCmd = &cobra.Command{
 	Long:  "Commands to list, manage settings, and uninstall addons.",
 }
 
+var clusterAddonSortFields = []sortField[client.ClusterAddonListItem]{
+	{"name", func(a, b client.ClusterAddonListItem) int { return compareFold(a.Name, b.Name) }},
+	{"chart", func(a, b client.ClusterAddonListItem) int { return compareFold(a.ChartName, b.ChartName) }},
+	{"version", func(a, b client.ClusterAddonListItem) int { return compareFold(a.ChartVersion, b.ChartVersion) }},
+	{"namespace", func(a, b client.ClusterAddonListItem) int { return compareFold(a.Namespace, b.Namespace) }},
+	{"health", func(a, b client.ClusterAddonListItem) int { return compareFoldPtr(a.Health, b.Health) }},
+	{"state", func(a, b client.ClusterAddonListItem) int { return compareFoldPtr(a.State, b.State) }},
+	{"created", func(a, b client.ClusterAddonListItem) int { return compareTimePtrs(a.CreatedAt, b.CreatedAt) }},
+	{"updated", func(a, b client.ClusterAddonListItem) int { return compareTimePtrs(a.UpdatedAt, b.UpdatedAt) }},
+}
+
 var clusterAddonsListCmd = &cobra.Command{
 	Use:   "list [addon name]",
 	Short: "List addons for the active cluster; or show details for a single addon",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		sortAddons, err := resolveSort(cmd, clusterAddonSortFields)
+		if err != nil {
+			return err
+		}
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
 			return err
@@ -37,6 +52,7 @@ var clusterAddonsListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing addons: %w", err)
 		}
+		sortAddons(addons)
 		if len(args) == 0 {
 			if addons == nil {
 				addons = []client.ClusterAddonListItem{}
@@ -498,8 +514,12 @@ func runAddonsUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	mutatedAddon := applyAddonMutations(*addon, flags, newValuesB64)
-	if mutatedAddon.Configuration != nil && len(encryptedPaths) > 0 {
-		mutatedAddon.Configuration.EncryptedPaths = encryptedPaths
+	// Replacing the values inlines them, so the GitOps pointer they came
+	// from goes away: say so rather than letting it vanish from the diff
+	// unremarked. A non-values change keeps the pointer (ankra-u8ho).
+	if newValuesB64 != nil && addon.Configuration != nil && addon.Configuration.FromFile != "" {
+		notices = append(notices, fmt.Sprintf(
+			"values are sent inline, replacing the configuration.from_file reference %q", addon.Configuration.FromFile))
 	}
 	if flags.HasParentEdit() {
 		parents, pErr := mergeParents(addon.Parents, flags.AddParents, flags.RemoveParents, flags.SetParents)
@@ -663,6 +683,7 @@ func init() {
 	clusterAddonsUpgradeCmd.Flags().Bool("yes", false, "Skip the confirmation prompt for destructive changes (--namespace)")
 	clusterAddonsUpgradeCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
 	registerStructuredOutputFlags(clusterAddonsListCmd, clusterAddonsAvailableCmd, clusterAddonsSettingsCmd)
+	registerSortFlags(clusterAddonsListCmd, clusterAddonSortFields)
 
 	clusterAddonsValuesCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
 	clusterAddonsValuesCmd.Flags().StringP("output", "o", "", "Output format: yaml (decoded, default) or raw (base64)")

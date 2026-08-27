@@ -26,6 +26,7 @@ var ovhCreateCmd = &cobra.Command{
 		credentialID, _ := cmd.Flags().GetString("credential-id")
 		sshKeyCredentialID, _ := cmd.Flags().GetString("ssh-key-credential-id")
 		region, _ := cmd.Flags().GetString("region")
+		availabilityZones, _ := cmd.Flags().GetStringSlice("availability-zones")
 		networkVlanID, _ := cmd.Flags().GetInt("network-vlan-id")
 		subnetCIDR, _ := cmd.Flags().GetString("subnet-cidr")
 		dhcpStart, _ := cmd.Flags().GetString("dhcp-start")
@@ -44,6 +45,7 @@ var ovhCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		includeDNS, _ := cmd.Flags().GetBool("include-dns")
 		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
 		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
 		gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
@@ -53,6 +55,7 @@ var ovhCreateCmd = &cobra.Command{
 			CredentialID:          credentialID,
 			SSHKeyCredentialID:    sshKeyCredentialID,
 			Region:                region,
+			AvailabilityZones:     availabilityZones,
 			NetworkVlanID:         networkVlanID,
 			SubnetCIDR:            subnetCIDR,
 			DHCPStart:             dhcpStart,
@@ -68,6 +71,7 @@ var ovhCreateCmd = &cobra.Command{
 			EtcdFlavorID:          etcdFlavorID,
 			ExternalCloudProvider: externalCloudProvider,
 			IncludeNetworking:     includeNetworking,
+			IncludeDNS:            includeDNS,
 		}
 		if kubeVersion != "" {
 			req.KubernetesVersion = &kubeVersion
@@ -108,14 +112,19 @@ var ovhDeprovisionCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		yes, _ := cmd.Flags().GetBool("yes")
+		force, _ := cmd.Flags().GetBool("force")
 
+		warning := "This deletes all its servers, networks and SSH keys!"
+		if force {
+			warning = "This deletes all its servers, networks, SSH keys, Cinder volumes and load balancers!"
+		}
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Deprovision OVH cluster %q? This deletes all its servers, networks and SSH keys! [y/N]: ", clusterID),
+			fmt.Sprintf("Deprovision OVH cluster %q? %s [y/N]: ", clusterID, warning),
 			yes); err != nil {
 			return err
 		}
 
-		result, err := apiClient.DeprovisionOvhCluster(clusterID)
+		result, err := apiClient.DeprovisionOvhCluster(clusterID, force)
 		if err != nil {
 			return fmt.Errorf("deprovisioning cluster: %w", err)
 		}
@@ -268,8 +277,9 @@ var ovhRegionsCmd = &cobra.Command{
 	Long:  "List the OVH Cloud regions the supplied credential's project can deploy in. Only these regions are valid for cluster creation.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialID, _ := cmd.Flags().GetString("credential-id")
+		withZones, _ := cmd.Flags().GetBool("with-zones")
 
-		result, err := apiClient.ListOvhRegions(credentialID)
+		result, err := apiClient.ListOvhRegions(credentialID, withZones)
 		if err != nil {
 			return fmt.Errorf("listing regions: %w", err)
 		}
@@ -283,8 +293,25 @@ var ovhRegionsCmd = &cobra.Command{
 			return nil
 		}
 		fmt.Printf("Regions available to credential %s:\n", credentialID)
-		for _, region := range result.Regions {
-			fmt.Printf("  %s\n", region)
+		// An API that predates region details answers the bare list and
+		// ignores the query parameter. Printing the plain names beats
+		// printing nothing at all under a header.
+		if !withZones || len(result.RegionDetails) == 0 {
+			for _, region := range result.Regions {
+				fmt.Printf("  %s\n", region)
+			}
+			if withZones {
+				fmt.Println("\nThis Ankra API does not report region details yet, so no zones are shown.")
+			}
+			return nil
+		}
+		for _, detail := range result.RegionDetails {
+			if len(detail.AvailabilityZones) == 0 {
+				fmt.Printf("  %-16s %s\n", detail.Name, detail.Type)
+				continue
+			}
+			fmt.Printf("  %-16s %-14s zones: %s\n",
+				detail.Name, detail.Type, strings.Join(detail.AvailabilityZones, ", "))
 		}
 		return nil
 	},
@@ -297,8 +324,9 @@ var ovhStopCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
+		force, _ := cmd.Flags().GetBool("force")
 
-		result, err := apiClient.StopOvhCluster(clusterID)
+		result, err := apiClient.StopOvhCluster(clusterID, force)
 		if err != nil {
 			return fmt.Errorf("stopping cluster: %w", err)
 		}
@@ -615,8 +643,9 @@ var ovhNodeGroupListCmd = &cobra.Command{
 			return nil
 		}
 		for _, ng := range result.NodeGroups {
-			fmt.Printf("%-20s  type=%-8s  count=%d  labels=%d  taints=%d\n",
-				ng.Name, ng.InstanceType, ng.Count, len(ng.Labels), len(ng.Taints))
+			fmt.Printf("%-20s  type=%-8s  count=%d  labels=%d  taints=%d%s\n",
+				ng.Name, ng.InstanceType, ng.Count, len(ng.Labels), len(ng.Taints),
+				nodeGroupZoneSuffix(ng))
 		}
 		return nil
 	},
@@ -633,6 +662,7 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 		count, _ := cmd.Flags().GetInt("count")
 		labelsFlag, _ := cmd.Flags().GetString("labels")
 		taintsFlag, _ := cmd.Flags().GetString("taints")
+		availabilityZone, _ := cmd.Flags().GetString("availability-zone")
 
 		labels, err := parseLabelsFlag(labelsFlag)
 		if err != nil {
@@ -644,11 +674,12 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 		}
 
 		req := client.AddNodeGroupRequest{
-			Name:         name,
-			InstanceType: instanceType,
-			Count:        count,
-			Labels:       labels,
-			Taints:       taints,
+			Name:             name,
+			InstanceType:     instanceType,
+			Count:            count,
+			Labels:           labels,
+			Taints:           taints,
+			AvailabilityZone: availabilityZone,
 		}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
@@ -858,6 +889,7 @@ func init() {
 	ovhCreateCmd.Flags().String("credential-id", "", "OVH API credential ID (required)")
 	ovhCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
 	ovhCreateCmd.Flags().String("region", "", "OVH Cloud region (required)")
+	ovhCreateCmd.Flags().StringSlice("availability-zones", nil, "Availability zones to spread the cluster across, in a 3-AZ region (e.g. eu-west-par-a,eu-west-par-b,eu-west-par-c). See 'ankra cluster ovh regions --with-zones'. Omitted leaves placement to OVH, which puts every node in one zone. More than one zone needs --control-plane-count=3 for etcd quorum")
 	ovhCreateCmd.Flags().Int("network-vlan-id", 0, "Network VLAN ID")
 	ovhCreateCmd.Flags().String("subnet-cidr", "10.0.1.0/24", "Subnet CIDR")
 	ovhCreateCmd.Flags().String("dhcp-start", "10.0.1.100", "DHCP range start")
@@ -874,6 +906,7 @@ func init() {
 	ovhCreateCmd.Flags().String("etcd-flavor-id", "b2-15", "Instance flavor for dedicated etcd nodes when --etcd-topology=external")
 	ovhCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the OpenStack CCM and Cinder CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
 	ovhCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
+	registerIncludeDNSFlag(ovhCreateCmd)
 	ovhCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated ovh-cloud stack is committed to Git (optional)")
 	ovhCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")
 	ovhCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch to commit to")
@@ -895,6 +928,7 @@ func init() {
 	ovhNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
 	ovhNodeGroupAddCmd.Flags().String("labels", "", "Comma-separated key=value labels to apply to the node group")
 	ovhNodeGroupAddCmd.Flags().String("taints", "", "Comma-separated key=value:Effect taints to apply to the node group")
+	ovhNodeGroupAddCmd.Flags().String("availability-zone", "", "Pin every node of the group to one availability zone, in a 3-AZ region (e.g. eu-west-par-b). See 'ankra cluster ovh regions --with-zones'. Pin the group when it runs zonal storage: an OVH volume cannot attach from another zone. Omitted on a zone-spread cluster, each node takes the zone with the fewest instances cluster-wide, so a one-node group lands wherever the cluster is thinnest, not where its name suggests; on a cluster with no zone pool OVH chooses")
 	_ = ovhNodeGroupAddCmd.MarkFlagRequired("name")
 	registerAsyncWriteFlags(ovhNodeGroupAddCmd)
 	registerAsyncWriteFlags(ovhNodeGroupScaleCmd)
@@ -909,9 +943,12 @@ func init() {
 	ovhNodeGroupTaintsCmd.Flags().Bool("clear", false, "Remove all taints from the node group")
 
 	ovhDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	ovhDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's Cinder volumes and load balancers, and tolerate unreachable infrastructure")
+	ovhStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's Cinder volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
 	ovhNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	ovhRegionsCmd.Flags().String("credential-id", "", "OVH API credential ID (required)")
+	ovhRegionsCmd.Flags().Bool("with-zones", false, "Also show each region's type and availability zones. Only region-3-az regions can place instances by zone; the zone names listed here are what --availability-zones and --availability-zone accept")
 	_ = ovhRegionsCmd.MarkFlagRequired("credential-id")
 
 	registerStructuredOutputFlags(

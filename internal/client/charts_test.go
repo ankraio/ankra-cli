@@ -16,7 +16,7 @@ func TestListCharts(t *testing.T) {
 			Charts: []ChartItem{
 				{ChartID: "chart1", Name: "nginx", Description: "Web server", Version: "1.0.0"},
 			},
-			Pagination: ChartsPagination{Page: 1, PageSize: 25, TotalPages: 1},
+			Pagination: Pagination{Page: 1, PageSize: 25, TotalPages: 1},
 		})
 	})
 	got, err := testClient.ListCharts(1, 25, false)
@@ -69,7 +69,7 @@ func TestSearchCharts(t *testing.T) {
 						{ChartID: "chart1", Name: "nginx", Description: "Web server", Version: "1.0.0"},
 						{ChartID: "chart2", Name: "nginx-ingress", Description: "Ingress", Version: "1.0.0"},
 					},
-					Pagination: ChartsPagination{Page: 1, PageSize: 100, TotalPages: 1},
+					Pagination: Pagination{Page: 1, PageSize: 100, TotalPages: 1},
 				})
 			},
 			wantCount: 2,
@@ -83,7 +83,7 @@ func TestSearchCharts(t *testing.T) {
 					Charts: []ChartItem{
 						{ChartID: "chart1", Name: "nginx", Description: "Web server", Version: "1.0.0"},
 					},
-					Pagination: ChartsPagination{Page: 1, PageSize: 100, TotalPages: 1},
+					Pagination: Pagination{Page: 1, PageSize: 100, TotalPages: 1},
 				})
 			},
 			wantCount: 0,

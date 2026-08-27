@@ -63,7 +63,11 @@ func newApplicationSubresourceCommand(name string, short string, invoke applicat
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			payload, invokeError := invoke(command, strings.TrimSpace(arguments[0]))
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, invokeError := invoke(command, applicationID)
 			if invokeError != nil {
 				return invokeError
 			}
@@ -124,6 +128,16 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 		}),
 	)
 	applicationCommand.AddCommand(newApplicationDemoCommand())
+	applicationCommand.AddCommand(newApplicationRegistryCommand())
+	applicationCommand.AddCommand(newApplicationCredentialCommand())
+	applicationCommand.AddCommand(newApplicationAIConfigCommand())
+	applicationCommand.AddCommand(newApplicationPublishAddonCommand())
+	applicationCommand.AddCommand(newApplicationPublishedAddonCommand())
+	applicationCommand.AddCommand(newApplicationEnvSecretsCommand())
+	applicationCommand.AddCommand(newApplicationAutoDeployCommand())
+	applicationCommand.AddCommand(newApplicationBuildCommand())
+	applicationCommand.AddCommand(newApplicationSettingsCommand())
+	applicationCommand.AddCommand(newApplicationManifestAddonCommand())
 }
 
 func newApplicationDeleteCommand() *cobra.Command {
@@ -135,11 +149,14 @@ func newApplicationDeleteCommand() *cobra.Command {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			applicationID := strings.TrimSpace(arguments[0])
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
 			yes, _ := command.Flags().GetBool("yes")
 			if confirmError := confirmPrompt(
 				command.InOrStdin(), command.OutOrStdout(),
-				fmt.Sprintf("Delete application %q? This removes its platform record and cannot be undone! [y/N]: ", applicationID),
+				fmt.Sprintf("Delete application %q? This removes its platform record and cannot be undone! [y/N]: ", strings.TrimSpace(arguments[0])),
 				yes,
 			); confirmError != nil {
 				return confirmError
@@ -193,7 +210,11 @@ func newApplicationJobsCommand() *cobra.Command {
 			}
 			page, _ := command.Flags().GetInt("page")
 			pageSize, _ := command.Flags().GetInt("page-size")
-			payload, jobsError := apiClient.GetApplicationJobs(command.Context(), strings.TrimSpace(arguments[0]), page, pageSize)
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, jobsError := apiClient.GetApplicationJobs(command.Context(), applicationID, page, pageSize)
 			if jobsError != nil {
 				return jobsError
 			}
@@ -237,7 +258,11 @@ deploy inputs declared by the application's chart.`,
 			if parseError != nil {
 				return withExitCode(exitUsage, parseError)
 			}
-			payload, deployError := apiClient.DeployApplication(command.Context(), strings.TrimSpace(arguments[0]),
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, deployError := apiClient.DeployApplication(command.Context(), applicationID,
 				client.DeployApplicationRequest{
 					ClusterID:  clusterID,
 					Namespace:  strings.TrimSpace(namespace),
@@ -272,7 +297,11 @@ func newApplicationPlatformCommand() *cobra.Command {
 			if clusterID == "" {
 				return withExitCode(exitUsage, errors.New("--cluster is required"))
 			}
-			payload, platformError := apiClient.GetApplicationExistingPlatform(command.Context(), strings.TrimSpace(arguments[0]), clusterID)
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, platformError := apiClient.GetApplicationExistingPlatform(command.Context(), applicationID, clusterID)
 			if platformError != nil {
 				return platformError
 			}
@@ -296,7 +325,11 @@ func newApplicationWorkflowRunsCommand() *cobra.Command {
 			status, _ := command.Flags().GetString("status")
 			page, _ := command.Flags().GetInt("page")
 			pageSize, _ := command.Flags().GetInt("page-size")
-			payload, runsError := apiClient.GetApplicationWorkflowRuns(command.Context(), strings.TrimSpace(arguments[0]),
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, runsError := apiClient.GetApplicationWorkflowRuns(command.Context(), applicationID,
 				strings.TrimSpace(status), page, pageSize)
 			if runsError != nil {
 				return runsError
@@ -324,7 +357,11 @@ func newApplicationWorkflowRunJobsCommand() *cobra.Command {
 			if parseError != nil {
 				return parseError
 			}
-			payload, jobsError := apiClient.GetApplicationWorkflowRunJobs(command.Context(), strings.TrimSpace(arguments[0]), runID)
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, jobsError := apiClient.GetApplicationWorkflowRunJobs(command.Context(), applicationID, runID)
 			if jobsError != nil {
 				return jobsError
 			}
@@ -348,7 +385,11 @@ func newApplicationRerunWorkflowCommand() *cobra.Command {
 			if parseError != nil {
 				return parseError
 			}
-			payload, rerunError := apiClient.RerunApplicationWorkflowRun(command.Context(), strings.TrimSpace(arguments[0]), runID)
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, rerunError := apiClient.RerunApplicationWorkflowRun(command.Context(), applicationID, runID)
 			if rerunError != nil {
 				return rerunError
 			}
@@ -369,7 +410,11 @@ func newApplicationPullRequestReviewsCommand() *cobra.Command {
 				return formatError
 			}
 			limit, _ := command.Flags().GetInt("limit")
-			payload, reviewsError := apiClient.GetApplicationPullRequestReviews(command.Context(), strings.TrimSpace(arguments[0]), limit)
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, reviewsError := apiClient.GetApplicationPullRequestReviews(command.Context(), applicationID, limit)
 			if reviewsError != nil {
 				return reviewsError
 			}
@@ -406,7 +451,11 @@ uploaded. Use --delete to remove a tracked path.`,
 				return parseError
 			}
 			commitMessage, _ := command.Flags().GetString("message")
-			payload, filesError := apiClient.UpdateApplicationFiles(command.Context(), strings.TrimSpace(arguments[0]),
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, filesError := apiClient.UpdateApplicationFiles(command.Context(), applicationID,
 				client.UpdateApplicationFilesRequest{
 					Files:         files,
 					DeletedPaths:  deletedPaths,

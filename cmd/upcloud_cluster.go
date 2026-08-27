@@ -32,6 +32,7 @@ var upcloudCreateCmd = &cobra.Command{
 		workerCount, _ := cmd.Flags().GetInt("worker-count")
 		workerPlan, _ := cmd.Flags().GetString("worker-plan")
 		distribution, _ := cmd.Flags().GetString("distribution")
+		cni, _ := cmd.Flags().GetString("cni")
 		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
 		etcdTopology, _ := cmd.Flags().GetString("etcd-topology")
 		etcdNodeCount, _ := cmd.Flags().GetInt("etcd-node-count")
@@ -40,6 +41,7 @@ var upcloudCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		includeDNS, _ := cmd.Flags().GetBool("include-dns")
 		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
 		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
 		gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
@@ -56,11 +58,13 @@ var upcloudCreateCmd = &cobra.Command{
 			WorkerCount:           workerCount,
 			WorkerPlan:            workerPlan,
 			Distribution:          distribution,
+			CNI:                   cni,
 			EtcdTopology:          etcdTopology,
 			EtcdNodeCount:         etcdNodeCount,
 			EtcdPlan:              etcdPlan,
 			ExternalCloudProvider: externalCloudProvider,
 			IncludeNetworking:     includeNetworking,
+			IncludeDNS:            includeDNS,
 		}
 		if kubeVersion != "" {
 			req.KubernetesVersion = &kubeVersion
@@ -101,14 +105,19 @@ var upcloudDeprovisionCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
 		yes, _ := cmd.Flags().GetBool("yes")
+		force, _ := cmd.Flags().GetBool("force")
 
+		warning := "This deletes all its servers, networks and SSH keys!"
+		if force {
+			warning = "This deletes all its servers, networks, SSH keys, CSI storage volumes and load balancers!"
+		}
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Deprovision UpCloud cluster %q? This deletes all its servers, networks and SSH keys! [y/N]: ", clusterID),
+			fmt.Sprintf("Deprovision UpCloud cluster %q? %s [y/N]: ", clusterID, warning),
 			yes); err != nil {
 			return err
 		}
 
-		result, err := apiClient.DeprovisionUpcloudCluster(clusterID)
+		result, err := apiClient.DeprovisionUpcloudCluster(clusterID, force)
 		if err != nil {
 			return fmt.Errorf("deprovisioning cluster: %w", err)
 		}
@@ -136,12 +145,15 @@ var upcloudDeprovisionCmd = &cobra.Command{
 var upcloudStopCmd = &cobra.Command{
 	Use:   "stop <cluster_id>",
 	Short: "Stop an UpCloud cluster",
-	Long:  "Stop an UpCloud cluster's compute while keeping its configuration so it can be started again later.",
-	Args:  cobra.ExactArgs(1),
+	Long: "Stop an UpCloud cluster's compute while keeping its configuration so it can be started again later.\n\n" +
+		"--force also deletes the cluster's CSI storage volumes and load balancers, which otherwise keep billing " +
+		"while the cluster is stopped - the persisted data is lost.",
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]
+		force, _ := cmd.Flags().GetBool("force")
 
-		result, err := apiClient.StopUpcloudCluster(clusterID)
+		result, err := apiClient.StopUpcloudCluster(clusterID, force)
 		if err != nil {
 			return fmt.Errorf("stopping cluster: %w", err)
 		}
@@ -514,7 +526,7 @@ func init() {
 	upcloudCreateCmd.Flags().String("credential-id", "", "UpCloud API credential ID (required)")
 	upcloudCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
 	upcloudCreateCmd.Flags().String("zone", "", "UpCloud zone (required)")
-	upcloudCreateCmd.Flags().String("network-ip-range", "10.0.0.0/16", "Network IP range")
+	upcloudCreateCmd.Flags().String("network-ip-range", "", "Private network IP range (optional). Left unset, Ankra picks a range that is free in your UpCloud account; pass one only to pin it (a range overlapping an existing network in the zone is refused)")
 	upcloudCreateCmd.Flags().String("bastion-plan", "1xCPU-2GB", "Bastion plan")
 	upcloudCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
 	upcloudCreateCmd.Flags().String("control-plane-plan", "2xCPU-4GB", "Control plane plan")
@@ -526,7 +538,9 @@ func init() {
 	upcloudCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
 	upcloudCreateCmd.Flags().String("etcd-plan", "2xCPU-4GB", "Plan for dedicated etcd nodes when --etcd-topology=external")
 	upcloudCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the UpCloud CCM and CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
+	upcloudCreateCmd.Flags().String("cni", "", "CNI plugin: flannel, calico, or cilium (optional; the platform default is used when omitted)")
 	upcloudCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
+	registerIncludeDNSFlag(upcloudCreateCmd)
 	upcloudCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated upcloud-cloud-provider stack is committed to Git (optional)")
 	upcloudCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")
 	upcloudCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch to commit to")
@@ -539,6 +553,8 @@ func init() {
 	upcloudStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
 
 	upcloudDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	upcloudDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's CSI storage volumes and load balancers, and tolerate unreachable infrastructure")
+	upcloudStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's CSI storage volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
 	upcloudNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	upcloudNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")

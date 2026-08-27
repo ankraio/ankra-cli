@@ -12,6 +12,59 @@ import (
 	"github.com/spf13/pflag"
 )
 
+type hetznerCreateMock struct {
+	baseMock
+	called     bool
+	gotRequest client.CreateHetznerClusterRequest
+}
+
+func (m *hetznerCreateMock) CreateHetznerCluster(req client.CreateHetznerClusterRequest) (*client.CreateHetznerClusterResponse, error) {
+	m.called = true
+	m.gotRequest = req
+	return &client.CreateHetznerClusterResponse{ClusterID: "hz-cluster-123", Name: req.Name}, nil
+}
+
+// The same wire guarantee the digitalocean and ovh lanes pin: include_dns
+// travels without omitempty so an explicit false is not dropped and
+// re-defaulted to true, and it does not move include_networking with it.
+func TestHetznerCreateSendsIncludeDNS(t *testing.T) {
+	tests := []struct {
+		name           string
+		args           []string
+		wantDNS        bool
+		wantNetworking bool
+	}{
+		{name: "default", wantDNS: true, wantNetworking: true},
+		{name: "dns off", args: []string{"--include-dns=false"}, wantNetworking: true},
+		{name: "networking off keeps dns", args: []string{"--include-networking=false"}, wantDNS: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetConfirmFlag(t, hetznerCreateCmd)
+			mock := &hetznerCreateMock{}
+			args := append([]string{"cluster", "hetzner", "create",
+				"--name", "dns-test",
+				"--credential-id", "cred-1",
+				"--ssh-key-credential-id", "ssh-1",
+				"--location", "fsn1"}, tt.args...)
+			out, err := runWithInput(t, mock, "", args...)
+			if err != nil {
+				t.Fatalf("execute failed: %v\noutput: %s", err, out)
+			}
+			if !mock.called {
+				t.Fatal("expected CreateHetznerCluster call")
+			}
+			if mock.gotRequest.IncludeDNS != tt.wantDNS {
+				t.Errorf("include_dns = %v, want %v", mock.gotRequest.IncludeDNS, tt.wantDNS)
+			}
+			if mock.gotRequest.IncludeNetworking != tt.wantNetworking {
+				t.Errorf("include_networking = %v, want %v", mock.gotRequest.IncludeNetworking, tt.wantNetworking)
+			}
+		})
+	}
+}
+
 type hetznerDeprovisionMock struct {
 	baseMock
 	called       bool

@@ -1,0 +1,397 @@
+package cmd
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+
+	"ankra/internal/client"
+
+	"github.com/jedib0t/go-pretty/v6/text"
+	"github.com/spf13/cobra"
+)
+
+var stackProfileDraftsCmd = &cobra.Command{
+	Use:   "drafts",
+	Short: "Open, edit, and publish stack profile builder drafts",
+	Long: `Work with stack profile builder drafts from the terminal.
+
+A draft is the editable working copy behind a profile version: open one from
+an existing profile (or from a deployed stack), annotate its parameters with
+the titles and descriptions the launch form shows as guidance, and publish it
+as the next version.`,
+}
+
+var stackProfileDraftsListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List the organisation's open builder drafts",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		drafts, err := apiClient.ListStackProfileDrafts()
+		if err != nil {
+			return fmt.Errorf("listing stack profile drafts: %w", err)
+		}
+		if handled, err := renderStructured(cmd, drafts); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		if len(drafts) == 0 {
+			fmt.Println("No open stack profile drafts.")
+			return nil
+		}
+		for _, draft := range drafts {
+			target := "new profile"
+			if draft.ProfileID != nil {
+				target = "edits profile " + *draft.ProfileID
+			}
+			fmt.Printf("%s  %s\n", text.Bold.Sprint(draft.Name), draft.ID)
+			fmt.Printf("  %s   updated %s\n", target, draft.UpdatedAt)
+		}
+		return nil
+	},
+}
+
+var stackProfileDraftsCreateCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Open a builder draft",
+	Long: `Open a builder draft: --profile edits an existing profile (publishing
+creates its next version), --name starts a brand-new profile, and
+--source-cluster with --source-stack seeds the draft from a deployed stack.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name, _ := cmd.Flags().GetString("name")
+		profileReference, _ := cmd.Flags().GetString("profile")
+		sourceCluster, _ := cmd.Flags().GetString("source-cluster")
+		sourceStack, _ := cmd.Flags().GetString("source-stack")
+		if name == "" && profileReference == "" && sourceCluster == "" {
+			return withExitCode(exitUsage, errors.New("one of --name, --profile or --source-cluster is required"))
+		}
+
+		request := client.CreateStackProfileDraftRequest{Name: name}
+		if profileReference != "" {
+			profileID, err := resolveStackProfileID(apiClient, profileReference)
+			if err != nil {
+				return err
+			}
+			request.ProfileID = profileID
+		}
+		if sourceCluster != "" {
+			if sourceStack == "" {
+				return withExitCode(exitUsage, errors.New("--source-stack is required with --source-cluster"))
+			}
+			clusterID, err := resolveClusterID(sourceCluster)
+			if err != nil {
+				return err
+			}
+			request.SourceClusterID = clusterID
+			request.SourceStackName = sourceStack
+		}
+
+		draft, err := apiClient.CreateStackProfileDraft(request)
+		if err != nil {
+			return fmt.Errorf("creating stack profile draft: %w", err)
+		}
+		if handled, err := renderStructured(cmd, draft); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		fmt.Printf("Draft '%s' opened.\n", draft.Name)
+		fmt.Printf("  Draft ID: %s\n", draft.ID)
+		fmt.Printf("  Parameters detected: %d\n", len(draft.Parameters))
+		fmt.Printf("\nAnnotate the launch form's guidance with:\n  ankra stack-profiles drafts annotate %s --parameter <name> --description \"...\"\n", draft.ID)
+		return nil
+	},
+}
+
+var stackProfileDraftsGetCmd = &cobra.Command{
+	Use:   "get <draft-id>",
+	Short: "Show a draft's parameters and their annotations",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		draft, err := apiClient.GetStackProfileDraft(args[0])
+		if err != nil {
+			return fmt.Errorf("reading stack profile draft: %w", err)
+		}
+		if handled, err := renderStructured(cmd, draft); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		fmt.Printf("%s  (version %d)\n", text.Bold.Sprint(draft.Name), draft.Version)
+		for _, parameter := range draft.Parameters {
+			name, _ := parameter["name"].(string)
+			parameterType, _ := parameter["type"].(string)
+			description, _ := parameter["description"].(string)
+			if description == "" {
+				description = text.Faint.Sprint("(no description yet)")
+			}
+			fmt.Printf("  %s  [%s]\n    %s\n", text.Bold.Sprint(name), parameterType, description)
+			if choices := describeDraftParameterChoices(parameter); choices != "" {
+				fmt.Printf("    choices: %s\n", choices)
+			}
+		}
+		return nil
+	},
+}
+
+var stackProfileDraftsAnnotateCmd = &cobra.Command{
+	Use:   "annotate <draft-id>",
+	Short: "Set the guidance a parameter shows in the launch form",
+	Long: `Set a parameter's title and description on a draft. The description is
+the guidance the launch form shows under the field, so this is how a profile
+author instructs the person filling it in. Publishing the draft makes the
+annotations live.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		parameterName, _ := cmd.Flags().GetString("parameter")
+		description, _ := cmd.Flags().GetString("description")
+		title, _ := cmd.Flags().GetString("title")
+		defaultValue, _ := cmd.Flags().GetString("default")
+		parameterType, _ := cmd.Flags().GetString("type")
+		enumList, _ := cmd.Flags().GetString("enum")
+		required, _ := cmd.Flags().GetBool("required")
+		add, _ := cmd.Flags().GetBool("add")
+		changed := cmd.Flags().Changed
+		if description == "" && title == "" && !changed("default") && !changed("type") && !changed("enum") && !changed("required") && !add {
+			return withExitCode(exitUsage, errors.New("provide at least one of --title, --description, --default, --type, --enum, --required or --add"))
+		}
+		if changed("type") {
+			if typeError := validateParameterType(parameterType); typeError != nil {
+				return typeError
+			}
+		}
+
+		draft, err := apiClient.GetStackProfileDraft(args[0])
+		if err != nil {
+			return fmt.Errorf("reading stack profile draft: %w", err)
+		}
+		parameter := draftParameterByName(draft.Parameters, parameterName)
+		declared := false
+		if parameter == nil {
+			if !add {
+				return fmt.Errorf("parameter %q not found on the draft; it has: %v. Pass --add --enum <choices> to declare an input no manifest references, such as a choice that sets other inputs",
+					parameterName, draftParameterNames(draft.Parameters))
+			}
+			// The platform re-detects a draft's inputs on every save and keeps
+			// an input no manifest references only while it offers choices, so
+			// a declared input must be born with its choices or the save drops
+			// it silently.
+			if len(splitEnumList(enumList)) == 0 {
+				return withExitCode(exitUsage, fmt.Errorf("--add needs --enum <choice,choice,...>: an input no manifest references is kept by the platform only while it offers choices"))
+			}
+			// A declared input starts as the platform's detection would have
+			// shaped it; the flags below then apply on top, exactly like an
+			// annotation on a detected input.
+			parameter = map[string]any{
+				"name": parameterName, "title": parameterName, "type": "string",
+				"required": false, "enum_values": []any{}, "group": "variables",
+			}
+			draft.Parameters = append(draft.Parameters, parameter)
+			declared = true
+		}
+		if existingType, _ := parameter["type"].(string); existingType == "secret" &&
+			(changed("type") || changed("default") || changed("enum") || changed("required")) {
+			return withExitCode(exitUsage, fmt.Errorf("%q is a secret input: its type, default, enum and required flag are fixed; only --title and --description apply", parameterName))
+		}
+		if description != "" {
+			parameter["description"] = description
+		}
+		if title != "" {
+			parameter["title"] = title
+		}
+		if changed("default") {
+			if defaultValue == "" {
+				delete(parameter, "default")
+			} else {
+				parameter["default"] = defaultValue
+			}
+		}
+		if changed("type") {
+			parameter["type"] = parameterType
+		}
+		if changed("enum") {
+			values := splitEnumList(enumList)
+			enumValues := make([]any, 0, len(values))
+			for _, value := range values {
+				enumValues = append(enumValues, value)
+			}
+			parameter["enum_values"] = enumValues
+			if len(values) > 0 && !changed("type") {
+				parameter["type"] = "enum"
+			}
+			// On an input that offers choices, the enum values ARE the choices:
+			// keep the choices whose value is still listed (with their sets),
+			// add a bare choice for each new value. A declared input is born
+			// this way, which is what keeps it on the draft across saves.
+			if existing := draftParameterOptions(parameter); declared || len(existing) > 0 {
+				byValue := map[string]map[string]any{}
+				for _, option := range existing {
+					byValue[fmt.Sprint(option["value"])] = option
+				}
+				reconciled := make([]map[string]any, 0, len(values))
+				for _, value := range values {
+					if option, present := byValue[value]; present {
+						reconciled = append(reconciled, option)
+						continue
+					}
+					reconciled = append(reconciled, map[string]any{"value": value})
+				}
+				storeDraftParameterOptions(parameter, reconciled)
+			}
+		}
+		if changed("required") {
+			parameter["required"] = required
+		}
+
+		updated, err := writeDraftParameters(draft)
+		if err != nil {
+			return fmt.Errorf("annotating stack profile draft: %w", err)
+		}
+		if handled, err := renderStructured(cmd, updated); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		if declared {
+			fmt.Printf("Declared input %s on draft '%s'.\n", parameterName, updated.Name)
+			fmt.Printf("Give it choices that set other inputs with:\n  ankra stack-profiles drafts options set %s --parameter %s --value <value> --set <input>=<value>\n", updated.ID, parameterName)
+		} else {
+			fmt.Printf("Annotated %s on draft '%s'.\n", parameterName, updated.Name)
+		}
+		fmt.Println("Publish to make it live:")
+		fmt.Printf("  ankra stack-profiles drafts publish %s --changelog \"...\"\n", updated.ID)
+		return nil
+	},
+}
+
+var stackProfileDraftsPublishCmd = &cobra.Command{
+	Use:   "publish <draft-id>",
+	Short: "Publish a draft as a profile version",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		channel, _ := cmd.Flags().GetString("channel")
+		changelog, _ := cmd.Flags().GetString("changelog")
+		visibility, _ := cmd.Flags().GetString("visibility")
+
+		result, err := apiClient.PublishStackProfileDraft(args[0], client.PublishStackProfileDraftRequest{
+			Channel: channel, Changelog: changelog, Visibility: visibility,
+		})
+		if err != nil {
+			return fmt.Errorf("publishing stack profile draft: %w", err)
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		profileName, _ := result.Profile["name"].(string)
+		versionNumber := result.Version["version"]
+		fmt.Printf("Published '%s' version %v.\n", profileName, versionNumber)
+		return nil
+	},
+}
+
+var stackProfileDraftsDeleteCmd = &cobra.Command{
+	Use:   "delete <draft-id>",
+	Short: "Discard a builder draft",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		result, err := apiClient.DeleteStackProfileDraft(args[0])
+		if err != nil {
+			return fmt.Errorf("deleting stack profile draft: %w", err)
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		fmt.Println("Draft deleted.")
+		return nil
+	},
+}
+
+var stackProfileDraftsValidateCmd = &cobra.Command{
+	Use:   "validate <draft-id>",
+	Short: "Run the publish validations on a draft without publishing",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		payload, err := apiClient.ValidateStackProfileDraft(cmd.Context(), args[0])
+		if err != nil {
+			return fmt.Errorf("validating stack profile draft: %w", err)
+		}
+		return renderApplicationPayload(cmd, payload)
+	},
+}
+
+var stackProfileDraftsRebaseCmd = &cobra.Command{
+	Use:   "rebase <draft-id>",
+	Short: "Move a stale draft's base to the profile's latest version",
+	Long: `Move a draft's base to the profile's latest published version. A draft
+opened before someone else published cannot be published until it is
+rebased; the draft's contents are kept and the upstream changes reported.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		payload, err := apiClient.RebaseStackProfileDraft(cmd.Context(), args[0],
+			client.RebaseStackProfileDraftRequest{Strategy: "acknowledge"})
+		if err != nil {
+			return fmt.Errorf("rebasing stack profile draft: %w", err)
+		}
+		return renderApplicationPayload(cmd, payload)
+	},
+}
+
+var stackProfileDraftsSubmitSuggestionCmd = &cobra.Command{
+	Use:   "submit-suggestion <draft-id>",
+	Short: "Submit a draft as a suggestion to another organisation's profile",
+	Long: `Submit a draft that edits another organisation's public profile as a
+suggestion. The owning organisation reviews it with
+'ankra stack-profiles suggestions'; submitting retires the draft.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		title, _ := cmd.Flags().GetString("title")
+		if strings.TrimSpace(title) == "" {
+			return withExitCode(exitUsage, errors.New("--title is required: one line describing the change"))
+		}
+		payload, err := apiClient.SubmitStackProfileSuggestion(cmd.Context(), args[0], strings.TrimSpace(title))
+		if err != nil {
+			return fmt.Errorf("submitting stack profile suggestion: %w", err)
+		}
+		return renderApplicationPayload(cmd, payload)
+	},
+}
+
+func init() {
+	stackProfileDraftsCreateCmd.Flags().String("name", "", "Name for a brand-new profile draft")
+	stackProfileDraftsCreateCmd.Flags().String("profile", "", "Existing profile (name or ID) to open a draft on")
+	stackProfileDraftsCreateCmd.Flags().String("source-cluster", "", "Cluster (name or ID) to seed the draft from a deployed stack")
+	stackProfileDraftsCreateCmd.Flags().String("source-stack", "", "Deployed stack name to seed the draft from (with --source-cluster)")
+
+	stackProfileDraftsAnnotateCmd.Flags().String("parameter", "", "Parameter name to annotate")
+	stackProfileDraftsAnnotateCmd.Flags().String("description", "", "Guidance shown under the field in the launch form")
+	stackProfileDraftsAnnotateCmd.Flags().String("title", "", "Display title for the field (optional)")
+	stackProfileDraftsAnnotateCmd.Flags().String("default", "", "Default value (pass an empty string to clear it)")
+	stackProfileDraftsAnnotateCmd.Flags().String("type", "", "Input type: string, number, boolean or enum")
+	stackProfileDraftsAnnotateCmd.Flags().String("enum", "", "Allowed values, comma separated (implies --type enum)")
+	stackProfileDraftsAnnotateCmd.Flags().Bool("required", false, "Whether the input must be set when the profile is used (--required=false to relax)")
+	stackProfileDraftsAnnotateCmd.Flags().Bool("add", false, "Declare the input if the draft does not have it, e.g. a choice that sets other inputs and is referenced by no manifest")
+	_ = stackProfileDraftsAnnotateCmd.MarkFlagRequired("parameter")
+
+	stackProfileDraftsPublishCmd.Flags().String("channel", "stable", "Release channel for the version")
+	stackProfileDraftsPublishCmd.Flags().String("changelog", "", "Changelog entry for the version")
+	stackProfileDraftsPublishCmd.Flags().String("visibility", "", "Profile visibility applied at publish (organisation or public)")
+
+	stackProfileDraftsSubmitSuggestionCmd.Flags().String("title", "", "One line describing the change (required)")
+
+	stackProfileDraftsCmd.AddCommand(stackProfileDraftsListCmd, stackProfileDraftsCreateCmd,
+		stackProfileDraftsGetCmd, stackProfileDraftsAnnotateCmd,
+		stackProfileDraftsPublishCmd, stackProfileDraftsDeleteCmd,
+		stackProfileDraftsValidateCmd, stackProfileDraftsRebaseCmd,
+		stackProfileDraftsSubmitSuggestionCmd)
+	stackProfilesCmd.AddCommand(stackProfileDraftsCmd)
+
+	registerStructuredOutputFlags(stackProfileDraftsListCmd, stackProfileDraftsCreateCmd,
+		stackProfileDraftsGetCmd, stackProfileDraftsAnnotateCmd,
+		stackProfileDraftsPublishCmd, stackProfileDraftsDeleteCmd,
+		stackProfileDraftsValidateCmd, stackProfileDraftsRebaseCmd,
+		stackProfileDraftsSubmitSuggestionCmd)
+}

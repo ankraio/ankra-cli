@@ -31,21 +31,21 @@ type NodeListResult struct {
 }
 
 type NodeDetail struct {
-	ID            string                       `json:"id"`
-	Kind          string                       `json:"kind"`
-	Name          string                       `json:"name"`
-	Role          *string                      `json:"role,omitempty"`
-	NodeGroup     *string                      `json:"node_group,omitempty"`
-	State         string                       `json:"state"`
-	IsDeleted     bool                         `json:"is_deleted"`
-	CreatedAt     string                       `json:"created_at"`
-	UpdatedAt     string                       `json:"updated_at"`
-	Definition    map[string]interface{}       `json:"definition"`
-	Info          map[string]interface{}       `json:"info,omitempty"`
-	Data          map[string]interface{}       `json:"data,omitempty"`
-	Dependencies  map[string][]string          `json:"dependencies"`
-	Relationships map[string][]string          `json:"relationships"`
-	Groups        map[string][]string          `json:"groups"`
+	ID            string                 `json:"id"`
+	Kind          string                 `json:"kind"`
+	Name          string                 `json:"name"`
+	Role          *string                `json:"role,omitempty"`
+	NodeGroup     *string                `json:"node_group,omitempty"`
+	State         string                 `json:"state"`
+	IsDeleted     bool                   `json:"is_deleted"`
+	CreatedAt     string                 `json:"created_at"`
+	UpdatedAt     string                 `json:"updated_at"`
+	Definition    map[string]interface{} `json:"definition"`
+	Info          map[string]interface{} `json:"info,omitempty"`
+	Data          map[string]interface{} `json:"data,omitempty"`
+	Dependencies  map[string][]string    `json:"dependencies"`
+	Relationships map[string][]string    `json:"relationships"`
+	Groups        map[string][]string    `json:"groups"`
 }
 
 func (c *Client) ListHetznerClusterNodes(clusterID string) (*NodeListResult, error) {
@@ -105,6 +105,56 @@ func (c *Client) RestartDigitaloceanClusterNode(clusterID, nodeID string) (*Rest
 
 func (c *Client) RestartProxmoxClusterNode(clusterID, nodeID string) (*RestartNodeResult, error) {
 	return c.restartClusterNode("proxmox", clusterID, nodeID)
+}
+
+// NodeCloudInitLogResult mirrors the platform's NodeRemediationResult wire
+// shape for the cloud-init log fetch. When the SSH round trip finishes
+// within the platform's wait budget, Completed is true and Report carries
+// cloud_init_status / log_tail; otherwise the operation ids are the poll
+// handle.
+type NodeCloudInitLogResult struct {
+	OperationID  string                 `json:"operation_id"`
+	StepID       string                 `json:"step_id"`
+	NodeID       string                 `json:"node_id"`
+	JobName      string                 `json:"job_name"`
+	Status       string                 `json:"status"`
+	Completed    bool                   `json:"completed"`
+	Attached     bool                   `json:"attached_to_existing_run,omitempty"`
+	Report       map[string]interface{} `json:"report,omitempty"`
+	ErrorExcerpt string                 `json:"error_excerpt,omitempty"`
+}
+
+func (c *Client) HetznerNodeCloudInitLog(clusterID, nodeID string) (*NodeCloudInitLogResult, error) {
+	return c.nodeCloudInitLog("hetzner", clusterID, nodeID)
+}
+
+func (c *Client) OvhNodeCloudInitLog(clusterID, nodeID string) (*NodeCloudInitLogResult, error) {
+	return c.nodeCloudInitLog("ovh", clusterID, nodeID)
+}
+
+func (c *Client) UpcloudNodeCloudInitLog(clusterID, nodeID string) (*NodeCloudInitLogResult, error) {
+	return c.nodeCloudInitLog("upcloud", clusterID, nodeID)
+}
+
+func (c *Client) DigitaloceanNodeCloudInitLog(clusterID, nodeID string) (*NodeCloudInitLogResult, error) {
+	return c.nodeCloudInitLog("digitalocean", clusterID, nodeID)
+}
+
+func (c *Client) ScalewayNodeCloudInitLog(clusterID, nodeID string) (*NodeCloudInitLogResult, error) {
+	return c.nodeCloudInitLog("scaleway", clusterID, nodeID)
+}
+
+// nodeCloudInitLog fetches the node's cloud-init status and output-log tail
+// over the platform's bastion SSH lane. POST because the fetch runs as a
+// tracked execution; repeated calls attach to an in-flight run rather than
+// dispatching duplicates.
+func (c *Client) nodeCloudInitLog(provider, clusterID, nodeID string) (*NodeCloudInitLogResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/nodes/%s/cloud-init-log", c.BaseURL, provider, clusterID, nodeID)
+	var result NodeCloudInitLogResult
+	if err := c.sendJSON(http.MethodPost, url, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // restartClusterNode schedules a one-shot restart operation. Unlike the

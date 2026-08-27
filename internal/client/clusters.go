@@ -4,10 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	neturl "net/url"
 )
+
+// ErrClusterNotFound marks a lookup that completed and found nothing, as
+// opposed to one that could not be completed. Callers that act on a cluster's
+// absence must test for it: a transport or authorisation failure says nothing
+// about whether the cluster exists.
+var ErrClusterNotFound = errors.New("cluster not found")
 
 // ClusterListItem mirrors cluster's ClusterListItem from
 // src/usecase/cluster/list_clusters.py. Backend fields the CLI does not
@@ -85,7 +92,7 @@ func (c *Client) GetCluster(name string) (ClusterListItem, error) {
 			return cluster, nil
 		}
 	}
-	return ClusterListItem{}, fmt.Errorf("no cluster found for name %q", name)
+	return ClusterListItem{}, fmt.Errorf("no cluster found for name %q: %w", name, ErrClusterNotFound)
 }
 
 // GetClusterByID looks up a cluster by its UUID. Passing an explicit page
@@ -103,7 +110,7 @@ func (c *Client) GetClusterByID(clusterID string) (ClusterListItem, error) {
 			return cluster, nil
 		}
 	}
-	return ClusterListItem{}, fmt.Errorf("no cluster found for id %q", clusterID)
+	return ClusterListItem{}, fmt.Errorf("no cluster found for id %q: %w", clusterID, ErrClusterNotFound)
 }
 
 func (c *Client) DeleteCluster(ctx context.Context, name string) error {
@@ -276,6 +283,10 @@ type Addon struct {
 	RegistryURL            string                 `json:"registry_url,omitempty"`
 	RegistryCredentialName string                 `json:"registry_credential_name,omitempty"`
 	Settings               map[string]interface{} `json:"settings,omitempty"`
+	// Group is the optional organizational grouping label within the stack,
+	// the same field AddonSpec carries in the exported IaC. Omitted when
+	// empty: apply is declarative, so an absent key means "ungrouped".
+	Group string `json:"group,omitempty"`
 	// AgentsMd is the addon's AGENTS.md content (operational learnings in
 	// plain markdown). Pointer semantics matter: nil = field absent, the
 	// backend preserves the stored value; pointer to "" = explicit clear.
@@ -291,6 +302,8 @@ type Manifest struct {
 	Namespace      string   `json:"namespace,omitempty"`
 	Parents        []Parent `json:"parents"`
 	EncryptedPaths []string `json:"encrypted_paths,omitempty"`
+	// Group: see the Addon field of the same name.
+	Group string `json:"group,omitempty"`
 	// AgentsMd / AgentsMdFromFile: see the Addon fields of the same name.
 	// nil = preserve stored value, pointer to "" = clear.
 	AgentsMd         *string `json:"agents_md,omitempty"`
@@ -305,6 +318,12 @@ type Stack struct {
 	// DeployWave orders stacks against each other: stacks in wave N deploy
 	// only after every stack in a lower wave finished. Nil = unordered.
 	DeployWave *int `json:"deploy_wave,omitempty"`
+	// Variables are the stack-scoped rendering variables, the same map the
+	// partial-stack PATCH carries as StackSpec.Variables. The backend replaces
+	// the stored map with whatever apply sends, so omitting it clears the
+	// stack's variables - which is what happened before the CLI read them
+	// (ankra-yxxa).
+	Variables map[string]string `json:"variables,omitempty"`
 }
 
 type GitRepository struct {
@@ -334,6 +353,13 @@ type CreateImportClusterRequest struct {
 	Name        string             `json:"name"`
 	Description string             `json:"description,omitempty"`
 	Spec        CreateResourceSpec `json:"spec"`
+	// AllowRepoint acknowledges that moving the cluster to a different GitOps
+	// repository or branch prunes whatever the new source does not define.
+	// Omitted unless asked for, so an ordinary apply carries neither flag.
+	AllowRepoint bool `json:"allow_repoint,omitempty"`
+	// AllowRepointDestroyingData is the separate acknowledgement the server
+	// requires when the cluster holds PersistentVolumeClaims.
+	AllowRepointDestroyingData bool `json:"allow_repoint_destroying_data,omitempty"`
 }
 
 type ImportResponseErrorItem struct {
@@ -354,9 +380,13 @@ type ImportResponse struct {
 	Errors        []ImportResponseResourceError `json:"errors,omitempty"`
 }
 
+// TriggerReconcileResult mirrors the platform's reconcile response (openapi
+// TriggerReconcileResult): the number of operations the manual reconcile
+// planned. Zero is a success too - stored state was already in sync. The
+// route works for every cluster kind; "imported" in its path is historical
+// naming.
 type TriggerReconcileResult struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
+	CreatedOperations int `json:"created_operations"`
 }
 
 func (c *Client) TriggerReconcile(ctx context.Context, clusterID string) (*TriggerReconcileResult, error) {

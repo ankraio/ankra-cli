@@ -10,21 +10,22 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type PodSummary struct {
-	UID              string  `json:"uid"`
-	Name             string  `json:"name"`
-	Namespace        *string `json:"namespace"`
-	Phase            string  `json:"phase"`
-	Ready            string  `json:"ready"`
-	Restarts         int     `json:"restarts"`
-	LastRestartTime  *string `json:"last_restart_time"`
-	StartTime        *string `json:"start_time"`
-	PodIP            *string `json:"pod_ip"`
-	NodeName         *string `json:"node_name"`
-	NominatedNode    *string `json:"nominated_node_name"`
-	ReadinessGates   *string `json:"readiness_gates"`
+	UID             string  `json:"uid"`
+	Name            string  `json:"name"`
+	Namespace       *string `json:"namespace"`
+	Phase           string  `json:"phase"`
+	Ready           string  `json:"ready"`
+	Restarts        int     `json:"restarts"`
+	LastRestartTime *string `json:"last_restart_time"`
+	StartTime       *string `json:"start_time"`
+	PodIP           *string `json:"pod_ip"`
+	NodeName        *string `json:"node_name"`
+	NominatedNode   *string `json:"nominated_node_name"`
+	ReadinessGates  *string `json:"readiness_gates"`
 }
 
 type CacheInfo struct {
@@ -90,10 +91,15 @@ type FieldSelector struct {
 }
 
 type ResourceRequestItem struct {
-	Kind           string          `json:"kind"`
-	Namespace      string          `json:"namespace,omitempty"`
-	Name           string          `json:"name,omitempty"`
-	Group          string          `json:"group,omitempty"`
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Group     string `json:"group,omitempty"`
+	// Resource is the API plural. The backend derives one from Kind when
+	// this is empty, and that derivation is wrong for the aggregated
+	// metrics API (PodMetrics is served as "pods", not "podmetricses"), so
+	// callers outside the ordinary kinds send it explicitly.
+	Resource       string          `json:"resource,omitempty"`
 	Version        string          `json:"version"`
 	LabelSelector  string          `json:"label_selector,omitempty"`
 	FieldSelectors []FieldSelector `json:"field_selectors,omitempty"`
@@ -104,15 +110,29 @@ type GetResourcesRequest struct {
 	SkipCache        bool                  `json:"skip_cache"`
 }
 
+// ResourceCacheMetadata is present only when the platform answered from its
+// Kubernetes cache instead of the live cluster. Reads that are only correct
+// live - the aggregated metrics API above all - must refuse a cached answer
+// rather than render yesterday's objects as today's measurements.
+type ResourceCacheMetadata struct {
+	ServedFromCache  bool    `json:"served_from_cache"`
+	StalenessSeconds int     `json:"staleness_seconds"`
+	SyncStatus       string  `json:"sync_status"`
+	Warning          *string `json:"warning"`
+	IsDeleted        bool    `json:"is_deleted"`
+	DeletedAt        *string `json:"deleted_at"`
+}
+
 type ResourceResponseItem struct {
-	Status       string        `json:"status"`
-	Group        *string       `json:"group"`
-	Items        []interface{} `json:"items"`
-	Kind         string        `json:"kind"`
-	Name         *string       `json:"name"`
-	Namespace    *string       `json:"namespace"`
-	Version      string        `json:"version"`
-	TotalCount   *int          `json:"total_count"`
+	Status        string                 `json:"status"`
+	Group         *string                `json:"group"`
+	Items         []interface{}          `json:"items"`
+	Kind          string                 `json:"kind"`
+	Name          *string                `json:"name"`
+	Namespace     *string                `json:"namespace"`
+	Version       string                 `json:"version"`
+	TotalCount    *int                   `json:"total_count"`
+	CacheMetadata *ResourceCacheMetadata `json:"cache_metadata"`
 }
 
 type GetResourcesResponse struct {
@@ -164,7 +184,29 @@ type PodLogOptions struct {
 	ContainerName string
 	TailLines     int
 	SinceSeconds  int
+	// Follow keeps the stream open for new lines (kubectl logs -f). When
+	// false the request carries follow=false, so the route snapshots the
+	// selected tail and closes the response on the agent's end frame. A
+	// platform that predates that parameter ignores it and keeps following,
+	// so the client still detects the drain itself - an idle gap after the
+	// first batch, or the server's keepalive comment, which it only sends
+	// once it has nothing buffered.
+	Follow bool
+	// Previous reads the log of the container instance that terminated
+	// (kubectl logs --previous) - the only readable output of a container
+	// stuck in CrashLoopBackOff. The terminated log is closed, so the
+	// platform bounds the read regardless of Follow. A platform or agent
+	// that predates the parameter ignores it and serves the current
+	// container instead, which is why the CLI states the requirement in
+	// its help rather than silently presenting the wrong log as the right
+	// one.
+	Previous bool
 }
+
+// podLogsDrainIdle is how long a non-follow read waits for another line
+// after the last one before deciding the backlog is drained. The agent
+// pushes the backlog in quick batches, so a genuine gap means it is done.
+const podLogsDrainIdle = 2 * time.Second
 
 func (c *Client) StreamPodLogs(ctx context.Context, clusterID string, opts PodLogOptions, writer io.Writer) error {
 	params := url.Values{}
@@ -178,6 +220,20 @@ func (c *Client) StreamPodLogs(ctx context.Context, clusterID string, opts PodLo
 	}
 	if opts.SinceSeconds > 0 {
 		params.Set("since_seconds", fmt.Sprintf("%d", opts.SinceSeconds))
+	}
+	if !opts.Follow {
+		// The route defaults to follow=true; only the bounded read has to
+		// say so, which keeps the following request byte-identical to what
+		// every released CLI has always sent.
+		params.Set("follow", "false")
+	}
+	if opts.Previous {
+		params.Set("previous", "true")
+		// The route bounds a previous read whatever follow says, so the
+		// client has to take the drain path or it would sit waiting on a
+		// stream the server already closed.
+		opts.Follow = false
+		params.Set("follow", "false")
 	}
 
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/kubernetes/pod/logs?%s",
@@ -213,24 +269,125 @@ func (c *Client) StreamPodLogs(ctx context.Context, clusterID string, opts PodLo
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "event: error" {
-			if scanner.Scan() {
-				errLine := strings.TrimPrefix(scanner.Text(), "data:")
-				errLine = strings.TrimPrefix(errLine, " ")
-				return fmt.Errorf("%s", errLine)
+	if opts.Follow {
+		for scanner.Scan() {
+			if done, lineError := writePodLogLine(scanner, writer); done || lineError != nil {
+				return lineError
 			}
 		}
-		if strings.HasPrefix(line, "data:") {
-			data := strings.TrimPrefix(line, "data:")
-			data = strings.TrimPrefix(data, " ")
-			if _, err := fmt.Fprintln(writer, data); err != nil {
-				return fmt.Errorf("write output: %w", err)
-			}
+		return scanner.Err()
+	}
+	return drainPodLogs(ctx, scanner, resp, writer)
+}
+
+// sseData strips the "data:" prefix and its optional space from an SSE
+// line, leaving the payload.
+func sseData(line string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")
+}
+
+// writePodLogLine handles one SSE line: an error event surfaces as the
+// error, an end event stops the read, a data line is written. done reports
+// the stream is over. Both terminating events carry their own data line
+// ("stream complete", "stream idle timeout") - that is protocol text, so it
+// is consumed with the event rather than printed as if it were a log line.
+func writePodLogLine(scanner *bufio.Scanner, writer io.Writer) (bool, error) {
+	line := scanner.Text()
+	switch line {
+	case "event: error":
+		if scanner.Scan() {
+			return true, fmt.Errorf("%s", sseData(scanner.Text()))
+		}
+		return true, nil
+	case "event: end":
+		scanner.Scan()
+		return true, nil
+	}
+	if strings.HasPrefix(line, "data:") {
+		if _, err := fmt.Fprintln(writer, sseData(line)); err != nil {
+			return false, fmt.Errorf("write output: %w", err)
 		}
 	}
-	return scanner.Err()
+	return false, nil
+}
+
+// drainPodLogs reads a non-follow stream until the backlog is drained. A
+// route that honours follow=false ends it with its own "end" frame; against
+// an older one the drain is inferred client-side from the first idle gap
+// after at least one line, or from a server keepalive comment (sent only
+// when nothing is buffered), and the response is closed so the server tears
+// the stream down. A stream that ends on its own returns its scanner error,
+// if any.
+func drainPodLogs(ctx context.Context, scanner *bufio.Scanner, resp *http.Response, writer io.Writer) error {
+	lines := make(chan string)
+	scanErrors := make(chan error, 1)
+	go func() {
+		defer close(lines)
+		for scanner.Scan() {
+			select {
+			case lines <- scanner.Text():
+			case <-ctx.Done():
+				return
+			}
+		}
+		scanErrors <- scanner.Err()
+	}()
+	idle := time.NewTimer(podLogsDrainIdle)
+	defer idle.Stop()
+	sawLine := false
+	pendingError := false
+	pendingEnd := false
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-idle.C:
+			if sawLine {
+				closeBody(resp)
+				return nil
+			}
+			idle.Reset(podLogsDrainIdle)
+		case line, open := <-lines:
+			if !open {
+				select {
+				case scanError := <-scanErrors:
+					return scanError
+				default:
+					return nil
+				}
+			}
+			switch {
+			case pendingError:
+				return fmt.Errorf("%s", sseData(line))
+			case pendingEnd:
+				// The end frame's payload ("stream complete", "stream idle
+				// timeout") is protocol text, not a log line: swallow it and
+				// leave, the server has already closed its side.
+				return nil
+			case line == "event: error":
+				pendingError = true
+				continue
+			case line == "event: end":
+				pendingEnd = true
+				continue
+			case strings.HasPrefix(line, ":") && sawLine:
+				closeBody(resp)
+				return nil
+			case strings.HasPrefix(line, "data:"):
+				if _, err := fmt.Fprintln(writer, sseData(line)); err != nil {
+					return fmt.Errorf("write output: %w", err)
+				}
+				sawLine = true
+			}
+			if !idle.Stop() {
+				select {
+				case <-idle.C:
+				default:
+				}
+			}
+			idle.Reset(podLogsDrainIdle)
+		}
+	}
 }
 
 type HelmReleasesRequestItem struct {
@@ -363,8 +520,8 @@ func (c *Client) UninstallHelmRelease(clusterID, releaseName, namespace string) 
 }
 
 type ApiErrorResponse struct {
-	ErrorCode string  `json:"error_code"`
-	Detail    string  `json:"detail"`
+	ErrorCode  string `json:"error_code"`
+	Detail     string `json:"detail"`
 	RetryAfter *int   `json:"retry_after"`
 }
 

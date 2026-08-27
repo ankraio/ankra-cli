@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -29,10 +30,30 @@ var clusterCmd = &cobra.Command{
 	Long:  `Commands for managing and operating on clusters.`,
 }
 
+var clusterSortFields = []sortField[client.ClusterListItem]{
+	{"name", func(a, b client.ClusterListItem) int { return compareFold(a.Name, b.Name) }},
+	{"environment", func(a, b client.ClusterListItem) int { return compareFold(a.Environment, b.Environment) }},
+	{"kube-version", func(a, b client.ClusterListItem) int { return compareFold(a.KubeVersion, b.KubeVersion) }},
+	{"nodes", func(a, b client.ClusterListItem) int { return cmp.Compare(a.Nodes, b.Nodes) }},
+	{"control-planes", func(a, b client.ClusterListItem) int { return cmp.Compare(a.ControlPlanes, b.ControlPlanes) }},
+	{"state", func(a, b client.ClusterListItem) int { return compareFold(a.State, b.State) }},
+	{"kind", func(a, b client.ClusterListItem) int { return compareFold(a.Kind, b.Kind) }},
+	{"created", func(a, b client.ClusterListItem) int { return compareTimeStrings(a.CreatedAt, b.CreatedAt) }},
+}
+
 var clusterListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all clusters",
+	Example: `  # newest clusters first
+  ankra cluster list --sort created --order desc
+
+  # alphabetical by name
+  ankra cluster list --sort name`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		sortClusters, err := resolveSort(cmd, clusterSortFields)
+		if err != nil {
+			return err
+		}
 		clusters, err := listAllClusters()
 		if err != nil {
 			return fmt.Errorf("listing clusters: %w", err)
@@ -40,6 +61,7 @@ var clusterListCmd = &cobra.Command{
 		if clusters == nil {
 			clusters = []client.ClusterListItem{}
 		}
+		sortClusters(clusters)
 		if rendered, err := renderStructured(cmd, clusters); rendered || err != nil {
 			return err
 		}
@@ -196,13 +218,10 @@ If a cluster name is provided, reconciles that specific cluster.`,
 			return encodeStructured(cmd.OutOrStdout(), format, result)
 		}
 
-		if result.Success {
-			fmt.Println("Reconciliation triggered successfully!")
+		if result.CreatedOperations > 0 {
+			fmt.Printf("Reconciliation triggered: %d operation(s) created\n", result.CreatedOperations)
 		} else {
-			fmt.Printf("Reconciliation request completed: %s\n", result.Message)
-		}
-		if result.Message != "" {
-			fmt.Printf("Message: %s\n", result.Message)
+			fmt.Println("Reconciliation triggered: no operations created - stored state is already in sync")
 		}
 		return nil
 	},
@@ -226,8 +245,17 @@ func resolveClusterFromArgs(cmd *cobra.Command, args []string) (string, string, 
 
 var clusterProvisionCmd = &cobra.Command{
 	Use:   "provision [cluster_name]",
-	Short: "Provision (start) a managed cluster",
-	Long: `Start a managed cluster that was previously created but is not yet running.
+	Short: "Provision a managed cluster (build its infrastructure and redeploy its stacks)",
+	Long: `Provision a managed cluster that was created or deprovisioned but is not running.
+
+Provisioning rebuilds the cluster's infrastructure and then redeploys its stack
+resources from the cluster's stored stack definition. Verify anything you patched
+in place afterwards - see "ankra cluster addons list <addon>" and
+"ankra cluster manifests list".
+
+This is not a power-on. To resume a cluster you powered off, use the provider's
+start command (for example "ankra hetzner cluster start") or
+"ankra cluster power-schedules".
 
 If no cluster name is provided, uses the currently selected cluster.`,
 	Args: cobra.MaximumNArgs(1),
@@ -262,6 +290,11 @@ If no cluster name is provided, uses the currently selected cluster.`,
 		if result.MarkedToStartAt != "" {
 			fmt.Printf("  Scheduled at: %s\n", result.MarkedToStartAt)
 		}
+		// Stack resources are redeployed from the stored stack definition, so an
+		// in-place patch is worth re-checking once the cluster is back online.
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+			"note: stacks are redeployed from the cluster's stored stack definition; "+
+				"verify in-place patches with 'ankra cluster addons list <addon>' once the cluster is online")
 		return nil
 	},
 }
@@ -283,8 +316,19 @@ const (
 
 var clusterDeprovisionCmd = &cobra.Command{
 	Use:   "deprovision [cluster_name]",
-	Short: "Deprovision (stop) a managed cluster",
-	Long: `Stop a running managed cluster. This will shut down the cluster but not delete it.
+	Short: "Deprovision a managed cluster (tear it down; the cluster record is kept)",
+	Long: `Tear down a managed cluster. The cluster record is kept so it can be provisioned
+again later, but everything it runs on is released.
+
+This is a teardown, not a power-off:
+
+  - all cloud resources are released (servers, networks, SSH keys);
+  - every stack resource on the cluster is uninstalled, and a later
+    "ankra cluster provision" redeploys them from the stored stack definition.
+
+To power a cluster off and back on while keeping its state, use the provider's
+stop/start commands (for example "ankra hetzner cluster stop" and
+"ankra hetzner cluster start") or "ankra cluster power-schedules" instead.
 
 If no cluster name is provided, uses the currently selected cluster.
 
@@ -305,17 +349,24 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 			return err
 		}
 
-		// Only the Hetzner deprovision endpoint honors force; every other
-		// lane would silently drop it, so say so instead of implying a
-		// forced teardown that never happens.
-		if force && cloudClusterKind(clusterKind) != cloudClusterKindHetzner {
-			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
-				"warning: --force has no effect for this cluster type (only Hetzner deprovision supports it)")
+		// The Hetzner, UpCloud, OVH and DigitalOcean deprovision endpoints
+		// honor force; the Proxmox/Morpheus lanes and the generic imported
+		// deprovision drop it, so say so instead of implying a forced
+		// teardown that never happens.
+		if force {
+			switch cloudClusterKind(clusterKind) {
+			case cloudClusterKindHetzner, cloudClusterKindUpcloud,
+				cloudClusterKindOvh, cloudClusterKindDigitalocean:
+			default:
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+					"warning: --force has no effect for this cluster type")
+			}
 		}
 
 		if err := confirmPrompt(
 			cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Deprovision cluster %q? This deletes all its cloud resources (servers, networks, SSH keys)! [y/N]: ", clusterName),
+			fmt.Sprintf("Deprovision cluster %q? This deletes all its cloud resources (servers, networks, SSH keys) "+
+				"and uninstalls every stack resource on it - this is a teardown, not a power-off. [y/N]: ", clusterName),
 			yes,
 		); err != nil {
 			return err
@@ -341,7 +392,7 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 			}
 			return nil
 		case cloudClusterKindOvh:
-			result, err := apiClient.DeprovisionOvhCluster(clusterID)
+			result, err := apiClient.DeprovisionOvhCluster(clusterID, force)
 			if err != nil {
 				return fmt.Errorf("deprovisioning OVH cluster: %w", err)
 			}
@@ -352,7 +403,7 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 			return nil
 		case cloudClusterKindUpcloud:
-			result, err := apiClient.DeprovisionUpcloudCluster(clusterID)
+			result, err := apiClient.DeprovisionUpcloudCluster(clusterID, force)
 			if err != nil {
 				return fmt.Errorf("deprovisioning UpCloud cluster: %w", err)
 			}
@@ -366,7 +417,7 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 			}
 			return nil
 		case cloudClusterKindDigitalocean:
-			result, err := apiClient.DeprovisionDigitaloceanCluster(clusterID)
+			result, err := apiClient.DeprovisionDigitaloceanCluster(clusterID, force)
 			if err != nil {
 				return fmt.Errorf("deprovisioning DigitalOcean cluster: %w", err)
 			}
@@ -499,7 +550,7 @@ func init() {
 	// so existing scripts don't break on an unknown flag; see DEPRECATIONS.md.
 	_ = clusterDeprovisionCmd.Flags().MarkDeprecated("auto-delete",
 		"the backend does not support it; deprovision never deletes the cluster record (use 'ankra delete cluster' afterwards)")
-	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state (only honored for Hetzner clusters)")
+	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state; on UpCloud, Hetzner, OVH and DigitalOcean also deletes leftover CSI storage volumes and load balancers")
 	clusterDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	clusterRollToCmd.Flags().String("version", "", "Resource version ID to roll to (required)")
@@ -512,6 +563,7 @@ func init() {
 		clusterProvisionCmd,
 		clusterDeprovisionCmd,
 	)
+	registerSortFlags(clusterListCmd, clusterSortFields)
 
 	clusterCmd.AddCommand(clusterListCmd)
 	clusterCmd.AddCommand(clusterInfoCmd)

@@ -30,7 +30,8 @@ spec:
           from_file: "manifests/fluent-bit-namespace.yaml"
         - name: configmap-fluent-bit
           parents:
-            - manifest: namespace-fluent-bit
+            - kind: manifest
+              name: namespace-fluent-bit
           from_file: "manifests/fluent-bit-configmap.yaml"
       addons:
         - name: fluent-bit
@@ -39,7 +40,8 @@ spec:
           repository_url: https://fluent.github.io/helm-charts
           namespace: fluent-bit
           parents:
-            - manifest: configmap-fluent-bit
+            - kind: manifest
+              name: configmap-fluent-bit
           configuration:
             values: |-
               service:
@@ -51,9 +53,10 @@ spec:
 - `spec.git_repository` — connect a Git repo so stacks are stored and synced from Git (see `ankra-gitops`). Omit for a non-GitOps import.
 - `spec.stacks[]` — each stack groups related `manifests` and `addons`.
 - `manifests[]` — raw Kubernetes YAML. Use `from_file: "path.yaml"` to reference a file, or `manifest: |-` for inline content.
-- `addons[]` — Helm releases. Required: `chart_name`, `chart_version`, `repository_url`, `namespace`. Configure via `configuration.values: |-` (inline) or `configuration.from_file:`.
+- `addons[]` — Helm releases. Required: `chart_name`, `chart_version`, `namespace`. Name the chart source with `registry_name` + `registry_url` (with `registry_credential_name` for a private registry — see `ankra-helm-registries`); the older `repository_url` is still accepted. Configure via `configuration.values: |-` (inline) or `configuration.from_file:`.
 - `agents_md` / `agents_md_from_file` — optional per-manifest and per-addon AGENTS.md: operational learnings in plain markdown, stored as a sibling file in the GitOps repo (e.g. `agents_md_from_file: "manifests/fluent-bit.AGENTS.md"`). Omitting the field preserves the stored content, an explicit empty string clears it, and editing it never triggers a redeploy. Plaintext only — never put secrets in it. After any non-obvious operation (a values quirk, an upgrade pitfall, a dependency gotcha), record what you learned here so future agents working on the same addon or manifest benefit.
-- `parents` — the dependency edges that control deployment order. A resource only deploys after its parents succeed. Reference a parent as `- manifest: <name>` or `- addon: <name>`.
+- `group` — optional per-manifest and per-addon organizational label within the stack (a quoted string, e.g. `group: "platform services"`). Purely organizational: it never triggers a redeploy. Keep whatever the exported file carries — apply prunes what the file no longer declares, so removing the key removes the resource from its group.
+- `parents` — the dependency edges that control deployment order. A resource only deploys after its parents succeed. Every parent is a `kind` + `name` pair — write both keys (`- kind: manifest` / `name: <name>`, or `kind: addon`). **The shorthand `- manifest: <name>` does not work**: it parses to an empty parent and the edge is silently dropped, while both local and server-side validation still pass. Verify what was stored with `ankra cluster stacks list <stack> -o json`.
 
 ## Workflow
 
@@ -63,9 +66,14 @@ spec:
 4. Validate and apply:
 
 ```bash
-ankra cluster apply -f cluster.yaml --cluster my-cluster
-ankra cluster operations list      # watch the resulting operation
+ankra cluster validate -f cluster.yaml     # server-side checks, changes nothing
+ankra cluster draft -f cluster.yaml        # stage every stack as a reviewable draft instead
+ankra cluster apply -f cluster.yaml
+ankra cluster operations list              # watch the resulting operation
 ```
+
+`apply` is a declarative **replace** per stack: what the file no longer declares is removed from
+that stack. `draft` is the safe route on a cluster you are not ready to change.
 
 ## Rules
 

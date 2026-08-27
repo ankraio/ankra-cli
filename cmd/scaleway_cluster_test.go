@@ -14,7 +14,7 @@ type scalewayLifecycleMock struct {
 	stopClusterID  string
 }
 
-func (mock *scalewayLifecycleMock) StopScalewayCluster(clusterID string) (*client.ProviderStopClusterResponse, error) {
+func (mock *scalewayLifecycleMock) StopScalewayCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
 	mock.stopClusterID = clusterID
 	return &client.ProviderStopClusterResponse{Success: true, ClusterID: clusterID}, nil
 }

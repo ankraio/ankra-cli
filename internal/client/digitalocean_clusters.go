@@ -28,6 +28,7 @@ type CreateDigitaloceanClusterRequest struct {
 	EtcdSize              string  `json:"etcd_size,omitempty"`
 	ExternalCloudProvider bool    `json:"external_cloud_provider"`
 	IncludeNetworking     bool    `json:"include_networking"`
+	IncludeDNS            bool    `json:"include_dns"`
 	GitopsCredentialName  *string `json:"gitops_credential_name,omitempty"`
 	GitopsRepository      *string `json:"gitops_repository,omitempty"`
 	GitopsBranch          *string `json:"gitops_branch,omitempty"`
@@ -93,8 +94,11 @@ func (c *Client) CreateDigitaloceanCluster(req CreateDigitaloceanClusterRequest)
 	return &result, nil
 }
 
-func (c *Client) DeprovisionDigitaloceanCluster(clusterID string) (*DeprovisionDigitaloceanClusterResponse, error) {
+func (c *Client) DeprovisionDigitaloceanCluster(clusterID string, force bool) (*DeprovisionDigitaloceanClusterResponse, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s", c.BaseURL, clusterID)
+	if force {
+		url = url + "?force=true"
+	}
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -223,8 +227,11 @@ func (c *Client) ScaleDigitaloceanWorkers(clusterID string, workerCount int) (*S
 	return c.doScaleWorkers(scaleURL, workerCount)
 }
 
-func (c *Client) StopDigitaloceanCluster(clusterID string) (*StopDigitaloceanClusterResponse, error) {
+func (c *Client) StopDigitaloceanCluster(clusterID string, force bool) (*StopDigitaloceanClusterResponse, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/stop", c.BaseURL, url.PathEscape(clusterID))
+	if force {
+		endpoint = endpoint + "?force=true"
+	}
 	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -292,9 +293,16 @@ var clusterOperationsStepsCmd = &cobra.Command{
 	Use:     "steps <execution_id>",
 	Aliases: []string{"jobs"},
 	Short:   "List steps for a specific execution",
-	Args:    cobra.ExactArgs(1),
+	Long: `List the steps of an execution with their status and error excerpt.
+
+--results additionally fetches each step's job result - the structured
+payload the scheduler recorded when the step finished (for example the
+resources a teardown deleted, skipped, or failed to reclaim). Results are
+printed under each step, and merged into the steps in -o json|yaml output.`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		executionID := args[0]
+		includeResults, _ := cmd.Flags().GetBool("results")
 
 		format, err := structuredFormatFromFlags(cmd)
 		if err != nil {
@@ -306,7 +314,21 @@ var clusterOperationsStepsCmd = &cobra.Command{
 			return fmt.Errorf("fetching execution: %w", err)
 		}
 
+		var resultsByStep map[string]client.StepResult
+		if includeResults {
+			resultsByStep, err = loadExecutionStepResults(executionID)
+			if err != nil {
+				return err
+			}
+		}
+
 		if format != outputDefault {
+			if includeResults {
+				return encodeStructured(os.Stdout, format, executionDetailWithResults{
+					ExecutionDetail: detail,
+					StepResults:     orderedStepResults(detail, resultsByStep),
+				})
+			}
 			return encodeStructured(os.Stdout, format, detail)
 		}
 
@@ -353,8 +375,66 @@ var clusterOperationsStepsCmd = &cobra.Command{
 		}
 		t.Render()
 		printExecutionStepDrift(detail)
+		if includeResults {
+			printExecutionStepResults(detail, resultsByStep)
+		}
 		return nil
 	},
+}
+
+// executionDetailWithResults is the -o json|yaml shape of `steps --results`:
+// the execution detail plus each step's recorded result, keyed by step id
+// in step order, so scripts can join them without a second call.
+type executionDetailWithResults struct {
+	client.ExecutionDetail
+	StepResults []client.StepResult `json:"step_results" yaml:"step_results"`
+}
+
+// loadExecutionStepResults fetches the execution's step results and indexes
+// them by step id. A step that has not finished has no result row.
+func loadExecutionStepResults(executionID string) (map[string]client.StepResult, error) {
+	response, resultError := apiClient.GetExecutionResult(executionID)
+	if resultError != nil {
+		return nil, fmt.Errorf("fetching execution results %s: %w", executionID, resultError)
+	}
+	resultsByStep := make(map[string]client.StepResult, len(response.Results))
+	for _, stepResult := range response.Results {
+		resultsByStep[stepResult.StepID] = stepResult
+	}
+	return resultsByStep, nil
+}
+
+// orderedStepResults returns the results in the execution's step order,
+// dropping steps without one.
+func orderedStepResults(detail client.ExecutionDetail, resultsByStep map[string]client.StepResult) []client.StepResult {
+	ordered := make([]client.StepResult, 0, len(resultsByStep))
+	for _, step := range detail.Steps {
+		if stepResult, found := resultsByStep[step.ID]; found {
+			ordered = append(ordered, stepResult)
+		}
+	}
+	return ordered
+}
+
+// printExecutionStepResults renders each step's result payload as indented
+// JSON under a per-step heading; steps without a result are listed as such
+// so a missing sweep is visible rather than silently absent.
+func printExecutionStepResults(detail client.ExecutionDetail, resultsByStep map[string]client.StepResult) {
+	fmt.Println()
+	fmt.Println("Step results:")
+	for _, step := range detail.Steps {
+		stepResult, found := resultsByStep[step.ID]
+		if !found || len(stepResult.Result) == 0 {
+			fmt.Printf("  %s (%s): no result recorded\n", step.Name, step.ID)
+			continue
+		}
+		encoded, marshalError := json.MarshalIndent(stepResult.Result, "    ", "  ")
+		if marshalError != nil {
+			fmt.Printf("  %s (%s): result could not be rendered: %v\n", step.Name, step.ID, marshalError)
+			continue
+		}
+		fmt.Printf("  %s (%s):\n    %s\n", step.Name, step.ID, encoded)
+	}
 }
 
 func renderExecutionsTable(executions []client.ExecutionSummary) {
@@ -495,6 +575,8 @@ func init() {
 		"Output format: json or yaml (default: human-readable)")
 	clusterOperationsStepsCmd.Flags().StringP("output", "o", "",
 		"Output format: json or yaml (default: human-readable)")
+	clusterOperationsStepsCmd.Flags().Bool("results", false,
+		"Also fetch and show each step's recorded job result (what the step created, deleted, skipped, or failed to reclaim)")
 	registerStructuredOutputFlags(
 		clusterOperationsCancelCmd,
 		clusterOperationsCancelStepCmd,

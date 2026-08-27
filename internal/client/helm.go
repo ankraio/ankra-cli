@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // HelmRegistryListItem mirrors the backend's ExtendedOCIRegistry /
@@ -13,26 +14,31 @@ import (
 // usecase/helm/list_helm_chart_registries.py). The kind is inferred from
 // the URL prefix; the API does not include it as a discriminator field
 // because each row is already an instance of the correct Pydantic
-// subclass.
+// subclass, so ListHelmRegistries fills Kind in at decode time to keep
+// the table and structured output in agreement.
 type HelmRegistryListItem struct {
-	Name           string  `json:"name"`
-	URL            string  `json:"url"`
-	CredentialName *string `json:"credential_name,omitempty"`
-	CreatedAt      *string `json:"created_at,omitempty"`
-	UpdatedAt      *string `json:"updated_at,omitempty"`
+	Name           string   `json:"name"`
+	Kind           string   `json:"kind"`
+	URL            string   `json:"url"`
+	CredentialName *string  `json:"credential_name,omitempty"`
+	CreatedAt      *string  `json:"created_at,omitempty"`
+	UpdatedAt      *string  `json:"updated_at,omitempty"`
 	ExcludeCharts  []string `json:"exclude_charts,omitempty"`
-	Indexing       bool    `json:"indexing"`
-	LastIndexedAt  *string `json:"last_indexed_at,omitempty"`
-	NextSyncAt     *string `json:"next_sync_at,omitempty"`
-	ChartCount     int     `json:"chart_count"`
-	IsGlobal       bool    `json:"is_global"`
+	Indexing       bool     `json:"indexing"`
+	LastIndexedAt  *string  `json:"last_indexed_at,omitempty"`
+	NextSyncAt     *string  `json:"next_sync_at,omitempty"`
+	ChartCount     int      `json:"chart_count"`
+	IsGlobal       bool     `json:"is_global"`
+	// LastSyncError carries the reason the most recent index sync failed. The
+	// API has always returned it; leaving it unmodelled made a broken registry
+	// indistinguishable from a healthy one.
+	LastSyncError *string `json:"last_sync_error,omitempty"`
 }
 
-// Kind returns "oci" if the URL has an oci:// scheme, otherwise "http".
-// The CLI used to show a kind column populated from an explicit field,
-// but the API does not surface one. URL scheme is the canonical signal.
-func (item HelmRegistryListItem) Kind() string {
-	if len(item.URL) >= 6 && item.URL[:6] == "oci://" {
+// helmRegistryKindFromURL returns "oci" for an oci:// URL and "http"
+// otherwise. URL scheme is the canonical kind signal on this API surface.
+func helmRegistryKindFromURL(registryURL string) string {
+	if strings.HasPrefix(registryURL, "oci://") {
 		return "oci"
 	}
 	return "http"
@@ -53,6 +59,7 @@ type GetHelmRegistryResponse struct {
 	ReadJobInterval *int                      `json:"read_job_interval,omitempty"`
 	OrganisationID  *string                   `json:"organisation_id,omitempty"`
 	ResourceState   *string                   `json:"resource_state,omitempty"`
+	LastSyncError   *string                   `json:"last_sync_error,omitempty"`
 	Pagination      Pagination                `json:"pagination"`
 }
 
@@ -127,11 +134,30 @@ func (c *Client) ListHelmRegistries(opts *ListHelmRegistriesOptions) (*ListHelmR
 	if err := c.getJSON(endpoint, &response); err != nil {
 		return nil, err
 	}
+	for index := range response.Result {
+		if response.Result[index].Kind == "" {
+			response.Result[index].Kind = helmRegistryKindFromURL(response.Result[index].URL)
+		}
+	}
 	return &response, nil
 }
 
-func (c *Client) GetHelmRegistry(registryName string) (*GetHelmRegistryResponse, error) {
+// GetHelmRegistry fetches a registry's detail. page and pageSize select the
+// charts page returned alongside the registry (the endpoint paginates the
+// chart listing); zero values leave the backend defaults, which serve the
+// first page.
+func (c *Client) GetHelmRegistry(registryName string, page, pageSize int) (*GetHelmRegistryResponse, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/org/helm/registries/%s", c.BaseURL, url.PathEscape(registryName))
+	params := url.Values{}
+	if page > 0 {
+		params.Set("page", fmt.Sprintf("%d", page))
+	}
+	if pageSize > 0 {
+		params.Set("page_size", fmt.Sprintf("%d", pageSize))
+	}
+	if encoded := params.Encode(); encoded != "" {
+		endpoint += "?" + encoded
+	}
 	var response GetHelmRegistryResponse
 	if err := c.getJSON(endpoint, &response); err != nil {
 		return nil, err

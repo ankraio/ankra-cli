@@ -15,19 +15,21 @@ type CreateUpcloudClusterRequest struct {
 	CredentialID          string  `json:"credential_id"`
 	SSHKeyCredentialID    string  `json:"ssh_key_credential_id"`
 	Zone                  string  `json:"zone"`
-	NetworkIPRange        string  `json:"network_ip_range"`
+	NetworkIPRange        string  `json:"network_ip_range,omitempty"`
 	BastionPlan           string  `json:"bastion_plan"`
 	ControlPlaneCount     int     `json:"control_plane_count"`
 	ControlPlanePlan      string  `json:"control_plane_plan"`
 	WorkerCount           int     `json:"worker_count"`
 	WorkerPlan            string  `json:"worker_plan"`
 	Distribution          string  `json:"distribution"`
+	CNI                   string  `json:"cni,omitempty"`
 	KubernetesVersion     *string `json:"kubernetes_version,omitempty"`
 	EtcdTopology          string  `json:"etcd_topology,omitempty"`
 	EtcdNodeCount         int     `json:"etcd_node_count,omitempty"`
 	EtcdPlan              string  `json:"etcd_plan,omitempty"`
 	ExternalCloudProvider bool    `json:"external_cloud_provider"`
 	IncludeNetworking     bool    `json:"include_networking"`
+	IncludeDNS            bool    `json:"include_dns"`
 	GitopsCredentialName  *string `json:"gitops_credential_name,omitempty"`
 	GitopsRepository      *string `json:"gitops_repository,omitempty"`
 	GitopsBranch          *string `json:"gitops_branch,omitempty"`
@@ -93,8 +95,11 @@ func (c *Client) CreateUpcloudCluster(req CreateUpcloudClusterRequest) (*CreateU
 	return &result, nil
 }
 
-func (c *Client) DeprovisionUpcloudCluster(clusterID string) (*DeprovisionUpcloudClusterResponse, error) {
+func (c *Client) DeprovisionUpcloudCluster(clusterID string, force bool) (*DeprovisionUpcloudClusterResponse, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s", c.BaseURL, clusterID)
+	if force {
+		url = url + "?force=true"
+	}
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -223,8 +228,11 @@ func (c *Client) ScaleUpcloudWorkers(clusterID string, workerCount int) (*ScaleW
 	return c.doScaleWorkers(scaleURL, workerCount)
 }
 
-func (c *Client) StopUpcloudCluster(clusterID string) (*StopUpcloudClusterResponse, error) {
+func (c *Client) StopUpcloudCluster(clusterID string, force bool) (*StopUpcloudClusterResponse, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/stop", c.BaseURL, url.PathEscape(clusterID))
+	if force {
+		endpoint = endpoint + "?force=true"
+	}
 	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

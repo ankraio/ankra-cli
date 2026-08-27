@@ -142,7 +142,7 @@ func (e *PatchStackError) Error() string {
 	if e.Err != nil {
 		return e.Err.Error()
 	}
-	return fmt.Sprintf("patch stack failed: status %d, body: %s", e.StatusCode, truncateForError(e.Body, 500))
+	return fmt.Sprintf("patch stack failed: status %d, body: %s", e.StatusCode, redactedBodyForError(e.Body, 500))
 }
 
 func (e *PatchStackError) Unwrap() error {
@@ -202,13 +202,13 @@ func (c *Client) GetClusterIaC(ctx context.Context, clusterID string) (string, e
 		if parsedErr.Detail != "" {
 			return "", fmt.Errorf("get IaC failed: %s", parsedErr.Detail)
 		}
-		return "", fmt.Errorf("get IaC failed: status 404, body: %s", truncateForError(body, 500))
+		return "", fmt.Errorf("get IaC failed: status 404, body: %s", redactedBodyForError(body, 500))
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		return "", ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("get IaC failed: status %d, body: %s", resp.StatusCode, truncateForError(body, 500)))
+		return "", newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("get IaC failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500)))
 	}
 
 	var parsed IacResponse

@@ -27,6 +27,10 @@ type applicationAddOutput struct {
 	Repository     string `json:"repository" yaml:"repository"`
 	Branch         string `json:"branch" yaml:"branch"`
 	CredentialName string `json:"credential_name" yaml:"credential_name"`
+	// RegistryURL is reported only when the application declared a registry
+	// of its own; without one it publishes to the organisation's Ankra
+	// registry project and there is nothing to name.
+	RegistryURL string `json:"registry_url,omitempty" yaml:"registry_url,omitempty"`
 }
 
 func newApplicationCommand() *cobra.Command {
@@ -50,10 +54,18 @@ func newApplicationAddCommand() *cobra.Command {
 The command detects the GitHub repository from the selected remote, uses the
 remote's default branch when available, and falls back to the current branch.
 It selects an available GitHub credential automatically when the choice is
-unambiguous.`,
+unambiguous.
+
+Pass --registry-url to have the application publish to a container image
+registry you already operate instead of the organisation's own Ankra registry
+project. Declare it here rather than afterwards: the setup job generates the
+build workflow from the declaration the application is created with, so a
+registry added later leaves a workflow that logs in with the wrong one.`,
 		Example: `  ankra application add .
   ankra application add ./services/payments --name payments
-  ankra application add . --credential github-acme --branch main`,
+  ankra application add . --credential github-acme --branch main
+  ankra application add . --registry-url oci://artifact.example.com/commerce \
+    --registry-credential example-harbor`,
 		Args: cobra.ExactArgs(1),
 		RunE: runApplicationAdd,
 	}
@@ -61,13 +73,103 @@ unambiguous.`,
 	addCommand.Flags().String("credential", "", "GitHub credential name or ID (auto-detected when omitted)")
 	addCommand.Flags().String("branch", "", "Repository branch (auto-detected when omitted)")
 	addCommand.Flags().String("remote", "origin", "Git remote used to identify the GitHub repository")
+	addCommand.Flags().String("registry-url", "",
+		"Registry project the application publishes to, as oci://<host>/<project>")
+	addCommand.Flags().String("registry-credential", "",
+		"Registry credential of this organisation that authenticates to it")
+	addCommand.Flags().String("registry-api-url", "",
+		"Registry management API base (defaults to https://<host>)")
+	addCommand.Flags().String("registry-pull-secret", "",
+		"Name of the dockerconfigjson Secret generated manifests reference")
+	addCommand.Flags().String("registry-username-secret", "",
+		"Repository Actions secret the build workflow logs in with")
+	addCommand.Flags().String("registry-password-secret", "",
+		"Repository Actions secret holding the registry password")
+	addCommand.Flags().Bool("registry-manage-actions-secrets", false,
+		"Let Ankra write the named credential into the repository's Actions secrets")
+	addCommand.Flags().String("registry-admin-credential", "",
+		"Registry credential with project administrator rights, for Ankra to mint the application's robot")
+	addCommand.Flags().Bool("registry-flat-repositories", false,
+		"Publish monorepo components as <project>/<component> instead of <project>/<app>/<component>")
+	addCommand.Flags().StringArray("registry-component-repository", nil,
+		"Repository inside the project for one component, as <component>=<repository> (repeatable)")
 	registerStructuredOutputFlags(addCommand)
 	return addCommand
+}
+
+// applicationAddRegistryFlags are the flags that only mean something
+// alongside --registry-url. They mirror `application registry set`, prefixed
+// so they do not read as the add command's own GitHub credential flags.
+var applicationAddRegistryFlags = []string{
+	"registry-credential",
+	"registry-api-url",
+	"registry-pull-secret",
+	"registry-username-secret",
+	"registry-password-secret",
+	"registry-manage-actions-secrets",
+	"registry-admin-credential",
+	"registry-flat-repositories",
+	"registry-component-repository",
+}
+
+// applicationAddImageRegistry reads the --registry-* flags into the optional
+// declaration the create request carries, and returns nil when no registry
+// was declared so the key is omitted entirely - an empty declaration is not
+// the same as none, and would point the application at a registry with no
+// host.
+func applicationAddImageRegistry(command *cobra.Command) (*client.ApplicationImageRegistry, error) {
+	registryURL, _ := command.Flags().GetString("registry-url")
+	registryURL = strings.TrimSpace(registryURL)
+	if registryURL == "" {
+		if command.Flags().Changed("registry-url") {
+			return nil, withExitCode(exitUsage, errors.New("registry URL cannot be empty"))
+		}
+		for _, flagName := range applicationAddRegistryFlags {
+			if command.Flags().Changed(flagName) {
+				return nil, withExitCode(exitUsage, fmt.Errorf(
+					"--%s needs --registry-url: the registry project, as oci://<host>/<project>",
+					flagName,
+				))
+			}
+		}
+		return nil, nil
+	}
+
+	credentialName, _ := command.Flags().GetString("registry-credential")
+	apiURL, _ := command.Flags().GetString("registry-api-url")
+	pullSecretName, _ := command.Flags().GetString("registry-pull-secret")
+	usernameSecretName, _ := command.Flags().GetString("registry-username-secret")
+	passwordSecretName, _ := command.Flags().GetString("registry-password-secret")
+	manageActionsSecrets, _ := command.Flags().GetBool("registry-manage-actions-secrets")
+	adminCredentialName, _ := command.Flags().GetString("registry-admin-credential")
+	flatRepositories, _ := command.Flags().GetBool("registry-flat-repositories")
+	componentRepositoryFlags, _ := command.Flags().GetStringArray("registry-component-repository")
+	componentRepositories, componentRepositoriesError := parseComponentRepositories(componentRepositoryFlags)
+	if componentRepositoriesError != nil {
+		return nil, componentRepositoriesError
+	}
+
+	return &client.ApplicationImageRegistry{
+		URL:                   registryURL,
+		CredentialName:        strings.TrimSpace(credentialName),
+		APIURL:                strings.TrimSpace(apiURL),
+		PullSecretName:        strings.TrimSpace(pullSecretName),
+		UsernameSecretName:    strings.TrimSpace(usernameSecretName),
+		PasswordSecretName:    strings.TrimSpace(passwordSecretName),
+		ManageActionsSecrets:  manageActionsSecrets,
+		AdminCredentialName:   strings.TrimSpace(adminCredentialName),
+		FlatRepositories:      flatRepositories,
+		ComponentRepositories: componentRepositories,
+	}, nil
 }
 
 func runApplicationAdd(command *cobra.Command, arguments []string) error {
 	if _, outputError := structuredFormatFromFlags(command); outputError != nil {
 		return outputError
+	}
+	imageRegistry, registryError := applicationAddImageRegistry(command)
+	if registryError != nil {
+		return registryError
 	}
 
 	remoteName, _ := command.Flags().GetString("remote")
@@ -120,6 +222,7 @@ func runApplicationAdd(command *cobra.Command, arguments []string) error {
 		RepositoryOwner:          repository.Owner,
 		RepositoryName:           repository.Name,
 		RepositoryBranch:         repository.Branch,
+		ImageRegistry:            imageRegistry,
 	})
 	if createError != nil {
 		return fmt.Errorf("adding application: %w", createError)
@@ -141,6 +244,9 @@ func runApplicationAdd(command *cobra.Command, arguments []string) error {
 		Branch:         repository.Branch,
 		CredentialName: selectedCredential.Name,
 	}
+	if imageRegistry != nil {
+		result.RegistryURL = imageRegistry.URL
+	}
 	if rendered, renderError := renderStructured(command, result); rendered || renderError != nil {
 		return renderError
 	}
@@ -152,6 +258,9 @@ func runApplicationAdd(command *cobra.Command, arguments []string) error {
 	_, _ = fmt.Fprintf(output, "  Repository: %s\n", result.Repository)
 	_, _ = fmt.Fprintf(output, "  Branch:     %s\n", result.Branch)
 	_, _ = fmt.Fprintf(output, "  Credential: %s\n", result.CredentialName)
+	if result.RegistryURL != "" {
+		_, _ = fmt.Fprintf(output, "  Registry:   %s\n", result.RegistryURL)
+	}
 	_, _ = fmt.Fprintln(output, "\nAnkra is now analyzing the repository.")
 	return nil
 }
@@ -270,6 +379,39 @@ func inspectLocalApplicationRepository(
 	}, nil
 }
 
+// Variables through which Git binds a command to one specific repository,
+// index or work tree. `git commit` exports them into every hook it runs, so a
+// CLI invoked from a hook — or from `git rebase --exec`, or a CI step wrapped
+// in one — would silently address the hook's repository instead of the
+// directory named with -C.
+var gitRepositoryEnvironmentVariables = map[string]struct{}{
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES": {},
+	"GIT_COMMON_DIR":                   {},
+	"GIT_DIR":                          {},
+	"GIT_INDEX_FILE":                   {},
+	"GIT_NAMESPACE":                    {},
+	"GIT_OBJECT_DIRECTORY":             {},
+	"GIT_PREFIX":                       {},
+	"GIT_WORK_TREE":                    {},
+}
+
+// gitEnvironment is the process environment with those repository-binding
+// variables removed and the C locale forced, so a Git invocation addresses the
+// directory it was given and its output stays parseable. Everything else the
+// user configured (GIT_SSH_COMMAND, credential helpers, proxies) is preserved.
+func gitEnvironment() []string {
+	processEnvironment := os.Environ()
+	gitCommandEnvironment := make([]string, 0, len(processEnvironment)+1)
+	for _, environmentEntry := range processEnvironment {
+		variableName, _, _ := strings.Cut(environmentEntry, "=")
+		if _, isRepositoryBinding := gitRepositoryEnvironmentVariables[variableName]; isRepositoryBinding {
+			continue
+		}
+		gitCommandEnvironment = append(gitCommandEnvironment, environmentEntry)
+	}
+	return append(gitCommandEnvironment, "LC_ALL=C")
+}
+
 func executeGit(
 	requestContext context.Context,
 	directory string,
@@ -277,7 +419,7 @@ func executeGit(
 ) (string, error) {
 	commandArguments := append([]string{"-C", directory}, arguments...)
 	gitCommand := exec.CommandContext(requestContext, "git", commandArguments...)
-	gitCommand.Env = append(os.Environ(), "LC_ALL=C")
+	gitCommand.Env = gitEnvironment()
 	commandOutput, commandError := gitCommand.CombinedOutput()
 	if commandError != nil {
 		errorDetail := strings.TrimSpace(string(commandOutput))

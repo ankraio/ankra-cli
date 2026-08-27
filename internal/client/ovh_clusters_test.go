@@ -140,7 +140,7 @@ func TestDeprovisionOvhCluster_Success(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	result, err := testClient.DeprovisionOvhCluster("ovh-cluster-123")
+	result, err := testClient.DeprovisionOvhCluster("ovh-cluster-123", false)
 	if err != nil {
 		t.Fatalf("DeprovisionOvhCluster: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestStopOvhCluster_Success(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	result, err := testClient.StopOvhCluster("ovh-cluster-123")
+	result, err := testClient.StopOvhCluster("ovh-cluster-123", false)
 	if err != nil {
 		t.Fatalf("StopOvhCluster: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestStopOvhCluster_Error(t *testing.T) {
 		jsonResponse(t, w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
 	testClient := newTestClient(t, handler)
-	_, err := testClient.StopOvhCluster("ovh-cluster-123")
+	_, err := testClient.StopOvhCluster("ovh-cluster-123", false)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -459,10 +459,17 @@ func TestAddOvhNodeGroup_Success(t *testing.T) {
 		if r.URL.Path != expectedPath {
 			t.Errorf("path = %s, want %s", r.URL.Path, expectedPath)
 		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decoding request body: %v", err)
+		}
+		if payload["user_data"] != "#cloud-config\n" {
+			t.Errorf("payload user_data = %v, want the document under the user_data wire field", payload["user_data"])
+		}
 		jsonResponse(t, w, http.StatusCreated, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	req := AddNodeGroupRequest{Name: "gpu-pool", InstanceType: "b2-7", Count: 2}
+	req := AddNodeGroupRequest{Name: "gpu-pool", InstanceType: "b2-7", Count: 2, UserData: "#cloud-config\n"}
 	result, _, err := testClient.AddOvhNodeGroup(context.Background(), clusterID, req, true)
 	if err != nil {
 		t.Fatalf("AddOvhNodeGroup: %v", err)
