@@ -214,6 +214,10 @@ type CloneStackToClusterResult struct {
 	Warnings        []string `json:"warnings"`
 	AddonsCloned    int      `json:"addons_cloned"`
 	ManifestsCloned int      `json:"manifests_cloned"`
+	// ApplicationsCloned is absent from platforms that predate application
+	// cloning (cluster#1971) and decodes to 0 there, which is also what those
+	// platforms cloned.
+	ApplicationsCloned int `json:"applications_cloned"`
 }
 
 func (c *Client) CloneStackToCluster(ctx context.Context, targetClusterID string, cloneReq CloneStackToClusterRequest) (*CloneStackToClusterResult, error) {
