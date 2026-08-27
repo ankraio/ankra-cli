@@ -1582,6 +1582,20 @@ decoding response shapes the API never sent.
   the CLI now reads it from there, prints it to stderr, and one-shot chat
   exits non-zero so scripts can detect the failure.
 
+- **`ankra migrate` converts an existing Docker deployment into Ankra
+  resources.** `ankra migrate convert` reads a docker-compose file, a bare
+  Dockerfile, or the running Docker daemon and writes an ImportCluster
+  manifest plus the Kubernetes manifests its stack refers to - compose
+  `depends_on` becomes stack `parents`, credentials land in Secrets, named
+  volumes become claims, healthchecks become readiness probes - with a
+  warning for everything it could not carry over and the fix for each.
+  Conversion is done by modules: `docker` is built in, and anyone can add a
+  format by putting an executable named `ankra-module-<name>` on PATH that
+  answers `describe`, `detect`, and `convert` over JSON (see
+  `ankra migrate modules --help` and `examples/modules/`). None of it needs
+  a login.
+
+
 - **Chat progress is visible again.** Status frames became structured
   objects on newer backends and the CLI silently dropped them; it now
   renders the intent (and mechanism) as the familiar `[...]` progress line.

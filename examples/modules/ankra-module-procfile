@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""A complete external module for `ankra migrate`, in about a hundred lines.
+
+It converts a Heroku-style Procfile - one `name: command` per line - into a
+Deployment per process type, with a Service for `web`. Drop it on PATH (or in
+~/.ankra/modules), make it executable, and `ankra migrate modules` lists it.
+
+The three verbs are the whole contract: `describe`, `detect`, and `convert`,
+each reading a JSON request on stdin and writing a JSON reply on stdout. Exit
+non-zero with a message on stderr to fail a verb.
+"""
+
+import json
+import os
+import sys
+
+NAME = "procfile"
+VERSION = "1.0"
+PROTOCOL = 1
+
+
+def describe():
+    return {
+        "name": NAME,
+        "version": VERSION,
+        "protocol": PROTOCOL,
+        "summary": "Heroku-style Procfile (one Deployment per process type)",
+        "file_patterns": ["Procfile"],
+    }
+
+
+def detect(request):
+    path = os.path.join(request["dir"], "Procfile")
+    if not os.path.isfile(path):
+        return {"confidence": 0, "reason": "no Procfile"}
+    # A Procfile is an unambiguous marker, so this module claims certainty;
+    # a module working from a heuristic should score itself lower so that a
+    # more specific one wins.
+    return {"confidence": 1, "files": ["Procfile"], "reason": "Procfile present"}
+
+
+def read_procfile(path):
+    processes = {}
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            name, _, command = line.partition(":")
+            processes[name.strip()] = command.strip()
+    return processes
+
+
+def manifest(kind, name, namespace, spec, api_version="apps/v1"):
+    lines = [
+        f"apiVersion: {api_version}",
+        f"kind: {kind}",
+        "metadata:",
+        f"  name: {name}",
+        f"  namespace: {namespace}",
+        "spec:",
+    ]
+    lines.extend("  " + entry for entry in spec)
+    return "\n".join(lines) + "\n"
+
+
+def convert(request):
+    options = request.get("options", {})
+    image = options.get("image")
+    if not image:
+        # An option the CLI knows nothing about, passed through untouched:
+        # ankra migrate convert --option image=ghcr.io/org/app:1.2
+        sys.stderr.write("the procfile module needs --option image=<registry/repo:tag>\n")
+        sys.exit(2)
+
+    processes = read_procfile(os.path.join(request["dir"], "Procfile"))
+    namespace = request["namespace"]
+    port = options.get("port", "8080")
+
+    files = {}
+    manifests = [{"name": "namespace", "from_file": "manifests/namespace.yaml"}]
+    files["manifests/namespace.yaml"] = f"apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {namespace}\n"
+    warnings = []
+
+    for name, command in processes.items():
+        spec = [
+            "replicas: 1",
+            "selector:",
+            f"  matchLabels: {{app: {name}}}",
+            "template:",
+            "  metadata:",
+            f"    labels: {{app: {name}}}",
+            "  spec:",
+            "    enableServiceLinks: false",
+            "    containers:",
+            f"      - name: {name}",
+            f"        image: {image}",
+            f"        command: [\"sh\", \"-c\", {json.dumps(command)}]",
+        ]
+        if name == "web":
+            spec += ["        env:", f"          - {{name: PORT, value: \"{port}\"}}", "        ports:", f"          - containerPort: {port}"]
+        body = manifest("Deployment", name, namespace, spec)
+        if name == "web":
+            body += "---\n" + manifest("Service", name, namespace, [
+                f"selector: {{app: {name}}}",
+                f"ports: [{{port: {port}, targetPort: {port}}}]",
+            ], api_version="v1")
+            warnings.append(f"web listens on {port}; put an Ingress in front of Service web to expose it")
+        files[f"manifests/{name}.yaml"] = body
+        manifests.append({
+            "name": name,
+            "from_file": f"manifests/{name}.yaml",
+            "namespace": namespace,
+            "parents": [{"name": "namespace", "kind": "manifest"}],
+        })
+
+    if not processes:
+        warnings.append("the Procfile declares no processes")
+
+    return {
+        "cluster": {
+            "apiVersion": "ankra.io/v1alpha1",
+            "kind": "ImportCluster",
+            "metadata": {"name": request["cluster_name"], "description": "Converted from Procfile"},
+            "spec": {"stacks": [{"name": request["cluster_name"], "manifests": manifests}]},
+        },
+        "files": files,
+        "warnings": warnings,
+    }
+
+
+def main():
+    verb = sys.argv[1] if len(sys.argv) > 1 else ""
+    if verb == "describe":
+        reply = describe()
+    elif verb in ("detect", "convert"):
+        request = json.load(sys.stdin)
+        reply = detect(request) if verb == "detect" else convert(request)
+    else:
+        sys.stderr.write(f"unknown verb {verb!r}; expected describe, detect, or convert\n")
+        sys.exit(2)
+    json.dump(reply, sys.stdout)
+
+
+if __name__ == "__main__":
+    main()
