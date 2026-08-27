@@ -135,6 +135,41 @@ is protected and the pipeline gates on tests.
 The organisation's CI runner label decides which GitHub Actions runner the generated pipelines
 request — change it when GitHub-hosted runners are unavailable to you.
 
+## 5b. Building without the repository's CI
+
+Everything above routes the build through the workflow Ankra generated into the repository, which
+means the first image cannot exist until a human merges the setup PR. Ankra can also build the
+image itself, on its own builders:
+
+```bash
+ankra application build start <application-id> --commit <full-sha> --ref main
+ankra application build start <application-id> --commit <full-sha> --wait   # follow it; non-zero if it failed
+ankra application build list <application-id>
+ankra application build get <application-id> <build-id>
+ankra application build request <application-id> <request-id>   # a queued ask, before it has a build
+```
+
+Ankra clones the commit, resolves a recipe (the repository's own Dockerfile, else a generated one,
+else buildpacks), builds it and pushes the image — no Actions minutes, no runners to operate, and
+no registry credentials in the repository.
+
+Use it when the repository's CI cannot do the job: a private repository on a plan whose Actions
+never run, a first image needed before anyone merges a PR, an unattended caller with no browser,
+or a build the repository's own pipeline is failing to produce.
+
+Two things to know. `--commit` takes a **full** 40- or 64-character sha — the queue deduplicates on
+the string it is given, so an abbreviation would be a second key for the same commit. And a request
+is not yet a build: `start` answers with a request id, and the build row appears when the scheduler
+claims it, which is what `build request` reads and what `--wait` polls across.
+
+A failed build carries an `error_class` that says whose failure it is. `build_failed` is the
+repository's — read `error_message`. `clone_auth` and `recipe_missing` are the application's
+configuration. `push_failed`, `timeout` and `capacity` are Ankra's, and Ankra can already see them.
+
+The routes answer **404 while the `platform_builds` flag is off**, which is the default — the lane
+runs untrusted code on a builder pool that has to exist first. Ask Ankra to enable it for your
+organisation. A 404 on an application you can otherwise read means the flag, not the application.
+
 ## 6. Security scanning
 
 ```bash

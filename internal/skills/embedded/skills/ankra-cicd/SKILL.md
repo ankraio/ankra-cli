@@ -59,6 +59,22 @@ and the build workflow itself, and `ankra application auto-deploy` decides wheth
 tracked branch rolls itself out. Read `ankra-applications` first in that case — this skill is the
 shape to aim for, and the reference below is for pipelines you own by hand.
 
+## When there is no pipeline to run
+
+Ankra can also build the image on its own builders, with no workflow in the repository at all:
+`ankra application build start <application-id> --commit <full-sha> --wait`. Ankra clones the
+commit, resolves a recipe (repository Dockerfile, else generated, else buildpacks), builds and
+pushes — no Actions minutes, no runners to operate, no registry credentials in the repository.
+Reach for it when the repository's own CI cannot run: a private repo on a plan whose Actions never
+start, or a first image needed before anyone merges the setup PR.
+
+It does not replace the whole generated workflow. That workflow also runs a **Semgrep scan** and,
+where the application publishes one, packages and pushes a **Helm chart**; the build lane does
+neither. Replacing the image build is safe; retiring the pipeline means deciding where those two go
+first.
+
+Behind the `platform_builds` organisation flag, off by default. See `ankra-applications` §5b.
+
 ## Related skills
 
 - `ankra-applications` for Ankra-generated builds, registries, env-secrets and deploys.

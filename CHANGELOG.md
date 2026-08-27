@@ -4,6 +4,25 @@
 
 ### Added
 
+- **`ankra application build` builds an application's image on Ankra's own
+  builders, without the repository's CI running at all.** Ankra clones the
+  commit, resolves a recipe for it (the repository's Dockerfile, else a
+  generated one, else buildpacks), builds it and pushes the image. Until now
+  the first image could only come from the generated GitHub Actions workflow,
+  which means it could only come after a human merged the setup PR - a
+  critical path Ankra can neither watch nor repair, and one no unattended
+  caller could drive at all. `start` queues a build for a commit and reports
+  whether it queued a fresh one or joined the build already running for that
+  commit; `list` and `get` read what the builder did, including the
+  `error_class` that says whether a failure was the repository's or Ankra's.
+  `start --wait` follows the request through to the finished build and exits
+  non-zero if the build failed, so a pipeline step can be exactly "build this
+  commit, and fail if it does not build" - `--timeout` expiring exits 5 and
+  says the build is still running. `request` shows a queued request and the
+  build it became, which is what makes the gap between the two followable.
+  The routes answer 404 for organisations without the `platform_builds`
+  feature flag, which is off by default while the lane rolls out.
+
 - **`ankra backup vaults` manages the organisation's backup vaults from the
   terminal.** A vault is an S3-compatible bucket cluster backups are written
   to: `create` registers one (the access keys are prompted for when not

@@ -508,3 +508,52 @@ func (client *Client) FixApplicationBuild(requestContext context.Context, applic
 		applicationPath(applicationID, "/demos/fix-build"), nil,
 		FixApplicationBuildRequest{Branch: branch})
 }
+
+// --- platform builds ---
+
+// StartApplicationPlatformBuildRequest mirrors the platform-build POST body.
+// Only the commit is required; the queue deduplicates on (component,
+// head_sha) while a request is live, so naming the commit is what gives a
+// request its identity. Ref and Component are omitted when empty rather than
+// sent blank, because the queue stores them verbatim into the builder's
+// environment.
+type StartApplicationPlatformBuildRequest struct {
+	HeadSHA   string `json:"head_sha"`
+	Ref       string `json:"ref,omitempty"`
+	Component string `json:"component,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// StartApplicationPlatformBuild queues a build of the application's image on
+// Ankra's own builders. It answers the queue's decision - a fresh request, or
+// the live one this ask joined - not the finished build; follow the build
+// with GetApplicationPlatformBuild.
+func (client *Client) StartApplicationPlatformBuild(requestContext context.Context, applicationID string,
+	request StartApplicationPlatformBuildRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost,
+		applicationPath(applicationID, "/builds"), nil, request)
+}
+
+// ListApplicationPlatformBuilds reads the application's platform builds,
+// newest first. The platform caps the listing and reports the cap in the
+// payload's capped field.
+func (client *Client) ListApplicationPlatformBuilds(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet,
+		applicationPath(applicationID, "/builds"), nil, nil)
+}
+
+// GetApplicationPlatformBuild reads one platform build.
+func (client *Client) GetApplicationPlatformBuild(requestContext context.Context, applicationID string,
+	buildID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet,
+		applicationPath(applicationID, "/builds/"+url.PathEscape(buildID)), nil, nil)
+}
+
+// GetApplicationPlatformBuildRequest reads one queued build request, so a
+// caller can follow the id StartApplicationPlatformBuild answered with from
+// "queued" through to the build it became.
+func (client *Client) GetApplicationPlatformBuildRequest(requestContext context.Context, applicationID string,
+	buildRequestID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet,
+		applicationPath(applicationID, "/builds/requests/"+url.PathEscape(buildRequestID)), nil, nil)
+}
