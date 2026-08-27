@@ -312,6 +312,68 @@ func TestOrgCloudflareRefusesToResolveFromATruncatedListing(t *testing.T) {
 	}
 }
 
+// A truncated listing that happens to yield one match is not proof that match
+// is unique - a twin may sit beyond the page, and for delete that removes a
+// record nobody was told was ambiguous.
+func TestOrgCloudflareRefusesASingleMatchFromATruncatedListing(t *testing.T) {
+	mock := cloudflareFixture()
+	mock.truncated = true
+	_, err := runCloudflare(t, mock, "y\n", "delete", "example.com", "app")
+	if err == nil {
+		t.Fatal("a single match from a truncated listing was resolved confidently")
+	}
+	if !strings.Contains(err.Error(), "truncated") {
+		t.Errorf("error = %v", err)
+	}
+	if len(mock.deleteCalls) != 0 {
+		t.Errorf("a delete was issued: %v", mock.deleteCalls)
+	}
+}
+
+// A record id is unique by construction, so a match on one needs no complete
+// listing behind it - truncation must not block it.
+func TestOrgCloudflareResolvesARecordIDDespiteTruncation(t *testing.T) {
+	mock := cloudflareFixture()
+	mock.truncated = true
+	out, err := runCloudflare(t, mock, "y\n", "delete", "example.com", "record-1")
+	if err != nil {
+		t.Fatalf("a record id failed to resolve under truncation: %v\noutput: %s", err, out)
+	}
+	if len(mock.deleteCalls) != 1 || mock.deleteCalls[0] != "record-1" {
+		t.Errorf("delete calls = %v", mock.deleteCalls)
+	}
+}
+
+// A reference that is not a 32-character hex zone id is resolved as a domain
+// name, so a typo reports "no domain named ..." instead of being posted as an
+// identifier the API rejects opaquely.
+func TestOrgCloudflareTreatsANonZoneIDReferenceAsADomainName(t *testing.T) {
+	mock := cloudflareFixture()
+	_, err := runCloudflare(t, mock, "", "records", "nosuchdomain")
+	if err == nil {
+		t.Fatal("a bare non-id reference was accepted as a zone id")
+	}
+	if !strings.Contains(err.Error(), "no Cloudflare domain named") {
+		t.Errorf("error = %v", err)
+	}
+	// It was looked up as a name rather than sent as an id.
+	if len(mock.domainNameFilters) != 1 || mock.domainNameFilters[0] != "nosuchdomain" {
+		t.Errorf("name filters = %v", mock.domainNameFilters)
+	}
+}
+
+// A 32-character hex reference is taken as a zone id without a lookup.
+func TestOrgCloudflareTakesAZoneIDShapeWithoutALookup(t *testing.T) {
+	mock := cloudflareFixture()
+	zoneID := "0123456789abcdef0123456789abcdef"
+	if _, err := runCloudflare(t, mock, "", "records", zoneID); err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	if len(mock.domainNameFilters) != 0 {
+		t.Errorf("a zone id cost a domain lookup: %v", mock.domainNameFilters)
+	}
+}
+
 // --verify-only stores nothing, so a credential name would be discarded.
 func TestOrgCloudflareVerifyOnlyRefusesACredentialName(t *testing.T) {
 	t.Setenv("ANKRA_CLOUDFLARE_API_TOKEN", "a-scoped-token")

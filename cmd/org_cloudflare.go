@@ -237,12 +237,20 @@ record's TTL is managed by Cloudflare, so --ttl is refused with --proxied.`,
 			return err
 		}
 
+		ttl, err := cloudflareTTLFromFlags(cmd)
+		if err != nil {
+			return err
+		}
+		priority, err := cloudflareIntFlag(cmd, "priority")
+		if err != nil {
+			return err
+		}
 		input := client.CreateCloudflareRecordInput{
 			Name:       name,
 			RecordType: recordType,
 			Content:    content,
-			TTL:        cloudflareTTLFromFlags(cmd),
-			Priority:   cloudflareIntFlag(cmd, "priority"),
+			TTL:        ttl,
+			Priority:   priority,
 		}
 		if proxied, _ := cmd.Flags().GetBool("proxied"); proxied {
 			input.Proxied = &proxied
@@ -291,10 +299,18 @@ keeps the record's current value.`,
 			return err
 		}
 
+		ttl, err := cloudflareTTLFromFlags(cmd)
+		if err != nil {
+			return err
+		}
+		priority, err := cloudflareIntFlag(cmd, "priority")
+		if err != nil {
+			return err
+		}
 		input := client.UpdateCloudflareRecordInput{
 			Content:  content,
-			TTL:      cloudflareTTLFromFlags(cmd),
-			Priority: cloudflareIntFlag(cmd, "priority"),
+			TTL:      ttl,
+			Priority: priority,
 		}
 		if cmd.Flags().Changed("proxied") {
 			proxied, _ := cmd.Flags().GetBool("proxied")
@@ -438,26 +454,27 @@ func proxiedSuffix(proxied bool) string {
 
 // cloudflareTTLFromFlags returns --ttl, nil when unset so the backend keeps
 // Cloudflare's automatic TTL on create and the record's current TTL on update.
-func cloudflareTTLFromFlags(cmd *cobra.Command) *int {
+func cloudflareTTLFromFlags(cmd *cobra.Command) (*int, error) {
 	return cloudflareIntFlag(cmd, "ttl")
 }
 
 // cloudflareIntFlag returns a flag the caller actually passed, or nil.
 //
-// A parse failure is impossible for a flag declared as an Int - cobra rejects
-// a non-integer at parse time - so it is reported rather than swallowed. The
-// previous shape returned nil on error, which would have turned a malformed
-// value into a silent "leave this field as it is".
-func cloudflareIntFlag(cmd *cobra.Command, name string) *int {
+// A read failure is only possible if the flag is not declared as an Int - a
+// wiring mistake, not user input - so it is returned rather than swallowed.
+// Returning nil on error would turn it into a silent "leave this field as it
+// is", and panicking would end a user's command with a stack trace for a bug
+// that is ours.
+func cloudflareIntFlag(cmd *cobra.Command, name string) (*int, error) {
 	flag := cmd.Flags().Lookup(name)
 	if flag == nil || !flag.Changed {
-		return nil
+		return nil, nil
 	}
 	value, err := cmd.Flags().GetInt(name)
 	if err != nil {
-		panic(fmt.Sprintf("flag --%s is declared as an int but did not read back as one: %v", name, err))
+		return nil, fmt.Errorf("reading --%s: %w", name, err)
 	}
-	return &value
+	return &value, nil
 }
 
 // resolveCloudflareDomainID resolves a domain reference - a Cloudflare zone id
@@ -470,10 +487,11 @@ func resolveCloudflareDomainID(ctx context.Context, credentialName, reference st
 	if trimmed == "" {
 		return "", errors.New("a domain name or zone id is required")
 	}
-	// A Cloudflare zone id is 32 hex characters and carries no dot; a domain
-	// name always has one. Treating a dotted reference as a name avoids a
-	// pointless lookup for the common case.
-	if !strings.Contains(trimmed, ".") {
+	// A Cloudflare zone id is exactly 32 hex characters. Anything else is
+	// treated as a domain name and resolved, so a typo'd bare label reports
+	// "no domain named ..." rather than being posted as an identifier the API
+	// then rejects with a code nobody reads.
+	if looksLikeCloudflareZoneID(trimmed) {
 		return trimmed, nil
 	}
 	list, err := apiClient.ListCloudflareDomains(ctx, credentialName, trimmed)
@@ -484,6 +502,22 @@ func resolveCloudflareDomainID(ctx context.Context, credentialName, reference st
 		return "", fmt.Errorf("no Cloudflare domain named %q is reachable; run 'ankra org cloudflare domains'", reference)
 	}
 	return list.Items[0].ID, nil
+}
+
+// looksLikeCloudflareZoneID reports whether a reference has the shape of a
+// Cloudflare zone id: exactly 32 lowercase hex characters.
+func looksLikeCloudflareZoneID(reference string) bool {
+	if len(reference) != 32 {
+		return false
+	}
+	for _, character := range reference {
+		isHexDigit := (character >= '0' && character <= '9') ||
+			(character >= 'a' && character <= 'f')
+		if !isHexDigit {
+			return false
+		}
+	}
+	return true
 }
 
 func resolveCloudflareRecordID(ctx context.Context, credentialName, domainID, reference, recordType string) (string, error) {
@@ -520,8 +554,10 @@ func resolveCloudflareRecord(ctx context.Context, credentialName, domainID, refe
 	}
 
 	var matches []client.CloudflareRecord
+	var matchedByID bool
 	for _, record := range list.Items {
-		isMatch := record.ID == reference ||
+		isIDMatch := record.ID == reference
+		isMatch := isIDMatch ||
 			strings.ToLower(record.Name) == normalisedReference ||
 			strings.HasPrefix(strings.ToLower(record.Name), normalisedReference+".")
 		if !isMatch {
@@ -530,18 +566,26 @@ func resolveCloudflareRecord(ctx context.Context, credentialName, domainID, refe
 		if wantedType != "" && record.RecordType != wantedType {
 			continue
 		}
+		if isIDMatch {
+			matchedByID = true
+		}
 		matches = append(matches, record)
 	}
+
+	// A capped listing has not been fully observed, so nothing read from it is
+	// a fact about the zone - neither "no match" nor "exactly one match". A
+	// single match could have a twin beyond the page, and for delete that
+	// removes a record the user was never told was ambiguous. A record id is
+	// the exception: ids are unique by construction, so a match on one needs
+	// no listing to be complete.
+	if list.IsTruncated && !matchedByID {
+		return nil, fmt.Errorf("could not resolve %q: the record listing for that domain was truncated, "+
+			"so what it shows is not the whole zone. Pass the record's id instead, or narrow with --type",
+			reference)
+	}
+
 	switch len(matches) {
 	case 0:
-		// A capped listing has not been fully observed, so "no match" is not a
-		// fact about the zone. Say what was actually seen rather than
-		// declaring the record absent.
-		if list.IsTruncated {
-			return nil, fmt.Errorf("could not resolve %q: the record listing for that domain was truncated, "+
-				"so this is not proof the record is absent. Pass the record's id instead, "+
-				"or narrow with --type", reference)
-		}
 		return nil, fmt.Errorf("no DNS record matches %q in that domain; run 'ankra org cloudflare records <domain>'", reference)
 	case 1:
 		return &matches[0], nil

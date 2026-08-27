@@ -343,8 +343,16 @@ func (c *Client) doCloudflareRequest(ctx context.Context, method, url string, bo
 		return nil, ErrUnauthorized
 	case http.StatusNotFound:
 		// The backend answers 404 both for "no credential connected" and for
-		// a domain or record the credential cannot see. Its detail text is
-		// what tells them apart, and each has a different next step.
+		// a domain or record the credential cannot see, and its detail text
+		// is the only thing that tells them apart - the two share a status
+		// code deliberately, so that a zone in another account is
+		// indistinguishable from one that does not exist.
+		//
+		// Matching on that prose couples this to cluster-api's wording. The
+		// coupling degrades safely rather than breaking: if the text is ever
+		// reworded, the branch below falls through to ErrCloudflareNotFound,
+		// which still carries the backend's own detail to the user - they
+		// lose the "run ankra org cloudflare connect" hint, not the reason.
 		detail := dnsDetailFromBody(respBody)
 		if detail != "" && strings.Contains(strings.ToLower(detail), "no cloudflare credential is connected") {
 			return nil, ErrCloudflareNotConnected

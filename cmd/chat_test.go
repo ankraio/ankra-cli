@@ -85,7 +85,7 @@ func (m *chatStreamMock) StreamChat(clusterID *string, chatReq client.ChatReques
 func TestChat_BackendErrorFrameFailsWithMessage(t *testing.T) {
 	mock := &chatStreamMock{events: []client.ChatStreamEvent{
 		{Type: "error", Data: map[string]any{
-			"message": "You've sent too many messages this hour. Please wait a while and try again.",
+			"message":         "You've sent too many messages this hour. Please wait a while and try again.",
 			"is_rate_limited": true,
 		}},
 	}}
