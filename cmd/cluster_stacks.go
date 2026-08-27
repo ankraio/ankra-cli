@@ -399,6 +399,9 @@ and will need to be reconfigured in the target cluster.`,
 		fmt.Printf("  Stack Name:  %s\n", result.StackName)
 		fmt.Printf("  Addons:      %d\n", result.AddonsCloned)
 		fmt.Printf("  Manifests:   %d\n", result.ManifestsCloned)
+		if result.ApplicationsCloned > 0 {
+			fmt.Printf("  Applications: %d\n", result.ApplicationsCloned)
+		}
 
 		if len(result.Warnings) > 0 {
 			fmt.Println("\nWarnings:")

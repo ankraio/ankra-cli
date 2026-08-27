@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -29,6 +30,27 @@ var backupVaultsCmd = &cobra.Command{
 		"targets that cluster backups are written to. The platform verifies each " +
 		"vault's credentials against its bucket and reports the outcome as the " +
 		"vault's status.",
+}
+
+// backupsNotEnabledDetail is the verbatim 403 detail the platform answers on
+// every backup vault route while the organisation's `backups` feature is
+// dark. Matching the text (rather than the bare status) keeps a permission
+// refusal - also a 403 - on its own path.
+const backupsNotEnabledDetail = "Backups are not enabled for this organisation."
+
+// backupLaneError wraps a backup vault API error for the terminal. The dark
+// lane is the one case with something better to say than the raw detail:
+// the fix is organisational (enable the feature, or select the right
+// organisation), not a permission or a typo, so the message says so.
+func backupLaneError(operation string, apiError error) error {
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(apiError, &unexpected) && unexpected.StatusCode == http.StatusForbidden &&
+		strings.TrimSpace(unexpected.Error()) == backupsNotEnabledDetail {
+		return fmt.Errorf("%s: %s Backup vaults are rolling out gradually - ask Ankra to enable the "+
+			"`backups` feature for this organisation, or check which organisation is selected "+
+			"with `ankra org current`", operation, backupsNotEnabledDetail)
+	}
+	return fmt.Errorf("%s: %w", operation, apiError)
 }
 
 // backupVaultIDPattern matches the canonical UUID form the API expects for a
@@ -132,7 +154,7 @@ var backupVaultsListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		listing, listError := apiClient.ListBackupVaults()
 		if listError != nil {
-			return fmt.Errorf("listing backup vaults: %w", listError)
+			return backupLaneError("listing backup vaults", listError)
 		}
 		if rendered, renderError := renderStructured(cmd, listing); rendered || renderError != nil {
 			return renderError
@@ -178,7 +200,7 @@ var backupVaultsGetCmd = &cobra.Command{
 		}
 		vault, getError := apiClient.GetBackupVault(vaultID)
 		if getError != nil {
-			return fmt.Errorf("getting backup vault: %w", getError)
+			return backupLaneError("getting backup vault", getError)
 		}
 		if rendered, renderError := renderStructured(cmd, vault); rendered || renderError != nil {
 			return renderError
@@ -255,7 +277,7 @@ Example:
 			SecretAccessKey: secretAccessKey,
 		})
 		if createError != nil {
-			return fmt.Errorf("creating backup vault: %w", createError)
+			return backupLaneError("creating backup vault", createError)
 		}
 
 		printBackupVault(vault)
@@ -280,7 +302,7 @@ var backupVaultsVerifyCmd = &cobra.Command{
 		}
 		vault, verifyError := apiClient.VerifyBackupVault(vaultID)
 		if verifyError != nil {
-			return fmt.Errorf("verifying backup vault: %w", verifyError)
+			return backupLaneError("verifying backup vault", verifyError)
 		}
 		if vault.Status == "error" {
 			return backupVaultStatusError(vault)
@@ -305,7 +327,7 @@ var backupVaultsDeleteCmd = &cobra.Command{
 			return confirmError
 		}
 		if deleteError := apiClient.DeleteBackupVault(vaultID); deleteError != nil {
-			return fmt.Errorf("deleting backup vault: %w", deleteError)
+			return backupLaneError("deleting backup vault", deleteError)
 		}
 		fmt.Printf("Backup vault '%s' deleted.\n", args[0])
 		return nil

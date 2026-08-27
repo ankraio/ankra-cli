@@ -1,27 +1,8 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.14.0-rc0 — 2026-08-27
 
 ### Added
-
-- **`ankra application build` builds an application's image on Ankra's own
-  builders, without the repository's CI running at all.** Ankra clones the
-  commit, resolves a recipe for it (the repository's Dockerfile, else a
-  generated one, else buildpacks), builds it and pushes the image. Until now
-  the first image could only come from the generated GitHub Actions workflow,
-  which means it could only come after a human merged the setup PR - a
-  critical path Ankra can neither watch nor repair, and one no unattended
-  caller could drive at all. `start` queues a build for a commit and reports
-  whether it queued a fresh one or joined the build already running for that
-  commit; `list` and `get` read what the builder did, including the
-  `error_class` that says whether a failure was the repository's or Ankra's.
-  `start --wait` follows the request through to the finished build and exits
-  non-zero if the build failed, so a pipeline step can be exactly "build this
-  commit, and fail if it does not build" - `--timeout` expiring exits 5 and
-  says the build is still running. `request` shows a queued request and the
-  build it became, which is what makes the gap between the two followable.
-  The routes answer 404 for organisations without the `platform_builds`
-  feature flag, which is off by default while the lane rolls out.
 
 - **`ankra backup vaults` manages the organisation's backup vaults from the
   terminal.** A vault is an S3-compatible bucket cluster backups are written
@@ -34,8 +15,22 @@
   the last check failed - `verify` re-runs the check after rotating or
   fixing keys, and `delete` confirms first (or takes `--yes`). `get` and
   `list` take a vault name as well as an id and support `-o json|yaml`.
+  Backup vaults are rolling out gradually: while the `backups` feature is
+  not enabled for the selected organisation every vault command exits
+  non-zero with "Backups are not enabled for this organisation." and says
+  what to do about it (ask Ankra to enable the feature, or check `ankra
+  org current`), rather than a bare 403.
 
 ### Fixed
+
+- **`ankra cluster stacks clone` now reports the applications it cloned.**
+  The platform clones application members alongside add-ons and
+  manifests and answers with an `applications_cloned` count; the CLI
+  dropped that field on decode and its summary listed add-ons and
+  manifests only, so a stack whose only member was an application read
+  as if nothing had been cloned. The count now decodes, prints as an
+  `Applications:` line whenever it is non-zero, and is present in
+  `-o json|yaml` output.
 
 - **`kubectl` against an Ankra context no longer fails with "Cluster not
   found" when your selected organisation is not the one that owns the
