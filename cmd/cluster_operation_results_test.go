@@ -27,7 +27,9 @@ func (mock *stepsResultsMock) GetExecution(executionID string) (client.Execution
 	}, nil
 }
 
-func (mock *stepsResultsMock) EnrichExecutionDetailWithDrift(_ *client.ExecutionDetail) error { return nil }
+func (mock *stepsResultsMock) EnrichExecutionDetailWithDrift(_ *client.ExecutionDetail) error {
+	return nil
+}
 
 func (mock *stepsResultsMock) GetExecutionResult(executionID string) (client.ExecutionResultResponse, error) {
 	mock.resultCalls++

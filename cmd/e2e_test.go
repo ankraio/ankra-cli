@@ -583,6 +583,38 @@ func (m baseMock) DeleteClusterVariable(ctx context.Context, clusterID, name str
 	return errors.New("not implemented")
 }
 
+func (m baseMock) ListCloudflareCredentials(ctx context.Context) (*client.CloudflareCredentialsListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) VerifyCloudflareToken(ctx context.Context, apiToken, accountID string) (*client.CloudflareVerification, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ConnectCloudflareCredential(ctx context.Context, name, apiToken, accountID string) (*client.CloudflareVerification, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListCloudflareDomains(ctx context.Context, credentialName, domainName string) (*client.CloudflareDomainsListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListCloudflareRecords(ctx context.Context, credentialName, domainID, nameFilter, typeFilter string) (*client.CloudflareRecordsListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateCloudflareRecord(ctx context.Context, credentialName, domainID string, input client.CreateCloudflareRecordInput) (*client.CloudflareRecord, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateCloudflareRecord(ctx context.Context, credentialName, domainID, recordID string, input client.UpdateCloudflareRecordInput) (*client.CloudflareRecord, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteCloudflareRecord(ctx context.Context, credentialName, domainID, recordID string) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) GetOrganisationDnsZone(ctx context.Context) (*client.DnsZone, error) {
 	return nil, errors.New("not implemented")
 }
