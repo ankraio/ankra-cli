@@ -214,6 +214,12 @@ func (c *Client) ConnectCloudflareCredential(ctx context.Context, name, apiToken
 	if err := json.Unmarshal(body, &out); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
+	// The backend answers 200 with success=false for a refusal it reports in
+	// the body rather than the status. Ignoring the flag would print
+	// "connected" for a credential that was not stored.
+	if !out.Success {
+		return nil, errors.New("the credential was not stored: the server reported the connect as unsuccessful")
+	}
 	return out.Verification, nil
 }
 

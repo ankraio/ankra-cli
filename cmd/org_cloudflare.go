@@ -96,6 +96,13 @@ Pass --verify-only to check a token without storing it.
 		if !verifyOnly && name == "" {
 			return errors.New("a credential name is required; pass --verify-only to check a token without storing it")
 		}
+		// --verify-only stores nothing, so a name would be discarded. Saying
+		// so beats accepting it and leaving the operator believing they
+		// connected a credential.
+		if verifyOnly && name != "" {
+			return fmt.Errorf("--verify-only stores nothing, so the credential name %q would be ignored; "+
+				"drop the name to check the token, or drop --verify-only to connect it", name)
+		}
 
 		apiToken, err := readCloudflareToken(cmd)
 		if err != nil {
@@ -218,6 +225,10 @@ record's TTL is managed by Cloudflare, so --ttl is refused with --proxied.`,
 		credentialName, _ := cmd.Flags().GetString("credential")
 		domainReference, name, recordType, content := args[0], args[1], strings.ToUpper(args[2]), args[3]
 
+		if err := refuseTTLWithProxy(cmd); err != nil {
+			return err
+		}
+
 		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
 		defer cancel()
 
@@ -263,6 +274,10 @@ keeps the record's current value.`,
 		credentialName, _ := cmd.Flags().GetString("credential")
 		domainReference, recordReference, content := args[0], args[1], args[2]
 		recordType, _ := cmd.Flags().GetString("type")
+
+		if err := refuseTTLWithProxy(cmd); err != nil {
+			return err
+		}
 
 		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
 		defer cancel()
@@ -350,6 +365,21 @@ The prompt names the record before removing it.`,
 
 // --- helpers ---
 
+// refuseTTLWithProxy enforces what the help text promises: Cloudflare owns a
+// proxied record's TTL and rejects an explicit one, so the combination is
+// refused here with a message naming both flags rather than forwarded for the
+// API to reject with a code nobody reads.
+func refuseTTLWithProxy(cmd *cobra.Command) error {
+	if !cmd.Flags().Changed("ttl") || !cmd.Flags().Changed("proxied") {
+		return nil
+	}
+	proxied, _ := cmd.Flags().GetBool("proxied")
+	if !proxied {
+		return nil
+	}
+	return errors.New("--ttl cannot be combined with --proxied: Cloudflare manages a proxied record's TTL")
+}
+
 // cloudflareTokenEnvName is where the token is read from, so it never lands in
 // shell history the way a --token flag would.
 const cloudflareTokenEnvName = "ANKRA_CLOUDFLARE_API_TOKEN"
@@ -412,6 +442,12 @@ func cloudflareTTLFromFlags(cmd *cobra.Command) *int {
 	return cloudflareIntFlag(cmd, "ttl")
 }
 
+// cloudflareIntFlag returns a flag the caller actually passed, or nil.
+//
+// A parse failure is impossible for a flag declared as an Int - cobra rejects
+// a non-integer at parse time - so it is reported rather than swallowed. The
+// previous shape returned nil on error, which would have turned a malformed
+// value into a silent "leave this field as it is".
 func cloudflareIntFlag(cmd *cobra.Command, name string) *int {
 	flag := cmd.Flags().Lookup(name)
 	if flag == nil || !flag.Changed {
@@ -419,7 +455,7 @@ func cloudflareIntFlag(cmd *cobra.Command, name string) *int {
 	}
 	value, err := cmd.Flags().GetInt(name)
 	if err != nil {
-		return nil
+		panic(fmt.Sprintf("flag --%s is declared as an int but did not read back as one: %v", name, err))
 	}
 	return &value
 }
@@ -460,13 +496,28 @@ func resolveCloudflareRecordID(ctx context.Context, credentialName, domainID, re
 
 // resolveCloudflareRecord resolves a record reference - an id, a full name, or
 // a bare label - to the record, listing candidates when it is ambiguous.
+//
+// The exact name is tried as a server-side filter first. That keeps the lookup
+// correct on a zone with more records than one page holds: scanning only the
+// first page would report an existing record as missing, and for delete that
+// wrong negative is the dangerous direction - the user re-adds a duplicate of
+// a record that was there all along.
 func resolveCloudflareRecord(ctx context.Context, credentialName, domainID, reference, recordType string) (*client.CloudflareRecord, error) {
-	list, err := apiClient.ListCloudflareRecords(ctx, credentialName, domainID, "", "")
+	normalisedReference := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(reference), "."))
+	wantedType := strings.ToUpper(recordType)
+
+	list, err := apiClient.ListCloudflareRecords(ctx, credentialName, domainID, normalisedReference, wantedType)
 	if err != nil {
 		return nil, cloudflareError(err, "list DNS records")
 	}
-	normalisedReference := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(reference), "."))
-	wantedType := strings.ToUpper(recordType)
+	if len(list.Items) == 0 {
+		// The reference may be a bare label or a record id, neither of which
+		// the exact-name filter matches. Fall back to the full listing.
+		list, err = apiClient.ListCloudflareRecords(ctx, credentialName, domainID, "", wantedType)
+		if err != nil {
+			return nil, cloudflareError(err, "list DNS records")
+		}
+	}
 
 	var matches []client.CloudflareRecord
 	for _, record := range list.Items {
@@ -483,6 +534,14 @@ func resolveCloudflareRecord(ctx context.Context, credentialName, domainID, refe
 	}
 	switch len(matches) {
 	case 0:
+		// A capped listing has not been fully observed, so "no match" is not a
+		// fact about the zone. Say what was actually seen rather than
+		// declaring the record absent.
+		if list.IsTruncated {
+			return nil, fmt.Errorf("could not resolve %q: the record listing for that domain was truncated, "+
+				"so this is not proof the record is absent. Pass the record's id instead, "+
+				"or narrow with --type", reference)
+		}
 		return nil, fmt.Errorf("no DNS record matches %q in that domain; run 'ankra org cloudflare records <domain>'", reference)
 	case 1:
 		return &matches[0], nil

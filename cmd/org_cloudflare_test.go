@@ -47,6 +47,7 @@ type cloudflareMock struct {
 	verifyCalls       []string
 
 	listDomainsErr error
+	truncated      bool
 }
 
 type connectCloudflareCall struct {
@@ -85,7 +86,16 @@ func (m *cloudflareMock) ListCloudflareDomains(ctx context.Context, credentialNa
 }
 
 func (m *cloudflareMock) ListCloudflareRecords(ctx context.Context, credentialName, domainID, nameFilter, typeFilter string) (*client.CloudflareRecordsListResult, error) {
-	return &client.CloudflareRecordsListResult{Items: m.records}, nil
+	if nameFilter != "" {
+		matched := make([]client.CloudflareRecord, 0, 1)
+		for _, record := range m.records {
+			if strings.EqualFold(record.Name, nameFilter) {
+				matched = append(matched, record)
+			}
+		}
+		return &client.CloudflareRecordsListResult{Items: matched, IsTruncated: m.truncated}, nil
+	}
+	return &client.CloudflareRecordsListResult{Items: m.records, IsTruncated: m.truncated}, nil
 }
 
 func (m *cloudflareMock) CreateCloudflareRecord(ctx context.Context, credentialName, domainID string, input client.CreateCloudflareRecordInput) (*client.CloudflareRecord, error) {
@@ -244,15 +254,74 @@ func TestOrgCloudflareUpdateOmitsTheFlagsTheCallerDidNotPass(t *testing.T) {
 func TestOrgCloudflareUpdateSendsTheFlagsTheCallerDidPass(t *testing.T) {
 	mock := cloudflareFixture()
 	if _, err := runCloudflare(t, mock, "", "update", "example.com", "app", "203.0.113.99",
-		"--ttl", "3600", "--proxied"); err != nil {
+		"--ttl", "3600"); err != nil {
 		t.Fatalf("execute failed: %v", err)
 	}
 	got := mock.updateCalls[0]
 	if got.TTL == nil || *got.TTL != 3600 {
 		t.Errorf("ttl = %v, want 3600", got.TTL)
 	}
-	if got.Proxied == nil || !*got.Proxied {
-		t.Errorf("proxied = %v, want true", got.Proxied)
+
+	mock = cloudflareFixture()
+	if _, err := runCloudflare(t, mock, "", "update", "example.com", "app", "203.0.113.99",
+		"--proxied"); err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	if proxied := mock.updateCalls[0].Proxied; proxied == nil || !*proxied {
+		t.Errorf("proxied = %v, want true", proxied)
+	}
+}
+
+// The help text promises the combination is refused, so it must be - and
+// locally, with a message naming both flags, rather than as an opaque 400 from
+// Cloudflare.
+func TestOrgCloudflareRefusesTTLWithProxied(t *testing.T) {
+	for _, command := range [][]string{
+		{"add", "example.com", "app", "a", "203.0.113.10", "--ttl", "300", "--proxied"},
+		{"update", "example.com", "app", "203.0.113.99", "--ttl", "300", "--proxied"},
+	} {
+		mock := cloudflareFixture()
+		_, err := runCloudflare(t, mock, "", command...)
+		if err == nil {
+			t.Fatalf("%s accepted --ttl with --proxied", command[0])
+		}
+		if !strings.Contains(err.Error(), "--ttl cannot be combined with --proxied") {
+			t.Errorf("%s error = %v", command[0], err)
+		}
+		if len(mock.createCalls) != 0 || len(mock.updateCalls) != 0 {
+			t.Errorf("%s issued a write despite the refusal", command[0])
+		}
+	}
+}
+
+// A truncated listing has not been fully observed, so "no match" is not a fact
+// about the zone - and for delete that wrong negative is the dangerous
+// direction, since the user re-adds a duplicate of a record that was there.
+func TestOrgCloudflareRefusesToResolveFromATruncatedListing(t *testing.T) {
+	mock := cloudflareFixture()
+	mock.truncated = true
+	_, err := runCloudflare(t, mock, "y\n", "delete", "example.com", "nothing-like-this")
+	if err == nil {
+		t.Fatal("a truncated listing resolved to a confident absence")
+	}
+	if !strings.Contains(err.Error(), "truncated") {
+		t.Errorf("error = %v; it must say the listing was incomplete", err)
+	}
+	if len(mock.deleteCalls) != 0 {
+		t.Errorf("a delete was issued: %v", mock.deleteCalls)
+	}
+}
+
+// --verify-only stores nothing, so a credential name would be discarded.
+func TestOrgCloudflareVerifyOnlyRefusesACredentialName(t *testing.T) {
+	t.Setenv("ANKRA_CLOUDFLARE_API_TOKEN", "a-scoped-token")
+	mock := cloudflareFixture()
+	_, err := runCloudflare(t, mock, "", "connect", "production", "--verify-only")
+	if err == nil {
+		t.Fatal("--verify-only silently accepted a credential name")
+	}
+	if !strings.Contains(err.Error(), "would be ignored") {
+		t.Errorf("error = %v", err)
 	}
 }
 
