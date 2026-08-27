@@ -575,20 +575,20 @@ func TestKubeconfigAddDeniedSuggestsAccessGrant(t *testing.T) {
 	}
 }
 
-func TestResolveKubeTokenClusterID(t *testing.T) {
+func TestResolveGatewayClusterIDAcceptsNamesAndIDs(t *testing.T) {
 	withKubeconfigMock(t, kubeconfigMock{cluster: client.ClusterListItem{ID: "id-1", Name: "demo"}})
 
-	if id, err := resolveKubeTokenClusterID("demo"); err != nil || id != "id-1" {
+	if id, _, err := resolveGatewayClusterID("demo", nil); err != nil || id != "id-1" {
 		t.Fatalf("name resolves to id: got %q err=%v", id, err)
 	}
 
 	const clusterUUID = "11111111-1111-1111-1111-111111111111"
-	if id, err := resolveKubeTokenClusterID(clusterUUID); err != nil || id != clusterUUID {
+	if id, _, err := resolveGatewayClusterID(clusterUUID, nil); err != nil || id != clusterUUID {
 		t.Fatalf("uuid passes through: got %q err=%v", id, err)
 	}
 
 	// The exact failure case: passing the kubeconfig context name.
-	if _, err := resolveKubeTokenClusterID("ankra-hetzner-kube"); err == nil {
+	if _, _, err := resolveGatewayClusterID("ankra-hetzner-kube", nil); err == nil {
 		t.Fatal("expected error for unknown non-uuid value")
 	} else if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("error = %v, want 'not found'", err)
