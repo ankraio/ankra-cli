@@ -6,7 +6,7 @@ description: Provision, import, and operate provider-managed Kubernetes through 
 # Ankra managed Kubernetes
 
 The provider runs the control plane; Ankra manages the node pools, upgrades, addons, stacks and
-GitOps on top. This is the counterpart to `ankra-cloud-clusters` (self-managed k3s/kubeadm on VMs).
+GitOps on top. This is the counterpart to `ankra-cloud-clusters` (self-managed kubeadm/k3s on VMs).
 
 Choose **managed** when you want the provider responsible for control-plane uptime and patching, and
 you do not need cluster-admin over it. Choose **cloud clusters** when you need control-plane access,
@@ -170,7 +170,7 @@ cluster created: those are frequently left behind and keep billing.
 
 ## Related skills
 
-- `ankra-cloud-clusters` — self-managed k3s/kubeadm on provider VMs, and the instance-family guide.
+- `ankra-cloud-clusters` — self-managed kubeadm/k3s on provider VMs, and the instance-family guide.
 - `ankra-getting-started` — the path from an empty organisation to a first running app.
 - `ankra-import-cluster` — adopting a self-managed cluster via an ImportCluster manifest.
 - `ankra-domains-dns` — ingress hostnames, DNS and TLS once the cluster is up.

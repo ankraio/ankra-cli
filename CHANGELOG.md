@@ -12,6 +12,17 @@
   creates anything. Pass any of them to override. With several usable
   credentials it still asks which, rather than guessing.
 
+### Changed
+
+- **kubeadm is the default distribution (PLA-808).** `--distribution` on every
+  provider `create` (Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, HPE
+  Morpheus) now defaults to `kubeadm` - vanilla upstream Kubernetes with
+  Cilium. k3s stays available with `--distribution k3s` but is never a
+  default; the `--kubernetes-version` and `ankra cluster upgrade` help lead
+  with `kubeadm-versions`. Pairs with the platform default flip
+  (ankraio/cluster#2086), which also makes an omitted `--cni` follow the
+  distribution: Cilium on kubeadm, flannel on k3s.
+
 ### Fixed
 
 - **A failed provisioning is no longer told to fix its access keys.** For a

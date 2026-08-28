@@ -1,6 +1,6 @@
 ---
 name: ankra-cloud-clusters
-description: Provision and operate clusters Ankra builds on cloud infrastructure - Hetzner, OVHcloud, UpCloud, DigitalOcean, Proxmox VE, HPE Morpheus and Scaleway - choosing the region and the right instance family, picking k3s or kubeadm and the etcd topology, wiring the generated stack straight into a GitOps repository, taking the ingress/DNS/TLS batteries at create time, then scaling, node groups, availability zones, upgrades and teardown. Use when the user wants Ankra to build a cluster rather than import one, asks which server type or region to pick, or mentions Hetzner, OVH, UpCloud, DigitalOcean, Proxmox, Morpheus or Scaleway clusters.
+description: Provision and operate clusters Ankra builds on cloud infrastructure - Hetzner, OVHcloud, UpCloud, DigitalOcean, Proxmox VE, HPE Morpheus and Scaleway - choosing the region and the right instance family, picking kubeadm (the default) or k3s and the etcd topology, wiring the generated stack straight into a GitOps repository, taking the ingress/DNS/TLS batteries at create time, then scaling, node groups, availability zones, upgrades and teardown. Use when the user wants Ankra to build a cluster rather than import one, asks which server type or region to pick, or mentions Hetzner, OVH, UpCloud, DigitalOcean, Proxmox, Morpheus or Scaleway clusters.
 ---
 
 # Ankra cloud clusters
@@ -62,8 +62,8 @@ public docs.
 Kubernetes versions:
 
 ```bash
+ankra cluster kubeadm-versions      # vanilla Kubernetes targets (the default)
 ankra cluster k3s-versions          # k3s targets
-ankra cluster kubeadm-versions      # vanilla Kubernetes targets
 ```
 
 [reference.md](reference.md) has the per-provider family cheat-sheet — what to pick for a control
@@ -81,8 +81,8 @@ ankra cluster hetzner create \
   --location nbg1 \
   --control-plane-count 3 --control-plane-server-type cx33 \
   --worker-count 3 --worker-server-type cx43 \
-  --distribution k3s \
-  --kubernetes-version <from k3s-versions>
+  --distribution kubeadm \
+  --kubernetes-version <from kubeadm-versions>
 ```
 
 ```bash
@@ -104,7 +104,8 @@ ankra cluster ovh create \
 
 ### Distribution and etcd topology
 
-`--distribution k3s` (default) or `kubeadm`. For kubeadm, `--etcd-topology stacked` (default) puts
+`--distribution kubeadm` (default: vanilla upstream Kubernetes with containerd and Cilium) or `k3s`
+(lightweight; never a default). For kubeadm, `--etcd-topology stacked` (default) puts
 etcd on the control planes; `external` gives it dedicated VMs (`--etcd-node-count 3|5`,
 `--etcd-server-type` / `--etcd-flavor-id` / `--etcd-plan` / `--etcd-size`).
 
@@ -173,7 +174,7 @@ The provider is detected from the cluster, so these work everywhere:
 
 ```bash
 ankra cluster scale <cluster_id> 5                    # default worker pool
-ankra cluster upgrade <cluster_id> <target_version>   # k3s or kubeadm; --force to override a blocked drain
+ankra cluster upgrade <cluster_id> <target_version>   # kubeadm or k3s; --force to override a blocked drain
 ankra cluster ssh-keys get|set|resync <cluster_id>
 
 ankra cluster node-group list <cluster_id>
