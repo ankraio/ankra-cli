@@ -70,10 +70,10 @@ func resolveBackupVaultID(vaults APIClient, reference string) (string, error) {
 	}
 	listing, listError := vaults.ListBackupVaults()
 	if listError != nil {
-		// The lookup is a convenience, not the operation. If listing is
-		// unavailable, hand the reference to the API unchanged and let the
-		// real call decide.
-		return reference, nil
+		// Passing the name through unchanged made the API answer a
+		// uuid-parsing validation error, which reads as "you typed the name
+		// wrong" for a name that was right. Report why the lookup failed.
+		return "", backupLaneError("looking up backup vault "+reference, listError)
 	}
 	matched := []client.BackupVault{}
 	for _, vault := range listing.Items {
@@ -97,11 +97,20 @@ func resolveBackupVaultID(vaults APIClient, reference string) (string, error) {
 	}
 }
 
-// backupVaultVerifyHint tells the user what to do after a failed credential
-// check: the stored keys are replaced by recreating them server-side, so the
-// actionable next step is fixing the keys at the provider and re-verifying.
-func backupVaultVerifyHint(vaultName string) string {
-	return fmt.Sprintf("fix the access keys, then run 'ankra backup vaults verify %s'", vaultName)
+// backupVaultVerifyHint tells the user what to do after a failed check. The
+// answer depends on how the vault was meant to get its bucket: a vault
+// Ankra provisioned that has never verified never got as far as minting
+// keys, so there are none to fix and re-verifying cannot make the bucket
+// exist (the API answers 409 for exactly that) - the way out is to delete
+// it, which also clears whatever the run had already created, and provision
+// again. Anywhere else the keys are the user's own and re-verifying is the
+// point.
+func backupVaultVerifyHint(vault *client.BackupVault) string {
+	if vault.Kind == "ankra_provisioned" && (vault.LastVerifiedAt == nil || *vault.LastVerifiedAt == "") {
+		return fmt.Sprintf("provisioning did not finish, so run "+
+			"'ankra backup vaults delete %s --destroy-provider-resources' and provision again", vault.Name)
+	}
+	return fmt.Sprintf("fix the access keys, then run 'ankra backup vaults verify %s'", vault.Name)
 }
 
 // backupVaultStatusError turns a vault whose verification failed into a
@@ -112,7 +121,7 @@ func backupVaultStatusError(vault *client.BackupVault) error {
 	if vault.ErrorExcerpt != nil && *vault.ErrorExcerpt != "" {
 		message += ": " + *vault.ErrorExcerpt
 	}
-	return fmt.Errorf("%s - %s", message, backupVaultVerifyHint(vault.Name))
+	return fmt.Errorf("%s - %s", message, backupVaultVerifyHint(vault))
 }
 
 func printBackupVault(vault *client.BackupVault) {
@@ -149,7 +158,7 @@ func printBackupVault(vault *client.BackupVault) {
 		} else {
 			fmt.Println("  (no error detail recorded)")
 		}
-		fmt.Printf("\nTo recover: %s\n", backupVaultVerifyHint(vault.Name))
+		fmt.Printf("\nTo recover: %s\n", backupVaultVerifyHint(vault))
 	}
 }
 
@@ -304,6 +313,70 @@ var provisionableBackupVaultProviders = map[string]bool{
 	"hetzner": true, "upcloud": true, "digitalocean": true, "scaleway": true,
 }
 
+// backupVaultDefaultRegions is the region each provider gets when none was
+// given - the same defaults the dashboard opens with. A provider absent
+// here has no safe default and asks for --region.
+var backupVaultDefaultRegions = map[string]string{
+	"hetzner":      "fsn1",
+	"upcloud":      "europe-1",
+	"digitalocean": "fra1",
+	"scaleway":     "fr-par",
+}
+
+// defaultBackupVaultName is the name a vault gets when none was given:
+// "backups", then "backups-2" and so on, so a second vault still needs no
+// argument and never collides with the platform's unique-name rule.
+func defaultBackupVaultName(existing []client.BackupVault) string {
+	taken := make(map[string]bool, len(existing))
+	for _, vault := range existing {
+		taken[vault.Name] = true
+	}
+	if !taken["backups"] {
+		return "backups"
+	}
+	for suffix := 2; ; suffix++ {
+		candidate := fmt.Sprintf("backups-%d", suffix)
+		if !taken[candidate] {
+			return candidate
+		}
+	}
+}
+
+// selectProvisionCredential resolves --credential, or picks the only
+// credential Ankra can provision from when the flag was omitted. It refuses
+// to guess between several: the dashboard shows which one it preselected
+// before you press the button, and a command cannot.
+func selectProvisionCredential(reference string) (client.Credential, error) {
+	if strings.TrimSpace(reference) != "" {
+		return resolveProvisionCredential(reference)
+	}
+	credentials, listError := apiClient.ListCredentials(nil)
+	if listError != nil {
+		return client.Credential{}, fmt.Errorf("listing credentials: %w", listError)
+	}
+	candidates := make([]client.Credential, 0, len(credentials))
+	for _, credential := range credentials {
+		if provisionableBackupVaultProviders[credential.Provider] {
+			candidates = append(candidates, credential)
+		}
+	}
+	if len(candidates) == 1 {
+		return candidates[0], nil
+	}
+	if len(candidates) == 0 {
+		return client.Credential{}, errors.New(
+			"this organisation has no Hetzner, UpCloud, DigitalOcean or Scaleway credential to provision a bucket from; " +
+				"add one under credentials, or register a bucket you own with 'ankra backup vaults create'")
+	}
+	described := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		described = append(described, fmt.Sprintf("%s (%s)", candidate.Name, candidate.Provider))
+	}
+	return client.Credential{}, fmt.Errorf(
+		"this organisation has %d credentials Ankra can provision from, so pass --credential: %s",
+		len(candidates), strings.Join(described, ", "))
+}
+
 // resolveProvisionCredential finds one of the organisation's provider
 // credentials by name or id, so the command can tell Hetzner apart before
 // it asks for keys.
@@ -349,13 +422,18 @@ func waitForBackupVaultProvisioning(ctx context.Context, vaults APIClient, vault
 }
 
 var backupVaultsProvisionCmd = &cobra.Command{
-	Use:   "provision <name>",
+	Use:   "provision [name]",
 	Short: "Create a backup vault by letting Ankra provision the bucket from a provider credential",
 	Long: `Create a backup vault and let Ankra create the bucket for it, using one of
 the organisation's provider credentials (Hetzner, UpCloud, DigitalOcean or
-Scaleway). Ankra creates the bucket in the given region, mints or stores the
-access keys, verifies the bucket and registers the vault; the vault shows
-"provisioning" until that finishes.
+Scaleway). Ankra creates the bucket, mints or stores the access keys,
+verifies the bucket and registers the vault; the vault shows "provisioning"
+until that finishes.
+
+Everything is decided for you unless you say otherwise: the name defaults to
+"backups" (then "backups-2" and so on), the credential to the only one Ankra
+can provision from, and the region to that provider's usual one. The command
+prints what it chose before it creates anything.
 
 Hetzner alone needs its Object Storage key pair passed in (or prompted for):
 Hetzner issues those in the Cloud Console (Object Storage > Manage
@@ -363,18 +441,18 @@ credentials) and its Cloud API cannot mint them. The other providers need
 nothing beyond the credential.
 
 Examples:
+  ankra backup vaults provision
   ankra backup vaults provision offsite --credential upcloud-main --region europe-1 --wait
   ankra backup vaults provision offsite --credential hetzner-main --region fsn1`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		name := args[0]
 		credentialReference, _ := cmd.Flags().GetString("credential")
 		region, _ := cmd.Flags().GetString("region")
 		bucket, _ := cmd.Flags().GetString("bucket")
 		accessKeyID, _ := cmd.Flags().GetString("access-key-id")
 		secretAccessKey, _ := cmd.Flags().GetString("secret-access-key")
 
-		credential, resolveError := resolveProvisionCredential(credentialReference)
+		credential, resolveError := selectProvisionCredential(credentialReference)
 		if resolveError != nil {
 			return resolveError
 		}
@@ -383,6 +461,26 @@ Examples:
 				"digitalocean and scaleway credentials - use 'ankra backup vaults create' to register a bucket you own",
 				credentialReference, credential.Provider)
 		}
+		name := ""
+		if len(args) == 1 {
+			name = strings.TrimSpace(args[0])
+		}
+		if name == "" {
+			existing, listError := apiClient.ListBackupVaults()
+			if listError != nil {
+				return backupLaneError("listing backup vaults", listError)
+			}
+			name = defaultBackupVaultName(existing.Items)
+		}
+		if region == "" {
+			region = backupVaultDefaultRegions[credential.Provider]
+			if region == "" {
+				return fmt.Errorf("pass --region: %s has no default region", credential.Provider)
+			}
+		}
+		fmt.Printf("Creating backup vault '%s' with credential '%s' (%s) in %s.\n",
+			name, credential.Name, credential.Provider, region)
+
 		if credential.Provider == "hetzner" {
 			if accessKeyID == "" {
 				prompt := promptui.Prompt{
@@ -549,13 +647,13 @@ func init() {
 	_ = backupVaultsCreateCmd.MarkFlagRequired("endpoint")
 	_ = backupVaultsCreateCmd.MarkFlagRequired("bucket")
 
-	backupVaultsProvisionCmd.Flags().String("credential", "", "Provider credential (name or id) Ankra creates the bucket with")
-	backupVaultsProvisionCmd.Flags().String("region", "", "Provider region for the bucket (e.g. fsn1, europe-1, fra1, fr-par)")
+	backupVaultsProvisionCmd.Flags().String("credential", "",
+		"Provider credential (name or id) Ankra creates the bucket with (default: the only one it can provision from)")
+	backupVaultsProvisionCmd.Flags().String("region", "",
+		"Provider region for the bucket (default: that provider's usual one - fsn1, europe-1, fra1, fr-par)")
 	backupVaultsProvisionCmd.Flags().String("bucket", "", "Bucket name (default: a unique name derived from the vault name)")
 	backupVaultsProvisionCmd.Flags().String("access-key-id", "", "Hetzner Object Storage access key (Hetzner only; prompted for when omitted)")
 	backupVaultsProvisionCmd.Flags().String("secret-access-key", "", "Hetzner Object Storage secret key (Hetzner only; prompted for hidden when omitted)")
-	_ = backupVaultsProvisionCmd.MarkFlagRequired("credential")
-	_ = backupVaultsProvisionCmd.MarkFlagRequired("region")
 	registerAsyncWriteFlags(backupVaultsProvisionCmd)
 
 	backupVaultsDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
