@@ -435,6 +435,7 @@ type APIClient interface {
 	UpgradeUpcloudK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error)
 	ListUpcloudNodeGroups(clusterID string) (*client.NodeGroupListResult, error)
 	AddUpcloudNodeGroup(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error)
+	UpdateUpcloudZonePool(ctx context.Context, clusterID string, zones []string, wait bool) (*client.UpdateUpcloudZonePoolResult, bool, error)
 	ScaleUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error)
 	UpdateUpcloudNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error)
 	DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error)
