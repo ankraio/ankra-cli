@@ -37,6 +37,11 @@ type APIClient interface {
 	GetClusterAddonValues(ctx context.Context, clusterID, addonName string) (string, error)
 	UninstallAddon(ctx context.Context, clusterID, addonResourceID string, deletePermanently bool) (*client.UninstallAddonResult, error)
 
+	GetSecurityOverview(options client.SecurityOverviewOptions) (*client.SecurityOverview, error)
+	ListSecurityFindings(options client.SecurityFindingsOptions) (*client.SecurityFindingList, error)
+	GetSecurityFinding(findingID string) (*client.SecurityFindingDetail, error)
+	ListSecurityClusters(options client.SecurityClustersOptions) (*client.SecurityClusterList, error)
+
 	ListPowerSchedules(clusterID string) (*client.PowerScheduleListResult, error)
 	CreatePowerSchedule(clusterID string, request client.PowerScheduleRequest) (*client.PowerScheduleListResult, error)
 	UpdatePowerSchedule(clusterID, scheduleID string, request client.PowerScheduleRequest) (*client.PowerScheduleListResult, error)

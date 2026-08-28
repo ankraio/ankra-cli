@@ -1,5 +1,23 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **The Security Center is readable from the terminal.** `ankra security
+  overview` prints the fleet's actionable totals, scanner coverage, the
+  remediation candidates, and - first - how many vulnerabilities CISA lists
+  as exploited in the wild, how many are past CISA's remediation deadline and
+  how many CISA links to ransomware. `ankra security findings` lists findings
+  exploited-in-the-wild first (CISA KEV, then EPSS, then severity), with
+  `--known-exploited`, `--severity`, `--status`, `--fixable`, `--cluster`,
+  `--addon`, `--namespace`, `--search`, `--sort` and `--order` mirroring the
+  portal's filters; every row shows the CISA deadline in explicit tense and
+  the EPSS probability. `ankra security finding <id>` quotes CISA's own entry
+  - vulnerability name, deadline and required action - above every current
+  occurrence, and `ankra security clusters` gives per-cluster posture with
+  the known-exploited count. All four take `-o json` for reporting.
+
 ## v0.14.0-rc4 — 2026-08-28
 
 ### Added

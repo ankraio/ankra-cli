@@ -912,6 +912,22 @@ func (m baseMock) ListAPITokens() ([]client.APIToken, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetSecurityOverview(client.SecurityOverviewOptions) (*client.SecurityOverview, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSecurityFindings(client.SecurityFindingsOptions) (*client.SecurityFindingList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSecurityFinding(string) (*client.SecurityFindingDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSecurityClusters(client.SecurityClustersOptions) (*client.SecurityClusterList, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error) {
 	return nil, errors.New("not implemented")
 }
