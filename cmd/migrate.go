@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -38,6 +39,26 @@ var newMigrateRegistry = func() *migrate.Registry {
 
 func init() {
 	rootCmd.AddCommand(migrateCmd)
+}
+
+// selectMigrateModule picks the module by name, or by asking each one about
+// the directory and taking the most confident answer.
+func selectMigrateModule(cmd *cobra.Command, registry *migrate.Registry, dir, name string) (migrate.Module, error) {
+	if name != "" {
+		module, err := registry.Lookup(cmd.Context(), name)
+		if err != nil {
+			return nil, withExitCode(exitNotFound, err)
+		}
+		return module, nil
+	}
+	candidates, notes := registry.Detect(cmd.Context(), dir)
+	for _, note := range notes {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), note)
+	}
+	if len(candidates) == 0 || candidates[0].Err != nil || candidates[0].Detection.Confidence == 0 {
+		return nil, withExitCode(exitNotFound, fmt.Errorf("no module recognises %s (run `ankra migrate detect %s` to see why)", dir, dir))
+	}
+	return candidates[0].Module, nil
 }
 
 var migrateNamePattern = regexp.MustCompile(`[^a-z0-9-]+`)

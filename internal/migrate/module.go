@@ -44,10 +44,44 @@ type Description struct {
 	// FilePatterns are the globs this module looks for, shown to users so an
 	// empty detection is explainable rather than mysterious.
 	FilePatterns []string `json:"file_patterns,omitempty"`
+	// Capabilities lists the optional verbs the module answers beyond the
+	// three every module must: CapabilityExport for `ankra migrate export`.
+	Capabilities []string `json:"capabilities,omitempty"`
 	// Builtin is set by the registry, not by external modules.
 	Builtin bool `json:"builtin,omitempty"`
 	// Path is where an external module was found. Empty for built-ins.
 	Path string `json:"path,omitempty"`
+}
+
+// CapabilityExport marks a module that answers the export verb.
+const CapabilityExport = "export"
+
+// DataExporter is the optional fourth verb: dump the data a source holds -
+// its databases - so it can be loaded into the cluster once convert has
+// moved the workloads. A module advertises it through
+// Description.Capabilities; the CLI trusts the capability, not the Go type,
+// so an external module that omits it is never asked.
+type DataExporter interface {
+	Export(ctx context.Context, request ExportRequest) (Export, error)
+}
+
+// HasCapability reports whether a description advertises a capability.
+func HasCapability(description Description, capability string) bool {
+	for _, candidate := range description.Capabilities {
+		if candidate == capability {
+			return true
+		}
+	}
+	return false
+}
+
+// ExporterFor returns the module's export verb when it advertises one.
+func ExporterFor(module Module) (DataExporter, bool) {
+	if !HasCapability(module.Describe(), CapabilityExport) {
+		return nil, false
+	}
+	exporter, ok := module.(DataExporter)
+	return exporter, ok
 }
 
 // Detection is the answer to "does this directory look like yours?".

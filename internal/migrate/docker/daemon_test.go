@@ -51,7 +51,7 @@ func TestLoadDaemon(t *testing.T) {
 
 	var calls []string
 	original := runDocker
-	runDocker = func(_ context.Context, args ...string) ([]byte, error) {
+	runDocker = func(_ context.Context, _ string, args ...string) ([]byte, error) {
 		calls = append(calls, strings.Join(args, " "))
 		switch args[0] {
 		case "ps":
@@ -124,7 +124,7 @@ func TestLoadDaemon(t *testing.T) {
 
 func TestLoadDaemonNoContainers(t *testing.T) {
 	original := runDocker
-	runDocker = func(_ context.Context, _ ...string) ([]byte, error) { return []byte("\n"), nil }
+	runDocker = func(_ context.Context, _ string, _ ...string) ([]byte, error) { return []byte("\n"), nil }
 	defer func() { runDocker = original }()
 	if _, _, err := LoadDaemon(context.Background(), DaemonOptions{}); err == nil {
 		t.Error("no containers should be an error, not an empty conversion")
@@ -133,7 +133,7 @@ func TestLoadDaemonNoContainers(t *testing.T) {
 
 func TestLoadDaemonExplicitContainersSkipPs(t *testing.T) {
 	original := runDocker
-	runDocker = func(_ context.Context, args ...string) ([]byte, error) {
+	runDocker = func(_ context.Context, _ string, args ...string) ([]byte, error) {
 		if args[0] == "ps" {
 			t.Fatal("ps must not run when containers are named explicitly")
 		}

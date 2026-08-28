@@ -39,6 +39,7 @@ pass --module to choose explicitly. Module-specific settings go through
   --option use-environment=true               let your shell satisfy ${VAR} references
   --option project=<name>                     compose project, for source=daemon
   --option containers=a,b                     specific containers, for source=daemon
+  --option docker-host=ssh://root@host        a remote daemon, for source=daemon
   --option image.<workload>=<registry/repo:tag>  image for a locally built workload
   --option ingress.<workload>=<host>          expose a workload through an Ingress
   --option cluster-issuer=letsencrypt-prod    request TLS for every Ingress
@@ -92,22 +93,9 @@ func runMigrateConvert(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	registry := newMigrateRegistry()
-	var module migrate.Module
-	if migrateConvertModule != "" {
-		module, err = registry.Lookup(cmd.Context(), migrateConvertModule)
-		if err != nil {
-			return withExitCode(exitNotFound, err)
-		}
-	} else {
-		candidates, notes := registry.Detect(cmd.Context(), dir)
-		for _, note := range notes {
-			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), note)
-		}
-		if len(candidates) == 0 || candidates[0].Err != nil || candidates[0].Detection.Confidence == 0 {
-			return withExitCode(exitNotFound, fmt.Errorf("no module recognises %s (run `ankra migrate detect %s` to see why)", dir, dir))
-		}
-		module = candidates[0].Module
+	module, err := selectMigrateModule(cmd, newMigrateRegistry(), dir, migrateConvertModule)
+	if err != nil {
+		return err
 	}
 
 	clusterName := migrateConvertClusterName

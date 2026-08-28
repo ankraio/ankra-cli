@@ -43,6 +43,7 @@ func (Module) Describe() migrate.Description {
 		Protocol:     migrate.ProtocolVersion,
 		Summary:      "docker-compose files, Dockerfiles, and the running Docker daemon",
 		FilePatterns: append(append([]string(nil), ComposeFileNames...), "Dockerfile"),
+		Capabilities: []string{migrate.CapabilityExport},
 		Builtin:      true,
 	}
 }
@@ -66,57 +67,7 @@ func (Module) Convert(ctx context.Context, request migrate.ConvertRequest) (migr
 	if options == nil {
 		options = map[string]string{}
 	}
-
-	source := options[OptionSource]
-	if source == "" {
-		switch {
-		case options[OptionProject] != "" || options[OptionContainers] != "":
-			source = "daemon"
-		default:
-			if _, ok := FindComposeFile(request.Dir); ok {
-				source = "compose"
-			} else if _, ok := FindDockerfile(request.Dir); ok {
-				source = "dockerfile"
-			} else {
-				return migrate.Result{}, fmt.Errorf("no compose file or Dockerfile in %s (use --option source=daemon to read running containers)", request.Dir)
-			}
-		}
-	}
-
-	var (
-		project  Project
-		warnings []string
-		err      error
-	)
-	switch source {
-	case "compose":
-		path, ok := FindComposeFile(request.Dir)
-		if !ok {
-			return migrate.Result{}, fmt.Errorf("no compose file in %s", request.Dir)
-		}
-		project, warnings, err = LoadCompose(request.Dir, path, ComposeOptions{
-			Profiles:       splitList(options[OptionProfiles]),
-			AllProfiles:    isTrue(options[OptionAllProfiles]),
-			UseEnvironment: isTrue(options[OptionUseEnvironment]),
-		})
-	case "dockerfile":
-		path, ok := FindDockerfile(request.Dir)
-		if !ok {
-			return migrate.Result{}, fmt.Errorf("no Dockerfile in %s", request.Dir)
-		}
-		project, warnings, err = LoadDockerfile(request.Dir, path, DockerfileOptions{
-			Name:  options[OptionName],
-			Image: options[OptionImagePrefix+options[OptionName]],
-		})
-	case "daemon":
-		project, warnings, err = LoadDaemon(ctx, DaemonOptions{
-			Project:    options[OptionProject],
-			Containers: splitList(options[OptionContainers]),
-			All:        isTrue(options[OptionAll]),
-		})
-	default:
-		return migrate.Result{}, fmt.Errorf("unknown source %q: expected compose, dockerfile, or daemon", source)
-	}
+	project, warnings, err := loadProject(ctx, request.Dir, options)
 	if err != nil {
 		return migrate.Result{}, err
 	}
@@ -133,6 +84,56 @@ func (Module) Convert(ctx context.Context, request migrate.ConvertRequest) (migr
 	result := Render(project, render)
 	result.Warnings = uniqueSorted(append(warnings, result.Warnings...))
 	return result, nil
+}
+
+// loadProject reads the source Convert and Export share: the one named by
+// the source option, or the one the directory holds.
+func loadProject(ctx context.Context, dir string, options map[string]string) (Project, []string, error) {
+	source := options[OptionSource]
+	if source == "" {
+		switch {
+		case options[OptionProject] != "" || options[OptionContainers] != "":
+			source = "daemon"
+		default:
+			if _, ok := FindComposeFile(dir); ok {
+				source = "compose"
+			} else if _, ok := FindDockerfile(dir); ok {
+				source = "dockerfile"
+			} else {
+				return Project{}, nil, fmt.Errorf("no compose file or Dockerfile in %s (use --option source=daemon to read running containers)", dir)
+			}
+		}
+	}
+
+	switch source {
+	case "compose":
+		path, ok := FindComposeFile(dir)
+		if !ok {
+			return Project{}, nil, fmt.Errorf("no compose file in %s", dir)
+		}
+		return LoadCompose(dir, path, ComposeOptions{
+			Profiles:       splitList(options[OptionProfiles]),
+			AllProfiles:    isTrue(options[OptionAllProfiles]),
+			UseEnvironment: isTrue(options[OptionUseEnvironment]),
+		})
+	case "dockerfile":
+		path, ok := FindDockerfile(dir)
+		if !ok {
+			return Project{}, nil, fmt.Errorf("no Dockerfile in %s", dir)
+		}
+		return LoadDockerfile(dir, path, DockerfileOptions{
+			Name:  options[OptionName],
+			Image: options[OptionImagePrefix+options[OptionName]],
+		})
+	case "daemon":
+		return LoadDaemon(ctx, DaemonOptions{
+			Host:       options[OptionDockerHost],
+			Project:    options[OptionProject],
+			Containers: splitList(options[OptionContainers]),
+			All:        isTrue(options[OptionAll]),
+		})
+	}
+	return Project{}, nil, fmt.Errorf("unknown source %q: expected compose, dockerfile, or daemon", source)
 }
 
 func uniqueSorted(values []string) []string {

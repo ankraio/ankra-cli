@@ -39,6 +39,22 @@ exit fails the verb and the module's stderr is shown as the reason.
 Warnings are for anything the module could not translate faithfully: a
 partial conversion a person can finish beats none.
 
+A module that lists "export" under "capabilities" in its description also
+answers a fourth verb, which backs 'ankra migrate export':
+
+  ankra-module-<name> export
+      <- {"dir":"...","output_dir":"/abs/path","namespace":"...","options":{}}
+      -> {"databases":[{"workload":"db","engine":"postgres","server_version":"17.2",
+           "target":{"namespace":"...","host":"db","port":5432,"username":"app",
+                     "password_secret":"db-secrets","password_key":"POSTGRES_PASSWORD"},
+           "artifacts":[{"path":"db/globals.sql","kind":"globals","format":"sql"},
+                        {"path":"db/app.dump","kind":"database","format":"pg_custom","database":"app"}]}],
+          "warnings":["..."]}
+
+The module writes the dumps under output_dir and reports their paths; the
+CLI measures sizes and checksums itself. Stderr is relayed live while an
+export runs, so narrate progress there.
+
 The protocol version is ` + fmt.Sprint(migrate.ProtocolVersion) + `. The reference implementation is the built-in
 'docker' module; a worked external example lives in the CLI repository under
 examples/modules/.`,

@@ -151,7 +151,7 @@ per command family:
 | [ankra org](https://docs.ankra.ai/reference/cli/org) | Manage organisations, members, roles, org variables, DNS, and MCP tool servers |
 | [ankra profile](https://docs.ankra.ai/reference/cli/profile) | Open profile authentication settings (MFA, passkeys) in the browser |
 | [ankra skills](https://docs.ankra.ai/reference/cli/skills) | Install Ankra Agent Skills into Cursor or Claude Code |
-| [ankra migrate](https://docs.ankra.ai/reference/cli/migrate) | Convert a docker-compose file, Dockerfile, or running containers into Ankra cluster and stack definitions; extensible with `ankra-module-<name>` executables |
+| [ankra migrate](https://docs.ankra.ai/reference/cli/migrate) | Convert a docker-compose file, Dockerfile, or running containers into Ankra cluster and stack definitions, and export their databases for a restore into the cluster; extensible with `ankra-module-<name>` executables |
 | [ankra stack-profiles](https://docs.ankra.ai/reference/cli/stack-profiles) | Manage reusable stack profiles |
 | [ankra support](https://docs.ankra.ai/reference/cli/support) | Create and track Ankra support requests |
 | [ankra tokens](https://docs.ankra.ai/reference/cli/tokens) | Manage API tokens |

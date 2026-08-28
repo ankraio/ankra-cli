@@ -4,6 +4,28 @@
 
 ### Added
 
+- **`ankra migrate export` dumps the databases a Docker deployment runs, ready
+  to be restored into the cluster.** `ankra migrate convert` moved the
+  workloads but left every database volume empty; the data had to be copied
+  by hand. `ankra migrate export` now finds every PostgreSQL and MySQL/MariaDB
+  service in a compose project (or the running daemon), dumps each database
+  through the docker CLI - `pg_dump -Fc` plus roles and globals, or
+  `mysqldump` - and writes a self-describing directory: the dumps, a
+  `manifest.json` that names the Service and Secret `convert` generated for
+  each database so a restore knows exactly where to load it, and a
+  `SHA256SUMS` file. A deployment on another host is dumped the way docker
+  reaches it (`--option docker-host=ssh://root@host`), with
+  `--option project=<name>` for a compose project that runs under a
+  different name, and `--option databases.<workload>=a,b` to pick databases.
+  Passwords never cross the host's command line: every dump runs inside the
+  container through its own environment. Module authors get the same verb:
+  a module that lists `export` under its capabilities is asked to dump, with
+  its stderr relayed live as progress (`examples/modules/README.md`).
+- **A converted database always gets a Service.** `ankra migrate convert`
+  only generated a Service for workloads with published ports, so a compose
+  database nobody exposed to the host - the usual case - was unreachable
+  from the other workloads once in the cluster. Database images now get a
+  Service on their default port regardless.
 - **The Security Center is readable from the terminal.** `ankra security
   overview` prints the fleet's actionable totals, scanner coverage, the
   remediation candidates, and - first - how many vulnerabilities CISA lists
