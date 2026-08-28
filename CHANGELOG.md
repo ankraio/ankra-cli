@@ -1,5 +1,30 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`control-plane get` answers the count and the instance type separately.**
+  The platform can now resize a running cluster's controllers one at a time,
+  so the two controls stopped having the same answer - but the CLI still
+  printed a single `Editable` line taken from the count, with the count's
+  reason under it. On a running three-controller cluster that read as
+  "Editable: false - Stop the cluster to change the control plane count"
+  against an instance type that could be rolled live, and sent operators to
+  stop a cluster that did not need stopping. The two now print as
+  `Change count` and `Change type`, each with its own answer, and the lane is
+  named: live and one controller at a time, or applied at the next start. A
+  platform that predates the split sends neither answer, and still renders the
+  old `Editable`/`Note` pair rather than an invented one.
+- **`control-plane set-instance-type` no longer tells you to start a running
+  cluster.** Every outcome ended in "Start the cluster to apply", including a
+  rolling resize that had already been dispatched against a live cluster - an
+  instruction to stop something that was working. The rolling lane now says
+  the controllers are being resized one at a time and prints the operation id
+  to track, the offline lane keeps its original wording, and asking for the
+  instance type the controllers already run says so instead of reporting a
+  change from a size to itself.
+
 ## v0.14.0-rc3 — 2026-08-28
 
 ### Fixed

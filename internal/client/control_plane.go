@@ -7,12 +7,39 @@ import (
 	"net/http"
 )
 
+// Control-plane change lanes. Offline rewrites a stopped cluster's plan and
+// takes effect at the next start; rolling resizes a running cluster's
+// controllers one at a time and keeps the Kubernetes API up throughout.
+const (
+	ControlPlaneChangeModeOffline = "offline"
+	ControlPlaneChangeModeRolling = "rolling"
+)
+
+// ControlPlaneChangeCapability answers one control: whether it can be changed
+// right now, by which lane, and when it cannot, why not.
+//
+// The count and the instance type are answered separately because they stopped
+// having the same answer: a running cluster with three controllers can have its
+// instance type rolled live while its count still needs a stopped cluster.
+type ControlPlaneChangeCapability struct {
+	Allowed bool    `json:"allowed"`
+	Mode    string  `json:"mode"`
+	Reason  *string `json:"reason"`
+}
+
+// ControlPlaneInfo describes the control plane and what may be changed about it.
+//
+// CountChange and InstanceTypeChange are pointers on purpose: a server that
+// predates the split omits them, and nil means "this server did not say" rather
+// than "not allowed". Callers fall back to the legacy CanChange/Reason pair.
 type ControlPlaneInfo struct {
-	Count           int      `json:"count"`
-	SupportedCounts []int    `json:"supported_counts"`
-	InstanceType    string   `json:"instance_type"`
-	CanChange       bool     `json:"can_change"`
-	Reason          *string  `json:"reason,omitempty"`
+	Count              int                           `json:"count"`
+	SupportedCounts    []int                         `json:"supported_counts"`
+	InstanceType       string                        `json:"instance_type"`
+	CanChange          bool                          `json:"can_change"`
+	Reason             *string                       `json:"reason,omitempty"`
+	CountChange        *ControlPlaneChangeCapability `json:"count_change,omitempty"`
+	InstanceTypeChange *ControlPlaneChangeCapability `json:"instance_type_change,omitempty"`
 }
 
 type ChangeControlPlaneCountRequest struct {
@@ -28,10 +55,17 @@ type ChangeControlPlaneInstanceTypeRequest struct {
 	InstanceType string `json:"instance_type"`
 }
 
+// ChangeControlPlaneInstanceTypeResult reports what the change did.
+//
+// Mode names the lane, not whether work was dispatched. OperationID is what
+// says whether there is anything to poll: it is nil on the offline lane, and
+// nil on either lane when the controllers already run the requested type.
 type ChangeControlPlaneInstanceTypeResult struct {
-	PreviousInstanceType string `json:"previous_instance_type"`
-	NewInstanceType      string `json:"new_instance_type"`
-	Updated              int    `json:"updated"`
+	PreviousInstanceType string  `json:"previous_instance_type"`
+	NewInstanceType      string  `json:"new_instance_type"`
+	Updated              int     `json:"updated"`
+	Mode                 string  `json:"mode,omitempty"`
+	OperationID          *string `json:"operation_id,omitempty"`
 }
 
 func (c *Client) GetHetznerControlPlane(clusterID string) (*ControlPlaneInfo, error) {

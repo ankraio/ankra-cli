@@ -88,11 +88,43 @@ func runControlPlaneGet(cmd *cobra.Command, opsFn func() controlPlaneOps, cluste
 	if len(info.SupportedCounts) > 0 {
 		fmt.Printf("  Supported counts: %v\n", info.SupportedCounts)
 	}
+	// A server that answers the two controls separately gets them rendered
+	// separately. Collapsing them back into one "Editable" line is what told
+	// operators to stop a cluster to change an instance type that could be
+	// rolled live.
+	if info.CountChange != nil || info.InstanceTypeChange != nil {
+		printControlPlaneChange("Change count", info.CountChange)
+		printControlPlaneChange("Change type", info.InstanceTypeChange)
+		return nil
+	}
 	fmt.Printf("  Editable:         %t\n", info.CanChange)
 	if info.Reason != nil && *info.Reason != "" {
 		fmt.Printf("  Note:             %s\n", *info.Reason)
 	}
 	return nil
+}
+
+// printControlPlaneChange renders one control's answer. The lane is worth
+// naming: rolling is a live, one-controller-at-a-time resize that needs no
+// maintenance window, while offline only takes effect at the next start.
+func printControlPlaneChange(label string, change *client.ControlPlaneChangeCapability) {
+	if change == nil {
+		return
+	}
+	var answer string
+	switch {
+	case change.Allowed && change.Mode == client.ControlPlaneChangeModeRolling:
+		answer = "yes - live, one controller at a time"
+	case change.Allowed && change.Mode == client.ControlPlaneChangeModeOffline:
+		answer = "yes - applied at the next start"
+	case change.Allowed:
+		answer = "yes"
+	case change.Reason != nil && *change.Reason != "":
+		answer = "no - " + *change.Reason
+	default:
+		answer = "no"
+	}
+	fmt.Printf("  %-18s%s\n", label+":", answer)
 }
 
 func runControlPlaneSetCount(cmd *cobra.Command, opsFn func() controlPlaneOps, clusterID string, count int) error {
@@ -122,8 +154,23 @@ func runControlPlaneSetInstanceType(cmd *cobra.Command, opsFn func() controlPlan
 	} else if handled {
 		return nil
 	}
-	fmt.Printf("Controller instance type changed from '%s' to '%s'. %d controller(s) updated. Start the cluster to apply.\n",
+	if res.Updated == 0 && res.PreviousInstanceType == res.NewInstanceType {
+		fmt.Printf("Controller instance type is already '%s'. Nothing to apply.\n", res.NewInstanceType)
+		return nil
+	}
+	fmt.Printf("Controller instance type changed from '%s' to '%s'. %d controller(s) updated.\n",
 		res.PreviousInstanceType, res.NewInstanceType, res.Updated)
+	// Only the offline lane leaves work for the next start. On the rolling lane
+	// the resize has already been dispatched against a running cluster, and
+	// telling the operator to start it would be an instruction to stop it first.
+	if res.Mode == client.ControlPlaneChangeModeRolling {
+		fmt.Println("The cluster is running, so the controllers are being resized one at a time.")
+		if res.OperationID != nil && *res.OperationID != "" {
+			fmt.Printf("Operation: %s\n", *res.OperationID)
+		}
+		return nil
+	}
+	fmt.Println("Start the cluster to apply.")
 	return nil
 }
 
@@ -131,10 +178,18 @@ func newControlPlaneCmd(opsFn func() controlPlaneOps, provider string) *cobra.Co
 	cmd := &cobra.Command{
 		Use:   "control-plane",
 		Short: fmt.Sprintf("Manage the control plane for a %s cluster", provider),
-		Long: `Inspect and change the control plane configuration. The cluster must be stopped
-to change the controller count or instance type. Only 1 or 3 controllers are
-allowed (etcd needs an odd number of voting members for quorum). Changes apply
-the next time the cluster is started.`,
+		Long: `Inspect and change the control plane configuration. Only 1 or 3 controllers
+are allowed (etcd needs an odd number of voting members for quorum).
+
+The controller count can only be changed while the cluster is stopped, and
+applies the next time the cluster is started.
+
+The instance type can also be changed on a running cluster that has three
+controllers: they are then resized one at a time, keeping the Kubernetes API
+up. With a single controller it still needs a stopped cluster, because
+resizing the only controller takes the API down while it reboots.
+
+Run "control-plane get" to see which of the two is available right now.`,
 	}
 
 	getCmd := &cobra.Command{
