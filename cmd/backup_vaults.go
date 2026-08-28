@@ -70,10 +70,10 @@ func resolveBackupVaultID(vaults APIClient, reference string) (string, error) {
 	}
 	listing, listError := vaults.ListBackupVaults()
 	if listError != nil {
-		// The lookup is a convenience, not the operation. If listing is
-		// unavailable, hand the reference to the API unchanged and let the
-		// real call decide.
-		return reference, nil
+		// Passing the name through unchanged made the API answer a
+		// uuid-parsing validation error, which reads as "you typed the name
+		// wrong" for a name that was right. Report why the lookup failed.
+		return "", backupLaneError("looking up backup vault "+reference, listError)
 	}
 	matched := []client.BackupVault{}
 	for _, vault := range listing.Items {
@@ -97,11 +97,20 @@ func resolveBackupVaultID(vaults APIClient, reference string) (string, error) {
 	}
 }
 
-// backupVaultVerifyHint tells the user what to do after a failed credential
-// check: the stored keys are replaced by recreating them server-side, so the
-// actionable next step is fixing the keys at the provider and re-verifying.
-func backupVaultVerifyHint(vaultName string) string {
-	return fmt.Sprintf("fix the access keys, then run 'ankra backup vaults verify %s'", vaultName)
+// backupVaultVerifyHint tells the user what to do after a failed check. The
+// answer depends on how the vault was meant to get its bucket: a vault
+// Ankra provisioned that has never verified never got as far as minting
+// keys, so there are none to fix and re-verifying cannot make the bucket
+// exist (the API answers 409 for exactly that) - the way out is to delete
+// it, which also clears whatever the run had already created, and provision
+// again. Anywhere else the keys are the user's own and re-verifying is the
+// point.
+func backupVaultVerifyHint(vault *client.BackupVault) string {
+	if vault.Kind == "ankra_provisioned" && (vault.LastVerifiedAt == nil || *vault.LastVerifiedAt == "") {
+		return fmt.Sprintf("provisioning did not finish, so run "+
+			"'ankra backup vaults delete %s --destroy-provider-resources' and provision again", vault.Name)
+	}
+	return fmt.Sprintf("fix the access keys, then run 'ankra backup vaults verify %s'", vault.Name)
 }
 
 // backupVaultStatusError turns a vault whose verification failed into a
@@ -112,7 +121,7 @@ func backupVaultStatusError(vault *client.BackupVault) error {
 	if vault.ErrorExcerpt != nil && *vault.ErrorExcerpt != "" {
 		message += ": " + *vault.ErrorExcerpt
 	}
-	return fmt.Errorf("%s - %s", message, backupVaultVerifyHint(vault.Name))
+	return fmt.Errorf("%s - %s", message, backupVaultVerifyHint(vault))
 }
 
 func printBackupVault(vault *client.BackupVault) {
@@ -149,7 +158,7 @@ func printBackupVault(vault *client.BackupVault) {
 		} else {
 			fmt.Println("  (no error detail recorded)")
 		}
-		fmt.Printf("\nTo recover: %s\n", backupVaultVerifyHint(vault.Name))
+		fmt.Printf("\nTo recover: %s\n", backupVaultVerifyHint(vault))
 	}
 }
 
