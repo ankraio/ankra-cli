@@ -25,6 +25,7 @@ type backupVaultsMock struct {
 	createdVault     *client.BackupVault
 	verifiedVault    *client.BackupVault
 	deletedID        string
+	destroyRequested bool
 	deleteCalls      int
 }
 
@@ -67,9 +68,10 @@ func (mock *backupVaultsMock) VerifyBackupVault(vaultID string) (*client.BackupV
 	return mock.verifiedVault, nil
 }
 
-func (mock *backupVaultsMock) DeleteBackupVault(vaultID string) error {
+func (mock *backupVaultsMock) DeleteBackupVault(vaultID string, destroyProviderResources bool) error {
 	mock.deleteCalls++
 	mock.deletedID = vaultID
+	mock.destroyRequested = destroyProviderResources
 	return nil
 }
 

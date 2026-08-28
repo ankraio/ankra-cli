@@ -1,5 +1,18 @@
 # Ankra CLI Changelog
 
+## v0.14.0-rc2 — 2026-08-28
+
+### Added
+
+- **`ankra backup vaults delete --destroy-provider-resources` cleans up the
+  cloud side too.** A plain delete still removes only Ankra's record and the
+  keys it stored - the bucket and anything Ankra created for it stay in your
+  account, and the command now says so. With the flag, the platform empties
+  and deletes the bucket and removes the resource it minted (the UpCloud
+  object storage service, the DigitalOcean Spaces key); the confirmation
+  prompt names the bucket first, because every restore point in it is lost.
+  It is refused for a vault that registers a bucket you created yourself.
+
 ## v0.14.0-rc1 — 2026-08-28
 
 ### Added

@@ -47,7 +47,7 @@ type APIClient interface {
 	CreateBackupVault(request client.CreateBackupVaultRequest) (*client.BackupVault, error)
 	ProvisionBackupVault(request client.ProvisionBackupVaultRequest) (*client.BackupVault, error)
 	VerifyBackupVault(vaultID string) (*client.BackupVault, error)
-	DeleteBackupVault(vaultID string) error
+	DeleteBackupVault(vaultID string, destroyProviderResources bool) error
 
 	ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error)
 	GetExecution(executionID string) (client.ExecutionDetail, error)

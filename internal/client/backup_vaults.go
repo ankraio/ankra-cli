@@ -122,9 +122,15 @@ func (c *Client) VerifyBackupVault(vaultID string) (*BackupVault, error) {
 	return &result, nil
 }
 
-// DeleteBackupVault deletes one backup vault.
+// DeleteBackupVault deletes one backup vault. With
+// destroyProviderResources the platform also destroys what it created for
+// an Ankra-provisioned vault - the bucket and everything in it, plus the
+// provider handle - which it refuses for a bring-your-own vault.
 // DELETE /api/v1/org/backup-vaults/{vault_id}
-func (c *Client) DeleteBackupVault(vaultID string) error {
+func (c *Client) DeleteBackupVault(vaultID string, destroyProviderResources bool) error {
 	url := fmt.Sprintf("%s/api/v1/org/backup-vaults/%s", c.BaseURL, neturl.PathEscape(vaultID))
+	if destroyProviderResources {
+		url += "?destroy_provider_resources=true"
+	}
 	return c.sendJSON(http.MethodDelete, url, nil, nil)
 }

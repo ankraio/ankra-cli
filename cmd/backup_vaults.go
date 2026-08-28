@@ -489,21 +489,51 @@ var backupVaultsVerifyCmd = &cobra.Command{
 var backupVaultsDeleteCmd = &cobra.Command{
 	Use:   "delete [vault-name|vault-id]",
 	Short: "Delete a backup vault",
-	Args:  cobra.ExactArgs(1),
+	Long: `Delete a backup vault.
+
+By default this removes only Ankra's record of the vault and the access keys
+it stored: the bucket, everything in it, and any provider resource Ankra
+created for it are left in your cloud account.
+
+--destroy-provider-resources also destroys what Ankra created for an
+Ankra-provisioned vault - it empties and deletes the bucket, and removes the
+UpCloud object storage service or DigitalOcean Spaces key that was minted
+for it. Restore points in that bucket are gone for good. It is refused for a
+vault that registers a bucket you created yourself.`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		yes, _ := cmd.Flags().GetBool("yes")
+		destroyProviderResources, _ := cmd.Flags().GetBool("destroy-provider-resources")
 		vaultID, resolveError := resolveBackupVaultID(apiClient, args[0])
 		if resolveError != nil {
 			return resolveError
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Delete backup vault %q? [y/N]: ", args[0]), yes); confirmError != nil {
+		prompt := fmt.Sprintf("Delete backup vault %q? [y/N]: ", args[0])
+		if destroyProviderResources {
+			// Name the bucket that is about to be emptied: the vault name
+			// alone does not tell the operator what data is at stake.
+			vault, getError := apiClient.GetBackupVault(vaultID)
+			if getError != nil {
+				return backupLaneError("reading backup vault", getError)
+			}
+			if vault.Kind != "ankra_provisioned" {
+				return fmt.Errorf("backup vault %q registers a bucket you created, so Ankra will not destroy it; "+
+					"delete it without --destroy-provider-resources and remove the bucket yourself", args[0])
+			}
+			prompt = fmt.Sprintf("Delete backup vault %q AND destroy bucket %q on %s, including every restore point in it? [y/N]: ",
+				args[0], vault.Bucket, vault.Provider)
+		}
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(), prompt, yes); confirmError != nil {
 			return confirmError
 		}
-		if deleteError := apiClient.DeleteBackupVault(vaultID); deleteError != nil {
+		if deleteError := apiClient.DeleteBackupVault(vaultID, destroyProviderResources); deleteError != nil {
 			return backupLaneError("deleting backup vault", deleteError)
 		}
-		fmt.Printf("Backup vault '%s' deleted.\n", args[0])
+		if destroyProviderResources {
+			fmt.Printf("Backup vault '%s' deleted; its provider resources are being destroyed.\n", args[0])
+			return nil
+		}
+		fmt.Printf("Backup vault '%s' deleted. Its bucket and any provider resources Ankra created are untouched.\n", args[0])
 		return nil
 	},
 }
@@ -529,6 +559,9 @@ func init() {
 	registerAsyncWriteFlags(backupVaultsProvisionCmd)
 
 	backupVaultsDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	backupVaultsDeleteCmd.Flags().Bool("destroy-provider-resources", false,
+		"Also destroy what Ankra created for this vault: empty and delete the bucket (every restore point in it is lost) "+
+			"and remove the provider resource minted for it. Ankra-provisioned vaults only")
 
 	registerStructuredOutputFlags(backupVaultsListCmd, backupVaultsGetCmd)
 
