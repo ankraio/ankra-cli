@@ -169,16 +169,65 @@ func TestResolveBackupVaultIDReportsDuplicateNames(t *testing.T) {
 	}
 }
 
-func TestResolveBackupVaultIDFallsBackWhenLookupIsUnavailable(t *testing.T) {
+// A name can only be resolved by listing; passing it through to a
+// uuid-typed path guaranteed a validation error that read as "you typed the
+// name wrong" for a name that was right. Report the real cause instead.
+func TestResolveBackupVaultIDReportsWhyTheLookupFailed(t *testing.T) {
 	mock := &backupVaultsMock{listError: errors.New("listing unavailable")}
 
 	resolved, resolveError := resolveBackupVaultID(mock, "offsite")
 
-	if resolveError != nil {
-		t.Fatalf("a failed lookup must not fail the command: %v", resolveError)
+	if resolveError == nil {
+		t.Fatal("a failed lookup must surface, not pass the name through")
 	}
-	if resolved != "offsite" {
-		t.Fatalf("the reference must pass through unchanged, got %q", resolved)
+	if !strings.Contains(resolveError.Error(), "listing unavailable") ||
+		!strings.Contains(resolveError.Error(), "offsite") {
+		t.Fatalf("the error must name the vault and the cause: %v", resolveError)
+	}
+	if resolved != "" {
+		t.Fatalf("no id may be returned alongside the error, got %q", resolved)
+	}
+}
+
+// An id needs no lookup, so a broken listing never blocks it.
+func TestResolveBackupVaultIDSkipsTheLookupForAnID(t *testing.T) {
+	mock := &backupVaultsMock{listError: errors.New("listing unavailable")}
+
+	resolved, resolveError := resolveBackupVaultID(mock, backupVaultTestID)
+
+	if resolveError != nil {
+		t.Fatalf("an id must not need the listing: %v", resolveError)
+	}
+	if resolved != backupVaultTestID {
+		t.Fatalf("resolved = %q", resolved)
+	}
+}
+
+// The recovery hint has to match how the vault was meant to get its bucket.
+func TestBackupVaultVerifyHintMatchesTheVaultKind(t *testing.T) {
+	verifiedAt := "2026-08-27T10:00:00Z"
+	cases := map[string]struct {
+		vault    client.BackupVault
+		expected string
+	}{
+		"provisioning never finished": {
+			vault:    client.BackupVault{Name: "offsite", Kind: "ankra_provisioned"},
+			expected: "--destroy-provider-resources",
+		},
+		"provisioned but verified before": {
+			vault:    client.BackupVault{Name: "offsite", Kind: "ankra_provisioned", LastVerifiedAt: &verifiedAt},
+			expected: "fix the access keys",
+		},
+		"bring your own": {
+			vault:    client.BackupVault{Name: "offsite", Kind: "customer_s3"},
+			expected: "fix the access keys",
+		},
+	}
+	for name, testCase := range cases {
+		hint := backupVaultVerifyHint(&testCase.vault)
+		if !strings.Contains(hint, testCase.expected) {
+			t.Errorf("%s: hint %q does not contain %q", name, hint, testCase.expected)
+		}
 	}
 }
 

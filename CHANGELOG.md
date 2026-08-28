@@ -2,6 +2,16 @@
 
 ## v0.14.0-rc4 — 2026-08-28
 
+### Added
+
+- **`ankra backup vaults provision` needs no arguments.** Letting Ankra set a
+  vault up is now one command: the name defaults to `backups` (then
+  `backups-2` and so on, against the vaults that already exist), the
+  credential to the only one Ankra can provision from, and the region to that
+  provider's usual one - and the command prints what it chose before it
+  creates anything. Pass any of them to override. With several usable
+  credentials it still asks which, rather than guessing.
+
 ### Changed
 
 - **kubeadm is the default distribution (PLA-808).** `--distribution` on every
@@ -12,6 +22,21 @@
   with `kubeadm-versions`. Pairs with the platform default flip
   (ankraio/cluster#2086), which also makes an omitted `--cni` follow the
   distribution: Cilium on kubeadm, flannel on k3s.
+
+### Fixed
+
+- **A failed provisioning is no longer told to fix its access keys.** For a
+  vault Ankra provisioned there are none to fix - the run never got as far
+  as minting any - and re-verifying cannot make a bucket exist. `get` and a
+  failed `provision` now say to delete it with
+  `--destroy-provider-resources`, which also clears whatever the run had
+  already created, and provision again. A vault that verified before, or one
+  whose bucket you registered yourself, still points at the keys.
+- **A vault name that cannot be looked up says why.** When listing failed,
+  the name was handed to the API unchanged and came back as a uuid-parsing
+  validation error - which reads as a typo for a name that was right. The
+  command now reports the real reason it could not resolve the name; an id
+  still needs no lookup at all.
 
 ## v0.14.0-rc3 — 2026-08-28
 
