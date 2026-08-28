@@ -1,5 +1,25 @@
 # Ankra CLI Changelog
 
+## v0.14.0-rc3 — 2026-08-28
+
+### Fixed
+
+- **`ankra cluster encrypt -f` changes only the line it adds.** Recording an
+  encrypted path used to re-encode the whole cluster file in the CLI's own
+  YAML style, so a file the platform had written - indentless sequences,
+  folded long lines - came back with every sequence re-indented: a 600-line
+  diff in a GitOps repository to add one entry. The entry is now spliced into
+  the file's own bytes at the position the parser reports, in whatever style
+  the file uses; nothing else moves.
+- **Section-qualified `encrypted_paths` entries are recognised.** The
+  platform writes entries as `stringData.PASSWORD`; the CLI compared them to
+  the bare key name, found no match, and appended every key again as a bare
+  name - `--all-data` on a Secret with 15 recorded keys produced 31 entries
+  in two spellings. Entries are now compared by key name with the section
+  stripped, as the platform reads them, and a new entry is spelled the way
+  the file already spells its entries. `ankra cluster manifests upgrade`
+  merges its detected paths the same way.
+
 ## v0.14.0-rc2 — 2026-08-28
 
 ### Added

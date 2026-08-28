@@ -678,27 +678,26 @@ func runEncryptManifestFile(cmd *cobra.Command, manifestName string, leafKeys []
 
 	fmt.Printf("Updated manifest file: %s\n", manifestFilePath)
 
-	// Update the cluster YAML with encrypted_paths. The file is mutated at
-	// the yaml.Node level so fields the CLI structs do not model
-	// (deploy_wave, prometheus_metrics, future keys), comments, and ordering
-	// survive the rewrite of this GitOps source of truth.
-	missingKeys := make([]string, 0, len(leafKeys))
+	// Update the cluster YAML with encrypted_paths. Entries are matched by
+	// key name however the file spells them - the platform writes
+	// "stringData.PASSWORD", the CLI's grammar is the bare "PASSWORD", and
+	// the platform reads both as one entry - and a new entry follows the
+	// file's spelling. It is spliced into the file's own bytes at the
+	// position the parser reports, so this GitOps source of truth changes by
+	// exactly the line being added; re-encoding the tree would reflow every
+	// sequence of a platform-written file.
+	newEntries := make([]string, 0, len(leafKeys))
 	for _, leafKey := range leafKeys {
-		if !containsString(foundManifest.EncryptedPaths, leafKey) {
-			missingKeys = append(missingKeys, leafKey)
+		if !containsEncryptedPath(foundManifest.EncryptedPaths, leafKey) {
+			newEntries = append(newEntries, encryptedPathEntry(foundManifest.EncryptedPaths, leafKey, secretKeySection(manifestContent, leafKey)))
 		}
 	}
-	if len(missingKeys) > 0 {
-		clusterDoc, err := parseClusterYAMLDoc(clusterData)
+	if len(newEntries) > 0 {
+		updatedClusterData, err := spliceManifestEncryptedPaths(clusterData, manifestName, newEntries)
 		if err != nil {
 			return fmt.Errorf("failed to update cluster file: %w", err)
 		}
-		for _, leafKey := range missingKeys {
-			if err := appendManifestEncryptedPath(clusterDoc, manifestName, leafKey); err != nil {
-				return fmt.Errorf("failed to update cluster file: %w", err)
-			}
-		}
-		if err := writeClusterFile(encryptClusterFile, clusterDoc); err != nil {
+		if err := os.WriteFile(encryptClusterFile, updatedClusterData, 0o644); err != nil {
 			return fmt.Errorf("failed to update cluster file: %w", err)
 		}
 
@@ -797,28 +796,22 @@ func runEncryptAddonFile(cmd *cobra.Command, leafKeys []string) error {
 
 	fmt.Printf("Updated addon configuration file: %s\n", addonFilePath)
 
-	// Update the cluster YAML with encrypted_paths in the configuration. The
-	// file is mutated at the yaml.Node level so fields the CLI structs do not
-	// model (deploy_wave, prometheus_metrics, future keys), comments, and
-	// ordering survive the rewrite of this GitOps source of truth.
+	// Update the cluster YAML with encrypted_paths in the configuration -
+	// matched by key name, spelled like the file, spliced into the file's own
+	// bytes; see runEncryptManifestFile.
 	encryptedPaths := getEncryptedPathsFromConfig(foundAddon.Configuration)
-	missingKeys := make([]string, 0, len(leafKeys))
+	newEntries := make([]string, 0, len(leafKeys))
 	for _, leafKey := range leafKeys {
-		if !containsString(encryptedPaths, leafKey) {
-			missingKeys = append(missingKeys, leafKey)
+		if !containsEncryptedPath(encryptedPaths, leafKey) {
+			newEntries = append(newEntries, encryptedPathEntry(encryptedPaths, leafKey, ""))
 		}
 	}
-	if len(missingKeys) > 0 {
-		clusterDoc, err := parseClusterYAMLDoc(clusterData)
+	if len(newEntries) > 0 {
+		updatedClusterData, err := spliceAddonEncryptedPaths(clusterData, encryptAddonName, newEntries)
 		if err != nil {
 			return fmt.Errorf("failed to update cluster file: %w", err)
 		}
-		for _, leafKey := range missingKeys {
-			if err := appendAddonEncryptedPath(clusterDoc, encryptAddonName, leafKey); err != nil {
-				return fmt.Errorf("failed to update cluster file: %w", err)
-			}
-		}
-		if err := writeClusterFile(encryptClusterFile, clusterDoc); err != nil {
+		if err := os.WriteFile(encryptClusterFile, updatedClusterData, 0o644); err != nil {
 			return fmt.Errorf("failed to update cluster file: %w", err)
 		}
 
@@ -899,29 +892,117 @@ func collectEncryptedLeafKeys(node *yaml.Node, isDocumentRoot bool, seenPaths ma
 	}
 }
 
-// unionStringLists merges the given lists preserving first-seen order and
-// dropping duplicates.
-func unionStringLists(lists ...[]string) []string {
-	seenValues := map[string]bool{}
+// unionEncryptedPaths merges encrypted_paths lists preserving first-seen
+// order. Two entries naming the same key in different spellings
+// ("stringData.PASSWORD" and "PASSWORD") are one entry; the first spelling
+// seen is kept. Globs are compared verbatim.
+func unionEncryptedPaths(lists ...[]string) []string {
+	seenKeys := map[string]bool{}
 	var merged []string
 	for _, list := range lists {
-		for _, value := range list {
-			if !seenValues[value] {
-				seenValues[value] = true
-				merged = append(merged, value)
+		for _, entry := range list {
+			leaf := encryptedPathLeaf(entry)
+			if !seenKeys[leaf] {
+				seenKeys[leaf] = true
+				merged = append(merged, entry)
 			}
 		}
 	}
 	return merged
 }
 
-func containsString(slice []string, str string) bool {
-	for _, s := range slice {
-		if s == str {
+// encryptedPathLeaf returns the key name an encrypted_paths entry names: the
+// entry with a leading "data." or "stringData." section removed, the two the
+// platform strips when it reads the list. A glob entry is returned as
+// written; globs are compared verbatim.
+func encryptedPathLeaf(entry string) string {
+	if isEncryptKeyGlob(entry) {
+		return entry
+	}
+	return entry[len(encryptedPathSection(entry)):]
+}
+
+// encryptedPathSection returns the section an exact entry names in front of
+// its key ("data." or "stringData."), or "" for a bare or glob entry.
+func encryptedPathSection(entry string) string {
+	if isEncryptKeyGlob(entry) {
+		return ""
+	}
+	for _, sectionPrefix := range encryptKeySectionPrefixes {
+		if strings.HasPrefix(entry, sectionPrefix) {
+			return sectionPrefix
+		}
+	}
+	return ""
+}
+
+// containsEncryptedPath reports whether entries already record leafKey,
+// however they spell it.
+func containsEncryptedPath(entries []string, leafKey string) bool {
+	wanted := encryptedPathLeaf(leafKey)
+	for _, entry := range entries {
+		if encryptedPathLeaf(entry) == wanted {
 			return true
 		}
 	}
 	return false
+}
+
+// encryptedPathEntry spells leafKey the way entries already spell theirs.
+// The platform reads every spelling alike; matching the file keeps a GitOps
+// diff to the line being added. When every exact entry carries a section,
+// the new one does too - the section holding the key when the caller knows
+// it, else the one section the file agrees on. Otherwise, or when the list
+// is empty, the entry is the bare key: the CLI's own grammar.
+func encryptedPathEntry(entries []string, leafKey, section string) string {
+	leaf := encryptedPathLeaf(leafKey)
+	sections := map[string]bool{}
+	exactEntries := 0
+	for _, entry := range entries {
+		if isEncryptKeyGlob(entry) {
+			continue
+		}
+		exactEntries++
+		sections[encryptedPathSection(entry)] = true
+	}
+	if exactEntries == 0 || sections[""] {
+		return leaf
+	}
+	if section != "" {
+		return section + "." + leaf
+	}
+	if len(sections) == 1 {
+		for onlySection := range sections {
+			return onlySection + leaf
+		}
+	}
+	return leaf
+}
+
+// secretKeySection reports which Secret section - "data" or "stringData" -
+// holds leafKey in manifestYAML, or "" when neither does.
+func secretKeySection(manifestYAML []byte, leafKey string) string {
+	decoder := yaml.NewDecoder(bytes.NewReader(manifestYAML))
+	for {
+		var document yaml.Node
+		decodeErr := decoder.Decode(&document)
+		if decodeErr != nil {
+			return ""
+		}
+		rootNode := &document
+		if rootNode.Kind == yaml.DocumentNode && len(rootNode.Content) > 0 {
+			rootNode = resolveYAMLAlias(rootNode.Content[0])
+		}
+		if rootNode == nil || rootNode.Kind != yaml.MappingNode {
+			continue
+		}
+		for _, sectionKey := range []string{"data", "stringData"} {
+			section := yamlMapValue(rootNode, sectionKey)
+			if section != nil && section.Kind == yaml.MappingNode && mapIndexOf(section, leafKey) >= 0 {
+				return sectionKey
+			}
+		}
+	}
 }
 
 func getEncryptedPathsFromConfig(config map[string]interface{}) []string {
@@ -1041,8 +1122,8 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName string, leafKeys
 
 	newPaths := append([]string{}, manifest.EncryptedPaths...)
 	for _, leafKey := range leafKeys {
-		if !containsString(newPaths, leafKey) {
-			newPaths = append(newPaths, leafKey)
+		if !containsEncryptedPath(newPaths, leafKey) {
+			newPaths = append(newPaths, encryptedPathEntry(newPaths, leafKey, ""))
 		}
 	}
 
@@ -1113,8 +1194,8 @@ func runEncryptAddonCluster(cmd *cobra.Command, addonName string, leafKeys []str
 	}
 	newPaths := append([]string{}, existingPaths...)
 	for _, leafKey := range leafKeys {
-		if !containsString(newPaths, leafKey) {
-			newPaths = append(newPaths, leafKey)
+		if !containsEncryptedPath(newPaths, leafKey) {
+			newPaths = append(newPaths, encryptedPathEntry(newPaths, leafKey, ""))
 		}
 	}
 

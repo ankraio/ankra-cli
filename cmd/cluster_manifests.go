@@ -340,7 +340,7 @@ func runManifestsUpgrade(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("inspect manifest for SOPS metadata: %w", deriveErr)
 		}
 		if isSopsDocument || len(flags.EncryptedPaths) > 0 {
-			mergedPaths := unionStringLists(manifest.EncryptedPaths, derivedPaths, flags.EncryptedPaths)
+			mergedPaths := unionEncryptedPaths(manifest.EncryptedPaths, derivedPaths, flags.EncryptedPaths)
 			if len(mergedPaths) == 0 {
 				return errors.New("manifest content is SOPS-encrypted but no encrypted key paths could be derived; pass --encrypted-path <key> for each encrypted key so the backend keeps the encryption metadata")
 			}
