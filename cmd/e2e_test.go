@@ -1756,6 +1756,126 @@ func (m baseMock) RestartScalewayClusterNode(clusterID, nodeID string) (*client.
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateScalewayCluster(request client.CreateScalewayClusterRequest) (*client.CreateScalewayClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PreflightScalewayCluster(request client.CreateScalewayClusterRequest) (*client.ScalewayPreflightResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeprovisionScalewayCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetScalewayWorkerCount(clusterID string) (*client.WorkerCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ScaleScalewayWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetScalewayK8sVersion(clusterID string) (*client.K8sVersionInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpgradeScalewayK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListScalewayNodeGroups(clusterID string) (*client.NodeGroupListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddScalewayNodeGroup(ctx context.Context, clusterID string, request client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) ScaleScalewayNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateScalewayNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateScalewayNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateScalewayNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteScalewayNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetScalewayNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateScalewayNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, request client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetScalewayControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeScalewayControlPlaneCount(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeScalewayControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetScalewayClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateScalewayClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResyncScalewayClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListScalewayCredentials() ([]client.ScalewayCredentialListItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateScalewayCredential(request client.CreateScalewayCredentialRequest) (*client.CreateScalewayCredentialResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListScalewaySSHKeyCredentials() ([]client.ScalewayCredentialListItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateScalewaySSHKeyCredential(request client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListScalewayLocations(credentialID string) (*client.ScalewayCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListScalewayInstanceTypes(credentialID, region, zone string) (*client.ScalewayCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListScalewayGatewayTypes(credentialID, region, zone string) (*client.ScalewayCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListScalewayNetworks(credentialID, region, zone string) (*client.ScalewayCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateProxmoxCluster(request client.CreateProxmoxClusterRequest) (*client.CreateProxmoxClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }

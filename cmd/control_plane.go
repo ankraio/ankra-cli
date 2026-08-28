@@ -53,6 +53,15 @@ func digitaloceanControlPlaneOps() controlPlaneOps {
 	}
 }
 
+func scalewayControlPlaneOps() controlPlaneOps {
+	return controlPlaneOps{
+		provider:        "scaleway",
+		get:             apiClient.GetScalewayControlPlane,
+		setCount:        apiClient.ChangeScalewayControlPlaneCount,
+		setInstanceType: apiClient.ChangeScalewayControlPlaneInstanceType,
+	}
+}
+
 func proxmoxControlPlaneOps() controlPlaneOps {
 	return controlPlaneOps{
 		provider:        "proxmox",
