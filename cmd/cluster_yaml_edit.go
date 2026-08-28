@@ -153,46 +153,6 @@ func findClusterListEntry(doc *yaml.Node, listKey, name string) (*yaml.Node, err
 	return nil, nil
 }
 
-// appendManifestEncryptedPath records leafKey in the encrypted_paths list of
-// the named manifest, creating the list when missing. Nothing else in the
-// document is touched.
-func appendManifestEncryptedPath(doc *yaml.Node, manifestName, leafKey string) error {
-	manifest, err := findClusterListEntry(doc, "manifests", manifestName)
-	if err != nil {
-		return err
-	}
-	if manifest == nil {
-		return fmt.Errorf("manifest %q not found in cluster YAML", manifestName)
-	}
-	return appendYAMLStringListEntry(manifest, "encrypted_paths", leafKey)
-}
-
-// appendAddonEncryptedPath records leafKey in the configuration.encrypted_paths
-// list of the named addon.
-func appendAddonEncryptedPath(doc *yaml.Node, addonName, leafKey string) error {
-	addon, err := findClusterListEntry(doc, "addons", addonName)
-	if err != nil {
-		return err
-	}
-	if addon == nil {
-		return fmt.Errorf("addon %q not found in cluster YAML", addonName)
-	}
-	configuration := yamlMapValue(addon, "configuration")
-	if configuration == nil || configuration.Kind != yaml.MappingNode {
-		return fmt.Errorf("addon %q has no configuration mapping in cluster YAML", addonName)
-	}
-	return appendYAMLStringListEntry(configuration, "encrypted_paths", leafKey)
-}
-
-func appendYAMLStringListEntry(mapping *yaml.Node, key, value string) error {
-	list, err := yamlMapEnsure(mapping, key, yaml.SequenceNode, "!!seq")
-	if err != nil {
-		return err
-	}
-	list.Content = append(list.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value})
-	return nil
-}
-
 // deepCopyYAMLNode returns a copy of n that is safe to graft into another
 // document. Aliases whose anchor lives inside the copied subtree keep pointing
 // at the copied anchor; aliases to anchors outside the subtree are expanded

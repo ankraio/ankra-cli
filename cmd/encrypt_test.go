@@ -160,29 +160,6 @@ spec:
 	})
 }
 
-func TestContainsString(t *testing.T) {
-	tests := []struct {
-		name     string
-		slice    []string
-		str      string
-		expected bool
-	}{
-		{"found", []string{"a", "b", "c"}, "b", true},
-		{"not found", []string{"a", "b", "c"}, "d", false},
-		{"empty slice", []string{}, "a", false},
-		{"nil slice", nil, "a", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := containsString(tt.slice, tt.str)
-			if result != tt.expected {
-				t.Errorf("containsString(%v, %q) = %v, want %v", tt.slice, tt.str, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestNormalizeEncryptKey(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -471,12 +448,12 @@ sops:
 	})
 }
 
-func TestUnionStringLists(t *testing.T) {
-	merged := unionStringLists([]string{"password"}, []string{"token", "password"}, []string{"apiKey"})
+func TestUnionEncryptedPaths(t *testing.T) {
+	merged := unionEncryptedPaths([]string{"password"}, []string{"token", "password"}, []string{"apiKey"})
 	if len(merged) != 3 || merged[0] != "password" || merged[1] != "token" || merged[2] != "apiKey" {
 		t.Errorf("merged = %v, want [password token apiKey]", merged)
 	}
-	if merged := unionStringLists(nil, nil); merged != nil {
+	if merged := unionEncryptedPaths(nil, nil); merged != nil {
 		t.Errorf("union of empties = %v, want nil", merged)
 	}
 }
