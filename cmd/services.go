@@ -457,6 +457,8 @@ type APIClient interface {
 	ResyncUpcloudClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error)
 
 	ListUpcloudCredentials() ([]client.UpcloudCredentialListItem, error)
+	ListAzureCredentials() ([]client.AzureCredentialListItem, error)
+	CreateAzureCredential(req client.CreateAzureCredentialRequest) (*client.CreateAzureCredentialResponse, error)
 	CreateUpcloudCredential(req client.CreateUpcloudCredentialRequest) (*client.CreateUpcloudCredentialResponse, error)
 	ListUpcloudSSHKeyCredentials() ([]client.UpcloudCredentialListItem, error)
 	CreateUpcloudSSHKeyCredential(req client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error)

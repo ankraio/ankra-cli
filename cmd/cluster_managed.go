@@ -42,6 +42,14 @@ var managedCreateCmd = &cobra.Command{
 		if autoscalingError != nil {
 			return autoscalingError
 		}
+		placement, placementError := parseManagedPoolPlacementFlags(cmd, provider, false)
+		if placementError != nil {
+			return placementError
+		}
+		aksOptions, aksError := parseAksOptionsFlags(cmd, provider)
+		if aksError != nil {
+			return aksError
+		}
 
 		request := client.CreateManagedClusterRequest{
 			Name:         name,
@@ -49,12 +57,14 @@ var managedCreateCmd = &cobra.Command{
 			Location:     location,
 			NodePools: []client.ManagedClusterNodePoolRequest{
 				{
-					Name:        nodePoolName,
-					Size:        nodePoolSize,
-					Count:       nodePoolCount,
-					Autoscaling: autoscaling,
+					Name:                     nodePoolName,
+					Size:                     nodePoolSize,
+					Count:                    nodePoolCount,
+					Autoscaling:              autoscaling,
+					ManagedNodePoolPlacement: placement,
 				},
 			},
+			Aks: aksOptions,
 		}
 		if provider == client.ManagedK8sProviderKapsule {
 			if privateNetworkID == "" {
@@ -173,12 +183,17 @@ var managedNodePoolAddCmd = &cobra.Command{
 		if autoscalingError != nil {
 			return autoscalingError
 		}
+		placement, placementError := parseManagedPoolPlacementFlags(cmd, provider, true)
+		if placementError != nil {
+			return placementError
+		}
 
 		result, err := apiClient.AddManagedNodePool(provider, clusterID, client.AddManagedNodePoolRequest{
-			Name:        name,
-			Size:        size,
-			Count:       count,
-			Autoscaling: autoscaling,
+			Name:                     name,
+			Size:                     size,
+			Count:                    count,
+			Autoscaling:              autoscaling,
+			ManagedNodePoolPlacement: placement,
 		})
 		if err != nil {
 			return fmt.Errorf("adding node pool: %w", err)
@@ -566,6 +581,140 @@ func parseManagedAutoscalingFlags(cmd *cobra.Command) (*client.ManagedNodePoolAu
 	return &client.ManagedNodePoolAutoscaling{Enabled: true, MinCount: minCount, MaxCount: maxCount}, nil
 }
 
+// aksOnlyFlags are the create flags that only make sense with --provider
+// aks; naming one with another provider is a usage error rather than a
+// silently ignored flag.
+var aksOnlyFlags = []string{"resource-group", "network-plugin", "sku-tier", "private-cluster", "vnet-subnet-id", "maintenance-window"}
+
+// aksPlacementFlags are the pool placement flags the AKS lane accepts on the
+// initial pool (create) and on node-pool add.
+var aksPlacementFlags = []string{"zone", "os-disk-type", "os-disk-size-gb", "spot", "spot-max-price"}
+
+func refuseFlagsForProvider(cmd *cobra.Command, provider client.ManagedK8sProvider, flagNames []string) error {
+	for _, flagName := range flagNames {
+		if cmd.Flags().Lookup(flagName) != nil && cmd.Flags().Changed(flagName) {
+			return withExitCode(exitUsage, fmt.Errorf("--%s is only supported with --provider aks, not %q", flagName, provider))
+		}
+	}
+	return nil
+}
+
+// parseAksOptionsFlags reads the Azure control-plane flags into the aks
+// options block. --maintenance-window takes "<Weekday>:<start-hour>:<hours>"
+// (for example Saturday:22:4, UTC).
+func parseAksOptionsFlags(cmd *cobra.Command, provider client.ManagedK8sProvider) (*client.AksClusterOptions, error) {
+	if provider != client.ManagedK8sProviderAks {
+		return nil, refuseFlagsForProvider(cmd, provider, aksOnlyFlags)
+	}
+	options := &client.AksClusterOptions{}
+	touched := false
+	if cmd.Flags().Changed("resource-group") {
+		resourceGroup, _ := cmd.Flags().GetString("resource-group")
+		options.ResourceGroup = &resourceGroup
+		touched = true
+	}
+	if cmd.Flags().Changed("network-plugin") {
+		networkPlugin, _ := cmd.Flags().GetString("network-plugin")
+		if networkPlugin != "azure" && networkPlugin != "kubenet" {
+			return nil, withExitCode(exitUsage, fmt.Errorf("--network-plugin must be azure or kubenet, not %q", networkPlugin))
+		}
+		options.NetworkPlugin = networkPlugin
+		touched = true
+	}
+	if cmd.Flags().Changed("sku-tier") {
+		skuTier, _ := cmd.Flags().GetString("sku-tier")
+		if skuTier != "Free" && skuTier != "Standard" && skuTier != "Premium" {
+			return nil, withExitCode(exitUsage, fmt.Errorf("--sku-tier must be Free, Standard or Premium, not %q", skuTier))
+		}
+		options.SkuTier = &skuTier
+		touched = true
+	}
+	if cmd.Flags().Changed("private-cluster") {
+		options.PrivateCluster, _ = cmd.Flags().GetBool("private-cluster")
+		touched = true
+	}
+	if cmd.Flags().Changed("vnet-subnet-id") {
+		subnetID, _ := cmd.Flags().GetString("vnet-subnet-id")
+		options.VnetSubnetID = &subnetID
+		touched = true
+	}
+	if cmd.Flags().Changed("maintenance-window") {
+		rawWindow, _ := cmd.Flags().GetString("maintenance-window")
+		window, windowError := parseAksMaintenanceWindow(rawWindow)
+		if windowError != nil {
+			return nil, windowError
+		}
+		options.MaintenanceWindow = window
+		touched = true
+	}
+	if !touched {
+		return nil, nil
+	}
+	return options, nil
+}
+
+func parseAksMaintenanceWindow(raw string) (*client.AksMaintenanceWindow, error) {
+	parts := strings.Split(raw, ":")
+	if len(parts) != 3 {
+		return nil, withExitCode(exitUsage, fmt.Errorf("--maintenance-window must be <Weekday>:<start-hour>:<hours>, for example Saturday:22:4, not %q", raw))
+	}
+	var startHour, durationHours int
+	if _, scanError := fmt.Sscanf(parts[1], "%d", &startHour); scanError != nil || startHour < 0 || startHour > 23 {
+		return nil, withExitCode(exitUsage, fmt.Errorf("--maintenance-window start hour must be 0-23, not %q", parts[1]))
+	}
+	if _, scanError := fmt.Sscanf(parts[2], "%d", &durationHours); scanError != nil || durationHours < 4 || durationHours > 24 {
+		return nil, withExitCode(exitUsage, fmt.Errorf("--maintenance-window duration must be 4-24 hours, not %q", parts[2]))
+	}
+	return &client.AksMaintenanceWindow{Day: parts[0], StartHour: startHour, DurationHours: durationHours}, nil
+}
+
+// parseManagedPoolPlacementFlags reads --zone, --os-disk-type,
+// --os-disk-size-gb and (on node-pool add) --spot / --spot-max-price. The
+// initial pool of a cluster is the AKS System pool, which cannot run on
+// spot, so create does not register the spot flags.
+func parseManagedPoolPlacementFlags(cmd *cobra.Command, provider client.ManagedK8sProvider, allowSpot bool) (client.ManagedNodePoolPlacement, error) {
+	var placement client.ManagedNodePoolPlacement
+	if provider != client.ManagedK8sProviderAks {
+		return placement, refuseFlagsForProvider(cmd, provider, aksPlacementFlags)
+	}
+	if cmd.Flags().Changed("zone") {
+		zone, _ := cmd.Flags().GetString("zone")
+		placement.Zone = &zone
+	}
+	if cmd.Flags().Changed("os-disk-type") {
+		diskType, _ := cmd.Flags().GetString("os-disk-type")
+		if diskType != "Managed" && diskType != "Ephemeral" {
+			return placement, withExitCode(exitUsage, fmt.Errorf("--os-disk-type must be Managed or Ephemeral, not %q", diskType))
+		}
+		placement.RootVolumeType = &diskType
+	}
+	if cmd.Flags().Changed("os-disk-size-gb") {
+		diskSize, _ := cmd.Flags().GetInt("os-disk-size-gb")
+		if diskSize < 30 {
+			return placement, withExitCode(exitUsage, fmt.Errorf("--os-disk-size-gb must be at least 30, not %d", diskSize))
+		}
+		placement.RootVolumeSizeGB = &diskSize
+	}
+	if !allowSpot {
+		return placement, nil
+	}
+	spot, _ := cmd.Flags().GetBool("spot")
+	if cmd.Flags().Changed("spot-max-price") && !spot {
+		return placement, withExitCode(exitUsage, errors.New("--spot-max-price requires --spot"))
+	}
+	if spot {
+		placement.Spot = &client.ManagedNodePoolSpot{Enabled: true}
+		if cmd.Flags().Changed("spot-max-price") {
+			maxPrice, _ := cmd.Flags().GetFloat64("spot-max-price")
+			if maxPrice <= 0 {
+				return placement, withExitCode(exitUsage, fmt.Errorf("--spot-max-price must be greater than 0, not %v", maxPrice))
+			}
+			placement.Spot.MaxPrice = &maxPrice
+		}
+	}
+	return placement, nil
+}
+
 // managedLifecycleError decorates stop/start API refusals: when the backend
 // answers that the provider cannot stop or start clusters, remind the user
 // that only AKS currently supports it.
@@ -595,6 +744,15 @@ func init() {
 	managedCreateCmd.Flags().Bool("autoscaling", false, "Enable autoscaling for the initial node pool")
 	managedCreateCmd.Flags().Int("autoscaling-min", 0, "Minimum node count while autoscaling (requires --autoscaling)")
 	managedCreateCmd.Flags().Int("autoscaling-max", 0, "Maximum node count while autoscaling (requires --autoscaling)")
+	managedCreateCmd.Flags().String("resource-group", "", "AKS: existing resource group to adopt (default: Ankra creates and owns ankra-<name>)")
+	managedCreateCmd.Flags().String("network-plugin", "", "AKS: network plugin, azure (default) or kubenet")
+	managedCreateCmd.Flags().String("sku-tier", "", "AKS: control-plane tier, Free (default), Standard (uptime SLA) or Premium")
+	managedCreateCmd.Flags().Bool("private-cluster", false, "AKS: private API server endpoint")
+	managedCreateCmd.Flags().String("vnet-subnet-id", "", "AKS: ARM id of the subnet every node pool joins (default: AKS-managed VNet)")
+	managedCreateCmd.Flags().String("maintenance-window", "", "AKS: planned maintenance window as <Weekday>:<start-hour>:<hours> in UTC, e.g. Saturday:22:4")
+	managedCreateCmd.Flags().String("zone", "", "AKS: availability zone(s) for the initial pool, comma-separated (e.g. 1,2,3)")
+	managedCreateCmd.Flags().String("os-disk-type", "", "AKS: OS disk type for the initial pool, Managed or Ephemeral")
+	managedCreateCmd.Flags().Int("os-disk-size-gb", 0, "AKS: OS disk size in GB for the initial pool (at least 30)")
 	_ = managedCreateCmd.MarkFlagRequired("provider")
 	_ = managedCreateCmd.MarkFlagRequired("name")
 	_ = managedCreateCmd.MarkFlagRequired("credential-id")
@@ -613,6 +771,11 @@ func init() {
 	managedNodePoolAddCmd.Flags().Bool("autoscaling", false, "Enable autoscaling for the node pool")
 	managedNodePoolAddCmd.Flags().Int("autoscaling-min", 0, "Minimum node count while autoscaling (requires --autoscaling)")
 	managedNodePoolAddCmd.Flags().Int("autoscaling-max", 0, "Maximum node count while autoscaling (requires --autoscaling)")
+	managedNodePoolAddCmd.Flags().String("zone", "", "AKS: availability zone(s), comma-separated (e.g. 1,2,3)")
+	managedNodePoolAddCmd.Flags().String("os-disk-type", "", "AKS: OS disk type, Managed or Ephemeral")
+	managedNodePoolAddCmd.Flags().Int("os-disk-size-gb", 0, "AKS: OS disk size in GB (at least 30)")
+	managedNodePoolAddCmd.Flags().Bool("spot", false, "AKS: run the pool on spot capacity (never the cluster's first pool)")
+	managedNodePoolAddCmd.Flags().Float64("spot-max-price", 0, "AKS: hourly spot price cap in USD (requires --spot; default: up to the on-demand price)")
 	_ = managedNodePoolAddCmd.MarkFlagRequired("provider")
 	_ = managedNodePoolAddCmd.MarkFlagRequired("name")
 	_ = managedNodePoolAddCmd.MarkFlagRequired("size")

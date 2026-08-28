@@ -3564,3 +3564,11 @@ func (m baseMock) GetAIAutonomyState() (*client.AIAutonomyState, error) {
 func (m baseMock) SetAIAutonomyPause(paused bool, reason string) (*client.AIAutonomyOutcome, error) {
 	return nil, errors.New("not implemented")
 }
+
+func (baseMock) ListAzureCredentials() ([]client.AzureCredentialListItem, error) {
+	return nil, nil
+}
+
+func (baseMock) CreateAzureCredential(client.CreateAzureCredentialRequest) (*client.CreateAzureCredentialResponse, error) {
+	return &client.CreateAzureCredentialResponse{Success: true}, nil
+}

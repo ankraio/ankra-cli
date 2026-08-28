@@ -25,6 +25,23 @@ type ManagedNodePoolAutoscaling struct {
 	MaxCount int  `json:"max_count"`
 }
 
+// ManagedNodePoolSpot asks for a pool on spot / preemptible capacity (AKS);
+// MaxPrice is the hourly cap in the provider's currency, nil = on-demand cap.
+type ManagedNodePoolSpot struct {
+	Enabled  bool     `json:"enabled"`
+	MaxPrice *float64 `json:"max_price,omitempty"`
+}
+
+// ManagedNodePoolPlacement carries the provider-specific pool placement
+// members shared by the create and add-pool requests: availability
+// zone(s), the OS / root disk, and spot capacity.
+type ManagedNodePoolPlacement struct {
+	Zone             *string              `json:"zone,omitempty"`
+	RootVolumeType   *string              `json:"root_volume_type,omitempty"`
+	RootVolumeSizeGB *int                 `json:"root_volume_size_gb,omitempty"`
+	Spot             *ManagedNodePoolSpot `json:"spot,omitempty"`
+}
+
 type ManagedClusterNodePoolRequest struct {
 	Name        string                      `json:"name"`
 	Size        string                      `json:"size"`
@@ -32,6 +49,25 @@ type ManagedClusterNodePoolRequest struct {
 	Labels      map[string]string           `json:"labels,omitempty"`
 	Taints      []NodeTaint                 `json:"taints,omitempty"`
 	Autoscaling *ManagedNodePoolAutoscaling `json:"autoscaling,omitempty"`
+	ManagedNodePoolPlacement
+}
+
+// AksMaintenanceWindow pins when Azure may run control-plane upgrades and
+// node reboots: an English weekday, a 0-23 UTC start hour, 4-24 hours.
+type AksMaintenanceWindow struct {
+	Day           string `json:"day"`
+	StartHour     int    `json:"start_hour"`
+	DurationHours int    `json:"duration_hours"`
+}
+
+// AksClusterOptions carries the Azure-specific create options.
+type AksClusterOptions struct {
+	ResourceGroup     *string               `json:"resource_group,omitempty"`
+	NetworkPlugin     string                `json:"network_plugin,omitempty"`
+	PrivateCluster    bool                  `json:"private_cluster"`
+	SkuTier           *string               `json:"sku_tier,omitempty"`
+	VnetSubnetID      *string               `json:"vnet_subnet_id,omitempty"`
+	MaintenanceWindow *AksMaintenanceWindow `json:"maintenance_window,omitempty"`
 }
 
 // KapsuleClusterOptions carries the Scaleway Kapsule-specific create options;
@@ -51,6 +87,7 @@ type CreateManagedClusterRequest struct {
 	GitopsRepository     *string                         `json:"gitops_repository,omitempty"`
 	GitopsBranch         *string                         `json:"gitops_branch,omitempty"`
 	Kapsule              *KapsuleClusterOptions          `json:"kapsule,omitempty"`
+	Aks                  *AksClusterOptions              `json:"aks,omitempty"`
 }
 
 type CreateManagedClusterResponse struct {
@@ -83,6 +120,7 @@ type AddManagedNodePoolRequest struct {
 	Labels      map[string]string           `json:"labels,omitempty"`
 	Taints      []NodeTaint                 `json:"taints,omitempty"`
 	Autoscaling *ManagedNodePoolAutoscaling `json:"autoscaling,omitempty"`
+	ManagedNodePoolPlacement
 }
 
 type AddManagedNodePoolResponse struct {
