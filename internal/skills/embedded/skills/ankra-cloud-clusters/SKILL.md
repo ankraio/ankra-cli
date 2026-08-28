@@ -168,6 +168,33 @@ across zones, so a stateful workload also needs one replica and one volume per z
 zone-spread cluster an *unpinned* group's nodes each take the thinnest zone cluster-wide, so a
 one-node group lands wherever the cluster is thinnest — pin the group when it runs zonal storage.
 
+### UpCloud multi-zone clusters
+
+UpCloud has no multi-zone region - every private network and load balancer is zone-local - so
+Ankra stretches a cluster across zones itself: one private network per zone and a platform-managed
+WireGuard mesh between the nodes (kubeadm only). Needs the organisation's `network_overlay`
+feature; without it the flags are refused as "not supported for upcloud clusters".
+
+```bash
+ankra cluster upcloud create --name prod --zone fi-hel1 \
+  --zones fi-hel1,fi-hel2,se-sto1 --control-plane-count 3 \
+  --credential-id <id> --ssh-key-credential-id <id>
+ankra cluster upcloud zones <cluster_id> --zones fi-hel1,fi-hel2,se-sto1,de-fra1   # grow the pool
+ankra cluster upcloud node-group add <cluster_id> --name db-sto --instance-type 4xCPU-8GB --count 2 --zone se-sto1
+```
+
+`--zone` is the primary (bastion, first control plane, default network) and must be in `--zones`. A
+pool needs **at least 3 zones and `--control-plane-count 3`** so etcd keeps quorum when any one
+zone is lost; two-zone pools are refused. Control planes spread one per zone and node groups
+spread across the pool unless pinned with `--zone`. A single-zone cluster that may grow later is
+created with `--network-mode wireguard_mesh`; the mesh cannot be retrofitted, and pools only ever
+grow.
+
+**What stays in the primary zone:** LoadBalancer Services (the CCM is scoped to primary-zone
+nodes) and PersistentVolumes (the UpCloud CSI provisions in one zone). Pin stateful groups to the
+primary zone, or run replicated storage (Longhorn) for workloads in other zones. `ankra cluster
+node-group list` shows `zones=` per group.
+
 ## 4. Operate — mostly provider-agnostic
 
 The provider is detected from the cluster, so these work everywhere:

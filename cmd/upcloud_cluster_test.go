@@ -3,6 +3,9 @@ package cmd
 import (
 	"context"
 	"errors"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+	"strings"
 	"testing"
 
 	"ankra/internal/client"
@@ -162,4 +165,110 @@ func TestUpcloudCreate_CNIDefaultsToPlatformChoice(t *testing.T) {
 	if mock.gotRequest.CNI != "" {
 		t.Errorf("CNI = %q, want empty so the platform applies its default", mock.gotRequest.CNI)
 	}
+}
+
+func TestUpcloudCreate_ZonePoolFlagsReachTheRequest(t *testing.T) {
+	mock := &upcloudCreateMock{}
+	resetConfirmFlag(t, upcloudCreateCmd)
+	resetSliceFlag(t, upcloudCreateCmd, "zones")
+	_ = captureStdout(t, func() {
+		if _, err := runWithInput(t, mock, "", "cluster", "upcloud", "create",
+			"--name", "prod", "--credential-id", "cred-1",
+			"--ssh-key-credential-id", "ssh-1", "--zone", "fi-hel1",
+			"--zones", "fi-hel1,fi-hel2,se-sto1", "--control-plane-count", "3",
+			"--network-mode", "wireguard_mesh"); err != nil {
+			t.Fatalf("execute failed: %v", err)
+		}
+	})
+	if got := strings.Join(mock.gotRequest.Zones, ","); got != "fi-hel1,fi-hel2,se-sto1" {
+		t.Errorf("Zones = %q, want the pool in order", got)
+	}
+	if mock.gotRequest.NetworkMode != "wireguard_mesh" || mock.gotRequest.ControlPlaneCount != 3 {
+		t.Errorf("NetworkMode/ControlPlaneCount = %q/%d", mock.gotRequest.NetworkMode, mock.gotRequest.ControlPlaneCount)
+	}
+}
+
+// Omitted flags must stay omitted on the wire: the platform derives the
+// mode and a single-zone cluster carries no pool (and no field an
+// un-flagged organisation would be refused for).
+func TestUpcloudCreate_ZonePoolFlagsDefaultToNothing(t *testing.T) {
+	mock := &upcloudCreateMock{}
+	resetConfirmFlag(t, upcloudCreateCmd)
+	resetSliceFlag(t, upcloudCreateCmd, "zones")
+	_ = captureStdout(t, func() {
+		if _, err := runWithInput(t, mock, "", "cluster", "upcloud", "create",
+			"--name", "dev", "--credential-id", "cred-1",
+			"--ssh-key-credential-id", "ssh-1", "--zone", "fi-hel1"); err != nil {
+			t.Fatalf("execute failed: %v", err)
+		}
+	})
+	if len(mock.gotRequest.Zones) != 0 || mock.gotRequest.NetworkMode != "" {
+		t.Errorf("Zones/NetworkMode = %v/%q, want empty", mock.gotRequest.Zones, mock.gotRequest.NetworkMode)
+	}
+}
+
+type upcloudZonePoolMock struct {
+	baseMock
+	gotClusterID string
+	gotZones     []string
+	gotWait      bool
+}
+
+func (m *upcloudZonePoolMock) UpdateUpcloudZonePool(_ context.Context, clusterID string, zones []string, wait bool) (*client.UpdateUpcloudZonePoolResult, bool, error) {
+	m.gotClusterID, m.gotZones, m.gotWait = clusterID, zones, wait
+	return &client.UpdateUpcloudZonePoolResult{Zones: zones, AddedZones: []string{"se-sto1"}}, false, nil
+}
+
+func TestUpcloudZones_SendsTheDesiredPool(t *testing.T) {
+	mock := &upcloudZonePoolMock{}
+	output := captureStdout(t, func() {
+		if _, err := runWithInput(t, mock, "", "cluster", "upcloud", "zones", "uc-123",
+			"--zones", "fi-hel1,fi-hel2,se-sto1", "--wait"); err != nil {
+			t.Fatalf("execute failed: %v", err)
+		}
+	})
+	if mock.gotClusterID != "uc-123" || strings.Join(mock.gotZones, ",") != "fi-hel1,fi-hel2,se-sto1" || !mock.gotWait {
+		t.Errorf("request = %s / %v / wait=%v", mock.gotClusterID, mock.gotZones, mock.gotWait)
+	}
+	if !strings.Contains(output, "added se-sto1") {
+		t.Errorf("output = %q, want the added zone reported", output)
+	}
+}
+
+type upcloudNodeGroupZoneMock struct {
+	baseMock
+	gotRequest client.AddNodeGroupRequest
+}
+
+func (m *upcloudNodeGroupZoneMock) AddUpcloudNodeGroup(_ context.Context, _ string, req client.AddNodeGroupRequest, _ bool) (*client.AddNodeGroupResult, bool, error) {
+	m.gotRequest = req
+	return &client.AddNodeGroupResult{GroupName: req.Name, Count: req.Count}, false, nil
+}
+
+func TestUpcloudNodeGroupAdd_ZoneFlagPinsTheGroup(t *testing.T) {
+	mock := &upcloudNodeGroupZoneMock{}
+	_ = captureStdout(t, func() {
+		if _, err := runWithInput(t, mock, "", "cluster", "upcloud", "node-group", "add", "uc-123",
+			"--name", "db-sto", "--instance-type", "4xCPU-8GB", "--count", "2", "--zone", "se-sto1", "--wait"); err != nil {
+			t.Fatalf("execute failed: %v", err)
+		}
+	})
+	if mock.gotRequest.Zone != "se-sto1" || mock.gotRequest.Name != "db-sto" {
+		t.Errorf("request = %+v", mock.gotRequest)
+	}
+}
+
+// resetSliceFlag empties a list flag between runs: pflag appends on every
+// Set after the first, so the generic default reset would stack a literal
+// "[]" onto the slice.
+func resetSliceFlag(t *testing.T, command *cobra.Command, name string) {
+	t.Helper()
+	flag := command.Flags().Lookup(name)
+	if flag == nil {
+		t.Fatalf("flag %s not registered", name)
+	}
+	if slice, isSlice := flag.Value.(pflag.SliceValue); isSlice {
+		_ = slice.Replace([]string{})
+	}
+	flag.Changed = false
 }

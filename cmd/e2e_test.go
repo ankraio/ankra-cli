@@ -23,6 +23,10 @@ func (m baseMock) SetOrganisationOverride(string) {}
 
 func (m baseMock) OrganisationOverride() string { return "" }
 
+func (m baseMock) UpdateUpcloudZonePool(context.Context, string, []string, bool) (*client.UpdateUpcloudZonePoolResult, bool, error) {
+	return nil, false, nil
+}
+
 func (m baseMock) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
 	return nil, errors.New("not implemented")
 }

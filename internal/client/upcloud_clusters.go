@@ -10,29 +10,35 @@ import (
 )
 
 type CreateUpcloudClusterRequest struct {
-	Name                  string  `json:"name"`
-	Description           *string `json:"description,omitempty"`
-	CredentialID          string  `json:"credential_id"`
-	SSHKeyCredentialID    string  `json:"ssh_key_credential_id"`
-	Zone                  string  `json:"zone"`
-	NetworkIPRange        string  `json:"network_ip_range,omitempty"`
-	BastionPlan           string  `json:"bastion_plan"`
-	ControlPlaneCount     int     `json:"control_plane_count"`
-	ControlPlanePlan      string  `json:"control_plane_plan"`
-	WorkerCount           int     `json:"worker_count"`
-	WorkerPlan            string  `json:"worker_plan"`
-	Distribution          string  `json:"distribution"`
-	CNI                   string  `json:"cni,omitempty"`
-	KubernetesVersion     *string `json:"kubernetes_version,omitempty"`
-	EtcdTopology          string  `json:"etcd_topology,omitempty"`
-	EtcdNodeCount         int     `json:"etcd_node_count,omitempty"`
-	EtcdPlan              string  `json:"etcd_plan,omitempty"`
-	ExternalCloudProvider bool    `json:"external_cloud_provider"`
-	IncludeNetworking     bool    `json:"include_networking"`
-	IncludeDNS            bool    `json:"include_dns"`
-	GitopsCredentialName  *string `json:"gitops_credential_name,omitempty"`
-	GitopsRepository      *string `json:"gitops_repository,omitempty"`
-	GitopsBranch          *string `json:"gitops_branch,omitempty"`
+	Name               string  `json:"name"`
+	Description        *string `json:"description,omitempty"`
+	CredentialID       string  `json:"credential_id"`
+	SSHKeyCredentialID string  `json:"ssh_key_credential_id"`
+	Zone               string  `json:"zone"`
+	// Zones is the multi-zone pool (primary first, at least three zones with
+	// three control planes); NetworkMode is private_network or
+	// wireguard_mesh (derived when empty). Both need the organisation's
+	// network_overlay feature.
+	Zones                 []string `json:"zones,omitempty"`
+	NetworkMode           string   `json:"network_mode,omitempty"`
+	NetworkIPRange        string   `json:"network_ip_range,omitempty"`
+	BastionPlan           string   `json:"bastion_plan"`
+	ControlPlaneCount     int      `json:"control_plane_count"`
+	ControlPlanePlan      string   `json:"control_plane_plan"`
+	WorkerCount           int      `json:"worker_count"`
+	WorkerPlan            string   `json:"worker_plan"`
+	Distribution          string   `json:"distribution"`
+	CNI                   string   `json:"cni,omitempty"`
+	KubernetesVersion     *string  `json:"kubernetes_version,omitempty"`
+	EtcdTopology          string   `json:"etcd_topology,omitempty"`
+	EtcdNodeCount         int      `json:"etcd_node_count,omitempty"`
+	EtcdPlan              string   `json:"etcd_plan,omitempty"`
+	ExternalCloudProvider bool     `json:"external_cloud_provider"`
+	IncludeNetworking     bool     `json:"include_networking"`
+	IncludeDNS            bool     `json:"include_dns"`
+	GitopsCredentialName  *string  `json:"gitops_credential_name,omitempty"`
+	GitopsRepository      *string  `json:"gitops_repository,omitempty"`
+	GitopsBranch          *string  `json:"gitops_branch,omitempty"`
 }
 
 type CreateUpcloudClusterResponse struct {
@@ -290,4 +296,37 @@ func (c *Client) StartUpcloudCluster(clusterID, scope string) (*StartUpcloudClus
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &result, nil
+}
+
+// UpdateUpcloudZonePoolRequest is the desired zone pool of a multi-zone
+// UpCloud cluster (primary first). Zones can only be added.
+type UpdateUpcloudZonePoolRequest struct {
+	Zones []string `json:"zones"`
+}
+
+// UpdateUpcloudZonePoolResult reports the pool as persisted and the zones
+// the call added.
+type UpdateUpcloudZonePoolResult struct {
+	Zones      []string `json:"zones"`
+	AddedZones []string `json:"added_zones"`
+}
+
+// UpdateUpcloudZonePool extends a multi-zone UpCloud cluster's zone pool
+// (PUT /api/v1/clusters/upcloud/{id}/zones). With wait=false the platform
+// answers 202 and the second result is true.
+func (c *Client) UpdateUpcloudZonePool(ctx context.Context, clusterID string, zones []string, wait bool) (*UpdateUpcloudZonePoolResult, bool, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/zones", c.BaseURL, clusterID)
+	payload, err := json.Marshal(UpdateUpcloudZonePoolRequest{Zones: zones})
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	var result UpdateUpcloudZonePoolResult
+	submitted, err := c.doJSONWriteRequest(ctx, http.MethodPut, url, payload, wait, &result)
+	if err != nil {
+		return nil, false, err
+	}
+	if submitted {
+		return nil, true, nil
+	}
+	return &result, false, nil
 }
