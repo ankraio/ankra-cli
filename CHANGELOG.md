@@ -2,6 +2,16 @@
 
 ## v0.14.0-rc3 — 2026-08-28
 
+### Added
+
+- **`ankra backup vaults provision` needs no arguments.** Letting Ankra set a
+  vault up is now one command: the name defaults to `backups` (then
+  `backups-2` and so on, against the vaults that already exist), the
+  credential to the only one Ankra can provision from, and the region to that
+  provider's usual one - and the command prints what it chose before it
+  creates anything. Pass any of them to override. With several usable
+  credentials it still asks which, rather than guessing.
+
 ### Fixed
 
 - **`ankra cluster encrypt -f` changes only the line it adds.** Recording an
