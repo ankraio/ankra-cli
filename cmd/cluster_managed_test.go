@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"ankra/internal/client"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type managedClusterMock struct {
@@ -474,5 +477,123 @@ func TestManagedStop_UnrelatedErrorHasNoAKSHint(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "only AKS") {
 		t.Errorf("AKS hint should only appear on provider refusals, got: %v", err)
+	}
+}
+
+// resetManagedFlags clears the package-level cobra flag state the managed
+// commands keep between invocations: a flag one test passes would otherwise
+// still read as Changed in the next test of the same process.
+func resetManagedFlags(t *testing.T) {
+	t.Helper()
+	for _, command := range []*cobra.Command{managedCreateCmd, managedNodePoolAddCmd, managedNodePoolUpdateCmd} {
+		command.Flags().VisitAll(func(flag *pflag.Flag) {
+			if flag.Changed {
+				_ = flag.Value.Set(flag.DefValue)
+				flag.Changed = false
+			}
+		})
+	}
+}
+
+func TestManagedCreate_AksSendsOptionsAndPlacement(t *testing.T) {
+	resetManagedFlags(t)
+	t.Cleanup(func() { resetManagedFlags(t) })
+	mock := &managedClusterMock{}
+	_, err := runWithInput(t, mock, "", managedCreateArgs(
+		"--provider", "aks", "--location", "westeurope", "--node-pool-size", "Standard_D2s_v5",
+		"--resource-group", "platform-rg", "--network-plugin", "kubenet", "--sku-tier", "Standard",
+		"--private-cluster", "--vnet-subnet-id", "/subscriptions/s/resourceGroups/net/providers/Microsoft.Network/virtualNetworks/v/subnets/aks",
+		"--maintenance-window", "Saturday:22:4",
+		"--zone", "1,2", "--os-disk-type", "Ephemeral", "--os-disk-size-gb", "128")...)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.createRequests) != 1 {
+		t.Fatalf("expected one create request, got %d", len(mock.createRequests))
+	}
+	request := mock.createRequests[0]
+	aks := request.Aks
+	if aks == nil {
+		t.Fatal("expected the aks options block")
+	}
+	if aks.ResourceGroup == nil || *aks.ResourceGroup != "platform-rg" || aks.NetworkPlugin != "kubenet" ||
+		aks.SkuTier == nil || *aks.SkuTier != "Standard" || !aks.PrivateCluster ||
+		aks.VnetSubnetID == nil || !strings.HasSuffix(*aks.VnetSubnetID, "/subnets/aks") {
+		t.Fatalf("aks options drifted: %+v", aks)
+	}
+	if aks.MaintenanceWindow == nil || aks.MaintenanceWindow.Day != "Saturday" || aks.MaintenanceWindow.StartHour != 22 || aks.MaintenanceWindow.DurationHours != 4 {
+		t.Fatalf("maintenance window drifted: %+v", aks.MaintenanceWindow)
+	}
+	pool := request.NodePools[0]
+	if pool.Zone == nil || *pool.Zone != "1,2" || pool.RootVolumeType == nil || *pool.RootVolumeType != "Ephemeral" ||
+		pool.RootVolumeSizeGB == nil || *pool.RootVolumeSizeGB != 128 {
+		t.Fatalf("pool placement drifted: %+v", pool.ManagedNodePoolPlacement)
+	}
+	if pool.Spot != nil {
+		t.Fatal("the initial pool never carries spot (it is the AKS System pool)")
+	}
+}
+
+func TestManagedCreate_AksFlagsRefusedForOtherProviders(t *testing.T) {
+	resetManagedFlags(t)
+	t.Cleanup(func() { resetManagedFlags(t) })
+	mock := &managedClusterMock{}
+	_, err := runWithInput(t, mock, "", managedCreateArgs("--provider", "doks", "--sku-tier", "Standard")...)
+	if err == nil || !strings.Contains(err.Error(), "--sku-tier") || !strings.Contains(err.Error(), "aks") {
+		t.Fatalf("expected a usage error naming --sku-tier and aks, got %v", err)
+	}
+	if len(mock.createRequests) != 0 {
+		t.Fatal("no request may be sent when a flag is refused")
+	}
+	resetManagedFlags(t)
+	_, err = runWithInput(t, mock, "", managedCreateArgs("--provider", "doks", "--zone", "1")...)
+	if err == nil || !strings.Contains(err.Error(), "--zone") {
+		t.Fatalf("expected a usage error naming --zone, got %v", err)
+	}
+}
+
+func TestManagedCreate_AksMaintenanceWindowValidation(t *testing.T) {
+	resetManagedFlags(t)
+	t.Cleanup(func() { resetManagedFlags(t) })
+	mock := &managedClusterMock{}
+	_, err := runWithInput(t, mock, "", managedCreateArgs("--provider", "aks", "--maintenance-window", "Saturday:22")...)
+	if err == nil || !strings.Contains(err.Error(), "<Weekday>:<start-hour>:<hours>") {
+		t.Fatalf("expected the format error, got %v", err)
+	}
+	resetManagedFlags(t)
+	_, err = runWithInput(t, mock, "", managedCreateArgs("--provider", "aks", "--maintenance-window", "Saturday:22:2")...)
+	if err == nil || !strings.Contains(err.Error(), "4-24") {
+		t.Fatalf("expected the duration error, got %v", err)
+	}
+}
+
+func TestManagedNodePoolAdd_AksSpot(t *testing.T) {
+	resetManagedFlags(t)
+	t.Cleanup(func() { resetManagedFlags(t) })
+	mock := &managedClusterMock{}
+	_, err := runWithInput(t, mock, "",
+		"cluster", "managed", "node-pool", "add", "cluster-1",
+		"--provider", "aks", "--name", "batch", "--size", "Standard_E4s_v5", "--count", "3",
+		"--spot", "--spot-max-price", "0.05", "--zone", "3")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.addPoolRequests) != 1 {
+		t.Fatalf("expected one add request, got %d", len(mock.addPoolRequests))
+	}
+	request := mock.addPoolRequests[0]
+	if request.Spot == nil || !request.Spot.Enabled || request.Spot.MaxPrice == nil || *request.Spot.MaxPrice != 0.05 {
+		t.Fatalf("spot drifted: %+v", request.Spot)
+	}
+	if request.Zone == nil || *request.Zone != "3" {
+		t.Fatalf("zone drifted: %+v", request.Zone)
+	}
+
+	resetManagedFlags(t)
+	_, err = runWithInput(t, mock, "",
+		"cluster", "managed", "node-pool", "add", "cluster-1",
+		"--provider", "aks", "--name", "batch", "--size", "Standard_E4s_v5", "--spot-max-price", "0.05")
+	if err == nil || !strings.Contains(err.Error(), "requires --spot") {
+		t.Fatalf("expected --spot-max-price to require --spot, got %v", err)
 	}
 }
