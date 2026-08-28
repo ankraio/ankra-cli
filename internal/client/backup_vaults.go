@@ -23,8 +23,25 @@ type BackupVault struct {
 	Status         string  `json:"status"`
 	ErrorExcerpt   *string `json:"error_excerpt,omitempty"`
 	LastVerifiedAt *string `json:"last_verified_at,omitempty"`
-	CreatedAt      string  `json:"created_at"`
-	UpdatedAt      string  `json:"updated_at"`
+	// ProvisionedViaCredentialID is set on vaults the platform provisioned
+	// from one of the organisation's provider credentials.
+	ProvisionedViaCredentialID *string `json:"provisioned_via_credential_id,omitempty"`
+	CreatedAt                  string  `json:"created_at"`
+	UpdatedAt                  string  `json:"updated_at"`
+}
+
+// ProvisionBackupVaultRequest asks the platform to create the bucket itself
+// from one of the organisation's provider credentials. The provider comes
+// from the credential; Bucket is optional (the platform derives a unique
+// name); the key pair is required for Hetzner only, whose Cloud API cannot
+// mint Object Storage keys.
+type ProvisionBackupVaultRequest struct {
+	Name            string `json:"name"`
+	CredentialID    string `json:"credential_id"`
+	Region          string `json:"region"`
+	Bucket          string `json:"bucket,omitempty"`
+	AccessKeyID     string `json:"access_key_id,omitempty"`
+	SecretAccessKey string `json:"secret_access_key,omitempty"`
 }
 
 // BackupVaultListResult wraps the organisation's backup vault listing.
@@ -73,6 +90,19 @@ func (c *Client) GetBackupVault(vaultID string) (*BackupVault, error) {
 // POST /api/v1/org/backup-vaults
 func (c *Client) CreateBackupVault(request CreateBackupVaultRequest) (*BackupVault, error) {
 	url := fmt.Sprintf("%s/api/v1/org/backup-vaults", c.BaseURL)
+	var result BackupVault
+	if requestError := c.sendJSON(http.MethodPost, url, request, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
+
+// ProvisionBackupVault records an Ankra-provisioned vault and enqueues the
+// platform job that creates the bucket. The returned vault is in
+// "provisioning"; poll GetBackupVault for ready or error.
+// POST /api/v1/org/backup-vaults/provision
+func (c *Client) ProvisionBackupVault(request ProvisionBackupVaultRequest) (*BackupVault, error) {
+	url := fmt.Sprintf("%s/api/v1/org/backup-vaults/provision", c.BaseURL)
 	var result BackupVault
 	if requestError := c.sendJSON(http.MethodPost, url, request, &result); requestError != nil {
 		return nil, requestError

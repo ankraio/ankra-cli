@@ -519,6 +519,10 @@ func (m baseMock) CreateBackupVault(request client.CreateBackupVaultRequest) (*c
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ProvisionBackupVault(request client.ProvisionBackupVaultRequest) (*client.BackupVault, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) VerifyBackupVault(vaultID string) (*client.BackupVault, error) {
 	return nil, errors.New("not implemented")
 }

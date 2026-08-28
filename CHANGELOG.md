@@ -1,5 +1,20 @@
 # Ankra CLI Changelog
 
+## v0.14.0-rc1 — 2026-08-28
+
+### Added
+
+- **`ankra backup vaults provision` lets Ankra create the bucket.** Pass one
+  of the organisation's Hetzner, UpCloud, DigitalOcean or Scaleway
+  credentials (name or id) and a region, and the platform creates the
+  bucket, mints or stores the access keys, verifies it and registers the
+  vault; the vault reads `provisioning` until that finishes, and `--wait`
+  blocks until it is `ready` (or exits non-zero with the failure excerpt).
+  Hetzner alone is prompted for its Console-issued Object Storage key pair,
+  because the Hetzner Cloud API cannot mint one; the other providers need
+  nothing beyond the credential. `get` shows which credential a vault was
+  provisioned via.
+
 ## v0.14.0-rc0 — 2026-08-27
 
 ### Added

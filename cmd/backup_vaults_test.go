@@ -13,15 +13,19 @@ import (
 // a server.
 type backupVaultsMock struct {
 	baseMock
-	vaults        []client.BackupVault
-	listError     error
-	listCalls     int
-	vault         *client.BackupVault
-	created       *client.CreateBackupVaultRequest
-	createdVault  *client.BackupVault
-	verifiedVault *client.BackupVault
-	deletedID     string
-	deleteCalls   int
+	vaults           []client.BackupVault
+	listError        error
+	listCalls        int
+	vault            *client.BackupVault
+	created          *client.CreateBackupVaultRequest
+	credentials      []client.Credential
+	provisioned      *client.ProvisionBackupVaultRequest
+	provisionedVault *client.BackupVault
+	provisionError   error
+	createdVault     *client.BackupVault
+	verifiedVault    *client.BackupVault
+	deletedID        string
+	deleteCalls      int
 }
 
 func (mock *backupVaultsMock) ListBackupVaults() (*client.BackupVaultListResult, error) {
@@ -37,6 +41,18 @@ func (mock *backupVaultsMock) GetBackupVault(vaultID string) (*client.BackupVaul
 		return nil, errors.New("Backup vault not found.")
 	}
 	return mock.vault, nil
+}
+
+func (mock *backupVaultsMock) ListCredentials(_ *string) ([]client.Credential, error) {
+	return mock.credentials, nil
+}
+
+func (mock *backupVaultsMock) ProvisionBackupVault(request client.ProvisionBackupVaultRequest) (*client.BackupVault, error) {
+	mock.provisioned = &request
+	if mock.provisionError != nil {
+		return nil, mock.provisionError
+	}
+	return mock.provisionedVault, nil
 }
 
 func (mock *backupVaultsMock) CreateBackupVault(request client.CreateBackupVaultRequest) (*client.BackupVault, error) {
