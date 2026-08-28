@@ -42,9 +42,9 @@ var clusterUpgradeCmd = &cobra.Command{
 
 The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, or HPE
 Morpheus) is detected automatically from the cluster, so you do not need to
-remember which provider it runs on. Both
-k3s and kubeadm clusters are supported; list the available target versions
-with 'ankra cluster k3s-versions' or 'ankra cluster kubeadm-versions'.
+remember which provider it runs on. Both kubeadm and k3s clusters are
+supported; list the available target versions with
+'ankra cluster kubeadm-versions' or 'ankra cluster k3s-versions'.
 
 Nodes upgrade one at a time (control plane first, then workers): each node is
 cordoned, drained respecting PodDisruptionBudgets, upgraded, and gated on
@@ -54,8 +54,8 @@ PodDisruptionBudget aborts the rollout; pass --force to proceed anyway.
 Downgrades and skipping minor versions are not supported.
 
 Examples:
-  ankra cluster upgrade 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 v1.36.1+k3s1
-  ankra cluster upgrade 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 v1.33.2   # kubeadm`,
+  ankra cluster upgrade 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 v1.33.2         # kubeadm
+  ankra cluster upgrade 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 v1.36.1+k3s1    # k3s`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID := args[0]

@@ -1,5 +1,18 @@
 # Ankra CLI Changelog
 
+## v0.14.0-rc4 — 2026-08-28
+
+### Changed
+
+- **kubeadm is the default distribution (PLA-808).** `--distribution` on every
+  provider `create` (Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, HPE
+  Morpheus) now defaults to `kubeadm` - vanilla upstream Kubernetes with
+  Cilium. k3s stays available with `--distribution k3s` but is never a
+  default; the `--kubernetes-version` and `ankra cluster upgrade` help lead
+  with `kubeadm-versions`. Pairs with the platform default flip
+  (ankraio/cluster#2086), which also makes an omitted `--cni` follow the
+  distribution: Cilium on kubeadm, flannel on k3s.
+
 ## v0.14.0-rc3 — 2026-08-28
 
 ### Fixed
