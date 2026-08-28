@@ -527,7 +527,7 @@ func (m baseMock) VerifyBackupVault(vaultID string) (*client.BackupVault, error)
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeleteBackupVault(vaultID string) error {
+func (m baseMock) DeleteBackupVault(vaultID string, destroyProviderResources bool) error {
 	return errors.New("not implemented")
 }
 

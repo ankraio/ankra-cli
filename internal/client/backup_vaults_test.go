@@ -189,7 +189,7 @@ func TestDeleteBackupVault_AcceptsNoContent(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	testClient := newTestClient(t, handler)
-	if deleteError := testClient.DeleteBackupVault("vault-1"); deleteError != nil {
+	if deleteError := testClient.DeleteBackupVault("vault-1", false); deleteError != nil {
 		t.Fatalf("DeleteBackupVault: %v", deleteError)
 	}
 }
@@ -200,9 +200,34 @@ func TestDeleteBackupVault_NotFoundCarries404(t *testing.T) {
 			"detail": "Backup vault not found."})
 	}
 	testClient := newTestClient(t, handler)
-	deleteError := testClient.DeleteBackupVault("vault-missing")
+	deleteError := testClient.DeleteBackupVault("vault-missing", false)
 	var unexpected *UnexpectedResponseError
 	if !errors.As(deleteError, &unexpected) || unexpected.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected an UnexpectedResponseError carrying 404, got %v", deleteError)
+	}
+}
+
+// TestDeleteBackupVault_DestroyAddsTheQueryParameter pins the wire shape of
+// the forced teardown: the destructive intent travels as an explicit query
+// parameter, and a plain delete never carries it.
+func TestDeleteBackupVault_DestroyAddsTheQueryParameter(t *testing.T) {
+	var seenQuery string
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		seenQuery = r.URL.RawQuery
+		w.WriteHeader(http.StatusNoContent)
+	}
+	testClient := newTestClient(t, handler)
+	if deleteError := testClient.DeleteBackupVault("vault-1", true); deleteError != nil {
+		t.Fatalf("DeleteBackupVault: %v", deleteError)
+	}
+	if seenQuery != "destroy_provider_resources=true" {
+		t.Fatalf("query = %q", seenQuery)
+	}
+
+	if deleteError := testClient.DeleteBackupVault("vault-1", false); deleteError != nil {
+		t.Fatalf("DeleteBackupVault: %v", deleteError)
+	}
+	if seenQuery != "" {
+		t.Fatalf("a plain delete must send no query, got %q", seenQuery)
 	}
 }
