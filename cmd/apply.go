@@ -27,13 +27,14 @@ var clusterApplyCmd = &cobra.Command{
 func init() {
 	clusterApplyCmd.Flags().StringP("file", "f", "", "Path to the ImportCluster YAML file to apply")
 	clusterApplyCmd.Flags().Bool("dry-run", false, "Validate the ImportCluster YAML locally without calling the API")
-	// Repointing a cluster's GitOps source removes whatever the new source does
-	// not define. The server refuses it without these, so they are the CLI half
-	// of that gate rather than a local check (ankra-po6d).
+	// Repointing a cluster's GitOps source writes the cluster's state to the new
+	// source first and makes it authoritative from then on. The server refuses
+	// it without these, so they are the CLI half of that gate rather than a
+	// local check (ankra-po6d, ankra-apjjn).
 	clusterApplyCmd.Flags().Bool("allow-repoint", false,
-		"Allow this apply to change the cluster's GitOps repository or branch. Resources the new source does not define are pruned")
+		"Allow this apply to change the cluster's GitOps repository or branch. Ankra writes the cluster's current state to the new source first, then syncs from it; anything that later leaves that source is pruned. A target that cannot be written leaves the cluster unchanged")
 	clusterApplyCmd.Flags().Bool("allow-repoint-destroying-data", false,
-		"Additionally allow a repoint on a cluster holding PersistentVolumeClaims, whose data the prune destroys. Requires --allow-repoint")
+		"Additionally allow a repoint on a cluster holding PersistentVolumeClaims, whose data is destroyed if the new source stops defining their workloads. Requires --allow-repoint")
 	registerAsyncWriteFlags(clusterApplyCmd)
 	// The shared wording ("wait for the operation to finish") is true of the
 	// node-group and bastion writes, but on apply it promises more than it
