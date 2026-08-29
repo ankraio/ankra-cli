@@ -1,6 +1,44 @@
 # Ankra CLI Changelog
 
-## v0.14.0-rc6 — 2026-08-29
+## Unreleased
+
+### Added
+
+- **Unknown commands dispatch to plugins, kubectl style.** An executable
+  named `ankra-<command>` in `~/.ankra/plugins` or on PATH now runs as
+  `ankra <command>`, with the remaining arguments, this terminal's streams,
+  `ANKRA_CLI_VERSION` in its environment, and its exit code as the CLI's.
+  Built-in commands always win, multi-word names resolve longest first
+  (`ankra foo bar` prefers `ankra-foo-bar`), and `ankra plugins` lists what
+  is installed - warning about a plugin a built-in command shadows.
+
+- **`ankra migrate modules install` and `uninstall` manage external
+  modules.** `install <https-url-or-file>` fetches one module executable
+  into `~/.ankra/modules`, runs its describe verb before keeping anything,
+  and installs it under the name the module calls itself; `--sha256` pins
+  the download, `--force` replaces, and the confirmation says plainly that
+  a module runs with your permissions. `uninstall <name>` removes what
+  install placed there and refuses, with its location, a module that lives
+  on PATH.
+
+- **Dumps above 1 GiB are uploaded in parts, and the 5 GiB ceiling is
+  gone.** `ankra migrate restore`, `data` and `up` now send a large dump
+  as a multipart upload the platform starts for them: 64 MiB parts, each
+  retried on its own when the link hiccups, completed by the CLI and
+  aborted if it cannot finish, so the vault never keeps half an upload. An
+  artifact may be up to 625 GiB (10,000 parts of 64 MiB). The progress line says how
+  many parts a dump has.
+
+- **`ankra migrate imports list` and `ankra migrate imports delete` manage
+  the dumps a migration leaves in the backup vault.** Every restore keeps its
+  upload under `imports/<import-id>/` so the same data can be restored
+  again; the vault would otherwise hold it forever. `imports list` shows
+  what a vault holds - stack, status, databases, size - and `imports delete`
+  removes an import's dumps from the vault and forgets the import, after a
+  confirmation (`--yes` skips it). An import whose restore is running is
+  refused. A completed restore now ends by naming the delete command, and
+  deleting a vault removes the dumps of every import it held when the
+  bucket outlives the vault.
 
 ### Fixed
 
@@ -12,40 +50,10 @@
   `ankra cluster apply <file>` as the next step, which that command does not
   accept - it is `ankra cluster apply -f <file>`.
 
+## v0.14.0-rc6 — 2026-08-29
+
 ### Added
 
-- **Unknown commands dispatch to plugins, kubectl style.** An executable
-  named `ankra-<command>` in `~/.ankra/plugins` or on PATH now runs as
-  `ankra <command>`, with the remaining arguments, this terminal's streams,
-  `ANKRA_CLI_VERSION` in its environment, and its exit code as the CLI's.
-  Built-in commands always win, multi-word names resolve longest first
-  (`ankra foo bar` prefers `ankra-foo-bar`), and `ankra plugins` lists what
-  is installed - warning about a plugin a built-in command shadows.
-- **`ankra migrate modules install` and `uninstall` manage external
-  modules.** `install <https-url-or-file>` fetches one module executable
-  into `~/.ankra/modules`, runs its describe verb before keeping anything,
-  and installs it under the name the module calls itself; `--sha256` pins
-  the download, `--force` replaces, and the confirmation says plainly that
-  a module runs with your permissions. `uninstall <name>` removes what
-  install placed there and refuses, with its location, a module that lives
-  on PATH.
-- **Dumps above 1 GiB are uploaded in parts, and the 5 GiB ceiling is
-  gone.** `ankra migrate restore`, `data` and `up` now send a large dump
-  as a multipart upload the platform starts for them: 64 MiB parts, each
-  retried on its own when the link hiccups, completed by the CLI and
-  aborted if it cannot finish, so the vault never keeps half an upload. An
-  artifact may be up to 625 GiB (10,000 parts of 64 MiB). The progress line says how
-  many parts a dump has.
-- **`ankra migrate imports list` and `ankra migrate imports delete` manage
-  the dumps a migration leaves in the backup vault.** Every restore keeps its
-  upload under `imports/<import-id>/` so the same data can be restored
-  again; the vault would otherwise hold it forever. `imports list` shows
-  what a vault holds - stack, status, databases, size - and `imports delete`
-  removes an import's dumps from the vault and forgets the import, after a
-  confirmation (`--yes` skips it). An import whose restore is running is
-  refused. A completed restore now ends by naming the delete command, and
-  deleting a vault removes the dumps of every import it held when the
-  bucket outlives the vault.
 - **A shell in any pod, from the terminal you are in.** `ankra cluster
   terminal <pod> -n <namespace>` opens an interactive shell in the pod's
   container through the platform - no kubeconfig, no port-forward - with the
@@ -58,6 +66,7 @@
   log, exactly like the portal's terminal. Needs `kubernetes.exec` and a
   platform that serves the bearer terminal lane (cluster-api from
   2026-08-29); an older platform answers 404 at the handshake.
+
 - **`ankra org terminal-session` says when a transcript was pruned.** The
   platform now prunes recorded transcripts past a retention window (90 days
   by default) while keeping the session facts; the facts line flags
