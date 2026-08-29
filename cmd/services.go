@@ -57,6 +57,8 @@ type APIClient interface {
 	CompleteBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
 	RestoreBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
 	GetBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
+	ListBackupVaultImports(vaultID string) (*client.BackupVaultImportListResult, error)
+	DeleteBackupVaultImport(vaultID string, importID string) error
 	UploadPresignedObject(ctx context.Context, method string, uploadURL string, body io.ReadSeeker, size int64) error
 
 	ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error)

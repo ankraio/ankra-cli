@@ -111,6 +111,8 @@ ankra migrate data ./app --cluster shop --wait     # dump every database and res
 ankra migrate export ./app --out ./app-data        # the two halves of `data`, separately:
 ankra migrate restore ./app-data --cluster shop --wait
 ankra migrate restore-status <import-id> --wait    # follow a restore started without --wait
+ankra migrate imports list                         # the dumps a vault still holds (restore again, or clean up)
+ankra migrate imports delete <import-id> --yes     # remove an import's dumps from the vault
 ```
 
 `up` plans before it touches anything (databases and their sizes from the running containers, free

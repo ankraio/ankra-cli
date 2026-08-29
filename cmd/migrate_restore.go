@@ -436,6 +436,7 @@ func printMigrateRestoreOutcome(cmd *cobra.Command, imported *client.BackupVault
 	switch imported.Status {
 	case client.BackupVaultImportStatusCompleted:
 		_, _ = fmt.Fprintf(out, "Restore complete: %d database server(s) loaded (import %s).\n", len(imported.Databases), imported.ID)
+		_, _ = fmt.Fprintf(out, "The dumps stay in the vault so the import can be restored again; remove them with:\n  ankra migrate imports delete %s\n", imported.ID)
 	case client.BackupVaultImportStatusRestoring:
 		_, _ = fmt.Fprintf(out, "Restore still running (import %s).\n", imported.ID)
 	default:
