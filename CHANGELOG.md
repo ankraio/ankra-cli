@@ -14,6 +14,21 @@
 
 ### Added
 
+- **Unknown commands dispatch to plugins, kubectl style.** An executable
+  named `ankra-<command>` in `~/.ankra/plugins` or on PATH now runs as
+  `ankra <command>`, with the remaining arguments, this terminal's streams,
+  `ANKRA_CLI_VERSION` in its environment, and its exit code as the CLI's.
+  Built-in commands always win, multi-word names resolve longest first
+  (`ankra foo bar` prefers `ankra-foo-bar`), and `ankra plugins` lists what
+  is installed - warning about a plugin a built-in command shadows.
+- **`ankra migrate modules install` and `uninstall` manage external
+  modules.** `install <https-url-or-file>` fetches one module executable
+  into `~/.ankra/modules`, runs its describe verb before keeping anything,
+  and installs it under the name the module calls itself; `--sha256` pins
+  the download, `--force` replaces, and the confirmation says plainly that
+  a module runs with your permissions. `uninstall <name>` removes what
+  install placed there and refuses, with its location, a module that lives
+  on PATH.
 - **Dumps above 1 GiB are uploaded in parts, and the 5 GiB ceiling is
   gone.** `ankra migrate restore`, `data` and `up` now send a large dump
   as a multipart upload the platform starts for them: 64 MiB parts, each

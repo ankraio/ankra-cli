@@ -84,6 +84,11 @@ func resetMigrateFlags() {
 	migrateUpStopSource = false
 	migrateUpYes = false
 	migrateUpPlanOnly = false
+	migrateModulesInstallName = ""
+	migrateModulesInstallSHA = ""
+	migrateModulesInstallForce = false
+	migrateModulesInstallYes = false
+	migrateModulesUninstallYes = false
 	for _, command := range []string{"convert", "detect", "modules", "up"} {
 		sub, _, _ := migrateCmd.Find([]string{command})
 		if sub != nil && sub.Flags().Lookup("output") != nil {

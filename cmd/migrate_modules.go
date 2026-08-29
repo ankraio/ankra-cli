@@ -55,6 +55,11 @@ The module writes the dumps under output_dir and reports their paths; the
 CLI measures sizes and checksums itself. Stderr is relayed live while an
 export runs, so narrate progress there.
 
+Install a module without touching PATH with 'ankra migrate modules
+install <https-url-or-file>' (validated via its describe verb; --sha256
+pins the download) and remove it with 'ankra migrate modules uninstall
+<name>'.
+
 The protocol version is ` + fmt.Sprint(migrate.ProtocolVersion) + `. The reference implementation is the built-in
 'docker' module; a worked external example lives in the CLI repository under
 examples/modules/.`,
