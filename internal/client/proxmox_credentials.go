@@ -86,6 +86,56 @@ func (c *Client) CreateProxmoxCredential(createRequest CreateProxmoxCredentialRe
 	return &result, nil
 }
 
+// ProxmoxTailscale carries the Tailscale/Headscale join settings the platform
+// stores on a Proxmox VE credential. Every VM the credential builds - the
+// bastion/gateway included - joins the tailnet through the guest agent, which
+// is the only way the platform can reach a VM on a node-local SDN.
+type ProxmoxTailscale struct {
+	LoginServer     string `json:"login_server"`
+	AuthKey         string `json:"auth_key"`
+	AcceptRoutes    bool   `json:"accept_routes,omitempty"`
+	AdvertiseRoutes string `json:"advertise_routes,omitempty"`
+}
+
+// updateProxmoxTailscaleRequest keeps the member explicit: a null "tailscale"
+// clears the settings, an object sets them.
+type updateProxmoxTailscaleRequest struct {
+	Tailscale *ProxmoxTailscale `json:"tailscale"`
+}
+
+// UpdateProxmoxCredentialTailscale sets the credential's Tailscale settings,
+// or clears them when settings is nil. It updates the existing credential in
+// place, without recreating it or re-running the infrastructure bootstrap.
+func (c *Client) UpdateProxmoxCredentialTailscale(credentialID string, settings *ProxmoxTailscale) error {
+	url := c.BaseURL + "/api/v1/credentials/proxmox/" + credentialID + "/tailscale"
+	payload, marshalError := json.Marshal(updateProxmoxTailscaleRequest{Tailscale: settings})
+	if marshalError != nil {
+		return fmt.Errorf("marshal request: %w", marshalError)
+	}
+
+	httpRequest, requestError := http.NewRequest(http.MethodPut, url, bytes.NewReader(payload))
+	if requestError != nil {
+		return fmt.Errorf("create request: %w", requestError)
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	httpRequest.Header.Set("Authorization", "Bearer "+c.Token)
+
+	httpResponse, sendError := c.HTTP.Do(httpRequest)
+	if sendError != nil {
+		return fmt.Errorf("request failed: %w", sendError)
+	}
+	defer closeBody(httpResponse)
+
+	body, readError := readResponseBody(httpResponse)
+	if readError != nil {
+		return fmt.Errorf("read response: %w", readError)
+	}
+	if httpResponse.StatusCode != http.StatusOK {
+		return newUnexpectedResponseError("update failed", httpResponse.StatusCode, redactedBodyForError(body, 500))
+	}
+	return nil
+}
+
 func (c *Client) ListProxmoxSSHKeyCredentials() ([]ProxmoxCredentialListItem, error) {
 	url := c.BaseURL + "/api/v1/credentials/proxmox/ssh-keys"
 	var credentials []ProxmoxCredentialListItem

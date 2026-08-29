@@ -2084,6 +2084,10 @@ func (m baseMock) CreateProxmoxCredential(request client.CreateProxmoxCredential
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) UpdateProxmoxCredentialTailscale(credentialID string, settings *client.ProxmoxTailscale) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) ListProxmoxSSHKeyCredentials() ([]client.ProxmoxCredentialListItem, error) {
 	return nil, errors.New("not implemented")
 }
