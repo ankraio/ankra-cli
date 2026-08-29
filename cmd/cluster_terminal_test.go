@@ -47,11 +47,13 @@ func (f *fakePodTerminal) typed() string {
 
 type terminalMock struct {
 	baseMock
-	podItems       []any
-	terminal       *fakePodTerminal
-	openError      error
-	openRequest    *client.PodTerminalRequest
-	createResponse *client.DebugPodResponse
+	podItems        []any
+	terminal        *fakePodTerminal
+	openError       error
+	openRequest     *client.PodTerminalRequest
+	createResponse  *client.DebugPodResponse
+	session         *client.TerminalSession
+	transcriptCalls int
 }
 
 func (m *terminalMock) GetResources(clusterID string, request client.GetResourcesRequest) (*client.GetResourcesResponse, error) {
@@ -70,6 +72,43 @@ func (m *terminalMock) OpenPodTerminal(ctx context.Context, clusterID string, re
 
 func (m *terminalMock) CreateDebugPod(clusterID string, request client.CreateDebugPodRequest) (*client.DebugPodResponse, error) {
 	return m.createResponse, nil
+}
+
+func (m *terminalMock) GetTerminalSession(sessionID string) (*client.TerminalSession, error) {
+	return m.session, nil
+}
+
+func (m *terminalMock) GetTerminalTranscript(sessionID string, afterSequence int, limit int) (*client.TerminalTranscriptPage, error) {
+	m.transcriptCalls++
+	return &client.TerminalTranscriptPage{SessionID: sessionID}, nil
+}
+
+func TestOrgTerminalSessionSaysTheTranscriptWasPruned(t *testing.T) {
+	prunedAt := "2026-11-27T06:00:00Z"
+	mock := &terminalMock{session: &client.TerminalSession{
+		ID: "11111111-2222-4333-8444-555555555555", UserEmail: "ops@example.com",
+		Namespace: "payments", PodName: "api-6d8f9c7b5-x2kq9", ContainerName: "api", Shell: "/bin/sh",
+		StartedAt: "2026-08-28T22:00:00Z", RecordedBytes: 4096, TranscriptPrunedAt: &prunedAt,
+	}}
+	setMockClient(t, mock)
+	t.Cleanup(func() {
+		_ = orgTerminalSessionCmd.Flags().Set("transcript", "false")
+		_ = orgTerminalSessionCmd.Flags().Set("show-input", "false")
+	})
+
+	output, err := executeCommand("org", "terminal-session", "11111111-2222-4333-8444-555555555555", "--transcript", "--show-input")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(output, "transcript pruned "+prunedAt) {
+		t.Errorf("the facts should flag the pruned transcript:\n%s", output)
+	}
+	if !strings.Contains(output, "pruned on "+prunedAt+" under the retention policy") {
+		t.Errorf("the pruned notice is missing:\n%s", output)
+	}
+	if strings.Contains(output, "--- recorded output ---") || mock.transcriptCalls != 0 {
+		t.Errorf("a pruned transcript must not be fetched or replayed (calls=%d):\n%s", mock.transcriptCalls, output)
+	}
 }
 
 func stdoutFrame(text string) client.PodTerminalFrame {

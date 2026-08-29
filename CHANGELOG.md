@@ -16,6 +16,11 @@
   log, exactly like the portal's terminal. Needs `kubernetes.exec` and a
   platform that serves the bearer terminal lane (cluster-api from
   2026-08-29); an older platform answers 404 at the handshake.
+- **`ankra org terminal-session` says when a transcript was pruned.** The
+  platform now prunes recorded transcripts past a retention window (90 days
+  by default) while keeping the session facts; the facts line flags
+  `transcript pruned <time>`, and `--transcript` / `--show-input` explain
+  the prune instead of printing an empty recording.
 
 ## v0.14.0-rc5 — 2026-08-29
 
