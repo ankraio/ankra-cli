@@ -243,3 +243,33 @@ func TestMigrateUpNoDataDeploysOnly(t *testing.T) {
 		t.Errorf("--stop-source without data is a usage error, got %v", err)
 	}
 }
+
+func TestMigrateUpRunsAgainIntoTheSameDirectory(t *testing.T) {
+	fakeDockerOnPath(t)
+	mock := newMigrateUpMock()
+	installMigrateUpMock(t, mock)
+	dir := writeMigrateFixture(t)
+	out := filepath.Join(t.TempDir(), "migration")
+
+	if _, stderr, err := runMigrate(t, "up", dir, "--out", out, "--cluster", migrateRestoreTestCluster, "--yes"); err != nil {
+		t.Fatalf("first run: %v\n%s", err, stderr)
+	}
+	mock.podPolls = 0
+	if _, stderr, err := runMigrate(t, "up", dir, "--out", out, "--cluster", migrateRestoreTestCluster, "--yes"); err != nil {
+		t.Fatalf("the rehearsal's output directory must be reusable for the cutover without --force: %v\n%s", err, stderr)
+	}
+	if len(mock.applied) != 2 {
+		t.Errorf("both runs must deploy, got %d", len(mock.applied))
+	}
+
+	if writeError := os.WriteFile(filepath.Join(out, "notes.txt"), []byte("mine"), 0o644); writeError != nil {
+		t.Fatal(writeError)
+	}
+	_, _, err := runMigrate(t, "up", dir, "--out", out, "--cluster", migrateRestoreTestCluster, "--yes")
+	if exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), "holds notes.txt") {
+		t.Errorf("a directory with someone else's files needs --force, got %v", err)
+	}
+	if _, _, err = runMigrate(t, "up", dir, "--out", out, "--cluster", migrateRestoreTestCluster, "--yes", "--force"); err != nil {
+		t.Errorf("--force overwrites: %v", err)
+	}
+}
