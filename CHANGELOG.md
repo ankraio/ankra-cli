@@ -2,6 +2,16 @@
 
 ## v0.14.0-rc6 — 2026-08-29
 
+### Fixed
+
+- **`ankra migrate up` runs again into the same output directory.** The
+  rehearsal left `stack/` and `data/` behind and the cutover run refused the
+  directory as "not empty" unless `--force` was passed. A directory that
+  holds nothing but an earlier run's output is now reused; `--force` is only
+  for one that holds other files. `ankra migrate convert` also printed
+  `ankra cluster apply <file>` as the next step, which that command does not
+  accept - it is `ankra cluster apply -f <file>`.
+
 ### Added
 
 - **`ankra migrate imports list` and `ankra migrate imports delete` manage

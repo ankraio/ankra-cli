@@ -53,7 +53,7 @@ plain text - and each one names the fix.
 
 Then review the output and apply it:
 
-  ankra cluster apply <out>/cluster.yaml`,
+  ankra cluster apply -f <out>/cluster.yaml`,
 	Example: `  ankra migrate convert
   ankra migrate convert ./app --out ./app-k8s --option profiles=app
   ankra migrate convert --option source=daemon --option project=aura-office
@@ -132,7 +132,7 @@ func runMigrateConvert(cmd *cobra.Command, args []string) error {
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Converted %s with the %s module.\n", dir, summary.Module)
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Wrote %d file(s) to %s\n", len(summary.Files), summary.Out)
 	printMigrateWarnings(cmd, summary.Warnings)
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nReview the output, then apply it:\n  ankra cluster apply %s\n", filepath.Join(summary.Out, "cluster.yaml"))
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nReview the output, then apply it:\n  ankra cluster apply -f %s\n", filepath.Join(summary.Out, "cluster.yaml"))
 	return nil
 }
 
