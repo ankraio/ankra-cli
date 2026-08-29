@@ -63,9 +63,10 @@ into a cluster that Ankra runs, end to end:
   5. Restore. Upload the dumps through the backup vault and load them
               into the cluster, as 'ankra migrate restore' does, and wait.
 
-The command is safe to run more than once: the stack is re-applied, the
-databases are dumped and restored again. Rehearse while the source runs,
-then run it once more with --stop-source when you are ready to switch.
+The command is safe to run more than once, into the same output directory:
+the stack is re-applied, the databases are dumped and restored again.
+Rehearse while the source runs, then run it once more with --stop-source
+when you are ready to switch.
 --timeout bounds each waiting step (deploy, readiness, restore).
 
 Not carried: files kept in the volumes of non-database workloads, and data
@@ -88,7 +89,7 @@ func init() {
 	migrateUpCmd.Flags().StringVar(&migrateUpStack, "stack", "", "Name of the stack on the cluster (default: the directory name)")
 	migrateUpCmd.Flags().StringVar(&migrateUpNamespace, "namespace", "", "Namespace the workloads run in (default: the stack name)")
 	migrateUpCmd.Flags().StringArrayVar(&migrateUpOptions, "option", nil, "Module option as key=value (repeatable); convert and export options both apply")
-	migrateUpCmd.Flags().BoolVar(&migrateUpForce, "force", false, "Overwrite an output directory that is not empty")
+	migrateUpCmd.Flags().BoolVar(&migrateUpForce, "force", false, "Overwrite an output directory that holds files no earlier run of this command wrote")
 	migrateUpCmd.Flags().BoolVar(&migrateUpNoData, "no-data", false, "Deploy the workloads only; carry no data over")
 	migrateUpCmd.Flags().BoolVar(&migrateUpStopSource, "stop-source", false, "Stop the source's non-database services before the export, so the dump is final (the cutover)")
 	migrateUpCmd.Flags().BoolVarP(&migrateUpYes, "yes", "y", false, "Skip the confirmation prompt")
@@ -318,11 +319,35 @@ func planMigrateUp(cmd *cobra.Command, dir string, module migrate.Module, option
 	// The output directory is the first thing the migration changes, so it
 	// is created only once every check above has passed.
 	if !migrateUpPlanOnly {
-		if outError := ensureMigrateOutDir(out, migrateUpForce); outError != nil {
+		if outError := ensureMigrateUpOutDir(out, migrateUpForce); outError != nil {
 			return migrateUpPlan{}, outError
 		}
 	}
 	return plan, nil
+}
+
+// ensureMigrateUpOutDir accepts an output directory that is empty, absent,
+// or holds nothing but an earlier run's stack/ and data/ - a rehearsal
+// followed by the cutover is the normal use, and must not need --force.
+// Anything else in it belongs to someone, and --force is the permission to
+// overwrite.
+func ensureMigrateUpOutDir(out string, force bool) error {
+	entries, readError := os.ReadDir(out)
+	switch {
+	case os.IsNotExist(readError):
+		return os.MkdirAll(out, 0o755)
+	case readError != nil:
+		return readError
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && (entry.Name() == "stack" || entry.Name() == "data") {
+			continue
+		}
+		if !force {
+			return withExitCode(exitUsage, fmt.Errorf("%s holds %s, which no earlier run of this command wrote; pass --force to overwrite it or --out for another directory", out, entry.Name()))
+		}
+	}
+	return nil
 }
 
 // nearestExistingDir walks up from path to the first directory that exists,
