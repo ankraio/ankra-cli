@@ -201,6 +201,39 @@ func TestSetInstanceTypeNoOpSaysNothingChanged(t *testing.T) {
 	}
 }
 
+// A wrong instance type is accepted here and only rejected by the provider,
+// which on the offline lane is at the next start - inside the maintenance
+// window, with the cluster already stopped. The help has to say so and name the
+// command that lists the real ones. (Linear PLA-805: a customer asked three
+// times to resize to "s-2vcpu-8gb", a DigitalOcean size that does not exist.)
+func TestSetInstanceTypeHelpWarnsAndNamesTheCatalogCommand(t *testing.T) {
+	long := setInstanceTypeLong("DigitalOcean", "digitalocean sizes")
+
+	if !strings.Contains(long, "it is not checked against DigitalOcean's catalog") {
+		t.Errorf("expected the help to say the name is not validated, got: %s", long)
+	}
+	if !strings.Contains(long, "at the next start") {
+		t.Errorf("expected the help to say when the rejection lands, got: %s", long)
+	}
+	if !strings.Contains(long, "ankra cluster digitalocean sizes") {
+		t.Errorf("expected the help to name the catalog command, got: %s", long)
+	}
+}
+
+// OVH and UpCloud have no instance-type listing command in the CLI. Pointing at
+// one that does not exist is worse than saying nothing, so the warning stands
+// alone for them.
+func TestSetInstanceTypeHelpOmitsTheCatalogLineWhenThereIsNoCommand(t *testing.T) {
+	long := setInstanceTypeLong("UpCloud", "")
+
+	if !strings.Contains(long, "it is not checked against UpCloud's catalog") {
+		t.Errorf("expected the warning regardless of catalog support, got: %s", long)
+	}
+	if strings.Contains(long, "List the instance types") || strings.Contains(long, "ankra cluster ") {
+		t.Errorf("no catalog command exists for this provider, so none may be suggested, got: %s", long)
+	}
+}
+
 func lineContaining(t *testing.T, output, needle string) string {
 	t.Helper()
 	for _, line := range strings.Split(output, "\n") {

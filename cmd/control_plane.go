@@ -174,7 +174,29 @@ func runControlPlaneSetInstanceType(cmd *cobra.Command, opsFn func() controlPlan
 	return nil
 }
 
-func newControlPlaneCmd(opsFn func() controlPlaneOps, provider string) *cobra.Command {
+// setInstanceTypeLong says where an instance type that does not exist is
+// actually caught. The platform stores the name as given and does not check it
+// against the provider's catalog, so the provider is the first thing to reject
+// it - and on the offline lane the provider only sees it at the next start,
+// with the cluster already stopped. Naming the catalog command is the one
+// chance to check a name before that point.
+//
+// catalogCommand is the provider's own listing command, without the leading
+// "ankra cluster", and empty for the providers that have none.
+func setInstanceTypeLong(provider, catalogCommand string) string {
+	long := fmt.Sprintf(`Change the instance type of every controller in a %s cluster.
+
+The instance type is stored as given; it is not checked against %s's catalog.
+A name that does not exist is rejected by %s itself, which on a stopped
+cluster is at the next start - after this command has already reported
+success.`, provider, provider, provider)
+	if catalogCommand != "" {
+		long += fmt.Sprintf("\n\nList the instance types that do exist with:\n  ankra cluster %s", catalogCommand)
+	}
+	return long
+}
+
+func newControlPlaneCmd(opsFn func() controlPlaneOps, provider, catalogCommand string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "control-plane",
 		Short: fmt.Sprintf("Manage the control plane for a %s cluster", provider),
@@ -220,6 +242,7 @@ Run "control-plane get" to see which of the two is available right now.`,
 	setInstanceTypeCmd := &cobra.Command{
 		Use:   "set-instance-type <cluster_id> <instance_type>",
 		Short: "Change the controller instance type",
+		Long:  setInstanceTypeLong(provider, catalogCommand),
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runControlPlaneSetInstanceType(cmd, opsFn, args[0], args[1])
@@ -232,10 +255,13 @@ Run "control-plane get" to see which of the two is available right now.`,
 }
 
 func init() {
-	hetznerCmd.AddCommand(newControlPlaneCmd(hetznerControlPlaneOps, "Hetzner"))
-	ovhCmd.AddCommand(newControlPlaneCmd(ovhControlPlaneOps, "OVH"))
-	upcloudCmd.AddCommand(newControlPlaneCmd(upcloudControlPlaneOps, "UpCloud"))
-	digitaloceanCmd.AddCommand(newControlPlaneCmd(digitaloceanControlPlaneOps, "DigitalOcean"))
-	proxmoxCmd.AddCommand(newControlPlaneCmd(proxmoxControlPlaneOps, "Proxmox VE"))
-	morpheusCmd.AddCommand(newControlPlaneCmd(morpheusControlPlaneOps, "HPE Morpheus"))
+	// The third argument is the provider's own instance-type listing command.
+	// OVH and UpCloud have none, so their help stops after the warning rather
+	// than pointing at a command that does not exist.
+	hetznerCmd.AddCommand(newControlPlaneCmd(hetznerControlPlaneOps, "Hetzner", "hetzner server-types"))
+	ovhCmd.AddCommand(newControlPlaneCmd(ovhControlPlaneOps, "OVH", ""))
+	upcloudCmd.AddCommand(newControlPlaneCmd(upcloudControlPlaneOps, "UpCloud", ""))
+	digitaloceanCmd.AddCommand(newControlPlaneCmd(digitaloceanControlPlaneOps, "DigitalOcean", "digitalocean sizes"))
+	proxmoxCmd.AddCommand(newControlPlaneCmd(proxmoxControlPlaneOps, "Proxmox VE", "proxmox sizes"))
+	morpheusCmd.AddCommand(newControlPlaneCmd(morpheusControlPlaneOps, "HPE Morpheus", "morpheus plans"))
 }
