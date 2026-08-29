@@ -154,8 +154,16 @@ func runControlPlaneSetInstanceType(cmd *cobra.Command, opsFn func() controlPlan
 	} else if handled {
 		return nil
 	}
-	if res.Updated == 0 && res.PreviousInstanceType == res.NewInstanceType {
-		fmt.Printf("Controller instance type is already '%s'. Nothing to apply.\n", res.NewInstanceType)
+	// Zero controllers updated means nothing was staged and nothing dispatched,
+	// whatever the two type names say. "changed from X to Y. 0 controller(s)
+	// updated. Start the cluster to apply." describes work that will not
+	// happen, so the count decides, not the comparison.
+	if res.Updated == 0 {
+		if res.PreviousInstanceType == res.NewInstanceType {
+			fmt.Printf("Controller instance type is already '%s'. Nothing to apply.\n", res.NewInstanceType)
+			return nil
+		}
+		fmt.Printf("No controllers were updated. The instance type is still '%s'.\n", res.PreviousInstanceType)
 		return nil
 	}
 	fmt.Printf("Controller instance type changed from '%s' to '%s'. %d controller(s) updated.\n",

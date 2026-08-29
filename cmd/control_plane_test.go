@@ -201,6 +201,36 @@ func TestSetInstanceTypeNoOpSaysNothingChanged(t *testing.T) {
 	}
 }
 
+// A server can answer "0 controller(s) updated" while the two type names
+// differ. Nothing was staged and nothing was dispatched, so announcing a change
+// and then telling the operator to start the cluster describes work that will
+// never happen. (Ankra AI review finding on #181.)
+func TestSetInstanceTypeZeroUpdatedNeverReportsAChange(t *testing.T) {
+	changed := &client.ChangeControlPlaneInstanceTypeResult{
+		PreviousInstanceType: "s-2vcpu-4gb",
+		NewInstanceType:      "s-4vcpu-8gb",
+		Updated:              0,
+		Mode:                 client.ControlPlaneChangeModeOffline,
+	}
+
+	stdoutOutput := captureStdout(t, func() {
+		err := runControlPlaneSetInstanceType(&cobra.Command{}, stubControlPlaneOps(nil, changed), "cluster-1", "s-4vcpu-8gb")
+		if err != nil {
+			t.Fatalf("runControlPlaneSetInstanceType returned an error: %v", err)
+		}
+	})
+
+	if !strings.Contains(stdoutOutput, "No controllers were updated. The instance type is still 's-2vcpu-4gb'.") {
+		t.Errorf("expected the zero-update outcome to be reported as such, got: %s", stdoutOutput)
+	}
+	if strings.Contains(stdoutOutput, "changed from") {
+		t.Errorf("no controller changed, so nothing may be reported as changed, got: %s", stdoutOutput)
+	}
+	if strings.Contains(stdoutOutput, "Start the cluster to apply.") {
+		t.Errorf("nothing was staged, so the next start applies nothing, got: %s", stdoutOutput)
+	}
+}
+
 // A wrong instance type is accepted here and only rejected by the provider,
 // which on the offline lane is at the next start - inside the maintenance
 // window, with the cluster already stopped. The help has to say so and name the
