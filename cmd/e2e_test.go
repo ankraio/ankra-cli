@@ -1412,6 +1412,34 @@ func (m baseMock) ListKubeadmVersions() (*client.ListVersionsResult, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListClusterMeshes() ([]client.ClusterMesh, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetClusterMesh(string) (*client.ClusterMesh, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateClusterMesh(string) (*client.ClusterMesh, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteClusterMesh(string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) JoinClusterMesh(string, string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) LeaveClusterMesh(string, string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) CheckClusterMeshReadiness([]string) (map[string]client.ClusterMeshReadiness, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreatePlayground(string) (*client.CreatePlaygroundResult, error) {
 	return nil, errors.New("not implemented")
 }
