@@ -1,8 +1,27 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.14.0-rc5 — 2026-08-29
 
 ### Added
+
+- **Scaleway clusters get the full command set.** `ankra cluster scaleway`
+  now covers create (with `preflight` to prove capacity before paying for
+  it), deprovision, worker counts, Kubernetes version and upgrade, the whole
+  node-group surface (list, add, scale, instance type, labels, taints,
+  delete, autoscaling), control plane, SSH keys and the catalogue reads
+  (locations, instance types, gateway types, networks), and `ankra scaleway
+  credentials` stores API and SSH-key credentials with the secret key taken
+  from a masked prompt, never the command line. The shared `node-group`,
+  `ssh-keys`, `scale`, `upgrade` and `delete` commands accept Scaleway
+  clusters instead of refusing them.
+- **UpCloud clusters can span zones.** `ankra cluster upcloud create --zones
+  fi-hel1,fi-hel2,se-sto1` places a kubeadm cluster across three or more
+  zones (`--zone` stays the primary), `--network-mode
+  private_network|wireguard_mesh` picks the fabric (derived when omitted),
+  `ankra cluster upcloud zones <cluster_id> --zones ...` grows the pool, and
+  `--zone` on `node-group add` pins a group; `node-group list` shows each
+  group's zones. The platform refuses these inputs on organisations without
+  the network overlay enabled, and the CLI repeats that refusal verbatim.
 
 - **Debug pods that impersonate a workload.** `ankra cluster debug create
   --namespace <ns> --from-pod <pod>` spins up a pod that mirrors the named
@@ -35,6 +54,16 @@
   - vulnerability name, deadline and required action - above every current
   occurrence, and `ankra security clusters` gives per-cluster posture with
   the known-exploited count. All four take `-o json` for reporting.
+
+### Fixed
+
+- **`--allow-repoint` says what a repoint does.** The flag's help claimed
+  that resources the new source does not define are pruned, which reads as a
+  prediction about the target's current contents and stopped a safe repoint
+  from being run. `ankra cluster apply` now explains the actual sequence:
+  Ankra writes the cluster's current state to the new source first and then
+  syncs from it, and a target that cannot be written leaves the cluster
+  unchanged.
 
 ## v0.14.0-rc4 — 2026-08-28
 
