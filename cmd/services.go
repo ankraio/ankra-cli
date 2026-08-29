@@ -602,6 +602,7 @@ type APIClient interface {
 
 	ListProxmoxCredentials() ([]client.ProxmoxCredentialListItem, error)
 	CreateProxmoxCredential(request client.CreateProxmoxCredentialRequest) (*client.CreateProxmoxCredentialResponse, error)
+	UpdateProxmoxCredentialTailscale(credentialID string, settings *client.ProxmoxTailscale) error
 	ListProxmoxSSHKeyCredentials() ([]client.ProxmoxCredentialListItem, error)
 	CreateProxmoxSSHKeyCredential(request client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error)
 
