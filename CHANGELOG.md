@@ -4,6 +4,13 @@
 
 ### Added
 
+- **Dumps above 1 GiB are uploaded in parts, and the 5 GiB ceiling is
+  gone.** `ankra migrate restore`, `data` and `up` now send a large dump
+  as a multipart upload the platform starts for them: 64 MiB parts, each
+  retried on its own when the link hiccups, completed by the CLI and
+  aborted if it cannot finish, so the vault never keeps half an upload. An
+  artifact may be up to 625 GiB (10,000 parts of 64 MiB). The progress line says how
+  many parts a dump has.
 - **`ankra migrate imports list` and `ankra migrate imports delete` manage
   the dumps a migration leaves in the backup vault.** Every restore keeps its
   upload under `imports/<import-id>/` so the same data can be restored

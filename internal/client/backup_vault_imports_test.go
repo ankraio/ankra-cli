@@ -2,10 +2,12 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -29,7 +31,7 @@ func TestUploadPresignedObjectPutsTheBodyWithoutABearerToken(t *testing.T) {
 	defer server.Close()
 
 	apiClient := &Client{BaseURL: server.URL, Token: "secret-token", HTTP: server.Client()}
-	uploadError := apiClient.UploadPresignedObject(context.Background(), http.MethodPut, server.URL+"/bucket/imports/1/db/office.dump?X-Amz-Signature=abc", strings.NewReader("PGDMP"), 5)
+	uploadError := apiClient.UploadPresignedObject(context.Background(), BackupVaultImportUpload{Method: http.MethodPut, URL: server.URL + "/bucket/imports/1/db/office.dump?X-Amz-Signature=abc"}, strings.NewReader("PGDMP"), 5)
 	if uploadError != nil {
 		t.Fatal(uploadError)
 	}
@@ -50,7 +52,7 @@ func TestUploadPresignedObjectReportsTheBucketsRefusal(t *testing.T) {
 	}))
 	defer server.Close()
 	apiClient := &Client{BaseURL: server.URL, HTTP: server.Client()}
-	uploadError := apiClient.UploadPresignedObject(context.Background(), http.MethodPut, server.URL+"/x", strings.NewReader("x"), 1)
+	uploadError := apiClient.UploadPresignedObject(context.Background(), BackupVaultImportUpload{Method: http.MethodPut, URL: server.URL + "/x"}, strings.NewReader("x"), 1)
 	if uploadError == nil || !strings.Contains(uploadError.Error(), "SignatureDoesNotMatch") {
 		t.Errorf("the bucket's reason must surface, got %v", uploadError)
 	}
@@ -72,7 +74,7 @@ func TestUploadPresignedObjectRetriesAServerFailureFromTheStart(t *testing.T) {
 	}))
 	defer server.Close()
 	apiClient := &Client{BaseURL: server.URL, HTTP: server.Client()}
-	uploadError := apiClient.UploadPresignedObject(context.Background(), http.MethodPut, server.URL+"/x", strings.NewReader("PGDMP"), 5)
+	uploadError := apiClient.UploadPresignedObject(context.Background(), BackupVaultImportUpload{Method: http.MethodPut, URL: server.URL + "/x"}, strings.NewReader("PGDMP"), 5)
 	if uploadError != nil {
 		t.Fatal(uploadError)
 	}
@@ -83,7 +85,7 @@ func TestUploadPresignedObjectRetriesAServerFailureFromTheStart(t *testing.T) {
 
 func TestUploadPresignedObjectRefusesMoreThanOneUploadCarries(t *testing.T) {
 	apiClient := &Client{BaseURL: "http://unused.invalid"}
-	uploadError := apiClient.UploadPresignedObject(context.Background(), http.MethodPut, "http://unused.invalid/x", strings.NewReader(""), PresignedUploadMaximumBytes+1)
+	uploadError := apiClient.UploadPresignedObject(context.Background(), BackupVaultImportUpload{Method: http.MethodPut, URL: "http://unused.invalid/x"}, strings.NewReader(""), ImportArtifactMaximumBytes+1)
 	if uploadError == nil || !strings.Contains(uploadError.Error(), "at most") {
 		t.Errorf("an artifact above the single-upload limit must be refused without a request, got %v", uploadError)
 	}
@@ -136,5 +138,116 @@ func TestBackupVaultImportRoutes(t *testing.T) {
 	}
 	if strings.Join(paths, "\n") != strings.Join(want, "\n") {
 		t.Errorf("paths = %v", paths)
+	}
+}
+
+// multipartFake is an object store that accepts part PUTs, hands back
+// ETags, and records the completion or abort it received.
+type multipartFake struct {
+	mutex        sync.Mutex
+	parts        map[string]string
+	completed    string
+	aborted      bool
+	failPart     string
+	completeBody string
+}
+
+func newMultipartFake(t *testing.T) (*multipartFake, *httptest.Server) {
+	t.Helper()
+	fake := &multipartFake{parts: map[string]string{}}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		fake.mutex.Lock()
+		defer fake.mutex.Unlock()
+		query := request.URL.Query()
+		switch {
+		case request.Method == http.MethodPut && query.Get("partNumber") != "":
+			content, _ := io.ReadAll(request.Body)
+			if query.Get("partNumber") == fake.failPart {
+				writer.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			fake.parts[query.Get("partNumber")] = string(content)
+			writer.Header().Set("ETag", `"etag-`+query.Get("partNumber")+`"`)
+			writer.WriteHeader(http.StatusOK)
+		case request.Method == http.MethodPost && query.Get("uploadId") != "":
+			content, _ := io.ReadAll(request.Body)
+			fake.completed = string(content)
+			if fake.completeBody != "" {
+				writer.WriteHeader(http.StatusOK)
+				_, _ = writer.Write([]byte(fake.completeBody))
+				return
+			}
+			writer.WriteHeader(http.StatusOK)
+			_, _ = writer.Write([]byte("<CompleteMultipartUploadResult><ETag>\"final\"</ETag></CompleteMultipartUploadResult>"))
+		case request.Method == http.MethodDelete && query.Get("uploadId") != "":
+			fake.aborted = true
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			writer.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return fake, server
+}
+
+func multipartUpload(server *httptest.Server, partSize int64, parts int) BackupVaultImportUpload {
+	upload := BackupVaultImportUpload{
+		Method: BackupVaultImportUploadMethodMultipart, UploadID: "up-1", PartSizeBytes: partSize,
+		CompleteURL: server.URL + "/o?uploadId=up-1&X-Amz-Signature=c", AbortURL: server.URL + "/o?uploadId=up-1&X-Amz-Signature=a",
+	}
+	for number := 1; number <= parts; number++ {
+		upload.Parts = append(upload.Parts, BackupVaultImportUploadPart{PartNumber: number, URL: fmt.Sprintf("%s/o?partNumber=%d&uploadId=up-1&X-Amz-Signature=p", server.URL, number)})
+	}
+	return upload
+}
+
+func TestUploadPresignedObjectSendsAMultipartUploadPartByPart(t *testing.T) {
+	fake, server := newMultipartFake(t)
+	apiClient := &Client{BaseURL: server.URL, Token: "secret-token", HTTP: server.Client()}
+	body := strings.NewReader("0123456789abcdefXYZ")
+	uploadError := apiClient.UploadPresignedObject(context.Background(), multipartUpload(server, 8, 3), body, 19)
+	if uploadError != nil {
+		t.Fatal(uploadError)
+	}
+	if fake.parts["1"] != "01234567" || fake.parts["2"] != "89abcdef" || fake.parts["3"] != "XYZ" {
+		t.Errorf("parts must be the body split at the part size, got %v", fake.parts)
+	}
+	for _, want := range []string{"<CompleteMultipartUpload>", "<Part><PartNumber>1</PartNumber><ETag>&#34;etag-1&#34;</ETag></Part>", "<PartNumber>3</PartNumber><ETag>&#34;etag-3&#34;</ETag>"} {
+		if !strings.Contains(fake.completed, want) {
+			t.Errorf("the completion must list every part with its ETag, want %q in:\n%s", want, fake.completed)
+		}
+	}
+	if fake.aborted {
+		t.Error("a successful upload must not be aborted")
+	}
+}
+
+func TestUploadPresignedObjectAbortsAMultipartUploadThatFails(t *testing.T) {
+	fake, server := newMultipartFake(t)
+	fake.failPart = "2"
+	apiClient := &Client{BaseURL: server.URL, HTTP: server.Client()}
+	uploadError := apiClient.UploadPresignedObject(context.Background(), multipartUpload(server, 8, 3), strings.NewReader("0123456789abcdefXYZ"), 19)
+	if uploadError == nil || !strings.Contains(uploadError.Error(), "part 2 of 3") {
+		t.Fatalf("the failing part must be named, got %v", uploadError)
+	}
+	if !fake.aborted || fake.completed != "" {
+		t.Errorf("a failed upload is aborted, never completed: aborted=%v completed=%q", fake.aborted, fake.completed)
+	}
+
+	fake, server = newMultipartFake(t)
+	fake.completeBody = "<Error><Code>InternalError</Code><Message>We encountered an internal error.</Message></Error>"
+	apiClient = &Client{BaseURL: server.URL, HTTP: server.Client()}
+	uploadError = apiClient.UploadPresignedObject(context.Background(), multipartUpload(server, 8, 3), strings.NewReader("0123456789abcdefXYZ"), 19)
+	if uploadError == nil || !strings.Contains(uploadError.Error(), "InternalError") {
+		t.Fatalf("a 200 carrying an error document is a failed completion, got %v", uploadError)
+	}
+	if !fake.aborted {
+		t.Error("a failed completion is aborted")
+	}
+
+	apiClient = &Client{BaseURL: server.URL, HTTP: server.Client()}
+	uploadError = apiClient.UploadPresignedObject(context.Background(), multipartUpload(server, 8, 2), strings.NewReader("0123456789abcdefXYZ"), 19)
+	if uploadError == nil || !strings.Contains(uploadError.Error(), "minted 2 part(s) for an artifact that needs 3") {
+		t.Errorf("a part count that does not cover the artifact is refused before any byte moves, got %v", uploadError)
 	}
 }

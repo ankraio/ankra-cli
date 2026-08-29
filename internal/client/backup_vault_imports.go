@@ -1,8 +1,11 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -84,15 +87,35 @@ const (
 	BackupVaultImportStatusFailed    = "failed"
 )
 
-// BackupVaultImportUpload is one presigned PUT the CLI performs straight
-// against the vault's bucket; the platform never sees the bytes.
+// BackupVaultImportUpload is one upload the CLI performs straight against
+// the vault's bucket; the platform never sees the bytes. Method PUT carries
+// one presigned URL for the whole object; Method multipart carries one
+// presigned PUT per part of PartSizeBytes (the last one shorter) and the
+// presigned calls that complete or abort the upload.
 type BackupVaultImportUpload struct {
-	Path      string `json:"path"`
-	Method    string `json:"method"`
-	URL       string `json:"url"`
-	ExpiresAt string `json:"expires_at"`
-	SizeBytes int64  `json:"size_bytes"`
+	Path          string                        `json:"path"`
+	Method        string                        `json:"method"`
+	URL           string                        `json:"url,omitempty"`
+	ExpiresAt     string                        `json:"expires_at"`
+	SizeBytes     int64                         `json:"size_bytes"`
+	UploadID      string                        `json:"upload_id,omitempty"`
+	PartSizeBytes int64                         `json:"part_size_bytes,omitempty"`
+	Parts         []BackupVaultImportUploadPart `json:"parts,omitempty"`
+	CompleteURL   string                        `json:"complete_url,omitempty"`
+	AbortURL      string                        `json:"abort_url,omitempty"`
 }
+
+// BackupVaultImportUploadPart is one presigned PUT of a multipart upload.
+type BackupVaultImportUploadPart struct {
+	PartNumber int    `json:"part_number"`
+	URL        string `json:"url"`
+}
+
+// Upload methods the platform mints.
+const (
+	BackupVaultImportUploadMethodPut       = "PUT"
+	BackupVaultImportUploadMethodMultipart = "multipart"
+)
 
 // CreateBackupVaultImportRequest registers an export: the cluster its data
 // goes to and the export's manifest.json, passed through verbatim.
@@ -180,37 +203,56 @@ func (c *Client) DeleteBackupVaultImport(vaultID string, importID string) error 
 	return c.sendJSON(http.MethodDelete, url, nil, nil)
 }
 
-// PresignedUploadMaximumBytes is the largest object a single presigned PUT
-// can carry on S3 and every compatible store; a bigger artifact needs a
-// multipart upload the platform does not mint yet.
-const PresignedUploadMaximumBytes = 5 << 30
+// ImportArtifactMaximumBytes is the largest artifact an import accepts: the
+// 10,000 parts of 64 MiB a multipart upload can carry. It mirrors the
+// platform's limit so the CLI can refuse before registering anything.
+const ImportArtifactMaximumBytes = int64(64<<20) * 10000
 
 const presignedUploadAttempts = 3
 
-// UploadPresignedObject sends one artifact to a presigned URL. The URL is the
-// whole credential, so no bearer token and no Ankra header is sent - the
-// request goes through a plain transport, never the API client's - and the
-// body carries its exact size because the vault rejects a chunked upload and
-// the platform verifies the object at that size afterwards. A dump can be
-// large, so the upload has no per-request timeout beyond ctx; a transport
-// failure or a 5xx is retried from the start of the body, and a redirect
-// replays it, which is why the body must seek.
-func (c *Client) UploadPresignedObject(ctx context.Context, method string, uploadURL string, body io.ReadSeeker, size int64) error {
+// UploadBody is what an upload reads from: seekable, so a failed attempt
+// restarts from the beginning, and addressable, so a multipart upload can
+// send each part from its own offset. A file is both.
+type UploadBody interface {
+	io.ReadSeeker
+	io.ReaderAt
+}
+
+// UploadPresignedObject sends one artifact to the vault as the platform
+// described the upload: a single PUT, or a multipart upload part by part.
+// The URLs are the whole credential, so no bearer token and no Ankra header
+// is sent - the requests go through a plain transport, never the API
+// client's. Every request carries its exact length because the vault
+// rejects a chunked upload and the platform verifies the object's size
+// afterwards. A transport failure or a 5xx is retried from the start of the
+// body (or the part), which is why the body must seek; a refusal is final.
+func (c *Client) UploadPresignedObject(ctx context.Context, upload BackupVaultImportUpload, body UploadBody, size int64) error {
+	if size > ImportArtifactMaximumBytes {
+		return fmt.Errorf("the artifact is %d bytes; an upload can carry at most %d", size, ImportArtifactMaximumBytes)
+	}
+	uploadClient := &http.Client{}
+	if upload.Method == BackupVaultImportUploadMethodMultipart {
+		return uploadMultipart(ctx, uploadClient, upload, body, size)
+	}
+	method := upload.Method
 	if method == "" {
 		method = http.MethodPut
 	}
-	if size > PresignedUploadMaximumBytes {
-		return fmt.Errorf("the artifact is %d bytes; a single upload can carry at most %d", size, PresignedUploadMaximumBytes)
-	}
-	uploadClient := &http.Client{}
+	_, putError := putPresigned(ctx, uploadClient, method, upload.URL, body, size)
+	return putError
+}
+
+// putPresigned sends body to one presigned URL with retries and returns the
+// ETag the store answered with, which a multipart completion needs.
+func putPresigned(ctx context.Context, uploadClient *http.Client, method string, uploadURL string, body io.ReadSeeker, size int64) (string, error) {
 	var lastError error
 	for attempt := 1; attempt <= presignedUploadAttempts; attempt++ {
 		if _, seekError := body.Seek(0, io.SeekStart); seekError != nil {
-			return fmt.Errorf("rewind upload body: %w", seekError)
+			return "", fmt.Errorf("rewind upload body: %w", seekError)
 		}
 		request, requestError := http.NewRequestWithContext(ctx, method, uploadURL, body)
 		if requestError != nil {
-			return fmt.Errorf("create upload request: %w", requestError)
+			return "", fmt.Errorf("create upload request: %w", requestError)
 		}
 		request.ContentLength = size
 		request.Header.Set("Content-Type", "application/octet-stream")
@@ -225,19 +267,113 @@ func (c *Client) UploadPresignedObject(ctx context.Context, method string, uploa
 		if doError != nil {
 			lastError = fmt.Errorf("upload failed: %w", doError)
 			if ctx.Err() != nil {
-				return lastError
+				return "", lastError
 			}
 			continue
 		}
 		responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
 		closeBody(response)
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
-			return nil
+			return response.Header.Get("ETag"), nil
 		}
 		lastError = newUnexpectedResponseError("upload", response.StatusCode, redactedBodyForError(responseBody, 500))
 		if response.StatusCode < 500 {
-			return lastError
+			return "", lastError
+		}
+	}
+	return "", lastError
+}
+
+// uploadMultipart sends the body part by part to the presigned part URLs,
+// then completes the upload with the ETags the store handed back. Any
+// failure aborts the upload so the store does not keep the parts.
+func uploadMultipart(ctx context.Context, uploadClient *http.Client, upload BackupVaultImportUpload, body UploadBody, size int64) error {
+	if upload.PartSizeBytes <= 0 || len(upload.Parts) == 0 || upload.CompleteURL == "" {
+		return errors.New("the platform described a multipart upload without parts or a completion")
+	}
+	expectedParts := int((size + upload.PartSizeBytes - 1) / upload.PartSizeBytes)
+	if expectedParts != len(upload.Parts) {
+		return fmt.Errorf("the platform minted %d part(s) for an artifact that needs %d; run `ankra migrate export` again", len(upload.Parts), expectedParts)
+	}
+	completed := make([]multipartCompletedPart, 0, len(upload.Parts))
+	for index, part := range upload.Parts {
+		offset := int64(index) * upload.PartSizeBytes
+		length := min(upload.PartSizeBytes, size-offset)
+		section := io.NewSectionReader(body, offset, length)
+		etag, putError := putPresigned(ctx, uploadClient, http.MethodPut, part.URL, section, length)
+		if putError != nil {
+			abortMultipart(ctx, uploadClient, upload.AbortURL)
+			return fmt.Errorf("part %d of %d: %w", part.PartNumber, len(upload.Parts), putError)
+		}
+		completed = append(completed, multipartCompletedPart{PartNumber: part.PartNumber, ETag: etag})
+	}
+	if completeError := completeMultipart(ctx, uploadClient, upload.CompleteURL, completed); completeError != nil {
+		abortMultipart(ctx, uploadClient, upload.AbortURL)
+		return completeError
+	}
+	return nil
+}
+
+type multipartCompletedPart struct {
+	PartNumber int    `xml:"PartNumber"`
+	ETag       string `xml:"ETag"`
+}
+
+type completeMultipartUploadRequest struct {
+	XMLName xml.Name                 `xml:"CompleteMultipartUpload"`
+	Parts   []multipartCompletedPart `xml:"Part"`
+}
+
+// completeMultipart posts the part list to the presigned completion. S3 may
+// answer 200 with an error document when the assembly fails after the
+// headers went out, so the body is read for one.
+func completeMultipart(ctx context.Context, uploadClient *http.Client, completeURL string, parts []multipartCompletedPart) error {
+	document, marshalError := xml.Marshal(completeMultipartUploadRequest{Parts: parts})
+	if marshalError != nil {
+		return fmt.Errorf("render the completion: %w", marshalError)
+	}
+	var lastError error
+	for attempt := 1; attempt <= presignedUploadAttempts; attempt++ {
+		request, requestError := http.NewRequestWithContext(ctx, http.MethodPost, completeURL, bytes.NewReader(document))
+		if requestError != nil {
+			return fmt.Errorf("create completion request: %w", requestError)
+		}
+		request.ContentLength = int64(len(document))
+		request.Header.Set("Content-Type", "application/xml")
+		response, doError := uploadClient.Do(request)
+		if doError != nil {
+			lastError = fmt.Errorf("completing the upload failed: %w", doError)
+			if ctx.Err() != nil {
+				return lastError
+			}
+			continue
+		}
+		responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
+		closeBody(response)
+		switch {
+		case response.StatusCode >= 200 && response.StatusCode < 300 && !bytes.Contains(responseBody, []byte("<Error>")):
+			return nil
+		case response.StatusCode >= 500 || bytes.Contains(responseBody, []byte("<Error>")) && response.StatusCode < 300:
+			lastError = newUnexpectedResponseError("completing the upload", response.StatusCode, redactedBodyForError(responseBody, 500))
+		default:
+			return newUnexpectedResponseError("completing the upload", response.StatusCode, redactedBodyForError(responseBody, 500))
 		}
 	}
 	return lastError
+}
+
+// abortMultipart tells the store to drop the parts of an upload that will
+// never complete, best effort: the platform's completion check would have
+// refused the object anyway, this just stops the parts costing storage.
+func abortMultipart(ctx context.Context, uploadClient *http.Client, abortURL string) {
+	if abortURL == "" {
+		return
+	}
+	request, requestError := http.NewRequestWithContext(ctx, http.MethodDelete, abortURL, nil)
+	if requestError != nil {
+		return
+	}
+	if response, doError := uploadClient.Do(request); doError == nil {
+		closeBody(response)
+	}
 }
