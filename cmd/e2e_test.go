@@ -3736,3 +3736,7 @@ func (m baseMock) GetTerminalSession(sessionID string) (*client.TerminalSession,
 func (m baseMock) GetTerminalTranscript(sessionID string, afterSequence int, limit int) (*client.TerminalTranscriptPage, error) {
 	return &client.TerminalTranscriptPage{}, nil
 }
+
+func (m baseMock) OpenPodTerminal(ctx context.Context, clusterID string, request client.PodTerminalRequest) (client.PodTerminal, error) {
+	return nil, errors.New("not implemented")
+}

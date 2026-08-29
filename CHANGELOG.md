@@ -1,5 +1,22 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **A shell in any pod, from the terminal you are in.** `ankra cluster
+  terminal <pod> -n <namespace>` opens an interactive shell in the pod's
+  container through the platform - no kubeconfig, no port-forward - with the
+  local terminal in raw mode, so Ctrl-C and window resizes reach the remote
+  shell; leave with `exit`. A pod with one container needs nothing more, one
+  with several takes `--container`, and `--shell` picks the shell (default
+  `/bin/sh`). `ankra cluster debug create --attach` drops straight into the
+  debug pod it just created instead of printing the portal link. Every
+  session is recorded by the platform and linked from the cluster's audit
+  log, exactly like the portal's terminal. Needs `kubernetes.exec` and a
+  platform that serves the bearer terminal lane (cluster-api from
+  2026-08-29); an older platform answers 404 at the handshake.
+
 ## v0.14.0-rc5 — 2026-08-29
 
 ### Added

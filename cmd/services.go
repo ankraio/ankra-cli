@@ -328,6 +328,7 @@ type APIClient interface {
 	DeleteDebugPod(clusterID string, namespace string, podName string) (*client.DeleteDebugPodResponse, error)
 	GetTerminalSession(sessionID string) (*client.TerminalSession, error)
 	GetTerminalTranscript(sessionID string, afterSequence int, limit int) (*client.TerminalTranscriptPage, error)
+	OpenPodTerminal(ctx context.Context, clusterID string, request client.PodTerminalRequest) (client.PodTerminal, error)
 	ListHelmReleases(clusterID string, opts *client.HelmReleasesOptions) (*client.HelmReleasesResponse, error)
 	UninstallHelmRelease(clusterID, releaseName, namespace string) (*client.UninstallHelmReleaseResponse, error)
 	QueryPrometheusInstant(clusterID, query string, timeoutSeconds int) (*client.PrometheusQueryResult, error)
