@@ -410,6 +410,14 @@ type APIClient interface {
 	ListHetznerServerTypes(credentialID, location string) ([]client.HetznerServerType, error)
 	ListK3sVersions() (*client.ListVersionsResult, error)
 	ListKubeadmVersions() (*client.ListVersionsResult, error)
+
+	ListClusterMeshes() ([]client.ClusterMesh, error)
+	GetClusterMesh(meshID string) (*client.ClusterMesh, error)
+	CreateClusterMesh(name string) (*client.ClusterMesh, error)
+	DeleteClusterMesh(meshID string) error
+	JoinClusterMesh(meshID string, clusterID string) error
+	LeaveClusterMesh(meshID string, clusterID string) error
+	CheckClusterMeshReadiness(clusterIDs []string) (map[string]client.ClusterMeshReadiness, error)
 	CreatePlayground(planID string) (*client.CreatePlaygroundResult, error)
 	ListPlaygroundPlans() (*client.PlaygroundPlanCatalog, error)
 	ResizePlayground(clusterID string, planID string) (*client.ResizePlaygroundResult, error)
