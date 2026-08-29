@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -322,5 +323,153 @@ func TestExportErrors(t *testing.T) {
 func TestExportIsAdvertised(t *testing.T) {
 	if _, ok := migrate.ExporterFor(New()); !ok {
 		t.Error("the docker module must advertise and implement export")
+	}
+}
+
+func TestExportPostgresDumpsRolesWithoutPasswords(t *testing.T) {
+	fake := &fakeDocker{t: t, answers: defaultAnswers()}
+	installFakeDocker(t, fake)
+	export, err := testModule.Export(context.Background(), migrate.ExportRequest{Dir: writeExportFixture(t, exportTestCompose), OutputDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := callsContaining(fake.calls, "pg_dumpall"); len(got) != 1 || !strings.Contains(got[0], "--globals-only --no-role-passwords") {
+		t.Errorf("the globals dump must leave role passwords out, or the restore re-sets the cluster's own user, got %v", got)
+	}
+	if !hasWarning(export.Warnings, "roles are restored without their passwords") || !hasWarning(export.Warnings, "office keeps the password") {
+		t.Errorf("the user must be told which roles need a password afterwards: %v", export.Warnings)
+	}
+}
+
+func TestExportPostgresMaintenanceDatabase(t *testing.T) {
+	withPostgres := func(answers []cannedAnswer) []cannedAnswer {
+		answers[3] = cannedAnswer{"SELECT datname", "office\npostgres\n"}
+		return answers
+	}
+	dumped := func(export migrate.Export) []string {
+		var names []string
+		for _, artifact := range export.Databases[1].Artifacts {
+			if artifact.Kind == migrate.ArtifactKindDatabase {
+				names = append(names, artifact.Database)
+			}
+		}
+		return names
+	}
+
+	t.Run("skipped with a hint when the application lives elsewhere", func(t *testing.T) {
+		fake := &fakeDocker{t: t, answers: withPostgres(defaultAnswers())}
+		installFakeDocker(t, fake)
+		export, err := testModule.Export(context.Background(), migrate.ExportRequest{Dir: writeExportFixture(t, exportTestCompose), OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := dumped(export); len(got) != 1 || got[0] != "office" {
+			t.Errorf("the maintenance database is not the application's, got %v", got)
+		}
+		if !hasWarning(export.Warnings, "--option databases.postgres=postgres") {
+			t.Errorf("skipping postgres must say how to include it: %v", export.Warnings)
+		}
+	})
+	t.Run("dumped when it is the application database", func(t *testing.T) {
+		compose := strings.Replace(exportTestCompose, "      POSTGRES_USER: office\n", "", 1)
+		fake := &fakeDocker{t: t, answers: withPostgres(defaultAnswers())}
+		installFakeDocker(t, fake)
+		export, err := testModule.Export(context.Background(), migrate.ExportRequest{Dir: writeExportFixture(t, compose), OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := dumped(export); len(got) != 2 || got[1] != "postgres" {
+			t.Errorf("without POSTGRES_USER and POSTGRES_DB the image keeps the data in postgres; it must be dumped, got %v", got)
+		}
+		if hasWarning(export.Warnings, "maintenance database postgres was not dumped") {
+			t.Errorf("no hint when postgres was dumped: %v", export.Warnings)
+		}
+	})
+	t.Run("dumped when POSTGRES_DB names it", func(t *testing.T) {
+		compose := strings.Replace(exportTestCompose, "      POSTGRES_USER: office\n", "      POSTGRES_USER: office\n      POSTGRES_DB: postgres\n", 1)
+		fake := &fakeDocker{t: t, answers: withPostgres(defaultAnswers())}
+		installFakeDocker(t, fake)
+		export, err := testModule.Export(context.Background(), migrate.ExportRequest{Dir: writeExportFixture(t, compose), OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := dumped(export); len(got) != 2 || got[1] != "postgres" {
+			t.Errorf("POSTGRES_DB=postgres makes it the application database, got %v", got)
+		}
+	})
+}
+
+func TestExportWritesTheDumpsForTheCurrentUserOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits")
+	}
+	fake := &fakeDocker{t: t, answers: defaultAnswers()}
+	installFakeDocker(t, fake)
+	out := t.TempDir()
+	export, err := testModule.Export(context.Background(), migrate.ExportRequest{Dir: writeExportFixture(t, exportTestCompose), OutputDir: out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, database := range export.Databases {
+		directory, statError := os.Stat(filepath.Join(out, database.Workload))
+		if statError != nil {
+			t.Fatal(statError)
+		}
+		if directory.Mode().Perm() != 0o700 {
+			t.Errorf("%s: directory mode = %o, want 700", database.Workload, directory.Mode().Perm())
+		}
+		for _, artifact := range database.Artifacts {
+			file, statError := os.Stat(filepath.Join(out, filepath.FromSlash(artifact.Path)))
+			if statError != nil {
+				t.Fatal(statError)
+			}
+			if file.Mode().Perm() != 0o600 {
+				t.Errorf("%s: mode = %o, want 600", artifact.Path, file.Mode().Perm())
+			}
+		}
+	}
+	if !hasWarning(export.Warnings, "delete the export directory once the restore has succeeded") {
+		t.Errorf("the user must be told the export is their data on disk: %v", export.Warnings)
+	}
+}
+
+func TestExportKeepsDumpsApartWhenNamesSanitiseAlike(t *testing.T) {
+	answers := defaultAnswers()
+	answers[3] = cannedAnswer{"SELECT datname", "my_db\nmy-db\n"}
+	fake := &fakeDocker{t: t, answers: answers}
+	installFakeDocker(t, fake)
+	export, err := testModule.Export(context.Background(), migrate.ExportRequest{Dir: writeExportFixture(t, exportTestCompose), OutputDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	postgres := export.Databases[1]
+	if len(postgres.Artifacts) != 3 || postgres.Artifacts[1].Path != "postgres/my-db.dump" || postgres.Artifacts[2].Path != "postgres/my-db-2.dump" {
+		t.Errorf("two databases whose names sanitise alike must not overwrite each other, got %+v", postgres.Artifacts)
+	}
+	if postgres.Artifacts[1].Database != "my_db" || postgres.Artifacts[2].Database != "my-db" {
+		t.Errorf("the real database names must survive the renaming, got %+v", postgres.Artifacts)
+	}
+}
+
+func TestExportNormalisesTheComposeProjectName(t *testing.T) {
+	fake := &fakeDocker{t: t, answers: defaultAnswers()}
+	installFakeDocker(t, fake)
+	dir := filepath.Join(t.TempDir(), "Aura Office")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte(exportTestCompose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testModule.Export(context.Background(), migrate.ExportRequest{Dir: dir, OutputDir: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	if got := callsContaining(fake.calls, "ps -q"); len(got) != 2 || !strings.Contains(got[0], "label=com.docker.compose.project=auraoffice") {
+		t.Errorf("containers are labelled with compose's normalised project name, got %v", got)
+	}
+	for name, want := range map[string]string{"Aura Office": "auraoffice", "_shop.v2": "shopv2", "--Shop": "shop", "shop": "shop"} {
+		if got := composeProjectName(name); got != want {
+			t.Errorf("composeProjectName(%q) = %q, want %q", name, got, want)
+		}
 	}
 }

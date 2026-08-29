@@ -29,7 +29,7 @@ func TestUploadPresignedObjectPutsTheBodyWithoutABearerToken(t *testing.T) {
 	defer server.Close()
 
 	apiClient := &Client{BaseURL: server.URL, Token: "secret-token", HTTP: server.Client()}
-	uploadError := apiClient.UploadPresignedObject(context.Background(), server.URL+"/bucket/imports/1/db/office.dump?X-Amz-Signature=abc", strings.NewReader("PGDMP"), 5)
+	uploadError := apiClient.UploadPresignedObject(context.Background(), http.MethodPut, server.URL+"/bucket/imports/1/db/office.dump?X-Amz-Signature=abc", strings.NewReader("PGDMP"), 5)
 	if uploadError != nil {
 		t.Fatal(uploadError)
 	}
@@ -42,15 +42,50 @@ func TestUploadPresignedObjectPutsTheBodyWithoutABearerToken(t *testing.T) {
 }
 
 func TestUploadPresignedObjectReportsTheBucketsRefusal(t *testing.T) {
+	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		attempts++
 		writer.WriteHeader(http.StatusForbidden)
 		_, _ = writer.Write([]byte("<Error><Code>SignatureDoesNotMatch</Code></Error>"))
 	}))
 	defer server.Close()
 	apiClient := &Client{BaseURL: server.URL, HTTP: server.Client()}
-	uploadError := apiClient.UploadPresignedObject(context.Background(), server.URL+"/x", strings.NewReader("x"), 1)
+	uploadError := apiClient.UploadPresignedObject(context.Background(), http.MethodPut, server.URL+"/x", strings.NewReader("x"), 1)
 	if uploadError == nil || !strings.Contains(uploadError.Error(), "SignatureDoesNotMatch") {
 		t.Errorf("the bucket's reason must surface, got %v", uploadError)
+	}
+	if attempts != 1 {
+		t.Errorf("a refusal is final; it must not be retried, got %d attempts", attempts)
+	}
+}
+
+func TestUploadPresignedObjectRetriesAServerFailureFromTheStart(t *testing.T) {
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		content, _ := io.ReadAll(request.Body)
+		bodies = append(bodies, string(content))
+		if len(bodies) == 1 {
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	apiClient := &Client{BaseURL: server.URL, HTTP: server.Client()}
+	uploadError := apiClient.UploadPresignedObject(context.Background(), http.MethodPut, server.URL+"/x", strings.NewReader("PGDMP"), 5)
+	if uploadError != nil {
+		t.Fatal(uploadError)
+	}
+	if len(bodies) != 2 || bodies[0] != "PGDMP" || bodies[1] != "PGDMP" {
+		t.Errorf("a 5xx must be retried with the whole body again, got %q", bodies)
+	}
+}
+
+func TestUploadPresignedObjectRefusesMoreThanOneUploadCarries(t *testing.T) {
+	apiClient := &Client{BaseURL: "http://unused.invalid"}
+	uploadError := apiClient.UploadPresignedObject(context.Background(), http.MethodPut, "http://unused.invalid/x", strings.NewReader(""), PresignedUploadMaximumBytes+1)
+	if uploadError == nil || !strings.Contains(uploadError.Error(), "at most") {
+		t.Errorf("an artifact above the single-upload limit must be refused without a request, got %v", uploadError)
 	}
 }
 

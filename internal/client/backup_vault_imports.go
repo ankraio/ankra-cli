@@ -155,32 +155,64 @@ func (c *Client) GetBackupVaultImport(vaultID string, importID string) (*BackupV
 	return &result, nil
 }
 
-// UploadPresignedObject PUTs one artifact to a presigned URL. The URL is the
-// whole credential, so no bearer token is sent; the request carries the exact
-// size because the vault rejects a chunked upload and the platform verifies
-// the object at that size afterwards. A dump can be large, so the upload
-// runs without the API client's per-request timeout and honours ctx instead.
-func (c *Client) UploadPresignedObject(ctx context.Context, uploadURL string, body io.Reader, size int64) error {
-	request, requestError := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, body)
-	if requestError != nil {
-		return fmt.Errorf("create upload request: %w", requestError)
-	}
-	request.ContentLength = size
-	request.Header.Set("Content-Type", "application/octet-stream")
+// PresignedUploadMaximumBytes is the largest object a single presigned PUT
+// can carry on S3 and every compatible store; a bigger artifact needs a
+// multipart upload the platform does not mint yet.
+const PresignedUploadMaximumBytes = 5 << 30
 
-	var transport http.RoundTripper
-	if c.HTTP != nil {
-		transport = c.HTTP.Transport
+const presignedUploadAttempts = 3
+
+// UploadPresignedObject sends one artifact to a presigned URL. The URL is the
+// whole credential, so no bearer token and no Ankra header is sent - the
+// request goes through a plain transport, never the API client's - and the
+// body carries its exact size because the vault rejects a chunked upload and
+// the platform verifies the object at that size afterwards. A dump can be
+// large, so the upload has no per-request timeout beyond ctx; a transport
+// failure or a 5xx is retried from the start of the body, and a redirect
+// replays it, which is why the body must seek.
+func (c *Client) UploadPresignedObject(ctx context.Context, method string, uploadURL string, body io.ReadSeeker, size int64) error {
+	if method == "" {
+		method = http.MethodPut
 	}
-	uploadClient := &http.Client{Transport: transport}
-	response, doError := uploadClient.Do(request)
-	if doError != nil {
-		return fmt.Errorf("upload failed: %w", doError)
+	if size > PresignedUploadMaximumBytes {
+		return fmt.Errorf("the artifact is %d bytes; a single upload can carry at most %d", size, PresignedUploadMaximumBytes)
 	}
-	defer closeBody(response)
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
+	uploadClient := &http.Client{}
+	var lastError error
+	for attempt := 1; attempt <= presignedUploadAttempts; attempt++ {
+		if _, seekError := body.Seek(0, io.SeekStart); seekError != nil {
+			return fmt.Errorf("rewind upload body: %w", seekError)
+		}
+		request, requestError := http.NewRequestWithContext(ctx, method, uploadURL, body)
+		if requestError != nil {
+			return fmt.Errorf("create upload request: %w", requestError)
+		}
+		request.ContentLength = size
+		request.Header.Set("Content-Type", "application/octet-stream")
+		request.GetBody = func() (io.ReadCloser, error) {
+			if _, seekError := body.Seek(0, io.SeekStart); seekError != nil {
+				return nil, seekError
+			}
+			return io.NopCloser(body), nil
+		}
+
+		response, doError := uploadClient.Do(request)
+		if doError != nil {
+			lastError = fmt.Errorf("upload failed: %w", doError)
+			if ctx.Err() != nil {
+				return lastError
+			}
+			continue
+		}
 		responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
-		return newUnexpectedResponseError("upload", response.StatusCode, redactedBodyForError(responseBody, 500))
+		closeBody(response)
+		if response.StatusCode >= 200 && response.StatusCode < 300 {
+			return nil
+		}
+		lastError = newUnexpectedResponseError("upload", response.StatusCode, redactedBodyForError(responseBody, 500))
+		if response.StatusCode < 500 {
+			return lastError
+		}
 	}
-	return nil
+	return lastError
 }

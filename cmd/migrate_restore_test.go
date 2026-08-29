@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +36,7 @@ const migrateRestoreTestManifest = `{
 type migrateRestoreMock struct {
 	baseMock
 	vaults       []client.BackupVault
+	vaultIDs     []string
 	createdWith  *client.CreateBackupVaultImportRequest
 	uploads      map[string]int64
 	completed    int
@@ -51,6 +54,7 @@ func (mock *migrateRestoreMock) ListBackupVaults() (*client.BackupVaultListResul
 // CreateBackupVaultImport mints one upload per artifact the submitted
 // manifest lists, at the size it recorded - what the platform does.
 func (mock *migrateRestoreMock) CreateBackupVaultImport(vaultID string, request client.CreateBackupVaultImportRequest) (*client.CreateBackupVaultImportResult, error) {
+	mock.vaultIDs = append(mock.vaultIDs, vaultID)
 	mock.createdWith = &request
 	var manifest struct {
 		Databases []struct {
@@ -76,7 +80,10 @@ func (mock *migrateRestoreMock) CreateBackupVaultImport(vaultID string, request 
 	return &client.CreateBackupVaultImportResult{Import: imported, Uploads: uploads}, nil
 }
 
-func (mock *migrateRestoreMock) UploadPresignedObject(_ context.Context, uploadURL string, body io.Reader, size int64) error {
+func (mock *migrateRestoreMock) UploadPresignedObject(_ context.Context, method string, uploadURL string, body io.ReadSeeker, size int64) error {
+	if method != http.MethodPut {
+		return fmt.Errorf("the platform minted a %s upload; the CLI must use it as given", method)
+	}
 	if mock.uploadFailOn != "" && strings.Contains(uploadURL, mock.uploadFailOn) {
 		return errors.New("403 SignatureDoesNotMatch")
 	}
@@ -186,6 +193,7 @@ func resetMigrateRestoreFlags() {
 		}
 		_ = sub.Flags().Set("wait", "false")
 		_ = sub.Flags().Set("output", "")
+		_ = sub.Flags().Set("timeout", sub.Flags().Lookup("timeout").DefValue)
 	}
 }
 
@@ -308,6 +316,57 @@ func TestMigrateRestoreVaultSelection(t *testing.T) {
 	installMigrateRestoreMock(t, mock)
 	if _, _, err = runMigrate(t, "restore", dir, "--cluster", migrateRestoreTestCluster, "--vault", "archive2"); err != nil {
 		t.Errorf("--vault by name should resolve: %v", err)
+	}
+	for _, vaultID := range mock.vaultIDs {
+		if vaultID != readyVault("archive2").ID {
+			t.Errorf("every import call must go to the chosen vault, got %v", mock.vaultIDs)
+		}
+	}
+	if len(mock.vaultIDs) == 0 {
+		t.Error("the import lifecycle must have been driven")
+	}
+}
+
+func TestMigrateRestoreRefusesArtifactsAboveOneUpload(t *testing.T) {
+	mock := &migrateRestoreMock{vaults: []client.BackupVault{readyVault("backups1")}, getStatuses: []string{"completed"}}
+	installMigrateRestoreMock(t, mock)
+	dir := writeMigrateRestoreFixture(t)
+	oversize := strings.Replace(migrateRestoreTestManifest, `"size_bytes": 5,`, `"size_bytes": 6442450944,`, 1)
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(oversize), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := runMigrate(t, "restore", dir, "--cluster", migrateRestoreTestCluster)
+	if exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), "db/office.dump is 6.0 GiB") || !strings.Contains(err.Error(), "multipart") {
+		t.Errorf("an artifact above one presigned upload must be refused up front, got %v", err)
+	}
+	if mock.createdWith != nil {
+		t.Error("nothing may be registered for an export that cannot be uploaded")
+	}
+}
+
+func TestMigrateRestoreStatusRejectsAStatusItDoesNotKnow(t *testing.T) {
+	mock := &migrateRestoreMock{vaults: []client.BackupVault{readyVault("backups1")}, getStatuses: []string{"archived"}}
+	installMigrateRestoreMock(t, mock)
+
+	_, _, err := runMigrate(t, "restore-status", "6f1c8e2a-0000-4000-8000-000000000001", "--wait")
+	if err == nil || !strings.Contains(err.Error(), `"archived"`) || !strings.Contains(err.Error(), "upgrade the CLI") {
+		t.Errorf("a status this CLI does not know must not be waited on forever, got %v", err)
+	}
+}
+
+func TestMigrateDataResolvesTargetsBeforeExporting(t *testing.T) {
+	fakeDockerOnPath(t)
+	installMigrateRestoreMock(t, &migrateRestoreMock{getStatuses: []string{"completed"}})
+	dir := writeMigrateFixture(t)
+	out := filepath.Join(t.TempDir(), "data")
+
+	_, _, err := runMigrate(t, "data", dir, "--out", out, "--cluster", migrateRestoreTestCluster)
+	if exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), "no ready backup vault") {
+		t.Errorf("a missing vault must fail before anything is dumped, got %v", err)
+	}
+	if _, statError := os.Stat(out); statError == nil {
+		t.Error("no dump may be taken when the restore target cannot be resolved")
 	}
 }
 

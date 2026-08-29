@@ -18,7 +18,13 @@
   `--option project=<name>` for a compose project that runs under a
   different name, and `--option databases.<workload>=a,b` to pick databases.
   Passwords never cross the host's command line: every dump runs inside the
-  container through its own environment. Module authors get the same verb:
+  container through its own environment, and the dumps are written readable
+  by you alone. Roles come across without their passwords - the cluster's
+  own user keeps the password from its Secret, and the export says which
+  other roles need one set afterwards - and PostgreSQL's maintenance
+  database `postgres` is left out unless the image keeps the application's
+  data there (`POSTGRES_DB`, or its default), with a hint on how to include
+  it otherwise. Module authors get the same verb:
   a module that lists `export` under its capabilities is asked to dump, with
   its stderr relayed live as progress (`examples/modules/README.md`).
 - **`ankra migrate restore` loads an export into the cluster, and `ankra
@@ -32,8 +38,10 @@
   vault is picked automatically when the organisation has exactly one that
   is ready (`--vault` otherwise), the cluster defaults to the selected one,
   `--wait` follows the restore to completion or failure with every job's
-  state as it changes, and `ankra migrate restore-status <import-id>`
-  reports on one started earlier. A restore needs the `backups` feature,
+  state as it changes (`--timeout` bounds only that wait, never an upload),
+  and `ankra migrate restore-status <import-id>` reports on one started
+  earlier. A dump above 5 GiB is refused before anything is registered -
+  one presigned upload carries at most that much. A restore needs the `backups` feature,
   the converted stack applied, and a cluster agent that supports data
   restores; the platform names whichever is missing.
 - **A converted database always gets a Service.** `ankra migrate convert`

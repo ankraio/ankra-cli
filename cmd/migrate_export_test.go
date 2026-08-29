@@ -16,6 +16,7 @@ case "$*" in
   *"SHOW server_version"*) echo 17.2 ;;
   *"SELECT datname"*) echo office ;;
   *pg_dumpall*) printf -- '-- globals\n' ;;
+  *"-d boom"*) echo 'pg_dump: error: connection to server failed: FATAL: database "boom" does not exist' >&2; exit 1 ;;
   *"pg_dump "*) printf 'PGDMP\001\002fake' ;;
   *) echo "unexpected docker call: $*" >&2; exit 1 ;;
 esac
@@ -134,9 +135,13 @@ func TestMigrateExportRefusesModulesWithoutExport(t *testing.T) {
 func TestMigrateExportSurfacesDockerFailures(t *testing.T) {
 	fakeDockerOnPath(t)
 	dir := writeMigrateFixture(t)
-	_, _, err := runMigrate(t, "export", dir, "--out", filepath.Join(t.TempDir(), "data"), "--option", "databases.db=missing", "--option", "container.db=db-1")
-	if err != nil {
-		t.Fatalf("naming the container and database must skip the lookups: %v", err)
+	out := filepath.Join(t.TempDir(), "data")
+	_, _, err := runMigrate(t, "export", dir, "--out", out, "--option", "databases.db=boom", "--option", "container.db=db-1")
+	if err == nil || !strings.Contains(err.Error(), "db:") || !strings.Contains(err.Error(), `database "boom" does not exist`) {
+		t.Errorf("the dump's own error must reach the user with the workload named, got %v", err)
+	}
+	if _, statError := os.Stat(filepath.Join(out, "manifest.json")); statError == nil {
+		t.Error("a failed export must not leave a manifest behind")
 	}
 	resetMigrateExportFlags()
 	_, _, err = runMigrate(t, "export", t.TempDir(), "--out", filepath.Join(t.TempDir(), "data"))

@@ -86,9 +86,10 @@ func (Module) Export(ctx context.Context, request migrate.ExportRequest) (migrat
 	}
 	composeProject := options[OptionProject]
 	if composeProject == "" {
-		composeProject = project.Name
+		composeProject = composeProjectName(project.Name)
 	}
 	docker := newDockerExecutor(options[OptionDockerHost])
+	writtenFiles := map[string]bool{}
 
 	var export migrate.Export
 	var otherImages []string
@@ -107,18 +108,20 @@ func (Module) Export(ctx context.Context, request migrate.ExportRequest) (migrat
 		export.Warnings = append(export.Warnings, containerWarnings...)
 
 		job := dumpJob{
-			docker:    docker,
-			container: container,
-			workload:  workload,
-			namespace: namespace,
-			outputDir: request.OutputDir,
-			only:      splitList(options[OptionDatabasesPrefix+workload.Name]),
-			progress:  progress,
+			docker:       docker,
+			container:    container,
+			workload:     workload,
+			namespace:    namespace,
+			outputDir:    request.OutputDir,
+			only:         splitList(options[OptionDatabasesPrefix+workload.Name]),
+			progress:     progress,
+			writtenFiles: writtenFiles,
 		}
 		var database migrate.DatabaseExport
+		var databaseWarnings []string
 		switch engine {
 		case migrate.EnginePostgres:
-			database, err = dumpPostgres(ctx, job)
+			database, databaseWarnings, err = dumpPostgres(ctx, job)
 		case migrate.EngineMySQL:
 			database, err = dumpMySQL(ctx, job)
 		}
@@ -126,15 +129,34 @@ func (Module) Export(ctx context.Context, request migrate.ExportRequest) (migrat
 			return migrate.Export{}, err
 		}
 		export.Databases = append(export.Databases, database)
+		export.Warnings = append(export.Warnings, databaseWarnings...)
 	}
 
 	if len(export.Databases) == 0 {
 		return migrate.Export{}, fmt.Errorf("no database service recognised in %s (images: %s); the export knows PostgreSQL and MySQL/MariaDB images",
 			project.Name, strings.Join(otherImages, ", "))
 	}
-	export.Warnings = append(export.Warnings, "each dump is a point-in-time snapshot of a live server; rehearse with the source running, then stop its writers and export once more right before the final cutover")
+	export.Warnings = append(export.Warnings,
+		"each dump is a point-in-time snapshot of a live server; rehearse with the source running, then stop its writers and export once more right before the final cutover",
+		"the dumps hold the application's data and are written readable by you alone; delete the export directory once the restore has succeeded")
 	export.Warnings = uniqueSorted(export.Warnings)
 	return export, nil
+}
+
+// composeProjectName derives the project name compose labels containers
+// with from a directory or `name:` value, the way compose itself does:
+// lower-cased, every character outside [a-z0-9_-] dropped, and no leading
+// '-' or '_'. Without this a source directory called "Aura Office" would be
+// looked up as a project no container is labelled with.
+func composeProjectName(name string) string {
+	var builder strings.Builder
+	for _, character := range strings.ToLower(name) {
+		isLetterOrDigit := (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')
+		if isLetterOrDigit || character == '_' || character == '-' {
+			builder.WriteRune(character)
+		}
+	}
+	return strings.TrimLeft(builder.String(), "-_")
 }
 
 // exportProject reads the source an export works from. Unlike convert, a
@@ -193,6 +215,9 @@ type dumpJob struct {
 	// server reports.
 	only     []string
 	progress io.Writer
+	// writtenFiles is shared by every job of one export so two databases
+	// whose names sanitise alike never overwrite each other.
+	writtenFiles map[string]bool
 }
 
 // inContainer builds a `docker exec` that runs program through the
@@ -221,11 +246,22 @@ func (job dumpJob) restoreTarget(engine, username, passwordKey string) migrate.R
 
 var postgresCustomMagic = []byte("PGDMP")
 
-func dumpPostgres(ctx context.Context, job dumpJob) (migrate.DatabaseExport, error) {
+// dumpPostgres dumps a PostgreSQL server: its roles (without their
+// passwords - the restore connects as the target's own user, and a dump that
+// re-set that password would lock the cluster out of its database) and every
+// database that is not a template. The `postgres` database is the server's
+// maintenance database and is left out, unless the image was told to keep
+// the application's data there - which is what POSTGRES_DB, or its default
+// of POSTGRES_USER, says.
+func dumpPostgres(ctx context.Context, job dumpJob) (migrate.DatabaseExport, []string, error) {
 	const passwordKey = "POSTGRES_PASSWORD"
 	username := "postgres"
 	if entry, ok := lookupEnv(job.workload, "POSTGRES_USER"); ok && entry.Value != "" {
 		username = entry.Value
+	}
+	applicationDatabase := username
+	if entry, ok := lookupEnv(job.workload, "POSTGRES_DB"); ok && entry.Value != "" {
+		applicationDatabase = entry.Value
 	}
 	psql := func(query string) []string {
 		return job.inContainer("PGPASSWORD", passwordKey, "psql", "-U", username, "-d", "postgres", "-tAc", query)
@@ -233,18 +269,26 @@ func dumpPostgres(ctx context.Context, job dumpJob) (migrate.DatabaseExport, err
 
 	version, err := job.docker.Output(ctx, psql("SHOW server_version")...)
 	if err != nil {
-		return migrate.DatabaseExport{}, fmt.Errorf("%s: reading the server version: %w", job.workload.Name, err)
+		return migrate.DatabaseExport{}, nil, fmt.Errorf("%s: reading the server version: %w", job.workload.Name, err)
 	}
+	var warnings []string
 	databases := job.only
 	if len(databases) == 0 {
-		output, err := job.docker.Output(ctx, psql("SELECT datname FROM pg_database WHERE NOT datistemplate AND datname <> 'postgres' ORDER BY datname")...)
+		output, err := job.docker.Output(ctx, psql("SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY datname")...)
 		if err != nil {
-			return migrate.DatabaseExport{}, fmt.Errorf("%s: listing databases: %w", job.workload.Name, err)
+			return migrate.DatabaseExport{}, nil, fmt.Errorf("%s: listing databases: %w", job.workload.Name, err)
 		}
-		databases = nonEmptyLines(string(output))
+		for _, database := range nonEmptyLines(string(output)) {
+			if database == "postgres" && applicationDatabase != "postgres" {
+				warnings = append(warnings, fmt.Sprintf("%s: the maintenance database postgres was not dumped; pass --option %s%s=postgres if the application keeps data in it",
+					job.workload.Name, OptionDatabasesPrefix, job.workload.Name))
+				continue
+			}
+			databases = append(databases, database)
+		}
 	}
 	if len(databases) == 0 {
-		return migrate.DatabaseExport{}, fmt.Errorf("%s: the server holds no database besides postgres", job.workload.Name)
+		return migrate.DatabaseExport{}, nil, fmt.Errorf("%s: the server holds no database besides postgres", job.workload.Name)
 	}
 
 	export := migrate.DatabaseExport{
@@ -256,21 +300,23 @@ func dumpPostgres(ctx context.Context, job dumpJob) (migrate.DatabaseExport, err
 	}
 
 	_, _ = fmt.Fprintf(job.progress, "%s: dumping roles and globals\n", job.workload.Name)
-	globals, err := job.writeArtifact(ctx, "globals.sql", job.inContainer("PGPASSWORD", passwordKey, "pg_dumpall", "-U", username, "--globals-only"), nil)
+	globals, err := job.writeArtifact(ctx, "globals.sql", job.inContainer("PGPASSWORD", passwordKey, "pg_dumpall", "-U", username, "--globals-only", "--no-role-passwords"), nil)
 	if err != nil {
-		return migrate.DatabaseExport{}, err
+		return migrate.DatabaseExport{}, nil, err
 	}
 	export.Artifacts = append(export.Artifacts, migrate.Artifact{Path: globals, Kind: migrate.ArtifactKindGlobals, Format: migrate.ArtifactFormatSQL})
+	warnings = append(warnings, fmt.Sprintf("%s: roles are restored without their passwords; %s keeps the password from the cluster's secret, any other role that logs in needs ALTER ROLE ... PASSWORD after the restore",
+		job.workload.Name, username))
 
 	for _, database := range databases {
 		_, _ = fmt.Fprintf(job.progress, "%s: dumping database %s\n", job.workload.Name, database)
 		dump, err := job.writeArtifact(ctx, sanitiseName(database)+".dump", job.inContainer("PGPASSWORD", passwordKey, "pg_dump", "-U", username, "-Fc", "-d", database), postgresCustomMagic)
 		if err != nil {
-			return migrate.DatabaseExport{}, err
+			return migrate.DatabaseExport{}, nil, err
 		}
 		export.Artifacts = append(export.Artifacts, migrate.Artifact{Path: dump, Kind: migrate.ArtifactKindDatabase, Format: migrate.ArtifactFormatPostgresCustom, Database: database})
 	}
-	return export, nil
+	return export, warnings, nil
 }
 
 // Schemas every MySQL/MariaDB server carries; they are not the application's
@@ -331,14 +377,15 @@ func dumpMySQL(ctx context.Context, job dumpJob) (migrate.DatabaseExport, error)
 // writeArtifact streams one docker command into <outputDir>/<workload>/<file>
 // and checks the result looks like a dump: an empty file, or a custom-format
 // archive without its magic bytes, is a failed dump even when the command
-// did not say so.
+// did not say so. The file is the application's data, so it is created
+// readable by the current user only.
 func (job dumpJob) writeArtifact(ctx context.Context, fileName string, args []string, magic []byte) (string, error) {
-	relative := path.Join(sanitiseName(job.workload.Name), fileName)
+	relative := job.uniqueArtifactPath(fileName)
 	absolute := filepath.Join(job.outputDir, filepath.FromSlash(relative))
-	if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
 		return "", err
 	}
-	file, err := os.Create(absolute)
+	file, err := os.OpenFile(absolute, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return "", err
 	}
@@ -354,6 +401,24 @@ func (job dumpJob) writeArtifact(ctx context.Context, fileName string, args []st
 		return "", fmt.Errorf("%s: %s: %w", job.workload.Name, relative, err)
 	}
 	return relative, nil
+}
+
+// uniqueArtifactPath is <workload>/<file>, suffixed with a counter when an
+// earlier dump of this export already took the name - two databases can
+// sanitise to the same file name, and the second must not overwrite the
+// first.
+func (job dumpJob) uniqueArtifactPath(fileName string) string {
+	directory := sanitiseName(job.workload.Name)
+	extension := path.Ext(fileName)
+	stem := strings.TrimSuffix(fileName, extension)
+	candidate := path.Join(directory, fileName)
+	for suffix := 2; job.writtenFiles[candidate]; suffix++ {
+		candidate = path.Join(directory, fmt.Sprintf("%s-%d%s", stem, suffix, extension))
+	}
+	if job.writtenFiles != nil {
+		job.writtenFiles[candidate] = true
+	}
+	return candidate
 }
 
 func checkDump(absolute string, magic []byte) error {

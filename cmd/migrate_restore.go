@@ -64,9 +64,9 @@ provision' creates one), the converted stack applied to the cluster
 The vault is picked automatically when the organisation has exactly one
 ready vault; pass --vault otherwise.
 
-Pass --wait to follow the restore to its end; without it the command returns
-once the restore is running, and 'ankra migrate restore-status <import-id>'
-reports progress.`,
+Pass --wait to follow the restore to its end; --timeout bounds only that
+wait, never the upload. Without --wait the command returns once the restore
+is running, and 'ankra migrate restore-status <import-id>' reports progress.`,
 	Example: `  ankra migrate restore ./app-data --cluster shop --wait
   ankra migrate restore ./app-data --cluster shop --vault backups --stack shop
   ankra migrate restore ./app-data -o json`,
@@ -93,7 +93,8 @@ var migrateDataCmd = &cobra.Command{
 	Long: `Run 'ankra migrate export' on the directory (default: the current one) and
 'ankra migrate restore' on the result, back to back: the one command that
 moves a Docker deployment's data into the cluster once its workloads are
-running there. Every flag of both commands applies.
+running there. Every flag of both commands applies. The cluster and the
+vault are resolved before anything is dumped, so a wrong target fails fast.
 
 Each dump is a snapshot of a live server. Rehearse while the source is
 running, then stop its writers and run it once more for the real cutover.`,
@@ -130,12 +131,27 @@ func init() {
 	migrateCmd.AddCommand(migrateDataCmd)
 }
 
-// migrateRestoreOptions is what a restore needs beyond the export directory.
-type migrateRestoreOptions struct {
-	Cluster string
-	Stack   string
-	Vault   string
-	Wait    bool
+// migrateRestoreTargets is where a restore goes, resolved once up front so
+// a wrong cluster or an ambiguous vault fails before any work is done.
+type migrateRestoreTargets struct {
+	clusterID   string
+	clusterName string
+	vaultID     string
+	stackName   string
+}
+
+// resolveMigrateRestoreTargets turns the --cluster / --vault / --stack flags
+// into ids; an empty stack is derived later from the export.
+func resolveMigrateRestoreTargets(clusterFlag string, vaultFlag string, stackFlag string) (migrateRestoreTargets, error) {
+	clusterID, clusterName, err := resolveClusterForCmd(clusterFlag)
+	if err != nil {
+		return migrateRestoreTargets{}, err
+	}
+	vaultID, err := resolveImportVaultID(vaultFlag)
+	if err != nil {
+		return migrateRestoreTargets{}, err
+	}
+	return migrateRestoreTargets{clusterID: clusterID, clusterName: clusterName, vaultID: vaultID, stackName: stackFlag}, nil
 }
 
 func runMigrateRestore(cmd *cobra.Command, args []string) error {
@@ -147,15 +163,11 @@ func runMigrateRestore(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	requestContext, cancel, err := asyncWriteRequestContext(cmd)
+	targets, err := resolveMigrateRestoreTargets(migrateRestoreCluster, migrateRestoreVault, migrateRestoreStack)
 	if err != nil {
 		return err
 	}
-	defer cancel()
-
-	imported, err := performMigrateRestore(cmd, requestContext, exportDir, migrateRestoreOptions{
-		Cluster: migrateRestoreCluster, Stack: migrateRestoreStack, Vault: migrateRestoreVault, Wait: wait,
-	})
+	imported, err := performMigrateRestore(cmd, exportDir, targets, wait)
 	if err != nil {
 		return err
 	}
@@ -171,19 +183,13 @@ func runMigrateRestoreStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	requestContext, cancel, err := asyncWriteRequestContext(cmd)
-	if err != nil {
-		return err
-	}
-	defer cancel()
-
 	vaultID, err := resolveImportVaultID(migrateRestoreStatusVault)
 	if err != nil {
 		return err
 	}
 	var imported *client.BackupVaultImport
 	if wait {
-		imported, err = waitForMigrateRestore(requestContext, cmd, vaultID, args[0])
+		imported, err = waitForMigrateRestore(cmd, vaultID, args[0])
 	} else {
 		imported, err = apiClient.GetBackupVaultImport(vaultID, args[0])
 		if err != nil {
@@ -209,11 +215,10 @@ func runMigrateData(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	requestContext, cancel, err := asyncWriteRequestContext(cmd)
+	targets, err := resolveMigrateRestoreTargets(migrateDataCluster, migrateDataVault, migrateDataStack)
 	if err != nil {
 		return err
 	}
-	defer cancel()
 
 	exported, err := performMigrateExport(cmd, dir, migrateExportRequest{
 		Module: migrateDataModule, Out: migrateDataOut, Namespace: migrateDataNamespace,
@@ -224,9 +229,7 @@ func runMigrateData(cmd *cobra.Command, args []string) error {
 	}
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Exported %d database server(s) to %s\n", len(exported.Manifest.Databases), exported.Out)
 
-	imported, err := performMigrateRestore(cmd, requestContext, exported.Out, migrateRestoreOptions{
-		Cluster: migrateDataCluster, Stack: migrateDataStack, Vault: migrateDataVault, Wait: wait,
-	})
+	imported, err := performMigrateRestore(cmd, exported.Out, targets, wait)
 	if err != nil {
 		return err
 	}
@@ -238,9 +241,10 @@ func runMigrateData(cmd *cobra.Command, args []string) error {
 }
 
 // performMigrateRestore registers the export, uploads its artifacts, has the
-// platform verify them, dispatches the restore, and - with Wait - follows it
-// to a terminal state.
-func performMigrateRestore(cmd *cobra.Command, ctx context.Context, exportDir string, options migrateRestoreOptions) (*client.BackupVaultImport, error) {
+// platform verify them, dispatches the restore, and - with wait - follows it
+// to a terminal state. The uploads run under the command's own context: a
+// dump takes as long as it takes, and only the wait is bounded by --timeout.
+func performMigrateRestore(cmd *cobra.Command, exportDir string, targets migrateRestoreTargets, wait bool) (*client.BackupVaultImport, error) {
 	manifest, err := migrate.ReadExportManifest(exportDir)
 	if err != nil {
 		return nil, withExitCode(exitUsage, fmt.Errorf("%s is not an export directory: %w", exportDir, err))
@@ -249,23 +253,23 @@ func performMigrateRestore(cmd *cobra.Command, ctx context.Context, exportDir st
 	if err != nil {
 		return nil, err
 	}
-	clusterID, clusterName, err := resolveClusterForCmd(options.Cluster)
-	if err != nil {
-		return nil, err
-	}
-	vaultID, err := resolveImportVaultID(options.Vault)
-	if err != nil {
-		return nil, err
-	}
-	stackName := options.Stack
+	stackName := targets.stackName
 	if stackName == "" {
 		stackName = migrateResourceName(filepath.Base(exportSourceDir(manifest, exportDir)))
 	}
+	for _, database := range manifest.Databases {
+		for _, artifact := range database.Artifacts {
+			if artifact.SizeBytes > client.PresignedUploadMaximumBytes {
+				return nil, withExitCode(exitUsage, fmt.Errorf("artifact %s is %s; a single upload carries at most %s, and multipart uploads are not supported yet",
+					artifact.Path, formatByteSize(artifact.SizeBytes), formatByteSize(client.PresignedUploadMaximumBytes)))
+			}
+		}
+	}
 
 	progress := cmd.ErrOrStderr()
-	_, _ = fmt.Fprintf(progress, "Registering the import for cluster %s\n", clusterName)
-	created, err := apiClient.CreateBackupVaultImport(vaultID, client.CreateBackupVaultImportRequest{
-		ClusterID: clusterID, StackName: stackName, Manifest: rawManifest,
+	_, _ = fmt.Fprintf(progress, "Registering the import for cluster %s\n", targets.clusterName)
+	created, err := apiClient.CreateBackupVaultImport(targets.vaultID, client.CreateBackupVaultImportRequest{
+		ClusterID: targets.clusterID, StackName: stackName, Manifest: rawManifest,
 	})
 	if err != nil {
 		return nil, backupLaneError("registering the import", err)
@@ -281,25 +285,25 @@ func performMigrateRestore(cmd *cobra.Command, ctx context.Context, exportDir st
 			return nil, fmt.Errorf("artifact %s is %d bytes but the manifest recorded %d; run `ankra migrate export` again", upload.Path, info.Size(), upload.SizeBytes)
 		}
 		_, _ = fmt.Fprintf(progress, "Uploading %s (%s)\n", upload.Path, formatByteSize(info.Size()))
-		if uploadError := uploadMigrateArtifact(ctx, localPath, upload, info.Size()); uploadError != nil {
+		if uploadError := uploadMigrateArtifact(cmd.Context(), localPath, upload, info.Size()); uploadError != nil {
 			return nil, fmt.Errorf("uploading %s: %w", upload.Path, uploadError)
 		}
 	}
 
 	_, _ = fmt.Fprintln(progress, "Verifying the upload")
-	completed, err := apiClient.CompleteBackupVaultImport(vaultID, created.Import.ID)
+	completed, err := apiClient.CompleteBackupVaultImport(targets.vaultID, created.Import.ID)
 	if err != nil {
 		return nil, backupLaneError("verifying the import", err)
 	}
-	_, _ = fmt.Fprintf(progress, "Restoring %d database server(s) into cluster %s\n", len(completed.Databases), clusterName)
-	restoring, err := apiClient.RestoreBackupVaultImport(vaultID, created.Import.ID)
+	_, _ = fmt.Fprintf(progress, "Restoring %d database server(s) into cluster %s\n", len(completed.Databases), targets.clusterName)
+	restoring, err := apiClient.RestoreBackupVaultImport(targets.vaultID, created.Import.ID)
 	if err != nil {
 		return nil, backupLaneError("starting the restore", err)
 	}
-	if !options.Wait {
+	if !wait {
 		return restoring, nil
 	}
-	return waitForMigrateRestore(ctx, cmd, vaultID, restoring.ID)
+	return waitForMigrateRestore(cmd, targets.vaultID, restoring.ID)
 }
 
 func uploadMigrateArtifact(ctx context.Context, localPath string, upload client.BackupVaultImportUpload, size int64) error {
@@ -308,7 +312,7 @@ func uploadMigrateArtifact(ctx context.Context, localPath string, upload client.
 		return openError
 	}
 	defer func() { _ = file.Close() }()
-	return apiClient.UploadPresignedObject(ctx, upload.URL, file, size)
+	return apiClient.UploadPresignedObject(ctx, upload.Method, upload.URL, file, size)
 }
 
 // exportSourceDir is where the export was taken from, when the manifest
@@ -351,8 +355,13 @@ func resolveImportVaultID(reference string) (string, error) {
 }
 
 // waitForMigrateRestore re-reads the import until it completes or fails,
-// narrating each step's state change; the context carries the --timeout.
-func waitForMigrateRestore(ctx context.Context, cmd *cobra.Command, vaultID string, importID string) (*client.BackupVaultImport, error) {
+// narrating each step's state change, within the --timeout budget.
+func waitForMigrateRestore(cmd *cobra.Command, vaultID string, importID string) (*client.BackupVaultImport, error) {
+	waitContext, cancel, contextError := asyncWriteRequestContext(cmd)
+	if contextError != nil {
+		return nil, contextError
+	}
+	defer cancel()
 	progress := cmd.ErrOrStderr()
 	lastSeen := map[string]string{}
 	for {
@@ -373,12 +382,15 @@ func waitForMigrateRestore(ctx context.Context, cmd *cobra.Command, vaultID stri
 			return current, nil
 		case client.BackupVaultImportStatusFailed:
 			return current, migrateRestoreFailure(current)
+		case client.BackupVaultImportStatusRestoring:
 		case client.BackupVaultImportStatusUploading, client.BackupVaultImportStatusUploaded:
 			return current, fmt.Errorf("import %s is %s; no restore is running for it", current.ID, current.Status)
+		default:
+			return current, fmt.Errorf("import %s reports status %q, which this CLI does not know; upgrade the CLI", current.ID, current.Status)
 		}
 		select {
-		case <-ctx.Done():
-			return current, asyncWriteError("waiting for the restore", true, ctx.Err())
+		case <-waitContext.Done():
+			return current, asyncWriteError("waiting for the restore", true, waitContext.Err())
 		case <-time.After(migrateRestorePollInterval):
 		}
 	}
