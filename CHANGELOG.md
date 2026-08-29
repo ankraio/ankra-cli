@@ -4,6 +4,32 @@
 
 ### Added
 
+- **`ankra migrate up` moves a Docker deployment into a cluster in one
+  command.** Where the migration used to be four commands with judgement
+  calls between them, `ankra migrate up ./app --cluster shop` now plans,
+  converts, deploys, dumps and restores, and stops before the first change
+  when something is off. The plan says exactly what will happen: every
+  database found in the running containers with its size on the source,
+  what the dumps need on disk against what is free, whether the stack
+  exists on the cluster, which backup vault carries the data, and what
+  stays behind - files in the volumes of other workloads, Redis, MongoDB,
+  search indexes - so nothing is forgotten silently. `--plan` prints that
+  and stops. Then the stack is applied under the cluster's own name, the
+  database pods are waited for, the data is exported and restored, and
+  the command ends with where the deployment runs and the URLs it answers
+  on. Run it once as a rehearsal; run it again with `--stop-source` and
+  the source's services are stopped before the final dump - that is the
+  cutover, and the command prints how to start them again. `--no-data`
+  deploys only, `--timeout` bounds each waiting step, `-o json` gives the
+  whole record.
+- **The export reads the database's real configuration, not the compose
+  file's guess.** Credentials, the application database and the root
+  account now come from the running container's environment, so a
+  `${DB_USER}` the file could not resolve, an `env_file`, or a password
+  handed over as `POSTGRES_PASSWORD_FILE` all work. A MySQL/MariaDB server
+  started without a root password (`MYSQL_RANDOM_ROOT_PASSWORD`) is dumped
+  as the application user, and a server nobody can log into is refused with
+  the reason instead of a failed dump.
 - **Scaleway clusters get the full command set.** `ankra cluster scaleway`
   now covers create (with `preflight` to prove capacity before paying for
   it), deprovision, worker counts, Kubernetes version and upgrade, the whole

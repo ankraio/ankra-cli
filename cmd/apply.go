@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -67,11 +68,6 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("reading --dry-run: %w", err)
 	}
 
-	importRequest, err := buildImportRequest(filePath)
-	if err != nil {
-		return fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
-	}
-
 	allowRepoint, err := cmd.Flags().GetBool("allow-repoint")
 	if err != nil {
 		return fmt.Errorf("reading --allow-repoint: %w", err)
@@ -83,11 +79,9 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	if allowRepointDestroyingData && !allowRepoint {
 		return errors.New("--allow-repoint-destroying-data requires --allow-repoint")
 	}
-	importRequest.AllowRepoint = allowRepoint
-	importRequest.AllowRepointDestroyingData = allowRepointDestroyingData
-
-	if err := validateResourceGraph(importRequest); err != nil {
-		return fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
+	importRequest, err := loadImportCluster(filePath, allowRepoint, allowRepointDestroyingData)
+	if err != nil {
+		return err
 	}
 
 	if dryRun {
@@ -105,9 +99,9 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	}
 	defer cancelRequestContext()
 
-	importResponse, submitted, err := apiClient.ApplyCluster(requestContext, importRequest, wait)
+	importResponse, submitted, err := applyImportCluster(requestContext, importRequest, wait)
 	if err != nil {
-		return asyncWriteError("applying cluster", wait, err)
+		return err
 	}
 	if submitted {
 		if rendered, err := renderStructured(cmd, newAsyncSubmittedResult("Cluster apply")); rendered || err != nil {
@@ -154,6 +148,32 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
 		strings.TrimRight(baseURL, "/"), importResponse.ClusterId)
 	return nil
+}
+
+// loadImportCluster reads and validates an ImportCluster file into the
+// request the platform accepts, with the repoint permissions set.
+func loadImportCluster(filePath string, allowRepoint bool, allowRepointDestroyingData bool) (client.CreateImportClusterRequest, error) {
+	importRequest, err := buildImportRequest(filePath)
+	if err != nil {
+		return client.CreateImportClusterRequest{}, fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
+	}
+	importRequest.AllowRepoint = allowRepoint
+	importRequest.AllowRepointDestroyingData = allowRepointDestroyingData
+	if err := validateResourceGraph(importRequest); err != nil {
+		return client.CreateImportClusterRequest{}, fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
+	}
+	return importRequest, nil
+}
+
+// applyImportCluster sends the request; submitted is true when the platform
+// accepted the write without waiting for it. Errors carry the wait exit code
+// when the --wait deadline expired.
+func applyImportCluster(ctx context.Context, importRequest client.CreateImportClusterRequest, wait bool) (*client.ImportResponse, bool, error) {
+	importResponse, submitted, err := apiClient.ApplyCluster(ctx, importRequest, wait)
+	if err != nil {
+		return nil, false, asyncWriteError("applying cluster", wait, err)
+	}
+	return importResponse, submitted, nil
 }
 
 func buildImportRequest(path string) (client.CreateImportClusterRequest, error) {

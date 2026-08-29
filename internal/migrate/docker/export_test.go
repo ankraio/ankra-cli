@@ -91,12 +91,13 @@ func defaultAnswers() []cannedAnswer {
 		{"label=com.docker.compose.service=postgres", "pg1\n"},
 		{"label=com.docker.compose.service=mysql", "my1\n"},
 		{"SHOW server_version", "17.2\n"},
-		{"SELECT datname", "office\npdns\n"},
+		{"SELECT datname", "office|8388608\npdns|1048576\n"},
 		{"pg_dumpall", "--\n-- PostgreSQL database cluster dump\nCREATE ROLE office;\n"},
 		{"pg_dump ", "PGDMP\x01\x11\x00fake archive"},
 		{"SELECT VERSION()", "11.4.2-MariaDB\n"},
-		{"SHOW DATABASES", "information_schema\nmysql\nperformance_schema\nshop\nsys\n"},
+		{"information_schema.schemata", "information_schema\t0\nmysql\t4096\nperformance_schema\t0\nshop\t2097152\nsys\t0\n"},
 		{"mysqldump", "-- MariaDB dump\nCREATE DATABASE shop;\n"},
+		{"inspect --format", ""},
 	}
 }
 
@@ -174,8 +175,11 @@ func TestExportDumpsEveryDatabaseServer(t *testing.T) {
 	// the password taken from the container's environment, so it never
 	// appears on the host's command line.
 	dumps := callsContaining(fake.calls, "pg_dump ")
-	if len(dumps) != 2 || !strings.Contains(dumps[0], `exec pg1 sh -c PGPASSWORD="$POSTGRES_PASSWORD" exec pg_dump "$@" sh -U office -Fc -d office`) {
+	if len(dumps) != 2 || !strings.HasPrefix(dumps[0], `exec pg1 sh -c value="$POSTGRES_PASSWORD";`) || !strings.Contains(dumps[0], `PGPASSWORD="$value" exec pg_dump "$@" sh -U office -Fc -d office`) {
 		t.Errorf("pg_dump calls = %v", dumps)
+	}
+	if !strings.Contains(dumps[0], `cat "$POSTGRES_PASSWORD_FILE"`) {
+		t.Errorf("the _FILE secret indirection the official images accept must be honoured: %s", dumps[0])
 	}
 	for _, call := range fake.calls {
 		if strings.Contains(call, "secret") {
@@ -195,7 +199,7 @@ func TestExportDumpsEveryDatabaseServer(t *testing.T) {
 	if len(mysql.Artifacts) != 1 || mysql.Artifacts[0].Database != "shop" || mysql.Artifacts[0].Path != "mysql/shop.sql" {
 		t.Errorf("system schemas must be skipped, got %+v", mysql.Artifacts)
 	}
-	if got := callsContaining(fake.calls, "mysqldump"); len(got) != 1 || !strings.Contains(got[0], `MYSQL_PWD="$MARIADB_ROOT_PASSWORD"`) || !strings.HasSuffix(got[0], "--databases shop") {
+	if got := callsContaining(fake.calls, "mysqldump"); len(got) != 1 || !strings.Contains(got[0], `value="$MARIADB_ROOT_PASSWORD"`) || !strings.Contains(got[0], `MYSQL_PWD="$value" exec mysqldump`) || !strings.HasSuffix(got[0], "--databases shop") {
 		t.Errorf("mysqldump call = %v", got)
 	}
 
@@ -470,6 +474,149 @@ func TestExportNormalisesTheComposeProjectName(t *testing.T) {
 	for name, want := range map[string]string{"Aura Office": "auraoffice", "_shop.v2": "shopv2", "--Shop": "shop", "shop": "shop"} {
 		if got := composeProjectName(name); got != want {
 			t.Errorf("composeProjectName(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestExportReadsCredentialsFromTheRunningContainer(t *testing.T) {
+	// The compose file says POSTGRES_USER=office, but the container was
+	// started with another user and an explicit database: what the server
+	// runs with is what the dump must use.
+	answers := defaultAnswers()
+	answers[9] = cannedAnswer{"inspect --format", "PATH=/usr/bin\nPOSTGRES_USER=shopadmin\nPOSTGRES_DB=shopdata\nPOSTGRES_PASSWORD=secret\n"}
+	answers[3] = cannedAnswer{"SELECT datname", "postgres|100\nshopdata|2048\n"}
+	fake := &fakeDocker{t: t, answers: answers}
+	installFakeDocker(t, fake)
+	export, err := testModule.Export(context.Background(), migrate.ExportRequest{Dir: writeExportFixture(t, exportTestCompose), OutputDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	postgres := export.Databases[1]
+	if postgres.Target.Username != "shopadmin" {
+		t.Errorf("the container's POSTGRES_USER must win over the compose file, got %+v", postgres.Target)
+	}
+	if got := callsContaining(fake.calls, "pg_dump "); len(got) != 1 || !strings.Contains(got[0], "-U shopadmin -Fc -d shopdata") {
+		t.Errorf("pg_dump calls = %v", got)
+	}
+	if got := callsContaining(fake.calls, "inspect --format"); len(got) != 2 || !strings.HasSuffix(got[0], " pg1") && !strings.HasSuffix(got[1], " pg1") {
+		t.Errorf("every database container's environment must be read, got %v", got)
+	}
+}
+
+func TestExportMySQLFallsBackToTheApplicationUser(t *testing.T) {
+	compose := strings.Replace(exportTestCompose, "      MARIADB_ROOT_PASSWORD: root-secret\n", "      MARIADB_USER: shop\n      MARIADB_PASSWORD: shop-secret\n      MARIADB_RANDOM_ROOT_PASSWORD: '1'\n", 1)
+	fake := &fakeDocker{t: t, answers: defaultAnswers()}
+	installFakeDocker(t, fake)
+	export, err := testModule.Export(context.Background(), migrate.ExportRequest{Dir: writeExportFixture(t, compose), OutputDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mysql := export.Databases[0]
+	if mysql.Target.Username != "shop" || mysql.Target.PasswordKey != "MARIADB_PASSWORD" || mysql.Target.PasswordSecret != "mysql-secrets" {
+		t.Errorf("without a root password the application user is the account, got %+v", mysql.Target)
+	}
+	if got := callsContaining(fake.calls, "mysqldump"); len(got) != 1 || !strings.Contains(got[0], `value="$MARIADB_PASSWORD"`) || !strings.Contains(got[0], "-ushop ") {
+		t.Errorf("mysqldump call = %v", got)
+	}
+	if !hasWarning(export.Warnings, "the dump runs as shop") {
+		t.Errorf("dumping as a non-root user must be said: %v", export.Warnings)
+	}
+
+	noAccount := strings.Replace(exportTestCompose, "      MARIADB_ROOT_PASSWORD: root-secret\n", "      MARIADB_RANDOM_ROOT_PASSWORD: '1'\n", 1)
+	installFakeDocker(t, &fakeDocker{t: t, answers: defaultAnswers()})
+	_, err = testModule.Export(context.Background(), migrate.ExportRequest{Dir: writeExportFixture(t, noAccount), OutputDir: t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "no account to dump with") {
+		t.Errorf("a server nobody can log into must be refused with the reason, got %v", err)
+	}
+}
+
+// exportPlanCompose adds workloads whose data a database dump does not
+// carry: files in a volume, a cache, a search index.
+var exportPlanCompose = strings.Replace(exportTestCompose, "volumes:\n  pgdata:\n", `  uploads:
+    image: ghcr.io/org/app:1.0
+    volumes: ['uploads:/var/www/uploads', './config.yml:/etc/app/config.yml:ro']
+  cache:
+    image: redis:7
+  search:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+volumes:
+  pgdata:
+  uploads:
+`, 1)
+
+func TestPlanExportDescribesTheDumpWithoutRunningIt(t *testing.T) {
+	fake := &fakeDocker{t: t, answers: defaultAnswers()}
+	installFakeDocker(t, fake)
+	plan, err := testModule.PlanExport(context.Background(), migrate.ExportRequest{Dir: writeExportFixture(t, exportPlanCompose)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Databases) != 2 || plan.Databases[1].Workload != "postgres" || plan.Databases[1].ServerVersion != "17.2" || plan.Databases[1].Username != "office" {
+		t.Fatalf("planned servers = %+v", plan.Databases)
+	}
+	postgres := plan.Databases[1]
+	if len(postgres.Databases) != 2 || postgres.Databases[0] != (migrate.PlannedDatabase{Name: "office", SizeBytes: 8388608}) || postgres.EstimatedBytes() != 8388608+1048576 {
+		t.Errorf("postgres plan = %+v", postgres.Databases)
+	}
+	if mysql := plan.Databases[0]; len(mysql.Databases) != 1 || mysql.Databases[0] != (migrate.PlannedDatabase{Name: "shop", SizeBytes: 2097152}) {
+		t.Errorf("mysql plan = %+v", mysql.Databases)
+	}
+	for _, call := range fake.calls {
+		if strings.Contains(call, "pg_dump") || strings.Contains(call, "mysqldump") {
+			t.Errorf("a plan must not dump anything, got %q", call)
+		}
+	}
+	joined := strings.Join(plan.NotCarried, "\n")
+	for _, want := range []string{"uploads keeps files in /var/www/uploads", "cache runs a Redis dataset (redis)", "search runs an Elasticsearch index"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("not carried must mention %q, got:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "config.yml") {
+		t.Errorf("a read-only bind file is configuration, not data: %s", joined)
+	}
+	if !hasWarning(plan.Warnings, "maintenance database postgres") == strings.Contains(strings.Join(fake.calls, " "), "postgres|") {
+		t.Errorf("the plan must carry the listing's warnings: %v", plan.Warnings)
+	}
+}
+
+func TestPlanExportHonoursTheDatabaseSelection(t *testing.T) {
+	fake := &fakeDocker{t: t, answers: defaultAnswers()}
+	installFakeDocker(t, fake)
+	plan, err := testModule.PlanExport(context.Background(), migrate.ExportRequest{Dir: writeExportFixture(t, exportTestCompose), Options: map[string]string{OptionDatabasesPrefix + "postgres": "pdns,archive"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	postgres := plan.Databases[1]
+	if len(postgres.Databases) != 2 || postgres.Databases[0].Name != "pdns" || postgres.Databases[0].SizeBytes != 1048576 || postgres.Databases[1].Name != "archive" || postgres.Databases[1].SizeBytes != 0 {
+		t.Errorf("a selected database keeps its size when the server knows it and is listed unsized otherwise, got %+v", postgres.Databases)
+	}
+}
+
+func TestQuiesceSourceStopsEverythingButTheDatabases(t *testing.T) {
+	answers := defaultAnswers()
+	answers = append(answers,
+		cannedAnswer{"label=com.docker.compose.service=app", "app1\n"},
+		cannedAnswer{"label=com.docker.compose.service=uploads", "up1\nup2\n"},
+		cannedAnswer{"label=com.docker.compose.service=cache", "\n"},
+		cannedAnswer{"label=com.docker.compose.service=search", "\n"},
+		cannedAnswer{"stop ", ""},
+	)
+	fake := &fakeDocker{t: t, answers: answers}
+	installFakeDocker(t, fake)
+	quiesce, err := testModule.QuiesceSource(context.Background(), migrate.ExportRequest{Dir: writeExportFixture(t, exportPlanCompose)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(quiesce.Stopped, ",") != "app,uploads" || quiesce.Resume != "docker start app1 up1 up2" {
+		t.Errorf("quiesce = %+v", quiesce)
+	}
+	if got := callsContaining(fake.calls, "stop "); len(got) != 1 || got[0] != "stop app1 up1 up2" {
+		t.Errorf("stop calls = %v", got)
+	}
+	for _, call := range callsContaining(fake.calls, "stop ") {
+		if strings.Contains(call, "pg1") || strings.Contains(call, "my1") {
+			t.Errorf("the databases must keep running for the dump: %s", call)
 		}
 	}
 }
