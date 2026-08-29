@@ -31,6 +31,9 @@ the un-injected fallback; never bump it for a release.
 
 - `main.go` → `cmd/` — flat package, one file per command using
   `<family>_<sub>.go` naming (e.g. `cluster_kubeconfig.go`), tests alongside.
+  `cmd/plugins.go` dispatches unknown commands to `ankra-<command>`
+  executables (kubectl style) before cobra reports them; built-ins always
+  win, so a new command silently shadows any plugin of the same name.
 - `internal/client` — typed HTTP client for the platform API, one file per
   resource family.
 - `internal/kubeconfig` — kubeconfig read/merge/write.
