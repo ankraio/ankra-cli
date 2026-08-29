@@ -246,7 +246,13 @@ func resolveClusterFromArgs(cmd *cobra.Command, args []string) (string, string, 
 var clusterProvisionCmd = &cobra.Command{
 	Use:   "provision [cluster_name]",
 	Short: "Provision a managed cluster (build its infrastructure and redeploy its stacks)",
-	Long: `Provision a managed cluster that was created or deprovisioned but is not running.
+	Long: `Provision a managed cluster that is not running.
+
+This works for a cluster that was created but never built, and for an imported
+cluster that was deprovisioned. It cannot rebuild a deprovisioned cloud cluster
+(hetzner, ovh, upcloud, digitalocean, proxmox, morpheus): that deprovision
+deleted the record, so there is nothing left to provision - create a new
+cluster instead.
 
 Provisioning rebuilds the cluster's infrastructure and then redeploys its stack
 resources from the cluster's stored stack definition. Verify anything you patched
@@ -314,26 +320,46 @@ const (
 	cloudClusterKindMorpheus     cloudClusterKind = "morpheus"
 )
 
+// isCloudClusterKind reports whether deprovisioning this kind goes to the
+// provider endpoint, which deletes the cluster record along with its
+// resources. The generic imported lane keeps the record, so the two are not
+// interchangeable and the difference has to reach the operator.
+func isCloudClusterKind(kind cloudClusterKind) bool {
+	switch kind {
+	case cloudClusterKindHetzner, cloudClusterKindOvh, cloudClusterKindUpcloud,
+		cloudClusterKindDigitalocean, cloudClusterKindProxmox, cloudClusterKindMorpheus:
+		return true
+	default:
+		return false
+	}
+}
+
 var clusterDeprovisionCmd = &cobra.Command{
 	Use:   "deprovision [cluster_name]",
-	Short: "Deprovision a managed cluster (tear it down; the cluster record is kept)",
-	Long: `Tear down a managed cluster. The cluster record is kept so it can be provisioned
-again later, but everything it runs on is released.
+	Short: "Deprovision a managed cluster (tear it down and release everything it runs on)",
+	Long: `Tear down a managed cluster: everything it runs on is released.
+
+Whether the cluster survives as a record depends on its kind, and the two
+outcomes are very different:
+
+  - cloud clusters (hetzner, ovh, upcloud, digitalocean, proxmox, morpheus)
+    go to the provider-specific endpoint, which DELETES the cluster. The
+    record does not survive, "ankra cluster provision" cannot bring it back,
+    and the cluster id, its stacks and anything referencing them are gone.
+    Rebuilding means creating a new cluster;
+  - imported clusters keep their record, so "ankra cluster provision" can
+    rebuild them from the stored stack definition later.
 
 This is a teardown, not a power-off:
 
   - all cloud resources are released (servers, networks, SSH keys);
-  - every stack resource on the cluster is uninstalled, and a later
-    "ankra cluster provision" redeploys them from the stored stack definition.
+  - every stack resource on the cluster is uninstalled.
 
 To power a cluster off and back on while keeping its state, use the provider's
 stop/start commands (for example "ankra hetzner cluster stop" and
 "ankra hetzner cluster start") or "ankra cluster power-schedules" instead.
 
-If no cluster name is provided, uses the currently selected cluster.
-
-For cloud clusters (hetzner, ovh, upcloud, digitalocean, proxmox, morpheus) this command routes
-to the provider-specific deprovision endpoint so cloud resources are released.`,
+If no cluster name is provided, uses the currently selected cluster.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
@@ -363,10 +389,18 @@ to the provider-specific deprovision endpoint so cloud resources are released.`,
 			}
 		}
 
+		// A cloud deprovision deletes the cluster itself, not just what it
+		// runs on, and no later "cluster provision" can undo that. Saying so
+		// here is the only warning an operator sees before typing y.
+		recordWarning := ""
+		if isCloudClusterKind(cloudClusterKind(clusterKind)) {
+			recordWarning = " The cluster record itself is DELETED - this cannot be provisioned again, only recreated."
+		}
 		if err := confirmPrompt(
 			cmd.InOrStdin(), cmd.OutOrStdout(),
 			fmt.Sprintf("Deprovision cluster %q? This deletes all its cloud resources (servers, networks, SSH keys) "+
-				"and uninstalls every stack resource on it - this is a teardown, not a power-off. [y/N]: ", clusterName),
+				"and uninstalls every stack resource on it - this is a teardown, not a power-off.%s [y/N]: ",
+				clusterName, recordWarning),
 			yes,
 		); err != nil {
 			return err
