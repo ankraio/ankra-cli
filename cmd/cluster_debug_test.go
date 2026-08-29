@@ -68,7 +68,7 @@ func debugStringPointer(value string) *string { return &value }
 func resetDebugFlagsNow() {
 	for name, value := range map[string]string{
 		"namespace": "", "from-pod": "", "container": "", "image": "",
-		"no-mounts": "false", "no-env": "false", "ttl": debugPodDefaultTTL.String(),
+		"no-mounts": "false", "no-env": "false", "ttl": debugPodDefaultTTL.String(), "attach": "false", "shell": podTerminalDefaultShell,
 	} {
 		_ = clusterDebugCreateCmd.Flags().Set(name, value)
 	}

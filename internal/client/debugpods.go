@@ -202,6 +202,9 @@ type TerminalSession struct {
 	RecordedBytes     int64   `json:"recorded_bytes"`
 	IsTruncated       bool    `json:"is_truncated"`
 	RecordingDegraded bool    `json:"recording_degraded"`
+	// TranscriptPrunedAt is set once the platform's retention removed the
+	// recorded bytes; the facts stay, the transcript is gone.
+	TranscriptPrunedAt *string `json:"transcript_pruned_at"`
 }
 
 type TerminalTranscriptChunk struct {

@@ -43,7 +43,8 @@ Examples:
 			return err
 		}
 		var chunks []client.TerminalTranscriptChunk
-		if withTranscript || showInput {
+		isPruned := session.TranscriptPrunedAt != nil
+		if (withTranscript || showInput) && !isPruned {
 			chunks, err = collectTerminalTranscript(args[0])
 			if err != nil {
 				return err
@@ -58,6 +59,10 @@ Examples:
 
 		out := cmd.OutOrStdout()
 		renderTerminalSessionFacts(out, session)
+		if isPruned && (withTranscript || showInput) {
+			_, _ = fmt.Fprintf(out, "\nThe transcript was pruned on %s under the retention policy; only the session facts remain.\n", *session.TranscriptPrunedAt)
+			return nil
+		}
 		if withTranscript {
 			_, _ = fmt.Fprintln(out, "\n--- recorded output ---")
 			for _, chunk := range chunks {
@@ -111,6 +116,9 @@ func renderTerminalSessionFacts(out io.Writer, session *client.TerminalSession) 
 	}
 	if session.RecordingDegraded {
 		flags = append(flags, "recording degraded")
+	}
+	if session.TranscriptPrunedAt != nil {
+		flags = append(flags, "transcript pruned "+*session.TranscriptPrunedAt)
 	}
 	_, _ = fmt.Fprintf(out, "Session:    %s\n", session.ID)
 	_, _ = fmt.Fprintf(out, "User:       %s\n", session.UserEmail)

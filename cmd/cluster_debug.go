@@ -103,9 +103,14 @@ Examples:
 		noMounts, _ := cmd.Flags().GetBool("no-mounts")
 		noEnvironment, _ := cmd.Flags().GetBool("no-env")
 		ttl, _ := cmd.Flags().GetDuration("ttl")
+		attach, _ := cmd.Flags().GetBool("attach")
+		shell, _ := cmd.Flags().GetString("shell")
 
 		if namespace == "" {
 			return withExitCode(exitUsage, errors.New("--namespace (-n) is required"))
+		}
+		if attach && cmd.Flags().Changed("output") {
+			return withExitCode(exitUsage, errors.New("--attach opens an interactive terminal and cannot be combined with -o"))
 		}
 		if fromPod == "" && container != "" {
 			return withExitCode(exitUsage, errors.New("--container only means something with --from-pod"))
@@ -137,7 +142,20 @@ Examples:
 			return renderError
 		}
 		renderDebugPodCreated(cmd, cluster.ID, created)
-		return nil
+		if !attach {
+			return nil
+		}
+		if !created.Ready {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "The pod is not running yet; open it once it is with:\n  ankra cluster terminal %s -n %s -c %s\n",
+				created.PodName, created.Namespace, created.ContainerName)
+			return nil
+		}
+		return runPodTerminal(cmd, cluster.ID, client.PodTerminalRequest{
+			Namespace:     created.Namespace,
+			PodName:       created.PodName,
+			ContainerName: created.ContainerName,
+			Shell:         shell,
+		})
 	},
 }
 
@@ -264,6 +282,8 @@ func init() {
 	clusterDebugCreateCmd.Flags().Bool("no-mounts", false, "Do not mirror the target's volumes and volume mounts")
 	clusterDebugCreateCmd.Flags().Bool("no-env", false, "Do not mirror the target's environment variables")
 	clusterDebugCreateCmd.Flags().Duration("ttl", debugPodDefaultTTL, "How long the pod lives before the kubelet ends it (1m-8h)")
+	clusterDebugCreateCmd.Flags().BoolP("attach", "a", false, "Open a shell in the debug pod as soon as it runs (see \"cluster terminal\")")
+	clusterDebugCreateCmd.Flags().String("shell", podTerminalDefaultShell, "Shell to start with --attach")
 
 	clusterDebugListCmd.Flags().StringP("namespace", "n", "", "Only list debug pods in this namespace")
 
