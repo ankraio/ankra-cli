@@ -3712,3 +3712,27 @@ func (baseMock) ListAzureCredentials() ([]client.AzureCredentialListItem, error)
 func (baseMock) CreateAzureCredential(client.CreateAzureCredentialRequest) (*client.CreateAzureCredentialResponse, error) {
 	return &client.CreateAzureCredentialResponse{Success: true}, nil
 }
+
+func (m baseMock) ListDebugPodImages(clusterID string) (*client.DebugPodImagesResponse, error) {
+	return &client.DebugPodImagesResponse{}, nil
+}
+
+func (m baseMock) CreateDebugPod(clusterID string, request client.CreateDebugPodRequest) (*client.DebugPodResponse, error) {
+	return &client.DebugPodResponse{}, nil
+}
+
+func (m baseMock) ListDebugPods(clusterID string, namespace string) (*client.ListDebugPodsResponse, error) {
+	return &client.ListDebugPodsResponse{}, nil
+}
+
+func (m baseMock) DeleteDebugPod(clusterID string, namespace string, podName string) (*client.DeleteDebugPodResponse, error) {
+	return &client.DeleteDebugPodResponse{Status: "success"}, nil
+}
+
+func (m baseMock) GetTerminalSession(sessionID string) (*client.TerminalSession, error) {
+	return &client.TerminalSession{}, nil
+}
+
+func (m baseMock) GetTerminalTranscript(sessionID string, afterSequence int, limit int) (*client.TerminalTranscriptPage, error) {
+	return &client.TerminalTranscriptPage{}, nil
+}

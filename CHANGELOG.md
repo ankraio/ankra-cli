@@ -4,6 +4,24 @@
 
 ### Added
 
+- **Debug pods that impersonate a workload.** `ankra cluster debug create
+  --namespace <ns> --from-pod <pod>` spins up a pod that mirrors the named
+  pod - its service account, node, volumes and volume mounts, environment
+  variables and `envFrom` sources, tolerations and security context - under
+  an image chosen for its tools (netshoot by default; `--image` takes any
+  reference, `debug images` lists the tag-pinned catalogue). Without
+  `--from-pod` it is a plain shell in a namespace. `--container` picks which
+  container to mirror, `--no-mounts` / `--no-env` leave those out, `--ttl`
+  sets the lifetime (1m-8h, default 1h) the kubelet enforces on its own. The
+  command prints the portal link to the new pod's terminal; `debug list` and
+  `debug delete` manage what is running. Needs `kubernetes.write` and
+  `kubernetes.exec`, and cluster agent 2.1.1074 or newer.
+- **Recorded terminal sessions are readable.** Every pod terminal session is
+  now recorded by the platform; `ankra org terminal-session <session-id>`
+  prints a session's facts and, with `--transcript`, replays the recorded
+  output as text (`--show-input` lists what was typed). The session id is
+  the `terminal_session_id` on an `open_pod_terminal` audit row. Needs
+  `audit.read`.
 - **The Security Center is readable from the terminal.** `ankra security
   overview` prints the fleet's actionable totals, scanner coverage, the
   remediation candidates, and - first - how many vulnerabilities CISA lists
