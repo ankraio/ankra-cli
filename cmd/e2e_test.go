@@ -551,6 +551,14 @@ func (m baseMock) GetBackupVaultImport(vaultID string, importID string) (*client
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListBackupVaultImports(string) (*client.BackupVaultImportListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteBackupVaultImport(string, string) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) UploadPresignedObject(ctx context.Context, method string, uploadURL string, body io.ReadSeeker, size int64) error {
 	return errors.New("not implemented")
 }

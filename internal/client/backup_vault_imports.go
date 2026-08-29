@@ -155,6 +155,31 @@ func (c *Client) GetBackupVaultImport(vaultID string, importID string) (*BackupV
 	return &result, nil
 }
 
+// BackupVaultImportListResult is a vault's imports, newest first.
+type BackupVaultImportListResult struct {
+	Imports []BackupVaultImport `json:"imports"`
+}
+
+// ListBackupVaultImports reads a vault's imports without their live restore
+// detail.
+// GET /api/v1/org/backup-vaults/{vault_id}/imports
+func (c *Client) ListBackupVaultImports(vaultID string) (*BackupVaultImportListResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/backup-vaults/%s/imports", c.BaseURL, neturl.PathEscape(vaultID))
+	var result BackupVaultImportListResult
+	if requestError := c.sendJSON(http.MethodGet, url, nil, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
+
+// DeleteBackupVaultImport removes an import's dumps from the vault and hides
+// the import; the platform answers 409 while its restore is running.
+// DELETE /api/v1/org/backup-vaults/{vault_id}/imports/{import_id}
+func (c *Client) DeleteBackupVaultImport(vaultID string, importID string) error {
+	url := fmt.Sprintf("%s/api/v1/org/backup-vaults/%s/imports/%s", c.BaseURL, neturl.PathEscape(vaultID), neturl.PathEscape(importID))
+	return c.sendJSON(http.MethodDelete, url, nil, nil)
+}
+
 // PresignedUploadMaximumBytes is the largest object a single presigned PUT
 // can carry on S3 and every compatible store; a bigger artifact needs a
 // multipart upload the platform does not mint yet.

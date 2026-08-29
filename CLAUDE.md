@@ -43,7 +43,8 @@ the un-injected fallback; never bump it for a release.
   Nothing under `internal/migrate` may call the platform API: `convert`,
   `detect`, `modules` and `export` are annotated
   `annotationRequiresAuth: "false"` and work offline. The online lanes are
-  `cmd/migrate_restore.go` (`restore`, `restore-status`, `data`) and
+  `cmd/migrate_restore.go` (`restore`, `restore-status`, `data`),
+  `cmd/migrate_imports.go` (`imports list|delete`) and
   `cmd/migrate_up.go` (`up`, the one-command migration that chains convert,
   `cluster apply`, the pod wait, export and restore), annotated `"true"`,
   which drive the backup-vault import routes through `internal/client`.

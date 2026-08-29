@@ -4,6 +4,16 @@
 
 ### Added
 
+- **`ankra migrate imports list` and `ankra migrate imports delete` manage
+  the dumps a migration leaves in the backup vault.** Every restore keeps its
+  upload under `imports/<import-id>/` so the same data can be restored
+  again; the vault would otherwise hold it forever. `imports list` shows
+  what a vault holds - stack, status, databases, size - and `imports delete`
+  removes an import's dumps from the vault and forgets the import, after a
+  confirmation (`--yes` skips it). An import whose restore is running is
+  refused. A completed restore now ends by naming the delete command, and
+  deleting a vault removes the dumps of every import it held when the
+  bucket outlives the vault.
 - **A shell in any pod, from the terminal you are in.** `ankra cluster
   terminal <pod> -n <namespace>` opens an interactive shell in the pod's
   container through the platform - no kubeconfig, no port-forward - with the
