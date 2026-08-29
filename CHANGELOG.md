@@ -21,6 +21,21 @@
   container through its own environment. Module authors get the same verb:
   a module that lists `export` under its capabilities is asked to dump, with
   its stderr relayed live as progress (`examples/modules/README.md`).
+- **`ankra migrate restore` loads an export into the cluster, and `ankra
+  migrate data` does export and restore in one go.** The dumps go straight
+  from this machine to the organisation's backup vault through presigned
+  URLs, the platform verifies every object arrived at the size the export
+  recorded, and the cluster's agent runs the restore inside the cluster -
+  roles and globals first, then each database with the engine's own tools,
+  against the Service and Secret `convert` generated. Ankra never holds the
+  data, and nothing on this machine needs kubectl or a database client. The
+  vault is picked automatically when the organisation has exactly one that
+  is ready (`--vault` otherwise), the cluster defaults to the selected one,
+  `--wait` follows the restore to completion or failure with every job's
+  state as it changes, and `ankra migrate restore-status <import-id>`
+  reports on one started earlier. A restore needs the `backups` feature,
+  the converted stack applied, and a cluster agent that supports data
+  restores; the platform names whichever is missing.
 - **A converted database always gets a Service.** `ankra migrate convert`
   only generated a Service for workloads with published ports, so a compose
   database nobody exposed to the host - the usual case - was unreachable

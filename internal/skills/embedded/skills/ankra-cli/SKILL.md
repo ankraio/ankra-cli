@@ -99,6 +99,26 @@ ankra cluster agent status
 A failed platform execution explains more deploy failures than pod logs do — start there. See
 `ankra-troubleshooting`.
 
+## Migrating a Docker deployment
+
+```bash
+ankra migrate convert ./app --out ./app-k8s        # compose / Dockerfile / daemon -> cluster.yaml + manifests
+ankra cluster apply ./app-k8s/cluster.yaml         # the workloads, with empty databases
+ankra migrate data ./app --cluster shop --wait     # dump every database and restore it in the cluster
+ankra migrate export ./app --out ./app-data        # the two halves of `data`, separately:
+ankra migrate restore ./app-data --cluster shop --wait
+ankra migrate restore-status <import-id> --wait    # follow a restore started without --wait
+```
+
+`export` dumps PostgreSQL and MySQL/MariaDB through the docker CLI (`--option docker-host=ssh://root@host`
+for a remote daemon, `--option project=<name>` when the compose project runs under another name);
+`restore` uploads the dumps to the organisation's backup vault with presigned URLs and the cluster's
+agent restores them inside the cluster — no kubectl, no database client, Ankra never holds the data.
+It needs a ready backup vault (`ankra backup vaults provision`; picked automatically when there is one),
+the converted stack applied, and an agent that supports data restores. Rehearse with the source running,
+then stop its writers and run `data` once more for the cutover. Modules extend the lane:
+`ankra migrate modules --help`.
+
 ## AI from the terminal
 
 ```bash

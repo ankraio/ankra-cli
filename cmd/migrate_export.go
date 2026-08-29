@@ -43,7 +43,8 @@ Each dump is a snapshot of a live server. Rehearse with the source running,
 then stop its writers and export once more right before the final cutover.
 
 The output directory is self-contained: manifest.json describes every
-artifact and where it belongs, and SHA256SUMS lets 'sha256sum -c' verify it.`,
+artifact and where it belongs, and SHA256SUMS lets 'sha256sum -c' verify it.
+Load it into the cluster with 'ankra migrate restore <out>'.`,
 	Example: `  ankra migrate export ./app --out ./app-data
   ankra migrate export ./app --option docker-host=ssh://root@203.0.113.7 --option project=aura-office
   ankra migrate export --option databases.postgres=office,pdns`,
@@ -68,35 +69,65 @@ type migrateExportSummary struct {
 	Manifest migrate.ExportManifest `json:"manifest" yaml:"manifest"`
 }
 
+// migrateExportRequest is what an export needs beyond the source directory.
+type migrateExportRequest struct {
+	Module    string
+	Out       string
+	Namespace string
+	Options   []string
+	Force     bool
+}
+
 func runMigrateExport(cmd *cobra.Command, args []string) error {
 	dir, err := migrateSourceDir(args)
 	if err != nil {
 		return err
 	}
-	options, err := parseMigrateOptions(migrateExportOptions)
+	summary, err := performMigrateExport(cmd, dir, migrateExportRequest{
+		Module:    migrateExportModule,
+		Out:       migrateExportOut,
+		Namespace: migrateExportNamespace,
+		Options:   migrateExportOptions,
+		Force:     migrateExportForce,
+	})
 	if err != nil {
 		return err
 	}
-	module, err := selectMigrateModule(cmd, newMigrateRegistry(), dir, migrateExportModule)
-	if err != nil {
+	if handled, err := renderStructured(cmd, summary); handled || err != nil {
 		return err
+	}
+	printMigrateExportSummary(cmd, summary)
+	return nil
+}
+
+// performMigrateExport dumps the databases behind dir into the output
+// directory and writes the manifest; it is the step 'ankra migrate data'
+// shares with 'ankra migrate export'.
+func performMigrateExport(cmd *cobra.Command, dir string, request migrateExportRequest) (migrateExportSummary, error) {
+	options, err := parseMigrateOptions(request.Options)
+	if err != nil {
+		return migrateExportSummary{}, err
+	}
+	module, err := selectMigrateModule(cmd, newMigrateRegistry(), dir, request.Module)
+	if err != nil {
+		return migrateExportSummary{}, err
 	}
 	moduleName := module.Describe().Name
 	exporter, ok := migrate.ExporterFor(module)
 	if !ok {
-		return withExitCode(exitUsage, fmt.Errorf("the %s module converts workloads but does not export data (run `ankra migrate modules` to see which modules do)", moduleName))
+		return migrateExportSummary{}, withExitCode(exitUsage, fmt.Errorf("the %s module converts workloads but does not export data (run `ankra migrate modules` to see which modules do)", moduleName))
 	}
 
-	namespace := migrateExportNamespace
+	namespace := request.Namespace
 	if namespace == "" {
 		namespace = migrateResourceName(filepath.Base(dir))
 	}
-	out, err := filepath.Abs(migrateExportOut)
+	out, err := filepath.Abs(request.Out)
 	if err != nil {
-		return withExitCode(exitUsage, err)
+		return migrateExportSummary{}, withExitCode(exitUsage, err)
 	}
-	if err := ensureMigrateOutDir(out, migrateExportForce); err != nil {
-		return err
+	if err := ensureMigrateOutDir(out, request.Force); err != nil {
+		return migrateExportSummary{}, err
 	}
 
 	export, err := exporter.Export(cmd.Context(), migrate.ExportRequest{
@@ -107,27 +138,25 @@ func runMigrateExport(cmd *cobra.Command, args []string) error {
 		Progress:  cmd.ErrOrStderr(),
 	})
 	if err != nil {
-		return fmt.Errorf("%s: %w", moduleName, err)
+		return migrateExportSummary{}, fmt.Errorf("%s: %w", moduleName, err)
 	}
 	manifest, err := migrate.FinaliseExport(out, moduleName, dir, export, time.Now())
 	if err != nil {
-		return fmt.Errorf("%s: %w", moduleName, err)
+		return migrateExportSummary{}, fmt.Errorf("%s: %w", moduleName, err)
 	}
 	if err := migrate.WriteExportManifest(out, manifest); err != nil {
-		return err
+		return migrateExportSummary{}, err
 	}
+	return migrateExportSummary{Module: moduleName, Out: out, Manifest: manifest}, nil
+}
 
-	summary := migrateExportSummary{Module: moduleName, Out: out, Manifest: manifest}
-	if handled, err := renderStructured(cmd, summary); handled || err != nil {
-		return err
-	}
-
+func printMigrateExportSummary(cmd *cobra.Command, summary migrateExportSummary) {
 	writer := table.NewWriter()
 	writer.SetOutputMirror(cmd.OutOrStdout())
 	writer.SetStyle(table.StyleRounded)
 	writer.AppendHeader(table.Row{"WORKLOAD", "ENGINE", "DATABASE", "FILE", "SIZE"})
 	artifacts := 0
-	for _, database := range manifest.Databases {
+	for _, database := range summary.Manifest.Databases {
 		for _, artifact := range database.Artifacts {
 			artifacts++
 			label := artifact.Database
@@ -139,8 +168,8 @@ func runMigrateExport(cmd *cobra.Command, args []string) error {
 	}
 	writer.Render()
 
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Wrote %d artifact(s), %s and %s to %s\n", artifacts, migrate.ExportManifestFileName, migrate.ExportChecksumsFileName, out)
-	for _, database := range manifest.Databases {
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Wrote %d artifact(s), %s and %s to %s\n", artifacts, migrate.ExportManifestFileName, migrate.ExportChecksumsFileName, summary.Out)
+	for _, database := range summary.Manifest.Databases {
 		target := database.Target
 		password := "no password"
 		if target.PasswordSecret != "" {
@@ -149,8 +178,7 @@ func runMigrateExport(cmd *cobra.Command, args []string) error {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s restores into %s:%d in namespace %s as %s, %s\n",
 			database.Workload, target.Host, target.Port, target.Namespace, target.Username, password)
 	}
-	printMigrateWarnings(cmd, manifest.Warnings)
-	return nil
+	printMigrateWarnings(cmd, summary.Manifest.Warnings)
 }
 
 func formatByteSize(size int64) string {

@@ -53,6 +53,11 @@ type APIClient interface {
 	ProvisionBackupVault(request client.ProvisionBackupVaultRequest) (*client.BackupVault, error)
 	VerifyBackupVault(vaultID string) (*client.BackupVault, error)
 	DeleteBackupVault(vaultID string, destroyProviderResources bool) error
+	CreateBackupVaultImport(vaultID string, request client.CreateBackupVaultImportRequest) (*client.CreateBackupVaultImportResult, error)
+	CompleteBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
+	RestoreBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
+	GetBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
+	UploadPresignedObject(ctx context.Context, uploadURL string, body io.Reader, size int64) error
 
 	ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error)
 	GetExecution(executionID string) (client.ExecutionDetail, error)
