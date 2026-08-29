@@ -204,7 +204,10 @@ func TestMigrateUpRefusesBeforeTouchingAnythingWhenTheVaultIsMissing(t *testing.
 
 func TestMigrateUpWarnsAboutADatabaseAboveOneUpload(t *testing.T) {
 	fakeDockerOnPath(t)
-	t.Setenv("FAKE_DB_SIZE", "6442450944")
+	t.Setenv("FAKE_DB_SIZE", "671088640001")
+	originalFree := freeDiskBytes
+	freeDiskBytes = func(string) (int64, bool) { return 1 << 50, true }
+	t.Cleanup(func() { freeDiskBytes = originalFree })
 	installMigrateUpMock(t, newMigrateUpMock())
 	dir := writeMigrateFixture(t)
 
@@ -212,7 +215,7 @@ func TestMigrateUpWarnsAboutADatabaseAboveOneUpload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, stderr)
 	}
-	if !strings.Contains(stderr, "db: database office is 6.0 GiB on the source; a dump above 5.0 GiB cannot be uploaded in one piece") {
+	if !strings.Contains(stderr, "db: database office is 625.0 GiB on the source; a dump above 625.0 GiB cannot be uploaded") {
 		t.Errorf("the plan must warn about the upload limit:\n%s", stderr)
 	}
 }
@@ -241,6 +244,24 @@ func TestMigrateUpNoDataDeploysOnly(t *testing.T) {
 	_, _, err = runMigrate(t, "up", dir, "--out", filepath.Join(t.TempDir(), "m2"), "--cluster", migrateRestoreTestCluster, "--no-data", "--stop-source", "--yes")
 	if exitCodeFor(err) != exitUsage {
 		t.Errorf("--stop-source without data is a usage error, got %v", err)
+	}
+}
+
+func TestMigrateUpRefusesWhenTheDumpsDoNotFit(t *testing.T) {
+	fakeDockerOnPath(t)
+	originalFree := freeDiskBytes
+	freeDiskBytes = func(string) (int64, bool) { return 1 << 20, true }
+	t.Cleanup(func() { freeDiskBytes = originalFree })
+	installMigrateUpMock(t, newMigrateUpMock())
+	dir := writeMigrateFixture(t)
+	out := filepath.Join(t.TempDir(), "m")
+
+	_, _, err := runMigrate(t, "up", dir, "--out", out, "--cluster", migrateRestoreTestCluster, "--yes")
+	if exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), "only 1.0 MiB is free") {
+		t.Errorf("dumps that do not fit must stop the plan, got %v", err)
+	}
+	if _, statError := os.Stat(out); statError == nil {
+		t.Error("a refused plan must leave no output directory")
 	}
 }
 

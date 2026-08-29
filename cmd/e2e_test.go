@@ -559,7 +559,7 @@ func (m baseMock) DeleteBackupVaultImport(string, string) error {
 	return errors.New("not implemented")
 }
 
-func (m baseMock) UploadPresignedObject(ctx context.Context, method string, uploadURL string, body io.ReadSeeker, size int64) error {
+func (m baseMock) UploadPresignedObject(context.Context, client.BackupVaultImportUpload, client.UploadBody, int64) error {
 	return errors.New("not implemented")
 }
 

@@ -38,6 +38,10 @@ var (
 // for readiness; tests shorten it.
 var migrateUpPodPollInterval = 5 * time.Second
 
+// freeDiskBytes measures the space left where the dumps go; tests replace
+// it so a plan's verdict does not depend on the machine running them.
+var freeDiskBytes = statfsFreeBytes
+
 var migrateUpCmd = &cobra.Command{
 	Use:   "up [dir]",
 	Short: "Move a deployment into a cluster - convert, deploy and carry its data over - in one command",
@@ -294,9 +298,9 @@ func planMigrateUp(cmd *cobra.Command, dir string, module migrate.Module, option
 			for _, server := range exportPlan.Databases {
 				plan.EstimatedBytes += server.EstimatedBytes()
 				for _, database := range server.Databases {
-					if database.SizeBytes > client.PresignedUploadMaximumBytes {
-						plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: database %s is %s on the source; a dump above %s cannot be uploaded in one piece and would be refused",
-							server.Workload, database.Name, formatByteSize(database.SizeBytes), formatByteSize(client.PresignedUploadMaximumBytes)))
+					if database.SizeBytes > client.ImportArtifactMaximumBytes {
+						plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: database %s is %s on the source; a dump above %s cannot be uploaded and would be refused",
+							server.Workload, database.Name, formatByteSize(database.SizeBytes), formatByteSize(client.ImportArtifactMaximumBytes)))
 					}
 				}
 			}

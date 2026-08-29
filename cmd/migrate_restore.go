@@ -259,9 +259,9 @@ func performMigrateRestore(cmd *cobra.Command, exportDir string, targets migrate
 	}
 	for _, database := range manifest.Databases {
 		for _, artifact := range database.Artifacts {
-			if artifact.SizeBytes > client.PresignedUploadMaximumBytes {
-				return nil, withExitCode(exitUsage, fmt.Errorf("artifact %s is %s; a single upload carries at most %s, and multipart uploads are not supported yet",
-					artifact.Path, formatByteSize(artifact.SizeBytes), formatByteSize(client.PresignedUploadMaximumBytes)))
+			if artifact.SizeBytes > client.ImportArtifactMaximumBytes {
+				return nil, withExitCode(exitUsage, fmt.Errorf("artifact %s is %s; an upload carries at most %s",
+					artifact.Path, formatByteSize(artifact.SizeBytes), formatByteSize(client.ImportArtifactMaximumBytes)))
 			}
 		}
 	}
@@ -284,7 +284,11 @@ func performMigrateRestore(cmd *cobra.Command, exportDir string, targets migrate
 		if info.Size() != upload.SizeBytes {
 			return nil, fmt.Errorf("artifact %s is %d bytes but the manifest recorded %d; run `ankra migrate export` again", upload.Path, info.Size(), upload.SizeBytes)
 		}
-		_, _ = fmt.Fprintf(progress, "Uploading %s (%s)\n", upload.Path, formatByteSize(info.Size()))
+		if upload.Method == client.BackupVaultImportUploadMethodMultipart {
+			_, _ = fmt.Fprintf(progress, "Uploading %s (%s, %d parts)\n", upload.Path, formatByteSize(info.Size()), len(upload.Parts))
+		} else {
+			_, _ = fmt.Fprintf(progress, "Uploading %s (%s)\n", upload.Path, formatByteSize(info.Size()))
+		}
 		if uploadError := uploadMigrateArtifact(cmd.Context(), localPath, upload, info.Size()); uploadError != nil {
 			return nil, fmt.Errorf("uploading %s: %w", upload.Path, uploadError)
 		}
@@ -312,7 +316,7 @@ func uploadMigrateArtifact(ctx context.Context, localPath string, upload client.
 		return openError
 	}
 	defer func() { _ = file.Close() }()
-	return apiClient.UploadPresignedObject(ctx, upload.Method, upload.URL, file, size)
+	return apiClient.UploadPresignedObject(ctx, upload, file, size)
 }
 
 // exportSourceDir is where the export was taken from, when the manifest

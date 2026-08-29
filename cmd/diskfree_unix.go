@@ -4,9 +4,9 @@ package cmd
 
 import "syscall"
 
-// freeDiskBytes reports how much the filesystem holding path can still take,
+// statfsFreeBytes reports how much the filesystem holding path can still take,
 // or ok=false when it cannot tell.
-func freeDiskBytes(path string) (int64, bool) {
+func statfsFreeBytes(path string) (int64, bool) {
 	var stat syscall.Statfs_t
 	if statError := syscall.Statfs(path, &stat); statError != nil {
 		return 0, false

@@ -39,6 +39,8 @@ type migrateRestoreMock struct {
 	vaultIDs     []string
 	createdWith  *client.CreateBackupVaultImportRequest
 	uploads      map[string]int64
+	multipartFor string
+	uploaded     []client.BackupVaultImportUpload
 	completed    int
 	restored     int
 	getStatuses  []string
@@ -70,19 +72,38 @@ func (mock *migrateRestoreMock) CreateBackupVaultImport(vaultID string, request 
 	var uploads []client.BackupVaultImportUpload
 	for _, database := range manifest.Databases {
 		for _, artifact := range database.Artifacts {
-			uploads = append(uploads, client.BackupVaultImportUpload{
+			upload := client.BackupVaultImportUpload{
 				Path: artifact.Path, Method: "PUT", SizeBytes: artifact.SizeBytes,
 				URL: "https://vault.example.com/imports/1/" + artifact.Path + "?sig=" + artifact.Path,
-			})
+			}
+			if mock.multipartFor == artifact.Path {
+				upload = client.BackupVaultImportUpload{
+					Path: artifact.Path, Method: client.BackupVaultImportUploadMethodMultipart, SizeBytes: artifact.SizeBytes,
+					UploadID: "up-1", PartSizeBytes: 2,
+					Parts: []client.BackupVaultImportUploadPart{
+						{PartNumber: 1, URL: "https://vault.example.com/imports/1/" + artifact.Path + "?partNumber=1&uploadId=up-1"},
+						{PartNumber: 2, URL: "https://vault.example.com/imports/1/" + artifact.Path + "?partNumber=2&uploadId=up-1"},
+						{PartNumber: 3, URL: "https://vault.example.com/imports/1/" + artifact.Path + "?partNumber=3&uploadId=up-1"},
+					},
+					CompleteURL: "https://vault.example.com/imports/1/" + artifact.Path + "?uploadId=up-1",
+					AbortURL:    "https://vault.example.com/imports/1/" + artifact.Path + "?uploadId=up-1&abort",
+				}
+			}
+			uploads = append(uploads, upload)
 		}
 	}
 	imported := mock.importView(client.BackupVaultImportStatusUploading)
 	return &client.CreateBackupVaultImportResult{Import: imported, Uploads: uploads}, nil
 }
 
-func (mock *migrateRestoreMock) UploadPresignedObject(_ context.Context, method string, uploadURL string, body io.ReadSeeker, size int64) error {
-	if method != http.MethodPut {
-		return fmt.Errorf("the platform minted a %s upload; the CLI must use it as given", method)
+func (mock *migrateRestoreMock) UploadPresignedObject(_ context.Context, upload client.BackupVaultImportUpload, body client.UploadBody, size int64) error {
+	mock.uploaded = append(mock.uploaded, upload)
+	if upload.Method != http.MethodPut && upload.Method != client.BackupVaultImportUploadMethodMultipart {
+		return fmt.Errorf("the platform minted a %s upload; the CLI must use it as given", upload.Method)
+	}
+	uploadURL := upload.URL
+	if upload.Method == client.BackupVaultImportUploadMethodMultipart {
+		uploadURL = upload.CompleteURL
 	}
 	if mock.uploadFailOn != "" && strings.Contains(uploadURL, mock.uploadFailOn) {
 		return errors.New("403 SignatureDoesNotMatch")
@@ -331,13 +352,13 @@ func TestMigrateRestoreRefusesArtifactsAboveOneUpload(t *testing.T) {
 	mock := &migrateRestoreMock{vaults: []client.BackupVault{readyVault("backups1")}, getStatuses: []string{"completed"}}
 	installMigrateRestoreMock(t, mock)
 	dir := writeMigrateRestoreFixture(t)
-	oversize := strings.Replace(migrateRestoreTestManifest, `"size_bytes": 5,`, `"size_bytes": 6442450944,`, 1)
+	oversize := strings.Replace(migrateRestoreTestManifest, `"size_bytes": 5,`, `"size_bytes": 671088640001,`, 1)
 	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(oversize), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	_, _, err := runMigrate(t, "restore", dir, "--cluster", migrateRestoreTestCluster)
-	if exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), "db/office.dump is 6.0 GiB") || !strings.Contains(err.Error(), "multipart") {
+	if exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), "db/office.dump is 625.0 GiB") || !strings.Contains(err.Error(), "an upload carries at most 625.0 GiB") {
 		t.Errorf("an artifact above one presigned upload must be refused up front, got %v", err)
 	}
 	if mock.createdWith != nil {
@@ -432,5 +453,28 @@ func TestMigrateDataExportsThenRestores(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "Exported 1 database server(s)") || !strings.Contains(stdout, "Restore complete") {
 		t.Errorf("stdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+}
+
+func TestMigrateRestorePassesAMultipartUploadThrough(t *testing.T) {
+	mock := &migrateRestoreMock{vaults: []client.BackupVault{readyVault("backups1")}, getStatuses: []string{"completed"}, multipartFor: "db/office.dump"}
+	installMigrateRestoreMock(t, mock)
+	dir := writeMigrateRestoreFixture(t)
+
+	_, stderr, err := runMigrate(t, "restore", dir, "--cluster", migrateRestoreTestCluster)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr)
+	}
+	if !strings.Contains(stderr, "Uploading db/office.dump (5 B, 3 parts)") {
+		t.Errorf("a multipart upload says how many parts it has:\n%s", stderr)
+	}
+	var multipart *client.BackupVaultImportUpload
+	for index := range mock.uploaded {
+		if mock.uploaded[index].Method == client.BackupVaultImportUploadMethodMultipart {
+			multipart = &mock.uploaded[index]
+		}
+	}
+	if multipart == nil || multipart.UploadID != "up-1" || len(multipart.Parts) != 3 || multipart.CompleteURL == "" || multipart.AbortURL == "" {
+		t.Errorf("the upload must reach the client as the platform described it, got %+v", mock.uploaded)
 	}
 }
