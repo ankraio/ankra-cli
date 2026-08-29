@@ -68,6 +68,40 @@ resources:
 
 Time limits: 15s for `describe`, 30s for `detect`, 5 minutes for `convert`.
 
+### `export` (optional)
+
+A module that can also dump the data behind its source - its databases -
+lists `"capabilities": ["export"]` in its `describe` reply and answers a
+fourth verb, which backs `ankra migrate export`. Input:
+
+```json
+{"dir": "/absolute/path", "output_dir": "/absolute/output", "namespace": "shop",
+ "options": {"docker-host": "ssh://root@203.0.113.7"}}
+```
+
+Write each dump under `output_dir` and reply with what you wrote and where it
+restores to - the Service and Secret that `convert` generated for the same
+workload, so the restore needs nothing the user has to look up:
+
+```json
+{"databases": [{"workload": "db", "engine": "postgres", "server_version": "17.2",
+  "target": {"namespace": "shop", "host": "db", "port": 5432, "username": "app",
+             "password_secret": "db-secrets", "password_key": "POSTGRES_PASSWORD"},
+  "artifacts": [{"path": "db/globals.sql", "kind": "globals", "format": "sql"},
+                {"path": "db/app.dump", "kind": "database", "format": "pg_custom", "database": "app"}]}],
+ "warnings": ["dumped while the source was live"]}
+```
+
+- `engine` is `postgres` or `mysql`; `format` is `pg_custom` (a `pg_dump -Fc`
+  archive) or `sql` (plain SQL, including `pg_dumpall --globals-only` output
+  and `mysqldump` files).
+- Artifact paths are relative to `output_dir` and may not escape it. The CLI
+  measures sizes and checksums from the files itself and writes
+  `manifest.json` plus `SHA256SUMS`; do not write those names.
+- Narrate progress on stderr: it is relayed to the user live while the verb
+  runs (a dump can take minutes), and shown as the reason on failure.
+- Time limit: 6 hours.
+
 ## Rules worth knowing
 
 - **Never write to the source directory.** Convert reads; the CLI writes.

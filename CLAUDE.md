@@ -39,15 +39,23 @@ the un-injected fallback; never bump it for a release.
   `ankra-module-<name>` executables, and the JSON-over-stdio protocol they
   speak. `internal/migrate/docker` is the built-in module and the reference
   implementation; `examples/modules/` holds a complete external one.
-  Nothing under `migrate` may call the platform API - every command there is
-  annotated `annotationRequiresAuth: "false"` and must work offline.
+  Nothing under `internal/migrate` may call the platform API: `convert`,
+  `detect`, `modules` and `export` are annotated
+  `annotationRequiresAuth: "false"` and work offline. The one online lane is
+  `cmd/migrate_restore.go` (`restore`, `restore-status`, `data`), annotated
+  `"true"`, which drives the backup-vault import routes through
+  `internal/client`.
 - `internal/migrate` — `ankra migrate`: the module contract (`Module`,
   `Description`, `Detection`, `Result`), the registry that discovers
   `ankra-module-<name>` executables, and the JSON-over-stdio protocol they
   speak. `internal/migrate/docker` is the built-in module and the reference
   implementation; `examples/modules/` holds a complete external one.
-  Nothing under `migrate` may call the platform API - every command there is
-  annotated `annotationRequiresAuth: "false"` and must work offline.
+  Nothing under `internal/migrate` may call the platform API: `convert`,
+  `detect`, `modules` and `export` are annotated
+  `annotationRequiresAuth: "false"` and work offline. The one online lane is
+  `cmd/migrate_restore.go` (`restore`, `restore-status`, `data`), annotated
+  `"true"`, which drives the backup-vault import routes through
+  `internal/client`.
 - `internal/skills` — embedded agent skills, vendored from the sibling
   `ankra-skills` repo (`make generate` / `make verify-skills`; in the split
   repo the embedded copy is canonical). `clients.go` is the table of every

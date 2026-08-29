@@ -535,6 +535,26 @@ func (m baseMock) DeleteBackupVault(vaultID string, destroyProviderResources boo
 	return errors.New("not implemented")
 }
 
+func (m baseMock) CreateBackupVaultImport(vaultID string, request client.CreateBackupVaultImportRequest) (*client.CreateBackupVaultImportResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CompleteBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RestoreBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UploadPresignedObject(ctx context.Context, method string, uploadURL string, body io.ReadSeeker, size int64) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error) {
 	return client.ExecutionListResponse{}, errors.New("not implemented")
 }
