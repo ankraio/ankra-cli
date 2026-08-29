@@ -12,9 +12,12 @@ import (
 // migrateTestCompose fixture: one postgres service holding one database.
 const fakeDockerScript = `#!/bin/sh
 case "$*" in
+  *"inspect --format"*) printf 'POSTGRES_USER=postgres\nPOSTGRES_PASSWORD=secret\n' ;;
+  *"compose.service=web"*) echo web1 ;;
   *"ps -q"*) echo abc123 ;;
+  *"stop "*) echo "docker $*" >> "${FAKE_DOCKER_LOG:-/dev/null}" ;;
   *"SHOW server_version"*) echo 17.2 ;;
-  *"SELECT datname"*) echo office ;;
+  *"SELECT datname"*) echo "office|${FAKE_DB_SIZE:-8388608}" ;;
   *pg_dumpall*) printf -- '-- globals\n' ;;
   *"-d boom"*) echo 'pg_dump: error: connection to server failed: FATAL: database "boom" does not exist' >&2; exit 1 ;;
   *"pg_dump "*) printf 'PGDMP\001\002fake' ;;

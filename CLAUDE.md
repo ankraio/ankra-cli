@@ -35,27 +35,18 @@ the un-injected fallback; never bump it for a release.
   resource family.
 - `internal/kubeconfig` — kubeconfig read/merge/write.
 - `internal/migrate` — `ankra migrate`: the module contract (`Module`,
-  `Description`, `Detection`, `Result`), the registry that discovers
+  `Description`, `Detection`, `Result`, the optional `DataExporter`,
+  `ExportPlanner` and `SourceQuiescer`), the registry that discovers
   `ankra-module-<name>` executables, and the JSON-over-stdio protocol they
   speak. `internal/migrate/docker` is the built-in module and the reference
   implementation; `examples/modules/` holds a complete external one.
   Nothing under `internal/migrate` may call the platform API: `convert`,
   `detect`, `modules` and `export` are annotated
-  `annotationRequiresAuth: "false"` and work offline. The one online lane is
-  `cmd/migrate_restore.go` (`restore`, `restore-status`, `data`), annotated
-  `"true"`, which drives the backup-vault import routes through
-  `internal/client`.
-- `internal/migrate` — `ankra migrate`: the module contract (`Module`,
-  `Description`, `Detection`, `Result`), the registry that discovers
-  `ankra-module-<name>` executables, and the JSON-over-stdio protocol they
-  speak. `internal/migrate/docker` is the built-in module and the reference
-  implementation; `examples/modules/` holds a complete external one.
-  Nothing under `internal/migrate` may call the platform API: `convert`,
-  `detect`, `modules` and `export` are annotated
-  `annotationRequiresAuth: "false"` and work offline. The one online lane is
-  `cmd/migrate_restore.go` (`restore`, `restore-status`, `data`), annotated
-  `"true"`, which drives the backup-vault import routes through
-  `internal/client`.
+  `annotationRequiresAuth: "false"` and work offline. The online lanes are
+  `cmd/migrate_restore.go` (`restore`, `restore-status`, `data`) and
+  `cmd/migrate_up.go` (`up`, the one-command migration that chains convert,
+  `cluster apply`, the pod wait, export and restore), annotated `"true"`,
+  which drive the backup-vault import routes through `internal/client`.
 - `internal/skills` — embedded agent skills, vendored from the sibling
   `ankra-skills` repo (`make generate` / `make verify-skills`; in the split
   repo the embedded copy is canonical). `clients.go` is the table of every

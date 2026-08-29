@@ -1,6 +1,7 @@
 package migrate
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -228,4 +229,65 @@ func ReadExportManifest(outputDir string) (ExportManifest, error) {
 		return ExportManifest{}, fmt.Errorf("%s is version %d, this CLI reads version %d", ExportManifestFileName, manifest.Version, ExportManifestVersion)
 	}
 	return manifest, nil
+}
+
+// ExportPlan is what an export would do, worked out without dumping
+// anything: which servers and databases it will carry, how big they are on
+// the source, and what the source holds that it will leave behind. A caller
+// can refuse early, size the work, and tell the user the truth before a
+// single byte moves.
+type ExportPlan struct {
+	Databases []PlannedDatabaseServer `json:"databases"`
+	// NotCarried names data the source holds that this export leaves behind:
+	// files in volumes, engines it does not dump. Each item says why.
+	NotCarried []string `json:"not_carried,omitempty"`
+	// Warnings are conditions the export will proceed under.
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// PlannedDatabaseServer is one database service the export will dump.
+type PlannedDatabaseServer struct {
+	Workload      string            `json:"workload"`
+	Engine        string            `json:"engine"`
+	Container     string            `json:"container"`
+	ServerVersion string            `json:"server_version,omitempty"`
+	Username      string            `json:"username"`
+	Databases     []PlannedDatabase `json:"databases"`
+}
+
+// PlannedDatabase is one database and its size on the source server, as the
+// server reports it: an upper bound for the dump, which compresses.
+type PlannedDatabase struct {
+	Name      string `json:"name"`
+	SizeBytes int64  `json:"size_bytes"`
+}
+
+// EstimatedBytes is the sum of the server's databases as it reports them.
+func (server PlannedDatabaseServer) EstimatedBytes() int64 {
+	var total int64
+	for _, database := range server.Databases {
+		total += database.SizeBytes
+	}
+	return total
+}
+
+// ExportPlanner is the optional capability of a DataExporter that can
+// describe an export before running it. Built-in modules implement it; an
+// external module without it is simply exported without a preflight.
+type ExportPlanner interface {
+	PlanExport(ctx context.Context, request ExportRequest) (ExportPlan, error)
+}
+
+// Quiesce is what stopping the source's writers did: which services were
+// stopped, and the command that starts them again.
+type Quiesce struct {
+	Stopped []string `json:"stopped"`
+	Resume  string   `json:"resume,omitempty"`
+}
+
+// SourceQuiescer is the optional capability of a DataExporter that can stop
+// the source's writers - every service that is not a database - so the final
+// export is consistent with what the workloads last wrote.
+type SourceQuiescer interface {
+	QuiesceSource(ctx context.Context, request ExportRequest) (Quiesce, error)
 }
