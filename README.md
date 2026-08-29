@@ -244,7 +244,7 @@ and flag descriptions in `cmd/`.
 - Verify `ANKRA_API_TOKEN` is set (or run `ankra login`)
 - Check connectivity: `ankra cluster list`
 - Visit the [documentation](https://docs.ankra.ai) for detailed guides
-- Check the [Ankra Platform status](https://status.ankra.io) for any service outages
+- Check the [Ankra Platform status](https://status.ankra.ai) for any service outages
 
 ## Learn More
 
