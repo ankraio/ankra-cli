@@ -322,6 +322,12 @@ type APIClient interface {
 	ListPods(clusterID string, opts *client.ListPodsOptions) (*client.ListPodsResponse, error)
 	GetResources(clusterID string, req client.GetResourcesRequest) (*client.GetResourcesResponse, error)
 	StreamPodLogs(ctx context.Context, clusterID string, opts client.PodLogOptions, writer io.Writer) error
+	ListDebugPodImages(clusterID string) (*client.DebugPodImagesResponse, error)
+	CreateDebugPod(clusterID string, request client.CreateDebugPodRequest) (*client.DebugPodResponse, error)
+	ListDebugPods(clusterID string, namespace string) (*client.ListDebugPodsResponse, error)
+	DeleteDebugPod(clusterID string, namespace string, podName string) (*client.DeleteDebugPodResponse, error)
+	GetTerminalSession(sessionID string) (*client.TerminalSession, error)
+	GetTerminalTranscript(sessionID string, afterSequence int, limit int) (*client.TerminalTranscriptPage, error)
 	ListHelmReleases(clusterID string, opts *client.HelmReleasesOptions) (*client.HelmReleasesResponse, error)
 	UninstallHelmRelease(clusterID, releaseName, namespace string) (*client.UninstallHelmReleaseResponse, error)
 	QueryPrometheusInstant(clusterID, query string, timeoutSeconds int) (*client.PrometheusQueryResult, error)
