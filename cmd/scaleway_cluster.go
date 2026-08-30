@@ -97,7 +97,7 @@ func init() {
 	scalewayCmd.AddCommand(scalewayInstanceTypesCmd)
 	scalewayCmd.AddCommand(scalewayGatewayTypesCmd)
 	scalewayCmd.AddCommand(scalewayNetworksCmd)
-	scalewayCmd.AddCommand(newControlPlaneCmd(scalewayControlPlaneOps, "Scaleway"))
+	scalewayCmd.AddCommand(newControlPlaneCmd(scalewayControlPlaneOps, "Scaleway", "scaleway instance-types"))
 	clusterCmd.AddCommand(scalewayCmd)
 }
 
