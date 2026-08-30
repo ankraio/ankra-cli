@@ -1,5 +1,16 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A copy of the CLI's own release binary is not a plugin.** The release
+  assets are named `ankra-cli-<os>-<arch>`, so a machine that kept one on
+  PATH as `ankra-cli` saw it listed by `ankra plugins` as a plugin called
+  `cli`, and `ankra cli ...` would have run that older CLI. The name is now
+  ignored by discovery and dispatch; a plugin whose name merely starts with
+  `cli` still works.
+
 ## v0.14.0-rc7 — 2026-08-30
 
 ### Added

@@ -22,6 +22,11 @@ import (
 // externalPluginPrefix is what a plugin executable's file name starts with.
 const externalPluginPrefix = "ankra-"
 
+// releaseBinaryName is the CLI's own release-asset name (ankra-cli, from
+// ankra-cli-<os>-<arch>). A copy on PATH under that name is another CLI,
+// not a plugin called "cli".
+const releaseBinaryName = "ankra-cli"
+
 // pluginReservedNames are cobra's own entry points; they are dispatchable
 // commands even though they are not in the command list.
 var pluginReservedNames = map[string]bool{
@@ -108,6 +113,9 @@ func leadingCommandWords(arguments []string) []string {
 func lookupExternalPlugin(words []string) (string, int) {
 	for consumed := len(words); consumed >= 1; consumed-- {
 		name := externalPluginPrefix + strings.Join(words[:consumed], "-")
+		if name == releaseBinaryName {
+			continue
+		}
 		if path := findPluginExecutable(name); path != "" {
 			return path, consumed
 		}
@@ -175,7 +183,8 @@ commands always win, and multi-word names resolve longest first, so
 
 Plugins run with your permissions; install only ones you trust. Executables
 named ankra-module-<name> are migrate modules, a separate mechanism listed
-by 'ankra migrate modules'.`,
+by 'ankra migrate modules', and ankra-cli - the CLI's own release binary -
+is never a plugin.`,
 	Example: `  ankra plugins
   ankra plugins -o json`,
 	Args:        cobra.NoArgs,
@@ -267,7 +276,7 @@ func externalPluginName(fileName string) (string, bool) {
 		return "", false
 	}
 	name := strings.TrimPrefix(fileName, externalPluginPrefix)
-	if name == "" || strings.HasPrefix(name, "module-") {
+	if name == "" || strings.HasPrefix(name, "module-") || fileName == releaseBinaryName {
 		return "", false
 	}
 	return name, true
