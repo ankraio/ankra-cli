@@ -4,6 +4,22 @@
 
 ### Added
 
+- **`ankra cluster move --organisation <id|slug|name>`** moves a cluster into
+  another organisation you administer. Only an administrator of both the
+  current organisation and the destination can run it; anyone else gets the
+  platform's permission denial (exit 7). The cluster keeps its id, agent,
+  executions, resources, security findings, insights, DNS records and
+  variables, while access grants, kube tokens, notification routes and mutes,
+  report schedules, trusted AI actions and cluster-group memberships from the
+  current organisation are detached and counted in the output. The platform
+  moves imported clusters only for now (Ankra-provisioned and managed
+  Kubernetes clusters use a provider credential that belongs to the current
+  organisation) and refuses the move while operations are running, while the
+  cluster is in a cluster mesh, while it has DNS zones bound to the current
+  organisation, for playground and sandbox clusters, and when the destination
+  already has a cluster with the same name; the refusal reason is printed
+  as-is.
+  `--yes` skips the confirmation and `-o json` returns the API document.
 - **`ankra cost`** brings the portal's Cost center to the terminal. `ankra cost
   summary` is the fleet rollup - projected month end, month to date and run
   rate in your display currency, the split by provider and the costliest

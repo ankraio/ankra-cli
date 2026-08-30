@@ -594,3 +594,103 @@ func (c *Client) CreateStackDraft(ctx context.Context, clusterID string, stack S
 	}
 	return &StackDraftResult{DraftID: parsed.DraftID}, nil
 }
+
+// MoveClusterRequest names the organisation a cluster moves into.
+type MoveClusterRequest struct {
+	DestinationOrganisationID string `json:"destination_organisation_id"`
+}
+
+// MoveClusterDetached counts the source-organisation bindings the platform
+// revoked or removed while moving the cluster.
+type MoveClusterDetached struct {
+	AccessGrants          int64   `json:"access_grants"`
+	KubeTokens            int64   `json:"kube_tokens"`
+	Subscriptions         int64   `json:"subscriptions"`
+	NotificationMutes     int64   `json:"notification_mutes"`
+	NotificationRoutes    int64   `json:"notification_routes"`
+	ReportSchedules       int64   `json:"report_schedules"`
+	TrustedActions        int64   `json:"trusted_actions"`
+	GroupMemberships      int64   `json:"group_memberships"`
+	PromotionLinks        int64   `json:"promotion_links"`
+	RoleAssignments       int64   `json:"role_assignments"`
+	PlatformResourceLinks int64   `json:"platform_resource_links"`
+	ContextRepositories   int64   `json:"context_repositories"`
+	GitopsRepository      *string `json:"gitops_repository"`
+}
+
+// MoveClusterResult is the platform's answer to a successful move.
+type MoveClusterResult struct {
+	ClusterID                   string              `json:"cluster_id"`
+	ClusterName                 string              `json:"cluster_name"`
+	SourceOrganisationID        string              `json:"source_organisation_id"`
+	DestinationOrganisationID   string              `json:"destination_organisation_id"`
+	DestinationOrganisationName string              `json:"destination_organisation_name"`
+	Detached                    MoveClusterDetached `json:"detached"`
+	SecretsRelocated            int                 `json:"secrets_relocated"`
+	Warnings                    []string            `json:"warnings"`
+}
+
+// MoveClusterRefusedError is the platform's 409: a precondition the operator
+// can act on (running operations, a name clash, a cluster mesh membership).
+type MoveClusterRefusedError struct {
+	Code      string   `json:"code"`
+	Detail    string   `json:"detail"`
+	Conflicts []string `json:"conflicts"`
+}
+
+func (e *MoveClusterRefusedError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Detail
+}
+
+// MoveCluster moves the cluster into another organisation the caller
+// administers. A 403 surfaces as *PermissionDeniedError (exit 7), a 409 as
+// *MoveClusterRefusedError, a 404 as the platform's detail.
+func (c *Client) MoveCluster(ctx context.Context, clusterID string, destinationOrganisationID string) (*MoveClusterResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/move", c.BaseURL, neturl.PathEscape(clusterID))
+	payload, marshalError := json.Marshal(MoveClusterRequest{DestinationOrganisationID: destinationOrganisationID})
+	if marshalError != nil {
+		return nil, fmt.Errorf("marshal request: %w", marshalError)
+	}
+	request, requestError := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if requestError != nil {
+		return nil, fmt.Errorf("create request: %w", requestError)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+
+	response, doError := c.HTTP.Do(request)
+	if doError != nil {
+		return nil, fmt.Errorf("request failed: %w", doError)
+	}
+	defer closeBody(response)
+
+	body, readError := readResponseBody(response)
+	if readError != nil {
+		return nil, fmt.Errorf("read response: %w", readError)
+	}
+	switch response.StatusCode {
+	case http.StatusOK:
+		var result MoveClusterResult
+		if unmarshalError := json.Unmarshal(body, &result); unmarshalError != nil {
+			return nil, fmt.Errorf("decode response: %w", unmarshalError)
+		}
+		return &result, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusConflict:
+		var refused MoveClusterRefusedError
+		if unmarshalError := json.Unmarshal(body, &refused); unmarshalError == nil && refused.Detail != "" {
+			return nil, &refused
+		}
+	}
+	if denied := PermissionDeniedFromResponse(response.StatusCode, body); denied != nil {
+		return nil, denied
+	}
+	if detail := detailFromBody(body); detail != "" {
+		return nil, newUnexpectedResponseErrorWithMessage(response.StatusCode, detail)
+	}
+	return nil, newUnexpectedResponseError("move failed", response.StatusCode, redactedBodyForError(body, 500))
+}
