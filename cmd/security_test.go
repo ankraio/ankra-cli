@@ -17,6 +17,7 @@ type securityMock struct {
 	findings        *client.SecurityFindingList
 	findingsOptions *client.SecurityFindingsOptions
 	detail          *client.SecurityFindingDetail
+	advisory        *client.SecurityAdvisory
 	clusters        *client.SecurityClusterList
 }
 
@@ -33,12 +34,16 @@ func (m *securityMock) GetSecurityFinding(string) (*client.SecurityFindingDetail
 	return m.detail, nil
 }
 
+func (m *securityMock) GetSecurityAdvisory(string) (*client.SecurityAdvisory, error) {
+	return m.advisory, nil
+}
+
 func (m *securityMock) ListSecurityClusters(client.SecurityClustersOptions) (*client.SecurityClusterList, error) {
 	return m.clusters, nil
 }
 
 func securityCommandTree() []*cobra.Command {
-	return []*cobra.Command{securityOverviewCmd, securityFindingsCmd, securityFindingCmd, securityClustersCmd}
+	return []*cobra.Command{securityOverviewCmd, securityFindingsCmd, securityFindingCmd, securityAdvisoryCmd, securityClustersCmd}
 }
 
 func runSecurityCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
@@ -231,5 +236,94 @@ func TestSecurityClustersFlagsTheKnownExploitedCount(t *testing.T) {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output lacks %q:\n%s", expected, output)
 		}
+	}
+}
+
+func TestSecurityAdvisoryRendersTheParsedRecordAndTheThreeStates(t *testing.T) {
+	title := "Glibc: buffer overflow in ld.so leading to privilege escalation"
+	description := "A buffer overflow was discovered in the GNU C Library's dynamic loader ld.so."
+	score := 7.8
+	severity := "HIGH"
+	vector := "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+	version := "3.1"
+	readAt := "2026-08-29T10:28:21Z"
+	finding := exploitedFinding()
+	finding.CVEID = "CVE-2023-4911"
+	finding.PackageName = "libc6"
+	fetched := &client.SecurityAdvisory{
+		CVEID:  "CVE-2023-4911",
+		Status: "fetched",
+		Sources: client.SecurityAdvisorySources{
+			NVDFetchedAt: &readAt, OSVFetchedAt: &readAt,
+			NVDURL: "https://nvd.nist.gov/vuln/detail/CVE-2023-4911", OSVURL: "https://osv.dev/vulnerability/CVE-2023-4911",
+		},
+		Advisory: &client.SecurityAdvisoryRecord{
+			Title: &title, Description: &description,
+			CVSSScore: &score, CVSSSeverity: &severity, CVSSVector: &vector, CVSSVersion: &version,
+			CWEIDs: []string{"CWE-122", "CWE-787"}, Aliases: []string{"GHSA-m77w-6vjw-wh2f"},
+			References: []client.SecurityAdvisoryReference{{URL: "https://access.redhat.com/errata/RHSA-2023:5453", Source: "nvd", Tags: []string{"Patch"}}},
+			Affected: []client.SecurityAdvisoryAffected{
+				{Source: "nvd", Package: "glibc", Ranges: []client.SecurityAdvisoryVersionRange{{Introduced: "2.34", Fixed: "2.39", Status: "affected"}}},
+				{Source: "nvd", Vendor: "Red Hat", Product: "Red Hat Enterprise Linux 8", Package: "glibc",
+					Ranges: []client.SecurityAdvisoryVersionRange{{Introduced: "0:2.28-225.el8_8.6", Status: "unaffected"}}},
+				{Source: "nvd", Vendor: "Siemens", Product: "SIMATIC S7-1500", Ranges: []client.SecurityAdvisoryVersionRange{{Introduced: "V3.1.5", Status: "affected"}}},
+			},
+			SSVC: &client.SecurityAdvisorySSVC{Exploitation: "active", Automatable: "no", TechnicalImpact: "total"},
+		},
+		Intelligence:       finding.SecurityExploitIntelligence,
+		IntelligenceStatus: client.SecurityIntelligenceStatus{KevSyncedAt: &readAt, EPSSSyncedAt: &readAt, KevListed: 1685},
+		Fleet: client.SecurityAdvisoryFleet{
+			Findings: []client.SecurityFinding{finding}, Occurrences: 48, FixableOccurrences: 9, AffectedClusters: 3, AffectedWorkloads: 7,
+		},
+	}
+	output, executeError := runSecurityCommand(t, &securityMock{advisory: fetched}, "security", "advisory", "cve-2023-4911")
+	if executeError != nil {
+		t.Fatalf("security advisory failed: %v", executeError)
+	}
+	for _, expected := range []string{
+		"CVE-2023-4911", "CVSS 7.8 (3.1)", title, description,
+		"Known exploited in the wild (CISA KEV)", "CISA required action: Apply mitigations per vendor instructions.",
+		"CISA SSVC: exploitation active · automatable no · technical impact total",
+		"Weaknesses: CWE-122, CWE-787", "Also known as: GHSA-m77w-6vjw-wh2f",
+		"glibc: 2.34 before 2.39 (fixed in 2.39)",
+		"glibc · Red Hat Enterprise Linux 8: fixed from 0:2.28-225.el8_8.6",
+		"Siemens SIMATIC S7-1500: V3.1.5 and later",
+		"In your fleet: 1 findings · 48 occurrences (9 with a fix) · 3 clusters · 7 workloads",
+		"libc6", "[Patch] https://access.redhat.com/errata/RHSA-2023:5453",
+		"https://nvd.nist.gov/vuln/detail/CVE-2023-4911",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output lacks %q:\n%s", expected, output)
+		}
+	}
+
+	pending := &client.SecurityAdvisory{CVEID: "CVE-2077-0001", Status: "pending", RequestedAt: &readAt,
+		Sources:            client.SecurityAdvisorySources{NVDURL: "https://nvd.nist.gov/vuln/detail/CVE-2077-0001", OSVURL: "https://osv.dev/vulnerability/CVE-2077-0001"},
+		IntelligenceStatus: client.SecurityIntelligenceStatus{KevSyncedAt: &readAt}}
+	output, executeError = runSecurityCommand(t, &securityMock{advisory: pending}, "security", "advisory", "CVE-2077-0001")
+	if executeError != nil || !strings.Contains(output, "fetching this advisory from NVD and OSV now") || !strings.Contains(output, "no current findings") {
+		t.Fatalf("a pending advisory must say it is being fetched, got %v:\n%s", executeError, output)
+	}
+	missing := &client.SecurityAdvisory{CVEID: "CVE-2077-0002", Status: "missing",
+		Sources: client.SecurityAdvisorySources{NVDURL: "https://nvd.nist.gov/vuln/detail/CVE-2077-0002", OSVURL: "https://osv.dev/vulnerability/CVE-2077-0002"}}
+	output, executeError = runSecurityCommand(t, &securityMock{advisory: missing}, "security", "advisory", "CVE-2077-0002")
+	if executeError != nil || !strings.Contains(output, "No public advisory record for this CVE yet") || !strings.Contains(output, "CISA KEV status unknown") {
+		t.Fatalf("a missing advisory must say so and keep the KEV state honest, got %v:\n%s", executeError, output)
+	}
+}
+
+func TestSecurityAdvisoryStructuredOutputIsTheApiDocument(t *testing.T) {
+	advisory := &client.SecurityAdvisory{CVEID: "CVE-2023-4911", Status: "fetched",
+		Fleet: client.SecurityAdvisoryFleet{Findings: []client.SecurityFinding{}}}
+	output, executeError := runSecurityCommand(t, &securityMock{advisory: advisory}, "security", "advisory", "CVE-2023-4911", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("security advisory -o json failed: %v", executeError)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+		t.Fatalf("output is not JSON: %v\n%s", decodeError, output)
+	}
+	if decoded["cve_id"] != "CVE-2023-4911" || decoded["status"] != "fetched" {
+		t.Fatalf("structured output must be the API document, got %v", decoded)
 	}
 }

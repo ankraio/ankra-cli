@@ -952,6 +952,10 @@ func (m baseMock) GetSecurityFinding(string) (*client.SecurityFindingDetail, err
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetSecurityAdvisory(string) (*client.SecurityAdvisory, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListSecurityClusters(client.SecurityClustersOptions) (*client.SecurityClusterList, error) {
 	return nil, errors.New("not implemented")
 }

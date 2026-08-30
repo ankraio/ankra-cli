@@ -379,3 +379,133 @@ func (c *Client) ListSecurityClusters(options SecurityClustersOptions) (*Securit
 	}
 	return &list, nil
 }
+
+// SecurityAdvisoryMetric is one CVSS assessment on the advisory (NVD's own
+// Primary metric, the CNA's Secondary one, across CVSS versions).
+type SecurityAdvisoryMetric struct {
+	Source                string   `json:"source" yaml:"source"`
+	Type                  string   `json:"type" yaml:"type"`
+	Version               string   `json:"version" yaml:"version"`
+	Vector                string   `json:"vector" yaml:"vector"`
+	BaseScore             float64  `json:"base_score" yaml:"base_score"`
+	BaseSeverity          string   `json:"base_severity" yaml:"base_severity"`
+	ExploitabilityScore   *float64 `json:"exploitability_score" yaml:"exploitability_score"`
+	ImpactScore           *float64 `json:"impact_score" yaml:"impact_score"`
+	AttackVector          string   `json:"attack_vector,omitempty" yaml:"attack_vector,omitempty"`
+	AttackComplexity      string   `json:"attack_complexity,omitempty" yaml:"attack_complexity,omitempty"`
+	PrivilegesRequired    string   `json:"privileges_required,omitempty" yaml:"privileges_required,omitempty"`
+	UserInteraction       string   `json:"user_interaction,omitempty" yaml:"user_interaction,omitempty"`
+	Scope                 string   `json:"scope,omitempty" yaml:"scope,omitempty"`
+	ConfidentialityImpact string   `json:"confidentiality_impact,omitempty" yaml:"confidentiality_impact,omitempty"`
+	IntegrityImpact       string   `json:"integrity_impact,omitempty" yaml:"integrity_impact,omitempty"`
+	AvailabilityImpact    string   `json:"availability_impact,omitempty" yaml:"availability_impact,omitempty"`
+}
+
+// SecurityAdvisoryReference is one link the sources publish, tagged the way
+// NVD tags them (Patch, Exploit, Vendor Advisory, ...).
+type SecurityAdvisoryReference struct {
+	URL    string   `json:"url" yaml:"url"`
+	Source string   `json:"source" yaml:"source"`
+	Tags   []string `json:"tags" yaml:"tags"`
+}
+
+// SecurityAdvisoryVersionRange is one affected span; a `status` of
+// unaffected names the build a fix ships in.
+type SecurityAdvisoryVersionRange struct {
+	Introduced   string `json:"introduced,omitempty" yaml:"introduced,omitempty"`
+	Fixed        string `json:"fixed,omitempty" yaml:"fixed,omitempty"`
+	LastAffected string `json:"last_affected,omitempty" yaml:"last_affected,omitempty"`
+	Status       string `json:"status,omitempty" yaml:"status,omitempty"`
+}
+
+// SecurityAdvisoryAffected is one affected product (source nvd) or package
+// (source osv).
+type SecurityAdvisoryAffected struct {
+	Source        string                         `json:"source" yaml:"source"`
+	Vendor        string                         `json:"vendor,omitempty" yaml:"vendor,omitempty"`
+	Product       string                         `json:"product,omitempty" yaml:"product,omitempty"`
+	Package       string                         `json:"package,omitempty" yaml:"package,omitempty"`
+	Ecosystem     string                         `json:"ecosystem,omitempty" yaml:"ecosystem,omitempty"`
+	CollectionURL string                         `json:"collection_url,omitempty" yaml:"collection_url,omitempty"`
+	Repository    string                         `json:"repository,omitempty" yaml:"repository,omitempty"`
+	DefaultStatus string                         `json:"default_status,omitempty" yaml:"default_status,omitempty"`
+	Ranges        []SecurityAdvisoryVersionRange `json:"ranges" yaml:"ranges"`
+	Versions      []string                       `json:"versions,omitempty" yaml:"versions,omitempty"`
+}
+
+// SecurityAdvisorySSVC is CISA's SSVC decision as NVD republishes it.
+type SecurityAdvisorySSVC struct {
+	Exploitation    string  `json:"exploitation" yaml:"exploitation"`
+	Automatable     string  `json:"automatable" yaml:"automatable"`
+	TechnicalImpact string  `json:"technical_impact" yaml:"technical_impact"`
+	Timestamp       *string `json:"timestamp" yaml:"timestamp"`
+}
+
+// SecurityAdvisoryRecord is the parsed public record, merged from NVD
+// (authoritative) and OSV.
+type SecurityAdvisoryRecord struct {
+	Title               *string                     `json:"title" yaml:"title"`
+	Description         *string                     `json:"description" yaml:"description"`
+	SourceIdentifier    *string                     `json:"source_identifier" yaml:"source_identifier"`
+	VulnerabilityStatus *string                     `json:"vulnerability_status" yaml:"vulnerability_status"`
+	PublishedAt         *string                     `json:"published_at" yaml:"published_at"`
+	LastModifiedAt      *string                     `json:"last_modified_at" yaml:"last_modified_at"`
+	CVSSScore           *float64                    `json:"cvss_score" yaml:"cvss_score"`
+	CVSSSeverity        *string                     `json:"cvss_severity" yaml:"cvss_severity"`
+	CVSSVector          *string                     `json:"cvss_vector" yaml:"cvss_vector"`
+	CVSSVersion         *string                     `json:"cvss_version" yaml:"cvss_version"`
+	Metrics             []SecurityAdvisoryMetric    `json:"metrics" yaml:"metrics"`
+	CWEIDs              []string                    `json:"cwe_ids" yaml:"cwe_ids"`
+	References          []SecurityAdvisoryReference `json:"references" yaml:"references"`
+	Affected            []SecurityAdvisoryAffected  `json:"affected" yaml:"affected"`
+	Aliases             []string                    `json:"aliases" yaml:"aliases"`
+	SSVC                *SecurityAdvisorySSVC       `json:"ssvc" yaml:"ssvc"`
+}
+
+// SecurityAdvisorySources says when each public source was last read and
+// where its own page lives.
+type SecurityAdvisorySources struct {
+	NVDFetchedAt *string `json:"nvd_fetched_at" yaml:"nvd_fetched_at"`
+	OSVFetchedAt *string `json:"osv_fetched_at" yaml:"osv_fetched_at"`
+	NVDURL       string  `json:"nvd_url" yaml:"nvd_url"`
+	OSVURL       string  `json:"osv_url" yaml:"osv_url"`
+}
+
+// SecurityAdvisoryFleet is the organisation's current findings for the CVE
+// and the totals across them.
+type SecurityAdvisoryFleet struct {
+	Findings           []SecurityFinding `json:"findings" yaml:"findings"`
+	Occurrences        int               `json:"occurrences" yaml:"occurrences"`
+	FixableOccurrences int               `json:"fixable_occurrences" yaml:"fixable_occurrences"`
+	AffectedClusters   int               `json:"affected_clusters" yaml:"affected_clusters"`
+	AffectedWorkloads  int               `json:"affected_workloads" yaml:"affected_workloads"`
+}
+
+// SecurityAdvisory is the platform's advisory page for one CVE. Status is
+// fetched (Advisory present), pending (not read yet - the request queued
+// it, ask again shortly), missing (no public record) or error.
+type SecurityAdvisory struct {
+	CVEID              string                      `json:"cve_id" yaml:"cve_id"`
+	Status             string                      `json:"status" yaml:"status"`
+	FetchError         *string                     `json:"fetch_error" yaml:"fetch_error"`
+	RequestedAt        *string                     `json:"requested_at" yaml:"requested_at"`
+	LastAttemptAt      *string                     `json:"last_attempt_at" yaml:"last_attempt_at"`
+	Sources            SecurityAdvisorySources     `json:"sources" yaml:"sources"`
+	Advisory           *SecurityAdvisoryRecord     `json:"advisory" yaml:"advisory"`
+	Intelligence       SecurityExploitIntelligence `json:"intelligence" yaml:"intelligence"`
+	IntelligenceStatus SecurityIntelligenceStatus  `json:"intelligence_status" yaml:"intelligence_status"`
+	Fleet              SecurityAdvisoryFleet       `json:"fleet" yaml:"fleet"`
+}
+
+// GetSecurityAdvisory reads the platform's advisory page for one CVE.
+func (c *Client) GetSecurityAdvisory(cveID string) (*SecurityAdvisory, error) {
+	var advisory SecurityAdvisory
+	requestURL := securityURL(c.BaseURL, "/advisories/"+neturl.PathEscape(cveID), neturl.Values{})
+	if err := c.getJSON(requestURL, &advisory); err != nil {
+		return nil, fmt.Errorf("security advisory request failed: %w", err)
+	}
+	if advisory.Fleet.Findings == nil {
+		advisory.Fleet.Findings = []SecurityFinding{}
+	}
+	return &advisory, nil
+}

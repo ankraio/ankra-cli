@@ -40,6 +40,7 @@ type APIClient interface {
 	GetSecurityOverview(options client.SecurityOverviewOptions) (*client.SecurityOverview, error)
 	ListSecurityFindings(options client.SecurityFindingsOptions) (*client.SecurityFindingList, error)
 	GetSecurityFinding(findingID string) (*client.SecurityFindingDetail, error)
+	GetSecurityAdvisory(cveID string) (*client.SecurityAdvisory, error)
 	ListSecurityClusters(options client.SecurityClustersOptions) (*client.SecurityClusterList, error)
 
 	ListPowerSchedules(clusterID string) (*client.PowerScheduleListResult, error)
