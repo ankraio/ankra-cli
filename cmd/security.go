@@ -507,9 +507,234 @@ func stringOrEmpty(value *string) string {
 	return *value
 }
 
+var securityAdvisoryCmd = &cobra.Command{
+	Use:   "advisory <cve-id>",
+	Short: "Show the platform's advisory for one CVE: the parsed NVD/OSV record, CISA's guidance and your exposure",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		advisory, err := apiClient.GetSecurityAdvisory(strings.ToUpper(strings.TrimSpace(args[0])))
+		if err != nil {
+			return fmt.Errorf("reading security advisory: %w", err)
+		}
+		if rendered, err := renderStructured(cmd, advisory); rendered || err != nil {
+			return err
+		}
+		renderSecurityAdvisory(cmd, advisory)
+		return nil
+	},
+}
+
+// advisoryRangeText says one affected range in words: a CNA range with
+// status unaffected names the build a fix ships in, so it reads "fixed
+// from"; an open-ended affected range reads "and later".
+func advisoryRangeText(versionRange client.SecurityAdvisoryVersionRange) string {
+	introduced := versionRange.Introduced
+	if introduced == "0" {
+		introduced = ""
+	}
+	switch {
+	case versionRange.Status == "unaffected" && introduced != "":
+		return "fixed from " + introduced
+	case versionRange.Status == "unaffected":
+		return "not affected"
+	case versionRange.Fixed != "" && introduced != "":
+		return fmt.Sprintf("%s before %s (fixed in %s)", introduced, versionRange.Fixed, versionRange.Fixed)
+	case versionRange.Fixed != "":
+		return fmt.Sprintf("all versions before %s (fixed in %s)", versionRange.Fixed, versionRange.Fixed)
+	case versionRange.LastAffected != "" && introduced != "":
+		return fmt.Sprintf("%s through %s", introduced, versionRange.LastAffected)
+	case versionRange.LastAffected != "":
+		return "up to " + versionRange.LastAffected
+	case introduced != "":
+		return introduced + " and later"
+	default:
+		return "all versions"
+	}
+}
+
+func advisoryAffectedSubject(entry client.SecurityAdvisoryAffected) string {
+	product := entry.Product
+	if entry.Vendor != "" && !strings.HasPrefix(strings.ToLower(entry.Product), strings.ToLower(entry.Vendor)) {
+		product = strings.TrimSpace(entry.Vendor + " " + entry.Product)
+	}
+	if product == "" {
+		product = entry.Vendor
+	}
+	if entry.Package != "" {
+		name := entry.Package
+		if entry.Ecosystem != "" {
+			name = entry.Ecosystem + ": " + entry.Package
+		}
+		if product != "" {
+			return name + " · " + product
+		}
+		return name
+	}
+	if product != "" {
+		return product
+	}
+	if entry.Repository != "" {
+		return entry.Repository
+	}
+	return "Unnamed product"
+}
+
+func renderSecurityAdvisory(cmd *cobra.Command, advisory *client.SecurityAdvisory) {
+	out := cmd.OutOrStdout()
+	record := advisory.Advisory
+	headline := advisory.CVEID
+	if record != nil && record.CVSSScore != nil && record.CVSSSeverity != nil {
+		headline += fmt.Sprintf("  %s  CVSS %.1f", severityCell(*record.CVSSSeverity), *record.CVSSScore)
+		if record.CVSSVersion != nil {
+			headline += " (" + *record.CVSSVersion + ")"
+		}
+	}
+	_, _ = fmt.Fprintln(out, headline)
+	if record != nil && record.Title != nil && *record.Title != "" {
+		_, _ = fmt.Fprintln(out, *record.Title)
+	} else if advisory.Intelligence.KevVulnerabilityName != nil {
+		_, _ = fmt.Fprintln(out, *advisory.Intelligence.KevVulnerabilityName)
+	}
+	_, _ = fmt.Fprintln(out)
+
+	switch advisory.Status {
+	case "pending":
+		_, _ = fmt.Fprintln(out, "Ankra is fetching this advisory from NVD and OSV now - it was queued at the front of the platform's read queue; ask again in a minute.")
+	case "missing":
+		_, _ = fmt.Fprintln(out, "No public advisory record for this CVE yet: neither NVD nor OSV holds one. Reserved or very new ids look like this until the CNA publishes; Ankra re-checks every two weeks.")
+	case "error":
+		_, _ = fmt.Fprintln(out, "The advisory sources could not be read; Ankra retries within the hour.")
+		if advisory.FetchError != nil {
+			_, _ = fmt.Fprintf(out, "  %s\n", *advisory.FetchError)
+		}
+	}
+	if record != nil {
+		if record.Description != nil && *record.Description != "" {
+			_, _ = fmt.Fprintln(out, *record.Description)
+			_, _ = fmt.Fprintln(out)
+		}
+	}
+
+	intelligence := advisory.Intelligence
+	if intelligence.KnownExploited {
+		_, _ = fmt.Fprintln(out, text.FgRed.Sprint("Known exploited in the wild (CISA KEV)"))
+		if intelligence.KevVulnerabilityName != nil {
+			vendor := strings.TrimSpace(strings.Join([]string{stringOrEmpty(intelligence.KevVendorProject), stringOrEmpty(intelligence.KevProduct)}, " "))
+			if vendor != "" {
+				_, _ = fmt.Fprintf(out, "  %s (%s)\n", *intelligence.KevVulnerabilityName, vendor)
+			} else {
+				_, _ = fmt.Fprintf(out, "  %s\n", *intelligence.KevVulnerabilityName)
+			}
+		}
+		if intelligence.KevDateAdded != nil {
+			_, _ = fmt.Fprintf(out, "  listed since %s\n", *intelligence.KevDateAdded)
+		}
+		if deadline := kevDeadlineText(intelligence.KevDueDate); deadline != "" {
+			_, _ = fmt.Fprintf(out, "  CISA %s\n", deadline)
+		}
+		if intelligence.KevRansomwareUse {
+			_, _ = fmt.Fprintln(out, "  "+text.FgRed.Sprint("used in ransomware campaigns"))
+		}
+		if intelligence.KevRequiredAction != nil {
+			_, _ = fmt.Fprintf(out, "  CISA required action: %s\n", *intelligence.KevRequiredAction)
+		}
+	} else if advisory.IntelligenceStatus.KevSyncedAt != nil {
+		_, _ = fmt.Fprintln(out, "Not on CISA's Known Exploited Vulnerabilities catalog")
+	} else {
+		_, _ = fmt.Fprintln(out, "CISA KEV status unknown: the platform has not synced the catalog yet")
+	}
+	if epss := epssText(intelligence.EPSSScore, intelligence.EPSSPercentile); epss != "" {
+		_, _ = fmt.Fprintf(out, "  %s exploitation probability in the next 30 days\n", epss)
+	}
+	if record != nil && record.SSVC != nil {
+		_, _ = fmt.Fprintf(out, "  CISA SSVC: exploitation %s · automatable %s · technical impact %s\n",
+			record.SSVC.Exploitation, record.SSVC.Automatable, record.SSVC.TechnicalImpact)
+	}
+	_, _ = fmt.Fprintln(out)
+
+	if record != nil {
+		if len(record.CWEIDs) > 0 || len(record.Aliases) > 0 {
+			if len(record.CWEIDs) > 0 {
+				_, _ = fmt.Fprintf(out, "Weaknesses: %s\n", strings.Join(record.CWEIDs, ", "))
+			}
+			if len(record.Aliases) > 0 {
+				_, _ = fmt.Fprintf(out, "Also known as: %s\n", strings.Join(record.Aliases, ", "))
+			}
+		}
+		if record.CVSSVector != nil {
+			_, _ = fmt.Fprintf(out, "Vector: %s\n", *record.CVSSVector)
+		}
+		if len(record.Affected) > 0 {
+			_, _ = fmt.Fprintln(out)
+			_, _ = fmt.Fprintln(out, "Affected versions")
+			for _, entry := range record.Affected {
+				subject := advisoryAffectedSubject(entry)
+				switch {
+				case len(entry.Ranges) > 0:
+					parts := make([]string, 0, len(entry.Ranges))
+					for _, versionRange := range entry.Ranges {
+						parts = append(parts, advisoryRangeText(versionRange))
+					}
+					_, _ = fmt.Fprintf(out, "  %s: %s\n", subject, strings.Join(parts, "; "))
+				case len(entry.Versions) > 0:
+					_, _ = fmt.Fprintf(out, "  %s: versions %s\n", subject, strings.Join(entry.Versions, ", "))
+				case entry.DefaultStatus == "affected":
+					_, _ = fmt.Fprintf(out, "  %s: all versions affected\n", subject)
+				case entry.DefaultStatus == "unaffected":
+					_, _ = fmt.Fprintf(out, "  %s: not affected\n", subject)
+				default:
+					_, _ = fmt.Fprintf(out, "  %s: no version ranges published\n", subject)
+				}
+			}
+		}
+	}
+
+	fleet := advisory.Fleet
+	_, _ = fmt.Fprintln(out)
+	if len(fleet.Findings) == 0 {
+		_, _ = fmt.Fprintln(out, "In your fleet: no current findings for this CVE")
+	} else {
+		_, _ = fmt.Fprintf(out, "In your fleet: %d findings · %d occurrences (%d with a fix) · %d clusters · %d workloads\n",
+			len(fleet.Findings), fleet.Occurrences, fleet.FixableOccurrences, fleet.AffectedClusters, fleet.AffectedWorkloads)
+		writer := newSecurityTable(out)
+		writer.AppendHeader(table.Row{"Package", "Type", "Severity", "Occurrences", "Fixable", "Clusters", "Last seen", "Finding"})
+		for _, finding := range fleet.Findings {
+			writer.AppendRow(table.Row{
+				finding.PackageName, finding.PackageType, severityCell(finding.Severity),
+				finding.Occurrences, finding.FixableOccurrences, finding.AffectedClusters,
+				optionalTimeAgo(&finding.LastSeenAt), finding.ID,
+			})
+		}
+		writer.Render()
+	}
+
+	if record != nil && len(record.References) > 0 {
+		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintf(out, "References (%d)\n", len(record.References))
+		for _, reference := range record.References {
+			tag := "Other"
+			if len(reference.Tags) > 0 {
+				tag = reference.Tags[0]
+			}
+			_, _ = fmt.Fprintf(out, "  [%s] %s\n", tag, reference.URL)
+		}
+	}
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintf(out, "Parsed by Ankra from NVD (%s) and OSV (%s); records are re-read every 14 days.\n",
+		advisorySourceText(advisory.Sources.NVDFetchedAt, advisory.Sources.NVDURL),
+		advisorySourceText(advisory.Sources.OSVFetchedAt, advisory.Sources.OSVURL))
+}
+
+func advisorySourceText(fetchedAt *string, url string) string {
+	if fetchedAt == nil {
+		return "no record, " + url
+	}
+	return "read " + optionalTimeAgo(fetchedAt) + ", " + url
+}
+
 func init() {
 	rootCmd.AddCommand(securityCmd)
-	securityCmd.AddCommand(securityOverviewCmd, securityFindingsCmd, securityFindingCmd, securityClustersCmd)
+	securityCmd.AddCommand(securityOverviewCmd, securityFindingsCmd, securityFindingCmd, securityAdvisoryCmd, securityClustersCmd)
 
 	securityOverviewCmd.Flags().String("cluster", "", "Scope the overview to one cluster (name or id)")
 	securityOverviewCmd.Flags().String("addon", "", "Scope the overview to one add-on (slug)")
@@ -534,5 +759,5 @@ func init() {
 	securityClustersCmd.Flags().Int("page", 1, "Page number")
 	securityClustersCmd.Flags().Int("page-size", 50, "Clusters per page (max 100)")
 
-	registerStructuredOutputFlags(securityOverviewCmd, securityFindingsCmd, securityFindingCmd, securityClustersCmd)
+	registerStructuredOutputFlags(securityOverviewCmd, securityFindingsCmd, securityFindingCmd, securityAdvisoryCmd, securityClustersCmd)
 }

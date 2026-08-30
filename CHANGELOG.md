@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra security advisory <cve-id>`** shows the platform's own advisory for a
+  CVE - the record Ankra parses from NVD and OSV (title, description, CVSS with
+  its vector, weaknesses, aliases, affected products and version ranges written
+  as "fixed from <build>"), CISA's KEV entry and SSVC decision, the EPSS
+  probability, your organisation's current findings for it, and the tagged
+  references - instead of an external advisory link. A CVE the platform has
+  not read yet is queued at the front of its read queue and reported as
+  pending; `-o json` returns the API document.
+
 ### Fixed
 
 - **A copy of the CLI's own release binary is not a plugin.** The release
