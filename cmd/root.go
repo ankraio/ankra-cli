@@ -53,7 +53,11 @@ var rootCmd = &cobra.Command{
 	Use:   "ankra",
 	Short: "CLI for the Ankra platform",
 	Long: `Ankra CLI allows you to manage clusters, applications, operations,
-addons, persistent selection, and more.`,
+addons, persistent selection, and more.
+
+A command the CLI does not know is dispatched to an external plugin: an
+executable named ankra-<command> in ~/.ankra/plugins or on PATH, kubectl
+style. 'ankra plugins' lists what is installed.`,
 	SilenceUsage:      true,
 	PersistentPreRunE: persistentPreRunE,
 }
@@ -71,6 +75,9 @@ func SetVersion(v string) {
 func Execute() {
 	rootCmd.Version = version
 	wrapArgsValidators(rootCmd)
+	if handled, exitCode := dispatchExternalPlugin(os.Args[1:]); handled {
+		os.Exit(exitCode)
+	}
 	executedCommand, err := rootCmd.ExecuteC()
 	if err != nil {
 		printSupportHintForUnexpectedError(os.Stderr, executedCommand, err)

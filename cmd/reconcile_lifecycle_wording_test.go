@@ -53,6 +53,48 @@ func TestClusterDeprovisionHelpDoesNotClaimItIsAStop(t *testing.T) {
 	}
 }
 
+// The help also used to promise, unconditionally, that "the cluster record is
+// kept so it can be provisioned again later". That is true only for imported
+// clusters. A cloud deprovision routes to the provider endpoint, which DELETEs
+// the cluster: the record, its id and its stacks are gone, and no later
+// "cluster provision" can bring them back. Following the documented
+// deprovision/provision cycle on a Proxmox cluster destroyed it outright
+// (ankra-8h0lk). These pin the corrected wording.
+func TestClusterDeprovisionHelpDoesNotPromiseTheRecordSurvives(t *testing.T) {
+	help := clusterDeprovisionCmd.Short + "\n" + clusterDeprovisionCmd.Long
+	if strings.Contains(help, "the cluster record is kept so it can be provisioned") {
+		t.Error("deprovision help still promises the record survives; a cloud deprovision deletes it")
+	}
+	for _, required := range []string{"DELETES", "imported clusters keep their record"} {
+		if !strings.Contains(help, required) {
+			t.Errorf("deprovision help should state %q so the two outcomes are not confused", required)
+		}
+	}
+}
+
+func TestClusterProvisionHelpSaysItCannotRebuildACloudCluster(t *testing.T) {
+	help := clusterProvisionCmd.Short + "\n" + clusterProvisionCmd.Long
+	if !strings.Contains(help, "cannot rebuild a deprovisioned cloud cluster") {
+		t.Error("provision help should say it cannot rebuild a deprovisioned cloud cluster; that record is deleted")
+	}
+}
+
+func TestCloudClusterKindsAreRecognisedAsRecordDeleting(t *testing.T) {
+	for _, kind := range []cloudClusterKind{
+		cloudClusterKindHetzner, cloudClusterKindOvh, cloudClusterKindUpcloud,
+		cloudClusterKindDigitalocean, cloudClusterKindProxmox, cloudClusterKindMorpheus,
+	} {
+		if !isCloudClusterKind(kind) {
+			t.Errorf("%q must be treated as record-deleting so the prompt warns about it", kind)
+		}
+	}
+	for _, kind := range []cloudClusterKind{"imported", "", "k3s"} {
+		if isCloudClusterKind(kind) {
+			t.Errorf("%q is not a provider-deprovisioned kind; its record survives", kind)
+		}
+	}
+}
+
 func TestClusterProvisionHelpDoesNotClaimItIsAStart(t *testing.T) {
 	help := clusterProvisionCmd.Short + "\n" + clusterProvisionCmd.Long
 	if strings.Contains(help, "(start)") {

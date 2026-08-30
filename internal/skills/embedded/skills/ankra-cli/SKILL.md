@@ -99,6 +99,38 @@ ankra cluster agent status
 A failed platform execution explains more deploy failures than pod logs do — start there. See
 `ankra-troubleshooting`.
 
+## Migrating a Docker deployment
+
+```bash
+ankra migrate up ./app --cluster shop --plan       # what will move, how big, what stays behind; changes nothing
+ankra migrate up ./app --cluster shop              # convert + deploy + dump + restore, one command (rehearsal)
+ankra migrate up ./app --cluster shop --stop-source --yes   # the cutover: stop the source's services, final sync
+ankra migrate convert ./app --out ./app-k8s        # the steps separately: compose / Dockerfile / daemon -> stack
+ankra cluster apply -f ./app-k8s/cluster.yaml      # the workloads, with empty databases
+ankra migrate data ./app --cluster shop --wait     # dump every database and restore it in the cluster
+ankra migrate export ./app --out ./app-data        # the two halves of `data`, separately:
+ankra migrate restore ./app-data --cluster shop --wait
+ankra migrate restore-status <import-id> --wait    # follow a restore started without --wait
+ankra migrate imports list                         # the dumps a vault still holds (restore again, or clean up)
+ankra migrate imports delete <import-id> --yes     # remove an import's dumps from the vault
+ankra migrate modules install <https-url-or-file>  # add an external module into ~/.ankra/modules
+```
+
+The CLI also dispatches unknown commands to plugins, kubectl style: an executable named
+`ankra-<command>` in `~/.ankra/plugins` or on PATH runs as `ankra <command>` (built-ins always
+win; `ankra plugins` lists what is installed).
+
+`up` plans before it touches anything (databases and their sizes from the running containers, free
+disk, cluster, stack, vault; `--plan` stops there), applies the stack under the cluster's name, waits
+for the database pods, then dumps and restores. It is safe to re-run. `export` dumps PostgreSQL and
+MySQL/MariaDB through the docker CLI with the credentials the container actually runs with
+(`--option docker-host=ssh://root@host` for a remote daemon, `--option project=<name>` when the compose
+project runs under another name); `restore` uploads the dumps to the organisation's backup vault with
+presigned URLs and the cluster's agent restores them inside the cluster — no kubectl, no database
+client, Ankra never holds the data. Needs a ready backup vault (`ankra backup vaults provision`; picked
+automatically when there is one) and an agent that supports data restores. Not carried, and named in
+the plan: files in the volumes of non-database workloads, Redis/MongoDB/search data.
+
 ## AI from the terminal
 
 ```bash

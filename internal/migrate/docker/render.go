@@ -201,6 +201,16 @@ func renderWorkload(project Project, workload Workload, options RenderOptions) (
 			warn("publishes port %d on the host; add --option ingress.%s=<host> to expose it through an Ingress", port.Host, workload.Name)
 		}
 	}
+	if len(servicePorts) == 0 {
+		if engine, ok := DatabaseEngine(workload.Image); ok {
+			// A database nobody published a port for still has to be
+			// reachable inside the cluster: the other workloads connect to
+			// it by service name, and a restore has to find it.
+			port := DefaultDatabasePort(engine)
+			containerPorts = append(containerPorts, containerPort{ContainerPort: port, Protocol: "TCP"})
+			servicePorts = append(servicePorts, servicePort{Name: fmt.Sprintf("tcp-%d", port), Port: port, TargetPort: port, Protocol: "TCP"})
+		}
+	}
 
 	container := podContainer{
 		Name:         workload.Name,

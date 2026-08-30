@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -15,18 +16,26 @@ import (
 // platform API, so none of them require a login.
 var migrateCmd = &cobra.Command{
 	Use:   "migrate",
-	Short: "Convert an existing deployment (docker-compose, Dockerfile, running containers) into Ankra cluster and stack definitions",
-	Long: `Convert an existing deployment into an ImportCluster manifest plus the
-Kubernetes manifests its stack refers to, ready for 'ankra cluster apply'.
+	Short: "Move an existing deployment (docker-compose, Dockerfile, running containers) into a cluster Ankra runs",
+	Long: `Move an existing deployment into a cluster that Ankra runs.
 
-Conversion is done by modules. The 'docker' module is built in and reads
-docker-compose files, bare Dockerfiles, and the running Docker daemon. Anyone
-can add a module for another format by putting an executable named
-'ankra-module-<name>' on PATH or in ~/.ankra/modules - see
-'ankra migrate modules --help' for the contract.
+'ankra migrate up <dir> --cluster <name>' does the whole journey in one
+command: it plans (what will move, how big it is, what stays behind),
+converts the deployment into a stack, deploys the stack, dumps every
+database from the source and restores it in the cluster. Run it once as a
+rehearsal, then again with --stop-source for the cutover.
 
-Nothing here talks to the platform: the commands read local files, write a
-directory, and leave applying it to you.`,
+The steps are also separate commands, for when you want to look at each
+result: 'convert' writes the stack, 'ankra cluster apply' deploys it,
+'export' dumps the data, 'restore' loads it, 'data' does export and
+restore together. 'convert', 'detect', 'export' and 'modules' work offline;
+'up', 'restore', 'restore-status' and 'data' talk to the platform.
+
+Conversion and export are done by modules. The 'docker' module is built in
+and reads docker-compose files, bare Dockerfiles, and the running Docker
+daemon. Anyone can add a module for another format by putting an executable
+named 'ankra-module-<name>' on PATH or in ~/.ankra/modules - see
+'ankra migrate modules --help' for the contract.`,
 	Annotations: map[string]string{annotationRequiresAuth: "false"},
 }
 
@@ -38,6 +47,26 @@ var newMigrateRegistry = func() *migrate.Registry {
 
 func init() {
 	rootCmd.AddCommand(migrateCmd)
+}
+
+// selectMigrateModule picks the module by name, or by asking each one about
+// the directory and taking the most confident answer.
+func selectMigrateModule(cmd *cobra.Command, registry *migrate.Registry, dir, name string) (migrate.Module, error) {
+	if name != "" {
+		module, err := registry.Lookup(cmd.Context(), name)
+		if err != nil {
+			return nil, withExitCode(exitNotFound, err)
+		}
+		return module, nil
+	}
+	candidates, notes := registry.Detect(cmd.Context(), dir)
+	for _, note := range notes {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), note)
+	}
+	if len(candidates) == 0 || candidates[0].Err != nil || candidates[0].Detection.Confidence == 0 {
+		return nil, withExitCode(exitNotFound, fmt.Errorf("no module recognises %s (run `ankra migrate detect %s` to see why)", dir, dir))
+	}
+	return candidates[0].Module, nil
 }
 
 var migrateNamePattern = regexp.MustCompile(`[^a-z0-9-]+`)

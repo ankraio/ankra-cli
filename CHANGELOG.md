@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra security advisory <cve-id>`** shows the platform's own advisory for a
+  CVE - the record Ankra parses from NVD and OSV (title, description, CVSS with
+  its vector, weaknesses, aliases, affected products and version ranges written
+  as "fixed from <build>"), CISA's KEV entry and SSVC decision, the EPSS
+  probability, your organisation's current findings for it, and the tagged
+  references - instead of an external advisory link. A CVE the platform has
+  not read yet is queued at the front of its read queue and reported as
+  pending; `-o json` returns the API document.
+
 ### Fixed
 
 - **`control-plane get` answers the count and the instance type separately.**
@@ -24,6 +35,282 @@
   to track, the offline lane keeps its original wording, and asking for the
   instance type the controllers already run says so instead of reporting a
   change from a size to itself.
+- **A copy of the CLI's own release binary is not a plugin.** The release
+  assets are named `ankra-cli-<os>-<arch>`, so a machine that kept one on
+  PATH as `ankra-cli` saw it listed by `ankra plugins` as a plugin called
+  `cli`, and `ankra cli ...` would have run that older CLI. The name is now
+  ignored by discovery and dispatch; a plugin whose name merely starts with
+  `cli` still works.
+
+## v0.14.0-rc7 — 2026-08-30
+
+### Added
+
+- **`ankra cluster mesh` drives Cilium ClusterMesh from the terminal.**
+  `mesh create <name>`, `join <mesh_id> <cluster_id>`, `leave`, `list`,
+  `show` and `delete` manage a mesh through the platform, and
+  `mesh readiness <cluster_id>...` is the place to start: whether a cluster
+  can mesh at all is decided when it is created - it needs a unique Cilium
+  identity and the platform's WireGuard overlay - so `readiness` prints
+  the failing checks per cluster and marks the ones no running cluster can
+  fix, instead of letting a join fail for a reason that was never fixable.
+- **Tailscale/Headscale join settings on a Proxmox credential, from the
+  CLI.** A Proxmox VE cluster on an SDN vnet is reachable only through the
+  tailnet its VMs join, and the settings that make that join happen could
+  only be written from the browser. `ankra proxmox credentials tailscale
+  set <credential-id>` and `clear <credential-id>` now manage them, so an
+  automated or scripted setup no longer builds every VM correctly and then
+  fails to reach them.
+- **`ankra migrate up` moves a Docker deployment into a cluster in one
+  command.** Where the migration used to be four commands with judgement
+  calls between them, `ankra migrate up ./app --cluster shop` now plans,
+  converts, deploys, dumps and restores, and stops before the first change
+  when something is off. The plan says exactly what will happen: every
+  database found in the running containers with its size on the source,
+  what the dumps need on disk against what is free, whether the stack
+  exists on the cluster, which backup vault carries the data, and what
+  stays behind - files in the volumes of other workloads, Redis, MongoDB,
+  search indexes - so nothing is forgotten silently. `--plan` prints that
+  and stops. Then the stack is applied under the cluster's own name, the
+  database pods are waited for, the data is exported and restored, and
+  the command ends with where the deployment runs and the URLs it answers
+  on. Run it once as a rehearsal; run it again with `--stop-source` and
+  the source's services are stopped before the final dump - that is the
+  cutover, and the command prints how to start them again. `--no-data`
+  deploys only, `--timeout` bounds each waiting step, `-o json` gives the
+  whole record.
+
+- **The export reads the database's real configuration, not the compose
+  file's guess.** Credentials, the application database and the root
+  account now come from the running container's environment, so a
+  `${DB_USER}` the file could not resolve, an `env_file`, or a password
+  handed over as `POSTGRES_PASSWORD_FILE` all work. A MySQL/MariaDB server
+  started without a root password (`MYSQL_RANDOM_ROOT_PASSWORD`) is dumped
+  as the application user, and a server nobody can log into is refused with
+  the reason instead of a failed dump.
+
+- **Unknown commands dispatch to plugins, kubectl style.** An executable
+  named `ankra-<command>` in `~/.ankra/plugins` or on PATH now runs as
+  `ankra <command>`, with the remaining arguments, this terminal's streams,
+  `ANKRA_CLI_VERSION` in its environment, and its exit code as the CLI's.
+  Built-in commands always win, multi-word names resolve longest first
+  (`ankra foo bar` prefers `ankra-foo-bar`), and `ankra plugins` lists what
+  is installed - warning about a plugin a built-in command shadows.
+
+- **`ankra migrate modules install` and `uninstall` manage external
+  modules.** `install <https-url-or-file>` fetches one module executable
+  into `~/.ankra/modules`, runs its describe verb before keeping anything,
+  and installs it under the name the module calls itself; `--sha256` pins
+  the download, `--force` replaces, and the confirmation says plainly that
+  a module runs with your permissions. `uninstall <name>` removes what
+  install placed there and refuses, with its location, a module that lives
+  on PATH.
+
+- **Dumps above 1 GiB are uploaded in parts, and the 5 GiB ceiling is
+  gone.** `ankra migrate restore`, `data` and `up` now send a large dump
+  as a multipart upload the platform starts for them: 64 MiB parts, each
+  retried on its own when the link hiccups, completed by the CLI and
+  aborted if it cannot finish, so the vault never keeps half an upload. An
+  artifact may be up to 625 GiB (10,000 parts of 64 MiB). The progress line says how
+  many parts a dump has.
+
+- **`ankra migrate imports list` and `ankra migrate imports delete` manage
+  the dumps a migration leaves in the backup vault.** Every restore keeps its
+  upload under `imports/<import-id>/` so the same data can be restored
+  again; the vault would otherwise hold it forever. `imports list` shows
+  what a vault holds - stack, status, databases, size - and `imports delete`
+  removes an import's dumps from the vault and forgets the import, after a
+  confirmation (`--yes` skips it). An import whose restore is running is
+  refused. A completed restore now ends by naming the delete command, and
+  deleting a vault removes the dumps of every import it held when the
+  bucket outlives the vault.
+
+### Fixed
+
+- **`ankra cluster deprovision` no longer promises a cloud cluster can be
+  provisioned again.** The help said the record was kept for a later
+  `cluster provision`; that is true for imported clusters only. Deprovisioning
+  a hetzner, ovh, upcloud, digitalocean, proxmox or morpheus cluster deletes
+  the record with its resources, and both commands now say so - create a new
+  cluster instead of following a cycle that cannot complete.
+- **`ankra migrate up` runs again into the same output directory.** The
+  rehearsal left `stack/` and `data/` behind and the cutover run refused the
+  directory as "not empty" unless `--force` was passed. A directory that
+  holds nothing but an earlier run's output is now reused; `--force` is only
+  for one that holds other files. `ankra migrate convert` also printed
+  `ankra cluster apply <file>` as the next step, which that command does not
+  accept - it is `ankra cluster apply -f <file>`.
+
+## v0.14.0-rc6 — 2026-08-29
+
+### Added
+
+- **A shell in any pod, from the terminal you are in.** `ankra cluster
+  terminal <pod> -n <namespace>` opens an interactive shell in the pod's
+  container through the platform - no kubeconfig, no port-forward - with the
+  local terminal in raw mode, so Ctrl-C and window resizes reach the remote
+  shell; leave with `exit`. A pod with one container needs nothing more, one
+  with several takes `--container`, and `--shell` picks the shell (default
+  `/bin/sh`). `ankra cluster debug create --attach` drops straight into the
+  debug pod it just created instead of printing the portal link. Every
+  session is recorded by the platform and linked from the cluster's audit
+  log, exactly like the portal's terminal. Needs `kubernetes.exec` and a
+  platform that serves the bearer terminal lane (cluster-api from
+  2026-08-29); an older platform answers 404 at the handshake.
+
+- **`ankra org terminal-session` says when a transcript was pruned.** The
+  platform now prunes recorded transcripts past a retention window (90 days
+  by default) while keeping the session facts; the facts line flags
+  `transcript pruned <time>`, and `--transcript` / `--show-input` explain
+  the prune instead of printing an empty recording.
+
+## v0.14.0-rc5 — 2026-08-29
+
+### Added
+
+- **Scaleway clusters get the full command set.** `ankra cluster scaleway`
+  now covers create (with `preflight` to prove capacity before paying for
+  it), deprovision, worker counts, Kubernetes version and upgrade, the whole
+  node-group surface (list, add, scale, instance type, labels, taints,
+  delete, autoscaling), control plane, SSH keys and the catalogue reads
+  (locations, instance types, gateway types, networks), and `ankra scaleway
+  credentials` stores API and SSH-key credentials with the secret key taken
+  from a masked prompt, never the command line. The shared `node-group`,
+  `ssh-keys`, `scale`, `upgrade` and `delete` commands accept Scaleway
+  clusters instead of refusing them.
+- **UpCloud clusters can span zones.** `ankra cluster upcloud create --zones
+  fi-hel1,fi-hel2,se-sto1` places a kubeadm cluster across three or more
+  zones (`--zone` stays the primary), `--network-mode
+  private_network|wireguard_mesh` picks the fabric (derived when omitted),
+  `ankra cluster upcloud zones <cluster_id> --zones ...` grows the pool, and
+  `--zone` on `node-group add` pins a group; `node-group list` shows each
+  group's zones. The platform refuses these inputs on organisations without
+  the network overlay enabled, and the CLI repeats that refusal verbatim.
+
+- **Debug pods that impersonate a workload.** `ankra cluster debug create
+  --namespace <ns> --from-pod <pod>` spins up a pod that mirrors the named
+  pod - its service account, node, volumes and volume mounts, environment
+  variables and `envFrom` sources, tolerations and security context - under
+  an image chosen for its tools (netshoot by default; `--image` takes any
+  reference, `debug images` lists the tag-pinned catalogue). Without
+  `--from-pod` it is a plain shell in a namespace. `--container` picks which
+  container to mirror, `--no-mounts` / `--no-env` leave those out, `--ttl`
+  sets the lifetime (1m-8h, default 1h) the kubelet enforces on its own. The
+  command prints the portal link to the new pod's terminal; `debug list` and
+  `debug delete` manage what is running. Needs `kubernetes.write` and
+  `kubernetes.exec`, and cluster agent 2.1.1074 or newer.
+- **Recorded terminal sessions are readable.** Every pod terminal session is
+  now recorded by the platform; `ankra org terminal-session <session-id>`
+  prints a session's facts and, with `--transcript`, replays the recorded
+  output as text (`--show-input` lists what was typed). The session id is
+  the `terminal_session_id` on an `open_pod_terminal` audit row. Needs
+  `audit.read`.
+- **`ankra migrate export` dumps the databases a Docker deployment runs, ready
+  to be restored into the cluster.** `ankra migrate convert` moved the
+  workloads but left every database volume empty; the data had to be copied
+  by hand. `ankra migrate export` now finds every PostgreSQL and MySQL/MariaDB
+  service in a compose project (or the running daemon), dumps each database
+  through the docker CLI - `pg_dump -Fc` plus roles and globals, or
+  `mysqldump` - and writes a self-describing directory: the dumps, a
+  `manifest.json` that names the Service and Secret `convert` generated for
+  each database so a restore knows exactly where to load it, and a
+  `SHA256SUMS` file. A deployment on another host is dumped the way docker
+  reaches it (`--option docker-host=ssh://root@host`), with
+  `--option project=<name>` for a compose project that runs under a
+  different name, and `--option databases.<workload>=a,b` to pick databases.
+  Passwords never cross the host's command line: every dump runs inside the
+  container through its own environment, and the dumps are written readable
+  by you alone. Roles come across without their passwords - the cluster's
+  own user keeps the password from its Secret, and the export says which
+  other roles need one set afterwards - and PostgreSQL's maintenance
+  database `postgres` is left out unless the image keeps the application's
+  data there (`POSTGRES_DB`, or its default), with a hint on how to include
+  it otherwise. Module authors get the same verb:
+  a module that lists `export` under its capabilities is asked to dump, with
+  its stderr relayed live as progress (`examples/modules/README.md`).
+- **`ankra migrate restore` loads an export into the cluster, and `ankra
+  migrate data` does export and restore in one go.** The dumps go straight
+  from this machine to the organisation's backup vault through presigned
+  URLs, the platform verifies every object arrived at the size the export
+  recorded, and the cluster's agent runs the restore inside the cluster -
+  roles and globals first, then each database with the engine's own tools,
+  against the Service and Secret `convert` generated. Ankra never holds the
+  data, and nothing on this machine needs kubectl or a database client. The
+  vault is picked automatically when the organisation has exactly one that
+  is ready (`--vault` otherwise), the cluster defaults to the selected one,
+  `--wait` follows the restore to completion or failure with every job's
+  state as it changes (`--timeout` bounds only that wait, never an upload),
+  and `ankra migrate restore-status <import-id>` reports on one started
+  earlier. A dump above 5 GiB is refused before anything is registered -
+  one presigned upload carries at most that much. A restore needs the `backups` feature,
+  the converted stack applied, and a cluster agent that supports data
+  restores; the platform names whichever is missing.
+- **A converted database always gets a Service.** `ankra migrate convert`
+  only generated a Service for workloads with published ports, so a compose
+  database nobody exposed to the host - the usual case - was unreachable
+  from the other workloads once in the cluster. Database images now get a
+  Service on their default port regardless.
+- **The Security Center is readable from the terminal.** `ankra security
+  overview` prints the fleet's actionable totals, scanner coverage, the
+  remediation candidates, and - first - how many vulnerabilities CISA lists
+  as exploited in the wild, how many are past CISA's remediation deadline and
+  how many CISA links to ransomware. `ankra security findings` lists findings
+  exploited-in-the-wild first (CISA KEV, then EPSS, then severity), with
+  `--known-exploited`, `--severity`, `--status`, `--fixable`, `--cluster`,
+  `--addon`, `--namespace`, `--search`, `--sort` and `--order` mirroring the
+  portal's filters; every row shows the CISA deadline in explicit tense and
+  the EPSS probability. `ankra security finding <id>` quotes CISA's own entry
+  - vulnerability name, deadline and required action - above every current
+  occurrence, and `ankra security clusters` gives per-cluster posture with
+  the known-exploited count. All four take `-o json` for reporting.
+
+### Fixed
+
+- **`--allow-repoint` says what a repoint does.** The flag's help claimed
+  that resources the new source does not define are pruned, which reads as a
+  prediction about the target's current contents and stopped a safe repoint
+  from being run. `ankra cluster apply` now explains the actual sequence:
+  Ankra writes the cluster's current state to the new source first and then
+  syncs from it, and a target that cannot be written leaves the cluster
+  unchanged.
+
+## v0.14.0-rc4 — 2026-08-28
+
+### Added
+
+- **`ankra backup vaults provision` needs no arguments.** Letting Ankra set a
+  vault up is now one command: the name defaults to `backups` (then
+  `backups-2` and so on, against the vaults that already exist), the
+  credential to the only one Ankra can provision from, and the region to that
+  provider's usual one - and the command prints what it chose before it
+  creates anything. Pass any of them to override. With several usable
+  credentials it still asks which, rather than guessing.
+
+### Changed
+
+- **kubeadm is the default distribution (PLA-808).** `--distribution` on every
+  provider `create` (Hetzner, OVH, UpCloud, DigitalOcean, Proxmox VE, HPE
+  Morpheus) now defaults to `kubeadm` - vanilla upstream Kubernetes with
+  Cilium. k3s stays available with `--distribution k3s` but is never a
+  default; the `--kubernetes-version` and `ankra cluster upgrade` help lead
+  with `kubeadm-versions`. Pairs with the platform default flip
+  (ankraio/cluster#2086), which also makes an omitted `--cni` follow the
+  distribution: Cilium on kubeadm, flannel on k3s.
+
+### Fixed
+
+- **A failed provisioning is no longer told to fix its access keys.** For a
+  vault Ankra provisioned there are none to fix - the run never got as far
+  as minting any - and re-verifying cannot make a bucket exist. `get` and a
+  failed `provision` now say to delete it with
+  `--destroy-provider-resources`, which also clears whatever the run had
+  already created, and provision again. A vault that verified before, or one
+  whose bucket you registered yourself, still points at the keys.
+- **A vault name that cannot be looked up says why.** When listing failed,
+  the name was handed to the API unchanged and came back as a uuid-parsing
+  validation error - which reads as a typo for a name that was right. The
+  command now reports the real reason it could not resolve the name; an id
+  still needs no lookup at all.
 
 ## v0.14.0-rc3 — 2026-08-28
 
@@ -1662,7 +1949,6 @@ decoding response shapes the API never sent.
   answers `describe`, `detect`, and `convert` over JSON (see
   `ankra migrate modules --help` and `examples/modules/`). None of it needs
   a login.
-
 
 - **Chat progress is visible again.** Status frames became structured
   objects on newer backends and the CLI silently dropped them; it now

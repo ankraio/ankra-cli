@@ -25,6 +25,8 @@ var upcloudCreateCmd = &cobra.Command{
 		credentialID, _ := cmd.Flags().GetString("credential-id")
 		sshKeyCredentialID, _ := cmd.Flags().GetString("ssh-key-credential-id")
 		zone, _ := cmd.Flags().GetString("zone")
+		zones, _ := cmd.Flags().GetStringSlice("zones")
+		networkMode, _ := cmd.Flags().GetString("network-mode")
 		networkIPRange, _ := cmd.Flags().GetString("network-ip-range")
 		bastionPlan, _ := cmd.Flags().GetString("bastion-plan")
 		cpCount, _ := cmd.Flags().GetInt("control-plane-count")
@@ -51,6 +53,8 @@ var upcloudCreateCmd = &cobra.Command{
 			CredentialID:          credentialID,
 			SSHKeyCredentialID:    sshKeyCredentialID,
 			Zone:                  zone,
+			Zones:                 zones,
+			NetworkMode:           networkMode,
 			NetworkIPRange:        networkIPRange,
 			BastionPlan:           bastionPlan,
 			ControlPlaneCount:     cpCount,
@@ -320,6 +324,53 @@ var upcloudUpgradeCmd = &cobra.Command{
 	},
 }
 
+var upcloudZonesCmd = &cobra.Command{
+	Use:   "zones <cluster_id>",
+	Short: "Extend a multi-zone cluster's zone pool",
+	Long: `Extend the zone pool of an UpCloud cluster created with --network-mode wireguard_mesh
+(or with --zones). Pass the full desired pool, primary zone first: zones can only be
+added, never removed, and the pool must keep at least 3 zones with 3 control planes.
+Every new zone gets its own private network and NAT gateway; node groups added or
+scaled afterwards spread across the grown pool, and the cloud-provider stack
+republishes with load balancers and volumes scoped to the primary zone.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID := args[0]
+		zones, _ := cmd.Flags().GetStringSlice("zones")
+
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.UpdateUpcloudZonePool(requestContext, clusterID, zones, wait)
+		if err != nil {
+			return asyncWriteError("updating the zone pool", wait, err)
+		}
+		if submitted {
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Zone pool update")); err != nil {
+				return err
+			} else if handled {
+				return nil
+			}
+			printAsyncWriteSubmitted("Zone pool update")
+			return nil
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		if len(result.AddedZones) == 0 {
+			fmt.Printf("Zone pool unchanged: %s\n", strings.Join(result.Zones, ", "))
+			return nil
+		}
+		fmt.Printf("Zone pool is now %s (added %s).\n", strings.Join(result.Zones, ", "), strings.Join(result.AddedZones, ", "))
+		return nil
+	},
+}
+
 var upcloudNodeGroupCmd = &cobra.Command{
 	Use:   "node-group",
 	Short: "Manage node groups for an UpCloud cluster",
@@ -362,11 +413,13 @@ var upcloudNodeGroupAddCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		instanceType, _ := cmd.Flags().GetString("instance-type")
 		count, _ := cmd.Flags().GetInt("count")
+		zone, _ := cmd.Flags().GetString("zone")
 
 		req := client.AddNodeGroupRequest{
 			Name:         name,
 			InstanceType: instanceType,
 			Count:        count,
+			Zone:         zone,
 		}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
@@ -525,15 +578,17 @@ func init() {
 	upcloudCreateCmd.Flags().String("name", "", "Cluster name (required)")
 	upcloudCreateCmd.Flags().String("credential-id", "", "UpCloud API credential ID (required)")
 	upcloudCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
-	upcloudCreateCmd.Flags().String("zone", "", "UpCloud zone (required)")
+	upcloudCreateCmd.Flags().String("zone", "", "UpCloud zone (required); the primary zone of a multi-zone cluster (bastion, first control plane, default network)")
+	upcloudCreateCmd.Flags().StringSlice("zones", nil, "Zone pool for a multi-zone cluster (e.g. fi-hel1,fi-hel2,se-sto1). Must include --zone. Needs at least 3 zones and --control-plane-count=3 so the control plane survives the loss of any one zone; each extra zone gets its own private network and NAT gateway, and the nodes are joined by a platform-managed WireGuard mesh. kubeadm only. Omitted keeps the cluster in --zone")
+	upcloudCreateCmd.Flags().String("network-mode", "", "Network mode: private_network or wireguard_mesh. Derived when omitted (wireguard_mesh for a multi-zone pool). Pass wireguard_mesh on a single-zone kubeadm cluster to make it mesh-capable so zones can be added later with 'ankra cluster upcloud zones'; a mesh cannot be retrofitted")
 	upcloudCreateCmd.Flags().String("network-ip-range", "", "Private network IP range (optional). Left unset, Ankra picks a range that is free in your UpCloud account; pass one only to pin it (a range overlapping an existing network in the zone is refused)")
 	upcloudCreateCmd.Flags().String("bastion-plan", "1xCPU-2GB", "Bastion plan")
 	upcloudCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
 	upcloudCreateCmd.Flags().String("control-plane-plan", "2xCPU-4GB", "Control plane plan")
 	upcloudCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
 	upcloudCreateCmd.Flags().String("worker-plan", "2xCPU-4GB", "Worker plan")
-	upcloudCreateCmd.Flags().String("distribution", "k3s", "Kubernetes distribution: k3s or kubeadm")
-	upcloudCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster k3s-versions` or `ankra cluster kubeadm-versions`)")
+	upcloudCreateCmd.Flags().String("distribution", "kubeadm", "Kubernetes distribution: kubeadm (default, vanilla upstream Kubernetes with Cilium) or k3s")
+	upcloudCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster kubeadm-versions` or `ankra cluster k3s-versions`)")
 	upcloudCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control planes) or external (dedicated VMs)")
 	upcloudCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
 	upcloudCreateCmd.Flags().String("etcd-plan", "2xCPU-4GB", "Plan for dedicated etcd nodes when --etcd-topology=external")
@@ -558,6 +613,10 @@ func init() {
 	upcloudNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	upcloudNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
+	upcloudNodeGroupAddCmd.Flags().String("zone", "", "Pin every node of the group to one zone of a multi-zone cluster's pool (e.g. se-sto1). Pin the group when it runs zonal storage: an UpCloud volume cannot attach from another zone. Omitted spreads the group across the pool; on a single-zone cluster the flag is refused")
+	upcloudZonesCmd.Flags().StringSlice("zones", nil, "The desired zone pool, primary zone first (required). Every current zone must still be listed; new zones are added in the given order")
+	_ = upcloudZonesCmd.MarkFlagRequired("zones")
+	registerAsyncWriteFlags(upcloudZonesCmd)
 	upcloudNodeGroupAddCmd.Flags().String("instance-type", "2xCPU-4GB", "Server plan for nodes")
 	upcloudNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
 	_ = upcloudNodeGroupAddCmd.MarkFlagRequired("name")
@@ -594,6 +653,7 @@ func init() {
 	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupDeleteCmd)
 
 	upcloudCmd.AddCommand(upcloudCreateCmd)
+	upcloudCmd.AddCommand(upcloudZonesCmd)
 	upcloudCmd.AddCommand(upcloudDeprovisionCmd)
 	upcloudCmd.AddCommand(upcloudStopCmd)
 	upcloudCmd.AddCommand(upcloudStartCmd)

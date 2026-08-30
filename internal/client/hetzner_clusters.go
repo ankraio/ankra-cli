@@ -232,6 +232,9 @@ type NodeGroupInfo struct {
 	// placement, for a group created before it existed, and against a
 	// platform that predates the field.
 	AvailabilityZones []string `json:"availability_zones,omitempty"`
+	// Zones is the same listing for an UpCloud multi-zone cluster: the
+	// distinct zones of the pool the group's nodes were placed in.
+	Zones []string `json:"zones,omitempty"`
 }
 
 type NodeGroupListResult struct {
@@ -248,6 +251,9 @@ type AddNodeGroupRequest struct {
 	// regions. Omitted spreads the group across the cluster's zone pool when
 	// it has one, and leaves placement to the provider when it does not.
 	AvailabilityZone string `json:"availability_zone,omitempty"`
+	// Zone pins every node of the group to one zone of an UpCloud
+	// multi-zone cluster's pool. Omitted spreads the group across the pool.
+	Zone string `json:"zone,omitempty"`
 	// UserData is the group's opaque cloud-init document (OVH clusters
 	// only), applied verbatim at first boot by every instance the group
 	// ever creates, replacements included. The platform sends no cloud-init

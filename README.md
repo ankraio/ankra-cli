@@ -151,7 +151,7 @@ per command family:
 | [ankra org](https://docs.ankra.ai/reference/cli/org) | Manage organisations, members, roles, org variables, DNS, and MCP tool servers |
 | [ankra profile](https://docs.ankra.ai/reference/cli/profile) | Open profile authentication settings (MFA, passkeys) in the browser |
 | [ankra skills](https://docs.ankra.ai/reference/cli/skills) | Install Ankra Agent Skills into Cursor or Claude Code |
-| [ankra migrate](https://docs.ankra.ai/reference/cli/migrate) | Convert a docker-compose file, Dockerfile, or running containers into Ankra cluster and stack definitions; extensible with `ankra-module-<name>` executables |
+| [ankra migrate](https://docs.ankra.ai/reference/cli/migrate) | Convert a docker-compose file, Dockerfile, or running containers into Ankra cluster and stack definitions, and export their databases for a restore into the cluster; extensible with `ankra-module-<name>` executables |
 | [ankra stack-profiles](https://docs.ankra.ai/reference/cli/stack-profiles) | Manage reusable stack profiles |
 | [ankra support](https://docs.ankra.ai/reference/cli/support) | Create and track Ankra support requests |
 | [ankra tokens](https://docs.ankra.ai/reference/cli/tokens) | Manage API tokens |
@@ -244,7 +244,7 @@ and flag descriptions in `cmd/`.
 - Verify `ANKRA_API_TOKEN` is set (or run `ankra login`)
 - Check connectivity: `ankra cluster list`
 - Visit the [documentation](https://docs.ankra.ai) for detailed guides
-- Check the [Ankra Platform status](https://status.ankra.io) for any service outages
+- Check the [Ankra Platform status](https://status.ankra.ai) for any service outages
 
 ## Learn More
 

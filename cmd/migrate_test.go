@@ -72,7 +72,24 @@ func resetMigrateFlags() {
 	migrateConvertOptions = nil
 	migrateConvertForce = false
 	migrateConvertDryRun = false
-	for _, command := range []string{"convert", "detect", "modules"} {
+	migrateUpModule = ""
+	migrateUpOut = "ankra-migration"
+	migrateUpNamespace = ""
+	migrateUpStack = ""
+	migrateUpCluster = ""
+	migrateUpVault = ""
+	migrateUpOptions = nil
+	migrateUpForce = false
+	migrateUpNoData = false
+	migrateUpStopSource = false
+	migrateUpYes = false
+	migrateUpPlanOnly = false
+	migrateModulesInstallName = ""
+	migrateModulesInstallSHA = ""
+	migrateModulesInstallForce = false
+	migrateModulesInstallYes = false
+	migrateModulesUninstallYes = false
+	for _, command := range []string{"convert", "detect", "modules", "up"} {
 		sub, _, _ := migrateCmd.Find([]string{command})
 		if sub != nil && sub.Flags().Lookup("output") != nil {
 			_ = sub.Flags().Set("output", "")

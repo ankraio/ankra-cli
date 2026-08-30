@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,6 +40,7 @@ pass --module to choose explicitly. Module-specific settings go through
   --option use-environment=true               let your shell satisfy ${VAR} references
   --option project=<name>                     compose project, for source=daemon
   --option containers=a,b                     specific containers, for source=daemon
+  --option docker-host=ssh://root@host        a remote daemon, for source=daemon
   --option image.<workload>=<registry/repo:tag>  image for a locally built workload
   --option ingress.<workload>=<host>          expose a workload through an Ingress
   --option cluster-issuer=letsencrypt-prod    request TLS for every Ingress
@@ -51,7 +53,7 @@ plain text - and each one names the fix.
 
 Then review the output and apply it:
 
-  ankra cluster apply <out>/cluster.yaml`,
+  ankra cluster apply -f <out>/cluster.yaml`,
 	Example: `  ankra migrate convert
   ankra migrate convert ./app --out ./app-k8s --option profiles=app
   ankra migrate convert --option source=daemon --option project=aura-office
@@ -86,30 +88,14 @@ func runMigrateConvert(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-
 	options, err := parseMigrateOptions(migrateConvertOptions)
 	if err != nil {
 		return err
 	}
-
-	registry := newMigrateRegistry()
-	var module migrate.Module
-	if migrateConvertModule != "" {
-		module, err = registry.Lookup(cmd.Context(), migrateConvertModule)
-		if err != nil {
-			return withExitCode(exitNotFound, err)
-		}
-	} else {
-		candidates, notes := registry.Detect(cmd.Context(), dir)
-		for _, note := range notes {
-			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), note)
-		}
-		if len(candidates) == 0 || candidates[0].Err != nil || candidates[0].Detection.Confidence == 0 {
-			return withExitCode(exitNotFound, fmt.Errorf("no module recognises %s (run `ankra migrate detect %s` to see why)", dir, dir))
-		}
-		module = candidates[0].Module
+	module, err := selectMigrateModule(cmd, newMigrateRegistry(), dir, migrateConvertModule)
+	if err != nil {
+		return err
 	}
-
 	clusterName := migrateConvertClusterName
 	if clusterName == "" {
 		clusterName = migrateResourceName(filepath.Base(dir))
@@ -119,22 +105,69 @@ func runMigrateConvert(cmd *cobra.Command, args []string) error {
 		namespace = clusterName
 	}
 
-	result, err := module.Convert(cmd.Context(), migrate.ConvertRequest{
-		Dir:         dir,
-		ClusterName: clusterName,
-		Namespace:   namespace,
-		Options:     options,
+	summary, clusterYAML, err := performMigrateConvert(dir, migrateConvertRequest{
+		Module: module, ClusterName: clusterName, Namespace: namespace, Options: options,
+		Out: migrateConvertOut, Force: migrateConvertForce, DryRun: migrateConvertDryRun,
 	})
 	if err != nil {
-		return fmt.Errorf("%s: %w", module.Describe().Name, err)
-	}
-	if err := migrate.Validate(result); err != nil {
-		return fmt.Errorf("%s: %w", module.Describe().Name, err)
+		return err
 	}
 
+	if migrateConvertDryRun {
+		if handled, err := renderStructured(cmd, summary); handled || err != nil {
+			return err
+		}
+		_, _ = fmt.Fprint(cmd.OutOrStdout(), string(clusterYAML))
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nWould write %d file(s) to %s:\n", len(summary.Files), migrateConvertOut)
+		for _, file := range summary.Files {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  %s\n", file)
+		}
+		printMigrateWarnings(cmd, summary.Warnings)
+		return nil
+	}
+
+	if handled, err := renderStructured(cmd, summary); handled || err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Converted %s with the %s module.\n", dir, summary.Module)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Wrote %d file(s) to %s\n", len(summary.Files), summary.Out)
+	printMigrateWarnings(cmd, summary.Warnings)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nReview the output, then apply it:\n  ankra cluster apply -f %s\n", filepath.Join(summary.Out, "cluster.yaml"))
+	return nil
+}
+
+// migrateConvertRequest is one conversion: the module, the names the output
+// carries, and where it goes. DryRun renders without writing.
+type migrateConvertRequest struct {
+	Module      migrate.Module
+	ClusterName string
+	Namespace   string
+	Options     map[string]string
+	Out         string
+	Force       bool
+	DryRun      bool
+}
+
+// performMigrateConvert runs the module, validates its result, and writes
+// cluster.yaml plus every file it produced under Out unless DryRun. It
+// returns the summary (Out set when written) and the rendered cluster.yaml.
+func performMigrateConvert(dir string, request migrateConvertRequest) (migrateConvertSummary, []byte, error) {
+	module := request.Module
+	result, err := module.Convert(context.Background(), migrate.ConvertRequest{
+		Dir:         dir,
+		ClusterName: request.ClusterName,
+		Namespace:   request.Namespace,
+		Options:     request.Options,
+	})
+	if err != nil {
+		return migrateConvertSummary{}, nil, fmt.Errorf("%s: %w", module.Describe().Name, err)
+	}
+	if err := migrate.Validate(result); err != nil {
+		return migrateConvertSummary{}, nil, fmt.Errorf("%s: %w", module.Describe().Name, err)
+	}
 	clusterYAML, err := yaml.Marshal(result.Cluster)
 	if err != nil {
-		return err
+		return migrateConvertSummary{}, nil, err
 	}
 
 	files := make([]string, 0, len(result.Files)+1)
@@ -143,57 +176,37 @@ func runMigrateConvert(cmd *cobra.Command, args []string) error {
 	}
 	sort.Strings(files)
 	files = append([]string{"cluster.yaml"}, files...)
-
 	summary := migrateConvertSummary{
 		Module:   module.Describe().Name,
 		Cluster:  result.Cluster,
 		Files:    files,
 		Warnings: result.Warnings,
 	}
-
-	if migrateConvertDryRun {
-		if handled, err := renderStructured(cmd, summary); handled || err != nil {
-			return err
-		}
-		_, _ = fmt.Fprint(cmd.OutOrStdout(), string(clusterYAML))
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nWould write %d file(s) to %s:\n", len(files), migrateConvertOut)
-		for _, file := range files {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  %s\n", file)
-		}
-		printMigrateWarnings(cmd, result.Warnings)
-		return nil
+	if request.DryRun {
+		return summary, clusterYAML, nil
 	}
 
-	out, err := filepath.Abs(migrateConvertOut)
+	out, err := filepath.Abs(request.Out)
 	if err != nil {
-		return withExitCode(exitUsage, err)
+		return migrateConvertSummary{}, nil, withExitCode(exitUsage, err)
 	}
-	if err := ensureMigrateOutDir(out, migrateConvertForce); err != nil {
-		return err
+	if err := ensureMigrateOutDir(out, request.Force); err != nil {
+		return migrateConvertSummary{}, nil, err
 	}
 	if err := os.WriteFile(filepath.Join(out, "cluster.yaml"), clusterYAML, 0o644); err != nil {
-		return err
+		return migrateConvertSummary{}, nil, err
 	}
 	for file, content := range result.Files {
 		path := filepath.Join(out, filepath.FromSlash(file))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
+			return migrateConvertSummary{}, nil, err
 		}
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			return err
+			return migrateConvertSummary{}, nil, err
 		}
 	}
 	summary.Out = out
-
-	if handled, err := renderStructured(cmd, summary); handled || err != nil {
-		return err
-	}
-
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Converted %s with the %s module.\n", dir, summary.Module)
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Wrote %d file(s) to %s\n", len(files), out)
-	printMigrateWarnings(cmd, result.Warnings)
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nReview the output, then apply it:\n  ankra cluster apply %s\n", filepath.Join(out, "cluster.yaml"))
-	return nil
+	return summary, clusterYAML, nil
 }
 
 func printMigrateWarnings(cmd *cobra.Command, warnings []string) {

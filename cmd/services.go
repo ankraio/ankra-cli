@@ -37,6 +37,12 @@ type APIClient interface {
 	GetClusterAddonValues(ctx context.Context, clusterID, addonName string) (string, error)
 	UninstallAddon(ctx context.Context, clusterID, addonResourceID string, deletePermanently bool) (*client.UninstallAddonResult, error)
 
+	GetSecurityOverview(options client.SecurityOverviewOptions) (*client.SecurityOverview, error)
+	ListSecurityFindings(options client.SecurityFindingsOptions) (*client.SecurityFindingList, error)
+	GetSecurityFinding(findingID string) (*client.SecurityFindingDetail, error)
+	GetSecurityAdvisory(cveID string) (*client.SecurityAdvisory, error)
+	ListSecurityClusters(options client.SecurityClustersOptions) (*client.SecurityClusterList, error)
+
 	ListPowerSchedules(clusterID string) (*client.PowerScheduleListResult, error)
 	CreatePowerSchedule(clusterID string, request client.PowerScheduleRequest) (*client.PowerScheduleListResult, error)
 	UpdatePowerSchedule(clusterID, scheduleID string, request client.PowerScheduleRequest) (*client.PowerScheduleListResult, error)
@@ -48,6 +54,13 @@ type APIClient interface {
 	ProvisionBackupVault(request client.ProvisionBackupVaultRequest) (*client.BackupVault, error)
 	VerifyBackupVault(vaultID string) (*client.BackupVault, error)
 	DeleteBackupVault(vaultID string, destroyProviderResources bool) error
+	CreateBackupVaultImport(vaultID string, request client.CreateBackupVaultImportRequest) (*client.CreateBackupVaultImportResult, error)
+	CompleteBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
+	RestoreBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
+	GetBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
+	ListBackupVaultImports(vaultID string) (*client.BackupVaultImportListResult, error)
+	DeleteBackupVaultImport(vaultID string, importID string) error
+	UploadPresignedObject(ctx context.Context, upload client.BackupVaultImportUpload, body client.UploadBody, size int64) error
 
 	ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error)
 	GetExecution(executionID string) (client.ExecutionDetail, error)
@@ -317,6 +330,13 @@ type APIClient interface {
 	ListPods(clusterID string, opts *client.ListPodsOptions) (*client.ListPodsResponse, error)
 	GetResources(clusterID string, req client.GetResourcesRequest) (*client.GetResourcesResponse, error)
 	StreamPodLogs(ctx context.Context, clusterID string, opts client.PodLogOptions, writer io.Writer) error
+	ListDebugPodImages(clusterID string) (*client.DebugPodImagesResponse, error)
+	CreateDebugPod(clusterID string, request client.CreateDebugPodRequest) (*client.DebugPodResponse, error)
+	ListDebugPods(clusterID string, namespace string) (*client.ListDebugPodsResponse, error)
+	DeleteDebugPod(clusterID string, namespace string, podName string) (*client.DeleteDebugPodResponse, error)
+	GetTerminalSession(sessionID string) (*client.TerminalSession, error)
+	GetTerminalTranscript(sessionID string, afterSequence int, limit int) (*client.TerminalTranscriptPage, error)
+	OpenPodTerminal(ctx context.Context, clusterID string, request client.PodTerminalRequest) (client.PodTerminal, error)
 	ListHelmReleases(clusterID string, opts *client.HelmReleasesOptions) (*client.HelmReleasesResponse, error)
 	UninstallHelmRelease(clusterID, releaseName, namespace string) (*client.UninstallHelmReleaseResponse, error)
 	QueryPrometheusInstant(clusterID, query string, timeoutSeconds int) (*client.PrometheusQueryResult, error)
@@ -393,6 +413,14 @@ type APIClient interface {
 	ListHetznerServerTypes(credentialID, location string) ([]client.HetznerServerType, error)
 	ListK3sVersions() (*client.ListVersionsResult, error)
 	ListKubeadmVersions() (*client.ListVersionsResult, error)
+
+	ListClusterMeshes() ([]client.ClusterMesh, error)
+	GetClusterMesh(meshID string) (*client.ClusterMesh, error)
+	CreateClusterMesh(name string) (*client.ClusterMesh, error)
+	DeleteClusterMesh(meshID string) error
+	JoinClusterMesh(meshID string, clusterID string) error
+	LeaveClusterMesh(meshID string, clusterID string) error
+	CheckClusterMeshReadiness(clusterIDs []string) (map[string]client.ClusterMeshReadiness, error)
 	CreatePlayground(planID string) (*client.CreatePlaygroundResult, error)
 	ListPlaygroundPlans() (*client.PlaygroundPlanCatalog, error)
 	ResizePlayground(clusterID string, planID string) (*client.ResizePlaygroundResult, error)
@@ -435,6 +463,7 @@ type APIClient interface {
 	UpgradeUpcloudK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error)
 	ListUpcloudNodeGroups(clusterID string) (*client.NodeGroupListResult, error)
 	AddUpcloudNodeGroup(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error)
+	UpdateUpcloudZonePool(ctx context.Context, clusterID string, zones []string, wait bool) (*client.UpdateUpcloudZonePoolResult, bool, error)
 	ScaleUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error)
 	UpdateUpcloudNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error)
 	DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error)
@@ -508,6 +537,36 @@ type APIClient interface {
 	RestartScalewayClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error)
 	ScalewayNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error)
 	GetScalewayBastionHealth(clusterID string) (*client.BastionHealthResult, error)
+	CreateScalewayCluster(request client.CreateScalewayClusterRequest) (*client.CreateScalewayClusterResponse, error)
+	PreflightScalewayCluster(request client.CreateScalewayClusterRequest) (*client.ScalewayPreflightResult, error)
+	DeprovisionScalewayCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error)
+	GetScalewayWorkerCount(clusterID string) (*client.WorkerCountResult, error)
+	ScaleScalewayWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error)
+	GetScalewayK8sVersion(clusterID string) (*client.K8sVersionInfo, error)
+	UpgradeScalewayK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error)
+	ListScalewayNodeGroups(clusterID string) (*client.NodeGroupListResult, error)
+	AddScalewayNodeGroup(ctx context.Context, clusterID string, request client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error)
+	ScaleScalewayNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error)
+	UpdateScalewayNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error)
+	UpdateScalewayNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error)
+	UpdateScalewayNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error)
+	DeleteScalewayNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error)
+	GetScalewayNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error)
+	UpdateScalewayNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, request client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error)
+	GetScalewayControlPlane(clusterID string) (*client.ControlPlaneInfo, error)
+	ChangeScalewayControlPlaneCount(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error)
+	ChangeScalewayControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error)
+	GetScalewayClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error)
+	UpdateScalewayClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error)
+	ResyncScalewayClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error)
+	ListScalewayCredentials() ([]client.ScalewayCredentialListItem, error)
+	CreateScalewayCredential(request client.CreateScalewayCredentialRequest) (*client.CreateScalewayCredentialResponse, error)
+	ListScalewaySSHKeyCredentials() ([]client.ScalewayCredentialListItem, error)
+	CreateScalewaySSHKeyCredential(request client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error)
+	ListScalewayLocations(credentialID string) (*client.ScalewayCatalogResult, error)
+	ListScalewayInstanceTypes(credentialID, region, zone string) (*client.ScalewayCatalogResult, error)
+	ListScalewayGatewayTypes(credentialID, region, zone string) (*client.ScalewayCatalogResult, error)
+	ListScalewayNetworks(credentialID, region, zone string) (*client.ScalewayCatalogResult, error)
 	CreateProxmoxCluster(request client.CreateProxmoxClusterRequest) (*client.CreateProxmoxClusterResponse, error)
 	DeprovisionProxmoxCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error)
 	StopProxmoxCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error)
@@ -544,6 +603,7 @@ type APIClient interface {
 
 	ListProxmoxCredentials() ([]client.ProxmoxCredentialListItem, error)
 	CreateProxmoxCredential(request client.CreateProxmoxCredentialRequest) (*client.CreateProxmoxCredentialResponse, error)
+	UpdateProxmoxCredentialTailscale(credentialID string, settings *client.ProxmoxTailscale) error
 	ListProxmoxSSHKeyCredentials() ([]client.ProxmoxCredentialListItem, error)
 	CreateProxmoxSSHKeyCredential(request client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error)
 

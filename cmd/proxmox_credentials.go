@@ -19,6 +19,85 @@ var proxmoxCredCmd = &cobra.Command{
 	Long:    "Commands to list and create Proxmox VE API credentials and SSH key credentials.",
 }
 
+var proxmoxCredTailscaleCmd = &cobra.Command{
+	Use:   "tailscale",
+	Short: "Manage the Tailscale/Headscale join settings on a Proxmox VE credential",
+	Long: `Commands to set or clear the Tailscale/Headscale settings a Proxmox VE
+credential passes to the VMs it builds.`,
+}
+
+var proxmoxCredTailscaleSetCmd = &cobra.Command{
+	Use:   "set <credential-id>",
+	Short: "Set the Tailscale/Headscale join settings on a Proxmox VE credential",
+	Long: `Set the Tailscale/Headscale settings a Proxmox VE credential passes to the
+VMs it builds. Every VM - the bastion/gateway included - joins the tailnet
+through the QEMU guest agent as it is created.
+
+Set this before creating a cluster whose bridge is an SDN vnet: a Proxmox SDN
+is node-local, so the tailnet join is the only way the platform can reach
+those VMs. The settings apply to VMs built afterwards; VMs that already exist
+are not joined retrospectively.
+
+The auth key is collected via a masked prompt, never on the command line.
+
+Examples:
+  ankra credentials proxmox tailscale set 63fe1425-4ec1-4058-9fef-7e4caec04c79 \
+    --login-server https://headscale.example
+  ankra credentials proxmox tailscale set 63fe1425-4ec1-4058-9fef-7e4caec04c79 \
+    --login-server https://headscale.example --advertise-routes 10.20.0.0/16`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		loginServer, _ := cmd.Flags().GetString("login-server")
+		if loginServer == "" {
+			return errors.New("--login-server is required")
+		}
+		acceptRoutes, _ := cmd.Flags().GetBool("accept-routes")
+		advertiseRoutes, _ := cmd.Flags().GetString("advertise-routes")
+
+		prompt := promptui.Prompt{
+			Label: "Tailscale Auth Key",
+			Mask:  '*',
+			Validate: func(input string) error {
+				if len(input) == 0 {
+					return fmt.Errorf("auth key cannot be empty")
+				}
+				return nil
+			},
+		}
+		authKey, promptError := prompt.Run()
+		if promptError != nil {
+			return errors.New("prompt cancelled")
+		}
+
+		updateError := apiClient.UpdateProxmoxCredentialTailscale(args[0], &client.ProxmoxTailscale{
+			LoginServer:     loginServer,
+			AuthKey:         authKey,
+			AcceptRoutes:    acceptRoutes,
+			AdvertiseRoutes: advertiseRoutes,
+		})
+		if updateError != nil {
+			return updateError
+		}
+		fmt.Println("Tailscale settings saved. VMs built with this credential from now on will join the tailnet.")
+		return nil
+	},
+}
+
+var proxmoxCredTailscaleClearCmd = &cobra.Command{
+	Use:   "clear <credential-id>",
+	Short: "Remove the Tailscale/Headscale join settings from a Proxmox VE credential",
+	Long: `Remove the Tailscale/Headscale settings from a Proxmox VE credential. VMs
+built afterwards no longer join the tailnet; VMs already on it stay there.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if updateError := apiClient.UpdateProxmoxCredentialTailscale(args[0], nil); updateError != nil {
+			return updateError
+		}
+		fmt.Println("Tailscale settings cleared. VMs already on the tailnet stay on it.")
+		return nil
+	},
+}
+
 var proxmoxCredListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List Proxmox VE API credentials",
@@ -308,6 +387,13 @@ func init() {
 	proxmoxCredCmd.AddCommand(proxmoxCredListCmd)
 	proxmoxCredCmd.AddCommand(proxmoxCredCreateCmd)
 	proxmoxCredCmd.AddCommand(proxmoxSSHKeyCmd)
+
+	proxmoxCredTailscaleSetCmd.Flags().String("login-server", "", "Headscale/Tailscale control server URL, e.g. https://headscale.example (required)")
+	proxmoxCredTailscaleSetCmd.Flags().Bool("accept-routes", false, "Accept subnet routes advertised on the tailnet")
+	proxmoxCredTailscaleSetCmd.Flags().String("advertise-routes", "", "Comma-separated CIDRs the VMs advertise to the tailnet, e.g. 10.20.0.0/16")
+	proxmoxCredTailscaleCmd.AddCommand(proxmoxCredTailscaleSetCmd)
+	proxmoxCredTailscaleCmd.AddCommand(proxmoxCredTailscaleClearCmd)
+	proxmoxCredCmd.AddCommand(proxmoxCredTailscaleCmd)
 
 	credentialsCmd.AddCommand(proxmoxCredCmd)
 }

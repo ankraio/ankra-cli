@@ -1,6 +1,6 @@
 ---
 name: ankra-cloud-clusters
-description: Provision and operate clusters Ankra builds on cloud infrastructure - Hetzner, OVHcloud, UpCloud, DigitalOcean, Proxmox VE, HPE Morpheus and Scaleway - choosing the region and the right instance family, picking k3s or kubeadm and the etcd topology, wiring the generated stack straight into a GitOps repository, taking the ingress/DNS/TLS batteries at create time, then scaling, node groups, availability zones, upgrades and teardown. Use when the user wants Ankra to build a cluster rather than import one, asks which server type or region to pick, or mentions Hetzner, OVH, UpCloud, DigitalOcean, Proxmox, Morpheus or Scaleway clusters.
+description: Provision and operate clusters Ankra builds on cloud infrastructure - Hetzner, OVHcloud, UpCloud, DigitalOcean, Proxmox VE, HPE Morpheus and Scaleway - choosing the region and the right instance family, picking kubeadm (the default) or k3s and the etcd topology, wiring the generated stack straight into a GitOps repository, taking the ingress/DNS/TLS batteries at create time, then scaling, node groups, availability zones, upgrades and teardown. Use when the user wants Ankra to build a cluster rather than import one, asks which server type or region to pick, or mentions Hetzner, OVH, UpCloud, DigitalOcean, Proxmox, Morpheus or Scaleway clusters.
 ---
 
 # Ankra cloud clusters
@@ -62,8 +62,8 @@ public docs.
 Kubernetes versions:
 
 ```bash
+ankra cluster kubeadm-versions      # vanilla Kubernetes targets (the default)
 ankra cluster k3s-versions          # k3s targets
-ankra cluster kubeadm-versions      # vanilla Kubernetes targets
 ```
 
 [reference.md](reference.md) has the per-provider family cheat-sheet — what to pick for a control
@@ -81,8 +81,8 @@ ankra cluster hetzner create \
   --location nbg1 \
   --control-plane-count 3 --control-plane-server-type cx33 \
   --worker-count 3 --worker-server-type cx43 \
-  --distribution k3s \
-  --kubernetes-version <from k3s-versions>
+  --distribution kubeadm \
+  --kubernetes-version <from kubeadm-versions>
 ```
 
 ```bash
@@ -104,7 +104,8 @@ ankra cluster ovh create \
 
 ### Distribution and etcd topology
 
-`--distribution k3s` (default) or `kubeadm`. For kubeadm, `--etcd-topology stacked` (default) puts
+`--distribution kubeadm` (default: vanilla upstream Kubernetes with containerd and Cilium) or `k3s`
+(lightweight; never a default). For kubeadm, `--etcd-topology stacked` (default) puts
 etcd on the control planes; `external` gives it dedicated VMs (`--etcd-node-count 3|5`,
 `--etcd-server-type` / `--etcd-flavor-id` / `--etcd-plan` / `--etcd-size`).
 
@@ -167,13 +168,40 @@ across zones, so a stateful workload also needs one replica and one volume per z
 zone-spread cluster an *unpinned* group's nodes each take the thinnest zone cluster-wide, so a
 one-node group lands wherever the cluster is thinnest — pin the group when it runs zonal storage.
 
+### UpCloud multi-zone clusters
+
+UpCloud has no multi-zone region - every private network and load balancer is zone-local - so
+Ankra stretches a cluster across zones itself: one private network per zone and a platform-managed
+WireGuard mesh between the nodes (kubeadm only). Needs the organisation's `network_overlay`
+feature; without it the flags are refused as "not supported for upcloud clusters".
+
+```bash
+ankra cluster upcloud create --name prod --zone fi-hel1 \
+  --zones fi-hel1,fi-hel2,se-sto1 --control-plane-count 3 \
+  --credential-id <id> --ssh-key-credential-id <id>
+ankra cluster upcloud zones <cluster_id> --zones fi-hel1,fi-hel2,se-sto1,de-fra1   # grow the pool
+ankra cluster upcloud node-group add <cluster_id> --name db-sto --instance-type 4xCPU-8GB --count 2 --zone se-sto1
+```
+
+`--zone` is the primary (bastion, first control plane, default network) and must be in `--zones`. A
+pool needs **at least 3 zones and `--control-plane-count 3`** so etcd keeps quorum when any one
+zone is lost; two-zone pools are refused. Control planes spread one per zone and node groups
+spread across the pool unless pinned with `--zone`. A single-zone cluster that may grow later is
+created with `--network-mode wireguard_mesh`; the mesh cannot be retrofitted, and pools only ever
+grow.
+
+**What stays in the primary zone:** LoadBalancer Services (the CCM is scoped to primary-zone
+nodes) and PersistentVolumes (the UpCloud CSI provisions in one zone). Pin stateful groups to the
+primary zone, or run replicated storage (Longhorn) for workloads in other zones. `ankra cluster
+node-group list` shows `zones=` per group.
+
 ## 4. Operate — mostly provider-agnostic
 
 The provider is detected from the cluster, so these work everywhere:
 
 ```bash
 ankra cluster scale <cluster_id> 5                    # default worker pool
-ankra cluster upgrade <cluster_id> <target_version>   # k3s or kubeadm; --force to override a blocked drain
+ankra cluster upgrade <cluster_id> <target_version>   # kubeadm or k3s; --force to override a blocked drain
 ankra cluster ssh-keys get|set|resync <cluster_id>
 
 ankra cluster node-group list <cluster_id>

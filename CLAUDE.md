@@ -31,23 +31,26 @@ the un-injected fallback; never bump it for a release.
 
 - `main.go` → `cmd/` — flat package, one file per command using
   `<family>_<sub>.go` naming (e.g. `cluster_kubeconfig.go`), tests alongside.
+  `cmd/plugins.go` dispatches unknown commands to `ankra-<command>`
+  executables (kubectl style) before cobra reports them; built-ins always
+  win, so a new command silently shadows any plugin of the same name.
 - `internal/client` — typed HTTP client for the platform API, one file per
   resource family.
 - `internal/kubeconfig` — kubeconfig read/merge/write.
 - `internal/migrate` — `ankra migrate`: the module contract (`Module`,
-  `Description`, `Detection`, `Result`), the registry that discovers
+  `Description`, `Detection`, `Result`, the optional `DataExporter`,
+  `ExportPlanner` and `SourceQuiescer`), the registry that discovers
   `ankra-module-<name>` executables, and the JSON-over-stdio protocol they
   speak. `internal/migrate/docker` is the built-in module and the reference
   implementation; `examples/modules/` holds a complete external one.
-  Nothing under `migrate` may call the platform API - every command there is
-  annotated `annotationRequiresAuth: "false"` and must work offline.
-- `internal/migrate` — `ankra migrate`: the module contract (`Module`,
-  `Description`, `Detection`, `Result`), the registry that discovers
-  `ankra-module-<name>` executables, and the JSON-over-stdio protocol they
-  speak. `internal/migrate/docker` is the built-in module and the reference
-  implementation; `examples/modules/` holds a complete external one.
-  Nothing under `migrate` may call the platform API - every command there is
-  annotated `annotationRequiresAuth: "false"` and must work offline.
+  Nothing under `internal/migrate` may call the platform API: `convert`,
+  `detect`, `modules` and `export` are annotated
+  `annotationRequiresAuth: "false"` and work offline. The online lanes are
+  `cmd/migrate_restore.go` (`restore`, `restore-status`, `data`),
+  `cmd/migrate_imports.go` (`imports list|delete`) and
+  `cmd/migrate_up.go` (`up`, the one-command migration that chains convert,
+  `cluster apply`, the pod wait, export and restore), annotated `"true"`,
+  which drive the backup-vault import routes through `internal/client`.
 - `internal/skills` — embedded agent skills, vendored from the sibling
   `ankra-skills` repo (`make generate` / `make verify-skills`; in the split
   repo the embedded copy is canonical). `clients.go` is the table of every

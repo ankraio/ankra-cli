@@ -68,8 +68,8 @@ func TestMorpheusCreate_MapsFlagsToRequest(t *testing.T) {
 	if request.ControlPlaneCount != 1 || request.WorkerCount != 2 {
 		t.Errorf("counts = %d/%d, want 1/2", request.ControlPlaneCount, request.WorkerCount)
 	}
-	if request.Distribution != "k3s" {
-		t.Errorf("distribution = %q, want k3s", request.Distribution)
+	if request.Distribution != "kubeadm" {
+		t.Errorf("distribution = %q, want kubeadm", request.Distribution)
 	}
 	if !request.IncludeNetworking {
 		t.Error("include_networking should default to true")

@@ -5,15 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
 )
 
-// runDocker shells out to the docker CLI. Tests replace it.
-var runDocker = func(ctx context.Context, args ...string) ([]byte, error) {
-	command := exec.CommandContext(ctx, "docker", args...)
+// runDocker shells out to the docker CLI, against a remote daemon when host
+// is set. Tests replace it.
+var runDocker = func(ctx context.Context, host string, args ...string) ([]byte, error) {
+	command := dockerCommand(ctx, host, args)
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	output, err := command.Output()
@@ -25,6 +25,8 @@ var runDocker = func(ctx context.Context, args ...string) ([]byte, error) {
 
 // DaemonOptions select which running containers to read.
 type DaemonOptions struct {
+	// Host is DOCKER_HOST for the read; empty means the local daemon.
+	Host string
 	// Project limits the read to one compose project, by label.
 	Project string
 	// Containers names specific containers; when set, Project is ignored.
@@ -90,7 +92,7 @@ func LoadDaemon(ctx context.Context, options DaemonOptions) (Project, []string, 
 		if options.Project != "" {
 			args = append(args, "--filter", "label="+labelComposeProject+"="+options.Project)
 		}
-		output, err := runDocker(ctx, args...)
+		output, err := runDocker(ctx, options.Host, args...)
 		if err != nil {
 			return Project{}, nil, err
 		}
@@ -100,7 +102,7 @@ func LoadDaemon(ctx context.Context, options DaemonOptions) (Project, []string, 
 		return Project{}, nil, fmt.Errorf("no containers found")
 	}
 
-	output, err := runDocker(ctx, append([]string{"inspect"}, ids...)...)
+	output, err := runDocker(ctx, options.Host, append([]string{"inspect"}, ids...)...)
 	if err != nil {
 		return Project{}, nil, err
 	}

@@ -117,7 +117,7 @@ ankra cluster managed import   --provider eks --credential-id <id> \
 ```bash
 ankra cluster hetzner locations --credential-id <id>
 ankra cluster hetzner server-types --credential-id <id> --location nbg1 --available-only
-ankra cluster k3s-versions
+ankra cluster kubeadm-versions
 
 ankra cluster hetzner create --name prod --credential-id <id> \
   --ssh-key-credential-id <ssh_id> --location nbg1 \

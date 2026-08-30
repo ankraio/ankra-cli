@@ -94,7 +94,7 @@ Same concepts, different names. `--name`, `--credential-id`, `--ssh-key-credenti
 | Bastion compute | `--bastion-server-type` | `--bastion-size` | `--gateway-flavor-id` | `--bastion-plan` |
 | External etcd compute | `--etcd-server-type` | `--etcd-size` | `--etcd-flavor-id` | `--etcd-plan` |
 | Private network | `--network-ip-range`, `--subnet-range` | `--network-ip-range` | `--network-vlan-id`, `--subnet-cidr`, `--dhcp-start/--dhcp-end` | `--network-ip-range` (auto-picked if omitted) |
-| Zones | — | — | `--availability-zones` | — |
+| Zones | — | — | `--availability-zones` | `--zones` (+ `--network-mode`, `ankra cluster upcloud zones` to grow; node-group `--zone`) |
 | CNI | — | — | — | `--cni flannel\|calico\|cilium` |
 
 Proxmox VE and Morpheus have their own placement flags (host node, storage, template, bridge /

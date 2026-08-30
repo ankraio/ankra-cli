@@ -34,12 +34,33 @@ func NewRegistry(builtins ...Module) *Registry {
 	}
 }
 
+// HomeModulesDir is ~/.ankra/modules: where `ankra migrate modules install`
+// places modules and the first directory discovery searches.
+func HomeModulesDir() (string, error) {
+	home, homeError := os.UserHomeDir()
+	if homeError != nil {
+		return "", homeError
+	}
+	return filepath.Join(home, ".ankra", "modules"), nil
+}
+
+// DescribeExecutable runs one executable's describe verb and validates the
+// answer exactly the way discovery does, so an install checks a module
+// against the same bar it will later be loaded against.
+func DescribeExecutable(ctx context.Context, path string) (Description, error) {
+	module, loadError := loadExternal(ctx, path)
+	if loadError != nil {
+		return Description{}, loadError
+	}
+	return module.Describe(), nil
+}
+
 // defaultSearchDirs is ~/.ankra/modules followed by PATH, so a user can
 // install a module without touching their PATH.
 func defaultSearchDirs() []string {
 	var dirs []string
-	if home, err := os.UserHomeDir(); err == nil {
-		dirs = append(dirs, filepath.Join(home, ".ankra", "modules"))
+	if directory, err := HomeModulesDir(); err == nil {
+		dirs = append(dirs, directory)
 	}
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
 		if dir != "" {

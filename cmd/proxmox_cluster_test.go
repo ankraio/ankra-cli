@@ -79,8 +79,8 @@ func TestProxmoxCreate_MapsFlagsToRequest(t *testing.T) {
 	if request.BastionInstanceType != "px-small" {
 		t.Errorf("bastion instance type = %q, want px-small", request.BastionInstanceType)
 	}
-	if request.Distribution != "k3s" {
-		t.Errorf("distribution = %q, want k3s", request.Distribution)
+	if request.Distribution != "kubeadm" {
+		t.Errorf("distribution = %q, want kubeadm", request.Distribution)
 	}
 	if request.Storage != "" {
 		t.Errorf("storage = %q, want empty (backend default local-lvm applies)", request.Storage)
