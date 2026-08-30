@@ -603,16 +603,19 @@ type MoveClusterRequest struct {
 // MoveClusterDetached counts the source-organisation bindings the platform
 // revoked or removed while moving the cluster.
 type MoveClusterDetached struct {
-	AccessGrants       int64   `json:"access_grants"`
-	KubeTokens         int64   `json:"kube_tokens"`
-	Subscriptions      int64   `json:"subscriptions"`
-	NotificationMutes  int64   `json:"notification_mutes"`
-	NotificationRoutes int64   `json:"notification_routes"`
-	ReportSchedules    int64   `json:"report_schedules"`
-	TrustedActions     int64   `json:"trusted_actions"`
-	GroupMemberships   int64   `json:"group_memberships"`
-	PromotionLinks     int64   `json:"promotion_links"`
-	GitopsRepository   *string `json:"gitops_repository"`
+	AccessGrants          int64   `json:"access_grants"`
+	KubeTokens            int64   `json:"kube_tokens"`
+	Subscriptions         int64   `json:"subscriptions"`
+	NotificationMutes     int64   `json:"notification_mutes"`
+	NotificationRoutes    int64   `json:"notification_routes"`
+	ReportSchedules       int64   `json:"report_schedules"`
+	TrustedActions        int64   `json:"trusted_actions"`
+	GroupMemberships      int64   `json:"group_memberships"`
+	PromotionLinks        int64   `json:"promotion_links"`
+	RoleAssignments       int64   `json:"role_assignments"`
+	PlatformResourceLinks int64   `json:"platform_resource_links"`
+	ContextRepositories   int64   `json:"context_repositories"`
+	GitopsRepository      *string `json:"gitops_repository"`
 }
 
 // MoveClusterResult is the platform's answer to a successful move.

@@ -12,9 +12,13 @@
   variables, while access grants, kube tokens, notification routes and mutes,
   report schedules, trusted AI actions and cluster-group memberships from the
   current organisation are detached and counted in the output. The platform
-  refuses the move while operations are running, while the cluster is in a
-  cluster mesh, for playground clusters, and when the destination already has
-  a cluster with the same name; the refusal reason is printed as-is.
+  moves imported clusters only for now (Ankra-provisioned and managed
+  Kubernetes clusters use a provider credential that belongs to the current
+  organisation) and refuses the move while operations are running, while the
+  cluster is in a cluster mesh, while it has DNS zones bound to the current
+  organisation, for playground and sandbox clusters, and when the destination
+  already has a cluster with the same name; the refusal reason is printed
+  as-is.
   `--yes` skips the confirmation and `-o json` returns the API document.
 - **`ankra security advisory <cve-id>`** shows the platform's own advisory for a
   CVE - the record Ankra parses from NVD and OSV (title, description, CVSS with

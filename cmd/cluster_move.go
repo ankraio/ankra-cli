@@ -24,9 +24,14 @@ notification routes and mutes, security report schedules, trusted AI actions
 and cluster-group memberships. Billing, audit and chat history stay with the
 current organisation.
 
-The platform refuses the move while operations are running on the cluster,
-while the cluster is a member of a cluster mesh, for playground clusters, and
-when the destination already has a cluster with the same name.
+Only imported clusters can be moved for now: Ankra-provisioned and managed
+Kubernetes clusters use a provider credential that belongs to the current
+organisation, so the platform refuses to move them. The platform also refuses
+the move while operations are running on the cluster, while the cluster is a
+member of a cluster mesh, while it has DNS zones bound to the current
+organisation (a published cluster domain or custom DNS zones), for playground
+and sandbox clusters, and when the destination already has a cluster with the
+same name.
 
 The destination is resolved among your organisations by id, slug or name.
 If no cluster name is provided, the currently selected cluster is moved.`,
@@ -75,7 +80,7 @@ If no cluster name is provided, the currently selected cluster is moved.`,
 		if moveError != nil {
 			var refused *client.MoveClusterRefusedError
 			if errors.As(moveError, &refused) {
-				return fmt.Errorf("move refused (%s): %s", refused.Code, refused.Detail)
+				return fmt.Errorf("move refused (%s): %w", refused.Code, refused)
 			}
 			return fmt.Errorf("moving cluster: %w", moveError)
 		}
@@ -103,10 +108,12 @@ func printClusterMoveResult(cmd *cobra.Command, result *client.MoveClusterResult
 	_, _ = fmt.Fprintf(out, "  Cluster ID: %s\n", result.ClusterID)
 	_, _ = fmt.Fprintf(out, "  Destination organisation ID: %s\n", result.DestinationOrganisationID)
 	detached := result.Detached
-	_, _ = fmt.Fprintf(out, "  Detached from the previous organisation: %d access grant(s), %d kube token(s), %d notification route(s), "+
-		"%d mute(s), %d subscription(s), %d report schedule(s), %d trusted action(s), %d group membership(s)\n",
-		detached.AccessGrants, detached.KubeTokens, detached.NotificationRoutes, detached.NotificationMutes,
-		detached.Subscriptions, detached.ReportSchedules, detached.TrustedActions, detached.GroupMemberships)
+	_, _ = fmt.Fprintf(out, "  Detached from the previous organisation: %d access grant(s), %d role assignment(s), %d kube token(s), "+
+		"%d notification route(s), %d mute(s), %d subscription(s), %d report schedule(s), %d trusted action(s), "+
+		"%d group membership(s), %d platform resource link(s), %d context repositor(y/ies)\n",
+		detached.AccessGrants, detached.RoleAssignments, detached.KubeTokens, detached.NotificationRoutes, detached.NotificationMutes,
+		detached.Subscriptions, detached.ReportSchedules, detached.TrustedActions, detached.GroupMemberships, detached.PlatformResourceLinks,
+		detached.ContextRepositories)
 	if detached.GitopsRepository != nil && *detached.GitopsRepository != "" {
 		_, _ = fmt.Fprintf(out, "  GitOps repository %q was detached; reconnect it in the destination organisation.\n", *detached.GitopsRepository)
 	}
