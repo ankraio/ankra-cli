@@ -17,6 +17,26 @@ var proxmoxCmd = &cobra.Command{
 	Long:    "Commands to create, stop, start, and inspect Proxmox VE clusters.",
 }
 
+// validateProxmoxOverlayFlags refuses the overlay flag pairs the platform
+// would refuse, before the request leaves the machine: an unknown mode,
+// and wireguard_mesh without the site address other sites dial.
+func validateProxmoxOverlayFlags(networkMode string, sitePublicIP string) error {
+	switch networkMode {
+	case "", "private_network":
+		if sitePublicIP != "" {
+			return fmt.Errorf("--site-public-ip needs --network-mode wireguard_mesh")
+		}
+		return nil
+	case "wireguard_mesh":
+		if sitePublicIP == "" {
+			return fmt.Errorf("--network-mode wireguard_mesh needs --site-public-ip: the address other sites dial this cluster's bastion on")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported --network-mode %q: must be private_network or wireguard_mesh", networkMode)
+	}
+}
+
 var proxmoxCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new Proxmox VE cluster",
@@ -41,8 +61,13 @@ var proxmoxCreateCmd = &cobra.Command{
 		etcdNodeCount, _ := cmd.Flags().GetInt("etcd-node-count")
 		etcdInstanceType, _ := cmd.Flags().GetString("etcd-instance-type")
 		cni, _ := cmd.Flags().GetString("cni")
+		networkMode, _ := cmd.Flags().GetString("network-mode")
+		sitePublicIP, _ := cmd.Flags().GetString("site-public-ip")
 		includeNetworking, _ := cmd.Flags().GetBool("include-networking")
 		includeDNS, _ := cmd.Flags().GetBool("include-dns")
+		if validationError := validateProxmoxOverlayFlags(networkMode, sitePublicIP); validationError != nil {
+			return validationError
+		}
 
 		request := client.CreateProxmoxClusterRequest{
 			Name:                     name,
@@ -63,6 +88,8 @@ var proxmoxCreateCmd = &cobra.Command{
 			EtcdNodeCount:            etcdNodeCount,
 			EtcdInstanceType:         etcdInstanceType,
 			CNI:                      cni,
+			NetworkMode:              networkMode,
+			SitePublicIP:             sitePublicIP,
 			IncludeNetworking:        includeNetworking,
 			IncludeDNS:               includeDNS,
 		}
@@ -354,6 +381,8 @@ func init() {
 	proxmoxCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
 	proxmoxCreateCmd.Flags().String("etcd-instance-type", "px-medium", "Instance-size preset for dedicated etcd nodes when --etcd-topology=external")
 	proxmoxCreateCmd.Flags().String("cni", "", "CNI plugin (optional; the platform default is used when omitted)")
+	proxmoxCreateCmd.Flags().String("network-mode", "", "Network mode: private_network (default) or wireguard_mesh. wireguard_mesh puts the nodes on the platform WireGuard overlay behind the cluster bastion's site gateway, so the cluster can mesh with clusters on other sites and providers; kubeadm only, and a mesh cannot be retrofitted")
+	proxmoxCreateCmd.Flags().String("site-public-ip", "", "Public address other sites dial this cluster's bastion on for the overlay (required with --network-mode wireguard_mesh); the site forwards the overlay UDP port range from it to the bastion")
 	proxmoxCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager as Ankra-managed stacks for ingress (exposed via the built-in k3s service load balancer; default on)")
 	registerIncludeDNSFlag(proxmoxCreateCmd)
 

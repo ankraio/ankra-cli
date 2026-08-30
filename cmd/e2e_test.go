@@ -3808,3 +3808,19 @@ func (m baseMock) GetTerminalTranscript(sessionID string, afterSequence int, lim
 func (m baseMock) OpenPodTerminal(ctx context.Context, clusterID string, request client.PodTerminalRequest) (client.PodTerminal, error) {
 	return nil, errors.New("not implemented")
 }
+
+func (m baseMock) GetFleetCloudCost() (*client.FleetCloudCost, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetClusterCost(clusterID string) (*client.ClusterCost, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetCostSettings() (*client.CostSettings, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateCostSettings(settings client.CostSettings) (*client.CostSettings, error) {
+	return nil, errors.New("not implemented")
+}

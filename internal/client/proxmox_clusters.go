@@ -30,8 +30,14 @@ type CreateProxmoxClusterRequest struct {
 	EtcdNodeCount            int      `json:"etcd_node_count,omitempty"`
 	EtcdInstanceType         string   `json:"etcd_instance_type,omitempty"`
 	CNI                      string   `json:"cni,omitempty"`
-	IncludeNetworking        bool     `json:"include_networking"`
-	IncludeDNS               bool     `json:"include_dns"`
+	// NetworkMode is private_network (default) or wireguard_mesh: the
+	// platform WireGuard overlay behind the cluster bastion's site gateway.
+	NetworkMode string `json:"network_mode,omitempty"`
+	// SitePublicIP is the address other sites dial this cluster's bastion on
+	// for the overlay; required with wireguard_mesh.
+	SitePublicIP      string `json:"site_public_ip,omitempty"`
+	IncludeNetworking bool   `json:"include_networking"`
+	IncludeDNS        bool   `json:"include_dns"`
 }
 
 type CreateProxmoxClusterResponse struct {
