@@ -171,3 +171,45 @@ func TestProxmoxHosts_PassesCredentialID(t *testing.T) {
 		t.Errorf("credential id = %q, want cred-1", mock.gotCredentialID)
 	}
 }
+
+// TestProxmoxCreate_MapsOverlayFlags pins the two overlay members of the
+// request: both ride through verbatim and both stay empty when omitted, so
+// the platform decides the default mode.
+func TestProxmoxCreate_MapsOverlayFlags(t *testing.T) {
+	mock := &proxmoxCreateMock{}
+	out, runError := runWithInput(t, mock, "",
+		"cluster", "proxmox", "create",
+		"--name", "lab-mesh",
+		"--credential-id", "cred-1",
+		"--ssh-key-credential-id", "ssh-1",
+		"--node", "pve",
+		"--bridge", "ankra",
+		"--network-mode", "wireguard_mesh",
+		"--site-public-ip", "203.0.113.7",
+	)
+	if runError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", runError, out)
+	}
+	if mock.gotRequest.NetworkMode != "wireguard_mesh" || mock.gotRequest.SitePublicIP != "203.0.113.7" {
+		t.Errorf("overlay fields = %q/%q, want wireguard_mesh/203.0.113.7", mock.gotRequest.NetworkMode, mock.gotRequest.SitePublicIP)
+	}
+	// Cobra flag values live on the shared command, so put them back before
+	// the next test reads the defaults.
+	_ = proxmoxCreateCmd.Flags().Set("network-mode", "")
+	_ = proxmoxCreateCmd.Flags().Set("site-public-ip", "")
+
+	plain := &proxmoxCreateMock{}
+	if _, plainError := runWithInput(t, plain, "",
+		"cluster", "proxmox", "create",
+		"--name", "lab",
+		"--credential-id", "cred-1",
+		"--ssh-key-credential-id", "ssh-1",
+		"--node", "pve",
+		"--bridge", "ankra",
+	); plainError != nil {
+		t.Fatalf("execute failed: %v", plainError)
+	}
+	if plain.gotRequest.NetworkMode != "" || plain.gotRequest.SitePublicIP != "" {
+		t.Errorf("overlay fields must be omitted when unset, got %q/%q", plain.gotRequest.NetworkMode, plain.gotRequest.SitePublicIP)
+	}
+}
