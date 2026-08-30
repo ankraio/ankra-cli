@@ -155,6 +155,7 @@ per command family:
 | [ankra stack-profiles](https://docs.ankra.ai/reference/cli/stack-profiles) | Manage reusable stack profiles |
 | [ankra support](https://docs.ankra.ai/reference/cli/support) | Create and track Ankra support requests |
 | [ankra tokens](https://docs.ankra.ai/reference/cli/tokens) | Manage API tokens |
+| [ankra cost](https://docs.ankra.ai/reference/cli/cost) | Read cloud cost: fleet rollup, cluster estimates and pricing settings |
 | [ankra upgrade](https://docs.ankra.ai/reference/cli/upgrade) | Upgrade the Ankra CLI to the latest release |
 
 The CLI is also self-documenting: `ankra --help` lists every command family and

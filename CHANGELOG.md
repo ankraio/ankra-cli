@@ -4,6 +4,16 @@
 
 ### Added
 
+- **`ankra cost`** brings the portal's Cost center to the terminal. `ankra cost
+  summary` is the fleet rollup - projected month end, month to date and run
+  rate in your display currency, the split by provider and the costliest
+  clusters; `ankra cost cluster <name-or-id>` adds a cluster's component
+  breakdown, namespace allocation (so each team sees the share it drives),
+  daily trend, and - when there is no estimate yet - the readiness reason
+  instead of zeros; `ankra cost settings get|set` reads and changes the display
+  currency, effective discount and network egress estimate (admins only, and
+  `set` changes only the flags you pass). Every command takes `-o json`.
+
 - **`ankra security advisory <cve-id>`** shows the platform's own advisory for a
   CVE - the record Ankra parses from NVD and OSV (title, description, CVSS with
   its vector, weaknesses, aliases, affected products and version ranges written

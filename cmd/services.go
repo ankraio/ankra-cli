@@ -48,6 +48,11 @@ type APIClient interface {
 	UpdatePowerSchedule(clusterID, scheduleID string, request client.PowerScheduleRequest) (*client.PowerScheduleListResult, error)
 	DeletePowerSchedule(clusterID, scheduleID string) (*client.DeletePowerScheduleResult, error)
 
+	GetFleetCloudCost() (*client.FleetCloudCost, error)
+	GetClusterCost(clusterID string) (*client.ClusterCost, error)
+	GetCostSettings() (*client.CostSettings, error)
+	UpdateCostSettings(settings client.CostSettings) (*client.CostSettings, error)
+
 	ListBackupVaults() (*client.BackupVaultListResult, error)
 	GetBackupVault(vaultID string) (*client.BackupVault, error)
 	CreateBackupVault(request client.CreateBackupVaultRequest) (*client.BackupVault, error)

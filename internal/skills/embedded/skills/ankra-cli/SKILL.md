@@ -52,6 +52,7 @@ never rely on the selection — pass both explicitly.
 | AI provider, tools, runs, board | `ankra ai ...`, `ankra org mcp-servers ...`, `ankra agents ...`, `ankra tickets ...` | `ankra-ai-agents` |
 | Tokens, roles, cluster access | `ankra tokens`, `ankra org members\|roles`, `ankra cluster access` | `ankra-security` |
 | Credentials | `ankra credentials ...` | `ankra-security` |
+| Cloud cost | `ankra cost summary\|cluster\|settings` | below |
 | Support requests | `ankra support create\|list\|get\|comment\|attach\|close` | below |
 
 ## Applying configuration
@@ -165,6 +166,20 @@ ankra support close <ticket-id>
 
 Every request is reviewed by Ankra AI before it reaches the team; `--force` on `create` submits a
 flagged request anyway. Attach the evidence (operations output, logs) rather than describing it.
+
+## Cloud cost
+
+```bash
+ankra cost summary                       # fleet rollup: projected month end, month to date, run rate, by provider, costliest clusters
+ankra cost cluster prod-eu               # one cluster: breakdown by component, namespace allocation, daily trend
+ankra cost settings get                  # display currency, effective discount, network egress estimate
+ankra cost settings set --currency eur --discount 12.5   # admins only; only the flags you pass change
+```
+
+Figures are list-price estimates in the organisation's display currency, priced hourly from each
+cluster's node inventory and allocated to namespaces by CPU and memory share. A cluster with no
+estimate prints its readiness reason (no cloud credential, unsupported provider, nodes still
+syncing) - never zeros. Add `-o json` to script against the same document the portal reads.
 
 ## Scripting
 
