@@ -113,6 +113,8 @@ func currencySymbol(currency string) string {
 		return "€"
 	case "usd":
 		return "$"
+	case "gbp":
+		return "£"
 	default:
 		return currency + " "
 	}

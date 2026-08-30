@@ -118,3 +118,16 @@ func generateClientCSRFToken() string {
 	}
 	return base64.RawURLEncoding.EncodeToString(tokenBytes)
 }
+func (c *Client) putCSRFJSON(requestURL string, requestBody interface{}, target interface{}, operation string) error {
+	payload, err := marshalOptionalJSON(requestBody)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequest(http.MethodPut, requestURL, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	c.applyAuthAndCSRFHeaders(request)
+	return c.doJSON(request, target, operation)
+}
