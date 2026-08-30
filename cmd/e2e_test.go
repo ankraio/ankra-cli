@@ -55,6 +55,10 @@ func (m baseMock) ProvisionCluster(ctx context.Context, clusterID string) (*clie
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) MoveCluster(ctx context.Context, clusterID string, destinationOrganisationID string) (*client.MoveClusterResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) DeprovisionCluster(ctx context.Context, clusterID string) (*client.DeprovisionClusterResult, error) {
 	return nil, errors.New("not implemented")
 }

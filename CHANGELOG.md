@@ -4,6 +4,18 @@
 
 ### Added
 
+- **`ankra cluster move --organisation <id|slug|name>`** moves a cluster into
+  another organisation you administer. Only an administrator of both the
+  current organisation and the destination can run it; anyone else gets the
+  platform's permission denial (exit 7). The cluster keeps its id, agent,
+  executions, resources, security findings, insights, DNS records and
+  variables, while access grants, kube tokens, notification routes and mutes,
+  report schedules, trusted AI actions and cluster-group memberships from the
+  current organisation are detached and counted in the output. The platform
+  refuses the move while operations are running, while the cluster is in a
+  cluster mesh, for playground clusters, and when the destination already has
+  a cluster with the same name; the refusal reason is printed as-is.
+  `--yes` skips the confirmation and `-o json` returns the API document.
 - **`ankra security advisory <cve-id>`** shows the platform's own advisory for a
   CVE - the record Ankra parses from NVD and OSV (title, description, CVSS with
   its vector, weaknesses, aliases, affected products and version ranges written
