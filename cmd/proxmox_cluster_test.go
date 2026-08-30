@@ -213,3 +213,30 @@ func TestProxmoxCreate_MapsOverlayFlags(t *testing.T) {
 		t.Errorf("overlay fields must be omitted when unset, got %q/%q", plain.gotRequest.NetworkMode, plain.gotRequest.SitePublicIP)
 	}
 }
+
+// TestProxmoxCreate_RefusesInconsistentOverlayFlags pins the client-side
+// checks: a mesh without a site address, a site address without a mesh, and
+// an unknown mode are refused before any request is sent.
+func TestProxmoxCreate_RefusesInconsistentOverlayFlags(t *testing.T) {
+	for name, flags := range map[string][]string{
+		"mesh without site address": {"--network-mode", "wireguard_mesh"},
+		"site address without mesh": {"--site-public-ip", "203.0.113.7"},
+		"unknown mode":              {"--network-mode", "vxlan", "--site-public-ip", "203.0.113.7"},
+	} {
+		mock := &proxmoxCreateMock{}
+		arguments := append([]string{
+			"cluster", "proxmox", "create",
+			"--name", "lab",
+			"--credential-id", "cred-1",
+			"--ssh-key-credential-id", "ssh-1",
+			"--node", "pve",
+			"--bridge", "ankra",
+		}, flags...)
+		_, runError := runWithInput(t, mock, "", arguments...)
+		if runError == nil || mock.called {
+			t.Errorf("%s must be refused before the request is sent (error=%v called=%v)", name, runError, mock.called)
+		}
+		_ = proxmoxCreateCmd.Flags().Set("network-mode", "")
+		_ = proxmoxCreateCmd.Flags().Set("site-public-ip", "")
+	}
+}

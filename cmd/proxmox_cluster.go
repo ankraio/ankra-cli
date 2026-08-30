@@ -17,6 +17,26 @@ var proxmoxCmd = &cobra.Command{
 	Long:    "Commands to create, stop, start, and inspect Proxmox VE clusters.",
 }
 
+// validateProxmoxOverlayFlags refuses the overlay flag pairs the platform
+// would refuse, before the request leaves the machine: an unknown mode,
+// and wireguard_mesh without the site address other sites dial.
+func validateProxmoxOverlayFlags(networkMode string, sitePublicIP string) error {
+	switch networkMode {
+	case "", "private_network":
+		if sitePublicIP != "" {
+			return fmt.Errorf("--site-public-ip needs --network-mode wireguard_mesh")
+		}
+		return nil
+	case "wireguard_mesh":
+		if sitePublicIP == "" {
+			return fmt.Errorf("--network-mode wireguard_mesh needs --site-public-ip: the address other sites dial this cluster's bastion on")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported --network-mode %q: must be private_network or wireguard_mesh", networkMode)
+	}
+}
+
 var proxmoxCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new Proxmox VE cluster",
@@ -45,6 +65,9 @@ var proxmoxCreateCmd = &cobra.Command{
 		sitePublicIP, _ := cmd.Flags().GetString("site-public-ip")
 		includeNetworking, _ := cmd.Flags().GetBool("include-networking")
 		includeDNS, _ := cmd.Flags().GetBool("include-dns")
+		if validationError := validateProxmoxOverlayFlags(networkMode, sitePublicIP); validationError != nil {
+			return validationError
+		}
 
 		request := client.CreateProxmoxClusterRequest{
 			Name:                     name,
