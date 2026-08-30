@@ -1,8 +1,51 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.14.0-rc7 — 2026-08-30
 
 ### Added
+
+- **`ankra cluster mesh` drives Cilium ClusterMesh from the terminal.**
+  `mesh create <name>`, `join <mesh_id> <cluster_id>`, `leave`, `list`,
+  `show` and `delete` manage a mesh through the platform, and
+  `mesh readiness <cluster_id>...` is the place to start: whether a cluster
+  can mesh at all is decided when it is created - it needs a unique Cilium
+  identity and the platform's WireGuard overlay - so `readiness` prints
+  the failing checks per cluster and marks the ones no running cluster can
+  fix, instead of letting a join fail for a reason that was never fixable.
+- **Tailscale/Headscale join settings on a Proxmox credential, from the
+  CLI.** A Proxmox VE cluster on an SDN vnet is reachable only through the
+  tailnet its VMs join, and the settings that make that join happen could
+  only be written from the browser. `ankra proxmox credentials tailscale
+  set <credential-id>` and `clear <credential-id>` now manage them, so an
+  automated or scripted setup no longer builds every VM correctly and then
+  fails to reach them.
+- **`ankra migrate up` moves a Docker deployment into a cluster in one
+  command.** Where the migration used to be four commands with judgement
+  calls between them, `ankra migrate up ./app --cluster shop` now plans,
+  converts, deploys, dumps and restores, and stops before the first change
+  when something is off. The plan says exactly what will happen: every
+  database found in the running containers with its size on the source,
+  what the dumps need on disk against what is free, whether the stack
+  exists on the cluster, which backup vault carries the data, and what
+  stays behind - files in the volumes of other workloads, Redis, MongoDB,
+  search indexes - so nothing is forgotten silently. `--plan` prints that
+  and stops. Then the stack is applied under the cluster's own name, the
+  database pods are waited for, the data is exported and restored, and
+  the command ends with where the deployment runs and the URLs it answers
+  on. Run it once as a rehearsal; run it again with `--stop-source` and
+  the source's services are stopped before the final dump - that is the
+  cutover, and the command prints how to start them again. `--no-data`
+  deploys only, `--timeout` bounds each waiting step, `-o json` gives the
+  whole record.
+
+- **The export reads the database's real configuration, not the compose
+  file's guess.** Credentials, the application database and the root
+  account now come from the running container's environment, so a
+  `${DB_USER}` the file could not resolve, an `env_file`, or a password
+  handed over as `POSTGRES_PASSWORD_FILE` all work. A MySQL/MariaDB server
+  started without a root password (`MYSQL_RANDOM_ROOT_PASSWORD`) is dumped
+  as the application user, and a server nobody can log into is refused with
+  the reason instead of a failed dump.
 
 - **Unknown commands dispatch to plugins, kubectl style.** An executable
   named `ankra-<command>` in `~/.ankra/plugins` or on PATH now runs as
@@ -42,6 +85,12 @@
 
 ### Fixed
 
+- **`ankra cluster deprovision` no longer promises a cloud cluster can be
+  provisioned again.** The help said the record was kept for a later
+  `cluster provision`; that is true for imported clusters only. Deprovisioning
+  a hetzner, ovh, upcloud, digitalocean, proxmox or morpheus cluster deletes
+  the record with its resources, and both commands now say so - create a new
+  cluster instead of following a cycle that cannot complete.
 - **`ankra migrate up` runs again into the same output directory.** The
   rehearsal left `stack/` and `data/` behind and the cutover run refused the
   directory as "not empty" unless `--force` was passed. A directory that
@@ -77,32 +126,6 @@
 
 ### Added
 
-- **`ankra migrate up` moves a Docker deployment into a cluster in one
-  command.** Where the migration used to be four commands with judgement
-  calls between them, `ankra migrate up ./app --cluster shop` now plans,
-  converts, deploys, dumps and restores, and stops before the first change
-  when something is off. The plan says exactly what will happen: every
-  database found in the running containers with its size on the source,
-  what the dumps need on disk against what is free, whether the stack
-  exists on the cluster, which backup vault carries the data, and what
-  stays behind - files in the volumes of other workloads, Redis, MongoDB,
-  search indexes - so nothing is forgotten silently. `--plan` prints that
-  and stops. Then the stack is applied under the cluster's own name, the
-  database pods are waited for, the data is exported and restored, and
-  the command ends with where the deployment runs and the URLs it answers
-  on. Run it once as a rehearsal; run it again with `--stop-source` and
-  the source's services are stopped before the final dump - that is the
-  cutover, and the command prints how to start them again. `--no-data`
-  deploys only, `--timeout` bounds each waiting step, `-o json` gives the
-  whole record.
-- **The export reads the database's real configuration, not the compose
-  file's guess.** Credentials, the application database and the root
-  account now come from the running container's environment, so a
-  `${DB_USER}` the file could not resolve, an `env_file`, or a password
-  handed over as `POSTGRES_PASSWORD_FILE` all work. A MySQL/MariaDB server
-  started without a root password (`MYSQL_RANDOM_ROOT_PASSWORD`) is dumped
-  as the application user, and a server nobody can log into is refused with
-  the reason instead of a failed dump.
 - **Scaleway clusters get the full command set.** `ankra cluster scaleway`
   now covers create (with `preflight` to prove capacity before paying for
   it), deprovision, worker counts, Kubernetes version and upgrade, the whole
@@ -1884,7 +1907,6 @@ decoding response shapes the API never sent.
   answers `describe`, `detect`, and `convert` over JSON (see
   `ankra migrate modules --help` and `examples/modules/`). None of it needs
   a login.
-
 
 - **Chat progress is visible again.** Status frames became structured
   objects on newer backends and the CLI silently dropped them; it now
