@@ -70,6 +70,27 @@ func TestDispatchExternalPluginNeverShadowsABuiltin(t *testing.T) {
 	}
 }
 
+func TestDispatchExternalPluginIgnoresTheReleaseBinary(t *testing.T) {
+	binDir, log := pluginTestEnvironment(t)
+	writePluginScript(t, binDir, "ankra-cli", "another-cli")
+	writePluginScript(t, binDir, "ankra-cli-tools", "tools")
+
+	if handled, _ := dispatchExternalPlugin([]string{"cli", "--version"}); handled {
+		t.Error("a copy of the CLI's release binary on PATH is not a plugin called cli")
+	}
+	if handled, exitCode := dispatchExternalPlugin([]string{"cli", "tools"}); !handled || exitCode != 7 {
+		t.Errorf("a plugin whose name merely starts with cli still dispatches: handled=%v exit=%d", handled, exitCode)
+	}
+	if content, _ := os.ReadFile(log); strings.Contains(string(content), "another-cli") {
+		t.Errorf("the release binary must never run as a plugin, got %q", content)
+	}
+	for _, plugin := range discoverPlugins() {
+		if plugin.Name == "ankra-cli" {
+			t.Errorf("the release binary must not be listed as a plugin: %+v", plugin)
+		}
+	}
+}
+
 func TestDispatchExternalPluginPrefersTheHomeDirectory(t *testing.T) {
 	binDir, log := pluginTestEnvironment(t)
 	writePluginScript(t, binDir, "ankra-hello", "from-path")
