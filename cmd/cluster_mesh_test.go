@@ -20,6 +20,10 @@ type clusterMeshMock struct {
 	readinessFor [][]string
 
 	joinError error
+
+	madeReadyCluster string
+	madeReadySiteIP  string
+	makeReadyError   error
 }
 
 func (m *clusterMeshMock) ListClusterMeshes() ([]client.ClusterMesh, error) {
@@ -43,6 +47,18 @@ func (m *clusterMeshMock) CreateClusterMesh(name string) (*client.ClusterMesh, e
 func (m *clusterMeshMock) DeleteClusterMesh(meshID string) error {
 	m.deleted = append(m.deleted, meshID)
 	return nil
+}
+
+func (m *clusterMeshMock) MakeClusterMeshReady(clusterID string, sitePublicIP string) (*client.ClusterMeshMakeReadyResult, error) {
+	m.madeReadyCluster = clusterID
+	m.madeReadySiteIP = sitePublicIP
+	if m.makeReadyError != nil {
+		return nil, m.makeReadyError
+	}
+	return &client.ClusterMeshMakeReadyResult{
+		ClusterID: clusterID, CiliumClusterID: 7, CiliumClusterName: "made-ready-7",
+		IdentityAllocated: true, TransitionedResources: 2,
+	}, nil
 }
 
 func (m *clusterMeshMock) JoinClusterMesh(meshID string, clusterID string) error {
@@ -171,5 +187,34 @@ func TestClusterMeshDeletePassesTheMesh(t *testing.T) {
 	}
 	if len(mock.deleted) != 1 || mock.deleted[0] != "mesh-1" {
 		t.Fatalf("expected one delete of mesh-1, got %v", mock.deleted)
+	}
+}
+
+
+func TestClusterMeshMakeReadyCommand(t *testing.T) {
+	mock := &clusterMeshMock{}
+	setMockClient(t, mock)
+
+	if err := executeMeshCommand(t, "cluster", "mesh", "make-ready", "cluster-9", "--site-public-ip", "203.0.113.9"); err != nil {
+		t.Fatalf("make-ready returned %v", err)
+	}
+	if mock.madeReadyCluster != "cluster-9" || mock.madeReadySiteIP != "203.0.113.9" {
+		t.Fatalf("make-ready must pass the cluster and site address through, got %q %q",
+			mock.madeReadyCluster, mock.madeReadySiteIP)
+	}
+}
+
+// The platform's refusal names the reason (an unwired provider, a missing
+// site address); the CLI must surface it, not replace it.
+func TestClusterMeshMakeReadySurfacesTheRefusalReason(t *testing.T) {
+	mock := &clusterMeshMock{makeReadyError: errors.New("network_mode is not supported for hetzner clusters")}
+	setMockClient(t, mock)
+
+	err := executeMeshCommand(t, "cluster", "mesh", "make-ready", "cluster-9")
+	if err == nil {
+		t.Fatal("expected the refusal to fail the command")
+	}
+	if !strings.Contains(err.Error(), "not supported for hetzner") {
+		t.Fatalf("the refusal must carry the platform's reason, got %v", err)
 	}
 }

@@ -91,6 +91,34 @@ func (c *Client) LeaveClusterMesh(meshID string, clusterID string) error {
 	return c.sendJSON(http.MethodDelete, url, nil, nil)
 }
 
+// ClusterMeshMakeReadyResult is what make-ready reports back: the identity
+// the cluster now carries and how many resources were set converging.
+type ClusterMeshMakeReadyResult struct {
+	ClusterID             string `json:"cluster_id"`
+	CiliumClusterID       int    `json:"cilium_cluster_id"`
+	CiliumClusterName     string `json:"cilium_cluster_name"`
+	IdentityAllocated     bool   `json:"identity_allocated"`
+	TransitionedResources int    `json:"transitioned_resources"`
+}
+
+// MakeClusterMeshReady turns an existing cluster mesh-capable, day-2.
+func (c *Client) MakeClusterMeshReady(clusterID string, sitePublicIP string) (*ClusterMeshMakeReadyResult, error) {
+	var response struct {
+		MakeReady ClusterMeshMakeReadyResult `json:"make_ready"`
+	}
+	body := map[string]any{"cluster_id": clusterID}
+	if sitePublicIP != "" {
+		body["site_public_ip"] = sitePublicIP
+	}
+	if err := c.sendJSON(http.MethodPost, c.BaseURL+clusterMeshAPIPath+"/make-ready", body, &response); err != nil {
+		return nil, err
+	}
+	if response.MakeReady.CiliumClusterID == 0 && response.MakeReady.CiliumClusterName == "" {
+		return nil, fmt.Errorf("the platform answered without a make_ready result; the API and CLI may be out of step")
+	}
+	return &response.MakeReady, nil
+}
+
 // CheckClusterMeshReadiness answers, per cluster, whether the given set could
 // mesh together and why not.
 func (c *Client) CheckClusterMeshReadiness(clusterIDs []string) (map[string]ClusterMeshReadiness, error) {
