@@ -84,9 +84,12 @@ func TestUpdateAddonSettings(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	err := testClient.UpdateAddonSettings(context.Background(), "cluster-id", "ingress", AddonSettings{})
+	result, err := testClient.UpdateAddonSettings(context.Background(), "cluster-id", "ingress", AddonSettings{})
 	if err != nil {
 		t.Fatalf("UpdateAddonSettings() error = %v", err)
+	}
+	if result.GitPushDeferred {
+		t.Errorf("UpdateAddonSettings() result.GitPushDeferred = true, want false on plain 200")
 	}
 }
 

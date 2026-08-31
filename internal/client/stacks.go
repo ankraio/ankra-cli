@@ -90,6 +90,10 @@ type RenameStackRequest struct {
 type RenameStackResult struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
+	// GitPushDeferred marks a designed git-push refusal: the rename is
+	// applied and live, only the commit back to Git waits on the background
+	// sync. Message then carries the platform's detail verbatim.
+	GitPushDeferred bool `json:"git_push_deferred,omitempty"`
 }
 
 // ListClusterStacks pages through the full stack listing. The
@@ -195,6 +199,9 @@ func (c *Client) RenameStack(ctx context.Context, clusterID, stackName, newName 
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		if deferral := gitPushDeferralFromResponse(resp.StatusCode, body); deferral != nil {
+			return &RenameStackResult{Success: true, Message: deferral.Message, GitPushDeferred: true}, nil
+		}
 		return nil, newUnexpectedResponseError("rename failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 

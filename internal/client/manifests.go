@@ -101,6 +101,12 @@ type DisconnectManifestResult struct {
 	DisconnectedAt string `json:"disconnected_at"`
 	CommitSHA      string `json:"commit_sha,omitempty"`
 	CommitURL      string `json:"commit_url,omitempty"`
+	// GitPushDeferred marks a designed git-push refusal: the disconnect is
+	// applied and live, only the commit back to Git waits on the background
+	// sync (no commit fields in that case). GitPushMessage carries the
+	// platform's detail verbatim.
+	GitPushDeferred bool   `json:"git_push_deferred,omitempty"`
+	GitPushMessage  string `json:"git_push_message,omitempty"`
 }
 
 // DisconnectManifest removes a manifest from a stack, deleting its resources
@@ -128,6 +134,9 @@ func (c *Client) DisconnectManifest(ctx context.Context, clusterID, stackName, m
 		return nil, ErrUnauthorized
 	}
 	if resp.StatusCode != http.StatusOK {
+		if deferral := gitPushDeferralFromResponse(resp.StatusCode, body); deferral != nil {
+			return &DisconnectManifestResult{GitPushDeferred: true, GitPushMessage: deferral.Message}, nil
+		}
 		return nil, newUnexpectedResponseError("disconnect manifest failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 

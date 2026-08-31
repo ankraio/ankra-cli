@@ -74,6 +74,10 @@ type GetAddonSettingsResponse struct {
 type UninstallAddonResult struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
+	// GitPushDeferred marks a designed git-push refusal: the uninstall is
+	// applied and live, only the commit back to Git waits on the background
+	// sync. Message then carries the platform's detail verbatim.
+	GitPushDeferred bool `json:"git_push_deferred,omitempty"`
 }
 
 type AvailableAddon struct {
@@ -127,36 +131,49 @@ func (c *Client) GetAddonSettings(clusterID, addonName string) (*GetAddonSetting
 	return &resp, nil
 }
 
-func (c *Client) UpdateAddonSettings(ctx context.Context, clusterID, addonName string, settings AddonSettings) error {
+// UpdateAddonSettingsResult reports the outcome of an addon-settings update.
+// The zero value is a plain success; GitPushDeferred marks a designed
+// git-push refusal — the settings are applied and live, only the commit back
+// to Git waits on the background sync — with the platform's detail verbatim
+// in GitPushMessage.
+type UpdateAddonSettingsResult struct {
+	GitPushDeferred bool   `json:"git_push_deferred,omitempty"`
+	GitPushMessage  string `json:"git_push_message,omitempty"`
+}
+
+func (c *Client) UpdateAddonSettings(ctx context.Context, clusterID, addonName string, settings AddonSettings) (*UpdateAddonSettingsResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/%s/settings",
 		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(addonName))
 	payload, err := json.Marshal(settings)
 	if err != nil {
-		return fmt.Errorf("marshal settings: %w", err)
+		return nil, fmt.Errorf("marshal settings: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer closeBody(resp)
 
 	body, err := readResponseBody(resp)
 	if err != nil {
-		return fmt.Errorf("read response: %w", err)
+		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return newUnexpectedResponseError("update failed", resp.StatusCode, redactedBodyForError(body, 500))
+		if deferral := gitPushDeferralFromResponse(resp.StatusCode, body); deferral != nil {
+			return &UpdateAddonSettingsResult{GitPushDeferred: true, GitPushMessage: deferral.Message}, nil
+		}
+		return nil, newUnexpectedResponseError("update failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
-	return nil
+	return &UpdateAddonSettingsResult{}, nil
 }
 
 func (c *Client) UninstallAddon(ctx context.Context, clusterID, addonResourceID string, deletePermanently bool) (*UninstallAddonResult, error) {
@@ -179,6 +196,9 @@ func (c *Client) UninstallAddon(ctx context.Context, clusterID, addonResourceID 
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		if deferral := gitPushDeferralFromResponse(resp.StatusCode, body); deferral != nil {
+			return &UninstallAddonResult{Success: true, Message: deferral.Message, GitPushDeferred: true}, nil
+		}
 		return nil, newUnexpectedResponseError("uninstall failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 

@@ -333,7 +333,19 @@ func printAsOutput(out io.Writer, res *client.PatchStackResult, format outputFor
 	if res.CommitURL != "" {
 		_, _ = fmt.Fprintf(out, "  Commit URL:   %s\n", res.CommitURL)
 	}
+	printGitPushDeferral(out, res.GitPushDeferred, res.GitPushMessage)
 	return nil
+}
+
+// printGitPushDeferral prints the platform's git-push-deferral detail. The
+// message goes out VERBATIM on its own line: the deploy tooling still
+// substring-matches it (cluster scripts/deploy_upgrade_addons.sh
+// DEFERRED_COMMIT_MARKER), so it must not be reworded or wrapped.
+func printGitPushDeferral(out io.Writer, deferred bool, message string) {
+	if !deferred || message == "" {
+		return
+	}
+	_, _ = fmt.Fprintln(out, message)
 }
 
 // renderPatchResourceErrors prints the per-resource validation errors from a

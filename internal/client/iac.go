@@ -117,13 +117,18 @@ type PatchStackResourceError struct {
 }
 
 // PatchStackResult mirrors UpdateClusterStackResult on the backend.
+// GitPushDeferred/GitPushMessage are CLI-synthesized from a git-push-deferral
+// 422 (see GitPushDeferral): the update is applied and live, only the commit
+// back to Git waits on the background sync, so the commit fields stay empty.
 type PatchStackResult struct {
-	StackName   string                    `json:"stack_name"`
-	Errors      []PatchStackResourceError `json:"errors,omitempty"`
-	CommitSHA   string                    `json:"commit_sha,omitempty"`
-	CommitURL   string                    `json:"commit_url,omitempty"`
-	OperationID string                    `json:"operation_id,omitempty"`
-	JobCount    int                       `json:"job_count"`
+	StackName       string                    `json:"stack_name"`
+	Errors          []PatchStackResourceError `json:"errors,omitempty"`
+	CommitSHA       string                    `json:"commit_sha,omitempty"`
+	CommitURL       string                    `json:"commit_url,omitempty"`
+	OperationID     string                    `json:"operation_id,omitempty"`
+	JobCount        int                       `json:"job_count"`
+	GitPushDeferred bool                      `json:"git_push_deferred,omitempty"`
+	GitPushMessage  string                    `json:"git_push_message,omitempty"`
 }
 
 // PatchStackError carries the HTTP status code and raw body for the PATCH
@@ -253,6 +258,17 @@ func (c *Client) PatchClusterStackPartial(ctx context.Context, clusterID, stackN
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if deferral := gitPushDeferralFromResponse(resp.StatusCode, respBody); deferral != nil {
+			// Designed refusal: the stack update is applied and live, only the
+			// Git write-back is deferred. Surfacing it as success here (not an
+			// error each caller must classify) is what stops CI wrappers from
+			// re-applying a live change (ankra-qezdv).
+			return &PatchStackResult{
+				StackName:       stackName,
+				GitPushDeferred: true,
+				GitPushMessage:  deferral.Message,
+			}, nil
+		}
 		perr := &PatchStackError{StatusCode: resp.StatusCode, Body: respBody}
 		if resp.StatusCode == http.StatusUnauthorized {
 			// Carry ErrUnauthorized at the source so any caller inspecting the

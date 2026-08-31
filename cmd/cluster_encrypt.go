@@ -1150,6 +1150,7 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName string, leafKeys
 		return errors.New("encryption partially failed; see errors above")
 	}
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Manifest %q encrypted in stack %q.\n", manifestName, stack.Name)
+	printGitPushDeferral(cmd.OutOrStdout(), res.GitPushDeferred, res.GitPushMessage)
 	return nil
 }
 
@@ -1223,5 +1224,6 @@ func runEncryptAddonCluster(cmd *cobra.Command, addonName string, leafKeys []str
 		return errors.New("encryption partially failed; see errors above")
 	}
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Addon %q encrypted in stack %q.\n", addonName, stack.Name)
+	printGitPushDeferral(cmd.OutOrStdout(), res.GitPushDeferred, res.GitPushMessage)
 	return nil
 }

@@ -336,6 +336,7 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 			} else {
 				fmt.Printf("Addon '%s' uninstalled successfully!\n", addonName)
 			}
+			printGitPushDeferral(cmd.OutOrStdout(), result.GitPushDeferred, result.Message)
 		}
 		return nil
 	},
@@ -378,11 +379,13 @@ Usage:
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		if err := apiClient.UpdateAddonSettings(ctx, cluster.ID, addonName, settings); err != nil {
+		result, err := apiClient.UpdateAddonSettings(ctx, cluster.ID, addonName, settings)
+		if err != nil {
 			return fmt.Errorf("updating addon settings: %w", err)
 		}
 
 		fmt.Printf("Settings for addon '%s' updated successfully!\n", addonName)
+		printGitPushDeferral(cmd.OutOrStdout(), result.GitPushDeferred, result.GitPushMessage)
 		return nil
 	},
 }

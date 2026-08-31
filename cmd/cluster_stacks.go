@@ -257,6 +257,7 @@ var clusterStacksRenameCmd = &cobra.Command{
 
 		if result.Success {
 			fmt.Printf("Stack '%s' renamed to '%s' successfully!\n", oldName, newName)
+			printGitPushDeferral(cmd.OutOrStdout(), result.GitPushDeferred, result.Message)
 			return nil
 		}
 		return fmt.Errorf("rename request did not report success")

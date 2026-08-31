@@ -51,6 +51,18 @@ func (c *Client) httpClientForAsyncWrite(wait bool) *http.Client {
 	}
 }
 
+// gitPushDeferredError carries a git-push deferral out of the shared async
+// write path as an error, so a caller whose route can receive one (today only
+// ApplyCluster) converts it to success-with-deferral, while any other caller
+// keeps treating it as the failure it would have been before classification.
+type gitPushDeferredError struct {
+	deferral GitPushDeferral
+}
+
+func (e *gitPushDeferredError) Error() string {
+	return e.deferral.Message
+}
+
 func parseAsyncWriteResponse(
 	response *http.Response,
 	responseBody []byte,
@@ -62,6 +74,9 @@ func parseAsyncWriteResponse(
 	}
 	if denied := PermissionDeniedFromResponse(response.StatusCode, responseBody); denied != nil {
 		return false, denied
+	}
+	if deferral := gitPushDeferralFromResponse(response.StatusCode, responseBody); deferral != nil {
+		return false, &gitPushDeferredError{deferral: *deferral}
 	}
 	if wait {
 		if response.StatusCode < 200 || response.StatusCode >= 300 {

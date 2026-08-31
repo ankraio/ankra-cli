@@ -373,11 +373,18 @@ type ImportResponseResourceError struct {
 	Errors []ImportResponseErrorItem `json:"errors"`
 }
 
+// ImportResponse mirrors the backend apply/import result.
+// GitPushDeferred/GitPushMessage are CLI-synthesized from a git-push-deferral
+// 422 (see GitPushDeferral): the cluster write is committed and live, only
+// the commit back to Git waits on the background sync — the platform sends
+// no result payload in that case, so every other field is empty.
 type ImportResponse struct {
-	Name          string                        `json:"name"`
-	ClusterId     string                        `json:"cluster_id"`
-	ImportCommand string                        `json:"import_command"`
-	Errors        []ImportResponseResourceError `json:"errors,omitempty"`
+	Name            string                        `json:"name"`
+	ClusterId       string                        `json:"cluster_id"`
+	ImportCommand   string                        `json:"import_command"`
+	Errors          []ImportResponseResourceError `json:"errors,omitempty"`
+	GitPushDeferred bool                          `json:"git_push_deferred,omitempty"`
+	GitPushMessage  string                        `json:"git_push_message,omitempty"`
 }
 
 // TriggerReconcileResult mirrors the platform's reconcile response (openapi
@@ -437,6 +444,13 @@ func (c *Client) ApplyCluster(ctx context.Context, clusterReq CreateImportCluste
 	var importResponse ImportResponse
 	submitted, err := c.doJSONWriteRequest(ctx, http.MethodPost, endpoint, payload, wait, &importResponse)
 	if err != nil {
+		var deferred *gitPushDeferredError
+		if errors.As(err, &deferred) {
+			return &ImportResponse{
+				GitPushDeferred: true,
+				GitPushMessage:  deferred.deferral.Message,
+			}, false, nil
+		}
 		return nil, false, err
 	}
 	if submitted {
