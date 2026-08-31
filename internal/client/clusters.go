@@ -78,11 +78,16 @@ func (c *Client) ListClusters(page int, pageSize int) (*ClusterListResponse, err
 	return response, nil
 }
 
-// GetCluster looks up a cluster by exact name. The backend's
-// /api/v1/clusters?cluster_name=... mode returns a ClusterListResponse
-// with the matching row in `result` (or an empty result on no match).
+// GetCluster looks up a cluster by exact name. The backend narrows with
+// its `name` filter and the exact match happens here.
+//
+// The old query string sent `cluster_name`, a parameter the server never
+// read - the request silently returned the default first page of 25, so
+// any cluster sorted past it answered "no cluster found" (ankra-99r3d,
+// the same truncation listAllClusters was already fixed for).
 func (c *Client) GetCluster(name string) (ClusterListItem, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters?cluster_name=%s", c.BaseURL, neturl.QueryEscape(name))
+	url := fmt.Sprintf("%s/api/v1/clusters?name=%s&page=1&page_size=100",
+		c.BaseURL, neturl.QueryEscape(name))
 	var wrapper ClusterListResponse
 	if err := c.getJSON(url, &wrapper); err != nil {
 		return ClusterListItem{}, err
