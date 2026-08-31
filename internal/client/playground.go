@@ -67,9 +67,23 @@ type PlaygroundPlanCatalog struct {
 	// OrganisationHasPaymentCard is the second half of that answer: paid
 	// orders also refuse without a card on file.
 	OrganisationHasPaymentCard bool `json:"organisation_has_payment_card"`
+	// OrganisationRequiresPaymentCard says whether that card is a condition
+	// of ordering at all. It is false for an organisation on a custom plan,
+	// which is invoiced against its agreement rather than collected by
+	// Stripe. A pointer because an older server omits the field entirely,
+	// and an absent answer is not an exemption - see RequiresPaymentCard.
+	OrganisationRequiresPaymentCard *bool `json:"organisation_requires_payment_card"`
 	// Quota is the memory budget paid playgrounds share (the free trial
 	// sits outside it).
 	Quota PlaygroundMemoryQuota `json:"quota"`
+}
+
+// RequiresPaymentCard reports whether the organisation has to hold a card
+// before a paid order is accepted. A server that does not send the field at
+// all is read as requiring one: that is true of every plan but the custom
+// one, so an absent answer must not be mistaken for an exemption.
+func (catalog PlaygroundPlanCatalog) RequiresPaymentCard() bool {
+	return catalog.OrganisationRequiresPaymentCard == nil || *catalog.OrganisationRequiresPaymentCard
 }
 
 // ListPlaygroundPlans reads the orderable sizes with their prices and

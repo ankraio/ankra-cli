@@ -68,7 +68,7 @@ var clusterPlaygroundPlansCmd = &cobra.Command{
 		if !catalog.OrganisationHasPaidPlan {
 			_, _ = fmt.Fprintf(writer,
 				"Paid sizes need a billing plan - choose one on the billing page first.\n")
-		} else if !catalog.OrganisationHasPaymentCard {
+		} else if catalog.RequiresPaymentCard() && !catalog.OrganisationHasPaymentCard {
 			_, _ = fmt.Fprintf(writer,
 				"Paid sizes need a payment card on file - add one on the billing page first.\n")
 		}
