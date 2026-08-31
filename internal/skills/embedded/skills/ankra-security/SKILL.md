@@ -1,6 +1,6 @@
 ---
 name: ankra-security
-description: Secure an Ankra organisation end to end - API tokens and their MCP scopes, organisation roles and membership, cluster access grants through the kube gateway, credential scope for Git/registry/cloud, secret handling with SOPS, application code and container scanning findings, and how much autonomy the AI agents and MCP tool servers are given. Use when the user asks about permissions, RBAC, who can access a cluster, token scopes, least privilege, a security review, hardening, or handling secrets safely.
+description: Secure an Ankra organisation end to end - API tokens and their MCP scopes, organisation roles and membership, cluster access grants through the kube gateway, credential scope for Git/registry/cloud, secret handling with SOPS, application code and container scanning findings, the Security Center's fleet-wide CVE findings with CISA KEV and EPSS exploitation intelligence, and how much autonomy the AI agents and MCP tool servers are given. Use when the user asks about permissions, RBAC, who can access a cluster, token scopes, least privilege, a security review, hardening, handling secrets safely, vulnerabilities, a CVE, or what is exploited in the wild.
 ---
 
 # Ankra security
@@ -140,7 +140,37 @@ An application whose build workflow has no scanning step is a finding in itself.
 image tag or an unpinned chart version: a mutable tag means the artefact you reviewed is not
 necessarily the artefact that runs, which defeats every other control here.
 
-## 7. Agent autonomy
+## 7. The Security Center: findings, KEV and EPSS
+
+```bash
+ankra security overview                          # fleet totals, KEV exposure, scanner coverage
+ankra security findings --known-exploited        # the CVEs CISA lists as exploited in the wild
+ankra security findings --severity critical --fixable true --sort epss
+ankra security finding <finding-id>              # CISA's guidance and every current occurrence
+ankra security clusters --status stale           # per-cluster posture and scanner freshness
+ankra security advisory CVE-2026-1234            # the platform's advisory: NVD/OSV, CISA, your exposure
+```
+
+This is the portal's Security Center from the terminal - one logical finding per CVE and
+package, deduplicated across clusters and workloads, each carrying its exploitation
+intelligence: whether CISA lists the CVE in its Known Exploited Vulnerabilities catalog (with
+the remediation deadline and required action) and the FIRST EPSS probability of exploitation
+in the next 30 days.
+
+- **The default sort is exploitability** - CISA listing first, then EPSS, then severity - so
+  the top of the list is what is being exploited, not what merely has the highest CVSS score.
+  Work it top-down; a medium on the KEV list outranks an unexploited critical.
+- The default listing is the actionable set (open and acknowledged). `--status any` widens it
+  to accepted-risk and resolved findings; `--cluster`, `--addon` and `--namespace` narrow the
+  blast radius question.
+- **`security clusters` answers "can I trust this picture?"** - a cluster whose scanner is
+  `stale` or `unscanned` has findings you are not seeing. Treat scanner freshness as a
+  finding of its own.
+- `advisory` works for any CVE id, in a finding or not - the fastest answer to "are we
+  exposed to the CVE in this morning's headlines?".
+- Everything takes `-o json` for reporting and automation.
+
+## 8. Agent autonomy
 
 ```bash
 ankra org mcp-servers list
@@ -173,7 +203,10 @@ ankra cluster access list --cluster <c>  # cluster-admin, cluster-wide grants
 ankra credentials list                   # then `credentials repositories` on each Git credential
 ankra cluster sops-config                # secrets encrypted, paths declared
 ankra application container-security <a> # per application; and code-security
+ankra security overview                  # KEV exposure and scanner coverage across the fleet
+ankra security findings --known-exploited # what is actually being exploited, fix these first
 ankra org mcp-servers list               # read_write tiers, wide tool grants
+ankra backup vaults list                 # every vault ready, keys scoped to their bucket
 ```
 
 Report findings ranked by exposure: what is reachable, by whom, and the one command or change that
@@ -194,6 +227,7 @@ closes it. Do not change anything in a review pass without asking, and never pri
 ## Related skills
 
 - `ankra-sops-secrets` — the encryption workflow in detail.
+- `ankra-backups` — backup vault keys and what lives in the buckets.
 - `ankra-app-integrations` — credential reuse and the registry credential split.
 - `ankra-ai-agents` — MCP servers, tool grants, and agent runs.
 - `ankra-ai-gateway` — Ask/Agent modes per integration.
