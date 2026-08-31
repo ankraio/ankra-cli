@@ -1,5 +1,26 @@
 # Ankra CLI Changelog
 
+## v0.14.0 — 2026-08-31
+
+Promotes v0.14.0-rc0 through rc8. The headline is the migration lane:
+`ankra backup vaults` gives the organisation S3-compatible vaults - registered
+from a bucket you run, or provisioned by Ankra from a provider credential -
+and `ankra migrate up` moves a Docker deployment into a cluster in one
+command: plan, convert, deploy, dump every database and restore it through a
+vault, rehearse, then cut over with `--stop-source`; the steps are also
+separate commands (`convert`, `export`, `restore`, `data`, `imports`), and
+external conversion modules install like plugins. Around it: a shell in any
+pod with `ankra cluster terminal`, debug pods that impersonate a workload,
+recorded and readable terminal sessions, kubectl-style plugin dispatch,
+`ankra cluster mesh` for Cilium ClusterMesh, Scaleway's full command set,
+UpCloud multi-zone clusters, kubeadm as the default distribution, the
+Security Center from the terminal (`ankra security` with KEV/EPSS ordering,
+per-CVE advisories), the portal's Cost center as `ankra cost`,
+`ankra cluster move --organisation`, sharper `encrypt -f` and
+`encrypted_paths` handling, and three agent skills' worth of new guidance
+(`ankra-migrate`, `ankra-backups`, the Security Center in `ankra-security`).
+The rc sections below carry the full detail.
+
 ## v0.14.0-rc8 — 2026-08-31
 
 ### Added
