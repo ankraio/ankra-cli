@@ -92,6 +92,29 @@ func TestGetCluster(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// The substring filter can match more rows than one page holds;
+			// the exact name on a later page must still be found.
+			name: "found on the second filtered page",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.URL.RawQuery, "page=2") {
+					jsonResponse(t, w, http.StatusOK, ClusterListResponse{
+						Result: []ClusterListItem{
+							{ID: "id1", Name: "my-cluster", State: "online"},
+						},
+						Pagination: Pagination{TotalCount: 101, Page: 2, PageSize: 100, TotalPages: 2},
+					})
+					return
+				}
+				jsonResponse(t, w, http.StatusOK, ClusterListResponse{
+					Result: []ClusterListItem{
+						{ID: "id2", Name: "my-cluster-staging", State: "online"},
+					},
+					Pagination: Pagination{TotalCount: 101, Page: 1, PageSize: 100, TotalPages: 2},
+				})
+			},
+			wantErr: false,
+		},
+		{
 			name: "prefix match is rejected",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				jsonResponse(t, w, http.StatusOK, ClusterListResponse{

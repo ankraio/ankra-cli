@@ -79,22 +79,31 @@ func (c *Client) ListClusters(page int, pageSize int) (*ClusterListResponse, err
 }
 
 // GetCluster looks up a cluster by exact name. The backend narrows with
-// its `name` filter and the exact match happens here.
+// its `name` filter (a substring match), the pages are walked to the end,
+// and the exact match happens here - "not found" is only answered once
+// every filtered page has been seen.
 //
 // The old query string sent `cluster_name`, a parameter the server never
 // read - the request silently returned the default first page of 25, so
 // any cluster sorted past it answered "no cluster found" (ankra-99r3d,
 // the same truncation listAllClusters was already fixed for).
 func (c *Client) GetCluster(name string) (ClusterListItem, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters?name=%s&page=1&page_size=100",
-		c.BaseURL, neturl.QueryEscape(name))
-	var wrapper ClusterListResponse
-	if err := c.getJSON(url, &wrapper); err != nil {
-		return ClusterListItem{}, err
-	}
-	for _, cluster := range wrapper.Result {
-		if cluster.Name == name {
-			return cluster, nil
+	const pageSize = 100
+	const maxPages = 100
+	for page := 1; page <= maxPages; page++ {
+		url := fmt.Sprintf("%s/api/v1/clusters?name=%s&page=%d&page_size=%d",
+			c.BaseURL, neturl.QueryEscape(name), page, pageSize)
+		var wrapper ClusterListResponse
+		if err := c.getJSON(url, &wrapper); err != nil {
+			return ClusterListItem{}, err
+		}
+		for _, cluster := range wrapper.Result {
+			if cluster.Name == name {
+				return cluster, nil
+			}
+		}
+		if wrapper.Pagination.TotalPages <= page || len(wrapper.Result) == 0 {
+			break
 		}
 	}
 	return ClusterListItem{}, fmt.Errorf("no cluster found for name %q: %w", name, ErrClusterNotFound)
