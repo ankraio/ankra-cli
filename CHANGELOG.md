@@ -1,6 +1,6 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.14.0-rc8 — 2026-08-31
 
 ### Added
 
@@ -50,6 +50,15 @@
   not read yet is queued at the front of its read queue and reported as
   pending; `-o json` returns the API document.
 
+- **Proxmox clusters can join the platform WireGuard overlay at create time.**
+  `ankra cluster proxmox create` takes `--network-mode wireguard_mesh` to put
+  the new cluster's nodes on the overlay behind the bastion site gateway, and
+  `--site-public-ip` for the address other sites dial that gateway on. The
+  pair is validated client-side - a mesh without a site address, a site
+  address without the mesh, or an unknown mode is refused with the platform's
+  own wording before anything is sent - and both are omitted from the create
+  when unset.
+
 ### Fixed
 
 - **`control-plane get` answers the count and the instance type separately.**
@@ -78,6 +87,14 @@
   `cli`, and `ankra cli ...` would have run that older CLI. The name is now
   ignored by discovery and dispatch; a plugin whose name merely starts with
   `cli` still works.
+- **`playground plans` stops telling custom-plan organisations to add a
+  payment card.** A custom plan is invoiced against its negotiated agreement,
+  so the order gate never asks those organisations for a card - but the plans
+  listing still printed "Paid sizes need a payment card on file" whenever no
+  card was stored, advice that fixed nothing. The line is now gated by the
+  catalog's own answer, as the portal picker already does; a server too old
+  to send that answer keeps the warning, since every plan but the custom one
+  really does require a card.
 
 ## v0.14.0-rc7 — 2026-08-30
 
