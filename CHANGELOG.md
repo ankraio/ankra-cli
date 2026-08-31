@@ -4,6 +4,17 @@
 
 ### Added
 
+- **Two new agent skills, and security coverage in a third.** `ankra-migrate`
+  teaches the whole `ankra migrate` journey - plan, convert, deploy, export,
+  restore through a backup vault, the rehearse-then-`--stop-source` cutover,
+  what is not carried, import cleanup and the module contract. `ankra-backups`
+  covers `ankra backup vaults`: provisioning a bucket from a provider
+  credential versus registering your own, the verification lifecycle, what a
+  vault holds and the two very different meanings of delete. `ankra-security`
+  gains the Security Center surface - `ankra security overview`, `findings`,
+  `finding`, `clusters` and `advisory`, with the KEV/EPSS exploitability
+  ordering - and its review pass now sweeps security findings and backup
+  vaults too.
 - **`ankra cluster move --organisation <id|slug|name>`** moves a cluster into
   another organisation you administer. Only an administrator of both the
   current organisation and the destination can run it; anyone else gets the

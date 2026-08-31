@@ -52,6 +52,9 @@ never rely on the selection — pass both explicitly.
 | AI provider, tools, runs, board | `ankra ai ...`, `ankra org mcp-servers ...`, `ankra agents ...`, `ankra tickets ...` | `ankra-ai-agents` |
 | Tokens, roles, cluster access | `ankra tokens`, `ankra org members\|roles`, `ankra cluster access` | `ankra-security` |
 | Credentials | `ankra credentials ...` | `ankra-security` |
+| Vulnerabilities and CVEs | `ankra security ...` | `ankra-security` |
+| Backup vaults | `ankra backup vaults ...` | `ankra-backups` |
+| Migrating existing deployments | `ankra migrate ...` | `ankra-migrate` |
 | Cloud cost | `ankra cost summary\|cluster\|settings` | below |
 | Support requests | `ankra support create\|list\|get\|comment\|attach\|close` | below |
 
