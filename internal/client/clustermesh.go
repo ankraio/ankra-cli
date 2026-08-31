@@ -113,6 +113,9 @@ func (c *Client) MakeClusterMeshReady(clusterID string, sitePublicIP string) (*C
 	if err := c.sendJSON(http.MethodPost, c.BaseURL+clusterMeshAPIPath+"/make-ready", body, &response); err != nil {
 		return nil, err
 	}
+	if response.MakeReady.CiliumClusterID == 0 && response.MakeReady.CiliumClusterName == "" {
+		return nil, fmt.Errorf("the platform answered without a make_ready result; the API and CLI may be out of step")
+	}
 	return &response.MakeReady, nil
 }
 
