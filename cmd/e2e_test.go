@@ -487,8 +487,8 @@ func (m baseMock) GetAddonSettings(clusterID, addonName string) (*client.GetAddo
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateAddonSettings(ctx context.Context, clusterID, addonName string, settings client.AddonSettings) error {
-	return errors.New("not implemented")
+func (m baseMock) UpdateAddonSettings(ctx context.Context, clusterID, addonName string, settings client.AddonSettings) (*client.UpdateAddonSettingsResult, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) GetAddonByName(clusterID, addonName string) (*client.ClusterAddonListItem, error) {

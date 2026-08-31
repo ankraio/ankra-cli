@@ -155,6 +155,15 @@ func resolveClusterForDraft(ctx context.Context, importRequest client.CreateImpo
 	if len(importResponse.Errors) > 0 {
 		return "", fmt.Errorf("import of cluster %q failed: %v", importRequest.Name, importResponse.Errors)
 	}
+	if importResponse.GitPushDeferred {
+		// The bootstrap import WAS saved and is live (that is what a git-push
+		// deferral means), but the deferred response carries no cluster ID to
+		// attach drafts to — succeeding here would feed an empty ID into
+		// every staging call. Re-running resolves the now-existing cluster
+		// through the GetCluster lookup above and proceeds normally.
+		return "", fmt.Errorf("cluster %q was imported and is live, but the platform deferred its Git commit and returned no cluster ID; re-run the command to stage the drafts (the cluster now exists and will be found directly).\n%s",
+			importRequest.Name, importResponse.GitPushMessage)
+	}
 	fmt.Fprintf(os.Stderr, "Cluster %q imported.\n", importResponse.Name)
 	return importResponse.ClusterId, nil
 }

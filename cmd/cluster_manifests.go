@@ -107,10 +107,12 @@ cluster). Use --dry-run to preview the target without making changes.`,
 			return err
 		}
 
-		if _, err := apiClient.DisconnectManifest(ctx, clusterID, stack.Name, manifestName); err != nil {
+		result, err := apiClient.DisconnectManifest(ctx, clusterID, stack.Name, manifestName)
+		if err != nil {
 			return err
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Manifest %q disconnected from stack %q.\n", manifestName, stack.Name)
+		printGitPushDeferral(cmd.OutOrStdout(), result.GitPushDeferred, result.GitPushMessage)
 		return nil
 	},
 }

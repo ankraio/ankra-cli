@@ -476,6 +476,16 @@ func deployMigrateUpStack(cmd *cobra.Command, clusterFile string) error {
 		}
 		return fmt.Errorf("the platform refused the stack:\n  %s", strings.Join(lines, "\n  "))
 	}
+	if response.GitPushDeferred {
+		// Designed refusal: the stack write is committed and the agent is
+		// deploying it, exactly like a plain 200 (addon/manifest deploys are
+		// asynchronous on both paths; the pod wait only runs when data is
+		// carried). Only the commit back to Git waits on the background sync.
+		// The response carries no name payload in that case.
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Stack applied; the agent is deploying it.")
+		printGitPushDeferral(cmd.ErrOrStderr(), true, response.GitPushMessage)
+		return nil
+	}
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Stack applied to cluster %s; the agent is deploying it.\n", response.Name)
 	return nil
 }

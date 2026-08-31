@@ -33,7 +33,7 @@ type APIClient interface {
 	ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error)
 	ListAvailableAddons(clusterID string) ([]client.AvailableAddon, error)
 	GetAddonSettings(clusterID, addonName string) (*client.GetAddonSettingsResponse, error)
-	UpdateAddonSettings(ctx context.Context, clusterID, addonName string, settings client.AddonSettings) error
+	UpdateAddonSettings(ctx context.Context, clusterID, addonName string, settings client.AddonSettings) (*client.UpdateAddonSettingsResult, error)
 	GetAddonByName(clusterID, addonName string) (*client.ClusterAddonListItem, error)
 	GetClusterAddonValues(ctx context.Context, clusterID, addonName string) (string, error)
 	UninstallAddon(ctx context.Context, clusterID, addonResourceID string, deletePermanently bool) (*client.UninstallAddonResult, error)

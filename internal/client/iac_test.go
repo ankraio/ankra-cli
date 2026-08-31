@@ -234,6 +234,64 @@ func TestPatchClusterStackPartial_TypedErrorOnNon2xx(t *testing.T) {
 	}
 }
 
+// A git-push-deferral 422 is a designed refusal — the update is applied and
+// live — so it must come back as success carrying the deferral, never as the
+// error the CI retry wrappers key on (ankra-qezdv).
+func TestPatchClusterStackPartial_DeferredGitPushIsSuccess(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(deferredBody))
+	})
+	req := PatchStackRequest{
+		PartialStack: true,
+		Spec:         ResourceSpecSpec{Stacks: []StackSpec{{Name: "demo"}}},
+	}
+	res, err := testClient.PatchClusterStackPartial(context.Background(), "cluster-id", "demo", req)
+	if err != nil {
+		t.Fatalf("deferred git push must be success, got error: %v", err)
+	}
+	if !res.GitPushDeferred {
+		t.Error("GitPushDeferred = false, want true")
+	}
+	if res.GitPushMessage != deferralDetail {
+		t.Errorf("GitPushMessage = %q, want the platform detail verbatim", res.GitPushMessage)
+	}
+	if res.StackName != "demo" {
+		t.Errorf("StackName = %q, want demo", res.StackName)
+	}
+	if res.CommitSHA != "" || res.CommitURL != "" {
+		t.Errorf("commit fields must stay empty on a deferral, got %q / %q", res.CommitSHA, res.CommitURL)
+	}
+}
+
+// GIT_PUSH_FAILED and a codeless 422 (older platform) keep today's typed
+// error, pinning the non-zero direction of the boundary.
+func TestPatchClusterStackPartial_FailedAndCodelessGitPushStayErrors(t *testing.T) {
+	for name, body := range map[string]string{
+		"failed":   failedBody,
+		"codeless": `{"detail":"` + deferralDetail + `"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				_, _ = w.Write([]byte(body))
+			})
+			req := PatchStackRequest{
+				PartialStack: true,
+				Spec:         ResourceSpecSpec{Stacks: []StackSpec{{Name: "demo"}}},
+			}
+			_, err := testClient.PatchClusterStackPartial(context.Background(), "cluster-id", "demo", req)
+			var perr *PatchStackError
+			if !errors.As(err, &perr) {
+				t.Fatalf("expected *PatchStackError, got %T: %v", err, err)
+			}
+			if perr.StatusCode != http.StatusUnprocessableEntity {
+				t.Errorf("StatusCode = %d, want 422", perr.StatusCode)
+			}
+		})
+	}
+}
+
 func TestGetClusterAddonValues_DecodesBase64(t *testing.T) {
 	rawYAML := "image:\n  tag: 1.0.0\n"
 	encoded := base64.StdEncoding.EncodeToString([]byte(rawYAML))

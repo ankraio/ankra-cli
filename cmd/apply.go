@@ -112,6 +112,19 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	if importResponse.GitPushDeferred {
+		// Designed refusal: the cluster write is committed and live, only the
+		// commit back to Git waits on the background sync. The response
+		// carries no name/id payload, so render the deferral instead of the
+		// name-based success output. The message is printed verbatim — deploy
+		// tooling substring-matches it.
+		if rendered, err := renderStructured(cmd, importResponse); rendered || err != nil {
+			return err
+		}
+		printGitPushDeferral(cmd.OutOrStdout(), true, importResponse.GitPushMessage)
+		return nil
+	}
+
 	if len(importResponse.Errors) > 0 {
 		rendered, renderErr := renderStructured(cmd, importResponse)
 		if renderErr != nil {

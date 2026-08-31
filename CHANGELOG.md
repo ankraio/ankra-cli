@@ -82,6 +82,24 @@ The rc sections below carry the full detail.
 
 ### Fixed
 
+- **A deferred GitOps commit is no longer reported as a failed deploy.** When
+  the values repository has commits the platform has not synced yet, a stack
+  write is applied to the cluster and is live, and only the commit back to
+  Git waits on the background sync - the platform says so explicitly, with
+  "do not re-apply". The CLI still exited 1 on that answer, so CI marked
+  successful deploys red and retry wrappers re-applied the change the message
+  warns against. The CLI now reads the machine-readable `error_code` the
+  platform attaches (`GIT_PUSH_DEFERRED` vs `GIT_PUSH_FAILED`) and treats a
+  deferral as success: exit 0, the platform's message printed verbatim, and
+  `git_push_deferred`/`git_push_message` fields in `-o json`. This covers
+  every write that can defer - addons upgrade/uninstall/update, manifests
+  upgrade/disconnect, encrypt, stack variables, stack rename, and
+  `cluster apply` (including `migrate up`). Genuine push failures and older
+  platforms that send no `error_code` keep the non-zero exit they have today.
+  One deliberate exception: `cluster draft`'s bootstrap import needs the new
+  cluster's ID from the response, which a deferral does not carry, so it
+  reports the saved-but-deferred state and asks you to re-run instead of
+  staging drafts against an empty cluster.
 - **`control-plane get` answers the count and the instance type separately.**
   The platform can now resize a running cluster's controllers one at a time,
   so the two controls stopped having the same answer - but the CLI still

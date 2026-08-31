@@ -397,6 +397,56 @@ func TestApplyCluster(t *testing.T) {
 	}
 }
 
+// A git-push-deferral 422 on apply is a designed refusal — the cluster write
+// is committed and live — so it must come back as success carrying the
+// deferral, with the payload fields empty (the platform sends none); a
+// GIT_PUSH_FAILED or codeless 422 keeps today's error (ankra-qezdv).
+func TestApplyCluster_GitPushBoundary(t *testing.T) {
+	request := CreateImportClusterRequest{
+		Name: "test-cluster",
+		Spec: CreateResourceSpec{Stacks: []Stack{}},
+	}
+
+	t.Run("deferred is success", func(t *testing.T) {
+		testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(deferredBody))
+		})
+		got, submitted, err := testClient.ApplyCluster(context.Background(), request, true)
+		if err != nil {
+			t.Fatalf("deferred git push must be success, got error: %v", err)
+		}
+		if submitted {
+			t.Error("submitted = true, want false")
+		}
+		if got == nil || !got.GitPushDeferred {
+			t.Fatalf("got = %+v, want GitPushDeferred=true", got)
+		}
+		if got.GitPushMessage != deferralDetail {
+			t.Errorf("GitPushMessage = %q, want the platform detail verbatim", got.GitPushMessage)
+		}
+		if got.ClusterId != "" || got.Name != "" {
+			t.Errorf("payload fields must stay empty on a deferral, got name=%q id=%q", got.Name, got.ClusterId)
+		}
+	})
+
+	for name, body := range map[string]string{
+		"failed":   failedBody,
+		"codeless": `{"detail":"` + deferralDetail + `"}`,
+	} {
+		t.Run(name+" stays an error", func(t *testing.T) {
+			testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				_, _ = w.Write([]byte(body))
+			})
+			_, _, err := testClient.ApplyCluster(context.Background(), request, true)
+			if err == nil {
+				t.Fatal("expected error, got success")
+			}
+		})
+	}
+}
+
 // TestApplyClusterSendsGroupLabels pins the wire half of ankra-o0k2f: the
 // organizational 'group' label reaches the import body for the manifests and
 // addons that carry one, and is omitted entirely for the ones that do not, so

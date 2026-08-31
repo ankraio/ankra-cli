@@ -139,7 +139,8 @@ passing "-".`,
 			return nil
 		}
 
-		if err := patchStackVariables(ctx, clusterID, patchStack); err != nil {
+		res, err := patchStackVariables(ctx, clusterID, patchStack)
+		if err != nil {
 			return err
 		}
 		if existed {
@@ -147,6 +148,7 @@ passing "-".`,
 		} else {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Stack %q variable %q created.\n", stackName, name)
 		}
+		printGitPushDeferral(cmd.OutOrStdout(), res.GitPushDeferred, res.GitPushMessage)
 		return nil
 	},
 }
@@ -198,10 +200,12 @@ var clusterStackVariablesDeleteCmd = &cobra.Command{
 			patchStack.Variables = map[string]string{}
 		}
 
-		if err := patchStackVariables(ctx, clusterID, patchStack); err != nil {
+		res, err := patchStackVariables(ctx, clusterID, patchStack)
+		if err != nil {
 			return err
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Stack %q variable %q deleted.\n", stackName, name)
+		printGitPushDeferral(cmd.OutOrStdout(), res.GitPushDeferred, res.GitPushMessage)
 		return nil
 	},
 }
@@ -247,16 +251,17 @@ func joinOrNone(items []string) string {
 // patchStackVariables sends a stack-only partial PATCH that carries metadata +
 // the updated variables map. Manifests/addons are intentionally omitted so
 // the backend preserves them.
-func patchStackVariables(ctx context.Context, clusterID string, patchStack client.StackSpec) error {
+func patchStackVariables(ctx context.Context, clusterID string, patchStack client.StackSpec) (*client.PatchStackResult, error) {
 	req := buildPartialStackPatch(patchStack)
-	if _, err := apiClient.PatchClusterStackPartial(ctx, clusterID, patchStack.Name, req); err != nil {
+	res, err := apiClient.PatchClusterStackPartial(ctx, clusterID, patchStack.Name, req)
+	if err != nil {
 		var perr *client.PatchStackError
 		if errors.As(err, &perr) {
-			return mapPatchError(perr)
+			return nil, mapPatchError(perr)
 		}
-		return err
+		return nil, err
 	}
-	return nil
+	return res, nil
 }
 
 func renderStackVariables(out io.Writer, stackName string, vars map[string]string, format outputFormat) error {
