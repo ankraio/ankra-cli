@@ -135,6 +135,36 @@ var clusterMeshLeaveCmd = &cobra.Command{
 	},
 }
 
+var clusterMeshMakeReadySiteIP string
+
+var clusterMeshMakeReadyCmd = &cobra.Command{
+	Use:   "make-ready <cluster_id>",
+	Short: "Turn an existing cluster mesh-capable without recreating it",
+	Long: "Turn an existing cluster mesh-capable, day-2: allocate its Cilium identity and overlay range, stamp the " +
+		"overlay onto its stored definitions, and set its resources converging so every node joins the platform " +
+		"WireGuard overlay. The node-IP switch restarts kubelets once; nothing is deleted or recreated.\n\n" +
+		"Proxmox clusters need --site-public-ip: the address other sites dial this cluster's site gateway on.",
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		result, makeReadyError := apiClient.MakeClusterMeshReady(args[0], clusterMeshMakeReadySiteIP)
+		if makeReadyError != nil {
+			return fmt.Errorf("making the cluster mesh-ready: %w", makeReadyError)
+		}
+		if handled, renderError := renderStructured(cmd, result); renderError != nil {
+			return renderError
+		} else if handled {
+			return nil
+		}
+		identity := "kept its existing network identity"
+		if result.IdentityAllocated {
+			identity = "was allocated a network identity"
+		}
+		fmt.Printf("Cluster %s %s: cilium-id=%d name=%s; %d resources converging onto the overlay.\n",
+			result.ClusterID, identity, result.CiliumClusterID, result.CiliumClusterName, result.TransitionedResources)
+		return nil
+	},
+}
+
 var clusterMeshReadinessCmd = &cobra.Command{
 	Use:   "readiness <cluster_id> [cluster_id...]",
 	Short: "Check whether clusters can mesh together, and why not",
@@ -186,5 +216,8 @@ func init() {
 	clusterMeshCmd.AddCommand(clusterMeshJoinCmd)
 	clusterMeshCmd.AddCommand(clusterMeshLeaveCmd)
 	clusterMeshCmd.AddCommand(clusterMeshReadinessCmd)
+	clusterMeshMakeReadyCmd.Flags().StringVar(&clusterMeshMakeReadySiteIP, "site-public-ip", "",
+		"Public address other sites dial this cluster's site gateway on (proxmox clusters only)")
+	clusterMeshCmd.AddCommand(clusterMeshMakeReadyCmd)
 	clusterCmd.AddCommand(clusterMeshCmd)
 }

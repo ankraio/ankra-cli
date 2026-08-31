@@ -425,6 +425,7 @@ type APIClient interface {
 	CreateClusterMesh(name string) (*client.ClusterMesh, error)
 	DeleteClusterMesh(meshID string) error
 	JoinClusterMesh(meshID string, clusterID string) error
+	MakeClusterMeshReady(clusterID string, sitePublicIP string) (*client.ClusterMeshMakeReadyResult, error)
 	LeaveClusterMesh(meshID string, clusterID string) error
 	CheckClusterMeshReadiness(clusterIDs []string) (map[string]client.ClusterMeshReadiness, error)
 	CreatePlayground(planID string) (*client.CreatePlaygroundResult, error)
