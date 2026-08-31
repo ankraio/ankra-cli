@@ -62,7 +62,13 @@ func TestGetCluster(t *testing.T) {
 		{
 			name: "found",
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				if !strings.Contains(r.URL.RawQuery, "cluster_name=my-cluster") {
+				// The server reads `name` (cluster_name never existed
+				// server-side) and the page must be explicit, or the
+				// default 25-row first page hides everything sorted
+				// past it (ankra-99r3d).
+				if !strings.Contains(r.URL.RawQuery, "name=my-cluster") ||
+					strings.Contains(r.URL.RawQuery, "cluster_name=") ||
+					!strings.Contains(r.URL.RawQuery, "page_size=100") {
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
