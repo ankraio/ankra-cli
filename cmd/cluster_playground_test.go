@@ -266,3 +266,47 @@ func TestPlaygroundDestroySurfacesTheServerError(t *testing.T) {
 		t.Errorf("the server detail must survive: %v", runError)
 	}
 }
+
+// A custom plan is invoiced against its agreement rather than collected by
+// Stripe, so the order gate never asks for a card and the listing must not
+// either. Every other plan still says so - including against a server too old
+// to send the field, where an absent answer is not an exemption.
+func TestPlaygroundPlansAsksForACardOnlyWhereStripeCollects(t *testing.T) {
+	requiresCard := true
+	exemptFromCard := false
+
+	for _, testCase := range []struct {
+		name          string
+		requiresField *bool
+		wantCardLine  bool
+	}{
+		{name: "custom plan", requiresField: &exemptFromCard, wantCardLine: false},
+		{name: "Stripe-collected plan", requiresField: &requiresCard, wantCardLine: true},
+		{name: "server predating the field", requiresField: nil, wantCardLine: true},
+	} {
+		withPlaygroundMock(t, &playgroundMock{
+			plansCatalog: &client.PlaygroundPlanCatalog{
+				DefaultPlanID:                   "trial",
+				Currency:                        "eur",
+				OrganisationHasPaidPlan:         true,
+				OrganisationHasPaymentCard:      false,
+				OrganisationRequiresPaymentCard: testCase.requiresField,
+				Plans: []client.PlaygroundPlan{
+					{ID: "small", DisplayName: "Small", Vcpus: 2, MemoryGB: 4, StorageGB: 50, PriceMonthlyCents: 1350, Currency: "eur", Available: true},
+				},
+			},
+		})
+		buffer := &strings.Builder{}
+		clusterPlaygroundPlansCmd.SetOut(buffer)
+		if err := clusterPlaygroundPlansCmd.RunE(clusterPlaygroundPlansCmd, nil); err != nil {
+			clusterPlaygroundPlansCmd.SetOut(nil)
+			t.Fatalf("%s: plans failed: %v", testCase.name, err)
+		}
+		output := buffer.String()
+		clusterPlaygroundPlansCmd.SetOut(nil)
+		if hasCardLine := strings.Contains(output, "payment card on file"); hasCardLine != testCase.wantCardLine {
+			t.Errorf("%s: card line present = %v, want %v; output: %s",
+				testCase.name, hasCardLine, testCase.wantCardLine, output)
+		}
+	}
+}
