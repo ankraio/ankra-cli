@@ -59,9 +59,12 @@ type applicationShipMock struct {
 	installationsPayloads [][]byte
 	installationsCalls    int
 
-	ingressItems []interface{}
-	eventItems   []interface{}
-	podsResponse *client.ListPodsResponse
+	deploymentsPayload json.RawMessage
+
+	ingressItems           []interface{}
+	eventItems             []interface{}
+	resourceKindsRequested []string
+	podsResponse           *client.ListPodsResponse
 }
 
 func (mock *applicationShipMock) ListOrganisations() ([]client.OrganisationSummary, error) {
@@ -147,11 +150,19 @@ func (mock *applicationShipMock) GetApplicationInstallations(requestContext cont
 	return json.RawMessage(scriptedPayload(mock.installationsPayloads, mock.installationsCalls)), nil
 }
 
+func (mock *applicationShipMock) GetApplicationDeployments(requestContext context.Context,
+	applicationID string) (json.RawMessage, error) {
+	return mock.deploymentsPayload, nil
+}
+
 func (mock *applicationShipMock) GetResources(clusterID string,
 	request client.GetResourcesRequest) (*client.GetResourcesResponse, error) {
 	items := mock.ingressItems
-	if len(request.ResourceRequests) == 1 && request.ResourceRequests[0].Kind == "Event" {
-		items = mock.eventItems
+	if len(request.ResourceRequests) == 1 {
+		mock.resourceKindsRequested = append(mock.resourceKindsRequested, request.ResourceRequests[0].Kind)
+		if request.ResourceRequests[0].Kind == "Event" {
+			items = mock.eventItems
+		}
 	}
 	return &client.GetResourcesResponse{ResourceResponses: []client.ResourceResponseItem{{Items: items}}}, nil
 }
@@ -196,6 +207,7 @@ func newApplicationShipMock() *applicationShipMock {
 			[]byte(`{"installations":[{"id":"` + shipTestInstallationID + `","cluster_id":"` + shipTestClusterID + `","namespace":"` + namespace + `","status":"deploying"}]}`),
 			[]byte(`{"installations":[{"id":"` + shipTestInstallationID + `","cluster_id":"` + shipTestClusterID + `","namespace":"` + namespace + `","status":"healthy"}]}`),
 		},
+		deploymentsPayload: []byte(`{"deployments":[]}`),
 		ingressItems: []interface{}{
 			map[string]interface{}{
 				"spec": map[string]interface{}{
@@ -498,6 +510,64 @@ func TestApplicationShipStructuredOutputStaysParseable(t *testing.T) {
 	if result.ApplicationID != testApplicationID || result.URL != "https://shop.acme.ankra.cc" ||
 		result.Namespace != "shop" || result.InstallationID != shipTestInstallationID || !result.Registered {
 		t.Errorf("structured result = %+v", result)
+	}
+}
+
+// The deployments surface is the primary source of the published URL: each
+// row carries the ingress_host the platform derived, so ship must not need
+// to read the namespace's Ingress resources when the row answers.
+func TestApplicationShipReadsTheURLFromTheDeploymentsRow(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.deploymentsPayload = []byte(`{"deployments":[{"cluster_id":"` + shipTestClusterID +
+		`","namespace":"shop","ingress_host":"shop.wma9ydel20.ankra.cc","ingress_host_publication":"publisher_present"}]}`)
+	mockClient.ingressItems = nil
+	output, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, progress)
+	}
+	if !strings.Contains(output, "Live: https://shop.wma9ydel20.ankra.cc") {
+		t.Errorf("stdout must carry the deployment row's ingress_host: %q", output)
+	}
+	for _, kind := range mockClient.resourceKindsRequested {
+		if kind == "Ingress" {
+			t.Errorf("the namespace Ingress read is the fallback and must not run when the deployments row answers")
+		}
+	}
+}
+
+// A hostname whose publication verdict is publisher_absent will not resolve;
+// it is still the deployment's URL, but the caveat must be said out loud.
+func TestApplicationShipWarnsWhenNothingPublishesTheHost(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.deploymentsPayload = []byte(`{"deployments":[{"cluster_id":"` + shipTestClusterID +
+		`","namespace":"shop","ingress_host":"shop.example.com","ingress_host_publication":"publisher_absent"}]}`)
+	output, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, progress)
+	}
+	if !strings.Contains(output, "Live: https://shop.example.com") {
+		t.Errorf("stdout = %q", output)
+	}
+	if !strings.Contains(progress, "nothing on the cluster publishes DNS") {
+		t.Errorf("the publisher_absent verdict must be surfaced: %s", progress)
+	}
+}
+
+// Deployment rows without an ingress_host (hand-installed add-ons, older
+// platforms) fall back to the namespace's Ingress resources.
+func TestApplicationShipFallsBackToTheNamespaceIngress(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.deploymentsPayload = []byte(`{"deployments":[{"cluster_id":"` + shipTestClusterID +
+		`","namespace":"shop","ingress_host":null,"ingress_host_publication":null}]}`)
+	output, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, progress)
+	}
+	if !strings.Contains(output, "Live: https://shop.acme.ankra.cc") {
+		t.Errorf("stdout must carry the ingress fallback's hostname: %q", output)
 	}
 }
 

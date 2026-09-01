@@ -11,8 +11,10 @@
   waits for the setup analysis, walks you through the setup pull request
   merge gate, waits for a green image build of the tracked branch, deploys
   to the target cluster, and follows the installation until the workload is
-  healthy - then prints `Live: https://<host>` when an ingress publishes
-  one. Re-running ship is safe at any point: it re-reads where the flow
+  healthy - then prints `Live: https://<host>` from the deployment's
+  published ingress hostname (with a caveat when nothing on the cluster
+  publishes DNS for it). Re-running ship is safe at any point: it re-reads
+  where the flow
   actually is and continues from there, and an expired `--timeout` exits 5
   with exactly that hint. `--ankra-build` builds the first image on Ankra's
   builders instead of waiting for the merge and the repository's CI, and

@@ -227,7 +227,7 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 	}
 	reportNamespacePods(progress, cluster.ID, namespace)
 
-	liveURL := findPublishedApplicationURL(progress, cluster.ID, namespace)
+	liveURL := findPublishedApplicationURL(waitContext, progress, application.ID, cluster.ID, namespace)
 
 	result := shipResult{
 		ApplicationID:    application.ID,
@@ -875,12 +875,68 @@ func reportNamespacePods(progress io.Writer, clusterID string, namespace string)
 		namespace, runningCount, len(response.Pods))
 }
 
-// findPublishedApplicationURL reads the namespace's Ingress resources and
-// returns the first published hostname as an https URL. Best-effort and
-// empty-tolerant: the installations surface does not expose the derived
-// hostname, so the ingress the platform actually wrote is the source of
-// truth, and an application deployed without ingress simply has no URL.
-func findPublishedApplicationURL(progress io.Writer, clusterID string, namespace string) string {
+// shipDeploymentsListing is the slice of the deployments read the URL
+// resolution steers by: the per-deployment ingress_host the platform derives,
+// paired with the publication verdict that says whether anything will ever
+// publish DNS for it.
+type shipDeploymentsListing struct {
+	Deployments []shipDeploymentRow `json:"deployments"`
+}
+
+type shipDeploymentRow struct {
+	ClusterID              string  `json:"cluster_id"`
+	Namespace              *string `json:"namespace"`
+	IngressHost            *string `json:"ingress_host"`
+	IngressHostPublication *string `json:"ingress_host_publication"`
+}
+
+// findPublishedApplicationURL resolves the deployment's published hostname.
+//
+// Primary source is the deployments surface: each deployment row carries the
+// ingress_host its installation declares, with ingress_host_publication as
+// the verdict on whether anything publishes DNS for it - a host whose
+// verdict is publisher_absent is reported with that caveat rather than
+// presented as reachable. Rows without an ingress_host (hand-installed
+// add-ons, older platforms) fall back to reading the namespace's Ingress
+// resources directly. Both reads are best-effort and empty-tolerant: an
+// application deployed without ingress simply has no URL.
+func findPublishedApplicationURL(
+	requestContext context.Context,
+	progress io.Writer,
+	applicationID string,
+	clusterID string,
+	namespace string,
+) string {
+	payload, readError := apiClient.GetApplicationDeployments(requestContext, applicationID)
+	if readError != nil {
+		_, _ = fmt.Fprintf(progress, "Could not read the deployments surface for the published URL: %v\n", readError)
+	} else {
+		var listing shipDeploymentsListing
+		if unmarshalError := json.Unmarshal(payload, &listing); unmarshalError != nil {
+			_, _ = fmt.Fprintf(progress, "Could not read the deployments surface for the published URL: %v\n", unmarshalError)
+		} else {
+			for _, deployment := range listing.Deployments {
+				if deployment.ClusterID != clusterID ||
+					deployment.Namespace == nil || *deployment.Namespace != namespace ||
+					deployment.IngressHost == nil || *deployment.IngressHost == "" {
+					continue
+				}
+				if deployment.IngressHostPublication != nil && *deployment.IngressHostPublication == "publisher_absent" {
+					_, _ = fmt.Fprintf(progress,
+						"The deployment declares hostname %q, but nothing on the cluster publishes DNS for it - the URL will not resolve until a DNS publisher (external-dns or the cluster domain) covers it.\n",
+						*deployment.IngressHost)
+				}
+				return "https://" + *deployment.IngressHost
+			}
+		}
+	}
+	return findNamespaceIngressURL(progress, clusterID, namespace)
+}
+
+// findNamespaceIngressURL reads the namespace's Ingress resources and returns
+// the first published hostname as an https URL: the fallback for deployment
+// rows that carry no ingress_host.
+func findNamespaceIngressURL(progress io.Writer, clusterID string, namespace string) string {
 	response, readError := apiClient.GetResources(clusterID, client.GetResourcesRequest{
 		ResourceRequests: []client.ResourceRequestItem{{
 			Kind: "Ingress", Group: "networking.k8s.io", Version: "v1", Namespace: namespace,
