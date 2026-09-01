@@ -61,6 +61,18 @@ func TestCreateChatSession_ClassifiesTheTwo404s(t *testing.T) {
 	if errors.Is(err, ErrChatSessionsUnavailable) {
 		t.Fatal("a cluster 404 must not read as a missing lane")
 	}
+	sessionGone := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = fmt.Fprint(w, `{"detail":"AI session not found"}`)
+	})
+	_, err = sessionGone.SubmitChatTurn("sess-gone", ChatRequest{Query: "hello"})
+	if err == nil || errors.Is(err, ErrChatSessionsUnavailable) || errors.Is(err, ErrClusterNotFound) {
+		t.Fatalf("a JSON not-found from the lane itself must stay a plain not-found, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "AI session not found") {
+		t.Fatalf("err = %v, want the backend detail", err)
+	}
 }
 
 func TestSubmitChatTurn_WrapsTheRequestAndSurfacesBackendDetail(t *testing.T) {

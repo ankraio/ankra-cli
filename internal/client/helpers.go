@@ -118,7 +118,7 @@ func (c *Client) sendJSON(method string, url string, payload any, target any) er
 			return denied
 		}
 		if detail := detailFromBody(body); detail != "" {
-			return newUnexpectedResponseErrorWithMessage(response.StatusCode, detail)
+			return newBackendDetailError(response.StatusCode, detail)
 		}
 		return newUnexpectedResponseError("request failed", response.StatusCode, redactedBodyForError(body, 500))
 	}

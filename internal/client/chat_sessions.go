@@ -108,15 +108,20 @@ func classifyChatSessionError(err error) error {
 	if !errors.As(err, &unexpected) || unexpected.StatusCode != http.StatusNotFound {
 		return err
 	}
-	// "Cluster not found" is the literal the backend writes for an unknown
-	// or foreign cluster on this route family (chatapi's
-	// verifyClusterInOrganisation and authoriseSessionOr404); it carries no
-	// error_code, so the text is the only signal. The other 404 the family
-	// answers is the route itself, on a backend that predates the lane.
-	if strings.Contains(strings.ToLower(err.Error()), "cluster not found") {
+	// The shape of the 404 tells the two apart: a backend that predates the
+	// lane answers the router's bare not-found (no JSON detail), while the
+	// lane itself always answers {"detail": ...}. Among the lane's own
+	// not-founds, "Cluster not found" (chatapi's verifyClusterInOrganisation
+	// and authoriseSessionOr404) is the one callers act on; anything else
+	// (a session that expired or was deleted) is a real not-found and stays
+	// the error it is.
+	if unexpected.Detail == "" {
+		return fmt.Errorf("%w: %v", ErrChatSessionsUnavailable, err)
+	}
+	if strings.Contains(strings.ToLower(unexpected.Detail), "cluster not found") {
 		return fmt.Errorf("%w: %v", ErrClusterNotFound, err)
 	}
-	return fmt.Errorf("%w: %v", ErrChatSessionsUnavailable, err)
+	return err
 }
 
 // StreamChatSessionEvents tails the session's event log from the given
@@ -150,7 +155,7 @@ func (c *Client) StreamChatSessionEvents(sessionID string, since int64) (<-chan 
 			return nil, ErrUnauthorized
 		}
 		if detail := detailFromBody(body); detail != "" {
-			return nil, classifyChatSessionError(newUnexpectedResponseErrorWithMessage(resp.StatusCode, detail))
+			return nil, classifyChatSessionError(newBackendDetailError(resp.StatusCode, detail))
 		}
 		return nil, classifyChatSessionError(newUnexpectedResponseError("chat events failed", resp.StatusCode,
 			redactedBodyForError(body, 500)))
