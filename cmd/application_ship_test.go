@@ -527,6 +527,90 @@ func TestApplicationShipReportsAParkedWorkloadInsteadOfLive(t *testing.T) {
 	}
 }
 
+// One repository hosts several applications rooted at different paths, so a
+// repository match alone is not identity: shipping --name pulsecheck against
+// a repo whose only registered app is shipfortune must register pulsecheck,
+// never adopt-and-redeploy shipfortune onto pulsecheck's hostname (the
+// fourth live finding did exactly that).
+func TestApplicationShipWithADifferentNameRegistersASecondApplication(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	pulseID := "07565232-687c-4e2f-93a9-f3e1ecc0da95"
+	mockClient.applicationResponse = &client.CreateApplicationResponse{
+		ID: &pulseID, Errors: []client.ApplicationResourceError{},
+	}
+	mockClient.listApplicationsPayloads = [][]byte{
+		[]byte(`{"result":[{"id":"` + testApplicationID + `","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"}],"pagination":{"total_pages":1}}`),
+	}
+	mockClient.applicationDetailPayloads = [][]byte{
+		[]byte(`{"id":"` + pulseID + `","name":"pulsecheck","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main","pull_request_url":"https://github.com/acme/shop/pull/2","pull_request_merged_at":"2026-09-01T10:00:00Z"}`),
+	}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient,
+		"--cluster", "production", "--name", "pulsecheck")
+	if executeError != nil {
+		t.Fatalf("ship --name error = %v\nprogress: %s", executeError, progress)
+	}
+	if mockClient.createCalls != 1 {
+		t.Fatalf("a differently-named application must be registered, not adopted; create calls = %d", mockClient.createCalls)
+	}
+	if mockClient.createRequest.Name != "pulsecheck" {
+		t.Errorf("registered name = %q, want pulsecheck", mockClient.createRequest.Name)
+	}
+	if !strings.Contains(progress, "registering \"pulsecheck\" as a separate application") {
+		t.Errorf("the second-application decision must be announced: %s", progress)
+	}
+	if strings.Contains(progress, "Using existing application") {
+		t.Errorf("the other application must not be adopted: %s", progress)
+	}
+}
+
+// --name that matches an existing application adopts exactly that one.
+func TestApplicationShipWithAMatchingNameAdoptsThatApplication(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{
+		[]byte(`{"result":[{"id":"` + testApplicationID + `","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"},{"id":"11111111-2222-4333-8444-555566667777","name":"pulsecheck","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"}],"pagination":{"total_pages":1}}`),
+	}
+	mockClient.applicationDetailPayloads = [][]byte{
+		[]byte(`{"id":"` + testApplicationID + `","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main","pull_request_url":"https://github.com/acme/shop/pull/1","pull_request_merged_at":"2026-09-01T10:00:00Z"}`),
+	}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient,
+		"--cluster", "production", "--name", "shop")
+	if executeError != nil {
+		t.Fatalf("ship --name error = %v\nprogress: %s", executeError, progress)
+	}
+	if mockClient.createCalls != 0 {
+		t.Errorf("a name-matched application must be adopted; create calls = %d", mockClient.createCalls)
+	}
+	if !strings.Contains(progress, "Using existing application \"shop\"") {
+		t.Errorf("the adopted application must be named: %s", progress)
+	}
+}
+
+// Without --name, a repository with several applications is refused with
+// their names listed: picking one silently is the hijack this prevents.
+func TestApplicationShipRefusesAMultiApplicationRepositoryWithoutAName(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{
+		[]byte(`{"result":[{"id":"` + testApplicationID + `","name":"shipfortune","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"},{"id":"11111111-2222-4333-8444-555566667777","name":"pulsecheck","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"}],"pagination":{"total_pages":1}}`),
+	}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError == nil {
+		t.Fatalf("a multi-application repository without --name must be refused\nprogress: %s", progress)
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want %d (usage)", exitCodeFor(executeError), exitUsage)
+	}
+	if !strings.Contains(executeError.Error(), "shipfortune") || !strings.Contains(executeError.Error(), "pulsecheck") {
+		t.Errorf("the refusal must list the applications' names: %v", executeError)
+	}
+	if mockClient.createCalls != 0 || mockClient.deployCalls != 0 {
+		t.Errorf("nothing may be registered or deployed on a refusal; create=%d deploy=%d",
+			mockClient.createCalls, mockClient.deployCalls)
+	}
+}
+
 func TestApplicationShipFailsWhenSetupFails(t *testing.T) {
 	fastShipPolling(t)
 	mockClient := newApplicationShipMock()

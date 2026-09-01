@@ -8,6 +8,11 @@
   deployment in one command, composing the lanes that already exist as
   separate subcommands: it registers the repository as an application when
   the organisation does not have it yet (same flags as `application add`),
+  with --name as part of the application's identity - a repository hosting
+  several applications ships the named one, `--name` with a new name
+  registers another rooted at the given path, and a multi-application
+  repository without --name is refused with the names listed rather than
+  one picked silently -
   waits for the setup analysis, walks you through the setup pull request
   merge gate, waits for a green image build of the tracked branch, deploys
   to the target cluster, and follows the installation until the workload is

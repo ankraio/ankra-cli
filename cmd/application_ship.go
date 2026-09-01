@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -330,15 +331,17 @@ type shipApplicationListingPage struct {
 	} `json:"pagination"`
 }
 
-// findApplicationByRepository walks the applications listing for one whose
-// repository matches the local checkout. The listing's `search` filter only
-// matches names, so the walk is unfiltered; the same page bounds as
+// findApplicationsByRepository walks the applications listing for every
+// application whose repository matches the local checkout - one repository
+// legitimately hosts several applications rooted at different paths, so all
+// matches are returned and the caller decides. The listing's `search` filter
+// only matches names, so the walk is unfiltered; the same page bounds as
 // resolveApplicationID keep it finite, and a walk that does not finish is an
 // error rather than an answer from partial data.
-func findApplicationByRepository(
+func findApplicationsByRepository(
 	requestContext context.Context,
 	repository localApplicationRepository,
-) (*shipApplicationView, error) {
+) ([]shipApplicationView, error) {
 	matches := []shipApplicationView{}
 	listingExhausted := false
 	for page := 1; page <= maxApplicationLookupPages; page++ {
@@ -380,17 +383,58 @@ func findApplicationByRepository(
 			"the applications listing did not end within %d pages; cannot decide whether %s/%s is already registered",
 			maxApplicationLookupPages, repository.Owner, repository.Name)
 	}
-	if len(matches) == 0 {
-		return nil, nil
-	}
-	// Several applications can track the same repository on different
-	// branches; the one tracking this checkout's branch is the one meant.
-	for index := range matches {
-		if strings.EqualFold(matches[index].AppRepoBranch, repository.Branch) {
-			return &matches[index], nil
+	return matches, nil
+}
+
+// selectShipApplication decides which of a repository's applications this
+// ship is about, or that a new one must be registered (nil).
+//
+// One repository legitimately hosts several applications rooted at different
+// paths, so a match on the repository alone is not identity: the first live
+// monorepo run matched by repository only, adopted the OTHER application,
+// and redeployed it onto the caller's hostname. With --name the name is part
+// of the match - an existing application with a different name is somebody
+// else's, and the named one is registered fresh when absent. Without --name
+// a multi-application repository is refused with the names listed, because
+// picking one silently is exactly the hijack this prevents.
+func selectShipApplication(
+	matches []shipApplicationView,
+	repository localApplicationRepository,
+	requestedName string,
+) (*shipApplicationView, error) {
+	if requestedName != "" {
+		named := []shipApplicationView{}
+		for index := range matches {
+			if strings.EqualFold(matches[index].Name, requestedName) {
+				named = append(named, matches[index])
+			}
+		}
+		switch len(named) {
+		case 0:
+			return nil, nil
+		case 1:
+			return &named[0], nil
+		default:
+			return nil, withExitCode(exitUsage, fmt.Errorf(
+				"%d applications named %q are registered for %s/%s; resolve the duplicate with 'ankra application list' before shipping",
+				len(named), requestedName, repository.Owner, repository.Name))
 		}
 	}
-	return &matches[0], nil
+	switch len(matches) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &matches[0], nil
+	default:
+		names := make([]string, 0, len(matches))
+		for _, match := range matches {
+			names = append(names, match.Name)
+		}
+		sort.Strings(names)
+		return nil, withExitCode(exitUsage, fmt.Errorf(
+			"%d applications are registered for %s/%s (%s); pass --name to say which one to ship, or --name with a new name to register another",
+			len(matches), repository.Owner, repository.Name, strings.Join(names, ", ")))
+	}
 }
 
 // resolveOrRegisterApplication finds the application already registered for
@@ -402,9 +446,15 @@ func resolveOrRegisterApplication(
 	repositoryPath string,
 	repository localApplicationRepository,
 ) (shipApplicationView, bool, error) {
-	existing, lookupError := findApplicationByRepository(requestContext, repository)
+	matches, lookupError := findApplicationsByRepository(requestContext, repository)
 	if lookupError != nil {
 		return shipApplicationView{}, false, lookupError
+	}
+	requestedName, _ := command.Flags().GetString("name")
+	requestedName = strings.TrimSpace(requestedName)
+	existing, selectError := selectShipApplication(matches, repository, requestedName)
+	if selectError != nil {
+		return shipApplicationView{}, false, selectError
 	}
 	if existing != nil {
 		_, _ = fmt.Fprintf(progress, "Using existing application %q (%s) for %s/%s.\n",
@@ -416,6 +466,16 @@ func resolveOrRegisterApplication(
 				existing.AppRepoBranch, repository.Branch)
 		}
 		return *existing, false, nil
+	}
+	if requestedName != "" && len(matches) > 0 {
+		otherNames := make([]string, 0, len(matches))
+		for _, match := range matches {
+			otherNames = append(otherNames, match.Name)
+		}
+		sort.Strings(otherNames)
+		_, _ = fmt.Fprintf(progress,
+			"The repository already has %d other application(s) (%s); registering %q as a separate application.\n",
+			len(matches), strings.Join(otherNames, ", "), requestedName)
 	}
 
 	plan, planError := resolveApplicationAddPlan(command, repositoryPath)
@@ -439,12 +499,13 @@ func resolveOrRegisterApplication(
 }
 
 // warnIgnoredRegistrationFlags says out loud which explicitly-passed add
-// flags did nothing because the repository already has an application: they
-// shape how an application is REGISTERED, and silently ignoring an explicit
-// flag is how a caller comes to believe a re-run retargeted something it did
-// not.
+// flags did nothing because an existing application was adopted: they shape
+// how an application is REGISTERED, and silently ignoring an explicit flag
+// is how a caller comes to believe a re-run retargeted something it did not.
+// --name is absent here on purpose: it participates in choosing WHICH
+// application is adopted (selectShipApplication), so it is never ignored.
 func warnIgnoredRegistrationFlags(command *cobra.Command, progress io.Writer) {
-	registrationFlags := append([]string{"name", "credential", "registry-url"}, applicationAddRegistryFlags...)
+	registrationFlags := append([]string{"credential", "registry-url"}, applicationAddRegistryFlags...)
 	ignored := []string{}
 	for _, flagName := range registrationFlags {
 		if command.Flags().Changed(flagName) {
