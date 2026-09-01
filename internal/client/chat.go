@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -92,6 +93,10 @@ type ChatStreamEvent struct {
 	Content string `json:"content,omitempty"`
 	Error   string `json:"error,omitempty"`
 	Done    bool   `json:"done,omitempty"`
+	// Sequence is the durable event log position of a sessions-lane frame
+	// (the SSE id), the cursor a dropped tail resumes from; zero on the
+	// legacy stream and on id-less frames.
+	Sequence int64 `json:"-"`
 }
 
 // ErrorMessage extracts the human message from an error event. Backend
@@ -120,6 +125,10 @@ func (event ChatStreamEvent) ErrorMessage() string {
 // tests can shorten it.
 var chatStreamIdleTimeout = 3 * time.Minute
 
+// deprecatedChatWarningOnce rate-limits the legacy lane's deprecation
+// warning to one per process.
+var deprecatedChatWarningOnce sync.Once
+
 func (c *Client) StreamChat(clusterID *string, chatReq ChatRequest) (<-chan ChatStreamEvent, error) {
 	var url string
 	if clusterID != nil && *clusterID != "" {
@@ -147,12 +156,16 @@ func (c *Client) StreamChat(clusterID *string, chatReq ChatRequest) (<-chan Chat
 	}
 
 	if resp.Header.Get("Deprecation") == "true" {
+		// Once per process: the interactive loop calls this per turn, and a
+		// warning re-printed mid-prompt on every turn is noise, not a signal.
 		sunsetMessage := resp.Header.Get("Sunset")
-		fmt.Fprintf(os.Stderr,
-			"warning: this chat endpoint is deprecated and will be removed (sunset: %s).\n"+
-				"         Upgrade ankra-cli to a newer release.\n",
-			sunsetMessage,
-		)
+		deprecatedChatWarningOnce.Do(func() {
+			fmt.Fprintf(os.Stderr,
+				"warning: this backend serves chat over a deprecated endpoint (sunset: %s).\n"+
+					"         Upgrade the Ankra platform to one that offers /api/v1/chat/sessions.\n",
+				sunsetMessage,
+			)
+		})
 	}
 
 	if resp.StatusCode != http.StatusOK {

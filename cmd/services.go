@@ -281,6 +281,10 @@ type APIClient interface {
 	DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error)
 
 	StreamChat(clusterID *string, chatReq client.ChatRequest) (<-chan client.ChatStreamEvent, error)
+	CreateChatSession(request client.CreateChatSessionRequest) (*client.ChatSession, error)
+	SubmitChatTurn(sessionID string, request client.ChatRequest) (*client.SubmitChatTurnResponse, error)
+	StreamChatSessionEvents(sessionID string, since int64) (<-chan client.ChatStreamEvent, error)
+	CancelChatSession(sessionID string) error
 	ConfirmChatAction(request client.ConfirmChatActionRequest) (*client.ConfirmChatActionResult, error)
 	ListPendingChatActions(conversationID string) (*client.PendingChatActionsResult, error)
 	ListChatHistory(clusterID *string, limit, offset int) (*client.ListConversationsResponse, error)

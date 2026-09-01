@@ -23,7 +23,7 @@ func (m *chatDeleteMock) DeleteChatConversation(conversationID string) (*client.
 func TestChatDelete_DeclineDoesNotCallAPI(t *testing.T) {
 	mock := &chatDeleteMock{}
 	resetConfirmFlag(t, chatDeleteCmd)
-	_, err := runWithInput(t, mock, "n\n", "chat", "delete", "conv-1")
+	_, err := runWithInput(t, mock, "n\n", "chat", "delete", "0f7c9a2e-3b1d-4c5e-8f6a-7b8c9d0e1f2a")
 	if !errors.Is(err, errCancelled) {
 		t.Fatalf("expected errCancelled on decline, got %v", err)
 	}
@@ -35,14 +35,14 @@ func TestChatDelete_DeclineDoesNotCallAPI(t *testing.T) {
 func TestChatDelete_YesProceeds(t *testing.T) {
 	mock := &chatDeleteMock{}
 	resetConfirmFlag(t, chatDeleteCmd)
-	out, err := runWithInput(t, mock, "", "chat", "delete", "conv-1", "--yes")
+	out, err := runWithInput(t, mock, "", "chat", "delete", "0f7c9a2e-3b1d-4c5e-8f6a-7b8c9d0e1f2a", "--yes")
 	if err != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", err, out)
 	}
 	if !mock.called {
 		t.Fatal("expected delete call with --yes")
 	}
-	if mock.gotConversationID != "conv-1" {
+	if mock.gotConversationID != "0f7c9a2e-3b1d-4c5e-8f6a-7b8c9d0e1f2a" {
 		t.Errorf("conversation id = %q, want conv-1", mock.gotConversationID)
 	}
 }
