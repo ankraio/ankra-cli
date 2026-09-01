@@ -108,6 +108,11 @@ func classifyChatSessionError(err error) error {
 	if !errors.As(err, &unexpected) || unexpected.StatusCode != http.StatusNotFound {
 		return err
 	}
+	// "Cluster not found" is the literal the backend writes for an unknown
+	// or foreign cluster on this route family (chatapi's
+	// verifyClusterInOrganisation and authoriseSessionOr404); it carries no
+	// error_code, so the text is the only signal. The other 404 the family
+	// answers is the route itself, on a backend that predates the lane.
 	if strings.Contains(strings.ToLower(err.Error()), "cluster not found") {
 		return fmt.Errorf("%w: %v", ErrClusterNotFound, err)
 	}

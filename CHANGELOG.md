@@ -14,7 +14,8 @@
   A dropped reply stream is resumed from its last durable event instead of
   ending the turn. Backends without the lane fall back to the deprecated
   stream, whose deprecation warning now prints once per process instead of
-  on every interactive turn. Error frames name their stable code (for
+  on every interactive turn, and which says when a conversation id cannot
+  be continued there. Error frames name their stable code (for
   example `ai_platform_billing`); set `ANKRA_DEBUG=1` to also print the
   operator detail.
 

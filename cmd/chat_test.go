@@ -43,7 +43,7 @@ func TestChatDelete_YesProceeds(t *testing.T) {
 		t.Fatal("expected delete call with --yes")
 	}
 	if mock.gotConversationID != "0f7c9a2e-3b1d-4c5e-8f6a-7b8c9d0e1f2a" {
-		t.Errorf("conversation id = %q, want conv-1", mock.gotConversationID)
+		t.Errorf("conversation id = %q, want the id passed on the command line", mock.gotConversationID)
 	}
 }
 

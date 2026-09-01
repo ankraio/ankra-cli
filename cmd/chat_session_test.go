@@ -19,25 +19,37 @@ type chatSessionMock struct {
 	baseMock
 	mutex sync.Mutex
 
-	createErrors []error // consumed in order; nil means success
-	created      []client.CreateChatSessionRequest
-	submitted    []client.ChatRequest
-	tails        [][]client.ChatStreamEvent // one per StreamChatSessionEvents call
-	tailSince    []int64
-	legacyEvents []client.ChatStreamEvent
-	legacyCalls  int
+	// The error queues are consumed one per call; a nil entry (or an empty
+	// queue) means that call succeeds with the scripted data.
+	createErrors   []error
+	submitErrors   []error
+	tailErrors     []error
+	legacyErrors   []error
+	created        []client.CreateChatSessionRequest
+	submitted      []client.ChatRequest
+	cancelled      []string
+	tails          [][]client.ChatStreamEvent // one per StreamChatSessionEvents call
+	tailSince      []int64
+	legacyEvents   []client.ChatStreamEvent
+	legacyCalls    int
+	legacyClusters []*string // the cluster each StreamChat call was scoped to
+}
+
+func popScriptedError(queue *[]error) error {
+	if len(*queue) == 0 {
+		return nil
+	}
+	err := (*queue)[0]
+	*queue = (*queue)[1:]
+	return err
 }
 
 func (m *chatSessionMock) CreateChatSession(request client.CreateChatSessionRequest) (*client.ChatSession, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	m.created = append(m.created, request)
-	if len(m.createErrors) > 0 {
-		err := m.createErrors[0]
-		m.createErrors = m.createErrors[1:]
-		if err != nil {
-			return nil, err
-		}
+	if err := popScriptedError(&m.createErrors); err != nil {
+		return nil, err
 	}
 	return &client.ChatSession{ID: "sess-" + request.IdempotencyKey, ConversationID: request.ConversationID,
 		ClusterID: request.ClusterID, Mode: request.Mode, Status: "pending"}, nil
@@ -47,13 +59,26 @@ func (m *chatSessionMock) SubmitChatTurn(sessionID string, request client.ChatRe
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	m.submitted = append(m.submitted, request)
+	if err := popScriptedError(&m.submitErrors); err != nil {
+		return nil, err
+	}
 	return &client.SubmitChatTurnResponse{SessionID: sessionID, LastSeq: 1}, nil
+}
+
+func (m *chatSessionMock) CancelChatSession(sessionID string) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.cancelled = append(m.cancelled, sessionID)
+	return nil
 }
 
 func (m *chatSessionMock) StreamChatSessionEvents(_ string, since int64) (<-chan client.ChatStreamEvent, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	m.tailSince = append(m.tailSince, since)
+	if err := popScriptedError(&m.tailErrors); err != nil {
+		return nil, err
+	}
 	if len(m.tails) == 0 {
 		return nil, errors.New("no tail scripted")
 	}
@@ -67,10 +92,14 @@ func (m *chatSessionMock) StreamChatSessionEvents(_ string, since int64) (<-chan
 	return stream, nil
 }
 
-func (m *chatSessionMock) StreamChat(_ *string, _ client.ChatRequest) (<-chan client.ChatStreamEvent, error) {
+func (m *chatSessionMock) StreamChat(clusterID *string, _ client.ChatRequest) (<-chan client.ChatStreamEvent, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	m.legacyCalls++
+	m.legacyClusters = append(m.legacyClusters, clusterID)
+	if err := popScriptedError(&m.legacyErrors); err != nil {
+		return nil, err
+	}
 	stream := make(chan client.ChatStreamEvent, len(m.legacyEvents))
 	for _, event := range m.legacyEvents {
 		stream <- event
@@ -78,7 +107,6 @@ func (m *chatSessionMock) StreamChat(_ *string, _ client.ChatRequest) (<-chan cl
 	close(stream)
 	return stream, nil
 }
-
 
 // resetChatFlags clears the chat command's flag values after a test: cobra
 // keeps the last parsed value on the shared root command, so a
@@ -248,6 +276,153 @@ func TestChatOneShot_GivesUpAfterTooManyDrops(t *testing.T) {
 	}
 }
 
+func TestChatOneShot_ReconnectBudgetBoundsConsecutiveDropsOnly(t *testing.T) {
+	resetChatFlags(t)
+	previous := chatTailReconnectDelay
+	chatTailReconnectDelay = time.Millisecond
+	t.Cleanup(func() { chatTailReconnectDelay = previous })
+	drop := client.ChatStreamEvent{Type: "error", Error: "read: connection reset"}
+	// More drops than the budget, but every re-opened tail makes progress:
+	// the budget bounds failures in a row, not over the turn's lifetime.
+	mock := &chatSessionMock{tails: [][]client.ChatStreamEvent{
+		{contentFrame(2, "a"), drop},
+		{contentFrame(3, "b"), drop},
+		{contentFrame(4, "c"), drop},
+		{contentFrame(5, "d"), drop},
+		{contentFrame(6, "e"), endFrame()},
+	}}
+	var runErr error
+	stdoutOutput := captureStdout(t, func() {
+		captureStderr(t, func() { _, runErr = runWithInput(t, mock, "", "chat", "hello") })
+	})
+	if runErr != nil {
+		t.Fatalf("chat failed: %v", runErr)
+	}
+	if !strings.Contains(stdoutOutput, "abcde") {
+		t.Fatalf("stdout = %q, want the answer stitched across every reconnect", stdoutOutput)
+	}
+	if len(mock.tailSince) != 5 || mock.tailSince[4] != 5 {
+		t.Fatalf("tail since = %v, want five opens resuming from each last sequence", mock.tailSince)
+	}
+}
+
+func TestChatOneShot_SkipsFramesReplayedOnResume(t *testing.T) {
+	resetChatFlags(t)
+	previous := chatTailReconnectDelay
+	chatTailReconnectDelay = time.Millisecond
+	t.Cleanup(func() { chatTailReconnectDelay = previous })
+	mock := &chatSessionMock{tails: [][]client.ChatStreamEvent{
+		{contentFrame(2, "Hello"), {Type: "error", Error: "read: connection reset"}},
+		{contentFrame(2, "Hello"), contentFrame(3, " world"), endFrame()},
+	}}
+	var runErr error
+	stdoutOutput := captureStdout(t, func() {
+		captureStderr(t, func() { _, runErr = runWithInput(t, mock, "", "chat", "hello") })
+	})
+	if runErr != nil {
+		t.Fatalf("chat failed: %v", runErr)
+	}
+	if strings.Count(stdoutOutput, "Hello") != 1 || !strings.Contains(stdoutOutput, "Hello world") {
+		t.Fatalf("stdout = %q, want the replayed frame rendered once", stdoutOutput)
+	}
+}
+
+func TestChatOneShot_TailOpenRetriesOnlyTransientFailures(t *testing.T) {
+	resetChatFlags(t)
+	previous := chatTailReconnectDelay
+	chatTailReconnectDelay = time.Millisecond
+	t.Cleanup(func() { chatTailReconnectDelay = previous })
+	terminal := []error{
+		client.ErrChatSessionsUnavailable,
+		client.NewUnexpectedResponseError(403, "forbidden"),
+	}
+	for _, tailErr := range terminal {
+		mock := &chatSessionMock{tailErrors: []error{tailErr}}
+		var runErr error
+		captureStdout(t, func() {
+			captureStderr(t, func() { _, runErr = runWithInput(t, mock, "", "chat", "hello") })
+		})
+		if runErr == nil || !strings.Contains(runErr.Error(), tailErr.Error()) {
+			t.Fatalf("err = %v, want %v surfaced", runErr, tailErr)
+		}
+		if len(mock.tailSince) != 1 {
+			t.Fatalf("tail opens = %d for %v, want no retry of a 4xx", len(mock.tailSince), tailErr)
+		}
+	}
+	mock := &chatSessionMock{
+		tailErrors: []error{client.NewUnexpectedResponseError(503, "upstream unavailable")},
+		tails:      [][]client.ChatStreamEvent{{contentFrame(2, "Recovered."), endFrame()}},
+	}
+	var runErr error
+	stdoutOutput := captureStdout(t, func() {
+		captureStderr(t, func() { _, runErr = runWithInput(t, mock, "", "chat", "hello") })
+	})
+	if runErr != nil || !strings.Contains(stdoutOutput, "Recovered.") {
+		t.Fatalf("err = %v, stdout = %q; want a 5xx retried", runErr, stdoutOutput)
+	}
+	if len(mock.tailSince) != 2 {
+		t.Fatalf("tail opens = %d, want the failed open plus one retry", len(mock.tailSince))
+	}
+}
+
+func TestChatOneShot_CancelsTheSessionWhenTheTurnIsRefused(t *testing.T) {
+	resetChatFlags(t)
+	mock := &chatSessionMock{submitErrors: []error{client.NewUnexpectedResponseError(402, "AI allowance exhausted")}}
+	var runErr error
+	captureStdout(t, func() {
+		captureStderr(t, func() { _, runErr = runWithInput(t, mock, "", "chat", "hello") })
+	})
+	if runErr == nil || !strings.Contains(runErr.Error(), "allowance exhausted") {
+		t.Fatalf("err = %v, want the refusal surfaced", runErr)
+	}
+	if len(mock.created) != 1 || len(mock.cancelled) != 1 || mock.cancelled[0] != "sess-"+mock.created[0].IdempotencyKey {
+		t.Fatalf("cancelled = %v, want the session that never got its turn", mock.cancelled)
+	}
+	if len(mock.tailSince) != 0 {
+		t.Fatal("a refused turn has nothing to tail")
+	}
+}
+
+func TestChatOneShot_LegacyFallbackSaysTheConversationIsNotContinued(t *testing.T) {
+	resetChatFlags(t)
+	mock := &chatSessionMock{
+		createErrors: []error{client.ErrChatSessionsUnavailable},
+		legacyEvents: []client.ChatStreamEvent{{Type: "content", Content: "Legacy answer."}, {Type: "complete"}},
+	}
+	var runErr error
+	var stderrOutput string
+	stdoutOutput := captureStdout(t, func() {
+		stderrOutput = captureStderr(t, func() {
+			_, runErr = runWithInput(t, mock, "", "chat", "--conversation",
+				"a75c06a2-5100-41f2-bdde-778c5a74200c", "and then?")
+		})
+	})
+	if runErr != nil || !strings.Contains(stdoutOutput, "Legacy answer.") {
+		t.Fatalf("err = %v, stdout = %q", runErr, stdoutOutput)
+	}
+	if !strings.Contains(stderrOutput, "conversation a75c06a2-5100-41f2-bdde-778c5a74200c cannot be continued here") {
+		t.Fatalf("stderr = %q, want the note that the deprecated stream ignored --conversation", stderrOutput)
+	}
+}
+
+func TestChatInteractive_LegacyFallbackNotesTheLocalConversationOnce(t *testing.T) {
+	resetChatFlags(t)
+	mock := &chatSessionMock{
+		createErrors: []error{client.ErrChatSessionsUnavailable, client.ErrChatSessionsUnavailable},
+		legacyEvents: []client.ChatStreamEvent{{Type: "content", Content: "ok"}, {Type: "complete"}},
+	}
+	var runErr error
+	stderrOutput := captureStderr(t, func() {
+		captureStdout(t, func() { _, runErr = runWithInput(t, mock, "one\ntwo\nexit\n", "chat") })
+	})
+	if runErr != nil || mock.legacyCalls != 2 {
+		t.Fatalf("err = %v, legacy calls = %d", runErr, mock.legacyCalls)
+	}
+	if strings.Count(stderrOutput, "is local to this run") != 1 {
+		t.Fatalf("stderr = %q, want exactly one note that the printed conversation id is local", stderrOutput)
+	}
+}
+
 func TestChatOneShot_FallsBackToTheDeprecatedStreamWithoutSessions(t *testing.T) {
 	resetChatFlags(t)
 	mock := &chatSessionMock{
@@ -303,6 +478,32 @@ func TestChatOneShot_StaleSelectionDegradesToGlobalWithANotice(t *testing.T) {
 	}
 	if len(mock.created) != 2 || mock.created[0].ClusterID == nil || mock.created[1].ClusterID != nil {
 		t.Fatalf("created = %+v, want the selected cluster first, then the global lane", mock.created)
+	}
+}
+
+func TestChatOneShot_StaleSelectionDegradesOnTheDeprecatedStreamToo(t *testing.T) {
+	resetChatFlags(t)
+	writeStaleSelection(t)
+	// A backend without the lane answers the stale cluster with a bare 404
+	// from the per-cluster stream, not the sessions sentinel.
+	mock := &chatSessionMock{
+		createErrors: []error{client.ErrChatSessionsUnavailable, client.ErrChatSessionsUnavailable},
+		legacyErrors: []error{client.NewUnexpectedResponseError(404, "Cluster not found")},
+		legacyEvents: []client.ChatStreamEvent{{Type: "content", Content: "Legacy global."}, {Type: "complete"}},
+	}
+	var runErr error
+	var stderrOutput string
+	stdoutOutput := captureStdout(t, func() {
+		stderrOutput = captureStderr(t, func() { _, runErr = runWithInput(t, mock, "", "chat", "hello") })
+	})
+	if runErr != nil || !strings.Contains(stdoutOutput, "Legacy global.") {
+		t.Fatalf("err = %v, stdout = %q", runErr, stdoutOutput)
+	}
+	if !strings.Contains(stderrOutput, `selected cluster "tael-ops" no longer exists`) {
+		t.Fatalf("stderr = %q, want the stale-selection notice", stderrOutput)
+	}
+	if len(mock.legacyClusters) != 2 || mock.legacyClusters[0] == nil || mock.legacyClusters[1] != nil {
+		t.Fatalf("legacy clusters = %v, want the selected cluster first, then the global lane", mock.legacyClusters)
 	}
 }
 

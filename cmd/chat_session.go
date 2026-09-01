@@ -112,15 +112,36 @@ func startChatTurn(conversationID string, clusterID *string, req client.ChatRequ
 	req.ConversationHistory = nil
 	submitted, err := apiClient.SubmitChatTurn(session.ID, req)
 	if err != nil {
+		// The session opened two calls ago now carries no turn: release it
+		// instead of leaving it pending until it expires. Best-effort - the
+		// submit error is the one to report.
+		_ = apiClient.CancelChatSession(session.ID)
 		return nil, true, err
 	}
 	return tailChatSession(session.ID, submitted.LastSeq), true, nil
 }
 
+// retryableTailError reports whether a failed tail open is worth re-opening:
+// a transport failure or a 5xx is; a 4xx (the token rejected, the session
+// or the lane gone) answers the same way every time.
+func retryableTailError(err error) bool {
+	if errors.Is(err, client.ErrUnauthorized) || errors.Is(err, client.ErrChatSessionsUnavailable) ||
+		errors.Is(err, client.ErrClusterNotFound) {
+		return false
+	}
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(err, &unexpected) && unexpected.StatusCode >= 400 && unexpected.StatusCode < 500 {
+		return false
+	}
+	return true
+}
+
 // tailChatSession follows the session's durable event log until the
 // terminal "end" frame, re-opening the tail from the last sequence it saw
 // when the connection drops (the runner keeps working server-side and the
-// log keeps every frame, so nothing is lost across a reconnect).
+// log keeps every frame, so nothing is lost across a reconnect). The
+// reconnect budget bounds consecutive failures: a re-opened tail that
+// delivers a durable frame has resumed, and a later drop starts over.
 func tailChatSession(sessionID string, since int64) <-chan client.ChatStreamEvent {
 	out := make(chan client.ChatStreamEvent, 100)
 	go func() {
@@ -129,7 +150,7 @@ func tailChatSession(sessionID string, since int64) <-chan client.ChatStreamEven
 		for {
 			events, err := apiClient.StreamChatSessionEvents(sessionID, since)
 			if err != nil {
-				if reconnects < chatTailMaxReconnects && !errors.Is(err, client.ErrUnauthorized) {
+				if reconnects < chatTailMaxReconnects && retryableTailError(err) {
 					reconnects++
 					time.Sleep(time.Duration(reconnects) * chatTailReconnectDelay)
 					continue
@@ -137,29 +158,31 @@ func tailChatSession(sessionID string, since int64) <-chan client.ChatStreamEven
 				out <- client.ChatStreamEvent{Type: "error", Error: err.Error()}
 				return
 			}
-			dropped := false
 			for event := range events {
-				if event.Sequence > since {
-					since = event.Sequence
-				}
 				// A local stream failure (read error, idle watchdog) carries
 				// Error and no payload: that is a drop to resume from, not a
 				// backend verdict to show.
 				if event.Type == "error" && event.Error != "" && event.Data == nil {
-					dropped = true
 					break
+				}
+				// The backend serves `since` exclusively (events strictly
+				// after the cursor), so a durable frame at or below it can
+				// only be a replay: skip it rather than render it twice.
+				if event.Sequence != 0 && event.Sequence <= since {
+					continue
+				}
+				if event.Sequence > since {
+					since = event.Sequence
+					reconnects = 0
 				}
 				out <- event
 				if event.Type == "end" {
 					return
 				}
 			}
-			if !dropped {
-				// The tail closed cleanly without an end frame: the server
-				// finished its response window; resume to catch the rest.
-				dropped = true
-			}
-			if dropped && reconnects >= chatTailMaxReconnects {
+			// Dropped, or closed cleanly without an end frame (the server
+			// finished its response window): resume from the cursor.
+			if reconnects >= chatTailMaxReconnects {
 				out <- client.ChatStreamEvent{Type: "error",
 					Error: "the reply stream dropped and could not be resumed; the turn may still finish - check 'ankra chat show'"}
 				return
@@ -169,6 +192,20 @@ func tailChatSession(sessionID string, since int64) <-chan client.ChatStreamEven
 		}
 	}()
 	return out
+}
+
+// legacyLaneNotice says what the deprecated stream cannot do with a
+// conversation id: that backend keeps no transcript to continue, so a
+// --conversation continuation runs without its earlier context, and the id
+// an interactive run prints cannot be continued later.
+func legacyLaneNotice(errOut io.Writer, conversationID string, continued bool) {
+	if continued {
+		_, _ = fmt.Fprintf(errOut, "note: this backend has no durable chat sessions; conversation %s "+
+			"cannot be continued here, so this turn runs without its earlier context.\n", conversationID)
+		return
+	}
+	_, _ = fmt.Fprintf(errOut, "note: this backend has no durable chat sessions; conversation %s "+
+		"is local to this run and cannot be continued with --conversation.\n", conversationID)
 }
 
 // chatErrorDetail renders the operator-facing detail a sessions-lane error
@@ -206,18 +243,18 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 		}
 		if !hasStartedContent {
 			if hadStatus {
-				fmt.Fprint(out, "\n")
+				_, _ = fmt.Fprint(out, "\n")
 			}
 			hasStartedContent = true
 		}
-		fmt.Fprint(out, text)
+		_, _ = fmt.Fprint(out, text)
 		response.WriteString(text)
 	}
 	printLine := func(line string) {
 		if hasStartedContent {
-			fmt.Fprintf(out, "\n\n[%s]\n\n", line)
+			_, _ = fmt.Fprintf(out, "\n\n[%s]\n\n", line)
 		} else {
-			fmt.Fprintf(out, "[%s]", line)
+			_, _ = fmt.Fprintf(out, "[%s]", line)
 			hadStatus = true
 		}
 	}
@@ -242,7 +279,7 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 		case "action_proposal":
 			proposal, decodeError := decodeActionProposal(event.Data)
 			if decodeError != nil {
-				fmt.Fprintf(out, "\nAn action is awaiting confirmation but could not be read: %v\n", decodeError)
+				_, _ = fmt.Fprintf(out, "\nAn action is awaiting confirmation but could not be read: %v\n", decodeError)
 				continue
 			}
 			if collectProposals {
@@ -250,9 +287,9 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 				continue
 			}
 			renderActionProposal(proposal)
-			fmt.Fprintln(out, "This write has NOT run. Confirm it to proceed:")
-			fmt.Fprintf(out, "  ankra chat actions confirm %s\n", proposal.ActionID)
-			fmt.Fprintf(out, "  ankra chat actions reject %s\n\n", proposal.ActionID)
+			_, _ = fmt.Fprintln(out, "This write has NOT run. Confirm it to proceed:")
+			_, _ = fmt.Fprintf(out, "  ankra chat actions confirm %s\n", proposal.ActionID)
+			_, _ = fmt.Fprintf(out, "  ankra chat actions reject %s\n\n", proposal.ActionID)
 		case "error":
 			message := chatErrorMessage(event)
 			if detail := chatErrorDetail(event); detail != "" {
@@ -262,7 +299,7 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 				outcome.errorMessage = message
 			}
 			if collectProposals {
-				fmt.Fprintf(errOut, "\nError: %s\n", message)
+				_, _ = fmt.Fprintf(errOut, "\nError: %s\n", message)
 			}
 		case "done", "complete", "end":
 			// The turn's text is complete; the session_complete/end frames

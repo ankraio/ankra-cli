@@ -119,12 +119,14 @@ func staleSelectionNotice(scope chatScope) string {
 
 // openChatTurn starts the turn in the given scope, degrading a stale
 // persisted selection to the global lane once with a notice. It returns the
-// scope the turn actually ran in so callers keep it for the next turn.
+// scope the turn actually ran in so callers keep it for the next turn. The
+// sessions lane reports the stale cluster as ErrClusterNotFound; the
+// deprecated per-cluster stream answers a bare 404, so both shapes count.
 func openChatTurn(scope chatScope, conversationID string, req client.ChatRequest,
 	interactionMode string, errOut io.Writer) (<-chan client.ChatStreamEvent, bool, chatScope, error) {
 	events, onSessions, err := startChatTurn(conversationID, scope.clusterID, req, interactionMode)
-	if err != nil && scope.fromSelection && errors.Is(err, client.ErrClusterNotFound) {
-		fmt.Fprintln(errOut, staleSelectionNotice(scope))
+	if err != nil && scope.fromSelection && isNotFoundResponse(err) {
+		_, _ = fmt.Fprintln(errOut, staleSelectionNotice(scope))
 		scope = chatScope{}
 		events, onSessions, err = startChatTurn(conversationID, nil, req, interactionMode)
 	}
@@ -157,6 +159,8 @@ func runChatMessage(scope chatScope, conversationID string, query string, intera
 		} else {
 			fmt.Fprintf(os.Stderr, "conversation %s\n", conversationID)
 		}
+	} else if !startedConversation {
+		legacyLaneNotice(os.Stderr, conversationID, true)
 	}
 	if outcome.errorMessage != "" {
 		return errors.New(outcome.errorMessage)
@@ -165,6 +169,7 @@ func runChatMessage(scope chatScope, conversationID string, query string, intera
 }
 
 func runInteractiveChat(stdin io.Reader, scope chatScope, conversationID string, interactionMode string) error {
+	continued := conversationID != ""
 	if conversationID == "" {
 		generated, err := newChatUUID()
 		if err != nil {
@@ -195,6 +200,7 @@ func runInteractiveChat(stdin io.Reader, scope chatScope, conversationID string,
 	// The legacy lane still needs the history the server does not keep;
 	// the sessions lane ignores it.
 	var history []client.ChatMessage
+	legacyNoticed := false
 	reader := bufio.NewReader(stdin)
 
 	for {
@@ -236,12 +242,16 @@ func runInteractiveChat(stdin io.Reader, scope chatScope, conversationID string,
 			InteractionMode:     interactionMode,
 		}
 
-		events, _, nextScope, err := openChatTurn(scope, conversationID, req, interactionMode, os.Stderr)
+		events, onSessions, nextScope, err := openChatTurn(scope, conversationID, req, interactionMode, os.Stderr)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
 		}
 		scope = nextScope
+		if !onSessions && !legacyNoticed {
+			legacyNoticed = true
+			legacyLaneNotice(os.Stderr, conversationID, continued)
+		}
 
 		fmt.Print(text.FgGreen.Sprint("\nAssistant: "))
 		outcome := renderChatTurn(events, os.Stdout, os.Stderr, true)
