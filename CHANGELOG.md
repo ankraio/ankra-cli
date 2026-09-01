@@ -1,5 +1,59 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra application ship [path]`** takes a local checkout to a live
+  deployment in one command, composing the lanes that already exist as
+  separate subcommands: it registers the repository as an application when
+  the organisation does not have it yet (same flags as `application add`),
+  with --name as part of the application's identity - a repository hosting
+  several applications ships the named one, `--name` with a new name
+  registers another rooted at the given path, and a multi-application
+  repository without --name is refused with the names listed rather than
+  one picked silently -
+  waits for the setup analysis, walks you through the setup pull request
+  merge gate, waits for a green image build of the tracked branch, deploys
+  to the target cluster, and follows the installation until the workload is
+  healthy - then prints `Live: https://<host>` from the deployment's
+  published ingress hostname (with a caveat when nothing on the cluster
+  publishes DNS for it). The Live line is gated on pods actually running and
+  ready: a workload scaled to zero reports "parked" and exits non-zero
+  instead of presenting a 503 URL as live. Supplied `--set` values always
+  produce a deploy - an in-flight deploy is waited to settlement and even a
+  healthy installation is deployed again to apply them; adoption without a
+  new deploy is only for flag-less resumes. Re-running ship is safe at any
+  point: it re-reads where the flow
+  actually is and continues from there, and an expired `--timeout` exits 5
+  with exactly that hint. `--ankra-build` builds the first image on Ankra's
+  builders instead of waiting for the merge and the repository's CI, and
+  `-o json` emits one structured result document for scripts.
+- **`ankra login status`** reports whether you are logged in - the API base
+  URL in use, where the token came from (config file, environment, or flag),
+  the saved token name, and the current organisation - without ever opening
+  a browser, and exits 6 when not logged in so scripts can probe the state.
+
+### Fixed
+
+- **`ankra login <anything>` no longer starts a browser sign-in.** An
+  unknown positional argument used to fall through to the interactive login
+  flow, so a probe like `ankra login status` on an older CLI silently opened
+  the browser; unknown arguments are now rejected with a pointer at
+  `ankra login status`.
+- **`ankra credentials list` always shows the organisation's GitHub
+  credentials.** When the unfiltered listing omits git credentials, they are
+  now fetched through the same provider-filtered read `application add`
+  resolves its credential from and merged in, App-installation-backed
+  entries read as `github (App)`, and the listing points at
+  `ankra credentials repositories <name>` for what a credential can reach -
+  the GitHub connection is the first prerequisite of `application add` and
+  was invisible.
+- **`ankra cluster domain` without an argument uses the selected cluster**,
+  like its sibling cluster commands, instead of failing with
+  "accepts 1 arg(s)"; the resolved cluster is named on stderr since
+  `--enable`/`--remove` mutate through the same fallback.
+
 ## v0.14.0 — 2026-08-31
 
 Promotes v0.14.0-rc0 through rc8. The headline is the migration lane:

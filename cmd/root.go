@@ -310,6 +310,9 @@ func applyOrganisationOverride(cmd *cobra.Command) error {
 type resolvedCredentials struct {
 	token   string
 	baseURL string
+	// source records where the token came from (flag, config file, or
+	// environment), so `ankra login status` can report it.
+	source credentialSource
 }
 
 // credentialSource explains where a credential pair came from for diagnostics.
@@ -413,7 +416,7 @@ func resolveCredentials(cmd *cobra.Command) (resolvedCredentials, error) {
 			"Note: using default base URL %s because ANKRA_BASE_URL is not set.\n", normalized)
 	}
 
-	return resolvedCredentials{token: token, baseURL: normalized}, nil
+	return resolvedCredentials{token: token, baseURL: normalized, source: tokenOrigin}, nil
 }
 
 func flagValue(flag *pflag.Flag) (string, bool) {

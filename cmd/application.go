@@ -41,6 +41,7 @@ func newApplicationCommand() *cobra.Command {
 		Long:    "Connect application source repositories to Ankra for analysis, packaging, and deployment.",
 	}
 	applicationCommand.AddCommand(newApplicationAddCommand())
+	applicationCommand.AddCommand(newApplicationShipCommand())
 	registerApplicationResourceCommands(applicationCommand)
 	return applicationCommand
 }
@@ -69,32 +70,39 @@ registry added later leaves a workflow that logs in with the wrong one.`,
 		Args: cobra.ExactArgs(1),
 		RunE: runApplicationAdd,
 	}
-	addCommand.Flags().String("name", "", "Application name (defaults to the repository name)")
-	addCommand.Flags().String("credential", "", "GitHub credential name or ID (auto-detected when omitted)")
-	addCommand.Flags().String("branch", "", "Repository branch (auto-detected when omitted)")
-	addCommand.Flags().String("remote", "origin", "Git remote used to identify the GitHub repository")
-	addCommand.Flags().String("registry-url", "",
-		"Registry project the application publishes to, as oci://<host>/<project>")
-	addCommand.Flags().String("registry-credential", "",
-		"Registry credential of this organisation that authenticates to it")
-	addCommand.Flags().String("registry-api-url", "",
-		"Registry management API base (defaults to https://<host>)")
-	addCommand.Flags().String("registry-pull-secret", "",
-		"Name of the dockerconfigjson Secret generated manifests reference")
-	addCommand.Flags().String("registry-username-secret", "",
-		"Repository Actions secret the build workflow logs in with")
-	addCommand.Flags().String("registry-password-secret", "",
-		"Repository Actions secret holding the registry password")
-	addCommand.Flags().Bool("registry-manage-actions-secrets", false,
-		"Let Ankra write the named credential into the repository's Actions secrets")
-	addCommand.Flags().String("registry-admin-credential", "",
-		"Registry credential with project administrator rights, for Ankra to mint the application's robot")
-	addCommand.Flags().Bool("registry-flat-repositories", false,
-		"Publish monorepo components as <project>/<component> instead of <project>/<app>/<component>")
-	addCommand.Flags().StringArray("registry-component-repository", nil,
-		"Repository inside the project for one component, as <component>=<repository> (repeatable)")
+	registerApplicationAddFlags(addCommand)
 	registerStructuredOutputFlags(addCommand)
 	return addCommand
+}
+
+// registerApplicationAddFlags registers the flags the add flow reads.
+// `application ship` registers the same set, so registering an application
+// through ship carries the identical contract as `application add`.
+func registerApplicationAddFlags(command *cobra.Command) {
+	command.Flags().String("name", "", "Application name (defaults to the repository name)")
+	command.Flags().String("credential", "", "GitHub credential name or ID (auto-detected when omitted)")
+	command.Flags().String("branch", "", "Repository branch (auto-detected when omitted)")
+	command.Flags().String("remote", "origin", "Git remote used to identify the GitHub repository")
+	command.Flags().String("registry-url", "",
+		"Registry project the application publishes to, as oci://<host>/<project>")
+	command.Flags().String("registry-credential", "",
+		"Registry credential of this organisation that authenticates to it")
+	command.Flags().String("registry-api-url", "",
+		"Registry management API base (defaults to https://<host>)")
+	command.Flags().String("registry-pull-secret", "",
+		"Name of the dockerconfigjson Secret generated manifests reference")
+	command.Flags().String("registry-username-secret", "",
+		"Repository Actions secret the build workflow logs in with")
+	command.Flags().String("registry-password-secret", "",
+		"Repository Actions secret holding the registry password")
+	command.Flags().Bool("registry-manage-actions-secrets", false,
+		"Let Ankra write the named credential into the repository's Actions secrets")
+	command.Flags().String("registry-admin-credential", "",
+		"Registry credential with project administrator rights, for Ankra to mint the application's robot")
+	command.Flags().Bool("registry-flat-repositories", false,
+		"Publish monorepo components as <project>/<component> instead of <project>/<app>/<component>")
+	command.Flags().StringArray("registry-component-repository", nil,
+		"Repository inside the project for one component, as <component>=<repository> (repeatable)")
 }
 
 // applicationAddRegistryFlags are the flags that only mean something
@@ -163,36 +171,47 @@ func applicationAddImageRegistry(command *cobra.Command) (*client.ApplicationIma
 	}, nil
 }
 
-func runApplicationAdd(command *cobra.Command, arguments []string) error {
-	if _, outputError := structuredFormatFromFlags(command); outputError != nil {
-		return outputError
-	}
+// applicationAddPlan is everything the add flow resolves before it calls the
+// platform: the repository identity, the application name, the GitHub
+// credential, and the optional registry declaration.
+type applicationAddPlan struct {
+	repository    localApplicationRepository
+	name          string
+	credential    client.Credential
+	imageRegistry *client.ApplicationImageRegistry
+}
+
+// resolveApplicationAddPlan reads the add flags and the local checkout into a
+// creation plan. Flag validation runs before the repository inspection and the
+// inspection before the credential listing, so an invocation mistake never
+// costs an API round-trip.
+func resolveApplicationAddPlan(command *cobra.Command, repositoryPath string) (applicationAddPlan, error) {
 	imageRegistry, registryError := applicationAddImageRegistry(command)
 	if registryError != nil {
-		return registryError
+		return applicationAddPlan{}, registryError
 	}
 
 	remoteName, _ := command.Flags().GetString("remote")
 	branchOverride, _ := command.Flags().GetString("branch")
 	branchOverride = strings.TrimSpace(branchOverride)
 	if command.Flags().Changed("branch") && branchOverride == "" {
-		return withExitCode(exitUsage, errors.New("branch cannot be empty"))
+		return applicationAddPlan{}, withExitCode(exitUsage, errors.New("branch cannot be empty"))
 	}
 	repository, repositoryError := inspectLocalApplicationRepository(
 		command.Context(),
-		arguments[0],
+		repositoryPath,
 		strings.TrimSpace(remoteName),
 		branchOverride,
 	)
 	if repositoryError != nil {
-		return repositoryError
+		return applicationAddPlan{}, repositoryError
 	}
 
 	applicationName, _ := command.Flags().GetString("name")
 	applicationName = strings.TrimSpace(applicationName)
 	if applicationName == "" {
 		if command.Flags().Changed("name") {
-			return withExitCode(exitUsage, errors.New("application name cannot be empty"))
+			return applicationAddPlan{}, withExitCode(exitUsage, errors.New("application name cannot be empty"))
 		}
 		applicationName = repository.Name
 	}
@@ -200,12 +219,12 @@ func runApplicationAdd(command *cobra.Command, arguments []string) error {
 	requestedCredential, _ := command.Flags().GetString("credential")
 	requestedCredential = strings.TrimSpace(requestedCredential)
 	if command.Flags().Changed("credential") && requestedCredential == "" {
-		return withExitCode(exitUsage, errors.New("credential cannot be empty"))
+		return applicationAddPlan{}, withExitCode(exitUsage, errors.New("credential cannot be empty"))
 	}
 	githubProvider := "github"
 	credentials, credentialsError := apiClient.ListCredentials(&githubProvider)
 	if credentialsError != nil {
-		return fmt.Errorf("listing GitHub credentials: %w", credentialsError)
+		return applicationAddPlan{}, fmt.Errorf("listing GitHub credentials: %w", credentialsError)
 	}
 	selectedCredential, selectionError := selectApplicationCredential(
 		credentials,
@@ -213,39 +232,65 @@ func runApplicationAdd(command *cobra.Command, arguments []string) error {
 		requestedCredential,
 	)
 	if selectionError != nil {
-		return selectionError
+		return applicationAddPlan{}, selectionError
 	}
 
-	applicationResponse, createError := apiClient.CreateApplication(command.Context(), client.CreateApplicationRequest{
-		Name:                     applicationName,
-		RepositoryCredentialName: selectedCredential.Name,
-		RepositoryOwner:          repository.Owner,
-		RepositoryName:           repository.Name,
-		RepositoryBranch:         repository.Branch,
-		ImageRegistry:            imageRegistry,
+	return applicationAddPlan{
+		repository:    repository,
+		name:          applicationName,
+		credential:    selectedCredential,
+		imageRegistry: imageRegistry,
+	}, nil
+}
+
+// createApplicationFromPlan registers the planned application on the platform
+// and returns the created identity.
+func createApplicationFromPlan(requestContext context.Context, plan applicationAddPlan) (applicationAddOutput, error) {
+	applicationResponse, createError := apiClient.CreateApplication(requestContext, client.CreateApplicationRequest{
+		Name:                     plan.name,
+		RepositoryCredentialName: plan.credential.Name,
+		RepositoryOwner:          plan.repository.Owner,
+		RepositoryName:           plan.repository.Name,
+		RepositoryBranch:         plan.repository.Branch,
+		ImageRegistry:            plan.imageRegistry,
 	})
 	if createError != nil {
-		return fmt.Errorf("adding application: %w", createError)
+		return applicationAddOutput{}, fmt.Errorf("adding application: %w", createError)
 	}
 	if applicationResponse == nil {
-		return errors.New("adding application: platform returned an empty response")
+		return applicationAddOutput{}, errors.New("adding application: platform returned an empty response")
 	}
 	if len(applicationResponse.Errors) > 0 {
-		return applicationCreationError(applicationResponse.Errors)
+		return applicationAddOutput{}, applicationCreationError(applicationResponse.Errors)
 	}
 	if applicationResponse.ID == nil || strings.TrimSpace(*applicationResponse.ID) == "" {
-		return errors.New("adding application: platform response did not include an application ID")
+		return applicationAddOutput{}, errors.New("adding application: platform response did not include an application ID")
 	}
 
 	result := applicationAddOutput{
 		ID:             *applicationResponse.ID,
-		Name:           applicationName,
-		Repository:     repository.Owner + "/" + repository.Name,
-		Branch:         repository.Branch,
-		CredentialName: selectedCredential.Name,
+		Name:           plan.name,
+		Repository:     plan.repository.Owner + "/" + plan.repository.Name,
+		Branch:         plan.repository.Branch,
+		CredentialName: plan.credential.Name,
 	}
-	if imageRegistry != nil {
-		result.RegistryURL = imageRegistry.URL
+	if plan.imageRegistry != nil {
+		result.RegistryURL = plan.imageRegistry.URL
+	}
+	return result, nil
+}
+
+func runApplicationAdd(command *cobra.Command, arguments []string) error {
+	if _, outputError := structuredFormatFromFlags(command); outputError != nil {
+		return outputError
+	}
+	plan, planError := resolveApplicationAddPlan(command, arguments[0])
+	if planError != nil {
+		return planError
+	}
+	result, createError := createApplicationFromPlan(command.Context(), plan)
+	if createError != nil {
+		return createError
 	}
 	if rendered, renderError := renderStructured(command, result); rendered || renderError != nil {
 		return renderError

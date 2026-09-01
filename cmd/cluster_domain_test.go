@@ -257,3 +257,52 @@ func TestRunClusterDomain_ReportsThePublicDomainOnAClusterWithoutAZone(t *testin
 		t.Errorf("both the missing zone and the public domain must be reported:\n%s", output)
 	}
 }
+
+// Without a positional argument the command uses the selected cluster, like
+// its sibling cluster commands (ankra-sjf1u): "accepts 1 arg(s)" cost a
+// round-trip in the idea-to-live flow.
+func TestRunClusterDomain_UsesTheSelectedClusterWithoutAnArgument(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	originalConfigFile := cfgFile
+	cfgFile = ""
+	t.Cleanup(func() { cfgFile = originalConfigFile })
+	if saveError := saveSelectedCluster(client.ClusterListItem{
+		ID: domainTestClusterID, Name: "production",
+	}); saveError != nil {
+		t.Fatalf("saving the selection: %v", saveError)
+	}
+
+	mock := &clusterDomainMock{zone: client.ClusterDNSZoneResponse{
+		Success: true, FQDN: "abc.org1234.ankra.cc", State: "active"}}
+	output, executeError := runClusterDomain(t, mock)
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if len(mock.readCalls) != 1 || mock.readCalls[0] != domainTestClusterID {
+		t.Fatalf("read calls = %v, want the selected cluster", mock.readCalls)
+	}
+	// The silently selected target is named, because --enable/--remove
+	// mutate through the same fallback.
+	if !strings.Contains(output, "production") {
+		t.Errorf("the resolved cluster must be named:\n%s", output)
+	}
+}
+
+func TestRunClusterDomain_WithoutAnArgumentOrSelectionSaysHowToSelect(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	originalConfigFile := cfgFile
+	cfgFile = ""
+	t.Cleanup(func() { cfgFile = originalConfigFile })
+
+	mock := &clusterDomainMock{}
+	output, executeError := runClusterDomain(t, mock)
+	if executeError == nil {
+		t.Fatalf("no argument and no selection must fail\noutput: %s", output)
+	}
+	if !strings.Contains(executeError.Error(), "ankra cluster select") {
+		t.Errorf("the error must say how to select a cluster: %v", executeError)
+	}
+	if len(mock.readCalls) != 0 {
+		t.Errorf("nothing may be read without a resolved cluster: %v", mock.readCalls)
+	}
+}

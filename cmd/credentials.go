@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"ankra/internal/client"
@@ -52,6 +53,9 @@ var credentialsListCmd = &cobra.Command{
 		if creds == nil {
 			creds = []client.Credential{}
 		}
+		if providerPtr == nil {
+			creds = ensureGitCredentialsListed(cmd, creds)
+		}
 		sortCreds(creds)
 		if rendered, err := renderStructured(cmd, creds); rendered || err != nil {
 			return err
@@ -77,6 +81,7 @@ var credentialsListCmd = &cobra.Command{
 			{Number: 8, WidthMin: 15},
 		})
 
+		hasGithubCredential := false
 		for _, cred := range creds {
 			state := "-"
 			if cred.State != nil && *cred.State != "" {
@@ -90,10 +95,19 @@ var credentialsListCmd = &cobra.Command{
 			if cred.LastSyncedAt != nil && *cred.LastSyncedAt != "" {
 				lastSynced = formatTimeAgo(*cred.LastSyncedAt)
 			}
+			provider := cred.Provider
+			if strings.EqualFold(cred.Provider, "github") {
+				hasGithubCredential = true
+				// An installation id means the credential is backed by a
+				// GitHub App installation rather than a stored token.
+				if cred.InstallationID != nil {
+					provider = cred.Provider + " (App)"
+				}
+			}
 			t.AppendRow(table.Row{
 				cred.ID,
 				cred.Name,
-				cred.Provider,
+				provider,
 				state,
 				cred.Available,
 				repoCount,
@@ -102,8 +116,43 @@ var credentialsListCmd = &cobra.Command{
 			})
 		}
 		t.Render()
+		if hasGithubCredential {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+				"\nSee which repositories a GitHub credential can reach with 'ankra credentials repositories <name>'.")
+		}
 		return nil
 	},
+}
+
+// ensureGitCredentialsListed guards the unfiltered listing against a backend
+// that omits git credentials from it: the org's GitHub connection is the
+// first prerequisite of `application add`, and it must be discoverable from
+// `credentials list` without knowing to pass --provider github. The
+// provider-filtered read is the exact one the application add flow already
+// resolves its credential from, so whatever add can see, list shows too. It
+// runs unconditionally rather than only when the unfiltered list has no
+// github rows at all - a backend that omits only some of them (the
+// App-installation-backed ones, say) would otherwise keep the missing ones
+// invisible - and the merge deduplicates by id, so a backend that already
+// includes everything is unchanged.
+func ensureGitCredentialsListed(cmd *cobra.Command, credentials []client.Credential) []client.Credential {
+	githubProvider := "github"
+	githubCredentials, listError := apiClient.ListCredentials(&githubProvider)
+	if listError != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+			"Warning: could not list GitHub credentials separately: %v\n", listError)
+		return credentials
+	}
+	listed := make(map[string]bool, len(credentials))
+	for _, credential := range credentials {
+		listed[credential.ID] = true
+	}
+	for _, credential := range githubCredentials {
+		if !listed[credential.ID] {
+			credentials = append(credentials, credential)
+		}
+	}
+	return credentials
 }
 
 var credentialsValidateCmd = &cobra.Command{
