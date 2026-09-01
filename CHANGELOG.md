@@ -13,8 +13,13 @@
   to the target cluster, and follows the installation until the workload is
   healthy - then prints `Live: https://<host>` from the deployment's
   published ingress hostname (with a caveat when nothing on the cluster
-  publishes DNS for it). Re-running ship is safe at any point: it re-reads
-  where the flow
+  publishes DNS for it). The Live line is gated on pods actually running and
+  ready: a workload scaled to zero reports "parked" and exits non-zero
+  instead of presenting a 503 URL as live. Supplied `--set` values always
+  produce a deploy - an in-flight deploy is waited to settlement and even a
+  healthy installation is deployed again to apply them; adoption without a
+  new deploy is only for flag-less resumes. Re-running ship is safe at any
+  point: it re-reads where the flow
   actually is and continues from there, and an expired `--timeout` exits 5
   with exactly that hint. `--ankra-build` builds the first image on Ankra's
   builders instead of waiting for the merge and the repository's CI, and

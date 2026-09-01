@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -225,9 +226,21 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		waitContext, progress, application.ID, installationID, cluster.ID, namespace); verifyError != nil {
 		return verifyError
 	}
-	reportNamespacePods(progress, cluster.ID, namespace)
+	runningReadyPods, totalPods, podsKnown := readNamespacePods(progress, cluster.ID, namespace)
+	// A verified empty namespace is a parked workload, not a live one: the
+	// installation health machine reports healthy vacuously at zero replicas,
+	// and a Live line for a URL that answers 503 is the one lie ship must
+	// never tell.
+	parked := podsKnown && runningReadyPods == 0
 
-	liveURL := findPublishedApplicationURL(waitContext, progress, application.ID, cluster.ID, namespace)
+	liveURL := ""
+	if !parked {
+		liveURL = findPublishedApplicationURL(waitContext, progress, application.ID, cluster.ID, namespace)
+	}
+	shipState := "healthy"
+	if parked {
+		shipState = "parked"
+	}
 
 	result := shipResult{
 		ApplicationID:    application.ID,
@@ -243,13 +256,22 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		Namespace:        namespace,
 		InstallationID:   installationID,
 		URL:              liveURL,
-		State:            "healthy",
+		State:            shipState,
 	}
 	if rendered, renderError := renderStructured(command, result); rendered || renderError != nil {
-		return renderError
+		if renderError != nil {
+			return renderError
+		}
+		if parked {
+			return parkedWorkloadError(runningReadyPods, totalPods, namespace)
+		}
+		return nil
 	}
 
 	output := command.OutOrStdout()
+	if parked {
+		return parkedWorkloadError(runningReadyPods, totalPods, namespace)
+	}
 	if liveURL != "" {
 		_, _ = fmt.Fprintf(output, "Live: %s\n", liveURL)
 		return nil
@@ -261,6 +283,16 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		_, _ = fmt.Fprintln(output, deployMessage)
 	}
 	return nil
+}
+
+// parkedWorkloadError is the honest ending for a deployment whose
+// installation reads healthy while nothing is actually running: ship's goal
+// is a LIVE deployment, and a parked one has not reached it.
+func parkedWorkloadError(runningReadyPods int, totalPods int, namespace string) error {
+	return fmt.Errorf(
+		"the deployment is parked: %d of %d pods in namespace %q are running and ready, so nothing is serving - "+
+			"scale it up (for example re-run with --set replicas=1) to bring it live",
+		runningReadyPods, totalPods, namespace)
 }
 
 // shipWaitTick sleeps one poll interval, turning an expired --timeout budget
@@ -750,14 +782,29 @@ type shipDeployAnswer struct {
 	Message        string `json:"message"`
 }
 
-// ensureApplicationDeployed reads the installations first and only deploys
-// when this cluster+namespace has no installation converging already: a
-// healthy installation is left alone, a settled-failed or degraded one is
-// deployed over (re-deploying is the designed recovery), and anything else -
-// pending, deploying, and any status this CLI does not know - is followed
-// rather than deployed on top of. Unknown statuses default to following
-// because a platform that grows a new transitional state must not turn a
-// re-run into a second deploy racing the first.
+// shipInstallationSettled reports whether an installation status is one the
+// platform will not move on its own initiative: healthy, or a settled bad
+// state. Everything else - pending, deploying, removing, and any status this
+// CLI does not know - is in flight.
+func shipInstallationSettled(status string) bool {
+	switch status {
+	case "healthy", "failed", "degraded":
+		return true
+	}
+	return false
+}
+
+// ensureApplicationDeployed reads the installations first and deploys only
+// what the caller's ask still needs.
+//
+// Without --set values, an existing installation is adopted as it stands: a
+// healthy one is left alone, an in-flight one is followed, and only a
+// settled failed/degraded one triggers a new deploy. With --set values the
+// caller asked for a SPECIFIC deploy, and adopting someone else's silently
+// drops those values - the first live run adopted a replicas=0 park deploy
+// and reported the parked URL as live - so an in-flight deploy is waited to
+// settlement and then the caller's deploy is issued, and even a healthy
+// installation is deployed again to apply them.
 func ensureApplicationDeployed(
 	waitContext context.Context,
 	progress io.Writer,
@@ -770,19 +817,35 @@ func ensureApplicationDeployed(
 	if readError != nil {
 		return "", "", readError
 	}
-	if existing != nil {
-		switch existing.Status {
-		case "healthy":
-			_, _ = fmt.Fprintf(progress, "Already deployed and healthy in namespace %q (installation %s).\n",
-				namespace, existing.ID)
-			return existing.ID, "", nil
-		case "failed", "degraded":
-			_, _ = fmt.Fprintf(progress, "The existing installation is %s (installation %s); deploying again.\n",
-				existing.Status, existing.ID)
-		default:
+	hasSuppliedInputs := len(deployInputs) > 0
+	if existing != nil && !shipInstallationSettled(existing.Status) {
+		if !hasSuppliedInputs {
 			_, _ = fmt.Fprintf(progress, "A deploy is already in flight (installation %s, status %s); following it.\n",
 				existing.ID, existing.Status)
 			return existing.ID, "", nil
+		}
+		_, _ = fmt.Fprintf(progress,
+			"A deploy is already in flight (installation %s, status %s) and it does NOT carry the supplied --set values; waiting for it to settle, then deploying with them.\n",
+			existing.ID, existing.Status)
+		settled, settleError := waitForInstallationToSettle(waitContext, applicationID, clusterID, namespace, existing.ID)
+		if settleError != nil {
+			return "", "", settleError
+		}
+		existing = settled
+	}
+	if existing != nil {
+		switch {
+		case existing.Status == "healthy" && !hasSuppliedInputs:
+			_, _ = fmt.Fprintf(progress, "Already deployed and healthy in namespace %q (installation %s).\n",
+				namespace, existing.ID)
+			return existing.ID, "", nil
+		case existing.Status == "healthy":
+			_, _ = fmt.Fprintf(progress,
+				"Already deployed (installation %s); deploying again to apply the supplied --set values.\n",
+				existing.ID)
+		default:
+			_, _ = fmt.Fprintf(progress, "The existing installation is %s (installation %s); deploying again.\n",
+				existing.Status, existing.ID)
 		}
 	}
 
@@ -806,6 +869,32 @@ func ensureApplicationDeployed(
 		_, _ = fmt.Fprintf(progress, "%s\n", answer.Message)
 	}
 	return answer.InstallationID, answer.Message, nil
+}
+
+// waitForInstallationToSettle polls one installation until its status is
+// settled (or the row is gone, which an undeploy ends in): the pause before
+// a values-carrying deploy is issued over an in-flight one, so two deploys
+// never race on the same target.
+func waitForInstallationToSettle(
+	waitContext context.Context,
+	applicationID string,
+	clusterID string,
+	namespace string,
+	installationID string,
+) (*shipInstallation, error) {
+	for {
+		installation, readError := findShipInstallation(waitContext, applicationID, clusterID, namespace, installationID)
+		if readError != nil {
+			return nil, readError
+		}
+		if installation == nil || shipInstallationSettled(installation.Status) {
+			return installation, nil
+		}
+		if tickError := shipWaitTick(waitContext, shipPollInterval,
+			"waiting for the in-flight deploy to settle before applying the supplied --set values"); tickError != nil {
+			return nil, tickError
+		}
+	}
 }
 
 // findShipInstallation reads the installations and returns the one matching
@@ -922,23 +1011,43 @@ func reportNamespaceWarningEvents(progress io.Writer, clusterID string, namespac
 	}
 }
 
-// reportNamespacePods reports the namespace's pods after the installation
-// settles healthy, best-effort, so the final output names what is running.
-func reportNamespacePods(progress io.Writer, clusterID string, namespace string) {
+// readNamespacePods reads the namespace's pods after the installation
+// settles healthy and counts the ones actually Running with every container
+// ready. The count gates the Live line: a workload scaled to zero satisfies
+// the installation health machine vacuously ("0 running of 0" reads as
+// healthy), and the first live run printed a parked deployment's 503 URL as
+// Live on exactly that shape. podsKnown is false when the read itself
+// failed, which is a different fact from a namespace that truly has nothing
+// running.
+func readNamespacePods(progress io.Writer, clusterID string, namespace string) (int, int, bool) {
 	response, readError := apiClient.ListPods(clusterID, &client.ListPodsOptions{
 		Page: 1, PageSize: 100, Namespace: namespace,
 	})
 	if readError != nil || response == nil {
-		return
+		_, _ = fmt.Fprintf(progress, "Could not read the namespace's pods to verify the workload: %v\n", readError)
+		return 0, 0, false
 	}
-	runningCount := 0
+	runningReadyCount := 0
 	for _, pod := range response.Pods {
-		if strings.EqualFold(pod.Phase, "Running") {
-			runningCount++
+		if strings.EqualFold(pod.Phase, "Running") && podFullyReady(pod.Ready) {
+			runningReadyCount++
 		}
 	}
-	_, _ = fmt.Fprintf(progress, "Pods in namespace %q: %d running of %d.\n",
-		namespace, runningCount, len(response.Pods))
+	_, _ = fmt.Fprintf(progress, "Pods in namespace %q: %d running and ready of %d.\n",
+		namespace, runningReadyCount, len(response.Pods))
+	return runningReadyCount, len(response.Pods), true
+}
+
+// podFullyReady reads the kubectl-shaped "ready/total" cell: a pod counts
+// only when every declared container is ready and there is at least one.
+func podFullyReady(ready string) bool {
+	readyPart, totalPart, separatorFound := strings.Cut(ready, "/")
+	if !separatorFound {
+		return false
+	}
+	readyCount, readyError := strconv.Atoi(strings.TrimSpace(readyPart))
+	totalCount, totalError := strconv.Atoi(strings.TrimSpace(totalPart))
+	return readyError == nil && totalError == nil && readyCount > 0 && readyCount == totalCount
 }
 
 // shipDeploymentsListing is the slice of the deployments read the URL

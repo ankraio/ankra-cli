@@ -208,6 +208,12 @@ func newApplicationShipMock() *applicationShipMock {
 			[]byte(`{"installations":[{"id":"` + shipTestInstallationID + `","cluster_id":"` + shipTestClusterID + `","namespace":"` + namespace + `","status":"healthy"}]}`),
 		},
 		deploymentsPayload: []byte(`{"deployments":[]}`),
+		podsResponse: &client.ListPodsResponse{
+			Pods: []client.PodSummary{
+				{Name: "shop-6f9c7b8d4-2xkvp", Namespace: &namespace, Phase: "Running", Ready: "1/1"},
+			},
+			TotalPages: 1,
+		},
 		ingressItems: []interface{}{
 			map[string]interface{}{
 				"spec": map[string]interface{}{
@@ -437,6 +443,87 @@ func TestApplicationShipFailsOnAPersistentWorkflowListingError(t *testing.T) {
 	}
 	if mockClient.deployCalls != 0 {
 		t.Errorf("nothing may deploy without a green image; calls = %d", mockClient.deployCalls)
+	}
+}
+
+// Caller-supplied --set values always produce a deploy: adopting an
+// in-flight deploy would silently drop them (the first live run adopted a
+// replicas=0 park deploy that way), so ship waits for the in-flight one to
+// settle and then issues the caller's deploy.
+func TestApplicationShipWaitsOutAnInflightDeployWhenSetValuesAreSupplied(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.installationsPayloads = [][]byte{
+		[]byte(`{"installations":[{"id":"` + shipTestInstallationID + `","cluster_id":"` + shipTestClusterID + `","namespace":"shop","status":"deploying"}]}`),
+		[]byte(`{"installations":[{"id":"` + shipTestInstallationID + `","cluster_id":"` + shipTestClusterID + `","namespace":"shop","status":"healthy"}]}`),
+	}
+	output, progress, executeError := runApplicationShipCommand(t, mockClient,
+		"--cluster", "production", "--set", "replicas=1")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, progress)
+	}
+	if mockClient.deployCalls != 1 {
+		t.Fatalf("supplied --set values must produce a deploy; calls = %d", mockClient.deployCalls)
+	}
+	if mockClient.deployRequest.Inputs["replicas"] != "1" {
+		t.Errorf("deploy inputs = %+v, want the supplied replicas=1", mockClient.deployRequest.Inputs)
+	}
+	if !strings.Contains(progress, "does NOT carry the supplied --set values") {
+		t.Errorf("the dropped-values hazard must be said out loud: %s", progress)
+	}
+	if !strings.Contains(output, "Live: https://shop.acme.ankra.cc") {
+		t.Errorf("stdout = %q", output)
+	}
+}
+
+// The settled branch has the same contract: an already-healthy installation
+// is only adopted by a flag-less resume - supplied --set values deploy again
+// to apply them.
+func TestApplicationShipRedeploysAHealthyInstallationToApplySetValues(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.installationsPayloads = [][]byte{
+		[]byte(`{"installations":[{"id":"` + shipTestInstallationID + `","cluster_id":"` + shipTestClusterID + `","namespace":"shop","status":"healthy"}]}`),
+	}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient,
+		"--cluster", "production", "--set", "replicas=1")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, executeError)
+	}
+	if mockClient.deployCalls != 1 {
+		t.Fatalf("supplied --set values must deploy over a healthy installation; calls = %d", mockClient.deployCalls)
+	}
+	if mockClient.deployRequest.Inputs["replicas"] != "1" {
+		t.Errorf("deploy inputs = %+v, want the supplied replicas=1", mockClient.deployRequest.Inputs)
+	}
+	if !strings.Contains(progress, "deploying again to apply the supplied --set values") {
+		t.Errorf("the re-deploy must be announced: %s", progress)
+	}
+}
+
+// A healthy installation with nothing actually running is parked, not live:
+// the health machine reports healthy vacuously at zero replicas, and the
+// first live run printed a 503 URL as Live on exactly that shape.
+func TestApplicationShipReportsAParkedWorkloadInsteadOfLive(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.podsResponse = &client.ListPodsResponse{TotalPages: 1}
+	output, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError == nil {
+		t.Fatalf("a parked workload must not read as success\nprogress: %s", progress)
+	}
+	if exitCodeFor(executeError) != exitError {
+		t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitError)
+	}
+	if !strings.Contains(executeError.Error(), "parked") ||
+		!strings.Contains(executeError.Error(), "--set replicas=1") {
+		t.Errorf("the parked state and the way out must be named: %v", executeError)
+	}
+	if strings.Contains(output, "Live:") {
+		t.Errorf("a parked workload must never print a Live line: %q", output)
+	}
+	if !strings.Contains(progress, "0 running and ready of 0") {
+		t.Errorf("the pod count must be reported: %s", progress)
 	}
 }
 
