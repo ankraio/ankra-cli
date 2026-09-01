@@ -350,6 +350,51 @@ func TestApplicationShipIsIdempotentAcrossARerun(t *testing.T) {
 	}
 }
 
+// A status this CLI does not know is an in-flight deploy to follow, never a
+// gap to deploy into: a platform that grows a new transitional state must
+// not turn a re-run into a second deploy racing the first.
+func TestApplicationShipFollowsAnUnknownInstallationStatus(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.installationsPayloads = [][]byte{
+		[]byte(`{"installations":[{"id":"` + shipTestInstallationID + `","cluster_id":"` + shipTestClusterID + `","namespace":"shop","status":"converging"}]}`),
+		[]byte(`{"installations":[{"id":"` + shipTestInstallationID + `","cluster_id":"` + shipTestClusterID + `","namespace":"shop","status":"healthy"}]}`),
+	}
+	output, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, progress)
+	}
+	if mockClient.deployCalls != 0 {
+		t.Errorf("an unknown in-flight status must be followed, not deployed over; calls = %d", mockClient.deployCalls)
+	}
+	if !strings.Contains(output, "Live: https://shop.acme.ankra.cc") {
+		t.Errorf("stdout = %q", output)
+	}
+}
+
+// Registration-shaping flags do nothing against an already-registered
+// application; passing one explicitly must be said out loud, not silently
+// ignored.
+func TestApplicationShipWarnsAboutIgnoredRegistrationFlags(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{
+		[]byte(`{"result":[{"id":"` + testApplicationID + `","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"}],"pagination":{"total_pages":1}}`),
+	}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production",
+		"--credential", "github-acme", "--registry-url", "oci://registry.example.com/shop")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, progress)
+	}
+	if mockClient.createCalls != 0 {
+		t.Errorf("a registered application must not be created again; calls = %d", mockClient.createCalls)
+	}
+	if !strings.Contains(progress, "--credential") || !strings.Contains(progress, "--registry-url") ||
+		!strings.Contains(progress, "ignored") {
+		t.Errorf("explicitly-passed registration flags must be reported as ignored: %s", progress)
+	}
+}
+
 func TestApplicationShipFailsWhenSetupFails(t *testing.T) {
 	fastShipPolling(t)
 	mockClient := newApplicationShipMock()

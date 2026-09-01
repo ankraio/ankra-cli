@@ -364,6 +364,12 @@ func resolveOrRegisterApplication(
 	if existing != nil {
 		_, _ = fmt.Fprintf(progress, "Using existing application %q (%s) for %s/%s.\n",
 			existing.Name, existing.ID, repository.Owner, repository.Name)
+		warnIgnoredRegistrationFlags(command, progress)
+		if !strings.EqualFold(existing.AppRepoBranch, repository.Branch) && existing.AppRepoBranch != "" {
+			_, _ = fmt.Fprintf(progress,
+				"Note: the application tracks branch %q; the checkout's branch %q does not retarget it.\n",
+				existing.AppRepoBranch, repository.Branch)
+		}
 		return *existing, false, nil
 	}
 
@@ -385,6 +391,28 @@ func resolveOrRegisterApplication(
 		AppRepoName:   plan.repository.Name,
 		AppRepoBranch: plan.repository.Branch,
 	}, true, nil
+}
+
+// warnIgnoredRegistrationFlags says out loud which explicitly-passed add
+// flags did nothing because the repository already has an application: they
+// shape how an application is REGISTERED, and silently ignoring an explicit
+// flag is how a caller comes to believe a re-run retargeted something it did
+// not.
+func warnIgnoredRegistrationFlags(command *cobra.Command, progress io.Writer) {
+	registrationFlags := append([]string{"name", "credential", "registry-url"}, applicationAddRegistryFlags...)
+	ignored := []string{}
+	for _, flagName := range registrationFlags {
+		if command.Flags().Changed(flagName) {
+			ignored = append(ignored, "--"+flagName)
+		}
+	}
+	if len(ignored) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(progress,
+		"Note: %s only apply when ship registers the application, and this repository already has one - they were ignored. "+
+			"Change the existing application with 'ankra application credential set' or 'ankra application registry set'.\n",
+		strings.Join(ignored, ", "))
 }
 
 // shipSetupFailureStates are the application states that mean setup is not
@@ -693,8 +721,12 @@ type shipDeployAnswer struct {
 
 // ensureApplicationDeployed reads the installations first and only deploys
 // when this cluster+namespace has no installation converging already: a
-// healthy installation is left alone, an in-flight one is followed, and only
-// a missing or settled-failed one triggers a new deploy.
+// healthy installation is left alone, a settled-failed or degraded one is
+// deployed over (re-deploying is the designed recovery), and anything else -
+// pending, deploying, and any status this CLI does not know - is followed
+// rather than deployed on top of. Unknown statuses default to following
+// because a platform that grows a new transitional state must not turn a
+// re-run into a second deploy racing the first.
 func ensureApplicationDeployed(
 	waitContext context.Context,
 	progress io.Writer,
@@ -713,7 +745,10 @@ func ensureApplicationDeployed(
 			_, _ = fmt.Fprintf(progress, "Already deployed and healthy in namespace %q (installation %s).\n",
 				namespace, existing.ID)
 			return existing.ID, "", nil
-		case "pending", "deploying":
+		case "failed", "degraded":
+			_, _ = fmt.Fprintf(progress, "The existing installation is %s (installation %s); deploying again.\n",
+				existing.Status, existing.ID)
+		default:
 			_, _ = fmt.Fprintf(progress, "A deploy is already in flight (installation %s, status %s); following it.\n",
 				existing.ID, existing.Status)
 			return existing.ID, "", nil
