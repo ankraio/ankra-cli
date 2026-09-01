@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 
@@ -51,37 +52,46 @@ var chatCmd = &cobra.Command{
 	Short: "AI-powered chat for troubleshooting and assistance",
 	Long: `AI-powered chat for troubleshooting and assistance.
 
-If a message is provided, sends a one-shot question.
+If a message is provided, sends a one-shot question and prints the
+conversation id so a follow-up can continue it with --conversation.
 If no message is provided, enters interactive chat mode.
 
-Use --cluster to provide cluster context for better answers.`,
+Use --cluster to provide cluster context for better answers; without it the
+persisted 'ankra cluster select' applies, and with neither the chat reads
+across the whole organisation.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterName, _ := cmd.Flags().GetString("cluster")
 		mode, _ := cmd.Flags().GetString("mode")
+		conversationID, _ := cmd.Flags().GetString("conversation")
 		interactionMode, modeError := normalizeChatMode(mode)
 		if modeError != nil {
 			return modeError
 		}
+		if conversationID != "" {
+			if err := validateConversationID(conversationID); err != nil {
+				return err
+			}
+			conversationID = strings.TrimSpace(conversationID)
+		}
 
-		var clusterID *string
+		var scope chatScope
 		if clusterName != "" {
 			cluster, err := apiClient.GetCluster(clusterName)
 			if err != nil {
 				return fmt.Errorf("finding cluster %s: %w", clusterName, err)
 			}
-			clusterID = &cluster.ID
-		} else {
-			selected, err := loadSelectedCluster()
-			if err == nil {
-				clusterID = &selected.ID
-			}
+			scope.clusterID = &cluster.ID
+		} else if selected, err := loadSelectedCluster(); err == nil {
+			scope.clusterID = &selected.ID
+			scope.fromSelection = true
+			scope.selectedName = selected.Name
 		}
 
 		if len(args) > 0 {
-			return runChatMessage(clusterID, args[0], interactionMode)
+			return runChatMessage(scope, conversationID, args[0], interactionMode)
 		}
-		return runInteractiveChat(clusterID, interactionMode)
+		return runInteractiveChat(cmd.InOrStdin(), scope, conversationID, interactionMode)
 	},
 }
 
@@ -100,84 +110,81 @@ func normalizeChatMode(mode string) (string, error) {
 	}
 }
 
-func runChatMessage(clusterID *string, query string, interactionMode string) error {
+// staleSelectionNotice tells the user the persisted cluster selection points
+// at a cluster the backend no longer knows, and how to clear it.
+func staleSelectionNotice(scope chatScope) string {
+	return fmt.Sprintf("note: the selected cluster %q no longer exists; chatting without cluster context. "+
+		"Run 'ankra cluster clear' to drop the selection, or pass --cluster.", scope.selectedName)
+}
+
+// openChatTurn starts the turn in the given scope, degrading a stale
+// persisted selection to the global lane once with a notice. It returns the
+// scope the turn actually ran in so callers keep it for the next turn. The
+// sessions lane reports the stale cluster as ErrClusterNotFound; the
+// deprecated per-cluster stream answers a bare 404, so both shapes count.
+func openChatTurn(scope chatScope, conversationID string, req client.ChatRequest,
+	interactionMode string, errOut io.Writer) (<-chan client.ChatStreamEvent, bool, chatScope, error) {
+	events, onSessions, err := startChatTurn(conversationID, scope.clusterID, req, interactionMode)
+	if err != nil && scope.fromSelection && isNotFoundResponse(err) {
+		_, _ = fmt.Fprintln(errOut, staleSelectionNotice(scope))
+		scope = chatScope{}
+		events, onSessions, err = startChatTurn(conversationID, nil, req, interactionMode)
+	}
+	return events, onSessions, scope, err
+}
+
+func runChatMessage(scope chatScope, conversationID string, query string, interactionMode string) error {
+	startedConversation := conversationID == ""
+	if startedConversation {
+		generated, err := newChatUUID()
+		if err != nil {
+			return err
+		}
+		conversationID = generated
+	}
 	req := client.ChatRequest{Query: query, InteractionMode: interactionMode}
-	events, err := apiClient.StreamChat(clusterID, req)
+	events, onSessions, _, err := openChatTurn(scope, conversationID, req, interactionMode, os.Stderr)
 	if err != nil {
 		return fmt.Errorf("chat: %w", err)
 	}
 
 	fmt.Print("\n")
-	var hasStartedContent bool
-	var hadStatus bool
-	var streamErrorMessage string
-	for event := range events {
-		switch event.Type {
-		case "content":
-			// Data can be string content
-			if str, ok := event.Data.(string); ok {
-				if !hasStartedContent {
-					if hadStatus {
-						fmt.Print("\n") // New line after status before content
-					}
-					hasStartedContent = true
-				}
-				fmt.Print(str)
-			} else if event.Content != "" {
-				if !hasStartedContent {
-					if hadStatus {
-						fmt.Print("\n")
-					}
-					hasStartedContent = true
-				}
-				fmt.Print(event.Content)
-			}
-		case "status":
-			if status := chatStatusText(event.Data); status != "" {
-				if hasStartedContent {
-					fmt.Printf("\n\n[%s]\n\n", status)
-				} else {
-					fmt.Printf("[%s]", status)
-					hadStatus = true
-				}
-			}
-		case "action_proposal":
-			proposal, decodeError := decodeActionProposal(event.Data)
-			if decodeError != nil {
-				fmt.Printf("\nAn action is awaiting confirmation but could not be read: %v\n", decodeError)
-				continue
-			}
-			renderActionProposal(proposal)
-			fmt.Println("This write has NOT run. Confirm it to proceed:")
-			fmt.Printf("  ankra chat actions confirm %s\n", proposal.ActionID)
-			fmt.Printf("  ankra chat actions reject %s\n\n", proposal.ActionID)
-		case "error":
-			// Fail the command once the stream drains: errors belong on
-			// stderr with a non-zero exit, not lost in the transcript.
-			if streamErrorMessage == "" {
-				streamErrorMessage = chatErrorMessage(event)
-			}
-		case "done", "complete":
-			fmt.Print("\n\n")
-		default:
-			// Ignore triage, context and other metadata events
+	outcome := renderChatTurn(events, os.Stdout, os.Stderr, false)
+	fmt.Print("\n\n")
+	if onSessions {
+		// The id goes to stderr so a piped answer stays clean.
+		if startedConversation {
+			fmt.Fprintf(os.Stderr, "conversation %s (continue with: ankra chat --conversation %s \"...\")\n",
+				conversationID, conversationID)
+		} else {
+			fmt.Fprintf(os.Stderr, "conversation %s\n", conversationID)
 		}
+	} else if !startedConversation {
+		legacyLaneNotice(os.Stderr, conversationID, true)
 	}
-	if streamErrorMessage != "" {
-		if hasStartedContent {
-			fmt.Print("\n")
-		}
-		return errors.New(streamErrorMessage)
+	if outcome.errorMessage != "" {
+		return errors.New(outcome.errorMessage)
 	}
 	return nil
 }
 
-func runInteractiveChat(clusterID *string, interactionMode string) error {
+func runInteractiveChat(stdin io.Reader, scope chatScope, conversationID string, interactionMode string) error {
+	continued := conversationID != ""
+	if conversationID == "" {
+		generated, err := newChatUUID()
+		if err != nil {
+			return err
+		}
+		conversationID = generated
+	}
 	fmt.Println("Ankra AI Chat")
 	fmt.Println("─────────────")
-	if clusterID != nil {
+	switch {
+	case scope.clusterID != nil && scope.selectedName != "":
+		fmt.Printf("Cluster context: %s (selected)\n", scope.selectedName)
+	case scope.clusterID != nil:
 		fmt.Println("Cluster context: active")
-	} else {
+	default:
 		fmt.Println("Cluster context: none (use --cluster to set)")
 	}
 	switch interactionMode {
@@ -186,11 +193,15 @@ func runInteractiveChat(clusterID *string, interactionMode string) error {
 	case "agentic":
 		fmt.Println("Mode: agent (can act)")
 	}
-	fmt.Println("Type 'exit' or 'quit' to exit, 'clear' to clear history")
+	fmt.Printf("Conversation: %s\n", conversationID)
+	fmt.Println("Type 'exit' or 'quit' to exit, 'clear' to start a new conversation")
 	fmt.Println()
 
+	// The legacy lane still needs the history the server does not keep;
+	// the sessions lane ignores it.
 	var history []client.ChatMessage
-	reader := bufio.NewReader(os.Stdin)
+	legacyNoticed := false
+	reader := bufio.NewReader(stdin)
 
 	for {
 		fmt.Print(text.FgCyan.Sprint("You: "))
@@ -215,83 +226,40 @@ func runInteractiveChat(clusterID *string, interactionMode string) error {
 			return nil
 		case "clear":
 			history = nil
-			fmt.Println("Chat history cleared.")
+			generated, genErr := newChatUUID()
+			if genErr != nil {
+				return genErr
+			}
+			conversationID = generated
+			fmt.Printf("Started a new conversation: %s\n", conversationID)
 			continue
 		}
 
-		// Add user message to history
 		history = append(history, client.ChatMessage{Role: "user", Content: input})
-
 		req := client.ChatRequest{
 			Query:               input,
 			ConversationHistory: history,
 			InteractionMode:     interactionMode,
 		}
 
-		events, err := apiClient.StreamChat(clusterID, req)
+		events, onSessions, nextScope, err := openChatTurn(scope, conversationID, req, interactionMode, os.Stderr)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
 		}
+		scope = nextScope
+		if !onSessions && !legacyNoticed {
+			legacyNoticed = true
+			legacyLaneNotice(os.Stderr, conversationID, continued)
+		}
 
 		fmt.Print(text.FgGreen.Sprint("\nAssistant: "))
-		var response strings.Builder
-		var hasStartedContent bool
-		var hadStatus bool
-		var pendingProposals []*client.ChatActionProposal
-		for event := range events {
-			switch event.Type {
-			case "content":
-				// Data can be string content
-				if str, ok := event.Data.(string); ok {
-					if !hasStartedContent {
-						if hadStatus {
-							fmt.Print("\n") // New line after status before content
-						}
-						hasStartedContent = true
-					}
-					fmt.Print(str)
-					response.WriteString(str)
-				} else if event.Content != "" {
-					if !hasStartedContent {
-						if hadStatus {
-							fmt.Print("\n")
-						}
-						hasStartedContent = true
-					}
-					fmt.Print(event.Content)
-					response.WriteString(event.Content)
-				}
-			case "status":
-				// Show status, don't add to response
-				if status := chatStatusText(event.Data); status != "" {
-					if hasStartedContent {
-						fmt.Printf("\n\n[%s]\n\n", status)
-					} else {
-						fmt.Printf("[%s]", status)
-						hadStatus = true
-					}
-				}
-			case "action_proposal":
-				proposal, decodeError := decodeActionProposal(event.Data)
-				if decodeError != nil {
-					fmt.Printf("\nAn action is awaiting confirmation but could not be read: %v\n", decodeError)
-					continue
-				}
-				pendingProposals = append(pendingProposals, proposal)
-			case "error":
-				fmt.Fprintf(os.Stderr, "\nError: %s\n", chatErrorMessage(event))
-			case "done", "complete":
-				// Add assistant response to history
-				if response.Len() > 0 {
-					history = append(history, client.ChatMessage{Role: "assistant", Content: response.String()})
-				}
-			default:
-				// Ignore triage, context and other metadata events
-			}
+		outcome := renderChatTurn(events, os.Stdout, os.Stderr, true)
+		if outcome.response != "" {
+			history = append(history, client.ChatMessage{Role: "assistant", Content: outcome.response})
 		}
 		fmt.Print("\n\n")
-		resolvePendingProposals(reader, pendingProposals)
+		resolvePendingProposals(reader, outcome.proposals)
 	}
 }
 
@@ -364,6 +332,9 @@ var chatShowCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		conversationID := args[0]
+		if err := validateConversationLookupID(conversationID); err != nil {
+			return err
+		}
 
 		conv, err := apiClient.GetChatConversation(conversationID)
 		if err != nil {
@@ -401,6 +372,9 @@ var chatDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		conversationID := args[0]
+		if err := validateConversationLookupID(conversationID); err != nil {
+			return err
+		}
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
@@ -434,6 +408,9 @@ var chatHealthCmd = &cobra.Command{
 
 		health, err := apiClient.GetClusterHealth(cluster.ID, includeAI)
 		if err != nil {
+			if clusterFlagOverride(cmd) == "" && isNotFoundResponse(err) {
+				return fmt.Errorf("the selected cluster %q no longer exists; run 'ankra cluster clear' to drop the selection, or pass --cluster", cluster.Name)
+			}
 			return fmt.Errorf("getting cluster health: %w", err)
 		}
 
@@ -490,6 +467,7 @@ var chatHealthCmd = &cobra.Command{
 func init() {
 	chatCmd.Flags().String("cluster", "", "Cluster name for context")
 	chatCmd.Flags().String("mode", "", "Safety mode: 'ask' (read-only + safe creations) or 'agent' (can act). Defaults to the server default.")
+	chatCmd.Flags().String("conversation", "", "Continue an existing conversation (id from 'ankra chat history' or a previous answer)")
 
 	chatHistoryCmd.Flags().String("cluster", "", "Filter by cluster")
 	chatHistoryCmd.Flags().Int("limit", 20, "Maximum number of conversations to show")
@@ -507,4 +485,23 @@ func init() {
 	chatCmd.AddCommand(chatHealthCmd)
 
 	rootCmd.AddCommand(chatCmd)
+}
+
+// validateConversationLookupID refuses a conversation id the history
+// endpoints would answer 422 for, with the hint the raw status lacks.
+func validateConversationLookupID(conversationID string) error {
+	if looksLikeUUID(strings.TrimSpace(conversationID)) {
+		return nil
+	}
+	return fmt.Errorf("invalid conversation id %q: pass the id shown by 'ankra chat history'", conversationID)
+}
+
+// isNotFoundResponse reports a 404 from the API, whichever error shape the
+// client wrapped it in.
+func isNotFoundResponse(err error) bool {
+	if errors.Is(err, client.ErrClusterNotFound) {
+		return true
+	}
+	var unexpected *client.UnexpectedResponseError
+	return errors.As(err, &unexpected) && unexpected.StatusCode == http.StatusNotFound
 }

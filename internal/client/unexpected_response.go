@@ -13,6 +13,12 @@ import (
 type UnexpectedResponseError struct {
 	StatusCode int
 	message    string
+	// Detail is the backend's JSON `detail` string when the response carried
+	// one, and empty when the body was not the API's error shape (a bare
+	// router 404, a proxy page). Callers that must tell "the route does not
+	// exist" from "the route answered not-found" key on it instead of on
+	// message text.
+	Detail string
 }
 
 func (e *UnexpectedResponseError) Error() string {
@@ -26,6 +32,17 @@ func newUnexpectedResponseError(operation string, statusCode int, bodyForDisplay
 	return &UnexpectedResponseError{
 		StatusCode: statusCode,
 		message:    fmt.Sprintf("%s: status %d, body: %s", operation, statusCode, bodyForDisplay),
+	}
+}
+
+// newBackendDetailError wraps an API error body's `detail` string: the
+// message is the detail itself (what users see) and Detail records that the
+// backend, not a router or proxy, produced the status.
+func newBackendDetailError(statusCode int, detail string) *UnexpectedResponseError {
+	return &UnexpectedResponseError{
+		StatusCode: statusCode,
+		message:    detail,
+		Detail:     detail,
 	}
 }
 

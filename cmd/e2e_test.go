@@ -21,6 +21,22 @@ type baseMock struct{}
 
 func (m baseMock) SetOrganisationOverride(string) {}
 
+// The sessions lane is absent on the base mock so every existing chat test
+// keeps exercising the legacy StreamChat path it scripts.
+func (m baseMock) CreateChatSession(client.CreateChatSessionRequest) (*client.ChatSession, error) {
+	return nil, client.ErrChatSessionsUnavailable
+}
+
+func (m baseMock) SubmitChatTurn(string, client.ChatRequest) (*client.SubmitChatTurnResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StreamChatSessionEvents(string, int64) (<-chan client.ChatStreamEvent, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CancelChatSession(string) error { return errors.New("not implemented") }
+
 func (m baseMock) OrganisationOverride() string { return "" }
 
 func (m baseMock) UpdateUpcloudZonePool(context.Context, string, []string, bool) (*client.UpdateUpcloudZonePoolResult, bool, error) {
@@ -3287,6 +3303,8 @@ func TestTokensListEmptyCommand(t *testing.T) {
 }
 
 func TestOrgSwitchCommand(t *testing.T) {
+	// The switch persists ~/.ankra/organisation.json; keep it out of the real home.
+	t.Setenv("HOME", t.TempDir())
 	mock := &orgSwitchMock{}
 	setMockClient(t, mock)
 

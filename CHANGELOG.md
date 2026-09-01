@@ -1,5 +1,36 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Changed
+
+- **`ankra chat` runs on the durable chat sessions API** (`/api/v1/chat/sessions`),
+  the successor the deprecated bearer stream has advertised since July. The
+  backend now owns the transcript: interactive turns continue one server-side
+  conversation instead of resending the whole history every turn, a one-shot
+  answer prints the conversation id it started, and `--conversation <id>`
+  continues any conversation from `ankra chat history` (or a previous answer)
+  - which also makes `ankra chat actions list <id>` usable after a one-shot.
+  A dropped reply stream is resumed from its last durable event instead of
+  ending the turn. Backends without the lane fall back to the deprecated
+  stream, whose deprecation warning now prints once per process instead of
+  on every interactive turn, and which says when a conversation id cannot
+  be continued there. Error frames name their stable code (for
+  example `ai_platform_billing`); set `ANKRA_DEBUG=1` to also print the
+  operator detail.
+
+### Fixed
+
+- A persisted `ankra cluster select` pointing at a cluster that no longer
+  exists made `ankra chat` fail with a bare `404 Cluster not found`. Chat now
+  says which selection is stale, how to clear it, and continues without
+  cluster context; `ankra chat health` explains the stale selection instead
+  of a bare 404.
+- `ankra chat show` and `ankra chat delete` refuse a value that is not a
+  conversation id with a hint, instead of surfacing the backend's 422.
+- The org-switch test no longer writes `~/.ankra/organisation.json` into the
+  developer's real home directory.
+
 ## v0.15.0-rc0 — 2026-09-01
 
 ### Added

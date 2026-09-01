@@ -87,7 +87,7 @@ func (c *Client) doJSONWithClient(
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
 		detail := detailFromBody(body)
 		if detail != "" {
-			return newUnexpectedResponseErrorWithMessage(response.StatusCode, detail)
+			return newBackendDetailError(response.StatusCode, detail)
 		}
 		return newUnexpectedResponseError(operation, response.StatusCode, redactedBodyForError(body, 500))
 	}
