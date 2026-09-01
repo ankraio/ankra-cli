@@ -325,7 +325,20 @@ func findApplicationByRepository(
 				matches = append(matches, application)
 			}
 		}
-		if listing.Pagination.TotalPages <= page || len(listing.Result) == 0 {
+		if len(listing.Result) == 0 {
+			listingExhausted = true
+			break
+		}
+		// A non-empty page whose pagination reports no page count is
+		// undecidable, not exhausted: stopping here would answer "not
+		// registered" from partial data, and the wrong answer to that
+		// question registers a duplicate application.
+		if listing.Pagination.TotalPages == 0 {
+			return nil, fmt.Errorf(
+				"the applications listing did not report its page count; cannot decide whether %s/%s is already registered",
+				repository.Owner, repository.Name)
+		}
+		if listing.Pagination.TotalPages <= page {
 			listingExhausted = true
 			break
 		}
@@ -520,6 +533,12 @@ type shipWorkflowRunsPage struct {
 	Error *string           `json:"error"`
 }
 
+// maxConsecutiveWorkflowListingErrors bounds how long a refused
+// workflow-runs read may masquerade as "no run yet": a listing that keeps
+// answering with an error is a failure of the read, not CI taking its time,
+// and must not wait out the whole --timeout budget.
+const maxConsecutiveWorkflowListingErrors = 10
+
 // waitForWorkflowSuccess polls the repository's workflow runs until the
 // latest run on the tracked branch concludes. Success returns the run URL as
 // the build reference; a failed conclusion is the command's failure, with the
@@ -533,6 +552,7 @@ func waitForWorkflowSuccess(
 	announcedWaiting := false
 	announcedRunning := ""
 	announcedListingError := ""
+	consecutiveListingErrors := 0
 	for {
 		payload, readError := apiClient.GetApplicationWorkflowRuns(waitContext, applicationID, "", 1, 20)
 		if readError != nil {
@@ -542,9 +562,20 @@ func waitForWorkflowSuccess(
 		if unmarshalError := json.Unmarshal(payload, &runs); unmarshalError != nil {
 			return "", fmt.Errorf("reading the workflow runs: %w", unmarshalError)
 		}
-		if runs.Error != nil && *runs.Error != "" && *runs.Error != announcedListingError {
-			_, _ = fmt.Fprintf(progress, "Workflow runs could not be listed (%s); retrying.\n", *runs.Error)
-			announcedListingError = *runs.Error
+		if runs.Error != nil && *runs.Error != "" {
+			consecutiveListingErrors++
+			if consecutiveListingErrors >= maxConsecutiveWorkflowListingErrors {
+				return "", fmt.Errorf(
+					"the workflow runs could not be listed after %d attempts: %s - check the application's repository credential with 'ankra credentials repositories'",
+					consecutiveListingErrors, *runs.Error)
+			}
+			if *runs.Error != announcedListingError {
+				_, _ = fmt.Fprintf(progress, "Workflow runs could not be listed (%s); retrying.\n", *runs.Error)
+				announcedListingError = *runs.Error
+			}
+		} else {
+			consecutiveListingErrors = 0
+			announcedListingError = ""
 		}
 		var latest *shipWorkflowRun
 		for index := range runs.Runs {

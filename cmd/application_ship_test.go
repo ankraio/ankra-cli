@@ -395,6 +395,51 @@ func TestApplicationShipWarnsAboutIgnoredRegistrationFlags(t *testing.T) {
 	}
 }
 
+// A non-empty applications page whose pagination reports no page count is
+// undecidable, not exhausted: answering "not registered" from it would
+// register a duplicate application.
+func TestApplicationShipRefusesAnUndecidableApplicationsListing(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{
+		[]byte(`{"result":[{"id":"other","name":"other","app_repo_owner":"acme","app_repo_name":"other","app_repo_branch":"main"}]}`),
+	}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError == nil {
+		t.Fatalf("a listing without a page count must fail, not answer from partial data\nprogress: %s", progress)
+	}
+	if !strings.Contains(executeError.Error(), "did not report its page count") {
+		t.Errorf("the undecidable listing must be named: %v", executeError)
+	}
+	if mockClient.createCalls != 0 {
+		t.Errorf("nothing may be registered from an undecidable listing; calls = %d", mockClient.createCalls)
+	}
+}
+
+// A workflow-runs read that keeps answering with a server-side error is a
+// failure of the read, not CI taking its time: it must fail after a bounded
+// number of attempts instead of waiting out the whole --timeout budget.
+func TestApplicationShipFailsOnAPersistentWorkflowListingError(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.workflowRunsPayloads = [][]byte{
+		[]byte(`{"runs":[],"error":"GitHub API returned status 401 while listing workflow runs."}`),
+	}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError == nil {
+		t.Fatalf("a persistent listing error must fail the command\nprogress: %s", progress)
+	}
+	if exitCodeFor(executeError) == exitWaitTimeout {
+		t.Errorf("a refused read is a failure, not a timeout: %v", executeError)
+	}
+	if !strings.Contains(executeError.Error(), "GitHub API returned status 401") {
+		t.Errorf("the server's own error must reach the caller: %v", executeError)
+	}
+	if mockClient.deployCalls != 0 {
+		t.Errorf("nothing may deploy without a green image; calls = %d", mockClient.deployCalls)
+	}
+}
+
 func TestApplicationShipFailsWhenSetupFails(t *testing.T) {
 	fastShipPolling(t)
 	mockClient := newApplicationShipMock()

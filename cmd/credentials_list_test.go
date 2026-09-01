@@ -93,21 +93,30 @@ func TestCredentialsListMergesOmittedGitCredentials(t *testing.T) {
 	}
 }
 
-// A backend whose unfiltered listing already includes git credentials is
-// left alone: no second read, no duplicate rows.
-func TestCredentialsListDoesNotDoubleReadWhenGitCredentialsAreListed(t *testing.T) {
+// The github read runs even when the unfiltered listing already carries
+// github rows - a backend that omits only SOME of them must still be
+// completed - and the id-dedupe keeps the rows it already had from doubling.
+func TestCredentialsListMergeDeduplicatesAndCompletesPartialOmission(t *testing.T) {
+	listed := installationBackedGithubCredential("github-app-acme")
+	omitted := installationBackedGithubCredential("github-app-other")
+	omitted.ID = "2d3e4f5a-6666-4777-8888-99990000aaaa"
 	mock := &credentialsGitListMock{
-		unfiltered: []client.Credential{installationBackedGithubCredential("github-app-acme")},
+		unfiltered: []client.Credential{listed},
+		github:     []client.Credential{listed, omitted},
 	}
 	tableOutput, _, executeError := runCredentialsList(t, mock)
 	if executeError != nil {
 		t.Fatalf("credentials list error = %v", executeError)
 	}
-	if len(mock.providerCalls) != 1 || mock.providerCalls[0] != "" {
-		t.Errorf("provider calls = %v, want only the unfiltered read", mock.providerCalls)
+	if len(mock.providerCalls) != 2 || mock.providerCalls[1] != "github" {
+		t.Errorf("provider calls = %v, want the unfiltered read then the github read", mock.providerCalls)
 	}
-	if count := strings.Count(stripANSICodes(tableOutput), "github-app-acme"); count != 1 {
-		t.Errorf("the credential must appear exactly once, got %d rows", count)
+	cleanOutput := stripANSICodes(tableOutput)
+	if count := strings.Count(cleanOutput, "github-app-acme"); count != 1 {
+		t.Errorf("an already-listed credential must appear exactly once, got %d rows", count)
+	}
+	if !strings.Contains(cleanOutput, "github-app-other") {
+		t.Errorf("a partially-omitted credential must be merged in: %s", cleanOutput)
 	}
 }
 

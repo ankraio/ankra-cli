@@ -129,15 +129,13 @@ var credentialsListCmd = &cobra.Command{
 // first prerequisite of `application add`, and it must be discoverable from
 // `credentials list` without knowing to pass --provider github. The
 // provider-filtered read is the exact one the application add flow already
-// resolves its credential from, so whatever add can see, list shows too. The
-// merge deduplicates by id, so a backend that already includes them is
-// unchanged.
+// resolves its credential from, so whatever add can see, list shows too. It
+// runs unconditionally rather than only when the unfiltered list has no
+// github rows at all - a backend that omits only some of them (the
+// App-installation-backed ones, say) would otherwise keep the missing ones
+// invisible - and the merge deduplicates by id, so a backend that already
+// includes everything is unchanged.
 func ensureGitCredentialsListed(cmd *cobra.Command, credentials []client.Credential) []client.Credential {
-	for _, credential := range credentials {
-		if strings.EqualFold(credential.Provider, "github") {
-			return credentials
-		}
-	}
 	githubProvider := "github"
 	githubCredentials, listError := apiClient.ListCredentials(&githubProvider)
 	if listError != nil {
