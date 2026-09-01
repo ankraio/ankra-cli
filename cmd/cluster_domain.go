@@ -10,7 +10,7 @@ import (
 )
 
 var clusterDomainCmd = &cobra.Command{
-	Use:   "domain <cluster>",
+	Use:   "domain [cluster]",
 	Short: "Show the cluster's generated public domain",
 	Long: `Show the cluster's generated public domain. The domain nests under the
 organisation's Ankra-managed root - ankra.cc by default, or the organisation's
@@ -50,18 +50,40 @@ stands.
 current root. The cluster's label is derived from its id, so the zone comes
 back under exactly the name it had before, and the external-dns Ankra manages
 for it keeps the same --txt-owner-id.`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if clusterDomainEnable && clusterDomainRemove {
 			return withExitCode(exitUsage, errors.New("--enable and --remove are mutually exclusive"))
 		}
 
-		clusterID, err := resolveClusterID(args[0])
-		if err != nil {
-			return err
+		// Without a positional argument the command targets the selected
+		// cluster, like its sibling cluster commands. The fallback names the
+		// cluster it resolved on stderr, because --enable/--remove mutate and
+		// a silently selected target must not be silent.
+		var clusterID string
+		var clusterReference string
+		if len(args) == 1 {
+			clusterReference = args[0]
+			resolvedClusterID, err := resolveClusterID(clusterReference)
+			if err != nil {
+				return err
+			}
+			clusterID = resolvedClusterID
+		} else {
+			cluster, err := resolveActiveCluster(cmd)
+			if err != nil {
+				return err
+			}
+			clusterID = cluster.ID
+			clusterReference = cluster.Name
+			if clusterReference == "" {
+				clusterReference = cluster.ID
+			}
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Cluster: %s\n", clusterReference)
 		}
 
 		var result *client.ClusterDNSZoneResponse
+		var err error
 		switch {
 		case clusterDomainRemove:
 			result, err = apiClient.DisableClusterDNSZone(clusterID)
@@ -103,12 +125,12 @@ for it keeps the same --txt-owner-id.`,
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 					"\nThis cluster's domain was removed and the removal is held: nothing will "+
 						"re-create it.\nRun 'ankra cluster domain %s --enable' when you want it back.\n",
-					args[0])
+					clusterReference)
 				return nil
 			}
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 				"\nThis cluster has no public domain. Run 'ankra cluster domain %s --enable' to create one.\n",
-				args[0])
+				clusterReference)
 			return nil
 		}
 

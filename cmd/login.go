@@ -64,6 +64,17 @@ The whole login happens between your browser and the platform; the CLI
 never opens a local network port.
 
 Your credentials will be saved to ~/.ankra.yaml`,
+	// Unknown positional arguments are rejected rather than ignored: `ankra
+	// login status` used to fall through to this command and silently start
+	// a browser auth flow, turning a status probe into an interactive login.
+	Args: func(_ *cobra.Command, arguments []string) error {
+		if len(arguments) == 0 {
+			return nil
+		}
+		return withExitCode(exitUsage, fmt.Errorf(
+			"unknown argument %q for \"ankra login\" - plain 'ankra login' starts a browser sign-in; "+
+				"to check the current login, run 'ankra login status'", arguments[0]))
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := runLogin(); err != nil {
 			return fmt.Errorf("login failed: %w", err)
