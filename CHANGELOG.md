@@ -4,6 +4,12 @@
 
 ### Changed
 
+- **`ankra chat` names the conversations it starts.** After the first
+  completed turn of a new conversation the CLI asks the backend for a
+  summarised title (the same call the portal makes), so a chat started from
+  the terminal no longer keeps its raw first question as its title in
+  `ankra chat history` and the portal sidebar. Best-effort: an older backend
+  or a title you already set are left alone.
 - **`ankra chat` runs on the durable chat sessions API** (`/api/v1/chat/sessions`),
   the successor the deprecated bearer stream has advertised since July. The
   backend now owns the transcript: interactive turns continue one server-side

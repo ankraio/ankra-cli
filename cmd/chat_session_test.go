@@ -32,6 +32,7 @@ type chatSessionMock struct {
 	tailSince      []int64
 	legacyEvents   []client.ChatStreamEvent
 	legacyCalls    int
+	titleCalls     []string
 	legacyClusters []*string // the cluster each StreamChat call was scoped to
 }
 
@@ -42,6 +43,13 @@ func popScriptedError(queue *[]error) error {
 	err := (*queue)[0]
 	*queue = (*queue)[1:]
 	return err
+}
+
+func (m *chatSessionMock) RegenerateChatTitle(conversationID string) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.titleCalls = append(m.titleCalls, conversationID)
+	return nil
 }
 
 func (m *chatSessionMock) CreateChatSession(request client.CreateChatSessionRequest) (*client.ChatSession, error) {
@@ -603,5 +611,73 @@ func TestNewChatUUIDIsV4(t *testing.T) {
 	other, _ := newChatUUID()
 	if other == id {
 		t.Fatal("two ids must differ")
+	}
+}
+
+func TestChatOneShot_NamesTheConversationItStarted(t *testing.T) {
+	resetChatFlags(t)
+	mock := &chatSessionMock{tails: [][]client.ChatStreamEvent{{contentFrame(2, "Hello"), endFrame()}}}
+	captureStdout(t, func() {
+		captureStderr(t, func() {
+			if _, err := runWithInput(t, mock, "", "chat", "hello"); err != nil {
+				t.Fatalf("chat failed: %v", err)
+			}
+		})
+	})
+	if len(mock.titleCalls) != 1 || mock.titleCalls[0] != mock.created[0].ConversationID {
+		t.Fatalf("title calls = %v, want one for the started conversation %s", mock.titleCalls, mock.created[0].ConversationID)
+	}
+}
+
+func TestChatOneShot_DoesNotRenameAContinuedOrFailedConversation(t *testing.T) {
+	resetChatFlags(t)
+	continued := &chatSessionMock{tails: [][]client.ChatStreamEvent{{contentFrame(2, "Sure."), endFrame()}}}
+	captureStdout(t, func() {
+		captureStderr(t, func() {
+			_, _ = runWithInput(t, continued, "", "chat", "--conversation", "a75c06a2-5100-41f2-bdde-778c5a74200c", "and then?")
+		})
+	})
+	if len(continued.titleCalls) != 0 {
+		t.Fatalf("a continued conversation must keep its title; calls = %v", continued.titleCalls)
+	}
+	resetChatFlags(t)
+	failed := &chatSessionMock{tails: [][]client.ChatStreamEvent{{
+		{Type: "error", Data: map[string]any{"message": "unavailable"}, Sequence: 2}, endFrame()}}}
+	captureStdout(t, func() {
+		captureStderr(t, func() { _, _ = runWithInput(t, failed, "", "chat", "hello") })
+	})
+	if len(failed.titleCalls) != 0 {
+		t.Fatalf("a failed first turn has nothing to summarise; calls = %v", failed.titleCalls)
+	}
+	legacy := &chatSessionMock{createErrors: []error{client.ErrChatSessionsUnavailable},
+		legacyEvents: []client.ChatStreamEvent{{Type: "content", Content: "Legacy."}, {Type: "complete"}}}
+	captureStdout(t, func() {
+		captureStderr(t, func() { _, _ = runWithInput(t, legacy, "", "chat", "hello") })
+	})
+	if len(legacy.titleCalls) != 0 {
+		t.Fatalf("the deprecated lane has no server-side conversation to name; calls = %v", legacy.titleCalls)
+	}
+}
+
+func TestChatInteractive_NamesEachConversationOnceAfterItsFirstTurn(t *testing.T) {
+	resetChatFlags(t)
+	mock := &chatSessionMock{tails: [][]client.ChatStreamEvent{
+		{contentFrame(2, "one"), endFrame()},
+		{contentFrame(2, "two"), endFrame()},
+		{contentFrame(2, "three"), endFrame()},
+	}}
+	captureStdout(t, func() {
+		captureStderr(t, func() {
+			if _, err := runWithInput(t, mock, "first\nsecond\nclear\nthird\nexit\n", "chat"); err != nil {
+				t.Fatalf("chat failed: %v", err)
+			}
+		})
+	})
+	if len(mock.titleCalls) != 2 {
+		t.Fatalf("title calls = %v, want one per conversation started (before and after 'clear')", mock.titleCalls)
+	}
+	if mock.titleCalls[0] != mock.created[0].ConversationID || mock.titleCalls[1] != mock.created[2].ConversationID {
+		t.Fatalf("title calls = %v, want the first and the post-clear conversation ids (%s, %s)",
+			mock.titleCalls, mock.created[0].ConversationID, mock.created[2].ConversationID)
 	}
 }
