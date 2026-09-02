@@ -90,6 +90,18 @@ func (c *Client) SubmitChatTurn(sessionID string, request ChatRequest) (*SubmitC
 	return &response, nil
 }
 
+// RegenerateChatTitle asks the backend to summarise a conversation's
+// placeholder title from its first exchange - what the portal does after
+// the first reply, and what a conversation started here would otherwise
+// never get. Callers treat every failure as best-effort: an older backend
+// without the route (404), a title the user already set (409), or a
+// summariser outage (502) all leave the first question as the title.
+func (c *Client) RegenerateChatTitle(conversationID string) error {
+	return classifyChatSessionError(c.sendJSON(http.MethodPost,
+		fmt.Sprintf("%s/api/v1/chat/conversations/%s/title/regenerate", c.BaseURL, url.PathEscape(conversationID)),
+		nil, nil))
+}
+
 // CancelChatSession asks the runner to stop the session's in-flight turn.
 func (c *Client) CancelChatSession(sessionID string) error {
 	return classifyChatSessionError(c.sendJSON(http.MethodPost,

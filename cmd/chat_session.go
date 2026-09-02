@@ -311,3 +311,12 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 	outcome.response = response.String()
 	return outcome
 }
+
+// requestConversationTitle asks the backend to name a conversation this
+// command started, once its first exchange exists - the same call the portal
+// makes after the first reply. Best-effort by design: a backend without the
+// route, a title the user already set, or a summariser outage all leave the
+// first question as the title, and none of them is worth a line of output.
+func requestConversationTitle(conversationID string) {
+	_ = apiClient.RegenerateChatTitle(conversationID)
+}

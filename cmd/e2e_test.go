@@ -37,6 +37,8 @@ func (m baseMock) StreamChatSessionEvents(string, int64) (<-chan client.ChatStre
 
 func (m baseMock) CancelChatSession(string) error { return errors.New("not implemented") }
 
+func (m baseMock) RegenerateChatTitle(string) error { return errors.New("not implemented") }
+
 func (m baseMock) OrganisationOverride() string { return "" }
 
 func (m baseMock) UpdateUpcloudZonePool(context.Context, string, []string, bool) (*client.UpdateUpcloudZonePoolResult, bool, error) {

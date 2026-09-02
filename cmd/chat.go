@@ -151,6 +151,9 @@ func runChatMessage(scope chatScope, conversationID string, query string, intera
 	fmt.Print("\n")
 	outcome := renderChatTurn(events, os.Stdout, os.Stderr, false)
 	fmt.Print("\n\n")
+	if onSessions && startedConversation && outcome.errorMessage == "" {
+		requestConversationTitle(conversationID)
+	}
 	if onSessions {
 		// The id goes to stderr so a piped answer stays clean.
 		if startedConversation {
@@ -170,6 +173,9 @@ func runChatMessage(scope chatScope, conversationID string, query string, intera
 
 func runInteractiveChat(stdin io.Reader, scope chatScope, conversationID string, interactionMode string) error {
 	continued := conversationID != ""
+	// A continued conversation is not this session's to name; one started
+	// here is named after its first completed turn, like the portal does.
+	titled := continued
 	if conversationID == "" {
 		generated, err := newChatUUID()
 		if err != nil {
@@ -231,6 +237,7 @@ func runInteractiveChat(stdin io.Reader, scope chatScope, conversationID string,
 				return genErr
 			}
 			conversationID = generated
+			titled = false
 			fmt.Printf("Started a new conversation: %s\n", conversationID)
 			continue
 		}
@@ -257,6 +264,10 @@ func runInteractiveChat(stdin io.Reader, scope chatScope, conversationID string,
 		outcome := renderChatTurn(events, os.Stdout, os.Stderr, true)
 		if outcome.response != "" {
 			history = append(history, client.ChatMessage{Role: "assistant", Content: outcome.response})
+		}
+		if onSessions && !titled && outcome.errorMessage == "" {
+			requestConversationTitle(conversationID)
+			titled = true
 		}
 		fmt.Print("\n\n")
 		resolvePendingProposals(reader, outcome.proposals)
