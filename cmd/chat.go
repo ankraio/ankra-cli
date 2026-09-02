@@ -24,6 +24,12 @@ func chatStatusText(data any) string {
 	case string:
 		return typed
 	case map[string]any:
+		// A narrative status is the model's own first sentence, relayed for
+		// the portal's activity ticker; the CLI already prints that sentence
+		// as content, so showing it again in brackets - truncated - is noise.
+		if source, _ := typed["intent_source"].(string); source == "narrative" {
+			return ""
+		}
 		intent, _ := typed["intent"].(string)
 		mechanism, _ := typed["mechanism"].(string)
 		switch {
