@@ -214,9 +214,13 @@ func TestBackupVaultVerifyHintMatchesTheVaultKind(t *testing.T) {
 			vault:    client.BackupVault{Name: "offsite", Kind: "ankra_provisioned"},
 			expected: "--destroy-provider-resources",
 		},
+		// The cause is not knowable from here - rotated keys, a deleted
+		// bucket, or a failed teardown that put the row back - so the hint
+		// must not name one. It used to say "fix the access keys", which a
+		// failed teardown makes plainly wrong (ankra-0xsdd.41).
 		"provisioned but verified before": {
 			vault:    client.BackupVault{Name: "offsite", Kind: "ankra_provisioned", LastVerifiedAt: &verifiedAt},
-			expected: "fix the access keys",
+			expected: "if a teardown left resources behind",
 		},
 		"bring your own": {
 			vault:    client.BackupVault{Name: "offsite", Kind: "customer_s3"},
@@ -228,6 +232,13 @@ func TestBackupVaultVerifyHintMatchesTheVaultKind(t *testing.T) {
 		if !strings.Contains(hint, testCase.expected) {
 			t.Errorf("%s: hint %q does not contain %q", name, hint, testCase.expected)
 		}
+	}
+
+	// A vault Ankra provisioned and verified before must never be told its
+	// keys are the problem: a failed teardown leaves them working.
+	provisioned := client.BackupVault{Name: "offsite", Kind: "ankra_provisioned", LastVerifiedAt: &verifiedAt}
+	if hint := backupVaultVerifyHint(&provisioned); strings.Contains(hint, "fix the access keys") {
+		t.Errorf("hint still names the keys as the cause: %q", hint)
 	}
 }
 
