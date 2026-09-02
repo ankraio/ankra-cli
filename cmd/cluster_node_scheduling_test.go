@@ -10,10 +10,11 @@ import (
 
 type nodeSchedulingMock struct {
 	baseMock
-	patches    []client.PatchResourceRequest
-	deletes    []client.DeleteResourceRequest
-	pods       []interface{}
-	listStatus string
+	patches      []client.PatchResourceRequest
+	deletes      []client.DeleteResourceRequest
+	pods         []interface{}
+	listStatus   string
+	deleteStatus map[string]string
 }
 
 func (m *nodeSchedulingMock) GetCluster(name string) (client.ClusterListItem, error) {
@@ -27,6 +28,11 @@ func (m *nodeSchedulingMock) PatchResource(clusterID string, request client.Patc
 
 func (m *nodeSchedulingMock) DeleteResource(clusterID string, request client.DeleteResourceRequest) (*client.ResourceMutationResponse, error) {
 	m.deletes = append(m.deletes, request)
+	if m.deleteStatus != nil {
+		if status, ok := m.deleteStatus[request.Name]; ok {
+			return &client.ResourceMutationResponse{Status: status}, nil
+		}
+	}
 	return &client.ResourceMutationResponse{Status: "success"}, nil
 }
 
@@ -204,5 +210,17 @@ func TestDrain_RefusedPodListStopsBeforeCordon(t *testing.T) {
 	}
 	if len(mock.patches) != 0 || len(mock.deletes) != 0 {
 		t.Errorf("a refused list must neither cordon nor delete, got %d patches %d deletes", len(mock.patches), len(mock.deletes))
+	}
+}
+
+func TestDrain_ReportsAlreadyGonePodsHonestly(t *testing.T) {
+	mock := &nodeSchedulingMock{pods: drainPods(), deleteStatus: map[string]string{"one-off": "not_found"}}
+	resetConfirmFlag(t, clusterDrainCmd, clusterCmd)
+	out, err := runWithInput(t, mock, "", "cluster", "drain", "worker-3", "--cluster", "prod-cluster", "--yes")
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(out, "pod batch/one-off already gone") || strings.Contains(out, "pod batch/one-off deleted") {
+		t.Errorf("a not_found verdict must read as already gone, not deleted, got: %s", out)
 	}
 }

@@ -52,13 +52,19 @@ Example:
 
 var clusterDrainCmd = &cobra.Command{
 	Use:   "drain <node>",
-	Short: "Cordon a node and delete the pods running on it",
+	Short: "Cordon a node and delete the pods running on it (deletes, does not evict)",
 	Long: `Cordon a node, then delete every pod scheduled on it so its controller
 reschedules the pod elsewhere. DaemonSet pods are left alone (they would
 come straight back on the same node) and so are the static pods the kubelet
 runs from disk. A pod without a controller is deleted like any other and is
 not recreated - the plan names every pod before anything happens, and
 --dry-run stops after printing it.
+
+Unlike 'kubectl drain', the pods are deleted rather than evicted: the Ankra
+agent has no eviction relay yet, so PodDisruptionBudgets are not consulted
+and a budget at its limit does not hold the drain back. Check the budgets in
+the namespaces you care about ('cluster get resources PodDisruptionBudget
+--group policy') before draining a node that carries a quorum member.
 
 The node stays cordoned afterwards; run 'cluster uncordon' to put it back
 into service.
@@ -124,8 +130,10 @@ Examples:
 				return fmt.Errorf("deleting pod %s: %w", pod, err)
 			}
 			switch response.Status {
-			case "success", "not_found":
+			case "success":
 				_, _ = fmt.Fprintf(out, "pod %s deleted\n", pod)
+			case "not_found":
+				_, _ = fmt.Fprintf(out, "pod %s already gone\n", pod)
 			default:
 				refused = append(refused, pod.String()+": "+mutationVerdictMessage(response))
 			}

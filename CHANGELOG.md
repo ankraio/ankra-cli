@@ -26,7 +26,9 @@
   - `ankra cluster cordon|uncordon <node>` flip the node's scheduling;
     `ankra cluster drain <node>` cordons it and deletes the pods on it,
     leaving DaemonSet and static pods alone and printing the plan first
-    (`--dry-run` stops there).
+    (`--dry-run` stops there). It deletes rather than evicts - the agent has
+    no eviction relay yet - so PodDisruptionBudgets are not consulted; the
+    help says so and the plan names every pod before anything happens.
   - `ankra cluster helm get <release>` shows the chart, revision, values and
     notes (`-o values` dumps just the values as YAML), `helm history` lists
     the revisions, `helm rollback --revision N` rolls back and waits, and

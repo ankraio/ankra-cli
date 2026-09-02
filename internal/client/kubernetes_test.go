@@ -537,6 +537,9 @@ func TestGetHelmReleaseDetail(t *testing.T) {
 			if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/kubernetes/helm/releases/traefik-ns/traefik") {
 				t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 			}
+			if r.Header.Get("Authorization") != "Bearer "+testToken {
+				t.Errorf("a relay read must carry the bearer token, got %q", r.Header.Get("Authorization"))
+			}
 			jsonResponse(t, w, http.StatusOK, HelmReleaseDetail{
 				Metadata:   HelmReleaseMetadata{Name: "traefik", Namespace: "traefik-ns", Revision: 4, Status: "deployed", Chart: &chart},
 				UserValues: map[string]interface{}{"replicas": float64(2)},

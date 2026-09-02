@@ -108,6 +108,8 @@ ankra cluster helm rollback <release> -n <ns> --revision <n>
 ankra cluster helm upgrade <release> -n <ns> --chart <repo/name> --values values.yaml
 ```
 
+`drain` deletes pods rather than evicting them (the agent has no eviction relay yet), so
+PodDisruptionBudgets are not consulted - check them first on a node that carries a quorum member.
 A pod owned by a controller comes straight back after `delete pod` - that is the single-replica
 restart. `delete` exits 3 when an object did not exist and 1 when the cluster refused, so scripts
 can tell the two apart. A Helm release an Ankra addon manages is refused by `rollback`/`upgrade`:

@@ -711,12 +711,11 @@ func (c *Client) doKubernetesRelay(method, endpoint string, payload []byte, targ
 	if payload != nil {
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
-	// A relay write presents the double-submit CSRF token the way the Helm
-	// mutations and the browser do, so the delete and patch lanes keep
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+	// A relay write also presents the double-submit CSRF token the way the
+	// Helm mutations and the browser do, so the delete and patch lanes keep
 	// working the day the backend guards them the same way.
-	if method == http.MethodGet {
-		httpReq.Header.Set("Authorization", "Bearer "+c.Token)
-	} else {
+	if method != http.MethodGet {
 		c.applyAuthAndCSRFHeaders(httpReq)
 	}
 
