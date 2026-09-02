@@ -20,7 +20,7 @@ permissions:
 jobs:
   sync-docs:
     name: Generate and PR CLI reference
-    runs-on: depot-ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
     steps:
       - name: Checkout ankra-cli
         uses: actions/checkout@v6

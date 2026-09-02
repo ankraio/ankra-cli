@@ -31,7 +31,7 @@ concurrency:
 jobs:
   lifecycle-system-test:
     name: Cloud lifecycle system test
-    runs-on: depot-ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
     timeout-minutes: 240
     env:
       ANKRA_SYSTEMTEST_CONFIRM: 'yes'
