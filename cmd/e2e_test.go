@@ -982,6 +982,26 @@ func (m baseMock) ListSecurityClusters(client.SecurityClustersOptions) (*client.
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListSecurityNamespaces(client.SecurityNamespacesOptions) (*client.SecurityNamespaceList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSecurityPods(client.SecurityPodsOptions) (*client.SecurityPodList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSecuritySBOMComponents(client.SecuritySBOMComponentsOptions) (*client.SecuritySBOMComponentList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSecuritySBOMImages(client.SecuritySBOMImagesOptions) (*client.SecuritySBOMImageList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSecuritySBOMImage(client.SecuritySBOMImageOptions) (*client.SecuritySBOMImageDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error) {
 	return nil, errors.New("not implemented")
 }

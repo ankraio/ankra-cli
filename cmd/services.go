@@ -43,6 +43,11 @@ type APIClient interface {
 	GetSecurityFinding(findingID string) (*client.SecurityFindingDetail, error)
 	GetSecurityAdvisory(cveID string) (*client.SecurityAdvisory, error)
 	ListSecurityClusters(options client.SecurityClustersOptions) (*client.SecurityClusterList, error)
+	ListSecurityNamespaces(options client.SecurityNamespacesOptions) (*client.SecurityNamespaceList, error)
+	ListSecurityPods(options client.SecurityPodsOptions) (*client.SecurityPodList, error)
+	ListSecuritySBOMComponents(options client.SecuritySBOMComponentsOptions) (*client.SecuritySBOMComponentList, error)
+	ListSecuritySBOMImages(options client.SecuritySBOMImagesOptions) (*client.SecuritySBOMImageList, error)
+	GetSecuritySBOMImage(options client.SecuritySBOMImageOptions) (*client.SecuritySBOMImageDetail, error)
 
 	ListPowerSchedules(clusterID string) (*client.PowerScheduleListResult, error)
 	CreatePowerSchedule(clusterID string, request client.PowerScheduleRequest) (*client.PowerScheduleListResult, error)

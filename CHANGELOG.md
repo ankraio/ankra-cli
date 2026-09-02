@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra security sbom` reads the fleet's software bill of materials.** Every
+  package the scanner found in every container image, grouped by name,
+  version and ecosystem, with how many images, workloads and clusters carry
+  it and the findings that name that exact package and version - so a new CVE
+  is answered with `ankra security sbom --search <package>` instead of a
+  rescan. `--type`, `--vulnerable true|false`, `--cluster`, `--namespace` and
+  `--image` narrow it; `ankra security sbom images` lists the images with a
+  bill of materials and `ankra security sbom image <digest>` opens one with
+  the workloads running it and its full component list. The coverage line
+  says how many scanned clusters publish a bill of materials; the platform
+  keeps it off by default, and the input to switch on per cluster is named
+  when none do.
+- **`ankra security namespaces` and `ankra security pods` break findings down
+  by namespace and pod.** `namespaces` lists every namespace on every cluster
+  with its scanned workloads and images, the pods running there now, the
+  actionable findings by severity and the known-exploited count (cluster-scoped
+  reports keep a `(cluster-scoped)` row so the totals still add up). `pods
+  --cluster <c> --namespace <ns>` lists the namespace's running pods, each
+  container joined to its scanned workload's findings through the pod's owner
+  chain; narrow to one workload with `--workload-uid` or
+  `--workload-kind`/`--workload-name`. A container the scanner never covered
+  reads `not scanned`, never clean.
+
 ### Changed
 
 - `ankra chat` no longer prints the pipeline's narrative status line - a truncated
