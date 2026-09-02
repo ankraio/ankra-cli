@@ -20,15 +20,33 @@ func resetTreeFlags(t *testing.T, cmds ...*cobra.Command) {
 	t.Helper()
 	cmds = append(cmds, clusterCmd)
 	for _, command := range cmds {
-		command.Flags().VisitAll(func(flag *pflag.Flag) {
-			_ = flag.Value.Set(flag.DefValue)
-			flag.Changed = false
-		})
-		command.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
-			_ = flag.Value.Set(flag.DefValue)
-			flag.Changed = false
-		})
+		command.Flags().VisitAll(resetFlagToDefault)
+		command.PersistentFlags().VisitAll(resetFlagToDefault)
 	}
+}
+
+// resetFlagToDefault restores one flag. A slice flag's Set appends once the
+// flag has been touched, so re-applying its "[a,b]" default through Set
+// would grow it by one entry per reset; Replace puts the parsed default
+// back instead.
+func resetFlagToDefault(flag *pflag.Flag) {
+	if sliceValue, isSlice := flag.Value.(pflag.SliceValue); isSlice {
+		_ = sliceValue.Replace(defaultSliceEntries(flag.DefValue))
+	} else {
+		_ = flag.Value.Set(flag.DefValue)
+	}
+	flag.Changed = false
+}
+
+func defaultSliceEntries(defaultValue string) []string {
+	trimmed := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(defaultValue), "["), "]")
+	entries := []string{}
+	for _, entry := range strings.Split(trimmed, ",") {
+		if entry = strings.TrimSpace(entry); entry != "" {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
 }
 
 // runConfirmCommand executes rootCmd end-to-end with the given stdin, capturing

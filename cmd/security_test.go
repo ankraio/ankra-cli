@@ -43,7 +43,10 @@ func (m *securityMock) ListSecurityClusters(client.SecurityClustersOptions) (*cl
 }
 
 func securityCommandTree() []*cobra.Command {
-	return []*cobra.Command{securityOverviewCmd, securityFindingsCmd, securityFindingCmd, securityAdvisoryCmd, securityClustersCmd}
+	return []*cobra.Command{
+		securityOverviewCmd, securityFindingsCmd, securityFindingCmd, securityAdvisoryCmd, securityClustersCmd,
+		securityNamespacesCmd, securityPodsCmd, securitySbomCmd, securitySbomImagesCmd, securitySbomImageCmd,
+	}
 }
 
 func runSecurityCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
