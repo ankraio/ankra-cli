@@ -229,3 +229,30 @@ func TestStreamChatSessionEvents_NotFoundClassifies(t *testing.T) {
 		t.Fatalf("err = %v, want ErrChatSessionsUnavailable", err)
 	}
 }
+
+func TestRegenerateChatTitle_PostsAndClassifies(t *testing.T) {
+	var method, path string
+	ok := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		method, path = r.Method, r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"conversation_id":"a75c06a2-5100-41f2-bdde-778c5a74200c","title":"Diagnose Failing Nats"}`)
+	})
+	if err := ok.RegenerateChatTitle("a75c06a2-5100-41f2-bdde-778c5a74200c"); err != nil {
+		t.Fatalf("RegenerateChatTitle: %v", err)
+	}
+	if method != http.MethodPost || path != "/api/v1/chat/conversations/a75c06a2-5100-41f2-bdde-778c5a74200c/title/regenerate" {
+		t.Fatalf("request = %s %s", method, path)
+	}
+	custom := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = fmt.Fprint(w, `{"detail":"Conversation already has a custom title"}`)
+	})
+	if err := custom.RegenerateChatTitle("a75c06a2-5100-41f2-bdde-778c5a74200c"); err == nil || !strings.Contains(err.Error(), "custom title") {
+		t.Fatalf("409 = %v, want the backend detail surfaced for the caller to ignore", err)
+	}
+	older := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "404 page not found", http.StatusNotFound) })
+	if err := older.RegenerateChatTitle("a75c06a2-5100-41f2-bdde-778c5a74200c"); !errors.Is(err, ErrChatSessionsUnavailable) {
+		t.Fatalf("route 404 = %v, want ErrChatSessionsUnavailable", err)
+	}
+}
