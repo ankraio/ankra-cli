@@ -432,6 +432,9 @@ func TestDeleteResource(t *testing.T) {
 				if reqBody["dry_run"] != false {
 					t.Errorf("dry_run should be false on the wire, got %v", reqBody["dry_run"])
 				}
+				if r.Header.Get(csrfHeaderName) == "" || r.Header.Get("Authorization") != "Bearer "+testToken {
+					t.Error("a relay delete must carry the CSRF header alongside the bearer token")
+				}
 				jsonResponse(t, w, http.StatusOK, ResourceMutationResponse{Status: "success"})
 			},
 			wantStatus: "success",
@@ -509,6 +512,9 @@ func TestPatchResource(t *testing.T) {
 		spec, _ := patch["spec"].(map[string]interface{})
 		if spec["unschedulable"] != true {
 			t.Errorf("patch should carry spec.unschedulable=true, got %v", reqBody["patch"])
+		}
+		if r.Header.Get(csrfHeaderName) == "" {
+			t.Error("a relay patch must carry the CSRF header alongside the bearer token")
 		}
 		jsonResponse(t, w, http.StatusOK, ResourceMutationResponse{Status: "success"})
 	})

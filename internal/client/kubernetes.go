@@ -697,7 +697,8 @@ func (c *Client) postKubernetesRelay(clusterID, relayPath string, req interface{
 // doKubernetesRelay issues one request against the kubernetes relay and
 // maps its replies the way the read paths above do: a 503 becomes a
 // ClusterUnavailableError with the agent's reason, any other non-200 keeps
-// the backend's detail so a 404 or 409 names the release or the lock.
+// the backend's detail so a 404 or 409 names the release or the lock. A
+// write carries the CSRF header alongside the bearer token.
 func (c *Client) doKubernetesRelay(method, endpoint string, payload []byte, target interface{}) error {
 	var body io.Reader
 	if payload != nil {
@@ -710,7 +711,14 @@ func (c *Client) doKubernetesRelay(method, endpoint string, payload []byte, targ
 	if payload != nil {
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+	// A relay write presents the double-submit CSRF token the way the Helm
+	// mutations and the browser do, so the delete and patch lanes keep
+	// working the day the backend guards them the same way.
+	if method == http.MethodGet {
+		httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+	} else {
+		c.applyAuthAndCSRFHeaders(httpReq)
+	}
 
 	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {

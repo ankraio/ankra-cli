@@ -229,6 +229,9 @@ Example:
 		if limit < 1 || limit > 200 {
 			return withExitCode(exitUsage, errors.New("--limit must be between 1 and 200"))
 		}
+		if outputFormat != "table" && outputFormat != "json" {
+			return withExitCode(exitUsage, fmt.Errorf("unsupported output format %q: use table or json", outputFormat))
+		}
 
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {

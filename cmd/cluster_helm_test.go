@@ -275,3 +275,15 @@ func TestHelmGet_YamlOutputUsesWireKeys(t *testing.T) {
 		t.Errorf("-o yaml must not leak Go field names, got: %s", out)
 	}
 }
+
+func TestHelmHistory_UnsupportedOutputExitsUsage(t *testing.T) {
+	mock := &helmReleaseOpsMock{}
+	resetConfirmFlag(t, clusterHelmHistoryCmd, clusterCmd)
+	_, err := runWithInput(t, mock, "", "cluster", "helm", "history", "traefik", "-n", "traefik", "--cluster", "prod-cluster", "-o", "wide")
+	if got := exitCodeFor(err); got != exitUsage {
+		t.Errorf("-o wide should exit %d, got %d (err=%v)", exitUsage, got, err)
+	}
+	if mock.historyCall != 0 {
+		t.Error("an unsupported output format must be rejected before any API call")
+	}
+}
