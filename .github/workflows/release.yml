@@ -13,7 +13,7 @@ jobs:
     name: Create release
     permissions:
       contents: write
-    runs-on: depot-ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -67,16 +67,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: depot-ubuntu-24.04
+          - os: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
             goos: linux
             goarch: amd64
-          - os: depot-ubuntu-24.04
+          - os: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
             goos: linux
             goarch: arm64
-          - os: depot-ubuntu-24.04
+          - os: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
             goos: windows
             goarch: amd64
-          - os: depot-ubuntu-24.04
+          - os: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
             goos: windows
             goarch: arm64
           - os: macos-latest
@@ -156,7 +156,7 @@ jobs:
     if: ${{ !contains(github.ref_name, '-') }}
     permissions:
       contents: read
-    runs-on: depot-ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
