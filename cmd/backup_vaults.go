@@ -103,14 +103,27 @@ func resolveBackupVaultID(vaults APIClient, reference string) (string, error) {
 // keys, so there are none to fix and re-verifying cannot make the bucket
 // exist (the API answers 409 for exactly that) - the way out is to delete
 // it, which also clears whatever the run had already created, and provision
-// again. Anywhere else the keys are the user's own and re-verifying is the
-// point.
+// again.
+//
+// For a vault Ankra provisioned that HAS verified before, the cause is not
+// knowable from here: the keys may have been rotated, the bucket may be
+// gone, or a teardown may have failed and put the row back. Telling that
+// user to "fix the access keys" named a cause that is often wrong - a failed
+// teardown leaves perfectly good keys (ankra-0xsdd.41) - so the hint now
+// points at the error and gives both real ways out. A bring-your-own vault
+// is the one case where the keys really are the user's, and re-verifying
+// after fixing them is the point.
 func backupVaultVerifyHint(vault *client.BackupVault) string {
-	if vault.Kind == "ankra_provisioned" && (vault.LastVerifiedAt == nil || *vault.LastVerifiedAt == "") {
+	if vault.Kind != "ankra_provisioned" {
+		return fmt.Sprintf("fix the access keys, then run 'ankra backup vaults verify %s'", vault.Name)
+	}
+	if vault.LastVerifiedAt == nil || *vault.LastVerifiedAt == "" {
 		return fmt.Sprintf("provisioning did not finish, so run "+
 			"'ankra backup vaults delete %s --destroy-provider-resources' and provision again", vault.Name)
 	}
-	return fmt.Sprintf("fix the access keys, then run 'ankra backup vaults verify %s'", vault.Name)
+	return fmt.Sprintf("read the error above - if the bucket or its keys changed, run "+
+		"'ankra backup vaults verify %s'; if a teardown left resources behind, remove them with "+
+		"'ankra backup vaults delete %s --destroy-provider-resources'", vault.Name, vault.Name)
 }
 
 // backupVaultStatusError turns a vault whose verification failed into a
