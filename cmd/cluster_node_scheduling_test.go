@@ -10,9 +10,10 @@ import (
 
 type nodeSchedulingMock struct {
 	baseMock
-	patches []client.PatchResourceRequest
-	deletes []client.DeleteResourceRequest
-	pods    []interface{}
+	patches    []client.PatchResourceRequest
+	deletes    []client.DeleteResourceRequest
+	pods       []interface{}
+	listStatus string
 }
 
 func (m *nodeSchedulingMock) GetCluster(name string) (client.ClusterListItem, error) {
@@ -30,8 +31,12 @@ func (m *nodeSchedulingMock) DeleteResource(clusterID string, request client.Del
 }
 
 func (m *nodeSchedulingMock) GetResources(clusterID string, request client.GetResourcesRequest) (*client.GetResourcesResponse, error) {
+	status := m.listStatus
+	if status == "" {
+		status = "success"
+	}
 	return &client.GetResourcesResponse{ResourceResponses: []client.ResourceResponseItem{
-		{Status: "ok", Kind: "Pod", Version: "v1", Items: m.pods},
+		{Status: status, Kind: "Pod", Version: "v1", Items: m.pods},
 	}}, nil
 }
 
@@ -184,5 +189,20 @@ func TestDrain_EmptyNodeStillCordons(t *testing.T) {
 	}
 	if !strings.Contains(out, "nothing to delete") {
 		t.Errorf("expected the empty summary, got: %s", out)
+	}
+}
+
+func TestDrain_RefusedPodListStopsBeforeCordon(t *testing.T) {
+	mock := &nodeSchedulingMock{listStatus: "error"}
+	resetConfirmFlag(t, clusterDrainCmd, clusterCmd)
+	_, err := runWithInput(t, mock, "", "cluster", "drain", "worker-3", "--cluster", "prod-cluster", "--yes")
+	if err == nil {
+		t.Fatal("a refused pod list must fail the drain, not read as an empty node")
+	}
+	if !strings.Contains(err.Error(), `status "error"`) || !strings.Contains(err.Error(), "nothing was cordoned") {
+		t.Errorf("error should name the status and say the node is untouched, got: %v", err)
+	}
+	if len(mock.patches) != 0 || len(mock.deletes) != 0 {
+		t.Errorf("a refused list must neither cordon nor delete, got %d patches %d deletes", len(mock.patches), len(mock.deletes))
 	}
 }

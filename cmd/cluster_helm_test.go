@@ -22,7 +22,7 @@ func (m *helmUninstallMock) GetCluster(name string) (client.ClusterListItem, err
 	return client.ClusterListItem{ID: "cluster-abc", Name: name}, nil
 }
 
-func (m *helmUninstallMock) UninstallHelmRelease(clusterID, namespace, releaseName string) (*client.UninstallHelmReleaseResponse, error) {
+func (m *helmUninstallMock) UninstallHelmRelease(clusterID, releaseName, namespace string) (*client.UninstallHelmReleaseResponse, error) {
 	m.called = true
 	m.gotClusterID = clusterID
 	m.gotReleaseName = releaseName
@@ -258,5 +258,20 @@ func TestHelmUpgrade_InvalidValuesFileExitsUsage(t *testing.T) {
 	}
 	if len(mock.upgrades) != 0 {
 		t.Error("invalid values must be rejected before any API call")
+	}
+}
+
+func TestHelmGet_YamlOutputUsesWireKeys(t *testing.T) {
+	mock := &helmReleaseOpsMock{}
+	resetConfirmFlag(t, clusterHelmGetCmd, clusterCmd)
+	out, err := runWithInput(t, mock, "", "cluster", "helm", "get", "traefik", "-n", "traefik", "--cluster", "prod-cluster", "-o", "yaml")
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(out, "user_values:") || !strings.Contains(out, "chart_version:") {
+		t.Errorf("-o yaml should use the JSON wire keys, got: %s", out)
+	}
+	if strings.Contains(out, "uservalues") || strings.Contains(out, "chartversion") {
+		t.Errorf("-o yaml must not leak Go field names, got: %s", out)
 	}
 }

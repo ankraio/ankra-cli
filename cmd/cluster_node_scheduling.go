@@ -195,11 +195,18 @@ func planNodeDrain(clusterID, nodeName string) (drainPlan, error) {
 	if err != nil {
 		return drainPlan{}, fmt.Errorf("listing pods on node %q: %w", nodeName, err)
 	}
-	plan := drainPlan{skipped: map[string][]podReference{}}
+	// A refused or errored list is an unknown, not an empty node: draining on
+	// it would cordon the node and report "nothing to delete" while the pods
+	// keep running there.
 	if len(response.ResourceResponses) == 0 {
-		return plan, nil
+		return drainPlan{}, fmt.Errorf("listing pods on node %q: the cluster returned no answer for the pod list; nothing was cordoned", nodeName)
 	}
-	for _, item := range response.ResourceResponses[0].Items {
+	responseItem := response.ResourceResponses[0]
+	if responseItem.Status != "" && responseItem.Status != "success" {
+		return drainPlan{}, fmt.Errorf("listing pods on node %q: the cluster could not answer the pod list (status %q); nothing was cordoned", nodeName, responseItem.Status)
+	}
+	plan := drainPlan{skipped: map[string][]podReference{}}
+	for _, item := range responseItem.Items {
 		pod, isObject := item.(map[string]interface{})
 		if !isObject || getNestedString(pod, "spec", "nodeName") != nodeName {
 			continue

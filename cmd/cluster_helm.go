@@ -117,7 +117,7 @@ var clusterHelmUninstallCmd = &cobra.Command{
 			return err
 		}
 
-		result, err := apiClient.UninstallHelmRelease(cluster.ID, namespace, releaseName)
+		result, err := apiClient.UninstallHelmRelease(cluster.ID, releaseName, namespace)
 		if err != nil {
 			return err
 		}
@@ -175,7 +175,7 @@ Examples:
 			_, _ = fmt.Fprintln(out, string(encoded))
 			return nil
 		case "yaml":
-			encoded, marshalError := yaml.Marshal(detail)
+			encoded, marshalError := yamlWithWireKeys(detail)
 			if marshalError != nil {
 				return fmt.Errorf("marshalling to YAML: %w", marshalError)
 			}
@@ -414,6 +414,22 @@ Examples:
 			releaseName, result.Revision, formatElapsedMilliseconds(result.ElapsedMS))
 		return nil
 	},
+}
+
+// yamlWithWireKeys renders a value with the same keys '-o json' prints. The
+// client structs carry json tags only, so marshalling them straight to YAML
+// would emit lower-cased Go field names ("uservalues") instead of the wire
+// names ("user_values") and the two machine-readable formats would disagree.
+func yamlWithWireKeys(value interface{}) ([]byte, error) {
+	encoded, marshalError := json.Marshal(value)
+	if marshalError != nil {
+		return nil, marshalError
+	}
+	var generic interface{}
+	if unmarshalError := json.Unmarshal(encoded, &generic); unmarshalError != nil {
+		return nil, unmarshalError
+	}
+	return yaml.Marshal(generic)
 }
 
 func writeHelmValuesYAML(out io.Writer, values map[string]interface{}) error {
