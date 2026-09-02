@@ -413,6 +413,27 @@ func resolveProvisionCredential(reference string) (client.Credential, error) {
 	return client.Credential{}, fmt.Errorf("multiple credentials are named %q; pass the credential ID instead", reference)
 }
 
+// backupVaultProvisionWaitTimeout is the default --timeout for provisioning.
+// It has to exceed the bound the platform itself works to: UpCloud's Managed
+// Object Storage service alone is allowed 15 minutes to reach "running"
+// (upcloudServiceReadyWithin in the scheduler), and the bucket, the access key
+// and the verification come after it. The shared 10-minute default sat below
+// that, so a perfectly healthy UpCloud provision reported "context deadline
+// exceeded" while it was still succeeding - and a user who believed it would
+// delete a service that was about to come up (ankra-0xsdd.42).
+const backupVaultProvisionWaitTimeout = 25 * time.Minute
+
+// backupVaultWaitTimeoutFor reports the --timeout actually in force, so the
+// message names the bound the user hit rather than a hard-coded default they
+// may have overridden.
+func backupVaultWaitTimeoutFor(command *cobra.Command) time.Duration {
+	timeout, timeoutError := command.Flags().GetDuration("timeout")
+	if timeoutError != nil {
+		return backupVaultProvisionWaitTimeout
+	}
+	return timeout
+}
+
 // waitForBackupVaultProvisioning polls the vault until it leaves
 // "provisioning" or the context expires.
 func waitForBackupVaultProvisioning(ctx context.Context, vaults APIClient, vaultID string) (*client.BackupVault, error) {
@@ -563,6 +584,13 @@ Examples:
 		fmt.Printf("Provisioning backup vault '%s' on %s...\n", vault.Name, vault.Provider)
 		final, waitError := waitForBackupVaultProvisioning(ctx, apiClient, vault.ID)
 		if waitError != nil {
+			// Giving up waiting is not the run failing. Say so, or the user
+			// deletes a vault that is still on its way up (ankra-0xsdd.42).
+			if errors.Is(waitError, context.DeadlineExceeded) {
+				fmt.Printf("\nStopped waiting after %s. Provisioning is still running on %s - "+
+					"it has not failed.\nCheck on it with 'ankra backup vaults get %s'.\n",
+					backupVaultWaitTimeoutFor(cmd), vault.Provider, vault.Name)
+			}
 			return asyncWriteError("provisioning backup vault", true, waitError)
 		}
 		printBackupVault(final)
@@ -667,7 +695,7 @@ func init() {
 	backupVaultsProvisionCmd.Flags().String("bucket", "", "Bucket name (default: a unique name derived from the vault name)")
 	backupVaultsProvisionCmd.Flags().String("access-key-id", "", "Hetzner Object Storage access key (Hetzner only; prompted for when omitted)")
 	backupVaultsProvisionCmd.Flags().String("secret-access-key", "", "Hetzner Object Storage secret key (Hetzner only; prompted for hidden when omitted)")
-	registerAsyncWriteFlags(backupVaultsProvisionCmd)
+	registerAsyncWriteFlagsWithTimeout(backupVaultsProvisionCmd, backupVaultProvisionWaitTimeout)
 
 	backupVaultsDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	backupVaultsDeleteCmd.Flags().Bool("destroy-provider-resources", false,

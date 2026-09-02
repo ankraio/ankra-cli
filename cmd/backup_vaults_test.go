@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"ankra/internal/client"
 )
@@ -463,5 +464,31 @@ func TestBackupVaultsDeleteYesSkipsThePrompt(t *testing.T) {
 	}
 	if !strings.Contains(stdoutOutput, "deleted") {
 		t.Errorf("expected a deletion confirmation, got: %s", stdoutOutput)
+	}
+}
+
+// The provision --wait deadline has to outlast the bound the PLATFORM works
+// to, or a healthy run reports "context deadline exceeded" while it is still
+// succeeding. UpCloud's object storage service alone is allowed 15 minutes to
+// reach running, before the bucket, the key and the verification (ankra-0xsdd.42).
+func TestBackupVaultProvisionWaitOutlastsThePlatformBound(t *testing.T) {
+	const platformServiceReadyBound = 15 * time.Minute
+
+	if backupVaultProvisionWaitTimeout <= platformServiceReadyBound {
+		t.Fatalf("provision --wait default is %s, at or below the platform's own %s bound",
+			backupVaultProvisionWaitTimeout, platformServiceReadyBound)
+	}
+	if backupVaultProvisionWaitTimeout <= defaultAsyncWriteTimeout {
+		t.Fatalf("provision --wait default %s is no longer than the shared default %s, "+
+			"so registering its own timeout achieves nothing",
+			backupVaultProvisionWaitTimeout, defaultAsyncWriteTimeout)
+	}
+
+	flag := backupVaultsProvisionCmd.Flags().Lookup("timeout")
+	if flag == nil {
+		t.Fatal("provision has no --timeout flag")
+	}
+	if flag.DefValue != backupVaultProvisionWaitTimeout.String() {
+		t.Fatalf("--timeout default is %q, want %q", flag.DefValue, backupVaultProvisionWaitTimeout)
 	}
 }

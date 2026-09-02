@@ -12,8 +12,17 @@ import (
 const defaultAsyncWriteTimeout = 10 * time.Minute
 
 func registerAsyncWriteFlags(command *cobra.Command) {
+	registerAsyncWriteFlagsWithTimeout(command, defaultAsyncWriteTimeout)
+}
+
+// registerAsyncWriteFlagsWithTimeout is for operations the platform itself
+// allows longer than the shared default. A --wait shorter than the bound the
+// platform works to reports a failure for a run that is still succeeding, so
+// a command whose lane can legitimately outlast ten minutes sets its own
+// default here rather than leaving users to discover it (ankra-0xsdd.42).
+func registerAsyncWriteFlagsWithTimeout(command *cobra.Command, defaultTimeout time.Duration) {
 	command.Flags().Bool("wait", false, "Wait for the operation to finish and report success or failure (default: submit and return immediately)")
-	command.Flags().Duration("timeout", defaultAsyncWriteTimeout, "Maximum time to wait when --wait is set")
+	command.Flags().Duration("timeout", defaultTimeout, "Maximum time to wait when --wait is set")
 }
 
 func asyncWriteWaitFlag(command *cobra.Command) (bool, error) {
