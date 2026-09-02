@@ -58,6 +58,8 @@ func TestChatStatusText(t *testing.T) {
 		{"object with intent only", map[string]any{"intent": "Processing...", "mechanism": nil}, "Processing..."},
 		{"object with nothing renderable", map[string]any{"elapsed_ms": float64(12)}, ""},
 		{"nil data", nil, ""},
+		{"narrative status echoes the answer", map[string]any{"intent": "Only demo-helsinki is online right now \u2014 playground is offl\u2026", "mechanism": nil, "intent_source": "narrative"}, ""},
+		{"registry status keeps rendering", map[string]any{"intent": "Listing clusters", "mechanism": nil, "intent_source": "registry"}, "Listing clusters"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {

@@ -4,6 +4,8 @@
 
 ### Changed
 
+- `ankra chat` no longer prints the pipeline's narrative status line - a truncated
+  echo of the answer in brackets - after the answer itself.
 - **`ankra chat` names the conversations it starts.** After the first
   completed turn of a new conversation the CLI asks the backend for a
   summarised title (the same call the portal makes), so a chat started from
