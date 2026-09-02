@@ -398,6 +398,269 @@ func TestUninstallHelmRelease(t *testing.T) {
 	}
 }
 
+func TestDeleteResource(t *testing.T) {
+	gracePeriod := 0
+	tests := []struct {
+		name       string
+		request    DeleteResourceRequest
+		handler    http.HandlerFunc
+		wantStatus string
+		wantErr    bool
+	}{
+		{
+			name:    "success forwards the pod address and grace period",
+			request: DeleteResourceRequest{Kind: "pods", Version: "v1", Namespace: "default", Name: "web-0", GracePeriodSeconds: &gracePeriod},
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				if !strings.HasSuffix(r.URL.Path, "/kubernetes/resources/delete") {
+					t.Errorf("unexpected path %s", r.URL.Path)
+				}
+				var reqBody map[string]interface{}
+				if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if reqBody["kind"] != "pods" || reqBody["name"] != "web-0" || reqBody["namespace"] != "default" || reqBody["version"] != "v1" {
+					t.Errorf("unexpected body %v", reqBody)
+				}
+				if reqBody["grace_period_seconds"] != float64(0) {
+					t.Errorf("grace_period_seconds should be 0 on the wire, got %v", reqBody["grace_period_seconds"])
+				}
+				if reqBody["dry_run"] != false {
+					t.Errorf("dry_run should be false on the wire, got %v", reqBody["dry_run"])
+				}
+				jsonResponse(t, w, http.StatusOK, ResourceMutationResponse{Status: "success"})
+			},
+			wantStatus: "success",
+		},
+		{
+			name:    "unset grace period stays off the wire",
+			request: DeleteResourceRequest{Kind: "pods", Version: "v1", Namespace: "default", Name: "web-0"},
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				var reqBody map[string]interface{}
+				if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if _, isPresent := reqBody["grace_period_seconds"]; isPresent {
+					t.Errorf("grace_period_seconds must be omitted when unset, got %v", reqBody["grace_period_seconds"])
+				}
+				message := "already gone"
+				jsonResponse(t, w, http.StatusOK, ResourceMutationResponse{Status: "not_found", Message: &message})
+			},
+			wantStatus: "not_found",
+		},
+		{
+			name:    "503 cluster unavailable",
+			request: DeleteResourceRequest{Kind: "pods", Version: "v1", Namespace: "default", Name: "web-0"},
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"error_code":"CLUSTER_OFFLINE","detail":"offline"}`))
+			},
+			wantErr: true,
+		},
+		{
+			name:    "403 sandbox mode",
+			request: DeleteResourceRequest{Kind: "pods", Version: "v1", Namespace: "default", Name: "web-0"},
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"error_code":"SANDBOX_MODE","detail":"writes are disabled"}`))
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testClient := newTestClient(t, tt.handler)
+			got, err := testClient.DeleteResource("cluster-id", tt.request)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DeleteResource() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got.Status != tt.wantStatus {
+				t.Errorf("DeleteResource() got.Status = %v, want %v", got.Status, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestPatchResource(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/kubernetes/resources/patch") {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if reqBody["kind"] != "Node" || reqBody["name"] != "worker-3" || reqBody["patch_type"] != "strategic" {
+			t.Errorf("unexpected body %v", reqBody)
+		}
+		if _, hasNamespace := reqBody["namespace"]; hasNamespace {
+			t.Errorf("a cluster-scoped patch must omit namespace, got %v", reqBody["namespace"])
+		}
+		patch, _ := reqBody["patch"].(map[string]interface{})
+		spec, _ := patch["spec"].(map[string]interface{})
+		if spec["unschedulable"] != true {
+			t.Errorf("patch should carry spec.unschedulable=true, got %v", reqBody["patch"])
+		}
+		jsonResponse(t, w, http.StatusOK, ResourceMutationResponse{Status: "success"})
+	})
+	got, err := testClient.PatchResource("cluster-id", PatchResourceRequest{
+		Kind: "Node", Version: "v1", Name: "worker-3", PatchType: "strategic",
+		Patch: map[string]interface{}{"spec": map[string]interface{}{"unschedulable": true}},
+	})
+	if err != nil {
+		t.Fatalf("PatchResource() error = %v", err)
+	}
+	if got.Status != "success" {
+		t.Errorf("PatchResource() status = %q, want success", got.Status)
+	}
+}
+
+func TestGetHelmReleaseDetail(t *testing.T) {
+	t.Run("success addresses namespace then release", func(t *testing.T) {
+		chart := "traefik-30.0.0"
+		testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/kubernetes/helm/releases/traefik-ns/traefik") {
+				t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			}
+			jsonResponse(t, w, http.StatusOK, HelmReleaseDetail{
+				Metadata:   HelmReleaseMetadata{Name: "traefik", Namespace: "traefik-ns", Revision: 4, Status: "deployed", Chart: &chart},
+				UserValues: map[string]interface{}{"replicas": float64(2)},
+			})
+		})
+		got, err := testClient.GetHelmReleaseDetail("cluster-id", "traefik-ns", "traefik")
+		if err != nil {
+			t.Fatalf("GetHelmReleaseDetail() error = %v", err)
+		}
+		if got.Metadata.Revision != 4 || got.UserValues["replicas"] != float64(2) {
+			t.Errorf("unexpected detail %+v", got)
+		}
+	})
+	t.Run("404 keeps the backend detail", func(t *testing.T) {
+		testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"detail":"release traefik not found in namespace traefik-ns"}`))
+		})
+		_, err := testClient.GetHelmReleaseDetail("cluster-id", "traefik-ns", "traefik")
+		var unexpected *UnexpectedResponseError
+		if !errors.As(err, &unexpected) || unexpected.StatusCode != http.StatusNotFound {
+			t.Fatalf("expected a 404 UnexpectedResponseError, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "release traefik not found") {
+			t.Errorf("error should carry the backend detail, got %v", err)
+		}
+	})
+	t.Run("503 cluster offline", func(t *testing.T) {
+		testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error_code":"CLUSTER_OFFLINE","detail":"offline"}`))
+		})
+		_, err := testClient.GetHelmReleaseDetail("cluster-id", "traefik-ns", "traefik")
+		var unavailable *ClusterUnavailableError
+		if !errors.As(err, &unavailable) || unavailable.ErrorCode != "CLUSTER_OFFLINE" {
+			t.Fatalf("expected ClusterUnavailableError, got %v", err)
+		}
+	})
+}
+
+func TestGetHelmReleaseHistory(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/kubernetes/helm/releases/traefik-ns/traefik/history") {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("limit") != "10" {
+			t.Errorf("limit should be forwarded, got %q", r.URL.Query().Get("limit"))
+		}
+		jsonResponse(t, w, http.StatusOK, HelmReleaseHistory{Revisions: []HelmReleaseHistoryEntry{{Revision: 4, Status: "deployed"}}})
+	})
+	got, err := testClient.GetHelmReleaseHistory("cluster-id", "traefik-ns", "traefik", 10)
+	if err != nil {
+		t.Fatalf("GetHelmReleaseHistory() error = %v", err)
+	}
+	if len(got.Revisions) != 1 || got.Revisions[0].Revision != 4 {
+		t.Errorf("unexpected history %+v", got)
+	}
+}
+
+func TestRollbackHelmRelease(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/kubernetes/helm/releases/traefik-ns/traefik/rollback") {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get(csrfHeaderName) == "" {
+			t.Error("rollback must carry the CSRF header the backend requires")
+		}
+		var reqBody RollbackHelmReleaseRequest
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if reqBody.Revision != 3 || !reqBody.Wait || reqBody.TimeoutSeconds != 600 {
+			t.Errorf("unexpected body %+v", reqBody)
+		}
+		jsonResponse(t, w, http.StatusOK, HelmReleaseMutationResult{ReleaseName: "traefik", Namespace: "traefik-ns", Revision: 5, ElapsedMS: 1200})
+	})
+	got, err := testClient.RollbackHelmRelease("cluster-id", "traefik-ns", "traefik", RollbackHelmReleaseRequest{Revision: 3, Wait: true, TimeoutSeconds: 600})
+	if err != nil {
+		t.Fatalf("RollbackHelmRelease() error = %v", err)
+	}
+	if got.Revision != 5 {
+		t.Errorf("RollbackHelmRelease() revision = %d, want 5", got.Revision)
+	}
+}
+
+func TestUpgradeHelmRelease(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/kubernetes/helm/releases/traefik-ns/traefik/upgrade") {
+				t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			}
+			if r.Header.Get(csrfHeaderName) == "" {
+				t.Error("upgrade must carry the CSRF header the backend requires")
+			}
+			var reqBody UpgradeHelmReleaseRequest
+			if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if reqBody.ChartRef != "traefik/traefik" || reqBody.ValuesYAML != "replicas: 3\n" || reqBody.ChartVersion != "" {
+				t.Errorf("unexpected body %+v", reqBody)
+			}
+			jsonResponse(t, w, http.StatusOK, HelmReleaseMutationResult{ReleaseName: "traefik", Namespace: "traefik-ns", Revision: 6, ElapsedMS: 3000})
+		})
+		got, err := testClient.UpgradeHelmRelease("cluster-id", "traefik-ns", "traefik", UpgradeHelmReleaseRequest{
+			ChartRef: "traefik/traefik", ValuesYAML: "replicas: 3\n", Wait: true, TimeoutSeconds: 600,
+		})
+		if err != nil {
+			t.Fatalf("UpgradeHelmRelease() error = %v", err)
+		}
+		if got.Revision != 6 {
+			t.Errorf("UpgradeHelmRelease() revision = %d, want 6", got.Revision)
+		}
+	})
+	t.Run("409 managed by addon keeps the detail", func(t *testing.T) {
+		testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"detail":"release traefik is managed by the Ankra addon traefik"}`))
+		})
+		_, err := testClient.UpgradeHelmRelease("cluster-id", "traefik-ns", "traefik", UpgradeHelmReleaseRequest{ChartRef: "traefik/traefik", ValuesYAML: ""})
+		if err == nil || !strings.Contains(err.Error(), "managed by the Ankra addon") {
+			t.Fatalf("expected the 409 detail to surface, got %v", err)
+		}
+	})
+}
+
 func TestClusterUnavailableError(t *testing.T) {
 	tests := []struct {
 		errorCode string

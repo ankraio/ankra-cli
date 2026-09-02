@@ -519,6 +519,226 @@ func (c *Client) UninstallHelmRelease(clusterID, releaseName, namespace string) 
 	return &response, nil
 }
 
+type DeleteResourceRequest struct {
+	Kind               string `json:"kind"`
+	Namespace          string `json:"namespace,omitempty"`
+	Name               string `json:"name"`
+	Group              string `json:"group,omitempty"`
+	Version            string `json:"version"`
+	Resource           string `json:"resource,omitempty"`
+	DryRun             bool   `json:"dry_run"`
+	GracePeriodSeconds *int   `json:"grace_period_seconds,omitempty"`
+}
+
+type PatchResourceRequest struct {
+	Kind      string      `json:"kind"`
+	Namespace string      `json:"namespace,omitempty"`
+	Name      string      `json:"name"`
+	Group     string      `json:"group,omitempty"`
+	Version   string      `json:"version"`
+	Resource  string      `json:"resource,omitempty"`
+	Patch     interface{} `json:"patch"`
+	PatchType string      `json:"patch_type"`
+	DryRun    bool        `json:"dry_run"`
+}
+
+// ResourceMutationResponse is the agent's verdict on a delete or a patch.
+// The relay answers HTTP 200 for every verdict: "success", "not_found"
+// (already gone), "dry_run" (nothing touched, Preview describes the outcome)
+// and "error" (RBAC deny, wrong kind, failure inside the cluster) - only
+// Status says whether the change landed.
+type ResourceMutationResponse struct {
+	Status  string                 `json:"status"`
+	Message *string                `json:"message"`
+	Preview map[string]interface{} `json:"preview,omitempty"`
+}
+
+func (c *Client) DeleteResource(clusterID string, req DeleteResourceRequest) (*ResourceMutationResponse, error) {
+	var response ResourceMutationResponse
+	if err := c.postKubernetesRelay(clusterID, "resources/delete", req, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (c *Client) PatchResource(clusterID string, req PatchResourceRequest) (*ResourceMutationResponse, error) {
+	var response ResourceMutationResponse
+	if err := c.postKubernetesRelay(clusterID, "resources/patch", req, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+type HelmReleaseMetadata struct {
+	Name          string  `json:"name"`
+	Namespace     string  `json:"namespace"`
+	Revision      int     `json:"revision"`
+	Status        string  `json:"status"`
+	Description   *string `json:"description"`
+	Chart         *string `json:"chart"`
+	ChartVersion  *string `json:"chart_version"`
+	AppVersion    *string `json:"app_version"`
+	FirstDeployed *string `json:"first_deployed"`
+	LastDeployed  *string `json:"last_deployed"`
+}
+
+type HelmReleaseDetail struct {
+	Metadata          HelmReleaseMetadata      `json:"metadata"`
+	UserValues        map[string]interface{}   `json:"user_values"`
+	ComputedValues    map[string]interface{}   `json:"computed_values"`
+	ManifestResources []map[string]interface{} `json:"manifest_resources"`
+	Hooks             []map[string]interface{} `json:"hooks"`
+	Notes             *string                  `json:"notes"`
+}
+
+type HelmReleaseHistoryEntry struct {
+	Revision    int     `json:"revision"`
+	Updated     *string `json:"updated"`
+	Status      string  `json:"status"`
+	Chart       *string `json:"chart"`
+	AppVersion  *string `json:"app_version"`
+	Description *string `json:"description"`
+}
+
+type HelmReleaseHistory struct {
+	Revisions []HelmReleaseHistoryEntry `json:"revisions"`
+}
+
+type RollbackHelmReleaseRequest struct {
+	Revision       int  `json:"revision"`
+	Wait           bool `json:"wait"`
+	TimeoutSeconds int  `json:"timeout_seconds"`
+}
+
+// UpgradeHelmReleaseRequest carries the whole values document: the agent
+// replaces the release's values with exactly ValuesYAML, so an empty string
+// resets every override to the chart defaults. An empty ChartVersion keeps
+// the installed chart version rather than floating to the repository's
+// latest.
+type UpgradeHelmReleaseRequest struct {
+	ChartRef       string `json:"chart_ref"`
+	RepoURL        string `json:"repo_url"`
+	ChartVersion   string `json:"chart_version"`
+	ValuesYAML     string `json:"values_yaml"`
+	Wait           bool   `json:"wait"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+}
+
+// HelmReleaseMutationResult is what a rollback or an upgrade returns once
+// the agent has run it.
+type HelmReleaseMutationResult struct {
+	ReleaseName string `json:"release_name"`
+	Namespace   string `json:"namespace"`
+	Revision    int    `json:"revision"`
+	ElapsedMS   int    `json:"elapsed_ms"`
+}
+
+func (c *Client) helmReleaseURL(clusterID, namespace, releaseName string) string {
+	return fmt.Sprintf("%s/api/v1/clusters/%s/kubernetes/helm/releases/%s/%s",
+		c.BaseURL, url.PathEscape(clusterID), url.PathEscape(namespace), url.PathEscape(releaseName))
+}
+
+func (c *Client) GetHelmReleaseDetail(clusterID, namespace, releaseName string) (*HelmReleaseDetail, error) {
+	var detail HelmReleaseDetail
+	if err := c.doKubernetesRelay(http.MethodGet, c.helmReleaseURL(clusterID, namespace, releaseName), nil, &detail); err != nil {
+		return nil, err
+	}
+	return &detail, nil
+}
+
+func (c *Client) GetHelmReleaseHistory(clusterID, namespace, releaseName string, limit int) (*HelmReleaseHistory, error) {
+	endpoint := c.helmReleaseURL(clusterID, namespace, releaseName) + "/history"
+	if limit > 0 {
+		endpoint += "?limit=" + fmt.Sprintf("%d", limit)
+	}
+	var history HelmReleaseHistory
+	if err := c.doKubernetesRelay(http.MethodGet, endpoint, nil, &history); err != nil {
+		return nil, err
+	}
+	return &history, nil
+}
+
+// RollbackHelmRelease waits for the rollback by default, which can outlast
+// the shared client's response-header deadline, so it rides the slow-write
+// lane: a timeout is reported as an unknown outcome, not a failure.
+func (c *Client) RollbackHelmRelease(clusterID, namespace, releaseName string, req RollbackHelmReleaseRequest) (*HelmReleaseMutationResult, error) {
+	var result HelmReleaseMutationResult
+	err := c.postCSRFJSONSlowWrite(c.helmReleaseURL(clusterID, namespace, releaseName)+"/rollback", req, &result,
+		"roll back Helm release "+releaseName,
+		fmt.Sprintf("ankra cluster helm history %s -n %s", releaseName, namespace),
+		"a second rollback to the same revision adds another revision to the release history")
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) UpgradeHelmRelease(clusterID, namespace, releaseName string, req UpgradeHelmReleaseRequest) (*HelmReleaseMutationResult, error) {
+	var result HelmReleaseMutationResult
+	err := c.postCSRFJSONSlowWrite(c.helmReleaseURL(clusterID, namespace, releaseName)+"/upgrade", req, &result,
+		"upgrade Helm release "+releaseName,
+		fmt.Sprintf("ankra cluster helm history %s -n %s", releaseName, namespace),
+		"a second upgrade with the same chart and values adds another revision to the release history")
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) postKubernetesRelay(clusterID, relayPath string, req interface{}, target interface{}) error {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/kubernetes/%s", c.BaseURL, url.PathEscape(clusterID), relayPath)
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doKubernetesRelay(http.MethodPost, endpoint, payload, target)
+}
+
+// doKubernetesRelay issues one request against the kubernetes relay and
+// maps its replies the way the read paths above do: a 503 becomes a
+// ClusterUnavailableError with the agent's reason, any other non-200 keeps
+// the backend's detail so a 404 or 409 names the release or the lock.
+func (c *Client) doKubernetesRelay(method, endpoint string, payload []byte, target interface{}) error {
+	var body io.Reader
+	if payload != nil {
+		body = bytes.NewReader(payload)
+	}
+	httpReq, err := http.NewRequest(method, endpoint, body)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if payload != nil {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	responseBody, err := readResponseBody(resp)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		return parseClusterError(responseBody)
+	}
+	if resp.StatusCode != http.StatusOK {
+		if detail := detailFromBody(responseBody); detail != "" {
+			return newBackendDetailError(resp.StatusCode, detail)
+		}
+		return newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("request failed: status %d: %s", resp.StatusCode, redactedBodyForError(responseBody, 500)))
+	}
+
+	if err := json.Unmarshal(responseBody, target); err != nil {
+		return fmt.Errorf("parse response: %w", err)
+	}
+	return nil
+}
+
 type ApiErrorResponse struct {
 	ErrorCode  string `json:"error_code"`
 	Detail     string `json:"detail"`
