@@ -558,6 +558,33 @@ func TestPipelineSchedulesUpdateReadsTheFlagValueNotItsPresence(t *testing.T) {
 	}
 }
 
+func TestPipelineArtifactsDownloadRefusesAPathOutsideTheDirectory(t *testing.T) {
+	for _, outside := range []string{"../escaped", "../../etc/passwd"} {
+		mockClient := &pipelineLaneMock{}
+		_, executeError := runPipelineCommand(t, mockClient, "artifacts", "download", "artifact-1",
+			"--application", testApplicationID, "--out", outside)
+		if executeError == nil {
+			t.Fatalf("--out %q was accepted; a download must not write outside the directory", outside)
+		}
+	}
+}
+
+func TestPipelineRunConclusionErrorNamesAnAbsentOutcomeAsAbsent(t *testing.T) {
+	absent := pipelineRunConclusionError(client.PipelineRun{RunNumber: 7})
+	if absent == nil || !strings.Contains(absent.Error(), "without recording an outcome") {
+		t.Fatalf("a run that concluded with no outcome must say so, got %v", absent)
+	}
+	failed := "failure"
+	named := pipelineRunConclusionError(client.PipelineRun{RunNumber: 8, Outcome: &failed})
+	if named == nil || !strings.Contains(named.Error(), "concluded failure") {
+		t.Fatalf("a named outcome is reported verbatim, got %v", named)
+	}
+	succeeded := "success"
+	if ok := pipelineRunConclusionError(client.PipelineRun{RunNumber: 9, Outcome: &succeeded}); ok != nil {
+		t.Fatalf("a successful run is not an error, got %v", ok)
+	}
+}
+
 func TestPipelineSchedulesDeleteConfirms(t *testing.T) {
 	mockClient := &pipelineLaneMock{}
 	previousClient := apiClient

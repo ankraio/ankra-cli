@@ -7,6 +7,7 @@ package cmd
 // argument, so the two surfaces cannot drift.
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -139,16 +140,41 @@ func waitForPipelineRunConclusion(command *cobra.Command, selector client.Pipeli
 		if detail.Status == "concluded" {
 			return detail, nil
 		}
-		time.Sleep(pipelineRunWaitPollInterval)
+		if sleepError := sleepInterrupted(command.Context(), pipelineRunWaitPollInterval); sleepError != nil {
+			return nil, sleepError
+		}
+	}
+}
+
+// sleepInterrupted waits, or stops early when the command is interrupted. A
+// bare time.Sleep would hold a Ctrl+C until the next network call noticed the
+// cancelled context, which for a poll interval means the user waits for a
+// command they already stopped.
+func sleepInterrupted(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
 // pipelineRunConclusionError reports a non-success conclusion as an error so
 // `--wait` exits non-zero on a failed run, the way a CI step should.
+//
+// A run that concluded with no outcome recorded at all is reported as that
+// rather than as a named failure: it is the same distinction the rest of this
+// lane keeps, and telling someone their run "concluded -" sends them looking
+// for an outcome nothing wrote.
 func pipelineRunConclusionError(run client.PipelineRun) error {
 	outcome := pipelineOptionalString(run.Outcome)
 	if outcome == "success" {
 		return nil
+	}
+	if run.Outcome == nil || strings.TrimSpace(*run.Outcome) == "" {
+		return fmt.Errorf("run #%d concluded without recording an outcome", run.RunNumber)
 	}
 	message := fmt.Sprintf("run #%d concluded %s", run.RunNumber, outcome)
 	if run.ErrorMessage != nil && *run.ErrorMessage != "" {

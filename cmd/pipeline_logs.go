@@ -86,7 +86,9 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 				}
 				_, _ = fmt.Fprintf(progress, "Log stream unavailable (%s); retrying in %ds.\n",
 					unavailable.Detail, int(retryAfter.Seconds()))
-				time.Sleep(retryAfter)
+				if sleepError := sleepInterrupted(command.Context(), retryAfter); sleepError != nil {
+					return sleepError
+				}
 				continue
 			}
 			return streamError
@@ -116,8 +118,11 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 		}
 		// Every reconnect waits, not only a faulted one: a proxy that closes
 		// each connection promptly would otherwise be reconnected to as fast
-		// as it hangs up.
-		time.Sleep(pipelineLogStreamReconnectDelay)
+		// as it hangs up. The wait is interruptible so Ctrl+C stops --follow
+		// at once rather than at the next network call.
+		if sleepError := sleepInterrupted(command.Context(), pipelineLogStreamReconnectDelay); sleepError != nil {
+			return sleepError
+		}
 	}
 }
 

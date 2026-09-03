@@ -102,6 +102,15 @@ func runPipelineArtifactsDownload(command *cobra.Command, selector client.Pipeli
 	if outputPath == "" {
 		outputPath = artifactID
 	}
+	// The default destination is the artifact id the server chose, and --out
+	// is whatever the caller typed; neither may walk out of the directory the
+	// command was run in, so a path that escapes after cleaning is refused
+	// rather than written.
+	outputPath = filepath.Clean(outputPath)
+	if outputPath == ".." || strings.HasPrefix(outputPath, ".."+string(filepath.Separator)) {
+		return withExitCode(exitUsage,
+			fmt.Errorf("refusing to write outside the current directory: %q", outputPath))
+	}
 	if directory := filepath.Dir(outputPath); directory != "." {
 		if mkdirError := os.MkdirAll(directory, 0o755); mkdirError != nil {
 			return fmt.Errorf("creating %q: %w", directory, mkdirError)
