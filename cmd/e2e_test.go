@@ -1170,6 +1170,30 @@ func (m baseMock) UninstallHelmRelease(clusterID, releaseName, namespace string)
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) DeleteResource(clusterID string, req client.DeleteResourceRequest) (*client.ResourceMutationResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PatchResource(clusterID string, req client.PatchResourceRequest) (*client.ResourceMutationResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetHelmReleaseDetail(clusterID, namespace, releaseName string) (*client.HelmReleaseDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetHelmReleaseHistory(clusterID, namespace, releaseName string, limit int) (*client.HelmReleaseHistory, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RollbackHelmRelease(clusterID, namespace, releaseName string, req client.RollbackHelmReleaseRequest) (*client.HelmReleaseMutationResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpgradeHelmRelease(clusterID, namespace, releaseName string, req client.UpgradeHelmReleaseRequest) (*client.HelmReleaseMutationResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) QueryPrometheusInstant(clusterID, query string, timeoutSeconds int) (*client.PrometheusQueryResult, error) {
 	return nil, errors.New("not implemented")
 }
