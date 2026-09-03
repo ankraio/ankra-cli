@@ -355,6 +355,12 @@ type APIClient interface {
 	OpenPodTerminal(ctx context.Context, clusterID string, request client.PodTerminalRequest) (client.PodTerminal, error)
 	ListHelmReleases(clusterID string, opts *client.HelmReleasesOptions) (*client.HelmReleasesResponse, error)
 	UninstallHelmRelease(clusterID, releaseName, namespace string) (*client.UninstallHelmReleaseResponse, error)
+	DeleteResource(clusterID string, req client.DeleteResourceRequest) (*client.ResourceMutationResponse, error)
+	PatchResource(clusterID string, req client.PatchResourceRequest) (*client.ResourceMutationResponse, error)
+	GetHelmReleaseDetail(clusterID, namespace, releaseName string) (*client.HelmReleaseDetail, error)
+	GetHelmReleaseHistory(clusterID, namespace, releaseName string, limit int) (*client.HelmReleaseHistory, error)
+	RollbackHelmRelease(clusterID, namespace, releaseName string, req client.RollbackHelmReleaseRequest) (*client.HelmReleaseMutationResult, error)
+	UpgradeHelmRelease(clusterID, namespace, releaseName string, req client.UpgradeHelmReleaseRequest) (*client.HelmReleaseMutationResult, error)
 	QueryPrometheusInstant(clusterID, query string, timeoutSeconds int) (*client.PrometheusQueryResult, error)
 	QueryPrometheusRange(clusterID string, opts client.PrometheusRangeOptions) (*client.PrometheusQueryResult, error)
 

@@ -90,6 +90,31 @@ ankra cluster metrics query '<promql>'
 
 `--follow` defaults to true on `logs`; pass `--follow=false` for anything scripted or it will hang.
 
+## Changing a cluster
+
+These act through the cluster's Ankra agent - no kubeconfig - and prompt before changing anything
+(`--yes` skips the prompt, `--dry-run` reports without changing). They are for operational fixes;
+anything declarative (a new workload, a changed addon) belongs in the stack YAML and `ankra cluster apply`.
+
+```bash
+ankra cluster delete pod <pod> -n <ns>                 # any kind: deployment, cm, secret, namespace, node, ...
+ankra cluster delete Certificate web-tls -n <ns> --group cert-manager.io --api-version v1
+ankra cluster restart deployment <name> -n <ns>        # kubectl rollout restart; also statefulset, daemonset
+ankra cluster cordon <node> / uncordon <node>
+ankra cluster drain <node> --dry-run                   # prints the plan; without --dry-run cordons + deletes pods
+ankra cluster helm get <release> -n <ns> -o values > values.yaml
+ankra cluster helm history <release> -n <ns>
+ankra cluster helm rollback <release> -n <ns> --revision <n>
+ankra cluster helm upgrade <release> -n <ns> --chart <repo/name> --values values.yaml
+```
+
+`drain` deletes pods rather than evicting them (the agent has no eviction relay yet), so
+PodDisruptionBudgets are not consulted - check them first on a node that carries a quorum member.
+A pod owned by a controller comes straight back after `delete pod` - that is the single-replica
+restart. `delete` exits 3 when an object did not exist and 1 when the cluster refused, so scripts
+can tell the two apart. A Helm release an Ankra addon manages is refused by `rollback`/`upgrade`:
+change the addon in the stack instead.
+
 ## Triage
 
 ```bash

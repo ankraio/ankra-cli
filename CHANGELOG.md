@@ -4,6 +4,38 @@
 
 ### Added
 
+- **The CLI can now change a cluster the way the portal can: `ankra cluster
+  delete|restart|cordon|uncordon|drain` and `ankra cluster helm
+  get|history|rollback|upgrade`.** The Kubernetes surface was read-only, so
+  every operational fix the portal offered with a button - delete a pod,
+  roll a deployment, drain a node, roll a Helm release back - needed a
+  kubeconfig and `kubectl` or `helm` from the terminal. Each of these goes
+  through the cluster's Ankra agent, the same relay and the same organisation
+  permissions the portal uses, after a `[y/N]` prompt (`--yes` skips it).
+  - `ankra cluster delete <kind> <name> [name...]` deletes any kind the
+    kubectl spellings resolve (`pod`, `pods`, `po`, `deploy`, `sts`, `cm`,
+    `namespace`, `node`, `pvc`, ...) and any custom resource with `--group`
+    and `--api-version`. `--grace-period 0` deletes immediately, `--dry-run`
+    reports what would go, and each object reports its own outcome: exit 0
+    when everything was deleted, 3 when one did not exist, 1 when the
+    cluster refused. Deleting a namespace, a node or a PersistentVolume says
+    what that takes with it before asking.
+  - `ankra cluster restart <deployment|statefulset|daemonset> <name>` is
+    `kubectl rollout restart`: a fresh `restartedAt` annotation on the pod
+    template, so the controller rolls every pod under its own strategy.
+  - `ankra cluster cordon|uncordon <node>` flip the node's scheduling;
+    `ankra cluster drain <node>` cordons it and deletes the pods on it,
+    leaving DaemonSet and static pods alone and printing the plan first
+    (`--dry-run` stops there). It deletes rather than evicts - the agent has
+    no eviction relay yet - so PodDisruptionBudgets are not consulted; the
+    help says so and the plan names every pod before anything happens.
+  - `ankra cluster helm get <release>` shows the chart, revision, values and
+    notes (`-o values` dumps just the values as YAML), `helm history` lists
+    the revisions, `helm rollback --revision N` rolls back and waits, and
+    `helm upgrade --chart <ref> --values <file>` runs an in-place upgrade
+    with the values file replacing the release's values wholesale. A
+    release an Ankra addon manages is refused by the platform so Git stays
+    the source of truth.
 - **`ankra security sbom` reads the fleet's software bill of materials.** Every
   package the scanner found in every container image, grouped by name,
   version and ecosystem, with how many images, workloads and clusters carry
