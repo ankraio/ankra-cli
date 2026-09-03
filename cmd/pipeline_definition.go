@@ -4,8 +4,10 @@ package cmd
 // (go/internal/pipelineapi/definition.go).
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"strings"
 
 	"ankra/internal/client"
@@ -58,10 +60,15 @@ func runPipelineValidate(command *cobra.Command, selector client.PipelineSelecto
 	switch {
 	case readError == nil:
 		specYAML = string(contents)
-	case filePath == defaultPipelineDefinitionPath:
-		// The default file is optional: falling back validates whatever is
-		// already stored server-side, which is the honest answer for a
-		// repository that generated its pipeline rather than committing one.
+	case filePath == defaultPipelineDefinitionPath && errors.Is(readError, fs.ErrNotExist):
+		// The default file is optional, and only its absence is optional:
+		// falling back validates whatever is already stored server-side,
+		// which is the honest answer for a repository that generated its
+		// pipeline rather than committing one. Any other read failure - a
+		// permission denial, an unreadable directory, a transient fault -
+		// is reported, because validating the stored definition and printing
+		// "ok" would answer a question the caller did not ask about a file
+		// this command could not read.
 	default:
 		return readError
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -566,6 +567,23 @@ func TestPipelineArtifactsDownloadRefusesAPathOutsideTheDirectory(t *testing.T) 
 		if executeError == nil {
 			t.Fatalf("--out %q was accepted; a download must not write outside the directory", outside)
 		}
+	}
+}
+
+func TestPipelineArtifactsDownloadUsesOnlyTheBaseNameOfAServerChosenID(t *testing.T) {
+	for _, hostile := range []string{"sub/dir", "/etc/passwd", "../escaped"} {
+		mockClient := &pipelineLaneMock{}
+		_, executeError := runPipelineCommand(t, mockClient, "artifacts", "download", hostile,
+			"--application", testApplicationID)
+		if executeError != nil {
+			// A refusal is fine; what must never happen is a write outside
+			// the working directory, which the base-name reduction prevents.
+			continue
+		}
+		if _, statError := os.Stat(filepath.Base(filepath.Clean(hostile))); statError != nil {
+			t.Fatalf("%q: expected the download to land on its base name, got %v", hostile, statError)
+		}
+		_ = os.Remove(filepath.Base(filepath.Clean(hostile)))
 	}
 }
 

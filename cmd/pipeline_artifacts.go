@@ -100,12 +100,20 @@ func runPipelineArtifactsDownload(command *cobra.Command, selector client.Pipeli
 	outputPath, _ := command.Flags().GetString("out")
 	outputPath = strings.TrimSpace(outputPath)
 	if outputPath == "" {
-		outputPath = artifactID
+		// The default destination is derived from the artifact id, which the
+		// server chose: only its base name is used, so an id carrying a
+		// separator or an absolute path cannot decide where this command
+		// writes. --out, by contrast, is the caller's own choice of
+		// destination and may name a subdirectory.
+		outputPath = filepath.Base(filepath.Clean(artifactID))
+		if outputPath == "." || outputPath == ".." || outputPath == string(filepath.Separator) {
+			return withExitCode(exitUsage,
+				fmt.Errorf("the artifact id %q does not name a file to write; pass --out", artifactID))
+		}
 	}
-	// The default destination is the artifact id the server chose, and --out
-	// is whatever the caller typed; neither may walk out of the directory the
-	// command was run in, so a path that escapes after cleaning is refused
-	// rather than written.
+	// Neither destination may walk out of the directory the command was run
+	// in, so a path that escapes after cleaning is refused rather than
+	// written.
 	outputPath = filepath.Clean(outputPath)
 	if outputPath == ".." || strings.HasPrefix(outputPath, ".."+string(filepath.Separator)) {
 		return withExitCode(exitUsage,
