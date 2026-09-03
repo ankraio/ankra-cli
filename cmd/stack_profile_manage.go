@@ -232,8 +232,15 @@ Rolling back is setting the pointer to an earlier version.`,
 
 var stackProfilesVersionCmd = &cobra.Command{
 	Use:   "version [profile-id|profile-name] <version>",
-	Short: "Show one published version's contents and parameters",
-	Args:  cobra.ExactArgs(2),
+	Short: "Show one published version's record and parameters",
+	Long: `Print the stored record of one published version: its spec, parameters and
+channel, as JSON (default) or YAML.
+
+Manifests and add-on values inside the record are base64-encoded. To read
+them decoded, list them, or grep across them, use:
+
+  ankra stack-profiles contents <profile> <version>`,
+	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
 			return formatError
