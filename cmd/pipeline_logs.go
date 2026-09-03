@@ -78,22 +78,26 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 		if streamError != nil {
 			var unavailable *client.PipelineLogStreamUnavailableError
 			if errors.As(streamError, &unavailable) && follow {
+				// A 503 that carries no Retry-After, or a zero one, must not
+				// turn --follow into a tight reconnect loop against the relay.
+				retryAfter := time.Duration(unavailable.RetryAfterSeconds) * time.Second
+				if retryAfter < pipelineLogStreamReconnectDelay {
+					retryAfter = pipelineLogStreamReconnectDelay
+				}
 				_, _ = fmt.Fprintf(progress, "Log stream unavailable (%s); retrying in %ds.\n",
-					unavailable.Detail, unavailable.RetryAfterSeconds)
-				time.Sleep(time.Duration(unavailable.RetryAfterSeconds) * time.Second)
+					unavailable.Detail, int(retryAfter.Seconds()))
+				time.Sleep(retryAfter)
 				continue
 			}
 			return streamError
 		}
 
-		streamFaulted := false
 		for event := range events {
 			switch event.Type {
 			case "line":
 				_, _ = fmt.Fprintf(out, "[%s] %s\n", event.Stream, event.Line)
 				lastSeq = event.Seq
 			case "error":
-				streamFaulted = true
 				_, _ = fmt.Fprintf(progress, "Log stream fault: %s\n", event.Error)
 			}
 		}
@@ -110,9 +114,10 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 			_, _ = fmt.Fprintln(progress, "Log stream ended.")
 			return nil
 		}
-		if streamFaulted {
-			time.Sleep(pipelineLogStreamReconnectDelay)
-		}
+		// Every reconnect waits, not only a faulted one: a proxy that closes
+		// each connection promptly would otherwise be reconnected to as fast
+		// as it hangs up.
+		time.Sleep(pipelineLogStreamReconnectDelay)
 	}
 }
 

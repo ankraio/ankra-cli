@@ -534,6 +534,30 @@ func TestPipelineSchedulesUpdateOnlyChangedField(t *testing.T) {
 	}
 }
 
+func TestPipelineSchedulesUpdateReadsTheFlagValueNotItsPresence(t *testing.T) {
+	for _, testCase := range []struct {
+		argument string
+		wanted   bool
+	}{
+		{"--enabled=false", false},
+		{"--enabled=true", true},
+		{"--disabled=false", true},
+		{"--disabled=true", false},
+	} {
+		mockClient := &pipelineLaneMock{updateScheduleResult: &client.PipelineSchedule{ID: "sched-1"}}
+		_, executeError := runPipelineCommand(t, mockClient, "schedules", "update", "sched-1",
+			"--application", testApplicationID, testCase.argument)
+		if executeError != nil {
+			t.Fatalf("%s: update error = %v", testCase.argument, executeError)
+		}
+		if mockClient.updateScheduleRequest.Enabled == nil ||
+			*mockClient.updateScheduleRequest.Enabled != testCase.wanted {
+			t.Errorf("%s: enabled = %v, want a pointer to %v", testCase.argument,
+				mockClient.updateScheduleRequest.Enabled, testCase.wanted)
+		}
+	}
+}
+
 func TestPipelineSchedulesDeleteConfirms(t *testing.T) {
 	mockClient := &pipelineLaneMock{}
 	previousClient := apiClient

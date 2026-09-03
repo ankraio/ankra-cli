@@ -208,11 +208,21 @@ func runPipelineSchedulesUpdate(command *cobra.Command, selector client.Pipeline
 	}
 	switch {
 	case enabledChanged:
-		enabled := true
+		// The flag's value, not its presence: `--enabled=false` asks for a
+		// disabled schedule, and reading only Changed() would enable the very
+		// schedule the caller was turning off.
+		enabled, enabledError := command.Flags().GetBool("enabled")
+		if enabledError != nil {
+			return enabledError
+		}
 		request.Enabled = &enabled
 	case disabledChanged:
-		disabled := false
-		request.Enabled = &disabled
+		disabled, disabledError := command.Flags().GetBool("disabled")
+		if disabledError != nil {
+			return disabledError
+		}
+		wanted := !disabled
+		request.Enabled = &wanted
 	}
 	if request.Cron == nil && request.Timezone == nil && request.Ref == nil &&
 		request.Inputs == nil && request.Enabled == nil {
