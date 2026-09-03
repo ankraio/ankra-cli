@@ -2,17 +2,23 @@ package client
 
 // Ankra Pipelines (ankra-vn0bd.2.8, WS-B item B8): the typed client for
 // go/internal/pipelineapi on the cluster-api - runs, the definition of
-// record, and cron schedules.
+// record, and cron schedules - plus the organisation-scoped repository
+// onboarding routes cluster PR #2490 added (ankra-vn0bd.4.2, WS-D item D2):
+// connect, list and get a connected repository.
 //
-// The server mounts every route four times (session/token twin x
-// by-application/by-repository twin); this client only ever speaks the
-// bearer-PAT twin, and PipelineSelector picks which of the two addresses a
-// call uses. There is no route yet that lists or looks up a pipeline
-// repository by owner/name - only by-id and by-application addressing exist
-// (go/internal/pipelineapi/pipelineapi.go, ankra-vn0bd.2.7) - so
-// PipelineSelector.RepositoryID takes the repository's id, not "owner/name".
-// A future item that adds a repository listing route can widen this to
-// resolve a name the way resolveApplicationID already does for applications.
+// The server mounts every selector-addressed route four times (session/token
+// twin x by-application/by-repository twin); this client only ever speaks
+// the bearer-PAT twin, and PipelineSelector picks which of the two addresses
+// a call uses. The repository routes are mounted differently
+// (mountOrganisation, not mountScoped): they address the organisation alone,
+// so ConnectPipelineRepository, ListPipelineRepositories and
+// GetPipelineRepository take no PipelineSelector.
+//
+// PipelineSelector.RepositoryID still takes the repository's id, not
+// "owner/name": the new listing filters by provider, not by owner/name, so
+// resolving a name the way resolveApplicationID does for applications would
+// mean paging the whole listing client-side. Left for an item that wants
+// that enough to pay for it.
 //
 // Findings have no route yet either (WS-C item C5): there is no
 // ListPipelineFindings here, deliberately, until the server has one.
@@ -289,6 +295,96 @@ type UpdatePipelineScheduleRequest struct {
 	Enabled  *bool              `json:"enabled,omitempty"`
 }
 
+// PipelineRepository is the wire shape of a `pipeline_repositories` row
+// (go/internal/pipelineapi/repositories.go repositoryResponse): what
+// `pipeline repositories list|get|connect` (ankra-vn0bd.4.2) address.
+// ApplicationID is set only when the scheduler's own application-lane writer
+// (enginekit/pipelineonboard.Onboard) linked one; connect on this client
+// never sets it - the wire's connectRepositoryRequest carries no
+// application_id field.
+type PipelineRepository struct {
+	ID             string  `json:"id"`
+	OrganisationID string  `json:"organisation_id"`
+	Provider       string  `json:"provider"`
+	Owner          string  `json:"owner"`
+	Name           string  `json:"name"`
+	CredentialName string  `json:"credential_name"`
+	DefaultBranch  string  `json:"default_branch"`
+	ApplicationID  *string `json:"application_id"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+// PipelineRepositoryDefinitionOutcome is what a connect did with the
+// repository's committed pipeline file (go/internal/pipelineapi/repositories.go
+// definitionBootstrapResponse): one of the pipelineonboard.Definition*
+// statuses ("recorded", "already_recorded", "absent", "unreadable",
+// "invalid", "unknown"), the sentence behind it, the definition of record
+// when one was recorded, and - when the committed file could not be read -
+// why. A read failure never fails the connect itself: Status answers
+// "unreadable" or "unknown" instead, and ReadError names the cause.
+type PipelineRepositoryDefinitionOutcome struct {
+	Status       string   `json:"status"`
+	Detail       string   `json:"detail"`
+	DefinitionID *string  `json:"definition_id"`
+	SpecHash     *string  `json:"spec_hash"`
+	Violations   []string `json:"violations"`
+	ReadError    *string  `json:"read_error"`
+}
+
+// ConnectPipelineRepositoryRequest is the POST /pipelines/repositories body.
+// CredentialName and DefaultBranch are optional: an absent credential
+// connects the repository without reading its committed pipeline file (the
+// connect result's Definition says so), and an absent branch takes the
+// server's "main" default (pipelines.DefaultRepositoryBranch).
+type ConnectPipelineRepositoryRequest struct {
+	Provider       string `json:"provider"`
+	Owner          string `json:"owner"`
+	Name           string `json:"name"`
+	CredentialName string `json:"credential_name,omitempty"`
+	DefaultBranch  string `json:"default_branch,omitempty"`
+}
+
+// ConnectPipelineRepositoryResult is the 201 body: the connected repository
+// plus what the connect did with its committed pipeline file.
+type ConnectPipelineRepositoryResult struct {
+	PipelineRepository
+	Definition PipelineRepositoryDefinitionOutcome `json:"definition"`
+}
+
+// PipelineRepositoryList is the GET /pipelines/repositories body, newest
+// first. NextCursor is null when the page was the last one.
+type PipelineRepositoryList struct {
+	Repositories []PipelineRepository `json:"repositories"`
+	NextCursor   *string              `json:"next_cursor"`
+}
+
+// ListPipelineRepositoriesOptions is the GET /pipelines/repositories query.
+type ListPipelineRepositoriesOptions struct {
+	// Provider filters to one provider; empty lists every provider.
+	Provider string
+	Cursor   string
+	Limit    int
+}
+
+// PipelineRepositoryAlreadyConnectedError is the 409
+// go/internal/pipelineapi/repositories.go writeRepositoryError answers for a
+// repository the organisation already connected: the server's sentence
+// (which already names the existing repository's id in prose) plus that id
+// as its own field, so a caller does not have to parse the sentence to act
+// on what it already has.
+type PipelineRepositoryAlreadyConnectedError struct {
+	Detail       string
+	RepositoryID string
+}
+
+func (alreadyConnected *PipelineRepositoryAlreadyConnectedError) Error() string {
+	if alreadyConnected == nil {
+		return ""
+	}
+	return alreadyConnected.Detail
+}
+
 // PipelineValidationError is the platform's structured 422 for a dispatch or
 // a definition write the planner refused
 // (go/internal/pipelineapi/pipelineapi.go writePipelineError,
@@ -336,6 +432,22 @@ func pipelineErrorFromResponse(statusCode int, body []byte, retryAfterHeader str
 	}
 	if denied := PermissionDeniedFromResponse(statusCode, body); denied != nil {
 		return denied
+	}
+
+	// The repository-already-connected shape
+	// (go/internal/pipelineapi/repositories.go writeRepositoryError):
+	// {"detail": "...", "repository_id": "..."}. Checked ahead of the
+	// generic refusal shape below, which would otherwise decode the same
+	// body and drop the id in a bare errors.New.
+	if statusCode == http.StatusConflict {
+		var duplicate struct {
+			Detail       string `json:"detail"`
+			RepositoryID string `json:"repository_id"`
+		}
+		if unmarshalError := json.Unmarshal(body, &duplicate); unmarshalError == nil &&
+			duplicate.Detail != "" && duplicate.RepositoryID != "" {
+			return &PipelineRepositoryAlreadyConnectedError{Detail: duplicate.Detail, RepositoryID: duplicate.RepositoryID}
+		}
 	}
 
 	// The planner-refusal shape: {"detail": "...", "diagnostics": [...]}.
@@ -738,4 +850,70 @@ func (c *Client) DeletePipelineSchedule(ctx context.Context, selector PipelineSe
 	return c.doPipelineRequest(ctx, http.MethodDelete,
 		fmt.Sprintf("%s%s/pipeline/schedules/%s", c.BaseURL, base, neturl.PathEscape(scheduleID)),
 		nil, nil)
+}
+
+// pipelineRepositoriesBasePath is the organisation-scoped route the
+// repository onboarding surface is mounted on
+// (go/internal/pipelineapi/repositories.go mountOrganisation). Unlike every
+// other pipeline route it addresses no single repository or application, so
+// it is a fixed path rather than something PipelineSelector.basePath builds.
+const pipelineRepositoriesBasePath = "/api/v1/org/pipelines/repositories"
+
+// pipelineRepositoriesEndpoint appends the GET …/pipelines/repositories
+// query (provider filter, page cursor, limit) to the base path.
+func pipelineRepositoriesEndpoint(base string, options ListPipelineRepositoriesOptions) string {
+	query := neturl.Values{}
+	if options.Provider != "" {
+		query.Set("provider", options.Provider)
+	}
+	if options.Cursor != "" {
+		query.Set("cursor", options.Cursor)
+	}
+	if options.Limit > 0 {
+		query.Set("limit", strconv.Itoa(options.Limit))
+	}
+	endpoint := base
+	if len(query) > 0 {
+		endpoint += "?" + query.Encode()
+	}
+	return endpoint
+}
+
+// ListPipelineRepositories reads one page of the organisation's connected
+// repositories, newest first (GET /org/pipelines/repositories).
+func (c *Client) ListPipelineRepositories(ctx context.Context,
+	options ListPipelineRepositoriesOptions) (*PipelineRepositoryList, error) {
+	var result PipelineRepositoryList
+	endpoint := pipelineRepositoriesEndpoint(c.BaseURL+pipelineRepositoriesBasePath, options)
+	if requestError := c.doPipelineRequest(ctx, http.MethodGet, endpoint, nil, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
+
+// GetPipelineRepository reads one connected repository by id
+// (GET /org/pipelines/repositories/{repository_id}).
+func (c *Client) GetPipelineRepository(ctx context.Context, repositoryID string) (*PipelineRepository, error) {
+	var result PipelineRepository
+	endpoint := fmt.Sprintf("%s%s/%s", c.BaseURL, pipelineRepositoriesBasePath, neturl.PathEscape(repositoryID))
+	if requestError := c.doPipelineRequest(ctx, http.MethodGet, endpoint, nil, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
+
+// ConnectPipelineRepository connects a bare Git repository to Ankra
+// Pipelines (POST /org/pipelines/repositories) so a push/PR/tag webhook on it
+// can start a run. A repository the organisation already connected - by
+// provider, owner and name, compared without case - answers
+// *PipelineRepositoryAlreadyConnectedError with the existing row's id rather
+// than a second row.
+func (c *Client) ConnectPipelineRepository(ctx context.Context,
+	request ConnectPipelineRepositoryRequest) (*ConnectPipelineRepositoryResult, error) {
+	var result ConnectPipelineRepositoryResult
+	endpoint := c.BaseURL + pipelineRepositoriesBasePath
+	if requestError := c.doPipelineRequest(ctx, http.MethodPost, endpoint, request, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
 }

@@ -9,6 +9,11 @@ package cmd
 // selector from a leading <application-id> argument instead of a flag, and
 // otherwise calls the exact same run* functions this file and its siblings
 // define.
+//
+// `ankra pipeline repositories …` (cmd/pipeline_repositories.go,
+// ankra-vn0bd.4.2) is the one exception: it addresses the organisation's
+// directory of connected repositories, not one already-linked pipeline, so
+// it takes no PipelineSelector.
 
 import (
 	"errors"
@@ -54,6 +59,7 @@ umbrella run this pipeline run belongs to, useful for correlating with
 		newPipelineValidateCommand(),
 		newPipelineDefinitionCommand(),
 		newPipelineSchedulesCommand(),
+		newPipelineRepositoriesCommand(),
 	)
 	return pipelineCommand
 }

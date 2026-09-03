@@ -1,5 +1,26 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra pipeline repositories` connects a bare Git repository to Ankra
+  Pipelines from the terminal.** Cluster PR #2490 added the
+  organisation-scoped onboarding routes; `list` and `get` read what the
+  organisation has connected (`--provider` filters the listing), and
+  `connect --provider --owner --name [--credential] [--default-branch]`
+  registers a repository so a push, pull request or tag webhook on it can
+  start a run - for a bare repository with no Ankra application (docs,
+  website, values repos), or before one exists. A GitHub repository's
+  committed `.ankra/pipeline.yaml` is read through `--credential` and
+  recorded as the definition of record in the same call when it parses, and
+  `connect` prints that outcome alongside the repository id. Connecting a
+  repository a second time does not create a duplicate; the server's own
+  message names the existing repository's id rather than a rewritten one.
+  Disconnecting a repository, linking one to an application, and resolving
+  the organisation's CI cluster have no route yet, so those are not covered
+  by this command.
+
 ## v0.15.0-rc1 — 2026-09-03
 
 ### Added

@@ -714,4 +714,8 @@ type APIClient interface {
 	CreatePipelineSchedule(ctx context.Context, selector client.PipelineSelector, request client.CreatePipelineScheduleRequest) (*client.PipelineSchedule, error)
 	UpdatePipelineSchedule(ctx context.Context, selector client.PipelineSelector, scheduleID string, request client.UpdatePipelineScheduleRequest) (*client.PipelineSchedule, error)
 	DeletePipelineSchedule(ctx context.Context, selector client.PipelineSelector, scheduleID string) error
+
+	ListPipelineRepositories(ctx context.Context, options client.ListPipelineRepositoriesOptions) (*client.PipelineRepositoryList, error)
+	GetPipelineRepository(ctx context.Context, repositoryID string) (*client.PipelineRepository, error)
+	ConnectPipelineRepository(ctx context.Context, request client.ConnectPipelineRepositoryRequest) (*client.ConnectPipelineRepositoryResult, error)
 }
