@@ -1,9 +1,22 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.15.0-rc1 — 2026-09-03
 
 ### Added
 
+- **`ankra stack-profiles contents` shows what a published profile actually
+  contains.** A profile version stores every manifest and every add-on's
+  values base64-encoded, and both `stack-profiles version` and `export-iac`
+  hand that encoding back verbatim, so reading a profile meant decoding it by
+  hand outside the CLI. `contents <profile> <version>` prints a decoded
+  inventory - each add-on with its chart, pinned version and namespace, and
+  each manifest with the kind and namespace read out of its YAML, which the
+  encoded record cannot tell you. `--resource <name>` prints one resource
+  decoded (`-o raw` for the base64), the way `cluster manifests get` prints a
+  live manifest, and `--all` streams every resource as one multi-document
+  YAML with a comment naming each - the form to grep across a whole profile
+  in one pass. `stack-profiles version` is unchanged; its help now says it
+  prints the stored record and points here.
 - **`ankra pipeline` drives Ankra Pipelines from the terminal.** `ankra pipeline
   run` dispatches a run of a repository's `.ankra/pipeline.yaml` (with
   `--input k=v` for declared inputs and `--wait` to follow it to a conclusion
@@ -110,6 +123,20 @@
   conversation id with a hint, instead of surfacing the backend's 422.
 - The org-switch test no longer writes `~/.ankra/organisation.json` into the
   developer's real home directory.
+- **`ankra backup vaults provision --wait` no longer reports a failure for an
+  UpCloud provision that is still succeeding.** The shared `--timeout` default
+  sat below the bound the platform itself works to - UpCloud's object storage
+  service alone is allowed fifteen minutes to reach running, and the bucket,
+  the access key and the verification all come after it - so a normal
+  provision printed `context deadline exceeded` at ten minutes and then
+  reached `ready` anyway. The wait now outlasts the platform's own bound.
+- **`ankra backup vaults` no longer tells you to fix access keys that are
+  fine.** A vault Ankra provisioned that had verified before and then came
+  back as an error row - a failed teardown leaves the keys working and a
+  provider resource behind - was answered with "fix the access keys, then
+  verify", a wrong cause and a command that cannot help. That branch now
+  quotes the error the row carries and offers both real ways out: re-verify,
+  or delete with `--destroy-provider-resources`.
 
 ## v0.15.0-rc0 — 2026-09-01
 
