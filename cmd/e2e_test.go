@@ -2398,6 +2398,66 @@ func (m baseMock) DisableClusterDNSZone(clusterID string) (*client.ClusterDNSZon
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListPipelineRuns(ctx context.Context, selector client.PipelineSelector, options client.ListPipelineRunsOptions) (*client.PipelineRunList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreatePipelineRun(ctx context.Context, selector client.PipelineSelector, request client.CreatePipelineRunRequest) (*client.CreatePipelineRunResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool) (*client.CreatePipelineRunResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRun, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, fromSequence int64) (<-chan client.PipelineLogEvent, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineArtifactList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DownloadPipelineArtifact(ctx context.Context, selector client.PipelineSelector, artifactID string, destination io.Writer) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) GetPipelineDefinition(ctx context.Context, selector client.PipelineSelector) (*client.PipelineDefinition, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PutPipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineDefinition, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ValidatePipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineValidation, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListPipelineSchedules(ctx context.Context, selector client.PipelineSelector) (*client.PipelineScheduleList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreatePipelineSchedule(ctx context.Context, selector client.PipelineSelector, request client.CreatePipelineScheduleRequest) (*client.PipelineSchedule, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdatePipelineSchedule(ctx context.Context, selector client.PipelineSelector, scheduleID string, request client.UpdatePipelineScheduleRequest) (*client.PipelineSchedule, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeletePipelineSchedule(ctx context.Context, selector client.PipelineSelector, scheduleID string) error {
+	return errors.New("not implemented")
+}
+
 type clusterListMock struct {
 	baseMock
 	clusters []client.ClusterListItem

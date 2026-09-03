@@ -692,4 +692,20 @@ type APIClient interface {
 	TestNotificationRoute(routeID string) (*client.NotificationRouteTestResult, error)
 	PreviewNotificationRoutes(request client.PreviewNotificationRoutesRequest) (*client.NotificationRoutePreview, error)
 	DisableClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error)
+
+	ListPipelineRuns(ctx context.Context, selector client.PipelineSelector, options client.ListPipelineRunsOptions) (*client.PipelineRunList, error)
+	CreatePipelineRun(ctx context.Context, selector client.PipelineSelector, request client.CreatePipelineRunRequest) (*client.CreatePipelineRunResult, error)
+	GetPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunDetail, error)
+	RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool) (*client.CreatePipelineRunResult, error)
+	CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRun, error)
+	StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, fromSequence int64) (<-chan client.PipelineLogEvent, error)
+	ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineArtifactList, error)
+	DownloadPipelineArtifact(ctx context.Context, selector client.PipelineSelector, artifactID string, destination io.Writer) error
+	GetPipelineDefinition(ctx context.Context, selector client.PipelineSelector) (*client.PipelineDefinition, error)
+	PutPipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineDefinition, error)
+	ValidatePipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineValidation, error)
+	ListPipelineSchedules(ctx context.Context, selector client.PipelineSelector) (*client.PipelineScheduleList, error)
+	CreatePipelineSchedule(ctx context.Context, selector client.PipelineSelector, request client.CreatePipelineScheduleRequest) (*client.PipelineSchedule, error)
+	UpdatePipelineSchedule(ctx context.Context, selector client.PipelineSelector, scheduleID string, request client.UpdatePipelineScheduleRequest) (*client.PipelineSchedule, error)
+	DeletePipelineSchedule(ctx context.Context, selector client.PipelineSelector, scheduleID string) error
 }
