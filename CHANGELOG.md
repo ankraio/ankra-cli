@@ -4,6 +4,21 @@
 
 ### Added
 
+- **`ankra pipeline` drives Ankra Pipelines from the terminal.** `ankra pipeline
+  run` dispatches a run of a repository's `.ankra/pipeline.yaml` (with
+  `--input k=v` for declared inputs and `--wait` to follow it to a conclusion
+  and exit non-zero on failure, the way a CI step should); `list` and `get`
+  read runs and their step DAG; `logs --follow` streams a step's log live and
+  resumes from where it left off when the relay drops; `cancel` and `rerun`
+  (with `--failed-only`) act on a run; `artifacts` lists a run's step logs and
+  artifacts and `artifacts download` fetches one; `validate` checks a
+  pipeline file against the server's validator and prints each diagnostic
+  with its file and line; `definition get|put` reads and replaces the stored
+  definition; and `schedules list|create|update|delete` manage cron
+  schedules. `ankra application pipeline …` offers the same commands
+  addressed by application. Tables by default, `-o json` verbatim, and an id
+  from another organisation reads exactly like an absent one.
+
 - **`ankra security sbom` reads the fleet's software bill of materials.** Every
   package the scanner found in every container image, grouped by name,
   version and ecosystem, with how many images, workloads and clusters carry
