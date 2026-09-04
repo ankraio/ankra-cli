@@ -280,6 +280,22 @@ func TestApplicationPipelineCommandsRegistered(t *testing.T) {
 	}
 }
 
+func TestPipelineArtifactsPagingFlagsOnBothSurfaces(t *testing.T) {
+	// A run with more artifacts than one page must be walkable from either
+	// address, so both surfaces carry the same paging flags.
+	surfaces := map[string]*cobra.Command{
+		"pipeline artifacts":             findSubcommand(t, newPipelineCommand(), "artifacts"),
+		"application pipeline artifacts": findSubcommand(t, findSubcommand(t, newApplicationCommand(), "pipeline"), "artifacts"),
+	}
+	for name, command := range surfaces {
+		for _, flag := range []string{"cursor", "limit"} {
+			if command.Flags().Lookup(flag) == nil {
+				t.Errorf("%q does not register --%s", name, flag)
+			}
+		}
+	}
+}
+
 func findSubcommand(t *testing.T, parent *cobra.Command, name string) *cobra.Command {
 	t.Helper()
 	found := findSubcommandOrNil(parent, name)

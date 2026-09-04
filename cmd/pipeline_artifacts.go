@@ -53,10 +53,17 @@ only once no further page is offered.`,
 	}
 	registerPipelineSelectorFlags(artifactsCommand)
 	registerStructuredOutputFlags(artifactsCommand)
-	artifactsCommand.Flags().String("cursor", "", "Page cursor from a previous listing's next_cursor")
-	artifactsCommand.Flags().Int("limit", 0, "Maximum number of artifacts to return (server default 50, max 100)")
+	registerPipelineArtifactsListFlags(artifactsCommand)
 	artifactsCommand.AddCommand(newPipelineArtifactsDownloadCommand())
 	return artifactsCommand
+}
+
+// registerPipelineArtifactsListFlags is shared by `pipeline artifacts` and
+// `application pipeline artifacts`, so both surfaces can walk a run with
+// more artifacts than one page rather than only one of them.
+func registerPipelineArtifactsListFlags(command *cobra.Command) {
+	command.Flags().String("cursor", "", "Page cursor from a previous listing's next_cursor")
+	command.Flags().Int("limit", 0, "Maximum number of artifacts to return (server default 50, max 100)")
 }
 
 func runPipelineArtifactsList(command *cobra.Command, selector client.PipelineSelector, runID string) error {
