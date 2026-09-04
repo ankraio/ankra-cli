@@ -264,6 +264,12 @@ func TestSecuritySbomContainersListsAbsentRowsFirstAndTalliesTheScope(t *testing
 	if _, executeError := runSecurityCommand(t, mock, "security", "sbom", "containers", "--status", "nope"); executeError == nil {
 		t.Fatalf("an unknown status must be refused")
 	}
+	if _, executeError := runSecurityCommand(t, mock, "security", "sbom", "containers", "--status", " ABSENT "); executeError != nil {
+		t.Fatalf("any casing of a known status is accepted: %v", executeError)
+	}
+	if mock.containersOptions.Status != "absent" {
+		t.Fatalf("the status reaches the platform in its canonical form, got %q", mock.containersOptions.Status)
+	}
 }
 
 func TestSecuritySbomExportWritesTheDocumentToStdoutOrAFile(t *testing.T) {

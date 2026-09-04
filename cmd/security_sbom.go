@@ -224,17 +224,17 @@ The inventory line counts the scope (cluster, namespace, workload) before
 		status, _ := cmd.Flags().GetString("status")
 		sort, _ := cmd.Flags().GetString("sort")
 		order, _ := cmd.Flags().GetString("order")
-		switch strings.ToLower(strings.TrimSpace(status)) {
-		case "", "any", "present", "absent":
+		normalizedStatus := strings.ToLower(strings.TrimSpace(status))
+		switch normalizedStatus {
+		case "", "any":
+			normalizedStatus = ""
+		case "present", "absent":
 		default:
 			return withExitCode(exitUsage, fmt.Errorf("--status must be present, absent or any, got %q", status))
 		}
 		options := client.SecuritySBOMContainersOptions{
 			Page: page, PageSize: pageSize, Search: search, Namespace: namespace,
-			WorkloadKind: workloadKind, WorkloadName: workloadName, Status: status, Sort: sort, Order: order,
-		}
-		if strings.EqualFold(strings.TrimSpace(status), "any") {
-			options.Status = ""
+			WorkloadKind: workloadKind, WorkloadName: workloadName, Status: normalizedStatus, Sort: sort, Order: order,
 		}
 		if clusterFlag != "" {
 			clusterID, err := resolveClusterID(clusterFlag)
@@ -325,7 +325,7 @@ func normalizeSbomExportFormat(requested string) (string, error) {
 // from the format when the platform sent none.
 func sbomExportLocalFileName(suggested string, format string) string {
 	base := filepath.Base(strings.TrimSpace(suggested))
-	if base == "" || base == "." || base == string(filepath.Separator) || strings.HasPrefix(base, ".") {
+	if base == "" || strings.HasPrefix(base, ".") {
 		if format == "csv" {
 			return "sbom.csv"
 		}
