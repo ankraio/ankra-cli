@@ -1002,6 +1002,18 @@ func (m baseMock) GetSecuritySBOMImage(client.SecuritySBOMImageOptions) (*client
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListSecuritySBOMContainers(client.SecuritySBOMContainersOptions) (*client.SecuritySBOMContainerList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSecuritySBOMImageFindings(client.SecuritySBOMImageFindingsOptions) (*client.SecuritySBOMImageFindingList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ExportSecuritySBOMImage(client.SecuritySBOMExportOptions) (*client.SecuritySBOMExport, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error) {
 	return nil, errors.New("not implemented")
 }

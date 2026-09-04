@@ -2,8 +2,10 @@ package client
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -97,5 +99,103 @@ func TestSecuritySBOMReadsEncodeFiltersAndDecodeCoverage(t *testing.T) {
 	}
 	if detail.Components == nil || detail.Workloads == nil {
 		t.Fatalf("null lists must decode to empty slices: %+v", detail)
+	}
+}
+
+func TestSecuritySBOMContainersAndExportEncodeTheirControls(t *testing.T) {
+	var captured http.Request
+	_, apiClient := newSecurityTestServer(t, `{"result": [{"cluster_id": "c1", "cluster_name": "prod", "namespace": "security",
+        "pod_name": "grafana-1", "pod_uid": "u1", "owner_kind": "ReplicaSet", "owner_name": "grafana-7d9f8",
+        "workload_kind": "Deployment", "workload_name": "grafana", "container_name": "app", "container_kind": "app",
+        "image": "registry.test/grafana:1.0.0", "image_digest": "sha256:abc", "sbom_status": "present",
+        "image_identity": "sha256:abc", "component_count": 2, "os_name": "debian 12.7",
+        "generated_at": "2026-09-03T21:39:44Z", "last_seen_at": "2026-09-03T21:39:44Z"}],
+        "pagination": {"page": 1, "page_size": 50, "total_pages": 1, "total_count": 1},
+        "inventory": {"containers": 3, "with_sbom": 2, "without_sbom": 1, "pods": 2},
+        "coverage": {"scanned_clusters": 1, "clusters_with_sbom": 1, "images": 2, "components": 3, "workloads": 2, "latest_generated_at": null}}`, &captured)
+	list, listError := apiClient.ListSecuritySBOMContainers(SecuritySBOMContainersOptions{
+		ClusterID: "c1", Namespace: "security", WorkloadKind: " Deployment ", WorkloadName: "grafana", Status: "present",
+		Search: "graf", Sort: "status", Order: "desc", Page: 2, PageSize: 10,
+	})
+	if listError != nil {
+		t.Fatalf("ListSecuritySBOMContainers returned an error: %v", listError)
+	}
+	expectedQuery := url.Values{"page": {"2"}, "page_size": {"10"}, "search": {"graf"}, "sort": {"status"}, "order": {"desc"},
+		"cluster_id": {"c1"}, "namespace": {"security"}, "workload_kind": {"Deployment"}, "workload_name": {"grafana"}, "status": {"present"}}
+	if captured.URL.Path != "/api/v1/org/security/sbom/containers" || !reflect.DeepEqual(captured.URL.Query(), expectedQuery) {
+		t.Fatalf("request = %s?%s", captured.URL.Path, captured.URL.RawQuery)
+	}
+	if len(list.Result) != 1 || list.Result[0].SBOMStatus != "present" || *list.Result[0].ComponentCount != 2 ||
+		list.Inventory.WithoutSBOM != 1 || list.Coverage.Images != 2 {
+		t.Fatalf("containers not decoded: %+v", list)
+	}
+
+	_, apiClient = newSecurityTestServer(t, `{"result": [], "pagination": {"page": 1, "page_size": 50, "total_pages": 0, "total_count": 0}, "coverage": {"scanned_clusters": 0, "clusters_with_sbom": 0, "images": 0, "components": 0, "workloads": 0, "latest_generated_at": null}}`, &captured)
+	if _, imagesError := apiClient.ListSecuritySBOMImages(SecuritySBOMImagesOptions{WorkloadKind: "DaemonSet"}); imagesError != nil {
+		t.Fatalf("ListSecuritySBOMImages returned an error: %v", imagesError)
+	}
+	if captured.URL.Query().Get("workload_kind") != "DaemonSet" || captured.URL.Query().Has("workload_name") {
+		t.Fatalf("image workload selector = %s", captured.URL.RawQuery)
+	}
+}
+
+func TestListSecuritySBOMImageFindingsEncodesItsControlsAndDecodesTheRows(t *testing.T) {
+	var captured http.Request
+	_, apiClient := newSecurityTestServer(t, `{"image": {"image_identity": "sha256:abc", "image_ref": "registry.test/grafana:1.0.0", "image_digest": "sha256:abc", "sbom_status": "present"},
+        "result": [{"finding_id": "f-1", "cve_id": "CVE-2026-9001", "severity": "CRITICAL", "title": null, "package_type": "deb", "package_name": "openssl",
+        "installed_version": "3.0.0", "fixed_version": "3.0.1", "fixable": true, "disposition": "open",
+        "dispositions": {"open": 2, "acknowledged": 0, "accepted_risk": 0, "resolved": 0}, "occurrences": 2, "workloads": 1, "clusters": 1,
+        "last_seen_at": "2026-09-04T09:00:00Z", "known_exploited": true, "epss_score": 0.42}],
+        "pagination": {"page": 1, "page_size": 50, "total_pages": 1, "total_count": 1},
+        "summary": {"observed": 2, "actionable": {"critical": 2, "high": 0, "medium": 0, "low": 0, "unknown": 0}, "actionable_total": 2, "accepted_risk": 0, "fixable": 2, "known_exploited": 2, "findings": 1},
+        "intelligence": {"kev_synced_at": "2026-09-01T00:00:00Z", "epss_synced_at": null, "kev_listed": 1}}`, &captured)
+	list, listError := apiClient.ListSecuritySBOMImageFindings(SecuritySBOMImageFindingsOptions{
+		ImageIdentity: "sha256:abc", Severities: []string{"critical", " high ", ""}, Search: "ssl", Sort: "severity", Order: "asc", Page: 2, PageSize: 10,
+	})
+	if listError != nil {
+		t.Fatalf("ListSecuritySBOMImageFindings returned an error: %v", listError)
+	}
+	expectedQuery := url.Values{"page": {"2"}, "page_size": {"10"}, "search": {"ssl"}, "sort": {"severity"}, "order": {"asc"},
+		"image": {"sha256:abc"}, "severity": {"critical", "high"}}
+	if captured.URL.Path != "/api/v1/org/security/sbom/image/findings" || !reflect.DeepEqual(captured.URL.Query(), expectedQuery) {
+		t.Fatalf("request = %s?%s", captured.URL.Path, captured.URL.RawQuery)
+	}
+	if list.Image.SBOMStatus != "present" || len(list.Result) != 1 || list.Result[0].CVEID != "CVE-2026-9001" ||
+		!list.Result[0].KnownExploited || *list.Result[0].FixedVersion != "3.0.1" || list.Result[0].Dispositions.Open != 2 ||
+		list.Summary.Findings != 1 || list.Intelligence.KevSyncedAt == nil {
+		t.Fatalf("image findings not decoded: %+v", list)
+	}
+	_, apiClient = newSecurityTestServer(t, `{"image": {"image_identity": "sha256:abc", "image_ref": "x", "image_digest": null, "sbom_status": "absent"}, "result": null,
+        "pagination": {"page": 1, "page_size": 50, "total_pages": 0, "total_count": 0},
+        "summary": {"observed": 0, "actionable": {"critical": 0, "high": 0, "medium": 0, "low": 0, "unknown": 0}, "actionable_total": 0, "accepted_risk": 0, "fixable": 0, "known_exploited": 0, "findings": 0},
+        "intelligence": {"kev_synced_at": null, "epss_synced_at": null, "kev_listed": 0}}`, &captured)
+	empty, emptyError := apiClient.ListSecuritySBOMImageFindings(SecuritySBOMImageFindingsOptions{ImageIdentity: "sha256:abc"})
+	if emptyError != nil || empty.Result == nil {
+		t.Fatalf("a null result decodes to an empty slice: %+v %v", empty, emptyError)
+	}
+}
+
+func TestExportSecuritySBOMImageDownloadsTheDocumentWithItsFileName(t *testing.T) {
+	var captured http.Request
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		captured = *request
+		writer.Header().Set("Content-Type", "application/vnd.cyclonedx+json; version=1.5")
+		writer.Header().Set("Content-Disposition", `attachment; filename="registry.test-grafana_1.0.0.cdx.json"`)
+		_, _ = writer.Write([]byte(`{"bomFormat":"CycloneDX"}`))
+	}))
+	defer server.Close()
+	apiClient := &Client{BaseURL: server.URL, Token: "token", HTTP: server.Client()}
+	export, exportError := apiClient.ExportSecuritySBOMImage(SecuritySBOMExportOptions{ImageIdentity: " sha256:abc ", Format: "cyclonedx"})
+	if exportError != nil {
+		t.Fatalf("ExportSecuritySBOMImage returned an error: %v", exportError)
+	}
+	if captured.URL.Path != "/api/v1/org/security/sbom/image/export" ||
+		captured.URL.Query().Get("image") != "sha256:abc" || captured.URL.Query().Get("format") != "cyclonedx" ||
+		captured.Header.Get("Authorization") != "Bearer token" {
+		t.Fatalf("request = %s?%s %v", captured.URL.Path, captured.URL.RawQuery, captured.Header)
+	}
+	if export.FileName != "registry.test-grafana_1.0.0.cdx.json" || string(export.Body) != `{"bomFormat":"CycloneDX"}` ||
+		!strings.HasPrefix(export.ContentType, "application/vnd.cyclonedx+json") {
+		t.Fatalf("export = %+v", export)
 	}
 }
