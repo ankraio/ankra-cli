@@ -752,6 +752,19 @@ func TestPipelineDefinitionsGetNotFound(t *testing.T) {
 	}
 }
 
+// TestPipelineDefinitionsGetGuardsAgainstANilResultWithNoError pins that a
+// broken APIClient answering (nil, nil) - unreachable through the real
+// client, but not through the interface's own contract - is reported as a
+// clear error rather than panicking on a nil dereference
+// (ankra-platform[bot] review on #231).
+func TestPipelineDefinitionsGetGuardsAgainstANilResultWithNoError(t *testing.T) {
+	mockClient := &pipelineLaneMock{}
+	_, executeError := runPipelineCommand(t, mockClient, "definitions", "get", "def-1")
+	if executeError == nil {
+		t.Fatal("expected an error rather than a panic")
+	}
+}
+
 func TestPipelineDefinitionsApproveHappyPath(t *testing.T) {
 	mockClient := &pipelineLaneMock{approveResult: &client.PipelineDefinitionApproval{
 		DefinitionID: "def-1", ProtectedHash: strings.Repeat("a", 64), ApprovedHash: strings.Repeat("a", 64),
@@ -828,6 +841,17 @@ func TestPipelineDefinitionsApproveConfirms(t *testing.T) {
 	}
 	if mockClient.approveCalls != 0 {
 		t.Errorf("ApprovePipelineDefinition was called despite the decline, calls = %d", mockClient.approveCalls)
+	}
+}
+
+// TestPipelineDefinitionsApproveGuardsAgainstANilResultWithNoError is
+// TestPipelineDefinitionsGetGuardsAgainstANilResultWithNoError's twin for
+// approve.
+func TestPipelineDefinitionsApproveGuardsAgainstANilResultWithNoError(t *testing.T) {
+	mockClient := &pipelineLaneMock{}
+	_, executeError := runPipelineCommand(t, mockClient, "definitions", "approve", "def-1", "--yes")
+	if executeError == nil {
+		t.Fatal("expected an error rather than a panic")
 	}
 }
 

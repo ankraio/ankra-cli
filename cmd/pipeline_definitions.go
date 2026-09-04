@@ -66,6 +66,9 @@ func runPipelineDefinitionsGet(command *cobra.Command, definitionID string) erro
 	if getError != nil {
 		return getError
 	}
+	if approval == nil {
+		return fmt.Errorf("the server answered no approval state for definition %s", definitionID)
+	}
 	if format != outputDefault {
 		return encodeStructured(command.OutOrStdout(), format, approval)
 	}
@@ -116,6 +119,9 @@ func runPipelineDefinitionsApprove(command *cobra.Command, definitionID string) 
 	approval, approveError := apiClient.ApprovePipelineDefinition(command.Context(), definitionID)
 	if approveError != nil {
 		return approveError
+	}
+	if approval == nil {
+		return fmt.Errorf("the server answered no approval state for definition %s", definitionID)
 	}
 	if format != outputDefault {
 		return encodeStructured(command.OutOrStdout(), format, approval)
