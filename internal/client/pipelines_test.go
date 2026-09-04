@@ -172,7 +172,8 @@ func TestListPipelineArtifactsEmpty(t *testing.T) {
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, `{"artifacts":[],"next_cursor":null}`)
 	})
-	list, err := testClient.ListPipelineArtifacts(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "run-1")
+	list, err := testClient.ListPipelineArtifacts(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "run-1",
+		ListPipelineArtifactsOptions{})
 	if err != nil {
 		t.Fatalf("ListPipelineArtifacts error = %v", err)
 	}
@@ -196,7 +197,8 @@ func TestListPipelineArtifactsDecodesKindStatusAndNullableStepID(t *testing.T) {
 			 "uploaded_at":null}
 		],"next_cursor":null}`)
 	})
-	list, err := testClient.ListPipelineArtifacts(context.Background(), PipelineSelector{RepositoryID: "repo-1"}, "run-1")
+	list, err := testClient.ListPipelineArtifacts(context.Background(), PipelineSelector{RepositoryID: "repo-1"}, "run-1",
+		ListPipelineArtifactsOptions{})
 	if err != nil {
 		t.Fatalf("ListPipelineArtifacts error = %v", err)
 	}
@@ -219,6 +221,41 @@ func TestListPipelineArtifactsDecodesKindStatusAndNullableStepID(t *testing.T) {
 	}
 	if declared.StepID != nil {
 		t.Errorf("declared artifact step id = %v, want nil (a run-level object)", declared.StepID)
+	}
+}
+
+func TestListPipelineArtifactsSendsCursorAndLimit(t *testing.T) {
+	var capturedCursor, capturedLimit string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedCursor = r.URL.Query().Get("cursor")
+		capturedLimit = r.URL.Query().Get("limit")
+		_, _ = fmt.Fprint(w, `{"artifacts":[],"next_cursor":"cursor-2"}`)
+	})
+	list, err := testClient.ListPipelineArtifacts(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "run-1",
+		ListPipelineArtifactsOptions{Cursor: "cursor-1", Limit: 100})
+	if err != nil {
+		t.Fatalf("ListPipelineArtifacts error = %v", err)
+	}
+	if capturedCursor != "cursor-1" || capturedLimit != "100" {
+		t.Errorf("query cursor = %q, limit = %q, want \"cursor-1\" and \"100\"", capturedCursor, capturedLimit)
+	}
+	if list.NextCursor == nil || *list.NextCursor != "cursor-2" {
+		t.Errorf("next cursor = %v, want the server's own", list.NextCursor)
+	}
+}
+
+func TestListPipelineArtifactsOmitsUnsetPaging(t *testing.T) {
+	var capturedRawQuery string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedRawQuery = r.URL.RawQuery
+		_, _ = fmt.Fprint(w, `{"artifacts":[],"next_cursor":null}`)
+	})
+	if _, err := testClient.ListPipelineArtifacts(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "run-1",
+		ListPipelineArtifactsOptions{}); err != nil {
+		t.Fatalf("ListPipelineArtifacts error = %v", err)
+	}
+	if capturedRawQuery != "" {
+		t.Errorf("raw query = %q, want none so the server chooses its own page", capturedRawQuery)
 	}
 }
 

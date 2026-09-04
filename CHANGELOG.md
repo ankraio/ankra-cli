@@ -41,13 +41,17 @@
   `pipeline run --wait`, or when checking an older run - showed nothing.
   `logs` now reads a concluded step's complete, durably archived log
   instead; `--follow` is unchanged for a step that is still running, which
-  is the only case it ever did anything.
+  is the only case it ever did anything. It follows the artifact listing's
+  pages to find that log, so a run with more artifacts than one page no
+  longer reads as if the step had never recorded one.
 - **`ankra pipeline artifacts` and `artifacts download` talk to the real
   artifact store.** Both were wired against the wire contract before the
   store existed, and said so in their help text; the store has since
   shipped, so listing and downloading a run's step logs and declared
   artifacts now works end to end, and the help text no longer claims
-  otherwise.
+  otherwise. The listing is paged like `pipeline list`: `--cursor` and
+  `--limit` choose the page, and a run with another page says so instead of
+  presenting its oldest artifacts as the whole record.
 
 ## v0.15.0-rc1 — 2026-09-03
 

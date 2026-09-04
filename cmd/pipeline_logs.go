@@ -10,9 +10,11 @@ package cmd
 // (enginekit/pipelineartifacts.KindStepLog, uploaded when the step
 // concluded) through the same artifacts list and presigned download
 // cmd/pipeline_artifacts.go uses, and prints it whole - mirroring the
-// portal's usePipelineStepArtifactLog. --follow only ever applies to the
-// live relay: a concluded step's log is a fixed, complete record, so there
-// is nothing left to follow.
+// portal's usePipelineStepArtifactLog. That listing is keyset-paged, so the
+// search follows its cursor rather than read the first page as the run's
+// whole record. --follow only ever applies to the live relay: a concluded
+// step's log is a fixed, complete record, so there is nothing left to
+// follow.
 
 import (
 	"bytes"
@@ -35,6 +37,20 @@ const pipelineStepStatusConcluded = "concluded"
 // reconnecting after the relay's own error frame or a stream fault, so a
 // transient disconnect does not spin the CLI in a tight retry loop.
 const pipelineLogStreamReconnectDelay = 2 * time.Second
+
+// pipelineArtifactPageSize is the page findPipelineStepLogArtifact asks for:
+// the route's own ceiling (enginekit/pipelineartifacts.MaxListLimit), so the
+// walk makes as few round trips as the server allows.
+const pipelineArtifactPageSize = 100
+
+// pipelineArtifactPageBudget bounds that walk. A run's step logs are written
+// oldest-first alongside its declared artifacts, so the one this command
+// wants is usually on the first page; the budget exists so a pathological
+// run (or a server that keeps handing back a cursor) cannot turn one 'logs'
+// call into an unbounded walk. At the page size above that is 5000 artifacts
+// before the search gives up, and giving up is reported as a capped read
+// rather than as an absent log.
+const pipelineArtifactPageBudget = 50
 
 func newPipelineLogsCommand() *cobra.Command {
 	logsCommand := &cobra.Command{
@@ -205,20 +221,21 @@ func runPipelineLogsFromArchive(command *cobra.Command, selector client.Pipeline
 	out := command.OutOrStdout()
 	progress := command.ErrOrStderr()
 
-	list, listError := apiClient.ListPipelineArtifacts(command.Context(), selector, runID)
-	if listError != nil {
-		return listError
-	}
-	var logArtifact *client.PipelineArtifact
-	for index := range list.Artifacts {
-		candidate := list.Artifacts[index]
-		if candidate.Kind == client.PipelineArtifactKindStepLog &&
-			candidate.StepID != nil && *candidate.StepID == step.ID {
-			logArtifact = &list.Artifacts[index]
-			break
-		}
+	logArtifact, wasFullyRead, findError := findPipelineStepLogArtifact(command, selector, runID, step.ID)
+	if findError != nil {
+		return findError
 	}
 	if logArtifact == nil {
+		if !wasFullyRead {
+			// The search stopped at its own page cap, so absence was never
+			// observed: say the read was capped rather than report a log
+			// that may well exist on a page this command declined to fetch.
+			_, _ = fmt.Fprintf(progress,
+				"Stopped after %d pages of run %s's artifacts without finding a log for step %q;"+
+					" list them with 'ankra pipeline artifacts %s'.\n",
+				pipelineArtifactPageBudget, runID, step.StepKey, runID)
+			return nil
+		}
 		_, _ = fmt.Fprintf(progress, "No archived log was recorded for step %q.\n", step.StepKey)
 		return nil
 	}
@@ -249,4 +266,32 @@ func runPipelineLogsFromArchive(command *cobra.Command, selector client.Pipeline
 			step.StepKey, logArtifact.Status)
 		return nil
 	}
+}
+
+// findPipelineStepLogArtifact walks the run's artifact pages for the given
+// step's step_log row. It returns the artifact when it finds one, and
+// otherwise reports through wasFullyRead whether the run's artifacts were
+// read to the end (a genuine absence) or the page budget ran out first (an
+// answer the caller must not state as absence).
+func findPipelineStepLogArtifact(command *cobra.Command, selector client.PipelineSelector, runID string,
+	stepID string) (artifact *client.PipelineArtifact, wasFullyRead bool, findError error) {
+	options := client.ListPipelineArtifactsOptions{Limit: pipelineArtifactPageSize}
+	for page := 0; page < pipelineArtifactPageBudget; page++ {
+		list, listError := apiClient.ListPipelineArtifacts(command.Context(), selector, runID, options)
+		if listError != nil {
+			return nil, false, listError
+		}
+		for index := range list.Artifacts {
+			candidate := list.Artifacts[index]
+			if candidate.Kind == client.PipelineArtifactKindStepLog &&
+				candidate.StepID != nil && *candidate.StepID == stepID {
+				return &list.Artifacts[index], true, nil
+			}
+		}
+		if list.NextCursor == nil || *list.NextCursor == "" {
+			return nil, true, nil
+		}
+		options.Cursor = *list.NextCursor
+	}
+	return nil, false, nil
 }

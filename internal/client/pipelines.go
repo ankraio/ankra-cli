@@ -197,12 +197,20 @@ type PipelineArtifact struct {
 }
 
 // PipelineArtifactList is the GET …/pipeline-runs/{run_id}/artifacts body.
-// NextCursor is nil on the last page; ListPipelineArtifacts itself does not
-// page through a run's artifacts today, so a run with more than one server
-// page only shows the first (see the method's own doc comment).
+// NextCursor is nil on the last page and carries the cursor of the next one
+// otherwise, so an empty page with a NextCursor means "more to read", never
+// "nothing stored".
 type PipelineArtifactList struct {
 	Artifacts  []PipelineArtifact `json:"artifacts"`
 	NextCursor *string            `json:"next_cursor"`
+}
+
+// ListPipelineArtifactsOptions is the GET …/pipeline-runs/{run_id}/artifacts
+// query. Cursor is a NextCursor handed back by an earlier page; Limit is the
+// page size (the server defaults to 50 and clamps at 100).
+type ListPipelineArtifactsOptions struct {
+	Cursor string
+	Limit  int
 }
 
 // PipelineFinding is the wire shape of one persisted scan finding
@@ -678,23 +686,31 @@ func (c *Client) CancelPipelineRun(ctx context.Context, selector PipelineSelecto
 	return &result, nil
 }
 
-// ListPipelineArtifacts lists a run's stored step logs and artifacts (GET
-// …/pipeline-runs/{run_id}/artifacts), oldest first. The server pages this
-// listing by keyset cursor (up to pipelineartifacts.MaxListLimit rows a
-// page); this method always asks for the server's default page and does not
-// follow NextCursor, so a run with more artifacts than that default fits
-// shows only its oldest ones - callers that need every artifact of a very
-// large run must page by hand until this method grows a cursor parameter.
+// ListPipelineArtifacts reads one keyset page of a run's stored step logs
+// and artifacts (GET …/pipeline-runs/{run_id}/artifacts), oldest first. The
+// server pages this listing (50 rows a page by default, 100 at most), so a
+// caller that needs every artifact of a run must follow the answer's
+// NextCursor until it comes back nil rather than read the first page as the
+// whole record.
 func (c *Client) ListPipelineArtifacts(ctx context.Context, selector PipelineSelector,
-	runID string) (*PipelineArtifactList, error) {
+	runID string, options ListPipelineArtifactsOptions) (*PipelineArtifactList, error) {
 	base, selectorError := selector.basePath()
 	if selectorError != nil {
 		return nil, selectorError
 	}
+	endpoint := fmt.Sprintf("%s%s/pipeline-runs/%s/artifacts", c.BaseURL, base, neturl.PathEscape(runID))
+	query := neturl.Values{}
+	if options.Cursor != "" {
+		query.Set("cursor", options.Cursor)
+	}
+	if options.Limit > 0 {
+		query.Set("limit", strconv.Itoa(options.Limit))
+	}
+	if len(query) > 0 {
+		endpoint += "?" + query.Encode()
+	}
 	var result PipelineArtifactList
-	if requestError := c.doPipelineRequest(ctx, http.MethodGet,
-		fmt.Sprintf("%s%s/pipeline-runs/%s/artifacts", c.BaseURL, base, neturl.PathEscape(runID)),
-		nil, &result); requestError != nil {
+	if requestError := c.doPipelineRequest(ctx, http.MethodGet, endpoint, nil, &result); requestError != nil {
 		return nil, requestError
 	}
 	return &result, nil

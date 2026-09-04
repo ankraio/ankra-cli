@@ -32,11 +32,16 @@ first.
 Every step's complete output is archived as a "step_log" artifact once the
 step concludes ('ankra pipeline logs' reads that one automatically for a
 concluded step); anything a stage's own "artifacts:" block declared shows up
-as "artifact". An empty list means the run genuinely has nothing stored yet
-- no step has concluded, or the organisation has no ready backup vault to
-store into. STATUS is "pending" until the upload is confirmed, "uploaded"
-once "artifacts download" can fetch it, "failed" if it never arrived (see
-the row's error), or "expired" once retention removed it.`,
+as "artifact". An empty first page means the run genuinely has nothing
+stored yet - no step has concluded, or the organisation has no ready backup
+vault to store into. STATUS is "pending" until the upload is confirmed,
+"uploaded" once "artifacts download" can fetch it, "failed" if it never
+arrived (see the row's error), or "expired" once retention removed it.
+
+The listing is paged: it prints one server page (50 rows by default) and
+says when there is another, which --cursor reads. So a run with more
+artifacts than one page shows its oldest first, and the list is complete
+only once no further page is offered.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -48,6 +53,8 @@ the row's error), or "expired" once retention removed it.`,
 	}
 	registerPipelineSelectorFlags(artifactsCommand)
 	registerStructuredOutputFlags(artifactsCommand)
+	artifactsCommand.Flags().String("cursor", "", "Page cursor from a previous listing's next_cursor")
+	artifactsCommand.Flags().Int("limit", 0, "Maximum number of artifacts to return (server default 50, max 100)")
 	artifactsCommand.AddCommand(newPipelineArtifactsDownloadCommand())
 	return artifactsCommand
 }
@@ -57,7 +64,10 @@ func runPipelineArtifactsList(command *cobra.Command, selector client.PipelineSe
 	if formatError != nil {
 		return formatError
 	}
-	list, listError := apiClient.ListPipelineArtifacts(command.Context(), selector, strings.TrimSpace(runID))
+	cursor, _ := command.Flags().GetString("cursor")
+	limit, _ := command.Flags().GetInt("limit")
+	list, listError := apiClient.ListPipelineArtifacts(command.Context(), selector, strings.TrimSpace(runID),
+		client.ListPipelineArtifactsOptions{Cursor: strings.TrimSpace(cursor), Limit: limit})
 	if listError != nil {
 		return listError
 	}
@@ -65,6 +75,11 @@ func runPipelineArtifactsList(command *cobra.Command, selector client.PipelineSe
 		return encodeStructured(command.OutOrStdout(), format, list)
 	}
 	if len(list.Artifacts) == 0 {
+		if list.NextCursor != nil {
+			_, _ = fmt.Fprintf(command.OutOrStdout(),
+				"No artifacts on this page; pass --cursor %s to read the next one.\n", *list.NextCursor)
+			return nil
+		}
 		_, _ = fmt.Fprintln(command.OutOrStdout(), "No artifacts stored for this run.")
 		return nil
 	}
@@ -85,6 +100,10 @@ func runPipelineArtifactsList(command *cobra.Command, selector client.PipelineSe
 		})
 	}
 	writer.Render()
+	if list.NextCursor != nil {
+		_, _ = fmt.Fprintf(command.ErrOrStderr(),
+			"\nMore artifacts available: pass --cursor %s to see the next page.\n", *list.NextCursor)
+	}
 	return nil
 }
 

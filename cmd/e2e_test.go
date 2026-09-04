@@ -2458,7 +2458,7 @@ func (m baseMock) StreamPipelineStepLogs(ctx context.Context, selector client.Pi
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineArtifactList, error) {
+func (m baseMock) ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string, options client.ListPipelineArtifactsOptions) (*client.PipelineArtifactList, error) {
 	return nil, errors.New("not implemented")
 }
 
