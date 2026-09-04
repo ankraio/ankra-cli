@@ -4,6 +4,24 @@
 
 ### Added
 
+- **`ankra security stacks --cluster <cluster>` breaks one cluster down by
+  the stacks Ankra deployed on it.** One row per stack with its attribution
+  status, scope, actionable and known-exploited findings and the
+  bill-of-materials coverage of its containers, riskiest first, plus a closing
+  "outside any stack" row for everything no stack owns, so the rows add up to
+  the cluster. An unmatched stack is reported as such, never as clean.
+- **`ankra security stack <name> --cluster <cluster>` is the whole path from
+  an Ankra resource to a pod.** The stack's scope, findings, CISA KEV
+  exposure and bill of materials, then every member (add-on or manifest) with
+  the posture of the workloads it resolved to, then the Kubernetes workloads
+  each member deploys with their pods, scan state, severe actionable findings
+  and SBOM coverage. `ankra security pods --workload-kind/--workload-name`
+  opens a workload's pods from there.
+- **`ankra security pod <namespace> <pod> --cluster <cluster>` reads one pod
+  container by container**: scan state, observed and severe actionable
+  findings, CISA KEV exposure and whether each container's image has a bill
+  of materials, with `sbom image` / `sbom findings` as the next step. A
+  container the scanner has no report for is "not scanned", not clean.
 - **`ankra security sbom findings <image>` lists the CVEs on one image.** The
   image detail counted findings per component and stopped there; this is the
   list behind the count: one row per CVE and installed package version,
