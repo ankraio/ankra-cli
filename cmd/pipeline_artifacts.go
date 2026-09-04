@@ -1,10 +1,14 @@
 package cmd
 
-// Artifacts: the store behind these routes is WS-C item C1 and does not
-// exist yet, so the list always answers empty and the download always
-// answers 404 today (go/internal/pipelineapi/artifacts.go). Both commands are
-// wired to the real contract now so nothing about them changes once the
-// store lands.
+// Artifacts: a run's step logs and declared artifacts, stored as objects in
+// the organisation's backup vault (go/internal/pipelineapi/artifacts.go,
+// enginekit/pipelineartifacts). list reads a keyset page of the run's rows;
+// download follows the route's 302 to a five-minute presigned GET on the
+// vault - the bytes never pass through the platform. An artifact that
+// cannot be downloaded says which fact it hit (its own Status, surfaced in
+// the list) rather than a bare 404: 409 while its step has not settled, its
+// upload failed, or its vault is gone; 410 once the retention sweep removed
+// it.
 
 import (
 	"fmt"
@@ -22,10 +26,17 @@ func newPipelineArtifactsCommand() *cobra.Command {
 	artifactsCommand := &cobra.Command{
 		Use:   "artifacts <run>",
 		Short: "List a pipeline run's stored artifacts",
-		Long: `List a pipeline run's stored artifacts.
+		Long: `List a pipeline run's stored step logs and declared artifacts, oldest
+first.
 
-The artifact store has not shipped yet, so every run answers an empty list
-until it does - this is not a sign that a run produced nothing.`,
+Every step's complete output is archived as a "step_log" artifact once the
+step concludes ('ankra pipeline logs' reads that one automatically for a
+concluded step); anything a stage's own "artifacts:" block declared shows up
+as "artifact". An empty list means the run genuinely has nothing stored yet
+- no step has concluded, or the organisation has no ready backup vault to
+store into. STATUS is "pending" until the upload is confirmed, "uploaded"
+once "artifacts download" can fetch it, "failed" if it never arrived (see
+the row's error), or "expired" once retention removed it.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -60,12 +71,14 @@ func runPipelineArtifactsList(command *cobra.Command, selector client.PipelineSe
 	writer := table.NewWriter()
 	writer.SetOutputMirror(command.OutOrStdout())
 	writer.SetStyle(table.StyleRounded)
-	writer.AppendHeader(table.Row{"ID", "NAME", "STEP", "CONTENT TYPE", "SIZE", "CREATED"})
+	writer.AppendHeader(table.Row{"ID", "KIND", "NAME", "STEP", "STATUS", "CONTENT TYPE", "SIZE", "CREATED"})
 	for _, artifact := range list.Artifacts {
 		writer.AppendRow(table.Row{
 			artifact.ID,
+			artifact.Kind,
 			artifact.Name,
-			artifact.StepID,
+			pipelineOptionalString(artifact.StepID),
+			artifact.Status,
 			artifact.ContentType,
 			artifact.SizeBytes,
 			formatTimeAgo(artifact.CreatedAt),

@@ -51,6 +51,7 @@ umbrella run this pipeline run belongs to, useful for correlating with
 		newPipelineRerunCommand(),
 		newPipelineLogsCommand(),
 		newPipelineArtifactsCommand(),
+		newPipelineFindingsCommand(),
 		newPipelineValidateCommand(),
 		newPipelineDefinitionCommand(),
 		newPipelineSchedulesCommand(),

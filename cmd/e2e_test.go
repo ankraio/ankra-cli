@@ -2454,6 +2454,10 @@ func (m baseMock) DownloadPipelineArtifact(ctx context.Context, selector client.
 	return errors.New("not implemented")
 }
 
+func (m baseMock) ListPipelineFindings(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineFindingList, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetPipelineDefinition(ctx context.Context, selector client.PipelineSelector) (*client.PipelineDefinition, error) {
 	return nil, errors.New("not implemented")
 }

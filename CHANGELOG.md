@@ -1,6 +1,35 @@
 # Ankra CLI Changelog
 
-## v0.15.0-rc1 — 2026-09-03
+## Unreleased
+
+### Added
+
+- **`ankra pipeline findings <run>`** lists a run's persisted scan findings -
+  the deduplicated Semgrep, Checkov and Trivy results (and the informational
+  SBOM summary) recorded for the run's own commit, the same rows the
+  application's Security tab reads. The table sorts worst severity first and
+  groups by tool; `-o json`/`yaml` prints every field, including each
+  finding's tool-specific detail. `ankra pipeline artifacts` now also shows
+  each row's `KIND` (`step_log` or `artifact`) and `STATUS` (`pending`,
+  `uploaded`, `failed` or `expired`), so a caller can tell a still-archiving
+  or failed row from one `artifacts download` can actually fetch.
+
+### Fixed
+
+- **`ankra pipeline logs` on a concluded step now shows its output.** The
+  live log relay only ever streamed what a step printed from the moment a
+  client connected, so running `logs` (with or without `--follow`) against a
+  step that had already finished - the ordinary case right after
+  `pipeline run --wait`, or when checking an older run - showed nothing.
+  `logs` now reads a concluded step's complete, durably archived log
+  instead; `--follow` is unchanged for a step that is still running, which
+  is the only case it ever did anything.
+- **`ankra pipeline artifacts` and `artifacts download` talk to the real
+  artifact store.** Both were wired against the wire contract before the
+  store existed, and said so in their help text; the store has since
+  shipped, so listing and downloading a run's step logs and declared
+  artifacts now works end to end, and the help text no longer claims
+  otherwise.
 
 ### Added
 

@@ -707,6 +707,7 @@ type APIClient interface {
 	StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, fromSequence int64) (<-chan client.PipelineLogEvent, error)
 	ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineArtifactList, error)
 	DownloadPipelineArtifact(ctx context.Context, selector client.PipelineSelector, artifactID string, destination io.Writer) error
+	ListPipelineFindings(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineFindingList, error)
 	GetPipelineDefinition(ctx context.Context, selector client.PipelineSelector) (*client.PipelineDefinition, error)
 	PutPipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineDefinition, error)
 	ValidatePipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineValidation, error)
