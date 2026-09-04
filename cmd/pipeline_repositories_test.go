@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -322,5 +323,37 @@ func TestPipelineRepositoriesDisconnectNotFound(t *testing.T) {
 	_, executeError := runPipelineCommand(t, mockClient, "repositories", "disconnect", repositoryID, "--yes")
 	if executeError == nil || executeError.Error() != "Pipeline repository not found" {
 		t.Fatalf("error = %v, want the sentinel text verbatim", executeError)
+	}
+}
+
+// TestPipelineRepositoriesDisconnectStructuredOutputStaysCleanOfThePrompt
+// pins the Ankra AI review finding on this PR (cmd/pipeline_repositories.go,
+// commit cb02d17464eb): confirmPrompt must write to stderr, not stdout, so
+// that '--format json' without '--yes' still leaves stdout as one parseable
+// document instead of the prompt text followed by the JSON.
+func TestPipelineRepositoriesDisconnectStructuredOutputStaysCleanOfThePrompt(t *testing.T) {
+	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+	mockClient := &pipelineLaneMock{}
+	previousClient := apiClient
+	apiClient = mockClient
+	t.Cleanup(func() { apiClient = previousClient })
+
+	pipelineCommand := newPipelineCommand()
+	var stdout, stderr bytes.Buffer
+	pipelineCommand.SetOut(&stdout)
+	pipelineCommand.SetErr(&stderr)
+	pipelineCommand.SetIn(strings.NewReader("y\n"))
+	pipelineCommand.SetArgs([]string{"repositories", "disconnect", repositoryID, "--output", "json"})
+	if executeError := pipelineCommand.Execute(); executeError != nil {
+		t.Fatalf("disconnect error = %v", executeError)
+	}
+	if !json.Valid(stdout.Bytes()) {
+		t.Fatalf("stdout = %q, want it to be exactly one valid JSON document with no prompt text mixed in", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "[y/N]") {
+		t.Errorf("stderr = %q, want the confirmation prompt", stderr.String())
+	}
+	if mockClient.disconnectRepositoryCalls != 1 {
+		t.Errorf("DisconnectPipelineRepository calls = %d, want 1", mockClient.disconnectRepositoryCalls)
 	}
 }

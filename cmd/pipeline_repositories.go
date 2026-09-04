@@ -338,7 +338,11 @@ func runPipelineRepositoriesDisconnect(command *cobra.Command, repositoryID stri
 	}
 	skipConfirmation, _ := command.Flags().GetBool("yes")
 	confirmMessage := fmt.Sprintf("Disconnect pipeline repository %s? [y/N] ", repositoryID)
-	if confirmError := confirmPrompt(command.InOrStdin(), command.OutOrStdout(), confirmMessage, skipConfirmation); confirmError != nil {
+	// The prompt goes to stderr, not OutOrStdout: unlike 'schedules delete'
+	// (which never registers -o json/-o yaml), this command does, and a
+	// prompt byte ahead of encodeStructured's JSON/YAML would leave stdout
+	// unparseable for a script that passed --format without --yes.
+	if confirmError := confirmPrompt(command.InOrStdin(), command.ErrOrStderr(), confirmMessage, skipConfirmation); confirmError != nil {
 		return confirmError
 	}
 	if disconnectError := apiClient.DisconnectPipelineRepository(command.Context(), repositoryID); disconnectError != nil {
