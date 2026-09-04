@@ -1,40 +1,30 @@
 package cmd
 
 // `ankra pipeline repositories …` (ankra-vn0bd.4.2, WS-D item D2): the CLI
-// surface over the organisation-scoped routes cluster PR #2490 added -
-// POST/GET /org/pipelines/repositories[/{repository_id}]
+// surface over the organisation-scoped routes cluster PRs #2490 and #2509
+// added - POST/GET/DELETE /org/pipelines/repositories[/{repository_id}]
 // (go/internal/pipelineapi/repositories.go) - which connect a bare Git
-// repository to Ankra Pipelines, list what the organisation has connected,
-// and read one by id.
+// repository to Ankra Pipelines (optionally linking an application and a CI
+// cluster override), list what the organisation has connected, read one by
+// id, and disconnect one.
 //
-// These three routes address the organisation alone, not one already-linked
+// These four routes address the organisation alone, not one already-linked
 // pipeline: unlike every other `ankra pipeline …` command (cmd/pipeline.go
 // and its siblings) there is no --application/--repository selector here.
 // Once connected, a repository is addressed the usual way -
 // `ankra pipeline get --repository <id>` and friends, or
 // `ankra application pipeline …` once it is linked to an application.
 //
-// Left out of this item, deliberately, because the merged server surface
-// (go/internal/pipelineapi/repositories.go,
-// go/internal/usecase/pipelines/repositories.go) does not carry them yet:
+// There is still no `ankra application pipeline connect` alias: --application
+// on connect names an id the caller already has (an application does not
+// resolve itself), and an application already on Ankra links to its own
+// repository automatically through the scheduler's own onboarding writer
+// (enginekit/pipelineonboard.Onboard) - this route is for a bare repository
+// or a repository connected ahead of the application that will use it.
 //
-//   - disconnect: no DELETE route and no usecase method exist. Mount() in
-//     go/internal/pipelineapi/pipelineapi.go registers exactly POST and the
-//     two GETs for this path.
-//   - an application link on connect: connectRepositoryRequest carries no
-//     application_id field - only the scheduler's own onboarding writer
-//     (enginekit/pipelineonboard.Onboard) can set one, on an application's
-//     create or reconcile. There is therefore no
-//     `ankra application pipeline connect` alias: it would have nothing of
-//     its own to send.
-//   - a resolved CI cluster on the connect response: connectRepositoryResponse
-//     carries the repository and the definition-bootstrap outcome only.
-//     cisettings.ResolvePipelineCluster is read by the pipeline-source
-//     decision (enginekit/pipelinesource) and by the run-dispatch route's
-//     pipelines.ErrNoCICluster, not by this connect route.
-//
-// Re-read the merged handlers before adding any of the three; this comment
-// is not a promise they will land in the same shape.
+// Re-read the merged handlers (go/internal/pipelineapi/repositories.go,
+// go/internal/usecase/pipelines/repositories.go) before widening this surface
+// further; this comment is not a promise of what they carry today.
 
 import (
 	"errors"
@@ -70,7 +60,7 @@ func newPipelineRepositoriesCommand() *cobra.Command {
 		Aliases: []string{"repos"},
 		Short:   "Manage the organisation's connected pipeline repositories",
 		Long: `Connect a bare Git repository to Ankra Pipelines, list what the
-organisation has connected, and read one by id.
+organisation has connected, read one by id, and disconnect one.
 
 A connected repository is what a push, pull request or tag webhook resolves
 against to start a run. Connecting one here does not require an Ankra
@@ -82,6 +72,7 @@ its own repository automatically.`,
 		newPipelineRepositoriesListCommand(),
 		newPipelineRepositoriesGetCommand(),
 		newPipelineRepositoriesConnectCommand(),
+		newPipelineRepositoriesDisconnectCommand(),
 	)
 	return repositoriesCommand
 }
@@ -140,7 +131,7 @@ func renderPipelineRepositoryTable(out io.Writer, repositories []client.Pipeline
 	writer := table.NewWriter()
 	writer.SetOutputMirror(out)
 	writer.SetStyle(table.StyleRounded)
-	writer.AppendHeader(table.Row{"ID", "PROVIDER", "REPOSITORY", "DEFAULT BRANCH", "APPLICATION", "CREATED"})
+	writer.AppendHeader(table.Row{"ID", "PROVIDER", "REPOSITORY", "DEFAULT BRANCH", "APPLICATION", "CI CLUSTER", "CREATED"})
 	for _, repository := range repositories {
 		writer.AppendRow(table.Row{
 			repository.ID,
@@ -148,6 +139,7 @@ func renderPipelineRepositoryTable(out io.Writer, repositories []client.Pipeline
 			repository.Owner + "/" + repository.Name,
 			repository.DefaultBranch,
 			pipelineOptionalString(repository.ApplicationID),
+			pipelineOptionalString(repository.ClusterID),
 			formatTimeAgo(repository.CreatedAt),
 		})
 	}
@@ -204,6 +196,7 @@ func printPipelineRepository(out io.Writer, repository *client.PipelineRepositor
 	_, _ = fmt.Fprintf(out, "  Credential:     %s\n", credentialName)
 	_, _ = fmt.Fprintf(out, "  Default branch: %s\n", repository.DefaultBranch)
 	_, _ = fmt.Fprintf(out, "  Application:    %s\n", pipelineOptionalString(repository.ApplicationID))
+	_, _ = fmt.Fprintf(out, "  CI cluster:     %s\n", pipelineOptionalString(repository.ClusterID))
 	_, _ = fmt.Fprintf(out, "  Created:        %s\n", formatTimeAgo(repository.CreatedAt))
 	_, _ = fmt.Fprintf(out, "  Updated:        %s\n", formatTimeAgo(repository.UpdatedAt))
 }
@@ -219,6 +212,14 @@ Connecting a repository that is already connected does not create a second
 row or refresh the first - the platform refuses with the existing
 repository's id named in the error, so a setup script that runs this
 unconditionally can still learn the id it has either way.
+
+--application links the repository to an application already in this
+organisation (by id) without changing that application's own pipeline
+source - it is refused (422) for an application outside the organisation.
+--cluster overrides the organisation's declared CI cluster
+('ankra ci-settings' / GET /org/ci-settings) for just this repository's
+pipelines - it is refused (422) for a cluster outside the organisation, or
+one whose agent has not advertised it can run pipeline steps.
 
 For a GitHub repository, the committed .ankra/pipeline.yaml on the default
 branch (read through --credential) is recorded as the definition of record in
@@ -237,6 +238,8 @@ and connect again.`,
 	connectCommand.Flags().String("credential", "",
 		"Organisation Git credential used to read the repository; omit to connect without reading the committed pipeline file")
 	connectCommand.Flags().String("default-branch", "", "Branch the pipeline file is read from (default: main)")
+	connectCommand.Flags().String("application", "", "Application id to link this repository to (optional; must belong to this organisation)")
+	connectCommand.Flags().String("cluster", "", "Cluster id to run this repository's pipelines on, overriding the organisation default (optional; its agent must support pipeline steps)")
 	_ = connectCommand.MarkFlagRequired("provider")
 	_ = connectCommand.MarkFlagRequired("owner")
 	_ = connectCommand.MarkFlagRequired("name")
@@ -254,6 +257,8 @@ func runPipelineRepositoriesConnect(command *cobra.Command) error {
 	name, _ := command.Flags().GetString("name")
 	credentialName, _ := command.Flags().GetString("credential")
 	defaultBranch, _ := command.Flags().GetString("default-branch")
+	applicationID, _ := command.Flags().GetString("application")
+	clusterID, _ := command.Flags().GetString("cluster")
 
 	result, connectError := apiClient.ConnectPipelineRepository(command.Context(), client.ConnectPipelineRepositoryRequest{
 		Provider:       normalisePipelineRepositoryProvider(strings.TrimSpace(provider)),
@@ -261,6 +266,8 @@ func runPipelineRepositoriesConnect(command *cobra.Command) error {
 		Name:           strings.TrimSpace(name),
 		CredentialName: strings.TrimSpace(credentialName),
 		DefaultBranch:  strings.TrimSpace(defaultBranch),
+		ApplicationID:  strings.TrimSpace(applicationID),
+		ClusterID:      strings.TrimSpace(clusterID),
 	})
 	if connectError != nil {
 		var alreadyConnected *client.PipelineRepositoryAlreadyConnectedError
@@ -275,6 +282,12 @@ func runPipelineRepositoriesConnect(command *cobra.Command) error {
 	}
 	_, _ = fmt.Fprintf(command.OutOrStdout(), "Connected %s/%s as repository %s (provider: %s, default branch: %s)\n",
 		result.Owner, result.Name, result.ID, result.Provider, result.DefaultBranch)
+	if result.ApplicationID != nil && *result.ApplicationID != "" {
+		_, _ = fmt.Fprintf(command.OutOrStdout(), "Application: %s\n", *result.ApplicationID)
+	}
+	if result.ClusterID != nil && *result.ClusterID != "" {
+		_, _ = fmt.Fprintf(command.OutOrStdout(), "CI cluster:  %s\n", *result.ClusterID)
+	}
 	_, _ = fmt.Fprintf(command.OutOrStdout(), "Definition: %s - %s\n", result.Definition.Status, result.Definition.Detail)
 	if result.Definition.ReadError != nil && *result.Definition.ReadError != "" {
 		_, _ = fmt.Fprintf(command.OutOrStdout(), "  (committed file: %s)\n", *result.Definition.ReadError)
@@ -285,5 +298,55 @@ func runPipelineRepositoriesConnect(command *cobra.Command) error {
 			_, _ = fmt.Fprintf(command.OutOrStdout(), "  - %s\n", violation)
 		}
 	}
+	return nil
+}
+
+func newPipelineRepositoriesDisconnectCommand() *cobra.Command {
+	disconnectCommand := &cobra.Command{
+		Use:     "disconnect <repository-id>",
+		Aliases: []string{"rm"},
+		Short:   "Disconnect a pipeline repository",
+		Long: `Disconnect a connected repository: from then on a push, pull request or
+tag webhook against it starts no run, and it drops out of
+'ankra pipeline repositories list'/'get'.
+
+This is reversible by construction - connecting the same provider/owner/name
+again revives this exact row, definitions, runs, artifacts and findings kept -
+so disconnecting is not a delete. A repository with a pipeline run still
+queued or running refuses to disconnect (409); cancel or wait for it to
+conclude, then disconnect again.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			return runPipelineRepositoriesDisconnect(command, arguments[0])
+		},
+	}
+	disconnectCommand.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	registerStructuredOutputFlags(disconnectCommand)
+	return disconnectCommand
+}
+
+func runPipelineRepositoriesDisconnect(command *cobra.Command, repositoryID string) error {
+	format, formatError := structuredFormatFromFlags(command)
+	if formatError != nil {
+		return formatError
+	}
+	repositoryID = strings.TrimSpace(repositoryID)
+	if !looksLikeUUID(repositoryID) {
+		return withExitCode(exitUsage, fmt.Errorf(
+			"%q is not a repository id - there is no lookup by owner/name yet, "+
+				"run 'ankra pipeline repositories list' to find it", repositoryID))
+	}
+	skipConfirmation, _ := command.Flags().GetBool("yes")
+	confirmMessage := fmt.Sprintf("Disconnect pipeline repository %s? [y/N] ", repositoryID)
+	if confirmError := confirmPrompt(command.InOrStdin(), command.OutOrStdout(), confirmMessage, skipConfirmation); confirmError != nil {
+		return confirmError
+	}
+	if disconnectError := apiClient.DisconnectPipelineRepository(command.Context(), repositoryID); disconnectError != nil {
+		return disconnectError
+	}
+	if format != outputDefault {
+		return encodeStructured(command.OutOrStdout(), format, map[string]any{"repository_id": repositoryID, "disconnected": true})
+	}
+	_, _ = fmt.Fprintf(command.OutOrStdout(), "Repository %s disconnected.\n", repositoryID)
 	return nil
 }

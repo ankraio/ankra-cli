@@ -88,6 +88,10 @@ type pipelineLaneMock struct {
 	connectRepositoryResult  *client.ConnectPipelineRepositoryResult
 	connectRepositoryError   error
 	connectRepositoryCalls   int
+
+	disconnectRepositoryID    string
+	disconnectRepositoryError error
+	disconnectRepositoryCalls int
 }
 
 func (mock *pipelineLaneMock) ListPipelineRuns(ctx context.Context, selector client.PipelineSelector, options client.ListPipelineRunsOptions) (*client.PipelineRunList, error) {
@@ -246,6 +250,12 @@ func (mock *pipelineLaneMock) ConnectPipelineRepository(ctx context.Context, req
 	return mock.connectRepositoryResult, nil
 }
 
+func (mock *pipelineLaneMock) DisconnectPipelineRepository(ctx context.Context, repositoryID string) error {
+	mock.disconnectRepositoryID = repositoryID
+	mock.disconnectRepositoryCalls++
+	return mock.disconnectRepositoryError
+}
+
 func runPipelineCommand(t *testing.T, mockClient APIClient, arguments ...string) (string, error) {
 	t.Helper()
 	previousClient := apiClient
@@ -292,7 +302,7 @@ func TestPipelineCommandsRegistered(t *testing.T) {
 		}
 	}
 	repositoriesCommand := findSubcommand(t, pipelineCommand, "repositories")
-	for _, expected := range []string{"list", "get", "connect"} {
+	for _, expected := range []string{"list", "get", "connect", "disconnect"} {
 		if findSubcommandOrNil(repositoriesCommand, expected) == nil {
 			t.Errorf("pipeline repositories subcommand %q is not registered", expected)
 		}

@@ -3,16 +3,18 @@ package client
 // Ankra Pipelines (ankra-vn0bd.2.8, WS-B item B8): the typed client for
 // go/internal/pipelineapi on the cluster-api - runs, the definition of
 // record, and cron schedules - plus the organisation-scoped repository
-// onboarding routes cluster PR #2490 added (ankra-vn0bd.4.2, WS-D item D2):
-// connect, list and get a connected repository.
+// onboarding routes cluster PRs #2490 and #2509 added (ankra-vn0bd.4.2,
+// WS-D item D2): connect (optionally linking an application and a CI cluster
+// override), list, get and disconnect a connected repository.
 //
 // The server mounts every selector-addressed route four times (session/token
 // twin x by-application/by-repository twin); this client only ever speaks
 // the bearer-PAT twin, and PipelineSelector picks which of the two addresses
 // a call uses. The repository routes are mounted differently
 // (mountOrganisation, not mountScoped): they address the organisation alone,
-// so ConnectPipelineRepository, ListPipelineRepositories and
-// GetPipelineRepository take no PipelineSelector.
+// so ConnectPipelineRepository, ListPipelineRepositories,
+// GetPipelineRepository and DisconnectPipelineRepository take no
+// PipelineSelector.
 //
 // PipelineSelector.RepositoryID still takes the repository's id, not
 // "owner/name": the new listing filters by provider, not by owner/name, so
@@ -297,11 +299,13 @@ type UpdatePipelineScheduleRequest struct {
 
 // PipelineRepository is the wire shape of a `pipeline_repositories` row
 // (go/internal/pipelineapi/repositories.go repositoryResponse): what
-// `pipeline repositories list|get|connect` (ankra-vn0bd.4.2) address.
-// ApplicationID is set only when the scheduler's own application-lane writer
-// (enginekit/pipelineonboard.Onboard) linked one; connect on this client
-// never sets it - the wire's connectRepositoryRequest carries no
-// application_id field.
+// `pipeline repositories list|get|connect|disconnect` (ankra-vn0bd.4.2)
+// address. ApplicationID links the repository to an application inside the
+// organisation without changing that application's own pipeline_source
+// disposition; ClusterID overrides the organisation's declared CI cluster
+// (`GET /org/ci-settings`) for this repository's pipelines. Both are nil
+// when the connect named none - a repository's pipelines then fall back to
+// the organisation's setting.
 type PipelineRepository struct {
 	ID             string  `json:"id"`
 	OrganisationID string  `json:"organisation_id"`
@@ -311,6 +315,7 @@ type PipelineRepository struct {
 	CredentialName string  `json:"credential_name"`
 	DefaultBranch  string  `json:"default_branch"`
 	ApplicationID  *string `json:"application_id"`
+	ClusterID      *string `json:"cluster_id"`
 	CreatedAt      string  `json:"created_at"`
 	UpdatedAt      string  `json:"updated_at"`
 }
@@ -337,12 +342,20 @@ type PipelineRepositoryDefinitionOutcome struct {
 // connects the repository without reading its committed pipeline file (the
 // connect result's Definition says so), and an absent branch takes the
 // server's "main" default (pipelines.DefaultRepositoryBranch).
+// ApplicationID and ClusterID are both optional and both addressed by id, not
+// by name: an empty string connects no application and stores no CI cluster
+// override. The server refuses (422) an application outside the organisation,
+// a cluster outside the organisation, or a cluster whose agent has not
+// advertised it can run pipeline steps
+// (go/internal/usecase/pipelines/repositories.go validateRepositoryLinks).
 type ConnectPipelineRepositoryRequest struct {
 	Provider       string `json:"provider"`
 	Owner          string `json:"owner"`
 	Name           string `json:"name"`
 	CredentialName string `json:"credential_name,omitempty"`
 	DefaultBranch  string `json:"default_branch,omitempty"`
+	ApplicationID  string `json:"application_id,omitempty"`
+	ClusterID      string `json:"cluster_id,omitempty"`
 }
 
 // ConnectPipelineRepositoryResult is the 201 body: the connected repository
@@ -916,4 +929,18 @@ func (c *Client) ConnectPipelineRepository(ctx context.Context,
 		return nil, requestError
 	}
 	return &result, nil
+}
+
+// DisconnectPipelineRepository disconnects a connected repository
+// (DELETE /org/pipelines/repositories/{repository_id}), answering 204 with no
+// body on success. Disconnecting is reversible by construction - connecting
+// the same identity again revives the row - but a repository with a pipeline
+// run still queued or running refuses with the server's own 409 sentence
+// ("This repository has a pipeline run that is queued or running",
+// pipelines.ErrRepositoryHasLiveRun), rendered here as a plain error, and a
+// repository that was never connected, or was already disconnected, answers
+// the same 404 as an unknown id (pipelines.ErrRepositoryNotFound).
+func (c *Client) DisconnectPipelineRepository(ctx context.Context, repositoryID string) error {
+	endpoint := fmt.Sprintf("%s%s/%s", c.BaseURL, pipelineRepositoriesBasePath, neturl.PathEscape(repositoryID))
+	return c.doPipelineRequest(ctx, http.MethodDelete, endpoint, nil, nil)
 }

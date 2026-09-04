@@ -420,3 +420,109 @@ func TestGetPipelineRepositoryNotFound(t *testing.T) {
 		t.Fatalf("error = %v, want the sentinel text verbatim", err)
 	}
 }
+
+// TestConnectPipelineRepositoryWithApplicationAndCluster pins that
+// --application/--cluster (cluster PR #2509) round-trip through the request
+// body and the response's application_id/cluster_id fields.
+func TestConnectPipelineRepositoryWithApplicationAndCluster(t *testing.T) {
+	var capturedBody string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		capturedBody = string(body)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = fmt.Fprint(w, `{"id":"repo-1","organisation_id":"org-1","provider":"github","owner":"acme",
+			"name":"webapp","credential_name":"","default_branch":"main","application_id":"app-1",
+			"cluster_id":"cluster-1","created_at":"2026-09-01T00:00:00Z","updated_at":"2026-09-01T00:00:00Z",
+			"definition":{"status":"absent","detail":"no file","definition_id":null,"spec_hash":null,"violations":[],"read_error":null}}`)
+	})
+	result, err := testClient.ConnectPipelineRepository(context.Background(), ConnectPipelineRepositoryRequest{
+		Provider: "github", Owner: "acme", Name: "webapp", ApplicationID: "app-1", ClusterID: "cluster-1",
+	})
+	if err != nil {
+		t.Fatalf("ConnectPipelineRepository error = %v", err)
+	}
+	if !strings.Contains(capturedBody, `"application_id":"app-1"`) || !strings.Contains(capturedBody, `"cluster_id":"cluster-1"`) {
+		t.Errorf("body = %q, want both ids sent", capturedBody)
+	}
+	if result.ApplicationID == nil || *result.ApplicationID != "app-1" {
+		t.Errorf("application_id = %v", result.ApplicationID)
+	}
+	if result.ClusterID == nil || *result.ClusterID != "cluster-1" {
+		t.Errorf("cluster_id = %v", result.ClusterID)
+	}
+}
+
+func TestConnectPipelineRepositoryApplicationNotFound(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = fmt.Fprint(w, `{"detail":"Application not found in this organisation"}`)
+	})
+	_, err := testClient.ConnectPipelineRepository(context.Background(), ConnectPipelineRepositoryRequest{
+		Provider: "github", Owner: "acme", Name: "webapp", ApplicationID: "00000000-0000-0000-0000-000000000000",
+	})
+	if err == nil || err.Error() != "Application not found in this organisation" {
+		t.Fatalf("error = %v, want the sentinel text verbatim", err)
+	}
+}
+
+func TestConnectPipelineRepositoryClusterCannotRunPipelines(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = fmt.Fprint(w, `{"detail":"This cluster's agent cannot run pipeline steps"}`)
+	})
+	_, err := testClient.ConnectPipelineRepository(context.Background(), ConnectPipelineRepositoryRequest{
+		Provider: "github", Owner: "acme", Name: "webapp", ClusterID: "00000000-0000-0000-0000-000000000000",
+	})
+	if err == nil || err.Error() != "This cluster's agent cannot run pipeline steps" {
+		t.Fatalf("error = %v, want the sentinel text verbatim", err)
+	}
+}
+
+func TestDisconnectPipelineRepositoryHappyPath(t *testing.T) {
+	var capturedMethod, capturedPath string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedMethod = r.Method
+		capturedPath = r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	})
+	err := testClient.DisconnectPipelineRepository(context.Background(), "repo-1")
+	if err != nil {
+		t.Fatalf("DisconnectPipelineRepository error = %v", err)
+	}
+	if capturedMethod != http.MethodDelete {
+		t.Errorf("method = %q", capturedMethod)
+	}
+	if capturedPath != "/api/v1/org/pipelines/repositories/repo-1" {
+		t.Errorf("path = %q", capturedPath)
+	}
+}
+
+// TestDisconnectPipelineRepositoryHasLiveRun pins the 409 cluster PR #2509
+// added for a repository with a queued or running pipeline run: the plain
+// {"detail": "..."} shape, rendered verbatim rather than as the typed
+// duplicate-connect error (it carries no repository_id field).
+func TestDisconnectPipelineRepositoryHasLiveRun(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = fmt.Fprint(w, `{"detail":"This repository has a pipeline run that is queued or running"}`)
+	})
+	err := testClient.DisconnectPipelineRepository(context.Background(), "repo-1")
+	if err == nil || err.Error() != "This repository has a pipeline run that is queued or running" {
+		t.Fatalf("error = %v, want the sentinel text verbatim", err)
+	}
+	var alreadyConnected *PipelineRepositoryAlreadyConnectedError
+	if errors.As(err, &alreadyConnected) {
+		t.Errorf("a live-run refusal must not decode as *PipelineRepositoryAlreadyConnectedError: %+v", alreadyConnected)
+	}
+}
+
+func TestDisconnectPipelineRepositoryNotFound(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = fmt.Fprint(w, `{"detail":"Pipeline repository not found"}`)
+	})
+	err := testClient.DisconnectPipelineRepository(context.Background(), "repo-missing")
+	if err == nil || err.Error() != "Pipeline repository not found" {
+		t.Fatalf("error = %v, want the sentinel text verbatim", err)
+	}
+}

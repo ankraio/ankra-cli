@@ -2494,6 +2494,10 @@ func (m baseMock) ConnectPipelineRepository(ctx context.Context, request client.
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) DisconnectPipelineRepository(ctx context.Context, repositoryID string) error {
+	return errors.New("not implemented")
+}
+
 type clusterListMock struct {
 	baseMock
 	clusters []client.ClusterListItem

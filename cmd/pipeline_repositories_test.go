@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -166,6 +167,159 @@ func TestPipelineRepositoriesGetNotFound(t *testing.T) {
 	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 	mockClient := &pipelineLaneMock{getRepositoryError: errors.New("Pipeline repository not found")}
 	_, executeError := runPipelineCommand(t, mockClient, "repositories", "get", repositoryID)
+	if executeError == nil || executeError.Error() != "Pipeline repository not found" {
+		t.Fatalf("error = %v, want the sentinel text verbatim", executeError)
+	}
+}
+
+func TestPipelineRepositoriesGetShowsApplicationAndCICluster(t *testing.T) {
+	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+	applicationID := "app-1"
+	clusterID := "cluster-1"
+	mockClient := &pipelineLaneMock{getRepositoryResult: &client.PipelineRepository{
+		ID: repositoryID, Provider: "github", Owner: "acme", Name: "webapp", DefaultBranch: "main",
+		ApplicationID: &applicationID, ClusterID: &clusterID,
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "repositories", "get", repositoryID)
+	if executeError != nil {
+		t.Fatalf("get error = %v", executeError)
+	}
+	if !strings.Contains(output, applicationID) || !strings.Contains(output, clusterID) {
+		t.Errorf("output = %q, want it to show the application and CI cluster", output)
+	}
+}
+
+func TestPipelineRepositoriesListShowsCICluster(t *testing.T) {
+	clusterID := "cluster-1"
+	mockClient := &pipelineLaneMock{listRepositoriesResult: &client.PipelineRepositoryList{Repositories: []client.PipelineRepository{
+		{ID: "repo-1", Provider: "github", Owner: "acme", Name: "webapp", DefaultBranch: "main", ClusterID: &clusterID},
+	}}}
+	output, executeError := runPipelineCommand(t, mockClient, "repositories", "list")
+	if executeError != nil {
+		t.Fatalf("list error = %v", executeError)
+	}
+	if !strings.Contains(output, clusterID) {
+		t.Errorf("output = %q, want the CI cluster column populated", output)
+	}
+}
+
+// TestPipelineRepositoriesConnectPassesApplicationAndCluster pins that
+// --application/--cluster (cluster PR #2509) reach the request unmodified.
+func TestPipelineRepositoriesConnectPassesApplicationAndCluster(t *testing.T) {
+	applicationID := "app-1"
+	clusterID := "cluster-1"
+	mockClient := &pipelineLaneMock{connectRepositoryResult: &client.ConnectPipelineRepositoryResult{
+		PipelineRepository: client.PipelineRepository{
+			ID: "repo-1", Provider: "github", Owner: "acme", Name: "webapp",
+			ApplicationID: &applicationID, ClusterID: &clusterID,
+		},
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "repositories", "connect",
+		"--provider", "github", "--owner", "acme", "--name", "webapp",
+		"--application", applicationID, "--cluster", clusterID)
+	if executeError != nil {
+		t.Fatalf("connect error = %v", executeError)
+	}
+	if mockClient.connectRepositoryRequest.ApplicationID != applicationID ||
+		mockClient.connectRepositoryRequest.ClusterID != clusterID {
+		t.Errorf("request = %+v", mockClient.connectRepositoryRequest)
+	}
+	if !strings.Contains(output, applicationID) || !strings.Contains(output, clusterID) {
+		t.Errorf("output = %q, want it to show the linked application and CI cluster", output)
+	}
+}
+
+func TestPipelineRepositoriesConnectApplicationNotFound(t *testing.T) {
+	mockClient := &pipelineLaneMock{connectRepositoryError: errors.New("Application not found in this organisation")}
+	_, executeError := runPipelineCommand(t, mockClient, "repositories", "connect",
+		"--provider", "github", "--owner", "acme", "--name", "webapp", "--application", "00000000-0000-0000-0000-000000000000")
+	if executeError == nil || executeError.Error() != "Application not found in this organisation" {
+		t.Fatalf("error = %v, want the sentinel text verbatim", executeError)
+	}
+}
+
+func TestPipelineRepositoriesConnectClusterCannotRunPipelines(t *testing.T) {
+	mockClient := &pipelineLaneMock{connectRepositoryError: errors.New("This cluster's agent cannot run pipeline steps")}
+	_, executeError := runPipelineCommand(t, mockClient, "repositories", "connect",
+		"--provider", "github", "--owner", "acme", "--name", "webapp", "--cluster", "00000000-0000-0000-0000-000000000000")
+	if executeError == nil || executeError.Error() != "This cluster's agent cannot run pipeline steps" {
+		t.Fatalf("error = %v, want the sentinel text verbatim", executeError)
+	}
+}
+
+func TestPipelineRepositoriesDisconnectRequiresAUUID(t *testing.T) {
+	mockClient := &pipelineLaneMock{}
+	_, executeError := runPipelineCommand(t, mockClient, "repositories", "disconnect", "acme/webapp", "--yes")
+	if executeError == nil {
+		t.Fatal("expected a non-uuid argument to be refused")
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitUsage)
+	}
+	if mockClient.disconnectRepositoryCalls != 0 {
+		t.Errorf("DisconnectPipelineRepository calls = %d, want 0", mockClient.disconnectRepositoryCalls)
+	}
+}
+
+func TestPipelineRepositoriesDisconnectHappyPathWithYes(t *testing.T) {
+	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+	mockClient := &pipelineLaneMock{}
+	output, executeError := runPipelineCommand(t, mockClient, "repositories", "disconnect", repositoryID, "--yes")
+	if executeError != nil {
+		t.Fatalf("disconnect error = %v", executeError)
+	}
+	if mockClient.disconnectRepositoryID != repositoryID || mockClient.disconnectRepositoryCalls != 1 {
+		t.Errorf("disconnect id = %q, calls = %d", mockClient.disconnectRepositoryID, mockClient.disconnectRepositoryCalls)
+	}
+	if !strings.Contains(output, repositoryID) || !strings.Contains(output, "disconnected") {
+		t.Errorf("output = %q", output)
+	}
+}
+
+// TestPipelineRepositoriesDisconnectDeclinedConfirmationDoesNotCall pins that
+// disconnect is a destructive command that confirms first
+// (CLAUDE.md "Destructive commands confirm first"), matching
+// TestPipelineSchedulesDeleteConfirms's pattern for the sibling delete.
+func TestPipelineRepositoriesDisconnectDeclinedConfirmationDoesNotCall(t *testing.T) {
+	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+	mockClient := &pipelineLaneMock{}
+	previousClient := apiClient
+	apiClient = mockClient
+	t.Cleanup(func() { apiClient = previousClient })
+
+	pipelineCommand := newPipelineCommand()
+	var output bytes.Buffer
+	pipelineCommand.SetOut(&output)
+	pipelineCommand.SetErr(&output)
+	pipelineCommand.SetIn(strings.NewReader("n\n"))
+	pipelineCommand.SetArgs([]string{"repositories", "disconnect", repositoryID})
+	executeError := pipelineCommand.Execute()
+	if executeError == nil || exitCodeFor(executeError) != exitCancelled {
+		t.Fatalf("declined disconnect error = %v", executeError)
+	}
+	if mockClient.disconnectRepositoryCalls != 0 {
+		t.Errorf("DisconnectPipelineRepository was called despite the decline")
+	}
+}
+
+// TestPipelineRepositoriesDisconnectHasLiveRun pins that the 409
+// "queued or running" refusal (cluster PR #2509) is reported verbatim with a
+// non-zero exit, not swallowed as a soft success.
+func TestPipelineRepositoriesDisconnectHasLiveRun(t *testing.T) {
+	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+	mockClient := &pipelineLaneMock{
+		disconnectRepositoryError: errors.New("This repository has a pipeline run that is queued or running"),
+	}
+	_, executeError := runPipelineCommand(t, mockClient, "repositories", "disconnect", repositoryID, "--yes")
+	if executeError == nil || executeError.Error() != "This repository has a pipeline run that is queued or running" {
+		t.Fatalf("error = %v, want the sentinel text verbatim", executeError)
+	}
+}
+
+func TestPipelineRepositoriesDisconnectNotFound(t *testing.T) {
+	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+	mockClient := &pipelineLaneMock{disconnectRepositoryError: errors.New("Pipeline repository not found")}
+	_, executeError := runPipelineCommand(t, mockClient, "repositories", "disconnect", repositoryID, "--yes")
 	if executeError == nil || executeError.Error() != "Pipeline repository not found" {
 		t.Fatalf("error = %v, want the sentinel text verbatim", executeError)
 	}

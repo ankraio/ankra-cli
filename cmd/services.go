@@ -718,4 +718,5 @@ type APIClient interface {
 	ListPipelineRepositories(ctx context.Context, options client.ListPipelineRepositoriesOptions) (*client.PipelineRepositoryList, error)
 	GetPipelineRepository(ctx context.Context, repositoryID string) (*client.PipelineRepository, error)
 	ConnectPipelineRepository(ctx context.Context, request client.ConnectPipelineRepositoryRequest) (*client.ConnectPipelineRepositoryResult, error)
+	DisconnectPipelineRepository(ctx context.Context, repositoryID string) error
 }
