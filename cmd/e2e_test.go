@@ -990,6 +990,22 @@ func (m baseMock) ListSecurityPods(client.SecurityPodsOptions) (*client.Security
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListClusterSecurityStacks(string) (*client.SecurityClusterStackList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackSecurity(string, string) (*client.SecurityStackPosture, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListStackSecurityWorkloads(string, string) (*client.SecurityStackWorkloadList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPodSecurity(string, string, string) (*client.SecurityPodPosture, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListSecuritySBOMComponents(client.SecuritySBOMComponentsOptions) (*client.SecuritySBOMComponentList, error) {
 	return nil, errors.New("not implemented")
 }
