@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"ankra/internal/client"
@@ -272,9 +273,14 @@ Example:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		format, _ := cmd.Flags().GetString("format")
 		outputFile, _ := cmd.Flags().GetString("output-file")
+		force, _ := cmd.Flags().GetBool("force")
+		normalizedFormat, formatError := normalizeSbomExportFormat(format)
+		if formatError != nil {
+			return formatError
+		}
 		export, err := apiClient.ExportSecuritySBOMImage(client.SecuritySBOMExportOptions{
 			ImageIdentity: strings.TrimSpace(args[0]),
-			Format:        format,
+			Format:        normalizedFormat,
 		})
 		if err != nil {
 			return fmt.Errorf("downloading the image's bill of materials: %w", err)
@@ -285,10 +291,12 @@ Example:
 		}
 		target := strings.TrimSpace(outputFile)
 		if target == "" {
-			target = export.FileName
+			target = sbomExportLocalFileName(export.FileName, normalizedFormat)
 		}
-		if target == "" {
-			target = "sbom." + sbomExportExtension(format)
+		if !force {
+			if _, statError := os.Stat(target); statError == nil {
+				return withExitCode(exitUsage, fmt.Errorf("%s already exists; pass --force to overwrite it or --output-file to write elsewhere", target))
+			}
 		}
 		if writeError := os.WriteFile(target, export.Body, 0o600); writeError != nil {
 			return fmt.Errorf("writing %s: %w", target, writeError)
@@ -298,13 +306,32 @@ Example:
 	},
 }
 
-// sbomExportExtension names the file for a format when the platform sent no
-// file name of its own.
-func sbomExportExtension(format string) string {
-	if strings.EqualFold(strings.TrimSpace(format), "csv") {
-		return "csv"
+// normalizeSbomExportFormat maps the accepted spellings to the two formats
+// the platform serves, so a typo is a usage error here rather than a
+// server error or a silently defaulted document.
+func normalizeSbomExportFormat(requested string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(requested)) {
+	case "", "cyclonedx", "cdx", "json":
+		return "cyclonedx", nil
+	case "csv":
+		return "csv", nil
 	}
-	return "cdx.json"
+	return "", withExitCode(exitUsage, fmt.Errorf("--format must be cyclonedx or csv, got %q", requested))
+}
+
+// sbomExportLocalFileName is the file the download lands in when the caller
+// named none: the platform's suggested name reduced to its last path element
+// (a Content-Disposition is server input, never a path), or a name derived
+// from the format when the platform sent none.
+func sbomExportLocalFileName(suggested string, format string) string {
+	base := filepath.Base(strings.TrimSpace(suggested))
+	if base == "" || base == "." || base == string(filepath.Separator) || strings.HasPrefix(base, ".") {
+		if format == "csv" {
+			return "sbom.csv"
+		}
+		return "sbom.cdx.json"
+	}
+	return base
 }
 
 // securitySbomComponentsOptionsFromFlags maps the component flags. --vulnerable
@@ -702,5 +729,6 @@ func init() {
 	securitySbomContainersCmd.Flags().Int("page-size", 50, "Containers per page (max 100)")
 
 	securitySbomExportCmd.Flags().String("format", "cyclonedx", "Document format: cyclonedx or csv")
-	securitySbomExportCmd.Flags().String("output-file", "", "Where to write the document; the platform's file name by default, - for standard output")
+	securitySbomExportCmd.Flags().String("output-file", "", "Where to write the document; the platform's file name in the current directory by default, - for standard output")
+	securitySbomExportCmd.Flags().Bool("force", false, "Overwrite the target file if it already exists")
 }

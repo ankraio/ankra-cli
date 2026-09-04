@@ -294,4 +294,49 @@ func TestSecuritySbomExportWritesTheDocumentToStdoutOrAFile(t *testing.T) {
 	if readError != nil || string(written) != "name,version\n" {
 		t.Fatalf("file not written: %v %q", readError, written)
 	}
+	if _, executeError := runSecurityCommand(t, mock, "security", "sbom", "export", "sha256:abc", "--format", "csv", "--output-file", target); executeError == nil {
+		t.Fatalf("an existing target must be refused without --force")
+	}
+	if _, executeError := runSecurityCommand(t, mock, "security", "sbom", "export", "sha256:abc", "--format", "csv", "--output-file", target, "--force"); executeError != nil {
+		t.Fatalf("--force must overwrite: %v", executeError)
+	}
+	if _, executeError := runSecurityCommand(t, mock, "security", "sbom", "export", "sha256:abc", "--format", "yaml", "--output-file", "-"); executeError == nil {
+		t.Fatalf("an unknown format must be a usage error before any request is made")
+	}
+}
+
+func TestSecuritySbomExportNeverTreatsTheServerFileNameAsAPath(t *testing.T) {
+	for suggested, expected := range map[string]string{
+		"registry.test-grafana_1.0.0.cdx.json": "registry.test-grafana_1.0.0.cdx.json",
+		"../../etc/passwd":                     "passwd",
+		"/tmp/evil.json":                       "evil.json",
+		"":                                     "sbom.cdx.json",
+		".":                                    "sbom.cdx.json",
+		"..":                                   "sbom.cdx.json",
+		".hidden":                              "sbom.cdx.json",
+	} {
+		if got := sbomExportLocalFileName(suggested, "cyclonedx"); got != expected {
+			t.Fatalf("sbomExportLocalFileName(%q) = %q, want %q", suggested, got, expected)
+		}
+	}
+	if got := sbomExportLocalFileName("", "csv"); got != "sbom.csv" {
+		t.Fatalf("csv fallback = %q", got)
+	}
+	workDirectory := t.TempDir()
+	previous, _ := os.Getwd()
+	if changeError := os.Chdir(workDirectory); changeError != nil {
+		t.Fatal(changeError)
+	}
+	t.Cleanup(func() { _ = os.Chdir(previous) })
+	mock := &securitySbomMock{export: &client.SecuritySBOMExport{FileName: "../../escaped.json", ContentType: "application/json", Body: []byte("{}")}}
+	output, executeError := runSecurityCommand(t, mock, "security", "sbom", "export", "sha256:abc", "--format", "cyclonedx", "--output-file", "")
+	if executeError != nil {
+		t.Fatalf("export returned an error: %v", executeError)
+	}
+	if !strings.Contains(output, "Wrote escaped.json") {
+		t.Fatalf("the download must land in the current directory under the base name, got %q", output)
+	}
+	if _, statError := os.Stat(workDirectory + "/escaped.json"); statError != nil {
+		t.Fatalf("file not written where announced: %v", statError)
+	}
 }
