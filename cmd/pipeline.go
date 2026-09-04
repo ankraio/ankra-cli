@@ -41,7 +41,11 @@ returns). Most invocations want --application instead.
 A run is addressed by its id (the RUN ID column, not the "run_id" field a
 JSON/YAML response also carries - that second field is the cross-lifecycle
 umbrella run this pipeline run belongs to, useful for correlating with
-'ankra cluster operations', but not what these commands accept).`,
+'ankra cluster operations', but not what these commands accept).
+
+'pipeline definitions get|approve' are the one exception: they address a
+stored definition directly by its own id and take neither flag - see
+'ankra pipeline definitions --help'.`,
 	}
 	pipelineCommand.AddCommand(
 		newPipelineRunCommand(),
@@ -53,6 +57,7 @@ umbrella run this pipeline run belongs to, useful for correlating with
 		newPipelineArtifactsCommand(),
 		newPipelineValidateCommand(),
 		newPipelineDefinitionCommand(),
+		newPipelineDefinitionsCommand(),
 		newPipelineSchedulesCommand(),
 	)
 	return pipelineCommand

@@ -249,3 +249,129 @@ func TestDeletePipelineScheduleNotFound(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+// TestGetPipelineDefinitionApprovalTargetsTheOrganisationRoute pins that the
+// definition-approval read is addressed by the definition's own id alone -
+// no PipelineSelector prefix, unlike every other route in this file - and
+// decodes every field of the response.
+func TestGetPipelineDefinitionApprovalTargetsTheOrganisationRoute(t *testing.T) {
+	var capturedMethod, capturedPath string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedMethod = r.Method
+		capturedPath = r.URL.Path
+		_, _ = fmt.Fprint(w, `{"definition_id":"def-1","protected_hash":`+
+			`"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",`+
+			`"approved_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",`+
+			`"approved_at":"2026-09-01T00:00:00Z","approved_by":"user-1"}`)
+	})
+
+	approval, err := testClient.GetPipelineDefinitionApproval(context.Background(), "def-1")
+	if err != nil {
+		t.Fatalf("GetPipelineDefinitionApproval error = %v", err)
+	}
+	if capturedMethod != http.MethodGet {
+		t.Errorf("method = %s, want GET", capturedMethod)
+	}
+	if capturedPath != "/api/v1/org/pipelines/definitions/def-1" {
+		t.Errorf("path = %s", capturedPath)
+	}
+	if approval.DefinitionID != "def-1" || approval.ApprovedBy != "user-1" {
+		t.Errorf("approval = %+v", approval)
+	}
+	if approval.ApprovedHash != approval.ProtectedHash {
+		t.Errorf("approved hash = %q, want it to equal the protected hash %q", approval.ApprovedHash, approval.ProtectedHash)
+	}
+	if approval.ApprovedAt == nil || *approval.ApprovedAt != "2026-09-01T00:00:00Z" {
+		t.Errorf("approved at = %v", approval.ApprovedAt)
+	}
+}
+
+// TestGetPipelineDefinitionApprovalNotFound pins that an unknown id's 404
+// sentinel reaches the caller verbatim.
+func TestGetPipelineDefinitionApprovalNotFound(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = fmt.Fprint(w, `{"detail":"Pipeline definition not found"}`)
+	})
+	_, err := testClient.GetPipelineDefinitionApproval(context.Background(), "missing-definition")
+	if err == nil || err.Error() != "Pipeline definition not found" {
+		t.Fatalf("error = %v, want the server's sentinel text verbatim", err)
+	}
+}
+
+// TestApprovePipelineDefinitionSendsNoBody pins the method, path and empty
+// body of the approve route - a path typo or a stray request body here
+// passes every command-level test that only checks the wiring and fails as
+// a 404/422 against a real platform.
+func TestApprovePipelineDefinitionSendsNoBody(t *testing.T) {
+	var capturedMethod, capturedPath string
+	var capturedContentLength int64
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedMethod = r.Method
+		capturedPath = r.URL.Path
+		capturedContentLength = r.ContentLength
+		_, _ = fmt.Fprint(w, `{"definition_id":"def-1",`+
+			`"protected_hash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",`+
+			`"approved_hash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",`+
+			`"approved_at":"2026-09-01T00:00:00Z","approved_by":"user-1"}`)
+	})
+
+	approval, err := testClient.ApprovePipelineDefinition(context.Background(), "def-1")
+	if err != nil {
+		t.Fatalf("ApprovePipelineDefinition error = %v", err)
+	}
+	if capturedMethod != http.MethodPost {
+		t.Errorf("method = %s, want POST", capturedMethod)
+	}
+	if capturedPath != "/api/v1/org/pipelines/definitions/def-1/approve" {
+		t.Errorf("path = %s", capturedPath)
+	}
+	if capturedContentLength > 0 {
+		t.Errorf("content length = %d, want no body", capturedContentLength)
+	}
+	if approval.ApprovedHash == "" {
+		t.Errorf("approved hash = %q, want it set", approval.ApprovedHash)
+	}
+}
+
+// TestApprovePipelineDefinitionConflict and
+// TestApprovePipelineDefinitionForbidden pin that the approval route's 409
+// and 403 sentinels - not-current, already-approved, and no-human-actor -
+// reach the caller verbatim, the way TestGetPipelineDefinitionApprovalNotFound
+// pins its 404.
+func TestApprovePipelineDefinitionConflict(t *testing.T) {
+	for _, sentinel := range []string{
+		"Only the repository's current default-branch definition can be approved",
+		"This pipeline definition is already approved",
+		"This pipeline definition's protected sections have not been assessed",
+	} {
+		t.Run(sentinel, func(t *testing.T) {
+			testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = fmt.Fprintf(w, `{"detail":%q}`, sentinel)
+			})
+			_, err := testClient.ApprovePipelineDefinition(context.Background(), "def-1")
+			if err == nil || err.Error() != sentinel {
+				t.Fatalf("error = %v, want the server's sentinel text verbatim", err)
+			}
+		})
+	}
+}
+
+func TestApprovePipelineDefinitionForbidden(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = fmt.Fprint(w, `{"detail":"A pipeline definition's authority can only be approved by a human administrator"}`)
+	})
+	_, err := testClient.ApprovePipelineDefinition(context.Background(), "def-1")
+	if err == nil || err.Error() != "A pipeline definition's authority can only be approved by a human administrator" {
+		t.Fatalf("error = %v, want the server's sentinel text verbatim", err)
+	}
+	// This 403 body's detail is not the RBAC "permission_denied" shape, so it
+	// must not decode as a *PermissionDeniedError - that would rewrite the
+	// human-actor sentinel into a generic permission message.
+	var permissionDenied *PermissionDeniedError
+	if errors.As(err, &permissionDenied) {
+		t.Errorf("decoded as *PermissionDeniedError: %+v, want the plain sentinel error", permissionDenied)
+	}
+}

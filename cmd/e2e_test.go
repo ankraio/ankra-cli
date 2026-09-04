@@ -2466,6 +2466,14 @@ func (m baseMock) ValidatePipelineDefinition(ctx context.Context, selector clien
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetPipelineDefinitionApproval(ctx context.Context, definitionID string) (*client.PipelineDefinitionApproval, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ApprovePipelineDefinition(ctx context.Context, definitionID string) (*client.PipelineDefinitionApproval, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListPipelineSchedules(ctx context.Context, selector client.PipelineSelector) (*client.PipelineScheduleList, error) {
 	return nil, errors.New("not implemented")
 }

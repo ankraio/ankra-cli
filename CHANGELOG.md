@@ -1,5 +1,29 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra pipeline definitions get|approve` inspects and grants a pipeline
+  definition's protected-authority approval.** A pipeline file's logic is
+  open - anyone who can push may add stages, scripts and images - but its
+  authority-bearing sections (permissions, credentials, secrets scope,
+  network tier, image policy, `runs_on`, environment gates) are closed: a
+  pull request may change them, but the run still executes under the last
+  authority an administrator approved on the default branch until one
+  approves the change. `definitions get <id>` prints one stored definition's
+  protected-sections hash and, if anyone has, who approved it and when;
+  `definitions approve <id>` records that approval (requires
+  `pipelines.manage` and a human actor - a service-account token is
+  refused). Both take the definition's own id rather than
+  `--application`/`--repository`, since the server addresses this pair of
+  routes by the organisation alone; there is no lookup route yet, so
+  `ankra pipeline get` now prints a run's `authority_state` and, when its
+  authority did not simply come from its own head, the exact
+  `ankra pipeline definitions approve <id>` command to fix it. `-o json`
+  works on both, and a 404/409/403 from the server prints verbatim rather
+  than being reworded.
+
 ## v0.15.0-rc1 — 2026-09-03
 
 ### Added

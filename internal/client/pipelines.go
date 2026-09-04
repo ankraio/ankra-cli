@@ -16,7 +16,13 @@ package client
 //
 // Findings have no route yet either (WS-C item C5): there is no
 // ListPipelineFindings here, deliberately, until the server has one.
-
+//
+// A fifth family - GetPipelineDefinitionApproval and
+// ApprovePipelineDefinition (ankra-vn0bd.10.8) - is addressed by the
+// organisation alone, through a stored definition's own id, rather than
+// through PipelineSelector: go/internal/pipelineapi/approval.go mounts
+// those two routes with mountOrganisation, not the four-way mountScoped
+// every other route here uses, so neither takes a selector.
 import (
 	"bytes"
 	"context"
@@ -77,11 +83,23 @@ type PipelineRun struct {
 	ErrorMessage      *string `json:"error_message"`
 	RequestedBy       string  `json:"requested_by"`
 	RerunOfRunID      *string `json:"rerun_of_run_id"`
-	QueuedAt          string  `json:"queued_at"`
-	StartedAt         *string `json:"started_at"`
-	FinishedAt        *string `json:"finished_at"`
-	CreatedAt         string  `json:"created_at"`
-	UpdatedAt         string  `json:"updated_at"`
+	// AuthorityState, AuthorityHash and AuthorityDefinitionID are the
+	// authority the run was planned under (ankra-vn0bd.10.8): whose
+	// protected sections it executes, their digest, and the stored
+	// definition they came from. All three are null for a run not planned
+	// yet - and for one planned before the authority was recorded - which
+	// is "not recorded", never "no authority"; the definition id alone is
+	// also null for a run executing under the organisation's baseline.
+	// GetPipelineDefinitionApproval and ApprovePipelineDefinition read and
+	// approve the definition AuthorityDefinitionID names.
+	AuthorityState        *string `json:"authority_state"`
+	AuthorityHash         *string `json:"authority_hash"`
+	AuthorityDefinitionID *string `json:"authority_definition_id"`
+	QueuedAt              string  `json:"queued_at"`
+	StartedAt             *string `json:"started_at"`
+	FinishedAt            *string `json:"finished_at"`
+	CreatedAt             string  `json:"created_at"`
+	UpdatedAt             string  `json:"updated_at"`
 }
 
 // PipelineStep is the wire shape of a `pipeline_run_steps` row.
@@ -206,6 +224,27 @@ type PipelineDefinition struct {
 	Stages        []PipelineStage             `json:"stages"`
 	Violations    []string                    `json:"violations"`
 	Repository    PipelineRepositoryReference `json:"repository"`
+}
+
+// PipelineDefinitionApproval is the GET/POST
+// …/org/pipelines/definitions/{id}[/approve] body
+// (go/internal/pipelineapi/approval.go definitionApprovalResponse,
+// ankra-vn0bd.10.8): one stored definition's protected-authority approval
+// state, addressed by the definition's own id rather than through a
+// repository or application - the id a pull request status comment names,
+// or a run detail's AuthorityDefinitionID field.
+//
+// ApprovedHash is "" until an administrator approves it; once they do it
+// equals ProtectedHash. It is redundant with ProtectedHash under today's
+// one-hash-per-row model, and carried anyway so a caller that reads only
+// this field learns "approved, and at exactly this hash" without
+// cross-referencing ApprovedAt's presence against a second field.
+type PipelineDefinitionApproval struct {
+	DefinitionID  string  `json:"definition_id"`
+	ProtectedHash string  `json:"protected_hash"`
+	ApprovedHash  string  `json:"approved_hash"`
+	ApprovedAt    *string `json:"approved_at"`
+	ApprovedBy    string  `json:"approved_by"`
 }
 
 // PipelinePlannedStep is one node of a dry-run DAG.
@@ -675,6 +714,51 @@ func (c *Client) ValidatePipelineDefinition(ctx context.Context, selector Pipeli
 		struct {
 			SpecYAML string `json:"spec_yaml"`
 		}{SpecYAML: specYAML}, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
+
+// pipelineDefinitionPath is the organisation-scoped path for one stored
+// pipeline definition's approval state, addressed by the definition's own
+// id rather than through PipelineSelector - the fifth family this package's
+// doc comment describes.
+func pipelineDefinitionPath(definitionID string) string {
+	return "/api/v1/org/pipelines/definitions/" + neturl.PathEscape(definitionID)
+}
+
+// GetPipelineDefinitionApproval reads one stored pipeline definition's
+// protected-authority approval state by its own id (GET
+// …/pipelines/definitions/{id}): the identity of its protected sections, and
+// who approved them and when, if anyone has. The server answers 404 for an
+// id that does not exist in the caller's organisation, verbatim through
+// doPipelineRequest's shared error mapping.
+func (c *Client) GetPipelineDefinitionApproval(ctx context.Context, definitionID string) (*PipelineDefinitionApproval, error) {
+	var result PipelineDefinitionApproval
+	if requestError := c.doPipelineRequest(ctx, http.MethodGet,
+		c.BaseURL+pipelineDefinitionPath(definitionID), nil, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
+
+// ApprovePipelineDefinition records an administrator's approval of one
+// stored pipeline definition's protected sections (POST
+// …/pipelines/definitions/{id}/approve): the human act "logic is open,
+// authority is closed" requires before a definition that changed authority
+// on the default branch is trusted (enginekit/pipelinepolicy).
+//
+// Only the repository's current default-branch definition can be approved,
+// and only once, and only by a human actor - a service-account token is
+// refused. The server's 404 (unknown id), 409 (not the current default-branch
+// definition, already approved, or its protected sections were never
+// hashed) and 403 (no human actor) sentinels are returned verbatim through
+// doPipelineRequest's shared error mapping; this method neither rewrites nor
+// retries them.
+func (c *Client) ApprovePipelineDefinition(ctx context.Context, definitionID string) (*PipelineDefinitionApproval, error) {
+	var result PipelineDefinitionApproval
+	if requestError := c.doPipelineRequest(ctx, http.MethodPost,
+		c.BaseURL+pipelineDefinitionPath(definitionID)+"/approve", nil, &result); requestError != nil {
 		return nil, requestError
 	}
 	return &result, nil

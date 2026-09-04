@@ -309,6 +309,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 	_, _ = fmt.Fprintf(out, "  Status:    %s\n", renderColouredStatus(pipelineOutcomeLabel(detail.Status, detail.Outcome)))
 	_, _ = fmt.Fprintf(out, "  Trigger:   %s (%s)\n", detail.Trigger, detail.TriggerRef)
 	_, _ = fmt.Fprintf(out, "  Commit:    %s\n", detail.HeadSHA)
+	printPipelineRunAuthority(out, detail.PipelineRun)
 	if detail.ErrorMessage != nil && *detail.ErrorMessage != "" {
 		_, _ = fmt.Fprintf(out, "  Error:     %s\n", *detail.ErrorMessage)
 	}
@@ -342,6 +343,27 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 		})
 	}
 	writer.Render()
+}
+
+// printPipelineRunAuthority prints the run's recorded authority state
+// (ankra-vn0bd.10.8) when the server recorded one: whose protected sections
+// the run executed, and, when that is not simply the run's own approved
+// head, which stored definition to approve to make it current. A run
+// planned before authority tracking existed carries no state and this
+// prints nothing, matching how the wire field is null rather than empty.
+func printPipelineRunAuthority(out io.Writer, run client.PipelineRun) {
+	if run.AuthorityState == nil || *run.AuthorityState == "" {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "  Authority: %s\n", *run.AuthorityState)
+	if run.AuthorityDefinitionID == nil || *run.AuthorityDefinitionID == "" {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "             definition %s", *run.AuthorityDefinitionID)
+	if *run.AuthorityState != "approved" {
+		_, _ = fmt.Fprintf(out, " (ankra pipeline definitions approve %s)", *run.AuthorityDefinitionID)
+	}
+	_, _ = fmt.Fprintln(out)
 }
 
 func newPipelineCancelCommand() *cobra.Command {
