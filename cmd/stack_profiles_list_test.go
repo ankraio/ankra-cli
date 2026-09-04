@@ -6,6 +6,7 @@ package cmd
 // catalogue - to the user, and to anything that shells out to the table.
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -27,19 +28,38 @@ func (mock *profileListingMock) ListStackProfiles(page, pageSize int, _ string, 
 // user sees, not just the footer helper.
 func runProfilesList(t *testing.T, page int, pageSize int, response *client.StackProfileListResponse) string {
 	t.Helper()
+	return runProfilesListAs(t, "", page, pageSize, response)
+}
+
+// runProfilesListAs is runProfilesList with an explicit -o format, so the
+// table and structured lanes are exercised through the same path.
+func runProfilesListAs(t *testing.T, format string, page int, pageSize int, response *client.StackProfileListResponse) string {
+	t.Helper()
 	previousClient := apiClient
 	apiClient = &profileListingMock{response: response}
 	t.Cleanup(func() { apiClient = previousClient })
 
-	if flagError := stackProfilesListCmd.Flags().Set("page", fmt.Sprintf("%d", page)); flagError != nil {
-		t.Fatalf("setting --page: %v", flagError)
+	// executeCommand leaves rootCmd's writers pointing at its own buffer and
+	// never restores them, and OutOrStdout walks to the parent - so without
+	// this reset, structured output lands in whichever earlier test ran rather
+	// than on the stdout captureStdout is watching.
+	rootCmd.SetOut(nil)
+	rootCmd.SetErr(nil)
+
+	flags := map[string]string{
+		"page":      fmt.Sprintf("%d", page),
+		"page-size": fmt.Sprintf("%d", pageSize),
+		"output":    format,
 	}
-	if flagError := stackProfilesListCmd.Flags().Set("page-size", fmt.Sprintf("%d", pageSize)); flagError != nil {
-		t.Fatalf("setting --page-size: %v", flagError)
+	for name, value := range flags {
+		if flagError := stackProfilesListCmd.Flags().Set(name, value); flagError != nil {
+			t.Fatalf("setting --%s: %v", name, flagError)
+		}
 	}
 	t.Cleanup(func() {
 		_ = stackProfilesListCmd.Flags().Set("page", "1")
 		_ = stackProfilesListCmd.Flags().Set("page-size", "25")
+		_ = stackProfilesListCmd.Flags().Set("output", "")
 	})
 
 	return captureStdout(t, func() {
@@ -105,6 +125,30 @@ func TestStackProfileListingFooterCountsTheLastPage(t *testing.T) {
 
 	if !strings.Contains(footer, "Showing 10 of 35 stack profiles (page 2 of 2)") {
 		t.Fatalf("unexpected footer: %q", footer)
+	}
+}
+
+func TestStackProfilesListKeepsStructuredOutputParseable(t *testing.T) {
+	// The footer is the one thing printed after the table, so the whole
+	// promise that `-o json` stays machine-readable rests on renderStructured
+	// returning first. Pin it: a footer trailing the document is what would
+	// break every caller piping this into a parser.
+	output := runProfilesListAs(t, "json", 1, 25, &client.StackProfileListResponse{
+		Result:     profilePage(25),
+		TotalCount: 35,
+		Page:       1,
+		PageSize:   25,
+	})
+
+	if strings.Contains(output, "Showing") {
+		t.Fatalf("the footer must not reach structured stdout; got:\n%s", output)
+	}
+	var document client.StackProfileListResponse
+	if unmarshalError := json.Unmarshal([]byte(output), &document); unmarshalError != nil {
+		t.Fatalf("-o json stdout must parse as one document: %v\ngot:\n%s", unmarshalError, output)
+	}
+	if document.TotalCount != 35 || len(document.Result) != 25 {
+		t.Fatalf("the document must still carry the real total: %d of %d", len(document.Result), document.TotalCount)
 	}
 }
 
