@@ -17,7 +17,6 @@ package cmd
 // follow.
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -242,12 +241,10 @@ func runPipelineLogsFromArchive(command *cobra.Command, selector client.Pipeline
 
 	switch logArtifact.Status {
 	case client.PipelineArtifactStatusUploaded:
-		var downloaded bytes.Buffer
-		if downloadError := apiClient.DownloadPipelineArtifact(command.Context(), selector, logArtifact.ID, &downloaded); downloadError != nil {
-			return downloadError
-		}
-		_, writeError := out.Write(downloaded.Bytes())
-		return writeError
+		// Streamed straight through rather than buffered: a step log is
+		// whatever the build printed, which for a verbose one is tens of
+		// megabytes, and holding all of it to write it once buys nothing.
+		return apiClient.DownloadPipelineArtifact(command.Context(), selector, logArtifact.ID, out)
 	case client.PipelineArtifactStatusPending:
 		_, _ = fmt.Fprintf(progress,
 			"Step %q has concluded; its log is still being archived - try again shortly.\n", step.StepKey)

@@ -75,12 +75,14 @@ func runPipelineArtifactsList(command *cobra.Command, selector client.PipelineSe
 		return encodeStructured(command.OutOrStdout(), format, list)
 	}
 	if len(list.Artifacts) == 0 {
-		if list.NextCursor != nil {
-			_, _ = fmt.Fprintf(command.OutOrStdout(),
-				"No artifacts on this page; pass --cursor %s to read the next one.\n", *list.NextCursor)
+		if list.NextCursor == nil {
+			_, _ = fmt.Fprintln(command.OutOrStdout(), "No artifacts stored for this run.")
 			return nil
 		}
-		_, _ = fmt.Fprintln(command.OutOrStdout(), "No artifacts stored for this run.")
+		// An empty page the server still offers a cursor past is "more to
+		// read", not "this run stored nothing".
+		_, _ = fmt.Fprintln(command.OutOrStdout(), "No artifacts on this page.")
+		renderPipelineArtifactsNextPageHint(command, list.NextCursor)
 		return nil
 	}
 	writer := table.NewWriter()
@@ -100,11 +102,20 @@ func runPipelineArtifactsList(command *cobra.Command, selector client.PipelineSe
 		})
 	}
 	writer.Render()
-	if list.NextCursor != nil {
-		_, _ = fmt.Fprintf(command.ErrOrStderr(),
-			"\nMore artifacts available: pass --cursor %s to see the next page.\n", *list.NextCursor)
-	}
+	renderPipelineArtifactsNextPageHint(command, list.NextCursor)
 	return nil
+}
+
+// renderPipelineArtifactsNextPageHint says on stderr that the listing was a
+// page, not the whole record. Both table branches route it here so the hint
+// lands on the same stream either way and a piped listing keeps stdout to
+// itself; `-o json` needs no hint at all, since next_cursor is in the body.
+func renderPipelineArtifactsNextPageHint(command *cobra.Command, nextCursor *string) {
+	if nextCursor == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(command.ErrOrStderr(),
+		"\nMore artifacts available: pass --cursor %s to see the next page.\n", *nextCursor)
 }
 
 func newPipelineArtifactsDownloadCommand() *cobra.Command {
