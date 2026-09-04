@@ -139,6 +139,42 @@ func TestSecuritySBOMContainersAndExportEncodeTheirControls(t *testing.T) {
 	}
 }
 
+func TestListSecuritySBOMImageFindingsEncodesItsControlsAndDecodesTheRows(t *testing.T) {
+	var captured http.Request
+	_, apiClient := newSecurityTestServer(t, `{"image": {"image_identity": "sha256:abc", "image_ref": "registry.test/grafana:1.0.0", "image_digest": "sha256:abc", "sbom_status": "present"},
+        "result": [{"finding_id": "f-1", "cve_id": "CVE-2026-9001", "severity": "CRITICAL", "title": null, "package_type": "deb", "package_name": "openssl",
+        "installed_version": "3.0.0", "fixed_version": "3.0.1", "fixable": true, "disposition": "open",
+        "dispositions": {"open": 2, "acknowledged": 0, "accepted_risk": 0, "resolved": 0}, "occurrences": 2, "workloads": 1, "clusters": 1,
+        "last_seen_at": "2026-09-04T09:00:00Z", "known_exploited": true, "epss_score": 0.42}],
+        "pagination": {"page": 1, "page_size": 50, "total_pages": 1, "total_count": 1},
+        "summary": {"observed": 2, "actionable": {"critical": 2, "high": 0, "medium": 0, "low": 0, "unknown": 0}, "actionable_total": 2, "accepted_risk": 0, "fixable": 2, "known_exploited": 2, "findings": 1},
+        "intelligence": {"kev_synced_at": "2026-09-01T00:00:00Z", "epss_synced_at": null, "kev_listed": 1}}`, &captured)
+	list, listError := apiClient.ListSecuritySBOMImageFindings(SecuritySBOMImageFindingsOptions{
+		ImageIdentity: "sha256:abc", Severities: []string{"critical", " high ", ""}, Search: "ssl", Sort: "severity", Order: "asc", Page: 2, PageSize: 10,
+	})
+	if listError != nil {
+		t.Fatalf("ListSecuritySBOMImageFindings returned an error: %v", listError)
+	}
+	expectedQuery := url.Values{"page": {"2"}, "page_size": {"10"}, "search": {"ssl"}, "sort": {"severity"}, "order": {"asc"},
+		"image": {"sha256:abc"}, "severity": {"critical", "high"}}
+	if captured.URL.Path != "/api/v1/org/security/sbom/image/findings" || !reflect.DeepEqual(captured.URL.Query(), expectedQuery) {
+		t.Fatalf("request = %s?%s", captured.URL.Path, captured.URL.RawQuery)
+	}
+	if list.Image.SBOMStatus != "present" || len(list.Result) != 1 || list.Result[0].CVEID != "CVE-2026-9001" ||
+		!list.Result[0].KnownExploited || *list.Result[0].FixedVersion != "3.0.1" || list.Result[0].Dispositions.Open != 2 ||
+		list.Summary.Findings != 1 || list.Intelligence.KevSyncedAt == nil {
+		t.Fatalf("image findings not decoded: %+v", list)
+	}
+	_, apiClient = newSecurityTestServer(t, `{"image": {"image_identity": "sha256:abc", "image_ref": "x", "image_digest": null, "sbom_status": "absent"}, "result": null,
+        "pagination": {"page": 1, "page_size": 50, "total_pages": 0, "total_count": 0},
+        "summary": {"observed": 0, "actionable": {"critical": 0, "high": 0, "medium": 0, "low": 0, "unknown": 0}, "actionable_total": 0, "accepted_risk": 0, "fixable": 0, "known_exploited": 0, "findings": 0},
+        "intelligence": {"kev_synced_at": null, "epss_synced_at": null, "kev_listed": 0}}`, &captured)
+	empty, emptyError := apiClient.ListSecuritySBOMImageFindings(SecuritySBOMImageFindingsOptions{ImageIdentity: "sha256:abc"})
+	if emptyError != nil || empty.Result == nil {
+		t.Fatalf("a null result decodes to an empty slice: %+v %v", empty, emptyError)
+	}
+}
+
 func TestExportSecuritySBOMImageDownloadsTheDocumentWithItsFileName(t *testing.T) {
 	var captured http.Request
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

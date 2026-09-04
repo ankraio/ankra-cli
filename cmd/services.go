@@ -49,6 +49,7 @@ type APIClient interface {
 	ListSecuritySBOMImages(options client.SecuritySBOMImagesOptions) (*client.SecuritySBOMImageList, error)
 	GetSecuritySBOMImage(options client.SecuritySBOMImageOptions) (*client.SecuritySBOMImageDetail, error)
 	ListSecuritySBOMContainers(options client.SecuritySBOMContainersOptions) (*client.SecuritySBOMContainerList, error)
+	ListSecuritySBOMImageFindings(options client.SecuritySBOMImageFindingsOptions) (*client.SecuritySBOMImageFindingList, error)
 	ExportSecuritySBOMImage(options client.SecuritySBOMExportOptions) (*client.SecuritySBOMExport, error)
 
 	ListPowerSchedules(clusterID string) (*client.PowerScheduleListResult, error)
