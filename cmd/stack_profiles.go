@@ -136,8 +136,29 @@ var stackProfilesListCmd = &cobra.Command{
 			})
 		}
 		writer.Render()
+		fmt.Print(stackProfileListingFooter(len(response.Result), response.TotalCount, page, pageSize))
 		return nil
 	},
+}
+
+// stackProfileListingFooter is the "showing this page, not the catalogue"
+// line under the table. Without it a default `list` prints 25 rows of a
+// 35-profile catalogue with nothing saying the other 10 exist, and both the
+// user and anything reading the table take page 1 for the whole set
+// (PLA-824). Empty when the page already covers every profile; table mode
+// only, because renderStructured returns before this and -o json/yaml stdout
+// must stay parseable.
+func stackProfileListingFooter(shown int, totalCount int, page int, pageSize int) string {
+	if totalCount <= shown {
+		return ""
+	}
+	pageSuffix := ""
+	if pageSize > 0 {
+		totalPages := (totalCount + pageSize - 1) / pageSize
+		pageSuffix = fmt.Sprintf(" (page %d of %d)", page, totalPages)
+	}
+	return fmt.Sprintf("Showing %d of %d stack profiles%s; use --page/--page-size to see the rest.\n",
+		shown, totalCount, pageSuffix)
 }
 
 var stackProfilesExportIacCmd = &cobra.Command{

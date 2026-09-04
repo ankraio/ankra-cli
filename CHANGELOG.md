@@ -23,6 +23,17 @@
   `--workload-kind` and `--workload-name`, so the headline above a narrowed
   list is that scope's, not the fleet's.
 
+### Fixed
+
+- **`ankra stack-profiles list` no longer prints page 1 as if it were the
+  whole catalogue.** The command pages at 25 by default, so an organisation
+  with 35 profiles got a 25-row table with nothing saying the other 10
+  existed - the listing looked complete and the missing profiles were
+  invisible unless you already knew to pass `--page-size`. The table now
+  carries a `Showing 25 of 35 stack profiles (page 1 of 2)` footer whenever
+  the page does not cover the catalogue. `-o json`/`yaml` output is
+  unchanged and still carries `total_count`.
+
 ## v0.15.0-rc1 — 2026-09-03
 
 ### Added
