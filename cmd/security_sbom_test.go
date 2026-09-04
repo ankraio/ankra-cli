@@ -384,10 +384,25 @@ func TestSecuritySbomFindingsListsTheCVEsOnOneImageAndNamesAnAbsentBillOfMateria
 			t.Fatalf("output lacks %q:\n%s", expected, output)
 		}
 	}
-	if !strings.Contains(output, "CISA KEV catalog has not been synced") {
-		t.Fatalf("an unsynced catalog is said, not implied:\n%s", output)
+	if !strings.Contains(output, "CISA KEV catalog has not been synced") || !strings.Contains(output, "EPSS has not been synced") ||
+		!strings.Contains(output, "unknown known exploited") {
+		t.Fatalf("unsynced feeds are said, not implied:\n%s", output)
 	}
 	if _, executeError := runSecurityCommand(t, mock, "security", "sbom", "findings"); executeError == nil {
 		t.Fatalf("the image identity is required")
+	}
+
+	mock.imageFindings.Result = nil
+	mock.imageFindings.Pagination.TotalCount = 0
+	mock.imageFindings.Image.SBOMStatus = ""
+	output, executeError = runSecurityCommand(t, mock, "security", "sbom", "findings", "sha256:abc")
+	if executeError != nil {
+		t.Fatalf("an empty page still renders: %v", executeError)
+	}
+	if !strings.Contains(output, "CISA KEV catalog has not been synced") || !strings.Contains(output, "No vulnerabilities match these filters.") {
+		t.Fatalf("the caveat survives an empty page:\n%s", output)
+	}
+	if strings.Contains(output, "ABSENT") || !strings.Contains(output, "SBOM:        unknown") {
+		t.Fatalf("a missing status is unknown, not absent:\n%s", output)
 	}
 }

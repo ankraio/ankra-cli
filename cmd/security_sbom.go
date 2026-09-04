@@ -716,15 +716,18 @@ func renderSecuritySbomImageFindings(cmd *cobra.Command, list *client.SecuritySB
 	if image.ImageDigest != nil {
 		_, _ = fmt.Fprintf(out, "Digest:      %s\n", *image.ImageDigest)
 	}
-	sbomStatus := "present"
-	if image.SBOMStatus != "present" {
-		sbomStatus = text.FgYellow.Sprint("ABSENT") + " - the CVEs below come from the vulnerability reports; no package inventory is stored"
-	}
-	_, _ = fmt.Fprintf(out, "SBOM:        %s\n", sbomStatus)
+	_, _ = fmt.Fprintf(out, "SBOM:        %s\n", sbomStatusLabel(image.SBOMStatus))
 	summary := list.Summary
+	knownExploited := redIfPositive(summary.KnownExploited)
+	if list.Intelligence.KevSyncedAt == nil {
+		knownExploited = "unknown"
+	}
 	_, _ = fmt.Fprintf(out, "Findings:    %d CVE(s) across %d occurrences · %d actionable (%d critical, %d high) · %d with a fix · %s known exploited · %d accepted risk\n",
 		summary.Findings, summary.Observed, summary.ActionableTotal, summary.Actionable.Critical, summary.Actionable.High,
-		summary.Fixable, redIfPositive(summary.KnownExploited), summary.AcceptedRisk)
+		summary.Fixable, knownExploited, summary.AcceptedRisk)
+	for _, caveat := range intelligenceCaveats(list.Intelligence) {
+		_, _ = fmt.Fprintln(out, caveat)
+	}
 	_, _ = fmt.Fprintln(out)
 	if len(list.Result) == 0 {
 		if list.Pagination.TotalCount == 0 && summary.Observed == 0 {
@@ -756,9 +759,35 @@ func renderSecuritySbomImageFindings(cmd *cobra.Command, list *client.SecuritySB
 	}
 	writer.Render()
 	_, _ = fmt.Fprintf(out, "Page %d of %d · %d vulnerabilities\n", list.Pagination.Page, list.Pagination.TotalPages, list.Pagination.TotalCount)
-	if list.Intelligence.KevSyncedAt == nil {
-		_, _ = fmt.Fprintln(out, "The CISA KEV catalog has not been synced yet, so known-exploited status is unknown for these findings.")
+}
+
+// sbomStatusLabel keeps an unknown status apart from a confirmed absence:
+// a platform that predates the field says nothing about the bill of
+// materials, which is not the same observation as "none is stored".
+func sbomStatusLabel(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "present":
+		return "present"
+	case "absent":
+		return text.FgYellow.Sprint("ABSENT") + " - the CVEs below come from the vulnerability reports; no package inventory is stored"
+	default:
+		return "unknown - this platform version does not report whether a bill of materials is stored"
 	}
+}
+
+// intelligenceCaveats names the public feeds the platform has never
+// applied, so a blank known-exploited column or a missing EPSS probability
+// reads as unknown rather than as clear. They print above the table and on
+// an empty page alike: an empty list is where the caveat matters most.
+func intelligenceCaveats(intelligence client.SecurityIntelligenceStatus) []string {
+	var caveats []string
+	if intelligence.KevSyncedAt == nil {
+		caveats = append(caveats, "The CISA KEV catalog has not been synced yet, so known-exploited status is unknown for these findings.")
+	}
+	if intelligence.EPSSSyncedAt == nil {
+		caveats = append(caveats, "EPSS has not been synced yet, so a missing exploitation probability is unknown, not low.")
+	}
+	return caveats
 }
 
 func init() {
