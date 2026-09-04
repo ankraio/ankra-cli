@@ -2,6 +2,8 @@ package client
 
 import (
 	"fmt"
+	"mime"
+	"net/http"
 	neturl "net/url"
 	"strconv"
 	"strings"
@@ -213,6 +215,8 @@ type SecuritySBOMComponentsOptions struct {
 	PackageTypes  []string
 	ClusterID     string
 	Namespace     string
+	WorkloadKind  string
+	WorkloadName  string
 	ImageIdentity string
 	Vulnerable    *bool
 	Sort          string
@@ -221,13 +225,37 @@ type SecuritySBOMComponentsOptions struct {
 
 // SecuritySBOMImagesOptions mirrors the image inventory filters.
 type SecuritySBOMImagesOptions struct {
-	Page      int
-	PageSize  int
-	Search    string
-	ClusterID string
-	Namespace string
-	Sort      string
-	Order     string
+	Page         int
+	PageSize     int
+	Search       string
+	ClusterID    string
+	Namespace    string
+	WorkloadKind string
+	WorkloadName string
+	Sort         string
+	Order        string
+}
+
+// SecuritySBOMContainersOptions filters the running-container inventory.
+// Status is present, absent or empty for any.
+type SecuritySBOMContainersOptions struct {
+	Page         int
+	PageSize     int
+	Search       string
+	ClusterID    string
+	Namespace    string
+	WorkloadKind string
+	WorkloadName string
+	Status       string
+	Sort         string
+	Order        string
+}
+
+// SecuritySBOMExportOptions names the image to download and the document
+// format: cyclonedx (the default) or csv.
+type SecuritySBOMExportOptions struct {
+	ImageIdentity string
+	Format        string
 }
 
 // SecuritySBOMImageOptions pages the components of one image.
@@ -313,6 +341,7 @@ func (c *Client) ListSecuritySBOMComponents(options SecuritySBOMComponentsOption
 	if options.Namespace != "" {
 		query.Set("namespace", options.Namespace)
 	}
+	setWorkloadSelector(query, options.WorkloadKind, options.WorkloadName)
 	if options.ImageIdentity != "" {
 		query.Set("image", options.ImageIdentity)
 	}
@@ -340,6 +369,7 @@ func (c *Client) ListSecuritySBOMImages(options SecuritySBOMImagesOptions) (*Sec
 	if options.Namespace != "" {
 		query.Set("namespace", options.Namespace)
 	}
+	setWorkloadSelector(query, options.WorkloadKind, options.WorkloadName)
 	var list SecuritySBOMImageList
 	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/images", query), &list); err != nil {
 		return nil, fmt.Errorf("security sbom images request failed: %w", err)
@@ -372,4 +402,133 @@ func (c *Client) GetSecuritySBOMImage(options SecuritySBOMImageOptions) (*Securi
 		detail.Workloads = []SecuritySBOMWorkload{}
 	}
 	return &detail, nil
+}
+
+func setWorkloadSelector(query neturl.Values, workloadKind string, workloadName string) {
+	if trimmed := strings.TrimSpace(workloadKind); trimmed != "" {
+		query.Set("workload_kind", trimmed)
+	}
+	if trimmed := strings.TrimSpace(workloadName); trimmed != "" {
+		query.Set("workload_name", trimmed)
+	}
+}
+
+// SecuritySBOMContainer is one running container joined to the bill of
+// materials of its image. SBOMStatus absent leaves ImageIdentity,
+// ComponentCount, OSName and GeneratedAt nil: the scanner has no bill of
+// materials for that image, which is a state to act on, not an empty image.
+type SecuritySBOMContainer struct {
+	ClusterID      string  `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName    string  `json:"cluster_name" yaml:"cluster_name"`
+	Namespace      string  `json:"namespace" yaml:"namespace"`
+	PodName        string  `json:"pod_name" yaml:"pod_name"`
+	PodUID         *string `json:"pod_uid" yaml:"pod_uid"`
+	OwnerKind      *string `json:"owner_kind" yaml:"owner_kind"`
+	OwnerName      *string `json:"owner_name" yaml:"owner_name"`
+	WorkloadKind   *string `json:"workload_kind" yaml:"workload_kind"`
+	WorkloadName   *string `json:"workload_name" yaml:"workload_name"`
+	ContainerName  string  `json:"container_name" yaml:"container_name"`
+	ContainerKind  string  `json:"container_kind" yaml:"container_kind"`
+	Image          string  `json:"image" yaml:"image"`
+	ImageDigest    *string `json:"image_digest" yaml:"image_digest"`
+	SBOMStatus     string  `json:"sbom_status" yaml:"sbom_status"`
+	ImageIdentity  *string `json:"image_identity" yaml:"image_identity"`
+	ComponentCount *int    `json:"component_count" yaml:"component_count"`
+	OSName         *string `json:"os_name" yaml:"os_name"`
+	GeneratedAt    *string `json:"generated_at" yaml:"generated_at"`
+	LastSeenAt     string  `json:"last_seen_at" yaml:"last_seen_at"`
+}
+
+// SecuritySBOMContainerInventory tallies the scoped containers before the
+// status and search filters, so the headline holds while the list is
+// narrowed.
+type SecuritySBOMContainerInventory struct {
+	Containers  int `json:"containers" yaml:"containers"`
+	WithSBOM    int `json:"with_sbom" yaml:"with_sbom"`
+	WithoutSBOM int `json:"without_sbom" yaml:"without_sbom"`
+	Pods        int `json:"pods" yaml:"pods"`
+}
+
+// SecuritySBOMContainerList is the paginated running-container inventory.
+type SecuritySBOMContainerList struct {
+	Result     []SecuritySBOMContainer        `json:"result" yaml:"result"`
+	Pagination SecurityPagination             `json:"pagination" yaml:"pagination"`
+	Inventory  SecuritySBOMContainerInventory `json:"inventory" yaml:"inventory"`
+	Coverage   SecuritySBOMCoverage           `json:"coverage" yaml:"coverage"`
+}
+
+// ListSecuritySBOMContainers pages through every running container of the
+// scoped clusters with or without a bill of materials.
+func (c *Client) ListSecuritySBOMContainers(options SecuritySBOMContainersOptions) (*SecuritySBOMContainerList, error) {
+	query := neturl.Values{}
+	setPaging(query, options.Page, options.PageSize)
+	setListControls(query, options.Search, options.Sort, options.Order)
+	if options.ClusterID != "" {
+		query.Set("cluster_id", options.ClusterID)
+	}
+	if options.Namespace != "" {
+		query.Set("namespace", options.Namespace)
+	}
+	setWorkloadSelector(query, options.WorkloadKind, options.WorkloadName)
+	if trimmed := strings.TrimSpace(options.Status); trimmed != "" {
+		query.Set("status", trimmed)
+	}
+	var list SecuritySBOMContainerList
+	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/containers", query), &list); err != nil {
+		return nil, fmt.Errorf("security sbom containers request failed: %w", err)
+	}
+	if list.Result == nil {
+		list.Result = []SecuritySBOMContainer{}
+	}
+	return &list, nil
+}
+
+// SecuritySBOMExport is a downloaded bill of materials: the bytes, the
+// media type the platform served, and the file name it suggested.
+type SecuritySBOMExport struct {
+	FileName    string
+	ContentType string
+	Body        []byte
+}
+
+// ExportSecuritySBOMImage downloads one image's bill of materials.
+func (c *Client) ExportSecuritySBOMImage(options SecuritySBOMExportOptions) (*SecuritySBOMExport, error) {
+	query := neturl.Values{}
+	query.Set("image", strings.TrimSpace(options.ImageIdentity))
+	if trimmed := strings.TrimSpace(options.Format); trimmed != "" {
+		query.Set("format", trimmed)
+	}
+	request, requestError := http.NewRequest(http.MethodGet, securityURL(c.BaseURL, "/sbom/image/export", query), nil)
+	if requestError != nil {
+		return nil, requestError
+	}
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+	response, doError := c.HTTP.Do(request)
+	if doError != nil {
+		return nil, fmt.Errorf("security sbom export request failed: %w", doError)
+	}
+	defer closeBody(response)
+	if response.StatusCode == http.StatusUnauthorized {
+		return nil, ErrUnauthorized
+	}
+	body, readError := readResponseBody(response)
+	if readError != nil {
+		return nil, fmt.Errorf("security sbom export read failed: %w", readError)
+	}
+	if response.StatusCode != http.StatusOK {
+		if denied := PermissionDeniedFromResponse(response.StatusCode, body); denied != nil {
+			return nil, denied
+		}
+		return nil, newUnexpectedResponseErrorWithMessage(response.StatusCode,
+			fmt.Sprintf("security sbom export failed: %s", redactedBodyForError(body, 300)))
+	}
+	fileName := ""
+	if _, parameters, parseError := mime.ParseMediaType(response.Header.Get("Content-Disposition")); parseError == nil {
+		fileName = parameters["filename"]
+	}
+	return &SecuritySBOMExport{
+		FileName:    fileName,
+		ContentType: response.Header.Get("Content-Type"),
+		Body:        body,
+	}, nil
 }
