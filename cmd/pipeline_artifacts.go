@@ -72,7 +72,10 @@ func runPipelineArtifactsList(command *cobra.Command, selector client.PipelineSe
 		return formatError
 	}
 	cursor, _ := command.Flags().GetString("cursor")
-	limit, _ := command.Flags().GetInt("limit")
+	limit, limitError := pipelinePageLimitFromFlags(command)
+	if limitError != nil {
+		return limitError
+	}
 	list, listError := apiClient.ListPipelineArtifacts(command.Context(), selector, strings.TrimSpace(runID),
 		client.ListPipelineArtifactsOptions{Cursor: strings.TrimSpace(cursor), Limit: limit})
 	if listError != nil {

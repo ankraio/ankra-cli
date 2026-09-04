@@ -51,7 +51,10 @@
   artifacts now works end to end, and the help text no longer claims
   otherwise. The listing is paged like `pipeline list`: `--cursor` and
   `--limit` choose the page, and a run with another page says so instead of
-  presenting its oldest artifacts as the whole record.
+  presenting its oldest artifacts as the whole record. A negative `--limit`
+  is now refused on both listings rather than dropped on the way to the
+  query, which used to hand back the server's default page as though the
+  flag had been honoured.
 
 ## v0.15.0-rc1 — 2026-09-03
 

@@ -487,6 +487,25 @@ func TestPipelineArtifactsListEmpty(t *testing.T) {
 	}
 }
 
+func TestPipelineListingsRefuseANegativeLimit(t *testing.T) {
+	// A negative --limit used to be dropped on the way to the query, so the
+	// caller silently got the server's default page instead of being told
+	// the flag was ignored.
+	for name, arguments := range map[string][]string{
+		"artifacts": {"artifacts", "run-1", "--application", testApplicationID, "--limit", "-5"},
+		"list":      {"list", "--application", testApplicationID, "--limit", "-5"},
+	} {
+		mockClient := &pipelineLaneMock{}
+		_, executeError := runPipelineCommand(t, mockClient, arguments...)
+		if executeError == nil || !strings.Contains(executeError.Error(), "--limit must be a positive number") {
+			t.Errorf("%s error = %v, want a usage refusal", name, executeError)
+		}
+		if len(mockClient.artifactsOptions) != 0 || mockClient.listOptions.Limit != 0 {
+			t.Errorf("%s must refuse before asking the server anything", name)
+		}
+	}
+}
+
 func TestPipelineArtifactsListSaysWhenAnotherPageExists(t *testing.T) {
 	nextCursor := "cursor-2"
 	stepID := "step-1"
