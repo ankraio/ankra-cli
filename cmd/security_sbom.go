@@ -198,6 +198,49 @@ var securitySbomImageCmd = &cobra.Command{
 	},
 }
 
+var securitySbomFindingsCmd = &cobra.Command{
+	Use:   "findings <digest or reference>",
+	Short: "The vulnerabilities (CVEs) on one image, worst first, with or without a bill of materials",
+	Long: `List every CVE the scanner names on one image: one row per CVE and
+installed package version, aggregated across the containers running the
+image, with the fixed version when one exists, the CISA KEV listing and EPSS
+probability, and the worst disposition across its occurrences.
+
+The image is identified the way the inventories list it: a sha256 digest, or
+the repository:tag reference when the scanner knew no digest. An image
+without a bill of materials still answers - the CVEs come from the
+vulnerability reports - and the header says ABSENT so the gap is visible.
+
+The summary line totals the image before --search and --severity narrow the
+rows. Read one CVE in full with ankra security finding <finding id>.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		page, _ := cmd.Flags().GetInt("page")
+		pageSize, _ := cmd.Flags().GetInt("page-size")
+		search, _ := cmd.Flags().GetString("search")
+		severities, _ := cmd.Flags().GetStringSlice("severity")
+		sort, _ := cmd.Flags().GetString("sort")
+		order, _ := cmd.Flags().GetString("order")
+		list, err := apiClient.ListSecuritySBOMImageFindings(client.SecuritySBOMImageFindingsOptions{
+			ImageIdentity: strings.TrimSpace(args[0]),
+			Page:          page,
+			PageSize:      pageSize,
+			Search:        search,
+			Severities:    severities,
+			Sort:          sort,
+			Order:         order,
+		})
+		if err != nil {
+			return fmt.Errorf("reading the image's vulnerabilities: %w", err)
+		}
+		if rendered, err := renderStructured(cmd, list); rendered || err != nil {
+			return err
+		}
+		renderSecuritySbomImageFindings(cmd, list)
+		return nil
+	},
+}
+
 var securitySbomContainersCmd = &cobra.Command{
 	Use:   "containers",
 	Short: "Every running container with or without a bill of materials, absent first",
@@ -666,11 +709,71 @@ func renderSecuritySbomImageDetail(cmd *cobra.Command, detail *client.SecuritySB
 	_, _ = fmt.Fprintf(out, "Page %d of %d · %d components\n", detail.Pagination.Page, detail.Pagination.TotalPages, detail.Pagination.TotalCount)
 }
 
+func renderSecuritySbomImageFindings(cmd *cobra.Command, list *client.SecuritySBOMImageFindingList) {
+	out := cmd.OutOrStdout()
+	image := list.Image
+	_, _ = fmt.Fprintln(out, text.Bold.Sprint(image.ImageRef))
+	if image.ImageDigest != nil {
+		_, _ = fmt.Fprintf(out, "Digest:      %s\n", *image.ImageDigest)
+	}
+	sbomStatus := "present"
+	if image.SBOMStatus != "present" {
+		sbomStatus = text.FgYellow.Sprint("ABSENT") + " - the CVEs below come from the vulnerability reports; no package inventory is stored"
+	}
+	_, _ = fmt.Fprintf(out, "SBOM:        %s\n", sbomStatus)
+	summary := list.Summary
+	_, _ = fmt.Fprintf(out, "Findings:    %d CVE(s) across %d occurrences · %d actionable (%d critical, %d high) · %d with a fix · %s known exploited · %d accepted risk\n",
+		summary.Findings, summary.Observed, summary.ActionableTotal, summary.Actionable.Critical, summary.Actionable.High,
+		summary.Fixable, redIfPositive(summary.KnownExploited), summary.AcceptedRisk)
+	_, _ = fmt.Fprintln(out)
+	if len(list.Result) == 0 {
+		if list.Pagination.TotalCount == 0 && summary.Observed == 0 {
+			_, _ = fmt.Fprintln(out, "No vulnerability names this image.")
+		} else {
+			_, _ = fmt.Fprintln(out, "No vulnerabilities match these filters.")
+		}
+		return
+	}
+	writer := newSecurityTable(out)
+	writer.AppendHeader(table.Row{"CVE", "Severity", "Exploitation", "Package", "Installed", "Fixed in", "Status", "Workloads", "Last seen", "Finding ID"})
+	for _, finding := range list.Result {
+		fixed := "-"
+		if finding.FixedVersion != nil {
+			fixed = *finding.FixedVersion
+		}
+		writer.AppendRow(table.Row{
+			finding.CVEID,
+			severityCell(finding.Severity),
+			exploitationCell(finding.SecurityExploitIntelligence),
+			finding.PackageName + " (" + finding.PackageType + ")",
+			finding.InstalledVersion,
+			fixed,
+			finding.Disposition,
+			fmt.Sprintf("%d on %d cluster(s)", finding.Workloads, finding.Clusters),
+			formatTimeAgo(finding.LastSeenAt),
+			finding.FindingID,
+		})
+	}
+	writer.Render()
+	_, _ = fmt.Fprintf(out, "Page %d of %d · %d vulnerabilities\n", list.Pagination.Page, list.Pagination.TotalPages, list.Pagination.TotalCount)
+	if list.Intelligence.KevSyncedAt == nil {
+		_, _ = fmt.Fprintln(out, "The CISA KEV catalog has not been synced yet, so known-exploited status is unknown for these findings.")
+	}
+}
+
 func init() {
 	securityCmd.AddCommand(securityNamespacesCmd, securityPodsCmd, securitySbomCmd)
-	securitySbomCmd.AddCommand(securitySbomImagesCmd, securitySbomImageCmd, securitySbomContainersCmd, securitySbomExportCmd)
+	securitySbomCmd.AddCommand(securitySbomImagesCmd, securitySbomImageCmd, securitySbomFindingsCmd,
+		securitySbomContainersCmd, securitySbomExportCmd)
 	registerStructuredOutputFlags(securityNamespacesCmd, securityPodsCmd, securitySbomCmd,
-		securitySbomImagesCmd, securitySbomImageCmd, securitySbomContainersCmd)
+		securitySbomImagesCmd, securitySbomImageCmd, securitySbomFindingsCmd, securitySbomContainersCmd)
+
+	securitySbomFindingsCmd.Flags().String("search", "", "Match CVE id, package name or title")
+	securitySbomFindingsCmd.Flags().StringSlice("severity", nil, "Severity filter, repeatable: critical, high, medium, low, unknown")
+	securitySbomFindingsCmd.Flags().String("sort", "exploitability", "Sort key: exploitability, severity, epss, cve_id, package_name, last_seen_at, occurrences")
+	securitySbomFindingsCmd.Flags().String("order", "desc", "Sort order: asc or desc")
+	securitySbomFindingsCmd.Flags().Int("page", 1, "Page number")
+	securitySbomFindingsCmd.Flags().Int("page-size", 50, "Vulnerabilities per page (max 100)")
 
 	securityNamespacesCmd.Flags().String("search", "", "Match namespace or cluster name")
 	securityNamespacesCmd.Flags().String("cluster", "", "Only namespaces on one cluster (name or id)")

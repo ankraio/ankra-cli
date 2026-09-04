@@ -184,6 +184,72 @@ type SecuritySBOMImageDetail struct {
 	Workloads  []SecuritySBOMWorkload      `json:"workloads" yaml:"workloads"`
 }
 
+// SecuritySBOMImageFindingsOptions narrows the vulnerabilities on one image.
+type SecuritySBOMImageFindingsOptions struct {
+	ImageIdentity string
+	Page          int
+	PageSize      int
+	Search        string
+	Severities    []string
+	Sort          string
+	Order         string
+}
+
+// SecuritySBOMImageFindingImage is the image a vulnerability list was read
+// for. SBOMStatus is "present" when the platform holds a bill of materials
+// for it and "absent" when only the vulnerability scanner named it.
+type SecuritySBOMImageFindingImage struct {
+	ImageIdentity string  `json:"image_identity" yaml:"image_identity"`
+	ImageRef      string  `json:"image_ref" yaml:"image_ref"`
+	ImageDigest   *string `json:"image_digest" yaml:"image_digest"`
+	SBOMStatus    string  `json:"sbom_status" yaml:"sbom_status"`
+}
+
+// SecuritySBOMImageFinding is one CVE on one installed package version of
+// the image, aggregated across every container running it. Disposition is
+// the worst across those occurrences: open before acknowledged before
+// accepted_risk.
+type SecuritySBOMImageFinding struct {
+	FindingID                   string                    `json:"finding_id" yaml:"finding_id"`
+	CVEID                       string                    `json:"cve_id" yaml:"cve_id"`
+	Severity                    string                    `json:"severity" yaml:"severity"`
+	Title                       *string                   `json:"title" yaml:"title"`
+	PackageType                 string                    `json:"package_type" yaml:"package_type"`
+	PackageName                 string                    `json:"package_name" yaml:"package_name"`
+	InstalledVersion            string                    `json:"installed_version" yaml:"installed_version"`
+	FixedVersion                *string                   `json:"fixed_version" yaml:"fixed_version"`
+	Fixable                     bool                      `json:"fixable" yaml:"fixable"`
+	Disposition                 string                    `json:"disposition" yaml:"disposition"`
+	Dispositions                SecurityDispositionCounts `json:"dispositions" yaml:"dispositions"`
+	Occurrences                 int                       `json:"occurrences" yaml:"occurrences"`
+	Workloads                   int                       `json:"workloads" yaml:"workloads"`
+	Clusters                    int                       `json:"clusters" yaml:"clusters"`
+	LastSeenAt                  string                    `json:"last_seen_at" yaml:"last_seen_at"`
+	SecurityExploitIntelligence `yaml:",inline"`
+}
+
+// SecuritySBOMImageFindingSummary totals the image's active occurrences
+// before search and severity narrow the rows.
+type SecuritySBOMImageFindingSummary struct {
+	Observed        int                    `json:"observed" yaml:"observed"`
+	Actionable      SecuritySeverityCounts `json:"actionable" yaml:"actionable"`
+	ActionableTotal int                    `json:"actionable_total" yaml:"actionable_total"`
+	AcceptedRisk    int                    `json:"accepted_risk" yaml:"accepted_risk"`
+	Fixable         int                    `json:"fixable" yaml:"fixable"`
+	KnownExploited  int                    `json:"known_exploited" yaml:"known_exploited"`
+	Findings        int                    `json:"findings" yaml:"findings"`
+}
+
+// SecuritySBOMImageFindingList is the paginated vulnerability list of one
+// image.
+type SecuritySBOMImageFindingList struct {
+	Image        SecuritySBOMImageFindingImage   `json:"image" yaml:"image"`
+	Result       []SecuritySBOMImageFinding      `json:"result" yaml:"result"`
+	Pagination   SecurityPagination              `json:"pagination" yaml:"pagination"`
+	Summary      SecuritySBOMImageFindingSummary `json:"summary" yaml:"summary"`
+	Intelligence SecurityIntelligenceStatus      `json:"intelligence" yaml:"intelligence"`
+}
+
 // SecurityNamespacesOptions mirrors the namespace breakdown controls.
 type SecurityNamespacesOptions struct {
 	Page      int
@@ -531,4 +597,25 @@ func (c *Client) ExportSecuritySBOMImage(options SecuritySBOMExportOptions) (*Se
 		ContentType: response.Header.Get("Content-Type"),
 		Body:        body,
 	}, nil
+}
+
+// ListSecuritySBOMImageFindings lists the vulnerabilities named on one image.
+func (c *Client) ListSecuritySBOMImageFindings(options SecuritySBOMImageFindingsOptions) (*SecuritySBOMImageFindingList, error) {
+	query := neturl.Values{}
+	setPaging(query, options.Page, options.PageSize)
+	setListControls(query, options.Search, options.Sort, options.Order)
+	query.Set("image", options.ImageIdentity)
+	for _, severity := range options.Severities {
+		if trimmed := strings.TrimSpace(severity); trimmed != "" {
+			query.Add("severity", trimmed)
+		}
+	}
+	var list SecuritySBOMImageFindingList
+	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/image/findings", query), &list); err != nil {
+		return nil, fmt.Errorf("security sbom image findings request failed: %w", err)
+	}
+	if list.Result == nil {
+		list.Result = []SecuritySBOMImageFinding{}
+	}
+	return &list, nil
 }

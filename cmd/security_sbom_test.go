@@ -21,6 +21,8 @@ type securitySbomMock struct {
 	imagesOptions     *client.SecuritySBOMImagesOptions
 	containers        *client.SecuritySBOMContainerList
 	containersOptions *client.SecuritySBOMContainersOptions
+	imageFindings     *client.SecuritySBOMImageFindingList
+	findingsOptions   *client.SecuritySBOMImageFindingsOptions
 	export            *client.SecuritySBOMExport
 	exportOptions     *client.SecuritySBOMExportOptions
 }
@@ -47,6 +49,11 @@ func (m *securitySbomMock) ListSecuritySBOMImages(options client.SecuritySBOMIma
 func (m *securitySbomMock) ListSecuritySBOMContainers(options client.SecuritySBOMContainersOptions) (*client.SecuritySBOMContainerList, error) {
 	m.containersOptions = &options
 	return m.containers, nil
+}
+
+func (m *securitySbomMock) ListSecuritySBOMImageFindings(options client.SecuritySBOMImageFindingsOptions) (*client.SecuritySBOMImageFindingList, error) {
+	m.findingsOptions = &options
+	return m.imageFindings, nil
 }
 
 func (m *securitySbomMock) ExportSecuritySBOMImage(options client.SecuritySBOMExportOptions) (*client.SecuritySBOMExport, error) {
@@ -344,5 +351,43 @@ func TestSecuritySbomExportNeverTreatsTheServerFileNameAsAPath(t *testing.T) {
 	}
 	if _, statError := os.Stat(workDirectory + "/escaped.json"); statError != nil {
 		t.Fatalf("file not written where announced: %v", statError)
+	}
+}
+
+func TestSecuritySbomFindingsListsTheCVEsOnOneImageAndNamesAnAbsentBillOfMaterials(t *testing.T) {
+	fixed, title := "3.0.1", "OpenSSL issue"
+	mock := &securitySbomMock{imageFindings: &client.SecuritySBOMImageFindingList{
+		Image: client.SecuritySBOMImageFindingImage{ImageIdentity: "sha256:abc", ImageRef: "registry.test/grafana:1.0.0", SBOMStatus: "absent"},
+		Result: []client.SecuritySBOMImageFinding{{
+			FindingID: "f-1", CVEID: "CVE-2026-9001", Severity: "CRITICAL", Title: &title, PackageType: "deb", PackageName: "openssl",
+			InstalledVersion: "3.0.0", FixedVersion: &fixed, Fixable: true, Disposition: "open",
+			Dispositions: client.SecurityDispositionCounts{Open: 2}, Occurrences: 2, Workloads: 1, Clusters: 1,
+			LastSeenAt:                  "2026-09-04T09:00:00Z",
+			SecurityExploitIntelligence: client.SecurityExploitIntelligence{KnownExploited: true},
+		}},
+		Pagination: client.SecurityPagination{Page: 1, PageSize: 50, TotalPages: 1, TotalCount: 1},
+		Summary: client.SecuritySBOMImageFindingSummary{Observed: 2, Actionable: client.SecuritySeverityCounts{Critical: 2},
+			ActionableTotal: 2, Fixable: 2, KnownExploited: 2, Findings: 1},
+	}}
+	output, executeError := runSecurityCommand(t, mock, "security", "sbom", "findings", " sha256:abc ",
+		"--severity", "critical", "--severity", "high", "--search", "openssl", "--sort", "severity", "--order", "asc", "--page-size", "10")
+	if executeError != nil {
+		t.Fatalf("security sbom findings failed: %v", executeError)
+	}
+	options := mock.findingsOptions
+	if options == nil || options.ImageIdentity != "sha256:abc" || len(options.Severities) != 2 || options.Search != "openssl" ||
+		options.Sort != "severity" || options.Order != "asc" || options.PageSize != 10 {
+		t.Fatalf("findings options = %+v", options)
+	}
+	for _, expected := range []string{"registry.test/grafana:1.0.0", "ABSENT", "1 CVE(s) across 2 occurrences", "CVE-2026-9001", "openssl (deb)", "3.0.1", "open", "1 on 1 cluster(s)", "Page 1 of 1 · 1 vulnerabilities"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output lacks %q:\n%s", expected, output)
+		}
+	}
+	if !strings.Contains(output, "CISA KEV catalog has not been synced") {
+		t.Fatalf("an unsynced catalog is said, not implied:\n%s", output)
+	}
+	if _, executeError := runSecurityCommand(t, mock, "security", "sbom", "findings"); executeError == nil {
+		t.Fatalf("the image identity is required")
 	}
 }
