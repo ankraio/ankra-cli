@@ -149,6 +149,19 @@ var stackProfilesListCmd = &cobra.Command{
 // only, because renderStructured returns before this and -o json/yaml stdout
 // must stay parseable.
 func stackProfileListingFooter(shown int, totalCount int, page int, pageSize int) string {
+	// total_count absent from the response unmarshals to 0, which is "unknown",
+	// not "empty" - and treating it as a total would suppress the footer on
+	// exactly the page that needs it. A full page with no reported total is
+	// indistinguishable from a truncated one, so say the size is unknown rather
+	// than let the page pass for the catalogue again. A short page is the whole
+	// remainder either way, so it stays quiet.
+	if totalCount <= 0 {
+		if pageSize > 0 && shown >= pageSize {
+			return fmt.Sprintf("Showing %d stack profiles (page %d; catalogue size unknown); use --page/--page-size to check for more.\n",
+				shown, page)
+		}
+		return ""
+	}
 	if totalCount <= shown {
 		return ""
 	}

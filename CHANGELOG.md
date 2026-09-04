@@ -31,8 +31,9 @@
   existed - the listing looked complete and the missing profiles were
   invisible unless you already knew to pass `--page-size`. The table now
   carries a `Showing 25 of 35 stack profiles (page 1 of 2)` footer whenever
-  the page does not cover the catalogue. `-o json`/`yaml` output is
-  unchanged and still carries `total_count`.
+  the page does not cover the catalogue. A full page whose response reports
+  no total says `catalogue size unknown` rather than passing for the whole
+  set. `-o json`/`yaml` output is unchanged and still carries `total_count`.
 
 ## v0.15.0-rc1 — 2026-09-03
 

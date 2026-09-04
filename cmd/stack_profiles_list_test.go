@@ -108,6 +108,35 @@ func TestStackProfileListingFooterCountsTheLastPage(t *testing.T) {
 	}
 }
 
+func TestStackProfilesListSaysSoWhenTheTotalIsMissing(t *testing.T) {
+	// An omitted total_count deserialises to 0. Reading that as "the catalogue
+	// holds nothing more" is the bug this whole change is about, so a full page
+	// without a reported total has to say the size is unknown.
+	output := stripANSICodes(runProfilesList(t, 1, 25, &client.StackProfileListResponse{
+		Result:   profilePage(25),
+		Page:     1,
+		PageSize: 25,
+	}))
+
+	if !strings.Contains(output, "Showing 25 stack profiles") {
+		t.Fatalf("a full page with no total must still say what it showed; got:\n%s", output)
+	}
+	if !strings.Contains(output, "catalogue size unknown") {
+		t.Fatalf("an unknown total must not pass for a complete listing; got:\n%s", output)
+	}
+	if strings.Contains(output, " of 0 ") {
+		t.Fatalf("a missing total must never be printed as a total; got:\n%s", output)
+	}
+}
+
+func TestStackProfileListingFooterStaysQuietOnAShortPageWithoutATotal(t *testing.T) {
+	// Fewer rows than the page size means the server had no more to give, so
+	// there is nothing the reader is missing and nothing to warn about.
+	if footer := stackProfileListingFooter(10, 0, 1, 25); footer != "" {
+		t.Fatalf("a short page is its own remainder: %q", footer)
+	}
+}
+
 func TestStackProfileListingFooterOmitsThePageCountWithoutAPageSize(t *testing.T) {
 	footer := stackProfileListingFooter(10, 35, 1, 0)
 
