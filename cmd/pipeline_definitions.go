@@ -81,6 +81,12 @@ func newPipelineDefinitionsApproveCommand() *cobra.Command {
 protected sections. Requires the pipelines.manage permission and a human
 actor - a service-account or agent token is refused.
 
+Approving grants whatever permissions, credentials, secrets scope, network
+tier and other protected sections the definition declares - inspect them
+first with 'ankra pipeline definitions get <id>' if you have not, since this
+command prints only the protected-sections hash, not their content. Confirms
+before approving; --yes skips the prompt for scripted use.
+
 Only the repository's CURRENT default-branch definition can be approved, and
 only once: approving a definition the default branch has since moved past,
 or one already approved, answers a 409 this command prints verbatim rather
@@ -92,6 +98,7 @@ sections were ever hashed answers the same 409.`,
 		},
 	}
 	registerStructuredOutputFlags(approveCommand)
+	approveCommand.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	return approveCommand
 }
 
@@ -99,6 +106,12 @@ func runPipelineDefinitionsApprove(command *cobra.Command, definitionID string) 
 	format, formatError := structuredFormatFromFlags(command)
 	if formatError != nil {
 		return formatError
+	}
+	skipConfirmation, _ := command.Flags().GetBool("yes")
+	confirmMessage := fmt.Sprintf("Approve pipeline definition %s as trusted authority? This grants whatever "+
+		"permissions, credentials and network access its protected sections declare. [y/N] ", definitionID)
+	if confirmError := confirmPrompt(command.InOrStdin(), command.OutOrStdout(), confirmMessage, skipConfirmation); confirmError != nil {
+		return confirmError
 	}
 	approval, approveError := apiClient.ApprovePipelineDefinition(command.Context(), definitionID)
 	if approveError != nil {

@@ -757,7 +757,7 @@ func TestPipelineDefinitionsApproveHappyPath(t *testing.T) {
 		DefinitionID: "def-1", ProtectedHash: strings.Repeat("a", 64), ApprovedHash: strings.Repeat("a", 64),
 		ApprovedBy: "user-1", ApprovedAt: strPipelinePtr("2026-09-01T00:00:00Z"),
 	}}
-	output, executeError := runPipelineCommand(t, mockClient, "definitions", "approve", "def-1")
+	output, executeError := runPipelineCommand(t, mockClient, "definitions", "approve", "def-1", "--yes")
 	if executeError != nil {
 		t.Fatalf("definitions approve error = %v", executeError)
 	}
@@ -771,7 +771,7 @@ func TestPipelineDefinitionsApproveHappyPath(t *testing.T) {
 
 func TestPipelineDefinitionsApproveJSON(t *testing.T) {
 	mockClient := &pipelineLaneMock{approveResult: &client.PipelineDefinitionApproval{DefinitionID: "def-1"}}
-	output, executeError := runPipelineCommand(t, mockClient, "definitions", "approve", "def-1", "-o", "json")
+	output, executeError := runPipelineCommand(t, mockClient, "definitions", "approve", "def-1", "-o", "json", "--yes")
 	if executeError != nil {
 		t.Fatalf("definitions approve -o json error = %v", executeError)
 	}
@@ -794,7 +794,7 @@ func TestPipelineDefinitionsApproveErrorsAreVerbatimAndExitNonZero(t *testing.T)
 	} {
 		t.Run(sentinel, func(t *testing.T) {
 			mockClient := &pipelineLaneMock{approveError: errors.New(sentinel)}
-			_, executeError := runPipelineCommand(t, mockClient, "definitions", "approve", "def-1")
+			_, executeError := runPipelineCommand(t, mockClient, "definitions", "approve", "def-1", "--yes")
 			if executeError == nil || executeError.Error() != sentinel {
 				t.Fatalf("error = %v, want the sentinel text verbatim", executeError)
 			}
@@ -802,6 +802,32 @@ func TestPipelineDefinitionsApproveErrorsAreVerbatimAndExitNonZero(t *testing.T)
 				t.Errorf("exit code = %d, want non-zero", exitCodeFor(executeError))
 			}
 		})
+	}
+}
+
+// TestPipelineDefinitionsApproveConfirms pins that approving - which grants
+// whatever permissions, credentials and network access the definition's
+// protected sections declare - confirms first like every other privileged or
+// destructive command in this CLI, and that declining never reaches the API
+// (ankra-platform[bot] review on #231).
+func TestPipelineDefinitionsApproveConfirms(t *testing.T) {
+	mockClient := &pipelineLaneMock{}
+	previousClient := apiClient
+	apiClient = mockClient
+	t.Cleanup(func() { apiClient = previousClient })
+
+	pipelineCommand := newPipelineCommand()
+	var output bytes.Buffer
+	pipelineCommand.SetOut(&output)
+	pipelineCommand.SetErr(&output)
+	pipelineCommand.SetIn(strings.NewReader("n\n"))
+	pipelineCommand.SetArgs([]string{"definitions", "approve", "def-1"})
+	executeError := pipelineCommand.Execute()
+	if executeError == nil || exitCodeFor(executeError) != exitCancelled {
+		t.Fatalf("declined approve error = %v", executeError)
+	}
+	if mockClient.approveCalls != 0 {
+		t.Errorf("ApprovePipelineDefinition was called despite the decline, calls = %d", mockClient.approveCalls)
 	}
 }
 

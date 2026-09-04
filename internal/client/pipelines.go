@@ -90,8 +90,15 @@ type PipelineRun struct {
 	// yet - and for one planned before the authority was recorded - which
 	// is "not recorded", never "no authority"; the definition id alone is
 	// also null for a run executing under the organisation's baseline.
+	//
+	// AuthorityDefinitionID is not always the definition to approve:
 	// GetPipelineDefinitionApproval and ApprovePipelineDefinition read and
-	// approve the definition AuthorityDefinitionID names.
+	// approve a stored definition by id, but this field names where the run's
+	// CURRENTLY TRUSTED authority came from - which, for a run whose state is
+	// not "approved", is typically the older definition an administrator
+	// already approved, not the one waiting on approval. See
+	// cmd/pipeline_run.go's printPipelineRunAuthority for the reasoning and
+	// what it prints instead.
 	AuthorityState        *string `json:"authority_state"`
 	AuthorityHash         *string `json:"authority_hash"`
 	AuthorityDefinitionID *string `json:"authority_definition_id"`
