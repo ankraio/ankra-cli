@@ -225,8 +225,10 @@ For a GitHub repository, the committed .ankra/pipeline.yaml on the default
 branch (read through --credential) is recorded as the definition of record in
 the same call when it parses. A repository with no committed file, or on
 another provider, connects with no definition - store one with
-'ankra pipeline definition put --repository <id> <file>', or commit the file
-and connect again.`,
+'ankra pipeline definition put --repository <id> <file>'. Running connect a
+second time will not pick up a file committed since, because an already-
+connected repository is refused rather than re-read (see above); disconnect
+the repository and connect it again to force a fresh read.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runPipelineRepositoriesConnect(command)
