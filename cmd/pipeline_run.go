@@ -347,23 +347,38 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 
 // printPipelineRunAuthority prints the run's recorded authority state
 // (ankra-vn0bd.10.8) when the server recorded one: whose protected sections
-// the run executed, and, when that is not simply the run's own approved
-// head, which stored definition to approve to make it current. A run
-// planned before authority tracking existed carries no state and this
-// prints nothing, matching how the wire field is null rather than empty.
+// the run executed and, for a state other than "approved", that an
+// administrator's approval would change it. A run planned before authority
+// tracking existed carries no state and this prints nothing, matching how
+// the wire field is null rather than empty.
+//
+// This deliberately never turns AuthorityDefinitionID into an
+// "ankra pipeline definitions approve <id>" command. That field names the
+// definition the run's CURRENTLY TRUSTED authority was drawn from - already
+// approved, or the default branch's own when it protects nothing - never the
+// definition an "unapproved" or "changed_on_head" run is waiting on: that is
+// always the repository's CURRENT default-branch definition
+// (enginekit/pipelinerun.CurrentDefaultBranchDefinition, resolved
+// server-side for the pull request status comment and not carried on this
+// response at all). Naming AuthorityDefinitionID as "the one to approve"
+// would be wrong exactly when it matters most: for "unapproved" it is
+// typically an older definition an administrator already approved (or
+// empty, when none ever was), and for "changed_on_head" it is at best the
+// default branch's own already-approved definition - approving either 409s
+// rather than fixing anything.
 func printPipelineRunAuthority(out io.Writer, run client.PipelineRun) {
 	if run.AuthorityState == nil || *run.AuthorityState == "" {
 		return
 	}
 	_, _ = fmt.Fprintf(out, "  Authority: %s\n", *run.AuthorityState)
-	if run.AuthorityDefinitionID == nil || *run.AuthorityDefinitionID == "" {
-		return
+	if run.AuthorityDefinitionID != nil && *run.AuthorityDefinitionID != "" {
+		_, _ = fmt.Fprintf(out, "             trusted authority taken from definition %s\n", *run.AuthorityDefinitionID)
 	}
-	_, _ = fmt.Fprintf(out, "             definition %s", *run.AuthorityDefinitionID)
 	if *run.AuthorityState != "approved" {
-		_, _ = fmt.Fprintf(out, " (ankra pipeline definitions approve %s)", *run.AuthorityDefinitionID)
+		_, _ = fmt.Fprintln(out, "             an administrator approving the repository's current default-branch "+
+			"definition would update this - see the pull request's status comment for its id, or "+
+			"'ankra pipeline definitions get <id>' once you have one")
 	}
-	_, _ = fmt.Fprintln(out)
 }
 
 func newPipelineCancelCommand() *cobra.Command {

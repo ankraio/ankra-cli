@@ -807,9 +807,15 @@ func TestPipelineDefinitionsApproveErrorsAreVerbatimAndExitNonZero(t *testing.T)
 
 // TestPipelineGetRendersAuthorityWhenRecorded pins that 'pipeline get' shows
 // a run's recorded authority state and, for a state other than "approved",
-// the exact 'ankra pipeline definitions approve <id>' command to fix it -
-// the discoverability path ankra-vn0bd.10.8 relies on in place of a listing
-// route for definition ids.
+// a note that an administrator's approval would change it.
+//
+// It deliberately does NOT assert an
+// "ankra pipeline definitions approve <id>" command naming
+// AuthorityDefinitionID: that field is the definition the run's CURRENTLY
+// TRUSTED authority came from - already approved, or empty - never the
+// definition a non-approved run is waiting on, so turning it into an approve
+// command would print a command that 409s (ankra-platform[bot] review on
+// #231: the original version of this test pinned exactly that mistake).
 func TestPipelineGetRendersAuthorityWhenRecorded(t *testing.T) {
 	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{PipelineRun: client.PipelineRun{
 		ID: "run-1", RunNumber: 9, Status: "concluded", Outcome: strPipelinePtr("success"),
@@ -825,15 +831,22 @@ func TestPipelineGetRendersAuthorityWhenRecorded(t *testing.T) {
 	if !strings.Contains(output, "Authority: changed_on_head") {
 		t.Errorf("output = %q, want the authority state line", output)
 	}
-	if !strings.Contains(output, "ankra pipeline definitions approve def-1") {
-		t.Errorf("output = %q, want the approve hint naming the definition id", output)
+	if !strings.Contains(output, "trusted authority taken from definition def-1") {
+		t.Errorf("output = %q, want the authority's source definition named as context", output)
+	}
+	if !strings.Contains(output, "an administrator approving the repository's current default-branch definition") {
+		t.Errorf("output = %q, want the generic approval note", output)
+	}
+	if strings.Contains(output, "definitions approve def-1") {
+		t.Errorf("output = %q, must not turn the trusted-authority definition into an approve command - "+
+			"it is not necessarily the one that needs approving", output)
 	}
 }
 
-// TestPipelineGetApprovedAuthorityOmitsTheApproveHint pins that an approved
+// TestPipelineGetApprovedAuthorityOmitsTheApprovalNote pins that an approved
 // run still names its authority's definition (useful context) but carries no
-// approve hint, since there is nothing left to approve.
-func TestPipelineGetApprovedAuthorityOmitsTheApproveHint(t *testing.T) {
+// approval note, since there is nothing left to approve.
+func TestPipelineGetApprovedAuthorityOmitsTheApprovalNote(t *testing.T) {
 	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{PipelineRun: client.PipelineRun{
 		ID: "run-1", RunNumber: 9, Status: "concluded", Outcome: strPipelinePtr("success"),
 		Trigger: "push", TriggerRef: "refs/heads/main", HeadSHA: strings.Repeat("a", 40),
@@ -848,8 +861,11 @@ func TestPipelineGetApprovedAuthorityOmitsTheApproveHint(t *testing.T) {
 	if !strings.Contains(output, "Authority: approved") {
 		t.Errorf("output = %q, want the authority state line", output)
 	}
-	if strings.Contains(output, "approve def-1") {
-		t.Errorf("output = %q, an approved run must not carry the approve hint", output)
+	if !strings.Contains(output, "trusted authority taken from definition def-1") {
+		t.Errorf("output = %q, want the authority's source definition named as context", output)
+	}
+	if strings.Contains(output, "an administrator approving") {
+		t.Errorf("output = %q, an approved run must not carry the approval note", output)
 	}
 }
 
