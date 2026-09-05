@@ -2374,6 +2374,14 @@ func (m baseMock) ListAlertDestinations(options client.ListAlertDestinationsOpti
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListAlertIngestCredentials() (*client.AlertIngestCredentialList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RebindAlertIngestCredential(string, client.RebindAlertIngestCredentialRequest) (*client.AlertIngestCredential, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetAlertDestination(destinationID string) (*client.AlertDestination, error) {
 	return nil, errors.New("not implemented")
 }

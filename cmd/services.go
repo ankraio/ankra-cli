@@ -690,6 +690,8 @@ type APIClient interface {
 	CreateAlertDestination(request client.CreateAlertDestinationRequest) (*client.AlertDestination, error)
 	UpdateAlertDestination(destinationID string, request client.UpdateAlertDestinationRequest) (*client.AlertDestination, error)
 	DeleteAlertDestination(destinationID string) (*client.DeleteAlertDestinationResult, error)
+	ListAlertIngestCredentials() (*client.AlertIngestCredentialList, error)
+	RebindAlertIngestCredential(credentialID string, request client.RebindAlertIngestCredentialRequest) (*client.AlertIngestCredential, error)
 	TestAlertDestination(destinationID string) (*client.AlertDestinationTestResult, error)
 	TestAlertDestinationURL(request client.TestAlertDestinationURLRequest) (*client.AlertDestinationTestResult, error)
 	ListSlackChannels() (*client.SlackChannelList, error)

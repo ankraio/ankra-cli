@@ -18,6 +18,8 @@ import (
 // between Execute calls, for resetTreeFlags.
 func alertsCommandTree() []*cobra.Command {
 	return []*cobra.Command{
+		alertsIngestCredentialsListCmd,
+		alertsIngestCredentialsRebindCmd,
 		alertsDestinationsListCmd,
 		alertsDestinationsGetCmd,
 		alertsDestinationsCreateCmd,
