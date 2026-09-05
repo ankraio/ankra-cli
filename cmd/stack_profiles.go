@@ -239,8 +239,8 @@ var stackProfilesImportCmd = &cobra.Command{
 				fmt.Printf("Warning: %s\n", warning)
 			}
 			if result.Draft.ProfileID != nil && result.Draft.BaseVersion != nil {
-				fmt.Printf("Opened draft %s on existing profile %q (base version v%d). Nothing is published yet.\n",
-					result.Draft.ID, result.Draft.Name, *result.Draft.BaseVersion)
+				fmt.Printf("Opened draft %s on existing profile %q (id=%s, base version v%d). Nothing is published yet.\n",
+					result.Draft.ID, result.Draft.Name, *result.Draft.ProfileID, *result.Draft.BaseVersion)
 			} else {
 				fmt.Printf("Opened new-profile draft %s for %q. Nothing is published yet.\n",
 					result.Draft.ID, result.Draft.Name)
