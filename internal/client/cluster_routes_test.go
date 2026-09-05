@@ -13,10 +13,15 @@ package client
 //
 //	ANKRA_CLUSTER_ROUTES_JSON=../cluster/routes.json go test ./internal/client/ -run ClusterRoutes
 //
-// Matching is path-only and shape-aware: a `{…}` segment on either side
-// matches any single segment and a trailing `*` on a route matches the rest.
-// A literal that ends in "/" is a prefix the code appends an identifier to,
-// so it is checked as `prefix/{}`; a `%s` or `%d` placeholder is one dynamic
+// Matching is path-only and shape-aware: a route's `{param}` segment accepts
+// any call segment and a trailing `*` on a route matches the rest, but a
+// dynamic call segment (a `%s` placeholder or an appended identifier) is
+// accepted only by a route parameter, never by a literal, because the real
+// request would 404 there. A literal that ends in "/" is a prefix the code
+// appends an identifier to (`prefix + id + "/tailscale"`); the scan sees only
+// the literal, so it is checked as `prefix/{}*`: the route must carry a
+// parameter where the identifier goes, and whatever the code appends after
+// it is not seen and not checked. A `%s` or `%d` placeholder is one dynamic
 // segment. cluster_routes_allowlist.json beside this file is a ratchet (this
 // repo gitignores testdata/): the paths
 // that did not resolve when the check was introduced. A new one fails, a
@@ -47,12 +52,14 @@ type clusterRouteCensus struct {
 
 var clusterRouteParameter = regexp.MustCompile(`\{[^}]*\}|%[sdv]`)
 
-// normalizeClusterPath collapses every parameter to `{}`, treats a trailing
-// slash as a dynamic tail, and ignores a query string.
+// normalizeClusterPath collapses every parameter to `{}`, turns a trailing
+// slash into the appended-identifier tail `{}*`, and ignores a query string.
 func normalizeClusterPath(path string) string {
 	withoutQuery := strings.SplitN(path, "?", 2)[0]
+	tail := ""
 	if strings.HasSuffix(withoutQuery, "/") && len(withoutQuery) > 1 {
-		withoutQuery += "{}"
+		withoutQuery = strings.TrimSuffix(withoutQuery, "/")
+		tail = "/{}*"
 	}
 	collapsed := clusterRouteParameter.ReplaceAllString(withoutQuery, "{}")
 	segments := strings.Split(collapsed, "/")
@@ -61,11 +68,13 @@ func normalizeClusterPath(path string) string {
 			segments[index] = "{}"
 		}
 	}
-	return strings.Join(segments, "/")
+	return strings.Join(segments, "/") + tail
 }
 
 // clusterPathMatches reports whether a normalized call path has the shape of a
-// normalized route pattern.
+// normalized route pattern: a route parameter accepts anything, a dynamic call
+// segment is accepted only by a route parameter, and the appended-identifier
+// tail `{}*` is accepted by a route parameter with anything after it.
 func clusterPathMatches(callPath string, routePath string) bool {
 	call := strings.Split(callPath, "/")
 	route := strings.Split(routePath, "/")
@@ -77,7 +86,10 @@ func clusterPathMatches(callPath string, routePath string) bool {
 			return false
 		}
 		callSegment := call[index]
-		if routeSegment == "{}" || callSegment == "{}" || routeSegment == callSegment {
+		if callSegment == "{}*" {
+			return routeSegment == "{}"
+		}
+		if routeSegment == "{}" || routeSegment == callSegment {
 			continue
 		}
 		return false
@@ -232,7 +244,7 @@ func TestClusterRoutesAreRegistered(t *testing.T) {
 // TestNormalizeClusterPath pins the shapes the matcher relies on.
 func TestNormalizeClusterPath(t *testing.T) {
 	cases := map[string]string{
-		"/api/v1/org/ai-agent-runs/":                 "/api/v1/org/ai-agent-runs/{}",
+		"/api/v1/org/ai-agent-runs/":                 "/api/v1/org/ai-agent-runs/{}*",
 		"/api/v1/clusters/%s/nodes/%s/restart":       "/api/v1/clusters/{}/nodes/{}/restart",
 		"/api/v1/org/runs/{run_id}/stream?follow=1":  "/api/v1/org/runs/{}/stream",
 		"/api/v1/clusters/{cluster_id}/k8s/*":        "/api/v1/clusters/{}/k8s/*",
@@ -244,13 +256,26 @@ func TestNormalizeClusterPath(t *testing.T) {
 			t.Errorf("normalizeClusterPath(%q) = %q, want %q", input, got, want)
 		}
 	}
-	if !clusterPathMatches("/api/v1/org/ai-agent-runs/{}", "/api/v1/org/ai-agent-runs/{run_id}") {
-		t.Error("a dynamic tail must match a parameter segment")
+	route := normalizeClusterPath
+	if !clusterPathMatches("/api/v1/org/ai-agent-runs/{}*", route("/api/v1/org/ai-agent-runs/{run_id}")) {
+		t.Error("an appended-identifier tail must match a parameter segment")
+	}
+	if !clusterPathMatches("/api/v1/credentials/proxmox/{}*", route("/api/v1/credentials/proxmox/{credential_id}/tailscale")) {
+		t.Error("an appended-identifier tail must match a parameter segment with more route after it")
+	}
+	if clusterPathMatches("/api/v1/credentials/proxmox/{}*", route("/api/v1/credentials/proxmox/ssh-keys")) {
+		t.Error("an appended-identifier tail must not match a literal route segment")
+	}
+	if !clusterPathMatches("/api/v1/clusters/{}/nodes/{}/restart", route("/api/v1/clusters/{cluster_id}/nodes/{node_id}/restart")) {
+		t.Error("a placeholder must match a parameter segment")
 	}
 	if !clusterPathMatches("/api/v1/clusters/{}/k8s/api/v1/pods", "/api/v1/clusters/{}/k8s/*") {
 		t.Error("a trailing star must swallow the rest")
 	}
 	if clusterPathMatches("/api/v1/org/runs", "/api/v1/org/runs/{}") {
 		t.Error("a shorter call path must not match a longer route")
+	}
+	if clusterPathMatches("/api/v1/org/clusters/{}/cost", "/api/v1/org/clusters/managed/cost") {
+		t.Error("a dynamic call segment must not match a literal route segment: the real request would 404")
 	}
 }
