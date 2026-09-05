@@ -16,6 +16,18 @@
   unseen. A `--category` is only sent when explicitly set, so importing
   onto an existing profile never overwrites its category.
 
+### Fixed
+
+- **`ankra stack-profiles list` no longer prints page 1 as if it were the
+  whole catalogue.** The command pages at 25 by default, so an organisation
+  with 35 profiles got a 25-row table with nothing saying the other 10
+  existed - the listing looked complete and the missing profiles were
+  invisible unless you already knew to pass `--page-size`. The table now
+  carries a `Showing 25 of 35 stack profiles (page 1 of 2)` footer whenever
+  the page does not cover the catalogue. A full page whose response reports
+  no total says `catalogue size unknown` rather than passing for the whole
+  set. `-o json`/`yaml` output is unchanged and still carries `total_count`.
+
 ## v0.15.0-rc2 — 2026-09-05
 
 ### Added

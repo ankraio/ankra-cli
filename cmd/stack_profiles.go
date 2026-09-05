@@ -136,8 +136,42 @@ var stackProfilesListCmd = &cobra.Command{
 			})
 		}
 		writer.Render()
+		fmt.Print(stackProfileListingFooter(len(response.Result), response.TotalCount, page, pageSize))
 		return nil
 	},
+}
+
+// stackProfileListingFooter is the "showing this page, not the catalogue"
+// line under the table. Without it a default `list` prints 25 rows of a
+// 35-profile catalogue with nothing saying the other 10 exist, and both the
+// user and anything reading the table take page 1 for the whole set
+// (PLA-824). Empty when the page already covers every profile; table mode
+// only, because renderStructured returns before this and -o json/yaml stdout
+// must stay parseable.
+func stackProfileListingFooter(shown int, totalCount int, page int, pageSize int) string {
+	// total_count absent from the response unmarshals to 0, which is "unknown",
+	// not "empty" - and treating it as a total would suppress the footer on
+	// exactly the page that needs it. A full page with no reported total is
+	// indistinguishable from a truncated one, so say the size is unknown rather
+	// than let the page pass for the catalogue again. A short page is the whole
+	// remainder either way, so it stays quiet.
+	if totalCount <= 0 {
+		if pageSize > 0 && shown >= pageSize {
+			return fmt.Sprintf("Showing %d stack profiles (page %d; catalogue size unknown); use --page/--page-size to check for more.\n",
+				shown, page)
+		}
+		return ""
+	}
+	if totalCount <= shown {
+		return ""
+	}
+	pageSuffix := ""
+	if pageSize > 0 {
+		totalPages := (totalCount + pageSize - 1) / pageSize
+		pageSuffix = fmt.Sprintf(" (page %d of %d)", page, totalPages)
+	}
+	return fmt.Sprintf("Showing %d of %d stack profiles%s; use --page/--page-size to see the rest.\n",
+		shown, totalCount, pageSuffix)
 }
 
 var stackProfilesExportIacCmd = &cobra.Command{
