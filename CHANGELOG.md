@@ -31,6 +31,29 @@
   each row's `KIND` (`step_log` or `artifact`) and `STATUS` (`pending`,
   `uploaded`, `failed` or `expired`), so a caller can tell a still-archiving
   or failed row from one `artifacts download` can actually fetch.
+- **`ankra pipeline repositories` connects a bare Git repository to Ankra
+  Pipelines from the terminal.** Cluster PRs #2490 and #2509 added the
+  organisation-scoped onboarding routes; `list` and `get` read what the
+  organisation has connected (`--provider` filters the listing), and
+  `connect --provider --owner --name [--credential] [--default-branch]
+  [--application] [--cluster]` registers a repository so a push, pull request
+  or tag webhook on it can start a run - for a bare repository with no Ankra
+  application (docs, website, values repos), or before one exists.
+  `--application` links the repository to an application already in the
+  organisation without changing that application's own pipeline source, and
+  `--cluster` overrides the organisation's declared CI cluster for just this
+  repository's pipelines; both are refused (with the server's own message)
+  for an id outside the organisation, and `--cluster` also for a cluster
+  whose agent has not advertised it can run pipeline steps. A GitHub
+  repository's committed `.ankra/pipeline.yaml` is read through `--credential`
+  and recorded as the definition of record in the same call when it parses,
+  and `connect` prints that outcome alongside the repository id. Connecting a
+  repository a second time does not create a duplicate; the server's own
+  message names the existing repository's id rather than a rewritten one.
+  `disconnect <repository-id>` (confirms first, `--yes` to skip) stops it
+  starting new runs without deleting its history - connecting the same
+  identity again revives the same row - and refuses (409, the server's own
+  message) while a run is still queued or running.
 
 ### Fixed
 

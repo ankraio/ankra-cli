@@ -2498,6 +2498,22 @@ func (m baseMock) DeletePipelineSchedule(ctx context.Context, selector client.Pi
 	return errors.New("not implemented")
 }
 
+func (m baseMock) ListPipelineRepositories(ctx context.Context, options client.ListPipelineRepositoriesOptions) (*client.PipelineRepositoryList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPipelineRepository(ctx context.Context, repositoryID string) (*client.PipelineRepository, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ConnectPipelineRepository(ctx context.Context, request client.ConnectPipelineRepositoryRequest) (*client.ConnectPipelineRepositoryResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DisconnectPipelineRepository(ctx context.Context, repositoryID string) error {
+	return errors.New("not implemented")
+}
+
 type clusterListMock struct {
 	baseMock
 	clusters []client.ClusterListItem

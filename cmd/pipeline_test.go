@@ -80,6 +80,23 @@ type pipelineLaneMock struct {
 
 	deleteScheduleID    string
 	deleteScheduleError error
+
+	listRepositoriesOptions client.ListPipelineRepositoriesOptions
+	listRepositoriesResult  *client.PipelineRepositoryList
+	listRepositoriesError   error
+
+	getRepositoryID     string
+	getRepositoryResult *client.PipelineRepository
+	getRepositoryError  error
+
+	connectRepositoryRequest client.ConnectPipelineRepositoryRequest
+	connectRepositoryResult  *client.ConnectPipelineRepositoryResult
+	connectRepositoryError   error
+	connectRepositoryCalls   int
+
+	disconnectRepositoryID    string
+	disconnectRepositoryError error
+	disconnectRepositoryCalls int
 }
 
 func (mock *pipelineLaneMock) ListPipelineRuns(ctx context.Context, selector client.PipelineSelector, options client.ListPipelineRunsOptions) (*client.PipelineRunList, error) {
@@ -222,6 +239,37 @@ func (mock *pipelineLaneMock) DeletePipelineSchedule(ctx context.Context, select
 	return mock.deleteScheduleError
 }
 
+func (mock *pipelineLaneMock) ListPipelineRepositories(ctx context.Context, options client.ListPipelineRepositoriesOptions) (*client.PipelineRepositoryList, error) {
+	mock.listRepositoriesOptions = options
+	if mock.listRepositoriesError != nil {
+		return nil, mock.listRepositoriesError
+	}
+	return mock.listRepositoriesResult, nil
+}
+
+func (mock *pipelineLaneMock) GetPipelineRepository(ctx context.Context, repositoryID string) (*client.PipelineRepository, error) {
+	mock.getRepositoryID = repositoryID
+	if mock.getRepositoryError != nil {
+		return nil, mock.getRepositoryError
+	}
+	return mock.getRepositoryResult, nil
+}
+
+func (mock *pipelineLaneMock) ConnectPipelineRepository(ctx context.Context, request client.ConnectPipelineRepositoryRequest) (*client.ConnectPipelineRepositoryResult, error) {
+	mock.connectRepositoryRequest = request
+	mock.connectRepositoryCalls++
+	if mock.connectRepositoryError != nil {
+		return nil, mock.connectRepositoryError
+	}
+	return mock.connectRepositoryResult, nil
+}
+
+func (mock *pipelineLaneMock) DisconnectPipelineRepository(ctx context.Context, repositoryID string) error {
+	mock.disconnectRepositoryID = repositoryID
+	mock.disconnectRepositoryCalls++
+	return mock.disconnectRepositoryError
+}
+
 func runPipelineCommand(t *testing.T, mockClient APIClient, arguments ...string) (string, error) {
 	t.Helper()
 	previousClient := apiClient
@@ -244,7 +292,7 @@ func TestPipelineCommandsRegistered(t *testing.T) {
 		registered[subcommand.Name()] = true
 	}
 	for _, expected := range []string{
-		"run", "list", "get", "cancel", "rerun", "logs", "artifacts", "validate", "definition", "schedules",
+		"run", "list", "get", "cancel", "rerun", "logs", "artifacts", "validate", "definition", "schedules", "repositories",
 	} {
 		if !registered[expected] {
 			t.Errorf("pipeline subcommand %q is not registered", expected)
@@ -265,6 +313,12 @@ func TestPipelineCommandsRegistered(t *testing.T) {
 	for _, expected := range []string{"list", "create", "update", "delete"} {
 		if findSubcommandOrNil(schedulesCommand, expected) == nil {
 			t.Errorf("pipeline schedules subcommand %q is not registered", expected)
+		}
+	}
+	repositoriesCommand := findSubcommand(t, pipelineCommand, "repositories")
+	for _, expected := range []string{"list", "get", "connect", "disconnect"} {
+		if findSubcommandOrNil(repositoriesCommand, expected) == nil {
+			t.Errorf("pipeline repositories subcommand %q is not registered", expected)
 		}
 	}
 }
