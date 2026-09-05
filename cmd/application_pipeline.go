@@ -158,6 +158,7 @@ func newApplicationPipelineArtifactsCommand() *cobra.Command {
 		},
 	}
 	registerStructuredOutputFlags(artifactsCommand)
+	registerPipelineArtifactsListFlags(artifactsCommand)
 	artifactsCommand.AddCommand(newApplicationPipelineArtifactsDownloadCommand())
 	return artifactsCommand
 }

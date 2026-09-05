@@ -168,11 +168,12 @@ func TestSelectorRequiresExactlyOneAddress(t *testing.T) {
 	}
 }
 
-func TestListPipelineArtifactsEmptyUntilTheStoreLands(t *testing.T) {
+func TestListPipelineArtifactsEmpty(t *testing.T) {
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprint(w, `{"artifacts":[]}`)
+		_, _ = fmt.Fprint(w, `{"artifacts":[],"next_cursor":null}`)
 	})
-	list, err := testClient.ListPipelineArtifacts(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "run-1")
+	list, err := testClient.ListPipelineArtifacts(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "run-1",
+		ListPipelineArtifactsOptions{})
 	if err != nil {
 		t.Fatalf("ListPipelineArtifacts error = %v", err)
 	}
@@ -181,15 +182,173 @@ func TestListPipelineArtifactsEmptyUntilTheStoreLands(t *testing.T) {
 	}
 }
 
-func TestDownloadPipelineArtifactUnavailablePlaceholder(t *testing.T) {
+func TestListPipelineArtifactsDecodesKindStatusAndNullableStepID(t *testing.T) {
+	var capturedPath string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		_, _ = fmt.Fprint(w, `{"artifacts":[
+			{"id":"artifact-1","run_id":"run-1","step_id":"step-1","kind":"step_log","name":"step.log",
+			 "content_type":"text/plain; charset=utf-8","size_bytes":512,"sha256":"deadbeef",
+			 "status":"uploaded","error_message":"","expires_at":"2026-10-01T00:00:00Z",
+			 "created_at":"2026-09-01T00:00:00Z","uploaded_at":"2026-09-01T00:05:00Z"},
+			{"id":"artifact-2","run_id":"run-1","step_id":null,"kind":"artifact","name":"coverage.xml",
+			 "content_type":"application/octet-stream","size_bytes":0,"sha256":"","status":"pending",
+			 "error_message":"","expires_at":"2026-10-01T00:00:00Z","created_at":"2026-09-01T00:00:00Z",
+			 "uploaded_at":null}
+		],"next_cursor":null}`)
+	})
+	list, err := testClient.ListPipelineArtifacts(context.Background(), PipelineSelector{RepositoryID: "repo-1"}, "run-1",
+		ListPipelineArtifactsOptions{})
+	if err != nil {
+		t.Fatalf("ListPipelineArtifacts error = %v", err)
+	}
+	if capturedPath != "/api/v1/org/pipeline-repositories/repo-1/pipeline-runs/run-1/artifacts" {
+		t.Errorf("path = %q", capturedPath)
+	}
+	if len(list.Artifacts) != 2 {
+		t.Fatalf("artifacts = %+v", list.Artifacts)
+	}
+	stepLog := list.Artifacts[0]
+	if stepLog.Kind != PipelineArtifactKindStepLog || stepLog.Status != PipelineArtifactStatusUploaded {
+		t.Errorf("step log artifact = %+v", stepLog)
+	}
+	if stepLog.StepID == nil || *stepLog.StepID != "step-1" {
+		t.Errorf("step log artifact step id = %v, want \"step-1\"", stepLog.StepID)
+	}
+	declared := list.Artifacts[1]
+	if declared.Kind != PipelineArtifactKindArtifact || declared.Status != PipelineArtifactStatusPending {
+		t.Errorf("declared artifact = %+v", declared)
+	}
+	if declared.StepID != nil {
+		t.Errorf("declared artifact step id = %v, want nil (a run-level object)", declared.StepID)
+	}
+}
+
+func TestListPipelineArtifactsSendsCursorAndLimit(t *testing.T) {
+	var capturedCursor, capturedLimit string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedCursor = r.URL.Query().Get("cursor")
+		capturedLimit = r.URL.Query().Get("limit")
+		_, _ = fmt.Fprint(w, `{"artifacts":[],"next_cursor":"cursor-2"}`)
+	})
+	list, err := testClient.ListPipelineArtifacts(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "run-1",
+		ListPipelineArtifactsOptions{Cursor: "cursor-1", Limit: 100})
+	if err != nil {
+		t.Fatalf("ListPipelineArtifacts error = %v", err)
+	}
+	if capturedCursor != "cursor-1" || capturedLimit != "100" {
+		t.Errorf("query cursor = %q, limit = %q, want \"cursor-1\" and \"100\"", capturedCursor, capturedLimit)
+	}
+	if list.NextCursor == nil || *list.NextCursor != "cursor-2" {
+		t.Errorf("next cursor = %v, want the server's own", list.NextCursor)
+	}
+}
+
+func TestListPipelineArtifactsOmitsUnsetPaging(t *testing.T) {
+	var capturedRawQuery string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedRawQuery = r.URL.RawQuery
+		_, _ = fmt.Fprint(w, `{"artifacts":[],"next_cursor":null}`)
+	})
+	if _, err := testClient.ListPipelineArtifacts(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "run-1",
+		ListPipelineArtifactsOptions{}); err != nil {
+		t.Fatalf("ListPipelineArtifacts error = %v", err)
+	}
+	if capturedRawQuery != "" {
+		t.Errorf("raw query = %q, want none so the server chooses its own page", capturedRawQuery)
+	}
+}
+
+func TestDownloadPipelineArtifactNotFound(t *testing.T) {
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		_, _ = fmt.Fprint(w, `{"detail":"Artifacts are not available for this run"}`)
+		_, _ = fmt.Fprint(w, `{"detail":"Pipeline artifact not found"}`)
 	})
 	var buf strings.Builder
 	err := testClient.DownloadPipelineArtifact(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "artifact-1", &buf)
-	if err == nil || err.Error() != "Artifacts are not available for this run" {
-		t.Fatalf("error = %v", err)
+	if err == nil || err.Error() != "Pipeline artifact not found" {
+		t.Fatalf("error = %v, want the server's sentinel text verbatim", err)
+	}
+}
+
+func TestDownloadPipelineArtifactNotYetUploaded(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = fmt.Fprint(w, `{"detail":"This artifact has not been uploaded yet"}`)
+	})
+	var buf strings.Builder
+	err := testClient.DownloadPipelineArtifact(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "artifact-1", &buf)
+	if err == nil || err.Error() != "This artifact has not been uploaded yet" {
+		t.Fatalf("error = %v, want the server's 409 sentinel text verbatim", err)
+	}
+}
+
+func TestDownloadPipelineArtifactHappyPathStreamsTheBody(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/org/applications/app-1/artifacts/artifact-1/download" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		_, _ = fmt.Fprint(w, "line one\nline two\n")
+	})
+	var buf strings.Builder
+	err := testClient.DownloadPipelineArtifact(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "artifact-1", &buf)
+	if err != nil {
+		t.Fatalf("DownloadPipelineArtifact error = %v", err)
+	}
+	if buf.String() != "line one\nline two\n" {
+		t.Errorf("body = %q", buf.String())
+	}
+}
+
+func TestListPipelineFindingsHappyPath(t *testing.T) {
+	var capturedPath string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		_, _ = fmt.Fprint(w, `{"findings":[{"id":"finding-1","run_id":"run-1","step_id":"step-1",
+			"head_sha":"`+strings.Repeat("a", 40)+`","tool":"trivy","severity":"CRITICAL",
+			"identity_hash":"hash-1","rule_id":"","cve_id":"CVE-2026-1234","package_name":"openssl",
+			"package_version":"1.0.0","fixed_version":"1.0.1","path":"","line":null,
+			"title":"OpenSSL vulnerability","detail":{},"first_seen_run_id":"run-1",
+			"first_seen_at":"2026-09-01T00:00:00Z","created_at":"2026-09-01T00:00:00Z",
+			"updated_at":"2026-09-01T00:00:00Z"}]}`)
+	})
+	list, err := testClient.ListPipelineFindings(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "run-1")
+	if err != nil {
+		t.Fatalf("ListPipelineFindings error = %v", err)
+	}
+	if capturedPath != "/api/v1/org/applications/app-1/pipeline-runs/run-1/findings" {
+		t.Errorf("path = %q", capturedPath)
+	}
+	if len(list.Findings) != 1 || list.Findings[0].Tool != PipelineFindingToolTrivy ||
+		list.Findings[0].Severity != PipelineFindingSeverityCritical {
+		t.Fatalf("findings = %+v", list.Findings)
+	}
+	if list.Findings[0].CVEID == nil || *list.Findings[0].CVEID != "CVE-2026-1234" {
+		t.Errorf("cve id = %v", list.Findings[0].CVEID)
+	}
+}
+
+func TestListPipelineFindingsEmptyRunHasNoScanStep(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"findings":[]}`)
+	})
+	list, err := testClient.ListPipelineFindings(context.Background(), PipelineSelector{RepositoryID: "repo-1"}, "run-1")
+	if err != nil {
+		t.Fatalf("ListPipelineFindings error = %v", err)
+	}
+	if len(list.Findings) != 0 {
+		t.Fatalf("findings = %+v, want empty", list.Findings)
+	}
+}
+
+func TestListPipelineFindingsRunNotFound(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = fmt.Fprint(w, `{"detail":"Pipeline run not found"}`)
+	})
+	_, err := testClient.ListPipelineFindings(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "missing-run")
+	if err == nil || err.Error() != "Pipeline run not found" {
+		t.Fatalf("error = %v, want the server's sentinel text verbatim", err)
 	}
 }
 

@@ -1,10 +1,20 @@
 package cmd
 
-// The step log relay: go/internal/pipelineapi/streams.go over the shared
-// execution_output JetStream stream. See internal/client/pipeline_logs.go for
-// the wire contract and its one real limitation: a fresh connection has no
-// history to replay, so this command only ever shows output produced from the
-// moment it connects.
+// A pipeline step's output, two ways. A running step is followed live over
+// the step log relay (go/internal/pipelineapi/streams.go, over the shared
+// execution_output JetStream stream) - see internal/client/pipeline_logs.go
+// for that wire contract and its one real limitation: a fresh connection has
+// no history to replay, so a live connection only ever shows output produced
+// from the moment it connects. A step that has already concluded reads
+// differently: this command instead fetches its durable step_log artifact
+// (enginekit/pipelineartifacts.KindStepLog, uploaded when the step
+// concluded) through the same artifacts list and presigned download
+// cmd/pipeline_artifacts.go uses, and prints it whole - mirroring the
+// portal's usePipelineStepArtifactLog. That listing is keyset-paged, so the
+// search follows its cursor rather than read the first page as the run's
+// whole record. --follow only ever applies to the live relay: a concluded
+// step's log is a fixed, complete record, so there is nothing left to
+// follow.
 
 import (
 	"errors"
@@ -17,24 +27,44 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// pipelineStepStatusConcluded is the PipelineStep.Status value a settled
+// step carries, shared by the archive-log branch below and
+// pipelineStepConcluded's own poll.
+const pipelineStepStatusConcluded = "concluded"
+
 // pipelineLogStreamReconnectDelay is how long `logs --follow` waits before
 // reconnecting after the relay's own error frame or a stream fault, so a
 // transient disconnect does not spin the CLI in a tight retry loop.
 const pipelineLogStreamReconnectDelay = 2 * time.Second
 
+// pipelineArtifactPageSize is the page findPipelineStepLogArtifact asks for:
+// the route's own ceiling (enginekit/pipelineartifacts.MaxListLimit), so the
+// walk makes as few round trips as the server allows.
+const pipelineArtifactPageSize = 100
+
+// pipelineArtifactPageBudget bounds that walk. A run's step logs are written
+// oldest-first alongside its declared artifacts, so the one this command
+// wants is usually on the first page; the budget exists so a pathological
+// run (or a server that keeps handing back a cursor) cannot turn one 'logs'
+// call into an unbounded walk. At the page size above that is 5000 artifacts
+// before the search gives up, and giving up is reported as a capped read
+// rather than as an absent log.
+const pipelineArtifactPageBudget = 50
+
 func newPipelineLogsCommand() *cobra.Command {
 	logsCommand := &cobra.Command{
 		Use:   "logs <run>",
-		Short: "Show a pipeline step's live output",
-		Long: `Show a pipeline step's live output over the log relay.
+		Short: "Show a pipeline step's output",
+		Long: `Show a pipeline step's output.
 
-The relay has no history yet: a fresh connection only sees lines produced
-from the moment it connects, not what the step already printed before then
-(the durable per-step log artifact this will read from instead has not
-shipped). Without --follow, the command tails the step until it concludes and
-then stops; with --follow it does the same, so the difference is mainly
-diagnostic - a bare 'logs' exits with the step's outcome, 'logs --follow'
-keeps reconnecting through a dropped stream instead of giving up.`,
+A step that has already concluded prints its complete, archived log in one
+shot - --follow does nothing extra for it, since there is nothing left to
+produce. A step that is still running is followed over the live log relay
+instead: without --follow, the command tails the step until it concludes and
+then stops; with --follow it keeps reconnecting through a dropped stream
+instead of giving up. The relay itself has no history - a fresh connection
+only sees lines produced from the moment it connects - which is exactly why
+a concluded step reads its archived log instead.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -64,6 +94,9 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 	step, resolveError := resolvePipelineStep(command, selector, runID, strings.TrimSpace(stepReference))
 	if resolveError != nil {
 		return resolveError
+	}
+	if step.Status == pipelineStepStatusConcluded {
+		return runPipelineLogsFromArchive(command, selector, runID, step)
 	}
 	if step.ExecutionID == nil || step.ExecutionStepID == nil {
 		return fmt.Errorf("step %q has not started, so it has no log stream yet - "+
@@ -169,8 +202,108 @@ func pipelineStepConcluded(command *cobra.Command, selector client.PipelineSelec
 	}
 	for _, step := range detail.Steps {
 		if step.ID == stepID {
-			return step.Status == "concluded", nil
+			return step.Status == pipelineStepStatusConcluded, nil
 		}
 	}
 	return false, withExitCode(exitNotFound, fmt.Errorf("step %s is no longer on run %s", stepID, runID))
+}
+
+// runPipelineLogsFromArchive prints a concluded step's complete log from its
+// durable step_log artifact instead of opening the live relay, which would
+// see nothing for a step that already finished (DeliverNewPolicy - see the
+// package doc above). Mirrors the portal's usePipelineStepArtifactLog: find
+// the run's step_log artifact for this step, then branch on its own Status,
+// since "no artifact" and each of the artifact's three non-terminal-success
+// states are different facts a caller must not collapse into "no log".
+func runPipelineLogsFromArchive(command *cobra.Command, selector client.PipelineSelector, runID string,
+	step client.PipelineStep) error {
+	out := command.OutOrStdout()
+	progress := command.ErrOrStderr()
+
+	logArtifact, wasFullyRead, findError := findPipelineStepLogArtifact(command, selector, runID, step.ID)
+	if findError != nil {
+		return findError
+	}
+	if logArtifact == nil {
+		if !wasFullyRead {
+			// The search stopped at its own page cap, so absence was never
+			// observed: say the read was capped rather than report a log
+			// that may well exist on a page this command declined to fetch.
+			_, _ = fmt.Fprintf(progress,
+				"Stopped after %d pages of run %s's artifacts without finding a log for step %q;"+
+					" list them with 'ankra pipeline artifacts %s'.\n",
+				pipelineArtifactPageBudget, runID, step.StepKey, runID)
+			return nil
+		}
+		_, _ = fmt.Fprintf(progress, "No archived log was recorded for step %q.\n", step.StepKey)
+		return nil
+	}
+
+	switch logArtifact.Status {
+	case client.PipelineArtifactStatusUploaded:
+		// Streamed straight through rather than buffered: a step log is
+		// whatever the build printed, which for a verbose one is tens of
+		// megabytes, and holding all of it to write it once buys nothing.
+		return apiClient.DownloadPipelineArtifact(command.Context(), selector, logArtifact.ID, out)
+	case client.PipelineArtifactStatusPending:
+		_, _ = fmt.Fprintf(progress,
+			"Step %q has concluded; its log is still being archived - try again shortly.\n", step.StepKey)
+		return nil
+	case client.PipelineArtifactStatusFailed:
+		detail := logArtifact.ErrorMessage
+		if detail == "" {
+			detail = "Ankra could not archive this log."
+		}
+		return fmt.Errorf("step %q's log was not archived: %s", step.StepKey, detail)
+	case client.PipelineArtifactStatusExpired:
+		return withExitCode(exitNotFound,
+			fmt.Errorf("step %q's log has expired and was removed from storage", step.StepKey))
+	default:
+		_, _ = fmt.Fprintf(progress, "Step %q's log artifact is in an unrecognised state (%s).\n",
+			step.StepKey, logArtifact.Status)
+		return nil
+	}
+}
+
+// findPipelineStepLogArtifact walks the run's artifact pages for the given
+// step's step_log row. It returns the artifact when it finds one, and
+// otherwise reports through wasFullyRead whether the run's artifacts were
+// read to the end (a genuine absence) or the page budget ran out first (an
+// answer the caller must not state as absence).
+//
+// A step row carries at most one live step_log, but not necessarily only
+// one row: re-dispatching the same step supersedes whatever it had already
+// minted, marking that row failed with a superseding reason and writing a
+// fresh one. The listing is oldest-first, so the step's real log is the
+// last matching row, not the first - taking the first would report a
+// superseded upload's failure as the step's log. The walk therefore keeps
+// the newest match it has seen, and returns early only on a match that
+// cannot have been superseded, since supersession always leaves the row
+// failed.
+func findPipelineStepLogArtifact(command *cobra.Command, selector client.PipelineSelector, runID string,
+	stepID string) (artifact *client.PipelineArtifact, wasFullyRead bool, findError error) {
+	options := client.ListPipelineArtifactsOptions{Limit: pipelineArtifactPageSize}
+	var newest *client.PipelineArtifact
+	for page := 0; page < pipelineArtifactPageBudget; page++ {
+		list, listError := apiClient.ListPipelineArtifacts(command.Context(), selector, runID, options)
+		if listError != nil {
+			return nil, false, listError
+		}
+		for index := range list.Artifacts {
+			candidate := list.Artifacts[index]
+			if candidate.Kind != client.PipelineArtifactKindStepLog ||
+				candidate.StepID == nil || *candidate.StepID != stepID {
+				continue
+			}
+			newest = &list.Artifacts[index]
+			if candidate.Status != client.PipelineArtifactStatusFailed {
+				return newest, true, nil
+			}
+		}
+		if list.NextCursor == nil || *list.NextCursor == "" {
+			return newest, true, nil
+		}
+		options.Cursor = *list.NextCursor
+	}
+	return newest, false, nil
 }

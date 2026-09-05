@@ -6,11 +6,16 @@ package client
 // nothing here changes - the frames, the seq resume cursor and the status
 // codes are the shared sserelay's either way).
 //
-// The relay has no history to replay: a fresh connection (from_seq unset)
-// only sees output published from the moment it connects, because the
-// durable per-step log artifact is WS-C item C1 and does not exist yet. That
-// is a real, current limitation - not a client bug - and PipelineLogEvent
-// carries every frame decoded rather than pretending otherwise.
+// The relay itself has no history to replay: a fresh connection (from_seq
+// unset) only sees output published from the moment it connects. That is a
+// real, permanent property of the relay, not a client bug, and
+// PipelineLogEvent carries every frame decoded rather than pretending
+// otherwise. It is not the whole story for a step that has already
+// concluded, though: the step's complete output is also archived as a
+// step_log pipeline artifact (enginekit/pipelineartifacts.KindStepLog), and
+// cmd/pipeline_logs.go reads that instead of opening this relay once a
+// step's Status is "concluded" - see PipelineArtifact and
+// Client.ListPipelineArtifacts / DownloadPipelineArtifact in pipelines.go.
 
 import (
 	"bufio"
