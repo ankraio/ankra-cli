@@ -17,7 +17,8 @@ package client
 // matches any single segment and a trailing `*` on a route matches the rest.
 // A literal that ends in "/" is a prefix the code appends an identifier to,
 // so it is checked as `prefix/{}`; a `%s` or `%d` placeholder is one dynamic
-// segment. testdata/cluster_routes_allowlist.json is a ratchet: the paths
+// segment. cluster_routes_allowlist.json beside this file is a ratchet (this
+// repo gitignores testdata/): the paths
 // that did not resolve when the check was introduced. A new one fails, a
 // listed one that resolves fails too, so the list only shrinks. Regenerate
 // it deliberately with ANKRA_CLUSTER_ROUTES_UPDATE=1.
@@ -180,14 +181,11 @@ func TestClusterRoutesAreRegistered(t *testing.T) {
 	t.Logf("cluster routes: %d distinct /api/v1 literals checked against %d registered routes; %d resolved, %d unresolved",
 		len(literals), len(census.Routes), len(resolved), len(unresolved))
 
-	allowlistPath := filepath.Join("testdata", "cluster_routes_allowlist.json")
+	allowlistPath := "cluster_routes_allowlist.json"
 	if os.Getenv("ANKRA_CLUSTER_ROUTES_UPDATE") == "1" {
 		encoded, marshalError := json.MarshalIndent(unresolved, "", "  ")
 		if marshalError != nil {
 			t.Fatalf("encoding the allowlist: %v", marshalError)
-		}
-		if mkdirError := os.MkdirAll(filepath.Dir(allowlistPath), 0o755); mkdirError != nil {
-			t.Fatalf("creating testdata: %v", mkdirError)
 		}
 		if writeError := os.WriteFile(allowlistPath, append(encoded, '\n'), 0o644); writeError != nil {
 			t.Fatalf("writing %s: %v", allowlistPath, writeError)
