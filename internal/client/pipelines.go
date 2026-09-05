@@ -1,21 +1,33 @@
 package client
 
 // Ankra Pipelines (ankra-vn0bd.2.8, WS-B item B8): the typed client for
-// go/internal/pipelineapi on the cluster-api - runs, the definition of
-// record, and cron schedules.
+// go/internal/pipelineapi on the cluster-api - runs, artifacts, findings,
+// the definition of record, and cron schedules - plus the organisation-scoped
+// repository onboarding routes cluster PRs #2490 and #2509 added
+// (ankra-vn0bd.4.2, WS-D item D2): connect (optionally linking an application
+// and a CI cluster override), list, get and disconnect a connected
+// repository.
 //
-// The server mounts every route four times (session/token twin x
-// by-application/by-repository twin); this client only ever speaks the
-// bearer-PAT twin, and PipelineSelector picks which of the two addresses a
-// call uses. There is no route yet that lists or looks up a pipeline
-// repository by owner/name - only by-id and by-application addressing exist
-// (go/internal/pipelineapi/pipelineapi.go, ankra-vn0bd.2.7) - so
-// PipelineSelector.RepositoryID takes the repository's id, not "owner/name".
-// A future item that adds a repository listing route can widen this to
-// resolve a name the way resolveApplicationID already does for applications.
+// The server mounts every selector-addressed route four times (session/token
+// twin x by-application/by-repository twin); this client only ever speaks
+// the bearer-PAT twin, and PipelineSelector picks which of the two addresses
+// a call uses. The repository routes are mounted differently
+// (mountOrganisation, not mountScoped): they address the organisation alone,
+// so ConnectPipelineRepository, ListPipelineRepositories,
+// GetPipelineRepository and DisconnectPipelineRepository take no
+// PipelineSelector.
 //
-// Findings have no route yet either (WS-C item C5): there is no
-// ListPipelineFindings here, deliberately, until the server has one.
+// PipelineSelector.RepositoryID still takes the repository's id, not
+// "owner/name": the new listing filters by provider, not by owner/name, so
+// resolving a name the way resolveApplicationID does for applications would
+// mean paging the whole listing client-side. Left for an item that wants
+// that enough to pay for it.
+//
+// The definition-approval pair - GetPipelineDefinitionApproval and
+// ApprovePipelineDefinition (ankra-vn0bd.10.8) - is addressed the same way
+// as the repository routes: go/internal/pipelineapi/approval.go mounts them
+// with mountOrganisation, through a stored definition's own id, so neither
+// takes a PipelineSelector either.
 
 import (
 	"bytes"
@@ -77,11 +89,30 @@ type PipelineRun struct {
 	ErrorMessage      *string `json:"error_message"`
 	RequestedBy       string  `json:"requested_by"`
 	RerunOfRunID      *string `json:"rerun_of_run_id"`
-	QueuedAt          string  `json:"queued_at"`
-	StartedAt         *string `json:"started_at"`
-	FinishedAt        *string `json:"finished_at"`
-	CreatedAt         string  `json:"created_at"`
-	UpdatedAt         string  `json:"updated_at"`
+	// AuthorityState, AuthorityHash and AuthorityDefinitionID are the
+	// authority the run was planned under (ankra-vn0bd.10.8): whose
+	// protected sections it executes, their digest, and the stored
+	// definition they came from. All three are null for a run not planned
+	// yet - and for one planned before the authority was recorded - which
+	// is "not recorded", never "no authority"; the definition id alone is
+	// also null for a run executing under the organisation's baseline.
+	//
+	// AuthorityDefinitionID is not always the definition to approve:
+	// GetPipelineDefinitionApproval and ApprovePipelineDefinition read and
+	// approve a stored definition by id, but this field names where the run's
+	// CURRENTLY TRUSTED authority came from - which, for a run whose state is
+	// not "approved", is typically the older definition an administrator
+	// already approved, not the one waiting on approval. See
+	// cmd/pipeline_run.go's printPipelineRunAuthority for the reasoning and
+	// what it prints instead.
+	AuthorityState        *string `json:"authority_state"`
+	AuthorityHash         *string `json:"authority_hash"`
+	AuthorityDefinitionID *string `json:"authority_definition_id"`
+	QueuedAt              string  `json:"queued_at"`
+	StartedAt             *string `json:"started_at"`
+	FinishedAt            *string `json:"finished_at"`
+	CreatedAt             string  `json:"created_at"`
+	UpdatedAt             string  `json:"updated_at"`
 }
 
 // PipelineStep is the wire shape of a `pipeline_run_steps` row.
@@ -156,23 +187,141 @@ type CreatePipelineRunResult struct {
 	RunNumber     int64  `json:"run_number"`
 }
 
-// PipelineArtifact is the wire shape one stored run artifact will carry
-// (go/internal/pipelineapi/artifacts.go). The store behind this route is WS-C
-// item C1; until it lands the listing always answers empty and the download
-// always answers 404.
+// The two kinds of object a PipelineArtifact.Kind carries, mirroring
+// enginekit/pipelineartifacts.KindStepLog / KindArtifact: exactly one
+// step_log per step attempt (the step's complete output, the durable record
+// the SSE relay itself has no history for), and one artifact per declared
+// artifacts: path.
+const (
+	PipelineArtifactKindStepLog  = "step_log"
+	PipelineArtifactKindArtifact = "artifact"
+)
+
+// The life of one PipelineArtifact.Status, mirroring
+// enginekit/pipelineartifacts.Status*: pending until the agent's upload is
+// confirmed, then uploaded, or failed if it never arrived (ErrorMessage says
+// why), or expired once the retention sweep removed the object.
+const (
+	PipelineArtifactStatusPending  = "pending"
+	PipelineArtifactStatusUploaded = "uploaded"
+	PipelineArtifactStatusFailed   = "failed"
+	PipelineArtifactStatusExpired  = "expired"
+)
+
+// PipelineArtifact is the wire shape of one stored run artifact
+// (go/internal/pipelineapi/artifacts.go artifactResponse): a step's complete
+// log or one of its declared artifacts, stored as an object in the
+// organisation's backup vault. StepID is nil for a run-level object;
+// UploadedAt is nil until the upload is confirmed. A download is only good
+// once Status is PipelineArtifactStatusUploaded - see DownloadPipelineArtifact.
 type PipelineArtifact struct {
-	ID          string `json:"id"`
-	RunID       string `json:"run_id"`
-	StepID      string `json:"step_id"`
-	Name        string `json:"name"`
-	ContentType string `json:"content_type"`
-	SizeBytes   int64  `json:"size_bytes"`
-	CreatedAt   string `json:"created_at"`
+	ID           string  `json:"id"`
+	RunID        string  `json:"run_id"`
+	StepID       *string `json:"step_id"`
+	Kind         string  `json:"kind"`
+	Name         string  `json:"name"`
+	ContentType  string  `json:"content_type"`
+	SizeBytes    int64   `json:"size_bytes"`
+	SHA256       string  `json:"sha256"`
+	Status       string  `json:"status"`
+	ErrorMessage string  `json:"error_message"`
+	ExpiresAt    string  `json:"expires_at"`
+	CreatedAt    string  `json:"created_at"`
+	UploadedAt   *string `json:"uploaded_at"`
 }
 
 // PipelineArtifactList is the GET …/pipeline-runs/{run_id}/artifacts body.
+// NextCursor is nil on the last page and carries the cursor of the next one
+// otherwise, so an empty page with a NextCursor means "more to read", never
+// "nothing stored".
 type PipelineArtifactList struct {
-	Artifacts []PipelineArtifact `json:"artifacts"`
+	Artifacts  []PipelineArtifact `json:"artifacts"`
+	NextCursor *string            `json:"next_cursor"`
+}
+
+// ListPipelineArtifactsOptions is the GET …/pipeline-runs/{run_id}/artifacts
+// query. Cursor is a NextCursor handed back by an earlier page; Limit is the
+// page size (the server defaults to 50 and clamps at 100).
+type ListPipelineArtifactsOptions struct {
+	Cursor string
+	Limit  int
+}
+
+// PipelineFinding is the wire shape of one persisted scan finding
+// (go/internal/pipelineapi/findings.go findingResponse): a Semgrep, Checkov
+// or Trivy result, or an SBOM summary row, deduplicated by IdentityHash and
+// carrying its most recent occurrence's run, step and commit. CVEID is nil
+// for a tool that names no CVE (Semgrep, Checkov, SBOM). Detail is the
+// tool-specific report shape verbatim - a CodeFinding, a Vulnerability or an
+// SBOMSummary, distinguished by Tool - passed through rather than re-shaped.
+type PipelineFinding struct {
+	ID             string          `json:"id"`
+	RunID          string          `json:"run_id"`
+	StepID         *string         `json:"step_id"`
+	HeadSHA        string          `json:"head_sha"`
+	Tool           string          `json:"tool"`
+	Severity       string          `json:"severity"`
+	IdentityHash   string          `json:"identity_hash"`
+	RuleID         string          `json:"rule_id"`
+	CVEID          *string         `json:"cve_id"`
+	PackageName    string          `json:"package_name"`
+	PackageVersion string          `json:"package_version"`
+	FixedVersion   string          `json:"fixed_version"`
+	Path           string          `json:"path"`
+	Line           *int64          `json:"line"`
+	Title          string          `json:"title"`
+	Detail         json.RawMessage `json:"detail"`
+	FirstSeenRunID string          `json:"first_seen_run_id"`
+	FirstSeenAt    string          `json:"first_seen_at"`
+	CreatedAt      string          `json:"created_at"`
+	UpdatedAt      string          `json:"updated_at"`
+}
+
+// PipelineFindingList is the GET …/pipeline-runs/{run_id}/findings body.
+type PipelineFindingList struct {
+	Findings []PipelineFinding `json:"findings"`
+}
+
+// The closed vocabulary of PipelineFinding.Tool, mirroring
+// enginekit/pipelinefindings.Tool*. ToolSBOM findings are informational: a
+// bill of materials, never a vulnerability, and never blocking whatever the
+// gate policy.
+const (
+	PipelineFindingToolSemgrep = "semgrep"
+	PipelineFindingToolCheckov = "checkov"
+	PipelineFindingToolTrivy   = "trivy"
+	PipelineFindingToolSBOM    = "sbom"
+)
+
+// The platform's shared severity vocabulary for PipelineFinding.Severity,
+// mirroring enginekit/pipelinefindings.Severity* - CRITICAL down to
+// UNKNOWN, an unrecognised or not-applicable severity (an SBOM row, for
+// example).
+const (
+	PipelineFindingSeverityCritical = "CRITICAL"
+	PipelineFindingSeverityHigh     = "HIGH"
+	PipelineFindingSeverityMedium   = "MEDIUM"
+	PipelineFindingSeverityLow      = "LOW"
+	PipelineFindingSeverityUnknown  = "UNKNOWN"
+)
+
+// ListPipelineFindings reads a run's persisted scan findings (GET
+// …/pipeline-runs/{run_id}/findings) - the same rows the application's
+// Security tab reads once a pipeline run exists for it. There is no paging:
+// the route answers every finding of the run's own head_sha in one body.
+func (c *Client) ListPipelineFindings(ctx context.Context, selector PipelineSelector,
+	runID string) (*PipelineFindingList, error) {
+	base, selectorError := selector.basePath()
+	if selectorError != nil {
+		return nil, selectorError
+	}
+	var result PipelineFindingList
+	if requestError := c.doPipelineRequest(ctx, http.MethodGet,
+		fmt.Sprintf("%s%s/pipeline-runs/%s/findings", c.BaseURL, base, neturl.PathEscape(runID)),
+		nil, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
 }
 
 // PipelineRepositoryReference names the repository a definition belongs to,
@@ -206,6 +355,27 @@ type PipelineDefinition struct {
 	Stages        []PipelineStage             `json:"stages"`
 	Violations    []string                    `json:"violations"`
 	Repository    PipelineRepositoryReference `json:"repository"`
+}
+
+// PipelineDefinitionApproval is the GET/POST
+// …/org/pipelines/definitions/{id}[/approve] body
+// (go/internal/pipelineapi/approval.go definitionApprovalResponse,
+// ankra-vn0bd.10.8): one stored definition's protected-authority approval
+// state, addressed by the definition's own id rather than through a
+// repository or application - the id a pull request status comment names,
+// or a run detail's AuthorityDefinitionID field.
+//
+// ApprovedHash is "" until an administrator approves it; once they do it
+// equals ProtectedHash. It is redundant with ProtectedHash under today's
+// one-hash-per-row model, and carried anyway so a caller that reads only
+// this field learns "approved, and at exactly this hash" without
+// cross-referencing ApprovedAt's presence against a second field.
+type PipelineDefinitionApproval struct {
+	DefinitionID  string  `json:"definition_id"`
+	ProtectedHash string  `json:"protected_hash"`
+	ApprovedHash  string  `json:"approved_hash"`
+	ApprovedAt    *string `json:"approved_at"`
+	ApprovedBy    string  `json:"approved_by"`
 }
 
 // PipelinePlannedStep is one node of a dry-run DAG.
@@ -289,6 +459,107 @@ type UpdatePipelineScheduleRequest struct {
 	Enabled  *bool              `json:"enabled,omitempty"`
 }
 
+// PipelineRepository is the wire shape of a `pipeline_repositories` row
+// (go/internal/pipelineapi/repositories.go repositoryResponse): what
+// `pipeline repositories list|get|connect|disconnect` (ankra-vn0bd.4.2)
+// address. ApplicationID links the repository to an application inside the
+// organisation without changing that application's own pipeline_source
+// disposition; ClusterID overrides the organisation's declared CI cluster
+// (`GET /org/ci-settings`) for this repository's pipelines. Both are nil
+// when the connect named none - a repository's pipelines then fall back to
+// the organisation's setting.
+type PipelineRepository struct {
+	ID             string  `json:"id"`
+	OrganisationID string  `json:"organisation_id"`
+	Provider       string  `json:"provider"`
+	Owner          string  `json:"owner"`
+	Name           string  `json:"name"`
+	CredentialName string  `json:"credential_name"`
+	DefaultBranch  string  `json:"default_branch"`
+	ApplicationID  *string `json:"application_id"`
+	ClusterID      *string `json:"cluster_id"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+// PipelineRepositoryDefinitionOutcome is what a connect did with the
+// repository's committed pipeline file (go/internal/pipelineapi/repositories.go
+// definitionBootstrapResponse): one of the pipelineonboard.Definition*
+// statuses ("recorded", "already_recorded", "absent", "unreadable",
+// "invalid", "unknown"), the sentence behind it, the definition of record
+// when one was recorded, and - when the committed file could not be read -
+// why. A read failure never fails the connect itself: Status answers
+// "unreadable" or "unknown" instead, and ReadError names the cause.
+type PipelineRepositoryDefinitionOutcome struct {
+	Status       string   `json:"status"`
+	Detail       string   `json:"detail"`
+	DefinitionID *string  `json:"definition_id"`
+	SpecHash     *string  `json:"spec_hash"`
+	Violations   []string `json:"violations"`
+	ReadError    *string  `json:"read_error"`
+}
+
+// ConnectPipelineRepositoryRequest is the POST /pipelines/repositories body.
+// CredentialName and DefaultBranch are optional: an absent credential
+// connects the repository without reading its committed pipeline file (the
+// connect result's Definition says so), and an absent branch takes the
+// server's "main" default (pipelines.DefaultRepositoryBranch).
+// ApplicationID and ClusterID are both optional and both addressed by id, not
+// by name: an empty string connects no application and stores no CI cluster
+// override. The server refuses (422) an application outside the organisation,
+// a cluster outside the organisation, or a cluster whose agent has not
+// advertised it can run pipeline steps
+// (go/internal/usecase/pipelines/repositories.go validateRepositoryLinks).
+type ConnectPipelineRepositoryRequest struct {
+	Provider       string `json:"provider"`
+	Owner          string `json:"owner"`
+	Name           string `json:"name"`
+	CredentialName string `json:"credential_name,omitempty"`
+	DefaultBranch  string `json:"default_branch,omitempty"`
+	ApplicationID  string `json:"application_id,omitempty"`
+	ClusterID      string `json:"cluster_id,omitempty"`
+}
+
+// ConnectPipelineRepositoryResult is the 201 body: the connected repository
+// plus what the connect did with its committed pipeline file.
+type ConnectPipelineRepositoryResult struct {
+	PipelineRepository
+	Definition PipelineRepositoryDefinitionOutcome `json:"definition"`
+}
+
+// PipelineRepositoryList is the GET /pipelines/repositories body, newest
+// first. NextCursor is null when the page was the last one.
+type PipelineRepositoryList struct {
+	Repositories []PipelineRepository `json:"repositories"`
+	NextCursor   *string              `json:"next_cursor"`
+}
+
+// ListPipelineRepositoriesOptions is the GET /pipelines/repositories query.
+type ListPipelineRepositoriesOptions struct {
+	// Provider filters to one provider; empty lists every provider.
+	Provider string
+	Cursor   string
+	Limit    int
+}
+
+// PipelineRepositoryAlreadyConnectedError is the 409
+// go/internal/pipelineapi/repositories.go writeRepositoryError answers for a
+// repository the organisation already connected: the server's sentence
+// (which already names the existing repository's id in prose) plus that id
+// as its own field, so a caller does not have to parse the sentence to act
+// on what it already has.
+type PipelineRepositoryAlreadyConnectedError struct {
+	Detail       string
+	RepositoryID string
+}
+
+func (alreadyConnected *PipelineRepositoryAlreadyConnectedError) Error() string {
+	if alreadyConnected == nil {
+		return ""
+	}
+	return alreadyConnected.Detail
+}
+
 // PipelineValidationError is the platform's structured 422 for a dispatch or
 // a definition write the planner refused
 // (go/internal/pipelineapi/pipelineapi.go writePipelineError,
@@ -336,6 +607,22 @@ func pipelineErrorFromResponse(statusCode int, body []byte, retryAfterHeader str
 	}
 	if denied := PermissionDeniedFromResponse(statusCode, body); denied != nil {
 		return denied
+	}
+
+	// The repository-already-connected shape
+	// (go/internal/pipelineapi/repositories.go writeRepositoryError):
+	// {"detail": "...", "repository_id": "..."}. Checked ahead of the
+	// generic refusal shape below, which would otherwise decode the same
+	// body and drop the id in a bare errors.New.
+	if statusCode == http.StatusConflict {
+		var duplicate struct {
+			Detail       string `json:"detail"`
+			RepositoryID string `json:"repository_id"`
+		}
+		if unmarshalError := json.Unmarshal(body, &duplicate); unmarshalError == nil &&
+			duplicate.Detail != "" && duplicate.RepositoryID != "" {
+			return &PipelineRepositoryAlreadyConnectedError{Detail: duplicate.Detail, RepositoryID: duplicate.RepositoryID}
+		}
 	}
 
 	// The planner-refusal shape: {"detail": "...", "diagnostics": [...]}.
@@ -571,19 +858,31 @@ func (c *Client) CancelPipelineRun(ctx context.Context, selector PipelineSelecto
 	return &result, nil
 }
 
-// ListPipelineArtifacts lists a run's stored artifacts (GET
-// …/pipeline-runs/{run_id}/artifacts). The store is WS-C item C1; until it
-// lands this always answers an empty list for a run the caller can see.
+// ListPipelineArtifacts reads one keyset page of a run's stored step logs
+// and artifacts (GET …/pipeline-runs/{run_id}/artifacts), oldest first. The
+// server pages this listing (50 rows a page by default, 100 at most), so a
+// caller that needs every artifact of a run must follow the answer's
+// NextCursor until it comes back nil rather than read the first page as the
+// whole record.
 func (c *Client) ListPipelineArtifacts(ctx context.Context, selector PipelineSelector,
-	runID string) (*PipelineArtifactList, error) {
+	runID string, options ListPipelineArtifactsOptions) (*PipelineArtifactList, error) {
 	base, selectorError := selector.basePath()
 	if selectorError != nil {
 		return nil, selectorError
 	}
+	endpoint := fmt.Sprintf("%s%s/pipeline-runs/%s/artifacts", c.BaseURL, base, neturl.PathEscape(runID))
+	query := neturl.Values{}
+	if options.Cursor != "" {
+		query.Set("cursor", options.Cursor)
+	}
+	if options.Limit > 0 {
+		query.Set("limit", strconv.Itoa(options.Limit))
+	}
+	if len(query) > 0 {
+		endpoint += "?" + query.Encode()
+	}
 	var result PipelineArtifactList
-	if requestError := c.doPipelineRequest(ctx, http.MethodGet,
-		fmt.Sprintf("%s%s/pipeline-runs/%s/artifacts", c.BaseURL, base, neturl.PathEscape(runID)),
-		nil, &result); requestError != nil {
+	if requestError := c.doPipelineRequest(ctx, http.MethodGet, endpoint, nil, &result); requestError != nil {
 		return nil, requestError
 	}
 	return &result, nil
@@ -591,8 +890,12 @@ func (c *Client) ListPipelineArtifacts(ctx context.Context, selector PipelineSel
 
 // DownloadPipelineArtifact follows the 302 the download route answers
 // (GET …/artifacts/{artifact_id}/download) and streams the artifact into
-// destination. Until WS-C item C1 lands, the route always answers 404 with
-// pipelines.ErrArtifactsUnavailable.
+// destination. The route answers 404 for an artifact outside the caller's
+// organisation or one that never existed, 409 while its step has not
+// settled or its upload failed or its vault is gone, and 410 once the
+// retention sweep removed it - check the artifact's own Status first
+// (PipelineArtifactStatusUploaded is the only one a download can satisfy) to
+// tell those apart from a plain mistake in the id.
 func (c *Client) DownloadPipelineArtifact(ctx context.Context, selector PipelineSelector,
 	artifactID string, destination io.Writer) error {
 	base, selectorError := selector.basePath()
@@ -680,6 +983,51 @@ func (c *Client) ValidatePipelineDefinition(ctx context.Context, selector Pipeli
 	return &result, nil
 }
 
+// pipelineDefinitionPath is the organisation-scoped path for one stored
+// pipeline definition's approval state, addressed by the definition's own
+// id rather than through PipelineSelector - the fifth family this package's
+// doc comment describes.
+func pipelineDefinitionPath(definitionID string) string {
+	return "/api/v1/org/pipelines/definitions/" + neturl.PathEscape(definitionID)
+}
+
+// GetPipelineDefinitionApproval reads one stored pipeline definition's
+// protected-authority approval state by its own id (GET
+// …/pipelines/definitions/{id}): the identity of its protected sections, and
+// who approved them and when, if anyone has. The server answers 404 for an
+// id that does not exist in the caller's organisation, verbatim through
+// doPipelineRequest's shared error mapping.
+func (c *Client) GetPipelineDefinitionApproval(ctx context.Context, definitionID string) (*PipelineDefinitionApproval, error) {
+	var result PipelineDefinitionApproval
+	if requestError := c.doPipelineRequest(ctx, http.MethodGet,
+		c.BaseURL+pipelineDefinitionPath(definitionID), nil, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
+
+// ApprovePipelineDefinition records an administrator's approval of one
+// stored pipeline definition's protected sections (POST
+// …/pipelines/definitions/{id}/approve): the human act "logic is open,
+// authority is closed" requires before a definition that changed authority
+// on the default branch is trusted (enginekit/pipelinepolicy).
+//
+// Only the repository's current default-branch definition can be approved,
+// and only once, and only by a human actor - a service-account token is
+// refused. The server's 404 (unknown id), 409 (not the current default-branch
+// definition, already approved, or its protected sections were never
+// hashed) and 403 (no human actor) sentinels are returned verbatim through
+// doPipelineRequest's shared error mapping; this method neither rewrites nor
+// retries them.
+func (c *Client) ApprovePipelineDefinition(ctx context.Context, definitionID string) (*PipelineDefinitionApproval, error) {
+	var result PipelineDefinitionApproval
+	if requestError := c.doPipelineRequest(ctx, http.MethodPost,
+		c.BaseURL+pipelineDefinitionPath(definitionID)+"/approve", nil, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
+
 // ListPipelineSchedules lists the repository's cron entries (GET
 // …/pipeline/schedules).
 func (c *Client) ListPipelineSchedules(ctx context.Context, selector PipelineSelector) (*PipelineScheduleList, error) {
@@ -738,4 +1086,84 @@ func (c *Client) DeletePipelineSchedule(ctx context.Context, selector PipelineSe
 	return c.doPipelineRequest(ctx, http.MethodDelete,
 		fmt.Sprintf("%s%s/pipeline/schedules/%s", c.BaseURL, base, neturl.PathEscape(scheduleID)),
 		nil, nil)
+}
+
+// pipelineRepositoriesBasePath is the organisation-scoped route the
+// repository onboarding surface is mounted on
+// (go/internal/pipelineapi/repositories.go mountOrganisation). Unlike every
+// other pipeline route it addresses no single repository or application, so
+// it is a fixed path rather than something PipelineSelector.basePath builds.
+const pipelineRepositoriesBasePath = "/api/v1/org/pipelines/repositories"
+
+// pipelineRepositoriesEndpoint appends the GET …/pipelines/repositories
+// query (provider filter, page cursor, limit) to the base path.
+func pipelineRepositoriesEndpoint(base string, options ListPipelineRepositoriesOptions) string {
+	query := neturl.Values{}
+	if options.Provider != "" {
+		query.Set("provider", options.Provider)
+	}
+	if options.Cursor != "" {
+		query.Set("cursor", options.Cursor)
+	}
+	if options.Limit > 0 {
+		query.Set("limit", strconv.Itoa(options.Limit))
+	}
+	endpoint := base
+	if len(query) > 0 {
+		endpoint += "?" + query.Encode()
+	}
+	return endpoint
+}
+
+// ListPipelineRepositories reads one page of the organisation's connected
+// repositories, newest first (GET /org/pipelines/repositories).
+func (c *Client) ListPipelineRepositories(ctx context.Context,
+	options ListPipelineRepositoriesOptions) (*PipelineRepositoryList, error) {
+	var result PipelineRepositoryList
+	endpoint := pipelineRepositoriesEndpoint(c.BaseURL+pipelineRepositoriesBasePath, options)
+	if requestError := c.doPipelineRequest(ctx, http.MethodGet, endpoint, nil, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
+
+// GetPipelineRepository reads one connected repository by id
+// (GET /org/pipelines/repositories/{repository_id}).
+func (c *Client) GetPipelineRepository(ctx context.Context, repositoryID string) (*PipelineRepository, error) {
+	var result PipelineRepository
+	endpoint := fmt.Sprintf("%s%s/%s", c.BaseURL, pipelineRepositoriesBasePath, neturl.PathEscape(repositoryID))
+	if requestError := c.doPipelineRequest(ctx, http.MethodGet, endpoint, nil, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
+
+// ConnectPipelineRepository connects a bare Git repository to Ankra
+// Pipelines (POST /org/pipelines/repositories) so a push/PR/tag webhook on it
+// can start a run. A repository the organisation already connected - by
+// provider, owner and name, compared without case - answers
+// *PipelineRepositoryAlreadyConnectedError with the existing row's id rather
+// than a second row.
+func (c *Client) ConnectPipelineRepository(ctx context.Context,
+	request ConnectPipelineRepositoryRequest) (*ConnectPipelineRepositoryResult, error) {
+	var result ConnectPipelineRepositoryResult
+	endpoint := c.BaseURL + pipelineRepositoriesBasePath
+	if requestError := c.doPipelineRequest(ctx, http.MethodPost, endpoint, request, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
+
+// DisconnectPipelineRepository disconnects a connected repository
+// (DELETE /org/pipelines/repositories/{repository_id}), answering 204 with no
+// body on success. Disconnecting is reversible by construction - connecting
+// the same identity again revives the row - but a repository with a pipeline
+// run still queued or running refuses with the server's own 409 sentence
+// ("This repository has a pipeline run that is queued or running",
+// pipelines.ErrRepositoryHasLiveRun), rendered here as a plain error, and a
+// repository that was never connected, or was already disconnected, answers
+// the same 404 as an unknown id (pipelines.ErrRepositoryNotFound).
+func (c *Client) DisconnectPipelineRepository(ctx context.Context, repositoryID string) error {
+	endpoint := fmt.Sprintf("%s%s/%s", c.BaseURL, pipelineRepositoriesBasePath, neturl.PathEscape(repositoryID))
+	return c.doPipelineRequest(ctx, http.MethodDelete, endpoint, nil, nil)
 }
