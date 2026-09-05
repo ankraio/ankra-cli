@@ -1,5 +1,21 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra stack-profiles import --as-draft` stages a file-authored profile
+  for review instead of publishing it.** The document opens as a builder
+  draft on the named profile: when your organisation already has a profile
+  with the document's name (or the `--name` override) the draft attaches to
+  it as the next-version candidate, and otherwise it opens as a new-profile
+  draft. Nothing is published until you review the draft - the command
+  prints the draft id and the `drafts validate` / `drafts publish`
+  follow-ups - so an operator or agent who authored a candidate profile
+  update as a file can hand it to a human instead of shipping it sight
+  unseen. A `--category` is only sent when explicitly set, so importing
+  onto an existing profile never overwrites its category.
+
 ## v0.15.0-rc2 — 2026-09-05
 
 ### Added
