@@ -1,0 +1,6 @@
+[
+  "/api/v1/org/cloud-cost  (internal/client/cost.go:9)",
+  "/api/v1/org/manifest-addons  (internal/client/manifest_addons.go:24)",
+  "/api/v1/org/pipeline-repositories/  (internal/client/pipelines.go:60)",
+  "/api/v1/org/security  (internal/client/security.go:10)"
+]
