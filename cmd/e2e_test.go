@@ -734,6 +734,15 @@ func (m baseMock) UpdateOrganisationPreviewSettings(ctx context.Context,
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetOrganisationCISettings(ctx context.Context) (*client.OrganisationCISettings, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateOrganisationCISettings(ctx context.Context,
+	changes map[string]any) (*client.OrganisationCISettings, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) MCPCatalog(ctx context.Context) (*client.MCPCatalogResult, error) {
 	return nil, errors.New("not implemented")
 }

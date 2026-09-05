@@ -4,6 +4,21 @@
 
 ### Added
 
+- **`ankra org ci-settings get|set` reads and changes the organisation's
+  Ankra Pipelines settings.** The platform has served `GET/PUT
+  /org/ci-settings` since the pipelines lane shipped and nothing in the CLI
+  read it, so the two settings that decide whether a run can start at all -
+  the pipeline cluster and the build fallback - were discoverable only by
+  asking Ankra: a run that concluded `infra_error` naming the build fallback
+  left no command that could show what the fallback was set to. `get` prints
+  all eight settings, says what an unchosen pipeline cluster costs, calls out
+  a chosen cluster that has since been deleted, and reports when every value
+  is still Ankra's own default. `set` writes only the flags you pass, so
+  raising one number cannot clear the image policy; `--cluster` takes a name
+  or an id and an empty value clears it, and `--allowed-image-prefix` is
+  repeatable and replaces the whole policy list. Reading needs organisation
+  membership, changing needs organisation admin.
+
 - **`ankra stack-profiles import --as-draft` stages a file-authored profile
   for review instead of publishing it.** The document opens as a builder
   draft on the named profile: when your organisation already has a profile

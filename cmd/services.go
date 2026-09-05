@@ -127,6 +127,9 @@ type APIClient interface {
 	UpdateOrganisationPreviewSettings(ctx context.Context,
 		changes map[string]*string) (*client.OrganisationPreviewSettings, error)
 	SetOrganisationDomain(ctx context.Context, rootDomain string) (*client.OrganisationDomain, error)
+	GetOrganisationCISettings(ctx context.Context) (*client.OrganisationCISettings, error)
+	UpdateOrganisationCISettings(ctx context.Context,
+		changes map[string]any) (*client.OrganisationCISettings, error)
 
 	MCPCatalog(ctx context.Context) (*client.MCPCatalogResult, error)
 	ListMCPServers(ctx context.Context) ([]client.MCPServerListItem, error)
