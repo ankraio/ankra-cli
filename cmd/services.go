@@ -692,6 +692,8 @@ type APIClient interface {
 	DeleteAlertDestination(destinationID string) (*client.DeleteAlertDestinationResult, error)
 	ListAlertIngestCredentials() (*client.AlertIngestCredentialList, error)
 	RebindAlertIngestCredential(credentialID string, request client.RebindAlertIngestCredentialRequest) (*client.AlertIngestCredential, error)
+	GetAISpendCap() (*client.AISpendCap, error)
+	UpdateAISpendCap(update client.AISpendCapUpdate) (*client.AISpendCap, error)
 	TestAlertDestination(destinationID string) (*client.AlertDestinationTestResult, error)
 	TestAlertDestinationURL(request client.TestAlertDestinationURLRequest) (*client.AlertDestinationTestResult, error)
 	ListSlackChannels() (*client.SlackChannelList, error)
