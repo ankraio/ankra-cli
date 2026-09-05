@@ -20,13 +20,19 @@ permissions:
 jobs:
   sync-docs:
     name: Generate and PR CLI reference
-    runs-on: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
+    runs-on: ${{ vars.CLI_RUNNER || 'arc-runner-set' }}
+    container:
+      image: golang:1.26
+    timeout-minutes: 20
     steps:
       - name: Checkout ankra-cli
         uses: actions/checkout@v6
         with:
           # Full history so manual runs can name a version via git describe.
           fetch-depth: 0
+
+      - name: Install tooling (gh)
+        run: .github/scripts/install-tooling.sh
 
       - name: Set up Go
         uses: actions/setup-go@v5

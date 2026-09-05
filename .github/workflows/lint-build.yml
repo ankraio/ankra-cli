@@ -3,17 +3,35 @@ name: Lint, Test and Build
 on:
   push:
     branches:
-      - '**'
+      - master
   pull_request:
     branches:
       - '**'
+
+# One run per commit: a pull request commit used to run twice (push + pull_request),
+# which doubled the load on the shared self-hosted pool. A superseded run on a
+# branch is cancelled; master runs complete.
+concurrency:
+  group: lint-build-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 permissions:
   contents: read
 
 jobs:
   lint-test-build:
-    runs-on: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
+    # Runs on the organisation's self-hosted ARC scale set (runner group
+    # arc-privileged-build, registered for github.com/ankraio). Set the
+    # repository variable CLI_RUNNER to another label (e.g. depot-ubuntu-24.04)
+    # to move it without a code change. The Go image carries make, gcc (the
+    # race detector needs cgo) and git, which the bare runner image does not.
+    runs-on: ${{ vars.CLI_RUNNER || 'arc-runner-set' }}
+    container:
+      image: golang:1.26
+    # A starved runner used to hold this job for hours (2026-09-05: a 20 s test
+    # step took 20 min, and one job never finished); every step here completes
+    # in well under five minutes on a healthy runner.
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
