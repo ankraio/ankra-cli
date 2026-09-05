@@ -13,10 +13,16 @@ jobs:
     name: Create release
     permissions:
       contents: write
-    runs-on: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
+    runs-on: ${{ vars.CLI_RUNNER || 'arc-runner-set' }}
+    container:
+      image: golang:1.26
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Install tooling (gh)
+        run: .github/scripts/install-tooling.sh
 
       - name: Extract release notes from CHANGELOG.md
         run: |
@@ -62,21 +68,26 @@ jobs:
     needs: create-release
     permissions:
       contents: write
+    # Linux and Windows binaries build on the self-hosted pool without a job
+    # container: the matrix shares this job with the macOS legs, which keep
+    # macos-latest because ad-hoc codesign is macOS-only. CGO_ENABLED=0 needs
+    # only the Go toolchain, which setup-go installs on either host.
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
+          - os: ${{ vars.CLI_RUNNER || 'arc-runner-set' }}
             goos: linux
             goarch: amd64
-          - os: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
+          - os: ${{ vars.CLI_RUNNER || 'arc-runner-set' }}
             goos: linux
             goarch: arm64
-          - os: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
+          - os: ${{ vars.CLI_RUNNER || 'arc-runner-set' }}
             goos: windows
             goarch: amd64
-          - os: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
+          - os: ${{ vars.CLI_RUNNER || 'arc-runner-set' }}
             goos: windows
             goarch: arm64
           - os: macos-latest
@@ -93,6 +104,10 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+
+      - name: Install tooling (gh) on Linux
+        if: runner.os == 'Linux'
+        run: .github/scripts/install-tooling.sh
 
       - name: Build binary
         env:
@@ -156,10 +171,16 @@ jobs:
     if: ${{ !contains(github.ref_name, '-') }}
     permissions:
       contents: read
-    runs-on: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
+    runs-on: ${{ vars.CLI_RUNNER || 'arc-runner-set' }}
+    container:
+      image: golang:1.26
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Install tooling (gh, ssh client)
+        run: .github/scripts/install-tooling.sh openssh-client
 
       - name: Render formula from template
         env:

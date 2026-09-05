@@ -31,7 +31,9 @@ concurrency:
 jobs:
   lifecycle-system-test:
     name: Cloud lifecycle system test
-    runs-on: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
+    runs-on: ${{ vars.CLI_RUNNER || 'arc-runner-set' }}
+    container:
+      image: golang:1.26
     timeout-minutes: 240
     env:
       ANKRA_SYSTEMTEST_CONFIRM: 'yes'
