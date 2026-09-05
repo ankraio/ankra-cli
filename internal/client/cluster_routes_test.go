@@ -21,10 +21,14 @@ package client
 // appends an identifier to (`prefix + id + "/tailscale"`); the scan sees only
 // the literal, so it is checked as `prefix/{}*`: the route must carry a
 // parameter where the identifier goes, and whatever the code appends after
-// it is not seen and not checked. A `%s` or `%d` placeholder is one dynamic
-// segment. cluster_routes_allowlist.json beside this file is a ratchet (this
-// repo gitignores testdata/): the paths
-// that did not resolve when the check was introduced. A new one fails, a
+// it is not seen and not checked. A `%s`, `%d`, `%v`, `%q` or `%x`
+// placeholder is one dynamic segment. Matching is path-only: the census
+// lists methods, but the client chooses its method at the http.NewRequest
+// call, not in the literal, so a method check needs the call site walked
+// too; that is the next refinement, not this one.
+// cluster_routes_allowlist.json beside this file is a ratchet (this repo
+// gitignores testdata/): the paths, with the file but never the line, that
+// did not resolve when the check was introduced. A new one fails, a
 // listed one that resolves fails too, so the list only shrinks. Regenerate
 // it deliberately with ANKRA_CLUSTER_ROUTES_UPDATE=1.
 
@@ -50,7 +54,8 @@ type clusterRouteCensus struct {
 	} `json:"routes"`
 }
 
-var clusterRouteParameter = regexp.MustCompile(`\{[^}]*\}|%[sdv]`)
+// A brace placeholder or any fmt verb the client uses for a path segment.
+var clusterRouteParameter = regexp.MustCompile(`\{[^}]*\}|%(?:\[\d+\])?[sdvqx]`)
 
 // normalizeClusterPath collapses every parameter to `{}`, turns a trailing
 // slash into the appended-identifier tail `{}*`, and ignores a query string.
@@ -180,8 +185,10 @@ func TestClusterRoutesAreRegistered(t *testing.T) {
 				break
 			}
 		}
+		// The entry carries the file but not the line, so an edit above the
+		// literal does not turn a known gap into a new one.
 		sort.Strings(locations)
-		entry := value + "  (" + locations[0] + ")"
+		entry := value + "  (" + strings.SplitN(locations[0], ":", 2)[0] + ")"
 		if isRegistered {
 			resolved = append(resolved, entry)
 		} else {
@@ -194,6 +201,11 @@ func TestClusterRoutesAreRegistered(t *testing.T) {
 		len(literals), len(census.Routes), len(resolved), len(unresolved))
 
 	allowlistPath := "cluster_routes_allowlist.json"
+	switch os.Getenv("ANKRA_CLUSTER_ROUTES_UPDATE") {
+	case "", "0", "1":
+	default:
+		t.Fatalf("ANKRA_CLUSTER_ROUTES_UPDATE=%q is not a value this test understands; use 1 to regenerate or leave it unset to compare", os.Getenv("ANKRA_CLUSTER_ROUTES_UPDATE"))
+	}
 	if os.Getenv("ANKRA_CLUSTER_ROUTES_UPDATE") == "1" {
 		encoded, marshalError := json.MarshalIndent(unresolved, "", "  ")
 		if marshalError != nil {
