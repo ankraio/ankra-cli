@@ -626,7 +626,7 @@ func init() {
 	_ = hetznerCreateCmd.MarkFlagRequired("credential-id")
 	_ = hetznerCreateCmd.MarkFlagRequired("location")
 
-	hetznerDeprovisionCmd.Flags().Bool("force", false, "Force deprovision without waiting for the cluster agent (use only when the cluster agent is permanently offline; cloud resources may leak)")
+	hetznerDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's CSI storage volumes and load balancers (destroys persisted data), and tolerate unreachable infrastructure")
 	hetznerDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	nodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 

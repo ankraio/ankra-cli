@@ -4,6 +4,24 @@
 
 ### Added
 
+- **`ankra security sbom findings <image>` lists the CVEs on one image.** The
+  image detail counted findings per component and stopped there; this is the
+  list behind the count: one row per CVE and installed package version,
+  aggregated across the containers running the image, with the fixed version
+  when one exists, the CISA KEV listing and EPSS probability, the worst
+  disposition across its occurrences, and how many workloads and clusters run
+  it. It answers for an image without a bill of materials too - the CVEs come
+  from the vulnerability reports - and says ABSENT in the header so the gap
+  stays visible. `--severity` (repeatable), `--search`, `--sort` and paging
+  narrow it; `-o json` for scripts. Pairs with `ankra security finding <id>`
+  for one CVE in full.
+- **`ankra security namespaces` rows carry `sbom_images`**: the distinct
+  images running in the namespace that have a bill of materials, against the
+  images the scanner reported on, so a namespace's SBOM gap is visible in the
+  breakdown without opening it. The SBOM coverage block on `ankra security
+  sbom`, `sbom images` and `sbom containers` now follows `--namespace`,
+  `--workload-kind` and `--workload-name`, so the headline above a narrowed
+  list is that scope's, not the fleet's.
 - **`ankra pipeline repositories` connects a bare Git repository to Ankra
   Pipelines from the terminal.** Cluster PRs #2490 and #2509 added the
   organisation-scoped onboarding routes; `list` and `get` read what the

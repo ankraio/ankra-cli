@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"ankra/internal/client"
@@ -138,10 +140,13 @@ var securitySbomImagesCmd = &cobra.Command{
 		search, _ := cmd.Flags().GetString("search")
 		clusterFlag, _ := cmd.Flags().GetString("cluster")
 		namespace, _ := cmd.Flags().GetString("namespace")
+		workloadKind, _ := cmd.Flags().GetString("workload-kind")
+		workloadName, _ := cmd.Flags().GetString("workload-name")
 		sort, _ := cmd.Flags().GetString("sort")
 		order, _ := cmd.Flags().GetString("order")
 		options := client.SecuritySBOMImagesOptions{
-			Page: page, PageSize: pageSize, Search: search, Namespace: namespace, Sort: sort, Order: order,
+			Page: page, PageSize: pageSize, Search: search, Namespace: namespace,
+			WorkloadKind: workloadKind, WorkloadName: workloadName, Sort: sort, Order: order,
 		}
 		if clusterFlag != "" {
 			clusterID, err := resolveClusterID(clusterFlag)
@@ -193,6 +198,185 @@ var securitySbomImageCmd = &cobra.Command{
 	},
 }
 
+var securitySbomFindingsCmd = &cobra.Command{
+	Use:   "findings <digest or reference>",
+	Short: "The vulnerabilities (CVEs) on one image, worst first, with or without a bill of materials",
+	Long: `List every CVE the scanner names on one image: one row per CVE and
+installed package version, aggregated across the containers running the
+image, with the fixed version when one exists, the CISA KEV listing and EPSS
+probability, and the worst disposition across its occurrences.
+
+The image is identified the way the inventories list it: a sha256 digest, or
+the repository:tag reference when the scanner knew no digest. An image
+without a bill of materials still answers - the CVEs come from the
+vulnerability reports - and the header says ABSENT so the gap is visible.
+
+The summary line totals the image before --search and --severity narrow the
+rows. Read one CVE in full with ankra security finding <finding id>.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		page, _ := cmd.Flags().GetInt("page")
+		pageSize, _ := cmd.Flags().GetInt("page-size")
+		search, _ := cmd.Flags().GetString("search")
+		severities, _ := cmd.Flags().GetStringSlice("severity")
+		sort, _ := cmd.Flags().GetString("sort")
+		order, _ := cmd.Flags().GetString("order")
+		list, err := apiClient.ListSecuritySBOMImageFindings(client.SecuritySBOMImageFindingsOptions{
+			ImageIdentity: strings.TrimSpace(args[0]),
+			Page:          page,
+			PageSize:      pageSize,
+			Search:        search,
+			Severities:    severities,
+			Sort:          sort,
+			Order:         order,
+		})
+		if err != nil {
+			return fmt.Errorf("reading the image's vulnerabilities: %w", err)
+		}
+		if rendered, err := renderStructured(cmd, list); rendered || err != nil {
+			return err
+		}
+		renderSecuritySbomImageFindings(cmd, list)
+		return nil
+	},
+}
+
+var securitySbomContainersCmd = &cobra.Command{
+	Use:   "containers",
+	Short: "Every running container with or without a bill of materials, absent first",
+	Long: `List every container the resource cache says is running on the scoped
+clusters, init containers included, each joined to the bill of materials of
+the image it runs - or marked ABSENT when the scanner has none for it.
+
+An absent bill of materials is a state to act on, not an empty image: the
+cluster may have SBOM generation switched off, the scanner may not be able
+to pull from the image's registry, or the tag rolled since the last scan.
+Absent rows sort first by default; --status absent lists only them.
+
+The inventory line counts the scope (cluster, namespace, workload) before
+--status and --search narrow the rows, so it holds while you drill.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		page, _ := cmd.Flags().GetInt("page")
+		pageSize, _ := cmd.Flags().GetInt("page-size")
+		search, _ := cmd.Flags().GetString("search")
+		clusterFlag, _ := cmd.Flags().GetString("cluster")
+		namespace, _ := cmd.Flags().GetString("namespace")
+		workloadKind, _ := cmd.Flags().GetString("workload-kind")
+		workloadName, _ := cmd.Flags().GetString("workload-name")
+		status, _ := cmd.Flags().GetString("status")
+		sort, _ := cmd.Flags().GetString("sort")
+		order, _ := cmd.Flags().GetString("order")
+		normalizedStatus := strings.ToLower(strings.TrimSpace(status))
+		switch normalizedStatus {
+		case "", "any":
+			normalizedStatus = ""
+		case "present", "absent":
+		default:
+			return withExitCode(exitUsage, fmt.Errorf("--status must be present, absent or any, got %q", status))
+		}
+		options := client.SecuritySBOMContainersOptions{
+			Page: page, PageSize: pageSize, Search: search, Namespace: namespace,
+			WorkloadKind: workloadKind, WorkloadName: workloadName, Status: normalizedStatus, Sort: sort, Order: order,
+		}
+		if clusterFlag != "" {
+			clusterID, err := resolveClusterID(clusterFlag)
+			if err != nil {
+				return err
+			}
+			options.ClusterID = clusterID
+		}
+		list, err := apiClient.ListSecuritySBOMContainers(options)
+		if err != nil {
+			return fmt.Errorf("listing running containers and their bills of materials: %w", err)
+		}
+		if rendered, err := renderStructured(cmd, list); rendered || err != nil {
+			return err
+		}
+		renderSecuritySbomContainers(cmd, list)
+		return nil
+	},
+}
+
+var securitySbomExportCmd = &cobra.Command{
+	Use:   "export <digest or reference>",
+	Short: "Download one image's bill of materials as CycloneDX JSON or CSV",
+	Long: `Download one image's bill of materials, rebuilt from the components the
+platform stores: a CycloneDX 1.5 JSON document by default (what
+Dependency-Track, Grype and licence scanners ingest) or a flat CSV with
+--format csv. Every component is included, unpaged.
+
+The document goes to the file the platform names (repository_tag.cdx.json)
+in the current directory, to --output-file, or to standard output with
+--output-file -.
+
+Example:
+  ankra security sbom export sha256:18ed3a...  --format csv --output-file backend.csv`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		format, _ := cmd.Flags().GetString("format")
+		outputFile, _ := cmd.Flags().GetString("output-file")
+		force, _ := cmd.Flags().GetBool("force")
+		normalizedFormat, formatError := normalizeSbomExportFormat(format)
+		if formatError != nil {
+			return formatError
+		}
+		export, err := apiClient.ExportSecuritySBOMImage(client.SecuritySBOMExportOptions{
+			ImageIdentity: strings.TrimSpace(args[0]),
+			Format:        normalizedFormat,
+		})
+		if err != nil {
+			return fmt.Errorf("downloading the image's bill of materials: %w", err)
+		}
+		if outputFile == "-" {
+			_, writeError := cmd.OutOrStdout().Write(export.Body)
+			return writeError
+		}
+		target := strings.TrimSpace(outputFile)
+		if target == "" {
+			target = sbomExportLocalFileName(export.FileName, normalizedFormat)
+		}
+		if !force {
+			if _, statError := os.Stat(target); statError == nil {
+				return withExitCode(exitUsage, fmt.Errorf("%s already exists; pass --force to overwrite it or --output-file to write elsewhere", target))
+			}
+		}
+		if writeError := os.WriteFile(target, export.Body, 0o600); writeError != nil {
+			return fmt.Errorf("writing %s: %w", target, writeError)
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s (%d bytes, %s)\n", target, len(export.Body), export.ContentType)
+		return nil
+	},
+}
+
+// normalizeSbomExportFormat maps the accepted spellings to the two formats
+// the platform serves, so a typo is a usage error here rather than a
+// server error or a silently defaulted document.
+func normalizeSbomExportFormat(requested string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(requested)) {
+	case "", "cyclonedx", "cdx", "json":
+		return "cyclonedx", nil
+	case "csv":
+		return "csv", nil
+	}
+	return "", withExitCode(exitUsage, fmt.Errorf("--format must be cyclonedx or csv, got %q", requested))
+}
+
+// sbomExportLocalFileName is the file the download lands in when the caller
+// named none: the platform's suggested name reduced to its last path element
+// (a Content-Disposition is server input, never a path), or a name derived
+// from the format when the platform sent none.
+func sbomExportLocalFileName(suggested string, format string) string {
+	base := filepath.Base(strings.TrimSpace(suggested))
+	if base == "" || strings.HasPrefix(base, ".") {
+		if format == "csv" {
+			return "sbom.csv"
+		}
+		return "sbom.cdx.json"
+	}
+	return base
+}
+
 // securitySbomComponentsOptionsFromFlags maps the component flags. --vulnerable
 // accepts true, false or any so the inventory can be narrowed to packages a
 // finding names, or to the ones nothing names.
@@ -203,6 +387,8 @@ func securitySbomComponentsOptionsFromFlags(cmd *cobra.Command) (client.Security
 	packageTypes, _ := cmd.Flags().GetStringSlice("type")
 	clusterFlag, _ := cmd.Flags().GetString("cluster")
 	namespace, _ := cmd.Flags().GetString("namespace")
+	workloadKind, _ := cmd.Flags().GetString("workload-kind")
+	workloadName, _ := cmd.Flags().GetString("workload-name")
 	image, _ := cmd.Flags().GetString("image")
 	vulnerableRaw, _ := cmd.Flags().GetString("vulnerable")
 	sort, _ := cmd.Flags().GetString("sort")
@@ -213,6 +399,8 @@ func securitySbomComponentsOptionsFromFlags(cmd *cobra.Command) (client.Security
 		Search:        search,
 		PackageTypes:  packageTypes,
 		Namespace:     namespace,
+		WorkloadKind:  workloadKind,
+		WorkloadName:  workloadName,
 		ImageIdentity: image,
 		Sort:          sort,
 		Order:         order,
@@ -411,6 +599,57 @@ func renderSecuritySbomImages(cmd *cobra.Command, list *client.SecuritySBOMImage
 	_, _ = fmt.Fprintf(out, "Page %d of %d · %d images\n", list.Pagination.Page, list.Pagination.TotalPages, list.Pagination.TotalCount)
 }
 
+func renderSecuritySbomContainers(cmd *cobra.Command, list *client.SecuritySBOMContainerList) {
+	out := cmd.OutOrStdout()
+	renderSbomCoverage(cmd, list.Coverage)
+	inventory := list.Inventory
+	if inventory.Containers > 0 {
+		without := fmt.Sprintf("%d", inventory.WithoutSBOM)
+		if inventory.WithoutSBOM > 0 {
+			without = text.FgRed.Sprint(without)
+		}
+		_, _ = fmt.Fprintf(out, "Inventory: %d containers in %d pods, %d with a bill of materials, %s without\n",
+			inventory.Containers, inventory.Pods, inventory.WithSBOM, without)
+	}
+	if len(list.Result) == 0 {
+		_, _ = fmt.Fprintln(out, "No running containers match these filters.")
+		return
+	}
+	writer := newSecurityTable(out)
+	writer.AppendHeader(table.Row{"Cluster", "Namespace", "Workload", "Pod", "Container", "Image", "Bill of materials", "Components", "OS", "Generated"})
+	for _, container := range list.Result {
+		workload := "(bare pod)"
+		if container.WorkloadName != nil {
+			workload = strings.TrimSpace(stringOrEmpty(container.WorkloadKind) + " " + *container.WorkloadName)
+		}
+		containerLabel := container.ContainerName
+		if container.ContainerKind == "init" {
+			containerLabel += " (init)"
+		}
+		status := text.FgGreen.Sprint("present")
+		components := "-"
+		if container.SBOMStatus != "present" {
+			status = text.FgRed.Sprint("ABSENT")
+		} else if container.ComponentCount != nil {
+			components = fmt.Sprintf("%d", *container.ComponentCount)
+		}
+		writer.AppendRow(table.Row{
+			container.ClusterName,
+			container.Namespace,
+			workload,
+			container.PodName,
+			containerLabel,
+			container.Image,
+			status,
+			components,
+			stringOrEmpty(container.OSName),
+			optionalTimeAgo(container.GeneratedAt),
+		})
+	}
+	writer.Render()
+	_, _ = fmt.Fprintf(out, "Page %d of %d · %d containers\n", list.Pagination.Page, list.Pagination.TotalPages, list.Pagination.TotalCount)
+}
+
 func renderSecuritySbomImageDetail(cmd *cobra.Command, detail *client.SecuritySBOMImageDetail) {
 	out := cmd.OutOrStdout()
 	image := detail.Image
@@ -470,9 +709,100 @@ func renderSecuritySbomImageDetail(cmd *cobra.Command, detail *client.SecuritySB
 	_, _ = fmt.Fprintf(out, "Page %d of %d · %d components\n", detail.Pagination.Page, detail.Pagination.TotalPages, detail.Pagination.TotalCount)
 }
 
+func renderSecuritySbomImageFindings(cmd *cobra.Command, list *client.SecuritySBOMImageFindingList) {
+	out := cmd.OutOrStdout()
+	image := list.Image
+	_, _ = fmt.Fprintln(out, text.Bold.Sprint(image.ImageRef))
+	if image.ImageDigest != nil {
+		_, _ = fmt.Fprintf(out, "Digest:      %s\n", *image.ImageDigest)
+	}
+	_, _ = fmt.Fprintf(out, "SBOM:        %s\n", sbomStatusLabel(image.SBOMStatus))
+	summary := list.Summary
+	knownExploited := redIfPositive(summary.KnownExploited)
+	if list.Intelligence.KevSyncedAt == nil {
+		knownExploited = "unknown"
+	}
+	_, _ = fmt.Fprintf(out, "Findings:    %d CVE(s) across %d occurrences · %d actionable (%d critical, %d high) · %d with a fix · %s known exploited · %d accepted risk\n",
+		summary.Findings, summary.Observed, summary.ActionableTotal, summary.Actionable.Critical, summary.Actionable.High,
+		summary.Fixable, knownExploited, summary.AcceptedRisk)
+	for _, caveat := range intelligenceCaveats(list.Intelligence) {
+		_, _ = fmt.Fprintln(out, caveat)
+	}
+	_, _ = fmt.Fprintln(out)
+	if len(list.Result) == 0 {
+		if list.Pagination.TotalCount == 0 && summary.Observed == 0 {
+			_, _ = fmt.Fprintln(out, "No vulnerability names this image.")
+		} else {
+			_, _ = fmt.Fprintln(out, "No vulnerabilities match these filters.")
+		}
+		return
+	}
+	writer := newSecurityTable(out)
+	writer.AppendHeader(table.Row{"CVE", "Severity", "Exploitation", "Package", "Installed", "Fixed in", "Status", "Workloads", "Last seen", "Finding ID"})
+	for _, finding := range list.Result {
+		fixed := "-"
+		if finding.FixedVersion != nil {
+			fixed = *finding.FixedVersion
+		}
+		writer.AppendRow(table.Row{
+			finding.CVEID,
+			severityCell(finding.Severity),
+			exploitationCell(finding.SecurityExploitIntelligence),
+			finding.PackageName + " (" + finding.PackageType + ")",
+			finding.InstalledVersion,
+			fixed,
+			finding.Disposition,
+			fmt.Sprintf("%d on %d cluster(s)", finding.Workloads, finding.Clusters),
+			formatTimeAgo(finding.LastSeenAt),
+			finding.FindingID,
+		})
+	}
+	writer.Render()
+	_, _ = fmt.Fprintf(out, "Page %d of %d · %d vulnerabilities\n", list.Pagination.Page, list.Pagination.TotalPages, list.Pagination.TotalCount)
+}
+
+// sbomStatusLabel keeps an unknown status apart from a confirmed absence:
+// a platform that predates the field says nothing about the bill of
+// materials, which is not the same observation as "none is stored".
+func sbomStatusLabel(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "present":
+		return "present"
+	case "absent":
+		return text.FgYellow.Sprint("ABSENT") + " - the CVEs below come from the vulnerability reports; no package inventory is stored"
+	default:
+		return "unknown - this platform version does not report whether a bill of materials is stored"
+	}
+}
+
+// intelligenceCaveats names the public feeds the platform has never
+// applied, so a blank known-exploited column or a missing EPSS probability
+// reads as unknown rather than as clear. They print above the table and on
+// an empty page alike: an empty list is where the caveat matters most.
+func intelligenceCaveats(intelligence client.SecurityIntelligenceStatus) []string {
+	var caveats []string
+	if intelligence.KevSyncedAt == nil {
+		caveats = append(caveats, "The CISA KEV catalog has not been synced yet, so known-exploited status is unknown for these findings.")
+	}
+	if intelligence.EPSSSyncedAt == nil {
+		caveats = append(caveats, "EPSS has not been synced yet, so a missing exploitation probability is unknown, not low.")
+	}
+	return caveats
+}
+
 func init() {
 	securityCmd.AddCommand(securityNamespacesCmd, securityPodsCmd, securitySbomCmd)
-	securitySbomCmd.AddCommand(securitySbomImagesCmd, securitySbomImageCmd)
+	securitySbomCmd.AddCommand(securitySbomImagesCmd, securitySbomImageCmd, securitySbomFindingsCmd,
+		securitySbomContainersCmd, securitySbomExportCmd)
+	registerStructuredOutputFlags(securityNamespacesCmd, securityPodsCmd, securitySbomCmd,
+		securitySbomImagesCmd, securitySbomImageCmd, securitySbomFindingsCmd, securitySbomContainersCmd)
+
+	securitySbomFindingsCmd.Flags().String("search", "", "Match CVE id, package name or title")
+	securitySbomFindingsCmd.Flags().StringSlice("severity", nil, "Severity filter, repeatable: critical, high, medium, low, unknown")
+	securitySbomFindingsCmd.Flags().String("sort", "exploitability", "Sort key: exploitability, severity, epss, cve_id, package_name, last_seen_at, occurrences")
+	securitySbomFindingsCmd.Flags().String("order", "desc", "Sort order: asc or desc")
+	securitySbomFindingsCmd.Flags().Int("page", 1, "Page number")
+	securitySbomFindingsCmd.Flags().Int("page-size", 50, "Vulnerabilities per page (max 100)")
 
 	securityNamespacesCmd.Flags().String("search", "", "Match namespace or cluster name")
 	securityNamespacesCmd.Flags().String("cluster", "", "Only namespaces on one cluster (name or id)")
@@ -493,6 +823,8 @@ func init() {
 	securitySbomCmd.Flags().StringSlice("type", nil, "Ecosystem filter, repeatable: deb, apk, rpm, npm, pypi, golang, maven, ...")
 	securitySbomCmd.Flags().String("cluster", "", "Only packages in images running on one cluster (name or id)")
 	securitySbomCmd.Flags().String("namespace", "", "Only packages in images running in one namespace")
+	securitySbomCmd.Flags().String("workload-kind", "", "Only packages in images run by workloads of this kind (Deployment, StatefulSet, DaemonSet, CronJob, ...)")
+	securitySbomCmd.Flags().String("workload-name", "", "Only packages in images run by the workload with this name; combine with --workload-kind to pin one workload")
 	securitySbomCmd.Flags().String("image", "", "Only packages in one image (digest or reference)")
 	securitySbomCmd.Flags().String("vulnerable", "any", "Findings filter: true (a finding names the package), false or any")
 	securitySbomCmd.Flags().String("sort", "images", "Sort key: images, workloads, clusters, vulnerable, actionable, name, version, package_type")
@@ -503,6 +835,8 @@ func init() {
 	securitySbomImagesCmd.Flags().String("search", "", "Match image reference, digest or OS")
 	securitySbomImagesCmd.Flags().String("cluster", "", "Only images running on one cluster (name or id)")
 	securitySbomImagesCmd.Flags().String("namespace", "", "Only images running in one namespace")
+	securitySbomImagesCmd.Flags().String("workload-kind", "", "Only images run by workloads of this kind (Deployment, StatefulSet, DaemonSet, CronJob, ...)")
+	securitySbomImagesCmd.Flags().String("workload-name", "", "Only images run by the workload with this name; combine with --workload-kind to pin one workload")
 	securitySbomImagesCmd.Flags().String("sort", "actionable", "Sort key: actionable, known_exploited, workloads, clusters, components, image_ref, generated_at, last_seen_at")
 	securitySbomImagesCmd.Flags().String("order", "desc", "Sort order: asc or desc")
 	securitySbomImagesCmd.Flags().Int("page", 1, "Page number")
@@ -514,4 +848,19 @@ func init() {
 	securitySbomImageCmd.Flags().String("order", "desc", "Sort order: asc or desc")
 	securitySbomImageCmd.Flags().Int("page", 1, "Page number")
 	securitySbomImageCmd.Flags().Int("page-size", 100, "Components per page (max 100)")
+
+	securitySbomContainersCmd.Flags().String("search", "", "Match image, container, pod, workload or namespace")
+	securitySbomContainersCmd.Flags().String("cluster", "", "One cluster (name or id); omit for every live cluster")
+	securitySbomContainersCmd.Flags().String("namespace", "", "Only containers in one namespace")
+	securitySbomContainersCmd.Flags().String("workload-kind", "", "Match the resolved workload, its direct owner, or 'pod' for bare pods")
+	securitySbomContainersCmd.Flags().String("workload-name", "", "Match the resolved workload, its direct owner, or the pod name")
+	securitySbomContainersCmd.Flags().String("status", "any", "Bill of materials filter: present, absent or any")
+	securitySbomContainersCmd.Flags().String("sort", "status", "Sort key: status (absent first), image, container, pod, namespace, workload, cluster_name, components, last_seen_at")
+	securitySbomContainersCmd.Flags().String("order", "desc", "Sort order: asc or desc")
+	securitySbomContainersCmd.Flags().Int("page", 1, "Page number")
+	securitySbomContainersCmd.Flags().Int("page-size", 50, "Containers per page (max 100)")
+
+	securitySbomExportCmd.Flags().String("format", "cyclonedx", "Document format: cyclonedx or csv")
+	securitySbomExportCmd.Flags().String("output-file", "", "Where to write the document; the platform's file name in the current directory by default, - for standard output")
+	securitySbomExportCmd.Flags().Bool("force", false, "Overwrite the target file if it already exists")
 }
