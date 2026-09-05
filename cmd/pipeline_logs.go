@@ -270,9 +270,20 @@ func runPipelineLogsFromArchive(command *cobra.Command, selector client.Pipeline
 // otherwise reports through wasFullyRead whether the run's artifacts were
 // read to the end (a genuine absence) or the page budget ran out first (an
 // answer the caller must not state as absence).
+//
+// A step row carries at most one live step_log, but not necessarily only
+// one row: re-dispatching the same step supersedes whatever it had already
+// minted, marking that row failed with a superseding reason and writing a
+// fresh one. The listing is oldest-first, so the step's real log is the
+// last matching row, not the first - taking the first would report a
+// superseded upload's failure as the step's log. The walk therefore keeps
+// the newest match it has seen, and returns early only on a match that
+// cannot have been superseded, since supersession always leaves the row
+// failed.
 func findPipelineStepLogArtifact(command *cobra.Command, selector client.PipelineSelector, runID string,
 	stepID string) (artifact *client.PipelineArtifact, wasFullyRead bool, findError error) {
 	options := client.ListPipelineArtifactsOptions{Limit: pipelineArtifactPageSize}
+	var newest *client.PipelineArtifact
 	for page := 0; page < pipelineArtifactPageBudget; page++ {
 		list, listError := apiClient.ListPipelineArtifacts(command.Context(), selector, runID, options)
 		if listError != nil {
@@ -280,15 +291,19 @@ func findPipelineStepLogArtifact(command *cobra.Command, selector client.Pipelin
 		}
 		for index := range list.Artifacts {
 			candidate := list.Artifacts[index]
-			if candidate.Kind == client.PipelineArtifactKindStepLog &&
-				candidate.StepID != nil && *candidate.StepID == stepID {
-				return &list.Artifacts[index], true, nil
+			if candidate.Kind != client.PipelineArtifactKindStepLog ||
+				candidate.StepID == nil || *candidate.StepID != stepID {
+				continue
+			}
+			newest = &list.Artifacts[index]
+			if candidate.Status != client.PipelineArtifactStatusFailed {
+				return newest, true, nil
 			}
 		}
 		if list.NextCursor == nil || *list.NextCursor == "" {
-			return nil, true, nil
+			return newest, true, nil
 		}
 		options.Cursor = *list.NextCursor
 	}
-	return nil, false, nil
+	return newest, false, nil
 }

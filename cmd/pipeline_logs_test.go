@@ -145,6 +145,71 @@ func TestPipelineLogsConcludedStepStopsPagingOnceFound(t *testing.T) {
 	}
 }
 
+func TestPipelineLogsConcludedStepPrefersTheLiveLogOverASupersededOne(t *testing.T) {
+	// Re-dispatching a step supersedes the step_log it had already minted -
+	// that row is marked failed and a fresh one written under the same step
+	// id - and the listing is oldest-first, so the first match is the
+	// superseded row. Reporting its failure would state that the step's log
+	// was not archived when the live one is sitting further down the run.
+	stepID := "step-1"
+	secondCursor := "cursor-2"
+	mockClient := &pipelineLaneMock{
+		getResult: &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStep()}},
+		artifactsPages: []client.PipelineArtifactList{
+			{Artifacts: []client.PipelineArtifact{
+				{ID: "artifact-superseded", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+					Status:       client.PipelineArtifactStatusFailed,
+					ErrorMessage: "a new attempt of the step was dispatched before this upload was settled"},
+			}, NextCursor: &secondCursor},
+			{Artifacts: []client.PipelineArtifact{
+				{ID: "artifact-live", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+					Status: client.PipelineArtifactStatusUploaded},
+			}},
+		},
+		downloadPayload: "the log the step actually wrote\n",
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if output != "the log the step actually wrote\n" {
+		t.Errorf("output = %q, want the live log rather than the superseded row's failure", output)
+	}
+	if mockClient.downloadArtifactID != "artifact-live" {
+		t.Errorf("downloaded artifact id = %q, want the newest step_log for the step", mockClient.downloadArtifactID)
+	}
+	if len(mockClient.artifactsOptions) != 2 {
+		t.Errorf("artifact list calls = %d, want the walk to keep looking past a superseded row",
+			len(mockClient.artifactsOptions))
+	}
+}
+
+func TestPipelineLogsConcludedStepReportsTheNewestFailureWhenEveryLogFailed(t *testing.T) {
+	// When every step_log for the step failed, the one worth reporting is
+	// the newest - the superseded row's reason describes the dispatch that
+	// replaced it, not why this step has no log.
+	stepID := "step-1"
+	mockClient := &pipelineLaneMock{
+		getResult: &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStep()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{
+			{ID: "artifact-superseded", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+				Status:       client.PipelineArtifactStatusFailed,
+				ErrorMessage: "a new attempt of the step was dispatched before this upload was settled"},
+			{ID: "artifact-live", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+				Status: client.PipelineArtifactStatusFailed, ErrorMessage: "the vault rejected the upload"},
+		}},
+	}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError == nil {
+		t.Fatalf("logs error = nil, want the archived log's own failure")
+	}
+	if !strings.Contains(executeError.Error(), "the vault rejected the upload") {
+		t.Errorf("error = %v, want the newest step_log row's reason", executeError)
+	}
+}
+
 func TestPipelineLogsConcludedStepCappedReadIsNotAbsence(t *testing.T) {
 	// A server that keeps handing back a cursor must not make the command
 	// walk forever, and giving up must not be reported as "no archived log

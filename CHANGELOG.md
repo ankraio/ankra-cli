@@ -43,7 +43,9 @@
   instead; `--follow` is unchanged for a step that is still running, which
   is the only case it ever did anything. It follows the artifact listing's
   pages to find that log, so a run with more artifacts than one page no
-  longer reads as if the step had never recorded one.
+  longer reads as if the step had never recorded one, and it reads the
+  step's current log rather than an upload a re-dispatch of the same step
+  had already superseded.
 - **`ankra pipeline artifacts` and `artifacts download` talk to the real
   artifact store.** Both were wired against the wire contract before the
   store existed, and said so in their help text; the store has since
