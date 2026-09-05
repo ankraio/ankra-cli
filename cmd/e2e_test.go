@@ -2382,6 +2382,14 @@ func (m baseMock) RebindAlertIngestCredential(string, client.RebindAlertIngestCr
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetAISpendCap() (*client.AISpendCap, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAISpendCap(client.AISpendCapUpdate) (*client.AISpendCap, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetAlertDestination(destinationID string) (*client.AlertDestination, error) {
 	return nil, errors.New("not implemented")
 }
