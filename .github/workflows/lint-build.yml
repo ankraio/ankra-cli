@@ -27,7 +27,33 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
+      # routes.json is the cluster repo's route census (the walked chi router,
+      # ankraio/cluster docs/route-census.md); every /api/v1 path the CLI builds
+      # is checked against it. Fetched the way the portal fetches openapi.json.
+      # CLUSTER_ROUTES_GITHUB_TOKEN is a fine-grained PAT with read-only
+      # Contents access to ankraio/cluster.
+      - name: Fetch cluster routes.json
+        env:
+          CLUSTER_REPO: ankraio/cluster
+          CLUSTER_ROUTES_REF: main
+        run: |
+          if [ -z "${{ secrets.CLUSTER_ROUTES_GITHUB_TOKEN }}" ]; then
+            echo "::error::CLUSTER_ROUTES_GITHUB_TOKEN is unset - add the repo secret (fine-grained PAT, contents:read on ankraio/cluster, the same PAT portal uses as CLUSTER_OPENAPI_GITHUB_TOKEN). Not route drift."
+            exit 1
+          fi
+          http_status=$(curl --silent --show-error --location \
+            --header "Authorization: Bearer ${{ secrets.CLUSTER_ROUTES_GITHUB_TOKEN }}" \
+            --header "Accept: application/vnd.github.raw+json" \
+            --write-out "%{http_code}" \
+            "https://api.github.com/repos/${CLUSTER_REPO}/contents/routes.json?ref=${CLUSTER_ROUTES_REF}" \
+            -o "${{ github.workspace }}/routes.json")
+          if [ "$http_status" != "200" ]; then
+            echo "::error::Fetching cluster routes.json failed with HTTP $http_status"
+            exit 1
+          fi
       - name: Run tests
+        env:
+          ANKRA_CLUSTER_ROUTES_JSON: ${{ github.workspace }}/routes.json
         run: go test -race -count=1 -timeout=120s -coverprofile=coverage.out ./...
       - name: Check coverage
         run: go tool cover -func=coverage.out
