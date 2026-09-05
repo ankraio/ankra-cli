@@ -18,6 +18,119 @@
   or an id and an empty value clears it, and `--allowed-image-prefix` is
   repeatable and replaces the whole policy list. Reading needs organisation
   membership, changing needs organisation admin.
+
+- **`ankra stack-profiles import --as-draft` stages a file-authored profile
+  for review instead of publishing it.** The document opens as a builder
+  draft on the named profile: when your organisation already has a profile
+  with the document's name (or the `--name` override) the draft attaches to
+  it as the next-version candidate, and otherwise it opens as a new-profile
+  draft. Nothing is published until you review the draft - the command
+  prints the draft id and the `drafts validate` / `drafts publish`
+  follow-ups - so an operator or agent who authored a candidate profile
+  update as a file can hand it to a human instead of shipping it sight
+  unseen. A `--category` is only sent when explicitly set, so importing
+  onto an existing profile never overwrites its category.
+
+## v0.15.0-rc2 — 2026-09-05
+
+### Added
+
+- **`ankra pipeline` now covers the whole Ankra Pipelines lifecycle.** The
+  full verb list as of this release: `run`, `list`, `get`, `logs` (live for a
+  running step, archived replay for a concluded one), `cancel`, `rerun`,
+  `artifacts`, `artifacts download`, `findings`, `validate`, `definition
+  get|put`, `schedules list|create|update|delete`, `repositories
+  connect|list|get|disconnect` and `definitions get|approve`. `ankra
+  application pipeline …` offers the selector-addressed ones by application.
+  The four that are new or newly real in this release are described below.
+
+- **`ankra pipeline repositories` connects a bare Git repository to Ankra
+  Pipelines from the terminal.** Cluster PRs #2490 and #2509 added the
+  organisation-scoped onboarding routes; `list` and `get` read what the
+  organisation has connected (`--provider` filters the listing), and
+  `connect --provider --owner --name [--credential] [--default-branch]
+  [--application] [--cluster]` registers a repository so a push, pull request
+  or tag webhook on it can start a run - for a bare repository with no Ankra
+  application (docs, website, values repos), or before one exists.
+  `--application` links the repository to an application already in the
+  organisation without changing that application's own pipeline source, and
+  `--cluster` overrides the organisation's declared CI cluster for just this
+  repository's pipelines; both are refused (with the server's own message)
+  for an id outside the organisation, and `--cluster` also for a cluster
+  whose agent has not advertised it can run pipeline steps. A GitHub
+  repository's committed `.ankra/pipeline.yaml` is read through `--credential`
+  and recorded as the definition of record in the same call when it parses,
+  and `connect` prints that outcome alongside the repository id. Connecting a
+  repository a second time does not create a duplicate; the server's own
+  message names the existing repository's id rather than a rewritten one.
+  `disconnect <repository-id>` (confirms first, `--yes` to skip) stops it
+  starting new runs without deleting its history - connecting the same
+  identity again revives the same row - and refuses (409, the server's own
+  message) while a run is still queued or running.
+
+- **`ankra pipeline definitions get|approve` inspects and grants a pipeline
+  definition's protected-authority approval.** A pipeline file's logic is
+  open - anyone who can push may add stages, scripts and images - but its
+  authority-bearing sections (permissions, credentials, secrets scope,
+  network tier, image policy, `runs_on`, environment gates) are closed: a
+  pull request may change them, but the run still executes under the last
+  authority an administrator approved on the default branch until one
+  approves the change. `definitions get <id>` prints one stored definition's
+  protected-sections hash and, if anyone has, who approved it and when;
+  `definitions approve <id>` records that approval (requires
+  `pipelines.manage` and a human actor - a service-account token is
+  refused). Both take the definition's own id rather than
+  `--application`/`--repository`, since the server addresses this pair of
+  routes by the organisation alone; there is no lookup route yet, so
+  `ankra pipeline get` now prints a run's `authority_state`, which stored
+  definition its trusted authority was taken from, and, for a state other
+  than approved, that an administrator approving the repository's current
+  default-branch definition would update it (that definition's own id is not
+  always the one the run names, so this points at the pull request status
+  comment rather than guessing). `-o json` works on both, and a 404/409/403
+  from the server prints verbatim rather than being reworded.
+
+- **`ankra pipeline findings <run>`** lists a run's persisted scan findings -
+  the deduplicated Semgrep, Checkov and Trivy results (and the informational
+  SBOM summary) recorded for the run's own commit, the same rows the
+  application's Security tab reads. The table sorts worst severity first and
+  groups by tool; `-o json`/`yaml` prints every field, including each
+  finding's tool-specific detail. `ankra pipeline artifacts` now also shows
+  each row's `KIND` (`step_log` or `artifact`) and `STATUS` (`pending`,
+  `uploaded`, `failed` or `expired`), so a caller can tell a still-archiving
+  or failed row from one `artifacts download` can actually fetch.
+
+- **`ankra alerts ingest-credentials list|rebind` moves an ingest
+  credential's pin or scope without minting a new token.** `list` prints
+  every ingest credential with its scope, the pinned cluster's name, the pin
+  state - `ok`, `-`, or `BROKEN` when the pinned cluster has been deleted,
+  archived, slated for deletion or is simply gone - and whether it is enabled
+  and when it was last used. `rebind <credential-id>` changes the binding on
+  the credential that already exists: `--cluster <name>` re-pins by cluster
+  name, `--unpin` removes the pin, and `--scope cluster|platform|mixed`
+  switches the scope. The request carries only the flags you set, so an
+  absent flag leaves that field alone rather than clearing it - which is what
+  lets values-repo automation re-pin a credential in place. Neither command
+  ever reads, prints or sends the token itself. `-o json`/`yaml` render the
+  wire shape.
+
+- **`ankra security sbom containers` and `sbom export <image>`, and `-o` on
+  every SBOM read.** `sbom containers` lists every running container of the
+  scoped clusters, init containers included, with or without a bill of
+  materials - the ones missing one first, an inventory line that counts the
+  scope before `--status`/`--search` narrow it, and `--status
+  present|absent|any` to pick a side. `sbom export <image>` writes the bill
+  of materials out as CycloneDX 1.5 JSON (or `--format csv`) to the
+  platform's own file name, to `--output-file`, or to `-` for a pipe; an
+  existing target is refused unless `--force` is passed, so a re-run cannot
+  silently destroy a previous download, and a file name the server proposes
+  is reduced to a bare base name rather than trusted as a path.
+  `--workload-kind` and `--workload-name` narrow `sbom` and `sbom images` to
+  one workload. The family's help had promised `-o`/`--output` since it
+  shipped without ever registering the flag, so `-o json` failed with
+  "unknown shorthand flag"; `namespaces`, `pods`, `sbom`, `sbom images`,
+  `sbom image` and `sbom containers` all accept it now.
+
 - **`ankra security sbom findings <image>` lists the CVEs on one image.** The
   image detail counted findings per component and stopped there; this is the
   list behind the count: one row per CVE and installed package version,
@@ -29,6 +142,7 @@
   stays visible. `--severity` (repeatable), `--search`, `--sort` and paging
   narrow it; `-o json` for scripts. Pairs with `ankra security finding <id>`
   for one CVE in full.
+
 - **`ankra security namespaces` rows carry `sbom_images`**: the distinct
   images running in the namespace that have a bill of materials, against the
   images the scanner reported on, so a namespace's SBOM gap is visible in the
@@ -36,6 +150,44 @@
   sbom`, `sbom images` and `sbom containers` now follows `--namespace`,
   `--workload-kind` and `--workload-name`, so the headline above a narrowed
   list is that scope's, not the fleet's.
+
+### Fixed
+
+- **`ankra pipeline logs` on a concluded step now shows its output.** The
+  live log relay only ever streamed what a step printed from the moment a
+  client connected, so running `logs` (with or without `--follow`) against a
+  step that had already finished - the ordinary case right after
+  `pipeline run --wait`, or when checking an older run - showed nothing.
+  `logs` now reads a concluded step's complete, durably archived log
+  instead; `--follow` is unchanged for a step that is still running, which
+  is the only case it ever did anything. It follows the artifact listing's
+  pages to find that log, so a run with more artifacts than one page no
+  longer reads as if the step had never recorded one, and it reads the
+  step's current log rather than an upload a re-dispatch of the same step
+  had already superseded.
+
+- **`ankra pipeline artifacts` and `artifacts download` talk to the real
+  artifact store.** Both were wired against the wire contract before the
+  store existed, and said so in their help text; the store has since
+  shipped, so listing and downloading a run's step logs and declared
+  artifacts now works end to end, and the help text no longer claims
+  otherwise. The listing is paged like `pipeline list`: `--cursor` and
+  `--limit` choose the page, and a run with another page says so instead of
+  presenting its oldest artifacts as the whole record. A negative `--limit`
+  is now refused on both listings rather than dropped on the way to the
+  query, which used to hand back the server's default page as though the
+  flag had been honoured.
+
+- **Hetzner `cluster deprovision --force` now says what it deletes.** Its
+  help still carried a pre-teardown-sweep meaning - "use only when the
+  cluster agent is permanently offline; cloud resources may leak" - which is
+  wrong in the dangerous direction: `--force` is the mode in which resources
+  do *not* leak, because it also deletes the cluster's CSI storage volumes
+  and load balancers, destroying the data on them. The one fact an operator
+  most needs before running it was the one the text omitted. Hetzner was the
+  last provider still saying this; UpCloud, DigitalOcean and OVH already
+  named the volumes and load balancers, and a parity test across all four
+  now pins the wording so a later rewrite cannot drop it again.
 
 ## v0.15.0-rc1 — 2026-09-03
 
