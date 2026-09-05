@@ -1,10 +1,14 @@
 package cmd
 
-// Artifacts: the store behind these routes is WS-C item C1 and does not
-// exist yet, so the list always answers empty and the download always
-// answers 404 today (go/internal/pipelineapi/artifacts.go). Both commands are
-// wired to the real contract now so nothing about them changes once the
-// store lands.
+// Artifacts: a run's step logs and declared artifacts, stored as objects in
+// the organisation's backup vault (go/internal/pipelineapi/artifacts.go,
+// enginekit/pipelineartifacts). list reads a keyset page of the run's rows;
+// download follows the route's 302 to a five-minute presigned GET on the
+// vault - the bytes never pass through the platform. An artifact that
+// cannot be downloaded says which fact it hit (its own Status, surfaced in
+// the list) rather than a bare 404: 409 while its step has not settled, its
+// upload failed, or its vault is gone; 410 once the retention sweep removed
+// it.
 
 import (
 	"fmt"
@@ -22,10 +26,22 @@ func newPipelineArtifactsCommand() *cobra.Command {
 	artifactsCommand := &cobra.Command{
 		Use:   "artifacts <run>",
 		Short: "List a pipeline run's stored artifacts",
-		Long: `List a pipeline run's stored artifacts.
+		Long: `List a pipeline run's stored step logs and declared artifacts, oldest
+first.
 
-The artifact store has not shipped yet, so every run answers an empty list
-until it does - this is not a sign that a run produced nothing.`,
+Every step's complete output is archived as a "step_log" artifact once the
+step concludes ('ankra pipeline logs' reads that one automatically for a
+concluded step); anything a stage's own "artifacts:" block declared shows up
+as "artifact". An empty first page means the run genuinely has nothing
+stored yet - no step has concluded, or the organisation has no ready backup
+vault to store into. STATUS is "pending" until the upload is confirmed,
+"uploaded" once "artifacts download" can fetch it, "failed" if it never
+arrived (see the row's error), or "expired" once retention removed it.
+
+The listing is paged: it prints one server page (50 rows by default) and
+says when there is another, which --cursor reads. So a run with more
+artifacts than one page shows its oldest first, and the list is complete
+only once no further page is offered.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -37,8 +53,17 @@ until it does - this is not a sign that a run produced nothing.`,
 	}
 	registerPipelineSelectorFlags(artifactsCommand)
 	registerStructuredOutputFlags(artifactsCommand)
+	registerPipelineArtifactsListFlags(artifactsCommand)
 	artifactsCommand.AddCommand(newPipelineArtifactsDownloadCommand())
 	return artifactsCommand
+}
+
+// registerPipelineArtifactsListFlags is shared by `pipeline artifacts` and
+// `application pipeline artifacts`, so both surfaces can walk a run with
+// more artifacts than one page rather than only one of them.
+func registerPipelineArtifactsListFlags(command *cobra.Command) {
+	command.Flags().String("cursor", "", "Page cursor from a previous listing's next_cursor")
+	command.Flags().Int("limit", 0, "Maximum number of artifacts to return (server default 50, max 100)")
 }
 
 func runPipelineArtifactsList(command *cobra.Command, selector client.PipelineSelector, runID string) error {
@@ -46,7 +71,13 @@ func runPipelineArtifactsList(command *cobra.Command, selector client.PipelineSe
 	if formatError != nil {
 		return formatError
 	}
-	list, listError := apiClient.ListPipelineArtifacts(command.Context(), selector, strings.TrimSpace(runID))
+	cursor, _ := command.Flags().GetString("cursor")
+	limit, limitError := pipelinePageLimitFromFlags(command)
+	if limitError != nil {
+		return limitError
+	}
+	list, listError := apiClient.ListPipelineArtifacts(command.Context(), selector, strings.TrimSpace(runID),
+		client.ListPipelineArtifactsOptions{Cursor: strings.TrimSpace(cursor), Limit: limit})
 	if listError != nil {
 		return listError
 	}
@@ -54,25 +85,47 @@ func runPipelineArtifactsList(command *cobra.Command, selector client.PipelineSe
 		return encodeStructured(command.OutOrStdout(), format, list)
 	}
 	if len(list.Artifacts) == 0 {
-		_, _ = fmt.Fprintln(command.OutOrStdout(), "No artifacts stored for this run.")
+		if list.NextCursor == nil {
+			_, _ = fmt.Fprintln(command.OutOrStdout(), "No artifacts stored for this run.")
+			return nil
+		}
+		// An empty page the server still offers a cursor past is "more to
+		// read", not "this run stored nothing".
+		_, _ = fmt.Fprintln(command.OutOrStdout(), "No artifacts on this page.")
+		renderPipelineArtifactsNextPageHint(command, list.NextCursor)
 		return nil
 	}
 	writer := table.NewWriter()
 	writer.SetOutputMirror(command.OutOrStdout())
 	writer.SetStyle(table.StyleRounded)
-	writer.AppendHeader(table.Row{"ID", "NAME", "STEP", "CONTENT TYPE", "SIZE", "CREATED"})
+	writer.AppendHeader(table.Row{"ID", "KIND", "NAME", "STEP", "STATUS", "CONTENT TYPE", "SIZE", "CREATED"})
 	for _, artifact := range list.Artifacts {
 		writer.AppendRow(table.Row{
 			artifact.ID,
+			artifact.Kind,
 			artifact.Name,
-			artifact.StepID,
+			pipelineOptionalString(artifact.StepID),
+			artifact.Status,
 			artifact.ContentType,
 			artifact.SizeBytes,
 			formatTimeAgo(artifact.CreatedAt),
 		})
 	}
 	writer.Render()
+	renderPipelineArtifactsNextPageHint(command, list.NextCursor)
 	return nil
+}
+
+// renderPipelineArtifactsNextPageHint says on stderr that the listing was a
+// page, not the whole record. Both table branches route it here so the hint
+// lands on the same stream either way and a piped listing keeps stdout to
+// itself; `-o json` needs no hint at all, since next_cursor is in the body.
+func renderPipelineArtifactsNextPageHint(command *cobra.Command, nextCursor *string) {
+	if nextCursor == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(command.ErrOrStderr(),
+		"\nMore artifacts available: pass --cursor %s to see the next page.\n", *nextCursor)
 }
 
 func newPipelineArtifactsDownloadCommand() *cobra.Command {

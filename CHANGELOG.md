@@ -22,6 +22,15 @@
   sbom`, `sbom images` and `sbom containers` now follows `--namespace`,
   `--workload-kind` and `--workload-name`, so the headline above a narrowed
   list is that scope's, not the fleet's.
+- **`ankra pipeline findings <run>`** lists a run's persisted scan findings -
+  the deduplicated Semgrep, Checkov and Trivy results (and the informational
+  SBOM summary) recorded for the run's own commit, the same rows the
+  application's Security tab reads. The table sorts worst severity first and
+  groups by tool; `-o json`/`yaml` prints every field, including each
+  finding's tool-specific detail. `ankra pipeline artifacts` now also shows
+  each row's `KIND` (`step_log` or `artifact`) and `STATUS` (`pending`,
+  `uploaded`, `failed` or `expired`), so a caller can tell a still-archiving
+  or failed row from one `artifacts download` can actually fetch.
 - **`ankra pipeline repositories` connects a bare Git repository to Ankra
   Pipelines from the terminal.** Cluster PRs #2490 and #2509 added the
   organisation-scoped onboarding routes; `list` and `get` read what the
@@ -45,6 +54,32 @@
   starting new runs without deleting its history - connecting the same
   identity again revives the same row - and refuses (409, the server's own
   message) while a run is still queued or running.
+
+### Fixed
+
+- **`ankra pipeline logs` on a concluded step now shows its output.** The
+  live log relay only ever streamed what a step printed from the moment a
+  client connected, so running `logs` (with or without `--follow`) against a
+  step that had already finished - the ordinary case right after
+  `pipeline run --wait`, or when checking an older run - showed nothing.
+  `logs` now reads a concluded step's complete, durably archived log
+  instead; `--follow` is unchanged for a step that is still running, which
+  is the only case it ever did anything. It follows the artifact listing's
+  pages to find that log, so a run with more artifacts than one page no
+  longer reads as if the step had never recorded one, and it reads the
+  step's current log rather than an upload a re-dispatch of the same step
+  had already superseded.
+- **`ankra pipeline artifacts` and `artifacts download` talk to the real
+  artifact store.** Both were wired against the wire contract before the
+  store existed, and said so in their help text; the store has since
+  shipped, so listing and downloading a run's step logs and declared
+  artifacts now works end to end, and the help text no longer claims
+  otherwise. The listing is paged like `pipeline list`: `--cursor` and
+  `--limit` choose the page, and a run with another page says so instead of
+  presenting its oldest artifacts as the whole record. A negative `--limit`
+  is now refused on both listings rather than dropped on the way to the
+  query, which used to hand back the server's default page as though the
+  flag had been honoured.
 
 ## v0.15.0-rc1 — 2026-09-03
 

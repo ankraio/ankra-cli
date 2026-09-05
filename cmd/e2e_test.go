@@ -2458,12 +2458,16 @@ func (m baseMock) StreamPipelineStepLogs(ctx context.Context, selector client.Pi
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineArtifactList, error) {
+func (m baseMock) ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string, options client.ListPipelineArtifactsOptions) (*client.PipelineArtifactList, error) {
 	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) DownloadPipelineArtifact(ctx context.Context, selector client.PipelineSelector, artifactID string, destination io.Writer) error {
 	return errors.New("not implemented")
+}
+
+func (m baseMock) ListPipelineFindings(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineFindingList, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) GetPipelineDefinition(ctx context.Context, selector client.PipelineSelector) (*client.PipelineDefinition, error) {
