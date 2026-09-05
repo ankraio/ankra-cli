@@ -2378,6 +2378,22 @@ func (m baseMock) ListAlertDestinations(options client.ListAlertDestinationsOpti
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListAlertIngestCredentials() (*client.AlertIngestCredentialList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RebindAlertIngestCredential(string, client.RebindAlertIngestCredentialRequest) (*client.AlertIngestCredential, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAISpendCap() (*client.AISpendCap, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAISpendCap(client.AISpendCapUpdate) (*client.AISpendCap, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetAlertDestination(destinationID string) (*client.AlertDestination, error) {
 	return nil, errors.New("not implemented")
 }
@@ -2483,6 +2499,14 @@ func (m baseMock) PutPipelineDefinition(ctx context.Context, selector client.Pip
 }
 
 func (m baseMock) ValidatePipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineValidation, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPipelineDefinitionApproval(ctx context.Context, definitionID string) (*client.PipelineDefinitionApproval, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ApprovePipelineDefinition(ctx context.Context, definitionID string) (*client.PipelineDefinitionApproval, error) {
 	return nil, errors.New("not implemented")
 }
 

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"encoding/json"
 	"net/http"
 	neturl "net/url"
 	"strconv"
@@ -428,4 +429,77 @@ func (c *Client) TestNotificationRoute(routeID string) (*NotificationRouteTestRe
 		return nil, testError
 	}
 	return &result, nil
+}
+
+// Ingest credentials (ankra-z5cq5.28): the per-credential secrets external
+// notifiers use to deliver alerts into the platform. The token is minted
+// once by the portal; the CLI lists credentials and moves a credential's
+// cluster pin or scope without ever touching the token.
+const alertIngestCredentialsBasePath = "/api/v1/org/alerts/ingest-credentials"
+
+// AlertIngestCredential is one credential row on the wire; the token is
+// never included. ClusterName is served even for a cluster that is no
+// longer available, and ClusterUnavailable says the pin is broken (the
+// cluster is deleted, archived, slated for deletion or gone).
+type AlertIngestCredential struct {
+	ID                 string  `json:"id" yaml:"id"`
+	Name               string  `json:"name" yaml:"name"`
+	ClusterID          *string `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName        *string `json:"cluster_name" yaml:"cluster_name"`
+	ClusterUnavailable bool    `json:"cluster_unavailable" yaml:"cluster_unavailable"`
+	Scope              string  `json:"scope" yaml:"scope"`
+	Enabled            bool    `json:"enabled" yaml:"enabled"`
+	CreatedAt          string  `json:"created_at" yaml:"created_at"`
+	UpdatedAt          string  `json:"updated_at" yaml:"updated_at"`
+	LastUsedAt         *string `json:"last_used_at" yaml:"last_used_at"`
+}
+
+// AlertIngestCredentialList is the list response body.
+type AlertIngestCredentialList struct {
+	Items []AlertIngestCredential `json:"items" yaml:"items"`
+}
+
+// RebindAlertIngestCredentialRequest moves a credential's cluster pin, or
+// its scope, without minting a new token. ClusterIDSet distinguishes
+// "unpin" (cluster_id sent as null) from "leave the pin alone" (absent).
+type RebindAlertIngestCredentialRequest struct {
+	ClusterID    *string
+	ClusterIDSet bool
+	Scope        *string
+}
+
+// MarshalJSON writes cluster_id only when it was set, as null for an
+// unpin, and scope only when given: absent is not cleared.
+func (request RebindAlertIngestCredentialRequest) MarshalJSON() ([]byte, error) {
+	body := map[string]any{}
+	if request.ClusterIDSet {
+		body["cluster_id"] = request.ClusterID
+	}
+	if request.Scope != nil {
+		body["scope"] = *request.Scope
+	}
+	return json.Marshal(body)
+}
+
+type alertIngestCredentialEnvelope struct {
+	Item AlertIngestCredential `json:"item"`
+}
+
+// ListAlertIngestCredentials lists the organisation's ingest credentials.
+func (c *Client) ListAlertIngestCredentials() (*AlertIngestCredentialList, error) {
+	var list AlertIngestCredentialList
+	if listError := c.sendJSON(http.MethodGet, c.BaseURL+alertIngestCredentialsBasePath, nil, &list); listError != nil {
+		return nil, listError
+	}
+	return &list, nil
+}
+
+// RebindAlertIngestCredential moves the credential's cluster pin or scope.
+func (c *Client) RebindAlertIngestCredential(credentialID string, request RebindAlertIngestCredentialRequest) (*AlertIngestCredential, error) {
+	var envelope alertIngestCredentialEnvelope
+	if rebindError := c.sendJSON(http.MethodPatch, c.BaseURL+alertIngestCredentialsBasePath+"/"+neturl.PathEscape(credentialID),
+		request, &envelope); rebindError != nil {
+		return nil, rebindError
+	}
+	return &envelope.Item, nil
 }
