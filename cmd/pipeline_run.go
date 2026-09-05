@@ -224,7 +224,10 @@ func runPipelineList(command *cobra.Command, selector client.PipelineSelector) e
 	branch, _ := command.Flags().GetString("branch")
 	headSHA, _ := command.Flags().GetString("head-sha")
 	cursor, _ := command.Flags().GetString("cursor")
-	limit, _ := command.Flags().GetInt("limit")
+	limit, limitError := pipelinePageLimitFromFlags(command)
+	if limitError != nil {
+		return limitError
+	}
 
 	page, listError := apiClient.ListPipelineRuns(command.Context(), selector, client.ListPipelineRunsOptions{
 		Status:  strings.TrimSpace(status),

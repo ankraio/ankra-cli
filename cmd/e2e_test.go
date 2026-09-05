@@ -2458,12 +2458,16 @@ func (m baseMock) StreamPipelineStepLogs(ctx context.Context, selector client.Pi
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineArtifactList, error) {
+func (m baseMock) ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string, options client.ListPipelineArtifactsOptions) (*client.PipelineArtifactList, error) {
 	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) DownloadPipelineArtifact(ctx context.Context, selector client.PipelineSelector, artifactID string, destination io.Writer) error {
 	return errors.New("not implemented")
+}
+
+func (m baseMock) ListPipelineFindings(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineFindingList, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) GetPipelineDefinition(ctx context.Context, selector client.PipelineSelector) (*client.PipelineDefinition, error) {
@@ -2499,6 +2503,22 @@ func (m baseMock) UpdatePipelineSchedule(ctx context.Context, selector client.Pi
 }
 
 func (m baseMock) DeletePipelineSchedule(ctx context.Context, selector client.PipelineSelector, scheduleID string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) ListPipelineRepositories(ctx context.Context, options client.ListPipelineRepositoriesOptions) (*client.PipelineRepositoryList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPipelineRepository(ctx context.Context, repositoryID string) (*client.PipelineRepository, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ConnectPipelineRepository(ctx context.Context, request client.ConnectPipelineRepositoryRequest) (*client.ConnectPipelineRepositoryResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DisconnectPipelineRepository(ctx context.Context, repositoryID string) error {
 	return errors.New("not implemented")
 }
 

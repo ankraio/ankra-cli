@@ -48,6 +48,11 @@ type pipelineLaneMock struct {
 	artifactsRunID  string
 	artifactsResult *client.PipelineArtifactList
 	artifactsError  error
+	// artifactsPages, when set, is served one page per call in order and
+	// takes precedence over artifactsResult, so a test can exercise a
+	// listing the caller has to follow NextCursor through.
+	artifactsPages   []client.PipelineArtifactList
+	artifactsOptions []client.ListPipelineArtifactsOptions
 
 	downloadArtifactID string
 	downloadError      error
@@ -84,6 +89,23 @@ type pipelineLaneMock struct {
 
 	deleteScheduleID    string
 	deleteScheduleError error
+
+	listRepositoriesOptions client.ListPipelineRepositoriesOptions
+	listRepositoriesResult  *client.PipelineRepositoryList
+	listRepositoriesError   error
+
+	getRepositoryID     string
+	getRepositoryResult *client.PipelineRepository
+	getRepositoryError  error
+
+	connectRepositoryRequest client.ConnectPipelineRepositoryRequest
+	connectRepositoryResult  *client.ConnectPipelineRepositoryResult
+	connectRepositoryError   error
+	connectRepositoryCalls   int
+
+	disconnectRepositoryID    string
+	disconnectRepositoryError error
+	disconnectRepositoryCalls int
 }
 
 func (mock *pipelineLaneMock) ListPipelineRuns(ctx context.Context, selector client.PipelineSelector, options client.ListPipelineRunsOptions) (*client.PipelineRunList, error) {
@@ -139,11 +161,20 @@ func (mock *pipelineLaneMock) StreamPipelineStepLogs(ctx context.Context, select
 	return events, nil
 }
 
-func (mock *pipelineLaneMock) ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineArtifactList, error) {
+func (mock *pipelineLaneMock) ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string, options client.ListPipelineArtifactsOptions) (*client.PipelineArtifactList, error) {
 	mock.lastSelector = selector
 	mock.artifactsRunID = runID
+	mock.artifactsOptions = append(mock.artifactsOptions, options)
 	if mock.artifactsError != nil {
 		return nil, mock.artifactsError
+	}
+	if mock.artifactsPages != nil {
+		index := len(mock.artifactsOptions) - 1
+		if index >= len(mock.artifactsPages) {
+			index = len(mock.artifactsPages) - 1
+		}
+		page := mock.artifactsPages[index]
+		return &page, nil
 	}
 	return mock.artifactsResult, nil
 }
@@ -234,6 +265,37 @@ func (mock *pipelineLaneMock) DeletePipelineSchedule(ctx context.Context, select
 	return mock.deleteScheduleError
 }
 
+func (mock *pipelineLaneMock) ListPipelineRepositories(ctx context.Context, options client.ListPipelineRepositoriesOptions) (*client.PipelineRepositoryList, error) {
+	mock.listRepositoriesOptions = options
+	if mock.listRepositoriesError != nil {
+		return nil, mock.listRepositoriesError
+	}
+	return mock.listRepositoriesResult, nil
+}
+
+func (mock *pipelineLaneMock) GetPipelineRepository(ctx context.Context, repositoryID string) (*client.PipelineRepository, error) {
+	mock.getRepositoryID = repositoryID
+	if mock.getRepositoryError != nil {
+		return nil, mock.getRepositoryError
+	}
+	return mock.getRepositoryResult, nil
+}
+
+func (mock *pipelineLaneMock) ConnectPipelineRepository(ctx context.Context, request client.ConnectPipelineRepositoryRequest) (*client.ConnectPipelineRepositoryResult, error) {
+	mock.connectRepositoryRequest = request
+	mock.connectRepositoryCalls++
+	if mock.connectRepositoryError != nil {
+		return nil, mock.connectRepositoryError
+	}
+	return mock.connectRepositoryResult, nil
+}
+
+func (mock *pipelineLaneMock) DisconnectPipelineRepository(ctx context.Context, repositoryID string) error {
+	mock.disconnectRepositoryID = repositoryID
+	mock.disconnectRepositoryCalls++
+	return mock.disconnectRepositoryError
+}
+
 func runPipelineCommand(t *testing.T, mockClient APIClient, arguments ...string) (string, error) {
 	t.Helper()
 	previousClient := apiClient
@@ -256,7 +318,7 @@ func TestPipelineCommandsRegistered(t *testing.T) {
 		registered[subcommand.Name()] = true
 	}
 	for _, expected := range []string{
-		"run", "list", "get", "cancel", "rerun", "logs", "artifacts", "validate", "definition", "definitions", "schedules",
+		"run", "list", "get", "cancel", "rerun", "logs", "artifacts", "validate", "definition", "definitions", "schedules", "repositories",
 	} {
 		if !registered[expected] {
 			t.Errorf("pipeline subcommand %q is not registered", expected)
@@ -285,6 +347,12 @@ func TestPipelineCommandsRegistered(t *testing.T) {
 			t.Errorf("pipeline schedules subcommand %q is not registered", expected)
 		}
 	}
+	repositoriesCommand := findSubcommand(t, pipelineCommand, "repositories")
+	for _, expected := range []string{"list", "get", "connect", "disconnect"} {
+		if findSubcommandOrNil(repositoriesCommand, expected) == nil {
+			t.Errorf("pipeline repositories subcommand %q is not registered", expected)
+		}
+	}
 }
 
 func TestApplicationPipelineCommandsRegistered(t *testing.T) {
@@ -294,6 +362,22 @@ func TestApplicationPipelineCommandsRegistered(t *testing.T) {
 	} {
 		if findSubcommandOrNil(applicationPipelineCommand, expected) == nil {
 			t.Errorf("application pipeline subcommand %q is not registered", expected)
+		}
+	}
+}
+
+func TestPipelineArtifactsPagingFlagsOnBothSurfaces(t *testing.T) {
+	// A run with more artifacts than one page must be walkable from either
+	// address, so both surfaces carry the same paging flags.
+	surfaces := map[string]*cobra.Command{
+		"pipeline artifacts":             findSubcommand(t, newPipelineCommand(), "artifacts"),
+		"application pipeline artifacts": findSubcommand(t, findSubcommand(t, newApplicationCommand(), "pipeline"), "artifacts"),
+	}
+	for name, command := range surfaces {
+		for _, flag := range []string{"cursor", "limit"} {
+			if command.Flags().Lookup(flag) == nil {
+				t.Errorf("%q does not register --%s", name, flag)
+			}
 		}
 	}
 }
@@ -486,6 +570,68 @@ func TestPipelineArtifactsListEmpty(t *testing.T) {
 	}
 	if !strings.Contains(output, "No artifacts stored") {
 		t.Errorf("output = %q", output)
+	}
+}
+
+func TestPipelineListingsRefuseANegativeLimit(t *testing.T) {
+	// A negative --limit used to be dropped on the way to the query, so the
+	// caller silently got the server's default page instead of being told
+	// the flag was ignored.
+	for name, arguments := range map[string][]string{
+		"artifacts": {"artifacts", "run-1", "--application", testApplicationID, "--limit", "-5"},
+		"list":      {"list", "--application", testApplicationID, "--limit", "-5"},
+	} {
+		mockClient := &pipelineLaneMock{}
+		_, executeError := runPipelineCommand(t, mockClient, arguments...)
+		if executeError == nil || !strings.Contains(executeError.Error(), "--limit must be a positive number") {
+			t.Errorf("%s error = %v, want a usage refusal", name, executeError)
+		}
+		if len(mockClient.artifactsOptions) != 0 || mockClient.listOptions.Limit != 0 {
+			t.Errorf("%s must refuse before asking the server anything", name)
+		}
+	}
+}
+
+func TestPipelineArtifactsListSaysWhenAnotherPageExists(t *testing.T) {
+	nextCursor := "cursor-2"
+	stepID := "step-1"
+	mockClient := &pipelineLaneMock{artifactsResult: &client.PipelineArtifactList{
+		Artifacts: []client.PipelineArtifact{
+			{ID: "artifact-1", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+				Status: client.PipelineArtifactStatusUploaded},
+		},
+		NextCursor: &nextCursor,
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "artifacts", "run-1",
+		"--application", testApplicationID, "--cursor", "cursor-1", "--limit", "100")
+	if executeError != nil {
+		t.Fatalf("artifacts error = %v", executeError)
+	}
+	if len(mockClient.artifactsOptions) != 1 ||
+		mockClient.artifactsOptions[0].Cursor != "cursor-1" || mockClient.artifactsOptions[0].Limit != 100 {
+		t.Fatalf("paging asked for = %+v, want the flags passed through", mockClient.artifactsOptions)
+	}
+	if !strings.Contains(output, "--cursor cursor-2") {
+		t.Errorf("output = %q, want it to name the next page's cursor", output)
+	}
+}
+
+func TestPipelineArtifactsListEmptyPageWithMoreToRead(t *testing.T) {
+	// An empty page that still offers a cursor is "more to read", not "the
+	// run stored nothing".
+	nextCursor := "cursor-2"
+	mockClient := &pipelineLaneMock{artifactsResult: &client.PipelineArtifactList{
+		Artifacts: []client.PipelineArtifact{}, NextCursor: &nextCursor,
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "artifacts", "run-1", "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("artifacts error = %v", executeError)
+	}
+	if strings.Contains(output, "No artifacts stored") {
+		t.Errorf("output = %q, must not claim the run stored nothing", output)
+	}
+	if !strings.Contains(output, "--cursor cursor-2") {
+		t.Errorf("output = %q, want it to name the next page's cursor", output)
 	}
 }
 

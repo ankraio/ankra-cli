@@ -9,6 +9,11 @@ package cmd
 // selector from a leading <application-id> argument instead of a flag, and
 // otherwise calls the exact same run* functions this file and its siblings
 // define.
+//
+// `ankra pipeline repositories …` (cmd/pipeline_repositories.go,
+// ankra-vn0bd.4.2) is the one exception: it addresses the organisation's
+// directory of connected repositories, not one already-linked pipeline, so
+// it takes no PipelineSelector.
 
 import (
 	"errors"
@@ -55,10 +60,12 @@ stored definition directly by its own id and take neither flag - see
 		newPipelineRerunCommand(),
 		newPipelineLogsCommand(),
 		newPipelineArtifactsCommand(),
+		newPipelineFindingsCommand(),
 		newPipelineValidateCommand(),
 		newPipelineDefinitionCommand(),
 		newPipelineDefinitionsCommand(),
 		newPipelineSchedulesCommand(),
+		newPipelineRepositoriesCommand(),
 	)
 	return pipelineCommand
 }
@@ -145,6 +152,21 @@ func pipelineOptionalString(value *string) string {
 		return "-"
 	}
 	return *value
+}
+
+// pipelinePageLimitFromFlags reads a listing's --limit. Zero means "let the
+// server choose its own page" and is passed through unsent; a negative one
+// is refused rather than dropped, because silently answering a smaller
+// listing than the caller asked for is the same lie as presenting one page
+// as a whole record. A limit above the route's ceiling is left to the
+// server, which names its own maximum in the refusal.
+func pipelinePageLimitFromFlags(command *cobra.Command) (int, error) {
+	limit, _ := command.Flags().GetInt("limit")
+	if limit < 0 {
+		return 0, withExitCode(exitUsage,
+			fmt.Errorf("--limit must be a positive number of rows, got %d", limit))
+	}
+	return limit, nil
 }
 
 // pipelineShortSHA renders a commit for a table cell: short enough to scan,
