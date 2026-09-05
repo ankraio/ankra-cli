@@ -54,6 +54,27 @@
   starting new runs without deleting its history - connecting the same
   identity again revives the same row - and refuses (409, the server's own
   message) while a run is still queued or running.
+- **`ankra pipeline definitions get|approve` inspects and grants a pipeline
+  definition's protected-authority approval.** A pipeline file's logic is
+  open - anyone who can push may add stages, scripts and images - but its
+  authority-bearing sections (permissions, credentials, secrets scope,
+  network tier, image policy, `runs_on`, environment gates) are closed: a
+  pull request may change them, but the run still executes under the last
+  authority an administrator approved on the default branch until one
+  approves the change. `definitions get <id>` prints one stored definition's
+  protected-sections hash and, if anyone has, who approved it and when;
+  `definitions approve <id>` records that approval (requires
+  `pipelines.manage` and a human actor - a service-account token is
+  refused). Both take the definition's own id rather than
+  `--application`/`--repository`, since the server addresses this pair of
+  routes by the organisation alone; there is no lookup route yet, so
+  `ankra pipeline get` now prints a run's `authority_state`, which stored
+  definition its trusted authority was taken from, and, for a state other
+  than approved, that an administrator approving the repository's current
+  default-branch definition would update it (that definition's own id is not
+  always the one the run names, so this points at the pull request status
+  comment rather than guessing). `-o json` works on both, and a 404/409/403
+  from the server prints verbatim rather than being reworded.
 
 ### Fixed
 
