@@ -162,6 +162,7 @@ type APIClient interface {
 	ListStackProfiles(page, pageSize int, search string, category string) (*client.StackProfileListResponse, error)
 	ExportStackProfileIac(profileID string, version int) (*client.StackProfileIacExport, error)
 	ImportStackProfile(importRequest client.ImportStackProfileRequest) (*client.CreateStackProfileResult, error)
+	ImportStackProfileAsDraft(importRequest client.ImportStackProfileDraftRequest) (*client.ImportStackProfileDraftResult, error)
 	GetStackProfile(profileID string) (*client.StackProfileDetail, error)
 	InstantiateStackProfile(ctx context.Context, clusterID string, instantiateRequest client.InstantiateStackProfileRequest) (*client.InstantiateStackProfileResult, error)
 	CreateStackProfileDraft(request client.CreateStackProfileDraftRequest) (*client.StackProfileDraft, error)
