@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -82,6 +83,13 @@ func parseJSON(data []byte, target interface{}) error {
 // into target (nil target discards the body). Non-2xx responses surface the
 // backend's detail string, and RBAC 403s map to PermissionDeniedError.
 func (c *Client) sendJSON(method string, url string, payload any, target any) error {
+	return c.sendJSONContext(context.Background(), method, url, payload, target)
+}
+
+// sendJSONContext is sendJSON bound to a caller's context, so a command that
+// owns a deadline or a cancellable context can stop the request instead of
+// waiting out the shared client's timeout.
+func (c *Client) sendJSONContext(ctx context.Context, method string, url string, payload any, target any) error {
 	var bodyReader *bytes.Reader
 	if payload != nil {
 		encoded, marshalError := json.Marshal(payload)
@@ -93,7 +101,7 @@ func (c *Client) sendJSON(method string, url string, payload any, target any) er
 		bodyReader = bytes.NewReader(nil)
 	}
 
-	request, requestError := http.NewRequest(method, url, bodyReader)
+	request, requestError := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if requestError != nil {
 		return fmt.Errorf("create request: %w", requestError)
 	}

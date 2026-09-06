@@ -139,7 +139,7 @@ per command family:
 | [ankra application](https://docs.ankra.ai/reference/cli/application) | Manage applications |
 | [ankra charts](https://docs.ankra.ai/reference/cli/charts) | Browse Helm charts |
 | [ankra chat](https://docs.ankra.ai/reference/cli/chat) | AI-powered chat for troubleshooting and assistance |
-| [ankra cluster](https://docs.ankra.ai/reference/cli/cluster) | Cluster operations: stacks, manifests, addons, operations, variables, access, SOPS encryption, provider (Hetzner/OVH/UpCloud/DigitalOcean) lifecycle |
+| [ankra cluster](https://docs.ankra.ai/reference/cli/cluster) | Cluster operations: stacks, manifests, addons, operations, variables, access, SOPS encryption, agent status, upgrade and pipeline-step CI settings (`cluster agent ci get\|set` - how many Ankra Pipelines steps the cluster's agent runs at once and the storage class their workspaces use, stored on the platform so an agent upgrade no longer renders the setting away), provider (Hetzner/OVH/UpCloud/DigitalOcean) lifecycle |
 | [ankra completion](https://docs.ankra.ai/reference/cli/completion) | Generate or install shell completion scripts |
 | [ankra config](https://docs.ankra.ai/reference/cli/config) | Manage Ankra CLI settings |
 | [ankra credentials](https://docs.ankra.ai/reference/cli/credentials) | Manage credentials (platform, provider API, SSH keys) |
