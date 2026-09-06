@@ -1,5 +1,20 @@
 [
+  "/api/v1/clusters/%s/%s  (internal/client/provider_lifecycle.go)",
+  "/api/v1/clusters/%s/%s/bastion/diagnose  (internal/client/bastion.go)",
+  "/api/v1/clusters/%s/%s/bastion/health  (internal/client/bastion.go)",
+  "/api/v1/clusters/%s/%s/bastion/instance-type  (internal/client/bastion.go)",
+  "/api/v1/clusters/%s/%s/control-plane  (internal/client/control_plane.go)",
+  "/api/v1/clusters/%s/%s/control-plane/instance-type  (internal/client/control_plane.go)",
+  "/api/v1/clusters/%s/%s/nodes  (internal/client/cluster_nodes.go)",
+  "/api/v1/clusters/%s/%s/nodes/%s  (internal/client/cluster_nodes.go)",
+  "/api/v1/clusters/%s/%s/nodes/%s/cloud-init-log  (internal/client/cluster_nodes.go)",
+  "/api/v1/clusters/%s/%s/nodes/%s/restart  (internal/client/cluster_nodes.go)",
+  "/api/v1/clusters/%s/%s/ssh-keys  (internal/client/cluster_ssh_keys.go)",
+  "/api/v1/clusters/%s/%s/ssh-keys/resync  (internal/client/cluster_ssh_keys.go)",
+  "/api/v1/clusters/%s/kubernetes/%s  (internal/client/kubernetes.go)",
   "/api/v1/org/cloud-cost  (internal/client/cost.go)",
+  "/api/v1/org/clusters/imported/%s/power-schedules  (internal/client/power_schedules.go)",
+  "/api/v1/org/clusters/imported/%s/power-schedules/%s  (internal/client/power_schedules.go)",
   "/api/v1/org/manifest-addons  (internal/client/manifest_addons.go)",
   "/api/v1/org/security  (internal/client/security.go)"
 ]
