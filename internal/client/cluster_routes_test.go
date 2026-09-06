@@ -50,8 +50,9 @@ package client
 //   - `/api/v1/org/clusters/imported/{}/power-schedules`, which the cluster
 //     genuinely does not register: importedapi mounts power schedules only
 //     on the session surface (`/org/...`), with no `/api/v1/org` bearer
-//     twin, so `ankra cluster power-schedules` 404s. Tracked as its own
-//     bead; it comes off this list when the route exists, not before.
+//     twin, so `ankra cluster power-schedules` 404s. Tracked as
+//     ankra-htxvm.15; it comes off this list when the route exists on the
+//     cluster side, not before.
 
 import (
 	"encoding/json"
