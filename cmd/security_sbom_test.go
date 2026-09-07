@@ -18,6 +18,8 @@ type securitySbomMock struct {
 	images            *client.SecuritySBOMImageList
 	detail            *client.SecuritySBOMImageDetail
 	detailOptions     *client.SecuritySBOMImageOptions
+	component         *client.SecuritySBOMComponentDetail
+	componentOptions  *client.SecuritySBOMComponentOptions
 	imagesOptions     *client.SecuritySBOMImagesOptions
 	containers        *client.SecuritySBOMContainerList
 	containersOptions *client.SecuritySBOMContainersOptions
@@ -59,6 +61,11 @@ func (m *securitySbomMock) ListSecuritySBOMImageFindings(options client.Security
 func (m *securitySbomMock) ExportSecuritySBOMImage(options client.SecuritySBOMExportOptions) (*client.SecuritySBOMExport, error) {
 	m.exportOptions = &options
 	return m.export, nil
+}
+
+func (m *securitySbomMock) GetSecuritySBOMComponent(options client.SecuritySBOMComponentOptions) (*client.SecuritySBOMComponentDetail, error) {
+	m.componentOptions = &options
+	return m.component, nil
 }
 
 func (m *securitySbomMock) GetSecuritySBOMImage(options client.SecuritySBOMImageOptions) (*client.SecuritySBOMImageDetail, error) {
@@ -170,6 +177,42 @@ func TestSecuritySbomCellsKeepAnAbsentAnswerApartFromAClean(t *testing.T) {
 	if licenseExposureCell(nil) != "not reported" || licenseExposureCell(&client.SecurityLicenseExposure{}) != "-" {
 		t.Fatalf("a missing exposure is not reported, an empty one is clean: %q %q",
 			licenseExposureCell(nil), licenseExposureCell(&client.SecurityLicenseExposure{}))
+	}
+}
+
+func TestSecuritySbomComponentFollowsAPackageToWhereItRuns(t *testing.T) {
+	digest, osName, namespace, name, container := "sha256:abc", "debian 12.7", "backend", "api", "app"
+	kind := "Deployment"
+	mock := &securitySbomMock{component: &client.SecuritySBOMComponentDetail{
+		Component: sbomComponent(),
+		Images: []client.SecuritySBOMImage{{
+			ImageIdentity: digest, ImageRef: "registry.example.com/backend/api:1.0.0", OSName: &osName, ComponentCount: 212,
+			Workloads: 2, Clusters: 1, LicenseExposure: &client.SecurityLicenseExposure{Permissive: 200},
+		}},
+		Workloads: []client.SecuritySBOMComponentWorkload{{
+			SecuritySBOMWorkload: client.SecuritySBOMWorkload{ClusterID: "c1", ClusterName: "prod", ReportScope: "namespaced",
+				WorkloadKind: &kind, WorkloadNamespace: &namespace, WorkloadName: &name, ContainerName: &container, LastSeenAt: "2026-09-07T00:00:00Z"},
+			ImageIdentity: digest, ImageRef: "registry.example.com/backend/api:1.0.0",
+		}},
+		WorkloadsCapped: true,
+		Clusters:        []client.SecuritySBOMComponentCluster{{ClusterID: "c1", ClusterName: "prod", Workloads: 2, Images: 1}},
+	}}
+	output, executeError := runSecurityCommand(t, mock, "security", "sbom", "component", "openssl", "--version", "3.0.14", "--type", "DEB")
+	if executeError != nil {
+		t.Fatalf("security sbom component failed: %v", executeError)
+	}
+	if mock.componentOptions == nil || mock.componentOptions.Name != "openssl" || mock.componentOptions.Version != "3.0.14" ||
+		mock.componentOptions.PackageType != "DEB" {
+		t.Fatalf("component options = %+v", mock.componentOptions)
+	}
+	for _, expected := range []string{"openssl 3.0.14", "Runs in:     4 image(s), 7 workload(s), 2 cluster(s)", "Images carrying it (1):",
+		"registry.example.com/backend/api:1.0.0", "Where it runs (first 1 containers):", "Deployment api", "backend", "prod: 2 workload(s), 1 image(s)"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output lacks %q:\n%s", expected, output)
+		}
+	}
+	if _, executeError := runSecurityCommand(t, mock, "security", "sbom", "component", "openssl", "--type", ""); executeError == nil {
+		t.Fatal("expected a missing --type to be refused")
 	}
 }
 
