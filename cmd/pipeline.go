@@ -16,8 +16,11 @@ package cmd
 // it takes no PipelineSelector.
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"ankra/internal/client"
@@ -109,9 +112,124 @@ func resolvePipelineSelector(command *cobra.Command) (client.PipelineSelector, e
 		}
 		return client.PipelineSelector{RepositoryID: repositoryID}, nil
 	default:
+		// Neither flag: the working directory usually answers the question.
+		// A user standing in the checkout they want built has already told
+		// the shell which application they mean, and making them repeat it
+		// as --application is the kind of step this command can simply take
+		// off them (ankra-ctsmd). Nothing is guessed silently - the caller
+		// prints what was inferred - and an ambiguous or absent answer falls
+		// through to the same usage error as before.
+		selector, inferred, inferError := pipelineSelectorFromWorkingDirectory(command.Context())
+		if inferError != nil {
+			return client.PipelineSelector{}, inferError
+		}
+		if inferred != "" {
+			reportInferredPipelineTarget(command, inferred)
+			return selector, nil
+		}
 		return client.PipelineSelector{}, withExitCode(exitUsage,
 			errors.New("one of --application or --repository is required"))
 	}
+}
+
+// pipelineSelectorFromWorkingDirectory answers the application whose
+// repository is checked out in the working directory, and the "owner/name"
+// it matched so the caller can say so.
+//
+// Every way of not getting a confident answer - not inside a checkout, no
+// origin remote, no application on that repository, or more than one - is an
+// empty answer rather than an error, because the caller has a perfectly good
+// usage error to fall back on and a wrong inference is worse than none.
+func pipelineSelectorFromWorkingDirectory(requestContext context.Context) (client.PipelineSelector, string, error) {
+	if apiClient == nil {
+		return client.PipelineSelector{}, "", nil
+	}
+	repository, inspectError := inspectLocalApplicationRepository(requestContext, ".", "origin", "")
+	if inspectError != nil {
+		return client.PipelineSelector{}, "", nil
+	}
+	fullName := repository.Owner + "/" + repository.Name
+	matchedIDs := []string{}
+	matchedNames := []string{}
+	listingExhausted := false
+	// The listing is walked unfiltered: the server-side `search` matches an
+	// application's NAME, and an application is free to be called something
+	// other than the repository it builds, so filtering by the repository
+	// name would silently miss exactly those. The walk is bounded the same
+	// way resolveApplicationID's is.
+	for page := 1; page <= maxApplicationLookupPages; page++ {
+		payload, listError := apiClient.ListApplicationsRaw(
+			requestContext, page, maxApplicationLookupPageSize, "")
+		if listError != nil {
+			return client.PipelineSelector{}, "", nil
+		}
+		var listing applicationRepositoryListingPage
+		if unmarshalError := json.Unmarshal(payload, &listing); unmarshalError != nil {
+			return client.PipelineSelector{}, "", nil
+		}
+		for _, application := range listing.Result {
+			if strings.EqualFold(strings.TrimSpace(application.RepositoryOwner), repository.Owner) &&
+				strings.EqualFold(strings.TrimSpace(application.RepositoryName), repository.Name) {
+				matchedIDs = append(matchedIDs, application.ID)
+				matchedNames = append(matchedNames, applicationLabel(application.Name, application.ID))
+			}
+		}
+		if listing.Pagination.TotalPages <= page || len(listing.Result) == 0 {
+			listingExhausted = true
+			break
+		}
+	}
+	// A listing that ran past the page cap was only partly read, so "no
+	// application on this repository" is not something this walk knows. It
+	// answers nothing and the caller asks for the flag, rather than treating
+	// an unread page as an absence.
+	if !listingExhausted {
+		return client.PipelineSelector{}, "", nil
+	}
+	if len(matchedIDs) > 1 {
+		// The checkout answered the question and the answer was "more than
+		// one". Saying so beats repeating the generic usage line, which
+		// would leave the user re-reading a flag they were about to pass.
+		sort.Strings(matchedNames)
+		return client.PipelineSelector{}, "", withExitCode(exitUsage, fmt.Errorf(
+			"%s has %d applications in this organisation (%s); pass --application to say which",
+			fullName, len(matchedNames), strings.Join(matchedNames, ", ")))
+	}
+	if len(matchedIDs) == 0 {
+		return client.PipelineSelector{}, "", nil
+	}
+	return client.PipelineSelector{ApplicationID: matchedIDs[0]}, fullName, nil
+}
+
+// applicationRepositoryListingPage is the applications listing read for the
+// repository each application is bound to, beside the id.
+type applicationRepositoryListingPage struct {
+	Result []struct {
+		ID              string `json:"id"`
+		Name            string `json:"name"`
+		RepositoryOwner string `json:"app_repo_owner"`
+		RepositoryName  string `json:"app_repo_name"`
+	} `json:"result"`
+	Pagination struct {
+		TotalPages int `json:"total_pages"`
+	} `json:"pagination"`
+}
+
+// applicationLabel names an application by its name, falling back to its id
+// for an application whose definition carries none.
+func applicationLabel(name string, id string) string {
+	if strings.TrimSpace(name) != "" {
+		return strings.TrimSpace(name)
+	}
+	return id
+}
+
+// reportInferredPipelineTarget says on stderr which application the working
+// directory resolved to. Stderr, not stdout, so a structured -o json output
+// stays exactly what a caller can parse.
+func reportInferredPipelineTarget(command *cobra.Command, fullName string) {
+	_, _ = fmt.Fprintf(command.ErrOrStderr(),
+		"Using the application bound to %s (pass --application to choose another).\n", fullName)
 }
 
 // parsePipelineInputFlags parses repeated --input key=value flags into the
