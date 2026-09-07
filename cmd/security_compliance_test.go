@@ -221,6 +221,21 @@ func TestSecurityComplianceExport_WritesFileAndRefusesOverwrite(t *testing.T) {
 	}
 }
 
+func TestSecurityComplianceExport_DashWithWhitespaceStillMeansStdout(t *testing.T) {
+	mock := &securityComplianceMock{export: &client.SecurityComplianceExport{ContentType: "text/csv", Body: []byte("a,b\n")}}
+	output, err := runSecurityCommand(t, mock, "security", "compliance", "export", "--output-file", " - ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if output != "a,b\n" {
+		t.Fatalf("expected the body on stdout, got %q", output)
+	}
+	if _, statError := os.Stat("-"); statError == nil {
+		_ = os.Remove("-")
+		t.Fatal("a file named - was written to the working directory")
+	}
+}
+
 func TestSecurityComplianceExport_ServerFileNameIsNeverAPath(t *testing.T) {
 	if got := complianceExportLocalFileName("../../etc/passwd", "csv"); got != "passwd" {
 		t.Errorf("expected the last path element only, got %q", got)

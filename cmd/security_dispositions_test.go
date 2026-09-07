@@ -182,6 +182,31 @@ func TestSecurityFinding_StatusFlagListsResolvedOccurrences(t *testing.T) {
 	}
 }
 
+func TestSecurityFinding_NormalisesStatusBeforeTheRequest(t *testing.T) {
+	mock := &securityDispositionsMock{
+		detail:      &client.SecurityFindingDetail{Finding: exploitedFinding()},
+		occurrences: &client.SecurityOccurrenceList{Result: []client.SecurityOccurrence{}},
+	}
+	if _, err := runSecurityCommand(t, mock, "security", "finding", "f-1", "--status", " RESOLVED "); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mock.occurrencesOptions == nil || mock.occurrencesOptions.Status != "resolved" {
+		t.Fatalf("expected the status lower-cased and trimmed, got %+v", mock.occurrencesOptions)
+	}
+}
+
+func TestTruncateReason_NeverSplitsARune(t *testing.T) {
+	truncated := truncateReason("räksmörgås räksmörgås räksmörgås", 12)
+	if truncated != "räksmörgås …" || !strings.HasSuffix(truncated, "…") {
+		t.Fatalf("expected a rune-aware cut, got %q", truncated)
+	}
+	for _, r := range truncated {
+		if r == '\uFFFD' {
+			t.Fatalf("the cut produced an invalid sequence: %q", truncated)
+		}
+	}
+}
+
 func TestSecurityFinding_RefusesUnknownStatus(t *testing.T) {
 	mock := &securityDispositionsMock{detail: &client.SecurityFindingDetail{Finding: exploitedFinding()}}
 	_, err := runSecurityCommand(t, mock, "security", "finding", "f-1", "--status", "later")

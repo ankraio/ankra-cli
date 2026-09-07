@@ -161,7 +161,8 @@ func runSecurityFindingWithOccurrences(cmd *cobra.Command, findingID string) err
 	clusterFlag, _ := cmd.Flags().GetString("cluster")
 	page, _ := cmd.Flags().GetInt("page")
 	pageSize, _ := cmd.Flags().GetInt("page-size")
-	switch strings.ToLower(strings.TrimSpace(status)) {
+	status = strings.ToLower(strings.TrimSpace(status))
+	switch status {
 	case "", "active", "resolved":
 	default:
 		return withExitCode(exitUsage, fmt.Errorf("--status must be active or resolved, got %q", status))
@@ -197,7 +198,7 @@ func runSecurityFindingWithOccurrences(cmd *cobra.Command, findingID string) err
 	renderSecurityOccurrenceTable(out, occurrences.Result)
 	_, _ = fmt.Fprintf(out, "Page %d of %d · %d occurrences", occurrences.Pagination.Page, occurrences.Pagination.TotalPages, occurrences.Pagination.TotalCount)
 	if status != "" {
-		_, _ = fmt.Fprintf(out, " · %s only", strings.ToLower(status))
+		_, _ = fmt.Fprintf(out, " · %s only", status)
 	}
 	_, _ = fmt.Fprintln(out)
 	return nil
@@ -355,12 +356,15 @@ func securityDispositionExpiryText(policy client.SecurityDisposition) string {
 	return strings.Join(parts, ", ")
 }
 
+// truncateReason folds whitespace and cuts at limit runes, never inside a
+// multibyte character.
 func truncateReason(reason string, limit int) string {
 	reason = strings.Join(strings.Fields(reason), " ")
-	if len(reason) <= limit {
+	runes := []rune(reason)
+	if len(runes) <= limit {
 		return reason
 	}
-	return reason[:limit-1] + "…"
+	return string(runes[:limit-1]) + "…"
 }
 
 var securityDispositionsPreviewCmd = &cobra.Command{

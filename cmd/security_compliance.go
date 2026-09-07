@@ -312,11 +312,11 @@ Example:
 		if err != nil {
 			return fmt.Errorf("downloading the compliance report: %w", err)
 		}
-		if outputFile == "-" {
+		target := strings.TrimSpace(outputFile)
+		if target == "-" {
 			_, writeError := cmd.OutOrStdout().Write(export.Body)
 			return writeError
 		}
-		target := strings.TrimSpace(outputFile)
 		if target == "" {
 			target = complianceExportLocalFileName(export.FileName, normalizedFormat)
 		}
