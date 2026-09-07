@@ -73,11 +73,19 @@ var ErrUnauthorized = errors.New("unauthorized. Run `ankra login` to re-authenti
 // role change" (exit code 7 vs 6).
 type PermissionDeniedError struct {
 	Permission string
+	// Detail is the platform's own refusal sentence, for routes whose admin
+	// gate writes `{"detail": "..."}` rather than the RBAC shape above. It is
+	// relayed verbatim when set: the platform already says what the caller
+	// lacks, and it stays an exit-7 refusal rather than a re-login prompt.
+	Detail string
 }
 
 func (e *PermissionDeniedError) Error() string {
 	if e == nil {
 		return ""
+	}
+	if e.Detail != "" {
+		return "permission denied: " + e.Detail
 	}
 	if e.Permission == "" {
 		return "permission denied: your role does not permit this action. Ask an organisation admin to change your role"

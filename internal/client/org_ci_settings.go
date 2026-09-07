@@ -15,22 +15,40 @@ import (
 // (GET/PUT /api/v1/org/ci-settings): which cluster pipeline steps run on,
 // whether the Ankra-operated build cluster stays available when that cluster
 // cannot build, how much of the run and step schedulers the organisation may
-// occupy, which images its steps may name, how long artifacts and caches
-// survive, and which image findings block a publish.
+// occupy, which images its steps may name and which private networks they may
+// reach, how long artifacts, caches and run history survive, and which image
+// findings block a publish.
+//
+// Every field the platform stores is carried, so `-o json` is the whole
+// record rather than a subset a reader would have to know was incomplete.
 //
 // ClusterID is nil when the organisation has chosen no pipeline cluster.
 // ClusterName alone is nil when the chosen cluster has since been deleted,
 // which is why the id is carried separately rather than dropped with it.
 type OrganisationCISettings struct {
-	ClusterID             *string  `json:"ci_cluster_id" yaml:"ci_cluster_id"`
-	ClusterName           *string  `json:"ci_cluster_name" yaml:"ci_cluster_name"`
-	BuildFallback         string   `json:"ci_build_fallback" yaml:"ci_build_fallback"`
-	MaxParallelRuns       int      `json:"ci_max_parallel_runs" yaml:"ci_max_parallel_runs"`
-	MaxParallelSteps      int      `json:"ci_max_parallel_steps" yaml:"ci_max_parallel_steps"`
-	AllowedImagePrefixes  []string `json:"ci_allowed_image_prefixes" yaml:"ci_allowed_image_prefixes"`
+	ClusterID            *string  `json:"ci_cluster_id" yaml:"ci_cluster_id"`
+	ClusterName          *string  `json:"ci_cluster_name" yaml:"ci_cluster_name"`
+	BuildFallback        string   `json:"ci_build_fallback" yaml:"ci_build_fallback"`
+	MaxParallelRuns      int      `json:"ci_max_parallel_runs" yaml:"ci_max_parallel_runs"`
+	MaxParallelSteps     int      `json:"ci_max_parallel_steps" yaml:"ci_max_parallel_steps"`
+	AllowedImagePrefixes []string `json:"ci_allowed_image_prefixes" yaml:"ci_allowed_image_prefixes"`
+	// EgressAllowedCIDRs are the private networks every pipeline step may
+	// reach on top of the public internet; each becomes a peer on the step's
+	// NetworkPolicy, so the platform bounds the list and refuses anything
+	// outside RFC 1918 / fd00::/8.
+	EgressAllowedCIDRs    []string `json:"ci_egress_allowed_cidrs" yaml:"ci_egress_allowed_cidrs"`
 	ArtifactRetentionDays int      `json:"ci_artifact_retention_days" yaml:"ci_artifact_retention_days"`
 	CacheRetentionDays    int      `json:"ci_cache_retention_days" yaml:"ci_cache_retention_days"`
-	ImageGate             string   `json:"ci_image_gate" yaml:"ci_image_gate"`
+	// RunRetentionDays is how long a repository's concluded run history is
+	// kept; a live run and a repository's newest concluded run are never
+	// deleted whatever this says.
+	RunRetentionDays int    `json:"ci_run_retention_days" yaml:"ci_run_retention_days"`
+	ImageGate        string `json:"ci_image_gate" yaml:"ci_image_gate"`
+	// IgnoreUnfixed is the organisation-wide floor under the image gate: true
+	// (Ankra's default) lets a pipeline's own gate stage leave findings with
+	// no available fix out of the verdict; false keeps every unfixed finding
+	// blocking whatever any pipeline asks for.
+	IgnoreUnfixed bool `json:"ci_ignore_unfixed" yaml:"ci_ignore_unfixed"`
 
 	// IsDefault reports that every answer above is Ankra's own default, so a
 	// caller can say "this organisation runs on Ankra's defaults" without
@@ -136,7 +154,17 @@ func (c *Client) doCISettingsRequest(ctx context.Context, method string, body []
 		return responseBody, nil
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
-	case http.StatusForbidden, http.StatusBadRequest, http.StatusUnprocessableEntity:
+	case http.StatusForbidden:
+		// The admin gate is an RBAC refusal: the caller is who they say they
+		// are and it is their role that falls short. That is exit 7, "ask an
+		// admin", not the exit-6 "re-login" a bare 403 would earn. The gate
+		// writes its own sentence rather than the {"detail":
+		// "permission_denied"} shape, so the sentence rides along verbatim.
+		if denied := PermissionDeniedFromResponse(response.StatusCode, responseBody); denied != nil {
+			return nil, denied
+		}
+		return nil, &PermissionDeniedError{Detail: ciSettingsRefusalDetail(responseBody)}
+	case http.StatusBadRequest, http.StatusUnprocessableEntity:
 		// The refusals this endpoint writes all name the setting they
 		// refused - the admin gate, an unknown build fallback, a value out of
 		// range. Relaying the detail verbatim is the whole point: the
