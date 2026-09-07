@@ -98,6 +98,10 @@ func TestProxmoxCreate_MapsFlagsToRequest(t *testing.T) {
 }
 
 func TestProxmoxCreate_IncludeNetworkingCanBeDisabled(t *testing.T) {
+	// The opt-out lands on the shared command, so put the whole create tree
+	// back on its defaults: without this, any test ordered after this one
+	// (go test -shuffle=on) sees include_networking already false.
+	t.Cleanup(func() { resetTreeFlags(t, proxmoxCreateCmd) })
 	mock := &proxmoxCreateMock{}
 	out, runError := runWithInput(t, mock, "",
 		"cluster", "proxmox", "create",
@@ -218,11 +222,20 @@ func TestProxmoxCreate_MapsOverlayFlags(t *testing.T) {
 // checks: a mesh without a site address, a site address without a mesh, and
 // an unknown mode are refused before any request is sent.
 func TestProxmoxCreate_RefusesInconsistentOverlayFlags(t *testing.T) {
-	for name, flags := range map[string][]string{
-		"mesh without site address": {"--network-mode", "wireguard_mesh"},
-		"site address without mesh": {"--site-public-ip", "203.0.113.7"},
-		"unknown mode":              {"--network-mode", "vxlan", "--site-public-ip", "203.0.113.7"},
+	// A slice, not a map, and a full flag reset per case: the create command
+	// is shared across the binary, so a case is only the flags it passes when
+	// the previous case's are gone, and randomised map iteration would decide
+	// which case that bites.
+	t.Cleanup(func() { resetTreeFlags(t, proxmoxCreateCmd) })
+	for _, testCase := range []struct {
+		name  string
+		flags []string
+	}{
+		{name: "mesh without site address", flags: []string{"--network-mode", "wireguard_mesh"}},
+		{name: "site address without mesh", flags: []string{"--site-public-ip", "203.0.113.7"}},
+		{name: "unknown mode", flags: []string{"--network-mode", "vxlan", "--site-public-ip", "203.0.113.7"}},
 	} {
+		resetTreeFlags(t, proxmoxCreateCmd)
 		mock := &proxmoxCreateMock{}
 		arguments := append([]string{
 			"cluster", "proxmox", "create",
@@ -231,12 +244,11 @@ func TestProxmoxCreate_RefusesInconsistentOverlayFlags(t *testing.T) {
 			"--ssh-key-credential-id", "ssh-1",
 			"--node", "pve",
 			"--bridge", "ankra",
-		}, flags...)
+		}, testCase.flags...)
 		_, runError := runWithInput(t, mock, "", arguments...)
 		if runError == nil || mock.called {
-			t.Errorf("%s must be refused before the request is sent (error=%v called=%v)", name, runError, mock.called)
+			t.Errorf("%s must be refused before the request is sent (error=%v called=%v)",
+				testCase.name, runError, mock.called)
 		}
-		_ = proxmoxCreateCmd.Flags().Set("network-mode", "")
-		_ = proxmoxCreateCmd.Flags().Set("site-public-ip", "")
 	}
 }

@@ -39,8 +39,10 @@ func alertsCommandTree() []*cobra.Command {
 
 // runAlertsCommand executes rootCmd with the given stdin and separate
 // stdout/stderr captures, so structured-output tests can prove stdout stays
-// parseable. The alerts flag tree is reset afterwards so Changed markers do
-// not leak between cases.
+// parseable. Flag values and their Changed markers survive an Execute call on
+// the shared tree, so the alerts tree is reset before every run as well as
+// after the test: a case that passes no flags must see none set, whatever the
+// case before it passed.
 func runAlertsCommand(t *testing.T, mock APIClient, input string, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
@@ -51,6 +53,7 @@ func runAlertsCommand(t *testing.T, mock APIClient, input string, args ...string
 	rootCmd.SetErr(stderr)
 	rootCmd.SetIn(strings.NewReader(input))
 	rootCmd.SetArgs(args)
+	resetTreeFlags(t, alertsCommandTree()...)
 	t.Cleanup(func() { resetTreeFlags(t, alertsCommandTree()...) })
 	executeError := rootCmd.Execute()
 	return stdout.String(), stderr.String(), executeError
