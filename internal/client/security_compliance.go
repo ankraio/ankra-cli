@@ -87,8 +87,8 @@ func (c *Client) getSecurityLiveJSON(requestURL string, target any) error {
 	return json.Unmarshal(body, target)
 }
 
-func clusterSecurityURL(base string, clusterID string, path string, query neturl.Values) string {
-	requestURL := base + "/api/v1/org/clusters/imported/" + neturl.PathEscape(strings.TrimSpace(clusterID)) + path
+// clusterScopedURL appends an optional query to a fully built request URL.
+func clusterScopedURL(requestURL string, query neturl.Values) string {
 	if encoded := query.Encode(); encoded != "" {
 		requestURL += "?" + encoded
 	}
@@ -419,7 +419,7 @@ type SecurityClusterBenchmarks struct {
 // GetSecurityClusterBenchmarks reads one cluster's benchmark compliance.
 func (c *Client) GetSecurityClusterBenchmarks(clusterID string) (*SecurityClusterBenchmarks, error) {
 	var benchmarks SecurityClusterBenchmarks
-	if err := c.getSecurityLiveJSON(clusterSecurityURL(c.BaseURL, clusterID, "/security/compliance", neturl.Values{}), &benchmarks); err != nil {
+	if err := c.getSecurityLiveJSON(fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/compliance", c.BaseURL, neturl.PathEscape(strings.TrimSpace(clusterID))), &benchmarks); err != nil {
 		return nil, fmt.Errorf("cluster benchmark compliance request failed: %w", err)
 	}
 	if benchmarks.Benchmarks == nil {
@@ -484,9 +484,10 @@ func (c *Client) GetSecurityBenchmarkResources(options SecurityBenchmarkResource
 	if trimmed := strings.TrimSpace(options.BenchmarkID); trimmed != "" {
 		query.Set("benchmark_id", trimmed)
 	}
-	path := "/security/compliance/checks/" + neturl.PathEscape(strings.TrimSpace(options.CheckID)) + "/resources"
+	requestURL := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/compliance/checks/%s/resources",
+		c.BaseURL, neturl.PathEscape(strings.TrimSpace(options.ClusterID)), neturl.PathEscape(strings.TrimSpace(options.CheckID)))
 	var resources SecurityBenchmarkResources
-	if err := c.getSecurityLiveJSON(clusterSecurityURL(c.BaseURL, options.ClusterID, path, query), &resources); err != nil {
+	if err := c.getSecurityLiveJSON(clusterScopedURL(requestURL, query), &resources); err != nil {
 		return nil, fmt.Errorf("cluster benchmark resources request failed: %w", err)
 	}
 	if resources.Resources == nil {
@@ -552,7 +553,7 @@ type SecurityClusterPolicyViolations struct {
 // GetSecurityClusterPolicyViolations reads one cluster's policy posture.
 func (c *Client) GetSecurityClusterPolicyViolations(clusterID string) (*SecurityClusterPolicyViolations, error) {
 	var violations SecurityClusterPolicyViolations
-	if err := c.getSecurityLiveJSON(clusterSecurityURL(c.BaseURL, clusterID, "/security/policy-violations", neturl.Values{}), &violations); err != nil {
+	if err := c.getSecurityLiveJSON(fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/policy-violations", c.BaseURL, neturl.PathEscape(strings.TrimSpace(clusterID))), &violations); err != nil {
 		return nil, fmt.Errorf("cluster policy violations request failed: %w", err)
 	}
 	if violations.Policies == nil {
@@ -602,7 +603,7 @@ type SecurityClusterNetworkExposure struct {
 // over-privilege report.
 func (c *Client) GetSecurityClusterNetworkExposure(clusterID string) (*SecurityClusterNetworkExposure, error) {
 	var exposure SecurityClusterNetworkExposure
-	if err := c.getSecurityLiveJSON(clusterSecurityURL(c.BaseURL, clusterID, "/security/network-policy-overprivilege", neturl.Values{}), &exposure); err != nil {
+	if err := c.getSecurityLiveJSON(fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/network-policy-overprivilege", c.BaseURL, neturl.PathEscape(strings.TrimSpace(clusterID))), &exposure); err != nil {
 		return nil, fmt.Errorf("cluster network exposure request failed: %w", err)
 	}
 	if exposure.Findings == nil {
@@ -627,7 +628,7 @@ func (c *Client) SetSecurityPolicyMode(clusterID string, mode string) (*Security
 	payload := struct {
 		Mode string `json:"mode"`
 	}{Mode: strings.ToLower(strings.TrimSpace(mode))}
-	if err := c.sendJSON(http.MethodPost, clusterSecurityURL(c.BaseURL, clusterID, "/security/policy-mode", neturl.Values{}), payload, &result); err != nil {
+	if err := c.sendJSON(http.MethodPost, fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/policy-mode", c.BaseURL, neturl.PathEscape(strings.TrimSpace(clusterID))), payload, &result); err != nil {
 		return nil, fmt.Errorf("cluster policy mode request failed: %w", err)
 	}
 	return &result, nil
@@ -694,8 +695,9 @@ type SecurityAddonPosture struct {
 // GetSecurityAddonPosture reads one add-on's security posture on a cluster.
 func (c *Client) GetSecurityAddonPosture(clusterID string, addonName string) (*SecurityAddonPosture, error) {
 	var posture SecurityAddonPosture
-	path := "/addons/" + neturl.PathEscape(strings.TrimSpace(addonName)) + "/security"
-	if err := c.getJSON(clusterSecurityURL(c.BaseURL, clusterID, path, neturl.Values{}), &posture); err != nil {
+	requestURL := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/%s/security",
+		c.BaseURL, neturl.PathEscape(strings.TrimSpace(clusterID)), neturl.PathEscape(strings.TrimSpace(addonName)))
+	if err := c.getJSON(requestURL, &posture); err != nil {
 		return nil, fmt.Errorf("add-on security posture request failed: %w", err)
 	}
 	if posture.TopActionableFindings == nil {

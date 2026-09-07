@@ -218,15 +218,12 @@ type SecurityPodPosture struct {
 	Containers   []SecurityPodSecurityContainer `json:"containers" yaml:"containers"`
 }
 
-func importedClusterSecurityURL(base string, clusterID string, path string) string {
-	return fmt.Sprintf("%s/api/v1/org/clusters/imported/%s%s", base, neturl.PathEscape(clusterID), path)
-}
-
 // ListClusterSecurityStacks reads a cluster's security posture broken down
 // by stack, with the outside-any-stack remainder.
 func (c *Client) ListClusterSecurityStacks(clusterID string) (*SecurityClusterStackList, error) {
 	var list SecurityClusterStackList
-	if err := c.getJSON(importedClusterSecurityURL(c.BaseURL, clusterID, "/security/stacks"), &list); err != nil {
+	requestURL := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/stacks", c.BaseURL, neturl.PathEscape(clusterID))
+	if err := c.getJSON(requestURL, &list); err != nil {
 		return nil, fmt.Errorf("cluster security stacks request failed: %w", err)
 	}
 	if list.Stacks == nil {
@@ -238,8 +235,8 @@ func (c *Client) ListClusterSecurityStacks(clusterID string) (*SecurityClusterSt
 // GetStackSecurity reads one stack's security posture.
 func (c *Client) GetStackSecurity(clusterID string, stackName string) (*SecurityStackPosture, error) {
 	var posture SecurityStackPosture
-	path := "/stacks/" + neturl.PathEscape(stackName) + "/security"
-	if err := c.getJSON(importedClusterSecurityURL(c.BaseURL, clusterID, path), &posture); err != nil {
+	requestURL := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/security", c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName))
+	if err := c.getJSON(requestURL, &posture); err != nil {
 		return nil, fmt.Errorf("stack security request failed: %w", err)
 	}
 	if posture.Members == nil {
@@ -252,8 +249,8 @@ func (c *Client) GetStackSecurity(clusterID string, stackName string) (*Security
 // resolved to.
 func (c *Client) ListStackSecurityWorkloads(clusterID string, stackName string) (*SecurityStackWorkloadList, error) {
 	var list SecurityStackWorkloadList
-	path := "/stacks/" + neturl.PathEscape(stackName) + "/security/workloads"
-	if err := c.getJSON(importedClusterSecurityURL(c.BaseURL, clusterID, path), &list); err != nil {
+	requestURL := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/security/workloads", c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName))
+	if err := c.getJSON(requestURL, &list); err != nil {
 		return nil, fmt.Errorf("stack security workloads request failed: %w", err)
 	}
 	if list.Result == nil {
@@ -265,8 +262,8 @@ func (c *Client) ListStackSecurityWorkloads(clusterID string, stackName string) 
 // GetPodSecurity reads one pod's security posture, container by container.
 func (c *Client) GetPodSecurity(clusterID string, namespace string, podName string) (*SecurityPodPosture, error) {
 	var posture SecurityPodPosture
-	path := "/security/pods/" + neturl.PathEscape(namespace) + "/" + neturl.PathEscape(podName)
-	if err := c.getJSON(importedClusterSecurityURL(c.BaseURL, clusterID, path), &posture); err != nil {
+	requestURL := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/pods/%s/%s", c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(namespace), neturl.PathEscape(podName))
+	if err := c.getJSON(requestURL, &posture); err != nil {
 		return nil, fmt.Errorf("pod security request failed: %w", err)
 	}
 	if posture.Containers == nil {
