@@ -1,9 +1,32 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.15.0-rc5 — 2026-09-07
 
 ### Added
 
+- **`ankra security sbom` grades every component's licence risk, and
+  `--license-risk` filters on it.** `sbom` and `sbom image` show each
+  component's tier - network copyleft, source-available, copyleft, weak
+  copyleft, permissive or unknown - and take `--license-risk <tier>`
+  (repeatable) to keep only the ones you are asking about; `sbom images` and
+  the image detail summarise the obliging tiers per image ("2 network
+  copyleft, 1 copyleft"), red for the two that reach the hosting service and
+  yellow for plain copyleft. A licence question no longer means exporting the
+  bill of materials and grepping it.
+- **`ankra security sbom component <name> --version <v> --type <ecosystem>`
+  follows one exact package to where it runs.** The row `sbom` shows was a
+  dead end; the new read lists the images carrying that package, every
+  workload container running those images (cluster, namespace, workload,
+  container, image, last seen) and the clusters they run on, and says when a
+  list was capped. `-o json` and `-o yaml` carry the full read, so "where is
+  this vulnerable version actually deployed" is one command.
+- **`ankra chat` shows what its tools are doing.** The session output
+  rendered content, status, notices, proposals and errors but dropped the
+  tool frames, so a long turn read as silent gaps between status lines and a
+  failed tool never said why. Each tool call now prints one bracketed line
+  when it starts (`[tool list_node_groups ...]`) and one when it settles
+  (`[tool list_node_groups ok]`, or `[tool get_pods failed (transient): Agent
+  timeout while fetching pods.]` carrying the platform's error class).
 - **`ankra org ci-settings get|set` reads and changes the organisation's
   Ankra Pipelines settings.** The platform has served `GET/PUT
   /org/ci-settings` since the pipelines lane shipped and nothing in the CLI
