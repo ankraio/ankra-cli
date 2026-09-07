@@ -685,6 +685,9 @@ func sortCredentialsByAvailability(credentials []client.Credential) {
 // can - so the refusal carries the exact page that does it.
 func credentialReachesRepository(command *cobra.Command, credential client.Credential,
 	repositoryOwner string, repositoryName string) error {
+	if apiClient == nil {
+		return nil
+	}
 	coverage, coverageError := apiClient.GetCredentialRepositories(credential.ID)
 	if coverageError != nil {
 		// The check could not be made. That is not a verdict about this

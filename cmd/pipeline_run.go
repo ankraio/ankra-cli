@@ -29,12 +29,9 @@ func newPipelineRunCommand() *cobra.Command {
 		Short: "Dispatch a manual pipeline run",
 		Long: `Dispatch a manual run of a pipeline's stored definition.
 
-A run is always dispatched at one named commit: resolving a ref to a commit
-belongs to the trigger lane (push/PR/tag webhooks), so a dispatch never runs
-against whatever commit the platform happens to have stored last. Inside a Git
-checkout the commit is read from HEAD, and --application is read from the
-repository the checkout points at, so 'ankra pipeline run' on its own runs
-what you are looking at. Outside a checkout, name them with --sha and --application.`,
+--sha is mandatory: resolving a ref to a commit belongs to the trigger lane
+(push/PR/tag webhooks), so a dispatch that names no commit is refused rather
+than run against whatever commit the platform happens to have stored last.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -54,35 +51,11 @@ what you are looking at. Outside a checkout, name them with --sha and --applicat
 // `application pipeline run`.
 func registerPipelineRunDispatchFlags(command *cobra.Command) {
 	command.Flags().String("ref", "", "Git reference to run at (defaults to the repository's default branch)")
-	command.Flags().String("sha", "", "Full commit sha to run (defaults to the working directory's HEAD)")
+	command.Flags().String("sha", "", "Full commit sha to run (required)")
 	command.Flags().StringArray("input", nil, "Dispatch input as key=value (repeatable)")
 	command.Flags().String("reason", "", "Human note recorded on the run")
 	command.Flags().String("spec-file", "", "Run this pipeline definition instead of the stored one (requires pipelines.manage)")
 	command.Flags().Bool("wait", false, "Wait for the run to conclude before returning")
-}
-
-// localHeadCommit answers the working directory's HEAD commit and the branch
-// it is on, or empty strings when there is no checkout to read. A detached
-// HEAD has a commit and no branch name, which is exactly what the dispatch
-// wants: the sha is what runs, and the ref is a label on it.
-func localHeadCommit(requestContext context.Context) (string, string) {
-	repositoryRoot, rootError := executeGit(requestContext, ".", "rev-parse", "--show-toplevel")
-	if rootError != nil {
-		return "", ""
-	}
-	headSHA, shaError := executeGit(requestContext, repositoryRoot, "rev-parse", "HEAD")
-	if shaError != nil {
-		return "", ""
-	}
-	headSHA = strings.TrimSpace(headSHA)
-	if headSHA == "" {
-		return "", ""
-	}
-	branch, branchError := executeGit(requestContext, repositoryRoot, "rev-parse", "--abbrev-ref", "HEAD")
-	if branchError != nil || strings.TrimSpace(branch) == "HEAD" {
-		return headSHA, ""
-	}
-	return headSHA, strings.TrimSpace(branch)
 }
 
 // runPipelineDispatch reads the dispatch flags and drives the shared
@@ -102,24 +75,7 @@ func runPipelineDispatch(command *cobra.Command, selector client.PipelineSelecto
 
 	sha = strings.TrimSpace(sha)
 	if sha == "" {
-		// The commit still has to be named - resolving a ref belongs to the
-		// trigger lane, and that contract is unchanged. What changed is who
-		// names it: a user standing in the checkout has the sha under their
-		// cursor, and asking them to paste `git rev-parse HEAD` back is a
-		// step the command can take off them (ankra-ctsmd). Outside a
-		// checkout there is nothing to read and --sha is required exactly as
-		// before.
-		localSHA, localRef := localHeadCommit(command.Context())
-		if localSHA == "" {
-			return withExitCode(exitUsage, fmt.Errorf(
-				"--sha is required: a pipeline run needs the full commit sha to run at"))
-		}
-		sha = localSHA
-		if strings.TrimSpace(ref) == "" {
-			ref = localRef
-		}
-		_, _ = fmt.Fprintf(command.ErrOrStderr(),
-			"Running at the working directory's HEAD %s (pass --sha to choose another).\n", sha)
+		return withExitCode(exitUsage, fmt.Errorf("--sha is required: a pipeline run needs the full commit sha to run at"))
 	}
 	inputs, inputsError := parsePipelineInputFlags(rawInputs)
 	if inputsError != nil {
