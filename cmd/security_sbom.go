@@ -552,9 +552,13 @@ func componentFindingsCell(component client.SecuritySBOMComponent) string {
 }
 
 // licenseRiskCell names the tier, red for the two that reach the code
-// hosting the package and yellow for plain copyleft.
+// hosting the package and yellow for plain copyleft. A server that sent
+// no tier at all renders a dash: only the literal unknown tier says the
+// classifier looked and could not read the licence.
 func licenseRiskCell(licenseRisk string) string {
 	switch licenseRisk {
+	case "":
+		return "-"
 	case "network_copyleft":
 		return text.FgRed.Sprint("network copyleft")
 	case "source_available":
@@ -565,14 +569,20 @@ func licenseRiskCell(licenseRisk string) string {
 		return "weak copyleft"
 	case "permissive":
 		return "permissive"
-	default:
+	case "unknown":
 		return "unknown"
+	default:
+		return licenseRisk
 	}
 }
 
 // licenseExposureCell summarises an image's licence tiers, naming only the
-// ones that oblige anything so a clean image reads as a dash.
-func licenseExposureCell(exposure client.SecurityLicenseExposure) string {
+// ones that oblige anything so a clean image reads as a dash; a server
+// that reported no exposure at all reads as not reported, never as clean.
+func licenseExposureCell(exposure *client.SecurityLicenseExposure) string {
+	if exposure == nil {
+		return "not reported"
+	}
 	parts := []string{}
 	if exposure.NetworkCopyleft > 0 {
 		parts = append(parts, text.FgRed.Sprintf("%d network copyleft", exposure.NetworkCopyleft))
@@ -712,8 +722,12 @@ func renderSecuritySbomImageDetail(cmd *cobra.Command, detail *client.SecuritySB
 		_, _ = fmt.Fprintf(out, "Format:      %s %s\n", *image.BomFormat, stringOrEmpty(image.SpecVersion))
 	}
 	_, _ = fmt.Fprintf(out, "Components:  %d (%d dependencies)\n", image.ComponentCount, image.DependencyCount)
-	_, _ = fmt.Fprintf(out, "Licences:    %s (%d permissive, %d unknown)\n",
-		licenseExposureCell(image.LicenseExposure), image.LicenseExposure.Permissive, image.LicenseExposure.Unknown)
+	if image.LicenseExposure == nil {
+		_, _ = fmt.Fprintln(out, "Licences:    not reported")
+	} else {
+		_, _ = fmt.Fprintf(out, "Licences:    %s (%d permissive, %d unknown)\n",
+			licenseExposureCell(image.LicenseExposure), image.LicenseExposure.Permissive, image.LicenseExposure.Unknown)
+	}
 	_, _ = fmt.Fprintf(out, "Findings:    %d observed, %d critical, %d high actionable, %s known exploited\n",
 		image.Observed, image.Actionable.Critical, image.Actionable.High, redIfPositive(image.KnownExploited))
 	_, _ = fmt.Fprintf(out, "Generated:   %s\n", optionalTimeAgo(image.GeneratedAt))

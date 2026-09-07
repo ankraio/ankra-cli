@@ -152,28 +152,28 @@ type SecuritySBOMComponentList struct {
 // SecuritySBOMImage is one image with a bill of materials, where it runs and
 // the actionable findings the scanner attributes to it.
 type SecuritySBOMImage struct {
-	ImageIdentity   string                  `json:"image_identity" yaml:"image_identity"`
-	ImageRef        string                  `json:"image_ref" yaml:"image_ref"`
-	ImageRepository *string                 `json:"image_repository" yaml:"image_repository"`
-	ImageTag        *string                 `json:"image_tag" yaml:"image_tag"`
-	ImageDigest     *string                 `json:"image_digest" yaml:"image_digest"`
-	Registry        *string                 `json:"registry" yaml:"registry"`
-	OSFamily        *string                 `json:"os_family" yaml:"os_family"`
-	OSName          *string                 `json:"os_name" yaml:"os_name"`
-	BomFormat       *string                 `json:"bom_format" yaml:"bom_format"`
-	SpecVersion     *string                 `json:"spec_version" yaml:"spec_version"`
-	ComponentCount  int                     `json:"component_count" yaml:"component_count"`
-	DependencyCount int                     `json:"dependency_count" yaml:"dependency_count"`
-	Workloads       int                     `json:"workloads" yaml:"workloads"`
-	Clusters        int                     `json:"clusters" yaml:"clusters"`
-	Namespaces      []string                `json:"namespaces" yaml:"namespaces"`
-	Observed        int                     `json:"observed" yaml:"observed"`
-	Actionable      SecuritySeverityCounts  `json:"actionable" yaml:"actionable"`
-	KnownExploited  int                     `json:"known_exploited" yaml:"known_exploited"`
-	LicenseExposure SecurityLicenseExposure `json:"license_exposure" yaml:"license_exposure"`
-	GeneratedAt     *string                 `json:"generated_at" yaml:"generated_at"`
-	FirstSeenAt     string                  `json:"first_seen_at" yaml:"first_seen_at"`
-	LastSeenAt      string                  `json:"last_seen_at" yaml:"last_seen_at"`
+	ImageIdentity   string                   `json:"image_identity" yaml:"image_identity"`
+	ImageRef        string                   `json:"image_ref" yaml:"image_ref"`
+	ImageRepository *string                  `json:"image_repository" yaml:"image_repository"`
+	ImageTag        *string                  `json:"image_tag" yaml:"image_tag"`
+	ImageDigest     *string                  `json:"image_digest" yaml:"image_digest"`
+	Registry        *string                  `json:"registry" yaml:"registry"`
+	OSFamily        *string                  `json:"os_family" yaml:"os_family"`
+	OSName          *string                  `json:"os_name" yaml:"os_name"`
+	BomFormat       *string                  `json:"bom_format" yaml:"bom_format"`
+	SpecVersion     *string                  `json:"spec_version" yaml:"spec_version"`
+	ComponentCount  int                      `json:"component_count" yaml:"component_count"`
+	DependencyCount int                      `json:"dependency_count" yaml:"dependency_count"`
+	Workloads       int                      `json:"workloads" yaml:"workloads"`
+	Clusters        int                      `json:"clusters" yaml:"clusters"`
+	Namespaces      []string                 `json:"namespaces" yaml:"namespaces"`
+	Observed        int                      `json:"observed" yaml:"observed"`
+	Actionable      SecuritySeverityCounts   `json:"actionable" yaml:"actionable"`
+	KnownExploited  int                      `json:"known_exploited" yaml:"known_exploited"`
+	LicenseExposure *SecurityLicenseExposure `json:"license_exposure" yaml:"license_exposure"`
+	GeneratedAt     *string                  `json:"generated_at" yaml:"generated_at"`
+	FirstSeenAt     string                   `json:"first_seen_at" yaml:"first_seen_at"`
+	LastSeenAt      string                   `json:"last_seen_at" yaml:"last_seen_at"`
 }
 
 // SecuritySBOMImageList is the paginated image inventory.

@@ -163,13 +163,23 @@ func TestSecuritySbomMapsFlagsAndRendersCoverage(t *testing.T) {
 	}
 }
 
+func TestSecuritySbomCellsKeepAnAbsentAnswerApartFromAClean(t *testing.T) {
+	if licenseRiskCell("") != "-" || licenseRiskCell("unknown") != "unknown" {
+		t.Fatalf("an absent tier is a dash, the unknown tier is unknown: %q %q", licenseRiskCell(""), licenseRiskCell("unknown"))
+	}
+	if licenseExposureCell(nil) != "not reported" || licenseExposureCell(&client.SecurityLicenseExposure{}) != "-" {
+		t.Fatalf("a missing exposure is not reported, an empty one is clean: %q %q",
+			licenseExposureCell(nil), licenseExposureCell(&client.SecurityLicenseExposure{}))
+	}
+}
+
 func TestSecuritySbomImagesAndImageDetail(t *testing.T) {
 	digest, osName := "sha256:abc", "debian 12.7"
 	image := client.SecuritySBOMImage{
 		ImageIdentity: digest, ImageRef: "registry.example.com/backend/api:1.0.0", ImageDigest: &digest, OSName: &osName,
 		ComponentCount: 212, DependencyCount: 180, Workloads: 2, Clusters: 1, Namespaces: []string{"backend"},
 		Observed: 5, Actionable: client.SecuritySeverityCounts{Critical: 1, High: 2}, KnownExploited: 1,
-		LicenseExposure: client.SecurityLicenseExposure{NetworkCopyleft: 2, Copyleft: 1, Permissive: 200, Unknown: 9},
+		LicenseExposure: &client.SecurityLicenseExposure{NetworkCopyleft: 2, Copyleft: 1, Permissive: 200, Unknown: 9},
 	}
 	mock := &securitySbomMock{
 		images: &client.SecuritySBOMImageList{
