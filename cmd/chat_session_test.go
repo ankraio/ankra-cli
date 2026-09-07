@@ -684,12 +684,13 @@ func TestChatInteractive_NamesEachConversationOnceAfterItsFirstTurn(t *testing.T
 }
 
 func TestRenderChatTurnShowsToolActivity(t *testing.T) {
-	events := make(chan client.ChatStreamEvent, 6)
+	events := make(chan client.ChatStreamEvent, 8)
 	events <- client.ChatStreamEvent{Type: "tool_start", Data: map[string]any{"tool_name": "list_node_groups", "status": "preparing"}, Sequence: 1}
 	events <- client.ChatStreamEvent{Type: "tool_result", Data: map[string]any{"tool_name": "list_node_groups", "success": true}, Sequence: 2}
 	events <- client.ChatStreamEvent{Type: "tool_result", Data: map[string]any{"tool_name": "get_pods", "success": false,
 		"error": "Agent timeout while fetching pods.", "error_class": "transient"}, Sequence: 3}
-	events <- contentFrame(4, "The default group autoscaling is on.")
+	events <- client.ChatStreamEvent{Type: "tool_result", Data: map[string]any{"tool_name": "get_events"}, Sequence: 4}
+	events <- contentFrame(5, "The default group autoscaling is on.")
 	events <- endFrame()
 	close(events)
 	var out, errOut bytes.Buffer
@@ -698,6 +699,7 @@ func TestRenderChatTurnShowsToolActivity(t *testing.T) {
 		"[tool list_node_groups ...]",
 		"[tool list_node_groups ok]",
 		"[tool get_pods failed (transient): Agent timeout while fetching pods.]",
+		"[tool get_events settled]",
 		"The default group autoscaling is on.",
 	} {
 		if !strings.Contains(out.String(), want) {

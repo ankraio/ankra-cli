@@ -355,7 +355,12 @@ func chatToolResultText(data any) string {
 	if toolName == "" {
 		return ""
 	}
-	success, _ := frame["success"].(bool)
+	success, hasSuccess := frame["success"].(bool)
+	if !hasSuccess {
+		// No boolean success: the frame settled without saying how (an
+		// absent answer is not a failed one).
+		return "tool " + toolName + " settled"
+	}
 	if success {
 		return "tool " + toolName + " ok"
 	}
