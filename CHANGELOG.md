@@ -16,6 +16,21 @@
   weekly|monthly --recipient <email>...` creates or replaces it (`--disabled`
   stores it paused); `send` queues one report now. Both writes confirm unless
   `--yes`. Needs the bearer twins from cluster#2789.
+- **`ankra cluster patch <kind> <name> [name...]` corrects one field on a
+  live object without kubectl.** The patch half of the kubernetes write lane
+  that `cluster delete` opened: `--patch '<json or yaml>'` or `--patch-file
+  <path>` is sent as a `--type strategic` (default), `merge` (RFC 7386) or
+  `json` (RFC 6902) patch through the cluster's Ankra agent, after a `[y/N]`
+  prompt naming the patch type and the object (`--yes` skips it, `--dry-run`
+  reports without changing). A patch touches only the fields it names and
+  does not go through server-side apply, so a value the API server defaulted
+  on an older chart - a Service left at `ipFamilyPolicy: RequireDualStack` on
+  a single-stack cluster - can be put right without taking the object over
+  from Helm or deleting it. The kind takes the kubectl spellings and custom
+  resources take `--group` and `--api-version`; a JSON patch that is not a
+  list of operations, or a merge patch that is, is refused before anything
+  reaches the cluster (exit 2). Per-object outcomes and exit codes match
+  `cluster delete`: 0 patched, 3 not found, 1 refused.
 
 ## v0.15.0-rc5 — 2026-09-07
 
