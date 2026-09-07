@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -679,5 +680,28 @@ func TestChatInteractive_NamesEachConversationOnceAfterItsFirstTurn(t *testing.T
 	if mock.titleCalls[0] != mock.created[0].ConversationID || mock.titleCalls[1] != mock.created[2].ConversationID {
 		t.Fatalf("title calls = %v, want the first and the post-clear conversation ids (%s, %s)",
 			mock.titleCalls, mock.created[0].ConversationID, mock.created[2].ConversationID)
+	}
+}
+
+func TestRenderChatTurnShowsToolActivity(t *testing.T) {
+	events := make(chan client.ChatStreamEvent, 6)
+	events <- client.ChatStreamEvent{Type: "tool_start", Data: map[string]any{"tool_name": "list_node_groups", "status": "preparing"}, Sequence: 1}
+	events <- client.ChatStreamEvent{Type: "tool_result", Data: map[string]any{"tool_name": "list_node_groups", "success": true}, Sequence: 2}
+	events <- client.ChatStreamEvent{Type: "tool_result", Data: map[string]any{"tool_name": "get_pods", "success": false,
+		"error": "Agent timeout while fetching pods.", "error_class": "transient"}, Sequence: 3}
+	events <- contentFrame(4, "The default group autoscaling is on.")
+	events <- endFrame()
+	close(events)
+	var out, errOut bytes.Buffer
+	renderChatTurn(events, &out, &errOut, false)
+	for _, want := range []string{
+		"[tool list_node_groups ...]",
+		"[tool list_node_groups ok]",
+		"[tool get_pods failed (transient): Agent timeout while fetching pods.]",
+		"The default group autoscaling is on.",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("output %q lacks %q", out.String(), want)
+		}
 	}
 }

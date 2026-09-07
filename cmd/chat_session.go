@@ -276,6 +276,14 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 					printLine("note: " + message)
 				}
 			}
+		case "tool_start":
+			if line := chatToolStartText(event.Data); line != "" {
+				printLine(line)
+			}
+		case "tool_result":
+			if line := chatToolResultText(event.Data); line != "" {
+				printLine(line)
+			}
 		case "action_proposal":
 			proposal, decodeError := decodeActionProposal(event.Data)
 			if decodeError != nil {
@@ -319,4 +327,44 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 // first question as the title, and none of them is worth a line of output.
 func requestConversationTitle(conversationID string) {
 	_ = apiClient.RegenerateChatTitle(conversationID)
+}
+
+// chatToolStartText renders a tool_start frame as one line, so a reader
+// watching a long turn sees which tool the model reached for instead of a
+// silent gap between status lines.
+func chatToolStartText(data any) string {
+	frame, ok := data.(map[string]any)
+	if !ok {
+		return ""
+	}
+	toolName, _ := frame["tool_name"].(string)
+	if toolName == "" {
+		return ""
+	}
+	return "tool " + toolName + " ..."
+}
+
+// chatToolResultText renders a tool_result frame: the outcome, the
+// error class when the platform stamped one, and the error text on failure.
+func chatToolResultText(data any) string {
+	frame, ok := data.(map[string]any)
+	if !ok {
+		return ""
+	}
+	toolName, _ := frame["tool_name"].(string)
+	if toolName == "" {
+		return ""
+	}
+	success, _ := frame["success"].(bool)
+	if success {
+		return "tool " + toolName + " ok"
+	}
+	line := "tool " + toolName + " failed"
+	if errorClass, _ := frame["error_class"].(string); errorClass != "" {
+		line += " (" + errorClass + ")"
+	}
+	if errorText, _ := frame["error"].(string); errorText != "" {
+		line += ": " + errorText
+	}
+	return line
 }
