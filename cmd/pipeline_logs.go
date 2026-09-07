@@ -302,6 +302,13 @@ func runPipelineLogsFromArchive(command *cobra.Command, selector client.Pipeline
 		if downloadError == nil {
 			return nil
 		}
+		// 404 only, deliberately: the download's other refusals are not an
+		// object the retained stream could answer for instead. Its 410 in
+		// particular says the retention sweep removed the object, and
+		// artifact retention is counted in whole days with a floor of one
+		// (pipelineartifacts.EffectiveRetentionDays), so a swept artifact is
+		// already at least as old as the stream's entire window
+		// (pipelinerun.OutputRetention, 24h) - the frames are gone too.
 		if countedOutput.written == 0 && pipelineArtifactIsNotFound(downloadError) &&
 			pipelineStepHasLogStream(step) {
 			_, _ = fmt.Fprintf(progress,
@@ -419,24 +426,31 @@ func runPipelineLogsFromRetainedStream(command *cobra.Command, selector client.P
 	idleTimer := time.NewTimer(pipelineLogReplayIdleTimeout)
 	defer idleTimer.Stop()
 	printedLines := 0
+	sawStreamFault := false
 	for {
 		select {
 		case <-streamContext.Done():
 			return streamContext.Err()
 		case event, isStreamOpen := <-events:
 			if !isStreamOpen {
-				if printedLines == 0 {
-					// Said as the stream's answer, not as the step's: inside
-					// the retention window an empty replay and a step that
-					// printed nothing are the same thing from here.
+				// Said as the stream's answer, not as the step's: inside the
+				// retention window an empty replay and a step that printed
+				// nothing are the same thing from here. A replay that
+				// faulted is not said at all - the fault is already on
+				// stderr, and a read that broke observed nothing about the
+				// output either way.
+				if printedLines == 0 && !sawStreamFault {
 					_, _ = fmt.Fprintf(progress,
 						"The platform's retained log stream held no output for step %q.\n", step.StepKey)
 				}
 				return nil
 			}
 			printPipelineLogEvent(out, progress, event)
-			if event.Type == "line" {
+			switch event.Type {
+			case "line":
 				printedLines++
+			case "error":
+				sawStreamFault = true
 			}
 			// A bare Reset, deliberately. This module's go directive is
 			// 1.25, and from go1.23 a timer's channel is unbuffered and

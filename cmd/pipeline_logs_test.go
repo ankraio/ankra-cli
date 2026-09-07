@@ -38,6 +38,10 @@ func runningStepThatStarted() client.PipelineStep {
 
 // shortenPipelineLogReplayIdleTimeout keeps the idle guard's behaviour
 // testable without holding a test open for the production wait.
+//
+// It writes a package-level var and restores it on cleanup, so a test that
+// calls it must not call t.Parallel: two parallel tests would race on the
+// same global. Nothing in this package is parallel today.
 func shortenPipelineLogReplayIdleTimeout(t *testing.T) {
 	t.Helper()
 	previous := pipelineLogReplayIdleTimeout
@@ -412,6 +416,30 @@ func TestPipelineLogsRetainedStreamWithNoOutputSaysSo(t *testing.T) {
 	}
 	if !strings.Contains(output, "held no output for step \"checkout\"") {
 		t.Errorf("output = %q, want the drained replay reported as an empty stream", output)
+	}
+}
+
+func TestPipelineLogsRetainedStreamFaultIsNotReportedAsEmpty(t *testing.T) {
+	// A replay that ended on the relay's own error frame observed nothing
+	// about the step's output, so it must not also be stated as an empty
+	// stream - the fault is the answer.
+	mockClient := &pipelineLaneMock{
+		getResult:       &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{}},
+		streamEvents: []client.PipelineLogEvent{
+			{Type: "error", Error: "stream closed"},
+		},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if !strings.Contains(output, "Log stream fault: stream closed") {
+		t.Errorf("output = %q, want the relay's fault reported", output)
+	}
+	if strings.Contains(output, "held no output") {
+		t.Errorf("output = %q, want a faulted read never stated as an observed empty one", output)
 	}
 }
 
