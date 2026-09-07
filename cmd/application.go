@@ -234,6 +234,10 @@ func resolveApplicationAddPlan(command *cobra.Command, repositoryPath string) (a
 	if selectionError != nil {
 		return applicationAddPlan{}, selectionError
 	}
+	if reachabilityError := credentialReachesRepository(
+		selectedCredential, repository.Owner, repository.Name); reachabilityError != nil {
+		return applicationAddPlan{}, reachabilityError
+	}
 
 	return applicationAddPlan{
 		repository:    repository,
@@ -584,12 +588,6 @@ func selectApplicationCredential(
 	if requestedCredential != "" {
 		for _, credential := range githubCredentials {
 			if credential.ID == requestedCredential {
-				if !applicationCredentialAvailable(credential) {
-					return client.Credential{}, fmt.Errorf(
-						"GitHub credential %q is not available",
-						credential.Name,
-					)
-				}
 				return credential, nil
 			}
 		}
@@ -609,12 +607,6 @@ func selectApplicationCredential(
 				),
 			)
 		case 1:
-			if !applicationCredentialAvailable(nameMatches[0]) {
-				return client.Credential{}, fmt.Errorf(
-					"GitHub credential %q is not available",
-					nameMatches[0].Name,
-				)
-			}
 			return nameMatches[0], nil
 		default:
 			return client.Credential{}, withExitCode(
@@ -627,17 +619,29 @@ func selectApplicationCredential(
 		}
 	}
 
+	// A credential is a candidate whether or not it is globally available.
+	// Availability is one verdict over every repository every application
+	// binds to it, so ONE application whose repository the installation
+	// cannot reach - a repository in another GitHub account, say - marks the
+	// credential down and used to hide it from this command entirely. The
+	// question this command actually has is narrower and is answered per
+	// repository, by credentialReachesRepository: can this installation read
+	// the repository being added. Availability only ranks the candidates, so
+	// a healthy credential still wins a tie.
 	availableCredentials := make([]client.Credential, 0, len(githubCredentials))
 	ownerMatches := make([]client.Credential, 0, 1)
 	for _, credential := range githubCredentials {
-		if !applicationCredentialAvailable(credential) {
-			continue
-		}
 		availableCredentials = append(availableCredentials, credential)
 		if credential.AccountLogin != nil &&
 			strings.EqualFold(strings.TrimSpace(*credential.AccountLogin), repositoryOwner) {
 			ownerMatches = append(ownerMatches, credential)
 		}
+	}
+	sortCredentialsByAvailability(availableCredentials)
+	sortCredentialsByAvailability(ownerMatches)
+	if len(ownerMatches) > 1 && applicationCredentialAvailable(ownerMatches[0]) &&
+		!applicationCredentialAvailable(ownerMatches[1]) {
+		return ownerMatches[0], nil
 	}
 
 	if len(ownerMatches) == 1 {
@@ -651,7 +655,7 @@ func selectApplicationCredential(
 	}
 	if len(availableCredentials) == 0 {
 		return client.Credential{}, errors.New(
-			"no available GitHub credential found; install the Ankra GitHub App, then run this command again",
+			"this organisation has no GitHub credential; install the Ankra GitHub App, then run this command again",
 		)
 	}
 	return client.Credential{}, ambiguousApplicationCredentialError(availableCredentials, repositoryOwner)
@@ -659,6 +663,69 @@ func selectApplicationCredential(
 
 func applicationCredentialAvailable(credential client.Credential) bool {
 	return credential.Available
+}
+
+// sortCredentialsByAvailability puts the healthy credentials first and keeps
+// the rest in a stable order, so a tie between two candidates for the same
+// owner is broken by health rather than by listing order.
+func sortCredentialsByAvailability(credentials []client.Credential) {
+	sort.SliceStable(credentials, func(first int, second int) bool {
+		return applicationCredentialAvailable(credentials[first]) &&
+			!applicationCredentialAvailable(credentials[second])
+	})
+}
+
+// credentialReachesRepository answers whether the credential's GitHub App
+// installation can read owner/name, and names what to do when it cannot.
+//
+// Only a COMPLETE listing is a negative answer: a listing GitHub truncated or
+// refused says nothing about this repository, and refusing on it would turn a
+// GitHub hiccup into "your repository does not exist". Ankra cannot add the
+// repository to the installation itself - only an owner of the installation
+// can - so the refusal carries the exact page that does it.
+func credentialReachesRepository(credential client.Credential, repositoryOwner string,
+	repositoryName string) error {
+	coverage, coverageError := apiClient.GetCredentialRepositories(credential.ID)
+	if coverageError != nil || coverage == nil ||
+		!coverage.AccessibleRepositoriesComplete || coverage.AccessibleRepositories == nil {
+		return nil
+	}
+	fullName := repositoryOwner + "/" + repositoryName
+	for _, accessible := range *coverage.AccessibleRepositories {
+		if strings.EqualFold(strings.TrimSpace(accessible), fullName) {
+			return nil
+		}
+	}
+	return withExitCode(exitUsage, fmt.Errorf(
+		"the Ankra GitHub App installation behind credential %q cannot see %s\n"+
+			"Grant it access and run this command again, or select every repository "+
+			"so a new one needs no such step:\n  %s",
+		credential.Name, fullName, installationSettingsURL(credential)))
+}
+
+// installationSettingsURL is the page where an installation's repository
+// selection is changed. GitHub keeps a personal account's installations under
+// the user's own settings and an organisation's under the organisation's, so
+// the account type decides the path; an installation whose id Ankra never
+// stored gets the account's installation list instead of a wrong deep link.
+func installationSettingsURL(credential client.Credential) string {
+	accountLogin := ""
+	if credential.AccountLogin != nil {
+		accountLogin = strings.TrimSpace(*credential.AccountLogin)
+	}
+	isOrganisation := credential.AccountType != nil &&
+		strings.EqualFold(strings.TrimSpace(*credential.AccountType), "organization")
+	if isOrganisation && accountLogin != "" {
+		if credential.InstallationID == nil {
+			return "https://github.com/organizations/" + accountLogin + "/settings/installations"
+		}
+		return fmt.Sprintf("https://github.com/organizations/%s/settings/installations/%d",
+			accountLogin, *credential.InstallationID)
+	}
+	if credential.InstallationID == nil {
+		return "https://github.com/settings/installations"
+	}
+	return fmt.Sprintf("https://github.com/settings/installations/%d", *credential.InstallationID)
 }
 
 func ambiguousApplicationCredentialError(

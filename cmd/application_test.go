@@ -254,6 +254,88 @@ func TestInspectLocalApplicationRepositoryExitCodes(t *testing.T) {
 	})
 }
 
+// TestSelectApplicationCredentialKeepsAnUnavailableCredential pins that a
+// credential marked down is still a candidate. Availability is one verdict
+// over every repository every application binds to a credential, so one
+// application whose repository the installation cannot reach used to hide the
+// credential from `application add` entirely and refuse every new repository
+// with "install the Ankra GitHub App" (ankra-ctsmd). Reachability is answered
+// per repository instead, by credentialReachesRepository.
+func TestSelectApplicationCredentialKeepsAnUnavailableCredential(t *testing.T) {
+	acmeLogin := "acme"
+	downState := "down"
+	credentials := []client.Credential{{
+		ID:           "credential-acme",
+		Name:         "github-acme",
+		Provider:     "github",
+		Available:    false,
+		State:        &downState,
+		AccountLogin: &acmeLogin,
+	}}
+	selected, selectionError := selectApplicationCredential(credentials, "acme", "")
+	if selectionError != nil {
+		t.Fatalf("an unavailable credential is still a candidate, got error %v", selectionError)
+	}
+	if selected.ID != "credential-acme" {
+		t.Errorf("selected credential = %q, want credential-acme", selected.ID)
+	}
+	selected, selectionError = selectApplicationCredential(credentials, "acme", "github-acme")
+	if selectionError != nil {
+		t.Fatalf("naming it explicitly is not refused either, got error %v", selectionError)
+	}
+	if selected.ID != "credential-acme" {
+		t.Errorf("explicit credential = %q, want credential-acme", selected.ID)
+	}
+}
+
+// TestSelectApplicationCredentialPrefersTheHealthyOwnerMatch pins that
+// availability still ranks: two credentials for one owner are no longer
+// ambiguous when only one of them is healthy.
+func TestSelectApplicationCredentialPrefersTheHealthyOwnerMatch(t *testing.T) {
+	acmeLogin := "acme"
+	credentials := []client.Credential{
+		{ID: "credential-down", Name: "github-down", Provider: "github", Available: false, AccountLogin: &acmeLogin},
+		{ID: "credential-up", Name: "github-up", Provider: "github", Available: true, AccountLogin: &acmeLogin},
+	}
+	selected, selectionError := selectApplicationCredential(credentials, "acme", "")
+	if selectionError != nil {
+		t.Fatalf("selectApplicationCredential() error = %v", selectionError)
+	}
+	if selected.ID != "credential-up" {
+		t.Errorf("selected credential = %q, want credential-up", selected.ID)
+	}
+}
+
+// TestInstallationSettingsURL pins the page the refusal points at: a personal
+// account's installations live under the user's settings, an organisation's
+// under the organisation's, and an installation with no stored id gets the
+// account's list rather than a wrong deep link.
+func TestInstallationSettingsURL(t *testing.T) {
+	login := "acme"
+	organisation := "Organization"
+	user := "User"
+	installation := 145425934
+	cases := []struct {
+		name       string
+		credential client.Credential
+		want       string
+	}{
+		{"personal", client.Credential{AccountLogin: &login, AccountType: &user, InstallationID: &installation},
+			"https://github.com/settings/installations/145425934"},
+		{"organisation", client.Credential{AccountLogin: &login, AccountType: &organisation, InstallationID: &installation},
+			"https://github.com/organizations/acme/settings/installations/145425934"},
+		{"no id", client.Credential{AccountLogin: &login, AccountType: &user},
+			"https://github.com/settings/installations"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := installationSettingsURL(testCase.credential); got != testCase.want {
+				t.Errorf("installationSettingsURL() = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
 func TestSelectApplicationCredential(t *testing.T) {
 	acmeLogin := "acme"
 	otherLogin := "other"
@@ -302,22 +384,29 @@ func TestSelectApplicationCredential(t *testing.T) {
 		t.Errorf("ambiguous selection exit code = %d, want %d", exitCodeFor(selectionError), exitUsage)
 	}
 
-	upState := "up"
-	_, selectionError = selectApplicationCredential(
+	// An explicitly named credential is no longer refused for being globally
+	// unavailable: that verdict spans every repository every application
+	// binds to it, and whether it can read THIS repository is answered by
+	// credentialReachesRepository (ankra-ctsmd).
+	downState := "down"
+	selectedCredential, selectionError = selectApplicationCredential(
 		[]client.Credential{
 			{
 				ID:        "unavailable-credential",
 				Name:      "github-unavailable",
 				Provider:  "github",
 				Available: false,
-				State:     &upState,
+				State:     &downState,
 			},
 		},
 		"acme",
 		"unavailable-credential",
 	)
-	if selectionError == nil || !strings.Contains(selectionError.Error(), "not available") {
-		t.Errorf("unavailable selection error = %v, want availability error", selectionError)
+	if selectionError != nil {
+		t.Fatalf("explicitly named unavailable credential = %v, want it selected", selectionError)
+	}
+	if selectedCredential.ID != "unavailable-credential" {
+		t.Errorf("selected credential = %q, want unavailable-credential", selectedCredential.ID)
 	}
 }
 
