@@ -817,6 +817,38 @@ func TestPipelineValidateJSONCarriesTheNetworkTier(t *testing.T) {
 	}
 }
 
+// TestPipelineValidateJSONOmitsANetworkTierAnOlderPlatformDoesNotSend is the
+// scripted half of the older-platform case: the key is left out rather than
+// emitted empty, so `.network` is absent for "this Ankra does not resolve
+// tiers" and only ever a tier the platform really resolved otherwise. An
+// empty string would be indistinguishable from a resolved value to jq.
+func TestPipelineValidateJSONOmitsANetworkTierAnOlderPlatformDoesNotSend(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: &client.PipelineValidation{
+		Severity: "ok",
+		Events: []client.PipelineEventPlan{{
+			Event: "push",
+			Run:   true,
+			Steps: []client.PipelinePlannedStep{{StepKey: "build", Stage: "build", Kind: "build"}},
+		}},
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
+		"--application", testApplicationID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if strings.Contains(output, `"network"`) {
+		t.Errorf("output = %q, want no network key at all", output)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+		t.Fatalf("decoding %q: %v", output, decodeError)
+	}
+	step := decoded["events"].([]any)[0].(map[string]any)["steps"].([]any)[0].(map[string]any)
+	if _, isPresent := step["network"]; isPresent {
+		t.Errorf("step = %+v, want the key absent rather than empty", step)
+	}
+}
+
 func TestPipelineSchedulesUpdateRequiresAChange(t *testing.T) {
 	mockClient := &pipelineLaneMock{}
 	_, executeError := runPipelineCommand(t, mockClient, "schedules", "update", "sched-1", "--application", testApplicationID)

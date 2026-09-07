@@ -383,13 +383,16 @@ type PipelineDefinitionApproval struct {
 // Network is the egress tier the step would run on, already resolved through
 // the stage, the pipeline's defaults and the kind's own default, so a
 // definition naming no tier anywhere still says what each step will be
-// allowed to reach. It is "" against an Ankra older than the field, which is
-// not the same as a step planned with no egress.
+// allowed to reach. A platform that resolves tiers always names one, so ""
+// means only "this Ankra is older than the field" - never "this step was
+// planned with no egress", which is the tier "none". It is the one field here
+// carrying omitempty, so re-encoding for -o json leaves the key out exactly
+// where the platform did and a script cannot read the unknown as a value.
 type PipelinePlannedStep struct {
 	StepKey        string   `json:"step_key"`
 	Stage          string   `json:"stage"`
 	Kind           string   `json:"kind"`
-	Network        string   `json:"network"`
+	Network        string   `json:"network,omitempty"`
 	DependsOn      []string `json:"depends_on"`
 	RunCondition   string   `json:"run_condition"`
 	TimeoutSeconds int      `json:"timeout_seconds"`

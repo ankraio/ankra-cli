@@ -12,8 +12,9 @@
   failure. The dry run now prints it alongside the stage and kind -
   `build (build, build, egress-https)` - and `-o json` carries it as
   `network` on each planned step. An Ankra older than the field sends no
-  tier and the line reads as it always did, rather than claiming the step
-  runs with no egress.
+  tier; the line then reads as it always did and the JSON leaves the key
+  out, rather than either claiming the step runs with no egress - which is
+  its own tier, `none`.
 
 ## v0.15.0-rc4 — 2026-09-07
 
