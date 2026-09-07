@@ -12,8 +12,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-
-	"ankra/internal/client"
 )
 
 // resetApplicationAddFlags puts the add command's flags back to their
@@ -56,15 +54,12 @@ func serveApplicationAnalysis(t *testing.T, readBodies ...string) {
 		}
 		_, _ = responseWriter.Write([]byte(readBodies[index]))
 	}))
-	previousClient := apiClient
-	previousBaseURL := baseURL
-	apiClient = client.New("test-token", server.URL)
-	baseURL = server.URL
-	t.Cleanup(func() {
-		apiClient = previousClient
-		baseURL = previousBaseURL
-		server.Close()
-	})
+	// useTestClient satisfies the root command's auth gate as well as pointing
+	// the client at the server: the gate reads the token, so without it these
+	// fail with "not logged in" wherever no real credentials exist, which is
+	// every CI runner.
+	useTestClient(t, server.URL)
+	t.Cleanup(server.Close)
 }
 
 func TestApplicationAddWaitReportsTheSetupPullRequest(t *testing.T) {
