@@ -266,8 +266,49 @@ var credentialsGetCmd = &cobra.Command{
 			fmt.Printf("  Repository: %s\n", *cred.Repository)
 		}
 		fmt.Printf("  Created:  %s\n", formatTimeAgo(cred.CreatedAt))
+		printCredentialHealth(cred)
 		return nil
 	},
+}
+
+// printCredentialHealth says whether Ankra can use this credential, and when
+// it cannot, why.
+//
+// `credentials list` prints a state column, so a credential can read "down"
+// there with nothing on the detail view to explain it and no hint that a
+// third command holds the answer. The reason lives on the repository-coverage
+// read, which is where a GitHub App credential's usual complaint - an
+// installation that cannot reach a repository some application is bound to -
+// is actually recorded.
+func printCredentialHealth(credential *client.CredentialDetail) {
+	if credential == nil {
+		return
+	}
+	if credential.Available {
+		fmt.Printf("  Usable:   yes\n")
+		return
+	}
+	fmt.Printf("  Usable:   no\n")
+	// Only a GitHub App credential has a recorded reason to show: repository
+	// coverage is an App-installation concept, and no other provider answers
+	// the route this reads. A credential of another provider stops at the
+	// verdict rather than inventing an explanation for it.
+	if apiClient == nil || !strings.EqualFold(credential.Provider, "github") {
+		return
+	}
+	coverage, coverageError := apiClient.GetCredentialRepositories(credential.ID)
+	if coverageError != nil {
+		// The reason could not be read. Saying so beats printing "no" and
+		// stopping, which reads as "there is no reason recorded".
+		fmt.Printf("  Reason:   could not be read (%v)\n", coverageError)
+		fmt.Printf("            Run 'ankra credentials repositories %s' to ask again.\n", credential.Name)
+		return
+	}
+	if coverage == nil || strings.TrimSpace(coverage.CoverageMessage) == "" {
+		return
+	}
+	fmt.Printf("  Reason:   %s\n", coverage.CoverageMessage)
+	fmt.Printf("            Run 'ankra credentials repositories %s' for the repository list.\n", credential.Name)
 }
 
 // resolveCredentialID accepts either a credential ID (UUID) or a credential

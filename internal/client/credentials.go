@@ -13,24 +13,24 @@ import (
 // removed in the v2 list; they are kept here only for backwards
 // compatibility against older platform versions.
 type Credential struct {
-	ID                  string                    `json:"id"`
-	Name                string                    `json:"name"`
-	Provider            string                    `json:"provider"`
-	OrganisationID      string                    `json:"organisation_id"`
-	System              bool                      `json:"system"`
-	Available           bool                      `json:"available"`
-	State               *string                   `json:"state,omitempty"`
-	CreatedAt           string                    `json:"created_at"`
-	UpdatedAt           *string                   `json:"updated_at,omitempty"`
-	AccountLogin        *string                   `json:"account_login,omitempty"`
-	AccountType         *string                   `json:"account_type,omitempty"`
-	InstallationID      *int                      `json:"installation_id,omitempty"`
-	RepositorySelection *string                   `json:"repository_selection,omitempty"`
-	CoTenantCount       *int                      `json:"co_tenant_count,omitempty"`
-	LastSyncedAt        *string                   `json:"last_synced_at,omitempty"`
-	Syncing             bool                      `json:"syncing"`
-	RepositoryCount     *int                      `json:"repository_count,omitempty"`
-	Health              *CredentialHealthSummary  `json:"health,omitempty"`
+	ID                  string                   `json:"id"`
+	Name                string                   `json:"name"`
+	Provider            string                   `json:"provider"`
+	OrganisationID      string                   `json:"organisation_id"`
+	System              bool                     `json:"system"`
+	Available           bool                     `json:"available"`
+	State               *string                  `json:"state,omitempty"`
+	CreatedAt           string                   `json:"created_at"`
+	UpdatedAt           *string                  `json:"updated_at,omitempty"`
+	AccountLogin        *string                  `json:"account_login,omitempty"`
+	AccountType         *string                  `json:"account_type,omitempty"`
+	InstallationID      *int                     `json:"installation_id,omitempty"`
+	RepositorySelection *string                  `json:"repository_selection,omitempty"`
+	CoTenantCount       *int                     `json:"co_tenant_count,omitempty"`
+	LastSyncedAt        *string                  `json:"last_synced_at,omitempty"`
+	Syncing             bool                     `json:"syncing"`
+	RepositoryCount     *int                     `json:"repository_count,omitempty"`
+	Health              *CredentialHealthSummary `json:"health,omitempty"`
 
 	// Legacy fields kept for old responses; preferring backend values
 	// where available.
@@ -55,15 +55,20 @@ type CredentialValidationResult struct {
 }
 
 type CredentialDetail struct {
-	ID              string  `json:"id"`
-	Name            string  `json:"name"`
-	Provider        string  `json:"provider"`
-	Description     *string `json:"description,omitempty"`
-	CreatedAt       string  `json:"created_at"`
-	OrganisationID  string  `json:"organisation_id"`
-	InstallationID  *string `json:"installation_id,omitempty"`
-	Repository      *string `json:"repository,omitempty"`
-	Owner           *string `json:"owner,omitempty"`
+	ID             string  `json:"id"`
+	Name           string  `json:"name"`
+	Provider       string  `json:"provider"`
+	Description    *string `json:"description,omitempty"`
+	CreatedAt      string  `json:"created_at"`
+	OrganisationID string  `json:"organisation_id"`
+	InstallationID *string `json:"installation_id,omitempty"`
+	Repository     *string `json:"repository,omitempty"`
+	Owner          *string `json:"owner,omitempty"`
+	// Available is the platform's verdict on whether this credential can be
+	// used. The route has always sent it; it was simply not read, so the
+	// detail view could not say that a credential `credentials list` shows
+	// as down is unusable, let alone why.
+	Available bool `json:"available"`
 }
 
 type DeleteCredentialResult struct {
