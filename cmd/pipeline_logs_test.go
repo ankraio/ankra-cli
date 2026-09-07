@@ -1040,3 +1040,35 @@ func TestPipelineLogsCountsStepsByKeyNotByAttemptRow(t *testing.T) {
 		t.Errorf("streamed step id = %q, want the live attempt %q", mockClient.streamStepID, live.ID)
 	}
 }
+
+func TestPipelineLogsFollowReadsTheArchiveWhenAStepSettlesBeforeTheStreamOpens(t *testing.T) {
+	// A step can conclude in the gap between being resolved and having its
+	// stream opened. Under --follow the useful answer for a step that
+	// finished is its log, not whatever refusal the relay answered on the
+	// way to it.
+	shortenPipelineStepStartWait(t, time.Minute)
+	stepID := concludedBuildStep().ID
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", startedBuildStep()),
+			runDetailWithStep(pipelineRunStatusConcluded, concludedBuildStep()),
+		},
+		streamError: errors.New("This step has not started, so it has no log stream yet"),
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{
+			{ID: "artifact-1", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+				Status: client.PipelineArtifactStatusUploaded},
+		}},
+		downloadPayload: "the whole log\n",
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build", "--follow")
+	if executeError != nil {
+		t.Fatalf("logs --follow error = %v", executeError)
+	}
+	if !strings.Contains(output, "the whole log") {
+		t.Errorf("output = %q, want the concluded step's archived log rather than the relay's refusal", output)
+	}
+	if strings.Contains(output, "has not started") {
+		t.Errorf("output = %q, want the refusal not surfaced for a step that finished", output)
+	}
+}

@@ -410,22 +410,29 @@ func pipelineStepNotStartedError(step client.PipelineStep, runID string) error {
 
 // pipelineStepSupersedingAttempt reports the step row to act on when the one
 // this command was tailing could not be opened. It answers the run's newest
-// attempt of the same step key when that is a different row from the one that
-// failed, or when the row itself has gone back to waiting to start.
+// attempt of the same step key when that row can say something the failed
+// connection could not: a different row from the one that failed (a retry), a
+// row back to waiting to start, or a row that has concluded.
 //
-// The relay answers both of those the same 404 it answers a step that never
+// The relay answers the first two the same 404 it answers a step that never
 // ran ("This step has not started, so it has no log stream yet"), and that
 // refusal carries no error code to match on - so the step's own state is read
-// instead of the sentence. A read that itself fails answers false: the
-// stream's own error is the better one to report, and so is a step that is
-// still the newest attempt with an execution of its own.
+// instead of the sentence. The concluded case is there because a step can
+// settle in the gap between resolving it and opening its stream, and under
+// --follow the useful answer for a step that finished is its log, not the
+// refusal the relay happened to answer on the way.
+//
+// A read that itself fails answers false, and so does a step that is still
+// the newest attempt, still running, with an execution of its own: the
+// stream's own error is the better one to report then.
 func pipelineStepSupersedingAttempt(command *cobra.Command, selector client.PipelineSelector, runID string,
 	step client.PipelineStep) (client.PipelineStep, bool) {
 	refreshed, _, readError := readPipelineStep(command, selector, runID, step.StepKey)
 	if readError != nil {
 		return client.PipelineStep{}, false
 	}
-	if refreshed.ID != step.ID || pipelineStepIsWaitingToStart(refreshed) {
+	if refreshed.ID != step.ID || refreshed.Status == pipelineStepStatusConcluded ||
+		pipelineStepIsWaitingToStart(refreshed) {
 		return refreshed, true
 	}
 	return client.PipelineStep{}, false
