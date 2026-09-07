@@ -302,6 +302,33 @@ func TestPlaygroundDestroyAsksFirstAndADeclineNeverReachesTheAPI(t *testing.T) {
 	}
 }
 
+// A name is resolved to an id before the request, so the prompt has to name
+// the resolved cluster too: what the user confirms must be what the API is
+// asked to destroy, not just the word they typed.
+func TestPlaygroundDestroyPromptNamesTheResolvedClusterID(t *testing.T) {
+	mock := &playgroundMock{
+		clusters: []client.ClusterListItem{{ID: playgroundTestClusterID, Name: "playground"}},
+	}
+	withPlaygroundMock(t, mock)
+	output := new(bytes.Buffer)
+	clusterPlaygroundDestroyCmd.SetOut(output)
+	clusterPlaygroundDestroyCmd.SetIn(strings.NewReader("n\n"))
+	t.Cleanup(func() {
+		clusterPlaygroundDestroyCmd.SetOut(nil)
+		clusterPlaygroundDestroyCmd.SetIn(nil)
+	})
+
+	runError := clusterPlaygroundDestroyCmd.RunE(clusterPlaygroundDestroyCmd, []string{"playground"})
+	if !errors.Is(runError, errCancelled) {
+		t.Fatalf("expected the declined prompt, got %v", runError)
+	}
+	for _, expected := range []string{`"playground"`, "cluster " + playgroundTestClusterID} {
+		if !strings.Contains(output.String(), expected) {
+			t.Errorf("expected %s in the prompt, got: %s", expected, output.String())
+		}
+	}
+}
+
 // --yes is the scripting escape hatch: no prompt is printed and stdin is
 // never read, so a script with a closed stdin still tears down.
 func TestPlaygroundDestroyYesSkipsThePrompt(t *testing.T) {

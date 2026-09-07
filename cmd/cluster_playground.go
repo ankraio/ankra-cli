@@ -186,9 +186,15 @@ var clusterPlaygroundDestroyCmd = &cobra.Command{
 			return err
 		}
 		yes, _ := cmd.Flags().GetBool("yes")
+		// A name resolves to an id before the request; the prompt names both
+		// so what the user confirms is the cluster the API is asked to destroy.
+		target := fmt.Sprintf("%q", args[0])
+		if clusterID != args[0] {
+			target = fmt.Sprintf("%q (cluster %s)", args[0], clusterID)
+		}
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Destroy playground %q? Everything deployed in it, including its storage, "+
-				"is deleted and cannot be recovered. [y/N]: ", args[0]),
+			fmt.Sprintf("Destroy playground %s? Everything deployed in it, including its storage, "+
+				"is deleted and cannot be recovered. [y/N]: ", target),
 			yes); err != nil {
 			return err
 		}
