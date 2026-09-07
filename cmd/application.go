@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"time"
 
 	"ankra/internal/client"
 
@@ -71,6 +73,12 @@ registry added later leaves a workflow that logs in with the wrong one.`,
 		RunE: runApplicationAdd,
 	}
 	registerApplicationAddFlags(addCommand)
+	// --timeout is registered here rather than in registerApplicationAddFlags
+	// because `application ship` shares that helper and already carries a
+	// --timeout of its own, which --wait reads there instead; pflag panics on
+	// the second registration of a name.
+	addCommand.Flags().Duration("timeout", applicationAnalysisDefaultTimeout,
+		"How long --wait waits before giving up")
 	registerStructuredOutputFlags(addCommand)
 	return addCommand
 }
@@ -83,6 +91,8 @@ func registerApplicationAddFlags(command *cobra.Command) {
 	command.Flags().String("credential", "", "GitHub credential name or ID (auto-detected when omitted)")
 	command.Flags().String("branch", "", "Repository branch (auto-detected when omitted)")
 	command.Flags().String("remote", "origin", "Git remote used to identify the GitHub repository")
+	command.Flags().Bool("wait", false,
+		"Wait for Ankra to finish analysing the repository, then print the setup pull request")
 	command.Flags().String("registry-url", "",
 		"Registry project the application publishes to, as oci://<host>/<project>")
 	command.Flags().String("registry-credential", "",
@@ -297,7 +307,10 @@ func runApplicationAdd(command *cobra.Command, arguments []string) error {
 		return createError
 	}
 	if rendered, renderError := renderStructured(command, result); rendered || renderError != nil {
-		return renderError
+		if renderError != nil {
+			return renderError
+		}
+		return waitForApplicationAnalysis(command, result.ID)
 	}
 
 	output := command.OutOrStdout()
@@ -311,7 +324,106 @@ func runApplicationAdd(command *cobra.Command, arguments []string) error {
 		_, _ = fmt.Fprintf(output, "  Registry:   %s\n", result.RegistryURL)
 	}
 	_, _ = fmt.Fprintln(output, "\nAnkra is now analyzing the repository.")
-	return nil
+	return waitForApplicationAnalysis(command, result.ID)
+}
+
+// analysisStatusComplete and analysisStatusFailed are the terminal answers an
+// application's analysis reaches; anything else (absent, or "pending") is
+// still in flight.
+const (
+	analysisStatusComplete = "complete"
+	analysisStatusFailed   = "failed"
+)
+
+// applicationAnalysisPollInterval is how often --wait asks the platform. The
+// analysis takes tens of seconds when the AI lane answers and longer when it
+// falls back, so this is slow enough not to hammer the API and fast enough to
+// feel live.
+const applicationAnalysisPollInterval = 5 * time.Second
+
+// applicationAnalysisDefaultTimeout bounds --wait when the command carries no
+// --timeout of its own.
+const applicationAnalysisDefaultTimeout = 15 * time.Minute
+
+// applicationAnalysisState is the part of an application read that says
+// whether Ankra has finished looking at the repository, and what it produced.
+type applicationAnalysisState struct {
+	AnalysisStatus   string `json:"analysis_status"`
+	ErrorMessage     string `json:"error_message"`
+	PullRequestURL   string `json:"pull_request_url"`
+	CreationProgress string `json:"creation_progress"`
+}
+
+// waitForApplicationAnalysis follows the analysis `application add` starts,
+// when --wait was given.
+//
+// Without it the command ends on "Ankra is now analyzing the repository" and
+// the user has no way to know when that finished or where the setup pull
+// request went, short of refreshing the portal. Progress goes to stderr so a
+// structured run's stdout stays exactly what a caller can parse.
+func waitForApplicationAnalysis(command *cobra.Command, applicationID string) error {
+	wait, waitError := command.Flags().GetBool("wait")
+	if waitError != nil || !wait {
+		return nil
+	}
+	// `application ship` carries the same --wait through the shared add-flag
+	// helper and its own --timeout, which this reads there.
+	timeout := applicationAnalysisDefaultTimeout
+	if command.Flags().Lookup("timeout") != nil {
+		if configured, timeoutError := command.Flags().GetDuration("timeout"); timeoutError == nil {
+			timeout = configured
+		}
+	}
+	errorOutput := command.ErrOrStderr()
+	_, _ = fmt.Fprintln(errorOutput, "Waiting for the analysis to finish.")
+	waitContext, cancelWait := context.WithTimeout(command.Context(), timeout)
+	defer cancelWait()
+
+	reportedProgress := ""
+	for {
+		payload, readError := apiClient.GetApplicationRaw(waitContext, applicationID)
+		if readError != nil {
+			if waitContext.Err() != nil {
+				return applicationAnalysisTimeout(applicationID, timeout)
+			}
+			return fmt.Errorf("reading application %s: %w", applicationID, readError)
+		}
+		var state applicationAnalysisState
+		if unmarshalError := json.Unmarshal(payload, &state); unmarshalError != nil {
+			return fmt.Errorf("reading the analysis of application %s: %w", applicationID, unmarshalError)
+		}
+		if progress := strings.TrimSpace(state.CreationProgress); progress != "" && progress != reportedProgress {
+			_, _ = fmt.Fprintf(errorOutput, "  %s\n", progress)
+			reportedProgress = progress
+		}
+		switch strings.TrimSpace(state.AnalysisStatus) {
+		case analysisStatusComplete:
+			_, _ = fmt.Fprintln(errorOutput, "Analysis complete.")
+			if pullRequest := strings.TrimSpace(state.PullRequestURL); pullRequest != "" {
+				_, _ = fmt.Fprintf(errorOutput, "Review the setup pull request: %s\n", pullRequest)
+			}
+			return nil
+		case analysisStatusFailed:
+			message := strings.TrimSpace(state.ErrorMessage)
+			if message == "" {
+				message = "the platform recorded no reason"
+			}
+			return fmt.Errorf("the repository could not be analysed: %s", message)
+		}
+		select {
+		case <-waitContext.Done():
+			return applicationAnalysisTimeout(applicationID, timeout)
+		case <-time.After(applicationAnalysisPollInterval):
+		}
+	}
+}
+
+// applicationAnalysisTimeout says the wait gave up without claiming the
+// analysis failed: it is still running, and the application exists either way.
+func applicationAnalysisTimeout(applicationID string, timeout time.Duration) error {
+	return fmt.Errorf(
+		"the analysis of application %s had not finished after %s; it is still running - "+
+			"check it with 'ankra application get %s'", applicationID, timeout, applicationID)
 }
 
 func inspectLocalApplicationRepository(
