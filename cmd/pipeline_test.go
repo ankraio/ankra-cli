@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -713,6 +714,106 @@ func TestPipelineValidateOKPassesThroughFileContent(t *testing.T) {
 	}
 	if mockClient.validateSpecYAML != "apiVersion: ankra.io/v1\nkind: Pipeline\n" {
 		t.Errorf("spec yaml = %q", mockClient.validateSpecYAML)
+	}
+}
+
+// validationWithNetworkTiers is a dry run of a definition naming no network
+// tier of its own, planned by an Ankra that resolves one per step: the build
+// takes the egress its base image and registry push need, and the test stage
+// keeps the run kind's own default of none.
+func validationWithNetworkTiers() *client.PipelineValidation {
+	return &client.PipelineValidation{
+		Severity: "ok",
+		Events: []client.PipelineEventPlan{{
+			Event: "push",
+			Run:   true,
+			Steps: []client.PipelinePlannedStep{
+				{StepKey: "checkout", Stage: "checkout", Kind: "checkout", Network: "egress-https"},
+				{StepKey: "test", Stage: "test", Kind: "run", Network: "none"},
+				{StepKey: "build", Stage: "build", Kind: "build", Network: "egress-https"},
+			},
+		}},
+	}
+}
+
+// writePipelineFixture writes a definition for `validate` to read. Naming a
+// file keeps the test off the default path, which resolves against the
+// process's working directory and, today, refuses rather than falling back to
+// the stored definition when it is missing.
+func writePipelineFixture(t *testing.T) string {
+	t.Helper()
+	fixturePath := t.TempDir() + "/pipeline.yaml"
+	if writeError := os.WriteFile(fixturePath, []byte("apiVersion: ankra.io/v1\nkind: Pipeline\n"), 0o600); writeError != nil {
+		t.Fatalf("writing fixture: %v", writeError)
+	}
+	return fixturePath
+}
+
+func TestPipelineValidateNamesEachPlannedStepsNetworkTier(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: validationWithNetworkTiers()}
+	output, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	for _, wanted := range []string{
+		"checkout (checkout, checkout, egress-https)",
+		"test (test, run, none)",
+		"build (build, build, egress-https)",
+	} {
+		if !strings.Contains(output, wanted) {
+			t.Errorf("output = %q, want it to name the step line %q", output, wanted)
+		}
+	}
+}
+
+// TestPipelineValidateOmitsANetworkTierAnOlderPlatformDoesNotSend keeps the
+// tier a report of what the platform resolved rather than an assertion the
+// CLI invents: an Ankra older than the field sends no tier, and printing an
+// empty one would read as "this step runs with no egress" - the opposite of
+// the truth for a checkout or a build.
+func TestPipelineValidateOmitsANetworkTierAnOlderPlatformDoesNotSend(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: &client.PipelineValidation{
+		Severity: "ok",
+		Events: []client.PipelineEventPlan{{
+			Event: "push",
+			Run:   true,
+			Steps: []client.PipelinePlannedStep{{StepKey: "build", Stage: "build", Kind: "build"}},
+		}},
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if !strings.Contains(output, "build (build, build)") {
+		t.Errorf("output = %q, want the step line without a tier", output)
+	}
+	if strings.Contains(output, "build, build, )") {
+		t.Errorf("output = %q, must not print an empty tier", output)
+	}
+}
+
+func TestPipelineValidateJSONCarriesTheNetworkTier(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: validationWithNetworkTiers()}
+	output, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
+		"--application", testApplicationID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	var decoded client.PipelineValidation
+	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+		t.Fatalf("decoding %q: %v", output, decodeError)
+	}
+	if len(decoded.Events) != 1 || len(decoded.Events[0].Steps) != 3 {
+		t.Fatalf("decoded = %+v", decoded)
+	}
+	if decoded.Events[0].Steps[2].Network != "egress-https" {
+		t.Errorf("build step network = %q, want the tier to survive the re-encode",
+			decoded.Events[0].Steps[2].Network)
+	}
+	if !strings.Contains(output, `"network"`) {
+		t.Errorf("output = %q, want the wire field name kept for scripts", output)
 	}
 }
 

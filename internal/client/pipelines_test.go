@@ -378,6 +378,49 @@ func TestValidatePipelineDefinitionEmptySpecValidatesStored(t *testing.T) {
 	}
 }
 
+// TestValidatePipelineDefinitionKeepsEachStepsNetworkTier pins the field a
+// dry run answers with what each step will be allowed to reach. Dropping it
+// at decode is silent - the plan still prints, one column short - so the
+// decode is asserted rather than left to the command tests.
+func TestValidatePipelineDefinitionKeepsEachStepsNetworkTier(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"severity":"ok","violations":[],"events":[{"event":"push","run":true,
+			"steps":[{"step_key":"build","stage":"build","kind":"build","network":"egress-https",
+			"depends_on":["checkout"],"run_condition":"on_success","timeout_seconds":1800}],
+			"skipped":[],"diagnostics":[]}]}`)
+	})
+	validation, err := testClient.ValidatePipelineDefinition(context.Background(),
+		PipelineSelector{RepositoryID: "repo-1"}, "")
+	if err != nil {
+		t.Fatalf("ValidatePipelineDefinition error = %v", err)
+	}
+	if len(validation.Events) != 1 || len(validation.Events[0].Steps) != 1 {
+		t.Fatalf("validation = %+v", validation)
+	}
+	if validation.Events[0].Steps[0].Network != "egress-https" {
+		t.Errorf("network = %q, want the resolved tier", validation.Events[0].Steps[0].Network)
+	}
+}
+
+// TestValidatePipelineDefinitionOlderPlatformSendsNoNetworkTier records that
+// an absent field decodes as "", the value the printer reads as "this Ankra
+// does not resolve tiers" rather than as a step planned with no egress.
+func TestValidatePipelineDefinitionOlderPlatformSendsNoNetworkTier(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"severity":"ok","violations":[],"events":[{"event":"push","run":true,
+			"steps":[{"step_key":"build","stage":"build","kind":"build","depends_on":[],
+			"run_condition":"on_success","timeout_seconds":1800}],"skipped":[],"diagnostics":[]}]}`)
+	})
+	validation, err := testClient.ValidatePipelineDefinition(context.Background(),
+		PipelineSelector{RepositoryID: "repo-1"}, "")
+	if err != nil {
+		t.Fatalf("ValidatePipelineDefinition error = %v", err)
+	}
+	if validation.Events[0].Steps[0].Network != "" {
+		t.Errorf("network = %q, want an empty tier", validation.Events[0].Steps[0].Network)
+	}
+}
+
 func TestUpdatePipelineScheduleOnlyChangedFieldsCross(t *testing.T) {
 	var capturedBody string
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {

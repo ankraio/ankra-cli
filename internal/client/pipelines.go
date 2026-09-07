@@ -379,10 +379,17 @@ type PipelineDefinitionApproval struct {
 }
 
 // PipelinePlannedStep is one node of a dry-run DAG.
+//
+// Network is the egress tier the step would run on, already resolved through
+// the stage, the pipeline's defaults and the kind's own default, so a
+// definition naming no tier anywhere still says what each step will be
+// allowed to reach. It is "" against an Ankra older than the field, which is
+// not the same as a step planned with no egress.
 type PipelinePlannedStep struct {
 	StepKey        string   `json:"step_key"`
 	Stage          string   `json:"stage"`
 	Kind           string   `json:"kind"`
+	Network        string   `json:"network"`
 	DependsOn      []string `json:"depends_on"`
 	RunCondition   string   `json:"run_condition"`
 	TimeoutSeconds int      `json:"timeout_seconds"`
