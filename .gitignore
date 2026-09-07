@@ -51,3 +51,8 @@ release/
 
 # Claude Code agent worktrees (ephemeral, never commit)
 .claude/worktrees/
+# Local MR-review worktrees (git worktree checkouts of other branches).
+.mr-worktrees/
+
+# cluster route census, fetched by CI for internal/client/cluster_routes_test.go (never commit)
+routes.json

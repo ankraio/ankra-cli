@@ -11,9 +11,38 @@ on:
 permissions:
   contents: read
 
+# Superseded runs used to keep their runner for the full race compile, so a
+# branch pushed three times held three Depot runners at once and later runs
+# queued for hours (run 34059805725 waited 3h17m for a runner).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-test-build:
     runs-on: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
+    # A starved runner stops reporting rather than failing, so the job holds
+    # its Depot slot until someone notices: run 34042422066 sat on master for
+    # ~6h before a human cancelled it. Fail fast and give the runner back.
+    timeout-minutes: 45
+    env:
+      # ankra/cmd is one 105k-line package, and the two heavy steps both hold
+      # it in memory whole: golangci-lint's type-check, and the race+coverage
+      # test compile, which is a single `compile` process. Measured cold, that
+      # compile peaks near 10GB and reaches 11.5GB given room, against this
+      # runner's 8GB. Over budget it thrashes (29m41s to reach
+      # `ok ankra/cmd 7.879s` in run 34061025005, versus 25s warm in run
+      # 33973454824) or the runner is killed outright ("the self-hosted runner
+      # lost communication with the server ... starves it for CPU/Memory",
+      # runs 34059805725 and 34061027039).
+      # GOMEMLIMIT is a soft ceiling, inherited by every Go child process: it
+      # costs nothing until the heap approaches it, then trades CPU for
+      # footprint. Measured cold on ./...: 9886MiB peak in 82s unset, 7381MiB
+      # in 160s at 5GiB. Job-scoped so golangci-lint gets the same ceiling.
+      # -p/GOMAXPROCS deliberately not used: they bound how many packages build
+      # at once, not one package's compile. Measured, `-p 1` still peaked at
+      # 10037MiB, and the runner's 2 vCPUs already make -p 2 the default.
+      GOMEMLIMIT: 5GiB
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -27,7 +56,44 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
+      # routes.json is the cluster repo's route census (the walked chi router,
+      # ankraio/cluster docs/route-census.md); every /api/v1 path the CLI builds
+      # is checked against it. Fetched the way the portal fetches openapi.json.
+      # CLUSTER_ROUTES_GITHUB_TOKEN is a fine-grained PAT with read-only
+      # Contents access to ankraio/cluster.
+      - name: Fetch cluster routes.json
+        id: routes_fetch
+        env:
+          CLUSTER_REPO: ankraio/cluster
+          CLUSTER_ROUTES_REF: main
+          CLUSTER_ROUTES_GITHUB_TOKEN: ${{ secrets.CLUSTER_ROUTES_GITHUB_TOKEN }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: |
+          if [ "$IS_FORK" = "true" ]; then
+            echo "::warning::pull request from a fork: repository secrets are unavailable, so the cluster route census was not fetched and TestClusterRoutesAreRegistered will skip, not pass"
+            echo "fetched=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$CLUSTER_ROUTES_GITHUB_TOKEN" ]; then
+            echo "::error::CLUSTER_ROUTES_GITHUB_TOKEN is unset - add the repo secret (fine-grained PAT, contents:read on ankraio/cluster, the same PAT portal uses as CLUSTER_OPENAPI_GITHUB_TOKEN). Not route drift."
+            exit 1
+          fi
+          http_status=$(curl --silent --show-error \
+            --header "Authorization: Bearer ${CLUSTER_ROUTES_GITHUB_TOKEN}" \
+            --header "Accept: application/vnd.github.raw+json" \
+            --write-out "%{http_code}" \
+            "https://api.github.com/repos/${CLUSTER_REPO}/contents/routes.json?ref=${CLUSTER_ROUTES_REF}" \
+            -o "${{ github.workspace }}/routes.json")
+          if [ "$http_status" != "200" ]; then
+            echo "::error::Fetching cluster routes.json failed with HTTP $http_status (401/403: the PAT expired or lost contents:read; 404: the census moved from the cluster repo root)"
+            exit 1
+          fi
+          echo "fetched=true" >> "$GITHUB_OUTPUT"
       - name: Run tests
+        env:
+          # Set only when the census was fetched; otherwise the route test skips
+          # visibly instead of failing on a file that was never there.
+          ANKRA_CLUSTER_ROUTES_JSON: ${{ steps.routes_fetch.outputs.fetched == 'true' && format('{0}/routes.json', github.workspace) || '' }}
         run: go test -race -count=1 -timeout=120s -coverprofile=coverage.out ./...
       - name: Check coverage
         run: go tool cover -func=coverage.out

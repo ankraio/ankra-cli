@@ -6,11 +6,24 @@ package client
 // nothing here changes - the frames, the seq resume cursor and the status
 // codes are the shared sserelay's either way).
 //
-// The relay has no history to replay: a fresh connection (from_seq unset)
-// only sees output published from the moment it connects, because the
-// durable per-step log artifact is WS-C item C1 and does not exist yet. That
-// is a real, current limitation - not a client bug - and PipelineLogEvent
-// carries every frame decoded rather than pretending otherwise.
+// Where in a step's output a connection starts, and whether it ends, are the
+// relay's own decision from the step's status - and StepLogStreamOptions is
+// how a caller overrides it. The relay retains a step's frames for a day
+// (enginekit/pipelinerun.OutputRetention), so a concluded step's whole
+// output can still be replayed from it, and `follow=false` ends the response
+// once that history is drained instead of holding it open on keepalives for
+// output that will never come. A platform older than that contract ignores
+// both parameters and tails forever, which is why cmd/pipeline_logs.go
+// bounds its replay rather than trusting the stream to end.
+//
+// The other copy of a concluded step's output is its archived step_log
+// pipeline artifact (enginekit/pipelineartifacts.KindStepLog), which
+// cmd/pipeline_logs.go prefers - see PipelineArtifact and
+// Client.ListPipelineArtifacts / DownloadPipelineArtifact in pipelines.go.
+// An organisation with no ready backup vault has nowhere to put one
+// (pipelineartifacts.ErrNoVault), so the step is dispatched without uploads
+// and no artifact row is ever minted; the replay above is what makes that
+// step's output readable at all.
 
 import (
 	"bufio"
@@ -20,6 +33,7 @@ import (
 	"io"
 	"net/http"
 	neturl "net/url"
+	"strconv"
 	"strings"
 )
 
@@ -41,24 +55,74 @@ type PipelineLogEvent struct {
 	Error string
 }
 
-// StreamPipelineStepLogs opens the step log SSE relay and returns a channel
-// of decoded frames. The channel closes when the response ends (server
-// disconnect, or the context is cancelled) or after one Type=="error" event -
-// a stream fault is terminal, since the relay's own protocol answers it as a
-// single frame before it stops (sserelay.ErrorFrame).
+// StepLogStreamOptions selects where in a step's output one connection to the
+// relay starts and whether it ends when that output runs out. Each field maps
+// onto one query parameter of the step log route.
 //
-// fromSequence resumes a previous read after that stream sequence; zero
-// starts from whatever the relay publishes next.
+// IsFollowing and IsReplaying are pointers because unset is a third answer
+// with its own meaning: the route reads the step's own status for a request
+// that expressed no preference, and must not read silence as false.
+type StepLogStreamOptions struct {
+	// FromSequence resumes a previous read after that stream sequence; zero
+	// sends no cursor. The route ranks it above both flags below, so a
+	// caller that says where it got to is never sent the history again.
+	FromSequence int64
+	// IsFollowing is `follow`: false ends the response once the retained
+	// history is drained, true holds it open even for a concluded step.
+	IsFollowing *bool
+	// IsReplaying is `replay`: true delivers the retained history before the
+	// live tail even for a running step, false refuses the history even for
+	// a concluded one.
+	IsReplaying *bool
+}
+
+// PipelineLogNoLongerRetainedError is the step log relay's 410
+// (go/internal/pipelineapi/streams.go, error code LOG_NO_LONGER_RETAINED):
+// the step concluded longer ago than the platform retains live output, so
+// its frames aged out. It is deliberately not the relay's 503, which says
+// the stream could not be read and is worth retrying - retrying this one
+// will never produce a line.
+type PipelineLogNoLongerRetainedError struct {
+	// Detail is the platform's own sentence, printed verbatim.
+	Detail string
+	// ErrorCode is the machine-readable class, empty when the platform sent
+	// none.
+	ErrorCode string
+}
+
+func (retentionError *PipelineLogNoLongerRetainedError) Error() string {
+	if retentionError == nil {
+		return ""
+	}
+	return retentionError.Detail
+}
+
+// StreamPipelineStepLogs opens the step log SSE relay and returns a channel
+// of decoded frames. The channel closes when the response ends (the relay
+// drained a replay it was asked to end, a server disconnect, or the context
+// is cancelled) or after one Type=="error" event - a stream fault is
+// terminal, since the relay's own protocol answers it as a single frame
+// before it stops (sserelay.ErrorFrame).
 func (c *Client) StreamPipelineStepLogs(ctx context.Context, selector PipelineSelector,
-	runID string, stepID string, fromSequence int64) (<-chan PipelineLogEvent, error) {
+	runID string, stepID string, options StepLogStreamOptions) (<-chan PipelineLogEvent, error) {
 	base, selectorError := selector.basePath()
 	if selectorError != nil {
 		return nil, selectorError
 	}
 	endpoint := fmt.Sprintf("%s%s/pipeline-runs/%s/steps/%s/logs",
 		c.BaseURL, base, neturl.PathEscape(runID), neturl.PathEscape(stepID))
-	if fromSequence > 0 {
-		endpoint = fmt.Sprintf("%s?from_seq=%d", endpoint, fromSequence)
+	query := neturl.Values{}
+	if options.FromSequence > 0 {
+		query.Set("from_seq", strconv.FormatInt(options.FromSequence, 10))
+	}
+	if options.IsFollowing != nil {
+		query.Set("follow", strconv.FormatBool(*options.IsFollowing))
+	}
+	if options.IsReplaying != nil {
+		query.Set("replay", strconv.FormatBool(*options.IsReplaying))
+	}
+	if len(query) > 0 {
+		endpoint += "?" + query.Encode()
 	}
 
 	request, requestError := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -77,6 +141,11 @@ func (c *Client) StreamPipelineStepLogs(ctx context.Context, selector PipelineSe
 		closeBody(response)
 		if readError != nil {
 			return nil, fmt.Errorf("read response: %w", readError)
+		}
+		if response.StatusCode == http.StatusGone {
+			if retentionError := stepLogNoLongerRetainedFromBody(body); retentionError != nil {
+				return nil, retentionError
+			}
 		}
 		return nil, pipelineErrorFromResponse(response.StatusCode, body, response.Header.Get("Retry-After"))
 	}
@@ -126,4 +195,20 @@ func (c *Client) StreamPipelineStepLogs(ctx context.Context, selector PipelineSe
 		}
 	}()
 	return events, nil
+}
+
+// stepLogNoLongerRetainedFromBody decodes the relay's 410 body
+// ({"detail": "...", "error_code": "LOG_NO_LONGER_RETAINED"}). It answers nil
+// for a 410 shaped like anything else, so a body this client does not
+// recognise still reaches the shared mapping rather than being reported as a
+// retention expiry it never claimed to be.
+func stepLogNoLongerRetainedFromBody(body []byte) *PipelineLogNoLongerRetainedError {
+	var expired struct {
+		Detail    string `json:"detail"`
+		ErrorCode string `json:"error_code"`
+	}
+	if unmarshalError := json.Unmarshal(body, &expired); unmarshalError != nil || expired.Detail == "" {
+		return nil
+	}
+	return &PipelineLogNoLongerRetainedError{Detail: expired.Detail, ErrorCode: expired.ErrorCode}
 }

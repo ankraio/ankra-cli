@@ -216,6 +216,41 @@ type CreateStackProfileResult struct {
 	Profile StackProfileSummary `json:"profile"`
 }
 
+// ImportStackProfileDraftRequest opens an imported IaC document as a
+// builder draft instead of publishing a version (`import --as-draft`).
+// Category and tags are omitted when unset: a draft attaching to an
+// existing profile applies non-null metadata at publish, so sending a
+// default would overwrite the profile's own values.
+type ImportStackProfileDraftRequest struct {
+	Name          *string  `json:"name,omitempty"`
+	Description   *string  `json:"description,omitempty"`
+	Category      *string  `json:"category,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
+	ContentBase64 string   `json:"content_base64"`
+}
+
+// ImportStackProfileDraftResult carries the opened builder draft and the
+// import warnings (redacted secrets, dropped parameter definitions,
+// bare-${var} findings).
+type ImportStackProfileDraftResult struct {
+	Draft    StackProfileDraft `json:"draft"`
+	Warnings []string          `json:"warnings"`
+}
+
+// ImportStackProfileAsDraft opens the document as a builder draft on the
+// named profile: it attaches to the organisation's existing profile of the
+// same name as the next-version candidate when one exists, and opens a
+// new-profile draft otherwise. Nothing is published until the draft is
+// reviewed and published.
+func (c *Client) ImportStackProfileAsDraft(importRequest ImportStackProfileDraftRequest) (*ImportStackProfileDraftResult, error) {
+	requestURL := fmt.Sprintf("%s/api/v1/org/stack-profiles/import-draft", c.BaseURL)
+	var result ImportStackProfileDraftResult
+	if err := c.postCSRFJSON(requestURL, importRequest, &result, "import stack profile as draft"); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) GetStackProfile(profileID string) (*StackProfileDetail, error) {
 	requestURL := fmt.Sprintf("%s/api/v1/org/stack-profiles/%s", c.BaseURL, neturl.PathEscape(profileID))
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, requestURL, nil)

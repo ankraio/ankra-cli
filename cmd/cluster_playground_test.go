@@ -9,8 +9,16 @@ import (
 	"ankra/internal/client"
 )
 
+// playgroundTestClusterID is id-shaped: the playground commands resolve
+// anything else as a cluster name (resolvePlaygroundClusterID).
+const playgroundTestClusterID = "8f6a4d2e-1c3b-4a5d-9e7f-0123456789ab"
+
 type playgroundMock struct {
 	baseMock
+
+	// clusters answers ListClusters for the name-resolution tests; nil
+	// keeps the base mock's "not implemented".
+	clusters []client.ClusterListItem
 
 	createResult    *client.CreatePlaygroundResult
 	createError     error
@@ -28,6 +36,13 @@ type playgroundMock struct {
 	resizeRequested     string
 	resizeResult        *client.ResizePlaygroundResult
 	resizeError         error
+}
+
+func (m *playgroundMock) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
+	if m.clusters == nil {
+		return m.baseMock.ListClusters(page, pageSize)
+	}
+	return &client.ClusterListResponse{Result: m.clusters, Pagination: client.Pagination{TotalPages: 1, Page: page, PageSize: pageSize}}, nil
 }
 
 func (m *playgroundMock) CreatePlayground(planID string) (*client.CreatePlaygroundResult, error) {
@@ -71,19 +86,19 @@ func withPlaygroundMock(t *testing.T, mock *playgroundMock) {
 
 func TestPlaygroundCreatePrintsTheClusterIDAndTheFollowUpCommand(t *testing.T) {
 	withPlaygroundMock(t, &playgroundMock{
-		createResult: &client.CreatePlaygroundResult{ClusterID: "cluster-42", Success: true},
+		createResult: &client.CreatePlaygroundResult{ClusterID: playgroundTestClusterID, Success: true},
 	})
 	output := captureStdout(t, func() {
 		if err := clusterPlaygroundCreateCmd.RunE(clusterPlaygroundCreateCmd, nil); err != nil {
 			t.Fatalf("create failed: %v", err)
 		}
 	})
-	if !strings.Contains(output, "cluster-42") {
+	if !strings.Contains(output, playgroundTestClusterID) {
 		t.Errorf("expected the cluster id in the output, got: %s", output)
 	}
 	// Provisioning is asynchronous, so the command has to tell the user how
 	// to follow it rather than implying the playground is ready.
-	if !strings.Contains(output, "ankra cluster playground status cluster-42") {
+	if !strings.Contains(output, "ankra cluster playground status "+playgroundTestClusterID) {
 		t.Errorf("expected the follow-up command in the output, got: %s", output)
 	}
 }
@@ -92,7 +107,7 @@ func TestPlaygroundCreatePrintsTheClusterIDAndTheFollowUpCommand(t *testing.T) {
 // absence must order the free trial (an empty plan on the wire).
 func TestPlaygroundCreatePassesTheOrderedSizeThrough(t *testing.T) {
 	mock := &playgroundMock{
-		createResult: &client.CreatePlaygroundResult{ClusterID: "cluster-42", Success: true},
+		createResult: &client.CreatePlaygroundResult{ClusterID: playgroundTestClusterID, Success: true},
 	}
 	withPlaygroundMock(t, mock)
 	clusterPlaygroundCreateSize = "medium"
@@ -140,7 +155,7 @@ func TestPlaygroundPlansListsSizesWithPricesAndAvailability(t *testing.T) {
 func TestPlaygroundResizePassesTheSizeAndPrintsTheOutcome(t *testing.T) {
 	mock := &playgroundMock{
 		resizeResult: &client.ResizePlaygroundResult{
-			ClusterID: "cluster-42",
+			ClusterID: playgroundTestClusterID,
 			Plan: client.PlaygroundOrderedPlan{
 				ID: "medium", DisplayName: "Medium", Vcpus: 4, MemoryGB: 8,
 				PriceMonthlyCents: 2880, Currency: "eur",
@@ -153,11 +168,11 @@ func TestPlaygroundResizePassesTheSizeAndPrintsTheOutcome(t *testing.T) {
 	buffer := &strings.Builder{}
 	clusterPlaygroundResizeCmd.SetOut(buffer)
 	t.Cleanup(func() { clusterPlaygroundResizeCmd.SetOut(nil) })
-	if err := clusterPlaygroundResizeCmd.RunE(clusterPlaygroundResizeCmd, []string{"cluster-42"}); err != nil {
+	if err := clusterPlaygroundResizeCmd.RunE(clusterPlaygroundResizeCmd, []string{playgroundTestClusterID}); err != nil {
 		t.Fatalf("resize failed: %v", err)
 	}
-	if mock.resizeRequested != "cluster-42:medium" {
-		t.Errorf("resize call = %q, want cluster-42:medium", mock.resizeRequested)
+	if mock.resizeRequested != playgroundTestClusterID+":medium" {
+		t.Errorf("resize call = %q, want "+playgroundTestClusterID+":medium", mock.resizeRequested)
 	}
 	output := buffer.String()
 	for _, expected := range []string{"Medium", "€28.80/mo", "pro-rata"} {
@@ -170,7 +185,7 @@ func TestPlaygroundResizePassesTheSizeAndPrintsTheOutcome(t *testing.T) {
 func TestPlaygroundResizeRequiresTheSizeFlag(t *testing.T) {
 	withPlaygroundMock(t, &playgroundMock{})
 	clusterPlaygroundResizeSize = ""
-	if err := clusterPlaygroundResizeCmd.RunE(clusterPlaygroundResizeCmd, []string{"cluster-42"}); err == nil {
+	if err := clusterPlaygroundResizeCmd.RunE(clusterPlaygroundResizeCmd, []string{playgroundTestClusterID}); err == nil {
 		t.Fatal("resize without --size must refuse")
 	}
 }
@@ -189,18 +204,18 @@ func TestPlaygroundCreateSurfacesTheServerError(t *testing.T) {
 func TestPlaygroundStatusPrintsThePhaseAndMessage(t *testing.T) {
 	message := "waiting for the agent"
 	mock := &playgroundMock{status: &client.PlaygroundStatus{
-		ClusterID:     "cluster-42",
+		ClusterID:     playgroundTestClusterID,
 		Phase:         "provisioning",
 		StatusMessage: &message,
 		ExpiresAt:     "2026-08-14T09:00:00Z",
 	}}
 	withPlaygroundMock(t, mock)
 	output := captureStdout(t, func() {
-		if err := clusterPlaygroundStatusCmd.RunE(clusterPlaygroundStatusCmd, []string{"cluster-42"}); err != nil {
+		if err := clusterPlaygroundStatusCmd.RunE(clusterPlaygroundStatusCmd, []string{playgroundTestClusterID}); err != nil {
 			t.Fatalf("status failed: %v", err)
 		}
 	})
-	if mock.statusRequested != "cluster-42" {
+	if mock.statusRequested != playgroundTestClusterID {
 		t.Errorf("expected the cluster id to be passed through, got %q", mock.statusRequested)
 	}
 	for _, expected := range []string{"provisioning", "2026-08-14T09:00:00Z", "waiting for the agent"} {
@@ -213,12 +228,12 @@ func TestPlaygroundStatusPrintsThePhaseAndMessage(t *testing.T) {
 // An absent status_message must not print an empty Message line.
 func TestPlaygroundStatusOmitsAnAbsentMessage(t *testing.T) {
 	withPlaygroundMock(t, &playgroundMock{status: &client.PlaygroundStatus{
-		ClusterID: "cluster-42",
+		ClusterID: playgroundTestClusterID,
 		Phase:     "ready",
 		ExpiresAt: "2026-08-14T09:00:00Z",
 	}})
 	output := captureStdout(t, func() {
-		if err := clusterPlaygroundStatusCmd.RunE(clusterPlaygroundStatusCmd, []string{"cluster-42"}); err != nil {
+		if err := clusterPlaygroundStatusCmd.RunE(clusterPlaygroundStatusCmd, []string{playgroundTestClusterID}); err != nil {
 			t.Fatalf("status failed: %v", err)
 		}
 	})
@@ -229,7 +244,7 @@ func TestPlaygroundStatusOmitsAnAbsentMessage(t *testing.T) {
 
 func TestPlaygroundDestroyPrintsTheClusterIDAndPhase(t *testing.T) {
 	mock := &playgroundMock{
-		destroyResult: &client.DestroyPlaygroundResult{ClusterID: "cluster-42", Phase: "deprovisioning"},
+		destroyResult: &client.DestroyPlaygroundResult{ClusterID: playgroundTestClusterID, Phase: "deprovisioning"},
 	}
 	withPlaygroundMock(t, mock)
 	output := new(bytes.Buffer)
@@ -241,15 +256,15 @@ func TestPlaygroundDestroyPrintsTheClusterIDAndPhase(t *testing.T) {
 	})
 
 	if runError := clusterPlaygroundDestroyCmd.RunE(
-		clusterPlaygroundDestroyCmd, []string{"cluster-42"}); runError != nil {
+		clusterPlaygroundDestroyCmd, []string{playgroundTestClusterID}); runError != nil {
 		t.Fatalf("destroy failed: %v", runError)
 	}
-	if mock.destroyRequested != "cluster-42" {
-		t.Errorf("destroy asked for %q, want cluster-42", mock.destroyRequested)
+	if mock.destroyRequested != playgroundTestClusterID {
+		t.Errorf("destroy asked for %q, want "+playgroundTestClusterID, mock.destroyRequested)
 	}
 	// The phase is what tells the caller teardown was scheduled rather than
 	// finished, so it has to be in the output, not just the cluster id.
-	for _, expected := range []string{"cluster-42", "deprovisioning"} {
+	for _, expected := range []string{playgroundTestClusterID, "deprovisioning"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Errorf("expected %q in the output, got: %s", expected, output.String())
 		}
@@ -258,7 +273,7 @@ func TestPlaygroundDestroyPrintsTheClusterIDAndPhase(t *testing.T) {
 
 func TestPlaygroundDestroySurfacesTheServerError(t *testing.T) {
 	withPlaygroundMock(t, &playgroundMock{destroyError: errors.New("Playground not found.")})
-	runError := clusterPlaygroundDestroyCmd.RunE(clusterPlaygroundDestroyCmd, []string{"cluster-42"})
+	runError := clusterPlaygroundDestroyCmd.RunE(clusterPlaygroundDestroyCmd, []string{playgroundTestClusterID})
 	if runError == nil {
 		t.Fatal("expected an error")
 	}
@@ -308,5 +323,67 @@ func TestPlaygroundPlansAsksForACardOnlyWhereStripeCollects(t *testing.T) {
 			t.Errorf("%s: card line present = %v, want %v; output: %s",
 				testCase.name, hasCardLine, testCase.wantCardLine, output)
 		}
+	}
+}
+
+// The playground routes take the cluster id; the CLI used to pass a name
+// straight through and relay the route's bare 404 (ankra-y8l44.35). A name
+// from `ankra cluster list` now resolves to the id for status, destroy and
+// resize alike.
+func TestPlaygroundCommandsResolveAClusterName(t *testing.T) {
+	mock := &playgroundMock{
+		clusters: []client.ClusterListItem{
+			{ID: "11111111-2222-4333-8444-555555555555", Name: "other"},
+			{ID: playgroundTestClusterID, Name: "playground"},
+		},
+		status:        &client.PlaygroundStatus{ClusterID: playgroundTestClusterID, Phase: "ready", ExpiresAt: "2026-08-14T09:00:00Z"},
+		destroyResult: &client.DestroyPlaygroundResult{ClusterID: playgroundTestClusterID, Phase: "deprovisioning"},
+		resizeResult:  &client.ResizePlaygroundResult{ClusterID: playgroundTestClusterID},
+	}
+	withPlaygroundMock(t, mock)
+
+	captureStdout(t, func() {
+		if err := clusterPlaygroundStatusCmd.RunE(clusterPlaygroundStatusCmd, []string{"Playground"}); err != nil {
+			t.Fatalf("status by name failed: %v", err)
+		}
+	})
+	if mock.statusRequested != playgroundTestClusterID {
+		t.Errorf("status must resolve the name to the id, requested %q", mock.statusRequested)
+	}
+	captureStdout(t, func() {
+		if err := clusterPlaygroundDestroyCmd.RunE(clusterPlaygroundDestroyCmd, []string{"playground"}); err != nil {
+			t.Fatalf("destroy by name failed: %v", err)
+		}
+	})
+	if mock.destroyRequested != playgroundTestClusterID {
+		t.Errorf("destroy must resolve the name to the id, requested %q", mock.destroyRequested)
+	}
+	clusterPlaygroundResizeSize = "small"
+	t.Cleanup(func() { clusterPlaygroundResizeSize = "" })
+	captureStdout(t, func() {
+		if err := clusterPlaygroundResizeCmd.RunE(clusterPlaygroundResizeCmd, []string{"playground"}); err != nil {
+			t.Fatalf("resize by name failed: %v", err)
+		}
+	})
+	if !strings.HasPrefix(mock.resizeRequested, playgroundTestClusterID+":") {
+		t.Errorf("resize must resolve the name to the id, requested %q", mock.resizeRequested)
+	}
+}
+
+func TestPlaygroundCommandsNameAnUnknownClusterInsteadOfA404(t *testing.T) {
+	mock := &playgroundMock{clusters: []client.ClusterListItem{{ID: playgroundTestClusterID, Name: "playground"}}}
+	withPlaygroundMock(t, mock)
+
+	err := clusterPlaygroundStatusCmd.RunE(clusterPlaygroundStatusCmd, []string{"sandbox"})
+	if err == nil {
+		t.Fatal("an unknown name must be refused before the request")
+	}
+	for _, expected := range []string{`cluster "sandbox" not found`, "ankra cluster list"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("expected %q in the error, got %q", expected, err.Error())
+		}
+	}
+	if mock.statusRequested != "" {
+		t.Errorf("no request must be made for an unresolved name, got %q", mock.statusRequested)
 	}
 }

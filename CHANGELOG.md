@@ -22,6 +22,235 @@
   findings, CISA KEV exposure and whether each container's image has a bill
   of materials, with `sbom image` / `sbom findings` as the next step. A
   container the scanner has no report for is "not scanned", not clean.
+- **`ankra pipeline validate` shows the egress tier each planned step
+  resolved to.** A stage's network tier is decided from the stage, then the
+  pipeline's defaults, then the tier its kind cannot work without - so a
+  definition that names none anywhere still runs every step on a tier, and
+  the only way to find out which was to dispatch the run and read the
+  failure. The dry run now prints it alongside the stage and kind -
+  `build (build, build, egress-https)` - and `-o json` carries it as
+  `network` on each planned step. An Ankra older than the field sends no
+  tier; the line then reads as it always did and the JSON leaves the key
+  out, rather than either claiming the step runs with no egress - which is
+  its own tier, `none`.
+
+## v0.15.0-rc4 — 2026-09-07
+
+### Fixed
+
+- **`ankra pipeline logs --follow` waits for a step that has not started
+  instead of exiting.** The moment a live tail is worth asking for is the
+  moment the run was dispatched - and at that moment the step is still
+  blocked on its dependencies or waiting to be claimed, so the command
+  refused with "has not started, so it has no log stream yet" and people ran
+  it again by hand until it caught. With `--follow` it now polls the run
+  every 5 seconds and attaches as soon as the step starts, printing one line
+  per status change that names what the step is waiting on - `Waiting for
+  step "build" to start (blocked on: checkout).` A step that concludes
+  without ever starting prints its outcome and the platform's own error
+  message and then reads like any other concluded step; a run that concludes
+  without dispatching the step exits 3 (not found); Ctrl+C stops the wait at
+  once; and after 30 minutes of waiting in total - the budget is carried
+  across every time the step goes back to waiting, so a step that keeps being
+  retried cannot hold the command open in 30-minute steps - it gives up with
+  exactly the refusal, and exit code, a bare `logs` call gives immediately. A step whose attempt is
+  superseded while being tailed is picked up again rather than reported as a
+  failed stream. Without `--follow` nothing changes: the command still says
+  the step has not started and returns.
+
+- **`ankra pipeline logs` reads the attempt a retried step is actually
+  running.** When Ankra loses a step - its pod cannot start, or its lease is
+  reaped - it concludes that attempt and retries it as a new step row, keeping
+  the lost one on the run as evidence. `logs --step <key>` took the first row
+  under that key, which is the lost attempt, so it printed the wrong log; and
+  `--follow` reported the step as concluded the moment the attempt it was
+  tailing was thrown away. Both now resolve the step's newest attempt, and
+  `--follow` picks up the retry and streams it. Naming a step by id still
+  reads that exact attempt, so a lost attempt's own log stays readable. A
+  one-step run that was retried is also no longer refused as "run has 2 steps"
+  when no `--step` is given.
+
+- **`ankra pipeline logs` shows a finished step's output even when the
+  organisation has no backup vault.** A concluded step's log was only ever
+  read from its archived `step_log` artifact, and archiving one needs a ready
+  backup vault - which a new organisation does not have, so the step was
+  dispatched with uploads disabled, no artifact was ever recorded, and the
+  command answered "No archived log was recorded" for a build whose output
+  Ankra was still holding. When the run's artifacts are read to the end and
+  hold no log for the step - or the recorded one is uploaded but the platform
+  cannot find it - the command now replays that step's output from the
+  platform's retained log stream instead, printing it exactly like a live
+  tail and stopping when the replay is drained. A step whose output has aged
+  out of the retention window prints the platform's own explanation and exits
+  3 (not found), and a step that never reached an execution still reads as
+  having no log at all. A capped artifact walk is unchanged: absence was
+  never observed, so nothing is claimed about it.
+
+- **`ankra pipeline logs` no longer waits forever on a platform that does not
+  end the replay.** An Ankra older than the retained replay keeps a concluded
+  step's connection open on keepalives indefinitely; the command now stops
+  after 15 seconds with no output and says the replay was not ended, rather
+  than hanging with nothing to show.
+
+### Added
+
+- **`ankra pipeline logs --replay` also shows what a running step printed
+  before you connected.** A live connection has always started from the
+  moment it opened, so attaching to a build already halfway through skipped
+  everything up to that point. `--replay` asks the platform for the step's
+  output so far and then keeps following. It needs an Ankra new enough to
+  serve it; an older platform ignores it and streams from the connection as
+  before.
+
+## v0.15.0-rc3 — 2026-09-07
+
+### Added
+
+- **`ankra cluster agent ci get|set` sizes the cluster agent's pipeline-step
+  workers from Ankra instead of a hand-run Helm command.** The agent runs
+  Ankra Pipelines steps itself, and how many it runs at once
+  (`--workers`, 0 disables the scheduler) plus the storage class its step
+  workspaces are carved from (`--storage-class`) used to live only in the
+  agent's chart values - so the only way to enable CI workers was
+  `helm upgrade --set`, and the next platform-driven agent upgrade rendered
+  the default back over it. Both settings are now stored on the platform and
+  carried by every install and upgrade command Ankra generates for the
+  cluster. `set` says what happened to the setting as well as storing it: an
+  online agent new enough to accept chart values re-renders its release
+  immediately, an older one takes it at its next upgrade, and an offline one
+  when it reconnects. `get` shows the stored values, the agent version that
+  has to honour them, and whether that agent currently advertises it can run
+  pipeline steps - which stays "not advertised" until the agent has actually
+  re-rendered, so a stored worker count is never mistaken for a working one.
+  `--storage-class` is only sent when you pass it, so changing the worker
+  count keeps a storage class set earlier; `-o json|yaml` works on both, and
+  a 403, 404 or 422 from the platform prints verbatim rather than being
+  reworded.
+
+- **`ankra stack-profiles import --as-draft` stages a file-authored profile
+  for review instead of publishing it.** The document opens as a builder
+  draft on the named profile: when your organisation already has a profile
+  with the document's name (or the `--name` override) the draft attaches to
+  it as the next-version candidate, and otherwise it opens as a new-profile
+  draft. Nothing is published until you review the draft - the command
+  prints the draft id and the `drafts validate` / `drafts publish`
+  follow-ups - so an operator or agent who authored a candidate profile
+  update as a file can hand it to a human instead of shipping it sight
+  unseen. A `--category` is only sent when explicitly set, so importing
+  onto an existing profile never overwrites its category.
+
+### Fixed
+
+- **`ankra stack-profiles list` no longer prints page 1 as if it were the
+  whole catalogue.** The command pages at 25 by default, so an organisation
+  with 35 profiles got a 25-row table with nothing saying the other 10
+  existed - the listing looked complete and the missing profiles were
+  invisible unless you already knew to pass `--page-size`. The table now
+  carries a `Showing 25 of 35 stack profiles (page 1 of 2)` footer whenever
+  the page does not cover the catalogue. A full page whose response reports
+  no total says `catalogue size unknown` rather than passing for the whole
+  set. `-o json`/`yaml` output is unchanged and still carries `total_count`.
+
+## v0.15.0-rc2 — 2026-09-05
+
+### Added
+
+- **`ankra pipeline` now covers the whole Ankra Pipelines lifecycle.** The
+  full verb list as of this release: `run`, `list`, `get`, `logs` (live for a
+  running step, archived replay for a concluded one), `cancel`, `rerun`,
+  `artifacts`, `artifacts download`, `findings`, `validate`, `definition
+  get|put`, `schedules list|create|update|delete`, `repositories
+  connect|list|get|disconnect` and `definitions get|approve`. `ankra
+  application pipeline …` offers the selector-addressed ones by application.
+  The four that are new or newly real in this release are described below.
+
+- **`ankra pipeline repositories` connects a bare Git repository to Ankra
+  Pipelines from the terminal.** Cluster PRs #2490 and #2509 added the
+  organisation-scoped onboarding routes; `list` and `get` read what the
+  organisation has connected (`--provider` filters the listing), and
+  `connect --provider --owner --name [--credential] [--default-branch]
+  [--application] [--cluster]` registers a repository so a push, pull request
+  or tag webhook on it can start a run - for a bare repository with no Ankra
+  application (docs, website, values repos), or before one exists.
+  `--application` links the repository to an application already in the
+  organisation without changing that application's own pipeline source, and
+  `--cluster` overrides the organisation's declared CI cluster for just this
+  repository's pipelines; both are refused (with the server's own message)
+  for an id outside the organisation, and `--cluster` also for a cluster
+  whose agent has not advertised it can run pipeline steps. A GitHub
+  repository's committed `.ankra/pipeline.yaml` is read through `--credential`
+  and recorded as the definition of record in the same call when it parses,
+  and `connect` prints that outcome alongside the repository id. Connecting a
+  repository a second time does not create a duplicate; the server's own
+  message names the existing repository's id rather than a rewritten one.
+  `disconnect <repository-id>` (confirms first, `--yes` to skip) stops it
+  starting new runs without deleting its history - connecting the same
+  identity again revives the same row - and refuses (409, the server's own
+  message) while a run is still queued or running.
+
+- **`ankra pipeline definitions get|approve` inspects and grants a pipeline
+  definition's protected-authority approval.** A pipeline file's logic is
+  open - anyone who can push may add stages, scripts and images - but its
+  authority-bearing sections (permissions, credentials, secrets scope,
+  network tier, image policy, `runs_on`, environment gates) are closed: a
+  pull request may change them, but the run still executes under the last
+  authority an administrator approved on the default branch until one
+  approves the change. `definitions get <id>` prints one stored definition's
+  protected-sections hash and, if anyone has, who approved it and when;
+  `definitions approve <id>` records that approval (requires
+  `pipelines.manage` and a human actor - a service-account token is
+  refused). Both take the definition's own id rather than
+  `--application`/`--repository`, since the server addresses this pair of
+  routes by the organisation alone; there is no lookup route yet, so
+  `ankra pipeline get` now prints a run's `authority_state`, which stored
+  definition its trusted authority was taken from, and, for a state other
+  than approved, that an administrator approving the repository's current
+  default-branch definition would update it (that definition's own id is not
+  always the one the run names, so this points at the pull request status
+  comment rather than guessing). `-o json` works on both, and a 404/409/403
+  from the server prints verbatim rather than being reworded.
+
+- **`ankra pipeline findings <run>`** lists a run's persisted scan findings -
+  the deduplicated Semgrep, Checkov and Trivy results (and the informational
+  SBOM summary) recorded for the run's own commit, the same rows the
+  application's Security tab reads. The table sorts worst severity first and
+  groups by tool; `-o json`/`yaml` prints every field, including each
+  finding's tool-specific detail. `ankra pipeline artifacts` now also shows
+  each row's `KIND` (`step_log` or `artifact`) and `STATUS` (`pending`,
+  `uploaded`, `failed` or `expired`), so a caller can tell a still-archiving
+  or failed row from one `artifacts download` can actually fetch.
+
+- **`ankra alerts ingest-credentials list|rebind` moves an ingest
+  credential's pin or scope without minting a new token.** `list` prints
+  every ingest credential with its scope, the pinned cluster's name, the pin
+  state - `ok`, `-`, or `BROKEN` when the pinned cluster has been deleted,
+  archived, slated for deletion or is simply gone - and whether it is enabled
+  and when it was last used. `rebind <credential-id>` changes the binding on
+  the credential that already exists: `--cluster <name>` re-pins by cluster
+  name, `--unpin` removes the pin, and `--scope cluster|platform|mixed`
+  switches the scope. The request carries only the flags you set, so an
+  absent flag leaves that field alone rather than clearing it - which is what
+  lets values-repo automation re-pin a credential in place. Neither command
+  ever reads, prints or sends the token itself. `-o json`/`yaml` render the
+  wire shape.
+
+- **`ankra security sbom containers` and `sbom export <image>`, and `-o` on
+  every SBOM read.** `sbom containers` lists every running container of the
+  scoped clusters, init containers included, with or without a bill of
+  materials - the ones missing one first, an inventory line that counts the
+  scope before `--status`/`--search` narrow it, and `--status
+  present|absent|any` to pick a side. `sbom export <image>` writes the bill
+  of materials out as CycloneDX 1.5 JSON (or `--format csv`) to the
+  platform's own file name, to `--output-file`, or to `-` for a pipe; an
+  existing target is refused unless `--force` is passed, so a re-run cannot
+  silently destroy a previous download, and a file name the server proposes
+  is reduced to a bare base name rather than trusted as a path.
+  `--workload-kind` and `--workload-name` narrow `sbom` and `sbom images` to
+  one workload. The family's help had promised `-o`/`--output` since it
+  shipped without ever registering the flag, so `-o json` failed with
+  "unknown shorthand flag"; `namespaces`, `pods`, `sbom`, `sbom images`,
+  `sbom image` and `sbom containers` all accept it now.
+
 - **`ankra security sbom findings <image>` lists the CVEs on one image.** The
   image detail counted findings per component and stopped there; this is the
   list behind the count: one row per CVE and installed package version,
@@ -33,6 +262,7 @@
   stays visible. `--severity` (repeatable), `--search`, `--sort` and paging
   narrow it; `-o json` for scripts. Pairs with `ankra security finding <id>`
   for one CVE in full.
+
 - **`ankra security namespaces` rows carry `sbom_images`**: the distinct
   images running in the namespace that have a bill of materials, against the
   images the scanner reported on, so a namespace's SBOM gap is visible in the
@@ -40,6 +270,44 @@
   sbom`, `sbom images` and `sbom containers` now follows `--namespace`,
   `--workload-kind` and `--workload-name`, so the headline above a narrowed
   list is that scope's, not the fleet's.
+
+### Fixed
+
+- **`ankra pipeline logs` on a concluded step now shows its output.** The
+  live log relay only ever streamed what a step printed from the moment a
+  client connected, so running `logs` (with or without `--follow`) against a
+  step that had already finished - the ordinary case right after
+  `pipeline run --wait`, or when checking an older run - showed nothing.
+  `logs` now reads a concluded step's complete, durably archived log
+  instead; `--follow` is unchanged for a step that is still running, which
+  is the only case it ever did anything. It follows the artifact listing's
+  pages to find that log, so a run with more artifacts than one page no
+  longer reads as if the step had never recorded one, and it reads the
+  step's current log rather than an upload a re-dispatch of the same step
+  had already superseded.
+
+- **`ankra pipeline artifacts` and `artifacts download` talk to the real
+  artifact store.** Both were wired against the wire contract before the
+  store existed, and said so in their help text; the store has since
+  shipped, so listing and downloading a run's step logs and declared
+  artifacts now works end to end, and the help text no longer claims
+  otherwise. The listing is paged like `pipeline list`: `--cursor` and
+  `--limit` choose the page, and a run with another page says so instead of
+  presenting its oldest artifacts as the whole record. A negative `--limit`
+  is now refused on both listings rather than dropped on the way to the
+  query, which used to hand back the server's default page as though the
+  flag had been honoured.
+
+- **Hetzner `cluster deprovision --force` now says what it deletes.** Its
+  help still carried a pre-teardown-sweep meaning - "use only when the
+  cluster agent is permanently offline; cloud resources may leak" - which is
+  wrong in the dangerous direction: `--force` is the mode in which resources
+  do *not* leak, because it also deletes the cluster's CSI storage volumes
+  and load balancers, destroying the data on them. The one fact an operator
+  most needs before running it was the one the text omitted. Hetzner was the
+  last provider still saying this; UpCloud, DigitalOcean and OVH already
+  named the volumes and load balancers, and a parity test across all four
+  now pins the wording so a later rewrite cannot drop it again.
 
 ## v0.15.0-rc1 — 2026-09-03
 

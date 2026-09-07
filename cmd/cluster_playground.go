@@ -79,7 +79,7 @@ var clusterPlaygroundPlansCmd = &cobra.Command{
 var clusterPlaygroundResizeSize string
 
 var clusterPlaygroundResizeCmd = &cobra.Command{
-	Use:   "resize <cluster_id>",
+	Use:   "resize <cluster_id|name>",
 	Short: "Resize a paid playground to another size",
 	Long: "Change a paid playground to another paid size in place: only the namespace quota and " +
 		"the monthly price change (the month is billed pro-rata across the change), nothing you " +
@@ -89,7 +89,11 @@ var clusterPlaygroundResizeCmd = &cobra.Command{
 		if clusterPlaygroundResizeSize == "" {
 			return fmt.Errorf("--size is required; list sizes with `ankra cluster playground plans`")
 		}
-		result, err := apiClient.ResizePlayground(args[0], clusterPlaygroundResizeSize)
+		clusterID, err := resolvePlaygroundClusterID(args[0])
+		if err != nil {
+			return err
+		}
+		result, err := apiClient.ResizePlayground(clusterID, clusterPlaygroundResizeSize)
 		if err != nil {
 			return fmt.Errorf("resizing the playground: %w", err)
 		}
@@ -121,11 +125,15 @@ func currencySymbol(currency string) string {
 }
 
 var clusterPlaygroundStatusCmd = &cobra.Command{
-	Use:   "status <cluster_id>",
+	Use:   "status <cluster_id|name>",
 	Short: "Show the provisioning phase of a playground",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		status, err := apiClient.GetPlaygroundStatus(args[0])
+		clusterID, err := resolvePlaygroundClusterID(args[0])
+		if err != nil {
+			return err
+		}
+		status, err := apiClient.GetPlaygroundStatus(clusterID)
 		if err != nil {
 			return fmt.Errorf("reading the playground status: %w", err)
 		}
@@ -158,7 +166,7 @@ var clusterPlaygroundStatusCmd = &cobra.Command{
 }
 
 var clusterPlaygroundDestroyCmd = &cobra.Command{
-	Use:   "destroy <cluster_id>",
+	Use:   "destroy <cluster_id|name>",
 	Short: "Destroy your organisation's playground",
 	Long: "Tear the organisation's playground down. Teardown runs in the background: poll " +
 		"`ankra cluster playground status <cluster_id>` until the phase reaches removed.\n\n" +
@@ -168,7 +176,11 @@ var clusterPlaygroundDestroyCmd = &cobra.Command{
 		"provisioner's next pass. Destroying the environment is what removes it for good.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		result, err := apiClient.DestroyPlayground(args[0])
+		clusterID, err := resolvePlaygroundClusterID(args[0])
+		if err != nil {
+			return err
+		}
+		result, err := apiClient.DestroyPlayground(clusterID)
 		if err != nil {
 			return fmt.Errorf("destroying the playground: %w", err)
 		}
@@ -192,4 +204,19 @@ func init() {
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundStatusCmd)
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundDestroyCmd)
 	clusterCmd.AddCommand(clusterPlaygroundCmd)
+}
+
+// resolvePlaygroundClusterID accepts the cluster id the playground routes
+// want, or the cluster's name as `ankra cluster list` shows it: passing the
+// name straight through answered a bare 404 from the route, with nothing
+// to say an id was expected (ankra-y8l44.35).
+func resolvePlaygroundClusterID(nameOrID string) (string, error) {
+	if isLikelyClusterID(nameOrID) {
+		return nameOrID, nil
+	}
+	clusterID, err := resolveClusterID(nameOrID)
+	if err != nil {
+		return "", fmt.Errorf("%w (playground commands take the cluster id or its name from `ankra cluster list`)", err)
+	}
+	return clusterID, nil
 }

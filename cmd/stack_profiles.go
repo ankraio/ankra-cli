@@ -136,8 +136,42 @@ var stackProfilesListCmd = &cobra.Command{
 			})
 		}
 		writer.Render()
+		fmt.Print(stackProfileListingFooter(len(response.Result), response.TotalCount, page, pageSize))
 		return nil
 	},
+}
+
+// stackProfileListingFooter is the "showing this page, not the catalogue"
+// line under the table. Without it a default `list` prints 25 rows of a
+// 35-profile catalogue with nothing saying the other 10 exist, and both the
+// user and anything reading the table take page 1 for the whole set
+// (PLA-824). Empty when the page already covers every profile; table mode
+// only, because renderStructured returns before this and -o json/yaml stdout
+// must stay parseable.
+func stackProfileListingFooter(shown int, totalCount int, page int, pageSize int) string {
+	// total_count absent from the response unmarshals to 0, which is "unknown",
+	// not "empty" - and treating it as a total would suppress the footer on
+	// exactly the page that needs it. A full page with no reported total is
+	// indistinguishable from a truncated one, so say the size is unknown rather
+	// than let the page pass for the catalogue again. A short page is the whole
+	// remainder either way, so it stays quiet.
+	if totalCount <= 0 {
+		if pageSize > 0 && shown >= pageSize {
+			return fmt.Sprintf("Showing %d stack profiles (page %d; catalogue size unknown); use --page/--page-size to check for more.\n",
+				shown, page)
+		}
+		return ""
+	}
+	if totalCount <= shown {
+		return ""
+	}
+	pageSuffix := ""
+	if pageSize > 0 {
+		totalPages := (totalCount + pageSize - 1) / pageSize
+		pageSuffix = fmt.Sprintf(" (page %d of %d)", page, totalPages)
+	}
+	return fmt.Sprintf("Showing %d of %d stack profiles%s; use --page/--page-size to see the rest.\n",
+		shown, totalCount, pageSuffix)
 }
 
 var stackProfilesExportIacCmd = &cobra.Command{
@@ -195,11 +229,19 @@ var stackProfilesExportIacCmd = &cobra.Command{
 var stackProfilesImportCmd = &cobra.Command{
 	Use:   "import [file]",
 	Short: "Import a profile from a ClusterInfrastructureAsCode YAML file",
-	Args:  cobra.ExactArgs(1),
+	Long: "Import a ClusterInfrastructureAsCode YAML file as a stack profile, publishing its " +
+		"first version immediately.\n\nWith --as-draft the document opens as a builder draft " +
+		"instead, so a file-authored candidate can be reviewed before anything is published: " +
+		"when your organisation already has a profile with the document's name (or the --name " +
+		"override) the draft attaches to it as the next-version candidate, and otherwise it " +
+		"opens as a new-profile draft. Review it with 'ankra stack-profiles drafts validate' " +
+		"and ship it with 'ankra stack-profiles drafts publish'.",
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		filePath := args[0]
 		name, _ := cmd.Flags().GetString("name")
 		category, _ := cmd.Flags().GetString("category")
+		asDraft, _ := cmd.Flags().GetBool("as-draft")
 
 		content, err := os.ReadFile(filePath)
 		if err != nil {
@@ -209,6 +251,37 @@ var stackProfilesImportCmd = &cobra.Command{
 		var profileName *string
 		if name != "" {
 			profileName = &name
+		}
+
+		if asDraft {
+			draftRequest := client.ImportStackProfileDraftRequest{
+				Name:          profileName,
+				ContentBase64: base64.StdEncoding.EncodeToString(content),
+			}
+			// Only a category the caller explicitly set rides the draft: a
+			// draft attaching to an existing profile applies non-null
+			// metadata at publish, so sending the flag default would
+			// overwrite the profile's own category.
+			if cmd.Flags().Changed("category") {
+				draftRequest.Category = &category
+			}
+			result, importError := apiClient.ImportStackProfileAsDraft(draftRequest)
+			if importError != nil {
+				return fmt.Errorf("importing profile as draft: %w", importError)
+			}
+			for _, warning := range result.Warnings {
+				fmt.Printf("Warning: %s\n", warning)
+			}
+			if result.Draft.ProfileID != nil && result.Draft.BaseVersion != nil {
+				fmt.Printf("Opened draft %s on existing profile %q (id=%s, base version v%d). Nothing is published yet.\n",
+					result.Draft.ID, result.Draft.Name, *result.Draft.ProfileID, *result.Draft.BaseVersion)
+			} else {
+				fmt.Printf("Opened new-profile draft %s for %q. Nothing is published yet.\n",
+					result.Draft.ID, result.Draft.Name)
+			}
+			fmt.Printf("Review and publish:\n  ankra stack-profiles drafts validate %s\n  ankra stack-profiles drafts publish %s\n",
+				result.Draft.ID, result.Draft.ID)
+			return nil
 		}
 
 		importRequest := client.ImportStackProfileRequest{
@@ -607,6 +680,8 @@ func init() {
 
 	stackProfilesImportCmd.Flags().String("name", "", "Profile name (defaults to metadata.name in the file)")
 	stackProfilesImportCmd.Flags().String("category", "general", "Profile category")
+	stackProfilesImportCmd.Flags().Bool("as-draft", false,
+		"Open the document as a builder draft for review instead of publishing (attaches to your existing profile of the same name when one exists)")
 
 	stackProfilesGetCmd.Flags().String("version", "", "Profile version to describe, as 1 or v1 (defaults to the current version)")
 	registerStructuredOutputFlags(stackProfilesGetCmd)

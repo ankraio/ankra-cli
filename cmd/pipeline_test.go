@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -35,6 +36,12 @@ type pipelineLaneMock struct {
 	getRunID  string
 	getResult *client.PipelineRunDetail
 	getError  error
+	getCalls  int
+	// getResults, when set, is served one entry per call in order and takes
+	// precedence over getResult, so a test can stage a run whose steps move
+	// between polls. The last entry answers every call after it, the way a
+	// run that has settled keeps answering the same detail.
+	getResults []client.PipelineRunDetail
 
 	cancelRunID  string
 	cancelResult *client.PipelineRun
@@ -48,6 +55,20 @@ type pipelineLaneMock struct {
 	artifactsRunID  string
 	artifactsResult *client.PipelineArtifactList
 	artifactsError  error
+	// artifactsPages, when set, is served one page per call in order and
+	// takes precedence over artifactsResult, so a test can exercise a
+	// listing the caller has to follow NextCursor through.
+	artifactsPages   []client.PipelineArtifactList
+	artifactsOptions []client.ListPipelineArtifactsOptions
+
+	streamStepID  string
+	streamOptions []client.StepLogStreamOptions
+	streamEvents  []client.PipelineLogEvent
+	streamError   error
+	// streamNeverEnds serves streamEvents and then holds the channel open
+	// until the caller cancels, the way a platform that ignores follow=false
+	// keeps a concluded step's connection alive on keepalives.
+	streamNeverEnds bool
 
 	downloadArtifactID string
 	downloadError      error
@@ -60,6 +81,15 @@ type pipelineLaneMock struct {
 	validateSpecYAML string
 	validateResult   *client.PipelineValidation
 	validateError    error
+
+	getApprovalDefinitionID string
+	getApprovalResult       *client.PipelineDefinitionApproval
+	getApprovalError        error
+
+	approveDefinitionID string
+	approveResult       *client.PipelineDefinitionApproval
+	approveError        error
+	approveCalls        int
 
 	schedulesResult *client.PipelineScheduleList
 	schedulesError  error
@@ -75,6 +105,23 @@ type pipelineLaneMock struct {
 
 	deleteScheduleID    string
 	deleteScheduleError error
+
+	listRepositoriesOptions client.ListPipelineRepositoriesOptions
+	listRepositoriesResult  *client.PipelineRepositoryList
+	listRepositoriesError   error
+
+	getRepositoryID     string
+	getRepositoryResult *client.PipelineRepository
+	getRepositoryError  error
+
+	connectRepositoryRequest client.ConnectPipelineRepositoryRequest
+	connectRepositoryResult  *client.ConnectPipelineRepositoryResult
+	connectRepositoryError   error
+	connectRepositoryCalls   int
+
+	disconnectRepositoryID    string
+	disconnectRepositoryError error
+	disconnectRepositoryCalls int
 }
 
 func (mock *pipelineLaneMock) ListPipelineRuns(ctx context.Context, selector client.PipelineSelector, options client.ListPipelineRunsOptions) (*client.PipelineRunList, error) {
@@ -99,8 +146,17 @@ func (mock *pipelineLaneMock) CreatePipelineRun(ctx context.Context, selector cl
 func (mock *pipelineLaneMock) GetPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunDetail, error) {
 	mock.lastSelector = selector
 	mock.getRunID = runID
+	mock.getCalls++
 	if mock.getError != nil {
 		return nil, mock.getError
+	}
+	if mock.getResults != nil {
+		index := mock.getCalls - 1
+		if index >= len(mock.getResults) {
+			index = len(mock.getResults) - 1
+		}
+		detail := mock.getResults[index]
+		return &detail, nil
 	}
 	return mock.getResult, nil
 }
@@ -124,17 +180,42 @@ func (mock *pipelineLaneMock) CancelPipelineRun(ctx context.Context, selector cl
 	return mock.cancelResult, nil
 }
 
-func (mock *pipelineLaneMock) StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, fromSequence int64) (<-chan client.PipelineLogEvent, error) {
-	events := make(chan client.PipelineLogEvent)
-	close(events)
+func (mock *pipelineLaneMock) StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, options client.StepLogStreamOptions) (<-chan client.PipelineLogEvent, error) {
+	mock.lastSelector = selector
+	mock.streamStepID = stepID
+	mock.streamOptions = append(mock.streamOptions, options)
+	if mock.streamError != nil {
+		return nil, mock.streamError
+	}
+	events := make(chan client.PipelineLogEvent, len(mock.streamEvents))
+	for _, event := range mock.streamEvents {
+		events <- event
+	}
+	if !mock.streamNeverEnds {
+		close(events)
+		return events, nil
+	}
+	go func() {
+		<-ctx.Done()
+		close(events)
+	}()
 	return events, nil
 }
 
-func (mock *pipelineLaneMock) ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineArtifactList, error) {
+func (mock *pipelineLaneMock) ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string, options client.ListPipelineArtifactsOptions) (*client.PipelineArtifactList, error) {
 	mock.lastSelector = selector
 	mock.artifactsRunID = runID
+	mock.artifactsOptions = append(mock.artifactsOptions, options)
 	if mock.artifactsError != nil {
 		return nil, mock.artifactsError
+	}
+	if mock.artifactsPages != nil {
+		index := len(mock.artifactsOptions) - 1
+		if index >= len(mock.artifactsPages) {
+			index = len(mock.artifactsPages) - 1
+		}
+		page := mock.artifactsPages[index]
+		return &page, nil
 	}
 	return mock.artifactsResult, nil
 }
@@ -142,11 +223,12 @@ func (mock *pipelineLaneMock) ListPipelineArtifacts(ctx context.Context, selecto
 func (mock *pipelineLaneMock) DownloadPipelineArtifact(ctx context.Context, selector client.PipelineSelector, artifactID string, destination io.Writer) error {
 	mock.lastSelector = selector
 	mock.downloadArtifactID = artifactID
-	if mock.downloadError != nil {
-		return mock.downloadError
+	// downloadPayload is written before downloadError is answered, so a test
+	// can stage a download that failed partway through one.
+	if _, writeError := destination.Write([]byte(mock.downloadPayload)); writeError != nil {
+		return writeError
 	}
-	_, writeError := destination.Write([]byte(mock.downloadPayload))
-	return writeError
+	return mock.downloadError
 }
 
 func (mock *pipelineLaneMock) GetPipelineDefinition(ctx context.Context, selector client.PipelineSelector) (*client.PipelineDefinition, error) {
@@ -164,6 +246,23 @@ func (mock *pipelineLaneMock) PutPipelineDefinition(ctx context.Context, selecto
 		return nil, mock.definitionError
 	}
 	return mock.definitionResult, nil
+}
+
+func (mock *pipelineLaneMock) GetPipelineDefinitionApproval(ctx context.Context, definitionID string) (*client.PipelineDefinitionApproval, error) {
+	mock.getApprovalDefinitionID = definitionID
+	if mock.getApprovalError != nil {
+		return nil, mock.getApprovalError
+	}
+	return mock.getApprovalResult, nil
+}
+
+func (mock *pipelineLaneMock) ApprovePipelineDefinition(ctx context.Context, definitionID string) (*client.PipelineDefinitionApproval, error) {
+	mock.approveDefinitionID = definitionID
+	mock.approveCalls++
+	if mock.approveError != nil {
+		return nil, mock.approveError
+	}
+	return mock.approveResult, nil
 }
 
 func (mock *pipelineLaneMock) ValidatePipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineValidation, error) {
@@ -208,6 +307,37 @@ func (mock *pipelineLaneMock) DeletePipelineSchedule(ctx context.Context, select
 	return mock.deleteScheduleError
 }
 
+func (mock *pipelineLaneMock) ListPipelineRepositories(ctx context.Context, options client.ListPipelineRepositoriesOptions) (*client.PipelineRepositoryList, error) {
+	mock.listRepositoriesOptions = options
+	if mock.listRepositoriesError != nil {
+		return nil, mock.listRepositoriesError
+	}
+	return mock.listRepositoriesResult, nil
+}
+
+func (mock *pipelineLaneMock) GetPipelineRepository(ctx context.Context, repositoryID string) (*client.PipelineRepository, error) {
+	mock.getRepositoryID = repositoryID
+	if mock.getRepositoryError != nil {
+		return nil, mock.getRepositoryError
+	}
+	return mock.getRepositoryResult, nil
+}
+
+func (mock *pipelineLaneMock) ConnectPipelineRepository(ctx context.Context, request client.ConnectPipelineRepositoryRequest) (*client.ConnectPipelineRepositoryResult, error) {
+	mock.connectRepositoryRequest = request
+	mock.connectRepositoryCalls++
+	if mock.connectRepositoryError != nil {
+		return nil, mock.connectRepositoryError
+	}
+	return mock.connectRepositoryResult, nil
+}
+
+func (mock *pipelineLaneMock) DisconnectPipelineRepository(ctx context.Context, repositoryID string) error {
+	mock.disconnectRepositoryID = repositoryID
+	mock.disconnectRepositoryCalls++
+	return mock.disconnectRepositoryError
+}
+
 func runPipelineCommand(t *testing.T, mockClient APIClient, arguments ...string) (string, error) {
 	t.Helper()
 	previousClient := apiClient
@@ -230,7 +360,7 @@ func TestPipelineCommandsRegistered(t *testing.T) {
 		registered[subcommand.Name()] = true
 	}
 	for _, expected := range []string{
-		"run", "list", "get", "cancel", "rerun", "logs", "artifacts", "validate", "definition", "schedules",
+		"run", "list", "get", "cancel", "rerun", "logs", "artifacts", "validate", "definition", "definitions", "schedules", "repositories",
 	} {
 		if !registered[expected] {
 			t.Errorf("pipeline subcommand %q is not registered", expected)
@@ -247,10 +377,22 @@ func TestPipelineCommandsRegistered(t *testing.T) {
 			t.Errorf("pipeline definition subcommand %q is not registered", expected)
 		}
 	}
+	definitionsCommand := findSubcommand(t, pipelineCommand, "definitions")
+	for _, expected := range []string{"get", "approve"} {
+		if findSubcommandOrNil(definitionsCommand, expected) == nil {
+			t.Errorf("pipeline definitions subcommand %q is not registered", expected)
+		}
+	}
 	schedulesCommand := findSubcommand(t, pipelineCommand, "schedules")
 	for _, expected := range []string{"list", "create", "update", "delete"} {
 		if findSubcommandOrNil(schedulesCommand, expected) == nil {
 			t.Errorf("pipeline schedules subcommand %q is not registered", expected)
+		}
+	}
+	repositoriesCommand := findSubcommand(t, pipelineCommand, "repositories")
+	for _, expected := range []string{"list", "get", "connect", "disconnect"} {
+		if findSubcommandOrNil(repositoriesCommand, expected) == nil {
+			t.Errorf("pipeline repositories subcommand %q is not registered", expected)
 		}
 	}
 }
@@ -262,6 +404,22 @@ func TestApplicationPipelineCommandsRegistered(t *testing.T) {
 	} {
 		if findSubcommandOrNil(applicationPipelineCommand, expected) == nil {
 			t.Errorf("application pipeline subcommand %q is not registered", expected)
+		}
+	}
+}
+
+func TestPipelineArtifactsPagingFlagsOnBothSurfaces(t *testing.T) {
+	// A run with more artifacts than one page must be walkable from either
+	// address, so both surfaces carry the same paging flags.
+	surfaces := map[string]*cobra.Command{
+		"pipeline artifacts":             findSubcommand(t, newPipelineCommand(), "artifacts"),
+		"application pipeline artifacts": findSubcommand(t, findSubcommand(t, newApplicationCommand(), "pipeline"), "artifacts"),
+	}
+	for name, command := range surfaces {
+		for _, flag := range []string{"cursor", "limit"} {
+			if command.Flags().Lookup(flag) == nil {
+				t.Errorf("%q does not register --%s", name, flag)
+			}
 		}
 	}
 }
@@ -457,6 +615,68 @@ func TestPipelineArtifactsListEmpty(t *testing.T) {
 	}
 }
 
+func TestPipelineListingsRefuseANegativeLimit(t *testing.T) {
+	// A negative --limit used to be dropped on the way to the query, so the
+	// caller silently got the server's default page instead of being told
+	// the flag was ignored.
+	for name, arguments := range map[string][]string{
+		"artifacts": {"artifacts", "run-1", "--application", testApplicationID, "--limit", "-5"},
+		"list":      {"list", "--application", testApplicationID, "--limit", "-5"},
+	} {
+		mockClient := &pipelineLaneMock{}
+		_, executeError := runPipelineCommand(t, mockClient, arguments...)
+		if executeError == nil || !strings.Contains(executeError.Error(), "--limit must be a positive number") {
+			t.Errorf("%s error = %v, want a usage refusal", name, executeError)
+		}
+		if len(mockClient.artifactsOptions) != 0 || mockClient.listOptions.Limit != 0 {
+			t.Errorf("%s must refuse before asking the server anything", name)
+		}
+	}
+}
+
+func TestPipelineArtifactsListSaysWhenAnotherPageExists(t *testing.T) {
+	nextCursor := "cursor-2"
+	stepID := "step-1"
+	mockClient := &pipelineLaneMock{artifactsResult: &client.PipelineArtifactList{
+		Artifacts: []client.PipelineArtifact{
+			{ID: "artifact-1", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+				Status: client.PipelineArtifactStatusUploaded},
+		},
+		NextCursor: &nextCursor,
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "artifacts", "run-1",
+		"--application", testApplicationID, "--cursor", "cursor-1", "--limit", "100")
+	if executeError != nil {
+		t.Fatalf("artifacts error = %v", executeError)
+	}
+	if len(mockClient.artifactsOptions) != 1 ||
+		mockClient.artifactsOptions[0].Cursor != "cursor-1" || mockClient.artifactsOptions[0].Limit != 100 {
+		t.Fatalf("paging asked for = %+v, want the flags passed through", mockClient.artifactsOptions)
+	}
+	if !strings.Contains(output, "--cursor cursor-2") {
+		t.Errorf("output = %q, want it to name the next page's cursor", output)
+	}
+}
+
+func TestPipelineArtifactsListEmptyPageWithMoreToRead(t *testing.T) {
+	// An empty page that still offers a cursor is "more to read", not "the
+	// run stored nothing".
+	nextCursor := "cursor-2"
+	mockClient := &pipelineLaneMock{artifactsResult: &client.PipelineArtifactList{
+		Artifacts: []client.PipelineArtifact{}, NextCursor: &nextCursor,
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "artifacts", "run-1", "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("artifacts error = %v", executeError)
+	}
+	if strings.Contains(output, "No artifacts stored") {
+		t.Errorf("output = %q, must not claim the run stored nothing", output)
+	}
+	if !strings.Contains(output, "--cursor cursor-2") {
+		t.Errorf("output = %q, want it to name the next page's cursor", output)
+	}
+}
+
 func TestPipelineArtifactsDownloadWritesFile(t *testing.T) {
 	mockClient := &pipelineLaneMock{downloadPayload: "binary-content"}
 	outputPath := t.TempDir() + "/artifact.bin"
@@ -494,6 +714,138 @@ func TestPipelineValidateOKPassesThroughFileContent(t *testing.T) {
 	}
 	if mockClient.validateSpecYAML != "apiVersion: ankra.io/v1\nkind: Pipeline\n" {
 		t.Errorf("spec yaml = %q", mockClient.validateSpecYAML)
+	}
+}
+
+// validationWithNetworkTiers is a dry run of a definition naming no network
+// tier of its own, planned by an Ankra that resolves one per step: the build
+// takes the egress its base image and registry push need, and the test stage
+// keeps the run kind's own default of none.
+func validationWithNetworkTiers() *client.PipelineValidation {
+	return &client.PipelineValidation{
+		Severity: "ok",
+		Events: []client.PipelineEventPlan{{
+			Event: "push",
+			Run:   true,
+			Steps: []client.PipelinePlannedStep{
+				{StepKey: "checkout", Stage: "checkout", Kind: "checkout", Network: "egress-https"},
+				{StepKey: "test", Stage: "test", Kind: "run", Network: "none"},
+				{StepKey: "build", Stage: "build", Kind: "build", Network: "egress-https"},
+			},
+		}},
+	}
+}
+
+// writePipelineFixture writes a definition for `validate` to read. Naming a
+// file keeps the test off the default path, which resolves against the
+// process's working directory and, today, refuses rather than falling back to
+// the stored definition when it is missing.
+func writePipelineFixture(t *testing.T) string {
+	t.Helper()
+	fixturePath := t.TempDir() + "/pipeline.yaml"
+	if writeError := os.WriteFile(fixturePath, []byte("apiVersion: ankra.io/v1\nkind: Pipeline\n"), 0o600); writeError != nil {
+		t.Fatalf("writing fixture: %v", writeError)
+	}
+	return fixturePath
+}
+
+func TestPipelineValidateNamesEachPlannedStepsNetworkTier(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: validationWithNetworkTiers()}
+	output, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	for _, wanted := range []string{
+		"checkout (checkout, checkout, egress-https)",
+		"test (test, run, none)",
+		"build (build, build, egress-https)",
+	} {
+		if !strings.Contains(output, wanted) {
+			t.Errorf("output = %q, want it to name the step line %q", output, wanted)
+		}
+	}
+}
+
+// TestPipelineValidateOmitsANetworkTierAnOlderPlatformDoesNotSend keeps the
+// tier a report of what the platform resolved rather than an assertion the
+// CLI invents: an Ankra older than the field sends no tier, and printing an
+// empty one would read as "this step runs with no egress" - the opposite of
+// the truth for a checkout or a build.
+func TestPipelineValidateOmitsANetworkTierAnOlderPlatformDoesNotSend(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: &client.PipelineValidation{
+		Severity: "ok",
+		Events: []client.PipelineEventPlan{{
+			Event: "push",
+			Run:   true,
+			Steps: []client.PipelinePlannedStep{{StepKey: "build", Stage: "build", Kind: "build"}},
+		}},
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if !strings.Contains(output, "build (build, build)") {
+		t.Errorf("output = %q, want the step line without a tier", output)
+	}
+	if strings.Contains(output, "build, build, )") {
+		t.Errorf("output = %q, must not print an empty tier", output)
+	}
+}
+
+func TestPipelineValidateJSONCarriesTheNetworkTier(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: validationWithNetworkTiers()}
+	output, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
+		"--application", testApplicationID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	var decoded client.PipelineValidation
+	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+		t.Fatalf("decoding %q: %v", output, decodeError)
+	}
+	if len(decoded.Events) != 1 || len(decoded.Events[0].Steps) != 3 {
+		t.Fatalf("decoded = %+v", decoded)
+	}
+	if decoded.Events[0].Steps[2].Network != "egress-https" {
+		t.Errorf("build step network = %q, want the tier to survive the re-encode",
+			decoded.Events[0].Steps[2].Network)
+	}
+	if !strings.Contains(output, `"network"`) {
+		t.Errorf("output = %q, want the wire field name kept for scripts", output)
+	}
+}
+
+// TestPipelineValidateJSONOmitsANetworkTierAnOlderPlatformDoesNotSend is the
+// scripted half of the older-platform case: the key is left out rather than
+// emitted empty, so `.network` is absent for "this Ankra does not resolve
+// tiers" and only ever a tier the platform really resolved otherwise. An
+// empty string would be indistinguishable from a resolved value to jq.
+func TestPipelineValidateJSONOmitsANetworkTierAnOlderPlatformDoesNotSend(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: &client.PipelineValidation{
+		Severity: "ok",
+		Events: []client.PipelineEventPlan{{
+			Event: "push",
+			Run:   true,
+			Steps: []client.PipelinePlannedStep{{StepKey: "build", Stage: "build", Kind: "build"}},
+		}},
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
+		"--application", testApplicationID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if strings.Contains(output, `"network"`) {
+		t.Errorf("output = %q, want no network key at all", output)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+		t.Fatalf("decoding %q: %v", output, decodeError)
+	}
+	step := decoded["events"].([]any)[0].(map[string]any)["steps"].([]any)[0].(map[string]any)
+	if _, isPresent := step["network"]; isPresent {
+		t.Errorf("step = %+v, want the key absent rather than empty", step)
 	}
 }
 
@@ -636,6 +988,273 @@ func TestApplicationPipelineAliasesForceTheApplicationSelector(t *testing.T) {
 	}
 	if mockClient.lastSelector.ApplicationID != testApplicationID || mockClient.lastSelector.RepositoryID != "" {
 		t.Errorf("selector = %+v", mockClient.lastSelector)
+	}
+}
+
+func TestPipelineDefinitionsGetRendersApprovalState(t *testing.T) {
+	mockClient := &pipelineLaneMock{getApprovalResult: &client.PipelineDefinitionApproval{
+		DefinitionID:  "def-1",
+		ProtectedHash: strings.Repeat("a", 64),
+		ApprovedHash:  strings.Repeat("a", 64),
+		ApprovedBy:    "user-1",
+		ApprovedAt:    strPipelinePtr("2026-09-01T00:00:00Z"),
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "definitions", "get", "def-1")
+	if executeError != nil {
+		t.Fatalf("definitions get error = %v", executeError)
+	}
+	if mockClient.getApprovalDefinitionID != "def-1" {
+		t.Errorf("definition id = %q", mockClient.getApprovalDefinitionID)
+	}
+	if !strings.Contains(output, "def-1") || !strings.Contains(output, "user-1") {
+		t.Errorf("output = %q", output)
+	}
+	if !strings.Contains(output, "Approved: this definition's protected sections are trusted authority") {
+		t.Errorf("output = %q, want the approved summary line", output)
+	}
+}
+
+// TestPipelineDefinitionsGetRendersNotApproved pins the "not approved" branch
+// - an empty ApprovedHash - and that the hint names this exact id, since a
+// person reading it is about to copy the command it prints.
+func TestPipelineDefinitionsGetRendersNotApproved(t *testing.T) {
+	mockClient := &pipelineLaneMock{getApprovalResult: &client.PipelineDefinitionApproval{
+		DefinitionID:  "def-2",
+		ProtectedHash: strings.Repeat("b", 64),
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "definitions", "get", "def-2")
+	if executeError != nil {
+		t.Fatalf("definitions get error = %v", executeError)
+	}
+	if !strings.Contains(output, "Not approved") || !strings.Contains(output, "ankra pipeline definitions approve def-2") {
+		t.Errorf("output = %q, want the not-approved hint naming the id", output)
+	}
+}
+
+// TestPipelineDefinitionsGetRendersUnassessed pins the third branch - a
+// definition recorded before the writer stamped protected hashes
+// (ankra-vn0bd.10.8), so ProtectedHash itself is "". That definition can
+// never be approved (the server refuses it as a 409), so the output must say
+// so rather than printing the ordinary "not approved" hint that implies
+// approving it would work.
+func TestPipelineDefinitionsGetRendersUnassessed(t *testing.T) {
+	mockClient := &pipelineLaneMock{getApprovalResult: &client.PipelineDefinitionApproval{DefinitionID: "def-3"}}
+	output, executeError := runPipelineCommand(t, mockClient, "definitions", "get", "def-3")
+	if executeError != nil {
+		t.Fatalf("definitions get error = %v", executeError)
+	}
+	if !strings.Contains(output, "have not been assessed yet") {
+		t.Errorf("output = %q, want the unassessed explanation", output)
+	}
+	if strings.Contains(output, "Not approved: run") {
+		t.Errorf("output = %q, must not offer the ordinary approve hint for a definition that cannot be approved", output)
+	}
+}
+
+func TestPipelineDefinitionsGetJSON(t *testing.T) {
+	mockClient := &pipelineLaneMock{getApprovalResult: &client.PipelineDefinitionApproval{
+		DefinitionID: "def-1", ProtectedHash: strings.Repeat("a", 64),
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "definitions", "get", "def-1", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("definitions get -o json error = %v", executeError)
+	}
+	if !strings.Contains(output, `"definition_id": "def-1"`) {
+		t.Errorf("output = %q, want the JSON envelope", output)
+	}
+}
+
+func TestPipelineDefinitionsGetNotFound(t *testing.T) {
+	mockClient := &pipelineLaneMock{getApprovalError: errors.New("Pipeline definition not found")}
+	_, executeError := runPipelineCommand(t, mockClient, "definitions", "get", "missing")
+	if executeError == nil || executeError.Error() != "Pipeline definition not found" {
+		t.Fatalf("error = %v, want the sentinel text verbatim", executeError)
+	}
+}
+
+// TestPipelineDefinitionsGetGuardsAgainstANilResultWithNoError pins that a
+// broken APIClient answering (nil, nil) - unreachable through the real
+// client, but not through the interface's own contract - is reported as a
+// clear error rather than panicking on a nil dereference
+// (ankra-platform[bot] review on #231).
+func TestPipelineDefinitionsGetGuardsAgainstANilResultWithNoError(t *testing.T) {
+	mockClient := &pipelineLaneMock{}
+	_, executeError := runPipelineCommand(t, mockClient, "definitions", "get", "def-1")
+	if executeError == nil {
+		t.Fatal("expected an error rather than a panic")
+	}
+}
+
+func TestPipelineDefinitionsApproveHappyPath(t *testing.T) {
+	mockClient := &pipelineLaneMock{approveResult: &client.PipelineDefinitionApproval{
+		DefinitionID: "def-1", ProtectedHash: strings.Repeat("a", 64), ApprovedHash: strings.Repeat("a", 64),
+		ApprovedBy: "user-1", ApprovedAt: strPipelinePtr("2026-09-01T00:00:00Z"),
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "definitions", "approve", "def-1", "--yes")
+	if executeError != nil {
+		t.Fatalf("definitions approve error = %v", executeError)
+	}
+	if mockClient.approveDefinitionID != "def-1" || mockClient.approveCalls != 1 {
+		t.Errorf("approve calls = %d, id = %q", mockClient.approveCalls, mockClient.approveDefinitionID)
+	}
+	if !strings.Contains(output, "Approved pipeline definition def-1") {
+		t.Errorf("output = %q", output)
+	}
+}
+
+func TestPipelineDefinitionsApproveJSON(t *testing.T) {
+	mockClient := &pipelineLaneMock{approveResult: &client.PipelineDefinitionApproval{DefinitionID: "def-1"}}
+	output, executeError := runPipelineCommand(t, mockClient, "definitions", "approve", "def-1", "-o", "json", "--yes")
+	if executeError != nil {
+		t.Fatalf("definitions approve -o json error = %v", executeError)
+	}
+	if !strings.Contains(output, `"definition_id": "def-1"`) {
+		t.Errorf("output = %q, want the JSON envelope", output)
+	}
+}
+
+// TestPipelineDefinitionsApproveErrorsAreVerbatimAndExitNonZero pins that the
+// 404/409/403 the server can answer reach the caller unrewritten and exit
+// non-zero - the command layer must not reinterpret what the client already
+// surfaced verbatim (internal/client's own tests pin the wire shape each maps
+// from).
+func TestPipelineDefinitionsApproveErrorsAreVerbatimAndExitNonZero(t *testing.T) {
+	for _, sentinel := range []string{
+		"Pipeline definition not found",
+		"Only the repository's current default-branch definition can be approved",
+		"This pipeline definition is already approved",
+		"A pipeline definition's authority can only be approved by a human administrator",
+	} {
+		t.Run(sentinel, func(t *testing.T) {
+			mockClient := &pipelineLaneMock{approveError: errors.New(sentinel)}
+			_, executeError := runPipelineCommand(t, mockClient, "definitions", "approve", "def-1", "--yes")
+			if executeError == nil || executeError.Error() != sentinel {
+				t.Fatalf("error = %v, want the sentinel text verbatim", executeError)
+			}
+			if exitCodeFor(executeError) == exitOK {
+				t.Errorf("exit code = %d, want non-zero", exitCodeFor(executeError))
+			}
+		})
+	}
+}
+
+// TestPipelineDefinitionsApproveConfirms pins that approving - which grants
+// whatever permissions, credentials and network access the definition's
+// protected sections declare - confirms first like every other privileged or
+// destructive command in this CLI, and that declining never reaches the API
+// (ankra-platform[bot] review on #231).
+func TestPipelineDefinitionsApproveConfirms(t *testing.T) {
+	mockClient := &pipelineLaneMock{}
+	previousClient := apiClient
+	apiClient = mockClient
+	t.Cleanup(func() { apiClient = previousClient })
+
+	pipelineCommand := newPipelineCommand()
+	var output bytes.Buffer
+	pipelineCommand.SetOut(&output)
+	pipelineCommand.SetErr(&output)
+	pipelineCommand.SetIn(strings.NewReader("n\n"))
+	pipelineCommand.SetArgs([]string{"definitions", "approve", "def-1"})
+	executeError := pipelineCommand.Execute()
+	if executeError == nil || exitCodeFor(executeError) != exitCancelled {
+		t.Fatalf("declined approve error = %v", executeError)
+	}
+	if mockClient.approveCalls != 0 {
+		t.Errorf("ApprovePipelineDefinition was called despite the decline, calls = %d", mockClient.approveCalls)
+	}
+}
+
+// TestPipelineDefinitionsApproveGuardsAgainstANilResultWithNoError is
+// TestPipelineDefinitionsGetGuardsAgainstANilResultWithNoError's twin for
+// approve.
+func TestPipelineDefinitionsApproveGuardsAgainstANilResultWithNoError(t *testing.T) {
+	mockClient := &pipelineLaneMock{}
+	_, executeError := runPipelineCommand(t, mockClient, "definitions", "approve", "def-1", "--yes")
+	if executeError == nil {
+		t.Fatal("expected an error rather than a panic")
+	}
+}
+
+// TestPipelineGetRendersAuthorityWhenRecorded pins that 'pipeline get' shows
+// a run's recorded authority state and, for a state other than "approved",
+// a note that an administrator's approval would change it.
+//
+// It deliberately does NOT assert an
+// "ankra pipeline definitions approve <id>" command naming
+// AuthorityDefinitionID: that field is the definition the run's CURRENTLY
+// TRUSTED authority came from - already approved, or empty - never the
+// definition a non-approved run is waiting on, so turning it into an approve
+// command would print a command that 409s (ankra-platform[bot] review on
+// #231: the original version of this test pinned exactly that mistake).
+func TestPipelineGetRendersAuthorityWhenRecorded(t *testing.T) {
+	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-1", RunNumber: 9, Status: "concluded", Outcome: strPipelinePtr("success"),
+		Trigger: "pull_request", TriggerRef: "refs/heads/feature", HeadSHA: strings.Repeat("a", 40),
+		QueuedAt:              "2026-09-01T00:00:00Z",
+		AuthorityState:        strPipelinePtr("changed_on_head"),
+		AuthorityDefinitionID: strPipelinePtr("def-1"),
+	}}}
+	output, executeError := runPipelineCommand(t, mockClient, "get", "run-1", "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("get error = %v", executeError)
+	}
+	if !strings.Contains(output, "Authority: changed_on_head") {
+		t.Errorf("output = %q, want the authority state line", output)
+	}
+	if !strings.Contains(output, "trusted authority taken from definition def-1") {
+		t.Errorf("output = %q, want the authority's source definition named as context", output)
+	}
+	if !strings.Contains(output, "an administrator approving the repository's current default-branch definition") {
+		t.Errorf("output = %q, want the generic approval note", output)
+	}
+	if strings.Contains(output, "definitions approve def-1") {
+		t.Errorf("output = %q, must not turn the trusted-authority definition into an approve command - "+
+			"it is not necessarily the one that needs approving", output)
+	}
+}
+
+// TestPipelineGetApprovedAuthorityOmitsTheApprovalNote pins that an approved
+// run still names its authority's definition (useful context) but carries no
+// approval note, since there is nothing left to approve.
+func TestPipelineGetApprovedAuthorityOmitsTheApprovalNote(t *testing.T) {
+	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-1", RunNumber: 9, Status: "concluded", Outcome: strPipelinePtr("success"),
+		Trigger: "push", TriggerRef: "refs/heads/main", HeadSHA: strings.Repeat("a", 40),
+		QueuedAt:              "2026-09-01T00:00:00Z",
+		AuthorityState:        strPipelinePtr("approved"),
+		AuthorityDefinitionID: strPipelinePtr("def-1"),
+	}}}
+	output, executeError := runPipelineCommand(t, mockClient, "get", "run-1", "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("get error = %v", executeError)
+	}
+	if !strings.Contains(output, "Authority: approved") {
+		t.Errorf("output = %q, want the authority state line", output)
+	}
+	if !strings.Contains(output, "trusted authority taken from definition def-1") {
+		t.Errorf("output = %q, want the authority's source definition named as context", output)
+	}
+	if strings.Contains(output, "an administrator approving") {
+		t.Errorf("output = %q, an approved run must not carry the approval note", output)
+	}
+}
+
+// TestPipelineGetOmitsAuthorityWhenNotRecorded pins that a run with no
+// recorded authority (planned before ankra-vn0bd.10.8, or not yet planned)
+// prints no Authority line at all - null means "not recorded", not "no
+// authority", and the two must not read the same.
+func TestPipelineGetOmitsAuthorityWhenNotRecorded(t *testing.T) {
+	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-1", RunNumber: 9, Status: "concluded", Outcome: strPipelinePtr("success"),
+		Trigger: "push", TriggerRef: "refs/heads/main", HeadSHA: strings.Repeat("a", 40),
+		QueuedAt: "2026-09-01T00:00:00Z",
+	}}}
+	output, executeError := runPipelineCommand(t, mockClient, "get", "run-1", "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("get error = %v", executeError)
+	}
+	if strings.Contains(output, "Authority:") {
+		t.Errorf("output = %q, want no authority line for a run that recorded none", output)
 	}
 }
 

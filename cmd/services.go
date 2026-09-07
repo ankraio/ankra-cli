@@ -166,6 +166,7 @@ type APIClient interface {
 	ListStackProfiles(page, pageSize int, search string, category string) (*client.StackProfileListResponse, error)
 	ExportStackProfileIac(profileID string, version int) (*client.StackProfileIacExport, error)
 	ImportStackProfile(importRequest client.ImportStackProfileRequest) (*client.CreateStackProfileResult, error)
+	ImportStackProfileAsDraft(importRequest client.ImportStackProfileDraftRequest) (*client.ImportStackProfileDraftResult, error)
 	GetStackProfile(profileID string) (*client.StackProfileDetail, error)
 	InstantiateStackProfile(ctx context.Context, clusterID string, instantiateRequest client.InstantiateStackProfileRequest) (*client.InstantiateStackProfileResult, error)
 	CreateStackProfileDraft(request client.CreateStackProfileDraftRequest) (*client.StackProfileDraft, error)
@@ -388,6 +389,8 @@ type APIClient interface {
 	GetAgentToken(clusterID string) (*client.AgentToken, error)
 	GenerateAgentToken(ctx context.Context, clusterID string) (*client.AgentToken, error)
 	UpgradeClusterAgent(ctx context.Context, clusterID string) (*client.UpgradeAgentResult, error)
+	GetAgentCISettings(ctx context.Context, clusterID string) (*client.AgentCISettings, error)
+	UpdateAgentCISettings(ctx context.Context, clusterID string, update client.AgentCISettingsUpdate) (*client.AgentCISettings, error)
 
 	CreateHetznerCluster(req client.CreateHetznerClusterRequest) (*client.CreateHetznerClusterResponse, error)
 	DeprovisionHetznerCluster(clusterID string, force bool) (*client.DeprovisionHetznerClusterResponse, error)
@@ -694,6 +697,10 @@ type APIClient interface {
 	CreateAlertDestination(request client.CreateAlertDestinationRequest) (*client.AlertDestination, error)
 	UpdateAlertDestination(destinationID string, request client.UpdateAlertDestinationRequest) (*client.AlertDestination, error)
 	DeleteAlertDestination(destinationID string) (*client.DeleteAlertDestinationResult, error)
+	ListAlertIngestCredentials() (*client.AlertIngestCredentialList, error)
+	RebindAlertIngestCredential(credentialID string, request client.RebindAlertIngestCredentialRequest) (*client.AlertIngestCredential, error)
+	GetAISpendCap() (*client.AISpendCap, error)
+	UpdateAISpendCap(update client.AISpendCapUpdate) (*client.AISpendCap, error)
 	TestAlertDestination(destinationID string) (*client.AlertDestinationTestResult, error)
 	TestAlertDestinationURL(request client.TestAlertDestinationURLRequest) (*client.AlertDestinationTestResult, error)
 	ListSlackChannels() (*client.SlackChannelList, error)
@@ -711,14 +718,22 @@ type APIClient interface {
 	GetPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunDetail, error)
 	RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool) (*client.CreatePipelineRunResult, error)
 	CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRun, error)
-	StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, fromSequence int64) (<-chan client.PipelineLogEvent, error)
-	ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineArtifactList, error)
+	StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, options client.StepLogStreamOptions) (<-chan client.PipelineLogEvent, error)
+	ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string, options client.ListPipelineArtifactsOptions) (*client.PipelineArtifactList, error)
 	DownloadPipelineArtifact(ctx context.Context, selector client.PipelineSelector, artifactID string, destination io.Writer) error
+	ListPipelineFindings(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineFindingList, error)
 	GetPipelineDefinition(ctx context.Context, selector client.PipelineSelector) (*client.PipelineDefinition, error)
 	PutPipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineDefinition, error)
 	ValidatePipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineValidation, error)
+	GetPipelineDefinitionApproval(ctx context.Context, definitionID string) (*client.PipelineDefinitionApproval, error)
+	ApprovePipelineDefinition(ctx context.Context, definitionID string) (*client.PipelineDefinitionApproval, error)
 	ListPipelineSchedules(ctx context.Context, selector client.PipelineSelector) (*client.PipelineScheduleList, error)
 	CreatePipelineSchedule(ctx context.Context, selector client.PipelineSelector, request client.CreatePipelineScheduleRequest) (*client.PipelineSchedule, error)
 	UpdatePipelineSchedule(ctx context.Context, selector client.PipelineSelector, scheduleID string, request client.UpdatePipelineScheduleRequest) (*client.PipelineSchedule, error)
 	DeletePipelineSchedule(ctx context.Context, selector client.PipelineSelector, scheduleID string) error
+
+	ListPipelineRepositories(ctx context.Context, options client.ListPipelineRepositoriesOptions) (*client.PipelineRepositoryList, error)
+	GetPipelineRepository(ctx context.Context, repositoryID string) (*client.PipelineRepository, error)
+	ConnectPipelineRepository(ctx context.Context, request client.ConnectPipelineRepositoryRequest) (*client.ConnectPipelineRepositoryResult, error)
+	DisconnectPipelineRepository(ctx context.Context, repositoryID string) error
 }
