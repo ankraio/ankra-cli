@@ -438,6 +438,12 @@ func runPipelineLogsFromRetainedStream(command *cobra.Command, selector client.P
 			if event.Type == "line" {
 				printedLines++
 			}
+			// A bare Reset, deliberately. This module's go directive is
+			// 1.25, and from go1.23 a timer's channel is unbuffered and
+			// drained by Stop and Reset, so a tick that fired while this
+			// case was being chosen cannot survive into the next select.
+			// The pre-1.23 "if !Stop() { <-C }" idiom would be wrong here -
+			// under these semantics that receive can block.
 			idleTimer.Reset(pipelineLogReplayIdleTimeout)
 		case <-idleTimer.C:
 			_, _ = fmt.Fprintf(progress,
