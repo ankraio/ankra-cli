@@ -343,6 +343,17 @@ func TestSecurityDispositionsUpdate_RefusesNoChange(t *testing.T) {
 	}
 }
 
+func TestSecurityDispositionsUpdate_RefusesEmptyDeadline(t *testing.T) {
+	mock := &securityDispositionsMock{}
+	_, err := runSecurityCommand(t, mock, "security", "dispositions", "update", "policy-1", "--expires-at", "", "--yes")
+	if err == nil || exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), "cannot be empty") {
+		t.Fatalf("expected a usage error naming the empty deadline, got %v", err)
+	}
+	if mock.updateRequest != nil {
+		t.Fatalf("expected no write, got %+v", mock.updateRequest)
+	}
+}
+
 func TestSecurityDispositionsUpdate_SendsOnlyChangedMembers(t *testing.T) {
 	mock := &securityDispositionsMock{mutation: &client.SecurityDispositionMutation{Policy: sampleDisposition(), Preview: *sampleDispositionPreview()}}
 	output, err := runSecurityCommand(t, mock, "security", "dispositions", "update", "policy-1", "--reason", "new reason", "--yes")

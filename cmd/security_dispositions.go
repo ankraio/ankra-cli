@@ -580,6 +580,9 @@ the security.manage permission; the write asks for confirmation unless
 		}
 		if flag := cmd.Flags().Lookup("expires-at"); flag != nil && flag.Changed {
 			expiresAtRaw, _ := cmd.Flags().GetString("expires-at")
+			if strings.TrimSpace(expiresAtRaw) == "" {
+				return withExitCode(exitUsage, fmt.Errorf("--expires-at cannot be empty: the platform keeps a review deadline once set, so pass a new date, or revoke the policy and record it again without one"))
+			}
 			expiresAt, parseError := parseSecurityDeadline(expiresAtRaw)
 			if parseError != nil {
 				return parseError
@@ -702,7 +705,7 @@ func init() {
 	securityDispositionsCreateCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 
 	securityDispositionsUpdateCmd.Flags().String("reason", "", "New reason")
-	securityDispositionsUpdateCmd.Flags().String("expires-at", "", "New review deadline as a date (2026-12-31) or RFC3339 timestamp")
+	securityDispositionsUpdateCmd.Flags().String("expires-at", "", "New review deadline as a date (2026-12-31) or RFC3339 timestamp; a deadline cannot be cleared once set")
 	securityDispositionsUpdateCmd.Flags().Bool("expire-when-fix-available", false, "Whether a fixed version ends the disposition")
 	securityDispositionsUpdateCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 

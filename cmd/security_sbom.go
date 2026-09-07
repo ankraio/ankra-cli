@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"ankra/internal/client"
@@ -369,8 +368,8 @@ func normalizeSbomExportFormat(requested string) (string, error) {
 // (a Content-Disposition is server input, never a path), or a name derived
 // from the format when the platform sent none.
 func sbomExportLocalFileName(suggested string, format string) string {
-	base := filepath.Base(strings.TrimSpace(suggested))
-	if base == "" || strings.HasPrefix(base, ".") {
+	base := serverSuggestedFileName(suggested)
+	if base == "" {
 		if format == "csv" {
 			return "sbom.csv"
 		}

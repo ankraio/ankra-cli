@@ -243,6 +243,12 @@ func TestSecurityComplianceExport_ServerFileNameIsNeverAPath(t *testing.T) {
 	if got := complianceExportLocalFileName("", "json"); got != "compliance-report.json" {
 		t.Errorf("expected the format-derived default, got %q", got)
 	}
+	if got := complianceExportLocalFileName("..\\..\\evil.csv", "csv"); got != "evil.csv" {
+		t.Errorf("expected Windows separators stripped too, got %q", got)
+	}
+	if got := sbomExportLocalFileName("C:\\Users\\x\\.hidden", "csv"); got != "sbom.csv" {
+		t.Errorf("expected a dot-file behind a Windows path to fall back, got %q", got)
+	}
 }
 
 func TestSecurityComplianceExport_RefusesUnknownFormat(t *testing.T) {
@@ -438,7 +444,7 @@ func TestApplicationSecurityVersions_RendersNotScannedAndLicenceVerdict(t *testi
 		Components:    []client.ApplicationImageVersionComponent{{Name: "api", Registry: "harbor.ankra.cloud", Repository: "acme/api", RegistryStatus: "listed"}},
 		Versions: []client.ApplicationImageVersion{
 			{Component: "api", Tag: "sha-abc1234", SBOM: client.ApplicationImageVersionSBOM{Status: "present", ComponentCount: intPointer(412), LicenseExposure: &client.SecurityLicenseExposure{NetworkCopyleft: 1}},
-				Findings: client.ApplicationImageVersionFindings{Scanned: true, Observed: 9, Actionable: client.SecuritySeverityCounts{High: 1}},
+				Findings: client.ApplicationImageVersionFindings{Scanned: true, Observed: 9, KnownExploited: 1, Actionable: client.SecuritySeverityCounts{High: 1}},
 				Running:  client.ApplicationImageVersionRunning{Workloads: 2, Clusters: 1, Namespaces: []string{"prod"}}},
 			{Component: "api", Tag: "sha-def5678", SBOM: client.ApplicationImageVersionSBOM{Status: "absent"}, Findings: client.ApplicationImageVersionFindings{Scanned: false}},
 		},
@@ -457,6 +463,17 @@ func TestApplicationSecurityVersions_RendersNotScannedAndLicenceVerdict(t *testi
 		if !strings.Contains(output, fragment) {
 			t.Errorf("expected %q in output:\n%s", fragment, output)
 		}
+	}
+	unscanned := strings.Index(output, "sha-def5678")
+	if unscanned < 0 || !strings.Contains(output[unscanned:], "not scanned") {
+		t.Fatalf("expected the unscanned tag row in output:\n%s", output)
+	}
+	unscannedRow := output[unscanned:]
+	if end := strings.Index(unscannedRow, "\n"); end >= 0 {
+		unscannedRow = unscannedRow[:end]
+	}
+	if strings.Contains(stripANSICodes(unscannedRow), " 0 ") {
+		t.Errorf("an unscanned tag must not read as 0 known exploited:\n%s", unscannedRow)
 	}
 }
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+	"path"
 	"strconv"
 	"strings"
 
@@ -347,9 +347,21 @@ func normalizeComplianceExportFormat(requested string) (string, error) {
 // its last path element (a Content-Disposition is server input, never a
 // path), or a name derived from the format.
 func complianceExportLocalFileName(suggested string, format string) string {
-	base := filepath.Base(strings.TrimSpace(suggested))
-	if base == "" || strings.HasPrefix(base, ".") {
+	base := serverSuggestedFileName(suggested)
+	if base == "" {
 		return "compliance-report." + format
+	}
+	return base
+}
+
+// serverSuggestedFileName reduces a Content-Disposition filename to a bare
+// name on every platform: both separators are stripped, so "..\..\x.csv"
+// from a server is "x.csv" on a Unix build too, and a dot-file or an empty
+// name is refused (empty result) so the caller falls back to its default.
+func serverSuggestedFileName(suggested string) string {
+	base := path.Base(strings.ReplaceAll(strings.TrimSpace(suggested), "\\", "/"))
+	if base == "" || base == "." || base == "/" || strings.HasPrefix(base, ".") {
+		return ""
 	}
 	return base
 }

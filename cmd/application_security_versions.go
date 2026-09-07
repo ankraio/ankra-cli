@@ -75,7 +75,7 @@ func renderApplicationSecurityVersions(out io.Writer, versions *client.Applicati
 				optionalTimeAgo(version.PushedAt),
 				applicationVersionSBOMCell(version.SBOM),
 				applicationVersionFindingsCell(version.Findings),
-				version.Findings.KnownExploited,
+				applicationVersionKnownExploitedCell(version.Findings),
 				licenseExposureCell(version.SBOM.LicenseExposure),
 				applicationVersionRunningCell(version.Running),
 			})
@@ -99,6 +99,15 @@ func applicationVersionSBOMCell(sbom client.ApplicationImageVersionSBOM) string 
 	default:
 		return sbom.Status
 	}
+}
+
+// applicationVersionKnownExploitedCell keeps an unscanned tag from reading
+// as "0 known exploited": absence of a report is not a negative answer.
+func applicationVersionKnownExploitedCell(findings client.ApplicationImageVersionFindings) string {
+	if !findings.Scanned {
+		return "-"
+	}
+	return fmt.Sprintf("%d", findings.KnownExploited)
 }
 
 func applicationVersionFindingsCell(findings client.ApplicationImageVersionFindings) string {
