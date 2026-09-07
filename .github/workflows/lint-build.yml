@@ -56,7 +56,44 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
+      # routes.json is the cluster repo's route census (the walked chi router,
+      # ankraio/cluster docs/route-census.md); every /api/v1 path the CLI builds
+      # is checked against it. Fetched the way the portal fetches openapi.json.
+      # CLUSTER_ROUTES_GITHUB_TOKEN is a fine-grained PAT with read-only
+      # Contents access to ankraio/cluster.
+      - name: Fetch cluster routes.json
+        id: routes_fetch
+        env:
+          CLUSTER_REPO: ankraio/cluster
+          CLUSTER_ROUTES_REF: main
+          CLUSTER_ROUTES_GITHUB_TOKEN: ${{ secrets.CLUSTER_ROUTES_GITHUB_TOKEN }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: |
+          if [ "$IS_FORK" = "true" ]; then
+            echo "::warning::pull request from a fork: repository secrets are unavailable, so the cluster route census was not fetched and TestClusterRoutesAreRegistered will skip, not pass"
+            echo "fetched=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$CLUSTER_ROUTES_GITHUB_TOKEN" ]; then
+            echo "::error::CLUSTER_ROUTES_GITHUB_TOKEN is unset - add the repo secret (fine-grained PAT, contents:read on ankraio/cluster, the same PAT portal uses as CLUSTER_OPENAPI_GITHUB_TOKEN). Not route drift."
+            exit 1
+          fi
+          http_status=$(curl --silent --show-error \
+            --header "Authorization: Bearer ${CLUSTER_ROUTES_GITHUB_TOKEN}" \
+            --header "Accept: application/vnd.github.raw+json" \
+            --write-out "%{http_code}" \
+            "https://api.github.com/repos/${CLUSTER_REPO}/contents/routes.json?ref=${CLUSTER_ROUTES_REF}" \
+            -o "${{ github.workspace }}/routes.json")
+          if [ "$http_status" != "200" ]; then
+            echo "::error::Fetching cluster routes.json failed with HTTP $http_status (401/403: the PAT expired or lost contents:read; 404: the census moved from the cluster repo root)"
+            exit 1
+          fi
+          echo "fetched=true" >> "$GITHUB_OUTPUT"
       - name: Run tests
+        env:
+          # Set only when the census was fetched; otherwise the route test skips
+          # visibly instead of failing on a file that was never there.
+          ANKRA_CLUSTER_ROUTES_JSON: ${{ steps.routes_fetch.outputs.fetched == 'true' && format('{0}/routes.json', github.workspace) || '' }}
         run: go test -race -count=1 -timeout=120s -coverprofile=coverage.out ./...
       - name: Check coverage
         run: go tool cover -func=coverage.out
