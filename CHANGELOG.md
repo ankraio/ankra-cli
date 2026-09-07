@@ -107,6 +107,25 @@
   out, rather than either claiming the step runs with no egress - which is
   its own tier, `none`.
 
+- **`ankra cluster manifests create` adds a manifest to an existing stack
+  without touching anything else.** Until now nothing in the CLI could ADD a
+  stack member: `manifests upgrade` edits one that already exists and
+  `manifests delete` removes one, but the only way to introduce a new one was
+  `ankra cluster apply`, which is declarative over the whole cluster and
+  prunes every stack and addon the file does not mention. Adding one Secret
+  to one stack therefore meant restating the entire cluster correctly or not
+  doing it from the CLI at all, which on a production cluster is not a real
+  choice. The new command sends only the new manifest through the same
+  surgical partial-stack lane `manifests upgrade` already uses, so every
+  other stack, addon and manifest is left exactly as it is. It takes
+  `--stack`, content from `--from-file` or `--manifest -`, optional
+  `--namespace`, repeatable `--parent name=...,kind=...` for deploy ordering,
+  and `--encrypted-path`; SOPS-encrypted content has its encrypted keys
+  detected automatically. A name that already exists is refused with the
+  stack that owns it and a pointer to `manifests upgrade`, rather than
+  silently replacing that manifest's content, and `--dry-run` prints the
+  before/after without applying anything.
+
 ### Fixed
 
 - **`ankra cluster playground destroy` asks before tearing down.** It was
