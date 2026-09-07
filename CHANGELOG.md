@@ -4,6 +4,33 @@
 
 ### Added
 
+- **The Security Center's remaining surfaces reach the terminal.** Until
+  now the portal could acknowledge a finding, accept its risk, switch a
+  compliance framework on, read a cluster's benchmark controls or its policy
+  violations, and the CLI could not - `ankra security` stopped at the reads.
+  `ankra security dispositions` lists the acknowledgements and accepted
+  risks with their lifecycle (expiring, fix available, unmatched), `preview`
+  shows a disposition's blast radius before anything is written, and
+  `create`, `update` and `revoke` write it after a confirmation (`--yes` for
+  scripts); `ankra security workloads` ranks scanned workloads by risk;
+  `ankra security finding <id> --status resolved --cluster <c>` pages one
+  finding's occurrences including the resolved ones the detail leaves out.
+  `ankra security compliance` prints every cluster's benchmark totals,
+  `compliance frameworks` the GDPR / ISO 27001 / SOC 2 / NIST CSF catalogue
+  with `enable`, `disable` and a control-by-control `report --month`, and
+  `compliance export` downloads the evidence report as CSV or JSON. Per
+  cluster, `benchmarks` (with `benchmarks resources` for one failing
+  control), `violations`, `network-exposure`, `policy-mode audit|enforce`,
+  `enable-baseline` and `addon <name>` read and change what the cluster
+  Security tab shows, and `ankra application security-versions` lists every
+  published tag with its bill of materials, findings, where it runs and the
+  licence verdict. A cluster whose agent is offline answers with the reason
+  and a retry hint, never an empty report.
+- **`ankra security findings` names both unsynced feeds.** It said the CISA
+  catalog had not been synced but stayed silent about EPSS, so a missing
+  exploitation probability could read as low. Both caveats print now, as
+  they already did on `security sbom findings`.
+
 - **`ankra pipeline validate` shows the egress tier each planned step
   resolved to.** A stage's network tier is decided from the stage, then the
   pipeline's defaults, then the tier its kind cannot work without - so a

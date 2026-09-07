@@ -93,8 +93,18 @@ Examples:
 var securityFindingCmd = &cobra.Command{
 	Use:   "finding <finding-id>",
 	Short: "Show one finding with CISA's guidance and every current occurrence",
-	Args:  cobra.ExactArgs(1),
+	Long: `Show one finding: its CISA KEV listing and deadline, EPSS probability,
+occurrence counts by disposition, and every active occurrence.
+
+The detail lists active occurrences only. Pass --status resolved to see
+where the finding was fixed, --cluster to narrow to one cluster, and
+--page/--page-size to walk a large set; any of these switches the table to
+the paged occurrence listing.`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if securityFindingOccurrenceFlagsSet(cmd) {
+			return runSecurityFindingWithOccurrences(cmd, strings.TrimSpace(args[0]))
+		}
 		detail, err := apiClient.GetSecurityFinding(args[0])
 		if err != nil {
 			return fmt.Errorf("reading security finding: %w", err)
@@ -383,8 +393,10 @@ func renderSecurityFindings(cmd *cobra.Command, list *client.SecurityFindingList
 		_, _ = fmt.Fprintf(out, " · sorted by %s %s", options.Sort, options.Order)
 	}
 	_, _ = fmt.Fprintln(out)
+	for _, caveat := range intelligenceCaveats(list.Intelligence) {
+		_, _ = fmt.Fprintln(out, caveat)
+	}
 	if list.Intelligence.KevSyncedAt == nil {
-		_, _ = fmt.Fprintln(out, "The CISA KEV catalog has not been synced yet, so known-exploited status is unknown for these findings.")
 		return
 	}
 	if options.KnownExploited != nil && *options.KnownExploited {
