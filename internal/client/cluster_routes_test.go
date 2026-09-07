@@ -23,7 +23,9 @@ package client
 // any call segment and a trailing `*` on a route matches the rest, but a
 // dynamic call segment (a `%s` placeholder or an appended identifier) is
 // accepted only by a route parameter, never by a literal, because the real
-// request would 404 there. A literal that ends in "/" is a prefix the code
+// request would 404 there. No census route ends in a bare "/" (chi allows
+// it, the cluster router does not use it), so normalising a trailing slash
+// to a parameter cannot mask a literal route. A literal that ends in "/" is a prefix the code
 // appends an identifier to (`prefix + id + "/tailscale"`); the scan sees only
 // the literal, so it is checked as `prefix/{}*`: the route must carry a
 // parameter where the identifier goes, and whatever the code appends after
@@ -186,6 +188,13 @@ func clusterPathLiterals(t *testing.T, moduleRoot string) map[string][]string {
 func TestClusterRoutesAreRegistered(t *testing.T) {
 	censusPath := os.Getenv("ANKRA_CLUSTER_ROUTES_JSON")
 	if censusPath == "" {
+		// Skipping locally keeps `go test ./...` green for someone who has
+		// not fetched the census. Skipping in CI would be the bug this whole
+		// test exists to prevent, one level up: a pipeline that lost its
+		// fetch step would report "passed" for a check that never ran.
+		if os.Getenv("CI") != "" {
+			t.Fatal("ANKRA_CLUSTER_ROUTES_JSON is unset under CI: the workflow fetches the cluster route census before this step, so an unset value means that step is gone or failed, and skipping here would report a check that never ran as passed")
+		}
 		t.Skip("ANKRA_CLUSTER_ROUTES_JSON is unset: point it at the cluster repo's routes.json to check the CLI's paths against the route census (CI does)")
 	}
 	raw, readError := os.ReadFile(censusPath)
