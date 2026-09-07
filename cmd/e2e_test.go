@@ -1022,6 +1022,10 @@ func (m baseMock) GetSecuritySBOMImage(client.SecuritySBOMImageOptions) (*client
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetSecuritySBOMComponent(client.SecuritySBOMComponentOptions) (*client.SecuritySBOMComponentDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListSecuritySBOMContainers(client.SecuritySBOMContainersOptions) (*client.SecuritySBOMContainerList, error) {
 	return nil, errors.New("not implemented")
 }

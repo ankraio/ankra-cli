@@ -167,6 +167,43 @@ var securitySbomImagesCmd = &cobra.Command{
 	},
 }
 
+var securitySbomComponentCmd = &cobra.Command{
+	Use:   "component <name>",
+	Short: "Where one package runs: the images carrying it, the workload containers running them, and their clusters",
+	Long: "Follow one exact package - the name, --version and --type a `security sbom` row shows - to the images whose " +
+		"bill of materials names it, every workload container currently running those images, and the clusters they run on.",
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		version, _ := cmd.Flags().GetString("version")
+		packageType, _ := cmd.Flags().GetString("type")
+		clusterFlag, _ := cmd.Flags().GetString("cluster")
+		if strings.TrimSpace(packageType) == "" {
+			return withExitCode(exitUsage, fmt.Errorf("--type is required: the ecosystem the component list shows (deb, apk, npm, ...)"))
+		}
+		options := client.SecuritySBOMComponentOptions{
+			Name:        strings.TrimSpace(args[0]),
+			Version:     version,
+			PackageType: packageType,
+		}
+		if clusterFlag != "" {
+			clusterID, err := resolveClusterID(clusterFlag)
+			if err != nil {
+				return err
+			}
+			options.ClusterID = clusterID
+		}
+		detail, err := apiClient.GetSecuritySBOMComponent(options)
+		if err != nil {
+			return fmt.Errorf("reading where the package runs: %w", err)
+		}
+		if rendered, err := renderStructured(cmd, detail); rendered || err != nil {
+			return err
+		}
+		renderSecuritySbomComponentDetail(cmd, detail)
+		return nil
+	},
+}
+
 var securitySbomImageCmd = &cobra.Command{
 	Use:   "image <digest or reference>",
 	Short: "One image's bill of materials: its identity, the workloads running it and every component",
@@ -773,6 +810,86 @@ func renderSecuritySbomImageDetail(cmd *cobra.Command, detail *client.SecuritySB
 	_, _ = fmt.Fprintf(out, "Page %d of %d · %d components\n", detail.Pagination.Page, detail.Pagination.TotalPages, detail.Pagination.TotalCount)
 }
 
+func renderSecuritySbomComponentDetail(cmd *cobra.Command, detail *client.SecuritySBOMComponentDetail) {
+	out := cmd.OutOrStdout()
+	component := detail.Component
+	version := component.Version
+	if version == "" {
+		version = "(no version)"
+	}
+	_, _ = fmt.Fprintln(out, text.Bold.Sprint(component.Name+" "+version))
+	_, _ = fmt.Fprintf(out, "Ecosystem:   %s\n", component.PackageType)
+	if component.PURL != nil {
+		_, _ = fmt.Fprintf(out, "PURL:        %s\n", *component.PURL)
+	}
+	_, _ = fmt.Fprintf(out, "Licence:     %s (%s)\n", strings.Join(component.Licenses, ", "), licenseRiskCell(component.LicenseRisk))
+	_, _ = fmt.Fprintf(out, "Runs in:     %d image(s), %d workload(s), %d cluster(s)\n", component.Images, component.Workloads, component.Clusters)
+	_, _ = fmt.Fprintf(out, "Findings:    %s\n", componentFindingsCell(component))
+
+	_, _ = fmt.Fprintln(out)
+	if len(detail.Images) == 0 {
+		_, _ = fmt.Fprintln(out, "No stored bill of materials names this package any more.")
+	} else {
+		heading := fmt.Sprintf("Images carrying it (%d):", len(detail.Images))
+		if detail.ImagesCapped {
+			heading = fmt.Sprintf("Images carrying it (first %d of %d):", len(detail.Images), component.Images)
+		}
+		_, _ = fmt.Fprintln(out, heading)
+		writer := newSecurityTable(out)
+		writer.AppendHeader(table.Row{"Image", "OS", "Components", "Licence risk", "Workloads", "Clusters", "Known exploited"})
+		for _, image := range detail.Images {
+			writer.AppendRow(table.Row{
+				image.ImageRef,
+				stringOrEmpty(image.OSName),
+				image.ComponentCount,
+				licenseExposureCell(image.LicenseExposure),
+				image.Workloads,
+				image.Clusters,
+				redIfPositive(image.KnownExploited),
+			})
+		}
+		writer.Render()
+	}
+
+	_, _ = fmt.Fprintln(out)
+	if len(detail.Workloads) == 0 {
+		_, _ = fmt.Fprintln(out, "No workload currently runs an image carrying this package; the bill of materials is kept from the last scan that saw it.")
+	} else {
+		heading := fmt.Sprintf("Where it runs (%d container(s)):", len(detail.Workloads))
+		if detail.WorkloadsCapped {
+			heading = fmt.Sprintf("Where it runs (first %d containers of %d workload(s)):", len(detail.Workloads), component.Workloads)
+		}
+		_, _ = fmt.Fprintln(out, heading)
+		writer := newSecurityTable(out)
+		writer.AppendHeader(table.Row{"Cluster", "Namespace", "Workload", "Container", "Image", "Last seen"})
+		for _, workload := range detail.Workloads {
+			label := "cluster-scoped image"
+			if workload.WorkloadName != nil {
+				label = strings.TrimSpace(stringOrEmpty(workload.WorkloadKind) + " " + *workload.WorkloadName)
+			}
+			writer.AppendRow(table.Row{
+				workload.ClusterName,
+				stringOrEmpty(workload.WorkloadNamespace),
+				label,
+				stringOrEmpty(workload.ContainerName),
+				workload.ImageRef,
+				formatTimeAgo(workload.LastSeenAt),
+			})
+		}
+		writer.Render()
+	}
+
+	_, _ = fmt.Fprintln(out)
+	if len(detail.Clusters) == 0 {
+		_, _ = fmt.Fprintln(out, "No live cluster runs it.")
+		return
+	}
+	_, _ = fmt.Fprintf(out, "Clusters (%d):\n", len(detail.Clusters))
+	for _, cluster := range detail.Clusters {
+		_, _ = fmt.Fprintf(out, "  - %s: %d workload(s) in %d container(s), %d image(s)\n", cluster.ClusterName, cluster.Workloads, cluster.Containers, cluster.Images)
+	}
+}
+
 func renderSecuritySbomImageFindings(cmd *cobra.Command, list *client.SecuritySBOMImageFindingList) {
 	out := cmd.OutOrStdout()
 	image := list.Image
@@ -856,10 +973,14 @@ func intelligenceCaveats(intelligence client.SecurityIntelligenceStatus) []strin
 
 func init() {
 	securityCmd.AddCommand(securityNamespacesCmd, securityPodsCmd, securitySbomCmd)
+	securitySbomComponentCmd.Flags().String("version", "", "The exact installed version the component list shows; omit when the list shows none")
+	securitySbomComponentCmd.Flags().String("type", "", "The ecosystem the component list shows (deb, apk, rpm, npm, pypi, golang, maven, ...); required")
+	securitySbomComponentCmd.Flags().String("cluster", "", "Only the images, workload containers and clusters on one cluster (name or id)")
+	securitySbomCmd.AddCommand(securitySbomComponentCmd)
 	securitySbomCmd.AddCommand(securitySbomImagesCmd, securitySbomImageCmd, securitySbomFindingsCmd,
 		securitySbomContainersCmd, securitySbomExportCmd)
 	registerStructuredOutputFlags(securityNamespacesCmd, securityPodsCmd, securitySbomCmd,
-		securitySbomImagesCmd, securitySbomImageCmd, securitySbomFindingsCmd, securitySbomContainersCmd)
+		securitySbomImagesCmd, securitySbomImageCmd, securitySbomComponentCmd, securitySbomFindingsCmd, securitySbomContainersCmd)
 
 	securitySbomFindingsCmd.Flags().String("search", "", "Match CVE id, package name or title")
 	securitySbomFindingsCmd.Flags().StringSlice("severity", nil, "Severity filter, repeatable: critical, high, medium, low, unknown")
