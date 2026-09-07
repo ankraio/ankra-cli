@@ -72,11 +72,40 @@ func concludedBuildStep() client.PipelineStep {
 	return step
 }
 
+// lostAttemptOf is the row a retry leaves behind: the attempt Ankra threw
+// away, concluded infra_error and kept on the run as evidence, which the
+// run detail lists ahead of the fresh attempt that replaced it.
+func lostAttemptOf(step client.PipelineStep) client.PipelineStep {
+	outcome := "infra_error"
+	lost := step
+	lost.ID = step.ID + "-attempt-1"
+	lost.Attempt = 1
+	lost.Status = pipelineStepStatusConcluded
+	lost.Outcome = &outcome
+	return lost
+}
+
+// retryOf is that step's next attempt: a fresh row with its own id, at
+// attempt 2, pending until the claim scan takes it.
+func retryOf(step client.PipelineStep) client.PipelineStep {
+	retried := step
+	retried.ID = step.ID + "-attempt-2"
+	retried.Attempt = 2
+	return retried
+}
+
 // runDetailWithStep wraps one step as the run detail GetPipelineRun answers,
 // carrying the run's own status so the wait can tell a step that is still
 // coming from a run that finished without it.
 func runDetailWithStep(runStatus string, step client.PipelineStep) client.PipelineRunDetail {
-	detail := client.PipelineRunDetail{Steps: []client.PipelineStep{step}}
+	return runDetailWithSteps(runStatus, step)
+}
+
+// runDetailWithSteps is the same for a run carrying several rows - a retried
+// step is two rows under one key, oldest attempt first, the order
+// enginekit/pipelinerun's ListStepsForRun renders.
+func runDetailWithSteps(runStatus string, steps ...client.PipelineStep) client.PipelineRunDetail {
+	detail := client.PipelineRunDetail{Steps: steps}
 	detail.Status = runStatus
 	return detail
 }
@@ -860,32 +889,90 @@ func TestPipelineLogsFollowStopsWhenTheRunConcludesWithoutTheStep(t *testing.T) 
 	}
 }
 
-func TestPipelineLogsFollowWaitsAgainWhenAStepIsReplannedMidTail(t *testing.T) {
-	// A re-dispatch replans a step that was already running, and the relay
-	// answers the replanned step the same "has not started" 404 it answers
-	// one that never ran. --follow reads the step's status rather than that
-	// sentence, waits for it again, and only reports the stream's error once
-	// the step is back to having one.
+func TestPipelineLogsFollowPicksUpTheRetryThatSupersededTheAttemptItWasTailing(t *testing.T) {
+	// A step id does not survive a retry: the platform concludes the lost
+	// attempt infra_error and inserts a fresh row at attempt 2, keeping the
+	// lost one on the run as evidence. --follow must read the step by key,
+	// notice its attempt was superseded, wait for the new row and tail that -
+	// not report the lost attempt's conclusion as the step's own.
 	shortenPipelineStepStartWait(t, time.Minute)
+	firstAttempt := startedBuildStep()
+	firstAttempt.ID, firstAttempt.Attempt = "step-1-attempt-1", 1
+	lost := lostAttemptOf(startedBuildStep())
+	retryPending := retryOf(pendingStep())
+	retryRunning := retryOf(startedBuildStep())
+	retryConcluded := retryOf(concludedBuildStep())
 	mockClient := &pipelineLaneMock{
 		getResults: []client.PipelineRunDetail{
-			runDetailWithStep("running", startedBuildStep()),
-			runDetailWithStep("running", pendingStep()),
-			runDetailWithStep("running", startedBuildStep()),
+			runDetailWithStep("running", firstAttempt),
+			runDetailWithSteps("running", lost, retryPending),
+			runDetailWithSteps("running", lost, retryRunning),
+			runDetailWithSteps("running", lost, retryConcluded),
 		},
-		streamError: errors.New("This step has not started, so it has no log stream yet"),
+		streamEvents: []client.PipelineLogEvent{
+			{Type: "line", Stream: "stdout", Line: "compiling", Seq: 1},
+		},
 	}
 	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
 		"--application", testApplicationID, "--step", "build", "--follow")
-	if executeError == nil ||
-		!strings.Contains(executeError.Error(), "This step has not started") {
-		t.Fatalf("error = %v, want the relay's own refusal once the step has a stream again", executeError)
+	if executeError != nil {
+		t.Fatalf("logs --follow error = %v", executeError)
+	}
+	if strings.Contains(output, "Log stream ended: the step has concluded.") &&
+		!strings.Contains(output, `Waiting for step "build" to start (pending).`) {
+		t.Errorf("output = %q, want the retry picked up rather than the lost attempt reported as the end", output)
 	}
 	if !strings.Contains(output, `Waiting for step "build" to start (pending).`) {
-		t.Errorf("output = %q, want the replanned step waited for rather than reported as failed", output)
+		t.Errorf("output = %q, want the superseding attempt waited for", output)
 	}
 	if len(mockClient.streamOptions) != 2 {
-		t.Errorf("stream calls = %d, want the relay retried once after the wait", len(mockClient.streamOptions))
+		t.Fatalf("stream calls = %d, want the lost attempt then the retry", len(mockClient.streamOptions))
+	}
+	if mockClient.streamStepID != retryRunning.ID {
+		t.Errorf("last streamed step id = %q, want the retry's own row %q",
+			mockClient.streamStepID, retryRunning.ID)
+	}
+}
+
+func TestPipelineLogsResolvesAStepKeyToItsNewestAttempt(t *testing.T) {
+	// A run carries every attempt of a retried step. Naming the key must
+	// reach the row doing the work now, not the lost attempt the listing
+	// happens to return first.
+	lost := lostAttemptOf(startedBuildStep())
+	live := retryOf(startedBuildStep())
+	detail := runDetailWithSteps("running", lost, live)
+	mockClient := &pipelineLaneMock{getResult: &detail}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build")
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if mockClient.artifactsRunID != "" {
+		t.Errorf("the newest attempt is running, so no archive is read; got artifactsRunID = %q",
+			mockClient.artifactsRunID)
+	}
+	if mockClient.streamStepID != live.ID {
+		t.Errorf("streamed step id = %q, want the newest attempt %q", mockClient.streamStepID, live.ID)
+	}
+}
+
+func TestPipelineLogsResolvesAStepIdToThatExactAttempt(t *testing.T) {
+	// An id names one attempt row, which is how a lost attempt's own log
+	// stays readable after a retry.
+	lost := lostAttemptOf(startedBuildStep())
+	live := retryOf(startedBuildStep())
+	detail := runDetailWithSteps("running", lost, live)
+	mockClient := &pipelineLaneMock{
+		getResult:       &detail,
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{}},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", lost.ID)
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if mockClient.artifactsRunID == "" {
+		t.Errorf("output = %q, want the named attempt read as a concluded step", output)
 	}
 }
 
@@ -934,5 +1021,22 @@ func TestPipelineLogsFollowStopsWhenAWaitedStepLeavesTheStatesItWaitsIn(t *testi
 	}
 	if mockClient.getCalls != 2 {
 		t.Errorf("run reads = %d, want the resolve read plus one poll", mockClient.getCalls)
+	}
+}
+
+func TestPipelineLogsCountsStepsByKeyNotByAttemptRow(t *testing.T) {
+	// A run with one step that Ankra retried carries two rows. Without
+	// --step that must still resolve to the live attempt rather than refuse
+	// as a run with two steps to choose between.
+	lost := lostAttemptOf(startedBuildStep())
+	live := retryOf(startedBuildStep())
+	detail := runDetailWithSteps("running", lost, live)
+	mockClient := &pipelineLaneMock{getResult: &detail}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1", "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("logs error = %v, want the retried single-step run resolved", executeError)
+	}
+	if mockClient.streamStepID != live.ID {
+		t.Errorf("streamed step id = %q, want the live attempt %q", mockClient.streamStepID, live.ID)
 	}
 }

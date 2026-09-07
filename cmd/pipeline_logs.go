@@ -183,12 +183,11 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 	if resolveError != nil {
 		return resolveError
 	}
-	// A loop rather than a straight branch, because a step can move between
-	// these three answers while the command is attached to it: one waited
+	// A loop rather than a straight branch, because the step this command is
+	// attached to can move between these three answers under it: one waited
 	// for starts (or concludes without starting), and one being tailed can
-	// be replanned back to waiting by a re-dispatch. Every pass re-decides
-	// from the step in hand, so no state is reachable only through the one
-	// it happened to arrive from.
+	// be superseded by a retry. Every pass re-decides from the step row in
+	// hand, so no state is reachable only through the one it arrived from.
 	for {
 		if step.Status == pipelineStepStatusConcluded {
 			return runPipelineLogsFromArchive(command, selector, runID, step)
@@ -204,24 +203,26 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 			step = startedStep
 			continue
 		}
-		replannedStep, wasReplanned, streamError := runPipelineLogsFromLiveStream(command, selector,
+		nextStep, hasNextStep, streamError := runPipelineLogsFromLiveStream(command, selector,
 			runID, step, follow)
 		if streamError != nil {
 			return streamError
 		}
-		if !wasReplanned {
+		if !hasNextStep {
 			return nil
 		}
-		step = replannedStep
+		step = nextStep
 	}
 }
 
 // runPipelineLogsFromLiveStream tails a started step over the relay,
 // reconnecting while --follow is set. It returns (step, true, nil) when the
-// step went back to waiting to be dispatched: a re-dispatch replans it, and
-// the relay answers a replanned step the same 404 it answers one that never
-// ran, so the caller waits for it again instead of reporting a live tail as
-// failed.
+// row it was reading stops answering for the step and the caller should
+// re-decide from another one: a retry that superseded this attempt with a
+// fresh row, or - should the platform ever replan a row in place - one back
+// in a pre-dispatch state. The relay answers both the same 404 it answers a
+// step that never ran, so under --follow that is a step to pick up again
+// rather than a live tail to report as failed.
 func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.PipelineSelector, runID string,
 	step client.PipelineStep, follow bool) (client.PipelineStep, bool, error) {
 	// Only an explicit --replay reaches the wire: the flag's own default is
@@ -259,9 +260,9 @@ func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.Pipel
 				continue
 			}
 			if follow {
-				if replanned, wasReplanned := pipelineStepWentBackToWaiting(command, selector,
-					runID, step.ID); wasReplanned {
-					return replanned, true, nil
+				if superseding, wasSuperseded := pipelineStepSupersedingAttempt(command, selector,
+					runID, step); wasSuperseded {
+					return superseding, true, nil
 				}
 			}
 			return client.PipelineStep{}, false, streamError
@@ -274,9 +275,16 @@ func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.Pipel
 			}
 		}
 
-		refreshed, _, statusError := readPipelineStep(command, selector, runID, step.ID)
+		refreshed, _, statusError := readPipelineStep(command, selector, runID, step.StepKey)
 		if statusError != nil {
 			return client.PipelineStep{}, false, statusError
+		}
+		if follow && refreshed.ID != step.ID {
+			// A retry superseded the attempt this connection was reading, so
+			// the row in hand can no longer answer for the step. Hand the new
+			// attempt back rather than reconnect: it has its own id, its own
+			// stream and its own sequence numbering.
+			return refreshed, true, nil
 		}
 		if refreshed.Status == pipelineStepStatusConcluded {
 			_, _ = fmt.Fprintln(progress, "Log stream ended: the step has concluded.")
@@ -329,7 +337,7 @@ func waitForPipelineStepToStart(command *cobra.Command, selector client.Pipeline
 		if sleepError := sleepInterrupted(command.Context(), pipelineStepStartPollInterval); sleepError != nil {
 			return client.PipelineStep{}, sleepError
 		}
-		refreshed, runStatus, readError := readPipelineStep(command, selector, runID, step.ID)
+		refreshed, runStatus, readError := readPipelineStep(command, selector, runID, step.StepKey)
 		if readError != nil {
 			return client.PipelineStep{}, readError
 		}
@@ -400,20 +408,27 @@ func pipelineStepNotStartedError(step client.PipelineStep, runID string) error {
 		"check 'ankra pipeline get %s' for its status", step.StepKey, runID)
 }
 
-// pipelineStepWentBackToWaiting reports whether the step this command was
-// tailing has been replanned back to waiting to start. The relay answers a
-// replanned step the same 404 it answers one that never ran ("This step has
-// not started, so it has no log stream yet"), and that refusal carries no
-// error code to match on, so the step's own status is read instead of the
-// sentence. A read that itself fails answers false: the stream's own error is
-// the better one to report.
-func pipelineStepWentBackToWaiting(command *cobra.Command, selector client.PipelineSelector, runID string,
-	stepID string) (client.PipelineStep, bool) {
-	step, _, readError := readPipelineStep(command, selector, runID, stepID)
-	if readError != nil || !pipelineStepIsWaitingToStart(step) {
+// pipelineStepSupersedingAttempt reports the step row to act on when the one
+// this command was tailing could not be opened. It answers the run's newest
+// attempt of the same step key when that is a different row from the one that
+// failed, or when the row itself has gone back to waiting to start.
+//
+// The relay answers both of those the same 404 it answers a step that never
+// ran ("This step has not started, so it has no log stream yet"), and that
+// refusal carries no error code to match on - so the step's own state is read
+// instead of the sentence. A read that itself fails answers false: the
+// stream's own error is the better one to report, and so is a step that is
+// still the newest attempt with an execution of its own.
+func pipelineStepSupersedingAttempt(command *cobra.Command, selector client.PipelineSelector, runID string,
+	step client.PipelineStep) (client.PipelineStep, bool) {
+	refreshed, _, readError := readPipelineStep(command, selector, runID, step.StepKey)
+	if readError != nil {
 		return client.PipelineStep{}, false
 	}
-	return step, true
+	if refreshed.ID != step.ID || pipelineStepIsWaitingToStart(refreshed) {
+		return refreshed, true
+	}
+	return client.PipelineStep{}, false
 }
 
 // resolvePipelineStep finds the step a logs invocation names: the exact step
@@ -428,45 +443,90 @@ func resolvePipelineStep(command *cobra.Command, selector client.PipelineSelecto
 	}
 	if stepReference != "" {
 		for _, step := range detail.Steps {
-			if step.StepKey == stepReference || step.ID == stepReference {
+			// An id names one attempt row exactly, so it is answered as
+			// given - that is how a lost attempt's own log stays readable.
+			if step.ID == stepReference {
 				return step, nil
 			}
+		}
+		// A key names the step, and a retried step is several rows under one
+		// key; the newest attempt is the one doing the work now.
+		if newest, wasFound := newestPipelineStepAttempt(detail.Steps, stepReference); wasFound {
+			return newest, nil
 		}
 		return client.PipelineStep{}, withExitCode(exitNotFound,
 			fmt.Errorf("no step %q on run %s - run 'ankra pipeline get %s' to see the planned steps",
 				stepReference, runID, runID))
 	}
-	switch len(detail.Steps) {
+	// Counted by step key, not by row: a retried step is several rows under
+	// one key, and a run with one step that Ankra retried once must not be
+	// reported as a run with two steps to choose between.
+	stepKeys := []string{}
+	seenKeys := map[string]bool{}
+	for _, step := range detail.Steps {
+		if !seenKeys[step.StepKey] {
+			seenKeys[step.StepKey] = true
+			stepKeys = append(stepKeys, step.StepKey)
+		}
+	}
+	switch len(stepKeys) {
 	case 0:
 		return client.PipelineStep{}, fmt.Errorf("run %s has no planned steps yet", runID)
 	case 1:
-		return detail.Steps[0], nil
+		newest, _ := newestPipelineStepAttempt(detail.Steps, stepKeys[0])
+		return newest, nil
 	default:
 		return client.PipelineStep{}, withExitCode(exitUsage,
-			fmt.Errorf("run %s has %d steps - pass --step to name the one to follow", runID, len(detail.Steps)))
+			fmt.Errorf("run %s has %d steps - pass --step to name the one to follow", runID, len(stepKeys)))
 	}
 }
 
-// readPipelineStep re-reads one step, and the status of the run carrying it.
-// It is a full run fetch because the API has no single-step read on this
-// surface; the run detail is small enough that reading it once per
-// disconnect, or once per wait interval, is not a cost worth a dedicated
-// route for. The run's status comes back with the step because a step
-// stuck before dispatch and a run that finished without ever dispatching it
-// look identical from the step row alone.
+// readPipelineStep re-reads a step's newest attempt, and the status of the
+// run carrying it. It is a full run fetch because the API has no single-step
+// read on this surface; the run detail is small enough that reading it once
+// per disconnect, or once per wait interval, is not a cost worth a dedicated
+// route for. The run's status comes back with the step because a step stuck
+// before dispatch and a run that finished without ever dispatching it look
+// identical from the step row alone.
+//
+// It re-reads by step key rather than by the row id it was following,
+// because a step id does not survive a retry: the platform concludes the
+// lost attempt and inserts a fresh row at attempt+1
+// (enginekit/pipelinerun's insertRetryAttempt, used by both
+// RetryStepAfterInfraError and ReapStrandedSteps), keeping the lost attempt
+// on the run as evidence. Following the id would report a retried step as
+// concluded on the attempt Ankra itself threw away.
 func readPipelineStep(command *cobra.Command, selector client.PipelineSelector, runID string,
-	stepID string) (step client.PipelineStep, runStatus string, readError error) {
+	stepKey string) (step client.PipelineStep, runStatus string, readError error) {
 	detail, getError := apiClient.GetPipelineRun(command.Context(), selector, runID)
 	if getError != nil {
 		return client.PipelineStep{}, "", getError
 	}
-	for _, candidate := range detail.Steps {
-		if candidate.ID == stepID {
-			return candidate, detail.Status, nil
+	newest, wasFound := newestPipelineStepAttempt(detail.Steps, stepKey)
+	if !wasFound {
+		return client.PipelineStep{}, "", withExitCode(exitNotFound,
+			fmt.Errorf("step %q is no longer on run %s", stepKey, runID))
+	}
+	return newest, detail.Status, nil
+}
+
+// newestPipelineStepAttempt picks the live row for a step key: a run carries
+// every attempt of a retried step, oldest first, and only the last of them
+// describes what the step is doing now. The attempt number is compared rather
+// than the listing's order taken on trust, since which row answers for the
+// step is not a detail worth inheriting from a server-side ORDER BY.
+func newestPipelineStepAttempt(steps []client.PipelineStep, stepKey string) (client.PipelineStep, bool) {
+	var newest client.PipelineStep
+	wasFound := false
+	for _, candidate := range steps {
+		if candidate.StepKey != stepKey {
+			continue
+		}
+		if !wasFound || candidate.Attempt > newest.Attempt {
+			newest, wasFound = candidate, true
 		}
 	}
-	return client.PipelineStep{}, "", withExitCode(exitNotFound,
-		fmt.Errorf("step %s is no longer on run %s", stepID, runID))
+	return newest, wasFound
 }
 
 // runPipelineLogsFromArchive prints a concluded step's complete log, from
