@@ -75,6 +75,10 @@ type APIClient interface {
 	SetSecurityPolicyMode(clusterID string, mode string) (*client.SecurityPolicyModeResult, error)
 	EnableSecurityBaseline(clusterID string) (*client.SecurityBaselineResult, error)
 	GetSecurityAddonPosture(clusterID string, addonName string) (*client.SecurityAddonPosture, error)
+	GetSecurityHistory(clusterID string, days int) (*client.SecurityHistory, error)
+	GetSecurityReportSchedule(clusterID string) (*client.SecurityReportScheduleStatus, error)
+	SetSecurityReportSchedule(clusterID string, request client.SecurityReportScheduleRequest) (*client.SecurityReportScheduleStatus, error)
+	SendSecurityReportNow(clusterID string) (*client.SecurityReportSendNowResult, error)
 
 	ListPowerSchedules(clusterID string) (*client.PowerScheduleListResult, error)
 	CreatePowerSchedule(clusterID string, request client.PowerScheduleRequest) (*client.PowerScheduleListResult, error)

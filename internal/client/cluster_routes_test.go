@@ -55,6 +55,14 @@ package client
 //     twin, so `ankra cluster power-schedules` 404s. Tracked as
 //     ankra-htxvm.15; it comes off this list when the route exists on the
 //     cluster side, not before.
+//   - The three `/api/v1/org/clusters/imported/{}/security/...` Trivy
+//     integration paths (`trivy/history`, `report-schedule`,
+//     `report-schedule/send-now`) that `ankra security history` and
+//     `ankra security report-schedule` build: their bearer twins ship in
+//     cluster#2789 (ankra-1lzs5.4) and were not on main when the commands
+//     landed. Once that PR merges they resolve, this test fails on them as
+//     listed-but-resolving, and the fix is one ANKRA_CLUSTER_ROUTES_UPDATE=1
+//     run that drops them.
 
 import (
 	"encoding/json"

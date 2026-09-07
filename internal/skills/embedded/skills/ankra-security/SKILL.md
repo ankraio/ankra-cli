@@ -193,6 +193,10 @@ ankra security violations --cluster <c>          # pod-security policy results a
 ankra security network-exposure --cluster <c>    # NetworkPolicy over-privilege per direction
 ankra security policy-mode enforce --cluster <c> # audit -> enforce; always confirms
 ankra security enable-baseline --cluster <c>     # install the scanner and policy add-ons
+ankra security history --cluster <c> --days 30   # daily snapshots: how the posture moved
+ankra security report-schedule --cluster <c>     # the emailed security report: frequency, recipients, last sent
+ankra security report-schedule set --cluster <c> --frequency weekly --recipient sec@example.com
+ankra security report-schedule send --cluster <c> # queue one report now
 ```
 
 This is the portal's Security Center from the terminal - one logical finding per CVE and

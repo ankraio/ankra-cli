@@ -53,6 +53,7 @@ func securityCommandTree() []*cobra.Command {
 		securityBenchmarksResourcesCmd, securityViolationsCmd, securityNetworkExposureCmd, securityPolicyModeCmd,
 		securityEnableBaselineCmd, securityAddonCmd,
 		securityStacksCmd, securityStackCmd, securityPodCmd,
+		securityHistoryCmd, securityReportScheduleCmd, securityReportScheduleSetCmd, securityReportScheduleSendCmd,
 	}
 }
 

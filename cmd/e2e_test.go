@@ -1123,6 +1123,22 @@ func (m baseMock) GetSecurityAddonPosture(string, string) (*client.SecurityAddon
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetSecurityHistory(string, int) (*client.SecurityHistory, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSecurityReportSchedule(string) (*client.SecurityReportScheduleStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetSecurityReportSchedule(string, client.SecurityReportScheduleRequest) (*client.SecurityReportScheduleStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SendSecurityReportNow(string) (*client.SecurityReportSendNowResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetApplicationSecurityVersions(context.Context, string, string) (*client.ApplicationSecurityVersions, error) {
 	return nil, errors.New("not implemented")
 }
