@@ -1,5 +1,22 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra security history --cluster <c> [--days N]` shows how a cluster's
+  posture moved.** The daily snapshots the portal charts - findings by
+  severity, what is actionable once dispositions apply, workloads and
+  namespaces covered, the risk score - as a table oldest first, with the
+  trend between the first and last snapshot. A day without a snapshot is
+  absent, never zero; an empty window says the trend is unknown.
+- **`ankra security report-schedule` manages the emailed security report.**
+  The bare command shows a cluster's schedule (frequency, recipients,
+  enabled, last sent, next due) or "not configured"; `set --frequency
+  weekly|monthly --recipient <email>...` creates or replaces it (`--disabled`
+  stores it paused); `send` queues one report now. Both writes confirm unless
+  `--yes`. Needs the bearer twins from cluster#2789.
+
 ## v0.15.0-rc5 — 2026-09-07
 
 ### Added
