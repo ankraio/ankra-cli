@@ -133,6 +133,7 @@ ankra application env-secrets list <application-id>
 ankra application upgrade-workflow <application-id>    # add scanning to the build workflow
 ankra application code-security <application-id>
 ankra application container-security <application-id>
+ankra application security-versions <application-id>   # every published tag: BOM, findings, where it runs, licence verdict
 ankra application pull-request-reviews <application-id>
 ```
 
@@ -146,9 +147,52 @@ necessarily the artefact that runs, which defeats every other control here.
 ankra security overview                          # fleet totals, KEV exposure, scanner coverage
 ankra security findings --known-exploited        # the CVEs CISA lists as exploited in the wild
 ankra security findings --severity critical --fixable true --sort epss
-ankra security finding <finding-id>              # CISA's guidance and every current occurrence
+ankra security finding <finding-id>              # CISA's guidance and every active occurrence
+ankra security finding <finding-id> --status resolved --cluster <c>   # the paged occurrence listing
+ankra security workloads --known-exploited       # scanned workloads ranked by risk score
 ankra security clusters --status stale           # per-cluster posture and scanner freshness
+ankra security namespaces --cluster <c>          # per-namespace posture; rows sum to the cluster
+ankra security pods --cluster <c> --namespace <ns>   # each container joined to its scanned workload
+ankra security addon <addon> --cluster <c>       # one add-on's attributed findings on a cluster
 ankra security advisory CVE-2026-1234            # the platform's advisory: NVD/OSV, CISA, your exposure
+```
+
+Dispositions - the acknowledgements and accepted risks that shape the actionable set:
+
+```bash
+ankra security dispositions --status expiring --status fix_available   # what needs review
+ankra security dispositions preview --occurrence <id> --disposition accepted_risk
+ankra security dispositions create --occurrence <id> --disposition acknowledged --reason "..." --expires-at 2026-12-31
+ankra security dispositions update <policy-id> --expires-at 2027-03-31
+ankra security dispositions revoke <policy-id> --reason "fix rolled out"
+```
+
+Software bill of materials and licences:
+
+```bash
+ankra security sbom --vulnerable true            # fleet package inventory, packages a finding names
+ankra security sbom --license-risk network_copyleft --license-risk source_available
+ankra security sbom images --cluster <c>         # images publishing a BOM and where they run
+ankra security sbom image <digest>               # one image's components and licences
+ankra security sbom findings <digest>            # the CVEs named on one image
+ankra security sbom containers --status absent   # running containers with no BOM
+ankra security sbom export <digest> --format cyclonedx --output-file app.cdx.json
+```
+
+Compliance and per-cluster posture:
+
+```bash
+ankra security compliance                        # every cluster's benchmark pass/fail totals
+ankra security compliance frameworks             # GDPR, ISO 27001, SOC 2, NIST CSF with scores
+ankra security compliance frameworks enable soc2
+ankra security compliance frameworks report soc2 --month 2026-08
+ankra security compliance export --format json --output-file evidence.json   # needs audit.read
+ankra security benchmarks --cluster <c>          # CIS and other benchmarks, failing controls with remediation
+ankra security benchmarks resources --cluster <c> --check 5.1.1 --benchmark cis-1.23
+ankra security violations --cluster <c>          # pod-security policy results and the policy mode
+ankra security network-exposure --cluster <c>    # NetworkPolicy over-privilege per direction
+ankra security policy-mode enforce --cluster <c> # audit -> enforce; always confirms
+ankra security enable-baseline --cluster <c>     # install the scanner and policy add-ons
 ```
 
 This is the portal's Security Center from the terminal - one logical finding per CVE and
@@ -168,7 +212,15 @@ in the next 30 days.
   finding of its own.
 - `advisory` works for any CVE id, in a finding or not - the fastest answer to "are we
   exposed to the CVE in this morning's headlines?".
-- Everything takes `-o json` for reporting and automation.
+- **A disposition is a decision with a blast radius**: `preview` first, always give a
+  `--reason`, set `--expires-at` or `--expire-when-fix-available` so it comes back for review.
+  `accepted_risk` needs `security.manage`; `acknowledged` needs `security.triage`.
+- **Absent is not negative.** An unsynced KEV or EPSS feed prints as unknown, a container with
+  no report is "not scanned", a cluster whose agent is offline reads not_available with the
+  reason. Never report any of these as clean.
+- SBOM generation is opt-in per cluster (`trivy_sbom_generation_enabled` in the security
+  baseline profile); the coverage line says how many scanned clusters publish one.
+- Everything takes `-o json` for reporting and automation; the two exports write files.
 
 ## 8. Agent autonomy
 
@@ -202,9 +254,12 @@ ankra org members ; ankra org roles      # who holds what
 ankra cluster access list --cluster <c>  # cluster-admin, cluster-wide grants
 ankra credentials list                   # then `credentials repositories` on each Git credential
 ankra cluster sops-config                # secrets encrypted, paths declared
-ankra application container-security <a> # per application; and code-security
+ankra application container-security <a> # per application; and code-security, security-versions
 ankra security overview                  # KEV exposure and scanner coverage across the fleet
 ankra security findings --known-exploited # what is actually being exploited, fix these first
+ankra security dispositions --status expiring --status fix_available   # accepted risks due for review
+ankra security compliance                # benchmark posture per cluster; not_available is a finding
+ankra security sbom containers --status absent   # running containers with no bill of materials
 ankra org mcp-servers list               # read_write tiers, wide tool grants
 ankra backup vaults list                 # every vault ready, keys scoped to their bucket
 ```

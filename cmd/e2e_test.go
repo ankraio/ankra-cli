@@ -1038,6 +1038,86 @@ func (m baseMock) ExportSecuritySBOMImage(client.SecuritySBOMExportOptions) (*cl
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListSecurityFindingOccurrences(client.SecurityOccurrencesOptions) (*client.SecurityOccurrenceList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSecurityWorkloads(client.SecurityFindingsOptions) (*client.SecurityWorkloadList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSecurityDispositions(client.SecurityDispositionsOptions) (*client.SecurityDispositionList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PreviewSecurityDisposition(client.SecurityDispositionPreviewRequest) (*client.SecurityDispositionPreview, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateSecurityDisposition(client.SecurityDispositionCreateRequest) (*client.SecurityDispositionMutation, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateSecurityDisposition(string, client.SecurityDispositionUpdateRequest) (*client.SecurityDispositionMutation, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevokeSecurityDisposition(string, client.SecurityDispositionRevokeRequest) (*client.SecurityDispositionMutation, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSecurityComplianceOverview() (*client.SecurityComplianceOverview, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSecurityComplianceFrameworks() (*client.SecurityComplianceFrameworkList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetSecurityComplianceFrameworkEnabled(string, bool) (*client.SecurityComplianceFramework, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSecurityComplianceFrameworkReport(string, string) (*client.SecurityComplianceFrameworkReport, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ExportSecurityComplianceReport(client.SecurityComplianceExportOptions) (*client.SecurityComplianceExport, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSecurityClusterBenchmarks(string) (*client.SecurityClusterBenchmarks, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSecurityBenchmarkResources(client.SecurityBenchmarkResourcesOptions) (*client.SecurityBenchmarkResources, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSecurityClusterPolicyViolations(string) (*client.SecurityClusterPolicyViolations, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSecurityClusterNetworkExposure(string) (*client.SecurityClusterNetworkExposure, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetSecurityPolicyMode(string, string) (*client.SecurityPolicyModeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) EnableSecurityBaseline(string) (*client.SecurityBaselineResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSecurityAddonPosture(string, string) (*client.SecurityAddonPosture, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationSecurityVersions(context.Context, string, string) (*client.ApplicationSecurityVersions, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error) {
 	return nil, errors.New("not implemented")
 }
