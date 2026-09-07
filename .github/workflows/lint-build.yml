@@ -25,6 +25,24 @@ jobs:
     # its Depot slot until someone notices: run 34042422066 sat on master for
     # ~6h before a human cancelled it. Fail fast and give the runner back.
     timeout-minutes: 45
+    env:
+      # ankra/cmd is one 105k-line package, and the two heavy steps both hold
+      # it in memory whole: golangci-lint's type-check, and the race+coverage
+      # test compile, which is a single `compile` process. Measured cold, that
+      # compile peaks near 10GB and reaches 11.5GB given room, against this
+      # runner's 8GB. Over budget it thrashes (29m41s to reach
+      # `ok ankra/cmd 7.879s` in run 34061025005, versus 25s warm in run
+      # 33973454824) or the runner is killed outright ("the self-hosted runner
+      # lost communication with the server ... starves it for CPU/Memory",
+      # runs 34059805725 and 34061027039).
+      # GOMEMLIMIT is a soft ceiling, inherited by every Go child process: it
+      # costs nothing until the heap approaches it, then trades CPU for
+      # footprint. Measured cold on ./...: 9886MiB peak in 82s unset, 7381MiB
+      # in 160s at 5GiB. Job-scoped so golangci-lint gets the same ceiling.
+      # -p/GOMAXPROCS deliberately not used: they bound how many packages build
+      # at once, not one package's compile. Measured, `-p 1` still peaked at
+      # 10037MiB, and the runner's 2 vCPUs already make -p 2 the default.
+      GOMEMLIMIT: 5GiB
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -39,24 +57,6 @@ jobs:
         with:
           version: v2.12.2
       - name: Run tests
-        env:
-          # ankra/cmd is one 105k-line package, so its race+coverage test
-          # binary is produced by a single `compile` process; measured cold it
-          # peaks near 10GB of heap and reaches 11.5GB when given room, against
-          # this runner's 8GB. Over budget the compile thrashes (29m41s to
-          # reach `ok ankra/cmd 7.879s` in run 34061025005, versus 25s warm in
-          # run 33973454824) or the runner is killed outright ("the self-hosted
-          # runner lost communication with the server ... starves it for
-          # CPU/Memory", runs 34059805725 and 34061027039).
-          # GOMEMLIMIT is a soft ceiling: it is inherited by the child compile
-          # processes and costs nothing until the heap approaches it, then
-          # trades CPU for footprint. Measured cold on ./...: 9886MiB peak in
-          # 82s unset, 7381MiB in 160s at 5GiB.
-          # -p/GOMAXPROCS deliberately not used: they bound how many packages
-          # build at once, not one package's compile. Measured, `-p 1` still
-          # peaked at 10037MiB, and the runner's 2 vCPUs already make -p 2 the
-          # default.
-          GOMEMLIMIT: 5GiB
         run: go test -race -count=1 -timeout=120s -coverprofile=coverage.out ./...
       - name: Check coverage
         run: go tool cover -func=coverage.out
