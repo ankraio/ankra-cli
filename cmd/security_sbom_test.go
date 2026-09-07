@@ -74,7 +74,7 @@ func sbomComponent() client.SecuritySBOMComponent {
 	purl := "pkg:deb/debian/openssl@3.0.14"
 	return client.SecuritySBOMComponent{
 		Name: "openssl", Version: "3.0.14", PackageType: "deb", ComponentType: "library", PURL: &purl,
-		Licenses: []string{"Apache-2.0"}, Images: 4, Workloads: 7, Clusters: 2,
+		Licenses: []string{"Apache-2.0"}, LicenseRisk: "permissive", Images: 4, Workloads: 7, Clusters: 2,
 		VulnerableFindings: 2, ActionableFindings: 1, KnownExploited: 1,
 	}
 }
@@ -143,16 +143,17 @@ func TestSecuritySbomMapsFlagsAndRendersCoverage(t *testing.T) {
 		Coverage:   sbomCoverage(),
 	}}
 	output, executeError := runSecurityCommand(t, mock, "security", "sbom",
-		"--search", "openssl", "--type", "deb", "--type", "apk", "--vulnerable", "true", "--namespace", "backend", "--sort", "vulnerable")
+		"--search", "openssl", "--type", "deb", "--type", "apk", "--license-risk", "network_copyleft", "--license-risk", "permissive",
+		"--vulnerable", "true", "--namespace", "backend", "--sort", "vulnerable")
 	if executeError != nil {
 		t.Fatalf("security sbom failed: %v", executeError)
 	}
 	options := mock.componentsOptions
 	if options == nil || options.Search != "openssl" || len(options.PackageTypes) != 2 || options.Vulnerable == nil || !*options.Vulnerable ||
-		options.Namespace != "backend" || options.Sort != "vulnerable" {
+		options.Namespace != "backend" || options.Sort != "vulnerable" || len(options.LicenseRisks) != 2 || options.LicenseRisks[0] != "network_copyleft" {
 		t.Fatalf("component options = %+v", options)
 	}
-	for _, expected := range []string{"1 of 3 scanned clusters publish one", "trivy_sbom_generation_enabled", "openssl", "2 (1 actionable)", "KEV", "Page 1 of 1 · 1 components"} {
+	for _, expected := range []string{"1 of 3 scanned clusters publish one", "trivy_sbom_generation_enabled", "openssl", "LICENCE RISK", "permissive", "2 (1 actionable)", "KEV", "Page 1 of 1 · 1 components"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output lacks %q:\n%s", expected, output)
 		}
@@ -168,6 +169,7 @@ func TestSecuritySbomImagesAndImageDetail(t *testing.T) {
 		ImageIdentity: digest, ImageRef: "registry.example.com/backend/api:1.0.0", ImageDigest: &digest, OSName: &osName,
 		ComponentCount: 212, DependencyCount: 180, Workloads: 2, Clusters: 1, Namespaces: []string{"backend"},
 		Observed: 5, Actionable: client.SecuritySeverityCounts{Critical: 1, High: 2}, KnownExploited: 1,
+		LicenseExposure: client.SecurityLicenseExposure{NetworkCopyleft: 2, Copyleft: 1, Permissive: 200, Unknown: 9},
 	}
 	mock := &securitySbomMock{
 		images: &client.SecuritySBOMImageList{
@@ -186,19 +188,20 @@ func TestSecuritySbomImagesAndImageDetail(t *testing.T) {
 	if executeError != nil {
 		t.Fatalf("security sbom images failed: %v", executeError)
 	}
-	for _, expected := range []string{"registry.example.com/backend/api:1.0.0", "debian 12.7", "backend", "Page 1 of 1 · 1 images"} {
+	for _, expected := range []string{"registry.example.com/backend/api:1.0.0", "debian 12.7", "backend", "LICENCE RISK", "2 network copyleft", "1 copyleft", "Page 1 of 1 · 1 images"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("images output lacks %q:\n%s", expected, output)
 		}
 	}
-	output, executeError = runSecurityCommand(t, mock, "security", "sbom", "image", digest, "--type", "deb")
+	output, executeError = runSecurityCommand(t, mock, "security", "sbom", "image", digest, "--type", "deb", "--license-risk", "copyleft")
 	if executeError != nil {
 		t.Fatalf("security sbom image failed: %v", executeError)
 	}
-	if mock.detailOptions == nil || mock.detailOptions.ImageIdentity != digest || len(mock.detailOptions.PackageTypes) != 1 {
+	if mock.detailOptions == nil || mock.detailOptions.ImageIdentity != digest || len(mock.detailOptions.PackageTypes) != 1 ||
+		len(mock.detailOptions.LicenseRisks) != 1 || mock.detailOptions.LicenseRisks[0] != "copyleft" {
 		t.Fatalf("detail options = %+v", mock.detailOptions)
 	}
-	for _, expected := range []string{"Digest:      sha256:abc", "212 (180 dependencies)", "No workload currently runs this image", "openssl", "Page 1 of 1 · 1 components"} {
+	for _, expected := range []string{"Digest:      sha256:abc", "212 (180 dependencies)", "Licences:    ", "2 network copyleft", "(200 permissive, 9 unknown)", "No workload currently runs this image", "openssl", "Page 1 of 1 · 1 components"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("detail output lacks %q:\n%s", expected, output)
 		}

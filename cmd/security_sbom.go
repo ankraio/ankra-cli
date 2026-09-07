@@ -176,6 +176,7 @@ var securitySbomImageCmd = &cobra.Command{
 		pageSize, _ := cmd.Flags().GetInt("page-size")
 		search, _ := cmd.Flags().GetString("search")
 		packageTypes, _ := cmd.Flags().GetStringSlice("type")
+		licenseRisks, _ := cmd.Flags().GetStringSlice("license-risk")
 		sort, _ := cmd.Flags().GetString("sort")
 		order, _ := cmd.Flags().GetString("order")
 		detail, err := apiClient.GetSecuritySBOMImage(client.SecuritySBOMImageOptions{
@@ -184,6 +185,7 @@ var securitySbomImageCmd = &cobra.Command{
 			PageSize:      pageSize,
 			Search:        search,
 			PackageTypes:  packageTypes,
+			LicenseRisks:  licenseRisks,
 			Sort:          sort,
 			Order:         order,
 		})
@@ -385,6 +387,7 @@ func securitySbomComponentsOptionsFromFlags(cmd *cobra.Command) (client.Security
 	pageSize, _ := cmd.Flags().GetInt("page-size")
 	search, _ := cmd.Flags().GetString("search")
 	packageTypes, _ := cmd.Flags().GetStringSlice("type")
+	licenseRisks, _ := cmd.Flags().GetStringSlice("license-risk")
 	clusterFlag, _ := cmd.Flags().GetString("cluster")
 	namespace, _ := cmd.Flags().GetString("namespace")
 	workloadKind, _ := cmd.Flags().GetString("workload-kind")
@@ -398,6 +401,7 @@ func securitySbomComponentsOptionsFromFlags(cmd *cobra.Command) (client.Security
 		PageSize:      pageSize,
 		Search:        search,
 		PackageTypes:  packageTypes,
+		LicenseRisks:  licenseRisks,
 		Namespace:     namespace,
 		WorkloadKind:  workloadKind,
 		WorkloadName:  workloadName,
@@ -547,6 +551,47 @@ func componentFindingsCell(component client.SecuritySBOMComponent) string {
 	return rendered
 }
 
+// licenseRiskCell names the tier, red for the two that reach the code
+// hosting the package and yellow for plain copyleft.
+func licenseRiskCell(licenseRisk string) string {
+	switch licenseRisk {
+	case "network_copyleft":
+		return text.FgRed.Sprint("network copyleft")
+	case "source_available":
+		return text.FgRed.Sprint("source-available")
+	case "copyleft":
+		return text.FgYellow.Sprint("copyleft")
+	case "weak_copyleft":
+		return "weak copyleft"
+	case "permissive":
+		return "permissive"
+	default:
+		return "unknown"
+	}
+}
+
+// licenseExposureCell summarises an image's licence tiers, naming only the
+// ones that oblige anything so a clean image reads as a dash.
+func licenseExposureCell(exposure client.SecurityLicenseExposure) string {
+	parts := []string{}
+	if exposure.NetworkCopyleft > 0 {
+		parts = append(parts, text.FgRed.Sprintf("%d network copyleft", exposure.NetworkCopyleft))
+	}
+	if exposure.SourceAvailable > 0 {
+		parts = append(parts, text.FgRed.Sprintf("%d source-available", exposure.SourceAvailable))
+	}
+	if exposure.Copyleft > 0 {
+		parts = append(parts, text.FgYellow.Sprintf("%d copyleft", exposure.Copyleft))
+	}
+	if exposure.WeakCopyleft > 0 {
+		parts = append(parts, fmt.Sprintf("%d weak copyleft", exposure.WeakCopyleft))
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, ", ")
+}
+
 func renderSecuritySbomComponents(cmd *cobra.Command, list *client.SecuritySBOMComponentList) {
 	out := cmd.OutOrStdout()
 	renderSbomCoverage(cmd, list.Coverage)
@@ -555,13 +600,14 @@ func renderSecuritySbomComponents(cmd *cobra.Command, list *client.SecuritySBOMC
 		return
 	}
 	writer := newSecurityTable(out)
-	writer.AppendHeader(table.Row{"Package", "Version", "Type", "Licence", "Images", "Workloads", "Clusters", "Findings"})
+	writer.AppendHeader(table.Row{"Package", "Version", "Type", "Licence", "Licence risk", "Images", "Workloads", "Clusters", "Findings"})
 	for _, component := range list.Result {
 		writer.AppendRow(table.Row{
 			component.Name,
 			component.Version,
 			component.PackageType,
 			strings.Join(component.Licenses, ", "),
+			licenseRiskCell(component.LicenseRisk),
 			component.Images,
 			component.Workloads,
 			component.Clusters,
@@ -580,12 +626,13 @@ func renderSecuritySbomImages(cmd *cobra.Command, list *client.SecuritySBOMImage
 		return
 	}
 	writer := newSecurityTable(out)
-	writer.AppendHeader(table.Row{"Image", "OS", "Components", "Workloads", "Clusters", "Namespaces", "Critical", "High", "Known exploited", "Generated"})
+	writer.AppendHeader(table.Row{"Image", "OS", "Components", "Licence risk", "Workloads", "Clusters", "Namespaces", "Critical", "High", "Known exploited", "Generated"})
 	for _, image := range list.Result {
 		writer.AppendRow(table.Row{
 			image.ImageRef,
 			stringOrEmpty(image.OSName),
 			image.ComponentCount,
+			licenseExposureCell(image.LicenseExposure),
 			image.Workloads,
 			image.Clusters,
 			strings.Join(image.Namespaces, ", "),
@@ -665,6 +712,8 @@ func renderSecuritySbomImageDetail(cmd *cobra.Command, detail *client.SecuritySB
 		_, _ = fmt.Fprintf(out, "Format:      %s %s\n", *image.BomFormat, stringOrEmpty(image.SpecVersion))
 	}
 	_, _ = fmt.Fprintf(out, "Components:  %d (%d dependencies)\n", image.ComponentCount, image.DependencyCount)
+	_, _ = fmt.Fprintf(out, "Licences:    %s (%d permissive, %d unknown)\n",
+		licenseExposureCell(image.LicenseExposure), image.LicenseExposure.Permissive, image.LicenseExposure.Unknown)
 	_, _ = fmt.Fprintf(out, "Findings:    %d observed, %d critical, %d high actionable, %s known exploited\n",
 		image.Observed, image.Actionable.Critical, image.Actionable.High, redIfPositive(image.KnownExploited))
 	_, _ = fmt.Fprintf(out, "Generated:   %s\n", optionalTimeAgo(image.GeneratedAt))
@@ -695,13 +744,14 @@ func renderSecuritySbomImageDetail(cmd *cobra.Command, detail *client.SecuritySB
 		return
 	}
 	writer := newSecurityTable(out)
-	writer.AppendHeader(table.Row{"Package", "Version", "Type", "Licence", "Findings"})
+	writer.AppendHeader(table.Row{"Package", "Version", "Type", "Licence", "Licence risk", "Findings"})
 	for _, component := range detail.Components {
 		writer.AppendRow(table.Row{
 			component.Name,
 			component.Version,
 			component.PackageType,
 			strings.Join(component.Licenses, ", "),
+			licenseRiskCell(component.LicenseRisk),
 			componentFindingsCell(component),
 		})
 	}
@@ -821,13 +871,14 @@ func init() {
 
 	securitySbomCmd.Flags().String("search", "", "Match package name or package URL")
 	securitySbomCmd.Flags().StringSlice("type", nil, "Ecosystem filter, repeatable: deb, apk, rpm, npm, pypi, golang, maven, ...")
+	securitySbomCmd.Flags().StringSlice("license-risk", nil, "Licence tier filter, repeatable: network_copyleft (AGPL, SSPL, EUPL, OSL), source_available (BUSL, Elastic, Commons Clause), copyleft (GPL), weak_copyleft (LGPL, MPL, EPL), permissive, unknown")
 	securitySbomCmd.Flags().String("cluster", "", "Only packages in images running on one cluster (name or id)")
 	securitySbomCmd.Flags().String("namespace", "", "Only packages in images running in one namespace")
 	securitySbomCmd.Flags().String("workload-kind", "", "Only packages in images run by workloads of this kind (Deployment, StatefulSet, DaemonSet, CronJob, ...)")
 	securitySbomCmd.Flags().String("workload-name", "", "Only packages in images run by the workload with this name; combine with --workload-kind to pin one workload")
 	securitySbomCmd.Flags().String("image", "", "Only packages in one image (digest or reference)")
 	securitySbomCmd.Flags().String("vulnerable", "any", "Findings filter: true (a finding names the package), false or any")
-	securitySbomCmd.Flags().String("sort", "images", "Sort key: images, workloads, clusters, vulnerable, actionable, name, version, package_type")
+	securitySbomCmd.Flags().String("sort", "images", "Sort key: images, workloads, clusters, vulnerable, actionable, license_risk, name, version, package_type")
 	securitySbomCmd.Flags().String("order", "desc", "Sort order: asc or desc")
 	securitySbomCmd.Flags().Int("page", 1, "Page number")
 	securitySbomCmd.Flags().Int("page-size", 50, "Components per page (max 100)")
@@ -844,7 +895,8 @@ func init() {
 
 	securitySbomImageCmd.Flags().String("search", "", "Match package name or package URL")
 	securitySbomImageCmd.Flags().StringSlice("type", nil, "Ecosystem filter, repeatable")
-	securitySbomImageCmd.Flags().String("sort", "vulnerable", "Sort key: vulnerable, actionable, name, version, package_type")
+	securitySbomImageCmd.Flags().StringSlice("license-risk", nil, "Licence tier filter, repeatable: network_copyleft, source_available, copyleft, weak_copyleft, permissive, unknown")
+	securitySbomImageCmd.Flags().String("sort", "vulnerable", "Sort key: vulnerable, actionable, license_risk, name, version, package_type")
 	securitySbomImageCmd.Flags().String("order", "desc", "Sort order: asc or desc")
 	securitySbomImageCmd.Flags().Int("page", 1, "Page number")
 	securitySbomImageCmd.Flags().Int("page-size", 100, "Components per page (max 100)")
