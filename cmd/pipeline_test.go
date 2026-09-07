@@ -54,6 +54,15 @@ type pipelineLaneMock struct {
 	artifactsPages   []client.PipelineArtifactList
 	artifactsOptions []client.ListPipelineArtifactsOptions
 
+	streamStepID  string
+	streamOptions []client.StepLogStreamOptions
+	streamEvents  []client.PipelineLogEvent
+	streamError   error
+	// streamNeverEnds serves streamEvents and then holds the channel open
+	// until the caller cancels, the way a platform that ignores follow=false
+	// keeps a concluded step's connection alive on keepalives.
+	streamNeverEnds bool
+
 	downloadArtifactID string
 	downloadError      error
 	downloadPayload    string
@@ -155,9 +164,25 @@ func (mock *pipelineLaneMock) CancelPipelineRun(ctx context.Context, selector cl
 	return mock.cancelResult, nil
 }
 
-func (mock *pipelineLaneMock) StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, fromSequence int64) (<-chan client.PipelineLogEvent, error) {
-	events := make(chan client.PipelineLogEvent)
-	close(events)
+func (mock *pipelineLaneMock) StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, options client.StepLogStreamOptions) (<-chan client.PipelineLogEvent, error) {
+	mock.lastSelector = selector
+	mock.streamStepID = stepID
+	mock.streamOptions = append(mock.streamOptions, options)
+	if mock.streamError != nil {
+		return nil, mock.streamError
+	}
+	events := make(chan client.PipelineLogEvent, len(mock.streamEvents))
+	for _, event := range mock.streamEvents {
+		events <- event
+	}
+	if !mock.streamNeverEnds {
+		close(events)
+		return events, nil
+	}
+	go func() {
+		<-ctx.Done()
+		close(events)
+	}()
 	return events, nil
 }
 
@@ -182,11 +207,12 @@ func (mock *pipelineLaneMock) ListPipelineArtifacts(ctx context.Context, selecto
 func (mock *pipelineLaneMock) DownloadPipelineArtifact(ctx context.Context, selector client.PipelineSelector, artifactID string, destination io.Writer) error {
 	mock.lastSelector = selector
 	mock.downloadArtifactID = artifactID
-	if mock.downloadError != nil {
-		return mock.downloadError
+	// downloadPayload is written before downloadError is answered, so a test
+	// can stage a download that failed partway through one.
+	if _, writeError := destination.Write([]byte(mock.downloadPayload)); writeError != nil {
+		return writeError
 	}
-	_, writeError := destination.Write([]byte(mock.downloadPayload))
-	return writeError
+	return mock.downloadError
 }
 
 func (mock *pipelineLaneMock) GetPipelineDefinition(ctx context.Context, selector client.PipelineSelector) (*client.PipelineDefinition, error) {

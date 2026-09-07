@@ -27,7 +27,7 @@ func TestStreamPipelineStepLogsDecodesOutputLines(t *testing.T) {
 	})
 
 	events, streamError := testClient.StreamPipelineStepLogs(context.Background(),
-		PipelineSelector{ApplicationID: "app-1"}, "run-1", "step-1", 0)
+		PipelineSelector{ApplicationID: "app-1"}, "run-1", "step-1", StepLogStreamOptions{})
 	if streamError != nil {
 		t.Fatalf("StreamPipelineStepLogs error = %v", streamError)
 	}
@@ -60,7 +60,7 @@ func TestStreamPipelineStepLogsSurfacesTheRelaysErrorFrame(t *testing.T) {
 	})
 
 	events, streamError := testClient.StreamPipelineStepLogs(context.Background(),
-		PipelineSelector{ApplicationID: "app-1"}, "run-1", "step-1", 0)
+		PipelineSelector{ApplicationID: "app-1"}, "run-1", "step-1", StepLogStreamOptions{})
 	if streamError != nil {
 		t.Fatalf("StreamPipelineStepLogs error = %v", streamError)
 	}
@@ -88,7 +88,7 @@ func TestStreamPipelineStepLogsReconnectsFromSequence(t *testing.T) {
 	})
 
 	events, streamError := testClient.StreamPipelineStepLogs(context.Background(),
-		PipelineSelector{ApplicationID: "app-1"}, "run-1", "step-1", 5)
+		PipelineSelector{ApplicationID: "app-1"}, "run-1", "step-1", StepLogStreamOptions{FromSequence: 5})
 	if streamError != nil {
 		t.Fatalf("StreamPipelineStepLogs error = %v", streamError)
 	}
@@ -111,7 +111,7 @@ func TestStreamPipelineStepLogsUnavailableCarriesRetryAfter(t *testing.T) {
 		_, _ = fmt.Fprint(w, `{"detail":"The pipeline log stream is not available right now"}`)
 	})
 	_, streamError := testClient.StreamPipelineStepLogs(context.Background(),
-		PipelineSelector{ApplicationID: "app-1"}, "run-1", "step-1", 0)
+		PipelineSelector{ApplicationID: "app-1"}, "run-1", "step-1", StepLogStreamOptions{})
 	if streamError == nil {
 		t.Fatal("expected an error")
 	}
@@ -121,5 +121,74 @@ func TestStreamPipelineStepLogsUnavailableCarriesRetryAfter(t *testing.T) {
 	}
 	if unavailable.RetryAfterSeconds != 7 {
 		t.Errorf("retry after = %d, want 7", unavailable.RetryAfterSeconds)
+	}
+}
+
+// TestStreamPipelineStepLogsSendsFollowAndReplay pins that the two delivery
+// parameters only reach the wire when the caller sets them: the route reads
+// an absent one as "decide from the step's status", which is the behaviour
+// every existing caller depends on.
+func TestStreamPipelineStepLogsSendsFollowAndReplay(t *testing.T) {
+	isFollowing, isReplaying := false, true
+	for _, testCase := range []struct {
+		name          string
+		options       StepLogStreamOptions
+		expectedQuery string
+	}{
+		{name: "nothing set", options: StepLogStreamOptions{}, expectedQuery: ""},
+		{name: "follow=false", options: StepLogStreamOptions{IsFollowing: &isFollowing},
+			expectedQuery: "follow=false"},
+		{name: "replay=true", options: StepLogStreamOptions{IsReplaying: &isReplaying},
+			expectedQuery: "replay=true"},
+		{name: "a cursor alongside both", options: StepLogStreamOptions{
+			FromSequence: 12, IsFollowing: &isFollowing, IsReplaying: &isReplaying},
+			expectedQuery: "follow=false&from_seq=12&replay=true"},
+	} {
+		t.Run(testCase.name, func(subtest *testing.T) {
+			var capturedQuery string
+			testClient := newTestClient(subtest, func(w http.ResponseWriter, r *http.Request) {
+				capturedQuery = r.URL.RawQuery
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+			})
+			events, streamError := testClient.StreamPipelineStepLogs(context.Background(),
+				PipelineSelector{ApplicationID: "app-1"}, "run-1", "step-1", testCase.options)
+			if streamError != nil {
+				subtest.Fatalf("StreamPipelineStepLogs error = %v", streamError)
+			}
+			for range events {
+			}
+			if capturedQuery != testCase.expectedQuery {
+				subtest.Errorf("query = %q, want %q", capturedQuery, testCase.expectedQuery)
+			}
+		})
+	}
+}
+
+// TestStreamPipelineStepLogsNoLongerRetainedIsTyped pins the relay's 410: a
+// concluded step whose frames aged out is a distinct, non-retryable answer,
+// and the platform's own sentence is what a caller prints.
+func TestStreamPipelineStepLogsNoLongerRetainedIsTyped(t *testing.T) {
+	detail := "This step's live output is no longer retained; its archived log needs a ready backup vault."
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusGone)
+		_, _ = fmt.Fprintf(w, `{"detail":%q,"error_code":"LOG_NO_LONGER_RETAINED"}`, detail)
+	})
+	_, streamError := testClient.StreamPipelineStepLogs(context.Background(),
+		PipelineSelector{ApplicationID: "app-1"}, "run-1", "step-1", StepLogStreamOptions{})
+	var noLongerRetained *PipelineLogNoLongerRetainedError
+	if !errors.As(streamError, &noLongerRetained) {
+		t.Fatalf("error = %v (%T), want *PipelineLogNoLongerRetainedError", streamError, streamError)
+	}
+	if noLongerRetained.Detail != detail {
+		t.Errorf("detail = %q, want the platform's sentence verbatim", noLongerRetained.Detail)
+	}
+	if noLongerRetained.ErrorCode != "LOG_NO_LONGER_RETAINED" {
+		t.Errorf("error code = %q", noLongerRetained.ErrorCode)
+	}
+	// A 410 that is not the retention answer must not be reported as one.
+	var unavailable *PipelineLogStreamUnavailableError
+	if errors.As(streamError, &unavailable) {
+		t.Error("the retention refusal must not also read as the retryable 503")
 	}
 }

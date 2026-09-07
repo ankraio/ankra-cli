@@ -1,5 +1,41 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`ankra pipeline logs` shows a finished step's output even when the
+  organisation has no backup vault.** A concluded step's log was only ever
+  read from its archived `step_log` artifact, and archiving one needs a ready
+  backup vault - which a new organisation does not have, so the step was
+  dispatched with uploads disabled, no artifact was ever recorded, and the
+  command answered "No archived log was recorded" for a build whose output
+  Ankra was still holding. When the run's artifacts are read to the end and
+  hold no log for the step - or the recorded one is uploaded but the platform
+  cannot find it - the command now replays that step's output from the
+  platform's retained log stream instead, printing it exactly like a live
+  tail and stopping when the replay is drained. A step whose output has aged
+  out of the retention window prints the platform's own explanation and exits
+  3 (not found), and a step that never reached an execution still reads as
+  having no log at all. A capped artifact walk is unchanged: absence was
+  never observed, so nothing is claimed about it.
+
+- **`ankra pipeline logs` no longer waits forever on a platform that does not
+  end the replay.** An Ankra older than the retained replay keeps a concluded
+  step's connection open on keepalives indefinitely; the command now stops
+  after 15 seconds with no output and says the replay was not ended, rather
+  than hanging with nothing to show.
+
+### Added
+
+- **`ankra pipeline logs --replay` also shows what a running step printed
+  before you connected.** A live connection has always started from the
+  moment it opened, so attaching to a build already halfway through skipped
+  everything up to that point. `--replay` asks the platform for the step's
+  output so far and then keeps following. It needs an Ankra new enough to
+  serve it; an older platform ignores it and streams from the connection as
+  before.
+
 ## v0.15.0-rc3 — 2026-09-07
 
 ### Added

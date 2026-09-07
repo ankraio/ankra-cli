@@ -1,24 +1,37 @@
 package cmd
 
-// A pipeline step's output, two ways. A running step is followed live over
-// the step log relay (go/internal/pipelineapi/streams.go, over the shared
-// execution_output JetStream stream) - see internal/client/pipeline_logs.go
-// for that wire contract and its one real limitation: a fresh connection has
-// no history to replay, so a live connection only ever shows output produced
-// from the moment it connects. A step that has already concluded reads
-// differently: this command instead fetches its durable step_log artifact
-// (enginekit/pipelineartifacts.KindStepLog, uploaded when the step
-// concluded) through the same artifacts list and presigned download
-// cmd/pipeline_artifacts.go uses, and prints it whole - mirroring the
-// portal's usePipelineStepArtifactLog. That listing is keyset-paged, so the
-// search follows its cursor rather than read the first page as the run's
-// whole record. --follow only ever applies to the live relay: a concluded
-// step's log is a fixed, complete record, so there is nothing left to
-// follow.
+// A pipeline step's output, three ways. A running step is followed live over
+// the step log relay (go/internal/pipelineapi/streams.go) - see
+// internal/client/pipeline_logs.go for that wire contract. A step that has
+// already concluded reads differently: this command instead fetches its
+// durable step_log artifact (enginekit/pipelineartifacts.KindStepLog,
+// uploaded when the step concluded) through the same artifacts list and
+// presigned download cmd/pipeline_artifacts.go uses, and prints it whole -
+// mirroring the portal's usePipelineStepArtifactLog. That listing is
+// keyset-paged, so the search follows its cursor rather than read the first
+// page as the run's whole record.
+//
+// The third way exists because that archive is not guaranteed. Archiving a
+// step log needs a ready backup vault; an organisation without one has
+// nowhere to put the object (enginekit/pipelineartifacts.ErrNoVault), so the
+// step is dispatched with uploads disabled and no artifact row is ever
+// minted - which used to leave a concluded step's output unreadable from the
+// CLI altogether. When the run's artifacts are read to the end and hold no
+// step_log for the step, the command replays that step's output from the
+// platform's retained log stream instead (follow=false), and stops when the
+// replay is drained.
+//
+// --follow only ever applies to the live relay: a concluded step's log,
+// archived or replayed, is a fixed record, so there is nothing left to
+// follow. --replay is its counterpart on a running step, asking the platform
+// for the output produced before this command connected.
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -51,20 +64,33 @@ const pipelineArtifactPageSize = 100
 // rather than as an absent log.
 const pipelineArtifactPageBudget = 50
 
+// pipelineLogReplayIdleTimeout bounds the replay of a concluded step's
+// retained output. A platform older than that contract ignores follow=false
+// and holds the connection open on keepalives forever, so waiting for the
+// stream to end would hang the command with nothing to show for it; after
+// this long with no frame - from the connection when none ever arrives, from
+// the last frame otherwise - the command stops and says so. It is a var only
+// so the tests can shorten it; nothing else writes it.
+var pipelineLogReplayIdleTimeout = 15 * time.Second
+
 func newPipelineLogsCommand() *cobra.Command {
 	logsCommand := &cobra.Command{
 		Use:   "logs <run>",
 		Short: "Show a pipeline step's output",
 		Long: `Show a pipeline step's output.
 
-A step that has already concluded prints its complete, archived log in one
-shot - --follow does nothing extra for it, since there is nothing left to
-produce. A step that is still running is followed over the live log relay
-instead: without --follow, the command tails the step until it concludes and
-then stops; with --follow it keeps reconnecting through a dropped stream
-instead of giving up. The relay itself has no history - a fresh connection
-only sees lines produced from the moment it connects - which is exactly why
-a concluded step reads its archived log instead.`,
+A step that has already concluded prints its complete log in one shot -
+--follow does nothing extra for it, since there is nothing left to produce.
+Its archived log is read when the run has one; archiving needs a ready backup
+vault, and when there is none the command replays the step's output from the
+platform's retained log stream instead and stops when that runs out.
+
+A step that is still running is followed over the live log stream: without
+--follow, the command tails the step until it concludes and then stops; with
+--follow it keeps reconnecting through a dropped stream instead of giving up.
+A live connection starts from the moment it connects unless you pass
+--replay, which asks the platform for the output the step already produced
+first.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -84,11 +110,15 @@ a concluded step reads its archived log instead.`,
 func registerPipelineLogsFlags(command *cobra.Command) {
 	command.Flags().String("step", "", "Step key to follow (required when the run has more than one step)")
 	command.Flags().Bool("follow", false, "Keep streaming, reconnecting through transient stream faults, until the step concludes")
+	command.Flags().Bool("replay", false,
+		"Also show the output a running step produced before this command connected "+
+			"(a concluded step's log is always shown whole)")
 }
 
 func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, runID string) error {
 	stepReference, _ := command.Flags().GetString("step")
 	follow, _ := command.Flags().GetBool("follow")
+	isReplaying, _ := command.Flags().GetBool("replay")
 	runID = strings.TrimSpace(runID)
 
 	step, resolveError := resolvePipelineStep(command, selector, runID, strings.TrimSpace(stepReference))
@@ -98,16 +128,28 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 	if step.Status == pipelineStepStatusConcluded {
 		return runPipelineLogsFromArchive(command, selector, runID, step)
 	}
-	if step.ExecutionID == nil || step.ExecutionStepID == nil {
+	if !pipelineStepHasLogStream(step) {
 		return fmt.Errorf("step %q has not started, so it has no log stream yet - "+
 			"check 'ankra pipeline get %s' for its status", step.StepKey, runID)
+	}
+
+	// Only an explicit --replay reaches the wire: the flag's own default is
+	// indistinguishable from not passing it, and the route reads an absent
+	// `replay` as "decide from the step's status", which is today's
+	// behaviour. A resume cursor outranks it server-side, so leaving it set
+	// across reconnects cannot re-send output already printed.
+	streamOptions := client.StepLogStreamOptions{}
+	if command.Flags().Changed("replay") {
+		streamOptions.IsReplaying = &isReplaying
 	}
 
 	out := command.OutOrStdout()
 	progress := command.ErrOrStderr()
 	var lastSeq int64
 	for {
-		events, streamError := apiClient.StreamPipelineStepLogs(command.Context(), selector, runID, step.ID, lastSeq)
+		streamOptions.FromSequence = lastSeq
+		events, streamError := apiClient.StreamPipelineStepLogs(command.Context(), selector, runID, step.ID,
+			streamOptions)
 		if streamError != nil {
 			var unavailable *client.PipelineLogStreamUnavailableError
 			if errors.As(streamError, &unavailable) && follow {
@@ -128,12 +170,9 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 		}
 
 		for event := range events {
-			switch event.Type {
-			case "line":
-				_, _ = fmt.Fprintf(out, "[%s] %s\n", event.Stream, event.Line)
+			printPipelineLogEvent(out, progress, event)
+			if event.Type == "line" {
 				lastSeq = event.Seq
-			case "error":
-				_, _ = fmt.Fprintf(progress, "Log stream fault: %s\n", event.Error)
 			}
 		}
 
@@ -208,13 +247,15 @@ func pipelineStepConcluded(command *cobra.Command, selector client.PipelineSelec
 	return false, withExitCode(exitNotFound, fmt.Errorf("step %s is no longer on run %s", stepID, runID))
 }
 
-// runPipelineLogsFromArchive prints a concluded step's complete log from its
-// durable step_log artifact instead of opening the live relay, which would
-// see nothing for a step that already finished (DeliverNewPolicy - see the
-// package doc above). Mirrors the portal's usePipelineStepArtifactLog: find
-// the run's step_log artifact for this step, then branch on its own Status,
-// since "no artifact" and each of the artifact's three non-terminal-success
-// states are different facts a caller must not collapse into "no log".
+// runPipelineLogsFromArchive prints a concluded step's complete log, from
+// its durable step_log artifact where the run has one. Mirrors the portal's
+// usePipelineStepArtifactLog: find the run's step_log artifact for this step,
+// then branch on its own Status, since "no artifact" and each of the
+// artifact's three non-terminal-success states are different facts a caller
+// must not collapse into "no log". A run with no step_log at all, or one
+// whose object the download cannot find, falls through to the platform's
+// retained log stream instead of reporting the step as having printed
+// nothing.
 func runPipelineLogsFromArchive(command *cobra.Command, selector client.PipelineSelector, runID string,
 	step client.PipelineStep) error {
 	out := command.OutOrStdout()
@@ -229,14 +270,22 @@ func runPipelineLogsFromArchive(command *cobra.Command, selector client.Pipeline
 			// The search stopped at its own page cap, so absence was never
 			// observed: say the read was capped rather than report a log
 			// that may well exist on a page this command declined to fetch.
+			// The retained stream is not tried either, for the same reason -
+			// the archive is still the better copy if it is there.
 			_, _ = fmt.Fprintf(progress,
 				"Stopped after %d pages of run %s's artifacts without finding a log for step %q;"+
 					" list them with 'ankra pipeline artifacts %s'.\n",
 				pipelineArtifactPageBudget, runID, step.StepKey, runID)
 			return nil
 		}
-		_, _ = fmt.Fprintf(progress, "No archived log was recorded for step %q.\n", step.StepKey)
-		return nil
+		if !pipelineStepHasLogStream(step) {
+			_, _ = fmt.Fprintf(progress, "No archived log was recorded for step %q.\n", step.StepKey)
+			return nil
+		}
+		_, _ = fmt.Fprintf(progress,
+			"No archived log was recorded for step %q (archiving one needs a ready backup vault);"+
+				" replaying the platform's retained log stream instead.\n", step.StepKey)
+		return runPipelineLogsFromRetainedStream(command, selector, runID, step)
 	}
 
 	switch logArtifact.Status {
@@ -244,7 +293,30 @@ func runPipelineLogsFromArchive(command *cobra.Command, selector client.Pipeline
 		// Streamed straight through rather than buffered: a step log is
 		// whatever the build printed, which for a verbose one is tens of
 		// megabytes, and holding all of it to write it once buys nothing.
-		return apiClient.DownloadPipelineArtifact(command.Context(), selector, logArtifact.ID, out)
+		// Counting what reached stdout is what makes the fallback below safe:
+		// a download that failed halfway has already printed part of the log,
+		// and replaying the stream on top of it would show those lines twice.
+		countedOutput := &countingWriter{destination: out}
+		downloadError := apiClient.DownloadPipelineArtifact(command.Context(), selector,
+			logArtifact.ID, countedOutput)
+		if downloadError == nil {
+			return nil
+		}
+		// 404 only, deliberately: the download's other refusals are not an
+		// object the retained stream could answer for instead. Its 410 in
+		// particular says the retention sweep removed the object, and
+		// artifact retention is counted in whole days with a floor of one
+		// (pipelineartifacts.EffectiveRetentionDays), so a swept artifact is
+		// already at least as old as the stream's entire window
+		// (pipelinerun.OutputRetention, 24h) - the frames are gone too.
+		if countedOutput.written == 0 && pipelineArtifactIsNotFound(downloadError) &&
+			pipelineStepHasLogStream(step) {
+			_, _ = fmt.Fprintf(progress,
+				"Step %q's archived log is recorded but the platform cannot find it;"+
+					" replaying the retained log stream instead.\n", step.StepKey)
+			return runPipelineLogsFromRetainedStream(command, selector, runID, step)
+		}
+		return downloadError
 	case client.PipelineArtifactStatusPending:
 		_, _ = fmt.Fprintf(progress,
 			"Step %q has concluded; its log is still being archived - try again shortly.\n", step.StepKey)
@@ -306,4 +378,134 @@ func findPipelineStepLogArtifact(command *cobra.Command, selector client.Pipelin
 		options.Cursor = *list.NextCursor
 	}
 	return newest, false, nil
+}
+
+// runPipelineLogsFromRetainedStream prints a concluded step's output from the
+// platform's retained log stream, for the case its archived log is not there
+// to read. follow=false asks the relay to replay the step's retained history
+// and then end, so this is a one-shot print rather than the reconnecting
+// tail a running step gets.
+//
+// The idle guard is the whole reason this is not a plain `for range events`.
+// A platform that predates the replay contract ignores follow=false, opens a
+// live tail on a step that will never publish again, and keeps the
+// connection alive with keepalives indefinitely; the CLI must not hang
+// waiting for an end that is not coming. Stopping is reported rather than
+// dressed up as the end of the log, because a truncated replay and a
+// complete one are not the same answer.
+func runPipelineLogsFromRetainedStream(command *cobra.Command, selector client.PipelineSelector,
+	runID string, step client.PipelineStep) error {
+	out := command.OutOrStdout()
+	progress := command.ErrOrStderr()
+
+	streamContext, cancelStream := context.WithCancel(command.Context())
+	isNotFollowing := false
+	events, streamError := apiClient.StreamPipelineStepLogs(streamContext, selector, runID, step.ID,
+		client.StepLogStreamOptions{IsFollowing: &isNotFollowing})
+	if streamError != nil {
+		cancelStream()
+		// The platform's own sentence is the whole message - it already says
+		// the output aged out and that an archived log needs a ready backup
+		// vault - and a log that is gone is a missing resource, not a
+		// failure worth retrying, so it exits like every other not-found.
+		var noLongerRetained *client.PipelineLogNoLongerRetainedError
+		if errors.As(streamError, &noLongerRetained) {
+			return withExitCode(exitNotFound, streamError)
+		}
+		return streamError
+	}
+	// The client's reader goroutine blocks once its channel fills, so a
+	// replay abandoned at the idle guard is cancelled and drained rather
+	// than left running behind the command.
+	defer func() {
+		cancelStream()
+		for range events {
+		}
+	}()
+
+	idleTimer := time.NewTimer(pipelineLogReplayIdleTimeout)
+	defer idleTimer.Stop()
+	printedLines := 0
+	sawStreamFault := false
+	for {
+		select {
+		case <-streamContext.Done():
+			return streamContext.Err()
+		case event, isStreamOpen := <-events:
+			if !isStreamOpen {
+				// Said as the stream's answer, not as the step's: inside the
+				// retention window an empty replay and a step that printed
+				// nothing are the same thing from here. A replay that
+				// faulted is not said at all - the fault is already on
+				// stderr, and a read that broke observed nothing about the
+				// output either way.
+				if printedLines == 0 && !sawStreamFault {
+					_, _ = fmt.Fprintf(progress,
+						"The platform's retained log stream held no output for step %q.\n", step.StepKey)
+				}
+				return nil
+			}
+			printPipelineLogEvent(out, progress, event)
+			switch event.Type {
+			case "line":
+				printedLines++
+			case "error":
+				sawStreamFault = true
+			}
+			// A bare Reset, deliberately. This module's go directive is
+			// 1.25, and from go1.23 a timer's channel is unbuffered and
+			// drained by Stop and Reset, so a tick that fired while this
+			// case was being chosen cannot survive into the next select.
+			// The pre-1.23 "if !Stop() { <-C }" idiom would be wrong here -
+			// under these semantics that receive can block.
+			idleTimer.Reset(pipelineLogReplayIdleTimeout)
+		case <-idleTimer.C:
+			_, _ = fmt.Fprintf(progress,
+				"The platform did not end step %q's log replay after %ds without output;"+
+					" it is older than the replay this command asked for. Stopping here.\n",
+				step.StepKey, int(pipelineLogReplayIdleTimeout.Seconds()))
+			return nil
+		}
+	}
+}
+
+// printPipelineLogEvent writes one decoded relay frame: output lines to
+// stdout so a redirected log holds only the step's own output, and the
+// relay's faults to stderr.
+func printPipelineLogEvent(out io.Writer, progress io.Writer, event client.PipelineLogEvent) {
+	switch event.Type {
+	case "line":
+		_, _ = fmt.Fprintf(out, "[%s] %s\n", event.Stream, event.Line)
+	case "error":
+		_, _ = fmt.Fprintf(progress, "Log stream fault: %s\n", event.Error)
+	}
+}
+
+// pipelineStepHasLogStream reports whether a step ever reached an execution,
+// which is what gives it a subject on the log stream at all. A step that
+// never started has no stream to open and no archive to read.
+func pipelineStepHasLogStream(step client.PipelineStep) bool {
+	return step.ExecutionID != nil && step.ExecutionStepID != nil
+}
+
+// pipelineArtifactIsNotFound reports whether an artifact download failed
+// because the platform could not find the artifact, as opposed to a refusal
+// that describes a state the caller has to report as it stands.
+func pipelineArtifactIsNotFound(downloadError error) bool {
+	var refusal *client.PipelineArtifactDownloadError
+	return errors.As(downloadError, &refusal) && refusal.StatusCode == http.StatusNotFound
+}
+
+// countingWriter passes writes through and records how many bytes reached the
+// destination, so a caller can tell a failure that printed nothing from one
+// that printed half a log.
+type countingWriter struct {
+	destination io.Writer
+	written     int64
+}
+
+func (writer *countingWriter) Write(payload []byte) (int, error) {
+	count, writeError := writer.destination.Write(payload)
+	writer.written += int64(count)
+	return count, writeError
 }
