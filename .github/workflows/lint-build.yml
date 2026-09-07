@@ -11,9 +11,38 @@ on:
 permissions:
   contents: read
 
+# Superseded runs used to keep their runner for the full race compile, so a
+# branch pushed three times held three Depot runners at once and later runs
+# queued for hours (run 34059805725 waited 3h17m for a runner).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-test-build:
     runs-on: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
+    # A starved runner stops reporting rather than failing, so the job holds
+    # its Depot slot until someone notices: run 34042422066 sat on master for
+    # ~6h before a human cancelled it. Fail fast and give the runner back.
+    timeout-minutes: 45
+    env:
+      # ankra/cmd is one 105k-line package, and the two heavy steps both hold
+      # it in memory whole: golangci-lint's type-check, and the race+coverage
+      # test compile, which is a single `compile` process. Measured cold, that
+      # compile peaks near 10GB and reaches 11.5GB given room, against this
+      # runner's 8GB. Over budget it thrashes (29m41s to reach
+      # `ok ankra/cmd 7.879s` in run 34061025005, versus 25s warm in run
+      # 33973454824) or the runner is killed outright ("the self-hosted runner
+      # lost communication with the server ... starves it for CPU/Memory",
+      # runs 34059805725 and 34061027039).
+      # GOMEMLIMIT is a soft ceiling, inherited by every Go child process: it
+      # costs nothing until the heap approaches it, then trades CPU for
+      # footprint. Measured cold on ./...: 9886MiB peak in 82s unset, 7381MiB
+      # in 160s at 5GiB. Job-scoped so golangci-lint gets the same ceiling.
+      # -p/GOMAXPROCS deliberately not used: they bound how many packages build
+      # at once, not one package's compile. Measured, `-p 1` still peaked at
+      # 10037MiB, and the runner's 2 vCPUs already make -p 2 the default.
+      GOMEMLIMIT: 5GiB
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
