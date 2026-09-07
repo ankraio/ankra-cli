@@ -50,15 +50,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// The PipelineStep.Status values this command branches on
-// (enginekit/pipelinerun's StepStatus* set). A step is dispatched only out of
-// "pending", so the two states below it are the ones the wait sits in.
+// The PipelineStep.Status values this command branches on. They are the whole
+// vocabulary (enginekit/pipelinerun's StepStatus* set, mirrored by the status
+// CHECK constraint in migration pipe_004), which is what lets
+// pipelineStepIsWaitingToStart enumerate the states worth waiting in:
+// "concluded" is the only terminal one, and how a step ended - skipped,
+// cancelled, timed out - is a separate outcome column, not a status of its
+// own.
 const (
 	// pipelineStepStatusBlocked is a step still waiting on its dependencies.
 	pipelineStepStatusBlocked = "blocked"
 	// pipelineStepStatusPending is a step whose dependencies are satisfied
 	// and which the claim scan has not taken yet.
 	pipelineStepStatusPending = "pending"
+	// pipelineStepStatusRunning is a claimed step. Its execution ids land a
+	// moment after the claim, so it is briefly running with no log stream.
+	pipelineStepStatusRunning = "running"
 	// pipelineStepStatusConcluded is a settled step, shared by the
 	// archive-log branch below and readPipelineStep's callers.
 	pipelineStepStatusConcluded = "concluded"
@@ -186,8 +193,8 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 		if step.Status == pipelineStepStatusConcluded {
 			return runPipelineLogsFromArchive(command, selector, runID, step)
 		}
-		if pipelineStepHasNotStarted(step) {
-			if !follow {
+		if !pipelineStepHasLogStream(step) {
+			if !follow || !pipelineStepIsWaitingToStart(step) {
 				return pipelineStepNotStartedError(step, runID)
 			}
 			startedStep, waitError := waitForPipelineStepToStart(command, selector, runID, step)
@@ -279,7 +286,7 @@ func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.Pipel
 			_, _ = fmt.Fprintln(progress, "Log stream ended.")
 			return client.PipelineStep{}, false, nil
 		}
-		if pipelineStepHasNotStarted(refreshed) {
+		if pipelineStepIsWaitingToStart(refreshed) {
 			return refreshed, true, nil
 		}
 		// Every reconnect waits, not only a faulted one: a proxy that closes
@@ -331,8 +338,14 @@ func waitForPipelineStepToStart(command *cobra.Command, selector client.Pipeline
 			_, _ = fmt.Fprintln(progress, pipelineStepConcludedWhileWaitingLine(step))
 			return step, nil
 		}
-		if !pipelineStepHasNotStarted(step) {
+		if pipelineStepHasLogStream(step) {
 			return step, nil
+		}
+		// A state the wait does not sit in - a status this build does not
+		// know, or one that lost its execution without concluding - is the
+		// not-started answer rather than another 30 minutes of polling.
+		if !pipelineStepIsWaitingToStart(step) {
+			return client.PipelineStep{}, pipelineStepNotStartedError(step, runID)
 		}
 		// Checked after the step, so a run whose last step concluded in the
 		// same poll is read from that step rather than from the run.
@@ -397,7 +410,7 @@ func pipelineStepNotStartedError(step client.PipelineStep, runID string) error {
 func pipelineStepWentBackToWaiting(command *cobra.Command, selector client.PipelineSelector, runID string,
 	stepID string) (client.PipelineStep, bool) {
 	step, _, readError := readPipelineStep(command, selector, runID, stepID)
-	if readError != nil || step.Status == pipelineStepStatusConcluded || !pipelineStepHasNotStarted(step) {
+	if readError != nil || !pipelineStepIsWaitingToStart(step) {
 		return client.PipelineStep{}, false
 	}
 	return step, true
@@ -697,19 +710,29 @@ func pipelineStepHasLogStream(step client.PipelineStep) bool {
 	return step.ExecutionID != nil && step.ExecutionStepID != nil
 }
 
-// pipelineStepHasNotStarted reports whether a step is still waiting to be
-// dispatched: the scheduler has not taken it (blocked or pending), or it
-// never reached an execution and so has no subject on the log stream.
+// pipelineStepIsWaitingToStart reports whether a step has no log stream yet
+// but is in a state the scheduler still moves it out of - so one is coming
+// and is worth waiting for.
 //
-// Callers must settle a concluded step before asking. A step that was
-// skipped concluded without ever reaching an execution, so it answers true
-// here while being the one thing this predicate does not mean - it is not
-// waiting for anything, and its log is read from the archive.
-func pipelineStepHasNotStarted(step client.PipelineStep) bool {
-	if step.Status == pipelineStepStatusBlocked || step.Status == pipelineStepStatusPending {
-		return true
+// It names the states it waits in rather than asking what the step is not.
+// A step that concluded without ever reaching an execution (skipped because
+// a dependency failed, cancelled with its run) also has no stream, and
+// "anything without an execution" would spend the whole wait bound on one
+// that can never start. The same reasoning covers a status this build does
+// not know: an addition to the vocabulary is at least as likely to be
+// terminal as pre-dispatch, so it is not waited on either. "running" is
+// included for the narrow race it is - the row is claimed and its execution
+// ids land a moment later.
+func pipelineStepIsWaitingToStart(step client.PipelineStep) bool {
+	if pipelineStepHasLogStream(step) {
+		return false
 	}
-	return !pipelineStepHasLogStream(step)
+	switch step.Status {
+	case pipelineStepStatusBlocked, pipelineStepStatusPending, pipelineStepStatusRunning:
+		return true
+	default:
+		return false
+	}
 }
 
 // pipelineArtifactIsNotFound reports whether an artifact download failed

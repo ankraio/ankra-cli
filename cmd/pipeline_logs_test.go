@@ -57,7 +57,7 @@ func pendingStep() client.PipelineStep {
 func startedBuildStep() client.PipelineStep {
 	executionID, executionStepID := "execution-1", "execution-step-1"
 	step := blockedStep()
-	step.Status = "running"
+	step.Status = pipelineStepStatusRunning
 	step.ExecutionID = &executionID
 	step.ExecutionStepID = &executionStepID
 	return step
@@ -886,5 +886,53 @@ func TestPipelineLogsFollowWaitsAgainWhenAStepIsReplannedMidTail(t *testing.T) {
 	}
 	if len(mockClient.streamOptions) != 2 {
 		t.Errorf("stream calls = %d, want the relay retried once after the wait", len(mockClient.streamOptions))
+	}
+}
+
+func TestPipelineLogsFollowDoesNotWaitOnAStatusItDoesNotKnow(t *testing.T) {
+	// The wait enumerates the states the scheduler moves a step out of, so a
+	// status added to the platform after this build - as likely to be
+	// terminal as pre-dispatch - reads as not started at once rather than
+	// costing the whole 30-minute bound.
+	shortenPipelineStepStartWait(t, time.Minute)
+	unknown := blockedStep()
+	unknown.Status = "quarantined"
+	detail := runDetailWithStep("running", unknown)
+	mockClient := &pipelineLaneMock{getResult: &detail}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build", "--follow")
+	if executeError == nil ||
+		!strings.Contains(executeError.Error(), `step "build" has not started, so it has no log stream yet`) {
+		t.Fatalf("error = %v, want the not-started refusal without a wait", executeError)
+	}
+	if mockClient.getCalls != 1 {
+		t.Errorf("run reads = %d, want the single resolve read and no polling", mockClient.getCalls)
+	}
+}
+
+func TestPipelineLogsFollowStopsWhenAWaitedStepLeavesTheStatesItWaitsIn(t *testing.T) {
+	// The same guard inside the wait: a step that was pending and is now in a
+	// state this build does not wait in stops the poll rather than running it
+	// out to the bound.
+	shortenPipelineStepStartWait(t, time.Minute)
+	unknown := blockedStep()
+	unknown.Status = "quarantined"
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", pendingStep()),
+			runDetailWithStep("running", unknown),
+		},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build", "--follow")
+	if executeError == nil ||
+		!strings.Contains(executeError.Error(), `step "build" has not started, so it has no log stream yet`) {
+		t.Fatalf("error = %v, want the wait to stop on a state it does not sit in", executeError)
+	}
+	if !strings.Contains(output, `Waiting for step "build" to start (pending).`) {
+		t.Errorf("output = %q, want the wait to have started before it gave up", output)
+	}
+	if mockClient.getCalls != 2 {
+		t.Errorf("run reads = %d, want the resolve read plus one poll", mockClient.getCalls)
 	}
 }
