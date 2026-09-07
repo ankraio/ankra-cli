@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -250,9 +251,11 @@ func TestPlaygroundDestroyPrintsTheClusterIDAndPhase(t *testing.T) {
 	output := new(bytes.Buffer)
 	clusterPlaygroundDestroyCmd.SetOut(output)
 	clusterPlaygroundDestroyCmd.SetErr(output)
+	clusterPlaygroundDestroyCmd.SetIn(strings.NewReader("y\n"))
 	t.Cleanup(func() {
 		clusterPlaygroundDestroyCmd.SetOut(nil)
 		clusterPlaygroundDestroyCmd.SetErr(nil)
+		clusterPlaygroundDestroyCmd.SetIn(nil)
 	})
 
 	if runError := clusterPlaygroundDestroyCmd.RunE(
@@ -271,8 +274,114 @@ func TestPlaygroundDestroyPrintsTheClusterIDAndPhase(t *testing.T) {
 	}
 }
 
+// Destroy is irreversible - the tenant's storage goes with it - so it has to
+// ask like every other destructive verb does (ankra-stril). Declining is the
+// shared cancelled error (exit 4) and must not reach the API at all.
+func TestPlaygroundDestroyAsksFirstAndADeclineNeverReachesTheAPI(t *testing.T) {
+	mock := &playgroundMock{
+		destroyResult: &client.DestroyPlaygroundResult{ClusterID: playgroundTestClusterID, Phase: "deprovisioning"},
+	}
+	withPlaygroundMock(t, mock)
+	output := new(bytes.Buffer)
+	clusterPlaygroundDestroyCmd.SetOut(output)
+	clusterPlaygroundDestroyCmd.SetIn(strings.NewReader("n\n"))
+	t.Cleanup(func() {
+		clusterPlaygroundDestroyCmd.SetOut(nil)
+		clusterPlaygroundDestroyCmd.SetIn(nil)
+	})
+
+	runError := clusterPlaygroundDestroyCmd.RunE(clusterPlaygroundDestroyCmd, []string{playgroundTestClusterID})
+	if !errors.Is(runError, errCancelled) {
+		t.Fatalf("a declined prompt must return errCancelled, got %v", runError)
+	}
+	if mock.destroyRequested != "" {
+		t.Errorf("a declined destroy must not call the API, but it asked for %q", mock.destroyRequested)
+	}
+	if !strings.Contains(output.String(), "Destroy playground") || !strings.Contains(output.String(), "[y/N]") {
+		t.Errorf("expected the confirmation prompt in the output, got: %s", output.String())
+	}
+}
+
+// --yes is the scripting escape hatch: no prompt is printed and stdin is
+// never read, so a script with a closed stdin still tears down.
+func TestPlaygroundDestroyYesSkipsThePrompt(t *testing.T) {
+	mock := &playgroundMock{
+		destroyResult: &client.DestroyPlaygroundResult{ClusterID: playgroundTestClusterID, Phase: "deprovisioning"},
+	}
+	withPlaygroundMock(t, mock)
+	output := new(bytes.Buffer)
+	clusterPlaygroundDestroyCmd.SetOut(output)
+	// An empty stdin would read as a decline if the prompt ran.
+	clusterPlaygroundDestroyCmd.SetIn(strings.NewReader(""))
+	if err := clusterPlaygroundDestroyCmd.Flags().Set("yes", "true"); err != nil {
+		t.Fatalf("setting --yes: %v", err)
+	}
+	t.Cleanup(func() {
+		clusterPlaygroundDestroyCmd.SetOut(nil)
+		clusterPlaygroundDestroyCmd.SetIn(nil)
+		_ = clusterPlaygroundDestroyCmd.Flags().Set("yes", "false")
+	})
+
+	if runError := clusterPlaygroundDestroyCmd.RunE(clusterPlaygroundDestroyCmd, []string{playgroundTestClusterID}); runError != nil {
+		t.Fatalf("destroy --yes failed: %v", runError)
+	}
+	if mock.destroyRequested != playgroundTestClusterID {
+		t.Errorf("destroy --yes asked for %q, want "+playgroundTestClusterID, mock.destroyRequested)
+	}
+	if strings.Contains(output.String(), "[y/N]") {
+		t.Errorf("--yes must not print the prompt, got: %s", output.String())
+	}
+}
+
+// Status is the command a script polls in a loop, so it is the one that most
+// needs a parseable shape: -o json emits the API's status document verbatim
+// and none of the human labels.
+func TestPlaygroundStatusRendersJSONOnRequest(t *testing.T) {
+	withPlaygroundMock(t, &playgroundMock{status: &client.PlaygroundStatus{
+		ClusterID: playgroundTestClusterID,
+		Phase:     "ready",
+		ExpiresAt: "2026-08-14T09:00:00Z",
+		Plan:      &client.PlaygroundOrderedPlan{ID: "trial", DisplayName: "Trial", Vcpus: 1, MemoryGB: 2},
+	}})
+	if err := clusterPlaygroundStatusCmd.Flags().Set("output", "json"); err != nil {
+		t.Fatalf("setting -o json: %v", err)
+	}
+	// The structured renderer writes to the command's own writer, which
+	// falls back to whatever a parent command last had set - so capture it
+	// here rather than on os.Stdout, or the test depends on run order.
+	buffer := &strings.Builder{}
+	clusterPlaygroundStatusCmd.SetOut(buffer)
+	t.Cleanup(func() {
+		clusterPlaygroundStatusCmd.SetOut(nil)
+		_ = clusterPlaygroundStatusCmd.Flags().Set("output", "")
+	})
+
+	if err := clusterPlaygroundStatusCmd.RunE(clusterPlaygroundStatusCmd, []string{playgroundTestClusterID}); err != nil {
+		t.Fatalf("status -o json failed: %v", err)
+	}
+	output := buffer.String()
+	var decoded struct {
+		ClusterID string `json:"cluster_id"`
+		Phase     string `json:"phase"`
+		Plan      *struct {
+			ID string `json:"id"`
+		} `json:"plan"`
+	}
+	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
+		t.Fatalf("-o json must emit a JSON document, got %v from: %s", err, output)
+	}
+	if decoded.ClusterID != playgroundTestClusterID || decoded.Phase != "ready" || decoded.Plan == nil || decoded.Plan.ID != "trial" {
+		t.Errorf("unexpected JSON document: %s", output)
+	}
+	if strings.Contains(output, "Cluster ID:") {
+		t.Errorf("-o json must not mix in the human labels, got: %s", output)
+	}
+}
+
 func TestPlaygroundDestroySurfacesTheServerError(t *testing.T) {
 	withPlaygroundMock(t, &playgroundMock{destroyError: errors.New("Playground not found.")})
+	clusterPlaygroundDestroyCmd.SetIn(strings.NewReader("y\n"))
+	t.Cleanup(func() { clusterPlaygroundDestroyCmd.SetIn(nil) })
 	runError := clusterPlaygroundDestroyCmd.RunE(clusterPlaygroundDestroyCmd, []string{playgroundTestClusterID})
 	if runError == nil {
 		t.Fatal("expected an error")
@@ -350,6 +459,8 @@ func TestPlaygroundCommandsResolveAClusterName(t *testing.T) {
 	if mock.statusRequested != playgroundTestClusterID {
 		t.Errorf("status must resolve the name to the id, requested %q", mock.statusRequested)
 	}
+	clusterPlaygroundDestroyCmd.SetIn(strings.NewReader("y\n"))
+	t.Cleanup(func() { clusterPlaygroundDestroyCmd.SetIn(nil) })
 	captureStdout(t, func() {
 		if err := clusterPlaygroundDestroyCmd.RunE(clusterPlaygroundDestroyCmd, []string{"playground"}); err != nil {
 			t.Fatalf("destroy by name failed: %v", err)

@@ -137,6 +137,9 @@ var clusterPlaygroundStatusCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("reading the playground status: %w", err)
 		}
+		if handled, renderError := renderStructured(cmd, status); handled || renderError != nil {
+			return renderError
+		}
 		fmt.Printf("Cluster ID: %s\n", status.ClusterID)
 		fmt.Printf("Phase:      %s\n", status.Phase)
 		if status.Plan != nil {
@@ -168,7 +171,9 @@ var clusterPlaygroundStatusCmd = &cobra.Command{
 var clusterPlaygroundDestroyCmd = &cobra.Command{
 	Use:   "destroy <cluster_id|name>",
 	Short: "Destroy your organisation's playground",
-	Long: "Tear the organisation's playground down. Teardown runs in the background: poll " +
+	Long: "Tear the organisation's playground down. Everything deployed in it, including its " +
+		"storage, is deleted and cannot be recovered, so the command asks first; pass --yes to " +
+		"skip the prompt in scripts. Teardown runs in the background: poll " +
 		"`ankra cluster playground status <cluster_id>` until the phase reaches removed.\n\n" +
 		"This is also how a refused `ankra org domain set` is cleared. A playground publishes a " +
 		"wildcard DNS record in the organisation's zone, and that record is reconciled rather " +
@@ -180,9 +185,19 @@ var clusterPlaygroundDestroyCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		yes, _ := cmd.Flags().GetBool("yes")
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Destroy playground %q? Everything deployed in it, including its storage, "+
+				"is deleted and cannot be recovered. [y/N]: ", args[0]),
+			yes); err != nil {
+			return err
+		}
 		result, err := apiClient.DestroyPlayground(clusterID)
 		if err != nil {
 			return fmt.Errorf("destroying the playground: %w", err)
+		}
+		if handled, renderError := renderStructured(cmd, result); handled || renderError != nil {
+			return renderError
 		}
 		// cmd.OutOrStdout() rather than fmt.Printf: the destroy verb is the
 		// one this group's output is asserted on, and a bare Printf writes
@@ -198,6 +213,8 @@ func init() {
 		"size to order, from `ankra cluster playground plans` (default: the free trial)")
 	clusterPlaygroundResizeCmd.Flags().StringVar(&clusterPlaygroundResizeSize, "size", "",
 		"the new size, from `ankra cluster playground plans`")
+	clusterPlaygroundDestroyCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	registerStructuredOutputFlags(clusterPlaygroundStatusCmd, clusterPlaygroundDestroyCmd)
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundCreateCmd)
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundPlansCmd)
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundResizeCmd)

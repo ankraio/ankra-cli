@@ -61,6 +61,17 @@
   out, rather than either claiming the step runs with no egress - which is
   its own tier, `none`.
 
+### Fixed
+
+- **`ankra cluster playground destroy` asks before tearing down.** It was
+  the one destructive verb that ran the moment you pressed enter - a
+  mistyped id or the wrong selected organisation took the environment, and
+  everything deployed in it, with no way back. It now prompts like
+  `deprovision` does, naming the playground you passed; declining exits 4,
+  and `--yes` skips the prompt for scripts. `status` and `destroy` also take
+  `-o json|yaml`, so the poll loop the create hint tells you to run can read
+  the phase without scraping the human text.
+
 ## v0.15.0-rc4 — 2026-09-07
 
 ### Fixed
