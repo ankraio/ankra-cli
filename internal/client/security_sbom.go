@@ -205,6 +205,46 @@ type SecuritySBOMImageDetail struct {
 	Workloads  []SecuritySBOMWorkload      `json:"workloads" yaml:"workloads"`
 }
 
+// SecuritySBOMComponentOptions names one exact package: the name as the
+// component list shows it, its version (empty when the list shows none)
+// and its ecosystem.
+type SecuritySBOMComponentOptions struct {
+	Name        string
+	Version     string
+	PackageType string
+	ClusterID   string
+}
+
+// SecuritySBOMComponentWorkload is one workload container running an image
+// that carries the component, with the image so both can be followed.
+type SecuritySBOMComponentWorkload struct {
+	SecuritySBOMWorkload `yaml:",inline"`
+	ImageIdentity        string `json:"image_identity" yaml:"image_identity"`
+	ImageRef             string `json:"image_ref" yaml:"image_ref"`
+}
+
+// SecuritySBOMComponentCluster is one cluster running the component:
+// distinct workloads (the measure the component row counts), the workload
+// containers behind them, and images.
+type SecuritySBOMComponentCluster struct {
+	ClusterID   string `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName string `json:"cluster_name" yaml:"cluster_name"`
+	Workloads   int    `json:"workloads" yaml:"workloads"`
+	Containers  int    `json:"containers" yaml:"containers"`
+	Images      int    `json:"images" yaml:"images"`
+}
+
+// SecuritySBOMComponentDetail is one package followed to where it runs.
+// The lists are capped and say so: a capped list is not the whole answer.
+type SecuritySBOMComponentDetail struct {
+	Component       SecuritySBOMComponent           `json:"component" yaml:"component"`
+	Images          []SecuritySBOMImage             `json:"images" yaml:"images"`
+	ImagesCapped    bool                            `json:"images_capped" yaml:"images_capped"`
+	Workloads       []SecuritySBOMComponentWorkload `json:"workloads" yaml:"workloads"`
+	WorkloadsCapped bool                            `json:"workloads_capped" yaml:"workloads_capped"`
+	Clusters        []SecuritySBOMComponentCluster  `json:"clusters" yaml:"clusters"`
+}
+
 // SecuritySBOMImageFindingsOptions narrows the vulnerabilities on one image.
 type SecuritySBOMImageFindingsOptions struct {
 	ImageIdentity string
@@ -478,6 +518,23 @@ func (c *Client) ListSecuritySBOMImages(options SecuritySBOMImagesOptions) (*Sec
 		list.Result = []SecuritySBOMImage{}
 	}
 	return &list, nil
+}
+
+// GetSecuritySBOMComponent follows one exact package to the images,
+// workload containers and clusters that carry it.
+func (c *Client) GetSecuritySBOMComponent(options SecuritySBOMComponentOptions) (*SecuritySBOMComponentDetail, error) {
+	query := neturl.Values{}
+	query.Set("name", strings.TrimSpace(options.Name))
+	query.Set("version", strings.TrimSpace(options.Version))
+	query.Set("package_type", strings.ToLower(strings.TrimSpace(options.PackageType)))
+	if options.ClusterID != "" {
+		query.Set("cluster_id", options.ClusterID)
+	}
+	var detail SecuritySBOMComponentDetail
+	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/component", query), &detail); err != nil {
+		return nil, fmt.Errorf("security sbom component request failed: %w", err)
+	}
+	return &detail, nil
 }
 
 // GetSecuritySBOMImage reads one image's bill of materials.

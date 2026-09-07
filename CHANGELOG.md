@@ -1,9 +1,100 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.15.0-rc5 — 2026-09-07
 
 ### Added
 
+- **`ankra security sbom` grades every component's licence risk, and
+  `--license-risk` filters on it.** `sbom` and `sbom image` show each
+  component's tier - network copyleft, source-available, copyleft, weak
+  copyleft, permissive or unknown - and take `--license-risk <tier>`
+  (repeatable) to keep only the ones you are asking about; `sbom images` and
+  the image detail summarise the obliging tiers per image ("2 network
+  copyleft, 1 copyleft"), red for the two that reach the hosting service and
+  yellow for plain copyleft. A licence question no longer means exporting the
+  bill of materials and grepping it.
+- **`ankra security sbom component <name> --version <v> --type <ecosystem>`
+  follows one exact package to where it runs.** The row `sbom` shows was a
+  dead end; the new read lists the images carrying that package, every
+  workload container running those images (cluster, namespace, workload,
+  container, image, last seen) and the clusters they run on, and says when a
+  list was capped. `-o json` and `-o yaml` carry the full read, so "where is
+  this vulnerable version actually deployed" is one command.
+- **`ankra chat` shows what its tools are doing.** The session output
+  rendered content, status, notices, proposals and errors but dropped the
+  tool frames, so a long turn read as silent gaps between status lines and a
+  failed tool never said why. Each tool call now prints one bracketed line
+  when it starts (`[tool list_node_groups ...]`) and one when it settles
+  (`[tool list_node_groups ok]`, or `[tool get_pods failed (transient): Agent
+  timeout while fetching pods.]` carrying the platform's error class).
+- **`ankra org ci-settings get|set` reads and changes the organisation's
+  Ankra Pipelines settings.** The platform has served `GET/PUT
+  /org/ci-settings` since the pipelines lane shipped and nothing in the CLI
+  read it, so the two settings that decide whether a run can start at all -
+  the pipeline cluster and the build fallback - were discoverable only by
+  asking Ankra: a run that concluded `infra_error` naming the build fallback
+  left no command that could show what the fallback was set to. `get` prints
+  every setting the platform stores - the pipeline cluster, the build
+  fallback, both parallelism limits, the image policy, the private egress
+  allow-list, the artifact, cache and run-history retentions, the image gate
+  and its unfixed-findings floor - says what an unchosen pipeline cluster
+  costs, calls out a chosen cluster that has since been deleted, and reports
+  when every value is still Ankra's own default; `-o json` is the whole
+  record. `set` writes only the flags you pass, so raising one number cannot
+  clear the image policy; `--cluster` takes a name or an id and an empty
+  value clears it, `--allowed-image-prefix` and `--egress-allowed-cidr` are
+  repeatable and replace their whole list, and `--ignore-unfixed=false` is a
+  write while an untouched flag is not. Reading needs organisation
+  membership, changing needs organisation admin: a member's attempt is
+  refused with the platform's own sentence and exit code 7, the RBAC code,
+  rather than the re-login code. Both act on the selected organisation, or on
+  another you administer with the global `--org` flag.
+
+- **The Security Center's remaining surfaces reach the terminal.** Until
+  now the portal could acknowledge a finding, accept its risk, switch a
+  compliance framework on, read a cluster's benchmark controls or its policy
+  violations, and the CLI could not - `ankra security` stopped at the reads.
+  `ankra security dispositions` lists the acknowledgements and accepted
+  risks with their lifecycle (expiring, fix available, unmatched), `preview`
+  shows a disposition's blast radius before anything is written, and
+  `create`, `update` and `revoke` write it after a confirmation (`--yes` for
+  scripts); `ankra security workloads` ranks scanned workloads by risk;
+  `ankra security finding <id> --status resolved --cluster <c>` pages one
+  finding's occurrences including the resolved ones the detail leaves out.
+  `ankra security compliance` prints every cluster's benchmark totals,
+  `compliance frameworks` the GDPR / ISO 27001 / SOC 2 / NIST CSF catalogue
+  with `enable`, `disable` and a control-by-control `report --month`, and
+  `compliance export` downloads the evidence report as CSV or JSON. Per
+  cluster, `benchmarks` (with `benchmarks resources` for one failing
+  control), `violations`, `network-exposure`, `policy-mode audit|enforce`,
+  `enable-baseline` and `addon <name>` read and change what the cluster
+  Security tab shows, and `ankra application security-versions` lists every
+  published tag with its bill of materials, findings, where it runs and the
+  licence verdict. A cluster whose agent is offline answers with the reason
+  and a retry hint, never an empty report.
+- **`ankra security findings` names both unsynced feeds.** It said the CISA
+  catalog had not been synced but stayed silent about EPSS, so a missing
+  exploitation probability could read as low. Both caveats print now, as
+  they already did on `security sbom findings`.
+
+- **`ankra security stacks --cluster <cluster>` breaks one cluster down by
+  the stacks Ankra deployed on it.** One row per stack with its attribution
+  status, scope, actionable and known-exploited findings and the
+  bill-of-materials coverage of its containers, riskiest first, plus a closing
+  "outside any stack" row for everything no stack owns, so the rows add up to
+  the cluster. An unmatched stack is reported as such, never as clean.
+- **`ankra security stack <name> --cluster <cluster>` is the whole path from
+  an Ankra resource to a pod.** The stack's scope, findings, CISA KEV
+  exposure and bill of materials, then every member (add-on or manifest) with
+  the posture of the workloads it resolved to, then the Kubernetes workloads
+  each member deploys with their pods, scan state, severe actionable findings
+  and SBOM coverage. `ankra security pods --workload-kind/--workload-name`
+  opens a workload's pods from there.
+- **`ankra security pod <namespace> <pod> --cluster <cluster>` reads one pod
+  container by container**: scan state, observed and severe actionable
+  findings, CISA KEV exposure and whether each container's image has a bill
+  of materials, with `sbom image` / `sbom findings` as the next step. A
+  container the scanner has no report for is "not scanned", not clean.
 - **`ankra pipeline validate` shows the egress tier each planned step
   resolved to.** A stage's network tier is decided from the stage, then the
   pipeline's defaults, then the tier its kind cannot work without - so a
@@ -34,6 +125,17 @@
   stack that owns it and a pointer to `manifests upgrade`, rather than
   silently replacing that manifest's content, and `--dry-run` prints the
   before/after without applying anything.
+
+### Fixed
+
+- **`ankra cluster playground destroy` asks before tearing down.** It was
+  the one destructive verb that ran the moment you pressed enter - a
+  mistyped id or the wrong selected organisation took the environment, and
+  everything deployed in it, with no way back. It now prompts like
+  `deprovision` does, naming the playground you passed; declining exits 4,
+  and `--yes` skips the prompt for scripts. `status` and `destroy` also take
+  `-o json|yaml`, so the poll loop the create hint tells you to run can read
+  the phase without scraping the human text.
 
 ## v0.15.0-rc4 — 2026-09-07
 

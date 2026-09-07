@@ -123,9 +123,10 @@ This opens the AI Agents tab with the conversation pre-loaded.
 
 ## Useful endpoints (token auth)
 
-- `+"`POST %s/api/v1/agents/{id}/run`"+` -- trigger a manual run
-- `+"`GET  %s/api/v1/agents/{id}/runs`"+` -- list runs
-- `+"`GET  %s/api/v1/runs/{run_id}/stream`"+` -- SSE event stream
+- `+"`GET  %s/api/v1/org/ai-agent-runs`"+` -- list runs
+- `+"`GET  %s/api/v1/org/ai-agent-runs/{run_id}/transcript`"+` -- read a run
+- `+"`POST %s/api/v1/org/ai-agent-runs/{run_id}/cancel`"+` -- cancel a run
+- `+"`GET  %s/api/v1/org/runs/{run_id}/stream`"+` -- SSE event stream
 
 ## Cluster metadata
 
@@ -137,6 +138,7 @@ This opens the AI Agents tab with the conversation pre-loaded.
 		clusterName,
 		now,
 		clusterName,
+		base,
 		base,
 		base,
 		base,
