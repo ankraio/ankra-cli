@@ -1,5 +1,21 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra pipeline validate` shows the egress tier each planned step
+  resolved to.** A stage's network tier is decided from the stage, then the
+  pipeline's defaults, then the tier its kind cannot work without - so a
+  definition that names none anywhere still runs every step on a tier, and
+  the only way to find out which was to dispatch the run and read the
+  failure. The dry run now prints it alongside the stage and kind -
+  `build (build, build, egress-https)` - and `-o json` carries it as
+  `network` on each planned step. An Ankra older than the field sends no
+  tier; the line then reads as it always did and the JSON leaves the key
+  out, rather than either claiming the step runs with no egress - which is
+  its own tier, `none`.
+
 ## v0.15.0-rc4 — 2026-09-07
 
 ### Fixed
