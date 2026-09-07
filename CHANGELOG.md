@@ -11,13 +11,21 @@
   the pipeline cluster and the build fallback - were discoverable only by
   asking Ankra: a run that concluded `infra_error` naming the build fallback
   left no command that could show what the fallback was set to. `get` prints
-  all eight settings, says what an unchosen pipeline cluster costs, calls out
-  a chosen cluster that has since been deleted, and reports when every value
-  is still Ankra's own default. `set` writes only the flags you pass, so
-  raising one number cannot clear the image policy; `--cluster` takes a name
-  or an id and an empty value clears it, and `--allowed-image-prefix` is
-  repeatable and replaces the whole policy list. Reading needs organisation
-  membership, changing needs organisation admin.
+  every setting the platform stores - the pipeline cluster, the build
+  fallback, both parallelism limits, the image policy, the private egress
+  allow-list, the artifact, cache and run-history retentions, the image gate
+  and its unfixed-findings floor - says what an unchosen pipeline cluster
+  costs, calls out a chosen cluster that has since been deleted, and reports
+  when every value is still Ankra's own default; `-o json` is the whole
+  record. `set` writes only the flags you pass, so raising one number cannot
+  clear the image policy; `--cluster` takes a name or an id and an empty
+  value clears it, `--allowed-image-prefix` and `--egress-allowed-cidr` are
+  repeatable and replace their whole list, and `--ignore-unfixed=false` is a
+  write while an untouched flag is not. Reading needs organisation
+  membership, changing needs organisation admin: a member's attempt is
+  refused with the platform's own sentence and exit code 7, the RBAC code,
+  rather than the re-login code. Both act on the selected organisation, or on
+  another you administer with the global `--org` flag.
 
 - **The Security Center's remaining surfaces reach the terminal.** Until
   now the portal could acknowledge a finding, accept its risk, switch a

@@ -293,3 +293,90 @@ func TestRunOrgCISettingsSet_RefusesAWriteThatNamesNothing(t *testing.T) {
 		t.Errorf("nothing may be written, got %v", mock.updateSeen)
 	}
 }
+
+// The platform stores eleven settings; a `get` that showed eight would read as
+// the whole record to anyone who did not already know the other three existed,
+// which is the discoverability gap this command exists to close.
+func TestRunOrgCISettingsGet_ShowsEveryStoredSetting(t *testing.T) {
+	settings := defaultCISettings()
+	settings.IsDefault = false
+	settings.RunRetentionDays = 180
+	settings.IgnoreUnfixed = false
+	settings.EgressAllowedCIDRs = []string{"10.0.0.0/8", "192.168.10.0/24"}
+	mock := &orgCISettingsMock{settings: settings}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, want := range []string{
+		"Run retention:           180 days",
+		"Egress allowed CIDRs:    10.0.0.0/8, 192.168.10.0/24",
+		"Ignore unfixed findings: no",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("missing %q in:\n%s", want, output)
+		}
+	}
+}
+
+func TestRunOrgCISettingsGet_SaysWhatAnEmptyEgressListMeans(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "public internet only") {
+		t.Errorf("an empty egress list must say what it permits, got %s", output)
+	}
+}
+
+// A bool flag has no absent state, so the write must come from Changed and
+// carry the false: dropping it as a zero value would make "turn the floor off"
+// silently a no-op.
+func TestRunOrgCISettingsSet_SendsAnExplicitFalseForIgnoreUnfixed(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set", "--ignore-unfixed=false")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	changes := mock.updateSeen[0]
+	if len(changes) != 1 {
+		t.Fatalf("only ci_ignore_unfixed may be written, got %v", changes)
+	}
+	if value, isPresent := changes["ci_ignore_unfixed"]; !isPresent || value != false {
+		t.Errorf("expected ci_ignore_unfixed false, got %v", changes)
+	}
+}
+
+func TestRunOrgCISettingsSet_DoesNotWriteIgnoreUnfixedWhenUntouched(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set", "--run-retention-days", "30")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	changes := mock.updateSeen[0]
+	if _, isPresent := changes["ci_ignore_unfixed"]; isPresent {
+		t.Errorf("an untouched bool flag must not reach the body, got %v", changes)
+	}
+	if changes["ci_run_retention_days"] != 30 {
+		t.Errorf("expected ci_run_retention_days 30, got %v", changes)
+	}
+}
+
+func TestRunOrgCISettingsSet_ClearsTheEgressListWithAnEmptyValue(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set", "--egress-allowed-cidr", "")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	cidrs, isList := mock.updateSeen[0]["ci_egress_allowed_cidrs"].([]string)
+	if !isList {
+		t.Fatalf("the egress list must be sent as a list, got %v", mock.updateSeen[0])
+	}
+	if len(cidrs) != 0 {
+		t.Errorf("an empty value clears the list, got %v", cidrs)
+	}
+}

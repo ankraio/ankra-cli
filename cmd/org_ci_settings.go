@@ -41,7 +41,9 @@ The two that decide whether a run can start at all:
                                            organisations whose source may not
                                            leave their own infrastructure
 
-Reading requires organisation membership; changing requires organisation admin.`,
+Reading requires organisation membership; changing requires organisation admin.
+Both act on the selected organisation; pass the global --org flag to read or
+change another organisation you administer.`,
 }
 
 var orgCISettingsGetCmd = &cobra.Command{
@@ -78,13 +80,21 @@ pipeline cluster with an empty value:
   ankra org ci-settings set --build-fallback none
   ankra org ci-settings set --allowed-image-prefix ghcr.io/ankraio --allowed-image-prefix docker.io/library
   ankra org ci-settings set --allowed-image-prefix ""
+  ankra org ci-settings set --egress-allowed-cidr 10.0.0.0/8 --egress-allowed-cidr 192.168.10.0/24
+  ankra org ci-settings set --run-retention-days 180
+  ankra org ci-settings set --ignore-unfixed=false
 
---allowed-image-prefix replaces the whole policy list rather than adding to it,
-because a policy you can only grow is one you cannot correct. Passing it once
-with an empty value clears the list, which means no organisation-level
-restriction.
+--allowed-image-prefix and --egress-allowed-cidr replace their whole list
+rather than adding to it, because a list you can only grow is one you cannot
+correct. Passing either once with an empty value clears it: no image
+restriction, or no private egress beyond the public internet.
 
-Requires organisation admin.`,
+--ignore-unfixed is the floor under every pipeline's image gate. It is true by
+default, letting a gate stage leave findings with no available fix out of its
+verdict; set it to false and every unfixed finding blocks, whatever any
+pipeline asks for.
+
+Requires organisation admin. A member's attempt is refused with exit code 7.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		changes, changesError := organisationCISettingsChanges(cmd)
@@ -95,7 +105,8 @@ Requires organisation admin.`,
 			return withExitCode(exitUsage, errors.New(
 				"pass at least one setting to change: --cluster, --build-fallback, "+
 					"--max-parallel-runs, --max-parallel-steps, --allowed-image-prefix, "+
-					"--artifact-retention-days, --cache-retention-days or --image-gate"))
+					"--egress-allowed-cidr, --artifact-retention-days, --cache-retention-days, "+
+					"--run-retention-days, --image-gate or --ignore-unfixed"))
 		}
 
 		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
@@ -186,6 +197,29 @@ func organisationCISettingsChanges(cmd *cobra.Command) (map[string]any, error) {
 		changes["ci_allowed_image_prefixes"] = prefixes
 	}
 
+	if cmd.Flags().Changed("egress-allowed-cidr") {
+		raw, _ := cmd.Flags().GetStringArray("egress-allowed-cidr")
+		cidrs := make([]string, 0, len(raw))
+		for _, cidr := range raw {
+			if trimmed := strings.TrimSpace(cidr); trimmed != "" {
+				cidrs = append(cidrs, trimmed)
+			}
+		}
+		// Same contract as the image policy: [] is "no private egress", not
+		// "leave it alone". The platform owns the CIDR rules (network
+		// address, private range, at most 32) and refuses with a sentence
+		// naming them, so nothing is re-validated here.
+		changes["ci_egress_allowed_cidrs"] = cidrs
+	}
+
+	if cmd.Flags().Changed("ignore-unfixed") {
+		// A bool flag has no absent state of its own, so presence is read
+		// from Changed rather than from the value: --ignore-unfixed=false is
+		// a write, an untouched flag is not.
+		ignoreUnfixed, _ := cmd.Flags().GetBool("ignore-unfixed")
+		changes["ci_ignore_unfixed"] = ignoreUnfixed
+	}
+
 	return changes, nil
 }
 
@@ -197,6 +231,7 @@ var organisationCISettingsIntFields = map[string]string{
 	"max-parallel-steps":      "ci_max_parallel_steps",
 	"artifact-retention-days": "ci_artifact_retention_days",
 	"cache-retention-days":    "ci_cache_retention_days",
+	"run-retention-days":      "ci_run_retention_days",
 }
 
 // organisationCISettingsIntUsage is the help string for each field in
@@ -207,6 +242,7 @@ var organisationCISettingsIntUsage = map[string]string{
 	"max-parallel-steps":      "How many steps of one run may be in flight at once",
 	"artifact-retention-days": "How long a run's artifacts survive",
 	"cache-retention-days":    "How long a run's caches survive",
+	"run-retention-days":      "How long a repository's concluded run history survives (7-365)",
 }
 
 func renderOrganisationCISettings(cmd *cobra.Command, settings *client.OrganisationCISettings) {
@@ -235,9 +271,17 @@ func renderOrganisationCISettings(cmd *cobra.Command, settings *client.Organisat
 		_, _ = fmt.Fprintf(out, "Allowed image prefixes:  %s\n",
 			strings.Join(settings.AllowedImagePrefixes, ", "))
 	}
+	if len(settings.EgressAllowedCIDRs) == 0 {
+		_, _ = fmt.Fprintln(out, "Egress allowed CIDRs:    (none - steps reach the public internet only)")
+	} else {
+		_, _ = fmt.Fprintf(out, "Egress allowed CIDRs:    %s\n",
+			strings.Join(settings.EgressAllowedCIDRs, ", "))
+	}
 	_, _ = fmt.Fprintf(out, "Artifact retention:      %d days\n", settings.ArtifactRetentionDays)
 	_, _ = fmt.Fprintf(out, "Cache retention:         %d days\n", settings.CacheRetentionDays)
+	_, _ = fmt.Fprintf(out, "Run retention:           %d days\n", settings.RunRetentionDays)
 	_, _ = fmt.Fprintf(out, "Image gate:              %s\n", settings.ImageGate)
+	_, _ = fmt.Fprintf(out, "Ignore unfixed findings: %s\n", yesNo(settings.IgnoreUnfixed))
 
 	if settings.IsDefault {
 		_, _ = fmt.Fprintln(out,
@@ -255,11 +299,9 @@ func renderOrganisationCISettings(cmd *cobra.Command, settings *client.Organisat
 	// setting that was already correct (PLA-825).
 	if settings.BuildFallback == client.CIBuildFallbackPlatformBuilders {
 		_, _ = fmt.Fprintln(out,
-			"\nThe Ankra-operated build fallback also needs the platform-builders capability\n"+
-				"enabled for this organisation, which is not one of these settings and is not\n"+
-				"shown above. If a build step fails with \"the organisation's build fallback is\n"+
-				"'none'\" while this says platform_builders, the setting is not what is missing -\n"+
-				"ask Ankra support to enable the capability.")
+			"\nNote: platform_builders also needs the platform-builders capability, which these\n"+
+				"settings do not show. A build step that fails with \"build fallback is 'none'\"\n"+
+				"while this reads platform_builders is missing the capability, not the setting.")
 	}
 }
 
@@ -274,6 +316,10 @@ func init() {
 		"Image prefix a step may name (repeatable); replaces the list, empty clears it")
 	orgCISettingsSetCmd.Flags().String("image-gate", "",
 		"Which image findings block a publish: app, all or off")
+	orgCISettingsSetCmd.Flags().StringArray("egress-allowed-cidr", nil,
+		"Private CIDR pipeline steps may reach (repeatable); replaces the list, empty clears it")
+	orgCISettingsSetCmd.Flags().Bool("ignore-unfixed", true,
+		"Let a gate stage leave findings with no available fix out of its verdict; =false makes every unfixed finding block")
 	// Both directions of drift are fatal: walking the field map catches a
 	// field with no usage string, the count check catches a usage string
 	// naming a flag that writes nothing.
