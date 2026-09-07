@@ -212,6 +212,7 @@ type SecuritySBOMComponentOptions struct {
 	Name        string
 	Version     string
 	PackageType string
+	ClusterID   string
 }
 
 // SecuritySBOMComponentWorkload is one workload container running an image
@@ -222,11 +223,14 @@ type SecuritySBOMComponentWorkload struct {
 	ImageRef             string `json:"image_ref" yaml:"image_ref"`
 }
 
-// SecuritySBOMComponentCluster is one cluster running the component.
+// SecuritySBOMComponentCluster is one cluster running the component:
+// distinct workloads (the measure the component row counts), the workload
+// containers behind them, and images.
 type SecuritySBOMComponentCluster struct {
 	ClusterID   string `json:"cluster_id" yaml:"cluster_id"`
 	ClusterName string `json:"cluster_name" yaml:"cluster_name"`
 	Workloads   int    `json:"workloads" yaml:"workloads"`
+	Containers  int    `json:"containers" yaml:"containers"`
 	Images      int    `json:"images" yaml:"images"`
 }
 
@@ -523,6 +527,9 @@ func (c *Client) GetSecuritySBOMComponent(options SecuritySBOMComponentOptions) 
 	query.Set("name", strings.TrimSpace(options.Name))
 	query.Set("version", strings.TrimSpace(options.Version))
 	query.Set("package_type", strings.ToLower(strings.TrimSpace(options.PackageType)))
+	if options.ClusterID != "" {
+		query.Set("cluster_id", options.ClusterID)
+	}
 	var detail SecuritySBOMComponentDetail
 	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/component", query), &detail); err != nil {
 		return nil, fmt.Errorf("security sbom component request failed: %w", err)

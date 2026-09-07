@@ -176,14 +176,23 @@ var securitySbomComponentCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		version, _ := cmd.Flags().GetString("version")
 		packageType, _ := cmd.Flags().GetString("type")
+		clusterFlag, _ := cmd.Flags().GetString("cluster")
 		if strings.TrimSpace(packageType) == "" {
 			return withExitCode(exitUsage, fmt.Errorf("--type is required: the ecosystem the component list shows (deb, apk, npm, ...)"))
 		}
-		detail, err := apiClient.GetSecuritySBOMComponent(client.SecuritySBOMComponentOptions{
+		options := client.SecuritySBOMComponentOptions{
 			Name:        strings.TrimSpace(args[0]),
 			Version:     version,
 			PackageType: packageType,
-		})
+		}
+		if clusterFlag != "" {
+			clusterID, err := resolveClusterID(clusterFlag)
+			if err != nil {
+				return err
+			}
+			options.ClusterID = clusterID
+		}
+		detail, err := apiClient.GetSecuritySBOMComponent(options)
 		if err != nil {
 			return fmt.Errorf("reading where the package runs: %w", err)
 		}
@@ -848,7 +857,7 @@ func renderSecuritySbomComponentDetail(cmd *cobra.Command, detail *client.Securi
 	} else {
 		heading := fmt.Sprintf("Where it runs (%d container(s)):", len(detail.Workloads))
 		if detail.WorkloadsCapped {
-			heading = fmt.Sprintf("Where it runs (first %d containers):", len(detail.Workloads))
+			heading = fmt.Sprintf("Where it runs (first %d containers of %d workload(s)):", len(detail.Workloads), component.Workloads)
 		}
 		_, _ = fmt.Fprintln(out, heading)
 		writer := newSecurityTable(out)
@@ -877,7 +886,7 @@ func renderSecuritySbomComponentDetail(cmd *cobra.Command, detail *client.Securi
 	}
 	_, _ = fmt.Fprintf(out, "Clusters (%d):\n", len(detail.Clusters))
 	for _, cluster := range detail.Clusters {
-		_, _ = fmt.Fprintf(out, "  - %s: %d workload(s), %d image(s)\n", cluster.ClusterName, cluster.Workloads, cluster.Images)
+		_, _ = fmt.Fprintf(out, "  - %s: %d workload(s) in %d container(s), %d image(s)\n", cluster.ClusterName, cluster.Workloads, cluster.Containers, cluster.Images)
 	}
 }
 
@@ -966,11 +975,12 @@ func init() {
 	securityCmd.AddCommand(securityNamespacesCmd, securityPodsCmd, securitySbomCmd)
 	securitySbomComponentCmd.Flags().String("version", "", "The exact installed version the component list shows; omit when the list shows none")
 	securitySbomComponentCmd.Flags().String("type", "", "The ecosystem the component list shows (deb, apk, rpm, npm, pypi, golang, maven, ...); required")
+	securitySbomComponentCmd.Flags().String("cluster", "", "Only the images, workload containers and clusters on one cluster (name or id)")
 	securitySbomCmd.AddCommand(securitySbomComponentCmd)
 	securitySbomCmd.AddCommand(securitySbomImagesCmd, securitySbomImageCmd, securitySbomFindingsCmd,
 		securitySbomContainersCmd, securitySbomExportCmd)
 	registerStructuredOutputFlags(securityNamespacesCmd, securityPodsCmd, securitySbomCmd,
-		securitySbomImagesCmd, securitySbomImageCmd, securitySbomFindingsCmd, securitySbomContainersCmd)
+		securitySbomImagesCmd, securitySbomImageCmd, securitySbomComponentCmd, securitySbomFindingsCmd, securitySbomContainersCmd)
 
 	securitySbomFindingsCmd.Flags().String("search", "", "Match CVE id, package name or title")
 	securitySbomFindingsCmd.Flags().StringSlice("severity", nil, "Severity filter, repeatable: critical, high, medium, low, unknown")

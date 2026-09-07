@@ -195,7 +195,7 @@ func TestSecuritySbomComponentFollowsAPackageToWhereItRuns(t *testing.T) {
 			ImageIdentity: digest, ImageRef: "registry.example.com/backend/api:1.0.0",
 		}},
 		WorkloadsCapped: true,
-		Clusters:        []client.SecuritySBOMComponentCluster{{ClusterID: "c1", ClusterName: "prod", Workloads: 2, Images: 1}},
+		Clusters:        []client.SecuritySBOMComponentCluster{{ClusterID: "c1", ClusterName: "prod", Workloads: 2, Containers: 3, Images: 1}},
 	}}
 	output, executeError := runSecurityCommand(t, mock, "security", "sbom", "component", "openssl", "--version", "3.0.14", "--type", "DEB")
 	if executeError != nil {
@@ -206,13 +206,20 @@ func TestSecuritySbomComponentFollowsAPackageToWhereItRuns(t *testing.T) {
 		t.Fatalf("component options = %+v", mock.componentOptions)
 	}
 	for _, expected := range []string{"openssl 3.0.14", "Runs in:     4 image(s), 7 workload(s), 2 cluster(s)", "Images carrying it (1):",
-		"registry.example.com/backend/api:1.0.0", "Where it runs (first 1 containers):", "Deployment api", "backend", "prod: 2 workload(s), 1 image(s)"} {
+		"registry.example.com/backend/api:1.0.0", "Where it runs (first 1 containers of 7 workload(s)):", "Deployment api", "backend", "prod: 2 workload(s) in 3 container(s), 1 image(s)"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output lacks %q:\n%s", expected, output)
 		}
 	}
 	if _, executeError := runSecurityCommand(t, mock, "security", "sbom", "component", "openssl", "--type", ""); executeError == nil {
 		t.Fatal("expected a missing --type to be refused")
+	}
+	structured, executeError := runSecurityCommand(t, mock, "security", "sbom", "component", "openssl", "--version", "3.0.14", "--type", "deb", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("structured output failed: %v", executeError)
+	}
+	if !strings.Contains(structured, "\"workloads_capped\": true") {
+		t.Fatalf("-o json must carry the full read, got:\n%s", structured)
 	}
 }
 
