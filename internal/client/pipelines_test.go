@@ -269,6 +269,13 @@ func TestDownloadPipelineArtifactNotFound(t *testing.T) {
 	if err == nil || err.Error() != "Pipeline artifact not found" {
 		t.Fatalf("error = %v, want the server's sentinel text verbatim", err)
 	}
+	// The status code rides along so a caller with somewhere else to look -
+	// `pipeline logs` and the platform's retained log stream - can tell a
+	// missing artifact from a refusal it has to report.
+	var downloadRefusal *PipelineArtifactDownloadError
+	if !errors.As(err, &downloadRefusal) || downloadRefusal.StatusCode != http.StatusNotFound {
+		t.Fatalf("error = %v (%T), want a *PipelineArtifactDownloadError carrying 404", err, err)
+	}
 }
 
 func TestDownloadPipelineArtifactNotYetUploaded(t *testing.T) {

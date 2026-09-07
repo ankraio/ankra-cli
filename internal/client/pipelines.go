@@ -598,6 +598,34 @@ func (unavailableError *PipelineLogStreamUnavailableError) Error() string {
 	return unavailableError.Detail
 }
 
+// PipelineArtifactDownloadError is one artifact download refusal, carrying
+// the status code the route answered alongside the platform's own error. The
+// download route says four different things (404 for an artifact that is not
+// there, 409 for one not settled or whose vault is gone, 410 for one the
+// retention sweep removed), and the class matters to a caller that has
+// somewhere else to look: a step log recorded as uploaded but answered 404
+// has no object behind it any more, so the platform's retained log stream is
+// worth trying. Error and Unwrap both delegate, so the wrapped error prints
+// and compares exactly as it did before.
+type PipelineArtifactDownloadError struct {
+	StatusCode int
+	Underlying error
+}
+
+func (downloadError *PipelineArtifactDownloadError) Error() string {
+	if downloadError == nil || downloadError.Underlying == nil {
+		return ""
+	}
+	return downloadError.Underlying.Error()
+}
+
+func (downloadError *PipelineArtifactDownloadError) Unwrap() error {
+	if downloadError == nil {
+		return nil
+	}
+	return downloadError.Underlying
+}
+
 // pipelineErrorFromResponse maps one non-2xx pipeline API response onto a
 // typed or detail-carrying error. It is shared by every pipeline request path
 // (JSON and SSE alike) so the mapping cannot drift between them.
@@ -895,7 +923,9 @@ func (c *Client) ListPipelineArtifacts(ctx context.Context, selector PipelineSel
 // settled or its upload failed or its vault is gone, and 410 once the
 // retention sweep removed it - check the artifact's own Status first
 // (PipelineArtifactStatusUploaded is the only one a download can satisfy) to
-// tell those apart from a plain mistake in the id.
+// tell those apart from a plain mistake in the id. Every refusal comes back
+// as a PipelineArtifactDownloadError carrying that status code, so a caller
+// can branch on the class without re-parsing the body.
 func (c *Client) DownloadPipelineArtifact(ctx context.Context, selector PipelineSelector,
 	artifactID string, destination io.Writer) error {
 	base, selectorError := selector.basePath()
@@ -924,7 +954,10 @@ func (c *Client) DownloadPipelineArtifact(ctx context.Context, selector Pipeline
 		if readError != nil {
 			return fmt.Errorf("read response: %w", readError)
 		}
-		return pipelineErrorFromResponse(response.StatusCode, body, "")
+		return &PipelineArtifactDownloadError{
+			StatusCode: response.StatusCode,
+			Underlying: pipelineErrorFromResponse(response.StatusCode, body, ""),
+		}
 	}
 	if _, copyError := io.Copy(destination, response.Body); copyError != nil {
 		return fmt.Errorf("download artifact: %w", copyError)

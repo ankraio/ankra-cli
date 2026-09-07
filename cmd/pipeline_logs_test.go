@@ -1,16 +1,48 @@
 package cmd
 
 import (
+	"errors"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"ankra/internal/client"
 )
 
 // concludedStep is one planned, concluded step - the fixture every archive-
-// log test below resolves through GetPipelineRun.
+// log test below resolves through GetPipelineRun. It carries no execution,
+// so it has no log stream either and the archive is its only copy.
 func concludedStep() client.PipelineStep {
 	return client.PipelineStep{ID: "step-1", StepKey: "checkout", Status: pipelineStepStatusConcluded}
+}
+
+// concludedStepThatRan is a concluded step that reached an execution, so the
+// platform's retained log stream can still answer for it when the run has no
+// archived log.
+func concludedStepThatRan() client.PipelineStep {
+	executionID, executionStepID := "execution-1", "execution-step-1"
+	step := concludedStep()
+	step.ExecutionID = &executionID
+	step.ExecutionStepID = &executionStepID
+	return step
+}
+
+// runningStepThatStarted is one planned step still producing output, the
+// fixture the live-relay tests resolve through GetPipelineRun.
+func runningStepThatStarted() client.PipelineStep {
+	executionID, executionStepID := "execution-1", "execution-step-1"
+	return client.PipelineStep{ID: "step-1", StepKey: "checkout", Status: "running",
+		ExecutionID: &executionID, ExecutionStepID: &executionStepID}
+}
+
+// shortenPipelineLogReplayIdleTimeout keeps the idle guard's behaviour
+// testable without holding a test open for the production wait.
+func shortenPipelineLogReplayIdleTimeout(t *testing.T) {
+	t.Helper()
+	previous := pipelineLogReplayIdleTimeout
+	pipelineLogReplayIdleTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { pipelineLogReplayIdleTimeout = previous })
 }
 
 func TestPipelineLogsConcludedStepReadsArchivedStepLog(t *testing.T) {
@@ -287,5 +319,305 @@ func TestPipelineLogsRunningStepStillStreamsLive(t *testing.T) {
 	}
 	if mockClient.artifactsRunID != "" {
 		t.Errorf("a running step must not read artifacts at all, got artifactsRunID = %q", mockClient.artifactsRunID)
+	}
+	if len(mockClient.streamOptions) != 1 {
+		t.Fatalf("stream calls = %d, want one live connection", len(mockClient.streamOptions))
+	}
+	if mockClient.streamOptions[0] != (client.StepLogStreamOptions{}) {
+		t.Errorf("stream options = %+v, want none sent so the platform decides from the step's status",
+			mockClient.streamOptions[0])
+	}
+}
+
+func TestPipelineLogsRunningStepReplayAsksForTheOutputAlreadyProduced(t *testing.T) {
+	// --replay is the only way a live connection sees what the step printed
+	// before it was opened, and it must reach the wire as replay=true rather
+	// than change anything the CLI does locally.
+	mockClient := &pipelineLaneMock{
+		getResult: &client.PipelineRunDetail{Steps: []client.PipelineStep{
+			runningStepThatStarted(),
+		}},
+		streamEvents: []client.PipelineLogEvent{
+			{Type: "line", Stream: "stdout", Line: "already printed", Seq: 1},
+		},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout", "--replay")
+	if executeError != nil {
+		t.Fatalf("logs --replay error = %v", executeError)
+	}
+	if !strings.Contains(output, "[stdout] already printed") {
+		t.Errorf("output = %q, want the replayed line", output)
+	}
+	if len(mockClient.streamOptions) != 1 || mockClient.streamOptions[0].IsReplaying == nil ||
+		!*mockClient.streamOptions[0].IsReplaying {
+		t.Fatalf("stream options = %+v, want replay=true on the wire", mockClient.streamOptions)
+	}
+	if mockClient.streamOptions[0].IsFollowing != nil {
+		t.Errorf("follow = %v, want it unsent: --replay must not change when the connection ends",
+			*mockClient.streamOptions[0].IsFollowing)
+	}
+}
+
+func TestPipelineLogsConcludedStepWithoutArchiveReplaysTheRetainedStream(t *testing.T) {
+	// The case this fallback exists for: an organisation with no ready
+	// backup vault never gets a step_log artifact, so the run's artifacts
+	// are read to the end and hold none. The step's output is still on the
+	// platform's retained stream, and follow=false replays it and ends.
+	mockClient := &pipelineLaneMock{
+		getResult:       &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{}},
+		streamEvents: []client.PipelineLogEvent{
+			{Type: "line", Stream: "stdout", Line: "cloning commit abc123", Seq: 1},
+			{Type: "line", Stream: "stderr", Line: "warning: detached HEAD", Seq: 2},
+		},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if !strings.Contains(output, "[stdout] cloning commit abc123") ||
+		!strings.Contains(output, "[stderr] warning: detached HEAD") {
+		t.Errorf("output = %q, want the replayed frames printed like a live tail", output)
+	}
+	if !strings.Contains(output, "replaying the platform's retained log stream") {
+		t.Errorf("output = %q, want it to say where the log came from", output)
+	}
+	if len(mockClient.streamOptions) != 1 {
+		t.Fatalf("stream calls = %d, want exactly one replay", len(mockClient.streamOptions))
+	}
+	if mockClient.streamOptions[0].IsFollowing == nil || *mockClient.streamOptions[0].IsFollowing {
+		t.Errorf("stream options = %+v, want follow=false so the replay ends when it is drained",
+			mockClient.streamOptions[0])
+	}
+	if mockClient.streamStepID != "step-1" {
+		t.Errorf("streamed step id = %q, want the resolved step's own id", mockClient.streamStepID)
+	}
+}
+
+func TestPipelineLogsRetainedStreamWithNoOutputSaysSo(t *testing.T) {
+	// A replay the platform ended with nothing in it is an answer, not a
+	// silent exit - and it is stated as the stream's answer, because inside
+	// the retention window "nothing retained" and "the step printed nothing"
+	// are indistinguishable from the client.
+	mockClient := &pipelineLaneMock{
+		getResult:       &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{}},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if !strings.Contains(output, "held no output for step \"checkout\"") {
+		t.Errorf("output = %q, want the drained replay reported as an empty stream", output)
+	}
+}
+
+func TestPipelineLogsConcludedStepWithoutArchiveNeedsAnExecution(t *testing.T) {
+	// A step that never reached an execution has no subject on the log
+	// stream either, so there is nothing to fall back to and the honest
+	// answer is still that no log was recorded.
+	mockClient := &pipelineLaneMock{
+		getResult:       &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStep()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{}},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if !strings.Contains(output, "No archived log was recorded") {
+		t.Errorf("output = %q", output)
+	}
+	if len(mockClient.streamOptions) != 0 {
+		t.Errorf("stream calls = %d, want none for a step that never ran", len(mockClient.streamOptions))
+	}
+}
+
+func TestPipelineLogsCappedArtifactReadDoesNotReplay(t *testing.T) {
+	// A capped walk never observed the archive's absence, so it must not be
+	// treated as one: the archive is still the better copy if it is sitting
+	// on a page this command declined to fetch.
+	endlessCursor := "cursor-next"
+	mockClient := &pipelineLaneMock{
+		getResult: &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
+		artifactsPages: []client.PipelineArtifactList{
+			{Artifacts: []client.PipelineArtifact{}, NextCursor: &endlessCursor},
+		},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if !strings.Contains(output, "Stopped after") {
+		t.Errorf("output = %q, want it to say the read was capped", output)
+	}
+	if len(mockClient.streamOptions) != 0 {
+		t.Errorf("stream calls = %d, want none after a capped read", len(mockClient.streamOptions))
+	}
+}
+
+func TestPipelineLogsRetainedStreamExpiredReadsAsNotFound(t *testing.T) {
+	// The relay's 410: the frames aged out of the retention window. The
+	// platform's own sentence is the whole message, and a log that is gone
+	// exits like any other missing resource.
+	detail := "This step's live output is no longer retained; its archived log needs a ready backup vault."
+	mockClient := &pipelineLaneMock{
+		getResult:       &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{}},
+		streamError: &client.PipelineLogNoLongerRetainedError{
+			Detail: detail, ErrorCode: "LOG_NO_LONGER_RETAINED",
+		},
+	}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError == nil {
+		t.Fatal("logs error = nil, want the platform's retention refusal")
+	}
+	if executeError.Error() != detail {
+		t.Errorf("error = %q, want the platform's detail sentence verbatim", executeError.Error())
+	}
+	if exitCode := exitCodeFor(executeError); exitCode != exitNotFound {
+		t.Errorf("exit code = %d, want %d", exitCode, exitNotFound)
+	}
+}
+
+func TestPipelineLogsRetainedStreamIdleGuardStopsAnEndlessReplay(t *testing.T) {
+	// A platform older than the replay contract ignores follow=false and
+	// holds the connection open on keepalives forever. The command must
+	// print what it did get, say the replay never ended, and return -
+	// never hang.
+	shortenPipelineLogReplayIdleTimeout(t)
+	mockClient := &pipelineLaneMock{
+		getResult:       &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{}},
+		streamEvents: []client.PipelineLogEvent{
+			{Type: "line", Stream: "stdout", Line: "the one line that arrived", Seq: 1},
+		},
+		streamNeverEnds: true,
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if !strings.Contains(output, "[stdout] the one line that arrived") {
+		t.Errorf("output = %q, want the frames that did arrive", output)
+	}
+	if !strings.Contains(output, "did not end step \"checkout\"'s log replay") {
+		t.Errorf("output = %q, want one line saying the platform never ended the replay", output)
+	}
+}
+
+func TestPipelineLogsRetainedStreamIdleGuardStopsASilentReplay(t *testing.T) {
+	// The same guard with nothing at all on the wire: an old platform's
+	// keepalives decode to no frames, so the timeout has to run from the
+	// connection rather than from a first frame that never comes.
+	shortenPipelineLogReplayIdleTimeout(t)
+	mockClient := &pipelineLaneMock{
+		getResult:       &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{}},
+		streamNeverEnds: true,
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if !strings.Contains(output, "did not end step \"checkout\"'s log replay") {
+		t.Errorf("output = %q, want the guard's line", output)
+	}
+}
+
+func TestPipelineLogsArchivedLogThePlatformCannotFindFallsBackToTheStream(t *testing.T) {
+	// The listing promises an uploaded step_log whose object the download
+	// cannot find. Nothing was printed, so the retained stream can still
+	// answer without showing anything twice.
+	stepID := "step-1"
+	mockClient := &pipelineLaneMock{
+		getResult: &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{
+			{ID: "artifact-1", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+				Status: client.PipelineArtifactStatusUploaded},
+		}},
+		downloadError: &client.PipelineArtifactDownloadError{
+			StatusCode: http.StatusNotFound,
+			Underlying: errors.New("Pipeline artifact not found"),
+		},
+		streamEvents: []client.PipelineLogEvent{
+			{Type: "line", Stream: "stdout", Line: "recovered from the stream", Seq: 1},
+		},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if !strings.Contains(output, "[stdout] recovered from the stream") {
+		t.Errorf("output = %q, want the retained stream's frames", output)
+	}
+	if len(mockClient.streamOptions) != 1 {
+		t.Errorf("stream calls = %d, want one replay after the 404", len(mockClient.streamOptions))
+	}
+}
+
+func TestPipelineLogsArchivedLogThatFailedPartWayThroughIsNotReplayed(t *testing.T) {
+	// A download that printed part of the log and then failed must be
+	// reported, not silently topped up from a second source: replaying the
+	// stream over it would show those lines twice.
+	stepID := "step-1"
+	mockClient := &pipelineLaneMock{
+		getResult: &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{
+			{ID: "artifact-1", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+				Status: client.PipelineArtifactStatusUploaded},
+		}},
+		downloadPayload: "the first half of the log\n",
+		downloadError: &client.PipelineArtifactDownloadError{
+			StatusCode: http.StatusNotFound,
+			Underlying: errors.New("Pipeline artifact not found"),
+		},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError == nil || !strings.Contains(executeError.Error(), "Pipeline artifact not found") {
+		t.Fatalf("error = %v, want the download's own refusal", executeError)
+	}
+	if len(mockClient.streamOptions) != 0 {
+		t.Errorf("stream calls = %d, want none once part of the log was printed", len(mockClient.streamOptions))
+	}
+	if !strings.Contains(output, "the first half of the log") {
+		t.Errorf("output = %q, want what the download did print", output)
+	}
+}
+
+func TestPipelineLogsArchivedLogRefusalOtherThanNotFoundIsReported(t *testing.T) {
+	// A 409 describes a state the caller has to act on (the vault holding
+	// the artifact is gone), so it is reported rather than papered over
+	// with a stream read that answers a different question.
+	stepID := "step-1"
+	mockClient := &pipelineLaneMock{
+		getResult: &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{
+			{ID: "artifact-1", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+				Status: client.PipelineArtifactStatusUploaded},
+		}},
+		downloadError: &client.PipelineArtifactDownloadError{
+			StatusCode: http.StatusConflict,
+			Underlying: errors.New("The backup vault holding this artifact is no longer available"),
+		},
+	}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError == nil ||
+		!strings.Contains(executeError.Error(), "The backup vault holding this artifact is no longer available") {
+		t.Fatalf("error = %v, want the 409 reported as it stands", executeError)
+	}
+	if len(mockClient.streamOptions) != 0 {
+		t.Errorf("stream calls = %d, want none for a refusal that is not a missing artifact",
+			len(mockClient.streamOptions))
 	}
 }

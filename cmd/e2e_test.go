@@ -2483,7 +2483,7 @@ func (m baseMock) CancelPipelineRun(ctx context.Context, selector client.Pipelin
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, fromSequence int64) (<-chan client.PipelineLogEvent, error) {
+func (m baseMock) StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, options client.StepLogStreamOptions) (<-chan client.PipelineLogEvent, error) {
 	return nil, errors.New("not implemented")
 }
 
