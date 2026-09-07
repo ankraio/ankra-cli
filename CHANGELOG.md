@@ -19,6 +19,156 @@
   repeatable and replaces the whole policy list. Reading needs organisation
   membership, changing needs organisation admin.
 
+- **The Security Center's remaining surfaces reach the terminal.** Until
+  now the portal could acknowledge a finding, accept its risk, switch a
+  compliance framework on, read a cluster's benchmark controls or its policy
+  violations, and the CLI could not - `ankra security` stopped at the reads.
+  `ankra security dispositions` lists the acknowledgements and accepted
+  risks with their lifecycle (expiring, fix available, unmatched), `preview`
+  shows a disposition's blast radius before anything is written, and
+  `create`, `update` and `revoke` write it after a confirmation (`--yes` for
+  scripts); `ankra security workloads` ranks scanned workloads by risk;
+  `ankra security finding <id> --status resolved --cluster <c>` pages one
+  finding's occurrences including the resolved ones the detail leaves out.
+  `ankra security compliance` prints every cluster's benchmark totals,
+  `compliance frameworks` the GDPR / ISO 27001 / SOC 2 / NIST CSF catalogue
+  with `enable`, `disable` and a control-by-control `report --month`, and
+  `compliance export` downloads the evidence report as CSV or JSON. Per
+  cluster, `benchmarks` (with `benchmarks resources` for one failing
+  control), `violations`, `network-exposure`, `policy-mode audit|enforce`,
+  `enable-baseline` and `addon <name>` read and change what the cluster
+  Security tab shows, and `ankra application security-versions` lists every
+  published tag with its bill of materials, findings, where it runs and the
+  licence verdict. A cluster whose agent is offline answers with the reason
+  and a retry hint, never an empty report.
+- **`ankra security findings` names both unsynced feeds.** It said the CISA
+  catalog had not been synced but stayed silent about EPSS, so a missing
+  exploitation probability could read as low. Both caveats print now, as
+  they already did on `security sbom findings`.
+
+- **`ankra security stacks --cluster <cluster>` breaks one cluster down by
+  the stacks Ankra deployed on it.** One row per stack with its attribution
+  status, scope, actionable and known-exploited findings and the
+  bill-of-materials coverage of its containers, riskiest first, plus a closing
+  "outside any stack" row for everything no stack owns, so the rows add up to
+  the cluster. An unmatched stack is reported as such, never as clean.
+- **`ankra security stack <name> --cluster <cluster>` is the whole path from
+  an Ankra resource to a pod.** The stack's scope, findings, CISA KEV
+  exposure and bill of materials, then every member (add-on or manifest) with
+  the posture of the workloads it resolved to, then the Kubernetes workloads
+  each member deploys with their pods, scan state, severe actionable findings
+  and SBOM coverage. `ankra security pods --workload-kind/--workload-name`
+  opens a workload's pods from there.
+- **`ankra security pod <namespace> <pod> --cluster <cluster>` reads one pod
+  container by container**: scan state, observed and severe actionable
+  findings, CISA KEV exposure and whether each container's image has a bill
+  of materials, with `sbom image` / `sbom findings` as the next step. A
+  container the scanner has no report for is "not scanned", not clean.
+- **`ankra pipeline validate` shows the egress tier each planned step
+  resolved to.** A stage's network tier is decided from the stage, then the
+  pipeline's defaults, then the tier its kind cannot work without - so a
+  definition that names none anywhere still runs every step on a tier, and
+  the only way to find out which was to dispatch the run and read the
+  failure. The dry run now prints it alongside the stage and kind -
+  `build (build, build, egress-https)` - and `-o json` carries it as
+  `network` on each planned step. An Ankra older than the field sends no
+  tier; the line then reads as it always did and the JSON leaves the key
+  out, rather than either claiming the step runs with no egress - which is
+  its own tier, `none`.
+
+## v0.15.0-rc4 — 2026-09-07
+
+### Fixed
+
+- **`ankra pipeline logs --follow` waits for a step that has not started
+  instead of exiting.** The moment a live tail is worth asking for is the
+  moment the run was dispatched - and at that moment the step is still
+  blocked on its dependencies or waiting to be claimed, so the command
+  refused with "has not started, so it has no log stream yet" and people ran
+  it again by hand until it caught. With `--follow` it now polls the run
+  every 5 seconds and attaches as soon as the step starts, printing one line
+  per status change that names what the step is waiting on - `Waiting for
+  step "build" to start (blocked on: checkout).` A step that concludes
+  without ever starting prints its outcome and the platform's own error
+  message and then reads like any other concluded step; a run that concludes
+  without dispatching the step exits 3 (not found); Ctrl+C stops the wait at
+  once; and after 30 minutes of waiting in total - the budget is carried
+  across every time the step goes back to waiting, so a step that keeps being
+  retried cannot hold the command open in 30-minute steps - it gives up with
+  exactly the refusal, and exit code, a bare `logs` call gives immediately. A step whose attempt is
+  superseded while being tailed is picked up again rather than reported as a
+  failed stream. Without `--follow` nothing changes: the command still says
+  the step has not started and returns.
+
+- **`ankra pipeline logs` reads the attempt a retried step is actually
+  running.** When Ankra loses a step - its pod cannot start, or its lease is
+  reaped - it concludes that attempt and retries it as a new step row, keeping
+  the lost one on the run as evidence. `logs --step <key>` took the first row
+  under that key, which is the lost attempt, so it printed the wrong log; and
+  `--follow` reported the step as concluded the moment the attempt it was
+  tailing was thrown away. Both now resolve the step's newest attempt, and
+  `--follow` picks up the retry and streams it. Naming a step by id still
+  reads that exact attempt, so a lost attempt's own log stays readable. A
+  one-step run that was retried is also no longer refused as "run has 2 steps"
+  when no `--step` is given.
+
+- **`ankra pipeline logs` shows a finished step's output even when the
+  organisation has no backup vault.** A concluded step's log was only ever
+  read from its archived `step_log` artifact, and archiving one needs a ready
+  backup vault - which a new organisation does not have, so the step was
+  dispatched with uploads disabled, no artifact was ever recorded, and the
+  command answered "No archived log was recorded" for a build whose output
+  Ankra was still holding. When the run's artifacts are read to the end and
+  hold no log for the step - or the recorded one is uploaded but the platform
+  cannot find it - the command now replays that step's output from the
+  platform's retained log stream instead, printing it exactly like a live
+  tail and stopping when the replay is drained. A step whose output has aged
+  out of the retention window prints the platform's own explanation and exits
+  3 (not found), and a step that never reached an execution still reads as
+  having no log at all. A capped artifact walk is unchanged: absence was
+  never observed, so nothing is claimed about it.
+
+- **`ankra pipeline logs` no longer waits forever on a platform that does not
+  end the replay.** An Ankra older than the retained replay keeps a concluded
+  step's connection open on keepalives indefinitely; the command now stops
+  after 15 seconds with no output and says the replay was not ended, rather
+  than hanging with nothing to show.
+
+### Added
+
+- **`ankra pipeline logs --replay` also shows what a running step printed
+  before you connected.** A live connection has always started from the
+  moment it opened, so attaching to a build already halfway through skipped
+  everything up to that point. `--replay` asks the platform for the step's
+  output so far and then keeps following. It needs an Ankra new enough to
+  serve it; an older platform ignores it and streams from the connection as
+  before.
+
+## v0.15.0-rc3 — 2026-09-07
+
+### Added
+
+- **`ankra cluster agent ci get|set` sizes the cluster agent's pipeline-step
+  workers from Ankra instead of a hand-run Helm command.** The agent runs
+  Ankra Pipelines steps itself, and how many it runs at once
+  (`--workers`, 0 disables the scheduler) plus the storage class its step
+  workspaces are carved from (`--storage-class`) used to live only in the
+  agent's chart values - so the only way to enable CI workers was
+  `helm upgrade --set`, and the next platform-driven agent upgrade rendered
+  the default back over it. Both settings are now stored on the platform and
+  carried by every install and upgrade command Ankra generates for the
+  cluster. `set` says what happened to the setting as well as storing it: an
+  online agent new enough to accept chart values re-renders its release
+  immediately, an older one takes it at its next upgrade, and an offline one
+  when it reconnects. `get` shows the stored values, the agent version that
+  has to honour them, and whether that agent currently advertises it can run
+  pipeline steps - which stays "not advertised" until the agent has actually
+  re-rendered, so a stored worker count is never mistaken for a working one.
+  `--storage-class` is only sent when you pass it, so changing the worker
+  count keeps a storage class set earlier; `-o json|yaml` works on both, and
+  a 403, 404 or 422 from the platform prints verbatim rather than being
+  reworded.
+
 - **`ankra stack-profiles import --as-draft` stages a file-authored profile
   for review instead of publishing it.** The document opens as a builder
   draft on the named profile: when your organisation already has a profile
@@ -30,6 +180,18 @@
   update as a file can hand it to a human instead of shipping it sight
   unseen. A `--category` is only sent when explicitly set, so importing
   onto an existing profile never overwrites its category.
+
+### Fixed
+
+- **`ankra stack-profiles list` no longer prints page 1 as if it were the
+  whole catalogue.** The command pages at 25 by default, so an organisation
+  with 35 profiles got a 25-row table with nothing saying the other 10
+  existed - the listing looked complete and the missing profiles were
+  invisible unless you already knew to pass `--page-size`. The table now
+  carries a `Showing 25 of 35 stack profiles (page 1 of 2)` footer whenever
+  the page does not cover the catalogue. A full page whose response reports
+  no total says `catalogue size unknown` rather than passing for the whole
+  set. `-o json`/`yaml` output is unchanged and still carries `total_count`.
 
 ## v0.15.0-rc2 — 2026-09-05
 

@@ -46,6 +46,13 @@ func securityCommandTree() []*cobra.Command {
 	return []*cobra.Command{
 		securityOverviewCmd, securityFindingsCmd, securityFindingCmd, securityAdvisoryCmd, securityClustersCmd,
 		securityNamespacesCmd, securityPodsCmd, securitySbomCmd, securitySbomImagesCmd, securitySbomImageCmd,
+		securityWorkloadsCmd, securityDispositionsCmd, securityDispositionsPreviewCmd, securityDispositionsCreateCmd,
+		securityDispositionsUpdateCmd, securityDispositionsRevokeCmd, securityComplianceCmd,
+		securityComplianceFrameworksCmd, securityComplianceFrameworksEnableCmd, securityComplianceFrameworksDisableCmd,
+		securityComplianceFrameworkReportCmd, securityComplianceExportCmd, securityBenchmarksCmd,
+		securityBenchmarksResourcesCmd, securityViolationsCmd, securityNetworkExposureCmd, securityPolicyModeCmd,
+		securityEnableBaselineCmd, securityAddonCmd,
+		securityStacksCmd, securityStackCmd, securityPodCmd,
 	}
 }
 

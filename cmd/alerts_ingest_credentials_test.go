@@ -103,14 +103,20 @@ func TestAlertsIngestCredentialsRebindUnpinsAndRefusesConflictingFlags(t *testin
 		mock.rebindRequest.Scope == nil || *mock.rebindRequest.Scope != "platform" {
 		t.Fatalf("unpin request = %+v", mock.rebindRequest)
 	}
-	for name, args := range map[string][]string{
-		"cluster and unpin together": {"rebind", "c2", "--cluster", "x", "--unpin"},
-		"nothing to change":          {"rebind", "c2"},
-		"an unknown scope":           {"rebind", "c2", "--scope", "everything"},
+	// A slice, not a map: "nothing to change" only reads as nothing when no
+	// earlier case's flags are still on the shared command, and randomised
+	// map iteration would decide that.
+	for _, testCase := range []struct {
+		name      string
+		arguments []string
+	}{
+		{name: "cluster and unpin together", arguments: []string{"rebind", "c2", "--cluster", "x", "--unpin"}},
+		{name: "nothing to change", arguments: []string{"rebind", "c2"}},
+		{name: "an unknown scope", arguments: []string{"rebind", "c2", "--scope", "everything"}},
 	} {
 		if _, _, runError := runAlertsCommand(t, &alertIngestCredentialsMock{}, "",
-			append([]string{"alerts", "ingest-credentials"}, args...)...); runError == nil {
-			t.Errorf("%s: expected a usage error", name)
+			append([]string{"alerts", "ingest-credentials"}, testCase.arguments...)...); runError == nil {
+			t.Errorf("%s: expected a usage error", testCase.name)
 		}
 	}
 }

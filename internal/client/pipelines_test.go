@@ -269,6 +269,13 @@ func TestDownloadPipelineArtifactNotFound(t *testing.T) {
 	if err == nil || err.Error() != "Pipeline artifact not found" {
 		t.Fatalf("error = %v, want the server's sentinel text verbatim", err)
 	}
+	// The status code rides along so a caller with somewhere else to look -
+	// `pipeline logs` and the platform's retained log stream - can tell a
+	// missing artifact from a refusal it has to report.
+	var downloadRefusal *PipelineArtifactDownloadError
+	if !errors.As(err, &downloadRefusal) || downloadRefusal.StatusCode != http.StatusNotFound {
+		t.Fatalf("error = %v (%T), want a *PipelineArtifactDownloadError carrying 404", err, err)
+	}
 }
 
 func TestDownloadPipelineArtifactNotYetUploaded(t *testing.T) {
@@ -368,6 +375,49 @@ func TestValidatePipelineDefinitionEmptySpecValidatesStored(t *testing.T) {
 	}
 	if !strings.Contains(capturedBody, `"spec_yaml":""`) {
 		t.Errorf("body = %q, want an explicit empty spec_yaml", capturedBody)
+	}
+}
+
+// TestValidatePipelineDefinitionKeepsEachStepsNetworkTier pins the field a
+// dry run answers with what each step will be allowed to reach. Dropping it
+// at decode is silent - the plan still prints, one column short - so the
+// decode is asserted rather than left to the command tests.
+func TestValidatePipelineDefinitionKeepsEachStepsNetworkTier(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"severity":"ok","violations":[],"events":[{"event":"push","run":true,
+			"steps":[{"step_key":"build","stage":"build","kind":"build","network":"egress-https",
+			"depends_on":["checkout"],"run_condition":"on_success","timeout_seconds":1800}],
+			"skipped":[],"diagnostics":[]}]}`)
+	})
+	validation, err := testClient.ValidatePipelineDefinition(context.Background(),
+		PipelineSelector{RepositoryID: "repo-1"}, "")
+	if err != nil {
+		t.Fatalf("ValidatePipelineDefinition error = %v", err)
+	}
+	if len(validation.Events) != 1 || len(validation.Events[0].Steps) != 1 {
+		t.Fatalf("validation = %+v", validation)
+	}
+	if validation.Events[0].Steps[0].Network != "egress-https" {
+		t.Errorf("network = %q, want the resolved tier", validation.Events[0].Steps[0].Network)
+	}
+}
+
+// TestValidatePipelineDefinitionOlderPlatformSendsNoNetworkTier records that
+// an absent field decodes as "", the value the printer reads as "this Ankra
+// does not resolve tiers" rather than as a step planned with no egress.
+func TestValidatePipelineDefinitionOlderPlatformSendsNoNetworkTier(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"severity":"ok","violations":[],"events":[{"event":"push","run":true,
+			"steps":[{"step_key":"build","stage":"build","kind":"build","depends_on":[],
+			"run_condition":"on_success","timeout_seconds":1800}],"skipped":[],"diagnostics":[]}]}`)
+	})
+	validation, err := testClient.ValidatePipelineDefinition(context.Background(),
+		PipelineSelector{RepositoryID: "repo-1"}, "")
+	if err != nil {
+		t.Fatalf("ValidatePipelineDefinition error = %v", err)
+	}
+	if validation.Events[0].Steps[0].Network != "" {
+		t.Errorf("network = %q, want an empty tier", validation.Events[0].Steps[0].Network)
 	}
 }
 

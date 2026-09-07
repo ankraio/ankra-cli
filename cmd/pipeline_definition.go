@@ -108,7 +108,7 @@ func printPipelineValidation(command *cobra.Command, validation *client.Pipeline
 		}
 		_, _ = fmt.Fprintln(out)
 		for _, step := range event.Steps {
-			_, _ = fmt.Fprintf(out, "    %s (%s, %s)\n", step.StepKey, step.Stage, step.Kind)
+			_, _ = fmt.Fprintf(out, "    %s\n", plannedStepLine(step))
 		}
 		for _, skipped := range event.Skipped {
 			_, _ = fmt.Fprintf(out, "    %s skipped: %s\n", skipped.StepKey, skipped.Message)
@@ -117,6 +117,19 @@ func printPipelineValidation(command *cobra.Command, validation *client.Pipeline
 			_, _ = fmt.Fprintf(out, "    diagnostic: %s\n", diagnostic)
 		}
 	}
+}
+
+// plannedStepLine describes one node of a dry-run DAG. The resolved egress
+// tier joins the stage and kind because it is the property of a planned step
+// that most often explains a failure the dry run is meant to pre-empt - a
+// build planned on `none` cannot pull its base image. An Ankra older than the
+// field sends no tier at all, and the line then reads as it always did rather
+// than claiming the step runs with no egress.
+func plannedStepLine(step client.PipelinePlannedStep) string {
+	if step.Network == "" {
+		return fmt.Sprintf("%s (%s, %s)", step.StepKey, step.Stage, step.Kind)
+	}
+	return fmt.Sprintf("%s (%s, %s, %s)", step.StepKey, step.Stage, step.Kind, step.Network)
 }
 
 func newPipelineDefinitionCommand() *cobra.Command {

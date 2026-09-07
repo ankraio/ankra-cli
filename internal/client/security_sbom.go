@@ -96,6 +96,7 @@ type SecuritySBOMComponent struct {
 	ComponentType      string   `json:"component_type" yaml:"component_type"`
 	PURL               *string  `json:"purl" yaml:"purl"`
 	Licenses           []string `json:"licenses" yaml:"licenses"`
+	LicenseRisk        string   `json:"license_risk" yaml:"license_risk"`
 	Images             int      `json:"images" yaml:"images"`
 	Workloads          int      `json:"workloads" yaml:"workloads"`
 	Clusters           int      `json:"clusters" yaml:"clusters"`
@@ -116,9 +117,28 @@ type SecuritySBOMCoverage struct {
 	LatestGeneratedAt *string `json:"latest_generated_at" yaml:"latest_generated_at"`
 }
 
-// SecuritySBOMComponentFacets mirrors the component filters.
+// SecuritySBOMComponentFacets mirrors the component filters; LicenseRisk
+// lists the licence tiers present, most consequential first.
 type SecuritySBOMComponentFacets struct {
 	PackageType []SecurityFacetCount `json:"package_type" yaml:"package_type"`
+	LicenseRisk []SecurityFacetCount `json:"license_risk" yaml:"license_risk"`
+}
+
+// SecurityLicenseExposure counts an image's components per licence tier.
+// network_copyleft (AGPL, SSPL, EUPL, OSL) obliges publishing the source
+// of a service that links it; source_available (BUSL, Elastic, Redis
+// Source Available, Commons Clause) needs a commercial licence to host as
+// a service; copyleft (GPL) is safe on a private backend and must be
+// open-sourced when shipped to users; weak_copyleft reaches only
+// modifications of the component; permissive obliges nothing; unknown is
+// unrecognised or not yet classified.
+type SecurityLicenseExposure struct {
+	NetworkCopyleft int `json:"network_copyleft" yaml:"network_copyleft"`
+	SourceAvailable int `json:"source_available" yaml:"source_available"`
+	Copyleft        int `json:"copyleft" yaml:"copyleft"`
+	WeakCopyleft    int `json:"weak_copyleft" yaml:"weak_copyleft"`
+	Permissive      int `json:"permissive" yaml:"permissive"`
+	Unknown         int `json:"unknown" yaml:"unknown"`
 }
 
 // SecuritySBOMComponentList is the paginated component inventory.
@@ -132,27 +152,28 @@ type SecuritySBOMComponentList struct {
 // SecuritySBOMImage is one image with a bill of materials, where it runs and
 // the actionable findings the scanner attributes to it.
 type SecuritySBOMImage struct {
-	ImageIdentity   string                 `json:"image_identity" yaml:"image_identity"`
-	ImageRef        string                 `json:"image_ref" yaml:"image_ref"`
-	ImageRepository *string                `json:"image_repository" yaml:"image_repository"`
-	ImageTag        *string                `json:"image_tag" yaml:"image_tag"`
-	ImageDigest     *string                `json:"image_digest" yaml:"image_digest"`
-	Registry        *string                `json:"registry" yaml:"registry"`
-	OSFamily        *string                `json:"os_family" yaml:"os_family"`
-	OSName          *string                `json:"os_name" yaml:"os_name"`
-	BomFormat       *string                `json:"bom_format" yaml:"bom_format"`
-	SpecVersion     *string                `json:"spec_version" yaml:"spec_version"`
-	ComponentCount  int                    `json:"component_count" yaml:"component_count"`
-	DependencyCount int                    `json:"dependency_count" yaml:"dependency_count"`
-	Workloads       int                    `json:"workloads" yaml:"workloads"`
-	Clusters        int                    `json:"clusters" yaml:"clusters"`
-	Namespaces      []string               `json:"namespaces" yaml:"namespaces"`
-	Observed        int                    `json:"observed" yaml:"observed"`
-	Actionable      SecuritySeverityCounts `json:"actionable" yaml:"actionable"`
-	KnownExploited  int                    `json:"known_exploited" yaml:"known_exploited"`
-	GeneratedAt     *string                `json:"generated_at" yaml:"generated_at"`
-	FirstSeenAt     string                 `json:"first_seen_at" yaml:"first_seen_at"`
-	LastSeenAt      string                 `json:"last_seen_at" yaml:"last_seen_at"`
+	ImageIdentity   string                   `json:"image_identity" yaml:"image_identity"`
+	ImageRef        string                   `json:"image_ref" yaml:"image_ref"`
+	ImageRepository *string                  `json:"image_repository" yaml:"image_repository"`
+	ImageTag        *string                  `json:"image_tag" yaml:"image_tag"`
+	ImageDigest     *string                  `json:"image_digest" yaml:"image_digest"`
+	Registry        *string                  `json:"registry" yaml:"registry"`
+	OSFamily        *string                  `json:"os_family" yaml:"os_family"`
+	OSName          *string                  `json:"os_name" yaml:"os_name"`
+	BomFormat       *string                  `json:"bom_format" yaml:"bom_format"`
+	SpecVersion     *string                  `json:"spec_version" yaml:"spec_version"`
+	ComponentCount  int                      `json:"component_count" yaml:"component_count"`
+	DependencyCount int                      `json:"dependency_count" yaml:"dependency_count"`
+	Workloads       int                      `json:"workloads" yaml:"workloads"`
+	Clusters        int                      `json:"clusters" yaml:"clusters"`
+	Namespaces      []string                 `json:"namespaces" yaml:"namespaces"`
+	Observed        int                      `json:"observed" yaml:"observed"`
+	Actionable      SecuritySeverityCounts   `json:"actionable" yaml:"actionable"`
+	KnownExploited  int                      `json:"known_exploited" yaml:"known_exploited"`
+	LicenseExposure *SecurityLicenseExposure `json:"license_exposure" yaml:"license_exposure"`
+	GeneratedAt     *string                  `json:"generated_at" yaml:"generated_at"`
+	FirstSeenAt     string                   `json:"first_seen_at" yaml:"first_seen_at"`
+	LastSeenAt      string                   `json:"last_seen_at" yaml:"last_seen_at"`
 }
 
 // SecuritySBOMImageList is the paginated image inventory.
@@ -182,6 +203,46 @@ type SecuritySBOMImageDetail struct {
 	Pagination SecurityPagination          `json:"pagination" yaml:"pagination"`
 	Facets     SecuritySBOMComponentFacets `json:"facets" yaml:"facets"`
 	Workloads  []SecuritySBOMWorkload      `json:"workloads" yaml:"workloads"`
+}
+
+// SecuritySBOMComponentOptions names one exact package: the name as the
+// component list shows it, its version (empty when the list shows none)
+// and its ecosystem.
+type SecuritySBOMComponentOptions struct {
+	Name        string
+	Version     string
+	PackageType string
+	ClusterID   string
+}
+
+// SecuritySBOMComponentWorkload is one workload container running an image
+// that carries the component, with the image so both can be followed.
+type SecuritySBOMComponentWorkload struct {
+	SecuritySBOMWorkload `yaml:",inline"`
+	ImageIdentity        string `json:"image_identity" yaml:"image_identity"`
+	ImageRef             string `json:"image_ref" yaml:"image_ref"`
+}
+
+// SecuritySBOMComponentCluster is one cluster running the component:
+// distinct workloads (the measure the component row counts), the workload
+// containers behind them, and images.
+type SecuritySBOMComponentCluster struct {
+	ClusterID   string `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName string `json:"cluster_name" yaml:"cluster_name"`
+	Workloads   int    `json:"workloads" yaml:"workloads"`
+	Containers  int    `json:"containers" yaml:"containers"`
+	Images      int    `json:"images" yaml:"images"`
+}
+
+// SecuritySBOMComponentDetail is one package followed to where it runs.
+// The lists are capped and say so: a capped list is not the whole answer.
+type SecuritySBOMComponentDetail struct {
+	Component       SecuritySBOMComponent           `json:"component" yaml:"component"`
+	Images          []SecuritySBOMImage             `json:"images" yaml:"images"`
+	ImagesCapped    bool                            `json:"images_capped" yaml:"images_capped"`
+	Workloads       []SecuritySBOMComponentWorkload `json:"workloads" yaml:"workloads"`
+	WorkloadsCapped bool                            `json:"workloads_capped" yaml:"workloads_capped"`
+	Clusters        []SecuritySBOMComponentCluster  `json:"clusters" yaml:"clusters"`
 }
 
 // SecuritySBOMImageFindingsOptions narrows the vulnerabilities on one image.
@@ -279,6 +340,7 @@ type SecuritySBOMComponentsOptions struct {
 	PageSize      int
 	Search        string
 	PackageTypes  []string
+	LicenseRisks  []string
 	ClusterID     string
 	Namespace     string
 	WorkloadKind  string
@@ -331,8 +393,19 @@ type SecuritySBOMImageOptions struct {
 	PageSize      int
 	Search        string
 	PackageTypes  []string
+	LicenseRisks  []string
 	Sort          string
 	Order         string
+}
+
+// addLicenseRisks appends the licence tier filter, lower-cased so the
+// server sees one spelling of each tier.
+func addLicenseRisks(query neturl.Values, licenseRisks []string) {
+	for _, licenseRisk := range licenseRisks {
+		if trimmed := strings.ToLower(strings.TrimSpace(licenseRisk)); trimmed != "" {
+			query.Add("license_risk", trimmed)
+		}
+	}
 }
 
 func setListControls(query neturl.Values, search string, sort string, order string) {
@@ -401,6 +474,7 @@ func (c *Client) ListSecuritySBOMComponents(options SecuritySBOMComponentsOption
 			query.Add("package_type", trimmed)
 		}
 	}
+	addLicenseRisks(query, options.LicenseRisks)
 	if options.ClusterID != "" {
 		query.Set("cluster_id", options.ClusterID)
 	}
@@ -446,6 +520,23 @@ func (c *Client) ListSecuritySBOMImages(options SecuritySBOMImagesOptions) (*Sec
 	return &list, nil
 }
 
+// GetSecuritySBOMComponent follows one exact package to the images,
+// workload containers and clusters that carry it.
+func (c *Client) GetSecuritySBOMComponent(options SecuritySBOMComponentOptions) (*SecuritySBOMComponentDetail, error) {
+	query := neturl.Values{}
+	query.Set("name", strings.TrimSpace(options.Name))
+	query.Set("version", strings.TrimSpace(options.Version))
+	query.Set("package_type", strings.ToLower(strings.TrimSpace(options.PackageType)))
+	if options.ClusterID != "" {
+		query.Set("cluster_id", options.ClusterID)
+	}
+	var detail SecuritySBOMComponentDetail
+	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/component", query), &detail); err != nil {
+		return nil, fmt.Errorf("security sbom component request failed: %w", err)
+	}
+	return &detail, nil
+}
+
 // GetSecuritySBOMImage reads one image's bill of materials.
 func (c *Client) GetSecuritySBOMImage(options SecuritySBOMImageOptions) (*SecuritySBOMImageDetail, error) {
 	query := neturl.Values{}
@@ -457,6 +548,7 @@ func (c *Client) GetSecuritySBOMImage(options SecuritySBOMImageOptions) (*Securi
 			query.Add("package_type", trimmed)
 		}
 	}
+	addLicenseRisks(query, options.LicenseRisks)
 	var detail SecuritySBOMImageDetail
 	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/image", query), &detail); err != nil {
 		return nil, fmt.Errorf("security sbom image request failed: %w", err)

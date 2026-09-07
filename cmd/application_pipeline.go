@@ -130,7 +130,7 @@ func newApplicationPipelineRerunCommand() *cobra.Command {
 func newApplicationPipelineLogsCommand() *cobra.Command {
 	logsCommand := &cobra.Command{
 		Use:   "logs <application-id> <run>",
-		Short: "Show a pipeline step's live output",
+		Short: "Show a pipeline step's output",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			applicationID, resolveError := resolveApplicationArgument(command, arguments)

@@ -126,6 +126,7 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 		newApplicationSubresourceCommand("code-security", "Show source code security findings", func(command *cobra.Command, applicationID string) (json.RawMessage, error) {
 			return apiClient.GetApplicationCodeSecurity(command.Context(), applicationID)
 		}),
+		newApplicationSecurityVersionsCommand(),
 	)
 	applicationCommand.AddCommand(newApplicationDemoCommand())
 	applicationCommand.AddCommand(newApplicationRegistryCommand())
