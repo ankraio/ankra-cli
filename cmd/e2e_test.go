@@ -1282,6 +1282,15 @@ func (m baseMock) UpgradeClusterAgent(ctx context.Context, clusterID string) (*c
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetAgentCISettings(ctx context.Context, clusterID string) (*client.AgentCISettings, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAgentCISettings(ctx context.Context, clusterID string,
+	update client.AgentCISettingsUpdate) (*client.AgentCISettings, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateHetznerCluster(req client.CreateHetznerClusterRequest) (*client.CreateHetznerClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }

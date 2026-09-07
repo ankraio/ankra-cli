@@ -4,6 +4,27 @@
 
 ### Added
 
+- **`ankra cluster agent ci get|set` sizes the cluster agent's pipeline-step
+  workers from Ankra instead of a hand-run Helm command.** The agent runs
+  Ankra Pipelines steps itself, and how many it runs at once
+  (`--workers`, 0 disables the scheduler) plus the storage class its step
+  workspaces are carved from (`--storage-class`) used to live only in the
+  agent's chart values - so the only way to enable CI workers was
+  `helm upgrade --set`, and the next platform-driven agent upgrade rendered
+  the default back over it. Both settings are now stored on the platform and
+  carried by every install and upgrade command Ankra generates for the
+  cluster. `set` says what happened to the setting as well as storing it: an
+  online agent new enough to accept chart values re-renders its release
+  immediately, an older one takes it at its next upgrade, and an offline one
+  when it reconnects. `get` shows the stored values, the agent version that
+  has to honour them, and whether that agent currently advertises it can run
+  pipeline steps - which stays "not advertised" until the agent has actually
+  re-rendered, so a stored worker count is never mistaken for a working one.
+  `--storage-class` is only sent when you pass it, so changing the worker
+  count keeps a storage class set earlier; `-o json|yaml` works on both, and
+  a 403, 404 or 422 from the platform prints verbatim rather than being
+  reworded.
+
 - **`ankra stack-profiles import --as-draft` stages a file-authored profile
   for review instead of publishing it.** The document opens as a builder
   draft on the named profile: when your organisation already has a profile

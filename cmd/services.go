@@ -385,6 +385,8 @@ type APIClient interface {
 	GetAgentToken(clusterID string) (*client.AgentToken, error)
 	GenerateAgentToken(ctx context.Context, clusterID string) (*client.AgentToken, error)
 	UpgradeClusterAgent(ctx context.Context, clusterID string) (*client.UpgradeAgentResult, error)
+	GetAgentCISettings(ctx context.Context, clusterID string) (*client.AgentCISettings, error)
+	UpdateAgentCISettings(ctx context.Context, clusterID string, update client.AgentCISettingsUpdate) (*client.AgentCISettings, error)
 
 	CreateHetznerCluster(req client.CreateHetznerClusterRequest) (*client.CreateHetznerClusterResponse, error)
 	DeprovisionHetznerCluster(clusterID string, force bool) (*client.DeprovisionHetznerClusterResponse, error)
