@@ -266,8 +266,38 @@ var credentialsGetCmd = &cobra.Command{
 			fmt.Printf("  Repository: %s\n", *cred.Repository)
 		}
 		fmt.Printf("  Created:  %s\n", formatTimeAgo(cred.CreatedAt))
+		printCredentialHealth(cred)
 		return nil
 	},
+}
+
+// printCredentialHealth says whether Ankra can use this credential, and when
+// it cannot, why.
+//
+// `credentials list` prints a state column, so a credential can read "down"
+// there with nothing on the detail view to explain it and no hint that a
+// third command holds the answer. The reason lives on the repository-coverage
+// read, which is where a GitHub App credential's usual complaint - an
+// installation that cannot reach a repository some application is bound to -
+// is actually recorded.
+func printCredentialHealth(credential *client.CredentialDetail) {
+	if credential == nil {
+		return
+	}
+	if credential.Available {
+		fmt.Printf("  Usable:   yes\n")
+		return
+	}
+	fmt.Printf("  Usable:   no\n")
+	if apiClient == nil || !strings.EqualFold(credential.Provider, "github") {
+		return
+	}
+	coverage, coverageError := apiClient.GetCredentialRepositories(credential.ID)
+	if coverageError != nil || coverage == nil || strings.TrimSpace(coverage.CoverageMessage) == "" {
+		return
+	}
+	fmt.Printf("  Reason:   %s\n", coverage.CoverageMessage)
+	fmt.Printf("            Run 'ankra credentials repositories %s' for the repository list.\n", credential.Name)
 }
 
 // resolveCredentialID accepts either a credential ID (UUID) or a credential
