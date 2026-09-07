@@ -1,13 +1,17 @@
 package cmd
 
 import (
+	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"ankra/internal/client"
+
+	"github.com/spf13/cobra"
 )
 
 // concludedStep is one planned, concluded step - the fixture every archive-
@@ -36,6 +40,80 @@ func runningStepThatStarted() client.PipelineStep {
 		ExecutionID: &executionID, ExecutionStepID: &executionStepID}
 }
 
+// blockedStep is a planned step still waiting on its dependencies: the state
+// a run is in the moment it is dispatched, and so the one a person asking for
+// a live tail most often meets.
+func blockedStep() client.PipelineStep {
+	return client.PipelineStep{ID: "step-1", StepKey: "build", Status: pipelineStepStatusBlocked,
+		DependsOn: []string{"checkout"}}
+}
+
+// pendingStep is the same step once its dependencies are satisfied and the
+// claim scan has not taken it yet - still no execution, so still no stream.
+func pendingStep() client.PipelineStep {
+	step := blockedStep()
+	step.Status = pipelineStepStatusPending
+	return step
+}
+
+// startedBuildStep is that step once an agent claimed it, which is what gives
+// it a subject on the log relay.
+func startedBuildStep() client.PipelineStep {
+	executionID, executionStepID := "execution-1", "execution-step-1"
+	step := blockedStep()
+	step.Status = pipelineStepStatusRunning
+	step.ExecutionID = &executionID
+	step.ExecutionStepID = &executionStepID
+	return step
+}
+
+// concludedBuildStep is that step once it finished. A --follow test needs it:
+// the tail's own status poll is what ends the command, and a step that never
+// concludes would be reconnected to forever.
+func concludedBuildStep() client.PipelineStep {
+	step := startedBuildStep()
+	step.Status = pipelineStepStatusConcluded
+	return step
+}
+
+// lostAttemptOf is the row a retry leaves behind: the attempt Ankra threw
+// away, concluded infra_error and kept on the run as evidence, which the
+// run detail lists ahead of the fresh attempt that replaced it.
+func lostAttemptOf(step client.PipelineStep) client.PipelineStep {
+	outcome := "infra_error"
+	lost := step
+	lost.ID = step.ID + "-attempt-1"
+	lost.Attempt = 1
+	lost.Status = pipelineStepStatusConcluded
+	lost.Outcome = &outcome
+	return lost
+}
+
+// retryOf is that step's next attempt: a fresh row with its own id, at
+// attempt 2, pending until the claim scan takes it.
+func retryOf(step client.PipelineStep) client.PipelineStep {
+	retried := step
+	retried.ID = step.ID + "-attempt-2"
+	retried.Attempt = 2
+	return retried
+}
+
+// runDetailWithStep wraps one step as the run detail GetPipelineRun answers,
+// carrying the run's own status so the wait can tell a step that is still
+// coming from a run that finished without it.
+func runDetailWithStep(runStatus string, step client.PipelineStep) client.PipelineRunDetail {
+	return runDetailWithSteps(runStatus, step)
+}
+
+// runDetailWithSteps is the same for a run carrying several rows - a retried
+// step is two rows under one key, oldest attempt first, the order
+// enginekit/pipelinerun's ListStepsForRun renders.
+func runDetailWithSteps(runStatus string, steps ...client.PipelineStep) client.PipelineRunDetail {
+	detail := client.PipelineRunDetail{Steps: steps}
+	detail.Status = runStatus
+	return detail
+}
+
 // shortenPipelineLogReplayIdleTimeout keeps the idle guard's behaviour
 // testable without holding a test open for the production wait.
 //
@@ -47,6 +125,23 @@ func shortenPipelineLogReplayIdleTimeout(t *testing.T) {
 	previous := pipelineLogReplayIdleTimeout
 	pipelineLogReplayIdleTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { pipelineLogReplayIdleTimeout = previous })
+}
+
+// shortenPipelineStepStartWait makes the not-started wait's poll interval and
+// its bound testable: the production values are five seconds and thirty
+// minutes, and a test must exercise several polls without spending either.
+//
+// Like the helper above it writes package-level vars, so a test that calls it
+// must not call t.Parallel.
+func shortenPipelineStepStartWait(t *testing.T, bound time.Duration) {
+	t.Helper()
+	previousInterval, previousBound := pipelineStepStartPollInterval, pipelineStepStartWaitBound
+	pipelineStepStartPollInterval = time.Millisecond
+	pipelineStepStartWaitBound = bound
+	t.Cleanup(func() {
+		pipelineStepStartPollInterval = previousInterval
+		pipelineStepStartWaitBound = previousBound
+	})
 }
 
 func TestPipelineLogsConcludedStepReadsArchivedStepLog(t *testing.T) {
@@ -647,5 +742,365 @@ func TestPipelineLogsArchivedLogRefusalOtherThanNotFoundIsReported(t *testing.T)
 	if len(mockClient.streamOptions) != 0 {
 		t.Errorf("stream calls = %d, want none for a refusal that is not a missing artifact",
 			len(mockClient.streamOptions))
+	}
+}
+
+func TestPipelineLogsFollowWaitsForABlockedStepThenStreams(t *testing.T) {
+	// The moment a live tail is actually asked for: the run was just
+	// dispatched, so the step is blocked on its dependencies and the relay
+	// would refuse it. --follow waits through blocked and pending, says what
+	// it is waiting on, and attaches as soon as the step starts.
+	shortenPipelineStepStartWait(t, time.Minute)
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", blockedStep()),
+			runDetailWithStep("running", pendingStep()),
+			runDetailWithStep("running", startedBuildStep()),
+			runDetailWithStep("running", concludedBuildStep()),
+		},
+		streamEvents: []client.PipelineLogEvent{
+			{Type: "line", Stream: "stdout", Line: "compiling", Seq: 1},
+		},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build", "--follow")
+	if executeError != nil {
+		t.Fatalf("logs --follow error = %v", executeError)
+	}
+	if !strings.Contains(output, `Waiting for step "build" to start (blocked on: checkout).`) {
+		t.Errorf("output = %q, want the blocked wait to name the dependency", output)
+	}
+	if !strings.Contains(output, `Waiting for step "build" to start (pending).`) {
+		t.Errorf("output = %q, want the wait re-stated when the status changed", output)
+	}
+	if !strings.Contains(output, "[stdout] compiling") {
+		t.Errorf("output = %q, want the step's output once it started", output)
+	}
+	if !strings.Contains(output, "Log stream ended: the step has concluded.") {
+		t.Errorf("output = %q, want the tail to end on the step's conclusion", output)
+	}
+	if len(mockClient.streamOptions) != 1 {
+		t.Errorf("stream calls = %d, want the relay opened once, after the wait", len(mockClient.streamOptions))
+	}
+}
+
+func TestPipelineLogsFollowWaitLineIsPrintedOncePerReason(t *testing.T) {
+	// A step blocked for twenty minutes is polled hundreds of times; the
+	// wait line is a status change, not a heartbeat, so an unchanged status
+	// prints nothing. The same test covers the bound: a step that never
+	// starts gives up with the refusal a bare 'logs' call gives immediately.
+	shortenPipelineStepStartWait(t, 30*time.Millisecond)
+	detail := runDetailWithStep("running", pendingStep())
+	mockClient := &pipelineLaneMock{getResult: &detail}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build", "--follow")
+	if executeError == nil ||
+		!strings.Contains(executeError.Error(), `step "build" has not started, so it has no log stream yet`) {
+		t.Fatalf("error = %v, want the bounded wait to give up with the not-started refusal", executeError)
+	}
+	if exitCode := exitCodeFor(executeError); exitCode != 1 {
+		t.Errorf("exit code = %d, want the same 1 a bare 'logs' call exits with", exitCode)
+	}
+	if count := strings.Count(output, "Waiting for step"); count != 1 {
+		t.Errorf("wait lines = %d, want exactly one for an unchanging status", count)
+	}
+	if mockClient.getCalls < 2 {
+		t.Errorf("run reads = %d, want the wait to have polled at least once", mockClient.getCalls)
+	}
+	if len(mockClient.streamOptions) != 0 {
+		t.Errorf("stream calls = %d, want none for a step that never started", len(mockClient.streamOptions))
+	}
+}
+
+func TestPipelineLogsWithoutFollowStillRefusesAStepThatHasNotStarted(t *testing.T) {
+	// The one-shot read is unchanged: it says the step has not started and
+	// returns, rather than silently blocking for half an hour.
+	shortenPipelineStepStartWait(t, time.Minute)
+	detail := runDetailWithStep("running", blockedStep())
+	mockClient := &pipelineLaneMock{getResult: &detail}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build")
+	if executeError == nil || executeError.Error() !=
+		`step "build" has not started, so it has no log stream yet - check 'ankra pipeline get run-1' for its status` {
+		t.Fatalf("error = %v, want today's refusal verbatim", executeError)
+	}
+	if mockClient.getCalls != 1 {
+		t.Errorf("run reads = %d, want the single resolve read and no polling", mockClient.getCalls)
+	}
+	if strings.Contains(output, "Waiting for step") {
+		t.Errorf("output = %q, want no wait announced without --follow", output)
+	}
+}
+
+func TestPipelineLogsFollowReadsAStepThatConcludedWithoutStarting(t *testing.T) {
+	// A dependency failed while the wait was running, so the step is skipped
+	// and will never produce a line. The wait says why it ended and then
+	// hands the step to the concluded-step path, which reports the log it
+	// does (not) have rather than leaving the outcome unexplained.
+	shortenPipelineStepStartWait(t, time.Minute)
+	outcome := "skipped"
+	errorMessage := `Dependency "checkout" did not succeed.`
+	skipped := blockedStep()
+	skipped.Status = pipelineStepStatusConcluded
+	skipped.Outcome = &outcome
+	skipped.ErrorMessage = &errorMessage
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", pendingStep()),
+			runDetailWithStep(pipelineRunStatusConcluded, skipped),
+		},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{}},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build", "--follow")
+	if executeError != nil {
+		t.Fatalf("logs --follow error = %v", executeError)
+	}
+	if !strings.Contains(output, `Step "build" concluded while waiting for it to start: skipped`) {
+		t.Errorf("output = %q, want the step's outcome stated", output)
+	}
+	if !strings.Contains(output, errorMessage) {
+		t.Errorf("output = %q, want the platform's own error message", output)
+	}
+	if !strings.Contains(output, `No archived log was recorded for step "build"`) {
+		t.Errorf("output = %q, want the concluded-step path to answer for the log", output)
+	}
+	if len(mockClient.streamOptions) != 0 {
+		t.Errorf("stream calls = %d, want none for a step that never reached an execution",
+			len(mockClient.streamOptions))
+	}
+}
+
+func TestPipelineLogsFollowStopsWhenTheRunConcludesWithoutTheStep(t *testing.T) {
+	// A run can conclude leaving a step it never dispatched behind (its
+	// stage was cancelled, the run was stopped). Waiting longer cannot
+	// produce a log, so the wait ends there and says so.
+	shortenPipelineStepStartWait(t, time.Minute)
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", pendingStep()),
+			runDetailWithStep(pipelineRunStatusConcluded, pendingStep()),
+		},
+	}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build", "--follow")
+	if executeError == nil ||
+		!strings.Contains(executeError.Error(), `run run-1 concluded without starting step "build"`) {
+		t.Fatalf("error = %v, want the wait to stop on the run's own conclusion", executeError)
+	}
+	if exitCode := exitCodeFor(executeError); exitCode != exitNotFound {
+		t.Errorf("exit code = %d, want %d", exitCode, exitNotFound)
+	}
+}
+
+func TestPipelineLogsFollowPicksUpTheRetryThatSupersededTheAttemptItWasTailing(t *testing.T) {
+	// A step id does not survive a retry: the platform concludes the lost
+	// attempt infra_error and inserts a fresh row at attempt 2, keeping the
+	// lost one on the run as evidence. --follow must read the step by key,
+	// notice its attempt was superseded, wait for the new row and tail that -
+	// not report the lost attempt's conclusion as the step's own.
+	shortenPipelineStepStartWait(t, time.Minute)
+	firstAttempt := startedBuildStep()
+	firstAttempt.ID, firstAttempt.Attempt = "step-1-attempt-1", 1
+	lost := lostAttemptOf(startedBuildStep())
+	retryPending := retryOf(pendingStep())
+	retryRunning := retryOf(startedBuildStep())
+	retryConcluded := retryOf(concludedBuildStep())
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", firstAttempt),
+			runDetailWithSteps("running", lost, retryPending),
+			runDetailWithSteps("running", lost, retryRunning),
+			runDetailWithSteps("running", lost, retryConcluded),
+		},
+		streamEvents: []client.PipelineLogEvent{
+			{Type: "line", Stream: "stdout", Line: "compiling", Seq: 1},
+		},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build", "--follow")
+	if executeError != nil {
+		t.Fatalf("logs --follow error = %v", executeError)
+	}
+	if strings.Contains(output, "Log stream ended: the step has concluded.") &&
+		!strings.Contains(output, `Waiting for step "build" to start (pending).`) {
+		t.Errorf("output = %q, want the retry picked up rather than the lost attempt reported as the end", output)
+	}
+	if !strings.Contains(output, `Waiting for step "build" to start (pending).`) {
+		t.Errorf("output = %q, want the superseding attempt waited for", output)
+	}
+	if len(mockClient.streamOptions) != 2 {
+		t.Fatalf("stream calls = %d, want the lost attempt then the retry", len(mockClient.streamOptions))
+	}
+	if mockClient.streamStepID != retryRunning.ID {
+		t.Errorf("last streamed step id = %q, want the retry's own row %q",
+			mockClient.streamStepID, retryRunning.ID)
+	}
+}
+
+func TestPipelineLogsResolvesAStepKeyToItsNewestAttempt(t *testing.T) {
+	// A run carries every attempt of a retried step. Naming the key must
+	// reach the row doing the work now, not the lost attempt the listing
+	// happens to return first.
+	lost := lostAttemptOf(startedBuildStep())
+	live := retryOf(startedBuildStep())
+	detail := runDetailWithSteps("running", lost, live)
+	mockClient := &pipelineLaneMock{getResult: &detail}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build")
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if mockClient.artifactsRunID != "" {
+		t.Errorf("the newest attempt is running, so no archive is read; got artifactsRunID = %q",
+			mockClient.artifactsRunID)
+	}
+	if mockClient.streamStepID != live.ID {
+		t.Errorf("streamed step id = %q, want the newest attempt %q", mockClient.streamStepID, live.ID)
+	}
+}
+
+func TestPipelineLogsResolvesAStepIdToThatExactAttempt(t *testing.T) {
+	// An id names one attempt row, which is how a lost attempt's own log
+	// stays readable after a retry.
+	lost := lostAttemptOf(startedBuildStep())
+	live := retryOf(startedBuildStep())
+	detail := runDetailWithSteps("running", lost, live)
+	mockClient := &pipelineLaneMock{
+		getResult:       &detail,
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{}},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", lost.ID)
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if mockClient.artifactsRunID == "" {
+		t.Errorf("output = %q, want the named attempt read as a concluded step", output)
+	}
+}
+
+func TestPipelineLogsFollowDoesNotWaitOnAStatusItDoesNotKnow(t *testing.T) {
+	// The wait enumerates the states the scheduler moves a step out of, so a
+	// status added to the platform after this build - as likely to be
+	// terminal as pre-dispatch - reads as not started at once rather than
+	// costing the whole 30-minute bound.
+	shortenPipelineStepStartWait(t, time.Minute)
+	unknown := blockedStep()
+	unknown.Status = "quarantined"
+	detail := runDetailWithStep("running", unknown)
+	mockClient := &pipelineLaneMock{getResult: &detail}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build", "--follow")
+	if executeError == nil ||
+		!strings.Contains(executeError.Error(), `step "build" has not started, so it has no log stream yet`) {
+		t.Fatalf("error = %v, want the not-started refusal without a wait", executeError)
+	}
+	if mockClient.getCalls != 1 {
+		t.Errorf("run reads = %d, want the single resolve read and no polling", mockClient.getCalls)
+	}
+}
+
+func TestPipelineLogsFollowStopsWhenAWaitedStepLeavesTheStatesItWaitsIn(t *testing.T) {
+	// The same guard inside the wait: a step that was pending and is now in a
+	// state this build does not wait in stops the poll rather than running it
+	// out to the bound.
+	shortenPipelineStepStartWait(t, time.Minute)
+	unknown := blockedStep()
+	unknown.Status = "quarantined"
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", pendingStep()),
+			runDetailWithStep("running", unknown),
+		},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build", "--follow")
+	if executeError == nil ||
+		!strings.Contains(executeError.Error(), `step "build" has not started, so it has no log stream yet`) {
+		t.Fatalf("error = %v, want the wait to stop on a state it does not sit in", executeError)
+	}
+	if !strings.Contains(output, `Waiting for step "build" to start (pending).`) {
+		t.Errorf("output = %q, want the wait to have started before it gave up", output)
+	}
+	if mockClient.getCalls != 2 {
+		t.Errorf("run reads = %d, want the resolve read plus one poll", mockClient.getCalls)
+	}
+}
+
+func TestPipelineLogsCountsStepsByKeyNotByAttemptRow(t *testing.T) {
+	// A run with one step that Ankra retried carries two rows. Without
+	// --step that must still resolve to the live attempt rather than refuse
+	// as a run with two steps to choose between.
+	lost := lostAttemptOf(startedBuildStep())
+	live := retryOf(startedBuildStep())
+	detail := runDetailWithSteps("running", lost, live)
+	mockClient := &pipelineLaneMock{getResult: &detail}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1", "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("logs error = %v, want the retried single-step run resolved", executeError)
+	}
+	if mockClient.streamStepID != live.ID {
+		t.Errorf("streamed step id = %q, want the live attempt %q", mockClient.streamStepID, live.ID)
+	}
+}
+
+func TestPipelineLogsFollowReadsTheArchiveWhenAStepSettlesBeforeTheStreamOpens(t *testing.T) {
+	// A step can conclude in the gap between being resolved and having its
+	// stream opened. Under --follow the useful answer for a step that
+	// finished is its log, not whatever refusal the relay answered on the
+	// way to it.
+	shortenPipelineStepStartWait(t, time.Minute)
+	stepID := concludedBuildStep().ID
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", startedBuildStep()),
+			runDetailWithStep(pipelineRunStatusConcluded, concludedBuildStep()),
+		},
+		streamError: errors.New("This step has not started, so it has no log stream yet"),
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{
+			{ID: "artifact-1", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+				Status: client.PipelineArtifactStatusUploaded},
+		}},
+		downloadPayload: "the whole log\n",
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build", "--follow")
+	if executeError != nil {
+		t.Fatalf("logs --follow error = %v", executeError)
+	}
+	if !strings.Contains(output, "the whole log") {
+		t.Errorf("output = %q, want the concluded step's archived log rather than the relay's refusal", output)
+	}
+	if strings.Contains(output, "has not started") {
+		t.Errorf("output = %q, want the refusal not surfaced for a step that finished", output)
+	}
+}
+
+func TestPipelineStepStartWaitHandsBackWhatItDidNotSpend(t *testing.T) {
+	// The bound is a budget for the whole invocation, not a fresh deadline
+	// per wait: a step that keeps being retried is waited for more than once,
+	// and thirty minutes per attempt would let it hold the command open
+	// indefinitely in thirty-minute steps. Each wait therefore returns the
+	// unspent remainder for the next one to continue from.
+	shortenPipelineStepStartWait(t, time.Minute)
+	previousClient := apiClient
+	detail := runDetailWithStep("running", startedBuildStep())
+	apiClient = &pipelineLaneMock{getResult: &detail}
+	t.Cleanup(func() { apiClient = previousClient })
+
+	command := &cobra.Command{}
+	command.SetContext(context.Background())
+	command.SetOut(io.Discard)
+	command.SetErr(io.Discard)
+	budget := 50 * time.Millisecond
+	_, unspent, waitError := waitForPipelineStepToStart(command,
+		client.PipelineSelector{ApplicationID: testApplicationID}, "run-1", pendingStep(), budget)
+	if waitError != nil {
+		t.Fatalf("wait error = %v", waitError)
+	}
+	if unspent <= 0 || unspent >= budget {
+		t.Errorf("unspent = %v, want the remainder of the %v budget so a later wait cannot restart it",
+			unspent, budget)
 	}
 }

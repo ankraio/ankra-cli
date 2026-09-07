@@ -35,6 +35,12 @@ type pipelineLaneMock struct {
 	getRunID  string
 	getResult *client.PipelineRunDetail
 	getError  error
+	getCalls  int
+	// getResults, when set, is served one entry per call in order and takes
+	// precedence over getResult, so a test can stage a run whose steps move
+	// between polls. The last entry answers every call after it, the way a
+	// run that has settled keeps answering the same detail.
+	getResults []client.PipelineRunDetail
 
 	cancelRunID  string
 	cancelResult *client.PipelineRun
@@ -139,8 +145,17 @@ func (mock *pipelineLaneMock) CreatePipelineRun(ctx context.Context, selector cl
 func (mock *pipelineLaneMock) GetPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunDetail, error) {
 	mock.lastSelector = selector
 	mock.getRunID = runID
+	mock.getCalls++
 	if mock.getError != nil {
 		return nil, mock.getError
+	}
+	if mock.getResults != nil {
+		index := mock.getCalls - 1
+		if index >= len(mock.getResults) {
+			index = len(mock.getResults) - 1
+		}
+		detail := mock.getResults[index]
+		return &detail, nil
 	}
 	return mock.getResult, nil
 }

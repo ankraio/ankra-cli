@@ -4,6 +4,38 @@
 
 ### Fixed
 
+- **`ankra pipeline logs --follow` waits for a step that has not started
+  instead of exiting.** The moment a live tail is worth asking for is the
+  moment the run was dispatched - and at that moment the step is still
+  blocked on its dependencies or waiting to be claimed, so the command
+  refused with "has not started, so it has no log stream yet" and people ran
+  it again by hand until it caught. With `--follow` it now polls the run
+  every 5 seconds and attaches as soon as the step starts, printing one line
+  per status change that names what the step is waiting on - `Waiting for
+  step "build" to start (blocked on: checkout).` A step that concludes
+  without ever starting prints its outcome and the platform's own error
+  message and then reads like any other concluded step; a run that concludes
+  without dispatching the step exits 3 (not found); Ctrl+C stops the wait at
+  once; and after 30 minutes of waiting in total - the budget is carried
+  across every time the step goes back to waiting, so a step that keeps being
+  retried cannot hold the command open in 30-minute steps - it gives up with
+  exactly the refusal, and exit code, a bare `logs` call gives immediately. A step whose attempt is
+  superseded while being tailed is picked up again rather than reported as a
+  failed stream. Without `--follow` nothing changes: the command still says
+  the step has not started and returns.
+
+- **`ankra pipeline logs` reads the attempt a retried step is actually
+  running.** When Ankra loses a step - its pod cannot start, or its lease is
+  reaped - it concludes that attempt and retries it as a new step row, keeping
+  the lost one on the run as evidence. `logs --step <key>` took the first row
+  under that key, which is the lost attempt, so it printed the wrong log; and
+  `--follow` reported the step as concluded the moment the attempt it was
+  tailing was thrown away. Both now resolve the step's newest attempt, and
+  `--follow` picks up the retry and streams it. Naming a step by id still
+  reads that exact attempt, so a lost attempt's own log stays readable. A
+  one-step run that was retried is also no longer refused as "run has 2 steps"
+  when no `--step` is given.
+
 - **`ankra pipeline logs` shows a finished step's output even when the
   organisation has no backup vault.** A concluded step's log was only ever
   read from its archived `step_log` artifact, and archiving one needs a ready
