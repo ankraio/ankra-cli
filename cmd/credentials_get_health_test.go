@@ -76,6 +76,38 @@ func TestCredentialsGetExplainsAnUnusableCredential(t *testing.T) {
 	}
 }
 
+// TestCredentialsGetSaysWhenTheReasonCannotBeRead pins that a coverage read
+// which fails is not printed as "no reason recorded": the verdict stands and
+// the user is told the explanation could not be fetched.
+func TestCredentialsGetSaysWhenTheReasonCannotBeRead(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		if strings.HasSuffix(request.URL.Path, "/repositories") {
+			responseWriter.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		responseWriter.Header().Set("Content-Type", "application/json")
+		_, _ = responseWriter.Write([]byte(`{"id":"` + credentialDetailIdentifier + `","name":"github-acme",` +
+			`"provider":"github","created_at":"2026-09-01T00:00:00Z","organisation_id":"org","available":false}`))
+	}))
+	previousClient := apiClient
+	previousBaseURL := baseURL
+	apiClient = client.New("test-token", server.URL)
+	baseURL = server.URL
+	t.Cleanup(func() {
+		apiClient = previousClient
+		baseURL = previousBaseURL
+		server.Close()
+	})
+
+	output := runCredentialsGet(t, credentialDetailIdentifier)
+	if !strings.Contains(output, "Usable:   no") {
+		t.Errorf("the verdict still stands:\n%s", output)
+	}
+	if !strings.Contains(output, "could not be read") {
+		t.Errorf("an unreadable reason says so rather than reading as none:\n%s", output)
+	}
+}
+
 func TestCredentialsGetSaysAUsableCredentialIsUsable(t *testing.T) {
 	serveCredentialAndCoverage(t,
 		`{"id":"`+credentialDetailIdentifier+`","name":"github-acme","provider":"github",`+

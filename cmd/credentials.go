@@ -289,11 +289,22 @@ func printCredentialHealth(credential *client.CredentialDetail) {
 		return
 	}
 	fmt.Printf("  Usable:   no\n")
+	// Only a GitHub App credential has a recorded reason to show: repository
+	// coverage is an App-installation concept, and no other provider answers
+	// the route this reads. A credential of another provider stops at the
+	// verdict rather than inventing an explanation for it.
 	if apiClient == nil || !strings.EqualFold(credential.Provider, "github") {
 		return
 	}
 	coverage, coverageError := apiClient.GetCredentialRepositories(credential.ID)
-	if coverageError != nil || coverage == nil || strings.TrimSpace(coverage.CoverageMessage) == "" {
+	if coverageError != nil {
+		// The reason could not be read. Saying so beats printing "no" and
+		// stopping, which reads as "there is no reason recorded".
+		fmt.Printf("  Reason:   could not be read (%v)\n", coverageError)
+		fmt.Printf("            Run 'ankra credentials repositories %s' to ask again.\n", credential.Name)
+		return
+	}
+	if coverage == nil || strings.TrimSpace(coverage.CoverageMessage) == "" {
 		return
 	}
 	fmt.Printf("  Reason:   %s\n", coverage.CoverageMessage)
