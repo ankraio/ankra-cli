@@ -58,9 +58,10 @@ func TestSecurityHistory_RefusesZeroDays(t *testing.T) {
 }
 
 func TestSecurityHistory_RendersRowsAndTrend(t *testing.T) {
+	// Newest first on the wire: the trend must still read oldest to newest.
 	mock := &securityTrivyMock{history: &client.SecurityHistory{Days: 30, Items: []client.SecurityHistoryPoint{
-		{Date: "2026-08-10", Findings: 40, Critical: 3, High: 12, Medium: 20, Low: 5, ActionableFindings: 30, FixableCritical: 2, FixableHigh: 4, Workloads: 18, Namespaces: 6, ActionableRiskScore: 72.4},
 		{Date: "2026-09-06", Findings: 31, Critical: 1, High: 9, Medium: 16, Low: 5, ActionableFindings: 22, FixableCritical: 1, FixableHigh: 3, Workloads: 19, Namespaces: 6, ActionableRiskScore: 55.0},
+		{Date: "2026-08-10", Findings: 40, Critical: 3, High: 12, Medium: 20, Low: 5, ActionableFindings: 30, FixableCritical: 2, FixableHigh: 4, Workloads: 18, Namespaces: 6, ActionableRiskScore: 72.4},
 	}}}
 	output, err := runSecurityCommand(t, mock, "security", "history", "--cluster", securityTestClusterID, "--days", "30")
 	if err != nil {
@@ -74,6 +75,19 @@ func TestSecurityHistory_RendersRowsAndTrend(t *testing.T) {
 		if !strings.Contains(plain, fragment) {
 			t.Errorf("expected %q in output:\n%s", fragment, plain)
 		}
+	}
+}
+
+func TestSecurityHistory_SingleSnapshotIsAPointNotATrend(t *testing.T) {
+	mock := &securityTrivyMock{history: &client.SecurityHistory{Days: 7, Items: []client.SecurityHistoryPoint{
+		{Date: "2026-09-06", Findings: 5, ActionableFindings: 4, ActionableRiskScore: 12.5},
+	}}}
+	output, err := runSecurityCommand(t, mock, "security", "history", "--cluster", securityTestClusterID, "--days", "7")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stripANSICodes(output), "one snapshot (2026-09-06): 4 actionable findings, risk 12.5") {
+		t.Errorf("expected the single-point wording:\n%s", output)
 	}
 }
 

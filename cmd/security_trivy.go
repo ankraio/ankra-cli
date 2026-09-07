@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -56,9 +57,12 @@ func renderSecurityHistory(out io.Writer, history *client.SecurityHistory) {
 		_, _ = fmt.Fprintf(out, "No security snapshots in the last %d days - the scanner has not recorded a daily posture yet, so the trend is unknown, not clean.\n", history.Days)
 		return
 	}
+	points := make([]client.SecurityHistoryPoint, len(history.Items))
+	copy(points, history.Items)
+	sort.SliceStable(points, func(left int, right int) bool { return points[left].Date < points[right].Date })
 	writer := newSecurityTable(out)
 	writer.AppendHeader(table.Row{"Date", "Findings", "Critical", "High", "Medium", "Low", "Actionable", "Fixable severe", "Workloads", "Namespaces", "Risk"})
-	for _, point := range history.Items {
+	for _, point := range points {
 		writer.AppendRow(table.Row{
 			point.Date,
 			point.Findings,
@@ -74,17 +78,17 @@ func renderSecurityHistory(out io.Writer, history *client.SecurityHistory) {
 		})
 	}
 	writer.Render()
-	first := history.Items[0]
-	last := history.Items[len(history.Items)-1]
-	_, _ = fmt.Fprintf(out, "%d of %d days have a snapshot · %s\n", len(history.Items), history.Days, securityHistoryTrendText(first, last))
+	_, _ = fmt.Fprintf(out, "%d of %d days have a snapshot · %s\n", len(points), history.Days, securityHistoryTrendText(points))
 }
 
-// securityHistoryTrendText compares the first and last snapshot of the
+// securityHistoryTrendText compares the oldest and newest snapshot of the
 // window; one snapshot is a point, not a trend.
-func securityHistoryTrendText(first client.SecurityHistoryPoint, last client.SecurityHistoryPoint) string {
-	if first.Date == last.Date {
+func securityHistoryTrendText(points []client.SecurityHistoryPoint) string {
+	last := points[len(points)-1]
+	if len(points) == 1 {
 		return fmt.Sprintf("one snapshot (%s): %d actionable findings, risk %.1f", last.Date, last.ActionableFindings, last.ActionableRiskScore)
 	}
+	first := points[0]
 	delta := last.ActionableFindings - first.ActionableFindings
 	direction := "unchanged"
 	switch {
