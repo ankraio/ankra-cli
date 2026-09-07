@@ -109,15 +109,21 @@ func runPipelineDispatch(command *cobra.Command, selector client.PipelineSelecto
 		// step the command can take off them (ankra-ctsmd). Outside a
 		// checkout there is nothing to read and --sha is required exactly as
 		// before.
-		localSHA, localRef := localHeadCommit(command.Context())
+		// A --ref the user named is NOT paired with whatever the working
+		// directory happens to have checked out: asking to run "release-2.0"
+		// from a checkout sitting on main would otherwise dispatch main's
+		// commit under the release ref, which is worse than being asked for
+		// the sha. The checkout answers only when it is the whole question.
+		localSHA, localRef := "", ""
+		if strings.TrimSpace(ref) == "" {
+			localSHA, localRef = localHeadCommit(command.Context())
+		}
 		if localSHA == "" {
 			return withExitCode(exitUsage, fmt.Errorf(
 				"--sha is required: a pipeline run needs the full commit sha to run at"))
 		}
 		sha = localSHA
-		if strings.TrimSpace(ref) == "" {
-			ref = localRef
-		}
+		ref = localRef
 		_, _ = fmt.Fprintf(command.ErrOrStderr(),
 			"Running at the working directory's HEAD %s (pass --sha to choose another).\n", sha)
 	}

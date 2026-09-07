@@ -568,6 +568,33 @@ func TestPipelineRunReadsTheWorkingDirectoryHead(t *testing.T) {
 	}
 }
 
+// TestPipelineRunDoesNotPairANamedRefWithTheLocalHead pins that a ref the
+// user named is never dispatched against whatever the checkout happens to
+// have: running "release-2.0" from a checkout sitting on main must ask for
+// the sha rather than send main's commit under the release ref (ankra-ctsmd).
+func TestPipelineRunDoesNotPairANamedRefWithTheLocalHead(t *testing.T) {
+	repositoryPath := createTestGitRepository(t, "main", "https://github.com/acme/payments.git")
+	if writeError := os.WriteFile(filepath.Join(repositoryPath, "service.txt"), []byte("payments\n"), 0o600); writeError != nil {
+		t.Fatalf("seeding the checkout: %v", writeError)
+	}
+	runTestGit(t, repositoryPath, "add", "service.txt")
+	runTestGit(t, repositoryPath, "-c", "user.email=test@example.com", "-c", "user.name=Test",
+		"commit", "-m", "Add the service")
+	t.Chdir(repositoryPath)
+	mockClient := &pipelineLaneMock{}
+	_, executeError := runPipelineCommand(t, mockClient, "run",
+		"--application", testApplicationID, "--ref", "release-2.0")
+	if executeError == nil {
+		t.Fatal("a named ref with no sha must be refused, not paired with the local HEAD")
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitUsage)
+	}
+	if mockClient.createCalls != 0 {
+		t.Errorf("CreatePipelineRun calls = %d, want 0", mockClient.createCalls)
+	}
+}
+
 func TestPipelineRunPassesInputsAndSelector(t *testing.T) {
 	mockClient := &pipelineLaneMock{createResult: &client.CreatePipelineRunResult{
 		RunID: "umbrella-1", PipelineRunID: "run-1", RunNumber: 7,

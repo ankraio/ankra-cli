@@ -151,9 +151,15 @@ func pipelineSelectorFromWorkingDirectory(requestContext context.Context) (clien
 	fullName := repository.Owner + "/" + repository.Name
 	matchedIDs := []string{}
 	matchedNames := []string{}
+	listingExhausted := false
+	// The listing is walked unfiltered: the server-side `search` matches an
+	// application's NAME, and an application is free to be called something
+	// other than the repository it builds, so filtering by the repository
+	// name would silently miss exactly those. The walk is bounded the same
+	// way resolveApplicationID's is.
 	for page := 1; page <= maxApplicationLookupPages; page++ {
 		payload, listError := apiClient.ListApplicationsRaw(
-			requestContext, page, maxApplicationLookupPageSize, repository.Name)
+			requestContext, page, maxApplicationLookupPageSize, "")
 		if listError != nil {
 			return client.PipelineSelector{}, "", nil
 		}
@@ -169,8 +175,16 @@ func pipelineSelectorFromWorkingDirectory(requestContext context.Context) (clien
 			}
 		}
 		if listing.Pagination.TotalPages <= page || len(listing.Result) == 0 {
+			listingExhausted = true
 			break
 		}
+	}
+	// A listing that ran past the page cap was only partly read, so "no
+	// application on this repository" is not something this walk knows. It
+	// answers nothing and the caller asks for the flag, rather than treating
+	// an unread page as an absence.
+	if !listingExhausted {
+		return client.PipelineSelector{}, "", nil
 	}
 	if len(matchedIDs) > 1 {
 		// The checkout answered the question and the answer was "more than
