@@ -17,10 +17,22 @@
   message and then reads like any other concluded step; a run that concludes
   without dispatching the step exits 3 (not found); Ctrl+C stops the wait at
   once; and after 30 minutes it gives up with exactly the refusal - and exit
-  code - a bare `logs` call gives immediately. A step replanned by a
-  re-dispatch while being tailed is waited for again rather than reported as
-  a failed stream. Without `--follow` nothing changes: the command still says
+  code - a bare `logs` call gives immediately. A step whose attempt is
+  superseded while being tailed is picked up again rather than reported as a
+  failed stream. Without `--follow` nothing changes: the command still says
   the step has not started and returns.
+
+- **`ankra pipeline logs` reads the attempt a retried step is actually
+  running.** When Ankra loses a step - its pod cannot start, or its lease is
+  reaped - it concludes that attempt and retries it as a new step row, keeping
+  the lost one on the run as evidence. `logs --step <key>` took the first row
+  under that key, which is the lost attempt, so it printed the wrong log; and
+  `--follow` reported the step as concluded the moment the attempt it was
+  tailing was thrown away. Both now resolve the step's newest attempt, and
+  `--follow` picks up the retry and streams it. Naming a step by id still
+  reads that exact attempt, so a lost attempt's own log stays readable. A
+  one-step run that was retried is also no longer refused as "run has 2 steps"
+  when no `--step` is given.
 
 - **`ankra pipeline logs` shows a finished step's output even when the
   organisation has no backup vault.** A concluded step's log was only ever
