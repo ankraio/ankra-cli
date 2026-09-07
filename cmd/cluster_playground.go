@@ -192,7 +192,8 @@ var clusterPlaygroundDestroyCmd = &cobra.Command{
 		if clusterID != args[0] {
 			target = fmt.Sprintf("%q (cluster %s)", args[0], clusterID)
 		}
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		// The prompt goes to stderr so `-o json` keeps stdout parseable.
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Destroy playground %s? Everything deployed in it, including its storage, "+
 				"is deleted and cannot be recovered. [y/N]: ", target),
 			yes); err != nil {

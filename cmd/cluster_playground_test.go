@@ -282,11 +282,14 @@ func TestPlaygroundDestroyAsksFirstAndADeclineNeverReachesTheAPI(t *testing.T) {
 		destroyResult: &client.DestroyPlaygroundResult{ClusterID: playgroundTestClusterID, Phase: "deprovisioning"},
 	}
 	withPlaygroundMock(t, mock)
-	output := new(bytes.Buffer)
-	clusterPlaygroundDestroyCmd.SetOut(output)
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+	clusterPlaygroundDestroyCmd.SetOut(stdout)
+	clusterPlaygroundDestroyCmd.SetErr(stderr)
 	clusterPlaygroundDestroyCmd.SetIn(strings.NewReader("n\n"))
 	t.Cleanup(func() {
 		clusterPlaygroundDestroyCmd.SetOut(nil)
+		clusterPlaygroundDestroyCmd.SetErr(nil)
 		clusterPlaygroundDestroyCmd.SetIn(nil)
 	})
 
@@ -297,8 +300,13 @@ func TestPlaygroundDestroyAsksFirstAndADeclineNeverReachesTheAPI(t *testing.T) {
 	if mock.destroyRequested != "" {
 		t.Errorf("a declined destroy must not call the API, but it asked for %q", mock.destroyRequested)
 	}
-	if !strings.Contains(output.String(), "Destroy playground") || !strings.Contains(output.String(), "[y/N]") {
-		t.Errorf("expected the confirmation prompt in the output, got: %s", output.String())
+	// The prompt is human text, so it belongs on stderr: a `-o json` caller
+	// must never find it mixed into the document on stdout.
+	if !strings.Contains(stderr.String(), "Destroy playground") || !strings.Contains(stderr.String(), "[y/N]") {
+		t.Errorf("expected the confirmation prompt on stderr, got: %s", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("a declined destroy must leave stdout empty, got: %s", stdout.String())
 	}
 }
 
@@ -311,10 +319,10 @@ func TestPlaygroundDestroyPromptNamesTheResolvedClusterID(t *testing.T) {
 	}
 	withPlaygroundMock(t, mock)
 	output := new(bytes.Buffer)
-	clusterPlaygroundDestroyCmd.SetOut(output)
+	clusterPlaygroundDestroyCmd.SetErr(output)
 	clusterPlaygroundDestroyCmd.SetIn(strings.NewReader("n\n"))
 	t.Cleanup(func() {
-		clusterPlaygroundDestroyCmd.SetOut(nil)
+		clusterPlaygroundDestroyCmd.SetErr(nil)
 		clusterPlaygroundDestroyCmd.SetIn(nil)
 	})
 
