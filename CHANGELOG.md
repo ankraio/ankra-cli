@@ -4,6 +4,24 @@
 
 ### Fixed
 
+- **`ankra pipeline logs --follow` waits for a step that has not started
+  instead of exiting.** The moment a live tail is worth asking for is the
+  moment the run was dispatched - and at that moment the step is still
+  blocked on its dependencies or waiting to be claimed, so the command
+  refused with "has not started, so it has no log stream yet" and people ran
+  it again by hand until it caught. With `--follow` it now polls the run
+  every 5 seconds and attaches as soon as the step starts, printing one line
+  per status change that names what the step is waiting on - `Waiting for
+  step "build" to start (blocked on: checkout).` A step that concludes
+  without ever starting prints its outcome and the platform's own error
+  message and then reads like any other concluded step; a run that concludes
+  without dispatching the step exits 3 (not found); Ctrl+C stops the wait at
+  once; and after 30 minutes it gives up with exactly the refusal - and exit
+  code - a bare `logs` call gives immediately. A step replanned by a
+  re-dispatch while being tailed is waited for again rather than reported as
+  a failed stream. Without `--follow` nothing changes: the command still says
+  the step has not started and returns.
+
 - **`ankra pipeline logs` shows a finished step's output even when the
   organisation has no backup vault.** A concluded step's log was only ever
   read from its archived `step_log` artifact, and archiving one needs a ready

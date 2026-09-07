@@ -25,6 +25,16 @@ package cmd
 // archived or replayed, is a fixed record, so there is nothing left to
 // follow. --replay is its counterpart on a running step, asking the platform
 // for the output produced before this command connected.
+//
+// The fourth way is not a source of output but a wait for one. The moment a
+// person asks to follow a step is usually the moment the run was dispatched,
+// when the step is still blocked on its dependencies or waiting for the claim
+// scan and the relay answers 404 "This step has not started, so it has no log
+// stream yet" (go/internal/usecase/pipelines.ErrStepHasNoExecution). Failing
+// there sent people back to run the same command again by hand, so --follow
+// now polls the run until the step has something to show and then attaches
+// exactly as it always did. Without --follow the immediate refusal stands:
+// a one-shot read that silently blocked for half an hour would be worse.
 
 import (
 	"context"
@@ -40,10 +50,44 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// pipelineStepStatusConcluded is the PipelineStep.Status value a settled
-// step carries, shared by the archive-log branch below and
-// pipelineStepConcluded's own poll.
-const pipelineStepStatusConcluded = "concluded"
+// The PipelineStep.Status values this command branches on
+// (enginekit/pipelinerun's StepStatus* set). A step is dispatched only out of
+// "pending", so the two states below it are the ones the wait sits in.
+const (
+	// pipelineStepStatusBlocked is a step still waiting on its dependencies.
+	pipelineStepStatusBlocked = "blocked"
+	// pipelineStepStatusPending is a step whose dependencies are satisfied
+	// and which the claim scan has not taken yet.
+	pipelineStepStatusPending = "pending"
+	// pipelineStepStatusConcluded is a settled step, shared by the
+	// archive-log branch below and readPipelineStep's callers.
+	pipelineStepStatusConcluded = "concluded"
+)
+
+// pipelineRunStatusConcluded is the PipelineRun.Status value a settled run
+// carries. It is the same word a settled step carries but a different
+// column, and the wait below needs the run's own answer: a run that finished
+// without ever dispatching the step is the one case where waiting longer
+// cannot help.
+const pipelineRunStatusConcluded = "concluded"
+
+// pipelineStepStartPollInterval is how often `logs --follow` re-reads the run
+// while it waits for a step that has not been dispatched yet. Five seconds
+// is slower than the two-second reconnect delay above on purpose: nothing is
+// being missed while a step is blocked, and a fleet of CI shells tailing
+// their own steps should not poll the run route harder than the step's own
+// scheduler moves it. It is a var only so the tests can shorten it; nothing
+// else writes it.
+var pipelineStepStartPollInterval = 5 * time.Second
+
+// pipelineStepStartWaitBound is how long that wait runs before giving up. A
+// step can sit blocked behind a queue that is never going to drain - a
+// concurrency group held by another run, an agent with no CI workers - and
+// a --follow that never returns is worse than one that says what it saw, so
+// the wait is bounded at thirty minutes and then reports the same
+// "has not started" refusal a bare `logs` call gives immediately. It is a
+// var only so the tests can shorten it; nothing else writes it.
+var pipelineStepStartWaitBound = 30 * time.Minute
 
 // pipelineLogStreamReconnectDelay is how long `logs --follow` waits before
 // reconnecting after the relay's own error frame or a stream fault, so a
@@ -90,7 +134,13 @@ A step that is still running is followed over the live log stream: without
 --follow it keeps reconnecting through a dropped stream instead of giving up.
 A live connection starts from the moment it connects unless you pass
 --replay, which asks the platform for the output the step already produced
-first.`,
+first.
+
+A step that has not started yet has no log stream. With --follow the command
+waits for it - saying what it is blocked on, and for up to 30 minutes -
+and attaches as soon as the step starts; a step that concludes without ever
+starting prints its outcome and whatever log it does have. Without --follow
+the command says the step has not started and stops.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -109,7 +159,9 @@ first.`,
 // `application pipeline logs`.
 func registerPipelineLogsFlags(command *cobra.Command) {
 	command.Flags().String("step", "", "Step key to follow (required when the run has more than one step)")
-	command.Flags().Bool("follow", false, "Keep streaming, reconnecting through transient stream faults, until the step concludes")
+	command.Flags().Bool("follow", false,
+		"Wait for the step to start if it has not, then keep streaming, "+
+			"reconnecting through transient stream faults, until it concludes")
 	command.Flags().Bool("replay", false,
 		"Also show the output a running step produced before this command connected "+
 			"(a concluded step's log is always shown whole)")
@@ -118,26 +170,59 @@ func registerPipelineLogsFlags(command *cobra.Command) {
 func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, runID string) error {
 	stepReference, _ := command.Flags().GetString("step")
 	follow, _ := command.Flags().GetBool("follow")
-	isReplaying, _ := command.Flags().GetBool("replay")
 	runID = strings.TrimSpace(runID)
 
 	step, resolveError := resolvePipelineStep(command, selector, runID, strings.TrimSpace(stepReference))
 	if resolveError != nil {
 		return resolveError
 	}
-	if step.Status == pipelineStepStatusConcluded {
-		return runPipelineLogsFromArchive(command, selector, runID, step)
+	// A loop rather than a straight branch, because a step can move between
+	// these three answers while the command is attached to it: one waited
+	// for starts (or concludes without starting), and one being tailed can
+	// be replanned back to waiting by a re-dispatch. Every pass re-decides
+	// from the step in hand, so no state is reachable only through the one
+	// it happened to arrive from.
+	for {
+		if step.Status == pipelineStepStatusConcluded {
+			return runPipelineLogsFromArchive(command, selector, runID, step)
+		}
+		if pipelineStepHasNotStarted(step) {
+			if !follow {
+				return pipelineStepNotStartedError(step, runID)
+			}
+			startedStep, waitError := waitForPipelineStepToStart(command, selector, runID, step)
+			if waitError != nil {
+				return waitError
+			}
+			step = startedStep
+			continue
+		}
+		replannedStep, wasReplanned, streamError := runPipelineLogsFromLiveStream(command, selector,
+			runID, step, follow)
+		if streamError != nil {
+			return streamError
+		}
+		if !wasReplanned {
+			return nil
+		}
+		step = replannedStep
 	}
-	if !pipelineStepHasLogStream(step) {
-		return fmt.Errorf("step %q has not started, so it has no log stream yet - "+
-			"check 'ankra pipeline get %s' for its status", step.StepKey, runID)
-	}
+}
 
+// runPipelineLogsFromLiveStream tails a started step over the relay,
+// reconnecting while --follow is set. It returns (step, true, nil) when the
+// step went back to waiting to be dispatched: a re-dispatch replans it, and
+// the relay answers a replanned step the same 404 it answers one that never
+// ran, so the caller waits for it again instead of reporting a live tail as
+// failed.
+func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.PipelineSelector, runID string,
+	step client.PipelineStep, follow bool) (client.PipelineStep, bool, error) {
 	// Only an explicit --replay reaches the wire: the flag's own default is
 	// indistinguishable from not passing it, and the route reads an absent
 	// `replay` as "decide from the step's status", which is today's
 	// behaviour. A resume cursor outranks it server-side, so leaving it set
 	// across reconnects cannot re-send output already printed.
+	isReplaying, _ := command.Flags().GetBool("replay")
 	streamOptions := client.StepLogStreamOptions{}
 	if command.Flags().Changed("replay") {
 		streamOptions.IsReplaying = &isReplaying
@@ -162,11 +247,17 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 				_, _ = fmt.Fprintf(progress, "Log stream unavailable (%s); retrying in %ds.\n",
 					unavailable.Detail, int(retryAfter.Seconds()))
 				if sleepError := sleepInterrupted(command.Context(), retryAfter); sleepError != nil {
-					return sleepError
+					return client.PipelineStep{}, false, sleepError
 				}
 				continue
 			}
-			return streamError
+			if follow {
+				if replanned, wasReplanned := pipelineStepWentBackToWaiting(command, selector,
+					runID, step.ID); wasReplanned {
+					return replanned, true, nil
+				}
+			}
+			return client.PipelineStep{}, false, streamError
 		}
 
 		for event := range events {
@@ -176,26 +267,140 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 			}
 		}
 
-		concluded, statusError := pipelineStepConcluded(command, selector, runID, step.ID)
+		refreshed, _, statusError := readPipelineStep(command, selector, runID, step.ID)
 		if statusError != nil {
-			return statusError
+			return client.PipelineStep{}, false, statusError
 		}
-		if concluded {
+		if refreshed.Status == pipelineStepStatusConcluded {
 			_, _ = fmt.Fprintln(progress, "Log stream ended: the step has concluded.")
-			return nil
+			return client.PipelineStep{}, false, nil
 		}
 		if !follow {
 			_, _ = fmt.Fprintln(progress, "Log stream ended.")
-			return nil
+			return client.PipelineStep{}, false, nil
+		}
+		if pipelineStepHasNotStarted(refreshed) {
+			return refreshed, true, nil
 		}
 		// Every reconnect waits, not only a faulted one: a proxy that closes
 		// each connection promptly would otherwise be reconnected to as fast
 		// as it hangs up. The wait is interruptible so Ctrl+C stops --follow
 		// at once rather than at the next network call.
 		if sleepError := sleepInterrupted(command.Context(), pipelineLogStreamReconnectDelay); sleepError != nil {
-			return sleepError
+			return client.PipelineStep{}, false, sleepError
 		}
 	}
+}
+
+// waitForPipelineStepToStart holds `logs --follow` open until the step it was
+// asked for has something to show. It returns the step to act on: one that
+// reached an execution, for the caller to attach the live stream to, or one
+// that concluded without ever starting, whose outcome is printed here and
+// whose log the caller reads the way it reads any other concluded step's.
+//
+// It stops early on a run that concluded without dispatching the step (no
+// amount of waiting produces a log then), on Ctrl+C through the interruptible
+// sleep, and at pipelineStepStartWaitBound - which reports the same refusal a
+// bare `logs` call gives immediately, since giving up is exactly the state
+// the command started in.
+func waitForPipelineStepToStart(command *cobra.Command, selector client.PipelineSelector, runID string,
+	step client.PipelineStep) (client.PipelineStep, error) {
+	progress := command.ErrOrStderr()
+	announcedReason := ""
+	deadline := time.Now().Add(pipelineStepStartWaitBound)
+	for {
+		// One line per distinct reason, not one per poll: a step blocked for
+		// twenty minutes must not print two hundred and forty identical
+		// lines into whatever is capturing this command's stderr.
+		if reason := pipelineStepWaitReason(step); reason != announcedReason {
+			_, _ = fmt.Fprintf(progress, "Waiting for step %q to start (%s).\n", step.StepKey, reason)
+			announcedReason = reason
+		}
+		if !time.Now().Before(deadline) {
+			return client.PipelineStep{}, pipelineStepNotStartedError(step, runID)
+		}
+		if sleepError := sleepInterrupted(command.Context(), pipelineStepStartPollInterval); sleepError != nil {
+			return client.PipelineStep{}, sleepError
+		}
+		refreshed, runStatus, readError := readPipelineStep(command, selector, runID, step.ID)
+		if readError != nil {
+			return client.PipelineStep{}, readError
+		}
+		step = refreshed
+		if step.Status == pipelineStepStatusConcluded {
+			_, _ = fmt.Fprintln(progress, pipelineStepConcludedWhileWaitingLine(step))
+			return step, nil
+		}
+		if !pipelineStepHasNotStarted(step) {
+			return step, nil
+		}
+		// Checked after the step, so a run whose last step concluded in the
+		// same poll is read from that step rather than from the run.
+		if runStatus == pipelineRunStatusConcluded {
+			return client.PipelineStep{}, withExitCode(exitNotFound,
+				fmt.Errorf("run %s concluded without starting step %q, so it has no log stream - "+
+					"check 'ankra pipeline get %s' for what the run did", runID, step.StepKey, runID))
+		}
+	}
+}
+
+// pipelineStepWaitReason says why a step has not started yet, in the words
+// the wait line prints. A blocked step names the steps it is waiting on,
+// because "blocked" on its own does not tell anyone whether waiting is worth
+// it; every other state is already its own answer.
+func pipelineStepWaitReason(step client.PipelineStep) string {
+	if step.Status == pipelineStepStatusBlocked && len(step.DependsOn) > 0 {
+		return "blocked on: " + strings.Join(step.DependsOn, ", ")
+	}
+	if step.Status == "" {
+		return "not dispatched yet"
+	}
+	return step.Status
+}
+
+// pipelineStepConcludedWhileWaitingLine reports how a step the wait was
+// watching finished. A step that concludes without ever starting - skipped
+// because a dependency did not succeed, cancelled with its run, or refused
+// before dispatch - has no output to explain itself with, so its outcome and
+// the platform's own error message are the whole answer.
+func pipelineStepConcludedWhileWaitingLine(step client.PipelineStep) string {
+	outcome := "no outcome recorded"
+	if step.Outcome != nil && *step.Outcome != "" {
+		outcome = *step.Outcome
+	}
+	if step.ErrorMessage != nil && *step.ErrorMessage != "" {
+		return fmt.Sprintf("Step %q concluded while waiting for it to start: %s - %s",
+			step.StepKey, outcome, *step.ErrorMessage)
+	}
+	return fmt.Sprintf("Step %q concluded while waiting for it to start: %s.", step.StepKey, outcome)
+}
+
+// pipelineStepNotStartedError is the answer for a step with no log stream:
+// the immediate refusal a bare `logs` call gives, and the one the bounded
+// wait gives up with. Deliberately the same sentence and the same exit code
+// in both cases - "the step has not started" is the same fact whether the
+// command established it in one read or in thirty minutes of them, and a
+// script that already branches on it should not have to learn a second
+// answer to keep working.
+func pipelineStepNotStartedError(step client.PipelineStep, runID string) error {
+	return fmt.Errorf("step %q has not started, so it has no log stream yet - "+
+		"check 'ankra pipeline get %s' for its status", step.StepKey, runID)
+}
+
+// pipelineStepWentBackToWaiting reports whether the step this command was
+// tailing has been replanned back to waiting to start. The relay answers a
+// replanned step the same 404 it answers one that never ran ("This step has
+// not started, so it has no log stream yet"), and that refusal carries no
+// error code to match on, so the step's own status is read instead of the
+// sentence. A read that itself fails answers false: the stream's own error is
+// the better one to report.
+func pipelineStepWentBackToWaiting(command *cobra.Command, selector client.PipelineSelector, runID string,
+	stepID string) (client.PipelineStep, bool) {
+	step, _, readError := readPipelineStep(command, selector, runID, stepID)
+	if readError != nil || step.Status == pipelineStepStatusConcluded || !pipelineStepHasNotStarted(step) {
+		return client.PipelineStep{}, false
+	}
+	return step, true
 }
 
 // resolvePipelineStep finds the step a logs invocation names: the exact step
@@ -229,22 +434,26 @@ func resolvePipelineStep(command *cobra.Command, selector client.PipelineSelecto
 	}
 }
 
-// pipelineStepConcluded re-reads one step's status. It is a full run fetch
-// because the API has no single-step read on this surface; the run detail is
-// small enough that polling it once per disconnect is not a cost worth a
-// dedicated route for.
-func pipelineStepConcluded(command *cobra.Command, selector client.PipelineSelector, runID string,
-	stepID string) (bool, error) {
+// readPipelineStep re-reads one step, and the status of the run carrying it.
+// It is a full run fetch because the API has no single-step read on this
+// surface; the run detail is small enough that reading it once per
+// disconnect, or once per wait interval, is not a cost worth a dedicated
+// route for. The run's status comes back with the step because a step
+// stuck before dispatch and a run that finished without ever dispatching it
+// look identical from the step row alone.
+func readPipelineStep(command *cobra.Command, selector client.PipelineSelector, runID string,
+	stepID string) (step client.PipelineStep, runStatus string, readError error) {
 	detail, getError := apiClient.GetPipelineRun(command.Context(), selector, runID)
 	if getError != nil {
-		return false, getError
+		return client.PipelineStep{}, "", getError
 	}
-	for _, step := range detail.Steps {
-		if step.ID == stepID {
-			return step.Status == pipelineStepStatusConcluded, nil
+	for _, candidate := range detail.Steps {
+		if candidate.ID == stepID {
+			return candidate, detail.Status, nil
 		}
 	}
-	return false, withExitCode(exitNotFound, fmt.Errorf("step %s is no longer on run %s", stepID, runID))
+	return client.PipelineStep{}, "", withExitCode(exitNotFound,
+		fmt.Errorf("step %s is no longer on run %s", stepID, runID))
 }
 
 // runPipelineLogsFromArchive prints a concluded step's complete log, from
@@ -486,6 +695,21 @@ func printPipelineLogEvent(out io.Writer, progress io.Writer, event client.Pipel
 // never started has no stream to open and no archive to read.
 func pipelineStepHasLogStream(step client.PipelineStep) bool {
 	return step.ExecutionID != nil && step.ExecutionStepID != nil
+}
+
+// pipelineStepHasNotStarted reports whether a step is still waiting to be
+// dispatched: the scheduler has not taken it (blocked or pending), or it
+// never reached an execution and so has no subject on the log stream.
+//
+// Callers must settle a concluded step before asking. A step that was
+// skipped concluded without ever reaching an execution, so it answers true
+// here while being the one thing this predicate does not mean - it is not
+// waiting for anything, and its log is read from the archive.
+func pipelineStepHasNotStarted(step client.PipelineStep) bool {
+	if step.Status == pipelineStepStatusBlocked || step.Status == pipelineStepStatusPending {
+		return true
+	}
+	return !pipelineStepHasLogStream(step)
 }
 
 // pipelineArtifactIsNotFound reports whether an artifact download failed
