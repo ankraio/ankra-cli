@@ -87,13 +87,22 @@ const pipelineRunStatusConcluded = "concluded"
 // else writes it.
 var pipelineStepStartPollInterval = 5 * time.Second
 
-// pipelineStepStartWaitBound is how long that wait runs before giving up. A
-// step can sit blocked behind a queue that is never going to drain - a
-// concurrency group held by another run, an agent with no CI workers - and
-// a --follow that never returns is worse than one that says what it saw, so
-// the wait is bounded at thirty minutes and then reports the same
-// "has not started" refusal a bare `logs` call gives immediately. It is a
-// var only so the tests can shorten it; nothing else writes it.
+// pipelineStepStartWaitBound is how long one `logs --follow` invocation will
+// spend waiting for its step to start, in total. A step can sit blocked
+// behind a queue that is never going to drain - a concurrency group held by
+// another run, an agent with no CI workers - and a --follow that never
+// returns is worse than one that says what it saw, so the wait is bounded at
+// thirty minutes and then reports the same "has not started" refusal a bare
+// `logs` call gives immediately.
+//
+// It is a budget carried across waits rather than a fresh deadline for each
+// one, because a step can be waited for more than once: a retry sends it back
+// to pending, and thirty minutes per attempt would let a step that keeps
+// being retried hold the command open indefinitely in thirty-minute steps -
+// exactly the hang the bound exists to prevent. Only time spent waiting is
+// spent from it; a step that starts and streams for an hour before being
+// retried still has whatever it had left. It is a var only so the tests can
+// shorten it; nothing else writes it.
 var pipelineStepStartWaitBound = 30 * time.Minute
 
 // pipelineLogStreamReconnectDelay is how long `logs --follow` waits before
@@ -144,10 +153,11 @@ A live connection starts from the moment it connects unless you pass
 first.
 
 A step that has not started yet has no log stream. With --follow the command
-waits for it - saying what it is blocked on, and for up to 30 minutes -
-and attaches as soon as the step starts; a step that concludes without ever
-starting prints its outcome and whatever log it does have. Without --follow
-the command says the step has not started and stops.`,
+waits for it - saying what it is blocked on - and attaches as soon as the
+step starts; a step that concludes without ever starting prints its outcome
+and whatever log it does have. One invocation spends at most 30 minutes
+waiting, in total across every time the step goes back to waiting. Without
+--follow the command says the step has not started and stops.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -183,6 +193,7 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 	if resolveError != nil {
 		return resolveError
 	}
+	remainingWait := pipelineStepStartWaitBound
 	// A loop rather than a straight branch, because the step this command is
 	// attached to can move between these three answers under it: one waited
 	// for starts (or concludes without starting), and one being tailed can
@@ -196,10 +207,12 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 			if !follow || !pipelineStepIsWaitingToStart(step) {
 				return pipelineStepNotStartedError(step, runID)
 			}
-			startedStep, waitError := waitForPipelineStepToStart(command, selector, runID, step)
+			startedStep, unspentWait, waitError := waitForPipelineStepToStart(command, selector,
+				runID, step, remainingWait)
 			if waitError != nil {
 				return waitError
 			}
+			remainingWait = unspentWait
 			step = startedStep
 			continue
 		}
@@ -315,15 +328,22 @@ func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.Pipel
 //
 // It stops early on a run that concluded without dispatching the step (no
 // amount of waiting produces a log then), on Ctrl+C through the interruptible
-// sleep, and at pipelineStepStartWaitBound - which reports the same refusal a
+// sleep, and when remainingWait runs out - which reports the same refusal a
 // bare `logs` call gives immediately, since giving up is exactly the state
 // the command started in.
+//
+// remainingWait is what is left of pipelineStepStartWaitBound, and the
+// unspent part comes back with the step so a later wait for the same step
+// continues the same budget instead of restarting it.
 func waitForPipelineStepToStart(command *cobra.Command, selector client.PipelineSelector, runID string,
-	step client.PipelineStep) (client.PipelineStep, error) {
+	step client.PipelineStep, remainingWait time.Duration) (client.PipelineStep, time.Duration, error) {
 	progress := command.ErrOrStderr()
 	announcedReason := ""
-	deadline := time.Now().Add(pipelineStepStartWaitBound)
+	deadline := time.Now().Add(remainingWait)
 	for {
+		if !time.Now().Before(deadline) {
+			return client.PipelineStep{}, 0, pipelineStepNotStartedError(step, runID)
+		}
 		// One line per distinct reason, not one per poll: a step blocked for
 		// twenty minutes must not print two hundred and forty identical
 		// lines into whatever is capturing this command's stderr.
@@ -331,38 +351,46 @@ func waitForPipelineStepToStart(command *cobra.Command, selector client.Pipeline
 			_, _ = fmt.Fprintf(progress, "Waiting for step %q to start (%s).\n", step.StepKey, reason)
 			announcedReason = reason
 		}
-		if !time.Now().Before(deadline) {
-			return client.PipelineStep{}, pipelineStepNotStartedError(step, runID)
-		}
 		if sleepError := sleepInterrupted(command.Context(), pipelineStepStartPollInterval); sleepError != nil {
-			return client.PipelineStep{}, sleepError
+			return client.PipelineStep{}, 0, sleepError
 		}
 		refreshed, runStatus, readError := readPipelineStep(command, selector, runID, step.StepKey)
 		if readError != nil {
-			return client.PipelineStep{}, readError
+			return client.PipelineStep{}, 0, readError
 		}
 		step = refreshed
 		if step.Status == pipelineStepStatusConcluded {
 			_, _ = fmt.Fprintln(progress, pipelineStepConcludedWhileWaitingLine(step))
-			return step, nil
+			return step, unspentPipelineStepWait(deadline), nil
 		}
 		if pipelineStepHasLogStream(step) {
-			return step, nil
+			return step, unspentPipelineStepWait(deadline), nil
 		}
 		// A state the wait does not sit in - a status this build does not
 		// know, or one that lost its execution without concluding - is the
-		// not-started answer rather than another 30 minutes of polling.
+		// not-started answer rather than more polling.
 		if !pipelineStepIsWaitingToStart(step) {
-			return client.PipelineStep{}, pipelineStepNotStartedError(step, runID)
+			return client.PipelineStep{}, 0, pipelineStepNotStartedError(step, runID)
 		}
 		// Checked after the step, so a run whose last step concluded in the
 		// same poll is read from that step rather than from the run.
 		if runStatus == pipelineRunStatusConcluded {
-			return client.PipelineStep{}, withExitCode(exitNotFound,
+			return client.PipelineStep{}, 0, withExitCode(exitNotFound,
 				fmt.Errorf("run %s concluded without starting step %q, so it has no log stream - "+
 					"check 'ankra pipeline get %s' for what the run did", runID, step.StepKey, runID))
 		}
 	}
+}
+
+// unspentPipelineStepWait is what is left of a wait's budget, floored at zero
+// so a deadline already passed hands back nothing rather than a negative
+// duration a later wait would read as an enormous one.
+func unspentPipelineStepWait(deadline time.Time) time.Duration {
+	remaining := time.Until(deadline)
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
 }
 
 // pipelineStepWaitReason says why a step has not started yet, in the words

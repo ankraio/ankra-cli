@@ -1,13 +1,17 @@
 package cmd
 
 import (
+	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"ankra/internal/client"
+
+	"github.com/spf13/cobra"
 )
 
 // concludedStep is one planned, concluded step - the fixture every archive-
@@ -1070,5 +1074,33 @@ func TestPipelineLogsFollowReadsTheArchiveWhenAStepSettlesBeforeTheStreamOpens(t
 	}
 	if strings.Contains(output, "has not started") {
 		t.Errorf("output = %q, want the refusal not surfaced for a step that finished", output)
+	}
+}
+
+func TestPipelineStepStartWaitHandsBackWhatItDidNotSpend(t *testing.T) {
+	// The bound is a budget for the whole invocation, not a fresh deadline
+	// per wait: a step that keeps being retried is waited for more than once,
+	// and thirty minutes per attempt would let it hold the command open
+	// indefinitely in thirty-minute steps. Each wait therefore returns the
+	// unspent remainder for the next one to continue from.
+	shortenPipelineStepStartWait(t, time.Minute)
+	previousClient := apiClient
+	detail := runDetailWithStep("running", startedBuildStep())
+	apiClient = &pipelineLaneMock{getResult: &detail}
+	t.Cleanup(func() { apiClient = previousClient })
+
+	command := &cobra.Command{}
+	command.SetContext(context.Background())
+	command.SetOut(io.Discard)
+	command.SetErr(io.Discard)
+	budget := 50 * time.Millisecond
+	_, unspent, waitError := waitForPipelineStepToStart(command,
+		client.PipelineSelector{ApplicationID: testApplicationID}, "run-1", pendingStep(), budget)
+	if waitError != nil {
+		t.Fatalf("wait error = %v", waitError)
+	}
+	if unspent <= 0 || unspent >= budget {
+		t.Errorf("unspent = %v, want the remainder of the %v budget so a later wait cannot restart it",
+			unspent, budget)
 	}
 }

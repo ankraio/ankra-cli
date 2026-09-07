@@ -16,8 +16,10 @@
   without ever starting prints its outcome and the platform's own error
   message and then reads like any other concluded step; a run that concludes
   without dispatching the step exits 3 (not found); Ctrl+C stops the wait at
-  once; and after 30 minutes it gives up with exactly the refusal - and exit
-  code - a bare `logs` call gives immediately. A step whose attempt is
+  once; and after 30 minutes of waiting in total - the budget is carried
+  across every time the step goes back to waiting, so a step that keeps being
+  retried cannot hold the command open in 30-minute steps - it gives up with
+  exactly the refusal, and exit code, a bare `logs` call gives immediately. A step whose attempt is
   superseded while being tailed is picked up again rather than reported as a
   failed stream. Without `--follow` nothing changes: the command still says
   the step has not started and returns.
