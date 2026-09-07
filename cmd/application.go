@@ -235,7 +235,7 @@ func resolveApplicationAddPlan(command *cobra.Command, repositoryPath string) (a
 		return applicationAddPlan{}, selectionError
 	}
 	if reachabilityError := credentialReachesRepository(
-		selectedCredential, repository.Owner, repository.Name); reachabilityError != nil {
+		command, selectedCredential, repository.Owner, repository.Name); reachabilityError != nil {
 		return applicationAddPlan{}, reachabilityError
 	}
 
@@ -683,11 +683,23 @@ func sortCredentialsByAvailability(credentials []client.Credential) {
 // GitHub hiccup into "your repository does not exist". Ankra cannot add the
 // repository to the installation itself - only an owner of the installation
 // can - so the refusal carries the exact page that does it.
-func credentialReachesRepository(credential client.Credential, repositoryOwner string,
-	repositoryName string) error {
+func credentialReachesRepository(command *cobra.Command, credential client.Credential,
+	repositoryOwner string, repositoryName string) error {
 	coverage, coverageError := apiClient.GetCredentialRepositories(credential.ID)
-	if coverageError != nil || coverage == nil ||
-		!coverage.AccessibleRepositoriesComplete || coverage.AccessibleRepositories == nil {
+	if coverageError != nil {
+		// The check could not be made. That is not a verdict about this
+		// repository, so the add proceeds - the platform refuses it later if
+		// the installation really cannot read it - but a human is told the
+		// check was skipped rather than left to read silence as a pass. A
+		// structured run stays machine-readable and says nothing here.
+		if format, _ := structuredFormatFromFlags(command); format == "" {
+			_, _ = fmt.Fprintf(command.ErrOrStderr(),
+				"Could not check the GitHub App's repository access (%v); continuing.\n", coverageError)
+		}
+		return nil
+	}
+	if coverage == nil || !coverage.AccessibleRepositoriesComplete ||
+		coverage.AccessibleRepositories == nil {
 		return nil
 	}
 	fullName := repositoryOwner + "/" + repositoryName
@@ -716,11 +728,15 @@ func installationSettingsURL(credential client.Credential) string {
 	isOrganisation := credential.AccountType != nil &&
 		strings.EqualFold(strings.TrimSpace(*credential.AccountType), "organization")
 	if isOrganisation && accountLogin != "" {
+		// The login is a path segment of a URL printed for a human to click,
+		// and it arrives from the platform rather than from this process, so
+		// it is escaped rather than trusted to be a bare GitHub login.
+		escapedLogin := url.PathEscape(accountLogin)
 		if credential.InstallationID == nil {
-			return "https://github.com/organizations/" + accountLogin + "/settings/installations"
+			return "https://github.com/organizations/" + escapedLogin + "/settings/installations"
 		}
 		return fmt.Sprintf("https://github.com/organizations/%s/settings/installations/%d",
-			accountLogin, *credential.InstallationID)
+			escapedLogin, *credential.InstallationID)
 	}
 	if credential.InstallationID == nil {
 		return "https://github.com/settings/installations"

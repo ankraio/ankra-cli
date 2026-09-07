@@ -518,7 +518,13 @@ func TestPipelineGetNotFound(t *testing.T) {
 	}
 }
 
+// TestPipelineRunRequiresSHA pins that OUTSIDE a Git checkout the commit must
+// still be named: a dispatch never runs against whatever commit the platform
+// stored last. Inside a checkout the sha is read from HEAD instead
+// (TestPipelineRunReadsTheWorkingDirectoryHead), so this case runs from a
+// directory that is not a repository.
 func TestPipelineRunRequiresSHA(t *testing.T) {
+	t.Chdir(t.TempDir())
 	mockClient := &pipelineLaneMock{}
 	_, executeError := runPipelineCommand(t, mockClient, "run", "--application", testApplicationID, "--ref", "main")
 	if executeError == nil {
@@ -529,6 +535,36 @@ func TestPipelineRunRequiresSHA(t *testing.T) {
 	}
 	if mockClient.createCalls != 0 {
 		t.Errorf("CreatePipelineRun calls = %d, want 0", mockClient.createCalls)
+	}
+}
+
+// TestPipelineRunReadsTheWorkingDirectoryHead pins the simplification: inside
+// a checkout the dispatch runs the commit under the user's cursor, and says
+// so, instead of making them paste `git rev-parse HEAD` back (ankra-ctsmd).
+func TestPipelineRunReadsTheWorkingDirectoryHead(t *testing.T) {
+	repositoryPath := createTestGitRepository(t, "main", "https://github.com/acme/payments.git")
+	if writeError := os.WriteFile(filepath.Join(repositoryPath, "service.txt"), []byte("payments\n"), 0o600); writeError != nil {
+		t.Fatalf("seeding the checkout: %v", writeError)
+	}
+	runTestGit(t, repositoryPath, "add", "service.txt")
+	runTestGit(t, repositoryPath, "-c", "user.email=test@example.com", "-c", "user.name=Test",
+		"commit", "-m", "Add the service")
+	t.Chdir(repositoryPath)
+	mockClient := &pipelineLaneMock{createResult: &client.CreatePipelineRunResult{
+		RunID: "umbrella-1", PipelineRunID: "run-1", RunNumber: 1,
+	}}
+	if _, executeError := runPipelineCommand(t, mockClient, "run",
+		"--application", testApplicationID); executeError != nil {
+		t.Fatalf("dispatch inside a checkout = %v, want the HEAD commit used", executeError)
+	}
+	if mockClient.createCalls != 1 {
+		t.Fatalf("CreatePipelineRun calls = %d, want 1", mockClient.createCalls)
+	}
+	if len(mockClient.createRequest.HeadSHA) != 40 {
+		t.Errorf("dispatched sha = %q, want the checkout's full HEAD sha", mockClient.createRequest.HeadSHA)
+	}
+	if mockClient.createRequest.Ref != "main" {
+		t.Errorf("dispatched ref = %q, want the checked-out branch", mockClient.createRequest.Ref)
 	}
 }
 
