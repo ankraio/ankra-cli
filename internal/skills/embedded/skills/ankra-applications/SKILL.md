@@ -135,6 +135,16 @@ is protected and the pipeline gates on tests.
 The organisation's CI runner label decides which GitHub Actions runner the generated pipelines
 request — change it when GitHub-hosted runners are unavailable to you.
 
+**If `workflow-runs` stays empty after a merge**, the pipeline is not failing — it has nowhere to
+run. Ankra Pipelines execute on the cluster agent's own step scheduler, whose `ci_worker_count`
+defaults to 0, so a freshly imported cluster produces zero runs and no error. Check with
+`ankra cluster agent ci get --cluster <cluster>`, raise it with
+`ankra cluster agent ci set --workers 2 --cluster <cluster>`, and dispatch with
+`ankra pipeline run --application <application> --sha <full-sha>`. Do not answer an empty run list
+by hand-writing a GitHub Actions workflow — that forks the deploy contract away from the scans,
+chart publish and managed registry auth this application already has. `ankra-cicd`, "The merge
+produced no run", is the full branch.
+
 ## 5b. Building without the repository's CI
 
 Everything above routes the build through the workflow Ankra generated into the repository, which

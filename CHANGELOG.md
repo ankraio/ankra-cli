@@ -1,5 +1,25 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The `ankra-cicd` skill now answers "the merge produced no run" instead of
+  leaving an assistant to invent a workflow.** Ankra Pipelines run on the
+  cluster agent's own step scheduler, whose `ci_worker_count` default is 0, so
+  a freshly imported cluster accepts a pipeline and runs nothing - with no
+  error anywhere that says why. The skill had no branch for that symptom and
+  never mentioned `ankra pipeline`, `ankra cluster agent ci` or the approval
+  gate, so an assistant that met it read zero runs as "Ankra cannot build
+  here" and hand-rolled a GitHub Actions workflow, forking the deploy contract
+  away from the Semgrep and image scans, the chart publish and the managed
+  registry auth. The skill now walks the three gates - workers, definition
+  approval, dispatch - names the human-actor rule that stops an agent at
+  approval, states outright that a second build is not a fallback, and covers
+  the rootlesskit/AppArmor build wall and the `--build-fallback
+  platform_builders` escape. `ankra-applications` §5 carries the same branch
+  from the empty-`workflow-runs` side.
+
 ## v0.15.0-rc6 — 2026-09-08
 
 ### Added
