@@ -139,6 +139,16 @@
 
 ### Fixed
 
+- **`ankra cluster stacks list` no longer renders an application-backed stack
+  as empty.** A stack deployed from an Ankra application is often nothing but
+  application members, and the CLI only ever counted manifests and addons - so
+  such a stack showed `Manifests 0 / Addons 0`, the detail view listed no
+  members at all, and `-o json` dropped the applications the API had already
+  returned. The table gains an Applications column, the detail view counts and
+  lists application members with their namespace, state, parent edges and the
+  `<application-id>:<version>` they deploy, and the structured output carries
+  them. Anyone who read the old output reasonably concluded the stack was
+  empty, or that cloning it had produced nothing.
 - **A converted database no longer crashloops on a block volume.** A compose
   volume on `/var/lib/postgresql/data` or `/var/lib/mysql` became a claim
   mounted at exactly that path, and every ext4 block volume - Hetzner,

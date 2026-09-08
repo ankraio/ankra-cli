@@ -49,6 +49,89 @@ func TestListClusterStacks_Paginates(t *testing.T) {
 	}
 }
 
+// TestListClusterStacksDecodesApplications pins that an application-backed
+// stack does not arrive empty. The platform has always returned an
+// `applications` array beside `manifests` and `addons`, but the client type
+// omitted it, so a stack whose only member is an application decoded with
+// zero members and rendered as an empty stack.
+func TestListClusterStacksDecodesApplications(t *testing.T) {
+	const responseBody = `{"stacks":[{"name":"deploy-website","description":"","state":"up",` +
+		`"manifests":[],"addons":[],` +
+		`"applications":[{"name":"website","namespace":"website",` +
+		`"platform_application_id":"app-1","platform_application_version":"v7",` +
+		`"state":"up","health":"healthy",` +
+		`"parents":[{"name":"base","kind":"manifest"}],"delete_permanently":false}]}],` +
+		`"pagination":{"total_count":1,"page":1,"page_size":100,"total_pages":1}}`
+
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/stacks") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if _, writeError := w.Write([]byte(responseBody)); writeError != nil {
+			t.Fatalf("writing test response: %v", writeError)
+		}
+	})
+
+	stacks, err := testClient.ListClusterStacks("cluster-id")
+	if err != nil {
+		t.Fatalf("ListClusterStacks() error = %v", err)
+	}
+	if len(stacks) != 1 {
+		t.Fatalf("ListClusterStacks() got %d stacks, want 1", len(stacks))
+	}
+	if len(stacks[0].Applications) != 1 {
+		t.Fatalf("application members dropped: %+v", stacks[0])
+	}
+
+	application := stacks[0].Applications[0]
+	if application.Name != "website" || application.Namespace != "website" {
+		t.Errorf("application identity lost: %+v", application)
+	}
+	if application.PlatformApplicationID != "app-1" || application.PlatformApplicationVersion != "v7" {
+		t.Errorf("application reference lost: %+v", application)
+	}
+	if application.State != "up" || application.Health != "healthy" {
+		t.Errorf("application status lost: %+v", application)
+	}
+	if len(application.Parents) != 1 || application.Parents[0].Name != "base" {
+		t.Errorf("application parents lost: %+v", application.Parents)
+	}
+}
+
+// TestListClusterStacksToleratesNullApplicationMembers guards the nullable
+// members of the wire shape: a stack with no namespace or version must not
+// fail the whole listing.
+func TestListClusterStacksToleratesNullApplicationMembers(t *testing.T) {
+	const responseBody = `{"stacks":[{"name":"deploy-website",` +
+		`"applications":[{"name":"website","namespace":null,` +
+		`"platform_application_id":"app-1","platform_application_version":null,` +
+		`"state":"up","health":null,"parents":[]}]}],` +
+		`"pagination":{"total_count":1,"page":1,"page_size":100,"total_pages":1}}`
+
+	testClient := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if _, writeError := w.Write([]byte(responseBody)); writeError != nil {
+			t.Fatalf("writing test response: %v", writeError)
+		}
+	})
+
+	stacks, err := testClient.ListClusterStacks("cluster-id")
+	if err != nil {
+		t.Fatalf("ListClusterStacks() error = %v", err)
+	}
+	if len(stacks) != 1 || len(stacks[0].Applications) != 1 {
+		t.Fatalf("nullable members broke the listing: %+v", stacks)
+	}
+	application := stacks[0].Applications[0]
+	if application.Namespace != "" || application.PlatformApplicationVersion != "" || application.Health != "" {
+		t.Errorf("null members should decode empty, got %+v", application)
+	}
+}
+
 func TestGetStackHistory(t *testing.T) {
 	changeType := "create"
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
