@@ -73,7 +73,7 @@ func TestRunEncryptManifest_ClusterModeSealsTheDeclaredPathsWithTheKey(t *testin
 	if strings.Join(callPaths, ",") != strings.Join(want, ",") {
 		t.Errorf("encrypted paths = %v, want the requested key first and every declared path after it %v", callPaths, want)
 	}
-	if !strings.Contains(out.String(), "Also sealing the already-declared") {
+	if !strings.Contains(out.String(), "Including the already-declared") {
 		t.Errorf("output does not say the declared paths are sealed too:\n%s", out.String())
 	}
 
@@ -145,7 +145,7 @@ func TestRunEncryptManifest_ClusterModeWithoutDeclaredPathsSealsOnlyTheKeys(t *t
 	if len(callPaths) != 1 || callPaths[0] != "password" {
 		t.Errorf("encrypted paths = %v, want [password]", callPaths)
 	}
-	if strings.Contains(out.String(), "Also sealing") {
+	if strings.Contains(out.String(), "Including the already-declared") {
 		t.Errorf("nothing was declared, so nothing extra should be announced:\n%s", out.String())
 	}
 }
@@ -288,7 +288,7 @@ func TestRunEncryptManifest_FileModeSealsTheDeclaredPathsWithTheKey(t *testing.T
 	if strings.Join(callPaths, ",") != strings.Join(want, ",") {
 		t.Errorf("encrypted paths = %v, want the requested key first and every declared entry after it %v", callPaths, want)
 	}
-	if !strings.Contains(out.String(), "Also sealing the already-declared") {
+	if !strings.Contains(out.String(), "Including the already-declared") {
 		t.Errorf("output does not say the declared paths are sealed too:\n%s", out.String())
 	}
 }
@@ -316,7 +316,7 @@ func TestRunEncryptManifest_FileModeWithoutDeclaredPathsSealsOnlyTheKeys(t *test
 	if len(callPaths) != 1 || callPaths[0] != "password" {
 		t.Errorf("encrypted paths = %v, want [password]", callPaths)
 	}
-	if strings.Contains(out.String(), "Also sealing") {
+	if strings.Contains(out.String(), "Including the already-declared") {
 		t.Errorf("nothing was declared, so nothing extra should be announced:\n%s", out.String())
 	}
 }
@@ -406,5 +406,27 @@ func TestMapPatchError_OnlyAMarkedPushFailureIsCalledOne(t *testing.T) {
 	}
 	if !strings.HasPrefix(got, "Invalid encrypted_paths entry") {
 		t.Errorf("unmarked refusal = %q, want the platform detail verbatim", got)
+	}
+}
+
+// The announcement names what the declaration added, worked out by key name.
+// Slicing merged[len(leafKeys):] instead would name the wrong entries the
+// moment the requested keys repeat a name, and could not be reasoned about
+// without checking that normalizeAndAnnounceEncryptKeys still deduplicates.
+func TestPathsToSealWithDeclared_RepeatedRequestedKeysDoNotShiftTheAnnouncement(t *testing.T) {
+	out := new(bytes.Buffer)
+	// "password" and "data.password" are one key; the union collapses them.
+	got := pathsToSealWithDeclared(out, []string{"password", "data.password"}, []string{"OTHER_SECRET", "token"})
+	if strings.Join(got, ",") != "password,OTHER_SECRET,token" {
+		t.Errorf("union = %v, want the repeated request collapsed and the declaration appended", got)
+	}
+	announced := out.String()
+	for _, wanted := range []string{"OTHER_SECRET", "token"} {
+		if !strings.Contains(announced, wanted) {
+			t.Errorf("announcement does not name the declared %q: %q", wanted, announced)
+		}
+	}
+	if strings.Contains(announced, "password") {
+		t.Errorf("a requested key must not be announced as added by the declaration: %q", announced)
 	}
 }

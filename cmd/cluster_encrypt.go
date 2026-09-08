@@ -966,10 +966,30 @@ func encryptAnnounceWriter(cmd *cobra.Command) io.Writer {
 // corrected separately; only the requested keys are verified afterwards.
 func pathsToSealWithDeclared(out io.Writer, leafKeys []string, declared []string) []string {
 	merged := unionEncryptedPaths(leafKeys, declared)
-	if len(merged) > len(leafKeys) {
+
+	// What the declaration added is computed by key name, not by slicing off
+	// len(leafKeys): the union deduplicates, so any repetition among the
+	// requested keys would shift that offset and name the wrong entries.
+	// normalizeAndAnnounceEncryptKeys does deduplicate today, but this
+	// helper is not the place to depend on it.
+	requestedKeys := map[string]bool{}
+	for _, leafKey := range leafKeys {
+		requestedKeys[encryptedPathLeaf(leafKey)] = true
+	}
+	addedByDeclaration := make([]string, 0, len(merged))
+	for _, entry := range merged {
+		if !requestedKeys[encryptedPathLeaf(entry)] {
+			addedByDeclaration = append(addedByDeclaration, entry)
+		}
+	}
+
+	if len(addedByDeclaration) > 0 {
+		// "Including ... in the same encrypt" and not "also sealing": a
+		// declared entry that no longer selects a key is passed through and
+		// seals nothing, and the line must not claim otherwise.
 		_, _ = fmt.Fprintf(out,
-			"Also sealing the already-declared %s, so the stored document stays consistent with its encrypted_paths.\n",
-			describeEncryptKeys(merged[len(leafKeys):]))
+			"Including the already-declared %s in the same encrypt, so the stored document stays consistent with its encrypted_paths.\n",
+			describeEncryptKeys(addedByDeclaration))
 	}
 	return merged
 }
