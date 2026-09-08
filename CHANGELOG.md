@@ -4,6 +4,17 @@
 
 ### Fixed
 
+- **`ankra cluster stacks list` no longer renders an application-backed stack
+  as empty.** A stack deployed from an Ankra application is often nothing but
+  application members, and the CLI only ever counted manifests and addons - so
+  such a stack showed `Manifests 0 / Addons 0`, the detail view listed no
+  members at all, and `-o json` dropped the applications the API had already
+  returned. The table gains an Applications column, the detail view counts and
+  lists application members with their namespace, state, parent edges and the
+  `<application-id>:<version>` they deploy, and the structured output carries
+  them. Anyone who read the old output reasonably concluded the stack was
+  empty, or that cloning it had produced nothing.
+
 - **The `ankra-cicd` skill now answers "the merge produced no run" instead of
   leaving an assistant to invent a workflow.** Ankra Pipelines run on the
   cluster agent's own step scheduler, whose `ci_worker_count` default is 0, so

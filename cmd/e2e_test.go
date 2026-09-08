@@ -3173,6 +3173,47 @@ func TestClusterStacksListCommand(t *testing.T) {
 	}
 }
 
+// TestClusterStacksListShowsApplicationMembers pins the detail view for a
+// stack whose only member is an Ankra application. It used to render as
+// "Manifests 0 / Addons 0" with no third line, which reads as an empty
+// stack and has sent people looking for a stack that was never broken.
+func TestClusterStacksListShowsApplicationMembers(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &clusterStacksListMock{
+		stacks: []client.ClusterStackListItem{
+			{
+				Name:        "deploy-website",
+				Description: "Website deployment",
+				State:       "up",
+				Applications: []client.StackApplication{
+					{
+						Name:                       "website",
+						Namespace:                  "website",
+						PlatformApplicationID:      "application-uuid-1",
+						PlatformApplicationVersion: "v7",
+						State:                      "up",
+					},
+				},
+			},
+		},
+	}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "stacks", "list", "deploy-website")
+	})
+
+	if !strings.Contains(stdoutOutput, "Applications: 1") {
+		t.Errorf("expected an application count in the detail view, got: %s", stdoutOutput)
+	}
+	if !strings.Contains(stdoutOutput, "website") {
+		t.Errorf("expected the application name in the detail view, got: %s", stdoutOutput)
+	}
+	if !strings.Contains(stdoutOutput, "application-uuid-1:v7") {
+		t.Errorf("expected the application reference in the detail view, got: %s", stdoutOutput)
+	}
+}
+
 type clusterOperationsListMock struct {
 	baseMock
 	executions []client.ExecutionSummary

@@ -64,29 +64,20 @@ var clusterStacksListCmd = &cobra.Command{
 			}
 
 			fmt.Println("Stack Details:")
-			fmt.Printf("  Name:        %s\n", found.Name)
-			fmt.Printf("  Description: %s\n", found.Description)
-			fmt.Printf("  State:       %s\n", found.State)
-			fmt.Printf("  Deploy wave: %s\n", formatDeployWave(found.DeployWave))
-			fmt.Printf("  Manifests:   %d\n", len(found.Manifests))
-			fmt.Printf("  Addons:      %d\n", len(found.Addons))
+			fmt.Printf("  Name:         %s\n", found.Name)
+			fmt.Printf("  Description:  %s\n", found.Description)
+			fmt.Printf("  State:        %s\n", found.State)
+			fmt.Printf("  Deploy wave:  %s\n", formatDeployWave(found.DeployWave))
+			fmt.Printf("  Manifests:    %d\n", len(found.Manifests))
+			fmt.Printf("  Addons:       %d\n", len(found.Addons))
+			fmt.Printf("  Applications: %d\n", len(found.Applications))
 
 			if len(found.Manifests) > 0 {
 				fmt.Println("\n  Manifests:")
 				for _, manifest := range found.Manifests {
-					stateIcon := "●"
-					switch strings.ToLower(manifest.State) {
-					case "up":
-						stateIcon = "✓"
-					case "updating":
-						stateIcon = "⟳"
-					case "failed":
-						stateIcon = "✗"
-					}
-
 					kind := extractKindFromBase64(manifest.ManifestBase64)
 
-					fmt.Printf("    %s %s\n", stateIcon, manifest.Name)
+					fmt.Printf("    %s %s\n", stackMemberStateIcon(manifest.State), manifest.Name)
 					fmt.Printf("      ├─ kind: %s\n", kind)
 					fmt.Printf("      ├─ namespace: %s\n", manifest.Namespace)
 					fmt.Printf("      ├─ state: %s\n", manifest.State)
@@ -110,17 +101,7 @@ var clusterStacksListCmd = &cobra.Command{
 			if len(found.Addons) > 0 {
 				fmt.Println("  Addons:")
 				for _, addon := range found.Addons {
-					stateIcon := "●"
-					switch strings.ToLower(addon.State) {
-					case "up":
-						stateIcon = "✓"
-					case "updating":
-						stateIcon = "⟳"
-					case "failed":
-						stateIcon = "✗"
-					}
-
-					fmt.Printf("    %s %s\n", stateIcon, addon.Name)
+					fmt.Printf("    %s %s\n", stackMemberStateIcon(addon.State), addon.Name)
 					fmt.Printf("      ├─ chart: %s:%s\n", addon.ChartName, addon.ChartVersion)
 					fmt.Printf("      ├─ namespace: %s\n", addon.Namespace)
 					fmt.Printf("      ├─ state: %s\n", addon.State)
@@ -140,6 +121,30 @@ var clusterStacksListCmd = &cobra.Command{
 					fmt.Println()
 				}
 			}
+
+			if len(found.Applications) > 0 {
+				fmt.Println("  Applications:")
+				for _, application := range found.Applications {
+					fmt.Printf("    %s %s\n", stackMemberStateIcon(application.State), application.Name)
+					fmt.Printf("      ├─ application: %s\n", formatApplicationReference(application))
+					fmt.Printf("      ├─ namespace: %s\n", application.Namespace)
+					fmt.Printf("      ├─ state: %s\n", application.State)
+
+					if len(application.Parents) > 0 {
+						fmt.Printf("      └─ parents: ")
+						for i, parent := range application.Parents {
+							if i > 0 {
+								fmt.Print(", ")
+							}
+							fmt.Printf("%s (%s)", parent.Name, parent.Kind)
+						}
+						fmt.Println()
+					} else {
+						fmt.Printf("      └─ parents: none\n")
+					}
+					fmt.Println()
+				}
+			}
 			return nil
 		}
 
@@ -147,7 +152,7 @@ var clusterStacksListCmd = &cobra.Command{
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
 		t.AppendHeader(table.Row{
-			"Name", "Description", "State", "Wave", "Manifests", "Addons",
+			"Name", "Description", "State", "Wave", "Manifests", "Addons", "Applications",
 		})
 		t.SetColumnConfigs([]table.ColumnConfig{
 			{Number: 1, WidthMin: 20},
@@ -156,6 +161,7 @@ var clusterStacksListCmd = &cobra.Command{
 			{Number: 4, WidthMin: 6},
 			{Number: 5, WidthMin: 10},
 			{Number: 6, WidthMin: 10},
+			{Number: 7, WidthMin: 12},
 		})
 
 		for _, stack := range stacks {
@@ -181,11 +187,39 @@ var clusterStacksListCmd = &cobra.Command{
 				formatDeployWave(stack.DeployWave),
 				len(stack.Manifests),
 				len(stack.Addons),
+				len(stack.Applications),
 			})
 		}
 		t.Render()
 		return nil
 	},
+}
+
+// stackMemberStateIcon renders the leading glyph a stack member gets in the
+// detail view, shared by manifests, addons and applications.
+func stackMemberStateIcon(state string) string {
+	switch strings.ToLower(state) {
+	case "up":
+		return "✓"
+	case "updating":
+		return "⟳"
+	case "failed":
+		return "✗"
+	}
+	return "●"
+}
+
+// formatApplicationReference renders the Ankra application a stack member is
+// deployed from, with its version when the platform reports one.
+func formatApplicationReference(application client.StackApplication) string {
+	identifier := application.PlatformApplicationID
+	if identifier == "" {
+		identifier = "-"
+	}
+	if application.PlatformApplicationVersion == "" {
+		return identifier
+	}
+	return identifier + ":" + application.PlatformApplicationVersion
 }
 
 // formatDeployWave renders a stack's deploy wave for tables and detail
