@@ -183,6 +183,12 @@ secret value:
 (compared to "manifests upgrade --set" followed by "encrypt manifest", which
 commits the plaintext value first).
 
+In cluster mode every key the manifest already declares in encrypted_paths is
+sealed together with --key. A value declared in the portal or through the API
+is stored as plaintext until the next GitOps push seals it, and a document
+that carries SOPS metadata with plaintext under a declared path is refused by
+the platform, so sealing only the new key would be rejected.
+
 Examples:
   # Cluster mode against the selected cluster
   ankra cluster encrypt manifest db-secret --key password
@@ -231,8 +237,10 @@ platform.
 
 Two modes:
   Cluster mode (default): fetch the addon's values from a live cluster,
-    encrypt the key, and push the result back via the partial-stack PATCH
-    endpoint. The owning stack is resolved automatically.
+    encrypt the key together with every key the addon already declares in
+    encrypted_paths (a declared value can still be stored as plaintext until
+    the next GitOps push seals it), and push the result back via the
+    partial-stack PATCH endpoint. The owning stack is resolved automatically.
 
   File mode (-f cluster.yaml): rewrite the local addon values file referenced
     by the cluster.yaml in place, adding the key to encrypted_paths.
@@ -911,6 +919,35 @@ func unionEncryptedPaths(lists ...[]string) []string {
 	return merged
 }
 
+// pathsToSealWithDeclared returns the paths the cluster-mode encrypt sends to
+// the platform's encrypt route: the requested keys plus every encrypted_paths
+// entry the resource already declares, deduplicated by key name, requested
+// keys first.
+//
+// The platform stores a value declared under encrypted_paths as plaintext
+// until its next GitOps push seals it, so the content read back from the
+// cluster can be plaintext under paths declared earlier (a portal or API
+// save). Sealing only the requested keys then hands back a document that
+// carries SOPS metadata with plaintext under those other declared paths. The
+// push lane passes a SOPS document through byte-for-byte rather than sealing
+// it, so the platform's store-time guard refuses that save (before
+// cluster#2647 it was stored and the push refused instead), and the CLI
+// ended in "update stack failed: status 500" with the verdict swallowed
+// (PLA-830, ankra-bfvfy). Sealing the union keeps the stored document
+// consistent with its declaration in one write. A declared entry that
+// selects no key is accepted by the encrypt route and left for the
+// declaration to be corrected separately; only the requested keys are
+// verified afterwards.
+func pathsToSealWithDeclared(out io.Writer, leafKeys []string, declared []string) []string {
+	merged := unionEncryptedPaths(leafKeys, declared)
+	if len(merged) > len(leafKeys) {
+		_, _ = fmt.Fprintf(out,
+			"Also sealing the already-declared %s, so the stored document stays consistent with its encrypted_paths.\n",
+			describeEncryptKeys(merged[len(leafKeys):]))
+	}
+	return merged
+}
+
 // encryptedPathLeaf returns the key name an encrypted_paths entry names: the
 // entry with a leading "data." or "stringData." section removed, the two the
 // platform strips when it reads the list. A glob entry is returned as
@@ -1109,7 +1146,8 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName string, leafKeys
 	}
 
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Encrypting %s in manifest %q (stack %q)...\n", describeEncryptKeys(leafKeys), manifestName, stack.Name)
-	encryptedYAML, err := apiClient.EncryptYAML(string(decoded), leafKeys)
+	pathsToSeal := pathsToSealWithDeclared(cmd.OutOrStdout(), leafKeys, manifest.EncryptedPaths)
+	encryptedYAML, err := apiClient.EncryptYAML(string(decoded), pathsToSeal)
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
 	}
@@ -1177,8 +1215,14 @@ func runEncryptAddonCluster(cmd *cobra.Command, addonName string, leafKeys []str
 		return fmt.Errorf("fetch current addon values: %w", err)
 	}
 
+	existingPaths := []string{}
+	if addon.Configuration != nil {
+		existingPaths = addon.Configuration.EncryptedPaths
+	}
+
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Encrypting %s in addon %q (stack %q)...\n", describeEncryptKeys(leafKeys), addonName, stack.Name)
-	encryptedYAML, err := apiClient.EncryptYAML(currentValues, leafKeys)
+	pathsToSeal := pathsToSealWithDeclared(cmd.OutOrStdout(), leafKeys, existingPaths)
+	encryptedYAML, err := apiClient.EncryptYAML(currentValues, pathsToSeal)
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
 	}
@@ -1189,10 +1233,6 @@ func runEncryptAddonCluster(cmd *cobra.Command, addonName string, leafKeys []str
 		}
 	}
 
-	existingPaths := []string{}
-	if addon.Configuration != nil {
-		existingPaths = addon.Configuration.EncryptedPaths
-	}
 	newPaths := append([]string{}, existingPaths...)
 	for _, leafKey := range leafKeys {
 		if !containsEncryptedPath(newPaths, leafKey) {
