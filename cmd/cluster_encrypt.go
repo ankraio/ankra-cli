@@ -170,7 +170,10 @@ Two modes:
 
   File mode (-f cluster.yaml): rewrite a local cluster.yaml's referenced
     from_file in place, adding the key to encrypted_paths in the file. Used by
-    GitOps workflows where the source of truth is on disk.
+    GitOps workflows where the source of truth is on disk. Every key the file
+    already declares in encrypted_paths is sealed together with --key, so a
+    document decrypted with "ankra cluster decrypt" (which leaves the
+    declaration in place) is sealed whole again.
 
 In cluster mode, --set applies value edits in-memory BEFORE encrypting, so the
 new secret value and its encryption land in a single commit - the plaintext
@@ -243,7 +246,8 @@ Two modes:
     partial-stack PATCH endpoint. The owning stack is resolved automatically.
 
   File mode (-f cluster.yaml): rewrite the local addon values file referenced
-    by the cluster.yaml in place, adding the key to encrypted_paths.
+    by the cluster.yaml in place, adding the key to encrypted_paths. Keys the
+    file already declares are sealed together with --key.
 
 Examples:
   # Cluster mode against the selected cluster
@@ -669,7 +673,8 @@ func runEncryptManifestFile(cmd *cobra.Command, manifestName string, leafKeys []
 
 	fmt.Printf("Encrypting %s in manifest %q...\n", describeEncryptKeys(leafKeys), manifestName)
 
-	encryptedContent, err := apiClient.EncryptYAML(string(manifestContent), leafKeys)
+	pathsToSeal := pathsToSealWithDeclared(encryptAnnounceWriter(cmd), leafKeys, foundManifest.EncryptedPaths)
+	encryptedContent, err := apiClient.EncryptYAML(string(manifestContent), pathsToSeal)
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
 	}
@@ -787,7 +792,9 @@ func runEncryptAddonFile(cmd *cobra.Command, leafKeys []string) error {
 
 	fmt.Printf("Encrypting %s in addon %q...\n", describeEncryptKeys(leafKeys), encryptAddonName)
 
-	encryptedContent, err := apiClient.EncryptYAML(string(addonContent), leafKeys)
+	pathsToSeal := pathsToSealWithDeclared(encryptAnnounceWriter(cmd), leafKeys,
+		getEncryptedPathsFromConfig(foundAddon.Configuration))
+	encryptedContent, err := apiClient.EncryptYAML(string(addonContent), pathsToSeal)
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
 	}
@@ -919,25 +926,44 @@ func unionEncryptedPaths(lists ...[]string) []string {
 	return merged
 }
 
-// pathsToSealWithDeclared returns the paths the cluster-mode encrypt sends to
-// the platform's encrypt route: the requested keys plus every encrypted_paths
+// encryptAnnounceWriter is where an encrypt writes its progress lines. File
+// mode's entry points are also called directly, with a nil command, by the
+// tests that exercise the cluster.yaml splice, so the command's writer is
+// used only when there is one; os.Stdout is what the rest of file mode
+// prints to anyway.
+func encryptAnnounceWriter(cmd *cobra.Command) io.Writer {
+	if cmd == nil {
+		return os.Stdout
+	}
+	return cmd.OutOrStdout()
+}
+
+// pathsToSealWithDeclared returns the paths an encrypt sends to the
+// platform's encrypt route: the requested keys plus every encrypted_paths
 // entry the resource already declares, deduplicated by key name, requested
 // keys first.
 //
-// The platform stores a value declared under encrypted_paths as plaintext
-// until its next GitOps push seals it, so the content read back from the
-// cluster can be plaintext under paths declared earlier (a portal or API
-// save). Sealing only the requested keys then hands back a document that
-// carries SOPS metadata with plaintext under those other declared paths. The
-// push lane passes a SOPS document through byte-for-byte rather than sealing
-// it, so the platform's store-time guard refuses that save (before
-// cluster#2647 it was stored and the push refused instead), and the CLI
-// ended in "update stack failed: status 500" with the verdict swallowed
-// (PLA-830, ankra-bfvfy). Sealing the union keeps the stored document
-// consistent with its declaration in one write. A declared entry that
-// selects no key is accepted by the encrypt route and left for the
-// declaration to be corrected separately; only the requested keys are
-// verified afterwards.
+// The declaration, not the document, is what the platform judges a save
+// against, and the two can disagree in both modes:
+//
+//   - Cluster mode: the platform stores a value declared under
+//     encrypted_paths as plaintext until its next GitOps push seals it, so
+//     the content read back from the cluster can be plaintext under paths
+//     declared earlier (a portal or API save).
+//   - File mode: `ankra cluster decrypt` writes the plaintext document back
+//     to disk and deliberately leaves encrypted_paths declared, so the
+//     decrypt-edit-encrypt loop reaches the same shape locally.
+//
+// Sealing only the requested keys then hands back a document that carries
+// SOPS metadata with plaintext under those other declared paths. The push
+// lane passes a SOPS document through byte-for-byte rather than sealing it,
+// so the platform's store-time guard refuses that save (before cluster#2647
+// it was stored and the push refused instead), and the CLI ended in
+// "update stack failed: status 500" with the verdict swallowed (PLA-830,
+// ankra-bfvfy). Sealing the union keeps the document consistent with its
+// declaration in one write. A declared entry that selects no key is
+// accepted by the encrypt route and left for the declaration to be
+// corrected separately; only the requested keys are verified afterwards.
 func pathsToSealWithDeclared(out io.Writer, leafKeys []string, declared []string) []string {
 	merged := unionEncryptedPaths(leafKeys, declared)
 	if len(merged) > len(leafKeys) {

@@ -15,7 +15,25 @@ import (
 // third answer, not the second: it keeps today's treat-as-error behavior.
 const (
 	gitPushErrorCodeDeferred = "GIT_PUSH_DEFERRED"
+	gitPushErrorCodeFailed   = "GIT_PUSH_FAILED"
 )
+
+// IsGitPushFailureResponse reports whether a 422 body is the platform's
+// genuine git-push failure (error_code GIT_PUSH_FAILED), as opposed to one
+// of the other refusals this status carries on the stack-write routes: the
+// store-time SOPS guards, spec validation, the secret-slot pre-flight, a
+// circular dependency, a rejected name. Those are refused BEFORE the
+// database write and before Git is touched at all, so a caller must not
+// describe them as a push failure (PLA-830).
+func IsGitPushFailureResponse(body []byte) bool {
+	var parsed struct {
+		ErrorCode string `json:"error_code"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return false
+	}
+	return parsed.ErrorCode == gitPushErrorCodeFailed
+}
 
 // GitPushDeferral reports a designed git-push refusal: the requested change
 // is saved and live on the cluster, and the platform will commit it back to

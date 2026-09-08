@@ -436,7 +436,13 @@ func TestMapPatchError_StatusCodes(t *testing.T) {
 		{"400 validation", 400, `{"detail":"Exactly one stack must be provided"}`, "Exactly one stack"},
 		{"403 sandbox", 403, `{"detail":"sandbox mode is enabled"}`, "sandbox"},
 		{"409 pending", 409, `{"detail":"Stack is pending deletion"}`, "pending deletion"},
-		{"422 git push", 422, `{"detail":"permission denied"}`, "git push failed"},
+		// Only a 422 the platform marks GIT_PUSH_FAILED is a push failure.
+		// An unmarked 422 is one of the refusals that never reached git, and
+		// is surfaced as the platform wrote it (PLA-830, ankra-bfvfy).
+		{"422 git push", 422, `{"detail":"permission denied","error_code":"GIT_PUSH_FAILED"}`, "git push failed"},
+		{"422 sops store guard", 422,
+			`{"detail":"Cannot persist values for 'runway-envs': the document carries SOPS metadata but declared encrypted paths [stringData.VOYAGE_API_KEY] are plaintext."}`,
+			"Cannot persist values for 'runway-envs'"},
 		{"422 circular dep", 422, `{"detail":"Circular dependency detected: a -> b -> a"}`, "Circular dependency detected"},
 		{"401 unauth", 401, ``, "unauthorized"},
 		{"500 other", 500, `{"detail":"unexpected"}`, "status 500"},
