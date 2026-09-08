@@ -430,8 +430,9 @@ func TestRunAddonsUpgrade_DryRunJSONEnvelope(t *testing.T) {
 
 func TestRunAddonsUpgrade_BackendErrorMapping(t *testing.T) {
 	mock := &upgradeMock{
-		iac:      sampleIaCYAMLForCmd,
-		patchErr: &client.PatchStackError{StatusCode: 422, Body: []byte(`{"detail":"push failed"}`)},
+		iac: sampleIaCYAMLForCmd,
+		patchErr: &client.PatchStackError{StatusCode: 422,
+			Body: []byte(`{"detail":"push failed","error_code":"GIT_PUSH_FAILED"}`)},
 	}
 	setMockClient(t, mock)
 	resetUpgradeCommandFlags(t)

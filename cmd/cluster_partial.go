@@ -371,8 +371,10 @@ func renderPatchResourceErrors(w io.Writer, resourceErrors []client.PatchStackRe
 //     via CLI preflight; print as-is so users see the underlying issue.
 //   - 403: sandbox cluster — cannot be modified through the CLI.
 //   - 409: stack pending deletion — orphaned resources marked for cleanup.
-//   - 422: git push failure (credential/auth or write issue), or a circular
-//     dependency rejection (surfaced verbatim).
+//   - 422: a git push failure when the platform marks it GIT_PUSH_FAILED;
+//     every other refusal on this status (SOPS store guard, spec
+//     validation, secret slots, circular dependency, rejected name) is
+//     surfaced verbatim, because it was refused before git was touched.
 //   - else: print status + body for debugging.
 func mapPatchError(perr *client.PatchStackError) error {
 	if perr == nil {
@@ -401,12 +403,26 @@ func mapPatchError(perr *client.PatchStackError) error {
 	case http.StatusConflict:
 		return fmt.Errorf("cluster is not available — stack may be pending deletion or cluster is deprovisioned: %s", detail)
 	case http.StatusUnprocessableEntity:
-		// 422 is overloaded: circular-dependency rejections carry a descriptive
-		// message that is not a git failure, so surface it as-is.
-		if strings.Contains(strings.ToLower(detail), "circular dependency") {
-			return errors.New(detail)
+		// 422 on the stack-write routes is seven different refusals, and only
+		// one of them is a git push failure: the store-time SOPS guards, the
+		// engine's spec validation, the secret-slot pre-flight, a circular
+		// dependency and a rejected name all refuse BEFORE the database write
+		// and before Git is touched at all. The platform marks the one real
+		// push failure with error_code GIT_PUSH_FAILED, so that is what
+		// decides - never the shape of the sentence.
+		//
+		// Labelling the rest "git push failed" sent the operator to look at
+		// GitOps credentials for a save that never reached git. It became the
+		// live failure mode when cluster#2828 turned the SOPS store guard's
+		// verdict into a 422: the customer whose encrypt was refused was told
+		// their git push had failed, having just confirmed no commit was made
+		// (PLA-830, ankra-bfvfy). Every one of these details is a complete,
+		// actionable sentence written for the person reading it, so the
+		// honest rendering of an unmarked refusal is the sentence itself.
+		if client.IsGitPushFailureResponse(perr.Body) {
+			return fmt.Errorf("git push failed: %s", detail)
 		}
-		return fmt.Errorf("git push failed: %s", detail)
+		return errors.New(detail)
 	case http.StatusUnauthorized:
 		// Wrap ErrUnauthorized (whose message is byte-for-byte identical to the
 		// historical text) so errors.Is matches and the exit code is exitAuth.
