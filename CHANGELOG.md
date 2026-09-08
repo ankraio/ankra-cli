@@ -1,8 +1,62 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.15.0 — 2026-09-08
+
+Promotes v0.15.0-rc0 through rc6. The headline is Ankra Pipelines from the
+terminal: `ankra pipeline` covers the whole lifecycle - repositories,
+definitions and their approval gate, runs, validate with the egress tier each
+step needs, findings, artifacts, and logs that follow a step that has not
+started yet, replay what a running one printed, and read the attempt a retried
+step actually used. Alongside it the Security Center is now complete in the
+terminal: `security sbom` with licence-risk grading, per-component and
+per-image views, SBOM export and per-image CVEs, `security stacks`, `stack`,
+`pod` and `namespaces`, and `security history` and `report-schedule` for how a
+cluster's posture moves and who gets told about it. Around those:
+`ankra cluster patch` corrects one field on a live object without kubectl,
+`ankra chat` runs on the durable sessions API and shows what its tools are
+doing, `stack-profiles import --as-draft` and `contents`,
+`cluster manifests create`, `org ci-settings`, `cluster agent ci`,
+`alerts ingest-credentials`, and `application ship`. The rc sections below
+carry the full detail.
+
+### Added
+
+- **`ankra application add --wait` follows the analysis and prints the setup
+  pull request.** `ankra application add .` ended on "Ankra is now analyzing
+  the repository" and left no way to know when that finished or where the
+  setup pull request went, short of refreshing the portal. `--wait` reports
+  creation progress as it changes, prints the setup pull request's URL when
+  the analysis completes, and fails the command with the platform's own reason
+  when it does not. A wait that runs out says the analysis is still running
+  rather than claiming it failed, and names the command that checks it.
+  Progress goes to stderr, so a structured run's stdout stays exactly what a
+  caller can parse; `application ship` carries the flag too.
 
 ### Fixed
+
+- **`ankra cluster encrypt manifest|addon` seals every key the resource
+  declares, not just `--key`.** A manifest or addon that already declared
+  other `encrypted_paths` could not be encrypted at all in cluster mode: the
+  platform stores a declared value as plaintext until the next GitOps push
+  seals it, so sealing only the requested key handed back a SOPS document with
+  plaintext under the other declared paths - the shape the platform's
+  store-time guard refuses, because it is the one that leaks a secret into
+  git. The command reported it as `update stack failed: status 500, body:
+  Internal Server Error`. Both modes now send the encrypt route the union of
+  the requested keys and the declared paths, deduplicated by key name, and say
+  which the declaration added; only the requested keys are verified
+  afterwards. File mode had the same defect by a different route, since
+  `ankra cluster decrypt` deliberately leaves `encrypted_paths` declared when
+  it writes the plaintext document back.
+- **A refused stack write is no longer reported as a failed git push.** Seven
+  different refusals answer HTTP 422 on the stack-write routes and only one is
+  a push failure; the SOPS store guards, spec validation, the secret-slot
+  pre-flight, a circular dependency and a rejected name are all refused before
+  the database write and before git is touched at all. Every one of them was
+  prefixed `git push failed:`, sending you to look at GitOps credentials for a
+  save that never reached a repository. Only a refusal the platform marks
+  `GIT_PUSH_FAILED` carries that prefix now; the rest surface as the sentence
+  the platform wrote.
 
 - **The `ankra-cicd` skill now answers "the merge produced no run" instead of
   leaving an assistant to invent a workflow.** Ankra Pipelines run on the
