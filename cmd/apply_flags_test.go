@@ -91,6 +91,10 @@ func TestBuildManifestApplyFlags(t *testing.T) {
 		if !strings.Contains(err.Error(), "'force'") {
 			t.Errorf("error %q does not name the 'force' key", err.Error())
 		}
+		// "true" and true print alike; the message has to say it was a string.
+		if !strings.Contains(err.Error(), "of type string") {
+			t.Errorf("error %q does not say the value was a string", err.Error())
+		}
 	})
 
 	t.Run("a non-boolean auto_remediate is rejected", func(t *testing.T) {
@@ -105,6 +109,9 @@ func TestBuildManifestApplyFlags(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "'auto_remediate'") {
 			t.Errorf("error %q does not name the 'auto_remediate' key", err.Error())
+		}
+		if !strings.Contains(err.Error(), "of type int") {
+			t.Errorf("error %q does not say the value was an int", err.Error())
 		}
 	})
 }

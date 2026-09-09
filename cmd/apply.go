@@ -742,7 +742,10 @@ func parseBoolField(m map[string]interface{}, key string) (bool, error) {
 	}
 	value, ok := raw.(bool)
 	if !ok {
-		return false, fmt.Errorf("'%s' must be true or false (got %v)", key, raw)
+		// Name the type as well as the value: force: "true" and force: true
+		// both print as true, and the quoted string is the case this guard
+		// exists for.
+		return false, fmt.Errorf("'%s' must be true or false (got %v of type %T)", key, raw, raw)
 	}
 	return value, nil
 }
