@@ -25,6 +25,10 @@ type clusterArgMock struct {
 	clusters  []client.ClusterListItem
 	listCalls int
 
+	// totalPages reports more pages than the resolver will read, to exercise
+	// the paging cap; 0 means the fixture fits on one page.
+	totalPages int
+
 	workersRequested   string
 	meshReadyRequested string
 	readinessRequested []string
@@ -32,9 +36,13 @@ type clusterArgMock struct {
 
 func (m *clusterArgMock) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
 	m.listCalls++
+	totalPages := m.totalPages
+	if totalPages == 0 {
+		totalPages = 1
+	}
 	return &client.ClusterListResponse{
 		Result:     m.clusters,
-		Pagination: client.Pagination{TotalPages: 1, Page: page, PageSize: pageSize},
+		Pagination: client.Pagination{TotalPages: totalPages, Page: page, PageSize: pageSize},
 	}, nil
 }
 
@@ -252,5 +260,47 @@ func TestResolveClusterArgPrefersTheExactName(t *testing.T) {
 	}
 	if resolved != testClusterID {
 		t.Errorf("the exactly-matching cluster must win, got %q", resolved)
+	}
+}
+
+// "36 characters with four dashes" describes plenty of real cluster names, not
+// just a UUID. Such a name used to be forwarded to the API as an id.
+func TestResolveClusterArgTreatsAUUIDShapedNameAsAName(t *testing.T) {
+	const name = "production-eu-primary-cluster-abcdef"
+	if len(name) != 36 || strings.Count(name, "-") != 4 {
+		t.Fatalf("the fixture must be 36 chars with 4 dashes to exercise the old heuristic, got %d/%d",
+			len(name), strings.Count(name, "-"))
+	}
+	withClusterArgMock(t, &clusterArgMock{clusters: []client.ClusterListItem{{ID: testClusterID, Name: name}}})
+
+	resolved, err := resolveClusterArg(name)
+	if err != nil {
+		t.Fatalf("a 36-char name with four dashes must be looked up, not forwarded as an id: %v", err)
+	}
+	if resolved != testClusterID {
+		t.Errorf("expected the name to resolve to %q, got %q", testClusterID, resolved)
+	}
+}
+
+// The resolver reads at most 5000 clusters. Beyond that it used to answer
+// "not found", presenting a truncated listing as a verified negative on the
+// resolution path of every command, destructive ones included.
+func TestResolveClusterArgSaysTheListingWasTruncatedRatherThanNotFound(t *testing.T) {
+	withClusterArgMock(t, &clusterArgMock{
+		clusters:   []client.ClusterListItem{{ID: testClusterID, Name: "prod-eu"}},
+		totalPages: 999,
+	})
+
+	_, err := resolveClusterArg("a-cluster-on-a-later-page")
+	if err == nil {
+		t.Fatal("an unresolved name must still be an error")
+	}
+	if strings.Contains(err.Error(), "not found") {
+		t.Errorf("a truncated listing must not be reported as a verified absence, got %q", err.Error())
+	}
+	for _, expected := range []string{"was not among the first", "pass the cluster id"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("expected %q in the error, got %q", expected, err.Error())
+		}
 	}
 }

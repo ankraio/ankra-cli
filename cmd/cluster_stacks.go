@@ -430,13 +430,18 @@ and will need to be reconfigured in the target cluster.`,
 // case, and sent the command - `deprovision` included - to whichever the
 // listing happened to order first. Ambiguity is now an error naming both.
 func resolveClusterID(nameOrID string) (string, error) {
-	if len(nameOrID) == 36 && strings.Count(nameOrID, "-") == 4 {
+	// isLikelyClusterID, not a len/dash count: "36 characters with four
+	// dashes" also describes plenty of real cluster names, and every one of
+	// them was forwarded to the API as an id and answered with an opaque 404
+	// instead of being looked up as the name it is.
+	if isLikelyClusterID(nameOrID) {
 		return nameOrID, nil
 	}
 
 	const pageSize = 100
 	const maxPages = 50
 	var caseInsensitiveMatches []client.ClusterListItem
+	listingTruncated := false
 	for page := 1; page <= maxPages; page++ {
 		response, err := apiClient.ListClusters(page, pageSize)
 		if err != nil {
@@ -453,10 +458,17 @@ func resolveClusterID(nameOrID string) (string, error) {
 		if response.Pagination.TotalPages <= page || len(response.Result) == 0 {
 			break
 		}
+		if page == maxPages {
+			listingTruncated = true
+		}
 	}
 
 	switch len(caseInsensitiveMatches) {
 	case 0:
+		if listingTruncated {
+			return "", fmt.Errorf("cluster %q was not among the first %d clusters and the listing has more; pass the cluster id instead",
+				nameOrID, pageSize*maxPages)
+		}
 		return "", fmt.Errorf("cluster %q not found", nameOrID)
 	case 1:
 		return caseInsensitiveMatches[0].ID, nil
