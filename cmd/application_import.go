@@ -66,7 +66,12 @@ sc-if, dc-import or a data-dc-script - are kept as authored and reported as
 warnings; they may not render as they did on the canvas.
 
 Running the same import again is safe: the repository keeps a provenance
-record, and an unchanged export registers without a second commit.`,
+record, and an unchanged export registers without a second commit.
+
+The lane ships behind the claude_design_import organisation feature flag,
+which is off by default while it rolls out: the platform answers 404 for
+organisations without it, and this command says so. Ask Ankra support to
+enable it for your organisation.`,
 		Example: `  ankra application import claude-design ./neighborly-export --name neighborly
   ankra application import claude-design neighborly.zip --credential github-acme --owner acme
   ankra application import claude-design Neighborly.html --source-url https://claude.ai/design/p/<id> --wait`,
@@ -302,6 +307,14 @@ func runApplicationImportClaudeDesign(command *cobra.Command, arguments []string
 func importClaudeDesign(requestContext context.Context, importRequest client.ImportClaudeDesignRequest) (applicationImportOutput, error) {
 	importResponse, importError := apiClient.ImportClaudeDesignApplication(requestContext, importRequest)
 	if importError != nil {
+		// The platform keeps the lane invisible while the organisation flag is
+		// off, so its 404 is the flag, not a missing route; name it.
+		var unexpected *client.UnexpectedResponseError
+		if errors.As(importError, &unexpected) && unexpected.StatusCode == 404 {
+			return applicationImportOutput{}, withExitCode(exitNotFound, errors.New(
+				"the Claude Design import is not enabled for this organisation (the claude_design_import feature flag is off; "+
+					"ask Ankra support to enable it) - check the selected organisation with `ankra org current`"))
+		}
 		return applicationImportOutput{}, fmt.Errorf("importing the design: %w", importError)
 	}
 	if importResponse == nil {

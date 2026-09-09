@@ -229,6 +229,35 @@ func TestApplicationImportClaudeDesignAcceptsASavedPageOverThePerFileCap(t *test
 	}
 }
 
+func TestApplicationImportClaudeDesignExplainsTheDarkFlag(t *testing.T) {
+	directory := writeClaudeDesignExport(t)
+	resetApplicationImportFlags(t)
+	t.Cleanup(func() { resetApplicationImportFlags(t) })
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		responseWriter.Header().Set("Content-Type", "application/json")
+		if strings.Contains(request.URL.Path, "/credentials") {
+			_, _ = responseWriter.Write([]byte(`[{"id":"credential-acme","name":"github-acme","provider":"github",` +
+				`"available":true,"account_login":"acme","created_at":"2026-09-01T00:00:00Z"}]`))
+			return
+		}
+		responseWriter.WriteHeader(http.StatusNotFound)
+		_, _ = responseWriter.Write([]byte(`{"detail":"Not Found"}`))
+	}))
+	useTestClient(t, server.URL)
+	t.Cleanup(server.Close)
+
+	_, executeError := executeCommand("application", "import", "claude-design", directory)
+	if executeError == nil {
+		t.Fatal("a dark flag must fail the command")
+	}
+	if !strings.Contains(executeError.Error(), "claude_design_import feature flag is off") {
+		t.Fatalf("the 404 should be explained as the flag, got: %v", executeError)
+	}
+	if code := exitCodeFor(executeError); code != exitNotFound {
+		t.Fatalf("exit code = %d, want %d", code, exitNotFound)
+	}
+}
+
 func TestApplicationNameSlug(t *testing.T) {
 	for input, expected := range map[string]string{
 		"Neighborly export": "neighborly-export",
