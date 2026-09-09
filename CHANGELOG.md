@@ -1,5 +1,9 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+- **A Claude Design export becomes a deployable application in one command.** `ankra application import claude-design <path>` takes what you exported from claude.ai/design - a directory of `<Name>.dc.html` artboards with `canvas.json` and images, a zip of it, one artboard, or a saved canvas page - and has Ankra convert it into a static site, create a GitHub repository under your GitHub credential (`--credential`, `--owner`), commit it with a Dockerfile and register the application, so the setup pull request, build and deploy follow as for any other application. `--repository`, `--visibility` and `--source-url` shape the repository; `--wait` follows the analysis to the setup pull request; `-o json` returns the pages and any warnings. Artboards that depend on the Claude Design runtime are kept as authored and reported, and re-running the same import registers the same repository without a second commit. The lane ships behind the `claude_design_import` organisation feature flag: while it is off the command explains that and exits 3, so ask Ankra support to enable it for your organisation.
+
 ## v0.15.1 — 2026-09-09
 
 ### Fixed
