@@ -136,8 +136,13 @@ func readClaudeDesignExport(path string) (claudeDesignExport, error) {
 		if readError != nil {
 			return claudeDesignExport{}, fmt.Errorf("reading %s: %w", filePath, readError)
 		}
-		isArchive := strings.HasSuffix(strings.ToLower(filePath), ".zip")
-		if len(content) > claudeDesignMaxFileBytes && !isArchive {
+		// A zip carries the entries and a saved canvas page carries the whole
+		// document, so both answer to the total cap only; the per-file cap is
+		// for the artboards and images the editor itself limits.
+		lowered := strings.ToLower(filePath)
+		isArchive := strings.HasSuffix(lowered, ".zip")
+		isSavedPage := strings.HasSuffix(lowered, ".html") && !strings.HasSuffix(lowered, ".dc.html")
+		if len(content) > claudeDesignMaxFileBytes && !isArchive && !isSavedPage {
 			return claudeDesignExport{}, withExitCode(exitUsage, fmt.Errorf(
 				"%s is %d bytes; the design editor caps a file at %d bytes, so this is not a file it exported",
 				filePath, len(content), claudeDesignMaxFileBytes))

@@ -205,6 +205,30 @@ func TestApplicationImportClaudeDesignRefusesAnEmptyDirectory(t *testing.T) {
 	}
 }
 
+func TestApplicationImportClaudeDesignAcceptsASavedPageOverThePerFileCap(t *testing.T) {
+	resetApplicationImportFlags(t)
+	t.Cleanup(func() { resetApplicationImportFlags(t) })
+	importBody := serveClaudeDesignImport(t, importedNeighborly)
+	directory := t.TempDir()
+	savedPage := filepath.Join(directory, "Neighborly.html")
+	if writeError := os.WriteFile(savedPage, []byte(strings.Repeat("x", claudeDesignMaxFileBytes+1)), 0o644); writeError != nil {
+		t.Fatal(writeError)
+	}
+	if _, executeError := executeCommand("application", "import", "claude-design", savedPage); executeError != nil {
+		t.Fatalf("a saved canvas page over 2 MiB is a valid export: %v", executeError)
+	}
+	if files, _ := importBody()["files"].([]any); len(files) != 1 {
+		t.Fatalf("the saved page should be sent: %v", files)
+	}
+	oversizedArtboard := filepath.Join(directory, "Main.dc.html")
+	if writeError := os.WriteFile(oversizedArtboard, []byte(strings.Repeat("x", claudeDesignMaxFileBytes+1)), 0o644); writeError != nil {
+		t.Fatal(writeError)
+	}
+	if _, executeError := executeCommand("application", "import", "claude-design", oversizedArtboard); executeError == nil {
+		t.Fatal("an artboard over 2 MiB is still refused")
+	}
+}
+
 func TestApplicationNameSlug(t *testing.T) {
 	for input, expected := range map[string]string{
 		"Neighborly export": "neighborly-export",
