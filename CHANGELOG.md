@@ -1,21 +1,26 @@
 # Ankra CLI Changelog
 
+## v0.15.1 — 2026-09-09
+
+### Fixed
+
+- **`ankra cluster apply` no longer drops a manifest's `force` and
+  `auto_remediate` flags.** The `manifests[]` entry on the wire said nothing
+  about either key: a file that set `force: true` on a CRD manifest applied
+  fine, then the platform stored false and exported `force: false` back into
+  the GitOps cluster file on the next sync, undoing a change that had been
+  made through Git minutes before. Both keys are now read and always sent,
+  following the same rule as the cluster file itself: apply is declarative,
+  so a key that is absent or null means false. A value that is not a boolean
+  (`force: "true"`) is refused with an error naming the key rather than
+  treated as off. Partial updates (`manifests update`, `manifests create`,
+  `cluster encrypt`) and `cluster clone` are unchanged and keep a stored flag
+  as it is.
+
 ## v0.16.0-rc0 — 2026-09-09
 
-### Added
-
-- **`ankra cluster apply` reads a manifest's `force` and `auto_remediate`
-  flags from the file and sends them, so a stack file can turn them on.** The
-  `manifests[]` entry on the wire said nothing about either flag: a file that
-  set `force: true` on a CRD manifest applied fine, then the platform stored
-  false and exported `force: false` back into the GitOps cluster file on the
-  next sync, undoing a change that had been made through Git minutes before.
-  Both keys are now read and always sent, following the same rule as the
-  cluster file itself: apply is declarative, so a key that is absent or null
-  means false. A value that is not a boolean (`force: "true"`) is refused
-  with an error naming the key rather than treated as off. Partial updates
-  (`manifests update`, `manifests create`, `cluster encrypt`) and
-  `cluster clone` are unchanged and keep a stored flag as it is.
+Pre-release cut before the change above was reclassified as a fix. Carries
+exactly the v0.15.1 fix and nothing else; stable users get it from v0.15.1.
 
 ## v0.15.0 — 2026-09-08
 
