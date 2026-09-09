@@ -422,6 +422,13 @@ and will need to be reconfigured in the target cluster.`,
 // callers can pass either form. Otherwise the cluster list is paged
 // through until a matching name is found, instead of relying on a
 // single page that may silently truncate results.
+//
+// A name typed exactly as the cluster carries it wins immediately. Only when
+// no exact match exists does the case-insensitive fallback decide, and then
+// the whole listing is read first: matching with EqualFold and returning the
+// first hit picked an arbitrary one of two clusters whose names differ only by
+// case, and sent the command - `deprovision` included - to whichever the
+// listing happened to order first. Ambiguity is now an error naming both.
 func resolveClusterID(nameOrID string) (string, error) {
 	if len(nameOrID) == 36 && strings.Count(nameOrID, "-") == 4 {
 		return nameOrID, nil
@@ -429,14 +436,18 @@ func resolveClusterID(nameOrID string) (string, error) {
 
 	const pageSize = 100
 	const maxPages = 50
+	var caseInsensitiveMatches []client.ClusterListItem
 	for page := 1; page <= maxPages; page++ {
 		response, err := apiClient.ListClusters(page, pageSize)
 		if err != nil {
 			return "", fmt.Errorf("listing clusters: %w", err)
 		}
 		for _, cluster := range response.Result {
-			if strings.EqualFold(cluster.Name, nameOrID) {
+			if cluster.Name == nameOrID {
 				return cluster.ID, nil
+			}
+			if strings.EqualFold(cluster.Name, nameOrID) {
+				caseInsensitiveMatches = append(caseInsensitiveMatches, cluster)
 			}
 		}
 		if response.Pagination.TotalPages <= page || len(response.Result) == 0 {
@@ -444,7 +455,19 @@ func resolveClusterID(nameOrID string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("cluster %q not found", nameOrID)
+	switch len(caseInsensitiveMatches) {
+	case 0:
+		return "", fmt.Errorf("cluster %q not found", nameOrID)
+	case 1:
+		return caseInsensitiveMatches[0].ID, nil
+	default:
+		candidates := make([]string, 0, len(caseInsensitiveMatches))
+		for _, cluster := range caseInsensitiveMatches {
+			candidates = append(candidates, fmt.Sprintf("%s (%s)", cluster.Name, cluster.ID))
+		}
+		return "", fmt.Errorf("cluster %q is ambiguous - %d clusters differ from it only by case: %s; pass the cluster id instead",
+			nameOrID, len(caseInsensitiveMatches), strings.Join(candidates, ", "))
+	}
 }
 
 func init() {

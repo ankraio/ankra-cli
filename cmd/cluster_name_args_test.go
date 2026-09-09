@@ -217,3 +217,40 @@ func TestEveryClusterArgumentAdvertisesTheName(t *testing.T) {
 			strings.Join(offenders, ", "))
 	}
 }
+
+// Two clusters whose names differ only by case used to resolve to whichever
+// the listing ordered first, silently pointing a command - `deprovision`
+// included - at an arbitrary one of them.
+func TestResolveClusterArgRefusesAnAmbiguousName(t *testing.T) {
+	withClusterArgMock(t, &clusterArgMock{clusters: []client.ClusterListItem{
+		{ID: testClusterID, Name: "Prod-EU"},
+		{ID: "11111111-2222-4333-8444-555555555555", Name: "prod-eu"},
+	}})
+
+	_, err := resolveClusterArg("PROD-eu")
+	if err == nil {
+		t.Fatal("a name matching two clusters must be refused, not resolved to one of them")
+	}
+	for _, expected := range []string{"ambiguous", "Prod-EU", "prod-eu", testClusterID, "pass the cluster id"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("expected %q in the error, got %q", expected, err.Error())
+		}
+	}
+}
+
+// An exact match is the user's unambiguous intent, so it wins over a
+// case-insensitive twin rather than being reported as ambiguous.
+func TestResolveClusterArgPrefersTheExactName(t *testing.T) {
+	withClusterArgMock(t, &clusterArgMock{clusters: []client.ClusterListItem{
+		{ID: "11111111-2222-4333-8444-555555555555", Name: "PROD-EU"},
+		{ID: testClusterID, Name: "prod-eu"},
+	}})
+
+	resolved, err := resolveClusterArg("prod-eu")
+	if err != nil {
+		t.Fatalf("an exact name must resolve even with a case-insensitive twin: %v", err)
+	}
+	if resolved != testClusterID {
+		t.Errorf("the exactly-matching cluster must win, got %q", resolved)
+	}
+}

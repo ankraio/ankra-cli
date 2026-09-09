@@ -78,7 +78,14 @@ func resolveCloudProviderNetworking(cmd *cobra.Command) (externalCloudProvider b
 // as `ankra cluster list` shows it.
 //
 // A UUID short-circuits, so a scripted caller that already holds the id pays
-// no extra request. A name is looked up once. Before this existed, only the
+// no extra request. The trade-off is that a cluster whose NAME is itself
+// UUID-shaped cannot be addressed by that name: the argument is forwarded as
+// an id and the route answers 404. Nothing in the CLI or the API constrains a
+// cluster's name, so this is reachable in principle; it stays this way because
+// the alternative costs every scripted caller a listing request on every
+// command, and the cluster id is always an unambiguous way to name it.
+//
+// A name is looked up once. Before this existed, only the
 // three playground verbs resolved a name (ankra-y8l44.35) and every other
 // cluster-scoped command forwarded the name verbatim: it reached the route as
 // a non-UUID path segment and came back as a bare 404, or as a uuid_parsing
