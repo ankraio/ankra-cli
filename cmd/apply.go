@@ -729,6 +729,27 @@ func parseGroupField(m map[string]interface{}) (string, error) {
 	return group, nil
 }
 
+// parseBoolField extracts an optional boolean key such as a manifest's
+// 'force' or 'auto_remediate'. Absent (or explicitly null) is false, the
+// declarative reading the GitOps cluster file gets too. A non-boolean value
+// is an error rather than false: the platform types both as booleans and
+// would answer 422, and quietly reading "true" (a quoted string) as off is
+// the same silent drop that lost the flag in the first place (ankra-cbktk).
+func parseBoolField(m map[string]interface{}, key string) (bool, error) {
+	raw, present := m[key]
+	if !present || raw == nil {
+		return false, nil
+	}
+	value, ok := raw.(bool)
+	if !ok {
+		// Name the type as well as the value: force: "true" and force: true
+		// both print as true, and the quoted string is the case this guard
+		// exists for.
+		return false, fmt.Errorf("'%s' must be true or false (got %v of type %T)", key, raw, raw)
+	}
+	return value, nil
+}
+
 func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, error) {
 	name, _ := mm["name"].(string)
 	if name == "" {
@@ -801,12 +822,26 @@ func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, 
 		return client.Manifest{}, err
 	}
 
+	// The apply flags. Dropped on the floor until ankra-cbktk: a file that
+	// said force: true applied without it, and the platform stored false over
+	// the flag the customer had set through a GitOps PR (PLA-834).
+	force, err := parseBoolField(mm, "force")
+	if err != nil {
+		return client.Manifest{}, err
+	}
+	autoRemediate, err := parseBoolField(mm, "auto_remediate")
+	if err != nil {
+		return client.Manifest{}, err
+	}
+
 	return client.Manifest{
 		Name:             name,
 		ManifestBase64:   encoded,
 		Namespace:        ns,
 		Parents:          parents,
 		EncryptedPaths:   encryptedPaths,
+		Force:            force,
+		AutoRemediate:    autoRemediate,
 		Group:            group,
 		AgentsMd:         agentsMd,
 		AgentsMdFromFile: agentsMdFromFile,

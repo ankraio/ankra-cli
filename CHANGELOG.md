@@ -2,7 +2,29 @@
 
 ## Unreleased
 
-- **A Claude Design export becomes a deployable application in one command.** `ankra application import claude-design <path>` takes what you exported from claude.ai/design - a directory of `<Name>.dc.html` artboards with `canvas.json` and images, a zip of it, one artboard, or a saved canvas page - and has Ankra convert it into a static site, create a GitHub repository under your GitHub credential (`--credential`, `--owner`), commit it with a Dockerfile and register the application, so the setup pull request, build and deploy follow as for any other application. `--repository`, `--visibility` and `--source-url` shape the repository; `--wait` follows the analysis to the setup pull request; `-o json` returns the pages and any warnings. Artboards that depend on the Claude Design runtime are kept as authored and reported, and re-running the same import registers the same repository without a second commit.
+- **A Claude Design export becomes a deployable application in one command.** `ankra application import claude-design <path>` takes what you exported from claude.ai/design - a directory of `<Name>.dc.html` artboards with `canvas.json` and images, a zip of it, one artboard, or a saved canvas page - and has Ankra convert it into a static site, create a GitHub repository under your GitHub credential (`--credential`, `--owner`), commit it with a Dockerfile and register the application, so the setup pull request, build and deploy follow as for any other application. `--repository`, `--visibility` and `--source-url` shape the repository; `--wait` follows the analysis to the setup pull request; `-o json` returns the pages and any warnings. Artboards that depend on the Claude Design runtime are kept as authored and reported, and re-running the same import registers the same repository without a second commit. The lane ships behind the `claude_design_import` organisation feature flag: while it is off the command explains that and exits 3, so ask Ankra support to enable it for your organisation.
+
+## v0.15.1 — 2026-09-09
+
+### Fixed
+
+- **`ankra cluster apply` no longer drops a manifest's `force` and
+  `auto_remediate` flags.** The `manifests[]` entry on the wire said nothing
+  about either key: a file that set `force: true` on a CRD manifest applied
+  fine, then the platform stored false and exported `force: false` back into
+  the GitOps cluster file on the next sync, undoing a change that had been
+  made through Git minutes before. Both keys are now read and always sent,
+  following the same rule as the cluster file itself: apply is declarative,
+  so a key that is absent or null means false. A value that is not a boolean
+  (`force: "true"`) is refused with an error naming the key rather than
+  treated as off. Partial updates (`manifests update`, `manifests create`,
+  `cluster encrypt`) and `cluster clone` are unchanged and keep a stored flag
+  as it is.
+
+## v0.16.0-rc0 — 2026-09-09
+
+Pre-release cut before the change above was reclassified as a fix. Carries
+exactly the v0.15.1 fix and nothing else; stable users get it from v0.15.1.
 
 ## v0.15.0 — 2026-09-08
 

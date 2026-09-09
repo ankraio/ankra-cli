@@ -307,6 +307,15 @@ type Manifest struct {
 	Namespace      string   `json:"namespace,omitempty"`
 	Parents        []Parent `json:"parents"`
 	EncryptedPaths []string `json:"encrypted_paths,omitempty"`
+	// Force and AutoRemediate are the manifest's apply flags (force =
+	// server-side apply with --force-conflicts, the way a CRD hop takes a
+	// field another manager owns). Always sent, never omitted: apply is
+	// declarative, so a file without the key means false, the same rule the
+	// GitOps cluster file follows. Until ankra-cbktk neither key was read at
+	// all, so a file carrying force: true applied without it and the
+	// platform stored false over the flag a GitOps PR had just set (PLA-834).
+	Force         bool `json:"force"`
+	AutoRemediate bool `json:"auto_remediate"`
 	// Group: see the Addon field of the same name.
 	Group string `json:"group,omitempty"`
 	// AgentsMd / AgentsMdFromFile: see the Addon fields of the same name.
