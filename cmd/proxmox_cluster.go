@@ -120,12 +120,15 @@ var proxmoxCreateCmd = &cobra.Command{
 }
 
 var proxmoxStopCmd = &cobra.Command{
-	Use:   "stop <cluster_id>",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop a Proxmox VE cluster",
 	Long:  "Stop a Proxmox VE cluster's virtual machines while keeping its configuration so it can be started again later.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		force, _ := cmd.Flags().GetBool("force")
 
 		result, stopError := apiClient.StopProxmoxCluster(clusterID, force)
@@ -147,12 +150,15 @@ var proxmoxStopCmd = &cobra.Command{
 }
 
 var proxmoxStartCmd = &cobra.Command{
-	Use:   "start <cluster_id>",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped Proxmox VE cluster",
 	Long:  "Start (re-provision) a stopped Proxmox VE cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		scope, _ := cmd.Flags().GetString("scope")
 		if scope != "all" && scope != "control_plane" {
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
@@ -174,11 +180,14 @@ var proxmoxStartCmd = &cobra.Command{
 }
 
 var proxmoxWorkersCmd = &cobra.Command{
-	Use:   "workers <cluster_id>",
+	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for a Proxmox VE cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 
 		result, fetchError := apiClient.GetProxmoxWorkerCount(clusterID)
 		if fetchError != nil {
@@ -199,11 +208,14 @@ var proxmoxWorkersCmd = &cobra.Command{
 }
 
 var proxmoxK8sVersionCmd = &cobra.Command{
-	Use:   "k8s-version <cluster_id>",
+	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for a Proxmox VE cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 
 		result, fetchError := apiClient.GetProxmoxK8sVersion(clusterID)
 		if fetchError != nil {

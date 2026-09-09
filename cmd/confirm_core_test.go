@@ -87,7 +87,7 @@ func (m *stacksDeleteMock) DeleteStack(ctx context.Context, clusterID, stackName
 }
 
 func TestClusterStacksDelete_DeclineDoesNotDelete(t *testing.T) {
-	mock := &stacksDeleteMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo"}}
+	mock := &stacksDeleteMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo"}}
 	_, err := runConfirmCommand(t, mock, "n\n",
 		[]*cobra.Command{clusterStacksDeleteCmd},
 		"cluster", "stacks", "delete", "platform", "--cluster", "demo")
@@ -103,7 +103,7 @@ func TestClusterStacksDelete_DeclineDoesNotDelete(t *testing.T) {
 }
 
 func TestClusterStacksDelete_YesFlagProceeds(t *testing.T) {
-	mock := &stacksDeleteMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo"}}
+	mock := &stacksDeleteMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo"}}
 	_, err := runConfirmCommand(t, mock, "",
 		[]*cobra.Command{clusterStacksDeleteCmd},
 		"cluster", "stacks", "delete", "platform", "--cluster", "demo", "--yes")
@@ -116,7 +116,7 @@ func TestClusterStacksDelete_YesFlagProceeds(t *testing.T) {
 }
 
 func TestClusterStacksDelete_PipedYesProceeds(t *testing.T) {
-	mock := &stacksDeleteMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo"}}
+	mock := &stacksDeleteMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo"}}
 	_, err := runConfirmCommand(t, mock, "y\n",
 		[]*cobra.Command{clusterStacksDeleteCmd},
 		"cluster", "stacks", "delete", "platform", "--cluster", "demo")
@@ -149,7 +149,7 @@ func (m *stacksListMock) ListClusterStacks(clusterID string) ([]client.ClusterSt
 
 func TestClusterStacksList_NotFoundUsesExitNotFound(t *testing.T) {
 	mock := &stacksListMock{
-		cluster: client.ClusterListItem{ID: "c-1", Name: "demo"},
+		cluster: client.ClusterListItem{ID: testClusterID, Name: "demo"},
 		stacks:  []client.ClusterStackListItem{{Name: "other"}},
 	}
 	_, err := runConfirmCommand(t, mock, "",
@@ -192,7 +192,7 @@ func (m *deprovisionMock) DeprovisionCluster(ctx context.Context, clusterID stri
 
 func TestClusterDeprovision_DeclineDoesNotDeprovision(t *testing.T) {
 	// Kind is intentionally empty so the generic deprovision path is used.
-	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo"}}
+	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo"}}
 	_, err := runConfirmCommand(t, mock, "n\n",
 		[]*cobra.Command{clusterDeprovisionCmd},
 		"cluster", "deprovision", "demo")
@@ -208,7 +208,7 @@ func TestClusterDeprovision_DeclineDoesNotDeprovision(t *testing.T) {
 }
 
 func TestClusterDeprovision_YesFlagProceeds(t *testing.T) {
-	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo"}}
+	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo"}}
 	_, err := runConfirmCommand(t, mock, "",
 		[]*cobra.Command{clusterDeprovisionCmd},
 		"cluster", "deprovision", "demo", "--yes")
@@ -223,7 +223,7 @@ func TestClusterDeprovision_YesFlagProceeds(t *testing.T) {
 func TestClusterDeprovision_ForceWarnsWhenIgnored(t *testing.T) {
 	// Empty kind routes to the generic deprovision endpoint, which is one of
 	// the lanes where the backend discards force.
-	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo"}}
+	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo"}}
 	output, err := runConfirmCommand(t, mock, "",
 		[]*cobra.Command{clusterDeprovisionCmd},
 		"cluster", "deprovision", "demo", "--yes", "--force")
@@ -239,7 +239,7 @@ func TestClusterDeprovision_ForceWarnsWhenIgnored(t *testing.T) {
 }
 
 func TestClusterDeprovision_NoForceNoWarning(t *testing.T) {
-	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo"}}
+	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo"}}
 	output, err := runConfirmCommand(t, mock, "",
 		[]*cobra.Command{clusterDeprovisionCmd},
 		"cluster", "deprovision", "demo", "--yes")
@@ -254,7 +254,7 @@ func TestClusterDeprovision_NoForceNoWarning(t *testing.T) {
 func TestClusterDeprovision_DeprecatedAutoDeleteStillParses(t *testing.T) {
 	// --auto-delete is a deprecated no-op kept so existing scripts don't
 	// break on an unknown flag; it must parse and the deprovision must run.
-	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo"}}
+	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo"}}
 	_, err := runConfirmCommand(t, mock, "",
 		[]*cobra.Command{clusterDeprovisionCmd},
 		"cluster", "deprovision", "demo", "--yes", "--auto-delete")
@@ -267,7 +267,7 @@ func TestClusterDeprovision_DeprecatedAutoDeleteStillParses(t *testing.T) {
 }
 
 func TestClusterDeprovision_PipedYesProceeds(t *testing.T) {
-	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo"}}
+	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo"}}
 	_, err := runConfirmCommand(t, mock, "y\n",
 		[]*cobra.Command{clusterDeprovisionCmd},
 		"cluster", "deprovision", "demo")
@@ -300,10 +300,10 @@ func (m *nodeGroupDeleteMock) DeleteHetznerNodeGroup(ctx context.Context, cluste
 }
 
 func TestClusterNodeGroupDelete_DeclineDoesNotDelete(t *testing.T) {
-	mock := &nodeGroupDeleteMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo", Kind: "hetzner"}}
+	mock := &nodeGroupDeleteMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo", Kind: "hetzner"}}
 	_, err := runConfirmCommand(t, mock, "n\n",
 		[]*cobra.Command{clusterNodeGroupDeleteCmd},
-		"cluster", "node-group", "delete", "c-1", "workers")
+		"cluster", "node-group", "delete", testClusterID, "workers")
 	if !errors.Is(err, errCancelled) {
 		t.Fatalf("expected errCancelled on decline, got %v", err)
 	}
@@ -316,10 +316,10 @@ func TestClusterNodeGroupDelete_DeclineDoesNotDelete(t *testing.T) {
 }
 
 func TestClusterNodeGroupDelete_YesFlagProceeds(t *testing.T) {
-	mock := &nodeGroupDeleteMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo", Kind: "hetzner"}}
+	mock := &nodeGroupDeleteMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo", Kind: "hetzner"}}
 	_, err := runConfirmCommand(t, mock, "",
 		[]*cobra.Command{clusterNodeGroupDeleteCmd},
-		"cluster", "node-group", "delete", "c-1", "workers", "--yes")
+		"cluster", "node-group", "delete", testClusterID, "workers", "--yes")
 	if err != nil {
 		t.Fatalf("expected success with --yes, got %v", err)
 	}
@@ -329,10 +329,10 @@ func TestClusterNodeGroupDelete_YesFlagProceeds(t *testing.T) {
 }
 
 func TestClusterNodeGroupDelete_PipedYesProceeds(t *testing.T) {
-	mock := &nodeGroupDeleteMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo", Kind: "hetzner"}}
+	mock := &nodeGroupDeleteMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo", Kind: "hetzner"}}
 	_, err := runConfirmCommand(t, mock, "y\n",
 		[]*cobra.Command{clusterNodeGroupDeleteCmd},
-		"cluster", "node-group", "delete", "c-1", "workers")
+		"cluster", "node-group", "delete", testClusterID, "workers")
 	if err != nil {
 		t.Fatalf("expected success with piped y, got %v", err)
 	}

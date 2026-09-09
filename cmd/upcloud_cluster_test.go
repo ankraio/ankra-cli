@@ -40,7 +40,7 @@ func (m *upcloudNodeGroupDeleteMock) DeleteUpcloudNodeGroup(ctx context.Context,
 func TestUpcloudDeprovision_DeclineDoesNotCallAPI(t *testing.T) {
 	mock := &upcloudDeprovisionMock{}
 	resetConfirmFlag(t, upcloudDeprovisionCmd)
-	_, err := runWithInput(t, mock, "n\n", "cluster", "upcloud", "deprovision", "uc-123")
+	_, err := runWithInput(t, mock, "n\n", "cluster", "upcloud", "deprovision", testClusterID)
 	if !errors.Is(err, errCancelled) {
 		t.Fatalf("expected errCancelled on decline, got %v", err)
 	}
@@ -52,22 +52,22 @@ func TestUpcloudDeprovision_DeclineDoesNotCallAPI(t *testing.T) {
 func TestUpcloudDeprovision_YesProceeds(t *testing.T) {
 	mock := &upcloudDeprovisionMock{}
 	resetConfirmFlag(t, upcloudDeprovisionCmd)
-	out, err := runWithInput(t, mock, "", "cluster", "upcloud", "deprovision", "uc-123", "--yes")
+	out, err := runWithInput(t, mock, "", "cluster", "upcloud", "deprovision", testClusterID, "--yes")
 	if err != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", err, out)
 	}
 	if !mock.called {
 		t.Fatal("expected deprovision call with --yes")
 	}
-	if mock.gotClusterID != "uc-123" {
-		t.Errorf("cluster id = %q, want uc-123", mock.gotClusterID)
+	if mock.gotClusterID != testClusterID {
+		t.Errorf("cluster id = %q, want %q", mock.gotClusterID, testClusterID)
 	}
 }
 
 func TestUpcloudNodeGroupDelete_DeclineDoesNotCallAPI(t *testing.T) {
 	mock := &upcloudNodeGroupDeleteMock{}
 	resetConfirmFlag(t, upcloudNodeGroupDeleteCmd)
-	_, err := runWithInput(t, mock, "n\n", "cluster", "upcloud", "node-group", "delete", "uc-123", "workers")
+	_, err := runWithInput(t, mock, "n\n", "cluster", "upcloud", "node-group", "delete", testClusterID, "workers")
 	if !errors.Is(err, errCancelled) {
 		t.Fatalf("expected errCancelled on decline, got %v", err)
 	}
@@ -79,15 +79,15 @@ func TestUpcloudNodeGroupDelete_DeclineDoesNotCallAPI(t *testing.T) {
 func TestUpcloudNodeGroupDelete_YesProceeds(t *testing.T) {
 	mock := &upcloudNodeGroupDeleteMock{}
 	resetConfirmFlag(t, upcloudNodeGroupDeleteCmd)
-	out, err := runWithInput(t, mock, "", "cluster", "upcloud", "node-group", "delete", "uc-123", "workers", "--yes")
+	out, err := runWithInput(t, mock, "", "cluster", "upcloud", "node-group", "delete", testClusterID, "workers", "--yes")
 	if err != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", err, out)
 	}
 	if !mock.called {
 		t.Fatal("expected delete call with --yes")
 	}
-	if mock.gotClusterID != "uc-123" || mock.gotGroupName != "workers" {
-		t.Errorf("got cluster=%q group=%q, want uc-123/workers", mock.gotClusterID, mock.gotGroupName)
+	if mock.gotClusterID != testClusterID || mock.gotGroupName != "workers" {
+		t.Errorf("got cluster=%q group=%q, want %q/workers", mock.gotClusterID, mock.gotGroupName, testClusterID)
 	}
 }
 
@@ -98,7 +98,7 @@ type upcloudCreateMock struct {
 
 func (m *upcloudCreateMock) CreateUpcloudCluster(req client.CreateUpcloudClusterRequest) (*client.CreateUpcloudClusterResponse, error) {
 	m.gotRequest = req
-	return &client.CreateUpcloudClusterResponse{ClusterID: "uc-123", Name: req.Name}, nil
+	return &client.CreateUpcloudClusterResponse{ClusterID: testClusterID, Name: req.Name}, nil
 }
 
 // The flag used to default to the literal 10.0.0.0/16, so every CLI create
@@ -222,12 +222,12 @@ func (m *upcloudZonePoolMock) UpdateUpcloudZonePool(_ context.Context, clusterID
 func TestUpcloudZones_SendsTheDesiredPool(t *testing.T) {
 	mock := &upcloudZonePoolMock{}
 	output := captureStdout(t, func() {
-		if _, err := runWithInput(t, mock, "", "cluster", "upcloud", "zones", "uc-123",
+		if _, err := runWithInput(t, mock, "", "cluster", "upcloud", "zones", testClusterID,
 			"--zones", "fi-hel1,fi-hel2,se-sto1", "--wait"); err != nil {
 			t.Fatalf("execute failed: %v", err)
 		}
 	})
-	if mock.gotClusterID != "uc-123" || strings.Join(mock.gotZones, ",") != "fi-hel1,fi-hel2,se-sto1" || !mock.gotWait {
+	if mock.gotClusterID != testClusterID || strings.Join(mock.gotZones, ",") != "fi-hel1,fi-hel2,se-sto1" || !mock.gotWait {
 		t.Errorf("request = %s / %v / wait=%v", mock.gotClusterID, mock.gotZones, mock.gotWait)
 	}
 	if !strings.Contains(output, "added se-sto1") {
@@ -248,7 +248,7 @@ func (m *upcloudNodeGroupZoneMock) AddUpcloudNodeGroup(_ context.Context, _ stri
 func TestUpcloudNodeGroupAdd_ZoneFlagPinsTheGroup(t *testing.T) {
 	mock := &upcloudNodeGroupZoneMock{}
 	_ = captureStdout(t, func() {
-		if _, err := runWithInput(t, mock, "", "cluster", "upcloud", "node-group", "add", "uc-123",
+		if _, err := runWithInput(t, mock, "", "cluster", "upcloud", "node-group", "add", testClusterID,
 			"--name", "db-sto", "--instance-type", "4xCPU-8GB", "--count", "2", "--zone", "se-sto1", "--wait"); err != nil {
 			t.Fatalf("execute failed: %v", err)
 		}

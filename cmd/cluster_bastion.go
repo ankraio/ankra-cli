@@ -313,12 +313,16 @@ func newBastionCmd(opsFn func() bastionOps, provider string, supportsResize, sup
 	}
 
 	statusCmd := &cobra.Command{
-		Use:   "status <cluster_id>",
+		Use:   "status <cluster_id|name>",
 		Short: "Show the recorded bastion/gateway health verdict",
 		Long:  bastionStatusLong(supportsDiagnose),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBastionStatus(cmd, opsFn, args[0])
+			clusterID, resolveError := resolveClusterArg(args[0])
+			if resolveError != nil {
+				return resolveError
+			}
+			return runBastionStatus(cmd, opsFn, clusterID)
 		},
 	}
 	registerStructuredOutputFlags(statusCmd)
@@ -326,7 +330,7 @@ func newBastionCmd(opsFn func() bastionOps, provider string, supportsResize, sup
 
 	if supportsResize {
 		resizeCmd := &cobra.Command{
-			Use:   "resize <cluster_id> <instance_type>",
+			Use:   "resize <cluster_id|name> <instance_type>",
 			Short: "Change the bastion/gateway instance type",
 			Long: `Resize the bastion/gateway node. The provider's bastion/gateway update job
 powers it off, resizes it, and powers it back on, causing brief SSH/NAT
@@ -336,7 +340,11 @@ downtime for the cluster.
 reported on success. Follow it with 'ankra cluster operations list <operation_id>'.`,
 			Args: cobra.ExactArgs(2),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return runBastionResize(cmd, opsFn, args[0], args[1])
+				clusterID, resolveError := resolveClusterArg(args[0])
+				if resolveError != nil {
+					return resolveError
+				}
+				return runBastionResize(cmd, opsFn, clusterID, args[1])
 			},
 		}
 		registerAsyncWriteFlags(resizeCmd)
@@ -346,7 +354,7 @@ reported on success. Follow it with 'ankra cluster operations list <operation_id
 
 	if supportsDiagnose {
 		diagnoseCmd := &cobra.Command{
-			Use:   "diagnose <cluster_id>",
+			Use:   "diagnose <cluster_id|name>",
 			Short: "Run a read-only SSH diagnosis of the bastion/gateway",
 			Long: `Dispatch the provider's read-only bastion diagnose job and wait for its
 report: sshd configuration, failed-login volume, disk, failed units, journal
@@ -355,7 +363,11 @@ changed. The platform waits up to two minutes for the job; a slower run hands
 back the operation id to poll with 'cluster operations list'.`,
 			Args: cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return runBastionDiagnose(cmd, opsFn, args[0])
+				clusterID, resolveError := resolveClusterArg(args[0])
+				if resolveError != nil {
+					return resolveError
+				}
+				return runBastionDiagnose(cmd, opsFn, clusterID)
 			},
 		}
 		diagnoseCmd.Flags().Duration("timeout", defaultBastionDiagnoseTimeout,

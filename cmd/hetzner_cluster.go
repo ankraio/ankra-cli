@@ -104,19 +104,22 @@ var hetznerCreateCmd = &cobra.Command{
 }
 
 var hetznerDeprovisionCmd = &cobra.Command{
-	Use:   "deprovision <cluster_id>",
+	Use:   "deprovision <cluster_id|name>",
 	Short: "Initiate deprovision of a Hetzner cluster",
 	Long: "Initiate asynchronous deprovision of a Hetzner cluster. The platform schedules teardown " +
 		"jobs that delete cloud resources (servers, networks, SSH keys). Cloud resources are not " +
 		"deleted by the time this command returns; track progress via operations or the UI.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		force, _ := cmd.Flags().GetBool("force")
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Deprovision Hetzner cluster %q? This deletes all its servers, networks and SSH keys! [y/N]: ", clusterID),
+			fmt.Sprintf("Deprovision Hetzner cluster %s? This deletes all its servers, networks and SSH keys! [y/N]: ", clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
 		}
@@ -148,11 +151,14 @@ var hetznerDeprovisionCmd = &cobra.Command{
 }
 
 var hetznerWorkersCmd = &cobra.Command{
-	Use:   "workers <cluster_id>",
+	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for a Hetzner cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 
 		result, err := apiClient.GetHetznerWorkerCount(clusterID)
 		if err != nil {
@@ -173,12 +179,15 @@ var hetznerWorkersCmd = &cobra.Command{
 }
 
 var hetznerScaleCmd = &cobra.Command{
-	Use:   "scale <cluster_id> <worker_count>",
+	Use:   "scale <cluster_id|name> <worker_count>",
 	Short: "Scale workers for a Hetzner cluster",
 	Long:  "Scale the number of worker nodes up or down for a Hetzner cluster.",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		workerCount, err := strconv.Atoi(args[1])
 		if err != nil {
 			return fmt.Errorf("invalid worker count: %w", err)
@@ -209,11 +218,14 @@ var hetznerScaleCmd = &cobra.Command{
 }
 
 var hetznerK8sVersionCmd = &cobra.Command{
-	Use:   "k8s-version <cluster_id>",
+	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for a Hetzner cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 
 		result, err := apiClient.GetHetznerK8sVersion(clusterID)
 		if err != nil {
@@ -237,12 +249,15 @@ var hetznerK8sVersionCmd = &cobra.Command{
 }
 
 var hetznerStopCmd = &cobra.Command{
-	Use:   "stop <cluster_id>",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop a Hetzner cluster",
 	Long:  "Stop a Hetzner cluster's compute while keeping its configuration so it can be started again later.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		force, _ := cmd.Flags().GetBool("force")
 
 		result, stopError := apiClient.StopHetznerCluster(clusterID, force)
@@ -270,12 +285,15 @@ var hetznerStopCmd = &cobra.Command{
 }
 
 var hetznerStartCmd = &cobra.Command{
-	Use:   "start <cluster_id>",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped Hetzner cluster",
 	Long:  "Start (re-provision) a stopped Hetzner cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		scope, _ := cmd.Flags().GetString("scope")
 		if scope != "all" && scope != "control_plane" {
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
@@ -303,13 +321,16 @@ var hetznerStartCmd = &cobra.Command{
 }
 
 var hetznerUpgradeCmd = &cobra.Command{
-	Use:        "upgrade <cluster_id> <target_version>",
+	Use:        "upgrade <cluster_id|name> <target_version>",
 	Short:      "Upgrade Kubernetes version for a Hetzner cluster",
 	Long:       "Upgrade the Kubernetes version on all nodes in a Hetzner cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
 	Args:       cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		targetVersion := args[1]
 
 		result, err := apiClient.UpgradeHetznerK8sVersion(clusterID, targetVersion, false)
@@ -342,11 +363,14 @@ var nodeGroupCmd = &cobra.Command{
 }
 
 var nodeGroupListCmd = &cobra.Command{
-	Use:   "list <cluster_id>",
+	Use:   "list <cluster_id|name>",
 	Short: "List node groups",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		result, err := apiClient.ListHetznerNodeGroups(clusterID)
 		if err != nil {
 			return fmt.Errorf("listing node groups: %w", err)
@@ -369,11 +393,14 @@ var nodeGroupListCmd = &cobra.Command{
 }
 
 var nodeGroupAddCmd = &cobra.Command{
-	Use:   "add <cluster_id>",
+	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		name, _ := cmd.Flags().GetString("name")
 		instanceType, _ := cmd.Flags().GetString("instance-type")
 		count, _ := cmd.Flags().GetInt("count")
@@ -414,11 +441,14 @@ var nodeGroupAddCmd = &cobra.Command{
 }
 
 var nodeGroupScaleCmd = &cobra.Command{
-	Use:   "scale <cluster_id> <group_name> <count>",
+	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		count, err := strconv.Atoi(args[2])
 		if err != nil {
@@ -455,11 +485,14 @@ var nodeGroupScaleCmd = &cobra.Command{
 }
 
 var nodeGroupUpgradeCmd = &cobra.Command{
-	Use:   "upgrade <cluster_id> <group_name> <instance_type>",
+	Use:   "upgrade <cluster_id|name> <group_name> <instance_type>",
 	Short: "Upgrade instance type for a node group (cannot be reversed)",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		instanceType := args[2]
 
@@ -493,16 +526,19 @@ var nodeGroupUpgradeCmd = &cobra.Command{
 }
 
 var nodeGroupDeleteCmd = &cobra.Command{
-	Use:   "delete <cluster_id> <group_name>",
+	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Delete node group %q from cluster %q? This deletes all its nodes! [y/N]: ", groupName, clusterID),
+			fmt.Sprintf("Delete node group %q from cluster %s? This deletes all its nodes! [y/N]: ", groupName, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
 		}

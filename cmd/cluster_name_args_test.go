@@ -1,0 +1,211 @@
+package cmd
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+	"testing"
+
+	"ankra/internal/client"
+
+	"github.com/spf13/cobra"
+)
+
+// testClusterID is id-shaped, so resolveClusterArg forwards it untouched and
+// treats every other argument as a cluster name. Every command test that
+// passes a cluster argument uses it: a placeholder like "cluster-1" is a NAME
+// now, and sends the command to the cluster listing instead (ankra-aprvp).
+const testClusterID = "62f4559a-a44d-46d7-aab3-a57c9dd6b4c6"
+
+// clusterArgMock answers the cluster listing that resolveClusterArg pages
+// through, and records the ids the commands under test forward to the API.
+type clusterArgMock struct {
+	baseMock
+
+	clusters  []client.ClusterListItem
+	listCalls int
+
+	workersRequested   string
+	meshReadyRequested string
+	readinessRequested []string
+}
+
+func (m *clusterArgMock) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
+	m.listCalls++
+	return &client.ClusterListResponse{
+		Result:     m.clusters,
+		Pagination: client.Pagination{TotalPages: 1, Page: page, PageSize: pageSize},
+	}, nil
+}
+
+func (m *clusterArgMock) GetScalewayWorkerCount(clusterID string) (*client.WorkerCountResult, error) {
+	m.workersRequested = clusterID
+	return &client.WorkerCountResult{WorkerCount: 3, Min: 1, Max: 5}, nil
+}
+
+func (m *clusterArgMock) MakeClusterMeshReady(clusterID string, sitePublicIP string) (*client.ClusterMeshMakeReadyResult, error) {
+	m.meshReadyRequested = clusterID
+	return &client.ClusterMeshMakeReadyResult{ClusterID: clusterID}, nil
+}
+
+func (m *clusterArgMock) CheckClusterMeshReadiness(clusterIDs []string) (map[string]client.ClusterMeshReadiness, error) {
+	m.readinessRequested = clusterIDs
+	readiness := make(map[string]client.ClusterMeshReadiness, len(clusterIDs))
+	for _, clusterID := range clusterIDs {
+		readiness[clusterID] = client.ClusterMeshReadiness{Ready: true}
+	}
+	return readiness, nil
+}
+
+func withClusterArgMock(t *testing.T, mock *clusterArgMock) {
+	t.Helper()
+	previous := apiClient
+	apiClient = mock
+	t.Cleanup(func() { apiClient = previous })
+}
+
+func newClusterArgMock() *clusterArgMock {
+	return &clusterArgMock{clusters: []client.ClusterListItem{
+		{ID: "11111111-2222-4333-8444-555555555555", Name: "other"},
+		{ID: testClusterID, Name: "prod-eu"},
+	}}
+}
+
+// A cluster id is what the routes want, so it must reach the API untouched -
+// and without the listing request a name lookup costs.
+func TestResolveClusterArgPassesAnIDThroughWithoutListing(t *testing.T) {
+	mock := newClusterArgMock()
+	withClusterArgMock(t, mock)
+
+	resolved, err := resolveClusterArg(testClusterID)
+	if err != nil {
+		t.Fatalf("an id must resolve to itself: %v", err)
+	}
+	if resolved != testClusterID {
+		t.Errorf("id must pass through unchanged, got %q", resolved)
+	}
+	if mock.listCalls != 0 {
+		t.Errorf("an id must not cost a cluster listing, made %d", mock.listCalls)
+	}
+}
+
+func TestResolveClusterArgResolvesANameCaseInsensitively(t *testing.T) {
+	withClusterArgMock(t, newClusterArgMock())
+
+	for _, typed := range []string{"prod-eu", "PROD-EU", "Prod-Eu"} {
+		resolved, err := resolveClusterArg(typed)
+		if err != nil {
+			t.Fatalf("%q must resolve: %v", typed, err)
+		}
+		if resolved != testClusterID {
+			t.Errorf("%q must resolve to %q, got %q", typed, testClusterID, resolved)
+		}
+	}
+}
+
+// An unknown name is refused before the request, naming the argument and how
+// to find the right one. Forwarding it reached the route as a non-UUID path
+// segment and came back as a bare 404 (ankra-aprvp).
+func TestResolveClusterArgRefusesAnUnknownNameWithAHint(t *testing.T) {
+	mock := newClusterArgMock()
+	withClusterArgMock(t, mock)
+
+	_, err := resolveClusterArg("staging")
+	if err == nil {
+		t.Fatal("an unknown name must be refused")
+	}
+	for _, expected := range []string{`cluster "staging" not found`, "ankra cluster list"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("expected %q in the error, got %q", expected, err.Error())
+		}
+	}
+}
+
+// The prompt for a destructive command names what the user typed, so they can
+// recognise it; the resolved id follows so the cluster the API is about to be
+// asked to act on is on screen too.
+func TestClusterTargetNamesTheTypedArgumentAndTheResolvedID(t *testing.T) {
+	if got := clusterTarget(testClusterID, testClusterID); got != fmt.Sprintf("%q", testClusterID) {
+		t.Errorf("an id names only itself, got %s", got)
+	}
+	got := clusterTarget("prod-eu", testClusterID)
+	for _, expected := range []string{`"prod-eu"`, testClusterID} {
+		if !strings.Contains(got, expected) {
+			t.Errorf("expected %q in the prompt target, got %s", expected, got)
+		}
+	}
+}
+
+// A provider command is the class this change is about: before ankra-aprvp
+// only the playground verbs resolved a name.
+func TestProviderCommandResolvesAClusterName(t *testing.T) {
+	mock := newClusterArgMock()
+	withClusterArgMock(t, mock)
+
+	captureStdout(t, func() {
+		if err := scalewayWorkersCmd.RunE(scalewayWorkersCmd, []string{"prod-eu"}); err != nil {
+			t.Fatalf("workers by name failed: %v", err)
+		}
+	})
+	if mock.workersRequested != testClusterID {
+		t.Errorf("the name must resolve to the id, requested %q", mock.workersRequested)
+	}
+}
+
+func TestClusterMeshMakeReadyResolvesAClusterName(t *testing.T) {
+	mock := newClusterArgMock()
+	withClusterArgMock(t, mock)
+
+	captureStdout(t, func() {
+		if err := clusterMeshMakeReadyCmd.RunE(clusterMeshMakeReadyCmd, []string{"prod-eu"}); err != nil {
+			t.Fatalf("make-ready by name failed: %v", err)
+		}
+	})
+	if mock.meshReadyRequested != testClusterID {
+		t.Errorf("the name must resolve to the id, requested %q", mock.meshReadyRequested)
+	}
+}
+
+// readiness takes several clusters at once: every argument resolves, and the
+// report still labels each row with the name the user typed.
+func TestClusterMeshReadinessResolvesEveryArgumentAndLabelsWhatWasTyped(t *testing.T) {
+	mock := newClusterArgMock()
+	withClusterArgMock(t, mock)
+
+	output := captureStdout(t, func() {
+		if err := clusterMeshReadinessCmd.RunE(clusterMeshReadinessCmd,
+			[]string{"prod-eu", "11111111-2222-4333-8444-555555555555"}); err != nil {
+			t.Fatalf("readiness by name failed: %v", err)
+		}
+	})
+	want := []string{testClusterID, "11111111-2222-4333-8444-555555555555"}
+	if len(mock.readinessRequested) != 2 ||
+		mock.readinessRequested[0] != want[0] || mock.readinessRequested[1] != want[1] {
+		t.Errorf("every argument must resolve, requested %v want %v", mock.readinessRequested, want)
+	}
+	if !strings.Contains(output, "prod-eu  ready") {
+		t.Errorf("the report must label the row with the typed name, got: %s", output)
+	}
+}
+
+// A ratchet: a cluster-scoped command added later must advertise that it takes
+// a name too, so the fix does not quietly regress one command at a time.
+func TestEveryClusterArgumentAdvertisesTheName(t *testing.T) {
+	stale := regexp.MustCompile(`<cluster_id>|\[cluster_id\.\.\.\]`)
+	var offenders []string
+	var walk func(command *cobra.Command)
+	walk = func(command *cobra.Command) {
+		if stale.MatchString(command.Use) {
+			offenders = append(offenders, command.CommandPath())
+		}
+		for _, child := range command.Commands() {
+			walk(child)
+		}
+	}
+	walk(rootCmd)
+	if len(offenders) > 0 {
+		t.Errorf("these commands still advertise an id-only cluster argument; "+
+			"resolve it with resolveClusterArg and widen the Use string to <cluster_id|name>: %s",
+			strings.Join(offenders, ", "))
+	}
+}

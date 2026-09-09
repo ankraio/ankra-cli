@@ -103,11 +103,14 @@ var upcloudCreateCmd = &cobra.Command{
 }
 
 var upcloudDeprovisionCmd = &cobra.Command{
-	Use:   "deprovision <cluster_id>",
+	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision an UpCloud cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		yes, _ := cmd.Flags().GetBool("yes")
 		force, _ := cmd.Flags().GetBool("force")
 
@@ -116,7 +119,7 @@ var upcloudDeprovisionCmd = &cobra.Command{
 			warning = "This deletes all its servers, networks, SSH keys, CSI storage volumes and load balancers!"
 		}
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Deprovision UpCloud cluster %q? %s [y/N]: ", clusterID, warning),
+			fmt.Sprintf("Deprovision UpCloud cluster %s? %s [y/N]: ", clusterTarget(args[0], clusterID), warning),
 			yes); err != nil {
 			return err
 		}
@@ -147,14 +150,17 @@ var upcloudDeprovisionCmd = &cobra.Command{
 }
 
 var upcloudStopCmd = &cobra.Command{
-	Use:   "stop <cluster_id>",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop an UpCloud cluster",
 	Long: "Stop an UpCloud cluster's compute while keeping its configuration so it can be started again later.\n\n" +
 		"--force also deletes the cluster's CSI storage volumes and load balancers, which otherwise keep billing " +
 		"while the cluster is stopped - the persisted data is lost.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		force, _ := cmd.Flags().GetBool("force")
 
 		result, err := apiClient.StopUpcloudCluster(clusterID, force)
@@ -176,12 +182,15 @@ var upcloudStopCmd = &cobra.Command{
 }
 
 var upcloudStartCmd = &cobra.Command{
-	Use:   "start <cluster_id>",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped UpCloud cluster",
 	Long:  "Start (re-provision) a stopped UpCloud cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		scope, _ := cmd.Flags().GetString("scope")
 		if scope != "all" && scope != "control_plane" {
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
@@ -203,11 +212,14 @@ var upcloudStartCmd = &cobra.Command{
 }
 
 var upcloudWorkersCmd = &cobra.Command{
-	Use:   "workers <cluster_id>",
+	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an UpCloud cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 
 		result, err := apiClient.GetUpcloudWorkerCount(clusterID)
 		if err != nil {
@@ -228,12 +240,15 @@ var upcloudWorkersCmd = &cobra.Command{
 }
 
 var upcloudScaleCmd = &cobra.Command{
-	Use:   "scale <cluster_id> <worker_count>",
+	Use:   "scale <cluster_id|name> <worker_count>",
 	Short: "Scale workers for an UpCloud cluster",
 	Long:  "Scale the number of worker nodes up or down for an UpCloud cluster.",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		workerCount, err := strconv.Atoi(args[1])
 		if err != nil {
 			return fmt.Errorf("invalid worker count: %w", err)
@@ -264,11 +279,14 @@ var upcloudScaleCmd = &cobra.Command{
 }
 
 var upcloudK8sVersionCmd = &cobra.Command{
-	Use:   "k8s-version <cluster_id>",
+	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an UpCloud cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 
 		result, err := apiClient.GetUpcloudK8sVersion(clusterID)
 		if err != nil {
@@ -292,13 +310,16 @@ var upcloudK8sVersionCmd = &cobra.Command{
 }
 
 var upcloudUpgradeCmd = &cobra.Command{
-	Use:        "upgrade <cluster_id> <target_version>",
+	Use:        "upgrade <cluster_id|name> <target_version>",
 	Short:      "Upgrade Kubernetes version for an UpCloud cluster",
 	Long:       "Upgrade the Kubernetes version on all nodes in an UpCloud cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
 	Args:       cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		targetVersion := args[1]
 
 		result, err := apiClient.UpgradeUpcloudK8sVersion(clusterID, targetVersion, false)
@@ -325,7 +346,7 @@ var upcloudUpgradeCmd = &cobra.Command{
 }
 
 var upcloudZonesCmd = &cobra.Command{
-	Use:   "zones <cluster_id>",
+	Use:   "zones <cluster_id|name>",
 	Short: "Extend a multi-zone cluster's zone pool",
 	Long: `Extend the zone pool of an UpCloud cluster created with --network-mode wireguard_mesh
 (or with --zones). Pass the full desired pool, primary zone first: zones can only be
@@ -335,7 +356,10 @@ scaled afterwards spread across the grown pool, and the cloud-provider stack
 republishes with load balancers and volumes scoped to the primary zone.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		zones, _ := cmd.Flags().GetStringSlice("zones")
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
@@ -378,11 +402,14 @@ var upcloudNodeGroupCmd = &cobra.Command{
 }
 
 var upcloudNodeGroupListCmd = &cobra.Command{
-	Use:   "list <cluster_id>",
+	Use:   "list <cluster_id|name>",
 	Short: "List node groups",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		result, err := apiClient.ListUpcloudNodeGroups(clusterID)
 		if err != nil {
 			return fmt.Errorf("listing node groups: %w", err)
@@ -405,11 +432,14 @@ var upcloudNodeGroupListCmd = &cobra.Command{
 }
 
 var upcloudNodeGroupAddCmd = &cobra.Command{
-	Use:   "add <cluster_id>",
+	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		name, _ := cmd.Flags().GetString("name")
 		instanceType, _ := cmd.Flags().GetString("instance-type")
 		count, _ := cmd.Flags().GetInt("count")
@@ -452,11 +482,14 @@ var upcloudNodeGroupAddCmd = &cobra.Command{
 }
 
 var upcloudNodeGroupScaleCmd = &cobra.Command{
-	Use:   "scale <cluster_id> <group_name> <count>",
+	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		count, err := strconv.Atoi(args[2])
 		if err != nil {
@@ -493,11 +526,14 @@ var upcloudNodeGroupScaleCmd = &cobra.Command{
 }
 
 var upcloudNodeGroupUpgradeCmd = &cobra.Command{
-	Use:   "upgrade <cluster_id> <group_name> <plan>",
+	Use:   "upgrade <cluster_id|name> <group_name> <plan>",
 	Short: "Upgrade server plan for a node group",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		plan := args[2]
 
@@ -531,16 +567,19 @@ var upcloudNodeGroupUpgradeCmd = &cobra.Command{
 }
 
 var upcloudNodeGroupDeleteCmd = &cobra.Command{
-	Use:   "delete <cluster_id> <group_name>",
+	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Delete node group %q from cluster %q? This deletes all its nodes! [y/N]: ", groupName, clusterID),
+			fmt.Sprintf("Delete node group %q from cluster %s? This deletes all its nodes! [y/N]: ", groupName, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
 		}

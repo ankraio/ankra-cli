@@ -89,7 +89,7 @@ var clusterPlaygroundResizeCmd = &cobra.Command{
 		if clusterPlaygroundResizeSize == "" {
 			return fmt.Errorf("--size is required; list sizes with `ankra cluster playground plans`")
 		}
-		clusterID, err := resolvePlaygroundClusterID(args[0])
+		clusterID, err := resolveClusterArg(args[0])
 		if err != nil {
 			return err
 		}
@@ -129,7 +129,7 @@ var clusterPlaygroundStatusCmd = &cobra.Command{
 	Short: "Show the provisioning phase of a playground",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID, err := resolvePlaygroundClusterID(args[0])
+		clusterID, err := resolveClusterArg(args[0])
 		if err != nil {
 			return err
 		}
@@ -181,17 +181,14 @@ var clusterPlaygroundDestroyCmd = &cobra.Command{
 		"provisioner's next pass. Destroying the environment is what removes it for good.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID, err := resolvePlaygroundClusterID(args[0])
+		clusterID, err := resolveClusterArg(args[0])
 		if err != nil {
 			return err
 		}
 		yes, _ := cmd.Flags().GetBool("yes")
 		// A name resolves to an id before the request; the prompt names both
 		// so what the user confirms is the cluster the API is asked to destroy.
-		target := fmt.Sprintf("%q", args[0])
-		if clusterID != args[0] {
-			target = fmt.Sprintf("%q (cluster %s)", args[0], clusterID)
-		}
+		target := clusterTarget(args[0], clusterID)
 		// The prompt goes to stderr so `-o json` keeps stdout parseable.
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Destroy playground %s? Everything deployed in it, including its storage, "+
@@ -228,19 +225,4 @@ func init() {
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundStatusCmd)
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundDestroyCmd)
 	clusterCmd.AddCommand(clusterPlaygroundCmd)
-}
-
-// resolvePlaygroundClusterID accepts the cluster id the playground routes
-// want, or the cluster's name as `ankra cluster list` shows it: passing the
-// name straight through answered a bare 404 from the route, with nothing
-// to say an id was expected (ankra-y8l44.35).
-func resolvePlaygroundClusterID(nameOrID string) (string, error) {
-	if isLikelyClusterID(nameOrID) {
-		return nameOrID, nil
-	}
-	clusterID, err := resolveClusterID(nameOrID)
-	if err != nil {
-		return "", fmt.Errorf("%w (playground commands take the cluster id or its name from `ankra cluster list`)", err)
-	}
-	return clusterID, nil
 }

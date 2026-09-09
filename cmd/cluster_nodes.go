@@ -312,20 +312,28 @@ included so the saved topology is visible before re-provisioning.`,
 	}
 
 	listCmd := &cobra.Command{
-		Use:   "list <cluster_id>",
+		Use:   "list <cluster_id|name>",
 		Short: "List all nodes for the cluster",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runNodesList(cmd, opsFn, args[0])
+			clusterID, resolveError := resolveClusterArg(args[0])
+			if resolveError != nil {
+				return resolveError
+			}
+			return runNodesList(cmd, opsFn, clusterID)
 		},
 	}
 
 	getCmd := &cobra.Command{
-		Use:   "get <cluster_id> <node_id>",
+		Use:   "get <cluster_id|name> <node_id>",
 		Short: "Show full spec and metadata for a single node",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runNodesGet(cmd, opsFn, args[0], args[1])
+			clusterID, resolveError := resolveClusterArg(args[0])
+			if resolveError != nil {
+				return resolveError
+			}
+			return runNodesGet(cmd, opsFn, clusterID, args[1])
 		},
 	}
 
@@ -334,7 +342,7 @@ included so the saved topology is visible before re-provisioning.`,
 
 	if supportsRestart {
 		restartCmd := &cobra.Command{
-			Use:   "restart <cluster_id> <node_id>",
+			Use:   "restart <cluster_id|name> <node_id>",
 			Short: "Restart a node (control plane, worker, or bastion/gateway)",
 			Long: `Schedule a native reboot (falling back to a power cycle) of the node as a
 tracked operation. The node must be in the 'up' state and have no restart
@@ -343,7 +351,11 @@ reboots. Works for any node returned by 'nodes list', including the
 bastion/gateway.`,
 			Args: cobra.ExactArgs(2),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return runNodesRestart(cmd, opsFn, args[0], args[1])
+				clusterID, resolveError := resolveClusterArg(args[0])
+				if resolveError != nil {
+					return resolveError
+				}
+				return runNodesRestart(cmd, opsFn, clusterID, args[1])
 			},
 		}
 		registerStructuredOutputFlags(restartCmd)
@@ -352,7 +364,7 @@ bastion/gateway.`,
 
 	if supportsCloudInitLog {
 		cloudInitLogCmd := &cobra.Command{
-			Use:   "cloud-init-log <cluster_id> <node_id>",
+			Use:   "cloud-init-log <cluster_id|name> <node_id>",
 			Short: "Read the node's cloud-init status and output-log tail",
 			Long: `Fetch 'cloud-init status --long' and the tail of
 /var/log/cloud-init-output.log from the node over the platform's bastion SSH
@@ -363,7 +375,11 @@ an in-flight fetch instead of dispatching duplicates. Find node ids with
 'nodes list'.`,
 			Args: cobra.ExactArgs(2),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return runNodesCloudInitLog(cmd, opsFn, args[0], args[1])
+				clusterID, resolveError := resolveClusterArg(args[0])
+				if resolveError != nil {
+					return resolveError
+				}
+				return runNodesCloudInitLog(cmd, opsFn, clusterID, args[1])
 			},
 		}
 		registerStructuredOutputFlags(cloudInitLogCmd)

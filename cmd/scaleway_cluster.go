@@ -19,12 +19,15 @@ var scalewayCmd = &cobra.Command{
 }
 
 var scalewayStopCmd = &cobra.Command{
-	Use:   "stop <cluster_id>",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop a Scaleway cluster",
 	Long:  "Stop a Scaleway cluster by terminating its compute while preserving its configuration so it can be re-provisioned later.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, arguments []string) error {
-		clusterID := arguments[0]
+		clusterID, resolveError := resolveClusterArg(arguments[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		force, _ := cmd.Flags().GetBool("force")
 		result, stopError := apiClient.StopScalewayCluster(clusterID, force)
 		if stopError != nil {
@@ -45,12 +48,15 @@ var scalewayStopCmd = &cobra.Command{
 }
 
 var scalewayStartCmd = &cobra.Command{
-	Use:   "start <cluster_id>",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped Scaleway cluster",
 	Long:  "Re-provision a stopped Scaleway cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(command *cobra.Command, arguments []string) error {
-		clusterID := arguments[0]
+		clusterID, resolveError := resolveClusterArg(arguments[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		scope, scopeError := command.Flags().GetString("scope")
 		if scopeError != nil {
 			return fmt.Errorf("reading scope: %w", scopeError)
@@ -251,14 +257,18 @@ Takes the same flags as 'create'.`,
 }
 
 var scalewayDeprovisionCmd = &cobra.Command{
-	Use:   "deprovision <cluster_id>",
+	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision a Scaleway cluster and release its cloud resources",
 	Long: `Permanently delete a Scaleway cluster and the provider resources Ankra
 created for it. Volumes and load balancers follow the cluster's
 retention_policy: 'retain' keeps them, 'delete' sweeps the tagged orphans.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		result, deprovisionError := apiClient.DeprovisionScalewayCluster(args[0])
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		result, deprovisionError := apiClient.DeprovisionScalewayCluster(clusterID)
 		if deprovisionError != nil {
 			return fmt.Errorf("deprovisioning Scaleway cluster: %w", deprovisionError)
 		}
@@ -279,11 +289,15 @@ retention_policy: 'retain' keeps them, 'delete' sweeps the tagged orphans.`,
 }
 
 var scalewayWorkersCmd = &cobra.Command{
-	Use:   "workers <cluster_id>",
+	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for a Scaleway cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		result, fetchError := apiClient.GetScalewayWorkerCount(args[0])
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		result, fetchError := apiClient.GetScalewayWorkerCount(clusterID)
 		if fetchError != nil {
 			return fmt.Errorf("fetching worker count: %w", fetchError)
 		}
@@ -302,11 +316,15 @@ var scalewayWorkersCmd = &cobra.Command{
 }
 
 var scalewayK8sVersionCmd = &cobra.Command{
-	Use:   "k8s-version <cluster_id>",
+	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for a Scaleway cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		result, fetchError := apiClient.GetScalewayK8sVersion(args[0])
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		result, fetchError := apiClient.GetScalewayK8sVersion(clusterID)
 		if fetchError != nil {
 			return fmt.Errorf("fetching Kubernetes version: %w", fetchError)
 		}

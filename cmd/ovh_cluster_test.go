@@ -27,16 +27,16 @@ func TestOvhStopCommand(t *testing.T) {
 	setMockClient(t, mock)
 
 	output := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "ovh", "stop", "ovh-123")
+		_, _ = executeCommand("cluster", "ovh", "stop", testClusterID)
 	})
 
-	if mock.gotClusterID != "ovh-123" {
-		t.Errorf("cluster id = %q, want ovh-123", mock.gotClusterID)
+	if mock.gotClusterID != testClusterID {
+		t.Errorf("cluster id = %q, want %q", mock.gotClusterID, testClusterID)
 	}
 	if !strings.Contains(output, "stop initiated") {
 		t.Errorf("expected 'stop initiated', got: %s", output)
 	}
-	if !strings.Contains(output, "ovh-123") {
+	if !strings.Contains(output, testClusterID) {
 		t.Errorf("expected cluster id in output, got: %s", output)
 	}
 }
@@ -58,7 +58,7 @@ func TestOvhStartCommandWithScope(t *testing.T) {
 	setMockClient(t, mock)
 
 	output := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "ovh", "start", "ovh-123", "--scope", "control_plane")
+		_, _ = executeCommand("cluster", "ovh", "start", testClusterID, "--scope", "control_plane")
 	})
 
 	if mock.gotScope != "control_plane" {
@@ -92,7 +92,7 @@ func TestOvhAccessInfoCommand(t *testing.T) {
 	setMockClient(t, &ovhAccessInfoMock{})
 
 	output := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "ovh", "access-info", "ovh-123")
+		_, _ = executeCommand("cluster", "ovh", "access-info", testClusterID)
 	})
 
 	if !strings.Contains(output, "203.0.113.10") {
@@ -127,7 +127,7 @@ func TestOvhSSHKeysGetCommand(t *testing.T) {
 	setMockClient(t, &ovhSSHKeysMock{})
 
 	output := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "ovh", "ssh-keys", "get", "ovh-123")
+		_, _ = executeCommand("cluster", "ovh", "ssh-keys", "get", testClusterID)
 	})
 
 	if !strings.Contains(output, "ssh-1") {
@@ -143,7 +143,7 @@ func TestOvhSSHKeysSetCommand(t *testing.T) {
 	setMockClient(t, mock)
 
 	output := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "ovh", "ssh-keys", "set", "ovh-123", "--ssh-key-credential-ids", "ssh-1,ssh-2")
+		_, _ = executeCommand("cluster", "ovh", "ssh-keys", "set", testClusterID, "--ssh-key-credential-ids", "ssh-1,ssh-2")
 	})
 
 	if len(mock.gotSetIDs) != 2 || mock.gotSetIDs[0] != "ssh-1" || mock.gotSetIDs[1] != "ssh-2" {
@@ -170,7 +170,7 @@ func TestOvhNodeGroupAddWithLabelsAndTaints(t *testing.T) {
 
 	output := captureStdout(t, func() {
 		_, _ = executeCommand(
-			"cluster", "ovh", "node-group", "add", "ovh-123",
+			"cluster", "ovh", "node-group", "add", testClusterID,
 			"--name", "gpu", "--instance-type", "b2-30", "--count", "2",
 			"--labels", "tier=gold,team=ml",
 			"--taints", "dedicated=gpu:NoSchedule",
@@ -252,7 +252,7 @@ func TestOvhNodeGroupLabels_BareInvocationIsUsageError(t *testing.T) {
 	mock := &ovhNodeGroupLabelsMock{}
 	setMockClient(t, mock)
 
-	_, err := executeCommand("cluster", "ovh", "node-group", "labels", "ovh-123", "gpu")
+	_, err := executeCommand("cluster", "ovh", "node-group", "labels", testClusterID, "gpu")
 	if err == nil {
 		t.Fatal("expected usage error when neither --labels nor --clear is given")
 	}
@@ -269,7 +269,7 @@ func TestOvhNodeGroupLabels_ClearAndLabelsTogetherIsUsageError(t *testing.T) {
 	mock := &ovhNodeGroupLabelsMock{}
 	setMockClient(t, mock)
 
-	_, err := executeCommand("cluster", "ovh", "node-group", "labels", "ovh-123", "gpu", "--labels", "a=b", "--clear")
+	_, err := executeCommand("cluster", "ovh", "node-group", "labels", testClusterID, "gpu", "--labels", "a=b", "--clear")
 	if err == nil {
 		t.Fatal("expected usage error when both --labels and --clear are given")
 	}
@@ -286,7 +286,7 @@ func TestOvhNodeGroupLabels_ClearSendsEmptyMap(t *testing.T) {
 	mock := &ovhNodeGroupLabelsMock{}
 	setMockClient(t, mock)
 
-	_, _ = executeCommand("cluster", "ovh", "node-group", "labels", "ovh-123", "gpu", "--clear")
+	_, _ = executeCommand("cluster", "ovh", "node-group", "labels", testClusterID, "gpu", "--clear")
 
 	if !mock.called {
 		t.Fatal("expected API to be called with --clear")
@@ -301,7 +301,7 @@ func TestOvhNodeGroupLabels_SetLabels(t *testing.T) {
 	mock := &ovhNodeGroupLabelsMock{}
 	setMockClient(t, mock)
 
-	_, _ = executeCommand("cluster", "ovh", "node-group", "labels", "ovh-123", "gpu", "--labels", "tier=gold")
+	_, _ = executeCommand("cluster", "ovh", "node-group", "labels", testClusterID, "gpu", "--labels", "tier=gold")
 
 	if !mock.called {
 		t.Fatal("expected API to be called with --labels")
@@ -328,7 +328,7 @@ func TestOvhNodeGroupTaints_BareInvocationIsUsageError(t *testing.T) {
 	mock := &ovhNodeGroupTaintsMock{}
 	setMockClient(t, mock)
 
-	_, err := executeCommand("cluster", "ovh", "node-group", "taints", "ovh-123", "gpu")
+	_, err := executeCommand("cluster", "ovh", "node-group", "taints", testClusterID, "gpu")
 	if err == nil {
 		t.Fatal("expected usage error when neither --taints nor --clear is given")
 	}
@@ -345,7 +345,7 @@ func TestOvhNodeGroupTaints_ClearAndTaintsTogetherIsUsageError(t *testing.T) {
 	mock := &ovhNodeGroupTaintsMock{}
 	setMockClient(t, mock)
 
-	_, err := executeCommand("cluster", "ovh", "node-group", "taints", "ovh-123", "gpu", "--taints", "a=b:NoSchedule", "--clear")
+	_, err := executeCommand("cluster", "ovh", "node-group", "taints", testClusterID, "gpu", "--taints", "a=b:NoSchedule", "--clear")
 	if err == nil {
 		t.Fatal("expected usage error when both --taints and --clear are given")
 	}
@@ -362,7 +362,7 @@ func TestOvhNodeGroupTaints_ClearSendsEmptySlice(t *testing.T) {
 	mock := &ovhNodeGroupTaintsMock{}
 	setMockClient(t, mock)
 
-	_, _ = executeCommand("cluster", "ovh", "node-group", "taints", "ovh-123", "gpu", "--clear")
+	_, _ = executeCommand("cluster", "ovh", "node-group", "taints", testClusterID, "gpu", "--clear")
 
 	if !mock.called {
 		t.Fatal("expected API to be called with --clear")
@@ -377,7 +377,7 @@ func TestOvhNodeGroupTaints_SetTaints(t *testing.T) {
 	mock := &ovhNodeGroupTaintsMock{}
 	setMockClient(t, mock)
 
-	_, _ = executeCommand("cluster", "ovh", "node-group", "taints", "ovh-123", "gpu", "--taints", "dedicated=gpu:NoSchedule")
+	_, _ = executeCommand("cluster", "ovh", "node-group", "taints", testClusterID, "gpu", "--taints", "dedicated=gpu:NoSchedule")
 
 	if !mock.called {
 		t.Fatal("expected API to be called with --taints")
@@ -403,7 +403,7 @@ func TestOvhDeprovision_DeclinedPromptCancels(t *testing.T) {
 	setMockClient(t, mock)
 	setStdin(t, "n\n")
 
-	_, err := executeCommand("cluster", "ovh", "deprovision", "ovh-123")
+	_, err := executeCommand("cluster", "ovh", "deprovision", testClusterID)
 	if !errors.Is(err, errCancelled) {
 		t.Fatalf("expected errCancelled, got %v", err)
 	}
@@ -418,7 +418,7 @@ func TestOvhDeprovision_YesSkipsPrompt(t *testing.T) {
 	setMockClient(t, mock)
 	setStdin(t, "") // empty input would block/decline if prompted
 
-	_, err := executeCommand("cluster", "ovh", "deprovision", "ovh-123", "--yes")
+	_, err := executeCommand("cluster", "ovh", "deprovision", testClusterID, "--yes")
 	if err != nil {
 		t.Fatalf("expected success with --yes, got %v", err)
 	}
@@ -443,7 +443,7 @@ func TestOvhNodeGroupDelete_DeclinedPromptCancels(t *testing.T) {
 	setMockClient(t, mock)
 	setStdin(t, "n\n")
 
-	_, err := executeCommand("cluster", "ovh", "node-group", "delete", "ovh-123", "gpu")
+	_, err := executeCommand("cluster", "ovh", "node-group", "delete", testClusterID, "gpu")
 	if !errors.Is(err, errCancelled) {
 		t.Fatalf("expected errCancelled, got %v", err)
 	}
@@ -458,7 +458,7 @@ func TestOvhNodeGroupDelete_YesSkipsPrompt(t *testing.T) {
 	setMockClient(t, mock)
 	setStdin(t, "")
 
-	_, err := executeCommand("cluster", "ovh", "node-group", "delete", "ovh-123", "gpu", "--yes")
+	_, err := executeCommand("cluster", "ovh", "node-group", "delete", testClusterID, "gpu", "--yes")
 	if err != nil {
 		t.Fatalf("expected success with --yes, got %v", err)
 	}
@@ -474,7 +474,7 @@ type ovhCreateZonesMock struct {
 
 func (m *ovhCreateZonesMock) CreateOvhCluster(req client.CreateOvhClusterRequest) (*client.CreateOvhClusterResponse, error) {
 	m.gotRequest = req
-	return &client.CreateOvhClusterResponse{ClusterID: "ovh-123", Name: req.Name}, nil
+	return &client.CreateOvhClusterResponse{ClusterID: testClusterID, Name: req.Name}, nil
 }
 
 // Without the flag reaching the request the cluster is created single-zone and
@@ -584,7 +584,7 @@ func TestOvhNodeGroupAddSendsTheAvailabilityZone(t *testing.T) {
 	mock := &ovhNodeGroupZoneMock{}
 	setMockClient(t, mock)
 
-	_, err := executeCommand("cluster", "ovh", "node-group", "add", "ovh-123",
+	_, err := executeCommand("cluster", "ovh", "node-group", "add", testClusterID,
 		"--name", "database", "--instance-type", "r3-128", "--count", "1",
 		"--availability-zone", "eu-west-par-c")
 	if err != nil {

@@ -107,7 +107,7 @@ var managedCreateCmd = &cobra.Command{
 }
 
 var managedDeleteCmd = &cobra.Command{
-	Use:   "delete <cluster_id>",
+	Use:   "delete <cluster_id|name>",
 	Short: "Delete a managed Kubernetes cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -116,12 +116,15 @@ var managedDeleteCmd = &cobra.Command{
 			return err
 		}
 
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		force, _ := cmd.Flags().GetBool("force")
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Delete managed %s cluster %q? This destroys all cloud resources! [y/N]: ", provider, clusterID),
+			fmt.Sprintf("Delete managed %s cluster %s? This destroys all cloud resources! [y/N]: ", provider, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
 		}
@@ -165,7 +168,7 @@ var managedNodePoolCmd = &cobra.Command{
 }
 
 var managedNodePoolAddCmd = &cobra.Command{
-	Use:   "add <cluster_id>",
+	Use:   "add <cluster_id|name>",
 	Short: "Add a node pool to a managed cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -174,7 +177,10 @@ var managedNodePoolAddCmd = &cobra.Command{
 			return err
 		}
 
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		name, _ := cmd.Flags().GetString("name")
 		size, _ := cmd.Flags().GetString("size")
 		count, _ := cmd.Flags().GetInt("count")
@@ -211,7 +217,7 @@ var managedNodePoolAddCmd = &cobra.Command{
 }
 
 var managedNodePoolScaleCmd = &cobra.Command{
-	Use:   "scale <cluster_id> <node_pool_name>",
+	Use:   "scale <cluster_id|name> <node_pool_name>",
 	Short: "Scale a managed cluster node pool",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -220,7 +226,10 @@ var managedNodePoolScaleCmd = &cobra.Command{
 			return err
 		}
 
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		nodePoolName := args[1]
 		count, _ := cmd.Flags().GetInt("count")
 
@@ -241,7 +250,7 @@ var managedNodePoolScaleCmd = &cobra.Command{
 }
 
 var managedNodePoolDeleteCmd = &cobra.Command{
-	Use:   "delete <cluster_id> <node_pool_name>",
+	Use:   "delete <cluster_id|name> <node_pool_name>",
 	Short: "Delete a managed cluster node pool",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -250,12 +259,15 @@ var managedNodePoolDeleteCmd = &cobra.Command{
 			return err
 		}
 
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		nodePoolName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Delete node pool %q from cluster %q? [y/N]: ", nodePoolName, clusterID),
+			fmt.Sprintf("Delete node pool %q from cluster %s? [y/N]: ", nodePoolName, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
 		}
@@ -277,7 +289,7 @@ var managedNodePoolDeleteCmd = &cobra.Command{
 }
 
 var managedNodePoolUpdateCmd = &cobra.Command{
-	Use:   "update <cluster_id> <node_pool_name>",
+	Use:   "update <cluster_id|name> <node_pool_name>",
 	Short: "Update a managed cluster node pool",
 	Long: `Update the node count or autoscaling settings of a managed cluster node
 pool. Pass at least one of --count, --autoscaling, --autoscaling-min, or
@@ -289,7 +301,10 @@ pool. Pass at least one of --count, --autoscaling, --autoscaling-min, or
 			return err
 		}
 
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		nodePoolName := args[1]
 
 		var request client.UpdateManagedNodePoolRequest
@@ -344,7 +359,7 @@ pool. Pass at least one of --count, --autoscaling, --autoscaling-min, or
 }
 
 var managedStopCmd = &cobra.Command{
-	Use:   "stop <cluster_id>",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop a managed cluster's compute",
 	Long: `Stop a managed Kubernetes cluster's compute while keeping its configuration
 so it can be started again later. Currently only AKS supports stopping and
@@ -356,7 +371,12 @@ starting managed clusters.`,
 			return err
 		}
 
-		result, stopError := apiClient.StopManagedCluster(provider, args[0])
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+
+		result, stopError := apiClient.StopManagedCluster(provider, clusterID)
 		if stopError != nil {
 			return managedLifecycleError("stopping", stopError)
 		}
@@ -377,7 +397,7 @@ starting managed clusters.`,
 }
 
 var managedStartCmd = &cobra.Command{
-	Use:   "start <cluster_id>",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped managed cluster",
 	Long: `Start a stopped managed Kubernetes cluster. Currently only AKS supports
 stopping and starting managed clusters.`,
@@ -388,7 +408,12 @@ stopping and starting managed clusters.`,
 			return err
 		}
 
-		result, startError := apiClient.StartManagedCluster(provider, args[0])
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+
+		result, startError := apiClient.StartManagedCluster(provider, clusterID)
 		if startError != nil {
 			return managedLifecycleError("starting", startError)
 		}
@@ -409,7 +434,7 @@ stopping and starting managed clusters.`,
 }
 
 var managedUpgradeCmd = &cobra.Command{
-	Use:   "upgrade <cluster_id>",
+	Use:   "upgrade <cluster_id|name>",
 	Short: "Upgrade a managed cluster Kubernetes version",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -418,12 +443,15 @@ var managedUpgradeCmd = &cobra.Command{
 			return err
 		}
 
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		version, _ := cmd.Flags().GetString("version")
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Upgrade managed cluster %q to Kubernetes %s? [y/N]: ", clusterID, version),
+			fmt.Sprintf("Upgrade managed cluster %s to Kubernetes %s? [y/N]: ", clusterTarget(args[0], clusterID), version),
 			yes); err != nil {
 			return err
 		}

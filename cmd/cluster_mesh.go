@@ -107,30 +107,38 @@ var clusterMeshDeleteCmd = &cobra.Command{
 }
 
 var clusterMeshJoinCmd = &cobra.Command{
-	Use:   "join <mesh_id> <cluster_id>",
+	Use:   "join <mesh_id> <cluster_id|name>",
 	Short: "Add a cluster to a mesh",
 	Long: "Add a cluster to a mesh. The platform mints the mesh's shared certificate authority on the first join, " +
 		"hands it to the joining cluster, and re-renders every member's peer list.\n\n" +
 		"A cluster that cannot mesh is refused with the reason; `ankra cluster mesh readiness` reports the same checks up front.",
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if joinError := apiClient.JoinClusterMesh(args[0], args[1]); joinError != nil {
+		clusterID, resolveError := resolveClusterArg(args[1])
+		if resolveError != nil {
+			return resolveError
+		}
+		if joinError := apiClient.JoinClusterMesh(args[0], clusterID); joinError != nil {
 			return fmt.Errorf("joining cluster mesh: %w", joinError)
 		}
-		fmt.Printf("Cluster %s joined mesh %s.\n", args[1], args[0])
+		fmt.Printf("Cluster %s joined mesh %s.\n", clusterID, args[0])
 		return nil
 	},
 }
 
 var clusterMeshLeaveCmd = &cobra.Command{
-	Use:   "leave <mesh_id> <cluster_id>",
+	Use:   "leave <mesh_id> <cluster_id|name>",
 	Short: "Remove a cluster from a mesh",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if leaveError := apiClient.LeaveClusterMesh(args[0], args[1]); leaveError != nil {
+		clusterID, resolveError := resolveClusterArg(args[1])
+		if resolveError != nil {
+			return resolveError
+		}
+		if leaveError := apiClient.LeaveClusterMesh(args[0], clusterID); leaveError != nil {
 			return fmt.Errorf("leaving cluster mesh: %w", leaveError)
 		}
-		fmt.Printf("Cluster %s left mesh %s.\n", args[1], args[0])
+		fmt.Printf("Cluster %s left mesh %s.\n", clusterID, args[0])
 		return nil
 	},
 }
@@ -138,7 +146,7 @@ var clusterMeshLeaveCmd = &cobra.Command{
 var clusterMeshMakeReadySiteIP string
 
 var clusterMeshMakeReadyCmd = &cobra.Command{
-	Use:   "make-ready <cluster_id>",
+	Use:   "make-ready <cluster_id|name>",
 	Short: "Turn an existing cluster mesh-capable without recreating it",
 	Long: "Turn an existing cluster mesh-capable, day-2: allocate its Cilium identity and overlay range, stamp the " +
 		"overlay onto its stored definitions, and set its resources converging so every node joins the platform " +
@@ -146,7 +154,11 @@ var clusterMeshMakeReadyCmd = &cobra.Command{
 		"Proxmox clusters need --site-public-ip: the address other sites dial this cluster's site gateway on.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		result, makeReadyError := apiClient.MakeClusterMeshReady(args[0], clusterMeshMakeReadySiteIP)
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		result, makeReadyError := apiClient.MakeClusterMeshReady(clusterID, clusterMeshMakeReadySiteIP)
 		if makeReadyError != nil {
 			return fmt.Errorf("making the cluster mesh-ready: %w", makeReadyError)
 		}
@@ -166,14 +178,25 @@ var clusterMeshMakeReadyCmd = &cobra.Command{
 }
 
 var clusterMeshReadinessCmd = &cobra.Command{
-	Use:   "readiness <cluster_id> [cluster_id...]",
+	Use:   "readiness <cluster_id|name> [cluster_id|name...]",
 	Short: "Check whether clusters can mesh together, and why not",
 	Long: "Check whether the given clusters could form one mesh. Each cluster is reported ready or not, with the " +
 		"failing checks spelled out.\n\nSome failures cannot be fixed on a running cluster: the Cilium identity and " +
 		"the overlay network mode are set when the cluster is created, so a cluster without them has to be rebuilt to mesh.",
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		readiness, readinessError := apiClient.CheckClusterMeshReadiness(args)
+		// Every argument is a cluster, so each is resolved; the label the
+		// report prints stays the one the user typed, which is what they
+		// recognise in a list of several clusters.
+		clusterIDs := make([]string, 0, len(args))
+		for _, arg := range args {
+			clusterID, resolveError := resolveClusterArg(arg)
+			if resolveError != nil {
+				return resolveError
+			}
+			clusterIDs = append(clusterIDs, clusterID)
+		}
+		readiness, readinessError := apiClient.CheckClusterMeshReadiness(clusterIDs)
 		if readinessError != nil {
 			return fmt.Errorf("checking cluster mesh readiness: %w", readinessError)
 		}
@@ -182,17 +205,18 @@ var clusterMeshReadinessCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		for _, clusterID := range args {
+		for index, clusterID := range clusterIDs {
+			label := args[index]
 			result, isKnown := readiness[clusterID]
 			if !isKnown {
-				fmt.Printf("%s  unknown\n", clusterID)
+				fmt.Printf("%s  unknown\n", label)
 				continue
 			}
 			if result.Ready {
-				fmt.Printf("%s  ready\n", clusterID)
+				fmt.Printf("%s  ready\n", label)
 				continue
 			}
-			fmt.Printf("%s  NOT ready\n", clusterID)
+			fmt.Printf("%s  NOT ready\n", label)
 			for _, item := range result.Items {
 				if item.Ready {
 					continue

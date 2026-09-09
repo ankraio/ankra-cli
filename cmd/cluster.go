@@ -72,3 +72,36 @@ func resolveCloudProviderNetworking(cmd *cobra.Command) (externalCloudProvider b
 	}
 	return externalCloudProvider, includeNetworking, nil
 }
+
+// resolveClusterArg turns a positional cluster argument into the id the
+// platform routes want, accepting either the id itself or the cluster's name
+// as `ankra cluster list` shows it.
+//
+// A UUID short-circuits, so a scripted caller that already holds the id pays
+// no extra request. A name is looked up once. Before this existed, only the
+// three playground verbs resolved a name (ankra-y8l44.35) and every other
+// cluster-scoped command forwarded the name verbatim: it reached the route as
+// a non-UUID path segment and came back as a bare 404, or as a uuid_parsing
+// 422 from a query parameter, with nothing in either to say an id was
+// expected (ankra-aprvp).
+func resolveClusterArg(nameOrID string) (string, error) {
+	if isLikelyClusterID(nameOrID) {
+		return nameOrID, nil
+	}
+	clusterID, resolveError := resolveClusterID(nameOrID)
+	if resolveError != nil {
+		return "", fmt.Errorf("%w (pass the cluster's name as `ankra cluster list` shows it, or its id)", resolveError)
+	}
+	return clusterID, nil
+}
+
+// clusterTarget renders the cluster a confirmation prompt is about. The
+// argument the user typed is what they recognise, so it leads; the id it
+// resolved to is appended when they differ, so a destructive prompt names the
+// cluster the API is actually about to be asked to act on.
+func clusterTarget(typed, clusterID string) string {
+	if typed == clusterID {
+		return fmt.Sprintf("%q", typed)
+	}
+	return fmt.Sprintf("%q (cluster %s)", typed, clusterID)
+}

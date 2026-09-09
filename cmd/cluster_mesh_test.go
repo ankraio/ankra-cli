@@ -8,6 +8,14 @@ import (
 	"ankra/internal/client"
 )
 
+// The mesh routes take cluster ids. These are id-shaped so resolveClusterArg
+// passes them through untouched; a cluster NAME reaching these commands is
+// covered in cluster_name_args_test.go.
+const (
+	meshTestClusterID      = "9c1f2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f"
+	meshTestOtherClusterID = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+)
+
 type clusterMeshMock struct {
 	baseMock
 	meshes    []client.ClusterMesh
@@ -104,11 +112,11 @@ func TestClusterMeshJoinPassesMeshAndCluster(t *testing.T) {
 	mock := &clusterMeshMock{}
 	setMockClient(t, mock)
 
-	if err := executeMeshCommand(t, "cluster", "mesh", "join", "mesh-1", "cluster-9"); err != nil {
+	if err := executeMeshCommand(t, "cluster", "mesh", "join", "mesh-1", meshTestClusterID); err != nil {
 		t.Fatalf("join returned %v", err)
 	}
-	if len(mock.joins) != 1 || mock.joins[0] != [2]string{"mesh-1", "cluster-9"} {
-		t.Fatalf("expected one join of cluster-9 into mesh-1, got %v", mock.joins)
+	if len(mock.joins) != 1 || mock.joins[0] != [2]string{"mesh-1", meshTestClusterID} {
+		t.Fatalf("expected one join of %s into mesh-1, got %v", meshTestClusterID, mock.joins)
 	}
 }
 
@@ -120,7 +128,7 @@ func TestClusterMeshJoinSurfacesTheRefusalReason(t *testing.T) {
 	}
 	setMockClient(t, mock)
 
-	err := executeMeshCommand(t, "cluster", "mesh", "join", "mesh-1", "c1")
+	err := executeMeshCommand(t, "cluster", "mesh", "join", "mesh-1", meshTestClusterID)
 	if err == nil {
 		t.Fatal("expected the refusal to fail the command")
 	}
@@ -133,10 +141,10 @@ func TestClusterMeshLeavePassesMeshAndCluster(t *testing.T) {
 	mock := &clusterMeshMock{}
 	setMockClient(t, mock)
 
-	if err := executeMeshCommand(t, "cluster", "mesh", "leave", "mesh-1", "cluster-9"); err != nil {
+	if err := executeMeshCommand(t, "cluster", "mesh", "leave", "mesh-1", meshTestClusterID); err != nil {
 		t.Fatalf("leave returned %v", err)
 	}
-	if len(mock.leaves) != 1 || mock.leaves[0] != [2]string{"mesh-1", "cluster-9"} {
+	if len(mock.leaves) != 1 || mock.leaves[0] != [2]string{"mesh-1", meshTestClusterID} {
 		t.Fatalf("expected one leave, got %v", mock.leaves)
 	}
 }
@@ -144,15 +152,15 @@ func TestClusterMeshLeavePassesMeshAndCluster(t *testing.T) {
 func TestClusterMeshReadinessPassesEveryCluster(t *testing.T) {
 	mock := &clusterMeshMock{
 		readiness: map[string]client.ClusterMeshReadiness{
-			"c1": {Ready: true},
-			"c2": {Ready: false, Items: []client.ClusterMeshReadinessItem{
+			meshTestClusterID: {Ready: true},
+			meshTestOtherClusterID: {Ready: false, Items: []client.ClusterMeshReadinessItem{
 				{Name: "transport", Ready: false, Detail: "not on the overlay", Remediable: false},
 			}},
 		},
 	}
 	setMockClient(t, mock)
 
-	if err := executeMeshCommand(t, "cluster", "mesh", "readiness", "c1", "c2"); err != nil {
+	if err := executeMeshCommand(t, "cluster", "mesh", "readiness", meshTestClusterID, meshTestOtherClusterID); err != nil {
 		t.Fatalf("readiness returned %v", err)
 	}
 	if len(mock.readinessFor) != 1 || len(mock.readinessFor[0]) != 2 {
@@ -190,15 +198,14 @@ func TestClusterMeshDeletePassesTheMesh(t *testing.T) {
 	}
 }
 
-
 func TestClusterMeshMakeReadyCommand(t *testing.T) {
 	mock := &clusterMeshMock{}
 	setMockClient(t, mock)
 
-	if err := executeMeshCommand(t, "cluster", "mesh", "make-ready", "cluster-9", "--site-public-ip", "203.0.113.9"); err != nil {
+	if err := executeMeshCommand(t, "cluster", "mesh", "make-ready", meshTestClusterID, "--site-public-ip", "203.0.113.9"); err != nil {
 		t.Fatalf("make-ready returned %v", err)
 	}
-	if mock.madeReadyCluster != "cluster-9" || mock.madeReadySiteIP != "203.0.113.9" {
+	if mock.madeReadyCluster != meshTestClusterID || mock.madeReadySiteIP != "203.0.113.9" {
 		t.Fatalf("make-ready must pass the cluster and site address through, got %q %q",
 			mock.madeReadyCluster, mock.madeReadySiteIP)
 	}
@@ -210,7 +217,7 @@ func TestClusterMeshMakeReadySurfacesTheRefusalReason(t *testing.T) {
 	mock := &clusterMeshMock{makeReadyError: errors.New("network_mode is not supported for hetzner clusters")}
 	setMockClient(t, mock)
 
-	err := executeMeshCommand(t, "cluster", "mesh", "make-ready", "cluster-9")
+	err := executeMeshCommand(t, "cluster", "mesh", "make-ready", meshTestClusterID)
 	if err == nil {
 		t.Fatal("expected the refusal to fail the command")
 	}

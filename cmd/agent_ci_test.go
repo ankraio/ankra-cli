@@ -86,7 +86,7 @@ func TestClusterAgentCIGetPrintsTheSettingsAndTheApplyState(t *testing.T) {
 	if runError != nil {
 		t.Fatalf("expected success, got %v", runError)
 	}
-	if mock.getCalls != 1 || mock.lastClusterID != "test-cluster-id" {
+	if mock.getCalls != 1 || mock.lastClusterID != testClusterID {
 		t.Fatalf("expected one read of the selected cluster, got %d for %q", mock.getCalls, mock.lastClusterID)
 	}
 	for _, want := range []string{

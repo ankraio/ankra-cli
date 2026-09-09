@@ -40,10 +40,10 @@ func TestProxmoxStopForceReachesTheClient(t *testing.T) {
 	t.Cleanup(func() { _ = proxmoxStopCmd.Flags().Set("force", "false") })
 
 	captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "proxmox", "stop", "pm-123", "--force")
+		_, _ = executeCommand("cluster", "proxmox", "stop", testClusterID, "--force")
 	})
-	if mock.stopClusterID != "pm-123" {
-		t.Fatalf("cluster id = %q, want pm-123", mock.stopClusterID)
+	if mock.stopClusterID != testClusterID {
+		t.Fatalf("cluster id = %q, want %q", mock.stopClusterID, testClusterID)
 	}
 	if !mock.gotForce {
 		t.Fatal("expected --force to reach the API")
@@ -55,7 +55,7 @@ func TestProxmoxStopDefaultsToUnforced(t *testing.T) {
 	setMockClient(t, mock)
 
 	captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "proxmox", "stop", "pm-123")
+		_, _ = executeCommand("cluster", "proxmox", "stop", testClusterID)
 	})
 	if mock.gotForce {
 		t.Fatal("a plain stop must not send force")
@@ -68,10 +68,10 @@ func TestMorpheusStopForceReachesTheClient(t *testing.T) {
 	t.Cleanup(func() { _ = morpheusStopCmd.Flags().Set("force", "false") })
 
 	captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "morpheus", "stop", "mo-123", "--force")
+		_, _ = executeCommand("cluster", "morpheus", "stop", testClusterID, "--force")
 	})
-	if mock.stopClusterID != "mo-123" {
-		t.Fatalf("cluster id = %q, want mo-123", mock.stopClusterID)
+	if mock.stopClusterID != testClusterID {
+		t.Fatalf("cluster id = %q, want %q", mock.stopClusterID, testClusterID)
 	}
 	if !mock.gotForce {
 		t.Fatal("expected --force to reach the API")

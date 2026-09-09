@@ -96,12 +96,15 @@ var morpheusCreateCmd = &cobra.Command{
 }
 
 var morpheusStopCmd = &cobra.Command{
-	Use:   "stop <cluster_id>",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop an HPE Morpheus cluster",
 	Long:  "Stop an HPE Morpheus cluster's instances while keeping its configuration so it can be started again later.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		force, _ := cmd.Flags().GetBool("force")
 
 		result, stopError := apiClient.StopMorpheusCluster(clusterID, force)
@@ -123,12 +126,15 @@ var morpheusStopCmd = &cobra.Command{
 }
 
 var morpheusStartCmd = &cobra.Command{
-	Use:   "start <cluster_id>",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped HPE Morpheus cluster",
 	Long:  "Start (re-provision) a stopped HPE Morpheus cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		scope, _ := cmd.Flags().GetString("scope")
 		if scope != "all" && scope != "control_plane" {
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
@@ -150,11 +156,14 @@ var morpheusStartCmd = &cobra.Command{
 }
 
 var morpheusWorkersCmd = &cobra.Command{
-	Use:   "workers <cluster_id>",
+	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an HPE Morpheus cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 
 		result, fetchError := apiClient.GetMorpheusWorkerCount(clusterID)
 		if fetchError != nil {
@@ -175,11 +184,14 @@ var morpheusWorkersCmd = &cobra.Command{
 }
 
 var morpheusK8sVersionCmd = &cobra.Command{
-	Use:   "k8s-version <cluster_id>",
+	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an HPE Morpheus cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 
 		result, fetchError := apiClient.GetMorpheusK8sVersion(clusterID)
 		if fetchError != nil {
