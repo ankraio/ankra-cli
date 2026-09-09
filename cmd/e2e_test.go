@@ -361,6 +361,10 @@ func (m baseMock) CreateApplication(requestContext context.Context, applicationR
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ImportClaudeDesignApplication(context.Context, client.ImportClaudeDesignRequest) (*client.ImportClaudeDesignResponse, error) {
+	return nil, nil
+}
+
 func (m baseMock) ListApplicationsRaw(requestContext context.Context, page int, pageSize int, search string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
