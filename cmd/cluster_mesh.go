@@ -121,7 +121,7 @@ var clusterMeshJoinCmd = &cobra.Command{
 		if joinError := apiClient.JoinClusterMesh(args[0], clusterID); joinError != nil {
 			return fmt.Errorf("joining cluster mesh: %w", joinError)
 		}
-		fmt.Printf("Cluster %s joined mesh %s.\n", clusterID, args[0])
+		fmt.Printf("Cluster %s joined mesh %s.\n", clusterTarget(args[1], clusterID), args[0])
 		return nil
 	},
 }
@@ -138,7 +138,7 @@ var clusterMeshLeaveCmd = &cobra.Command{
 		if leaveError := apiClient.LeaveClusterMesh(args[0], clusterID); leaveError != nil {
 			return fmt.Errorf("leaving cluster mesh: %w", leaveError)
 		}
-		fmt.Printf("Cluster %s left mesh %s.\n", clusterID, args[0])
+		fmt.Printf("Cluster %s left mesh %s.\n", clusterTarget(args[1], clusterID), args[0])
 		return nil
 	},
 }

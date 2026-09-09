@@ -190,13 +190,21 @@ func TestClusterMeshReadinessResolvesEveryArgumentAndLabelsWhatWasTyped(t *testi
 
 // A ratchet: a cluster-scoped command added later must advertise that it takes
 // a name too, so the fix does not quietly regress one command at a time.
+//
+// It reads every bracketed placeholder in a Use string rather than two literal
+// spellings, so `[cluster_id]`, `<cluster-id>` and `<clusterID>` are caught as
+// well as `<cluster_id>` - any of them would forward a typed name verbatim.
 func TestEveryClusterArgumentAdvertisesTheName(t *testing.T) {
-	stale := regexp.MustCompile(`<cluster_id>|\[cluster_id\.\.\.\]`)
+	placeholder := regexp.MustCompile(`<[^<>]+>|\[[^\[\]]+\]`)
+	clusterID := regexp.MustCompile(`(?i)cluster[-_ ]?id`)
 	var offenders []string
 	var walk func(command *cobra.Command)
 	walk = func(command *cobra.Command) {
-		if stale.MatchString(command.Use) {
-			offenders = append(offenders, command.CommandPath())
+		for _, token := range placeholder.FindAllString(command.Use, -1) {
+			// The widened form is the whole point, so it is never an offender.
+			if clusterID.MatchString(token) && !strings.Contains(token, "|name") {
+				offenders = append(offenders, command.CommandPath()+" "+token)
+			}
 		}
 		for _, child := range command.Commands() {
 			walk(child)
