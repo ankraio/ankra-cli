@@ -1,6 +1,63 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.16.0-rc1 — 2026-09-11
+
+Opens the v0.16.0 line properly (rc0 carried only the v0.15.1 fix). The
+headline is fleet work with stack profiles from the terminal: apply a profile
+to several clusters in one command, see the whole fleet as a table with what
+is behind, read a real diff of what changed between two versions, and roll a
+version out to every cluster that runs it, in place. Alongside it,
+`cluster operations list` shows whether a failed execution still needs
+someone, and `helm credentials` accepts the id its own listing prints.
+
+### Added
+
+- **One profile, every cluster: `ankra stack-profiles rollout`.** Updating the
+  stacks a profile had been deployed to meant exporting the version, editing
+  the document's cluster name for each target and running `cluster apply` in
+  a loop. `ankra stack-profiles rollout <profile> --all` (or `--cluster`,
+  repeatable) does that itself: the version - the current one, or
+  `--version` - is exported, addressed to each cluster and to the stack name
+  that deployment already uses, and applied the way `cluster apply` applies a
+  file, so the same stack is updated in place and Kubernetes rolls the
+  workloads. `--outdated` touches only the deployments behind that version,
+  `--dry-run` lists what would change, `--wait` waits for each configuration
+  write, and `-o json` reports every target with its status. A cluster that
+  does not run the profile is refused rather than silently given a first
+  deployment, and a profile version that exports more than one stack is
+  refused rather than applied under the wrong names. The fleet view's
+  version tag follows the profile's own deploy lane, so it keeps naming the
+  previous version until the platform records rollouts.
+
+- **`ankra stack-profiles apply --cluster` repeats.** The same version and
+  bindings go to every cluster named in one command; a cluster that fails
+  does not stop the rest, a summary table (or a JSON array) reports each one,
+  and the exit code reports any failure. One `--cluster` behaves exactly as
+  before.
+
+- **`ankra stack-profiles deployments` is a table.** Cluster, stack, state,
+  the profile version each runs and whether a newer one is available, with
+  a header line (`Current version v2 · 4 deployments across 4 clusters · 4
+  behind v2`) instead of the raw records; `--outdated` keeps only the ones
+  behind, and `-o json` still returns the records for scripts.
+
+- **`ankra stack-profiles diff` shows what actually changed.** The default
+  output is a unified diff of every manifest and add-on values file that
+  differs between the two versions, decoded, the way `diff -u` prints it;
+  a resource only one version has is printed whole. `-o json` keeps the
+  platform's per-resource change list.
+
+- **`ankra cluster operations list` says whether a failed execution still
+  needs you.** The platform now derives an attention state on every
+  execution: open while a failed, critical or cancelled run still needs a
+  person, resolved once every resource its failed steps targeted has
+  recovered (a later run on the same resource succeeded, the resource is up,
+  or it is gone). The listing gains an Attention column beside Status
+  (`open`, or `resolved by <execution id>`), the detail view prints the same
+  line, and `--attention open|resolved` filters server-side, so a
+  needs-attention listing and its count exclude what a later run already
+  cleared (PLA-840). Older platforms omit the field; the column stays empty
+  there.
 
 ### Fixed
 
