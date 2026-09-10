@@ -595,7 +595,13 @@ func applyProfileToClusters(cmd *cobra.Command, format outputFormat, clusterFlag
 		outcomes = append(outcomes, outcome)
 	}
 	if format != outputDefault {
-		return encodeStructured(cmd.OutOrStdout(), format, outcomes)
+		if encodeError := encodeStructured(cmd.OutOrStdout(), format, outcomes); encodeError != nil {
+			return encodeError
+		}
+		if failed > 0 {
+			return fmt.Errorf("%d of %d clusters failed", failed, len(clusterFlags))
+		}
+		return nil
 	}
 	summary := table.NewWriter()
 	summary.SetOutputMirror(os.Stdout)

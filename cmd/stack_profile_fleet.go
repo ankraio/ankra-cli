@@ -218,14 +218,15 @@ func rolloutTargets(deployments *stackProfileDeployments, clusterFlags []string,
 }
 
 // rolloutRequest is the exported version, re-addressed to one target: the
-// document's metadata.name becomes the cluster, and its single stack takes
-// the name the deployment already uses so the platform updates that stack
-// in place instead of creating a second one.
+// document's metadata.name becomes the cluster, and its stack takes the
+// name the deployment already uses so the platform updates that stack in
+// place instead of creating a second one. The caller has already checked
+// the export holds exactly one stack.
 func rolloutRequest(base client.CreateImportClusterRequest, target rolloutTarget) client.CreateImportClusterRequest {
 	request := base
 	request.Name = target.ClusterName
 	stacks := append([]client.Stack(nil), base.Spec.Stacks...)
-	if len(stacks) == 1 && target.StackName != "" {
+	if target.StackName != "" {
 		stacks[0].Name = target.StackName
 	}
 	request.Spec.Stacks = stacks
@@ -304,6 +305,10 @@ manifest and add-on deploys run in the background. Watch them with
 			if format != outputDefault {
 				return encodeStructured(cmd.OutOrStdout(), format, map[string]any{"profile": detail.Profile.Name, "version": version, "targets": []rolloutOutcome{}})
 			}
+			if len(deployments.Result) == 0 {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Nothing to roll out: no stack has been deployed from '%s' yet. Deploy one with 'ankra stack-profiles apply %s --cluster <name> --deploy'.\n", detail.Profile.Name, detail.Profile.Name)
+				return nil
+			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Nothing to roll out: every deployment of '%s' already runs v%d.\n", detail.Profile.Name, version)
 			return nil
 		}
@@ -333,6 +338,9 @@ manifest and add-on deploys run in the background. Watch them with
 		base, buildError := buildImportRequestFromBytes(document, ".")
 		if buildError != nil {
 			return fmt.Errorf("invalid ImportCluster in the exported profile version: %w", buildError)
+		}
+		if len(base.Spec.Stacks) != 1 {
+			return fmt.Errorf("profile '%s' v%d exports %d stacks; rollout updates one deployed stack per cluster, so it needs a single-stack profile version (apply it with 'ankra cluster apply' after renaming the stacks yourself)", detail.Profile.Name, version, len(base.Spec.Stacks))
 		}
 
 		wait, waitError := asyncWriteWaitFlag(cmd)
@@ -383,7 +391,13 @@ manifest and add-on deploys run in the background. Watch them with
 		}
 
 		if format != outputDefault {
-			return encodeStructured(cmd.OutOrStdout(), format, map[string]any{"profile": detail.Profile.Name, "version": version, "targets": outcomes})
+			if encodeError := encodeStructured(cmd.OutOrStdout(), format, map[string]any{"profile": detail.Profile.Name, "version": version, "targets": outcomes}); encodeError != nil {
+				return encodeError
+			}
+			if failed > 0 {
+				return fmt.Errorf("%d of %d %s failed to apply", failed, len(targets), pluralise(len(targets), "rollout", "rollouts"))
+			}
+			return nil
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 		renderRolloutOutcomes(cmd.OutOrStdout(), outcomes)

@@ -27,11 +27,12 @@ spec:
 
 type rolloutMock struct {
 	baseMock
-	deployments   string
-	exportVersion int
-	applied       []client.CreateImportClusterRequest
-	failCluster   string
-	clusters      []client.ClusterListItem
+	deployments    string
+	exportDocument string
+	exportVersion  int
+	applied        []client.CreateImportClusterRequest
+	failCluster    string
+	clusters       []client.ClusterListItem
 }
 
 func (mock *rolloutMock) GetStackProfile(profileID string) (*client.StackProfileDetail, error) {
@@ -44,8 +45,12 @@ func (mock *rolloutMock) ListStackProfileInstantiations(requestContext context.C
 
 func (mock *rolloutMock) ExportStackProfileIac(profileID string, version int) (*client.StackProfileIacExport, error) {
 	mock.exportVersion = version
+	document := mock.exportDocument
+	if document == "" {
+		document = rolloutExportDocument
+	}
 	return &client.StackProfileIacExport{ProfileID: profileID, Version: version,
-		ContentBase64: base64.StdEncoding.EncodeToString([]byte(rolloutExportDocument))}, nil
+		ContentBase64: base64.StdEncoding.EncodeToString([]byte(document))}, nil
 }
 
 func (mock *rolloutMock) ApplyCluster(ctx context.Context, request client.CreateImportClusterRequest, wait bool) (*client.ImportResponse, bool, error) {
@@ -194,5 +199,55 @@ func TestUnifiedDiff(t *testing.T) {
 	}
 	if got := unifiedDiff("/dev/null", "to", "", "x\n"); got != "--- /dev/null\n+++ to\n@@ -0,0 +1 @@\n+x\n" {
 		t.Errorf("all-added diff = %q", got)
+	}
+}
+
+func TestStackProfilesRolloutStructuredOutputStillFailsOnPartialFailure(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
+	mock := newRolloutMock()
+	mock.failCluster = "prod-eu"
+	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "-o", "json")
+	if executeError == nil {
+		t.Fatal("-o json must still exit non-zero when a target failed")
+	}
+	if !strings.Contains(output, `"status": "failed"`) || !strings.Contains(output, `"status": "applied"`) {
+		t.Errorf("the JSON payload should still be emitted before the error:\n%s", output)
+	}
+}
+
+func TestStackProfilesRolloutRefusesMultiStackExport(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
+	mock := newRolloutMock()
+	mock.exportDocument = rolloutExportDocument + `  - name: second
+    manifests: []
+    addons: []
+`
+	_, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all")
+	if executeError == nil || !strings.Contains(executeError.Error(), "exports 2 stacks") {
+		t.Fatalf("expected a refusal for a multi-stack export, got %v", executeError)
+	}
+	if len(mock.applied) != 0 {
+		t.Errorf("nothing should be applied: %+v", mock.applied)
+	}
+}
+
+func TestStackProfilesRolloutSaysWhenNothingIsDeployed(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
+	mock := newRolloutMock()
+	mock.deployments = `{"current_version": 2, "result": []}`
+	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all")
+	if executeError != nil {
+		t.Fatalf("rollout failed: %v", executeError)
+	}
+	if !strings.Contains(output, "no stack has been deployed from 'hello-fleet' yet") {
+		t.Errorf("output = %q", output)
+	}
+	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
+	output, executeError = runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "--outdated")
+	if executeError != nil {
+		t.Fatalf("rollout failed: %v", executeError)
+	}
+	if !strings.Contains(output, "no stack has been deployed") {
+		t.Errorf("output = %q", output)
 	}
 }

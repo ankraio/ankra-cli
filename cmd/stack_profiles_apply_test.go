@@ -229,3 +229,22 @@ func TestStackProfilesApplyToSeveralClustersKeepsGoingPastAFailure(t *testing.T)
 		t.Errorf("stdout = %s", stdout)
 	}
 }
+
+func TestStackProfilesApplyToSeveralClustersStructuredOutputStillFails(t *testing.T) {
+	resetStackProfileApplyFlags(t)
+	second := "22222222-2222-3333-4444-555555555555"
+	mock := &stackProfileMock{failClusterID: testClusterUUID}
+	setMockClient(t, mock)
+
+	var executeError error
+	var output string
+	captured := captureStdout(t, func() {
+		output, executeError = executeCommand("stack-profiles", "apply", "profile-1", "--cluster", testClusterUUID, "--cluster", second, "-o", "json")
+	})
+	if executeError == nil {
+		t.Fatal("-o json must still exit non-zero when a cluster failed")
+	}
+	if !strings.Contains(output+captured, `"status": "failed"`) || !strings.Contains(output+captured, `"status": "draft"`) {
+		t.Errorf("the JSON payload should still be emitted before the error:\n%s%s", output, captured)
+	}
+}
