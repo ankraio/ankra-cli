@@ -40,7 +40,7 @@ func TestUploadSupportAttachmentSendsDetectedContentType(t *testing.T) {
 					w.WriteHeader(http.StatusUnprocessableEntity)
 					return
 				}
-				defer file.Close()
+				defer func() { _ = file.Close() }()
 				content, _ := io.ReadAll(file)
 				gotBytes = len(content)
 				gotPartType = header.Header.Get("Content-Type")
