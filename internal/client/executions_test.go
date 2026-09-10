@@ -58,6 +58,35 @@ func TestListExecutionsBuildsQueryString(t *testing.T) {
 	}
 }
 
+// TestListExecutionsIncludeInternalIsSentOnlyWhenSet pins the wire contract
+// for --include-internal: the server hides internal executions by default and
+// reads include_internal_executions as an explicit opt-in, so the parameter
+// must be present (true) when asked for and absent otherwise - never sent as
+// "false", which some servers reject as a validation error.
+func TestListExecutionsIncludeInternalIsSentOnlyWhenSet(t *testing.T) {
+	var capturedQueries []string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedQueries = append(capturedQueries, r.URL.RawQuery)
+		jsonResponse(t, w, http.StatusOK, ExecutionListResponse{})
+	})
+
+	if _, err := testClient.ListExecutions(ListExecutionsOptions{ClusterID: "cluster-uuid"}); err != nil {
+		t.Fatalf("ListExecutions (default) error = %v", err)
+	}
+	if _, err := testClient.ListExecutions(ListExecutionsOptions{ClusterID: "cluster-uuid", IncludeInternalExecutions: true}); err != nil {
+		t.Fatalf("ListExecutions (include internal) error = %v", err)
+	}
+	if len(capturedQueries) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(capturedQueries))
+	}
+	if strings.Contains(capturedQueries[0], "include_internal_executions") {
+		t.Errorf("default listing must not send include_internal_executions, got: %s", capturedQueries[0])
+	}
+	if !strings.Contains(capturedQueries[1], "include_internal_executions=true") {
+		t.Errorf("expected include_internal_executions=true in query, got: %s", capturedQueries[1])
+	}
+}
+
 func TestGetExecutionReturnsDetail(t *testing.T) {
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/exec-1") {
