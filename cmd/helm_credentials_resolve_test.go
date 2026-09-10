@@ -94,6 +94,22 @@ func TestResolveHelmCredentialNameResolvesAnIDToItsName(t *testing.T) {
 	}
 }
 
+func TestResolveHelmCredentialNameKeepsANameShapedLikeAUUID(t *testing.T) {
+	mock := newHelmCredentialResolveMock()
+	uuidShapedName := "11111111-2222-4333-8444-555555555555"
+	mock.credentials = append(mock.credentials, client.HelmCredentialListItem{
+		ID: "9f0c1e2d-3b4a-4c5d-8e6f-70a1b2c3d4e5", Name: uuidShapedName,
+	})
+
+	resolved, resolveError := resolveHelmCredentialName(mock, uuidShapedName)
+	if resolveError != nil {
+		t.Fatalf("unexpected error: %v", resolveError)
+	}
+	if resolved != uuidShapedName {
+		t.Errorf("expected the uuid-shaped name to be kept, got %q", resolved)
+	}
+}
+
 func TestResolveHelmCredentialNameUnknownIDExitsNotFound(t *testing.T) {
 	mock := newHelmCredentialResolveMock()
 

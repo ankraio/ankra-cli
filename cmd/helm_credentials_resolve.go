@@ -40,6 +40,14 @@ func resolveHelmCredentialName(credentials APIClient, reference string) (string,
 			return credential.Name, nil
 		}
 	}
+	// A credential whose name happens to have the uuid shape is still
+	// addressable by that name: it is only treated as an id while no
+	// credential carries it as one.
+	for _, credential := range listing.Credentials {
+		if credential.Name == reference {
+			return reference, nil
+		}
+	}
 	if listing.TotalCount > len(listing.Credentials) {
 		// The listing is paged server-side and the client reads its first
 		// page only, so a miss on a partial read is not proof of absence.
