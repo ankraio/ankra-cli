@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -14,13 +15,19 @@ const testClusterUUID = "11111111-2222-3333-4444-555555555555"
 
 type stackProfileMock struct {
 	baseMock
-	instantiateRequest *client.InstantiateStackProfileRequest
-	instantiateResult  *client.InstantiateStackProfileResult
-	detail             *client.StackProfileDetail
+	instantiateRequest    *client.InstantiateStackProfileRequest
+	instantiateResult     *client.InstantiateStackProfileResult
+	instantiateClusterIDs []string
+	failClusterID         string
+	detail                *client.StackProfileDetail
 }
 
 func (m *stackProfileMock) InstantiateStackProfile(ctx context.Context, clusterID string, request client.InstantiateStackProfileRequest) (*client.InstantiateStackProfileResult, error) {
 	m.instantiateRequest = &request
+	m.instantiateClusterIDs = append(m.instantiateClusterIDs, clusterID)
+	if m.failClusterID != "" && clusterID == m.failClusterID {
+		return nil, errors.New("cluster is offline")
+	}
 	if m.instantiateResult != nil {
 		return m.instantiateResult, nil
 	}
@@ -41,7 +48,6 @@ func resetStackProfileApplyFlags(t *testing.T) {
 	t.Helper()
 	flags := stackProfilesApplyCmd.Flags()
 	for name, value := range map[string]string{
-		"cluster":    "",
 		"stack-name": "",
 		"version":    "0",
 		"deploy":     "false",
@@ -50,7 +56,7 @@ func resetStackProfileApplyFlags(t *testing.T) {
 	} {
 		_ = flags.Set(name, value)
 	}
-	for _, name := range []string{"set", "set-file", "set-env"} {
+	for _, name := range []string{"cluster", "set", "set-file", "set-env"} {
 		if sliceValue, ok := flags.Lookup(name).Value.(pflag.SliceValue); ok {
 			_ = sliceValue.Replace([]string{})
 		}
@@ -174,5 +180,52 @@ func TestStackProfilesApplyJSONOutput(t *testing.T) {
 	}
 	if !strings.Contains(output, "\"draft_id\"") {
 		t.Errorf("expected json with draft_id, got: %s", output)
+	}
+}
+
+func TestStackProfilesApplyToSeveralClusters(t *testing.T) {
+	resetStackProfileApplyFlags(t)
+	second := "22222222-2222-3333-4444-555555555555"
+	mock := &stackProfileMock{instantiateResult: &client.InstantiateStackProfileResult{
+		DraftID: "draft-1", StackName: "hello-fleet", ProfileVersion: 2, ManifestsCount: 4, Deployed: true, JobCount: 6,
+	}}
+	setMockClient(t, mock)
+
+	stdout := captureStdout(t, func() {
+		_, _ = executeCommand("stack-profiles", "apply", "profile-1", "--cluster", testClusterUUID, "--cluster", second, "--deploy")
+	})
+
+	if len(mock.instantiateClusterIDs) != 2 || mock.instantiateClusterIDs[0] != testClusterUUID || mock.instantiateClusterIDs[1] != second {
+		t.Fatalf("clusters applied = %v", mock.instantiateClusterIDs)
+	}
+	if !mock.instantiateRequest.Deploy {
+		t.Errorf("expected --deploy to carry through to every cluster")
+	}
+	for _, want := range []string{"== " + testClusterUUID, "== " + second, "CLUSTER", "hello-fleet", "v2", "deployed"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout lacks %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestStackProfilesApplyToSeveralClustersKeepsGoingPastAFailure(t *testing.T) {
+	resetStackProfileApplyFlags(t)
+	second := "22222222-2222-3333-4444-555555555555"
+	mock := &stackProfileMock{failClusterID: testClusterUUID}
+	setMockClient(t, mock)
+
+	var executeError error
+	stdout := captureStdout(t, func() {
+		_, executeError = executeCommand("stack-profiles", "apply", "profile-1", "--cluster", testClusterUUID, "--cluster", second)
+	})
+
+	if executeError == nil {
+		t.Fatal("expected the command to report the failed cluster")
+	}
+	if len(mock.instantiateClusterIDs) != 2 {
+		t.Fatalf("the second cluster should still be applied after the first failed: %v", mock.instantiateClusterIDs)
+	}
+	if !strings.Contains(stdout, "failed") || !strings.Contains(stdout, "cluster is offline") || !strings.Contains(stdout, "draft") {
+		t.Errorf("stdout = %s", stdout)
 	}
 }

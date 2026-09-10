@@ -194,7 +194,13 @@ func buildImportRequest(path string) (client.CreateImportClusterRequest, error) 
 	if err != nil {
 		return client.CreateImportClusterRequest{}, fmt.Errorf("could not read the file: %w", err)
 	}
+	return buildImportRequestFromBytes(data, filepath.Dir(path))
+}
 
+// buildImportRequestFromBytes parses an ImportCluster document that is
+// already in memory (an exported profile version, for instance). from_file
+// references inside it resolve against baseDirectory.
+func buildImportRequestFromBytes(data []byte, baseDirectory string) (client.CreateImportClusterRequest, error) {
 	var raw map[string]interface{}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return client.CreateImportClusterRequest{}, fmt.Errorf("the file is not valid YAML: %w", err)
@@ -252,7 +258,6 @@ func buildImportRequest(path string) (client.CreateImportClusterRequest, error) 
 		}
 	}
 
-	baseDirectory := filepath.Dir(path)
 	rawStackItems, _ := spec["stacks"].([]interface{})
 	stacks := make([]client.Stack, 0, len(rawStackItems))
 	for index, rawStack := range rawStackItems {
