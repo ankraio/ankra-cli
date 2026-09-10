@@ -79,6 +79,7 @@ var clusterOperationsListCmd = &cobra.Command{
 
 		statusFlag, _ := cmd.Flags().GetStringSlice("status")
 		failedOnly, _ := cmd.Flags().GetBool("failed")
+		includeInternal, _ := cmd.Flags().GetBool("include-internal")
 		limit, _ := cmd.Flags().GetInt("limit")
 		if limit <= 0 {
 			limit = defaultExecutionsPageSize
@@ -102,10 +103,11 @@ var clusterOperationsListCmd = &cobra.Command{
 			statusList = append(statusList, "failed", "critical")
 		}
 		options := client.ListExecutionsOptions{
-			ClusterID:  cluster.ID,
-			StatusList: statusList,
-			Page:       1,
-			PageSize:   limit,
+			ClusterID:                 cluster.ID,
+			StatusList:                statusList,
+			IncludeInternalExecutions: includeInternal,
+			Page:                      1,
+			PageSize:                  limit,
 		}
 
 		executionID := ""
@@ -567,6 +569,8 @@ func init() {
 	clusterOperationsListCmd.Flags().StringSlice("status", nil, "Filter by execution status (repeatable). Examples: failed, critical, running")
 	clusterOperationsListCmd.Flags().Bool("failed", false, "Shortcut for --status failed --status critical")
 	clusterOperationsListCmd.Flags().Int("limit", defaultExecutionsPageSize, "Maximum number of executions to return (max 100)")
+	clusterOperationsListCmd.Flags().Bool("include-internal", false,
+		"Also list the platform's internal maintenance executions, such as the GitOps reconcile snapshot push, which the default listing hides")
 	clusterOperationsListCmd.Flags().BoolP("watch", "w", false,
 		"Continuously poll and refresh until all executions reach a terminal state")
 	clusterOperationsListCmd.Flags().Duration("interval", defaultWatchInterval,
