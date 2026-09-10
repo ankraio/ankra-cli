@@ -83,10 +83,20 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	targetNote, err := applyClusterOverride(cmd, &importRequest)
+	if err != nil {
+		return err
+	}
 
 	if dryRun {
 		fmt.Printf("Validation succeeded for %q; no changes applied (--dry-run).\n", filePath)
+		if targetNote != "" {
+			fmt.Println(targetNote)
+		}
 		return nil
+	}
+	if targetNote != "" {
+		fmt.Println(targetNote)
 	}
 
 	wait, err := asyncWriteWaitFlag(cmd)
@@ -161,6 +171,30 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
 		strings.TrimRight(baseURL, "/"), importResponse.ClusterId)
 	return nil
+}
+
+// applyClusterOverride makes --cluster the target of the apply. The document's
+// metadata.name is the cluster name the platform addresses, so a file written
+// for one cluster (or exported from a profile, where the name is the profile's)
+// used to import a NEW cluster under that name whenever --cluster was passed
+// alongside it - the flag was read by nothing. With the flag set, the cluster
+// is resolved (name or id) and its name replaces metadata.name; the note says
+// so when the two differ so the substitution is never silent.
+func applyClusterOverride(cmd *cobra.Command, importRequest *client.CreateImportClusterRequest) (string, error) {
+	override := clusterFlagOverride(cmd)
+	if override == "" {
+		return "", nil
+	}
+	cluster, lookupError := lookupClusterByNameOrID(override)
+	if lookupError != nil {
+		return "", lookupError
+	}
+	if cluster.Name == importRequest.Name {
+		return "", nil
+	}
+	note := fmt.Sprintf("Applying to cluster '%s' (--cluster), not '%s' (metadata.name in the file).", cluster.Name, importRequest.Name)
+	importRequest.Name = cluster.Name
+	return note, nil
 }
 
 // loadImportCluster reads and validates an ImportCluster file into the
