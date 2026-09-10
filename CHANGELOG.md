@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.15.2 — 2026-09-10
+
+### Added
+
 - **`ankra cluster operations list --include-internal` shows the platform's own
   maintenance executions.** The default listing hides them, so a commit in the
   cluster repository authored by the Ankra Reconciler ("Sync cluster state from
@@ -12,6 +16,21 @@
   the terminal. The default stays unchanged.
 
 - **A Claude Design export becomes a deployable application in one command.** `ankra application import claude-design <path>` takes what you exported from claude.ai/design - a directory of `<Name>.dc.html` artboards with `canvas.json` and images, a zip of it, one artboard, or a saved canvas page - and has Ankra convert it into a static site, create a GitHub repository under your GitHub credential (`--credential`, `--owner`), commit it with a Dockerfile and register the application, so the setup pull request, build and deploy follow as for any other application. `--repository`, `--visibility` and `--source-url` shape the repository; `--wait` follows the analysis to the setup pull request; `-o json` returns the pages and any warnings. Artboards that depend on the Claude Design runtime are kept as authored and reported, and re-running the same import registers the same repository without a second commit. The lane ships behind the `claude_design_import` organisation feature flag: while it is off the command explains that and exits 3, so ask Ankra support to enable it for your organisation.
+
+### Fixed
+
+- **`ankra support attach` no longer refuses a valid image with
+  "Unsupported attachment type".** Every upload was rejected whatever the
+  file held, a verified PNG included: the platform admits a support
+  attachment on the multipart part's own `Content-Type` header, checked
+  against an allowlist of PNG, JPEG, WebP and GIF, and the client built that
+  part with `CreateFormFile`, which the Go standard library hardcodes to
+  `application/octet-stream`. The answer was HTTP 415. The part now carries
+  the type read off the file's own bytes, so PNG, JPEG, GIF and WebP
+  attachments are accepted. A file whose bytes the sniffer cannot place is
+  still sent with whatever they suggest, so the platform's own 415 and its
+  allowlist message reach you unchanged rather than a client-side copy of
+  the rule.
 
 ## v0.15.1 — 2026-09-09
 
