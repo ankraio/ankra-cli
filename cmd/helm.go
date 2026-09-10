@@ -632,11 +632,16 @@ Example:
 }
 
 var helmCredentialsGetCmd = &cobra.Command{
-	Use:   "get <name>",
+	Use:   "get <name-or-id>",
 	Short: "Get details of a Helm registry credential",
-	Args:  cobra.ExactArgs(1),
+	Long: `Show a Helm registry credential by its name or by the id
+'ankra helm credentials list' prints. The password is never returned.`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		credentialName := args[0]
+		credentialName, err := resolveHelmCredentialName(apiClient, args[0])
+		if err != nil {
+			return err
+		}
 
 		response, err := apiClient.GetHelmRegistryCredential(credentialName)
 		if err != nil {
@@ -658,16 +663,20 @@ var helmCredentialsGetCmd = &cobra.Command{
 }
 
 var helmCredentialsUpdateCmd = &cobra.Command{
-	Use:   "update <name>",
+	Use:   "update <name-or-id>",
 	Short: "Update a Helm registry credential",
-	Long: `Update a Helm registry credential's username and password.
+	Long: `Update a Helm registry credential's username and password, addressed by
+its name or by the id 'ankra helm credentials list' prints.
 The password will be prompted interactively.
 
 Example:
   ankra helm credentials update my-cred --username user`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		credentialName := args[0]
+		credentialName, err := resolveHelmCredentialName(apiClient, args[0])
+		if err != nil {
+			return err
+		}
 		username, _ := cmd.Flags().GetString("username")
 
 		passwordPrompt := promptui.Prompt{
@@ -698,11 +707,16 @@ Example:
 }
 
 var helmCredentialsDeleteCmd = &cobra.Command{
-	Use:   "delete <name>",
+	Use:   "delete <name-or-id>",
 	Short: "Delete a Helm registry credential",
-	Args:  cobra.ExactArgs(1),
+	Long: `Delete a Helm registry credential, addressed by its name or by the id
+'ankra helm credentials list' prints.`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		credentialName := args[0]
+		credentialName, err := resolveHelmCredentialName(apiClient, args[0])
+		if err != nil {
+			return err
+		}
 		force, _ := cmd.Flags().GetBool("force")
 
 		if !force {
