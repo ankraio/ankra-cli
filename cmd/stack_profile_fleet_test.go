@@ -275,3 +275,33 @@ spec:
 		t.Errorf("nothing should be applied: %+v", mock.applied)
 	}
 }
+
+func TestUnifiedDiffShowsATrailingNewlineOnlyChange(t *testing.T) {
+	got := unifiedDiff("from", "to", "a\nb", "a\nb\n")
+	want := "--- from\n+++ to\n@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+b\n"
+	if got != want {
+		t.Errorf("unifiedDiff =\n%s\nwant\n%s", got, want)
+	}
+	if got := unifiedDiff("from", "to", "a\nb", "a\nb"); got != "" {
+		t.Errorf("identical inputs without a trailing newline should produce no diff, got %q", got)
+	}
+}
+
+func TestStackProfilesDeploymentsWithoutCurrentVersion(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDeploymentsCmd)
+	mock := &stackProfileManageMock{payload: json.RawMessage(`{"result": [
+	  {"id": "i-1", "target_cluster_id": "11111111-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "hello-fleet", "stack_state": "up", "version": 1, "outdated": true}
+	]}`)}
+	output, executeError := runStackProfilesCommand(t, mock, "", "deployments", "profile-1")
+	if executeError != nil {
+		t.Fatalf("deployments failed: %v", executeError)
+	}
+	if strings.Contains(output, "v0") {
+		t.Errorf("a missing current_version must not be shown as v0:\n%s", output)
+	}
+	for _, want := range []string{"Current version unknown", "1 behind", "update available"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output lacks %q:\n%s", want, output)
+		}
+	}
+}

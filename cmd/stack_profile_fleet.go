@@ -52,11 +52,17 @@ func loadStackProfileDeployments(requestContext context.Context, profileID strin
 	return payload, &deployments, nil
 }
 
+// stackProfileDeploymentStatus reads the platform's own outdated flag; the
+// current version is quoted only when the payload carried one, so an older
+// platform that omits it never shows a defaulted "v0" as if measured.
 func stackProfileDeploymentStatus(deployment stackProfileDeployment, currentVersion int) string {
-	if deployment.Outdated {
-		return fmt.Sprintf("update available (v%d)", currentVersion)
+	if !deployment.Outdated {
+		return "up to date"
 	}
-	return "up to date"
+	if currentVersion <= 0 {
+		return "update available"
+	}
+	return fmt.Sprintf("update available (v%d)", currentVersion)
 }
 
 // renderStackProfileDeployments prints the fleet table: one row per stack
@@ -87,10 +93,17 @@ func renderStackProfileDeployments(out io.Writer, deployments *stackProfileDeplo
 	}
 	drift := "all up to date"
 	if behind > 0 {
-		drift = fmt.Sprintf("%d behind v%d", behind, deployments.CurrentVersion)
+		drift = fmt.Sprintf("%d behind", behind)
+		if deployments.CurrentVersion > 0 {
+			drift = fmt.Sprintf("%d behind v%d", behind, deployments.CurrentVersion)
+		}
 	}
-	_, _ = fmt.Fprintf(out, "Current version v%d  ·  %d %s across %d %s  ·  %s\n",
-		deployments.CurrentVersion,
+	currentVersion := "Current version unknown"
+	if deployments.CurrentVersion > 0 {
+		currentVersion = fmt.Sprintf("Current version v%d", deployments.CurrentVersion)
+	}
+	_, _ = fmt.Fprintf(out, "%s  ·  %d %s across %d %s  ·  %s\n",
+		currentVersion,
 		len(deployments.Result), pluralise(len(deployments.Result), "deployment", "deployments"),
 		len(clusters), pluralise(len(clusters), "cluster", "clusters"),
 		drift)

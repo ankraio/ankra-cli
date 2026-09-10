@@ -13,22 +13,59 @@ func unifiedDiff(fromLabel string, toLabel string, fromText string, toText strin
 	fromLines := splitDiffLines(fromText)
 	toLines := splitDiffLines(toText)
 	operations := diffOperations(fromLines, toLines)
+	fromEndsWithNewline := fromText == "" || strings.HasSuffix(fromText, "\n")
+	toEndsWithNewline := toText == "" || strings.HasSuffix(toText, "\n")
+	if fromEndsWithNewline != toEndsWithNewline && fromText != "" && toText != "" {
+		operations = markTrailingNewlineChange(operations)
+	}
 	hunks := groupDiffHunks(operations, 3)
 	if len(hunks) == 0 {
 		return ""
 	}
 	var builder strings.Builder
 	_, _ = fmt.Fprintf(&builder, "--- %s\n+++ %s\n", fromLabel, toLabel)
+	lastFrom, lastTo := len(fromLines)-1, len(toLines)-1
+	fromIndex, toIndex := 0, 0
 	for _, hunk := range hunks {
 		fromStart, fromCount, toStart, toCount := hunkRanges(operations, hunk)
 		_, _ = fmt.Fprintf(&builder, "@@ -%s +%s @@\n", formatHunkRange(fromStart, fromCount), formatHunkRange(toStart, toCount))
+		fromIndex, toIndex = fromStart-1, toStart-1
 		for _, operation := range operations[hunk.start:hunk.end] {
 			builder.WriteString(operation.kind)
 			builder.WriteString(operation.text)
 			builder.WriteString("\n")
+			switch operation.kind {
+			case " ":
+				fromIndex++
+				toIndex++
+			case "-":
+				fromIndex++
+			case "+":
+				toIndex++
+			}
+			// `diff -u` flags a last line that has no newline, so a change that
+			// is only the trailing newline is visible instead of vanishing.
+			atFromEnd := operation.kind != "+" && !fromEndsWithNewline && fromIndex-1 == lastFrom
+			atToEnd := operation.kind != "-" && !toEndsWithNewline && toIndex-1 == lastTo
+			if atFromEnd || atToEnd {
+				builder.WriteString(noNewlineMarker)
+			}
 		}
 	}
 	return builder.String()
+}
+
+const noNewlineMarker = "\\ No newline at end of file\n"
+
+// markTrailingNewlineChange turns the final unchanged line into a removal
+// plus an addition, which is how a newline-only difference is shown.
+func markTrailingNewlineChange(operations []diffOperation) []diffOperation {
+	last := len(operations) - 1
+	if last < 0 || operations[last].kind != " " {
+		return operations
+	}
+	text := operations[last].text
+	return append(append(operations[:last:last], diffOperation{"-", text}), diffOperation{"+", text})
 }
 
 type diffOperation struct {
