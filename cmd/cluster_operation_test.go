@@ -5,6 +5,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jedib0t/go-pretty/v6/text"
+
+	"ankra/internal/client"
 )
 
 func TestIsTerminalExecutionStatus(t *testing.T) {
@@ -28,6 +32,35 @@ func TestIsTerminalExecutionStatus(t *testing.T) {
 	for _, tc := range cases {
 		if got := isTerminalExecutionStatus(tc.status); got != tc.wantTerminal {
 			t.Errorf("isTerminalExecutionStatus(%q) = %v, want %v", tc.status, got, tc.wantTerminal)
+		}
+	}
+}
+
+func TestNormaliseAttentionFlag(t *testing.T) {
+	for _, value := range []string{"", "open", "Resolved", " open "} {
+		if _, err := normaliseAttentionFlag(value); err != nil {
+			t.Errorf("normaliseAttentionFlag(%q) = %v, want nil", value, err)
+		}
+	}
+	if _, err := normaliseAttentionFlag("dismissed"); err == nil {
+		t.Error("normaliseAttentionFlag(\"dismissed\") = nil, want an error")
+	}
+}
+
+func TestRenderAttention(t *testing.T) {
+	resolvedBy := "1471b248-b9e1-4106-aafd-d127fbad9e0b"
+	cases := []struct {
+		summary client.ExecutionSummary
+		want    string
+	}{
+		{client.ExecutionSummary{Status: "success"}, ""},
+		{client.ExecutionSummary{Status: "failed", AttentionState: "open"}, "open"},
+		{client.ExecutionSummary{Status: "failed", AttentionState: "resolved"}, "resolved"},
+		{client.ExecutionSummary{Status: "failed", AttentionState: "resolved", ResolvedByExecutionID: &resolvedBy}, "resolved by " + resolvedBy},
+	}
+	for _, testCase := range cases {
+		if got := text.StripEscape(renderAttention(testCase.summary)); got != testCase.want {
+			t.Errorf("renderAttention(%+v) = %q, want %q", testCase.summary, got, testCase.want)
 		}
 	}
 }

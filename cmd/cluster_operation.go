@@ -79,6 +79,11 @@ var clusterOperationsListCmd = &cobra.Command{
 
 		statusFlag, _ := cmd.Flags().GetStringSlice("status")
 		failedOnly, _ := cmd.Flags().GetBool("failed")
+		attentionFlag, _ := cmd.Flags().GetString("attention")
+		attentionState, err := normaliseAttentionFlag(attentionFlag)
+		if err != nil {
+			return err
+		}
 		includeInternal, _ := cmd.Flags().GetBool("include-internal")
 		limit, _ := cmd.Flags().GetInt("limit")
 		if limit <= 0 {
@@ -106,6 +111,7 @@ var clusterOperationsListCmd = &cobra.Command{
 			ClusterID:                 cluster.ID,
 			StatusList:                statusList,
 			IncludeInternalExecutions: includeInternal,
+			AttentionState:            attentionState,
 			Page:                      1,
 			PageSize:                  limit,
 		}
@@ -439,19 +445,49 @@ func printExecutionStepResults(detail client.ExecutionDetail, resultsByStep map[
 	}
 }
 
+// normaliseAttentionFlag validates --attention: "open" keeps the failures
+// that still need a person, "resolved" the ones a later run or the
+// resource's own recovery already cleared; empty lists everything.
+func normaliseAttentionFlag(value string) (string, error) {
+	normalised := strings.ToLower(strings.TrimSpace(value))
+	switch normalised {
+	case "", "open", "resolved":
+		return normalised, nil
+	}
+	return "", fmt.Errorf("--attention must be 'open' or 'resolved', got %q", value)
+}
+
+// renderAttention renders the derived attention state beside the status:
+// nothing for an execution that did not fail (or a platform predating the
+// field), "open" while a failure still needs a person, and "resolved"
+// naming the later execution that cleared it when there is one.
+func renderAttention(execution client.ExecutionSummary) string {
+	switch execution.AttentionState {
+	case "open":
+		return text.FgYellow.Sprint("open")
+	case "resolved":
+		if execution.ResolvedByExecutionID != nil && *execution.ResolvedByExecutionID != "" {
+			return text.FgGreen.Sprintf("resolved by %s", *execution.ResolvedByExecutionID)
+		}
+		return text.FgGreen.Sprint("resolved")
+	}
+	return ""
+}
+
 func renderExecutionsTable(executions []client.ExecutionSummary) {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{"ID", "Name", "Status", "Steps (✓/✗/⟳)", "Error", "Created At", "Updated At"})
+	t.AppendHeader(table.Row{"ID", "Name", "Status", "Attention", "Steps (✓/✗/⟳)", "Error", "Created At", "Updated At"})
 	t.SetColumnConfigs([]table.ColumnConfig{
 		{Number: 1, WidthMin: 30},
 		{Number: 2, WidthMin: 30},
 		{Number: 3, WidthMin: 12},
-		{Number: 4, WidthMin: 16},
-		{Number: 5, WidthMin: 30, WidthMax: 60},
-		{Number: 6, WidthMin: 20},
+		{Number: 4, WidthMin: 10},
+		{Number: 5, WidthMin: 16},
+		{Number: 6, WidthMin: 30, WidthMax: 60},
 		{Number: 7, WidthMin: 20},
+		{Number: 8, WidthMin: 20},
 	})
 
 	for _, execution := range executions {
@@ -468,6 +504,7 @@ func renderExecutionsTable(executions []client.ExecutionSummary) {
 			execution.ID,
 			execution.DisplayName,
 			renderColouredStatus(execution.Status),
+			renderAttention(execution),
 			summary,
 			errExcerpt,
 			formatOptionalTime(execution.CreatedAt),
@@ -524,6 +561,9 @@ func printExecutionDetail(detail client.ExecutionDetail) {
 	fmt.Printf("  Type: %s\n", detail.Execution.Type)
 	fmt.Printf("  Scope: %s\n", detail.Execution.Scope)
 	fmt.Printf("  Status: %s\n", renderColouredStatus(detail.Execution.Status))
+	if attention := renderAttention(detail.Execution); attention != "" {
+		fmt.Printf("  Attention: %s\n", attention)
+	}
 	if detail.Execution.ErrorExcerpt != nil && *detail.Execution.ErrorExcerpt != "" {
 		fmt.Printf("  Error: %s\n", *detail.Execution.ErrorExcerpt)
 	}
@@ -568,6 +608,7 @@ func truncateString(value string, maxLen int) string {
 func init() {
 	clusterOperationsListCmd.Flags().StringSlice("status", nil, "Filter by execution status (repeatable). Examples: failed, critical, running")
 	clusterOperationsListCmd.Flags().Bool("failed", false, "Shortcut for --status failed --status critical")
+	clusterOperationsListCmd.Flags().String("attention", "", "Keep only executions in this attention state: 'open' (a failure that still needs you) or 'resolved' (a later run or the resource's own recovery cleared it)")
 	clusterOperationsListCmd.Flags().Int("limit", defaultExecutionsPageSize, "Maximum number of executions to return (max 100)")
 	clusterOperationsListCmd.Flags().Bool("include-internal", false,
 		"Also list the platform's internal maintenance executions, such as the GitOps reconcile snapshot push, which the default listing hides")
