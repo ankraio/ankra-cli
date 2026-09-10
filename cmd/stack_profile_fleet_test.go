@@ -251,3 +251,27 @@ func TestStackProfilesRolloutSaysWhenNothingIsDeployed(t *testing.T) {
 		t.Errorf("output = %q", output)
 	}
 }
+
+func TestStackProfilesRolloutRefusesAFileReferenceInTheExport(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
+	mock := newRolloutMock()
+	mock.exportDocument = `apiVersion: v1
+kind: ImportCluster
+metadata:
+  name: hello-fleet
+spec:
+  stacks:
+  - name: hello-fleet
+    manifests:
+    - name: hello-namespace
+      from_file: namespace.yaml
+    addons: []
+`
+	_, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all")
+	if executeError == nil || !strings.Contains(executeError.Error(), "invalid ImportCluster in the exported profile version") {
+		t.Fatalf("a from_file in an export must fail loudly, got %v", executeError)
+	}
+	if len(mock.applied) != 0 {
+		t.Errorf("nothing should be applied: %+v", mock.applied)
+	}
+}

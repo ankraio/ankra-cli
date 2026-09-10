@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"sort"
@@ -507,7 +508,7 @@ which parameters a profile expects.`,
 			return encodeStructured(cmd.OutOrStdout(), format, result)
 		}
 
-		printApplyResult(result)
+		printApplyResult(os.Stdout, result)
 		return nil
 	},
 }
@@ -522,28 +523,28 @@ func instantiateProfileOnCluster(clusterID string, request client.InstantiateSta
 	return result, nil
 }
 
-func printApplyResult(result *client.InstantiateStackProfileResult) {
-	fmt.Printf("\nStack profile applied successfully!\n")
-	fmt.Printf("  Draft ID:    %s\n", result.DraftID)
-	fmt.Printf("  Stack Name:  %s\n", result.StackName)
-	fmt.Printf("  Version:     v%d\n", result.ProfileVersion)
-	fmt.Printf("  Addons:      %d\n", result.AddonsCount)
-	fmt.Printf("  Manifests:   %d\n", result.ManifestsCount)
+func printApplyResult(out io.Writer, result *client.InstantiateStackProfileResult) {
+	_, _ = fmt.Fprintf(out, "\nStack profile applied successfully!\n")
+	_, _ = fmt.Fprintf(out, "  Draft ID:    %s\n", result.DraftID)
+	_, _ = fmt.Fprintf(out, "  Stack Name:  %s\n", result.StackName)
+	_, _ = fmt.Fprintf(out, "  Version:     v%d\n", result.ProfileVersion)
+	_, _ = fmt.Fprintf(out, "  Addons:      %d\n", result.AddonsCount)
+	_, _ = fmt.Fprintf(out, "  Manifests:   %d\n", result.ManifestsCount)
 
 	if len(result.Warnings) > 0 {
-		fmt.Println("\nWarnings:")
+		_, _ = fmt.Fprintln(out, "\nWarnings:")
 		for _, warning := range result.Warnings {
-			fmt.Printf("  - %s\n", warning)
+			_, _ = fmt.Fprintf(out, "  - %s\n", warning)
 		}
 	}
 
 	if result.Deployed {
-		fmt.Printf("\nThe stack has been deployed. %d job(s) scheduled.\n", result.JobCount)
+		_, _ = fmt.Fprintf(out, "\nThe stack has been deployed. %d job(s) scheduled.\n", result.JobCount)
 		if result.OperationID != nil {
-			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+			_, _ = fmt.Fprintf(out, "  Operation ID: %s\n", *result.OperationID)
 		}
 	} else {
-		fmt.Printf("\nThe stack was created as a draft. Review and deploy it in the Ankra dashboard, or re-run with --deploy.\n")
+		_, _ = fmt.Fprintf(out, "\nThe stack was created as a draft. Review and deploy it in the Ankra dashboard, or re-run with --deploy.\n")
 	}
 }
 
@@ -561,6 +562,7 @@ type multiClusterApplyOutcome struct {
 // so one bad cluster does not stop the rest of the fleet. The exit status
 // reports any failure.
 func applyProfileToClusters(cmd *cobra.Command, format outputFormat, clusterFlags []string, request client.InstantiateStackProfileRequest) error {
+	out := cmd.OutOrStdout()
 	outcomes := make([]multiClusterApplyOutcome, 0, len(clusterFlags))
 	failed := 0
 	for _, clusterFlag := range clusterFlags {
@@ -570,7 +572,7 @@ func applyProfileToClusters(cmd *cobra.Command, format outputFormat, clusterFlag
 			outcome.Status, outcome.Error = "failed", resolveError.Error()
 		} else {
 			if format == outputDefault {
-				fmt.Printf("== %s\n", clusterFlag)
+				_, _ = fmt.Fprintf(out, "== %s\n", clusterFlag)
 			}
 			result, applyError := instantiateProfileOnCluster(clusterID, request)
 			switch {
@@ -582,14 +584,14 @@ func applyProfileToClusters(cmd *cobra.Command, format outputFormat, clusterFlag
 				outcome.Status, outcome.Result = "draft", result
 			}
 			if format == outputDefault && result != nil {
-				printApplyResult(result)
-				fmt.Println()
+				printApplyResult(out, result)
+				_, _ = fmt.Fprintln(out)
 			}
 		}
 		if outcome.Status == "failed" {
 			failed++
 			if format == outputDefault {
-				fmt.Printf("== %s\n  failed: %s\n\n", clusterFlag, outcome.Error)
+				_, _ = fmt.Fprintf(out, "== %s\n  failed: %s\n\n", clusterFlag, outcome.Error)
 			}
 		}
 		outcomes = append(outcomes, outcome)
@@ -604,7 +606,7 @@ func applyProfileToClusters(cmd *cobra.Command, format outputFormat, clusterFlag
 		return nil
 	}
 	summary := table.NewWriter()
-	summary.SetOutputMirror(os.Stdout)
+	summary.SetOutputMirror(out)
 	summary.SetStyle(table.StyleRounded)
 	summary.AppendHeader(table.Row{"CLUSTER", "STACK", "VERSION", "STATUS"})
 	for _, outcome := range outcomes {

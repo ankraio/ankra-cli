@@ -191,9 +191,11 @@ func TestStackProfilesApplyToSeveralClusters(t *testing.T) {
 	}}
 	setMockClient(t, mock)
 
-	stdout := captureStdout(t, func() {
-		_, _ = executeCommand("stack-profiles", "apply", "profile-1", "--cluster", testClusterUUID, "--cluster", second, "--deploy")
+	var stdout string
+	captured := captureStdout(t, func() {
+		stdout, _ = executeCommand("stack-profiles", "apply", "profile-1", "--cluster", testClusterUUID, "--cluster", second, "--deploy")
 	})
+	stdout += captured
 
 	if len(mock.instantiateClusterIDs) != 2 || mock.instantiateClusterIDs[0] != testClusterUUID || mock.instantiateClusterIDs[1] != second {
 		t.Fatalf("clusters applied = %v", mock.instantiateClusterIDs)
@@ -215,9 +217,11 @@ func TestStackProfilesApplyToSeveralClustersKeepsGoingPastAFailure(t *testing.T)
 	setMockClient(t, mock)
 
 	var executeError error
-	stdout := captureStdout(t, func() {
-		_, executeError = executeCommand("stack-profiles", "apply", "profile-1", "--cluster", testClusterUUID, "--cluster", second)
+	var stdout string
+	captured := captureStdout(t, func() {
+		stdout, executeError = executeCommand("stack-profiles", "apply", "profile-1", "--cluster", testClusterUUID, "--cluster", second)
 	})
+	stdout += captured
 
 	if executeError == nil {
 		t.Fatal("expected the command to report the failed cluster")

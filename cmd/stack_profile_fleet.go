@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 
@@ -151,6 +152,10 @@ type rolloutOutcome struct {
 func resolveClusterReference(nameOrID string) (string, string, error) {
 	const pageSize = 100
 	const maxPages = 50
+	// The same shape test resolveClusterID uses: a 36-character, four-dash
+	// value is tried as an id (exact match) and, failing that, still as a
+	// name, so a cluster whose name happens to look like a uuid stays
+	// reachable by name.
 	isID := len(nameOrID) == 36 && strings.Count(nameOrID, "-") == 4
 	for page := 1; page <= maxPages; page++ {
 		response, listError := apiClient.ListClusters(page, pageSize)
@@ -335,7 +340,16 @@ manifest and add-on deploys run in the background. Watch them with
 		if decodeError != nil {
 			return fmt.Errorf("decoding export: %w", decodeError)
 		}
-		base, buildError := buildImportRequestFromBytes(document, ".")
+		// An export embeds every manifest and values file, so it never
+		// references a file; parsing it against an empty directory turns a
+		// from_file that somehow appears into a loud failure instead of a
+		// read of whatever happens to sit in the operator's working directory.
+		emptyDirectory, temporaryError := os.MkdirTemp("", "ankra-rollout-")
+		if temporaryError != nil {
+			return fmt.Errorf("creating a scratch directory: %w", temporaryError)
+		}
+		defer func() { _ = os.RemoveAll(emptyDirectory) }()
+		base, buildError := buildImportRequestFromBytes(document, emptyDirectory)
 		if buildError != nil {
 			return fmt.Errorf("invalid ImportCluster in the exported profile version: %w", buildError)
 		}

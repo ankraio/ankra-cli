@@ -325,8 +325,11 @@ func renderProfileVersionContentDiff(cmd *cobra.Command, profileID string, fromV
 		return toError
 	}
 	var diffPayload profileVersionDiffPayload
-	if len(payload) > 0 {
-		_ = json.Unmarshal(payload, &diffPayload)
+	diffPayloadKnown := len(payload) > 0
+	if diffPayloadKnown {
+		if unmarshalError := json.Unmarshal(payload, &diffPayload); unmarshalError != nil {
+			diffPayloadKnown = false
+		}
 	}
 	out := cmd.OutOrStdout()
 	fromKeys := map[string]profileResource{}
@@ -379,7 +382,10 @@ func renderProfileVersionContentDiff(cmd *cobra.Command, profileID string, fromV
 	}
 	if changed == 0 {
 		_, _ = fmt.Fprintf(out, "No manifest or add-on values differ between v%d and v%d", fromVersion, toVersion)
-		if stackChanges > 0 {
+		switch {
+		case !diffPayloadKnown:
+			_, _ = fmt.Fprint(out, " (the platform's change list could not be read, so whether the stack's own settings changed is unknown; see 'ankra stack-profiles diff -o json')")
+		case stackChanges > 0:
 			_, _ = fmt.Fprint(out, " (the stack's own settings changed; compare them with 'ankra stack-profiles version')")
 		}
 		_, _ = fmt.Fprintln(out, ".")
