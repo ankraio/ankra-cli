@@ -551,22 +551,29 @@ func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, p
 			outcome.Status = "failed"
 			outcome.Message = applyError.Error()
 			failed++
-		case result.StackName != target.StackName:
+		case result.StackName != target.StackName && !result.Deployed && result.DraftID != "":
 			// A platform that predates upgrade_existing ignores the flag, so
-			// the ordinary lane runs: the taken name is resolved to a renamed
-			// draft. A supporting platform never renames on this lane (the
-			// name is pinned), so a changed name is the legacy signature. The
-			// draft it just created is removed again, and the remaining
-			// targets are skipped rather than littered the same way.
+			// the ordinary lane runs: the taken name is resolved to a renamed,
+			// undeployed draft. A supporting platform pins the name on this
+			// lane and answers 404/409 rather than renaming, so a renamed
+			// draft is the legacy signature. Only that draft - never a
+			// deployed stack - is removed again, and the remaining targets
+			// are skipped rather than littered the same way.
 			outcome.Status = "failed"
 			cleanup := "that draft was removed again"
 			if _, deleteError := apiClient.DeleteStack(context.Background(), target.ClusterID, result.StackName); deleteError != nil {
 				cleanup = fmt.Sprintf("removing that draft failed (%s), delete it with 'ankra cluster stacks delete %s --cluster %s'", deleteError.Error(), result.StackName, target.ClusterName)
 			}
-			outcome.Message = fmt.Sprintf("the platform did not update '%s' in place: it created '%s' instead, so it predates in-place upgrades; %s. Roll out with --via-apply",
+			outcome.Message = fmt.Sprintf("the platform did not update '%s' in place: it created draft '%s' instead, so it predates in-place upgrades; %s. Roll out with --via-apply",
 				target.StackName, result.StackName, cleanup)
 			failed++
 			legacyPlatform = true
+		case result.StackName != target.StackName:
+			// Not the legacy shape (deployed, or no draft): reported, never
+			// deleted, since the answer names something that may be live.
+			outcome.Status = "failed"
+			outcome.Message = fmt.Sprintf("the platform answered with stack '%s' instead of updating '%s' in place; nothing was removed - check the cluster before retrying", result.StackName, target.StackName)
+			failed++
 		case !result.Deployed:
 			// Not expected from a supporting platform (an upgrade is its own
 			// deploy); reported as what it is rather than as a legacy answer.

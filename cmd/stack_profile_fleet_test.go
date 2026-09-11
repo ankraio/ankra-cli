@@ -37,6 +37,7 @@ type rolloutMock struct {
 	upgraded        []client.InstantiateStackProfileRequest
 	upgradeClusters []string
 	legacyServer    bool
+	legacyDeployed  bool
 	deletedStacks   []string
 }
 
@@ -58,7 +59,7 @@ func (mock *rolloutMock) InstantiateStackProfile(ctx context.Context, clusterID 
 		return nil, errors.New("cluster is offline")
 	}
 	if mock.legacyServer {
-		return &client.InstantiateStackProfileResult{DraftID: "draft-9", StackName: request.NewStackName + "-copy", ProfileVersion: 2}, nil
+		return &client.InstantiateStackProfileResult{DraftID: "draft-9", StackName: request.NewStackName + "-copy", ProfileVersion: 2, Deployed: mock.legacyDeployed}, nil
 	}
 	operationID := "op-" + clusterID[:8]
 	return &client.InstantiateStackProfileResult{StackName: request.NewStackName, ProfileVersion: 2, Deployed: true, OperationID: &operationID, JobCount: 4, ManifestsCount: 4}, nil
@@ -428,6 +429,23 @@ func TestMergeParameterBindingsLastValueWins(t *testing.T) {
 		if got[index] != want[index] {
 			t.Errorf("binding %d = %+v, want %+v", index, got[index], want[index])
 		}
+	}
+}
+
+func TestStackProfilesRolloutInPlaceNeverDeletesADeployedRename(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
+	mock := newRolloutMock()
+	mock.legacyServer = true
+	mock.legacyDeployed = true
+	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all")
+	if executeError == nil {
+		t.Fatal("a renamed answer must be reported as a failure")
+	}
+	if len(mock.deletedStacks) != 0 {
+		t.Errorf("a deployed stack must never be deleted on a rename: %v", mock.deletedStacks)
+	}
+	if !strings.Contains(output, "nothing was removed") {
+		t.Errorf("output = %s", output)
 	}
 }
 
