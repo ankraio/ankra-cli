@@ -368,21 +368,146 @@ func TestPipelineLogsConcludedStepCappedReadIsNotAbsence(t *testing.T) {
 	}
 }
 
-func TestPipelineLogsConcludedStepStillArchiving(t *testing.T) {
-	stepID := "step-1"
+// shortenPipelineStepLogArchiveWait makes the archive wait's poll interval
+// and its bound testable: the production values are two seconds and a
+// minute. Like the helpers above it writes package-level vars, so a test that
+// calls it must not call t.Parallel.
+func shortenPipelineStepLogArchiveWait(t *testing.T, bound time.Duration) {
+	t.Helper()
+	previousInterval, previousBound := pipelineStepLogArchivePollInterval, pipelineStepLogArchiveWaitBound
+	pipelineStepLogArchivePollInterval = time.Millisecond
+	pipelineStepLogArchiveWaitBound = bound
+	t.Cleanup(func() {
+		pipelineStepLogArchivePollInterval = previousInterval
+		pipelineStepLogArchiveWaitBound = previousBound
+	})
+}
+
+// shortenPipelineLiveTailStatusCheck makes the live tail's quiet-stretch
+// status check testable without holding a test open for five seconds. Like
+// the helpers above it writes a package-level var.
+func shortenPipelineLiveTailStatusCheck(t *testing.T) {
+	t.Helper()
+	previous := pipelineLiveTailStatusCheckInterval
+	pipelineLiveTailStatusCheckInterval = 10 * time.Millisecond
+	t.Cleanup(func() { pipelineLiveTailStatusCheckInterval = previous })
+}
+
+// pendingStepLog is a step_log row whose upload the platform has not
+// confirmed yet.
+func pendingStepLog(stepID string) client.PipelineArtifact {
+	return client.PipelineArtifact{ID: "artifact-1", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+		Status: client.PipelineArtifactStatusPending}
+}
+
+// TestPipelineLogsWaitsForAnArchivingLogToFinishUploading pins the ordinary
+// case: asked a moment after the step concluded, the command waits for the
+// upload the agent already started and prints the archived log, rather than
+// exiting 0 with nothing printed.
+func TestPipelineLogsWaitsForAnArchivingLogToFinishUploading(t *testing.T) {
+	shortenPipelineStepLogArchiveWait(t, time.Second)
+	uploaded := pendingStepLog("step-1")
+	uploaded.Status = client.PipelineArtifactStatusUploaded
 	mockClient := &pipelineLaneMock{
-		getResult: &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStep()}},
-		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{
-			{ID: "artifact-1", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
-				Status: client.PipelineArtifactStatusPending},
-		}},
+		getResult: &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
+		artifactsPages: []client.PipelineArtifactList{
+			{Artifacts: []client.PipelineArtifact{pendingStepLog("step-1")}},
+			{Artifacts: []client.PipelineArtifact{pendingStepLog("step-1")}},
+			{Artifacts: []client.PipelineArtifact{uploaded}},
+		},
+		downloadPayload: "archived output\n",
 	}
 	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1", "--application", testApplicationID, "--step", "checkout")
 	if executeError != nil {
 		t.Fatalf("logs error = %v", executeError)
 	}
+	if !strings.Contains(output, "archived output") {
+		t.Errorf("output = %q, want the archived log once it uploaded", output)
+	}
+	if mockClient.downloadArtifactID != "artifact-1" {
+		t.Errorf("downloaded %q, want the archived log", mockClient.downloadArtifactID)
+	}
+	if len(mockClient.streamOptions) != 0 {
+		t.Errorf("stream calls = %d, want the archive read rather than the retained stream", len(mockClient.streamOptions))
+	}
+}
+
+// TestPipelineLogsArchivingLogThatNeverSettlesReplaysTheRetainedStream pins
+// the bound: an upload the platform does not confirm within it does not hold
+// the command open - the step's output is replayed from the platform's
+// retained log stream instead.
+func TestPipelineLogsArchivingLogThatNeverSettlesReplaysTheRetainedStream(t *testing.T) {
+	shortenPipelineStepLogArchiveWait(t, 20*time.Millisecond)
+	mockClient := &pipelineLaneMock{
+		getResult:       &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{pendingStepLog("step-1")}},
+		streamEvents:    []client.PipelineLogEvent{{Type: "line", Stream: "stdout", Line: "replayed output", Seq: 1}},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1", "--application", testApplicationID, "--step", "checkout")
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if !strings.Contains(output, "[stdout] replayed output") {
+		t.Errorf("output = %q, want the retained stream's replay", output)
+	}
 	if !strings.Contains(output, "still being archived") {
-		t.Errorf("output = %q", output)
+		t.Errorf("output = %q, want it to say why the archive was not read", output)
+	}
+	if len(mockClient.streamOptions) != 1 || mockClient.streamOptions[0].IsFollowing == nil ||
+		*mockClient.streamOptions[0].IsFollowing {
+		t.Errorf("stream options = %+v, want one follow=false replay", mockClient.streamOptions)
+	}
+}
+
+// TestPipelineLogsConcludedStepStillArchivingExitsFive pins the one case with
+// no copy to read: the archive never settled and the step has no retained
+// stream to replay. That exits 5 - a wait that ran out - so a caller can retry
+// deliberately instead of reading exit 0 as a log that printed.
+func TestPipelineLogsConcludedStepStillArchivingExitsFive(t *testing.T) {
+	shortenPipelineStepLogArchiveWait(t, 20*time.Millisecond)
+	mockClient := &pipelineLaneMock{
+		getResult:       &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStep()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{pendingStepLog("step-1")}},
+	}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1", "--application", testApplicationID, "--step", "checkout")
+	if exitCodeFor(executeError) != exitWaitTimeout {
+		t.Fatalf("exit code = %d, want %d (error %v)", exitCodeFor(executeError), exitWaitTimeout, executeError)
+	}
+	if !strings.Contains(executeError.Error(), "still being archived") {
+		t.Errorf("error = %q", executeError.Error())
+	}
+}
+
+// TestPipelineLogsLiveTailStopsWhenTheStepConcludes pins the hang the relay
+// leaves to its client: a connection opened on a running step is held open
+// on keepalives after the step concludes, so the tail has to notice the
+// conclusion itself rather than wait for an end that never comes. The mock
+// stream here never ends on its own, exactly like that connection.
+func TestPipelineLogsLiveTailStopsWhenTheStepConcludes(t *testing.T) {
+	shortenPipelineLiveTailStatusCheck(t)
+	concluded := runningStepThatStarted()
+	concluded.Status = pipelineStepStatusConcluded
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", runningStepThatStarted()),
+			runDetailWithStep("running", runningStepThatStarted()),
+			runDetailWithStep("concluded", concluded),
+		},
+		streamEvents:    []client.PipelineLogEvent{{Type: "line", Stream: "stdout", Line: "last line", Seq: 4}},
+		streamNeverEnds: true,
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1", "--application", testApplicationID, "--step", "checkout")
+	if executeError != nil {
+		t.Fatalf("logs error = %v", executeError)
+	}
+	if !strings.Contains(output, "[stdout] last line") {
+		t.Errorf("output = %q, want the streamed line", output)
+	}
+	if !strings.Contains(output, "the step has concluded") {
+		t.Errorf("output = %q, want the tail to end on the conclusion", output)
+	}
+	if len(mockClient.streamOptions) != 1 {
+		t.Errorf("stream calls = %d, want the one connection ended rather than reconnected", len(mockClient.streamOptions))
 	}
 }
 

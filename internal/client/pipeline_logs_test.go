@@ -8,10 +8,50 @@ import (
 	"testing"
 )
 
-// TestStreamPipelineStepLogsDecodesOutputLines pins the frame decode: only
-// "task_output" events become Type=="line" events, everything else on the
-// wire (a differently-shaped agent event, in particular) is dropped rather
-// than surfaced as a log line.
+// TestStreamPipelineStepLogsDecodesTheDedicatedSubjectsLines pins the frame
+// shape the dedicated pipeline_output subject carries: the agent writes
+// {"stream","line"} with no event_type, and the relay adds only "seq". Those
+// are the lines of every step an up-to-date agent runs, so dropping them for
+// lacking a task_output event_type left `pipeline logs` printing nothing. A
+// blank line is still a line; a frame with neither a line nor an event_type
+// is not.
+func TestStreamPipelineStepLogsDecodesTheDedicatedSubjectsLines(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		_, _ = fmt.Fprint(w, "data: {\"stream\":\"stdout\",\"line\":\"compiling\",\"seq\":7}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"stream\":\"stdout\",\"line\":\"\",\"seq\":8}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"seq\":9}\n\n")
+		flusher.Flush()
+	})
+
+	events, streamError := testClient.StreamPipelineStepLogs(context.Background(),
+		PipelineSelector{ApplicationID: "app-1"}, "run-1", "step-1", StepLogStreamOptions{})
+	if streamError != nil {
+		t.Fatalf("StreamPipelineStepLogs error = %v", streamError)
+	}
+
+	var lines []PipelineLogEvent
+	for event := range events {
+		lines = append(lines, event)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("events = %+v, want the two line frames and not the frame carrying neither", lines)
+	}
+	if lines[0].Type != "line" || lines[0].Line != "compiling" || lines[0].Stream != "stdout" || lines[0].Seq != 7 {
+		t.Errorf("first event = %+v", lines[0])
+	}
+	if lines[1].Type != "line" || lines[1].Line != "" || lines[1].Seq != 8 {
+		t.Errorf("second event = %+v, want the blank line kept", lines[1])
+	}
+}
+
+// TestStreamPipelineStepLogsDecodesOutputLines pins the shared
+// execution_output subject's decode: only "task_output" events become
+// Type=="line" events, and the scheduler's other events there (a
+// differently-shaped agent event, in particular) are dropped rather than
+// surfaced as log lines.
 func TestStreamPipelineStepLogsDecodesOutputLines(t *testing.T) {
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/org/applications/app-1/pipeline-runs/run-1/steps/step-1/logs" {

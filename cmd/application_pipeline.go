@@ -75,17 +75,23 @@ func newApplicationPipelineListCommand() *cobra.Command {
 
 func newApplicationPipelineGetCommand() *cobra.Command {
 	getCommand := &cobra.Command{
-		Use:   "get <application-id> <run>",
-		Short: "Show a pipeline run's detail",
-		Args:  cobra.ExactArgs(2),
+		Use:   "get <application-id> [run]",
+		Short: "Show a pipeline run's detail, or wait on or watch it",
+		Long:  pipelineGetLongHelp,
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			applicationID, resolveError := resolveApplicationArgument(command, arguments)
 			if resolveError != nil {
 				return resolveError
 			}
-			return runPipelineGet(command, client.PipelineSelector{ApplicationID: applicationID}, arguments[1])
+			runID := ""
+			if len(arguments) == 2 {
+				runID = arguments[1]
+			}
+			return runPipelineGet(command, client.PipelineSelector{ApplicationID: applicationID}, runID)
 		},
 	}
+	registerPipelineGetFlags(getCommand)
 	registerStructuredOutputFlags(getCommand)
 	return getCommand
 }
@@ -121,8 +127,7 @@ func newApplicationPipelineRerunCommand() *cobra.Command {
 			return runPipelineRerun(command, client.PipelineSelector{ApplicationID: applicationID}, arguments[1])
 		},
 	}
-	rerunCommand.Flags().Bool("failed-only", false, "Re-run only the steps that did not succeed, and whatever depends on them")
-	rerunCommand.Flags().Bool("wait", false, "Wait for the new run to conclude before returning")
+	registerPipelineRerunFlags(rerunCommand)
 	registerStructuredOutputFlags(rerunCommand)
 	return rerunCommand
 }

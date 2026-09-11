@@ -2,8 +2,47 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra pipeline get` waits on, and watches, runs you did not dispatch.**
+  `run --wait` and `rerun --wait` only ever waited on the run they had just
+  started, but most runs are started by a push or pull request webhook.
+  `get <run> --wait` now blocks until any run concludes and prints its final
+  detail, and `get --watch` prints each run and step state change as it
+  happens until the run concludes - with `-o json`, one JSON object per line,
+  so an agent can react the moment a step fails instead of polling
+  `pipeline list` in a loop of its own.
+- **A run can be picked by what you know about it instead of its id.**
+  `ankra pipeline get --head-sha <sha> --trigger pull_request --latest` takes
+  the newest matching run (`--branch` narrows it too, and `--latest` on its
+  own is the pipeline's newest run); several matches without `--latest` are
+  listed rather than guessed between. Under `--wait` or `--watch` a run that
+  has not appeared yet is waited for, since the webhook that creates it can
+  land a moment after a CI job asks.
+- **`pipeline get --exit-code`, and `--timeout` on every wait.** `--exit-code`
+  exits 1 when the run concluded without succeeding and 5 while it has not
+  concluded, so a script can branch on the exit status instead of parsing
+  `outcome`; `--wait` and `--watch` behave the same way. A plain `get` still
+  exits 0 whatever the outcome. `--timeout` on `get`, `run` and `rerun`
+  bounds a wait and exits 5 when it runs out, and a wait now rides out about a
+  minute of the platform being unreachable instead of reporting one failed
+  read the way it reports a failed run.
+
 ### Fixed
 
+- **`pipeline logs` prints the output of steps a current agent ran.** The
+  agent writes each line to the dedicated pipeline log stream without the
+  event type the CLI filtered on, so a live tail or a replayed log printed
+  nothing at all for those steps.
+- **`pipeline logs` on a running step stops once the step concludes.** The
+  platform holds a live log connection open after its step ends, and the
+  command waited on it indefinitely; it now notices the conclusion itself.
+- **`pipeline logs` on a step whose log is still being archived waits for it
+  instead of exiting 0 with no log.** It waits up to a minute for the upload,
+  then replays the platform's retained log stream, and exits 5 only when
+  neither copy can be read.
+- **`pipeline run --wait -o json` and `rerun --wait -o json` exit non-zero
+  when the run did not succeed**, as the human-readable form always did.
 - **Every cluster-scoped command now takes the cluster's name as well as its
   id.** The three `ankra cluster playground` verbs learned this in #239, but
   they were the only group: the other 103 commands - `cluster` bastion,

@@ -27,6 +27,14 @@ type pipelineLaneMock struct {
 	listOptions client.ListPipelineRunsOptions
 	listResult  *client.PipelineRunList
 	listError   error
+	listCalls   int
+	// listResults, when set, is served one entry per call in order and takes
+	// precedence over listResult, so a test can stage a run that appears
+	// between polls. The last entry answers every call after it.
+	listResults []client.PipelineRunList
+	// listErrorsOnCall fails the numbered ListPipelineRuns calls (counting
+	// from one) with the given error.
+	listErrorsOnCall map[int]error
 
 	createRequest client.CreatePipelineRunRequest
 	createResult  *client.CreatePipelineRunResult
@@ -42,6 +50,10 @@ type pipelineLaneMock struct {
 	// between polls. The last entry answers every call after it, the way a
 	// run that has settled keeps answering the same detail.
 	getResults []client.PipelineRunDetail
+	// getErrorsOnCall fails the numbered GetPipelineRun calls (counting from
+	// one) with the given error, so a test can stage a read that fails
+	// partway through a wait and then recovers.
+	getErrorsOnCall map[int]error
 
 	cancelRunID  string
 	cancelResult *client.PipelineRun
@@ -127,8 +139,20 @@ type pipelineLaneMock struct {
 func (mock *pipelineLaneMock) ListPipelineRuns(ctx context.Context, selector client.PipelineSelector, options client.ListPipelineRunsOptions) (*client.PipelineRunList, error) {
 	mock.lastSelector = selector
 	mock.listOptions = options
+	mock.listCalls++
 	if mock.listError != nil {
 		return nil, mock.listError
+	}
+	if failure, isFailing := mock.listErrorsOnCall[mock.listCalls]; isFailing {
+		return nil, failure
+	}
+	if mock.listResults != nil {
+		index := mock.listCalls - 1
+		if index >= len(mock.listResults) {
+			index = len(mock.listResults) - 1
+		}
+		page := mock.listResults[index]
+		return &page, nil
 	}
 	return mock.listResult, nil
 }
@@ -149,6 +173,9 @@ func (mock *pipelineLaneMock) GetPipelineRun(ctx context.Context, selector clien
 	mock.getCalls++
 	if mock.getError != nil {
 		return nil, mock.getError
+	}
+	if failure, isFailing := mock.getErrorsOnCall[mock.getCalls]; isFailing {
+		return nil, failure
 	}
 	if mock.getResults != nil {
 		index := mock.getCalls - 1

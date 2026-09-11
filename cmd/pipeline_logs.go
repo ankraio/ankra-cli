@@ -133,6 +133,36 @@ const pipelineArtifactPageBudget = 50
 // so the tests can shorten it; nothing else writes it.
 var pipelineLogReplayIdleTimeout = 15 * time.Second
 
+// pipelineStepLogArchiveWaitBound is how long `logs` waits for a concluded
+// step's archived log to finish uploading. The agent uploads the log as the
+// step concludes and the platform confirms it moments later, so a caller
+// asking right as a step ends is usually a few seconds early - which used to
+// answer "still being archived - try again shortly" and exit 0 with no log,
+// a result a script could not tell apart from a log that printed. A minute
+// covers the ordinary upload; past it the command replays the platform's
+// retained log stream instead, or - when there is none to read - exits 5 so
+// a caller can retry deliberately. It is a var only so the tests can shorten
+// it; nothing else writes it.
+var pipelineStepLogArchiveWaitBound = time.Minute
+
+// pipelineStepLogArchivePollInterval is how often that wait re-reads the
+// run's artifacts. It is a var only so the tests can shorten it; nothing else
+// writes it.
+var pipelineStepLogArchivePollInterval = 2 * time.Second
+
+// pipelineLiveTailStatusCheckInterval is how long a live tail may go without
+// a line before it re-reads the step it is tailing. The relay decides once,
+// at connect time, whether a connection ends, and one opened on a running
+// step never does: it is held open on keepalives after the step concludes,
+// until the client hangs up (go/internal/pipelineapi/streams.go
+// planStepLogDelivery). So the tail has to notice the end itself, and a
+// quiet stretch is when to look: while lines arrive the step is plainly
+// still running, and by the time a concluded step has been silent this long
+// the lines its agent drained before reporting the conclusion have long
+// since been relayed. It is a var only so the tests can shorten it; nothing
+// else writes it.
+var pipelineLiveTailStatusCheckInterval = 5 * time.Second
+
 func newPipelineLogsCommand() *cobra.Command {
 	logsCommand := &cobra.Command{
 		Use:   "logs <run>",
@@ -143,7 +173,10 @@ A step that has already concluded prints its complete log in one shot -
 --follow does nothing extra for it, since there is nothing left to produce.
 Its archived log is read when the run has one; archiving needs a ready backup
 vault, and when there is none the command replays the step's output from the
-platform's retained log stream instead and stops when that runs out.
+platform's retained log stream instead and stops when that runs out. A log
+still being archived - asked for the moment its step ended - is waited for,
+for up to a minute, before the command falls back to that replay; it exits 5
+only when neither copy can be read.
 
 A step that is still running is followed over the live log stream: without
 --follow, the command tails the step until it concludes and then stops; with
@@ -236,6 +269,11 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 // in a pre-dispatch state. The relay answers both the same 404 it answers a
 // step that never ran, so under --follow that is a step to pick up again
 // rather than a live tail to report as failed.
+//
+// Each connection is read by consumePipelineLiveTail, which also ends it once
+// the attempt stops running: the relay never ends a live connection itself
+// when its step concludes, and a tail that waited for that end held the
+// command open indefinitely.
 func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.PipelineSelector, runID string,
 	step client.PipelineStep, follow bool) (client.PipelineStep, bool, error) {
 	// Only an explicit --replay reaches the wire: the flag's own default is
@@ -249,14 +287,15 @@ func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.Pipel
 		streamOptions.IsReplaying = &isReplaying
 	}
 
-	out := command.OutOrStdout()
 	progress := command.ErrOrStderr()
 	var lastSeq int64
 	for {
 		streamOptions.FromSequence = lastSeq
-		events, streamError := apiClient.StreamPipelineStepLogs(command.Context(), selector, runID, step.ID,
+		streamContext, cancelStream := context.WithCancel(command.Context())
+		events, streamError := apiClient.StreamPipelineStepLogs(streamContext, selector, runID, step.ID,
 			streamOptions)
 		if streamError != nil {
+			cancelStream()
 			var unavailable *client.PipelineLogStreamUnavailableError
 			if errors.As(streamError, &unavailable) && follow {
 				// A 503 that carries no Retry-After, or a zero one, must not
@@ -281,11 +320,9 @@ func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.Pipel
 			return client.PipelineStep{}, false, streamError
 		}
 
-		for event := range events {
-			printPipelineLogEvent(out, progress, event)
-			if event.Type == "line" {
-				lastSeq = event.Seq
-			}
+		consumePipelineLiveTail(command, selector, runID, step, events, &lastSeq)
+		cancelStream()
+		for range events {
 		}
 
 		refreshed, _, statusError := readPipelineStep(command, selector, runID, step.StepKey)
@@ -564,6 +601,68 @@ func newestPipelineStepAttempt(steps []client.PipelineStep, stepKey string) (cli
 	return newest, wasFound
 }
 
+// consumePipelineLiveTail prints one live connection's frames until the relay
+// ends it, or until a quiet stretch shows that the attempt being tailed has
+// stopped running - concluded, superseded by a retry, or back to waiting -
+// since the relay never ends a live connection itself when its step
+// concludes (see pipelineLiveTailStatusCheckInterval). lastSequence tracks
+// the newest line printed, for a reconnect to resume after.
+//
+// A status read that fails does not end the tail: not knowing whether the
+// step is still running is no reason to stop printing what it produces, and
+// the next quiet stretch asks again.
+func consumePipelineLiveTail(command *cobra.Command, selector client.PipelineSelector, runID string,
+	step client.PipelineStep, events <-chan client.PipelineLogEvent, lastSequence *int64) {
+	out := command.OutOrStdout()
+	progress := command.ErrOrStderr()
+	quietTimer := time.NewTimer(pipelineLiveTailStatusCheckInterval)
+	defer quietTimer.Stop()
+	for {
+		select {
+		case event, isStreamOpen := <-events:
+			if !isStreamOpen {
+				return
+			}
+			printPipelineLogEvent(out, progress, event)
+			if event.Type == "line" {
+				*lastSequence = event.Seq
+			}
+			quietTimer.Reset(pipelineLiveTailStatusCheckInterval)
+		case <-quietTimer.C:
+			refreshed, _, readError := readPipelineStep(command, selector, runID, step.StepKey)
+			if readError == nil && (refreshed.ID != step.ID || refreshed.Status != pipelineStepStatusRunning) {
+				return
+			}
+			quietTimer.Reset(pipelineLiveTailStatusCheckInterval)
+		}
+	}
+}
+
+// waitForPipelineStepLogArchive re-reads the run's artifacts until the step's
+// archived log is no longer pending or pipelineStepLogArchiveWaitBound runs
+// out, and answers the newest step_log row it last saw - still pending when
+// the bound ran out - with findPipelineStepLogArtifact's own wasFullyRead.
+func waitForPipelineStepLogArchive(command *cobra.Command, selector client.PipelineSelector, runID string,
+	step client.PipelineStep) (*client.PipelineArtifact, bool, error) {
+	_, _ = fmt.Fprintf(command.ErrOrStderr(),
+		"Step %q has concluded; waiting up to %s for its log to finish archiving.\n",
+		step.StepKey, pipelineStepLogArchiveWaitBound)
+	deadline := time.Now().Add(pipelineStepLogArchiveWaitBound)
+	for {
+		if sleepError := sleepInterrupted(command.Context(), pipelineStepLogArchivePollInterval); sleepError != nil {
+			return nil, false, sleepError
+		}
+		logArtifact, wasFullyRead, findError := findPipelineStepLogArtifact(command, selector, runID, step.ID)
+		if findError != nil {
+			return nil, false, findError
+		}
+		if logArtifact == nil || logArtifact.Status != client.PipelineArtifactStatusPending ||
+			!time.Now().Before(deadline) {
+			return logArtifact, wasFullyRead, nil
+		}
+	}
+}
+
 // runPipelineLogsFromArchive prints a concluded step's complete log, from
 // its durable step_log artifact where the run has one. Mirrors the portal's
 // usePipelineStepArtifactLog: find the run's step_log artifact for this step,
@@ -572,7 +671,9 @@ func newestPipelineStepAttempt(steps []client.PipelineStep, stepKey string) (cli
 // must not collapse into "no log". A run with no step_log at all, or one
 // whose object the download cannot find, falls through to the platform's
 // retained log stream instead of reporting the step as having printed
-// nothing.
+// nothing. A step_log still pending is waited for first
+// (waitForPipelineStepLogArchive), and one that stays pending past that bound
+// falls through to the retained stream the same way.
 func runPipelineLogsFromArchive(command *cobra.Command, selector client.PipelineSelector, runID string,
 	step client.PipelineStep) error {
 	out := command.OutOrStdout()
@@ -581,6 +682,12 @@ func runPipelineLogsFromArchive(command *cobra.Command, selector client.Pipeline
 	logArtifact, wasFullyRead, findError := findPipelineStepLogArtifact(command, selector, runID, step.ID)
 	if findError != nil {
 		return findError
+	}
+	if logArtifact != nil && logArtifact.Status == client.PipelineArtifactStatusPending {
+		logArtifact, wasFullyRead, findError = waitForPipelineStepLogArchive(command, selector, runID, step)
+		if findError != nil {
+			return findError
+		}
 	}
 	if logArtifact == nil {
 		if !wasFullyRead {
@@ -635,9 +742,17 @@ func runPipelineLogsFromArchive(command *cobra.Command, selector client.Pipeline
 		}
 		return downloadError
 	case client.PipelineArtifactStatusPending:
-		_, _ = fmt.Fprintf(progress,
-			"Step %q has concluded; its log is still being archived - try again shortly.\n", step.StepKey)
-		return nil
+		// Still pending past waitForPipelineStepLogArchive's bound: the upload
+		// was never confirmed, so the retained stream is the copy left to read.
+		if pipelineStepHasLogStream(step) {
+			_, _ = fmt.Fprintf(progress,
+				"Step %q's log is still being archived after %s; replaying the platform's retained log stream instead.\n",
+				step.StepKey, pipelineStepLogArchiveWaitBound)
+			return runPipelineLogsFromRetainedStream(command, selector, runID, step)
+		}
+		return withExitCode(exitWaitTimeout, fmt.Errorf(
+			"step %q has concluded, but its log is still being archived after %s and there is no retained "+
+				"log stream to read instead - run the command again shortly", step.StepKey, pipelineStepLogArchiveWaitBound))
 	case client.PipelineArtifactStatusFailed:
 		detail := logArtifact.ErrorMessage
 		if detail == "" {
