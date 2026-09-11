@@ -86,6 +86,7 @@ func newApplicationPipelineGetCommand() *cobra.Command {
 			return runPipelineGet(command, client.PipelineSelector{ApplicationID: applicationID}, arguments[1])
 		},
 	}
+	registerPipelineGetFlags(getCommand)
 	registerStructuredOutputFlags(getCommand)
 	return getCommand
 }
@@ -122,7 +123,7 @@ func newApplicationPipelineRerunCommand() *cobra.Command {
 		},
 	}
 	rerunCommand.Flags().Bool("failed-only", false, "Re-run only the steps that did not succeed, and whatever depends on them")
-	rerunCommand.Flags().Bool("wait", false, "Wait for the new run to conclude before returning")
+	registerPipelineWaitFlags(rerunCommand, "Wait for the new run to conclude before returning")
 	registerStructuredOutputFlags(rerunCommand)
 	return rerunCommand
 }

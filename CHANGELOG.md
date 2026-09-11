@@ -2,7 +2,38 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra pipeline get --wait` waits for a run you did not dispatch.** `run
+  --wait` and `rerun --wait` can only block on a run they started themselves,
+  and every push and pull_request run is started by the webhook instead - so
+  the one run a CI script most wants to wait for was the one nothing could
+  wait for, and consumers were writing their own poll loops around `pipeline
+  list`. `get --wait` blocks until the run concludes, announces each status
+  change on stderr, prints the final detail, and reports the outcome through
+  the exit code. Available on `ankra application pipeline get` too.
+- **`--timeout` bounds any `--wait` on the pipeline lane** (`get`, `run`,
+  `rerun`). It defaults to no limit, which is the contract `run --wait`
+  already had - a caller who wants to give up presses Ctrl+C - and an expired
+  budget exits 5, the scripting contract's wait-timeout code, with a message
+  saying the run keeps going and how to follow it. A negative duration is
+  refused as a usage error rather than read as "no limit".
+- **`ankra pipeline get --exit-code` reports a concluded run's outcome as the
+  exit status** without waiting, for a script that already knows the run has
+  settled. A bare `get` is unchanged and still exits 0 whatever it finds, so
+  nothing that prints a run's detail today changes behaviour. A run that has
+  not concluded exits 0 under `--exit-code`: "still going" is not "did not
+  succeed", and `--wait` is how you ask for a verdict.
+
 ### Fixed
+
+- **`--wait -o json` no longer exits 0 on a failed run.** `pipeline run
+  --wait` and `pipeline rerun --wait` reported a non-success conclusion
+  through the exit code only when rendering the human table; the structured
+  branch returned as soon as it had encoded the payload and never reached the
+  verdict. That is precisely the invocation a CI script uses, so a failed
+  build could pass a pipeline step silently. The payload is still printed;
+  the exit code is now the same answer in both formats.
 
 - **Every cluster-scoped command now takes the cluster's name as well as its
   id.** The three `ankra cluster playground` verbs learned this in #239, but

@@ -19,9 +19,39 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// pipelineRunWaitPollInterval is how often `run --wait` and `rerun --wait`
-// re-read the run while it is in flight.
-const pipelineRunWaitPollInterval = 3 * time.Second
+// pipelineRunWaitPollInterval is how often `--wait` re-reads the run while it
+// is in flight. It is a var only so the tests can shorten it; nothing else
+// writes it.
+var pipelineRunWaitPollInterval = 3 * time.Second
+
+// registerPipelineWaitFlags adds the --wait pair every command that can block
+// on a run shares. The timeout defaults to zero, which is "no bound": waiting
+// forever and giving up on Ctrl+C is the contract `run --wait` shipped with,
+// and a default that quietly abandoned a long build would change what an
+// existing invocation means. A caller who wants a bound names one.
+func registerPipelineWaitFlags(command *cobra.Command, waitUsage string) {
+	command.Flags().Bool("wait", false, waitUsage)
+	command.Flags().Duration("timeout", 0,
+		"How long --wait blocks before giving up (default: no limit; expiry exits 5)")
+}
+
+// pipelineWaitContext derives the context a --wait poll loop runs under,
+// bounding it by --timeout when one was named.
+func pipelineWaitContext(command *cobra.Command) (context.Context, context.CancelFunc, error) {
+	timeout, timeoutFlagError := command.Flags().GetDuration("timeout")
+	if timeoutFlagError != nil {
+		return nil, nil, fmt.Errorf("reading --timeout: %w", timeoutFlagError)
+	}
+	if timeout < 0 {
+		return nil, nil, withExitCode(exitUsage,
+			fmt.Errorf("--timeout must not be negative, got %s", timeout))
+	}
+	if timeout == 0 {
+		return command.Context(), func() {}, nil
+	}
+	waitContext, cancelWait := context.WithTimeout(command.Context(), timeout)
+	return waitContext, cancelWait, nil
+}
 
 func newPipelineRunCommand() *cobra.Command {
 	runCommand := &cobra.Command{
@@ -58,7 +88,7 @@ func registerPipelineRunDispatchFlags(command *cobra.Command) {
 	command.Flags().StringArray("input", nil, "Dispatch input as key=value (repeatable)")
 	command.Flags().String("reason", "", "Human note recorded on the run")
 	command.Flags().String("spec-file", "", "Run this pipeline definition instead of the stored one (requires pipelines.manage)")
-	command.Flags().Bool("wait", false, "Wait for the run to conclude before returning")
+	registerPipelineWaitFlags(command, "Wait for the run to conclude before returning")
 }
 
 // localHeadCommit answers the working directory's HEAD commit and the branch
@@ -160,40 +190,87 @@ func runPipelineDispatch(command *cobra.Command, selector client.PipelineSelecto
 		return nil
 	}
 
-	detail, waitError := waitForPipelineRunConclusion(command, selector, result.PipelineRunID)
+	return waitForAndReportPipelineRun(command, selector, result.PipelineRunID, format)
+}
+
+// waitForAndReportPipelineRun blocks until the run concludes, renders it in
+// whichever format was asked for, and then reports its conclusion through the
+// exit code.
+//
+// Rendering and the conclusion are two separate answers, and the structured
+// branch used to return before giving the second one: `--wait -o json` on a
+// failed run printed the failure and exited 0, which is precisely the
+// invocation a CI script uses and precisely the case pipelineRunConclusionError
+// exists for. The verdict is now reported the same way whatever the caller
+// asked stdout to look like.
+func waitForAndReportPipelineRun(command *cobra.Command, selector client.PipelineSelector,
+	runID string, format outputFormat) error {
+	detail, waitError := waitForPipelineRunConclusion(command, selector, runID)
 	if waitError != nil {
 		return waitError
 	}
 	if format != outputDefault {
-		return encodeStructured(command.OutOrStdout(), format, detail)
+		if encodeError := encodeStructured(command.OutOrStdout(), format, detail); encodeError != nil {
+			return encodeError
+		}
+	} else {
+		printPipelineRunDetail(command.OutOrStdout(), *detail)
 	}
-	printPipelineRunDetail(command.OutOrStdout(), *detail)
 	return pipelineRunConclusionError(detail.PipelineRun)
 }
 
 // waitForPipelineRunConclusion polls GetPipelineRun until the run's status is
-// "concluded". There is no --timeout: a person who wants to give up presses
-// Ctrl+C, the same contract 'cluster operations list --watch' already gives.
+// "concluded". Without --timeout it waits as long as the run takes and a
+// person who wants to give up presses Ctrl+C, the same contract
+// 'cluster operations list --watch' already gives; with one, an expired budget
+// is the scripting contract's wait-timeout exit rather than a bare context
+// error, so a caller can tell "still running" from "the platform said no".
 func waitForPipelineRunConclusion(command *cobra.Command, selector client.PipelineSelector,
 	runID string) (*client.PipelineRunDetail, error) {
+	waitContext, cancelWait, contextError := pipelineWaitContext(command)
+	if contextError != nil {
+		return nil, contextError
+	}
+	defer cancelWait()
+
 	progress := command.ErrOrStderr()
 	announced := ""
 	for {
-		detail, getError := apiClient.GetPipelineRun(command.Context(), selector, runID)
+		detail, getError := apiClient.GetPipelineRun(waitContext, selector, runID)
 		if getError != nil {
+			if expiryError := pipelineWaitExpired(command, waitContext, runID); expiryError != nil {
+				return nil, expiryError
+			}
 			return nil, getError
 		}
 		if detail.Status != announced {
 			_, _ = fmt.Fprintf(progress, "Run #%d is %s.\n", detail.RunNumber, detail.Status)
 			announced = detail.Status
 		}
-		if detail.Status == "concluded" {
+		if detail.Status == pipelineRunStatusConcluded {
 			return detail, nil
 		}
-		if sleepError := sleepInterrupted(command.Context(), pipelineRunWaitPollInterval); sleepError != nil {
+		if sleepError := sleepInterrupted(waitContext, pipelineRunWaitPollInterval); sleepError != nil {
+			if expiryError := pipelineWaitExpired(command, waitContext, runID); expiryError != nil {
+				return nil, expiryError
+			}
 			return nil, sleepError
 		}
 	}
+}
+
+// pipelineWaitExpired answers the wait-timeout error when --timeout is what
+// ended the wait, and nil when something else did. A Ctrl+C cancels the
+// command's own context and must not be reported as an expired budget, so the
+// distinction is drawn on which context is done: the outer one being live
+// while the derived one is not leaves only the timeout.
+func pipelineWaitExpired(command *cobra.Command, waitContext context.Context, runID string) error {
+	if command.Context().Err() != nil || waitContext.Err() == nil {
+		return nil
+	}
+	return withExitCode(exitWaitTimeout, fmt.Errorf(
+		"--timeout expired while waiting for run %s; it keeps running - follow it with 'ankra pipeline get %s'",
+		runID, runID))
 }
 
 // sleepInterrupted waits, or stops early when the command is interrupted. A
@@ -327,7 +404,21 @@ func newPipelineGetCommand() *cobra.Command {
 	getCommand := &cobra.Command{
 		Use:   "get <run>",
 		Short: "Show a pipeline run's detail",
-		Args:  cobra.ExactArgs(1),
+		Long: `Show a pipeline run's detail.
+
+--wait blocks until the run concludes and then prints it, which is what a
+webhook-started run needs: 'run --wait' and 'rerun --wait' can only wait on a
+run they dispatched themselves, and a push or pull_request run was dispatched
+by the trigger lane. Bound it with --timeout; without one it waits as long as
+the run takes.
+
+A run's outcome reaches the exit code only when you ask for it, because a bare
+'get' is a read and scripts already depend on it succeeding whatever it finds.
+--wait asks for it implicitly - waiting for a verdict and then discarding it
+is not a thing to make a caller write - and --exit-code asks for it without
+waiting, so a run that is still going exits 0 and a concluded one exits 1
+unless its outcome is success. Either way the detail is printed first.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
 			if selectorError != nil {
@@ -337,8 +428,17 @@ func newPipelineGetCommand() *cobra.Command {
 		},
 	}
 	registerPipelineSelectorFlags(getCommand)
+	registerPipelineGetFlags(getCommand)
 	registerStructuredOutputFlags(getCommand)
 	return getCommand
+}
+
+// registerPipelineGetFlags is shared by `pipeline get` and
+// `application pipeline get`.
+func registerPipelineGetFlags(command *cobra.Command) {
+	registerPipelineWaitFlags(command, "Wait for the run to conclude before printing it")
+	command.Flags().Bool("exit-code", false,
+		"Exit non-zero when the run has concluded with an outcome other than success (implied by --wait)")
 }
 
 func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, runID string) error {
@@ -346,15 +446,32 @@ func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, ru
 	if formatError != nil {
 		return formatError
 	}
-	detail, getError := apiClient.GetPipelineRun(command.Context(), selector, strings.TrimSpace(runID))
+	runID = strings.TrimSpace(runID)
+	wait, _ := command.Flags().GetBool("wait")
+	if wait {
+		return waitForAndReportPipelineRun(command, selector, runID, format)
+	}
+
+	detail, getError := apiClient.GetPipelineRun(command.Context(), selector, runID)
 	if getError != nil {
 		return getError
 	}
 	if format != outputDefault {
-		return encodeStructured(command.OutOrStdout(), format, detail)
+		if encodeError := encodeStructured(command.OutOrStdout(), format, detail); encodeError != nil {
+			return encodeError
+		}
+	} else {
+		printPipelineRunDetail(command.OutOrStdout(), *detail)
 	}
-	printPipelineRunDetail(command.OutOrStdout(), *detail)
-	return nil
+
+	exitOnOutcome, _ := command.Flags().GetBool("exit-code")
+	if !exitOnOutcome || detail.Status != pipelineRunStatusConcluded {
+		// A run that has not concluded has no outcome to report, and reporting
+		// "not success yet" as a failure would make --exit-code answer "did it
+		// fail" with "it has not finished". That is what --wait is for.
+		return nil
+	}
+	return pipelineRunConclusionError(detail.PipelineRun)
 }
 
 func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
@@ -486,7 +603,7 @@ whatever depended on them.`,
 	}
 	registerPipelineSelectorFlags(rerunCommand)
 	rerunCommand.Flags().Bool("failed-only", false, "Re-run only the steps that did not succeed, and whatever depends on them")
-	rerunCommand.Flags().Bool("wait", false, "Wait for the new run to conclude before returning")
+	registerPipelineWaitFlags(rerunCommand, "Wait for the new run to conclude before returning")
 	registerStructuredOutputFlags(rerunCommand)
 	return rerunCommand
 }
@@ -510,13 +627,5 @@ func runPipelineRerun(command *cobra.Command, selector client.PipelineSelector, 
 		_, _ = fmt.Fprintf(command.OutOrStdout(), "Run #%d queued: %s\n", result.RunNumber, result.PipelineRunID)
 		return nil
 	}
-	detail, waitError := waitForPipelineRunConclusion(command, selector, result.PipelineRunID)
-	if waitError != nil {
-		return waitError
-	}
-	if format != outputDefault {
-		return encodeStructured(command.OutOrStdout(), format, detail)
-	}
-	printPipelineRunDetail(command.OutOrStdout(), *detail)
-	return pipelineRunConclusionError(detail.PipelineRun)
+	return waitForAndReportPipelineRun(command, selector, result.PipelineRunID, format)
 }

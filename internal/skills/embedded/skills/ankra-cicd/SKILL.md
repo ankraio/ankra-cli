@@ -116,6 +116,20 @@ ankra pipeline run --application <application> --sha <full-sha> --wait
 `ankra pipeline list --application <application>`, `ankra pipeline get <run>` and
 `ankra pipeline logs <run>`.
 
+**Waiting on a run somebody else started.** `run --wait` and `rerun --wait` only block on a run
+they dispatched; every push and pull_request run is dispatched by the webhook. Wait on one of
+those with `get`:
+
+```bash
+ankra pipeline get <run> --application <application> --wait --timeout 45m
+```
+
+`--wait` exits non-zero when the run concludes with an outcome other than success, so a script
+branches on `$?` instead of parsing `outcome`; `--timeout` expiry exits `5` and the run keeps
+going. A bare `get` is a read and always exits 0 — add `--exit-code` to get the outcome as the
+exit status without waiting. Find the run for a commit with
+`ankra pipeline list --head-sha <full-sha> --trigger pull_request -o json`.
+
 ### Do not route around this with a hand-rolled workflow
 
 For a repository registered with `ankra application add`, adding your own
