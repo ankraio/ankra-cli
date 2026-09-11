@@ -72,6 +72,16 @@ func scalewayNodesOps() clusterNodesOps {
 	}
 }
 
+func awsNodesOps() clusterNodesOps {
+	return clusterNodesOps{
+		provider:     "aws",
+		list:         apiClient.ListAwsClusterNodes,
+		get:          apiClient.GetAwsClusterNode,
+		restart:      apiClient.RestartAwsClusterNode,
+		cloudInitLog: apiClient.AwsNodeCloudInitLog,
+	}
+}
+
 func proxmoxNodesOps() clusterNodesOps {
 	return clusterNodesOps{
 		provider: "proxmox",
@@ -394,6 +404,7 @@ func init() {
 	upcloudCmd.AddCommand(newNodesCmd(upcloudNodesOps, "UpCloud", true, true))
 	digitaloceanCmd.AddCommand(newNodesCmd(digitaloceanNodesOps, "DigitalOcean", true, true))
 	scalewayCmd.AddCommand(newNodesCmd(scalewayNodesOps, "Scaleway", true, true))
+	awsCmd.AddCommand(newNodesCmd(awsNodesOps, "AWS", true, true))
 	proxmoxCmd.AddCommand(newNodesCmd(proxmoxNodesOps, "Proxmox VE", true, false))
 	morpheusCmd.AddCommand(newNodesCmd(morpheusNodesOps, "HPE Morpheus", false, false))
 }

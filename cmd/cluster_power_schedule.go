@@ -92,7 +92,7 @@ fire once at a chosen time or repeatedly on a cron expression, so a
 development cluster can park itself outside working hours.
 
 Power schedules are available for self-managed Hetzner, OVHcloud, UpCloud,
-DigitalOcean, Scaleway, Proxmox VE, and HPE Morpheus clusters - the same
+DigitalOcean, Scaleway, AWS (EC2), Proxmox VE, and HPE Morpheus clusters - the same
 clusters that support manual stop and start. A scheduled stop behaves
 exactly like stopping the cluster yourself: the provider VMs are
 terminated and only the cluster's configuration is preserved for the next

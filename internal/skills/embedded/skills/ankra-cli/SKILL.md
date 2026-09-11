@@ -43,7 +43,7 @@ never rely on the selection — pass both explicitly.
 | Clusters, stacks, addons, manifests | `ankra cluster ...` | `ankra-import-cluster`, `ankra-stacks-addons` |
 | Your own code, deployed | `ankra application ...` | `ankra-applications` |
 | Reusable parameterised stacks | `ankra stack-profiles ...` | `ankra-stack-profiles` |
-| Cloud clusters Ankra provisions | `ankra cluster hetzner\|ovh\|upcloud\|digitalocean\|proxmox\|scaleway\|morpheus ...` | `ankra-cloud-clusters` |
+| Cloud clusters Ankra provisions | `ankra cluster hetzner\|ovh\|upcloud\|digitalocean\|scaleway\|aws\|proxmox\|morpheus ...` | `ankra-cloud-clusters` |
 | Provider-managed Kubernetes | `ankra cluster managed ...` | `ankra-managed-kubernetes` |
 | Helm chart sources | `ankra helm registries\|credentials ...`, `ankra charts` | `ankra-helm-registries` |
 | Secrets in Git | `ankra cluster encrypt\|decrypt\|sops-config` | `ankra-sops-secrets` |

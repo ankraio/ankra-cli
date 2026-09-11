@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster aws` builds self-managed k3s (or kubeadm) clusters on EC2**
+  (ankra-rtpno.13). This is not EKS: Ankra installs Kubernetes on plain
+  instances inside a VPC you already own, so `create` and `preflight` take
+  the VPC, the node subnets, the bastion subnet and the CIDRs allowed to
+  reach the bastion, and adopt them rather than creating networking. Egress
+  for the nodes is detected from the subnets' route tables, or pinned with
+  `--egress-mode existing|bastion_nat`; `preflight` reports what it resolved
+  before anything is built. The group carries the same day-2 verbs as the
+  other providers - `stop`, `start`, `deprovision` (with a confirmation
+  prompt), `workers`, `k8s-version`, `access-info`, `control-plane`, `nodes`
+  and `bastion` - plus the catalogs that answer the create flags: `regions`,
+  `instance-types`, `vpcs`, `subnets`, `availability-zones`, `images` and
+  `pricing`. The provider-agnostic `ankra cluster scale|upgrade|node-group|
+  ssh-keys|deprovision|power-schedules` commands detect an AWS cluster like
+  any other. `ankra credentials aws list` shows the AWS credentials (keys or
+  role) the organisation has connected; connecting one stays in the
+  dashboard, because the platform serves that onboarding on the session
+  surface only.
+
 ### Fixed
 
 - **Every cluster-scoped command now takes the cluster's name as well as its
