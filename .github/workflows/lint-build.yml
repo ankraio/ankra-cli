@@ -12,17 +12,17 @@ permissions:
   contents: read
 
 # Superseded runs used to keep their runner for the full race compile, so a
-# branch pushed three times held three Depot runners at once and later runs
-# queued for hours (run 34059805725 waited 3h17m for a runner).
+# branch pushed three times held three runners at once and later runs queued
+# for hours (run 34059805725 waited 3h17m for a runner).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   lint-test-build:
-    runs-on: ${{ vars.CI_RUNNER_2 || 'depot-ubuntu-24.04' }}
+    runs-on: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
     # A starved runner stops reporting rather than failing, so the job holds
-    # its Depot slot until someone notices: run 34042422066 sat on master for
+    # its runner slot until someone notices: run 34042422066 sat on master for
     # ~6h before a human cancelled it. Fail fast and give the runner back.
     timeout-minutes: 45
     env:
