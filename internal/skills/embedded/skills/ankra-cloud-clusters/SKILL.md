@@ -1,6 +1,6 @@
 ---
 name: ankra-cloud-clusters
-description: Provision and operate clusters Ankra builds on cloud infrastructure - Hetzner, OVHcloud, UpCloud, DigitalOcean, Proxmox VE, HPE Morpheus and Scaleway - choosing the region and the right instance family, picking kubeadm (the default) or k3s and the etcd topology, wiring the generated stack straight into a GitOps repository, taking the ingress/DNS/TLS batteries at create time, then scaling, node groups, availability zones, upgrades and teardown. Use when the user wants Ankra to build a cluster rather than import one, asks which server type or region to pick, or mentions Hetzner, OVH, UpCloud, DigitalOcean, Proxmox, Morpheus or Scaleway clusters.
+description: Provision and operate clusters Ankra builds on cloud infrastructure - Hetzner, OVHcloud, UpCloud, DigitalOcean, Scaleway, AWS (self-managed EC2), Proxmox VE and HPE Morpheus - choosing the region and the right instance family, picking kubeadm (the default) or k3s and the etcd topology, wiring the generated stack straight into a GitOps repository, taking the ingress/DNS/TLS batteries at create time, then scaling, node groups, availability zones, upgrades and teardown. Use when the user wants Ankra to build a cluster rather than import one, asks which server type or region to pick, or mentions Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS EC2 (not EKS), Proxmox or Morpheus clusters.
 ---
 
 # Ankra cloud clusters
@@ -11,9 +11,15 @@ after creation almost everything is a **provider-agnostic** verb (`ankra cluster
 `ankra cluster upgrade`, `ankra cluster node-group ...`) because Ankra detects the provider from
 the cluster.
 
-Providers: `hetzner`, `ovh`, `upcloud`, `digitalocean`, `proxmox`, `morpheus`. (`scaleway` exists
-for lifecycle verbs but has no `create` — build Scaleway Kubernetes as managed Kapsule instead,
-see `ankra-managed-kubernetes`.)
+Providers: `hetzner`, `ovh`, `upcloud`, `digitalocean`, `scaleway`, `aws`, `proxmox`, `morpheus`.
+Every one of them has `create` and `preflight`; Scaleway builds on Instances behind a Public
+Gateway, and `aws` builds k3s/kubeadm on plain EC2 inside a VPC you already own (never EKS — for
+EKS use `ankra cluster managed`). The AWS create adopts your networking, so it takes `--vpc-id`,
+`--node-subnet-ids`, `--bastion-subnet-id` and `--bastion-allowed-ips` on top of the usual flags;
+list them with `ankra cluster aws vpcs|subnets|availability-zones --credential-id <id> --region
+<r>`. The AWS credential is the organisation's existing AWS credential (keys or role, connected in
+the dashboard; `ankra credentials aws list` shows the ids), and the SSH key credential comes from
+any provider's `ssh-key create`.
 
 For a control plane the *provider* runs — DOKS, UKS, GKE, OVH MKS, AKS, EKS, Kapsule — use
 `ankra cluster managed ...` and the `ankra-managed-kubernetes` skill instead. Rule of thumb: this

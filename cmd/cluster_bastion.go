@@ -74,6 +74,18 @@ func scalewayBastionOps() bastionOps {
 	}
 }
 
+// AWS builds a real EC2 bastion with the SSH job lane behind it, so it
+// carries diagnose; there is no Update<Provider>BastionInstanceType client
+// method for it yet, so resize stays off (the instance type is a create-time
+// choice, --bastion-instance-type).
+func awsBastionOps() bastionOps {
+	return bastionOps{
+		provider: "aws",
+		health:   apiClient.GetAwsBastionHealth,
+		diagnose: apiClient.DiagnoseAwsBastion,
+	}
+}
+
 func proxmoxBastionOps() bastionOps {
 	return bastionOps{
 		provider: "proxmox",
@@ -390,4 +402,5 @@ func init() {
 	scalewayCmd.AddCommand(newBastionCmd(scalewayBastionOps, "Scaleway", false, false))
 	proxmoxCmd.AddCommand(newBastionCmd(proxmoxBastionOps, "Proxmox VE", false, true))
 	morpheusCmd.AddCommand(newBastionCmd(morpheusBastionOps, "HPE Morpheus", false, true))
+	awsCmd.AddCommand(newBastionCmd(awsBastionOps, "AWS", false, true))
 }

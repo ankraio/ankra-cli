@@ -323,6 +323,9 @@ func TestClusterBastionGroupIsMountedForEveryProvider(t *testing.T) {
 		// Scaleway's managed Public Gateway is probed by the health loop but
 		// has no SSH job lane, so its verdict is the whole surface.
 		{provider: "scaleway", subcommands: []string{"status"}, absentGroups: []string{"resize", "diagnose"}},
+		// AWS carries a real EC2 bastion with the SSH job lane behind it, but
+		// no resize client method yet: the instance type is a create-time flag.
+		{provider: "aws", subcommands: []string{"status", "diagnose"}, absentGroups: []string{"resize"}},
 	} {
 		t.Run(testCase.provider, func(t *testing.T) {
 			for _, subcommand := range testCase.subcommands {

@@ -250,7 +250,7 @@ var clusterProvisionCmd = &cobra.Command{
 
 This works for a cluster that was created but never built, and for an imported
 cluster that was deprovisioned. It cannot rebuild a deprovisioned cloud cluster
-(hetzner, ovh, upcloud, digitalocean, scaleway, proxmox, morpheus): that deprovision
+(hetzner, ovh, upcloud, digitalocean, scaleway, aws, proxmox, morpheus): that deprovision
 deleted the record, so there is nothing left to provision - create a new
 cluster instead.
 
@@ -317,6 +317,7 @@ const (
 	cloudClusterKindUpcloud      cloudClusterKind = "upcloud"
 	cloudClusterKindDigitalocean cloudClusterKind = "digitalocean"
 	cloudClusterKindScaleway     cloudClusterKind = "scaleway"
+	cloudClusterKindAws          cloudClusterKind = "aws"
 	cloudClusterKindProxmox      cloudClusterKind = "proxmox"
 	cloudClusterKindMorpheus     cloudClusterKind = "morpheus"
 )
@@ -330,7 +331,7 @@ const (
 // `ankra scaleway cluster deprovision` (ankra-e3pa7).
 //
 // It is NOT the only such list, and the other one still has a hole. This list
-// covers the seven SELF-HOSTED kinds, which are exactly the kinds
+// covers the eight SELF-HOSTED kinds, which are exactly the kinds
 // DeprovisionImportedCluster refuses (cluster providers/lifecycle.go). The
 // seven MANAGED kinds - kapsule, doks, uks, gke, ovh_mks, aks, eks - are
 // refused only by the imported DELETE route, not by deprovision, so they
@@ -349,6 +350,7 @@ var allCloudClusterKinds = []cloudClusterKind{
 	cloudClusterKindUpcloud,
 	cloudClusterKindDigitalocean,
 	cloudClusterKindScaleway,
+	cloudClusterKindAws,
 	cloudClusterKindProxmox,
 	cloudClusterKindMorpheus,
 }
@@ -374,7 +376,7 @@ var clusterDeprovisionCmd = &cobra.Command{
 Whether the cluster survives as a record depends on its kind, and the two
 outcomes are very different:
 
-  - cloud clusters (hetzner, ovh, upcloud, digitalocean, scaleway, proxmox, morpheus)
+  - cloud clusters (hetzner, ovh, upcloud, digitalocean, scaleway, aws, proxmox, morpheus)
     go to the provider-specific endpoint, which DELETES the cluster. The
     record does not survive, "ankra cluster provision" cannot bring it back,
     and the cluster id, its stacks and anything referencing them are gone.
@@ -505,6 +507,20 @@ If no cluster name is provided, uses the currently selected cluster.`,
 				return encodeStructured(cmd.OutOrStdout(), format, result)
 			}
 			fmt.Printf("Scaleway cluster deprovision initiated.\n")
+			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+			if result.OperationID != nil && *result.OperationID != "" {
+				fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+			}
+			return nil
+		case cloudClusterKindAws:
+			result, deprovisionError := apiClient.DeprovisionAwsCluster(clusterID)
+			if deprovisionError != nil {
+				return fmt.Errorf("deprovisioning AWS cluster: %w", deprovisionError)
+			}
+			if format != outputDefault {
+				return encodeStructured(cmd.OutOrStdout(), format, result)
+			}
+			fmt.Printf("AWS cluster deprovision initiated.\n")
 			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 			if result.OperationID != nil && *result.OperationID != "" {
 				fmt.Printf("  Operation ID: %s\n", *result.OperationID)
