@@ -23,14 +23,15 @@ import (
 
 // stackProfileDeployment is one row of GET /stack-profiles/{id}/instantiations.
 type stackProfileDeployment struct {
-	ID              string `json:"id"`
-	TargetClusterID string `json:"target_cluster_id"`
-	ClusterName     string `json:"cluster_name"`
-	StackName       string `json:"stack_name"`
-	StackState      string `json:"stack_state"`
-	Version         int    `json:"version"`
-	Outdated        bool   `json:"outdated"`
-	CreatedAt       string `json:"created_at"`
+	ID              string                    `json:"id"`
+	TargetClusterID string                    `json:"target_cluster_id"`
+	ClusterName     string                    `json:"cluster_name"`
+	StackName       string                    `json:"stack_name"`
+	StackState      string                    `json:"stack_state"`
+	Version         int                       `json:"version"`
+	Outdated        bool                      `json:"outdated"`
+	Parameters      []client.ParameterBinding `json:"parameters"`
+	CreatedAt       string                    `json:"created_at"`
 }
 
 type stackProfileDeployments struct {
@@ -151,13 +152,19 @@ type rolloutTarget struct {
 	ClusterName string `json:"cluster_name"`
 	StackName   string `json:"stack_name"`
 	FromVersion int    `json:"from_version"`
+	// recordedBindings are the non-secret inputs the deployment was last
+	// applied with; the platform keeps them on the deployment so an upgrade
+	// carries them forward without retyping. Secrets are never recorded.
+	recordedBindings []client.ParameterBinding
 }
 
 type rolloutOutcome struct {
 	rolloutTarget
-	ToVersion int    `json:"to_version"`
-	Status    string `json:"status"`
-	Message   string `json:"message,omitempty"`
+	ToVersion   int    `json:"to_version"`
+	Status      string `json:"status"`
+	Message     string `json:"message,omitempty"`
+	OperationID string `json:"operation_id,omitempty"`
+	JobCount    int    `json:"job_count,omitempty"`
 }
 
 // resolveClusterReference turns a cluster name or ID into both, paging the
@@ -204,10 +211,11 @@ func rolloutTargets(deployments *stackProfileDeployments, clusterFlags []string,
 		}
 		seen[key] = true
 		targets = append(targets, rolloutTarget{
-			ClusterID:   deployment.TargetClusterID,
-			ClusterName: deployment.ClusterName,
-			StackName:   deployment.StackName,
-			FromVersion: deployment.Version,
+			ClusterID:        deployment.TargetClusterID,
+			ClusterName:      deployment.ClusterName,
+			StackName:        deployment.StackName,
+			FromVersion:      deployment.Version,
+			recordedBindings: deployment.Parameters,
 		})
 	}
 	if all {
@@ -256,17 +264,25 @@ var stackProfilesRolloutCmd = &cobra.Command{
 	Short: "Roll a published profile version out to the clusters already running it",
 	Long: `Update the stacks deployed from a profile to a published version, in place.
 
-For every target the profile version is exported as ClusterInfrastructureAsCode,
-addressed to that cluster and the stack it already runs, and applied the way
-'ankra cluster apply' applies a file: the same stack is updated, so Kubernetes
-performs a rolling update of the workloads and nothing is created twice.
+For every target the platform replaces the contents of the stack that
+deployment already runs with the chosen version - the same stack, so
+Kubernetes performs a rolling update of the workloads and nothing is created
+twice - and records the deployment at the new version, so 'deployments' and
+the profile's fleet view read up to date. The non-secret inputs each
+deployment was last applied with are carried forward; bind new values or
+secret inputs with --set, --set-file and --set-env, exactly as for apply.
 
 Pick targets with --cluster (repeatable) or --all for every deployment of the
 profile; add --outdated to touch only the ones behind the chosen version.
 Without --version the profile's current version is rolled out.
 
-The configuration write returns as soon as the platform has accepted it; the
-manifest and add-on deploys run in the background. Watch them with
+--via-apply uses the older path instead: the version is exported as
+ClusterInfrastructureAsCode and applied with the cluster apply lane. It
+updates the stack the same way but leaves the fleet view at the previous
+version; use it only against a platform that predates in-place upgrades.
+
+The write returns as soon as the platform has accepted it; the manifest and
+add-on deploys run in the background. Watch them with
 'ankra cluster operations list --cluster <name>'.`,
 	Example: `  ankra stack-profiles rollout hello-fleet --all --outdated
   ankra stack-profiles rollout hello-fleet --cluster prod-eu --cluster prod-us --version 2
@@ -343,6 +359,24 @@ manifest and add-on deploys run in the background. Watch them with
 				detail.Profile.Name, version, len(targets), pluralise(len(targets), "stack", "stacks"))
 			renderRolloutOutcomes(cmd.OutOrStdout(), outcomes)
 			return nil
+		}
+
+		viaApply, _ := cmd.Flags().GetBool("via-apply")
+		setValues, _ := cmd.Flags().GetStringArray("set")
+		setFiles, _ := cmd.Flags().GetStringArray("set-file")
+		setEnvs, _ := cmd.Flags().GetStringArray("set-env")
+		bindings, bindingsError := buildParameterBindings(setValues, setFiles, setEnvs)
+		if bindingsError != nil {
+			return bindingsError
+		}
+		if !viaApply {
+			if waitRequested, _ := asyncWriteWaitFlag(cmd); waitRequested {
+				return withExitCode(exitUsage, errors.New("--wait applies to --via-apply only: the in-place update returns once the platform has accepted it, and the deploys it schedules are watched with 'ankra cluster operations list --cluster <name>'"))
+			}
+			return rolloutInPlace(cmd, format, profileID, detail.Profile.Name, version, targets, bindings)
+		}
+		if len(bindings) > 0 {
+			return withExitCode(exitUsage, errors.New("--set, --set-file and --set-env bind inputs on the in-place lane; they cannot be combined with --via-apply"))
 		}
 
 		export, exportError := apiClient.ExportStackProfileIac(profileID, version)
@@ -468,6 +502,10 @@ func init() {
 	stackProfilesRolloutCmd.Flags().Bool("outdated", false, "Only the deployments behind the version being rolled out")
 	stackProfilesRolloutCmd.Flags().String("version", "", "Profile version to roll out, as 2 or v2 (defaults to the profile's current version)")
 	stackProfilesRolloutCmd.Flags().Bool("dry-run", false, "List the stacks that would be updated without writing anything")
+	stackProfilesRolloutCmd.Flags().StringArray("set", nil, "Bind a parameter: name=value (repeatable; not for secrets)")
+	stackProfilesRolloutCmd.Flags().StringArray("set-file", nil, "Bind a parameter from a file: name=path (repeatable; secret-safe)")
+	stackProfilesRolloutCmd.Flags().StringArray("set-env", nil, "Bind a parameter from an environment variable: name=ENV_VAR (repeatable; secret-safe)")
+	stackProfilesRolloutCmd.Flags().Bool("via-apply", false, "Export the version as ClusterInfrastructureAsCode and apply it with the cluster apply lane instead of the platform's in-place upgrade (older platforms; the fleet view then keeps the previous version)")
 	registerAsyncWriteFlags(stackProfilesRolloutCmd)
 	if waitFlag := stackProfilesRolloutCmd.Flags().Lookup("wait"); waitFlag != nil {
 		waitFlag.Usage = "Wait for each configuration write to be applied before moving to the next cluster. " +
@@ -475,4 +513,138 @@ func init() {
 	}
 	registerStructuredOutputFlags(stackProfilesRolloutCmd)
 	stackProfilesCmd.AddCommand(stackProfilesRolloutCmd)
+}
+
+// rolloutInPlace asks the platform to replace each deployed stack with the
+// version, through the profile's own lane, so the deployment is recorded at
+// the new version. The deployment's recorded bindings go first and the
+// caller's --set values override them by name. version is already resolved
+// by the caller (the flag, else the profile's current version, never 0).
+func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, profileName string, version int, targets []rolloutTarget, bindings []client.ParameterBinding) error {
+	out := cmd.OutOrStdout()
+	if format == outputDefault {
+		_, _ = fmt.Fprintf(out, "Rolling out '%s' v%d to %d %s...\n", profileName, version, len(targets), pluralise(len(targets), "stack", "stacks"))
+	}
+	outcomes := make([]rolloutOutcome, 0, len(targets))
+	failed := 0
+	legacyPlatform := false
+	for _, target := range targets {
+		outcome := rolloutOutcome{rolloutTarget: target, ToVersion: version}
+		if legacyPlatform {
+			outcome.Status = "skipped"
+			outcome.Message = "not attempted: the platform predates in-place upgrades"
+			outcomes = append(outcomes, outcome)
+			continue
+		}
+		requestVersion := version
+		request := client.InstantiateStackProfileRequest{
+			ProfileID:       profileID,
+			Version:         &requestVersion,
+			NewStackName:    target.StackName,
+			Parameters:      mergeParameterBindings(target.recordedBindings, bindings),
+			Deploy:          true,
+			UpgradeExisting: true,
+		}
+		result, applyError := instantiateProfileOnCluster(target.ClusterID, request)
+		switch {
+		case applyError != nil:
+			outcome.Status = "failed"
+			outcome.Message = applyError.Error()
+			failed++
+		case result.StackName != target.StackName && !result.Deployed && result.DraftID != "":
+			// A platform that predates upgrade_existing ignores the flag, so
+			// the ordinary lane runs: the taken name is resolved to a renamed,
+			// undeployed draft. A supporting platform pins the name on this
+			// lane and answers 404/409 rather than renaming, so a renamed
+			// draft is the legacy signature. Only that draft - never a
+			// deployed stack - is removed again, and the remaining targets
+			// are skipped rather than littered the same way.
+			outcome.Status = "failed"
+			cleanup := "that draft was removed again"
+			if _, deleteError := apiClient.DeleteStack(context.Background(), target.ClusterID, result.StackName); deleteError != nil {
+				cleanup = fmt.Sprintf("removing that draft failed (%s), delete it with 'ankra cluster stacks delete %s --cluster %s'", deleteError.Error(), result.StackName, target.ClusterName)
+			}
+			outcome.Message = fmt.Sprintf("the platform did not update '%s' in place: it created draft '%s' instead, so it predates in-place upgrades; %s. Roll out with --via-apply",
+				target.StackName, result.StackName, cleanup)
+			failed++
+			legacyPlatform = true
+		case result.StackName != target.StackName:
+			// Not the legacy shape (deployed, or no draft): reported, never
+			// deleted, since the answer names something that may be live.
+			outcome.Status = "failed"
+			outcome.Message = fmt.Sprintf("the platform answered with stack '%s' instead of updating '%s' in place; nothing was removed - check the cluster before retrying", result.StackName, target.StackName)
+			failed++
+		case !result.Deployed:
+			// Not expected from a supporting platform (an upgrade is its own
+			// deploy); reported as what it is rather than as a legacy answer.
+			outcome.Status = "failed"
+			outcome.Message = fmt.Sprintf("the platform accepted the update of '%s' but reports it as not deployed", target.StackName)
+			if result.DraftID != "" {
+				outcome.Message += " (draft " + result.DraftID + ")"
+			}
+			failed++
+		default:
+			outcome.Status = "applied"
+			if len(result.Warnings) > 0 {
+				outcome.Message = strings.Join(result.Warnings, "; ")
+			}
+			if result.OperationID != nil {
+				outcome.OperationID = *result.OperationID
+			}
+			outcome.JobCount = result.JobCount
+		}
+		if format == outputDefault {
+			line := fmt.Sprintf("  %s / %s: v%d -> v%d %s", target.ClusterName, target.StackName, target.FromVersion, version, outcome.Status)
+			if outcome.JobCount > 0 {
+				line += fmt.Sprintf(", %d %s scheduled", outcome.JobCount, pluralise(outcome.JobCount, "job", "jobs"))
+			}
+			if outcome.Message != "" {
+				line += " (" + outcome.Message + ")"
+			}
+			_, _ = fmt.Fprintln(out, line)
+		}
+		outcomes = append(outcomes, outcome)
+	}
+	if format != outputDefault {
+		if encodeError := encodeStructured(out, format, map[string]any{"profile": profileName, "version": version, "targets": outcomes}); encodeError != nil {
+			return encodeError
+		}
+		if failed > 0 {
+			return fmt.Errorf("%d of %d %s failed", failed, len(targets), pluralise(len(targets), "rollout", "rollouts"))
+		}
+		return nil
+	}
+	_, _ = fmt.Fprintln(out)
+	renderRolloutOutcomes(out, outcomes)
+	_, _ = fmt.Fprintln(out, "\nThe deploys run in the background from here; 'ankra stack-profiles deployments "+profileName+"' now reports the new version.")
+	_, _ = fmt.Fprintln(out, "Watch them with 'ankra cluster operations list --cluster <name>'.")
+	if failed > 0 {
+		return fmt.Errorf("%d of %d %s failed", failed, len(targets), pluralise(len(targets), "rollout", "rollouts"))
+	}
+	return nil
+}
+
+// mergeParameterBindings layers the caller's bindings over the recorded
+// ones by name, keeping the recorded order for the rest. A name given more
+// than once keeps its last value, so the request never carries two bindings
+// for one input and leaves the winner to the server.
+func mergeParameterBindings(recorded []client.ParameterBinding, overrides []client.ParameterBinding) []client.ParameterBinding {
+	lastOverride := map[string]string{}
+	overrideOrder := []string{}
+	for _, binding := range overrides {
+		if _, seen := lastOverride[binding.Name]; !seen {
+			overrideOrder = append(overrideOrder, binding.Name)
+		}
+		lastOverride[binding.Name] = binding.Value
+	}
+	merged := make([]client.ParameterBinding, 0, len(recorded)+len(overrideOrder))
+	for _, binding := range recorded {
+		if _, overridden := lastOverride[binding.Name]; !overridden {
+			merged = append(merged, binding)
+		}
+	}
+	for _, name := range overrideOrder {
+		merged = append(merged, client.ParameterBinding{Name: name, Value: lastOverride[name]})
+	}
+	return merged
 }
