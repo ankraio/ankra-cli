@@ -97,6 +97,10 @@ type InstantiateStackProfileRequest struct {
 	NewStackName string             `json:"new_stack_name,omitempty"`
 	Parameters   []ParameterBinding `json:"parameters"`
 	Deploy       bool               `json:"deploy"`
+	// UpgradeExisting replaces the stack already deployed from the profile
+	// under NewStackName in place instead of drafting a renamed copy; the
+	// platform records the deployment at the new version.
+	UpgradeExisting bool `json:"upgrade_existing,omitempty"`
 }
 
 type InstantiateStackProfileResult struct {
