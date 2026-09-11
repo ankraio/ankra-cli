@@ -50,6 +50,8 @@ A run is addressed by its id (the RUN ID column, not the "run_id" field a
 JSON/YAML response also carries - that second field is the cross-lifecycle
 umbrella run this pipeline run belongs to, useful for correlating with
 'ankra cluster operations', but not what these commands accept).
+'pipeline get' can also select a run by its commit, branch or trigger, and
+wait on or watch it - see 'ankra pipeline get --help'.
 
 'pipeline definitions get|approve' are the one exception: they address a
 stored definition directly by its own id and take neither flag - see

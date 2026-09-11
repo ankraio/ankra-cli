@@ -4,10 +4,12 @@ package cmd
 // resolves its own selector from --application/--repository and then calls
 // the shared runPipeline* function; cmd/application_pipeline.go calls the
 // same functions with a selector forced from a leading <application-id>
-// argument, so the two surfaces cannot drift.
+// argument, so the two surfaces cannot drift. Waiting on a run and watching
+// one live in cmd/pipeline_wait.go.
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -18,10 +20,6 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 )
-
-// pipelineRunWaitPollInterval is how often `run --wait` and `rerun --wait`
-// re-read the run while it is in flight.
-const pipelineRunWaitPollInterval = 3 * time.Second
 
 func newPipelineRunCommand() *cobra.Command {
 	runCommand := &cobra.Command{
@@ -59,6 +57,7 @@ func registerPipelineRunDispatchFlags(command *cobra.Command) {
 	command.Flags().String("reason", "", "Human note recorded on the run")
 	command.Flags().String("spec-file", "", "Run this pipeline definition instead of the stored one (requires pipelines.manage)")
 	command.Flags().Bool("wait", false, "Wait for the run to conclude before returning")
+	registerPipelineWaitTimeoutFlag(command)
 }
 
 // localHeadCommit answers the working directory's HEAD commit and the branch
@@ -99,6 +98,10 @@ func runPipelineDispatch(command *cobra.Command, selector client.PipelineSelecto
 	specFile, _ := command.Flags().GetString("spec-file")
 	rawInputs, _ := command.Flags().GetStringArray("input")
 	wait, _ := command.Flags().GetBool("wait")
+	timeout, timeoutError := pipelineWaitTimeoutFromFlags(command, wait, "--wait")
+	if timeoutError != nil {
+		return timeoutError
+	}
 
 	sha = strings.TrimSpace(sha)
 	if sha == "" {
@@ -160,40 +163,13 @@ func runPipelineDispatch(command *cobra.Command, selector client.PipelineSelecto
 		return nil
 	}
 
-	detail, waitError := waitForPipelineRunConclusion(command, selector, result.PipelineRunID)
+	runWait := startPipelineRunWait(command.Context(), timeout)
+	defer runWait.stop()
+	detail, waitError := waitForPipelineRunConclusion(command, selector, result.PipelineRunID, runWait)
 	if waitError != nil {
 		return waitError
 	}
-	if format != outputDefault {
-		return encodeStructured(command.OutOrStdout(), format, detail)
-	}
-	printPipelineRunDetail(command.OutOrStdout(), *detail)
-	return pipelineRunConclusionError(detail.PipelineRun)
-}
-
-// waitForPipelineRunConclusion polls GetPipelineRun until the run's status is
-// "concluded". There is no --timeout: a person who wants to give up presses
-// Ctrl+C, the same contract 'cluster operations list --watch' already gives.
-func waitForPipelineRunConclusion(command *cobra.Command, selector client.PipelineSelector,
-	runID string) (*client.PipelineRunDetail, error) {
-	progress := command.ErrOrStderr()
-	announced := ""
-	for {
-		detail, getError := apiClient.GetPipelineRun(command.Context(), selector, runID)
-		if getError != nil {
-			return nil, getError
-		}
-		if detail.Status != announced {
-			_, _ = fmt.Fprintf(progress, "Run #%d is %s.\n", detail.RunNumber, detail.Status)
-			announced = detail.Status
-		}
-		if detail.Status == "concluded" {
-			return detail, nil
-		}
-		if sleepError := sleepInterrupted(command.Context(), pipelineRunWaitPollInterval); sleepError != nil {
-			return nil, sleepError
-		}
-	}
+	return renderConcludedPipelineRun(command, format, detail)
 }
 
 // sleepInterrupted waits, or stops early when the command is interrupted. A
@@ -323,37 +299,153 @@ func renderPipelineRunTable(out io.Writer, runs []client.PipelineRun) {
 	writer.Render()
 }
 
+// pipelineGetLongHelp is the help both `pipeline get` and
+// `application pipeline get` carry.
+const pipelineGetLongHelp = `Show a pipeline run's detail - or wait for it to conclude, or watch it.
+
+Name the run by its id, or select it by what you know about it. Push and pull
+request runs are started by the webhook, so a CI job or an agent usually knows
+the commit rather than the run id: --head-sha, --branch and --trigger narrow
+the pipeline's runs the way 'pipeline list' filters them. Exactly one match is
+that run; when several match, --latest takes the newest, and without it the
+command lists them instead of guessing. --latest on its own is the pipeline's
+newest run.
+
+--wait blocks until the run concludes, then prints its final detail. --watch
+prints every state change of the run and of each of its steps as it is seen,
+until the run concludes; with -o json each change is one JSON object on its
+own line, carrying the run or step as the platform answered it. --timeout
+bounds either one; without it they wait as long as the run takes. When a
+selection matches no run yet, --wait and --watch wait for one to appear - the
+webhook that creates it can land a moment after you ask - for up to
+--timeout, or ten minutes when no --timeout is set.
+
+Exit codes: 0 when the run succeeded; 1 when it concluded any other way, or
+the platform could not be read; 2 when a selection matches several runs and
+--latest was not given; 3 when nothing matches; 5 when --timeout ran out or,
+with --exit-code, when the run has not concluded yet. Without --wait, --watch
+or --exit-code the command exits 0 whatever the run's outcome, as it always
+has.`
+
 func newPipelineGetCommand() *cobra.Command {
 	getCommand := &cobra.Command{
-		Use:   "get <run>",
-		Short: "Show a pipeline run's detail",
-		Args:  cobra.ExactArgs(1),
+		Use:   "get [run]",
+		Short: "Show a pipeline run's detail, or wait on or watch it",
+		Long:  pipelineGetLongHelp,
+		Example: `  # Block until the pull request run for a commit concludes; exit non-zero unless it passed
+  ankra pipeline get --head-sha "$(git rev-parse HEAD)" --trigger pull_request --latest --wait --timeout 45m
+
+  # React to each run and step state change as it happens, one JSON object per line
+  ankra pipeline get <run-id> --watch -o json
+
+  # Read a run once and branch on it: 0 passed, 1 did not, 5 still running
+  ankra pipeline get <run-id> --exit-code`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
 			if selectorError != nil {
 				return selectorError
 			}
-			return runPipelineGet(command, selector, arguments[0])
+			runID := ""
+			if len(arguments) == 1 {
+				runID = arguments[0]
+			}
+			return runPipelineGet(command, selector, runID)
 		},
 	}
 	registerPipelineSelectorFlags(getCommand)
+	registerPipelineGetFlags(getCommand)
 	registerStructuredOutputFlags(getCommand)
 	return getCommand
 }
 
+// registerPipelineGetFlags is shared by `pipeline get` and
+// `application pipeline get`.
+func registerPipelineGetFlags(command *cobra.Command) {
+	command.Flags().Bool("wait", false,
+		"Wait for the run to conclude, then print its final detail; exits non-zero unless it succeeded")
+	command.Flags().Bool("watch", false,
+		"Print each run and step state change as it happens until the run concludes (-o json: one JSON object per line)")
+	command.Flags().Bool("exit-code", false,
+		"Exit 1 when the run concluded without succeeding, and 5 while it has not concluded")
+	registerPipelineWaitTimeoutFlag(command)
+	command.Flags().String("head-sha", "", "Select the run for this full commit sha instead of naming its id")
+	command.Flags().String("branch", "", "Select the run for this trigger branch instead of naming its id")
+	command.Flags().String("trigger", "",
+		"Select the run with this trigger: push, pull_request, tag, schedule, manual, api, agent, or rerun")
+	command.Flags().Bool("latest", false,
+		"Take the newest matching run when several match (on its own: the pipeline's newest run)")
+}
+
+// runPipelineGet shows one run: named by runID, or - when runID is empty -
+// selected by the --head-sha/--branch/--trigger/--latest flags. --wait and
+// --watch then hold the command until the run concludes; see
+// cmd/pipeline_wait.go.
 func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, runID string) error {
 	format, formatError := structuredFormatFromFlags(command)
 	if formatError != nil {
 		return formatError
 	}
-	detail, getError := apiClient.GetPipelineRun(command.Context(), selector, strings.TrimSpace(runID))
+	isWaiting, _ := command.Flags().GetBool("wait")
+	isWatching, _ := command.Flags().GetBool("watch")
+	isExitCodeRequested, _ := command.Flags().GetBool("exit-code")
+	if isWatching && format == outputYAML {
+		return withExitCode(exitUsage, errors.New(
+			"--watch writes one JSON object per line: pass -o json, or no -o for readable lines"))
+	}
+	timeout, timeoutError := pipelineWaitTimeoutFromFlags(command, isWaiting || isWatching, "--wait or --watch")
+	if timeoutError != nil {
+		return timeoutError
+	}
+	runID = strings.TrimSpace(runID)
+	selection := pipelineRunSelectionFromFlags(command)
+	switch {
+	case runID != "" && !selection.isEmpty():
+		return withExitCode(exitUsage, errors.New(
+			"name the run by its id or select it with --head-sha, --branch, --trigger and --latest, not both"))
+	case runID == "" && selection.isEmpty():
+		return withExitCode(exitUsage, errors.New(
+			"pass the run's id, or select a run with --latest (narrowed by --head-sha, --branch or --trigger)"))
+	}
+
+	var runWait *pipelineRunWait
+	if isWaiting || isWatching {
+		runWait = startPipelineRunWait(command.Context(), timeout)
+		defer runWait.stop()
+	}
+	if runID == "" {
+		selectedID, selectionError := resolvePipelineRunSelection(command, selector, selection, runWait)
+		if selectionError != nil {
+			return selectionError
+		}
+		runID = selectedID
+	}
+
+	switch {
+	case isWatching:
+		return watchPipelineRun(command, selector, runID, format, runWait)
+	case isWaiting:
+		detail, waitError := waitForPipelineRunConclusion(command, selector, runID, runWait)
+		if waitError != nil {
+			return waitError
+		}
+		return renderConcludedPipelineRun(command, format, detail)
+	}
+
+	detail, getError := apiClient.GetPipelineRun(command.Context(), selector, runID)
 	if getError != nil {
 		return getError
 	}
 	if format != outputDefault {
-		return encodeStructured(command.OutOrStdout(), format, detail)
+		if encodeError := encodeStructured(command.OutOrStdout(), format, detail); encodeError != nil {
+			return encodeError
+		}
+	} else {
+		printPipelineRunDetail(command.OutOrStdout(), *detail)
 	}
-	printPipelineRunDetail(command.OutOrStdout(), *detail)
+	if isExitCodeRequested {
+		return pipelineRunExitCodeError(detail.PipelineRun)
+	}
 	return nil
 }
 
@@ -485,10 +577,17 @@ whatever depended on them.`,
 		},
 	}
 	registerPipelineSelectorFlags(rerunCommand)
-	rerunCommand.Flags().Bool("failed-only", false, "Re-run only the steps that did not succeed, and whatever depends on them")
-	rerunCommand.Flags().Bool("wait", false, "Wait for the new run to conclude before returning")
+	registerPipelineRerunFlags(rerunCommand)
 	registerStructuredOutputFlags(rerunCommand)
 	return rerunCommand
+}
+
+// registerPipelineRerunFlags is shared by `pipeline rerun` and
+// `application pipeline rerun`.
+func registerPipelineRerunFlags(command *cobra.Command) {
+	command.Flags().Bool("failed-only", false, "Re-run only the steps that did not succeed, and whatever depends on them")
+	command.Flags().Bool("wait", false, "Wait for the new run to conclude before returning")
+	registerPipelineWaitTimeoutFlag(command)
 }
 
 func runPipelineRerun(command *cobra.Command, selector client.PipelineSelector, runID string) error {
@@ -498,6 +597,10 @@ func runPipelineRerun(command *cobra.Command, selector client.PipelineSelector, 
 	}
 	failedOnly, _ := command.Flags().GetBool("failed-only")
 	wait, _ := command.Flags().GetBool("wait")
+	timeout, timeoutError := pipelineWaitTimeoutFromFlags(command, wait, "--wait")
+	if timeoutError != nil {
+		return timeoutError
+	}
 
 	result, rerunError := apiClient.RerunPipelineRun(command.Context(), selector, strings.TrimSpace(runID), failedOnly)
 	if rerunError != nil {
@@ -510,13 +613,11 @@ func runPipelineRerun(command *cobra.Command, selector client.PipelineSelector, 
 		_, _ = fmt.Fprintf(command.OutOrStdout(), "Run #%d queued: %s\n", result.RunNumber, result.PipelineRunID)
 		return nil
 	}
-	detail, waitError := waitForPipelineRunConclusion(command, selector, result.PipelineRunID)
+	runWait := startPipelineRunWait(command.Context(), timeout)
+	defer runWait.stop()
+	detail, waitError := waitForPipelineRunConclusion(command, selector, result.PipelineRunID, runWait)
 	if waitError != nil {
 		return waitError
 	}
-	if format != outputDefault {
-		return encodeStructured(command.OutOrStdout(), format, detail)
-	}
-	printPipelineRunDetail(command.OutOrStdout(), *detail)
-	return pipelineRunConclusionError(detail.PipelineRun)
+	return renderConcludedPipelineRun(command, format, detail)
 }

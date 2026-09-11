@@ -1,10 +1,11 @@
 package client
 
 // The step log relay client: go/internal/pipelineapi/streams.go relays one
-// step's output as SSE frames over the shared execution_output JetStream
-// stream (the dedicated pipeline_output stream is WS-B item B3; when it lands
-// nothing here changes - the frames, the seq resume cursor and the status
-// codes are the shared sserelay's either way).
+// step's output as SSE frames from the dedicated pipeline_output JetStream
+// stream, or from the shared execution_output one for an agent that cannot
+// publish on the dedicated subject (sserelay.PumpEither). The seq resume
+// cursor and the status codes are the shared sserelay's either way; the
+// frames are not - see isPipelineLogLineFrame.
 //
 // Where in a step's output a connection starts, and whether it ends, are the
 // relay's own decision from the step's status - and StepLogStreamOptions is
@@ -174,12 +175,12 @@ func (c *Client) StreamPipelineStepLogs(ctx context.Context, selector PipelineSe
 				// The relay's own error frame (sserelay.ErrorFrame).
 				Type    string `json:"type"`
 				Message string `json:"message"`
-				// The agent's output-line event
-				// (agent/go/internal/scheduler/progress.go OnTaskOutput).
-				EventType string `json:"event_type"`
-				Stream    string `json:"stream"`
-				Line      string `json:"line"`
-				Seq       int64  `json:"seq"`
+				// An output line, in one of the two shapes described at
+				// isPipelineLogLineFrame.
+				EventType string  `json:"event_type"`
+				Stream    string  `json:"stream"`
+				Line      *string `json:"line"`
+				Seq       int64   `json:"seq"`
 			}
 			if unmarshalError := json.Unmarshal([]byte(data), &frame); unmarshalError != nil {
 				continue
@@ -188,13 +189,34 @@ func (c *Client) StreamPipelineStepLogs(ctx context.Context, selector PipelineSe
 				events <- PipelineLogEvent{Type: "error", Error: frame.Message}
 				return
 			}
-			if frame.EventType != "task_output" {
+			if !isPipelineLogLineFrame(frame.EventType, frame.Line) {
 				continue
 			}
-			events <- PipelineLogEvent{Type: "line", Stream: frame.Stream, Line: frame.Line, Seq: frame.Seq}
+			outputLine := ""
+			if frame.Line != nil {
+				outputLine = *frame.Line
+			}
+			events <- PipelineLogEvent{Type: "line", Stream: frame.Stream, Line: outputLine, Seq: frame.Seq}
 		}
 	}()
 	return events, nil
+}
+
+// isPipelineLogLineFrame reports whether a relay frame is one of the step's
+// output lines. The relay reads the step's dedicated pipeline_output subject,
+// falling back to the shared execution_output one for an agent that cannot
+// publish on it (sserelay.PumpEither), and the agent writes a line
+// differently on each: {"stream","line"} with no event_type at all on the
+// dedicated subject (agent/go/internal/jobs pipelineProgressSink), and the
+// scheduler's task_output event on the shared one
+// (agent/go/internal/scheduler/progress.go OnTaskOutput), which also carries
+// events that are not output. Reading only task_output dropped every line of
+// every step an up-to-date agent ran.
+func isPipelineLogLineFrame(eventType string, line *string) bool {
+	if eventType == "" {
+		return line != nil
+	}
+	return eventType == "task_output"
 }
 
 // stepLogNoLongerRetainedFromBody decodes the relay's 410 body
