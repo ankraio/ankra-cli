@@ -55,6 +55,30 @@ Related flags: `--registry-api-url`, `--registry-username-secret`, `--registry-p
 to let Ankra write the named credential into those secrets for you. See
 [reference.md](reference.md) for the registry matrix (Harbor, ECR, GAR, ACR, GHCR, Docker Hub).
 
+## 1b. From a Claude Design export (no repository yet)
+
+A canvas exported from [Claude Design](https://claude.ai/design) can be registered without a
+repository of its own: Ankra converts the artboards into a static site, creates the GitHub
+repository under the credential's account, commits the site with a busybox `httpd` Dockerfile,
+and registers the application - the same setup PR, build and deploy lane follows.
+
+```bash
+ankra application import claude-design ./neighborly-export --name neighborly
+ankra application import claude-design neighborly.zip --credential github-acme --owner acme \
+  --repository neighborly-site --source-url https://claude.ai/design/p/<id> --wait
+```
+
+`<path>` is a directory of the export (`<Name>.dc.html` artboards, `canvas.json`, images), a zip
+of it, one artboard, or a saved canvas page (`.html`). `Main.dc.html` becomes `site/index.html`,
+the other artboards `site/<name>.html`, and a multi-artboard canvas gets a `site/canvas.html`
+index. Artboards that use template logic (`{{ }}` holes, `sc-for`/`sc-if`, `dc-import`, a
+`data-dc-script`) are kept as authored and reported as warnings: they need the Claude Design
+runtime and may not render as on the canvas - replace the logic with markup and import again, or
+edit the page under `site/`. Re-running the same import registers the same repository without a
+second commit (`.ankra/design-import.json` records the inputs); a changed export is refused -
+use a new `--repository` name. The GitHub App cannot create repositories in a personal
+account: use an organisation owner, or create the repository first and use `application add`.
+
 ## 2. Review what Ankra generated
 
 Ankra opens a **setup pull request** carrying the Dockerfile, the Helm chart, and the build

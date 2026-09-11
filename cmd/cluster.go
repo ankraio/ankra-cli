@@ -97,6 +97,10 @@ func resolveClusterArg(nameOrID string) (string, error) {
 	}
 	clusterID, resolveError := resolveClusterID(nameOrID)
 	if resolveError != nil {
+		// Preserve the resolver's exit code. resolveClusterID already
+		// distinguishes a verified absence (exitNotFound) from an ambiguous
+		// name (exitUsage) from a listing that failed, and wrapping with a
+		// bare fmt.Errorf would flatten all three to the generic failure code.
 		return "", fmt.Errorf("%w (pass the cluster's name as `ankra cluster list` shows it, or its id)", resolveError)
 	}
 	return clusterID, nil

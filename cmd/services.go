@@ -231,6 +231,7 @@ type APIClient interface {
 	DeleteStackProfileLogo(requestContext context.Context, profileID string) (json.RawMessage, error)
 
 	CreateApplication(requestContext context.Context, applicationRequest client.CreateApplicationRequest) (*client.CreateApplicationResponse, error)
+	ImportClaudeDesignApplication(requestContext context.Context, importRequest client.ImportClaudeDesignRequest) (*client.ImportClaudeDesignResponse, error)
 	ListApplicationsRaw(requestContext context.Context, page int, pageSize int, search string) (json.RawMessage, error)
 	GetApplicationRaw(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationJobs(requestContext context.Context, applicationID string, page int, pageSize int) (json.RawMessage, error)

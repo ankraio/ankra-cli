@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -292,8 +293,118 @@ var stackProfilesDiffCmd = &cobra.Command{
 		if diffError != nil {
 			return fmt.Errorf("diffing stack profile versions: %w", diffError)
 		}
-		return renderApplicationPayload(cmd, payload)
+		format, _ := structuredFormatFromFlags(cmd)
+		if format != outputDefault {
+			return renderApplicationPayload(cmd, payload)
+		}
+		return renderProfileVersionContentDiff(cmd, profileID, fromVersion, toVersion, payload)
 	},
+}
+
+// profileVersionDiffPayload is the slice of the platform's version diff the
+// human output needs: which resources changed. The content itself is not in
+// the payload (it carries hashes), so it is read from both versions.
+type profileVersionDiffPayload struct {
+	Changes []struct {
+		Key        string `json:"key"`
+		ChangeType string `json:"change_type"`
+	} `json:"changes"`
+}
+
+// renderProfileVersionContentDiff prints a unified diff of every manifest
+// and add-on values file that differs between two versions, decoded, the
+// way `diff -u` would show it. Resources only one version has are printed
+// whole, as all-added or all-removed.
+func renderProfileVersionContentDiff(cmd *cobra.Command, profileID string, fromVersion int, toVersion int, payload json.RawMessage) error {
+	fromResources, fromError := loadProfileVersionResources(cmd, profileID, fromVersion)
+	if fromError != nil {
+		return fromError
+	}
+	toResources, toError := loadProfileVersionResources(cmd, profileID, toVersion)
+	if toError != nil {
+		return toError
+	}
+	var diffPayload profileVersionDiffPayload
+	diffPayloadKnown := len(payload) > 0
+	if diffPayloadKnown {
+		if unmarshalError := json.Unmarshal(payload, &diffPayload); unmarshalError != nil {
+			diffPayloadKnown = false
+		}
+	}
+	out := cmd.OutOrStdout()
+	fromKeys := map[string]profileResource{}
+	for _, resource := range fromResources {
+		fromKeys[resource.Kind+":"+resource.Name] = resource
+	}
+	toKeys := map[string]profileResource{}
+	for _, resource := range toResources {
+		toKeys[resource.Kind+":"+resource.Name] = resource
+	}
+	keys := []string{}
+	seen := map[string]bool{}
+	for _, resource := range append(append([]profileResource{}, fromResources...), toResources...) {
+		key := resource.Kind + ":" + resource.Name
+		if !seen[key] {
+			seen[key] = true
+			keys = append(keys, key)
+		}
+	}
+	changed, unchanged := 0, 0
+	for _, key := range keys {
+		fromResource, inFrom := fromKeys[key]
+		toResource, inTo := toKeys[key]
+		fromLabel := fmt.Sprintf("%s (v%d)", key, fromVersion)
+		toLabel := fmt.Sprintf("%s (v%d)", key, toVersion)
+		var rendered string
+		switch {
+		case inFrom && inTo:
+			rendered = unifiedDiff(fromLabel, toLabel, fromResource.Content, toResource.Content)
+		case inFrom:
+			rendered = unifiedDiff(fromLabel, "/dev/null", fromResource.Content, "")
+		default:
+			rendered = unifiedDiff("/dev/null", toLabel, "", toResource.Content)
+		}
+		if rendered == "" {
+			unchanged++
+			continue
+		}
+		changed++
+		if changed > 1 {
+			_, _ = fmt.Fprintln(out)
+		}
+		_, _ = fmt.Fprint(out, rendered)
+	}
+	stackChanges := 0
+	for _, change := range diffPayload.Changes {
+		if !strings.Contains(change.Key, "/") {
+			stackChanges++
+		}
+	}
+	if changed == 0 {
+		_, _ = fmt.Fprintf(out, "No manifest or add-on values differ between v%d and v%d", fromVersion, toVersion)
+		switch {
+		case !diffPayloadKnown:
+			_, _ = fmt.Fprint(out, " (the platform's change list could not be read, so whether the stack's own settings changed is unknown; see 'ankra stack-profiles diff -o json')")
+		case stackChanges > 0:
+			_, _ = fmt.Fprint(out, " (the stack's own settings changed; compare them with 'ankra stack-profiles version')")
+		}
+		_, _ = fmt.Fprintln(out, ".")
+		return nil
+	}
+	_, _ = fmt.Fprintf(out, "\n%d %s changed, %d unchanged, v%d -> v%d.\n", changed, pluralise(changed, "resource", "resources"), unchanged, fromVersion, toVersion)
+	return nil
+}
+
+func loadProfileVersionResources(cmd *cobra.Command, profileID string, version int) ([]profileResource, error) {
+	payload, getError := apiClient.GetStackProfileVersion(cmd.Context(), profileID, version)
+	if getError != nil {
+		return nil, fmt.Errorf("getting stack profile version v%d: %w", version, getError)
+	}
+	var versionPayload profileVersionPayload
+	if unmarshalError := json.Unmarshal(payload, &versionPayload); unmarshalError != nil {
+		return nil, fmt.Errorf("parsing stack profile version v%d: %w", version, unmarshalError)
+	}
+	return profileVersionResources(&versionPayload)
 }
 
 var stackProfilesDeploymentsCmd = &cobra.Command{
@@ -301,7 +412,11 @@ var stackProfilesDeploymentsCmd = &cobra.Command{
 	Short: "List the stacks deployed from a profile across the fleet",
 	Long: `List every stack your organisation deployed from this profile: the target
 cluster, the stack, the profile version it runs, and whether a newer
-version is available.`,
+version is available. --outdated keeps only the ones behind the current
+version; -o json returns the raw records.`,
+	Example: `  ankra stack-profiles deployments hello-fleet
+  ankra stack-profiles deployments hello-fleet --outdated
+  ankra stack-profiles deployments hello-fleet -o json`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
@@ -311,11 +426,17 @@ version is available.`,
 		if resolveError != nil {
 			return resolveError
 		}
-		payload, listError := apiClient.ListStackProfileInstantiations(cmd.Context(), profileID)
+		payload, deployments, listError := loadStackProfileDeployments(cmd.Context(), profileID)
 		if listError != nil {
-			return fmt.Errorf("listing stack profile deployments: %w", listError)
+			return listError
 		}
-		return renderApplicationPayload(cmd, payload)
+		format, _ := structuredFormatFromFlags(cmd)
+		if format != outputDefault {
+			return renderApplicationPayload(cmd, payload)
+		}
+		onlyOutdated, _ := cmd.Flags().GetBool("outdated")
+		renderStackProfileDeployments(cmd.OutOrStdout(), deployments, onlyOutdated)
+		return nil
 	},
 }
 
@@ -357,6 +478,7 @@ func init() {
 	stackProfilesDiffCmd.Flags().String("to", "", "Version to compare to, as 1 or v1 (required)")
 	registerStructuredOutputFlags(stackProfilesDiffCmd)
 
+	stackProfilesDeploymentsCmd.Flags().Bool("outdated", false, "Only the deployments behind the current version")
 	registerStructuredOutputFlags(stackProfilesDeploymentsCmd)
 
 	stackProfilesCmd.AddCommand(

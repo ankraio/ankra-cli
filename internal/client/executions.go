@@ -32,6 +32,15 @@ type ExecutionSummary struct {
 	StepSummary    StepSummary `json:"step_summary"`
 	CreatedAt      *string     `json:"created_at"`
 	UpdatedAt      *string     `json:"updated_at"`
+	// AttentionState is derived by the platform on every read: "none"
+	// unless the execution ended failed, critical or cancelled; "resolved"
+	// once every resource its failed steps targeted has recovered (a later
+	// write execution on the same resource succeeded, the resource is up,
+	// or it is gone); "open" otherwise. Empty on platforms that predate it.
+	AttentionState string `json:"attention_state,omitempty"`
+	// ResolvedByExecutionID names the later execution that cleared the
+	// attention; nil when the resource itself recovered or nothing did.
+	ResolvedByExecutionID *string `json:"resolved_by_execution_id,omitempty"`
 }
 
 type ExecutionStep struct {
@@ -87,8 +96,18 @@ type ListExecutionsOptions struct {
 	StatusList         []string
 	TargetResourceKind string
 	TargetResourceID   string
-	Page               int
-	PageSize           int
+	// IncludeInternalExecutions also lists the platform's internal
+	// maintenance executions, which every default listing hides: the
+	// GitOps reconcile snapshot push that lands a "Sync cluster state from
+	// Ankra" commit and may re-encrypt sealed files. It is sent only when
+	// set, so the server default (hidden) is untouched otherwise.
+	IncludeInternalExecutions bool
+	// AttentionState keeps only executions in that derived attention state
+	// ("open" for the needs-attention view, "resolved" for failures a later
+	// run already cleared); empty lists every execution.
+	AttentionState string
+	Page           int
+	PageSize       int
 }
 
 type CancelExecutionResponse struct {
@@ -132,6 +151,12 @@ func (c *Client) ListExecutions(opts ListExecutionsOptions) (ExecutionListRespon
 	}
 	if opts.TargetResourceID != "" {
 		params.Set("target_resource_id", opts.TargetResourceID)
+	}
+	if opts.IncludeInternalExecutions {
+		params.Set("include_internal_executions", "true")
+	}
+	if opts.AttentionState != "" {
+		params.Set("attention_state", opts.AttentionState)
 	}
 	if opts.Page > 0 {
 		params.Set("page", fmt.Sprintf("%d", opts.Page))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"sort"
@@ -431,6 +432,9 @@ var stackProfilesApplyCmd = &cobra.Command{
 By default this creates a reviewable stack DRAFT on the target cluster - nothing is
 deployed until you review it in the Ankra dashboard or pass --deploy.
 
+Repeat --cluster to apply the same version and bindings to several clusters in
+one command; a summary table reports each cluster at the end.
+
 Bind profile parameters with --set name=value. For secret parameters prefer
 --set-file name=path or --set-env name=ENV_VAR so the value never appears in your
 shell history or process list. Use 'ankra stack-profiles get <profile-id>' to see
@@ -441,7 +445,7 @@ which parameters a profile expects.`,
 		if resolveError != nil {
 			return resolveError
 		}
-		clusterFlag, _ := cmd.Flags().GetString("cluster")
+		clusterFlags, _ := cmd.Flags().GetStringArray("cluster")
 		stackName, _ := cmd.Flags().GetString("stack-name")
 		versionRaw, _ := cmd.Flags().GetString("version")
 		versionFlag, versionError := parseProfileVersionFlag(versionRaw)
@@ -463,11 +467,6 @@ which parameters a profile expects.`,
 			return previewApply(cmd, profileID, versionFlag, parameters)
 		}
 
-		clusterID, clusterLabel, err := resolveApplyTargetCluster(clusterFlag)
-		if err != nil {
-			return err
-		}
-
 		request := client.InstantiateStackProfileRequest{
 			ProfileID:    profileID,
 			NewStackName: stackName,
@@ -484,46 +483,145 @@ which parameters a profile expects.`,
 			return err
 		}
 
+		if len(clusterFlags) > 1 {
+			return applyProfileToClusters(cmd, format, clusterFlags, request)
+		}
+		clusterFlag := ""
+		if len(clusterFlags) == 1 {
+			clusterFlag = clusterFlags[0]
+		}
+		clusterID, clusterLabel, err := resolveApplyTargetCluster(clusterFlag)
+		if err != nil {
+			return err
+		}
+
 		if format == outputDefault {
 			fmt.Printf("Applying stack profile to cluster '%s'...\n", clusterLabel)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
-		defer cancel()
-
-		result, err := apiClient.InstantiateStackProfile(ctx, clusterID, request)
+		result, err := instantiateProfileOnCluster(clusterID, request)
 		if err != nil {
-			return fmt.Errorf("applying stack profile: %w", err)
+			return err
 		}
 
 		if format != outputDefault {
 			return encodeStructured(cmd.OutOrStdout(), format, result)
 		}
 
-		fmt.Printf("\nStack profile applied successfully!\n")
-		fmt.Printf("  Draft ID:    %s\n", result.DraftID)
-		fmt.Printf("  Stack Name:  %s\n", result.StackName)
-		fmt.Printf("  Version:     v%d\n", result.ProfileVersion)
-		fmt.Printf("  Addons:      %d\n", result.AddonsCount)
-		fmt.Printf("  Manifests:   %d\n", result.ManifestsCount)
-
-		if len(result.Warnings) > 0 {
-			fmt.Println("\nWarnings:")
-			for _, warning := range result.Warnings {
-				fmt.Printf("  - %s\n", warning)
-			}
-		}
-
-		if result.Deployed {
-			fmt.Printf("\nThe stack has been deployed. %d job(s) scheduled.\n", result.JobCount)
-			if result.OperationID != nil {
-				fmt.Printf("  Operation ID: %s\n", *result.OperationID)
-			}
-		} else {
-			fmt.Printf("\nThe stack was created as a draft. Review and deploy it in the Ankra dashboard, or re-run with --deploy.\n")
-		}
+		printApplyResult(os.Stdout, result)
 		return nil
 	},
+}
+
+func instantiateProfileOnCluster(clusterID string, request client.InstantiateStackProfileRequest) (*client.InstantiateStackProfileResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	result, err := apiClient.InstantiateStackProfile(ctx, clusterID, request)
+	if err != nil {
+		return nil, fmt.Errorf("applying stack profile: %w", err)
+	}
+	return result, nil
+}
+
+func printApplyResult(out io.Writer, result *client.InstantiateStackProfileResult) {
+	_, _ = fmt.Fprintf(out, "\nStack profile applied successfully!\n")
+	_, _ = fmt.Fprintf(out, "  Draft ID:    %s\n", result.DraftID)
+	_, _ = fmt.Fprintf(out, "  Stack Name:  %s\n", result.StackName)
+	_, _ = fmt.Fprintf(out, "  Version:     v%d\n", result.ProfileVersion)
+	_, _ = fmt.Fprintf(out, "  Addons:      %d\n", result.AddonsCount)
+	_, _ = fmt.Fprintf(out, "  Manifests:   %d\n", result.ManifestsCount)
+
+	if len(result.Warnings) > 0 {
+		_, _ = fmt.Fprintln(out, "\nWarnings:")
+		for _, warning := range result.Warnings {
+			_, _ = fmt.Fprintf(out, "  - %s\n", warning)
+		}
+	}
+
+	if result.Deployed {
+		_, _ = fmt.Fprintf(out, "\nThe stack has been deployed. %d job(s) scheduled.\n", result.JobCount)
+		if result.OperationID != nil {
+			_, _ = fmt.Fprintf(out, "  Operation ID: %s\n", *result.OperationID)
+		}
+	} else {
+		_, _ = fmt.Fprintf(out, "\nThe stack was created as a draft. Review and deploy it in the Ankra dashboard, or re-run with --deploy.\n")
+	}
+}
+
+// multiClusterApplyOutcome is one cluster's result when apply targets
+// several clusters at once.
+type multiClusterApplyOutcome struct {
+	Cluster string                                `json:"cluster"`
+	Status  string                                `json:"status"`
+	Error   string                                `json:"error,omitempty"`
+	Result  *client.InstantiateStackProfileResult `json:"result,omitempty"`
+}
+
+// applyProfileToClusters applies the same profile version and bindings to
+// every cluster named, one after the other, and keeps going past a failure
+// so one bad cluster does not stop the rest of the fleet. The exit status
+// reports any failure.
+func applyProfileToClusters(cmd *cobra.Command, format outputFormat, clusterFlags []string, request client.InstantiateStackProfileRequest) error {
+	out := cmd.OutOrStdout()
+	outcomes := make([]multiClusterApplyOutcome, 0, len(clusterFlags))
+	failed := 0
+	for _, clusterFlag := range clusterFlags {
+		outcome := multiClusterApplyOutcome{Cluster: clusterFlag}
+		clusterID, _, resolveError := resolveApplyTargetCluster(clusterFlag)
+		if resolveError != nil {
+			outcome.Status, outcome.Error = "failed", resolveError.Error()
+		} else {
+			if format == outputDefault {
+				_, _ = fmt.Fprintf(out, "== %s\n", clusterFlag)
+			}
+			result, applyError := instantiateProfileOnCluster(clusterID, request)
+			switch {
+			case applyError != nil:
+				outcome.Status, outcome.Error = "failed", applyError.Error()
+			case result.Deployed:
+				outcome.Status, outcome.Result = "deployed", result
+			default:
+				outcome.Status, outcome.Result = "draft", result
+			}
+			if format == outputDefault && result != nil {
+				printApplyResult(out, result)
+				_, _ = fmt.Fprintln(out)
+			}
+		}
+		if outcome.Status == "failed" {
+			failed++
+			if format == outputDefault {
+				_, _ = fmt.Fprintf(out, "== %s\n  failed: %s\n\n", clusterFlag, outcome.Error)
+			}
+		}
+		outcomes = append(outcomes, outcome)
+	}
+	if format != outputDefault {
+		if encodeError := encodeStructured(cmd.OutOrStdout(), format, outcomes); encodeError != nil {
+			return encodeError
+		}
+		if failed > 0 {
+			return fmt.Errorf("%d of %d clusters failed", failed, len(clusterFlags))
+		}
+		return nil
+	}
+	summary := table.NewWriter()
+	summary.SetOutputMirror(out)
+	summary.SetStyle(table.StyleRounded)
+	summary.AppendHeader(table.Row{"CLUSTER", "STACK", "VERSION", "STATUS"})
+	for _, outcome := range outcomes {
+		stackName, version := "-", "-"
+		if outcome.Result != nil {
+			stackName = outcome.Result.StackName
+			version = fmt.Sprintf("v%d", outcome.Result.ProfileVersion)
+		}
+		summary.AppendRow(table.Row{outcome.Cluster, stackName, version, outcome.Status})
+	}
+	summary.Render()
+	if failed > 0 {
+		return fmt.Errorf("%d of %d clusters failed", failed, len(clusterFlags))
+	}
+	return nil
 }
 
 // previewApply is `apply --dry-run`: it reads the profile version's inputs,
@@ -686,7 +784,7 @@ func init() {
 	stackProfilesGetCmd.Flags().String("version", "", "Profile version to describe, as 1 or v1 (defaults to the current version)")
 	registerStructuredOutputFlags(stackProfilesGetCmd)
 
-	stackProfilesApplyCmd.Flags().String("cluster", "", "Target cluster name or ID (defaults to the selected cluster)")
+	stackProfilesApplyCmd.Flags().StringArray("cluster", nil, "Target cluster name or ID (repeatable: apply the same profile to several clusters in one go; defaults to the selected cluster)")
 	stackProfilesApplyCmd.Flags().String("version", "", "Profile version to apply, as 1 or v1 (defaults to the profile's current version)")
 	stackProfilesApplyCmd.Flags().String("stack-name", "", "Name for the new stack (defaults to the profile's stack name)")
 	stackProfilesApplyCmd.Flags().StringArray("set", nil, "Bind a parameter: name=value (repeatable; not for secrets)")

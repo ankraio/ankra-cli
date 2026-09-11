@@ -58,6 +58,66 @@ func TestListExecutionsBuildsQueryString(t *testing.T) {
 	}
 }
 
+// TestListExecutionsIncludeInternalIsSentOnlyWhenSet pins the wire contract
+// for --include-internal: the server hides internal executions by default and
+// reads include_internal_executions as an explicit opt-in, so the parameter
+// must be present (true) when asked for and absent otherwise - never sent as
+// "false", which some servers reject as a validation error.
+func TestListExecutionsAttentionStateIsSentOnlyWhenSet(t *testing.T) {
+	var capturedQueries []string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedQueries = append(capturedQueries, r.URL.RawQuery)
+		resolvedBy := "exec-2"
+		jsonResponse(t, w, http.StatusOK, ExecutionListResponse{
+			Result: []ExecutionSummary{{
+				ID: "exec-1", Status: "failed", AttentionState: "resolved", ResolvedByExecutionID: &resolvedBy,
+			}},
+		})
+	})
+
+	resp, err := testClient.ListExecutions(ListExecutionsOptions{ClusterID: "cluster-uuid", AttentionState: "open"})
+	if err != nil {
+		t.Fatalf("ListExecutions error = %v", err)
+	}
+	if _, err := testClient.ListExecutions(ListExecutionsOptions{ClusterID: "cluster-uuid"}); err != nil {
+		t.Fatalf("ListExecutions error = %v", err)
+	}
+	if !strings.Contains(capturedQueries[0], "attention_state=open") {
+		t.Errorf("expected attention_state in query, got: %s", capturedQueries[0])
+	}
+	if strings.Contains(capturedQueries[1], "attention_state") {
+		t.Errorf("attention_state must be omitted when unset, got: %s", capturedQueries[1])
+	}
+	if resp.Result[0].AttentionState != "resolved" || resp.Result[0].ResolvedByExecutionID == nil ||
+		*resp.Result[0].ResolvedByExecutionID != "exec-2" {
+		t.Errorf("attention fields not decoded: %+v", resp.Result[0])
+	}
+}
+
+func TestListExecutionsIncludeInternalIsSentOnlyWhenSet(t *testing.T) {
+	var capturedQueries []string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedQueries = append(capturedQueries, r.URL.RawQuery)
+		jsonResponse(t, w, http.StatusOK, ExecutionListResponse{})
+	})
+
+	if _, err := testClient.ListExecutions(ListExecutionsOptions{ClusterID: "cluster-uuid"}); err != nil {
+		t.Fatalf("ListExecutions (default) error = %v", err)
+	}
+	if _, err := testClient.ListExecutions(ListExecutionsOptions{ClusterID: "cluster-uuid", IncludeInternalExecutions: true}); err != nil {
+		t.Fatalf("ListExecutions (include internal) error = %v", err)
+	}
+	if len(capturedQueries) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(capturedQueries))
+	}
+	if strings.Contains(capturedQueries[0], "include_internal_executions") {
+		t.Errorf("default listing must not send include_internal_executions, got: %s", capturedQueries[0])
+	}
+	if !strings.Contains(capturedQueries[1], "include_internal_executions=true") {
+		t.Errorf("expected include_internal_executions=true in query, got: %s", capturedQueries[1])
+	}
+}
+
 func TestGetExecutionReturnsDetail(t *testing.T) {
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/exec-1") {

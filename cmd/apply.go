@@ -83,10 +83,20 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	targetNote, err := applyClusterOverride(cmd, &importRequest)
+	if err != nil {
+		return err
+	}
 
 	if dryRun {
 		fmt.Printf("Validation succeeded for %q; no changes applied (--dry-run).\n", filePath)
+		if targetNote != "" {
+			fmt.Println(targetNote)
+		}
 		return nil
+	}
+	if targetNote != "" {
+		fmt.Println(targetNote)
 	}
 
 	wait, err := asyncWriteWaitFlag(cmd)
@@ -163,6 +173,30 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// applyClusterOverride makes --cluster the target of the apply. The document's
+// metadata.name is the cluster name the platform addresses, so a file written
+// for one cluster (or exported from a profile, where the name is the profile's)
+// used to import a NEW cluster under that name whenever --cluster was passed
+// alongside it - the flag was read by nothing. With the flag set, the cluster
+// is resolved (name or id) and its name replaces metadata.name; the note says
+// so when the two differ so the substitution is never silent.
+func applyClusterOverride(cmd *cobra.Command, importRequest *client.CreateImportClusterRequest) (string, error) {
+	override := clusterFlagOverride(cmd)
+	if override == "" {
+		return "", nil
+	}
+	cluster, lookupError := lookupClusterByNameOrID(override)
+	if lookupError != nil {
+		return "", lookupError
+	}
+	if cluster.Name == importRequest.Name {
+		return "", nil
+	}
+	note := fmt.Sprintf("Applying to cluster '%s' (--cluster), not '%s' (metadata.name in the file).", cluster.Name, importRequest.Name)
+	importRequest.Name = cluster.Name
+	return note, nil
+}
+
 // loadImportCluster reads and validates an ImportCluster file into the
 // request the platform accepts, with the repoint permissions set.
 func loadImportCluster(filePath string, allowRepoint bool, allowRepointDestroyingData bool) (client.CreateImportClusterRequest, error) {
@@ -194,7 +228,13 @@ func buildImportRequest(path string) (client.CreateImportClusterRequest, error) 
 	if err != nil {
 		return client.CreateImportClusterRequest{}, fmt.Errorf("could not read the file: %w", err)
 	}
+	return buildImportRequestFromBytes(data, filepath.Dir(path))
+}
 
+// buildImportRequestFromBytes parses an ImportCluster document that is
+// already in memory (an exported profile version, for instance). from_file
+// references inside it resolve against baseDirectory.
+func buildImportRequestFromBytes(data []byte, baseDirectory string) (client.CreateImportClusterRequest, error) {
 	var raw map[string]interface{}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return client.CreateImportClusterRequest{}, fmt.Errorf("the file is not valid YAML: %w", err)
@@ -252,7 +292,6 @@ func buildImportRequest(path string) (client.CreateImportClusterRequest, error) 
 		}
 	}
 
-	baseDirectory := filepath.Dir(path)
 	rawStackItems, _ := spec["stacks"].([]interface{})
 	stacks := make([]client.Stack, 0, len(rawStackItems))
 	for index, rawStack := range rawStackItems {

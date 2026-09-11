@@ -466,10 +466,23 @@ func resolveClusterID(nameOrID string) (string, error) {
 	switch len(caseInsensitiveMatches) {
 	case 0:
 		if listingTruncated {
+			// NOT exitNotFound: a truncated listing is not a verified absence.
+			// The cluster may well exist further down, so this must not tell a
+			// script "no such cluster" - which for an idempotent teardown reads
+			// as "already gone".
 			return "", fmt.Errorf("cluster %q was not among the first %d clusters and the listing has more; pass the cluster id instead",
 				nameOrID, pageSize*maxPages)
 		}
-		return "", fmt.Errorf("cluster %q not found", nameOrID)
+		// exitNotFound keeps the name path and the id path telling scripts the
+		// same thing, the rule application_resolve.go already states: an id
+		// that does not exist reaches the API and comes back 404, which
+		// exitCodeFor maps to exitNotFound, so a name that does not resolve
+		// must not exit with the generic failure code instead. This PR makes
+		// the two spellings interchangeable on 103 commands, and they would
+		// otherwise have disagreed on the one thing scripts branch on - so
+		// `ankra cluster hetzner deprovision "$C" || [ $? -eq 3 ]` stayed
+		// idempotent with an id and stopped being idempotent with a name.
+		return "", withExitCode(exitNotFound, fmt.Errorf("cluster %q not found", nameOrID))
 	case 1:
 		return caseInsensitiveMatches[0].ID, nil
 	default:
@@ -477,8 +490,10 @@ func resolveClusterID(nameOrID string) (string, error) {
 		for _, cluster := range caseInsensitiveMatches {
 			candidates = append(candidates, fmt.Sprintf("%s (%s)", cluster.Name, cluster.ID))
 		}
-		return "", fmt.Errorf("cluster %q is ambiguous - %d clusters differ from it only by case: %s; pass the cluster id instead",
-			nameOrID, len(caseInsensitiveMatches), strings.Join(candidates, ", "))
+		// An ambiguous name is a bad argument, not a missing cluster: the
+		// invocation has to change before it can succeed.
+		return "", withExitCode(exitUsage, fmt.Errorf("cluster %q is ambiguous - %d clusters differ from it only by case: %s; pass the cluster id instead",
+			nameOrID, len(caseInsensitiveMatches), strings.Join(candidates, ", ")))
 	}
 }
 

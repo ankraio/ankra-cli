@@ -3,9 +3,11 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -19,7 +21,8 @@ import (
 // make and answers each with a fixed payload.
 type stackProfileManageMock struct {
 	baseMock
-	payload json.RawMessage
+	payload  json.RawMessage
+	versions map[int]json.RawMessage
 
 	createRequest      *client.CreateStackProfileFromStackRequest
 	updateProfileID    string
@@ -82,6 +85,9 @@ func (mock *stackProfileManageMock) SetStackProfileCurrentVersion(requestContext
 
 func (mock *stackProfileManageMock) GetStackProfileVersion(requestContext context.Context, profileID string, version int) (json.RawMessage, error) {
 	mock.versionRequested = version
+	if payload, ok := mock.versions[version]; ok {
+		return payload, nil
+	}
 	return mock.answer()
 }
 
@@ -359,7 +365,7 @@ func TestStackProfilesDiffRequiresRange(t *testing.T) {
 func TestStackProfilesDeploymentsCallsInstantiations(t *testing.T) {
 	resetStackProfileCommandFlags(t, stackProfilesDeploymentsCmd)
 	mock := &stackProfileManageMock{payload: json.RawMessage(`{"result":[]}`)}
-	output, executeError := runStackProfilesCommand(t, mock, "", "deployments", "profile-1")
+	output, executeError := runStackProfilesCommand(t, mock, "", "deployments", "profile-1", "-o", "json")
 	if executeError != nil {
 		t.Fatalf("deployments failed: %v", executeError)
 	}
@@ -368,6 +374,119 @@ func TestStackProfilesDeploymentsCallsInstantiations(t *testing.T) {
 	}
 	if !strings.Contains(output, `"result"`) {
 		t.Errorf("output = %q", output)
+	}
+}
+
+const fleetDeploymentsPayload = `{"current_version": 2, "result": [
+  {"id": "i-1", "target_cluster_id": "11111111-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "hello-fleet", "stack_state": "up", "version": 1, "outdated": true, "created_at": "2026-09-10T19:49:37Z"},
+  {"id": "i-2", "target_cluster_id": "22222222-2222-2222-2222-222222222222", "cluster_name": "prod-us", "stack_name": "hello-fleet", "stack_state": "up", "version": 2, "outdated": false, "created_at": "2026-09-10T20:03:41Z"}
+]}`
+
+func TestStackProfilesDeploymentsRendersFleetTable(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDeploymentsCmd)
+	mock := &stackProfileManageMock{payload: json.RawMessage(fleetDeploymentsPayload)}
+	output, executeError := runStackProfilesCommand(t, mock, "", "deployments", "profile-1")
+	if executeError != nil {
+		t.Fatalf("deployments failed: %v", executeError)
+	}
+	for _, want := range []string{
+		"Current version v2",
+		"2 deployments across 2 clusters",
+		"1 behind v2",
+		"prod-eu", "update available (v2)",
+		"prod-us", "up to date",
+		"rollout <profile> --all --outdated",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output lacks %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, `"result"`) {
+		t.Errorf("default output should be a table, got JSON:\n%s", output)
+	}
+
+	resetStackProfileCommandFlags(t, stackProfilesDeploymentsCmd)
+	output, executeError = runStackProfilesCommand(t, mock, "", "deployments", "profile-1", "--outdated")
+	if executeError != nil {
+		t.Fatalf("deployments --outdated failed: %v", executeError)
+	}
+	if !strings.Contains(output, "prod-eu") || strings.Contains(output, "prod-us") {
+		t.Errorf("--outdated should keep only the outdated row:\n%s", output)
+	}
+}
+
+func TestStackProfilesDeploymentsEmptyFleet(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDeploymentsCmd)
+	mock := &stackProfileManageMock{payload: json.RawMessage(`{"current_version": 1, "result": []}`)}
+	output, executeError := runStackProfilesCommand(t, mock, "", "deployments", "profile-1")
+	if executeError != nil {
+		t.Fatalf("deployments failed: %v", executeError)
+	}
+	if !strings.Contains(output, "No stack has been deployed from this profile yet") {
+		t.Errorf("output = %q", output)
+	}
+}
+
+func encodedProfileVersion(t *testing.T, version int, manifestName string, content string) json.RawMessage {
+	t.Helper()
+	encoded := base64.StdEncoding.EncodeToString([]byte(content))
+	return json.RawMessage(`{"version": ` + strconv.Itoa(version) + `, "channel": "stable", "spec": {"stacks": [{"name": "web", "manifests": [{"name": "` + manifestName + `", "manifest_base64": "` + encoded + `"}], "addons": []}]}}`)
+}
+
+func TestStackProfilesDiffRendersContentDiff(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDiffCmd)
+	mock := &stackProfileManageMock{
+		payload: json.RawMessage(`{"changes": [{"key": "stack:web/manifest:web-deployment", "change_type": "modified"}]}`),
+		versions: map[int]json.RawMessage{
+			1: encodedProfileVersion(t, 1, "web-deployment", "kind: Deployment\nspec:\n  replicas: 2\n  image: nginx:1.27\n"),
+			2: encodedProfileVersion(t, 2, "web-deployment", "kind: Deployment\nspec:\n  replicas: 2\n  image: nginx:1.29\n"),
+		},
+	}
+	output, executeError := runStackProfilesCommand(t, mock, "", "diff", "profile-1", "--from", "1", "--to", "2")
+	if executeError != nil {
+		t.Fatalf("diff failed: %v", executeError)
+	}
+	for _, want := range []string{
+		"--- manifest:web-deployment (v1)",
+		"+++ manifest:web-deployment (v2)",
+		"-  image: nginx:1.27",
+		"+  image: nginx:1.29",
+		"1 resource changed, 0 unchanged, v1 -> v2.",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output lacks %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "content_hash") {
+		t.Errorf("default output should be a content diff, not the hash payload:\n%s", output)
+	}
+
+	resetStackProfileCommandFlags(t, stackProfilesDiffCmd)
+	output, executeError = runStackProfilesCommand(t, mock, "", "diff", "profile-1", "--from", "1", "--to", "2", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("diff -o json failed: %v", executeError)
+	}
+	if !strings.Contains(output, `"change_type"`) {
+		t.Errorf("-o json should return the platform payload:\n%s", output)
+	}
+}
+
+func TestStackProfilesDiffReportsAddedAndRemovedResources(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDiffCmd)
+	mock := &stackProfileManageMock{
+		versions: map[int]json.RawMessage{
+			1: encodedProfileVersion(t, 1, "old-config", "kind: ConfigMap\n"),
+			2: encodedProfileVersion(t, 2, "new-config", "kind: Secret\n"),
+		},
+	}
+	output, executeError := runStackProfilesCommand(t, mock, "", "diff", "profile-1", "--from", "1", "--to", "2")
+	if executeError != nil {
+		t.Fatalf("diff failed: %v", executeError)
+	}
+	for _, want := range []string{"+++ /dev/null", "-kind: ConfigMap", "--- /dev/null", "+kind: Secret", "2 resources changed"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output lacks %q:\n%s", want, output)
+		}
 	}
 }
 

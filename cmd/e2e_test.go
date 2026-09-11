@@ -361,6 +361,10 @@ func (m baseMock) CreateApplication(requestContext context.Context, applicationR
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ImportClaudeDesignApplication(context.Context, client.ImportClaudeDesignRequest) (*client.ImportClaudeDesignResponse, error) {
+	return nil, nil
+}
+
 func (m baseMock) ListApplicationsRaw(requestContext context.Context, page int, pageSize int, search string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
@@ -3175,11 +3179,37 @@ func TestClusterStacksListCommand(t *testing.T) {
 
 type clusterOperationsListMock struct {
 	baseMock
-	executions []client.ExecutionSummary
+	executions  []client.ExecutionSummary
+	lastOptions client.ListExecutionsOptions
 }
 
 func (m *clusterOperationsListMock) ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error) {
+	m.lastOptions = opts
 	return client.ExecutionListResponse{Result: m.executions}, nil
+}
+
+// TestClusterOperationsListIncludeInternalFlag pins that --include-internal
+// reaches the client as IncludeInternalExecutions and that the default
+// listing leaves it off, so the platform's internal maintenance executions
+// stay hidden unless asked for.
+func TestClusterOperationsListIncludeInternalFlag(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &clusterOperationsListMock{}
+	setMockClient(t, mock)
+
+	_ = captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "operations", "list")
+	})
+	if mock.lastOptions.IncludeInternalExecutions {
+		t.Fatalf("default listing must not include internal executions, got options %+v", mock.lastOptions)
+	}
+
+	_ = captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "operations", "list", "--include-internal")
+	})
+	if !mock.lastOptions.IncludeInternalExecutions {
+		t.Fatalf("--include-internal did not reach the client, got options %+v", mock.lastOptions)
+	}
 }
 
 func TestClusterOperationsListCommand(t *testing.T) {

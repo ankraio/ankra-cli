@@ -95,6 +95,7 @@ func init() {
 	scalewayCmd.AddCommand(scalewayCreateCmd)
 	scalewayCmd.AddCommand(scalewayPreflightCmd)
 	scalewayCmd.AddCommand(scalewayDeprovisionCmd)
+	scalewayDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	scalewayCmd.AddCommand(scalewayStopCmd)
 	scalewayCmd.AddCommand(scalewayStartCmd)
 	scalewayCmd.AddCommand(scalewayWorkersCmd)
@@ -267,6 +268,19 @@ retention_policy: 'retain' keeps them, 'delete' sweeps the tagged orphans.`,
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
 			return resolveError
+		}
+		// The other four provider deprovisions prompt; this one never did.
+		// Until cluster-scoped commands took a name, the 36-character UUID was
+		// the de facto confirmation - an operator could not type it by
+		// accident. Now `ankra cluster scaleway deprovision prod` resolves
+		// silently, so a permanent delete would run with nothing typed that
+		// looks dangerous.
+		scalewayDeprovisionYes, _ := cmd.Flags().GetBool("yes")
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Deprovision Scaleway cluster %s? This permanently deletes its cloud resources and the cluster record! [y/N]: ",
+				clusterTarget(args[0], clusterID)),
+			scalewayDeprovisionYes); confirmError != nil {
+			return confirmError
 		}
 		result, deprovisionError := apiClient.DeprovisionScalewayCluster(clusterID)
 		if deprovisionError != nil {

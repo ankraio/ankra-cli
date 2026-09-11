@@ -304,3 +304,109 @@ func TestResolveClusterArgSaysTheListingWasTruncatedRatherThanNotFound(t *testin
 		}
 	}
 }
+
+// A name that does not resolve must exit the same way the id path does.
+//
+// exitCodeFor maps an id that reaches the API and 404s to exitNotFound, and
+// exitcodes.go calls the codes "part of the CLI's scripting contract … treat
+// not-found as idempotent success". This change makes the two spellings
+// interchangeable on 103 commands, so they must not disagree on the one thing
+// scripts branch on: a CI teardown written as
+// `ankra cluster hetzner deprovision "$C" || [ $? -eq 3 ]` is idempotent with
+// an id, and switching $C to a name - which this change invites - would
+// otherwise have made the second run exit 1 and red the pipeline.
+//
+// The other two branches deliberately do NOT answer exitNotFound: a truncated
+// listing is not a verified absence, and an ambiguous name is a bad argument
+// that has to change before it can succeed.
+func TestUnresolvedClusterNameExitsNotFoundLikeTheIDPath(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		mock     *clusterArgMock
+		argument string
+		wantCode int
+	}{
+		"a name nothing matches is a verified absence": {
+			mock:     &clusterArgMock{clusters: []client.ClusterListItem{{ID: testClusterID, Name: "prod"}}},
+			argument: "does-not-exist",
+			wantCode: exitNotFound,
+		},
+		"an ambiguous name is a bad argument, not a missing cluster": {
+			// No EXACT match: an exact name short-circuits before the
+			// ambiguity check, so both fixtures differ from the argument only
+			// by case.
+			mock: &clusterArgMock{clusters: []client.ClusterListItem{
+				{ID: testClusterID, Name: "Prod-EU"},
+				{ID: "11111111-2222-4333-8444-555555555555", Name: "PROD-eu"},
+			}},
+			argument: "prod-eu",
+			wantCode: exitUsage,
+		},
+		"a truncated listing is not an absence": {
+			mock: &clusterArgMock{
+				clusters:   []client.ClusterListItem{{ID: testClusterID, Name: "prod"}},
+				totalPages: 9999,
+			},
+			argument: "somewhere-further-down",
+			wantCode: exitError,
+		},
+	} {
+		t.Run(name, func(subtest *testing.T) {
+			withClusterArgMock(subtest, testCase.mock)
+			_, resolveError := resolveClusterArg(testCase.argument)
+			if resolveError == nil {
+				subtest.Fatal("an unresolvable cluster argument must fail")
+			}
+			if got := exitCodeFor(resolveError); got != testCase.wantCode {
+				subtest.Fatalf("exit code = %d, want %d (error: %v)", got, testCase.wantCode, resolveError)
+			}
+		})
+	}
+}
+
+// scalewayDeprovisionConfirmMock records whether the permanent delete was
+// actually asked for.
+type scalewayDeprovisionConfirmMock struct {
+	baseMock
+	clusters      []client.ClusterListItem
+	deprovisioned string
+}
+
+func (m *scalewayDeprovisionConfirmMock) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
+	return &client.ClusterListResponse{
+		Result:     m.clusters,
+		Pagination: client.Pagination{TotalPages: 1, Page: page, PageSize: pageSize},
+	}, nil
+}
+
+func (m *scalewayDeprovisionConfirmMock) DeprovisionScalewayCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+	m.deprovisioned = clusterID
+	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
+}
+
+// Scaleway's deprovision was the one permanent-delete verb with no
+// confirmation. Until cluster-scoped commands took a name, the 36-character
+// UUID was the de facto confirmation - nobody types one by accident. Once
+// `ankra cluster scaleway deprovision prod` resolves a short name silently, a
+// permanent delete would run with nothing typed that looks dangerous, while
+// Hetzner, DigitalOcean, OVH and UpCloud all prompt.
+func TestScalewayDeprovisionRefusesWithoutConfirmation(t *testing.T) {
+	clusters := []client.ClusterListItem{{ID: testClusterID, Name: "prod"}}
+
+	declined := &scalewayDeprovisionConfirmMock{clusters: clusters}
+	if _, runError := runConfirmCommand(t, declined, "n\n",
+		[]*cobra.Command{scalewayDeprovisionCmd}, "cluster", "scaleway", "deprovision", "prod"); runError == nil {
+		t.Fatal("declining the prompt must not proceed")
+	}
+	if declined.deprovisioned != "" {
+		t.Fatalf("a declined prompt must not deprovision, but %q was torn down", declined.deprovisioned)
+	}
+
+	accepted := &scalewayDeprovisionConfirmMock{clusters: clusters}
+	if _, runError := runConfirmCommand(t, accepted, "y\n",
+		[]*cobra.Command{scalewayDeprovisionCmd}, "cluster", "scaleway", "deprovision", "prod"); runError != nil {
+		t.Fatalf("accepting the prompt must proceed: %v", runError)
+	}
+	if accepted.deprovisioned != testClusterID {
+		t.Fatalf("an accepted prompt must deprovision the resolved id, got %q", accepted.deprovisioned)
+	}
+}

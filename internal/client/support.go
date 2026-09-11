@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -245,6 +248,33 @@ func (c *Client) CommentSupportTicket(ctx context.Context, ticketID, comment str
 	return &out, nil
 }
 
+// attachmentContentType answers the media type the platform is told about an
+// attachment. The platform admits an upload on the multipart part's own
+// Content-Type header (image/png, image/jpeg, image/webp, image/gif) and
+// refuses anything else with 415, so the part must carry the file's real
+// type. multipart.Writer.CreateFormFile stamps every part
+// application/octet-stream, which is how a valid PNG used to be refused.
+// The type is read from the bytes, not the extension, because that is the
+// same evidence the platform's allowlist is meant to protect.
+func attachmentContentType(content []byte) string {
+	detected := http.DetectContentType(content)
+	if mediaType, _, parseError := mime.ParseMediaType(detected); parseError == nil {
+		return mediaType
+	}
+	return detected
+}
+
+// attachmentPartHeader is the multipart header CreateFormFile would write,
+// with the detected Content-Type in place of application/octet-stream.
+func attachmentPartHeader(filename string, contentType string) textproto.MIMEHeader {
+	quote := strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition",
+		fmt.Sprintf(`form-data; name="file"; filename="%s"`, quote.Replace(filename)))
+	header.Set("Content-Type", contentType)
+	return header
+}
+
 func (c *Client) UploadSupportAttachment(ctx context.Context, ticketID, filePath string) (*SupportTicket, error) {
 	fileBytes, err := os.ReadFile(filePath)
 	if err != nil {
@@ -252,7 +282,7 @@ func (c *Client) UploadSupportAttachment(ctx context.Context, ticketID, filePath
 	}
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+	part, err := writer.CreatePart(attachmentPartHeader(filepath.Base(filePath), attachmentContentType(fileBytes)))
 	if err != nil {
 		return nil, fmt.Errorf("build form: %w", err)
 	}

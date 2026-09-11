@@ -28,6 +28,153 @@
   as "not found".** A truncated listing was being presented as a verified
   absence; the error now says the name was not among the first 5000 and to
   pass the cluster id instead.
+- **An unresolved cluster NAME now exits 3, like an unresolved id.** The
+  exit codes are part of the CLI's scripting contract, and not-found is the
+  one scripts treat as idempotent success. With names accepted everywhere, a
+  teardown written as `ankra cluster hetzner deprovision "$C" || [ $? -eq 3 ]`
+  would have stopped being idempotent the moment `$C` became a name. An
+  ambiguous name exits 2 (a bad argument) and a truncated listing keeps the
+  generic failure code, because neither is a verified absence.
+- **`ankra cluster scaleway deprovision` now asks before permanently deleting
+  a cluster**, as the Hetzner, DigitalOcean, OVH and UpCloud deprovisions
+  already did. It was the only one without a prompt; until this release the
+  36-character cluster id was the de facto confirmation, and accepting a
+  short name removes that. `--yes` skips it for scripts.
+
+## v0.16.0-rc2 — 2026-09-11
+
+Closes the gap rc1 left open: `stack-profiles rollout` now updates each
+deployed stack through the profile's own lane, so the fleet view follows the
+rollout instead of reporting the previous version forever. Also `cluster
+apply --cluster` finally targets the cluster you name.
+
+### Changed
+
+- **`ankra stack-profiles rollout` updates the deployed stacks in place and the
+  fleet view follows.** The platform's from-profile request now takes
+  `upgrade_existing` (Ankra platform 2026-09-11): the stack that deployment
+  already runs is replaced with the chosen version, in place, and the
+  deployment is recorded at that version. rc1's rollout exported the version
+  and applied it with the cluster apply lane, which updated the stack but
+  left `deployments` and the portal's "behind vN" badge on the old version.
+  rollout uses the platform lane by default, carries each deployment's
+  recorded non-secret inputs forward with `--set`, `--set-file` and
+  `--set-env` layered over them (the same flags as apply), and reports the
+  operation id and job count per target. A platform that predates the flag
+  answers with a renamed, undeployed draft; rollout recognises that, removes
+  the draft it just caused, skips the remaining targets and points at
+  `--via-apply`, which keeps the export-and-apply path for such platforms.
+  `--wait` applies to `--via-apply` only.
+
+### Fixed
+
+- **`ankra cluster apply --cluster` targets the cluster you name.** The flag
+  was read by nothing: the target came only from the file's `metadata.name`,
+  so a document written for another cluster, or exported from a stack
+  profile (where that name is the profile's), imported a new cluster under
+  that name. With the flag set the cluster is resolved by name or id and its
+  name becomes the target; when it differs from `metadata.name` the
+  substitution is printed, also under `--dry-run`, and an unknown cluster
+  fails before anything is sent.
+
+## v0.16.0-rc1 — 2026-09-11
+
+Opens the v0.16.0 line properly (rc0 carried only the v0.15.1 fix). The
+headline is fleet work with stack profiles from the terminal: apply a profile
+to several clusters in one command, see the whole fleet as a table with what
+is behind, read a real diff of what changed between two versions, and roll a
+version out to every cluster that runs it, in place. Alongside it,
+`cluster operations list` shows whether a failed execution still needs
+someone, and `helm credentials` accepts the id its own listing prints.
+
+### Added
+
+- **One profile, every cluster: `ankra stack-profiles rollout`.** Updating the
+  stacks a profile had been deployed to meant exporting the version, editing
+  the document's cluster name for each target and running `cluster apply` in
+  a loop. `ankra stack-profiles rollout <profile> --all` (or `--cluster`,
+  repeatable) does that itself: the version - the current one, or
+  `--version` - is exported, addressed to each cluster and to the stack name
+  that deployment already uses, and applied the way `cluster apply` applies a
+  file, so the same stack is updated in place and Kubernetes rolls the
+  workloads. `--outdated` touches only the deployments behind that version,
+  `--dry-run` lists what would change, `--wait` waits for each configuration
+  write, and `-o json` reports every target with its status. A cluster that
+  does not run the profile is refused rather than silently given a first
+  deployment, and a profile version that exports more than one stack is
+  refused rather than applied under the wrong names. (In rc1 the fleet view
+  kept naming the previous version after a rollout; rc2 fixes that.)
+
+- **`ankra stack-profiles apply --cluster` repeats.** The same version and
+  bindings go to every cluster named in one command; a cluster that fails
+  does not stop the rest, a summary table (or a JSON array) reports each one,
+  and the exit code reports any failure. One `--cluster` behaves exactly as
+  before.
+
+- **`ankra stack-profiles deployments` is a table.** Cluster, stack, state,
+  the profile version each runs and whether a newer one is available, with
+  a header line (`Current version v2 · 4 deployments across 4 clusters · 4
+  behind v2`) instead of the raw records; `--outdated` keeps only the ones
+  behind, and `-o json` still returns the records for scripts.
+
+- **`ankra stack-profiles diff` shows what actually changed.** The default
+  output is a unified diff of every manifest and add-on values file that
+  differs between the two versions, decoded, the way `diff -u` prints it;
+  a resource only one version has is printed whole. `-o json` keeps the
+  platform's per-resource change list.
+
+- **`ankra cluster operations list` says whether a failed execution still
+  needs you.** The platform now derives an attention state on every
+  execution: open while a failed, critical or cancelled run still needs a
+  person, resolved once every resource its failed steps targeted has
+  recovered (a later run on the same resource succeeded, the resource is up,
+  or it is gone). The listing gains an Attention column beside Status
+  (`open`, or `resolved by <execution id>`), the detail view prints the same
+  line, and `--attention open|resolved` filters server-side, so a
+  needs-attention listing and its count exclude what a later run already
+  cleared (PLA-840). Older platforms omit the field; the column stays empty
+  there.
+
+### Fixed
+
+- **`ankra helm credentials get|update|delete` accept the id that `list`
+  prints.** The listing leads with an ID column, but the platform addresses a
+  credential by name, so the obvious next command - `helm credentials get
+  <id>` - answered a bare `404 Not Found` that read as "credentials are
+  write-only" (reported by Smartoptics, PLA-825). A canonical uuid is now
+  looked up in the listing and the credential's name is used; a name still
+  goes straight through. An id the listing does not hold exits 3 and points
+  at `ankra helm credentials list`, the same way a missing name does.
+
+## v0.15.2 — 2026-09-10
+
+### Added
+
+- **`ankra cluster operations list --include-internal` shows the platform's own
+  maintenance executions.** The default listing hides them, so a commit in the
+  cluster repository authored by the Ankra Reconciler ("Sync cluster state from
+  Ankra") had no execution the CLI could name. With the flag the GitOps
+  reconcile snapshot push and the other internal executions are listed
+  alongside your own, with the same columns and `-o json`/`yaml` output, so the
+  execution behind a repository commit or a re-encrypted file can be found from
+  the terminal. The default stays unchanged.
+
+- **A Claude Design export becomes a deployable application in one command.** `ankra application import claude-design <path>` takes what you exported from claude.ai/design - a directory of `<Name>.dc.html` artboards with `canvas.json` and images, a zip of it, one artboard, or a saved canvas page - and has Ankra convert it into a static site, create a GitHub repository under your GitHub credential (`--credential`, `--owner`), commit it with a Dockerfile and register the application, so the setup pull request, build and deploy follow as for any other application. `--repository`, `--visibility` and `--source-url` shape the repository; `--wait` follows the analysis to the setup pull request; `-o json` returns the pages and any warnings. Artboards that depend on the Claude Design runtime are kept as authored and reported, and re-running the same import registers the same repository without a second commit. The lane ships behind the `claude_design_import` organisation feature flag: while it is off the command explains that and exits 3, so ask Ankra support to enable it for your organisation.
+
+### Fixed
+
+- **`ankra support attach` no longer refuses a valid image with
+  "Unsupported attachment type".** Every upload was rejected whatever the
+  file held, a verified PNG included: the platform admits a support
+  attachment on the multipart part's own `Content-Type` header, checked
+  against an allowlist of PNG, JPEG, WebP and GIF, and the client built that
+  part with `CreateFormFile`, which the Go standard library hardcodes to
+  `application/octet-stream`. The answer was HTTP 415. The part now carries
+  the type read off the file's own bytes, so PNG, JPEG, GIF and WebP
+  attachments are accepted. A file whose bytes the sniffer cannot place is
+  still sent with whatever they suggest, so the platform's own 415 and its
+  allowlist message reach you unchanged rather than a client-side copy of
+  the rule.
 
 ## v0.15.1 — 2026-09-09
 
