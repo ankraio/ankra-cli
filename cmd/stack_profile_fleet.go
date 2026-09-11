@@ -370,6 +370,9 @@ add-on deploys run in the background. Watch them with
 			return bindingsError
 		}
 		if !viaApply {
+			if waitRequested, _ := asyncWriteWaitFlag(cmd); waitRequested {
+				return withExitCode(exitUsage, errors.New("--wait applies to --via-apply only: the in-place update returns once the platform has accepted it, and the deploys it schedules are watched with 'ankra cluster operations list --cluster <name>'"))
+			}
 			return rolloutInPlace(cmd, format, profileID, detail.Profile.Name, version, targets, bindings)
 		}
 		if len(bindings) > 0 {
@@ -540,12 +543,23 @@ func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, p
 			outcome.Status = "failed"
 			outcome.Message = applyError.Error()
 			failed++
-		case result.StackName != target.StackName || !result.Deployed:
-			// A platform that predates upgrade_existing ignores the flag and
-			// answers with the renamed draft the ordinary lane creates.
+		case result.StackName != target.StackName:
+			// A platform that predates upgrade_existing ignores the flag, so
+			// the ordinary lane runs: the taken name is resolved to a renamed
+			// draft. A supporting platform never renames on this lane (the
+			// name is pinned), so a changed name is the legacy signature.
 			outcome.Status = "failed"
-			outcome.Message = fmt.Sprintf("the platform did not update '%s' in place (it answered with stack '%s', deployed=%t); it predates in-place upgrades - remove that draft and roll out with --via-apply",
-				target.StackName, result.StackName, result.Deployed)
+			outcome.Message = fmt.Sprintf("the platform did not update '%s' in place: it created '%s' instead (draft %s), so it predates in-place upgrades - remove that draft and roll out with --via-apply",
+				target.StackName, result.StackName, result.DraftID)
+			failed++
+		case !result.Deployed:
+			// Not expected from a supporting platform (an upgrade is its own
+			// deploy); reported as what it is rather than as a legacy answer.
+			outcome.Status = "failed"
+			outcome.Message = fmt.Sprintf("the platform accepted the update of '%s' but reports it as not deployed", target.StackName)
+			if result.DraftID != "" {
+				outcome.Message += " (draft " + result.DraftID + ")"
+			}
 			failed++
 		default:
 			outcome.Status = "applied"
@@ -589,17 +603,26 @@ func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, p
 }
 
 // mergeParameterBindings layers the caller's bindings over the recorded
-// ones by name, keeping the recorded order for the rest.
+// ones by name, keeping the recorded order for the rest. A name given more
+// than once keeps its last value, so the request never carries two bindings
+// for one input and leaves the winner to the server.
 func mergeParameterBindings(recorded []client.ParameterBinding, overrides []client.ParameterBinding) []client.ParameterBinding {
-	merged := make([]client.ParameterBinding, 0, len(recorded)+len(overrides))
-	overridden := map[string]bool{}
+	lastOverride := map[string]string{}
+	overrideOrder := []string{}
 	for _, binding := range overrides {
-		overridden[binding.Name] = true
+		if _, seen := lastOverride[binding.Name]; !seen {
+			overrideOrder = append(overrideOrder, binding.Name)
+		}
+		lastOverride[binding.Name] = binding.Value
 	}
+	merged := make([]client.ParameterBinding, 0, len(recorded)+len(overrideOrder))
 	for _, binding := range recorded {
-		if !overridden[binding.Name] {
+		if _, overridden := lastOverride[binding.Name]; !overridden {
 			merged = append(merged, binding)
 		}
 	}
-	return append(merged, overrides...)
+	for _, name := range overrideOrder {
+		merged = append(merged, client.ParameterBinding{Name: name, Value: lastOverride[name]})
+	}
+	return merged
 }

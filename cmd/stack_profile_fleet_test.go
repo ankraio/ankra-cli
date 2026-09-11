@@ -384,8 +384,35 @@ func TestStackProfilesRolloutInPlaceDetectsALegacyPlatform(t *testing.T) {
 	if executeError == nil {
 		t.Fatal("a platform that answers with a renamed draft must be reported as a failure")
 	}
-	if !strings.Contains(output, "predates in-place upgrades") || !strings.Contains(output, "hello-fleet-copy") {
+	if !strings.Contains(output, "predates in-place upgrades") || !strings.Contains(output, "hello-fleet-copy") || !strings.Contains(output, "draft-9") {
 		t.Errorf("output = %s", output)
+	}
+}
+
+func TestStackProfilesRolloutInPlaceRefusesWait(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
+	mock := newRolloutMock()
+	_, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "--wait")
+	if executeError == nil || !strings.Contains(executeError.Error(), "--wait applies to --via-apply only") {
+		t.Fatalf("expected a usage error, got %v", executeError)
+	}
+	if len(mock.upgraded) != 0 {
+		t.Errorf("nothing should be sent: %+v", mock.upgraded)
+	}
+}
+
+func TestMergeParameterBindingsLastValueWins(t *testing.T) {
+	recorded := []client.ParameterBinding{{Name: "host", Value: "a"}, {Name: "replicas", Value: "2"}}
+	overrides := []client.ParameterBinding{{Name: "replicas", Value: "3"}, {Name: "size", Value: "s"}, {Name: "replicas", Value: "4"}}
+	got := mergeParameterBindings(recorded, overrides)
+	want := []client.ParameterBinding{{Name: "host", Value: "a"}, {Name: "replicas", Value: "4"}, {Name: "size", Value: "s"}}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v want %+v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Errorf("binding %d = %+v, want %+v", index, got[index], want[index])
+		}
 	}
 }
 
