@@ -1,5 +1,41 @@
 # Ankra CLI Changelog
 
+## v0.16.0-rc2 — 2026-09-11
+
+Closes the gap rc1 left open: `stack-profiles rollout` now updates each
+deployed stack through the profile's own lane, so the fleet view follows the
+rollout instead of reporting the previous version forever. Also `cluster
+apply --cluster` finally targets the cluster you name.
+
+### Changed
+
+- **`ankra stack-profiles rollout` updates the deployed stacks in place and the
+  fleet view follows.** The platform's from-profile request now takes
+  `upgrade_existing` (Ankra platform 2026-09-11): the stack that deployment
+  already runs is replaced with the chosen version, in place, and the
+  deployment is recorded at that version. rc1's rollout exported the version
+  and applied it with the cluster apply lane, which updated the stack but
+  left `deployments` and the portal's "behind vN" badge on the old version.
+  rollout uses the platform lane by default, carries each deployment's
+  recorded non-secret inputs forward with `--set`, `--set-file` and
+  `--set-env` layered over them (the same flags as apply), and reports the
+  operation id and job count per target. A platform that predates the flag
+  answers with a renamed, undeployed draft; rollout recognises that, removes
+  the draft it just caused, skips the remaining targets and points at
+  `--via-apply`, which keeps the export-and-apply path for such platforms.
+  `--wait` applies to `--via-apply` only.
+
+### Fixed
+
+- **`ankra cluster apply --cluster` targets the cluster you name.** The flag
+  was read by nothing: the target came only from the file's `metadata.name`,
+  so a document written for another cluster, or exported from a stack
+  profile (where that name is the profile's), imported a new cluster under
+  that name. With the flag set the cluster is resolved by name or id and its
+  name becomes the target; when it differs from `metadata.name` the
+  substitution is printed, also under `--dry-run`, and an unknown cluster
+  fails before anything is sent.
+
 ## v0.16.0-rc1 — 2026-09-11
 
 Opens the v0.16.0 line properly (rc0 carried only the v0.15.1 fix). The
@@ -25,9 +61,8 @@ someone, and `helm credentials` accepts the id its own listing prints.
   write, and `-o json` reports every target with its status. A cluster that
   does not run the profile is refused rather than silently given a first
   deployment, and a profile version that exports more than one stack is
-  refused rather than applied under the wrong names. The fleet view's
-  version tag follows the profile's own deploy lane, so it keeps naming the
-  previous version until the platform records rollouts.
+  refused rather than applied under the wrong names. (In rc1 the fleet view
+  kept naming the previous version after a rollout; rc2 fixes that.)
 
 - **`ankra stack-profiles apply --cluster` repeats.** The same version and
   bindings go to every cluster named in one command; a cluster that fails
