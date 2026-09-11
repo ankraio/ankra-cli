@@ -367,7 +367,8 @@ func registerPipelineGetFlags(command *cobra.Command) {
 	command.Flags().Bool("watch", false,
 		"Print each run and step state change as it happens until the run concludes (-o json: one JSON object per line)")
 	command.Flags().Bool("exit-code", false,
-		"Exit 1 when the run concluded without succeeding, and 5 while it has not concluded")
+		"Exit 1 when the run concluded without succeeding, and 5 while it has not concluded "+
+			"(--wait and --watch always exit this way)")
 	registerPipelineWaitTimeoutFlag(command)
 	command.Flags().String("head-sha", "", "Select the run for this full commit sha instead of naming its id")
 	command.Flags().String("branch", "", "Select the run for this trigger branch instead of naming its id")

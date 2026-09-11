@@ -321,7 +321,10 @@ func (selection pipelineRunSelection) subject() string {
 // caller meant would report the wrong one's outcome. None is not-found -
 // unless the command is about to wait (wait is non-nil), in which case the
 // run is most likely a webhook a moment behind the caller, and the command
-// waits for it to appear.
+// waits for it to appear. Once one listing has succeeded, that wait rides
+// out failed listings the way pollPipelineRun rides out failed reads, since
+// it can span a platform deploy just the same; a first listing that fails is
+// the answer as it stands, since a refused filter will not improve.
 func resolvePipelineRunSelection(command *cobra.Command, selector client.PipelineSelector,
 	selection pipelineRunSelection, wait *pipelineRunWait) (string, error) {
 	progress := command.ErrOrStderr()
@@ -340,40 +343,51 @@ func resolvePipelineRunSelection(command *cobra.Command, selector client.Pipelin
 	}
 	appearDeadline := time.Now().Add(pipelineRunAppearWaitBound)
 	hasAnnouncedWait := false
+	hasListed := false
+	failedListings := 0
 	for {
 		page, listError := apiClient.ListPipelineRuns(requestContext, selector, options)
-		if listError != nil {
-			if wait != nil && wait.hasExpired() {
-				return "", pipelineRunSelectionExpiredError(selection, wait.timeout)
-			}
-			return "", listError
-		}
-		if page == nil {
-			page = &client.PipelineRunList{}
-		}
 		switch {
-		case len(page.Runs) > 1 && !selection.IsLatest:
-			return "", pipelineRunSelectionAmbiguousError(selection, page)
-		case len(page.Runs) > 0:
-			chosen := page.Runs[0]
-			qualifier := "the only"
-			if selection.IsLatest {
-				qualifier = "the newest"
+		case listError == nil:
+			hasListed = true
+			failedListings = 0
+			if page == nil {
+				page = &client.PipelineRunList{}
 			}
-			_, _ = fmt.Fprintf(progress, "Using run #%d (%s), %s %s.\n", chosen.RunNumber, chosen.ID,
-				qualifier, strings.TrimPrefix(selection.subject(), "a "))
-			return chosen.ID, nil
-		}
-		if wait == nil {
-			return "", withExitCode(exitNotFound, fmt.Errorf(
-				"there is no %s - see its runs with 'ankra pipeline list'", strings.TrimPrefix(selection.subject(), "a ")))
+			if len(page.Runs) > 1 && !selection.IsLatest {
+				return "", pipelineRunSelectionAmbiguousError(selection, page)
+			}
+			if len(page.Runs) > 0 {
+				chosen := page.Runs[0]
+				qualifier := "the only"
+				if selection.IsLatest {
+					qualifier = "the newest"
+				}
+				_, _ = fmt.Fprintf(progress, "Using run #%d (%s), %s %s.\n", chosen.RunNumber, chosen.ID,
+					qualifier, strings.TrimPrefix(selection.subject(), "a "))
+				return chosen.ID, nil
+			}
+			if wait == nil {
+				return "", withExitCode(exitNotFound, fmt.Errorf(
+					"there is no %s - see its runs with 'ankra pipeline list'", strings.TrimPrefix(selection.subject(), "a ")))
+			}
+			if !hasAnnouncedWait {
+				_, _ = fmt.Fprintf(progress, "Waiting for %s to appear.\n", selection.subject())
+				hasAnnouncedWait = true
+			}
+		case wait != nil && wait.hasExpired():
+			return "", pipelineRunSelectionExpiredError(selection, wait.timeout)
+		case wait == nil || !hasListed || !pipelineRunReadIsWorthRetrying(wait, listError) ||
+			failedListings >= maxConsecutivePipelineRunReadFailures:
+			return "", listError
+		default:
+			failedListings++
+			if failedListings == 1 {
+				_, _ = fmt.Fprintf(progress, "Could not list the pipeline's runs (%v); still waiting.\n", listError)
+			}
 		}
 		if wait.timeout == 0 && !time.Now().Before(appearDeadline) {
 			return "", pipelineRunSelectionExpiredError(selection, pipelineRunAppearWaitBound)
-		}
-		if !hasAnnouncedWait {
-			_, _ = fmt.Fprintf(progress, "Waiting for %s to appear.\n", selection.subject())
-			hasAnnouncedWait = true
 		}
 		if sleepError := wait.sleep(); sleepError != nil {
 			if wait.hasExpired() {
@@ -545,8 +559,7 @@ func pipelineRunWatchLine(event pipelineRunWatchEvent) string {
 	case event.Run != nil:
 		errorMessage = event.Run.ErrorMessage
 	}
-	line := fmt.Sprintf("%s  %s  %s", event.ObservedAt, label,
-		renderColouredStatus(pipelineOutcomeLabel(event.Status, event.Outcome)))
+	line := fmt.Sprintf("%s  %s  %s", event.ObservedAt, label, pipelineOutcomeLabel(event.Status, event.Outcome))
 	if event.Status != pipelineRunStatusConcluded {
 		return line
 	}

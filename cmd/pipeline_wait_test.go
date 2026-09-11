@@ -339,6 +339,50 @@ func TestPipelineGetTimeoutAlsoBoundsTheWaitForARunToAppear(t *testing.T) {
 	}
 }
 
+// TestPipelineGetWaitRidesOutAFailedListingWhileARunAppears pins that the
+// wait for a run to appear absorbs a platform blip the way the wait for its
+// conclusion does (ankra-platform[bot] review on #292).
+func TestPipelineGetWaitRidesOutAFailedListingWhileARunAppears(t *testing.T) {
+	shortenPipelineRunWait(t, time.Second)
+	succeeded := pipelineRunDetailFixture("concluded", strPipelinePtr("success"))
+	mockClient := &pipelineLaneMock{
+		listResults: []client.PipelineRunList{
+			{Runs: []client.PipelineRun{}},
+			{Runs: []client.PipelineRun{}},
+			{Runs: []client.PipelineRun{succeeded.PipelineRun}},
+		},
+		listErrorsOnCall: map[int]error{2: errors.New("request failed: connection refused")},
+		getResult:        &succeeded,
+	}
+	_, errorOutput, executeError := runPipelineCommandSeparately(t, mockClient, "get",
+		"--application", testApplicationID, "--head-sha", strings.Repeat("c", 40), "--latest", "--wait")
+	if executeError != nil {
+		t.Fatalf("get --wait error = %v, want the failed listing ridden out", executeError)
+	}
+	if mockClient.listCalls != 3 {
+		t.Errorf("listings = %d, want 3", mockClient.listCalls)
+	}
+	if !strings.Contains(errorOutput, "Could not list the pipeline's runs") {
+		t.Errorf("stderr = %q, want the failed listing said", errorOutput)
+	}
+}
+
+// TestPipelineGetWaitReportsAFailedFirstListingAtOnce pins the other half: a
+// listing that fails before any has succeeded is most often a refused filter,
+// which retrying for a minute would only delay.
+func TestPipelineGetWaitReportsAFailedFirstListingAtOnce(t *testing.T) {
+	shortenPipelineRunWait(t, time.Second)
+	mockClient := &pipelineLaneMock{listError: errors.New("head_sha must be a full commit sha")}
+	_, executeError := runPipelineCommand(t, mockClient, "get", "--application", testApplicationID,
+		"--head-sha", "abc123", "--latest", "--wait")
+	if executeError == nil || executeError.Error() != "head_sha must be a full commit sha" {
+		t.Fatalf("error = %v, want the platform's refusal verbatim", executeError)
+	}
+	if mockClient.listCalls != 1 {
+		t.Errorf("listings = %d, want a first listing's failure reported without retrying", mockClient.listCalls)
+	}
+}
+
 func TestPipelineGetNeedsARunOrASelectionButNotBoth(t *testing.T) {
 	mockClient := &pipelineLaneMock{}
 	for _, arguments := range [][]string{
@@ -472,6 +516,9 @@ func TestPipelineGetWatchPrintsReadableLinesByDefault(t *testing.T) {
 	}
 	if strings.Contains(output, "{") {
 		t.Errorf("stdout = %q, want readable lines rather than JSON without -o json", output)
+	}
+	if strings.Contains(output, "\x1b[") {
+		t.Errorf("stdout = %q, want no terminal escapes in lines that are as often a CI log", output)
 	}
 }
 

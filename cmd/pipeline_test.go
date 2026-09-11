@@ -32,6 +32,9 @@ type pipelineLaneMock struct {
 	// precedence over listResult, so a test can stage a run that appears
 	// between polls. The last entry answers every call after it.
 	listResults []client.PipelineRunList
+	// listErrorsOnCall fails the numbered ListPipelineRuns calls (counting
+	// from one) with the given error.
+	listErrorsOnCall map[int]error
 
 	createRequest client.CreatePipelineRunRequest
 	createResult  *client.CreatePipelineRunResult
@@ -139,6 +142,9 @@ func (mock *pipelineLaneMock) ListPipelineRuns(ctx context.Context, selector cli
 	mock.listCalls++
 	if mock.listError != nil {
 		return nil, mock.listError
+	}
+	if failure, isFailing := mock.listErrorsOnCall[mock.listCalls]; isFailing {
+		return nil, failure
 	}
 	if mock.listResults != nil {
 		index := mock.listCalls - 1
