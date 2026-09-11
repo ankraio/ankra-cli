@@ -37,6 +37,12 @@ type rolloutMock struct {
 	upgraded        []client.InstantiateStackProfileRequest
 	upgradeClusters []string
 	legacyServer    bool
+	deletedStacks   []string
+}
+
+func (mock *rolloutMock) DeleteStack(ctx context.Context, clusterID string, stackName string) (*client.DeleteStackResult, error) {
+	mock.deletedStacks = append(mock.deletedStacks, clusterID+"/"+stackName)
+	return &client.DeleteStackResult{}, nil
 }
 
 func (mock *rolloutMock) InstantiateStackProfile(ctx context.Context, clusterID string, request client.InstantiateStackProfileRequest) (*client.InstantiateStackProfileResult, error) {
@@ -384,8 +390,17 @@ func TestStackProfilesRolloutInPlaceDetectsALegacyPlatform(t *testing.T) {
 	if executeError == nil {
 		t.Fatal("a platform that answers with a renamed draft must be reported as a failure")
 	}
-	if !strings.Contains(output, "predates in-place upgrades") || !strings.Contains(output, "hello-fleet-copy") || !strings.Contains(output, "draft-9") {
+	if !strings.Contains(output, "predates in-place upgrades") || !strings.Contains(output, "hello-fleet-copy") || !strings.Contains(output, "removed again") {
 		t.Errorf("output = %s", output)
+	}
+	if len(mock.deletedStacks) != 1 || mock.deletedStacks[0] != "11111111-1111-1111-1111-111111111111/hello-fleet-copy" {
+		t.Errorf("the stray draft must be removed on the cluster it was created on: %v", mock.deletedStacks)
+	}
+	if len(mock.upgraded) != 1 {
+		t.Errorf("after the first legacy answer the remaining targets must not be attempted: %d requests", len(mock.upgraded))
+	}
+	if !strings.Contains(output, "skipped") {
+		t.Errorf("the remaining target should be reported as skipped:\n%s", output)
 	}
 }
 

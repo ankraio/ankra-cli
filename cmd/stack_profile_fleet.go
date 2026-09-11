@@ -518,7 +518,8 @@ func init() {
 // rolloutInPlace asks the platform to replace each deployed stack with the
 // version, through the profile's own lane, so the deployment is recorded at
 // the new version. The deployment's recorded bindings go first and the
-// caller's --set values override them by name.
+// caller's --set values override them by name. version is already resolved
+// by the caller (the flag, else the profile's current version, never 0).
 func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, profileName string, version int, targets []rolloutTarget, bindings []client.ParameterBinding) error {
 	out := cmd.OutOrStdout()
 	if format == outputDefault {
@@ -526,8 +527,15 @@ func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, p
 	}
 	outcomes := make([]rolloutOutcome, 0, len(targets))
 	failed := 0
+	legacyPlatform := false
 	for _, target := range targets {
 		outcome := rolloutOutcome{rolloutTarget: target, ToVersion: version}
+		if legacyPlatform {
+			outcome.Status = "skipped"
+			outcome.Message = "not attempted: the platform predates in-place upgrades"
+			outcomes = append(outcomes, outcome)
+			continue
+		}
 		requestVersion := version
 		request := client.InstantiateStackProfileRequest{
 			ProfileID:       profileID,
@@ -547,11 +555,18 @@ func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, p
 			// A platform that predates upgrade_existing ignores the flag, so
 			// the ordinary lane runs: the taken name is resolved to a renamed
 			// draft. A supporting platform never renames on this lane (the
-			// name is pinned), so a changed name is the legacy signature.
+			// name is pinned), so a changed name is the legacy signature. The
+			// draft it just created is removed again, and the remaining
+			// targets are skipped rather than littered the same way.
 			outcome.Status = "failed"
-			outcome.Message = fmt.Sprintf("the platform did not update '%s' in place: it created '%s' instead (draft %s), so it predates in-place upgrades - remove that draft and roll out with --via-apply",
-				target.StackName, result.StackName, result.DraftID)
+			cleanup := "that draft was removed again"
+			if _, deleteError := apiClient.DeleteStack(context.Background(), target.ClusterID, result.StackName); deleteError != nil {
+				cleanup = fmt.Sprintf("removing that draft failed (%s), delete it with 'ankra cluster stacks delete %s --cluster %s'", deleteError.Error(), result.StackName, target.ClusterName)
+			}
+			outcome.Message = fmt.Sprintf("the platform did not update '%s' in place: it created '%s' instead, so it predates in-place upgrades; %s. Roll out with --via-apply",
+				target.StackName, result.StackName, cleanup)
 			failed++
+			legacyPlatform = true
 		case !result.Deployed:
 			// Not expected from a supporting platform (an upgrade is its own
 			// deploy); reported as what it is rather than as a legacy answer.
