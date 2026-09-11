@@ -118,6 +118,23 @@ someone, and `helm credentials` accepts the id its own listing prints.
   execution behind a repository commit or a re-encrypted file can be found from
   the terminal. The default stays unchanged.
 
+### Fixed
+
+- **`ankra cluster deprovision` now works on a Scaleway cluster.** Scaleway was
+  missing from every cloud-provider list behind the command, so a Scaleway
+  cluster fell through to the generic imported lane, which the platform
+  refuses for cloud clusters: the command printed `Deprovisioning cluster: X`
+  and then failed with `409: This cluster is a scaleway cloud cluster. Use
+  DELETE /api/v1/clusters/scaleway/{cluster_id}...`, and you had to fall back
+  to `ankra scaleway cluster deprovision <id>`. The confirmation prompt also
+  omitted the warning the other providers show, that the cluster record itself
+  is deleted and cannot be provisioned again. Both are fixed. Nothing was
+  silently left running: the platform has refused that route for Scaleway
+  since 2026-08-19, so the teardown either ran through the provider command or
+  visibly failed.
+
+### Added
+
 - **A Claude Design export becomes a deployable application in one command.** `ankra application import claude-design <path>` takes what you exported from claude.ai/design - a directory of `<Name>.dc.html` artboards with `canvas.json` and images, a zip of it, one artboard, or a saved canvas page - and has Ankra convert it into a static site, create a GitHub repository under your GitHub credential (`--credential`, `--owner`), commit it with a Dockerfile and register the application, so the setup pull request, build and deploy follow as for any other application. `--repository`, `--visibility` and `--source-url` shape the repository; `--wait` follows the analysis to the setup pull request; `-o json` returns the pages and any warnings. Artboards that depend on the Claude Design runtime are kept as authored and reported, and re-running the same import registers the same repository without a second commit. The lane ships behind the `claude_design_import` organisation feature flag: while it is off the command explains that and exits 3, so ask Ankra support to enable it for your organisation.
 
 ### Fixed

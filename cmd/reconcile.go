@@ -250,7 +250,7 @@ var clusterProvisionCmd = &cobra.Command{
 
 This works for a cluster that was created but never built, and for an imported
 cluster that was deprovisioned. It cannot rebuild a deprovisioned cloud cluster
-(hetzner, ovh, upcloud, digitalocean, proxmox, morpheus): that deprovision
+(hetzner, ovh, upcloud, digitalocean, scaleway, proxmox, morpheus): that deprovision
 deleted the record, so there is nothing left to provision - create a new
 cluster instead.
 
@@ -316,22 +316,54 @@ const (
 	cloudClusterKindOvh          cloudClusterKind = "ovh"
 	cloudClusterKindUpcloud      cloudClusterKind = "upcloud"
 	cloudClusterKindDigitalocean cloudClusterKind = "digitalocean"
+	cloudClusterKindScaleway     cloudClusterKind = "scaleway"
 	cloudClusterKindProxmox      cloudClusterKind = "proxmox"
 	cloudClusterKindMorpheus     cloudClusterKind = "morpheus"
 )
+
+// allCloudClusterKinds is the list the cloud-kind decisions in THIS FILE
+// derive from. It exists because Scaleway was absent from four separately
+// hand-maintained copies of it, so `ankra cluster deprovision` fell through
+// to the generic imported lane - which the platform refuses for a cloud
+// cluster, so the command failed with a 409 telling the operator to use
+// DELETE /api/v1/clusters/scaleway/{id} and they had to fall back to
+// `ankra scaleway cluster deprovision` (ankra-e3pa7).
+//
+// It is NOT the only such list, and the other one still has a hole. This list
+// covers the seven SELF-HOSTED kinds, which are exactly the kinds
+// DeprovisionImportedCluster refuses (cluster providers/lifecycle.go). The
+// seven MANAGED kinds - kapsule, doks, uks, gke, ovh_mks, aks, eks - are
+// refused only by the imported DELETE route, not by deprovision, so they
+// still reach the generic lane and get a 200. Adding them here would be
+// wrong: they need managed-delete routing this dispatch does not have. See
+// ankra-menqa.
+//
+// Go does not check switch exhaustiveness, so this list cannot make the
+// dispatch below a compile error. What it does is give the tests one place
+// to enumerate: TestEveryCloudClusterKindHasADeprovisionDispatch walks it and
+// fails when a kind reaches the generic lane. Note what that cannot see: a
+// kind missing from the list is invisible to a test that iterates the list.
+var allCloudClusterKinds = []cloudClusterKind{
+	cloudClusterKindHetzner,
+	cloudClusterKindOvh,
+	cloudClusterKindUpcloud,
+	cloudClusterKindDigitalocean,
+	cloudClusterKindScaleway,
+	cloudClusterKindProxmox,
+	cloudClusterKindMorpheus,
+}
 
 // isCloudClusterKind reports whether deprovisioning this kind goes to the
 // provider endpoint, which deletes the cluster record along with its
 // resources. The generic imported lane keeps the record, so the two are not
 // interchangeable and the difference has to reach the operator.
 func isCloudClusterKind(kind cloudClusterKind) bool {
-	switch kind {
-	case cloudClusterKindHetzner, cloudClusterKindOvh, cloudClusterKindUpcloud,
-		cloudClusterKindDigitalocean, cloudClusterKindProxmox, cloudClusterKindMorpheus:
-		return true
-	default:
-		return false
+	for _, cloudKind := range allCloudClusterKinds {
+		if kind == cloudKind {
+			return true
+		}
 	}
+	return false
 }
 
 var clusterDeprovisionCmd = &cobra.Command{
@@ -342,7 +374,7 @@ var clusterDeprovisionCmd = &cobra.Command{
 Whether the cluster survives as a record depends on its kind, and the two
 outcomes are very different:
 
-  - cloud clusters (hetzner, ovh, upcloud, digitalocean, proxmox, morpheus)
+  - cloud clusters (hetzner, ovh, upcloud, digitalocean, scaleway, proxmox, morpheus)
     go to the provider-specific endpoint, which DELETES the cluster. The
     record does not survive, "ankra cluster provision" cannot bring it back,
     and the cluster id, its stacks and anything referencing them are gone.
@@ -459,6 +491,20 @@ If no cluster name is provided, uses the currently selected cluster.`,
 				return encodeStructured(cmd.OutOrStdout(), format, result)
 			}
 			fmt.Printf("DigitalOcean cluster deprovision initiated.\n")
+			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+			if result.OperationID != nil && *result.OperationID != "" {
+				fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+			}
+			return nil
+		case cloudClusterKindScaleway:
+			result, deprovisionError := apiClient.DeprovisionScalewayCluster(clusterID)
+			if deprovisionError != nil {
+				return fmt.Errorf("deprovisioning Scaleway cluster: %w", deprovisionError)
+			}
+			if format != outputDefault {
+				return encodeStructured(cmd.OutOrStdout(), format, result)
+			}
+			fmt.Printf("Scaleway cluster deprovision initiated.\n")
 			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 			if result.OperationID != nil && *result.OperationID != "" {
 				fmt.Printf("  Operation ID: %s\n", *result.OperationID)
