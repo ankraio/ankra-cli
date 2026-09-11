@@ -1,5 +1,46 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Every cluster-scoped command now takes the cluster's name as well as its
+  id.** The three `ankra cluster playground` verbs learned this in #239, but
+  they were the only group: the other 103 commands - `cluster` bastion,
+  managed, mesh, node-group, nodes, scale, ssh-keys and upgrade,
+  `control-plane`, and every provider lane (DigitalOcean, Hetzner, OVH,
+  UpCloud, Scaleway, Proxmox VE, HPE Morpheus) - forwarded a name verbatim,
+  where it reached the route as a non-UUID path segment and came back as a
+  bare 404 or a `uuid_parsing` 422 with nothing to say an id was expected. A
+  cluster id still passes straight through without the extra lookup, an
+  unknown name is refused before the request, and a destructive prompt names
+  what you typed alongside the id it resolved to.
+- **Name lookup no longer picks one of two clusters whose names differ only by
+  case.** A name typed exactly as the cluster carries it wins immediately;
+  otherwise a single case-insensitive match resolves and several are refused
+  naming both clusters and both ids. This is the resolver the stacks,
+  security, cost and validate commands already shared, so they gain it too.
+- **A cluster name that is 36 characters long with four dashes is looked up
+  rather than forwarded as an id.** The lookup's own shape test was that loose
+  while the caller's was a strict UUID, so names of that shape fell into the
+  gap and answered with the opaque error this release removes everywhere else.
+- **A name beyond the lookup's 5000-cluster paging cap is no longer reported
+  as "not found".** A truncated listing was being presented as a verified
+  absence; the error now says the name was not among the first 5000 and to
+  pass the cluster id instead.
+- **An unresolved cluster NAME now exits 3, like an unresolved id.** The
+  exit codes are part of the CLI's scripting contract, and not-found is the
+  one scripts treat as idempotent success. With names accepted everywhere, a
+  teardown written as `ankra cluster hetzner deprovision "$C" || [ $? -eq 3 ]`
+  would have stopped being idempotent the moment `$C` became a name. An
+  ambiguous name exits 2 (a bad argument) and a truncated listing keeps the
+  generic failure code, because neither is a verified absence.
+- **`ankra cluster scaleway deprovision` now asks before permanently deleting
+  a cluster**, as the Hetzner, DigitalOcean, OVH and UpCloud deprovisions
+  already did. It was the only one without a prompt; until this release the
+  36-character cluster id was the de facto confirmation, and accepting a
+  short name removes that. `--yes` skips it for scripts.
+
 ## v0.16.0-rc2 — 2026-09-11
 
 Closes the gap rc1 left open: `stack-profiles rollout` now updates each

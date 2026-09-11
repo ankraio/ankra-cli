@@ -43,10 +43,10 @@ func TestClusterBastionResizeCommandWithWait(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "hetzner", "bastion", "resize", "cluster-1", "cx31", "--wait")
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "resize", testClusterID, "cx31", "--wait")
 	})
 
-	if len(mock.resizeCalls) != 1 || mock.resizeCalls[0] != "cluster-1:cx31:true" {
+	if len(mock.resizeCalls) != 1 || mock.resizeCalls[0] != testClusterID+":cx31:true" {
 		t.Fatalf("expected one resize call with wait=true, got %v", mock.resizeCalls)
 	}
 	if !strings.Contains(stdoutOutput, "instance type set to 'cx31' (operation op-77)") {
@@ -72,7 +72,7 @@ func TestClusterBastionResizeCommandWithoutOperationID(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "hetzner", "bastion", "resize", "cluster-1", "cx31", "--wait")
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "resize", testClusterID, "cx31", "--wait")
 	})
 
 	if !strings.Contains(stdoutOutput, "instance type set to 'cx31'") {
@@ -96,10 +96,10 @@ func TestClusterBastionResizeCommandSubmittedWithoutWait(t *testing.T) {
 	// reapply a bool flag's default between Execute() calls, so relying on
 	// the default would leak the previous test's --wait=true.
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "hetzner", "bastion", "resize", "cluster-1", "cx31", "--wait=false")
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "resize", testClusterID, "cx31", "--wait=false")
 	})
 
-	if len(mock.resizeCalls) != 1 || mock.resizeCalls[0] != "cluster-1:cx31:false" {
+	if len(mock.resizeCalls) != 1 || mock.resizeCalls[0] != testClusterID+":cx31:false" {
 		t.Fatalf("expected one resize call with wait=false, got %v", mock.resizeCalls)
 	}
 	if !strings.Contains(stdoutOutput, "submitted") {
@@ -112,7 +112,7 @@ func TestClusterBastionResizeCommandSurfacesError(t *testing.T) {
 	mock := &bastionResizeMock{resizeError: fmt.Errorf("No bastion or gateway node found for this cluster")}
 	setMockClient(t, mock)
 
-	_, commandError := executeCommand("cluster", "hetzner", "bastion", "resize", "cluster-1", "cx31", "--wait")
+	_, commandError := executeCommand("cluster", "hetzner", "bastion", "resize", testClusterID, "cx31", "--wait")
 	if commandError == nil || !strings.Contains(commandError.Error(), "No bastion or gateway node found") {
 		t.Fatalf("expected the not-found error, got %v", commandError)
 	}
@@ -162,10 +162,10 @@ func TestClusterBastionStatusCommandRendersTheVerdict(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "hetzner", "bastion", "status", "cluster-1")
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "status", testClusterID)
 	})
 
-	if len(mock.healthCalls) != 1 || mock.healthCalls[0] != "cluster-1" {
+	if len(mock.healthCalls) != 1 || mock.healthCalls[0] != testClusterID {
 		t.Fatalf("expected one health read for cluster-1, got %v", mock.healthCalls)
 	}
 	for _, expected := range []string{
@@ -175,7 +175,7 @@ func TestClusterBastionStatusCommandRendersTheVerdict(t *testing.T) {
 			t.Errorf("expected %q in the verdict, got: %s", expected, stdoutOutput)
 		}
 	}
-	if !strings.Contains(stdoutOutput, "bastion diagnose cluster-1") {
+	if !strings.Contains(stdoutOutput, "bastion diagnose "+testClusterID) {
 		t.Errorf("a diagnosable bastion should point at the diagnose command, got: %s", stdoutOutput)
 	}
 }
@@ -195,7 +195,7 @@ func TestClusterBastionStatusCommandSaysDiagnosisIsUnavailable(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "hetzner", "bastion", "status", "cluster-1")
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "status", testClusterID)
 	})
 
 	if !strings.Contains(stdoutOutput, "Diagnosis is not available for this provider.") {
@@ -216,7 +216,7 @@ func TestClusterBastionStatusCommandReportsAnUnprobedBastion(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "hetzner", "bastion", "status", "cluster-1")
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "status", testClusterID)
 	})
 
 	if !strings.Contains(stdoutOutput, "not probed yet") {
@@ -229,7 +229,7 @@ func TestClusterBastionStatusCommandSurfacesTheNoBastionRefusal(t *testing.T) {
 	mock := &bastionHealthMock{healthError: fmt.Errorf("This cluster has no bastion resource.")}
 	setMockClient(t, mock)
 
-	_, commandError := executeCommand("cluster", "hetzner", "bastion", "status", "cluster-1")
+	_, commandError := executeCommand("cluster", "hetzner", "bastion", "status", testClusterID)
 	if commandError == nil || !strings.Contains(commandError.Error(), "no bastion resource") {
 		t.Fatalf("expected the no-bastion refusal, got %v", commandError)
 	}
@@ -250,10 +250,10 @@ func TestClusterBastionDiagnoseCommandRendersTheReport(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "hetzner", "bastion", "diagnose", "cluster-1")
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "diagnose", testClusterID)
 	})
 
-	if len(mock.diagnoseCalls) != 1 || mock.diagnoseCalls[0] != "cluster-1" {
+	if len(mock.diagnoseCalls) != 1 || mock.diagnoseCalls[0] != testClusterID {
 		t.Fatalf("expected one diagnose call for cluster-1, got %v", mock.diagnoseCalls)
 	}
 	for _, expected := range []string{"hetzner_bastion_diagnose", "op-1", "Report:", "chrony.service"} {
@@ -278,7 +278,7 @@ func TestClusterBastionDiagnoseCommandPrintsThePollHintWhenStillRunning(t *testi
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "hetzner", "bastion", "diagnose", "cluster-1")
+		_, _ = executeCommand("cluster", "hetzner", "bastion", "diagnose", testClusterID)
 	})
 
 	if !strings.Contains(stdoutOutput, "still running") ||
@@ -294,7 +294,7 @@ func TestClusterBastionDiagnoseCommandTagsTheWaitExpiry(t *testing.T) {
 	mock := &bastionHealthMock{diagnoseError: fmt.Errorf("request failed: %w", context.DeadlineExceeded)}
 	setMockClient(t, mock)
 
-	_, commandError := executeCommand("cluster", "hetzner", "bastion", "diagnose", "cluster-1")
+	_, commandError := executeCommand("cluster", "hetzner", "bastion", "diagnose", testClusterID)
 	if commandError == nil {
 		t.Fatal("expected an error, got nil")
 	}
@@ -378,19 +378,19 @@ func TestClusterBastionProxmoxUsesTheProxmoxCalls(t *testing.T) {
 	setMockClient(t, mock)
 
 	statusOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "proxmox", "bastion", "status", "cluster-1")
+		_, _ = executeCommand("cluster", "proxmox", "bastion", "status", testClusterID)
 	})
-	if len(mock.healthCalls) != 1 || mock.healthCalls[0] != "cluster-1" {
-		t.Fatalf("expected one proxmox health read for cluster-1, got %v", mock.healthCalls)
+	if len(mock.healthCalls) != 1 || mock.healthCalls[0] != testClusterID {
+		t.Fatalf("expected one proxmox health read for %s, got %v", testClusterID, mock.healthCalls)
 	}
-	if !strings.Contains(statusOutput, "ankra cluster proxmox bastion diagnose cluster-1") {
+	if !strings.Contains(statusOutput, "ankra cluster proxmox bastion diagnose "+testClusterID) {
 		t.Errorf("expected the proxmox diagnose hint, got: %s", statusOutput)
 	}
 
 	diagnoseOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "proxmox", "bastion", "diagnose", "cluster-1")
+		_, _ = executeCommand("cluster", "proxmox", "bastion", "diagnose", testClusterID)
 	})
-	if len(mock.diagnoseCalls) != 1 || mock.diagnoseCalls[0] != "cluster-1" {
+	if len(mock.diagnoseCalls) != 1 || mock.diagnoseCalls[0] != testClusterID {
 		t.Fatalf("expected one proxmox diagnose call for cluster-1, got %v", mock.diagnoseCalls)
 	}
 	if !strings.Contains(diagnoseOutput, "proxmox_bastion_diagnose") {
@@ -421,10 +421,10 @@ func TestClusterBastionScalewayStatusOffersNoDiagnose(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "scaleway", "bastion", "status", "cluster-1")
+		_, _ = executeCommand("cluster", "scaleway", "bastion", "status", testClusterID)
 	})
 
-	if len(mock.healthCalls) != 1 || mock.healthCalls[0] != "cluster-1" {
+	if len(mock.healthCalls) != 1 || mock.healthCalls[0] != testClusterID {
 		t.Fatalf("expected one scaleway health read for cluster-1, got %v", mock.healthCalls)
 	}
 	if !strings.Contains(stdoutOutput, "Diagnosis is not available for this provider.") {
@@ -452,7 +452,7 @@ func TestClusterBastionStatusCommandStructuredOutputIsClean(t *testing.T) {
 	}
 	t.Cleanup(func() { resetTreeFlags(t, statusCmd) })
 
-	commandOutput, commandError := executeCommand("cluster", "hetzner", "bastion", "status", "cluster-1", "-o", "json")
+	commandOutput, commandError := executeCommand("cluster", "hetzner", "bastion", "status", testClusterID, "-o", "json")
 	if commandError != nil {
 		t.Fatalf("status -o json: %v", commandError)
 	}

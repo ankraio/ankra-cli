@@ -98,11 +98,14 @@ var digitaloceanCreateCmd = &cobra.Command{
 }
 
 var digitaloceanDeprovisionCmd = &cobra.Command{
-	Use:   "deprovision <cluster_id>",
+	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision an DigitalOcean cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		force, _ := cmd.Flags().GetBool("force")
@@ -111,7 +114,7 @@ var digitaloceanDeprovisionCmd = &cobra.Command{
 			warning = "This deletes all its servers, networks, SSH keys, block storage volumes and load balancers!"
 		}
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Deprovision DigitalOcean cluster %q? %s [y/N]: ", clusterID, warning),
+			fmt.Sprintf("Deprovision DigitalOcean cluster %s? %s [y/N]: ", clusterTarget(args[0], clusterID), warning),
 			yes); err != nil {
 			return err
 		}
@@ -142,12 +145,15 @@ var digitaloceanDeprovisionCmd = &cobra.Command{
 }
 
 var digitaloceanStopCmd = &cobra.Command{
-	Use:   "stop <cluster_id>",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop an DigitalOcean cluster",
 	Long:  "Stop an DigitalOcean cluster's compute while keeping its configuration so it can be started again later.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		force, _ := cmd.Flags().GetBool("force")
 
 		result, err := apiClient.StopDigitaloceanCluster(clusterID, force)
@@ -169,12 +175,15 @@ var digitaloceanStopCmd = &cobra.Command{
 }
 
 var digitaloceanStartCmd = &cobra.Command{
-	Use:   "start <cluster_id>",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped DigitalOcean cluster",
 	Long:  "Start (re-provision) a stopped DigitalOcean cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		scope, _ := cmd.Flags().GetString("scope")
 		if scope != "all" && scope != "control_plane" {
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
@@ -196,11 +205,14 @@ var digitaloceanStartCmd = &cobra.Command{
 }
 
 var digitaloceanWorkersCmd = &cobra.Command{
-	Use:   "workers <cluster_id>",
+	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an DigitalOcean cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 
 		result, err := apiClient.GetDigitaloceanWorkerCount(clusterID)
 		if err != nil {
@@ -221,12 +233,15 @@ var digitaloceanWorkersCmd = &cobra.Command{
 }
 
 var digitaloceanScaleCmd = &cobra.Command{
-	Use:   "scale <cluster_id> <worker_count>",
+	Use:   "scale <cluster_id|name> <worker_count>",
 	Short: "Scale workers for an DigitalOcean cluster",
 	Long:  "Scale the number of worker nodes up or down for an DigitalOcean cluster.",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		workerCount, err := strconv.Atoi(args[1])
 		if err != nil {
 			return fmt.Errorf("invalid worker count: %w", err)
@@ -257,11 +272,14 @@ var digitaloceanScaleCmd = &cobra.Command{
 }
 
 var digitaloceanK8sVersionCmd = &cobra.Command{
-	Use:   "k8s-version <cluster_id>",
+	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an DigitalOcean cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 
 		result, err := apiClient.GetDigitaloceanK8sVersion(clusterID)
 		if err != nil {
@@ -285,13 +303,16 @@ var digitaloceanK8sVersionCmd = &cobra.Command{
 }
 
 var digitaloceanUpgradeCmd = &cobra.Command{
-	Use:        "upgrade <cluster_id> <target_version>",
+	Use:        "upgrade <cluster_id|name> <target_version>",
 	Short:      "Upgrade Kubernetes version for an DigitalOcean cluster",
 	Long:       "Upgrade the Kubernetes version on all nodes in an DigitalOcean cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
 	Args:       cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		targetVersion := args[1]
 
 		result, err := apiClient.UpgradeDigitaloceanK8sVersion(clusterID, targetVersion, false)
@@ -324,11 +345,14 @@ var digitaloceanNodeGroupCmd = &cobra.Command{
 }
 
 var digitaloceanNodeGroupListCmd = &cobra.Command{
-	Use:   "list <cluster_id>",
+	Use:   "list <cluster_id|name>",
 	Short: "List node groups",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		result, err := apiClient.ListDigitaloceanNodeGroups(clusterID)
 		if err != nil {
 			return fmt.Errorf("listing node groups: %w", err)
@@ -351,11 +375,14 @@ var digitaloceanNodeGroupListCmd = &cobra.Command{
 }
 
 var digitaloceanNodeGroupAddCmd = &cobra.Command{
-	Use:   "add <cluster_id>",
+	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		name, _ := cmd.Flags().GetString("name")
 		instanceType, _ := cmd.Flags().GetString("instance-type")
 		count, _ := cmd.Flags().GetInt("count")
@@ -396,11 +423,14 @@ var digitaloceanNodeGroupAddCmd = &cobra.Command{
 }
 
 var digitaloceanNodeGroupScaleCmd = &cobra.Command{
-	Use:   "scale <cluster_id> <group_name> <count>",
+	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		count, err := strconv.Atoi(args[2])
 		if err != nil {
@@ -437,11 +467,14 @@ var digitaloceanNodeGroupScaleCmd = &cobra.Command{
 }
 
 var digitaloceanNodeGroupUpgradeCmd = &cobra.Command{
-	Use:   "upgrade <cluster_id> <group_name> <size>",
+	Use:   "upgrade <cluster_id|name> <group_name> <size>",
 	Short: "Upgrade server size for a node group",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		size := args[2]
 
@@ -475,16 +508,19 @@ var digitaloceanNodeGroupUpgradeCmd = &cobra.Command{
 }
 
 var digitaloceanNodeGroupDeleteCmd = &cobra.Command{
-	Use:   "delete <cluster_id> <group_name>",
+	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Delete node group %q from cluster %q? This deletes all its nodes! [y/N]: ", groupName, clusterID),
+			fmt.Sprintf("Delete node group %q from cluster %s? This deletes all its nodes! [y/N]: ", groupName, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
 		}

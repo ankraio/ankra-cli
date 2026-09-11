@@ -47,7 +47,7 @@ func TestControlPlaneGetRendersTheTwoControlsSeparately(t *testing.T) {
 	}
 
 	stdoutOutput := captureStdout(t, func() {
-		if err := runControlPlaneGet(&cobra.Command{}, stubControlPlaneOps(info, nil), "cluster-1"); err != nil {
+		if err := runControlPlaneGet(&cobra.Command{}, stubControlPlaneOps(info, nil), testClusterID); err != nil {
 			t.Fatalf("runControlPlaneGet returned an error: %v", err)
 		}
 	})
@@ -83,7 +83,7 @@ func TestControlPlaneGetFallsBackToLegacyFields(t *testing.T) {
 	}
 
 	stdoutOutput := captureStdout(t, func() {
-		if err := runControlPlaneGet(&cobra.Command{}, stubControlPlaneOps(info, nil), "cluster-1"); err != nil {
+		if err := runControlPlaneGet(&cobra.Command{}, stubControlPlaneOps(info, nil), testClusterID); err != nil {
 			t.Fatalf("runControlPlaneGet returned an error: %v", err)
 		}
 	})
@@ -112,7 +112,7 @@ func TestSetInstanceTypeRollingReportsTheOperationAndNoStart(t *testing.T) {
 	}
 
 	stdoutOutput := captureStdout(t, func() {
-		err := runControlPlaneSetInstanceType(&cobra.Command{}, stubControlPlaneOps(nil, changed), "cluster-1", "s-4vcpu-8gb")
+		err := runControlPlaneSetInstanceType(&cobra.Command{}, stubControlPlaneOps(nil, changed), testClusterID, "s-4vcpu-8gb")
 		if err != nil {
 			t.Fatalf("runControlPlaneSetInstanceType returned an error: %v", err)
 		}
@@ -140,7 +140,7 @@ func TestSetInstanceTypeOfflineStillSaysStartTheCluster(t *testing.T) {
 	}
 
 	stdoutOutput := captureStdout(t, func() {
-		err := runControlPlaneSetInstanceType(&cobra.Command{}, stubControlPlaneOps(nil, changed), "cluster-1", "s-4vcpu-8gb")
+		err := runControlPlaneSetInstanceType(&cobra.Command{}, stubControlPlaneOps(nil, changed), testClusterID, "s-4vcpu-8gb")
 		if err != nil {
 			t.Fatalf("runControlPlaneSetInstanceType returned an error: %v", err)
 		}
@@ -164,7 +164,7 @@ func TestSetInstanceTypeWithoutModeKeepsLegacyWording(t *testing.T) {
 	}
 
 	stdoutOutput := captureStdout(t, func() {
-		err := runControlPlaneSetInstanceType(&cobra.Command{}, stubControlPlaneOps(nil, changed), "cluster-1", "s-4vcpu-8gb")
+		err := runControlPlaneSetInstanceType(&cobra.Command{}, stubControlPlaneOps(nil, changed), testClusterID, "s-4vcpu-8gb")
 		if err != nil {
 			t.Fatalf("runControlPlaneSetInstanceType returned an error: %v", err)
 		}
@@ -187,7 +187,7 @@ func TestSetInstanceTypeNoOpSaysNothingChanged(t *testing.T) {
 	}
 
 	stdoutOutput := captureStdout(t, func() {
-		err := runControlPlaneSetInstanceType(&cobra.Command{}, stubControlPlaneOps(nil, changed), "cluster-1", "s-2vcpu-4gb")
+		err := runControlPlaneSetInstanceType(&cobra.Command{}, stubControlPlaneOps(nil, changed), testClusterID, "s-2vcpu-4gb")
 		if err != nil {
 			t.Fatalf("runControlPlaneSetInstanceType returned an error: %v", err)
 		}
@@ -214,7 +214,7 @@ func TestSetInstanceTypeZeroUpdatedNeverReportsAChange(t *testing.T) {
 	}
 
 	stdoutOutput := captureStdout(t, func() {
-		err := runControlPlaneSetInstanceType(&cobra.Command{}, stubControlPlaneOps(nil, changed), "cluster-1", "s-4vcpu-8gb")
+		err := runControlPlaneSetInstanceType(&cobra.Command{}, stubControlPlaneOps(nil, changed), testClusterID, "s-4vcpu-8gb")
 		if err != nil {
 			t.Fatalf("runControlPlaneSetInstanceType returned an error: %v", err)
 		}

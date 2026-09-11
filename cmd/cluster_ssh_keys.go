@@ -106,11 +106,14 @@ Morpheus) is detected automatically from the cluster.`,
 }
 
 var clusterSSHKeysGetCmd = &cobra.Command{
-	Use:   "get <cluster_id>",
+	Use:   "get <cluster_id|name>",
 	Short: "Show SSH keys attached to a cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		kind, err := resolveSSHKeysClusterKind(clusterID)
 		if err != nil {
 			return err
@@ -147,7 +150,7 @@ var clusterSSHKeysGetCmd = &cobra.Command{
 }
 
 var clusterSSHKeysSetCmd = &cobra.Command{
-	Use:   "set <cluster_id>",
+	Use:   "set <cluster_id|name>",
 	Short: "Set the SSH keys attached to a cluster",
 	Long: `Replace the SSH key credentials attached to a cluster. Changes take effect on
 the next reconciliation and are applied to running nodes.
@@ -155,7 +158,10 @@ the next reconciliation and are applied to running nodes.
 Pass --clear to remove all user SSH keys (the Ankra-managed key always remains).`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		clear, _ := cmd.Flags().GetBool("clear")
 		sshKeyCredentialIDs, _ := cmd.Flags().GetStringSlice("ssh-key-credential-ids")
 
@@ -195,7 +201,7 @@ Pass --clear to remove all user SSH keys (the Ankra-managed key always remains).
 }
 
 var clusterSSHKeysResyncCmd = &cobra.Command{
-	Use:   "resync <cluster_id>",
+	Use:   "resync <cluster_id|name>",
 	Short: "Re-sync a cluster's SSH keys with the cloud provider",
 	Long: `Re-sync the cluster's SSH key with the cloud provider. Use this to repair a
 stale provider-side SSH key reference (for example when the key was deleted and
@@ -203,7 +209,10 @@ re-created in the provider console) that blocks new node creation, and to
 re-apply the authorised keys to running nodes.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		kind, err := resolveSSHKeysClusterKind(clusterID)
 		if err != nil {
 			return err

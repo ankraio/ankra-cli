@@ -2809,7 +2809,7 @@ func TestClusterListEmptyCommand(t *testing.T) {
 func TestClusterInfoCommand(t *testing.T) {
 	mock := &clusterGetMock{
 		cluster: client.ClusterListItem{
-			ID:          "test-cluster-id",
+			ID:          testClusterID,
 			Name:        "my-cluster",
 			Environment: "production",
 			KubeVersion: "1.28.0",
@@ -2836,7 +2836,7 @@ func TestClusterInfoCommand(t *testing.T) {
 func TestClusterInfoNetworkSectionCommand(t *testing.T) {
 	mock := &clusterGetMock{
 		cluster: client.ClusterListItem{
-			ID:          "test-cluster-id",
+			ID:          testClusterID,
 			Name:        "my-cluster",
 			Environment: "production",
 			KubeVersion: "1.28.0",
@@ -2878,7 +2878,7 @@ func TestClusterInfoNetworkSectionCommand(t *testing.T) {
 func TestClusterInfoWithoutNetworkOmitsSection(t *testing.T) {
 	mock := &clusterGetMock{
 		cluster: client.ClusterListItem{
-			ID:    "test-cluster-id",
+			ID:    testClusterID,
 			Name:  "my-cluster",
 			State: "online",
 		},
@@ -3025,7 +3025,7 @@ func writeSelectedClusterJSON(t *testing.T) {
 	if err := os.MkdirAll(ankraDir, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	data, err := json.Marshal(client.ClusterListItem{ID: "test-cluster-id", Name: "test-cluster"})
+	data, err := json.Marshal(client.ClusterListItem{ID: testClusterID, Name: "test-cluster"})
 	if err != nil {
 		t.Fatalf("json: %v", err)
 	}
@@ -3936,7 +3936,7 @@ func TestClusterHetznerNodeGroupListCommand(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "hetzner", "node-group", "list", "test-cluster-id")
+		_, _ = executeCommand("cluster", "hetzner", "node-group", "list", testClusterID)
 	})
 
 	if !strings.Contains(stdoutOutput, "workers") {
@@ -3969,7 +3969,7 @@ func TestClusterOvhNodeGroupListCommand(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "ovh", "node-group", "list", "test-cluster-id")
+		_, _ = executeCommand("cluster", "ovh", "node-group", "list", testClusterID)
 	})
 
 	if !strings.Contains(stdoutOutput, "ovh-default") {
@@ -4002,7 +4002,7 @@ func TestClusterUpcloudNodeGroupListCommand(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "upcloud", "node-group", "list", "test-cluster-id")
+		_, _ = executeCommand("cluster", "upcloud", "node-group", "list", testClusterID)
 	})
 
 	if !strings.Contains(stdoutOutput, "uc-workers") {

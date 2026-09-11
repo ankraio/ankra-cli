@@ -233,11 +233,14 @@ Morpheus) is detected automatically from the cluster.`,
 }
 
 var clusterNodeGroupListCmd = &cobra.Command{
-	Use:   "list <cluster_id>",
+	Use:   "list <cluster_id|name>",
 	Short: "List node groups",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		kind, kindError := resolveNodeGroupClusterKind(clusterID)
 		if kindError != nil {
 			return kindError
@@ -307,11 +310,14 @@ func readNodeGroupUserDataFile(path string) (string, error) {
 }
 
 var clusterNodeGroupAddCmd = &cobra.Command{
-	Use:   "add <cluster_id>",
+	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		kind, kindError := resolveNodeGroupClusterKind(clusterID)
 		if kindError != nil {
 			return kindError
@@ -366,11 +372,14 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 }
 
 var clusterNodeGroupScaleCmd = &cobra.Command{
-	Use:   "scale <cluster_id> <group_name> <count>",
+	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		count, convertError := strconv.Atoi(args[2])
 		if convertError != nil {
@@ -411,11 +420,14 @@ var clusterNodeGroupScaleCmd = &cobra.Command{
 }
 
 var clusterNodeGroupUpgradeCmd = &cobra.Command{
-	Use:   "upgrade <cluster_id> <group_name> <instance_type>",
+	Use:   "upgrade <cluster_id|name> <group_name> <instance_type>",
 	Short: "Upgrade instance type for a node group (cannot be reversed)",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		instanceType := args[2]
 		kind, kindError := resolveNodeGroupClusterKind(clusterID)
@@ -453,11 +465,14 @@ var clusterNodeGroupUpgradeCmd = &cobra.Command{
 }
 
 var clusterNodeGroupDeleteCmd = &cobra.Command{
-	Use:   "delete <cluster_id> <group_name>",
+	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 		kind, kindError := resolveNodeGroupClusterKind(clusterID)
@@ -467,7 +482,7 @@ var clusterNodeGroupDeleteCmd = &cobra.Command{
 
 		if err := confirmPrompt(
 			cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Delete node group %q from cluster %q? This deletes all its nodes! [y/N]: ", groupName, clusterID),
+			fmt.Sprintf("Delete node group %q from cluster %s? This deletes all its nodes! [y/N]: ", groupName, clusterTarget(args[0], clusterID)),
 			yes,
 		); err != nil {
 			return err
@@ -513,11 +528,14 @@ stays allowed but is clamped into the same bounds.`,
 }
 
 var clusterNodeGroupAutoscalingGetCmd = &cobra.Command{
-	Use:   "get <cluster_id> <group_name>",
+	Use:   "get <cluster_id|name> <group_name>",
 	Short: "Show autoscaling settings for a node group",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		kind, kindError := resolveNodeGroupClusterKind(clusterID)
 		if kindError != nil {
@@ -550,7 +568,7 @@ var clusterNodeGroupAutoscalingGetCmd = &cobra.Command{
 }
 
 var clusterNodeGroupAutoscalingSetCmd = &cobra.Command{
-	Use:   "set <cluster_id> <group_name>",
+	Use:   "set <cluster_id|name> <group_name>",
 	Short: "Enable or disable autoscaling for a node group",
 	Long: `Enable autoscaling with --enabled --min <n> --max <n>, or disable it with
 --enabled=false. min must be at least 1 (scale-to-zero is not supported);
@@ -558,7 +576,10 @@ enabling requires the cluster's ankra-agent to be recent enough to serve
 the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		enabled, _ := cmd.Flags().GetBool("enabled")
 		minCount, _ := cmd.Flags().GetInt("min")
@@ -610,12 +631,15 @@ the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 }
 
 var clusterNodeGroupLabelsCmd = &cobra.Command{
-	Use:   "labels <cluster_id> <group_name>",
+	Use:   "labels <cluster_id|name> <group_name>",
 	Short: "Set labels on all nodes in a node group",
 	Long:  "Replace the labels on every node in the group. Pass --labels as a comma-separated list of key=value pairs, or --clear to remove all labels. The cloud provider is detected automatically from the cluster.",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		clear, _ := cmd.Flags().GetBool("clear")
 		labelsChanged := cmd.Flags().Changed("labels")
@@ -667,12 +691,15 @@ var clusterNodeGroupLabelsCmd = &cobra.Command{
 }
 
 var clusterNodeGroupTaintsCmd = &cobra.Command{
-	Use:   "taints <cluster_id> <group_name>",
+	Use:   "taints <cluster_id|name> <group_name>",
 	Short: "Set taints on all nodes in a node group",
 	Long:  "Replace the taints on every node in the group. Pass --taints as a comma-separated list of key=value:Effect (value optional, effect defaults to NoSchedule), or --clear to remove all taints. The cloud provider is detected automatically from the cluster.",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		groupName := args[1]
 		clear, _ := cmd.Flags().GetBool("clear")
 		taintsChanged := cmd.Flags().Changed("taints")

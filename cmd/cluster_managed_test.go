@@ -40,7 +40,7 @@ func (m *managedClusterMock) CreateManagedCluster(provider client.ManagedK8sProv
 	if m.createError != nil {
 		return nil, m.createError
 	}
-	return &client.CreateManagedClusterResponse{ClusterID: "cluster-1", Name: request.Name}, nil
+	return &client.CreateManagedClusterResponse{ClusterID: testClusterID, Name: request.Name}, nil
 }
 
 func (m *managedClusterMock) AddManagedNodePool(provider client.ManagedK8sProvider, clusterID string, request client.AddManagedNodePoolRequest) (*client.AddManagedNodePoolResponse, error) {
@@ -265,7 +265,7 @@ func TestManagedNodePoolAdd_SendsAutoscaling(t *testing.T) {
 	mock := &managedClusterMock{}
 	resetConfirmFlag(t, managedNodePoolAddCmd)
 	out, err := runWithInput(t, mock, "",
-		"cluster", "managed", "node-pool", "add", "cluster-1",
+		"cluster", "managed", "node-pool", "add", testClusterID,
 		"--provider", "gke", "--name", "workers", "--size", "e2-medium", "--count", "3",
 		"--autoscaling", "--autoscaling-min", "2", "--autoscaling-max", "6")
 	if err != nil {
@@ -285,7 +285,7 @@ func TestManagedNodePoolAdd_WithoutAutoscalingOmitsIt(t *testing.T) {
 	mock := &managedClusterMock{}
 	resetConfirmFlag(t, managedNodePoolAddCmd)
 	_, err := runWithInput(t, mock, "",
-		"cluster", "managed", "node-pool", "add", "cluster-1",
+		"cluster", "managed", "node-pool", "add", testClusterID,
 		"--provider", "gke", "--name", "workers", "--size", "e2-medium")
 	if err != nil {
 		t.Fatalf("execute failed: %v", err)
@@ -300,7 +300,7 @@ func TestManagedNodePoolUpdate_SendsChangedFlagsOnly(t *testing.T) {
 	resetConfirmFlag(t, managedNodePoolUpdateCmd)
 	out := captureStdout(t, func() {
 		_, err := runWithInput(t, mock, "",
-			"cluster", "managed", "node-pool", "update", "cluster-1", "workers",
+			"cluster", "managed", "node-pool", "update", testClusterID, "workers",
 			"--provider", "kapsule", "--count", "4")
 		if err != nil {
 			t.Fatalf("execute failed: %v", err)
@@ -316,10 +316,10 @@ func TestManagedNodePoolUpdate_SendsChangedFlagsOnly(t *testing.T) {
 	if request.AutoscalingEnabled != nil || request.AutoscalingMin != nil || request.AutoscalingMax != nil {
 		t.Errorf("autoscaling fields should be unset, got %+v", request)
 	}
-	if mock.updatePoolCluster != "cluster-1" || mock.updatePoolName != "workers" {
-		t.Errorf("target = %s/%s, want cluster-1/workers", mock.updatePoolCluster, mock.updatePoolName)
+	if mock.updatePoolCluster != testClusterID || mock.updatePoolName != "workers" {
+		t.Errorf("target = %s/%s, want %s/workers", mock.updatePoolCluster, mock.updatePoolName, testClusterID)
 	}
-	if !strings.Contains(out, `Node pool "workers" updated on cluster cluster-1`) {
+	if !strings.Contains(out, `Node pool "workers" updated on cluster `+testClusterID) {
 		t.Errorf("unexpected output:\n%s", out)
 	}
 }
@@ -328,7 +328,7 @@ func TestManagedNodePoolUpdate_SendsAutoscalingBounds(t *testing.T) {
 	mock := &managedClusterMock{}
 	resetConfirmFlag(t, managedNodePoolUpdateCmd)
 	_, err := runWithInput(t, mock, "",
-		"cluster", "managed", "node-pool", "update", "cluster-1", "workers",
+		"cluster", "managed", "node-pool", "update", testClusterID, "workers",
 		"--provider", "kapsule", "--autoscaling", "--autoscaling-min", "1", "--autoscaling-max", "9")
 	if err != nil {
 		t.Fatalf("execute failed: %v", err)
@@ -352,7 +352,7 @@ func TestManagedNodePoolUpdate_DisableAutoscaling(t *testing.T) {
 	mock := &managedClusterMock{}
 	resetConfirmFlag(t, managedNodePoolUpdateCmd)
 	_, err := runWithInput(t, mock, "",
-		"cluster", "managed", "node-pool", "update", "cluster-1", "workers",
+		"cluster", "managed", "node-pool", "update", testClusterID, "workers",
 		"--provider", "kapsule", "--autoscaling=false")
 	if err != nil {
 		t.Fatalf("execute failed: %v", err)
@@ -367,7 +367,7 @@ func TestManagedNodePoolUpdate_RequiresAtLeastOneFlag(t *testing.T) {
 	mock := &managedClusterMock{}
 	resetConfirmFlag(t, managedNodePoolUpdateCmd)
 	_, err := runWithInput(t, mock, "",
-		"cluster", "managed", "node-pool", "update", "cluster-1", "workers",
+		"cluster", "managed", "node-pool", "update", testClusterID, "workers",
 		"--provider", "kapsule")
 	if err == nil {
 		t.Fatal("expected usage error without update flags")
@@ -386,7 +386,7 @@ func TestManagedNodePoolUpdate_APIErrorPassesThrough(t *testing.T) {
 	}
 	resetConfirmFlag(t, managedNodePoolUpdateCmd)
 	_, err := runWithInput(t, mock, "",
-		"cluster", "managed", "node-pool", "update", "cluster-1", "workers",
+		"cluster", "managed", "node-pool", "update", testClusterID, "workers",
 		"--provider", "kapsule", "--count", "2")
 	if err == nil {
 		t.Fatal("expected API error to surface")
@@ -401,12 +401,12 @@ func TestManagedStop_Success(t *testing.T) {
 	resetConfirmFlag(t, managedStopCmd)
 	out := captureStdout(t, func() {
 		_, err := runWithInput(t, mock, "",
-			"cluster", "managed", "stop", "cluster-1", "--provider", "aks")
+			"cluster", "managed", "stop", testClusterID, "--provider", "aks")
 		if err != nil {
 			t.Fatalf("execute failed: %v", err)
 		}
 	})
-	if len(mock.stopCalls) != 1 || mock.stopCalls[0] != "cluster-1" {
+	if len(mock.stopCalls) != 1 || mock.stopCalls[0] != testClusterID {
 		t.Fatalf("stop calls = %v, want [cluster-1]", mock.stopCalls)
 	}
 	if !strings.Contains(out, "Managed cluster stop initiated.") {
@@ -422,12 +422,12 @@ func TestManagedStart_Success(t *testing.T) {
 	resetConfirmFlag(t, managedStartCmd)
 	out := captureStdout(t, func() {
 		_, err := runWithInput(t, mock, "",
-			"cluster", "managed", "start", "cluster-1", "--provider", "aks")
+			"cluster", "managed", "start", testClusterID, "--provider", "aks")
 		if err != nil {
 			t.Fatalf("execute failed: %v", err)
 		}
 	})
-	if len(mock.startCalls) != 1 || mock.startCalls[0] != "cluster-1" {
+	if len(mock.startCalls) != 1 || mock.startCalls[0] != testClusterID {
 		t.Fatalf("start calls = %v, want [cluster-1]", mock.startCalls)
 	}
 	if !strings.Contains(out, "Managed cluster start initiated.") {
@@ -441,7 +441,7 @@ func TestManagedStop_UnsupportedProviderMentionsAKS(t *testing.T) {
 	}
 	resetConfirmFlag(t, managedStopCmd)
 	_, err := runWithInput(t, mock, "",
-		"cluster", "managed", "stop", "cluster-1", "--provider", "gke")
+		"cluster", "managed", "stop", testClusterID, "--provider", "gke")
 	if err == nil {
 		t.Fatal("expected refusal to surface as an error")
 	}
@@ -456,7 +456,7 @@ func TestManagedStart_UnsupportedProviderMentionsAKS(t *testing.T) {
 	}
 	resetConfirmFlag(t, managedStartCmd)
 	_, err := runWithInput(t, mock, "",
-		"cluster", "managed", "start", "cluster-1", "--provider", "doks")
+		"cluster", "managed", "start", testClusterID, "--provider", "doks")
 	if err == nil {
 		t.Fatal("expected refusal to surface as an error")
 	}
@@ -471,7 +471,7 @@ func TestManagedStop_UnrelatedErrorHasNoAKSHint(t *testing.T) {
 	}
 	resetConfirmFlag(t, managedStopCmd)
 	_, err := runWithInput(t, mock, "",
-		"cluster", "managed", "stop", "cluster-1", "--provider", "aks")
+		"cluster", "managed", "stop", testClusterID, "--provider", "aks")
 	if err == nil {
 		t.Fatal("expected error to surface")
 	}
@@ -572,7 +572,7 @@ func TestManagedNodePoolAdd_AksSpot(t *testing.T) {
 	t.Cleanup(func() { resetManagedFlags(t) })
 	mock := &managedClusterMock{}
 	_, err := runWithInput(t, mock, "",
-		"cluster", "managed", "node-pool", "add", "cluster-1",
+		"cluster", "managed", "node-pool", "add", testClusterID,
 		"--provider", "aks", "--name", "batch", "--size", "Standard_E4s_v5", "--count", "3",
 		"--spot", "--spot-max-price", "0.05", "--zone", "3")
 	if err != nil {
@@ -591,7 +591,7 @@ func TestManagedNodePoolAdd_AksSpot(t *testing.T) {
 
 	resetManagedFlags(t)
 	_, err = runWithInput(t, mock, "",
-		"cluster", "managed", "node-pool", "add", "cluster-1",
+		"cluster", "managed", "node-pool", "add", testClusterID,
 		"--provider", "aks", "--name", "batch", "--size", "Standard_E4s_v5", "--spot-max-price", "0.05")
 	if err == nil || !strings.Contains(err.Error(), "requires --spot") {
 		t.Fatalf("expected --spot-max-price to require --spot, got %v", err)

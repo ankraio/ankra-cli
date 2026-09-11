@@ -92,7 +92,7 @@ func (m *digitaloceanNodeGroupDeleteMock) DeleteDigitaloceanNodeGroup(ctx contex
 func TestDigitaloceanDeprovision_DeclineDoesNotCallAPI(t *testing.T) {
 	mock := &digitaloceanDeprovisionMock{}
 	resetConfirmFlag(t, digitaloceanDeprovisionCmd)
-	_, err := runWithInput(t, mock, "n\n", "cluster", "digitalocean", "deprovision", "uc-123")
+	_, err := runWithInput(t, mock, "n\n", "cluster", "digitalocean", "deprovision", testClusterID)
 	if !errors.Is(err, errCancelled) {
 		t.Fatalf("expected errCancelled on decline, got %v", err)
 	}
@@ -104,22 +104,22 @@ func TestDigitaloceanDeprovision_DeclineDoesNotCallAPI(t *testing.T) {
 func TestDigitaloceanDeprovision_YesProceeds(t *testing.T) {
 	mock := &digitaloceanDeprovisionMock{}
 	resetConfirmFlag(t, digitaloceanDeprovisionCmd)
-	out, err := runWithInput(t, mock, "", "cluster", "digitalocean", "deprovision", "uc-123", "--yes")
+	out, err := runWithInput(t, mock, "", "cluster", "digitalocean", "deprovision", testClusterID, "--yes")
 	if err != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", err, out)
 	}
 	if !mock.called {
 		t.Fatal("expected deprovision call with --yes")
 	}
-	if mock.gotClusterID != "uc-123" {
-		t.Errorf("cluster id = %q, want uc-123", mock.gotClusterID)
+	if mock.gotClusterID != testClusterID {
+		t.Errorf("cluster id = %q, want %q", mock.gotClusterID, testClusterID)
 	}
 }
 
 func TestDigitaloceanNodeGroupDelete_DeclineDoesNotCallAPI(t *testing.T) {
 	mock := &digitaloceanNodeGroupDeleteMock{}
 	resetConfirmFlag(t, digitaloceanNodeGroupDeleteCmd)
-	_, err := runWithInput(t, mock, "n\n", "cluster", "digitalocean", "node-group", "delete", "uc-123", "workers")
+	_, err := runWithInput(t, mock, "n\n", "cluster", "digitalocean", "node-group", "delete", testClusterID, "workers")
 	if !errors.Is(err, errCancelled) {
 		t.Fatalf("expected errCancelled on decline, got %v", err)
 	}
@@ -131,14 +131,14 @@ func TestDigitaloceanNodeGroupDelete_DeclineDoesNotCallAPI(t *testing.T) {
 func TestDigitaloceanNodeGroupDelete_YesProceeds(t *testing.T) {
 	mock := &digitaloceanNodeGroupDeleteMock{}
 	resetConfirmFlag(t, digitaloceanNodeGroupDeleteCmd)
-	out, err := runWithInput(t, mock, "", "cluster", "digitalocean", "node-group", "delete", "uc-123", "workers", "--yes")
+	out, err := runWithInput(t, mock, "", "cluster", "digitalocean", "node-group", "delete", testClusterID, "workers", "--yes")
 	if err != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", err, out)
 	}
 	if !mock.called {
 		t.Fatal("expected delete call with --yes")
 	}
-	if mock.gotClusterID != "uc-123" || mock.gotGroupName != "workers" {
-		t.Errorf("got cluster=%q group=%q, want uc-123/workers", mock.gotClusterID, mock.gotGroupName)
+	if mock.gotClusterID != testClusterID || mock.gotGroupName != "workers" {
+		t.Errorf("got cluster=%q group=%q, want %q/workers", mock.gotClusterID, mock.gotGroupName, testClusterID)
 	}
 }

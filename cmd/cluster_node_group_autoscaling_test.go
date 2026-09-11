@@ -49,7 +49,7 @@ func TestClusterNodeGroupAutoscalingGetCommand(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "node-group", "autoscaling", "get", "test-cluster-id", "default")
+		_, _ = executeCommand("cluster", "node-group", "autoscaling", "get", testClusterID, "default")
 	})
 
 	if !strings.Contains(stdoutOutput, "autoscaling: enabled") {
@@ -66,7 +66,7 @@ func TestClusterNodeGroupAutoscalingSetCommandSendsBounds(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "node-group", "autoscaling", "set", "test-cluster-id", "default",
+		_, _ = executeCommand("cluster", "node-group", "autoscaling", "set", testClusterID, "default",
 			"--enabled", "--min", "2", "--max", "6", "--wait")
 	})
 
@@ -88,7 +88,7 @@ func TestClusterNodeGroupAutoscalingSetCommandDisables(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "node-group", "autoscaling", "set", "test-cluster-id", "default",
+		_, _ = executeCommand("cluster", "node-group", "autoscaling", "set", testClusterID, "default",
 			"--enabled=false", "--min", "1", "--max", "5", "--wait")
 	})
 
@@ -105,7 +105,7 @@ func TestClusterNodeGroupAutoscalingRefusesUnsupportedKind(t *testing.T) {
 	mock := &autoscalingMock{clusterKind: "imported"}
 	setMockClient(t, mock)
 
-	_, commandError := executeCommand("cluster", "node-group", "autoscaling", "get", "test-cluster-id", "default")
+	_, commandError := executeCommand("cluster", "node-group", "autoscaling", "get", testClusterID, "default")
 	if commandError == nil || !strings.Contains(commandError.Error(), "does not support node groups") {
 		t.Fatalf("expected the unsupported-kind refusal, got %v", commandError)
 	}

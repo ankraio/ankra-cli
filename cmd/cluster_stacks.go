@@ -422,29 +422,79 @@ and will need to be reconfigured in the target cluster.`,
 // callers can pass either form. Otherwise the cluster list is paged
 // through until a matching name is found, instead of relying on a
 // single page that may silently truncate results.
+//
+// A name typed exactly as the cluster carries it wins immediately. Only when
+// no exact match exists does the case-insensitive fallback decide, and then
+// the whole listing is read first: matching with EqualFold and returning the
+// first hit picked an arbitrary one of two clusters whose names differ only by
+// case, and sent the command - `deprovision` included - to whichever the
+// listing happened to order first. Ambiguity is now an error naming both.
 func resolveClusterID(nameOrID string) (string, error) {
-	if len(nameOrID) == 36 && strings.Count(nameOrID, "-") == 4 {
+	// isLikelyClusterID, not a len/dash count: "36 characters with four
+	// dashes" also describes plenty of real cluster names, and every one of
+	// them was forwarded to the API as an id and answered with an opaque 404
+	// instead of being looked up as the name it is.
+	if isLikelyClusterID(nameOrID) {
 		return nameOrID, nil
 	}
 
 	const pageSize = 100
 	const maxPages = 50
+	var caseInsensitiveMatches []client.ClusterListItem
+	listingTruncated := false
 	for page := 1; page <= maxPages; page++ {
 		response, err := apiClient.ListClusters(page, pageSize)
 		if err != nil {
 			return "", fmt.Errorf("listing clusters: %w", err)
 		}
 		for _, cluster := range response.Result {
-			if strings.EqualFold(cluster.Name, nameOrID) {
+			if cluster.Name == nameOrID {
 				return cluster.ID, nil
+			}
+			if strings.EqualFold(cluster.Name, nameOrID) {
+				caseInsensitiveMatches = append(caseInsensitiveMatches, cluster)
 			}
 		}
 		if response.Pagination.TotalPages <= page || len(response.Result) == 0 {
 			break
 		}
+		if page == maxPages {
+			listingTruncated = true
+		}
 	}
 
-	return "", fmt.Errorf("cluster %q not found", nameOrID)
+	switch len(caseInsensitiveMatches) {
+	case 0:
+		if listingTruncated {
+			// NOT exitNotFound: a truncated listing is not a verified absence.
+			// The cluster may well exist further down, so this must not tell a
+			// script "no such cluster" - which for an idempotent teardown reads
+			// as "already gone".
+			return "", fmt.Errorf("cluster %q was not among the first %d clusters and the listing has more; pass the cluster id instead",
+				nameOrID, pageSize*maxPages)
+		}
+		// exitNotFound keeps the name path and the id path telling scripts the
+		// same thing, the rule application_resolve.go already states: an id
+		// that does not exist reaches the API and comes back 404, which
+		// exitCodeFor maps to exitNotFound, so a name that does not resolve
+		// must not exit with the generic failure code instead. This PR makes
+		// the two spellings interchangeable on 103 commands, and they would
+		// otherwise have disagreed on the one thing scripts branch on - so
+		// `ankra cluster hetzner deprovision "$C" || [ $? -eq 3 ]` stayed
+		// idempotent with an id and stopped being idempotent with a name.
+		return "", withExitCode(exitNotFound, fmt.Errorf("cluster %q not found", nameOrID))
+	case 1:
+		return caseInsensitiveMatches[0].ID, nil
+	default:
+		candidates := make([]string, 0, len(caseInsensitiveMatches))
+		for _, cluster := range caseInsensitiveMatches {
+			candidates = append(candidates, fmt.Sprintf("%s (%s)", cluster.Name, cluster.ID))
+		}
+		// An ambiguous name is a bad argument, not a missing cluster: the
+		// invocation has to change before it can succeed.
+		return "", withExitCode(exitUsage, fmt.Errorf("cluster %q is ambiguous - %d clusters differ from it only by case: %s; pass the cluster id instead",
+			nameOrID, len(caseInsensitiveMatches), strings.Join(candidates, ", ")))
+	}
 }
 
 func init() {

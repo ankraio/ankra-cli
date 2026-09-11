@@ -38,11 +38,11 @@ func TestClusterNodesRestartCommand(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "hetzner", "nodes", "restart", "cluster-1", "node-1")
+		_, _ = executeCommand("cluster", "hetzner", "nodes", "restart", testClusterID, "node-1")
 	})
 
-	if len(mock.restartCalls) != 1 || mock.restartCalls[0] != "cluster-1:node-1" {
-		t.Fatalf("expected one restart call for cluster-1:node-1, got %v", mock.restartCalls)
+	if len(mock.restartCalls) != 1 || mock.restartCalls[0] != testClusterID+":node-1" {
+		t.Fatalf("expected one restart call for %s:node-1, got %v", testClusterID, mock.restartCalls)
 	}
 	if !strings.Contains(stdoutOutput, "Restart scheduled for node node-1") {
 		t.Errorf("expected restart confirmation, got: %s", stdoutOutput)
@@ -59,7 +59,7 @@ func TestClusterNodesRestartCommandSurfacesError(t *testing.T) {
 	}
 	setMockClient(t, mock)
 
-	_, commandError := executeCommand("cluster", "hetzner", "nodes", "restart", "cluster-1", "node-1")
+	_, commandError := executeCommand("cluster", "hetzner", "nodes", "restart", testClusterID, "node-1")
 	if commandError == nil || !strings.Contains(commandError.Error(), "must be in 'up' state") {
 		t.Fatalf("expected the invalid-state error, got %v", commandError)
 	}
@@ -69,7 +69,7 @@ func TestClusterNodesRestartCommandRequiresBothArgs(t *testing.T) {
 	writeSelectedClusterJSON(t)
 	setMockClient(t, &nodeRestartMock{})
 
-	if _, err := executeCommand("cluster", "hetzner", "nodes", "restart", "cluster-1"); err == nil {
+	if _, err := executeCommand("cluster", "hetzner", "nodes", "restart", testClusterID); err == nil {
 		t.Fatal("expected an error when node_id is missing")
 	}
 }
@@ -101,11 +101,11 @@ func TestClusterNodesRestartCommandDispatchesScaleway(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "scaleway", "nodes", "restart", "cluster-9", "node-9")
+		_, _ = executeCommand("cluster", "scaleway", "nodes", "restart", testClusterID, "node-9")
 	})
 
-	if len(mock.restartCalls) != 1 || mock.restartCalls[0] != "cluster-9:node-9" {
-		t.Fatalf("expected one Scaleway restart call for cluster-9:node-9, got %v", mock.restartCalls)
+	if len(mock.restartCalls) != 1 || mock.restartCalls[0] != testClusterID+":node-9" {
+		t.Fatalf("expected one Scaleway restart call for %s:node-9, got %v", testClusterID, mock.restartCalls)
 	}
 	if !strings.Contains(stdoutOutput, "scaleway_restart_server") {
 		t.Errorf("expected the Scaleway job name in output, got: %s", stdoutOutput)
@@ -120,11 +120,11 @@ func TestClusterNodesListCommandDispatchesScaleway(t *testing.T) {
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "scaleway", "nodes", "list", "cluster-9")
+		_, _ = executeCommand("cluster", "scaleway", "nodes", "list", testClusterID)
 	})
 
-	if len(mock.listCalls) != 1 || mock.listCalls[0] != "cluster-9" {
-		t.Fatalf("expected one Scaleway list call for cluster-9, got %v", mock.listCalls)
+	if len(mock.listCalls) != 1 || mock.listCalls[0] != testClusterID {
+		t.Fatalf("expected one Scaleway list call for %s, got %v", testClusterID, mock.listCalls)
 	}
 	if !strings.Contains(stdoutOutput, "worker-1") {
 		t.Errorf("expected the node name in output, got: %s", stdoutOutput)

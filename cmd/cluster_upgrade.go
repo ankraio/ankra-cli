@@ -38,7 +38,7 @@ func upgradeFunctionForKind(kind string) (k8sVersionUpgrade, bool) {
 var clusterUpgradeForce bool
 
 var clusterUpgradeCmd = &cobra.Command{
-	Use:   "upgrade <cluster_id> <target_version>",
+	Use:   "upgrade <cluster_id|name> <target_version>",
 	Short: "Upgrade the Kubernetes version of a cloud cluster",
 	Long: `Upgrade the Kubernetes version on all nodes in a cloud cluster.
 
@@ -60,7 +60,10 @@ Examples:
   ankra cluster upgrade 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 v1.36.1+k3s1    # k3s`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		targetVersion := args[1]
 
 		cluster, err := apiClient.GetClusterByID(clusterID)

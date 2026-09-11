@@ -72,3 +72,47 @@ func resolveCloudProviderNetworking(cmd *cobra.Command) (externalCloudProvider b
 	}
 	return externalCloudProvider, includeNetworking, nil
 }
+
+// resolveClusterArg turns a positional cluster argument into the id the
+// platform routes want, accepting either the id itself or the cluster's name
+// as `ankra cluster list` shows it.
+//
+// A UUID short-circuits, so a scripted caller that already holds the id pays
+// no extra request. The trade-off is that a cluster whose NAME is itself
+// UUID-shaped cannot be addressed by that name: the argument is forwarded as
+// an id and the route answers 404. Nothing in the CLI or the API constrains a
+// cluster's name, so this is reachable in principle; it stays this way because
+// the alternative costs every scripted caller a listing request on every
+// command, and the cluster id is always an unambiguous way to name it.
+//
+// A name is looked up once. Before this existed, only the
+// three playground verbs resolved a name (ankra-y8l44.35) and every other
+// cluster-scoped command forwarded the name verbatim: it reached the route as
+// a non-UUID path segment and came back as a bare 404, or as a uuid_parsing
+// 422 from a query parameter, with nothing in either to say an id was
+// expected (ankra-aprvp).
+func resolveClusterArg(nameOrID string) (string, error) {
+	if isLikelyClusterID(nameOrID) {
+		return nameOrID, nil
+	}
+	clusterID, resolveError := resolveClusterID(nameOrID)
+	if resolveError != nil {
+		// Preserve the resolver's exit code. resolveClusterID already
+		// distinguishes a verified absence (exitNotFound) from an ambiguous
+		// name (exitUsage) from a listing that failed, and wrapping with a
+		// bare fmt.Errorf would flatten all three to the generic failure code.
+		return "", fmt.Errorf("%w (pass the cluster's name as `ankra cluster list` shows it, or its id)", resolveError)
+	}
+	return clusterID, nil
+}
+
+// clusterTarget renders the cluster a confirmation prompt is about. The
+// argument the user typed is what they recognise, so it leads; the id it
+// resolved to is appended when they differ, so a destructive prompt names the
+// cluster the API is actually about to be asked to act on.
+func clusterTarget(typed, clusterID string) string {
+	if typed == clusterID {
+		return fmt.Sprintf("%q", typed)
+	}
+	return fmt.Sprintf("%q (cluster %s)", typed, clusterID)
+}

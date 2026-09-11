@@ -37,7 +37,7 @@ func scaleFunctionForKind(kind string) (workerScaleFunc, bool) {
 }
 
 var clusterScaleCmd = &cobra.Command{
-	Use:   "scale <cluster_id> <worker_count>",
+	Use:   "scale <cluster_id|name> <worker_count>",
 	Short: "Scale the default worker pool of a cloud cluster",
 	Long: `Scale the number of default-pool worker nodes up or down for a cloud cluster.
 
@@ -50,7 +50,10 @@ Example:
   ankra cluster scale 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 3`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID := args[0]
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		workerCount, convertError := strconv.Atoi(args[1])
 		if convertError != nil {
 			return fmt.Errorf("invalid worker count: %w", convertError)

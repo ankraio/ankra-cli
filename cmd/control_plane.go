@@ -232,16 +232,20 @@ Run "control-plane get" to see which of the two is available right now.`,
 	}
 
 	getCmd := &cobra.Command{
-		Use:   "get <cluster_id>",
+		Use:   "get <cluster_id|name>",
 		Short: "Show the current control plane configuration",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runControlPlaneGet(cmd, opsFn, args[0])
+			clusterID, resolveError := resolveClusterArg(args[0])
+			if resolveError != nil {
+				return resolveError
+			}
+			return runControlPlaneGet(cmd, opsFn, clusterID)
 		},
 	}
 
 	setCountCmd := &cobra.Command{
-		Use:   "set-count <cluster_id> <count>",
+		Use:   "set-count <cluster_id|name> <count>",
 		Short: "Change the controller count (1 or 3)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -252,17 +256,25 @@ Run "control-plane get" to see which of the two is available right now.`,
 			if count != 1 && count != 3 {
 				return errors.New("count must be 1 or 3 (etcd quorum)")
 			}
-			return runControlPlaneSetCount(cmd, opsFn, args[0], count)
+			clusterID, resolveError := resolveClusterArg(args[0])
+			if resolveError != nil {
+				return resolveError
+			}
+			return runControlPlaneSetCount(cmd, opsFn, clusterID, count)
 		},
 	}
 
 	setInstanceTypeCmd := &cobra.Command{
-		Use:   "set-instance-type <cluster_id> <instance_type>",
+		Use:   "set-instance-type <cluster_id|name> <instance_type>",
 		Short: "Change the controller instance type",
 		Long:  setInstanceTypeLong(provider, catalogCommand),
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runControlPlaneSetInstanceType(cmd, opsFn, args[0], args[1])
+			clusterID, resolveError := resolveClusterArg(args[0])
+			if resolveError != nil {
+				return resolveError
+			}
+			return runControlPlaneSetInstanceType(cmd, opsFn, clusterID, args[1])
 		},
 	}
 

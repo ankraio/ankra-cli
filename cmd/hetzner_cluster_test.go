@@ -125,7 +125,7 @@ func runWithInput(t *testing.T, mock APIClient, input string, args ...string) (s
 func TestHetznerDeprovision_DeclineDoesNotCallAPI(t *testing.T) {
 	mock := &hetznerDeprovisionMock{}
 	resetConfirmFlag(t, hetznerDeprovisionCmd)
-	_, err := runWithInput(t, mock, "n\n", "cluster", "hetzner", "deprovision", "hz-123")
+	_, err := runWithInput(t, mock, "n\n", "cluster", "hetzner", "deprovision", testClusterID)
 	if !errors.Is(err, errCancelled) {
 		t.Fatalf("expected errCancelled on decline, got %v", err)
 	}
@@ -137,22 +137,22 @@ func TestHetznerDeprovision_DeclineDoesNotCallAPI(t *testing.T) {
 func TestHetznerDeprovision_YesProceeds(t *testing.T) {
 	mock := &hetznerDeprovisionMock{}
 	resetConfirmFlag(t, hetznerDeprovisionCmd)
-	out, err := runWithInput(t, mock, "", "cluster", "hetzner", "deprovision", "hz-123", "--yes")
+	out, err := runWithInput(t, mock, "", "cluster", "hetzner", "deprovision", testClusterID, "--yes")
 	if err != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", err, out)
 	}
 	if !mock.called {
 		t.Fatal("expected deprovision call with --yes")
 	}
-	if mock.gotClusterID != "hz-123" {
-		t.Errorf("cluster id = %q, want hz-123", mock.gotClusterID)
+	if mock.gotClusterID != testClusterID {
+		t.Errorf("cluster id = %q, want %q", mock.gotClusterID, testClusterID)
 	}
 }
 
 func TestHetznerDeprovision_YesPreservesForce(t *testing.T) {
 	mock := &hetznerDeprovisionMock{}
 	resetConfirmFlag(t, hetznerDeprovisionCmd)
-	_, err := runWithInput(t, mock, "", "cluster", "hetzner", "deprovision", "hz-123", "--yes", "--force")
+	_, err := runWithInput(t, mock, "", "cluster", "hetzner", "deprovision", testClusterID, "--yes", "--force")
 	if err != nil {
 		t.Fatalf("execute failed: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestHetznerDeprovision_YesPreservesForce(t *testing.T) {
 func TestHetznerNodeGroupDelete_DeclineDoesNotCallAPI(t *testing.T) {
 	mock := &hetznerNodeGroupDeleteMock{}
 	resetConfirmFlag(t, nodeGroupDeleteCmd)
-	_, err := runWithInput(t, mock, "n\n", "cluster", "hetzner", "node-group", "delete", "hz-123", "workers")
+	_, err := runWithInput(t, mock, "n\n", "cluster", "hetzner", "node-group", "delete", testClusterID, "workers")
 	if !errors.Is(err, errCancelled) {
 		t.Fatalf("expected errCancelled on decline, got %v", err)
 	}
@@ -176,14 +176,14 @@ func TestHetznerNodeGroupDelete_DeclineDoesNotCallAPI(t *testing.T) {
 func TestHetznerNodeGroupDelete_YesProceeds(t *testing.T) {
 	mock := &hetznerNodeGroupDeleteMock{}
 	resetConfirmFlag(t, nodeGroupDeleteCmd)
-	out, err := runWithInput(t, mock, "", "cluster", "hetzner", "node-group", "delete", "hz-123", "workers", "--yes")
+	out, err := runWithInput(t, mock, "", "cluster", "hetzner", "node-group", "delete", testClusterID, "workers", "--yes")
 	if err != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", err, out)
 	}
 	if !mock.called {
 		t.Fatal("expected delete call with --yes")
 	}
-	if mock.gotClusterID != "hz-123" || mock.gotGroupName != "workers" {
-		t.Errorf("got cluster=%q group=%q, want hz-123/workers", mock.gotClusterID, mock.gotGroupName)
+	if mock.gotClusterID != testClusterID || mock.gotGroupName != "workers" {
+		t.Errorf("got cluster=%q group=%q, want %q/workers", mock.gotClusterID, mock.gotGroupName, testClusterID)
 	}
 }
