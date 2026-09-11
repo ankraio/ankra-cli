@@ -321,19 +321,28 @@ const (
 	cloudClusterKindMorpheus     cloudClusterKind = "morpheus"
 )
 
-// allCloudClusterKinds is the one list the cloud-kind decisions in this file
+// allCloudClusterKinds is the list the cloud-kind decisions in THIS FILE
 // derive from. It exists because Scaleway was absent from four separately
 // hand-maintained copies of it, so `ankra cluster deprovision` fell through
-// to the generic imported lane and never told the provider to tear anything
-// down: the record was handled as an import while the instances, private
-// network, security group, public gateway and private NICs kept running and
-// kept billing (ankra-e3pa7).
+// to the generic imported lane - which the platform refuses for a cloud
+// cluster, so the command failed with a 409 telling the operator to use
+// DELETE /api/v1/clusters/scaleway/{id} and they had to fall back to
+// `ankra scaleway cluster deprovision` (ankra-e3pa7).
+//
+// It is NOT the only such list, and the other one still has a hole. This list
+// covers the seven SELF-HOSTED kinds, which are exactly the kinds
+// DeprovisionImportedCluster refuses (cluster providers/lifecycle.go). The
+// seven MANAGED kinds - kapsule, doks, uks, gke, ovh_mks, aks, eks - are
+// refused only by the imported DELETE route, not by deprovision, so they
+// still reach the generic lane and get a 200. Adding them here would be
+// wrong: they need managed-delete routing this dispatch does not have. See
+// ankra-menqa.
 //
 // Go does not check switch exhaustiveness, so this list cannot make the
 // dispatch below a compile error. What it does is give the tests one place
 // to enumerate: TestEveryCloudClusterKindHasADeprovisionDispatch walks it and
-// fails when a kind reaches the generic lane, which is the failure that
-// shipped silently here.
+// fails when a kind reaches the generic lane. Note what that cannot see: a
+// kind missing from the list is invisible to a test that iterates the list.
 var allCloudClusterKinds = []cloudClusterKind{
 	cloudClusterKindHetzner,
 	cloudClusterKindOvh,

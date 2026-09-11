@@ -12,16 +12,20 @@ import (
 
 // Scaleway was absent from every cloud-kind list in reconcile.go, so
 // `ankra cluster deprovision <scaleway-cluster>` fell through to the generic
-// imported lane. That lane keeps the cluster record and never calls the
-// provider, so the instances, private network, security group, public gateway
-// and private NICs kept running and kept billing while the operator was told
-// the teardown had started (ankra-e3pa7).
+// imported lane. The platform refuses that lane for a cloud cluster, so the
+// command printed "Deprovisioning cluster: X" and then failed with a 409
+// naming the provider endpoint, and the operator had to fall back to
+// `ankra scaleway cluster deprovision <id>` (ankra-e3pa7).
 //
 // Nothing caught it: the four lists are hand-maintained, and every sibling
 // test enumerated providers by hand too, so all of them omitted Scaleway in
 // the same way. This test enumerates from allCloudClusterKinds instead, so a
-// provider added to that list and nowhere else fails here rather than
-// silently leaking a customer's infrastructure.
+// provider added to that list and nowhere else fails here.
+//
+// What this test structurally CANNOT catch is a kind missing from
+// allCloudClusterKinds itself - it iterates that list. The seven managed
+// kinds are missing from it today and do still reach the generic lane
+// (ankra-menqa); see the comment on allCloudClusterKinds.
 
 type cloudDeprovisionDispatchMock struct {
 	baseMock
@@ -102,10 +106,10 @@ func TestEveryCloudClusterKindHasADeprovisionDispatch(t *testing.T) {
 			if mock.genericCalls != 0 {
 				subtest.Fatalf(
 					"a %s cluster was deprovisioned through the GENERIC imported lane.\n"+
-						"That lane keeps the cluster record and never tells %s to tear anything down, "+
-						"so the provider resources keep running and keep billing while the operator is "+
-						"told the teardown started. Add a `case cloudClusterKind%s:` to the dispatch "+
-						"switch in reconcile.go.",
+						"For a self-hosted kind the platform refuses that lane with a 409 naming the "+
+						"provider endpoint, so the command fails and the operator has to fall back to "+
+						"`ankra %s cluster deprovision <id>`. Add a `case cloudClusterKind%s:` to the "+
+						"dispatch switch in reconcile.go.",
 					cloudKind, cloudKind, cloudKind)
 			}
 			if mock.calledProvider != string(cloudKind) {
