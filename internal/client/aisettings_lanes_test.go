@@ -9,10 +9,10 @@ import (
 // Pins the lane-model routes on the request itself: a path or method typo
 // passes every command-wiring test and fails as a 404 against the platform.
 func TestAILaneModelRoutes(t *testing.T) {
-	var seenMethod, seenPath string
+	var seenMethod, seenPath, seenEscapedPath string
 	var seenBody map[string]any
 	testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
-		seenMethod, seenPath, seenBody = request.Method, request.URL.Path, nil
+		seenMethod, seenPath, seenEscapedPath, seenBody = request.Method, request.URL.Path, request.URL.EscapedPath(), nil
 		if request.Method != http.MethodGet {
 			if decodeError := json.NewDecoder(request.Body).Decode(&seenBody); decodeError != nil {
 				t.Fatalf("decode request body: %v", decodeError)
@@ -48,5 +48,15 @@ func TestAILaneModelRoutes(t *testing.T) {
 	}
 	if modelKey, isPresent := seenBody["model_key"]; !isPresent || modelKey != nil {
 		t.Errorf("clear body = %v, want an explicit null model_key", seenBody)
+	}
+
+	// A lane name is path-escaped: a slash or query character must stay
+	// inside the one path segment, where the platform refuses it as an
+	// unknown lane, rather than reaching a different route.
+	if _, escapedError := testClient.SetAILaneModel("pr/review?x", "think"); escapedError != nil {
+		t.Fatalf("escaped SetAILaneModel: %v", escapedError)
+	}
+	if seenEscapedPath != "/api/v1/org/ai-settings/lane-models/pr%2Freview%3Fx" {
+		t.Errorf("escaped path = %s, want the lane kept in one escaped segment", seenEscapedPath)
 	}
 }

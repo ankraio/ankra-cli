@@ -3,6 +3,7 @@ package client
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 // AI provider settings and the custom model catalog, reachable over the
@@ -301,14 +302,16 @@ func (c *Client) ListAILaneModels() ([]AILaneModel, error) {
 // SetAILaneModel runs one lane on a catalog key or an exact OpenRouter model
 // id; an empty modelKey sends an explicit null, which returns the lane to its
 // default tier. It requires the ai.manage permission and answers every lane
-// as it stands after the change.
+// as it stands after the change. The lane is path-escaped, so a name carrying
+// a slash or a query character is refused as an unknown lane instead of
+// reaching a different route.
 func (c *Client) SetAILaneModel(lane string, modelKey string) ([]AILaneModel, error) {
 	payload := map[string]any{"model_key": nil}
 	if modelKey != "" {
 		payload["model_key"] = modelKey
 	}
 	var response aiLaneModelsResponse
-	laneURL := fmt.Sprintf("%s%s/lane-models/%s", c.BaseURL, aiSettingsBasePath, lane)
+	laneURL := fmt.Sprintf("%s%s/lane-models/%s", c.BaseURL, aiSettingsBasePath, url.PathEscape(lane))
 	if requestError := c.sendJSON(http.MethodPut, laneURL, payload, &response); requestError != nil {
 		return nil, requestError
 	}
