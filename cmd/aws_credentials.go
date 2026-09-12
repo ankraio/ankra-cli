@@ -79,13 +79,15 @@ var awsCredListCmd = &cobra.Command{
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{"ID", "Name", "State", "Available", "Created"})
+		t.AppendHeader(table.Row{"ID", "Name", "Auth", "Scope", "State", "Available", "Created"})
 		t.SetColumnConfigs([]table.ColumnConfig{
 			{Number: 1, WidthMin: 36},
 			{Number: 2, WidthMin: 20},
-			{Number: 3, WidthMin: 10},
-			{Number: 4, WidthMin: 10},
-			{Number: 5, WidthMin: 15},
+			{Number: 3, WidthMin: 6},
+			{Number: 4, WidthMin: 12},
+			{Number: 5, WidthMin: 10},
+			{Number: 6, WidthMin: 10},
+			{Number: 7, WidthMin: 15},
 		})
 		for _, credential := range credentials {
 			available := "yes"
@@ -99,6 +101,8 @@ var awsCredListCmd = &cobra.Command{
 			t.AppendRow(table.Row{
 				credential.ID,
 				credential.Name,
+				optionalCell(credential.AuthMethod),
+				optionalCell(credential.Scope),
 				state,
 				available,
 				formatTimeAgo(credential.CreatedAt),
@@ -329,4 +333,13 @@ func init() {
 	awsCredCmd.AddCommand(awsCredCreateRoleCmd)
 	awsCredCmd.AddCommand(awsCredCreateKeysCmd)
 	credentialsCmd.AddCommand(awsCredCmd)
+}
+
+// optionalCell renders a value the platform may not have answered as "-"
+// rather than an empty cell, so an unknown scope reads as unknown.
+func optionalCell(value *string) string {
+	if value == nil || *value == "" {
+		return "-"
+	}
+	return *value
 }
