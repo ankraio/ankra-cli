@@ -60,11 +60,14 @@ remote's default branch when available, and falls back to the current branch.
 It selects an available GitHub credential automatically when the choice is
 unambiguous.
 
-Pass --registry-url to have the application publish to a container image
-registry you already operate instead of the organisation's own Ankra registry
-project. Declare it here rather than afterwards: the setup job generates the
-build workflow from the declaration the application is created with, so a
-registry added later leaves a workflow that logs in with the wrong one.`,
+Without --registry-url the application publishes to the organisation's own
+Ankra registry project, and the command says so on success. Pass it to publish
+to a container image registry you already operate instead. Declare it here
+rather than afterwards: the setup job generates the build workflow from the
+declaration the application is created with, so a registry added later leaves
+a workflow that logs in with the wrong one - which is also why, when other
+applications in the organisation publish somewhere else, this command names
+those registries before the analysis finishes.`,
 		Example: `  ankra application add .
   ankra application add ./services/payments --name payments
   ankra application add . --credential github-acme --branch main
@@ -323,6 +326,8 @@ func runApplicationAdd(command *cobra.Command, arguments []string) error {
 	_, _ = fmt.Fprintf(output, "  Credential: %s\n", result.CredentialName)
 	if result.RegistryURL != "" {
 		_, _ = fmt.Fprintf(output, "  Registry:   %s\n", result.RegistryURL)
+	} else {
+		printDefaultRegistryNotice(command, result.ID)
 	}
 	_, _ = fmt.Fprintln(output, "\nAnkra is now analyzing the repository.")
 	return waitForApplicationAnalysis(command, result.ID)
