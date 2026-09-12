@@ -66,6 +66,9 @@ var aiLanesClearCmd = &cobra.Command{
 // applyAILaneModel stores one lane's model - an empty modelKey clears it -
 // and reports what the lane runs on afterwards. An answer that does not list
 // the lane is an error rather than a success: nothing confirmed the change.
+// So is a stale selection, where the platform stored the model but the lane
+// runs on its default tier - reporting that default as the new model would
+// present a fallback as the organisation's choice.
 func applyAILaneModel(cmd *cobra.Command, lane string, modelKey string) error {
 	lanes, setError := apiClient.SetAILaneModel(lane, modelKey)
 	if setError != nil {
@@ -82,6 +85,11 @@ func applyAILaneModel(cmd *cobra.Command, lane string, modelKey string) error {
 			fmt.Printf("Lane %s follows its %s tier again and runs on %s.\n",
 				text.FgGreen.Sprint(lane), laneModel.DefaultTier, laneModel.EffectiveModelID)
 			return nil
+		}
+		if laneModel.IsSelectionStale {
+			return fmt.Errorf("lane %s stores %s, but that selection does not resolve, so the lane runs on "+
+				"its %s default %s instead; check 'ankra ai models list'",
+				lane, laneModel.SelectedModelKey, laneModel.DefaultTier, laneModel.EffectiveModelID)
 		}
 		fmt.Printf("Lane %s now runs on %s.\n", text.FgGreen.Sprint(lane), laneModel.EffectiveModelID)
 		return nil

@@ -111,3 +111,23 @@ func TestAILanesSetReportsAnUnconfirmedChangeAsAnError(t *testing.T) {
 		t.Errorf("an answer without the lane must not be reported as a success, got: %s", stdoutOutput)
 	}
 }
+
+func TestAILanesSetReportsAStaleSelectionAsAnError(t *testing.T) {
+	mock := &aiLanesMock{lanes: []client.AILaneModel{
+		{Lane: "pr_review", DefaultTier: "think", SelectedModelKey: "expert",
+			EffectiveModelID: "z-ai/glm-5.2", IsSelectionStale: true},
+	}}
+	setMockClient(t, mock)
+
+	var executeError error
+	stdoutOutput := captureStdout(t, func() {
+		_, executeError = executeCommand("ai", "lanes", "set", "pr_review", "expert")
+	})
+
+	if executeError == nil || !strings.Contains(executeError.Error(), "does not resolve") {
+		t.Errorf("expected a stale-selection error, got: %v", executeError)
+	}
+	if strings.Contains(stdoutOutput, "now runs on") {
+		t.Errorf("a stale selection must not be reported as the lane's model, got: %s", stdoutOutput)
+	}
+}
