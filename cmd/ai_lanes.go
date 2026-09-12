@@ -64,7 +64,8 @@ var aiLanesClearCmd = &cobra.Command{
 }
 
 // applyAILaneModel stores one lane's model - an empty modelKey clears it -
-// and reports what the lane runs on afterwards.
+// and reports what the lane runs on afterwards. An answer that does not list
+// the lane is an error rather than a success: nothing confirmed the change.
 func applyAILaneModel(cmd *cobra.Command, lane string, modelKey string) error {
 	lanes, setError := apiClient.SetAILaneModel(lane, modelKey)
 	if setError != nil {
@@ -85,8 +86,8 @@ func applyAILaneModel(cmd *cobra.Command, lane string, modelKey string) error {
 		fmt.Printf("Lane %s now runs on %s.\n", text.FgGreen.Sprint(lane), laneModel.EffectiveModelID)
 		return nil
 	}
-	fmt.Printf("Lane %s updated.\n", text.FgGreen.Sprint(lane))
-	return nil
+	return fmt.Errorf("the platform accepted the change but its answer did not include lane %s, "+
+		"so what it runs on now is unconfirmed; run 'ankra ai lanes list' to check", lane)
 }
 
 // renderAILanes prints the lanes table. A stale selection is labelled so the

@@ -92,3 +92,22 @@ func TestAILanesSetRefusesAMissingModel(t *testing.T) {
 		t.Errorf("SetAILaneModel was called %d times without a model", mock.setCallCount)
 	}
 }
+
+func TestAILanesSetReportsAnUnconfirmedChangeAsAnError(t *testing.T) {
+	mock := &aiLanesMock{lanes: []client.AILaneModel{
+		{Lane: "troubleshoot", DefaultTier: "expert", EffectiveModelID: "moonshotai/kimi-k3"},
+	}}
+	setMockClient(t, mock)
+
+	var executeError error
+	stdoutOutput := captureStdout(t, func() {
+		_, executeError = executeCommand("ai", "lanes", "set", "pr_review", "think")
+	})
+
+	if executeError == nil || !strings.Contains(executeError.Error(), "unconfirmed") {
+		t.Errorf("expected an unconfirmed-change error, got: %v", executeError)
+	}
+	if strings.Contains(stdoutOutput, "updated") || strings.Contains(stdoutOutput, "now runs on") {
+		t.Errorf("an answer without the lane must not be reported as a success, got: %s", stdoutOutput)
+	}
+}
