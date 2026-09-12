@@ -93,7 +93,7 @@ jobs:
       AWS_EXTERNAL_ID: ${{ secrets.SYSTEMTEST_AWS_EXTERNAL_ID }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SYSTEMTEST_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SYSTEMTEST_AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION: ${{ vars.SYSTEMTEST_AWS_REGION || 'eu-west-1' }}
+      AWS_REGION: ${{ vars.SYSTEMTEST_AWS_REGION }}
       AWS_VPC_ID: ${{ vars.SYSTEMTEST_AWS_VPC_ID }}
       AWS_NODE_SUBNET_IDS: ${{ vars.SYSTEMTEST_AWS_NODE_SUBNET_IDS }}
       AWS_BASTION_SUBNET_ID: ${{ vars.SYSTEMTEST_AWS_BASTION_SUBNET_ID }}
@@ -124,11 +124,13 @@ jobs:
             echo "::notice::SYSTEMTEST_ANKRA_API_TOKEN is not configured in this repository, so the cloud lifecycle system test is skipped. Each run provisions real billable cloud infrastructure, so these credentials are deliberately not defaulted."
           fi
           # The AWS lane is opt-in: it needs an Ankra aws credential (or a
-          # role to register one from) plus the VPC to build in. With those
+          # role to register one from) plus the region and VPC to build in.
+          # The region is not defaulted: a guessed region would preflight the
+          # configured VPC and subnets somewhere they do not exist. With those
           # present it joins the scheduled/default matrix; a manual dispatch
           # that names providers explicitly has to name aws itself.
           if { [ -n "$AWS_CREDENTIAL_ID" ] || { [ -n "$AWS_ROLE_ARN" ] && [ -n "$AWS_EXTERNAL_ID" ]; }; } \
-             && [ -n "$AWS_VPC_ID" ] && [ -n "$AWS_NODE_SUBNET_IDS" ] && [ -n "$AWS_BASTION_SUBNET_ID" ]; then
+             && [ -n "$AWS_REGION" ] && [ -n "$AWS_VPC_ID" ] && [ -n "$AWS_NODE_SUBNET_IDS" ] && [ -n "$AWS_BASTION_SUBNET_ID" ]; then
             echo "aws_configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "aws_configured=false" >> "$GITHUB_OUTPUT"
@@ -175,6 +177,12 @@ jobs:
 
       - name: Run lifecycle system test
         if: steps.configuration.outputs.configured == 'true'
+        # The dispatch input reaches the script through the environment, never
+        # through ${{ }} expansion inside `run`, so a crafted providers value
+        # cannot become shell with the SYSTEMTEST_* secrets in scope.
+        env:
+          PROVIDERS_INPUT: ${{ github.event.inputs.providers }}
+          AWS_CONFIGURED: ${{ steps.configuration.outputs.aws_configured }}
         run: |
           # "none" lets a dispatch skip a whole family (an empty input would
           # fall back to the default matrix instead).
@@ -183,7 +191,7 @@ jobs:
           # Opt-in AWS lane: on the scheduled/default matrix (no explicit
           # providers input) add aws when its secrets exist. A dispatch that
           # names providers gets exactly what it named.
-          if [ -z "${{ github.event.inputs.providers }}" ] && [ "${{ steps.configuration.outputs.aws_configured }}" = "true" ]; then
+          if [ -z "$PROVIDERS_INPUT" ] && [ "$AWS_CONFIGURED" = "true" ]; then
             export ANKRA_SYSTEMTEST_PROVIDERS="$ANKRA_SYSTEMTEST_PROVIDERS aws"
           fi
           ./systemtest/lifecycle_systemtest.sh
