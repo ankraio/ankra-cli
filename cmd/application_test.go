@@ -627,8 +627,15 @@ func TestApplicationAddCommandOmitsTheRegistryWhenUndeclared(t *testing.T) {
 	if !strings.Contains(output.String(), "Registry:") {
 		t.Errorf("the defaulted registry must be named, not left silent: %q", output.String())
 	}
-	if !strings.Contains(output.String(), ankraRegistryHost) {
+	if !strings.Contains(output.String(), "Ankra registry project") {
 		t.Errorf("the default is the organisation's Ankra registry and must be named as such: %q", output.String())
+	}
+	// Named by what it IS, never by a host the CLI was not told: the create
+	// response carries an id and errors only, so printing a hardcoded host
+	// would assert as fact the very thing this notice exists to stop being
+	// guessed at.
+	if strings.Contains(output.String(), ankraRegistryHost) {
+		t.Errorf("the notice must not assert a registry host the CLI was never told: %q", output.String())
 	}
 	if !strings.Contains(output.String(), "--registry-url") {
 		t.Errorf("the notice must name the flag that overrides the default: %q", output.String())

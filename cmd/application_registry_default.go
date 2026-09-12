@@ -10,10 +10,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// ankraRegistryHost is the host every organisation's own Ankra registry
-// project sits on. It is compared against, never constructed: the platform
-// decides an application's default registry, and this only needs to tell
-// "the Ankra one" apart from "a registry the organisation operates".
+// ankraRegistryHost is the host an organisation's own Ankra registry project
+// sits on.
+//
+// It is only ever COMPARED against, never printed and never presented as an
+// application's registry. The platform decides an application's default, the
+// create response does not report it back (CreateApplicationResponse carries
+// an id and errors, nothing more), and a CLI that printed this constant as
+// the answer would be asserting as fact something it had not been told - a
+// per-organisation registry, a host migration or a non-production environment
+// would each make it a confident lie. That is the same shape of defect this
+// notice exists to remove, so the notice names the registry by what it IS -
+// the organisation's own Ankra registry project - and leaves the host to the
+// surfaces that actually read it back (`ankra application list` reports
+// container_image_url per application).
 const ankraRegistryHost = "registry.ankra.cloud"
 
 // applicationSiblingRegistryLimit bounds the listing the default-registry
@@ -94,19 +104,22 @@ func registryHostOfImageURL(imageURL string) string {
 // a flag.
 func printDefaultRegistryNotice(command *cobra.Command, applicationID string) {
 	output := command.OutOrStdout()
-	_, _ = fmt.Fprintf(output, "  Registry:   %s (Ankra's own, the default - no --registry-url was given)\n",
-		ankraRegistryHost)
+	_, _ = fmt.Fprintln(output,
+		"  Registry:   the organisation's own Ankra registry project (the default - no --registry-url was given)")
 	hosts := siblingRegistryHosts(command.Context(), applicationID)
 	if len(hosts) == 0 {
 		return
 	}
+	// Deliberately NOT "run application registry set": the build workflow is
+	// generated from the declaration the application is CREATED with, so a
+	// registry declared afterwards can leave a workflow logging in to the
+	// wrong one - which would walk the reader into the exact state the next
+	// sentence warns about. The flag is the remedy, so the flag is what this
+	// names.
 	_, _ = fmt.Fprintf(output,
 		"\nOther applications in this organisation publish to %s.\n", strings.Join(hosts, ", "))
 	_, _ = fmt.Fprintln(output,
-		"If this one should too, declare it now, before the setup pull request is generated:")
-	_, _ = fmt.Fprintf(output,
-		"  ankra application registry set %s --url oci://<host>/<project> --credential <name>\n", applicationID)
-	_, _ = fmt.Fprintln(output,
-		"The build workflow is generated from the declaration the application is created with,\n"+
-			"so a registry added after that leaves a workflow logging in to the wrong one.")
+		"If this one should too, add it with --registry-url instead: the build workflow is\n"+
+			"generated from the declaration the application is created with, so declaring the\n"+
+			"registry afterwards can leave a workflow that logs in to the wrong one.")
 }
