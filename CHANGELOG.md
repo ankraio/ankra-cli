@@ -1,6 +1,18 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.16.0 — 2026-09-12
+
+Promotes the v0.16.0 line to stable. The headline is that automation can wait
+on a pipeline run it did not start: `ankra pipeline get` gains `--wait`,
+`--watch` and `--exit-code`, and they work on the push and pull request runs a
+webhook creates, which no `--wait` reached before. A run can also be addressed
+by the commit a CI job knows rather than by a run id it cannot know in advance.
+Alongside it, everything rc0 through rc2 carried - stack profiles across a
+fleet (`apply --cluster`, a `deployments` table, a decoded `diff`, `rollout`),
+`cluster operations list --attention`, `cluster apply --cluster` targeting the
+cluster you name, `helm credentials` accepting the id its own listing prints -
+and, new in this release, every cluster-scoped command accepting a cluster's
+name where it previously accepted only its id.
 
 ### Added
 
