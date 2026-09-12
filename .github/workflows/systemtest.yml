@@ -1,3 +1,41 @@
+# Lifecycle system test: provisions REAL, billable clusters through the ankra
+# CLI (systemtest/lifecycle_systemtest.sh) and tears them down again.
+#
+# Configuration is repository secrets/variables named SYSTEMTEST_*; none are
+# defaulted. Without SYSTEMTEST_ANKRA_API_TOKEN the job skips with a notice.
+#
+#   Secrets (always):   SYSTEMTEST_ANKRA_API_TOKEN, SYSTEMTEST_SSH_KEY_CREDENTIAL_ID,
+#                       SYSTEMTEST_HETZNER_CREDENTIAL_ID, SYSTEMTEST_OVH_CREDENTIAL_ID,
+#                       SYSTEMTEST_UPCLOUD_CREDENTIAL_ID, SYSTEMTEST_DIGITALOCEAN_CREDENTIAL_ID,
+#                       SYSTEMTEST_GKE_CREDENTIAL_ID, SYSTEMTEST_AKS_CREDENTIAL_ID,
+#                       SYSTEMTEST_EKS_CREDENTIAL_ID
+#   Variables (always): SYSTEMTEST_ANKRA_BASE_URL, SYSTEMTEST_ANKRA_ORG,
+#                       SYSTEMTEST_GITOPS_CREDENTIAL_NAME, SYSTEMTEST_GITOPS_REPOSITORY
+#
+# The AWS lane (self-managed k3s on EC2 inside a VPC the account owns) is
+# OPT-IN: it joins the scheduled matrix only when its secrets exist, and a
+# manual dispatch has to name "aws" in `providers` explicitly. It preflights,
+# creates a 1 control plane + 1 worker cluster, checks access-info and the
+# node list, stops and starts it, deprovisions, then uses the AWS CLI to
+# assert nothing tagged ankra.cloud/cluster-id remains and that the VPC's
+# route tables, subnets and DHCP options are unchanged.
+#
+#   Secrets (aws):      SYSTEMTEST_AWS_CREDENTIAL_ID  - an Ankra aws credential id (role
+#                                                      onboarded with scope self_managed, or keys)
+#                       or SYSTEMTEST_AWS_ROLE_ARN + SYSTEMTEST_AWS_EXTERNAL_ID
+#                                                    - registers a credential for the run and
+#                                                      deletes it afterwards
+#                       SYSTEMTEST_AWS_ACCESS_KEY_ID + SYSTEMTEST_AWS_SECRET_ACCESS_KEY
+#                                                    - the account's own IAM keys for the AWS CLI
+#                                                      leak check and VPC diff (read-only EC2 +
+#                                                      IAM + tagging describe/get permissions);
+#                                                      without them those two checks are SKIP
+#   Variables (aws):    SYSTEMTEST_AWS_REGION, SYSTEMTEST_AWS_VPC_ID,
+#                       SYSTEMTEST_AWS_NODE_SUBNET_IDS (comma-separated private subnets),
+#                       SYSTEMTEST_AWS_BASTION_SUBNET_ID (a public subnet),
+#                       SYSTEMTEST_AWS_BASTION_ALLOWED_IPS (comma-separated CIDRs; defaults to
+#                                                          the runner's public IP /32)
+#
 name: Lifecycle system test
 
 on:
@@ -7,7 +45,7 @@ on:
   workflow_dispatch:
     inputs:
       providers:
-        description: 'Space-separated Ankra-managed providers to exercise (hetzner ovh upcloud digitalocean). Use "none" to skip the family.'
+        description: 'Space-separated Ankra-managed providers to exercise (hetzner ovh upcloud digitalocean aws). Use "none" to skip the family. aws needs the SYSTEMTEST_AWS_* secrets and joins the scheduled default only when they exist.'
         required: false
         default: 'hetzner ovh upcloud digitalocean'
       managed_providers:
@@ -49,6 +87,17 @@ jobs:
       GKE_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_GKE_CREDENTIAL_ID }}
       AKS_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_AKS_CREDENTIAL_ID }}
       EKS_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_EKS_CREDENTIAL_ID }}
+      # AWS lane (opt-in; see the header comment).
+      AWS_CREDENTIAL_ID: ${{ secrets.SYSTEMTEST_AWS_CREDENTIAL_ID }}
+      AWS_ROLE_ARN: ${{ secrets.SYSTEMTEST_AWS_ROLE_ARN }}
+      AWS_EXTERNAL_ID: ${{ secrets.SYSTEMTEST_AWS_EXTERNAL_ID }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.SYSTEMTEST_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SYSTEMTEST_AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ vars.SYSTEMTEST_AWS_REGION || 'eu-west-1' }}
+      AWS_VPC_ID: ${{ vars.SYSTEMTEST_AWS_VPC_ID }}
+      AWS_NODE_SUBNET_IDS: ${{ vars.SYSTEMTEST_AWS_NODE_SUBNET_IDS }}
+      AWS_BASTION_SUBNET_ID: ${{ vars.SYSTEMTEST_AWS_BASTION_SUBNET_ID }}
+      AWS_BASTION_ALLOWED_IPS: ${{ vars.SYSTEMTEST_AWS_BASTION_ALLOWED_IPS }}
       GITOPS_CREDENTIAL_NAME: ${{ vars.SYSTEMTEST_GITOPS_CREDENTIAL_NAME }}
       GITOPS_REPOSITORY: ${{ vars.SYSTEMTEST_GITOPS_REPOSITORY }}
       TMPDIR: ${{ github.workspace }}/systemtest-artifacts
@@ -74,6 +123,17 @@ jobs:
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::notice::SYSTEMTEST_ANKRA_API_TOKEN is not configured in this repository, so the cloud lifecycle system test is skipped. Each run provisions real billable cloud infrastructure, so these credentials are deliberately not defaulted."
           fi
+          # The AWS lane is opt-in: it needs an Ankra aws credential (or a
+          # role to register one from) plus the VPC to build in. With those
+          # present it joins the scheduled/default matrix; a manual dispatch
+          # that names providers explicitly has to name aws itself.
+          if { [ -n "$AWS_CREDENTIAL_ID" ] || { [ -n "$AWS_ROLE_ARN" ] && [ -n "$AWS_EXTERNAL_ID" ]; }; } \
+             && [ -n "$AWS_VPC_ID" ] && [ -n "$AWS_NODE_SUBNET_IDS" ] && [ -n "$AWS_BASTION_SUBNET_ID" ]; then
+            echo "aws_configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "aws_configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::The SYSTEMTEST_AWS_* secrets/variables are not (fully) configured, so the opt-in AWS lane is not added to this run."
+          fi
 
       - name: Checkout code
         if: steps.configuration.outputs.configured == 'true'
@@ -97,6 +157,22 @@ jobs:
         if: steps.configuration.outputs.configured == 'true'
         run: go build -o bin/ankra .
 
+      # The AWS lane's leak check and VPC diff need the AWS CLI and jq on the
+      # runner (ubuntu-latest ships both; a self-hosted runner may not). Only
+      # install what is missing, and only when the lane can actually run.
+      - name: Ensure the AWS CLI and jq are available
+        if: steps.configuration.outputs.configured == 'true' && steps.configuration.outputs.aws_configured == 'true'
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq jq
+          fi
+          if ! command -v aws >/dev/null 2>&1; then
+            curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+            unzip -q /tmp/awscliv2.zip -d /tmp/awscliv2
+            sudo /tmp/awscliv2/aws/install
+          fi
+          aws --version
+
       - name: Run lifecycle system test
         if: steps.configuration.outputs.configured == 'true'
         run: |
@@ -104,6 +180,12 @@ jobs:
           # fall back to the default matrix instead).
           if [ "$ANKRA_SYSTEMTEST_PROVIDERS" = "none" ]; then export ANKRA_SYSTEMTEST_PROVIDERS=""; fi
           if [ "$ANKRA_SYSTEMTEST_MANAGED_PROVIDERS" = "none" ]; then export ANKRA_SYSTEMTEST_MANAGED_PROVIDERS=""; fi
+          # Opt-in AWS lane: on the scheduled/default matrix (no explicit
+          # providers input) add aws when its secrets exist. A dispatch that
+          # names providers gets exactly what it named.
+          if [ -z "${{ github.event.inputs.providers }}" ] && [ "${{ steps.configuration.outputs.aws_configured }}" = "true" ]; then
+            export ANKRA_SYSTEMTEST_PROVIDERS="$ANKRA_SYSTEMTEST_PROVIDERS aws"
+          fi
           ./systemtest/lifecycle_systemtest.sh
 
       # Debug aid only — an org storage-quota block on artifact uploads

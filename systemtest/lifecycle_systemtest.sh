@@ -21,6 +21,18 @@
 #   7. resize the default node group to a bigger instance plan
 #   8. deprovision and confirm the cluster record is removed (deleted_at)
 #
+#    `aws` (self-managed k3s/kubeadm on EC2 inside a VPC the account already
+#    owns) is opt-in and runs its own, shorter lane, because the point of the
+#    AWS provider is what it adopts rather than creates: it preflights, creates
+#    a cluster with 1 control plane + 1 worker, waits for online + Ready,
+#    checks access-info and the node list, stops and starts the cluster, then
+#    deprovisions - and afterwards asserts with the AWS CLI that nothing tagged
+#    ankra.cloud/cluster-id=<id> remains (instances, security groups, key
+#    pairs, elastic IPs, route tables, IAM roles/instance profiles) and that
+#    the customer VPC is untouched: its route tables (routes + associations),
+#    subnets and DHCP options are snapshotted before the run and must diff
+#    clean after deprovision. See "AWS lane" below for its variables.
+#
 # B) Cloud-managed clusters (provider-native managed Kubernetes via
 #    `ankra cluster managed`): doks, uks, gke, ovh_mks, aks, eks. For each
 #    selected managed provider it provisions a REAL managed cluster and runs
@@ -65,6 +77,11 @@
 #   export SSH_KEY_CREDENTIAL_ID=...           # required for Ankra-managed providers
 #   export HETZNER_CREDENTIAL_ID=...           # required per selected provider
 #   export GITOPS_REPOSITORY=org/repo          # optional (GitOps commit step)
+#   # AWS lane (only when "aws" is in ANKRA_SYSTEMTEST_PROVIDERS):
+#   export AWS_CREDENTIAL_ID=...               # an Ankra aws credential (role scope self_managed, or keys)
+#   #   or AWS_ROLE_ARN=... AWS_EXTERNAL_ID=... to register one for the run
+#   export AWS_VPC_ID=vpc-... AWS_NODE_SUBNET_IDS=subnet-a,subnet-b AWS_BASTION_SUBNET_ID=subnet-c
+#   export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...   # for the AWS CLI leak/VPC checks
 #   ./systemtest/lifecycle_systemtest.sh                 # default matrix, in parallel
 #   ANKRA_SYSTEMTEST_PARALLEL=0 ./systemtest/lifecycle_systemtest.sh   # sequential
 #   ANKRA_SYSTEMTEST_PROVIDERS="upcloud" ./systemtest/lifecycle_systemtest.sh
@@ -155,6 +172,30 @@ DIGITALOCEAN_CP_SIZE="${DIGITALOCEAN_CP_SIZE:-s-2vcpu-4gb}"
 DIGITALOCEAN_WORKER_SIZE="${DIGITALOCEAN_WORKER_SIZE:-s-2vcpu-4gb}"
 DIGITALOCEAN_BIGGER_SIZE="${DIGITALOCEAN_BIGGER_SIZE:-s-4vcpu-8gb}"
 
+# AWS lane (self-managed EC2). The Ankra credential is either an existing one
+# (AWS_CREDENTIAL_ID) or registered for the run from an assumable role
+# (AWS_ROLE_ARN + AWS_EXTERNAL_ID, scope AWS_CREDENTIAL_SCOPE) and deleted at
+# the end. The VPC, node subnets and bastion subnet are the account's own and
+# are adopted, never created; the run proves they come back untouched.
+# AWS_BASTION_ALLOWED_IPS defaults to this host's public IP so the bastion is
+# only ever reachable from the runner.
+AWS_CREDENTIAL_ID="${AWS_CREDENTIAL_ID:-}"
+AWS_ROLE_ARN="${AWS_ROLE_ARN:-}"
+AWS_EXTERNAL_ID="${AWS_EXTERNAL_ID:-}"
+AWS_CREDENTIAL_SCOPE="${AWS_CREDENTIAL_SCOPE:-self_managed}"
+AWS_REGION="${AWS_REGION:-eu-west-1}"
+AWS_VPC_ID="${AWS_VPC_ID:-}"
+AWS_NODE_SUBNET_IDS="${AWS_NODE_SUBNET_IDS:-}"
+AWS_BASTION_SUBNET_ID="${AWS_BASTION_SUBNET_ID:-}"
+AWS_BASTION_ALLOWED_IPS="${AWS_BASTION_ALLOWED_IPS:-}"
+AWS_EGRESS_MODE="${AWS_EGRESS_MODE:-}"
+AWS_CP_TYPE="${AWS_CP_TYPE:-t3.medium}"
+AWS_WORKER_TYPE="${AWS_WORKER_TYPE:-t3.medium}"
+AWS_BASTION_TYPE="${AWS_BASTION_TYPE:-t3.small}"
+# Seconds to wait for terminated instances to leave describe-instances and
+# for the tag sweep to come back empty after the deprovision reports done.
+AWS_LEAK_TIMEOUT="${AWS_LEAK_TIMEOUT:-900}"
+
 # Cloud-managed providers. Credentials default to the matching self-managed
 # provider credential where the platform reuses the same credential kind
 # (doks -> digitalocean, uks -> upcloud, ovh_mks -> ovh); gke/aks/eks need
@@ -217,6 +258,7 @@ declare -a RESULTS         # human-readable per-step results (sequential mode)
 # the EXIT/INT/TERM cleanup can tear down everything even on abort.
 WORKDIR=""
 CREATED_FILE=""
+CREATED_CREDENTIALS_FILE=""
 WORKER_PIDS=()
 
 # ---------------------------------------------------------------------------
@@ -313,6 +355,16 @@ cleanup() {
       fi
     fi
   done
+  # Credentials the run registered (the AWS role credential) go last: a
+  # deprovision still needs the credential the cluster was built with.
+  local credential_id
+  if [ -n "${CREATED_CREDENTIALS_FILE:-}" ] && [ -f "$CREATED_CREDENTIALS_FILE" ]; then
+    while IFS= read -r credential_id; do
+      [ -z "$credential_id" ] && continue
+      log "cleanup: deleting run-registered credential $credential_id"
+      ank credentials delete "$credential_id" --yes >/dev/null 2>&1 || true
+    done < "$CREATED_CREDENTIALS_FILE"
+  fi
 }
 trap cleanup EXIT INT TERM
 
@@ -394,6 +446,19 @@ wait_for_online() {
       log "  $name has a failed reconcile (likely transient) -> retrying"
       nudge_reconcile "$name"
     fi
+    sleep "$POLL_INTERVAL"
+  done
+  return 1
+}
+
+# Wait until the cluster reports exactly the given state (e.g. stopped).
+wait_for_state() {
+  local name="$1" want="$2" timeout="$3" deadline state
+  deadline=$(( $(date +%s) + timeout ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    state="$(cluster_state "$name")"
+    log "  $name state=$state (want $want)"
+    [ "$state" = "$want" ] && return 0
     sleep "$POLL_INTERVAL"
   done
   return 1
@@ -566,6 +631,305 @@ ng_instance_type() {
     upcloud) echo "$UPCLOUD_WORKER_PLAN" ;;
     digitalocean) echo "$DIGITALOCEAN_WORKER_SIZE" ;;
   esac
+}
+
+# ---------------------------------------------------------------------------
+# AWS lane: helpers
+# ---------------------------------------------------------------------------
+
+# The AWS CLI is used for what the Ankra API cannot answer: whether anything
+# tagged with the cluster id is left in the account after deprovision, and
+# whether the customer VPC came back untouched. It needs its own AWS
+# credentials (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, a profile, or an
+# ambient role) - these are the account's, not Ankra's. When the CLI or its
+# credentials are missing those two checks are recorded as SKIP with the
+# reason, never as PASS: a check that did not run proves nothing.
+aws_cli_reason=""
+aws_cli_available() {
+  if [ -n "$aws_cli_reason" ]; then return 1; fi
+  if ! command -v aws >/dev/null 2>&1; then
+    aws_cli_reason="aws CLI not installed"; return 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    aws_cli_reason="jq not installed"; return 1
+  fi
+  if ! aws sts get-caller-identity --region "$AWS_REGION" >/dev/null 2>&1; then
+    aws_cli_reason="aws CLI has no usable credentials (set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or a profile)"; return 1
+  fi
+  return 0
+}
+
+awscli() { aws --region "$AWS_REGION" --output json "$@"; }
+
+# Snapshot the parts of the customer VPC an Ankra cluster is allowed to
+# touch only transiently, normalised so a legitimate no-op diffs clean:
+#   - route tables: id, routes (sorted by destination) and subnet
+#     associations (sorted by subnet). Association *ids* are dropped on
+#     purpose: re-associating a subnet with its original table (which
+#     bastion_nat mode does on teardown) mints a new association id while
+#     leaving the routing identical, and the routing is what we assert.
+#   - subnets: id, cidr, zone, public-IP-on-launch, tags. AvailableIpAddressCount
+#     is dropped because instances in flight change it.
+#   - DHCP options: the option set the VPC points at and its configurations.
+aws_vpc_snapshot() {
+  local out="$1"
+  {
+    printf '{"route_tables":'
+    awscli ec2 describe-route-tables --filters "Name=vpc-id,Values=$AWS_VPC_ID" \
+      | jq -S '[.RouteTables[] | {
+          id: .RouteTableId,
+          tags: ((.Tags // []) | sort_by(.Key)),
+          routes: ([.Routes[] | del(.State)] | sort_by(.DestinationCidrBlock // .DestinationIpv6CidrBlock // .DestinationPrefixListId // "")),
+          associations: ([.Associations[] | {subnet: .SubnetId, gateway: .GatewayId, main: .Main}] | sort_by(.subnet // "", .gateway // ""))
+        }] | sort_by(.id)'
+    printf ',"subnets":'
+    awscli ec2 describe-subnets --filters "Name=vpc-id,Values=$AWS_VPC_ID" \
+      | jq -S '[.Subnets[] | {
+          id: .SubnetId, cidr: .CidrBlock, zone: .AvailabilityZone,
+          map_public_ip_on_launch: .MapPublicIpOnLaunch,
+          assign_ipv6_on_creation: .AssignIpv6AddressOnCreation,
+          tags: ((.Tags // []) | sort_by(.Key))
+        }] | sort_by(.id)'
+    printf ',"dhcp_options":'
+    local dhcp_id
+    dhcp_id="$(awscli ec2 describe-vpcs --vpc-ids "$AWS_VPC_ID" | jq -r '.Vpcs[0].DhcpOptionsId // empty')"
+    if [ -n "$dhcp_id" ] && [ "$dhcp_id" != "default" ]; then
+      awscli ec2 describe-dhcp-options --dhcp-options-ids "$dhcp_id" \
+        | jq -S --arg id "$dhcp_id" '{id: $id, configurations: ([.DhcpOptions[0].DhcpConfigurations[] | {key: .Key, values: ([.Values[].Value] | sort)}] | sort_by(.key))}'
+    else
+      jq -n --arg id "${dhcp_id:-default}" '{id: $id, configurations: []}'
+    fi
+    printf '}'
+  } | jq -S . > "$out"
+}
+
+# Diff the VPC against the pre-run snapshot. The snapshot was taken before
+# the cluster existed, so the Ankra route table (bastion_nat mode) is absent
+# from it by construction and its survival shows up as an extra entry.
+aws_vpc_diff() {
+  local before="$1" after="$2"
+  diff -u "$before" "$after"
+}
+
+# Everything Ankra creates in the account carries ankra.cloud/cluster-id.
+# The sweep polls because EC2 keeps a terminated instance (with its tags) in
+# describe-instances for a while and security groups cannot go until the
+# instances have, so "nothing left" is a condition to wait for, bounded by
+# AWS_LEAK_TIMEOUT. Each resource kind is checked with its own describe call
+# (the tag filter is the same everywhere), and the Resource Groups Tagging
+# API sweeps every other kind (volumes, ENIs, load balancers, IAM roles and
+# instance profiles) so an untracked kind cannot leak silently.
+aws_leaked_resources() {
+  local cluster_id="$1"
+  local tag="Name=tag:ankra.cloud/cluster-id,Values=$cluster_id"
+  awscli ec2 describe-instances --filters "$tag" "Name=instance-state-name,Values=pending,running,shutting-down,stopping,stopped" \
+    | jq -r '.Reservations[].Instances[] | "instance " + .InstanceId + " " + .State.Name'
+  awscli ec2 describe-security-groups --filters "$tag" | jq -r '.SecurityGroups[] | "security-group " + .GroupId'
+  awscli ec2 describe-key-pairs --filters "$tag" | jq -r '.KeyPairs[] | "key-pair " + .KeyPairId'
+  awscli ec2 describe-addresses --filters "$tag" | jq -r '.Addresses[] | "elastic-ip " + .AllocationId'
+  awscli ec2 describe-route-tables --filters "$tag" | jq -r '.RouteTables[] | "route-table " + .RouteTableId'
+  awscli ec2 describe-volumes --filters "$tag" | jq -r '.Volumes[] | "volume " + .VolumeId + " " + .State'
+  # IAM is global: the tagging API answers for it from us-east-1.
+  aws --region us-east-1 --output json resourcegroupstaggingapi get-resources \
+      --resource-type-filters iam:role iam:instance-profile \
+      --tag-filters "Key=ankra.cloud/cluster-id,Values=$cluster_id" \
+    | jq -r '.ResourceTagMappingList[] | "iam " + .ResourceARN'
+  # Any other tagged kind in the region. Terminated instances keep their tags
+  # briefly and are excluded here; the instance check above already covers
+  # every state that is not terminated.
+  awscli resourcegroupstaggingapi get-resources --tag-filters "Key=ankra.cloud/cluster-id,Values=$cluster_id" \
+    | jq -r '.ResourceTagMappingList[] | .ResourceARN | select(contains(":instance/") | not) | "tagged " + .'
+}
+
+wait_for_no_leaks() {
+  local cluster_id="$1" timeout="$2" deadline leaked
+  deadline=$(( $(date +%s) + timeout ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    leaked="$(aws_leaked_resources "$cluster_id" 2>&1 | sed '/^$/d')"
+    if [ -z "$leaked" ]; then return 0; fi
+    log "  still tagged ankra.cloud/cluster-id=$cluster_id:"
+    printf '%s\n' "$leaked" | sed 's/^/    /'
+    sleep "$POLL_INTERVAL"
+  done
+  return 1
+}
+
+# Register the run's Ankra AWS credential from the role when no credential
+# id was given; remembered for cleanup.
+aws_ensure_credential() {
+  if [ -n "$AWS_CREDENTIAL_ID" ]; then return 0; fi
+  local out
+  log "registering AWS role credential for the run (scope $AWS_CREDENTIAL_SCOPE) ..."
+  out="$(ank credentials aws create-role --name "${NAME_PREFIX}-aws-${RUN_ID}" --role-arn "$AWS_ROLE_ARN" \
+    --external-id "$AWS_EXTERNAL_ID" --region "$AWS_REGION" --scope "$AWS_CREDENTIAL_SCOPE")"
+  printf '%s\n' "$out"
+  AWS_CREDENTIAL_ID="$(printf '%s' "$out" | awk -F'Credential ID:' '/Credential ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
+  if [ -z "$AWS_CREDENTIAL_ID" ]; then return 1; fi
+  if [ -n "${CREATED_CREDENTIALS_FILE:-}" ]; then printf '%s\n' "$AWS_CREDENTIAL_ID" >> "$CREATED_CREDENTIALS_FILE"; fi
+  return 0
+}
+
+aws_bastion_allowed_ips() {
+  if [ -n "$AWS_BASTION_ALLOWED_IPS" ]; then printf '%s' "$AWS_BASTION_ALLOWED_IPS"; return; fi
+  local ip
+  ip="$(curl -fsS --max-time 10 https://checkip.amazonaws.com 2>/dev/null | tr -d '[:space:]')"
+  [ -n "$ip" ] && printf '%s/32' "$ip"
+}
+
+# The create/preflight flag set, shared so preflight checks exactly the
+# request create sends.
+aws_create_args() {
+  local name="$1" distribution="$2" allowed_ips="$3"
+  local -a args=(--name "$name" --credential-id "$AWS_CREDENTIAL_ID" --ssh-key-credential-id "$SSH_KEY_CREDENTIAL_ID" \
+    --region "$AWS_REGION" --vpc-id "$AWS_VPC_ID" --node-subnet-ids "$AWS_NODE_SUBNET_IDS" \
+    --bastion-subnet-id "$AWS_BASTION_SUBNET_ID" --bastion-allowed-ips "$allowed_ips" \
+    --bastion-instance-type "$AWS_BASTION_TYPE" \
+    --control-plane-type "$AWS_CP_TYPE" --control-plane-count 1 \
+    --worker-type "$AWS_WORKER_TYPE" --worker-count 1 \
+    --distribution "$distribution")
+  if [ "$distribution" = "kubeadm" ]; then args+=(--etcd-topology "$ETCD_TOPOLOGY"); fi
+  if [ -n "$AWS_EGRESS_MODE" ]; then args+=(--egress-mode "$AWS_EGRESS_MODE"); fi
+  if [ -n "$GITOPS_CREDENTIAL_NAME" ] && [ -n "$GITOPS_REPOSITORY" ]; then
+    args+=(--gitops-credential-name "$GITOPS_CREDENTIAL_NAME" --gitops-repository "$GITOPS_REPOSITORY" --gitops-branch "$GITOPS_BRANCH")
+  fi
+  printf '%s\n' "${args[@]}"
+}
+
+# ---------------------------------------------------------------------------
+# AWS lane: lifecycle
+# ---------------------------------------------------------------------------
+
+run_aws_provider() {
+  local distribution="$1"
+  local name="${NAME_PREFIX}-aws-${distribution}-${RUN_ID}"
+  local label="aws/$distribution"
+  local id out allowed_ips access
+  local -a create_args=()
+
+  section "$label :: $name"
+
+  if ! aws_ensure_credential; then fail "$label credential (could not register the role credential)"; return; fi
+
+  allowed_ips="$(aws_bastion_allowed_ips)"
+  if [ -z "$allowed_ips" ]; then fail "$label bastion allowed IPs (set AWS_BASTION_ALLOWED_IPS; could not detect this host's public IP)"; return; fi
+  log "bastion SSH allowed from: $allowed_ips"
+
+  # 0. VPC snapshot before anything exists.
+  local before="$WORKDIR/aws-vpc-before.$distribution.json" after="$WORKDIR/aws-vpc-after.$distribution.json"
+  local vpc_snapshotted=0
+  if aws_cli_available; then
+    if aws_vpc_snapshot "$before"; then
+      vpc_snapshotted=1; pass "$label VPC snapshot taken ($AWS_VPC_ID)"
+    else
+      fail "$label VPC snapshot (describe-route-tables/subnets/dhcp-options failed)"
+    fi
+  else
+    skip "$label VPC snapshot ($aws_cli_reason)"
+  fi
+
+  while IFS= read -r line; do create_args+=("$line"); done < <(aws_create_args "$name" "$distribution" "$allowed_ips")
+
+  # 1. Preflight must pass before anything is built.
+  log "preflighting $name ..."
+  if out="$(ank cluster aws preflight "${create_args[@]}")"; then
+    printf '%s\n' "$out"
+    pass "$label preflight"
+  else
+    printf '%s\n' "$out"
+    fail "$label preflight (see checks above)"
+    return
+  fi
+
+  # 2. Create (capture the printed "Cluster ID: <uuid>")
+  log "creating $name (distribution=$distribution) ..."
+  out="$(ank cluster aws create "${create_args[@]}")"
+  printf '%s\n' "$out"
+  id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
+  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  register_cluster "$name" "$id"
+  pass "$label create submitted (id=$id)"
+
+  # 3. Online + nodes
+  if wait_for_online "$name" "$ONLINE_TIMEOUT"; then pass "$label online"; else fail "$label did not reach online"; return; fi
+  if wait_for_nodes "$name" 2 "$DAYTWO_TIMEOUT"; then pass "$label nodes Ready (cp+worker)"; else fail "$label nodes not Ready"; fi
+
+  # 4. Access info: the bastion has its elastic IP and the control plane a
+  # private address. "-" is the CLI's rendering of a null, so it is a fail.
+  access="$(ank cluster aws access-info "$id")"
+  printf '%s\n' "$access"
+  if printf '%s' "$access" | grep -qE '^Bastion IP: [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' \
+     && printf '%s' "$access" | grep -qE '^Control Plane IP: [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+'; then
+    pass "$label access-info (bastion + control plane addresses)"
+  else
+    fail "$label access-info (missing bastion or control plane address)"
+  fi
+
+  # 5. Node list through the provider node route: both nodes present.
+  select_cluster "$name"
+  out="$(ank cluster nodes list "$id")"
+  printf '%s\n' "$out"
+  if [ "$(printf '%s\n' "$out" | grep -cE 'control[-_ ]?plane|worker')" -ge 2 ]; then
+    pass "$label node list (control plane + worker)"
+  else
+    fail "$label node list (expected a control plane and a worker row)"
+  fi
+
+  # 6. Stop -> stopped, start -> online again with both nodes Ready.
+  if daytwo "stop" "$name" aws stop "$id" && wait_for_state "$name" stopped "$DAYTWO_TIMEOUT"; then
+    pass "$label stop -> stopped"
+  else
+    fail "$label stop"
+  fi
+  if daytwo "start" "$name" aws start "$id" && wait_for_online "$name" "$ONLINE_TIMEOUT" && wait_for_nodes "$name" 2 "$DAYTWO_TIMEOUT"; then
+    pass "$label start -> online (cp+worker Ready)"
+  else
+    fail "$label start"
+  fi
+
+  # 7. Deprovision -> removed (with a bounded force fallback on stall)
+  wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy; deprovisioning anyway)"
+  log "deprovisioning $name ..."
+  ank cluster deprovision "$id" --yes | tail -2
+  if wait_for_removed "$name" "$DEPROVISION_TIMEOUT"; then
+    pass "$label deprovision -> deleted_at"
+  else
+    log "  $name deprovision stalled after ${DEPROVISION_TIMEOUT}s; attempting bounded force-deprovision fallback"
+    ank cluster deprovision "$id" --force --yes | tail -2 || true
+    if wait_for_removed "$name" "$DEPROVISION_FORCE_TIMEOUT"; then
+      pass "$label deprovision -> deleted_at (after force fallback)"
+    else
+      fail "$label deprovision did not complete (even after force fallback)"
+    fi
+  fi
+
+  # 8. Leak check: nothing tagged with the cluster id may remain.
+  if aws_cli_available; then
+    if wait_for_no_leaks "$id" "$AWS_LEAK_TIMEOUT"; then
+      pass "$label no resources tagged ankra.cloud/cluster-id=$id remain"
+    else
+      fail "$label leaked resources still tagged ankra.cloud/cluster-id=$id after ${AWS_LEAK_TIMEOUT}s (see list above)"
+    fi
+  else
+    skip "$label leak check ($aws_cli_reason)"
+  fi
+
+  # 9. Customer VPC untouched: route tables, subnets and DHCP options match
+  # the pre-run snapshot exactly.
+  if [ "$vpc_snapshotted" = "1" ]; then
+    if aws_vpc_snapshot "$after"; then
+      if aws_vpc_diff "$before" "$after"; then
+        pass "$label VPC untouched (route tables, subnets, DHCP options identical)"
+      else
+        fail "$label VPC changed by the run (see diff above)"
+      fi
+    else
+      fail "$label VPC snapshot after deprovision failed"
+    fi
+  elif aws_cli_available; then
+    skip "$label VPC diff (no pre-run snapshot)"
+  else
+    skip "$label VPC diff ($aws_cli_reason)"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -814,8 +1178,9 @@ confirm_cost() {
   #  WARNING: REAL, BILLABLE CLOUD INFRASTRUCTURE                            #
   #                                                                          #
   #  This system test provisions actual servers, load balancers, networks   #
-  #  and volumes on Hetzner / OVH / UpCloud / DigitalOcean plus provider-    #
-  #  native managed clusters (DOKS / UKS / GKE / OVH MKS / AKS / EKS) and    #
+  #  and volumes on Hetzner / OVH / UpCloud / DigitalOcean (and EC2 in your #
+  #  own VPC when aws is selected) plus provider-native managed clusters    #
+  #  (DOKS / UKS / GKE / OVH MKS / AKS / EKS) and                            #
   #  runs a multi-step lifecycle (create, scale, node-groups/pools, k8s      #
   #  upgrade, resize, deprovision). A full run can take ~2 hours and WILL    #
   #  incur charges. Clusters are deprovisioned at the end and on abort, but  #
@@ -851,6 +1216,17 @@ preflight() {
       ovh)     [ -n "$OVH_CREDENTIAL_ID" ] || die "OVH_CREDENTIAL_ID required for ovh" ;;
       upcloud) [ -n "$UPCLOUD_CREDENTIAL_ID" ] || die "UPCLOUD_CREDENTIAL_ID required for upcloud" ;;
       digitalocean) [ -n "$DIGITALOCEAN_CREDENTIAL_ID" ] || die "DIGITALOCEAN_CREDENTIAL_ID required for digitalocean" ;;
+      aws)
+        if [ -z "$AWS_CREDENTIAL_ID" ] && { [ -z "$AWS_ROLE_ARN" ] || [ -z "$AWS_EXTERNAL_ID" ]; }; then
+          die "AWS_CREDENTIAL_ID (or AWS_ROLE_ARN + AWS_EXTERNAL_ID to register one) required for aws"
+        fi
+        [ -n "$AWS_VPC_ID" ] || die "AWS_VPC_ID required for aws"
+        [ -n "$AWS_NODE_SUBNET_IDS" ] || die "AWS_NODE_SUBNET_IDS required for aws"
+        [ -n "$AWS_BASTION_SUBNET_ID" ] || die "AWS_BASTION_SUBNET_ID required for aws"
+        if ! aws_cli_available; then
+          log "WARNING: $aws_cli_reason -> the AWS leak check and VPC diff will be recorded as SKIP"
+        fi
+        ;;
       *) die "unknown provider in ANKRA_SYSTEMTEST_PROVIDERS: $p" ;;
     esac
   done
@@ -878,6 +1254,8 @@ run_target() {
   local provider="$1" distribution="$2"
   if [ "$distribution" = "managed" ]; then
     run_managed_provider "$provider"
+  elif [ "$provider" = "aws" ]; then
+    run_aws_provider "$distribution"
   else
     run_provider "$provider" "$distribution"
   fi
@@ -908,6 +1286,8 @@ main() {
   WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/ankra-systest-${RUN_ID}.XXXXXX")"
   CREATED_FILE="$WORKDIR/created_clusters"
   : > "$CREATED_FILE"
+  CREATED_CREDENTIALS_FILE="$WORKDIR/created_credentials"
+  : > "$CREATED_CREDENTIALS_FILE"
 
   # Build the target list: the Ankra-managed provider x distribution matrix
   # ("provider:distribution") plus one "provider:managed" target per selected

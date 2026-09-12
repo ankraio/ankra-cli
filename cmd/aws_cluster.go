@@ -117,12 +117,44 @@ func init() {
 	clusterCmd.AddCommand(awsCmd)
 }
 
+// awsCNIFeatureNames are the members of the cni_features object, in the
+// spelling the --cni-features flag takes.
+var awsCNIFeatureNames = []string{"kube_proxy_replacement", "hubble", "wireguard_encryption", "ebpf_dataplane"}
+
+// awsCNIFeaturesFromFlag turns the comma-separated --cni-features list into
+// the cni_features object the API decodes: four booleans, each true when
+// named. An empty list sends nothing so every feature stays at the server
+// default (off); a name outside the set is refused here rather than being
+// dropped on the way to the server.
+func awsCNIFeaturesFromFlag(names []string) (*client.AwsCNIFeatures, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	var features client.AwsCNIFeatures
+	for _, name := range names {
+		switch strings.TrimSpace(name) {
+		case "kube_proxy_replacement":
+			features.KubeProxyReplacement = true
+		case "hubble":
+			features.Hubble = true
+		case "wireguard_encryption":
+			features.WireguardEncryption = true
+		case "ebpf_dataplane":
+			features.EbpfDataplane = true
+		case "":
+		default:
+			return nil, fmt.Errorf("unknown --cni-features value %q: want one or more of %s", name, strings.Join(awsCNIFeatureNames, ", "))
+		}
+	}
+	return &features, nil
+}
+
 // awsCreateRequestFromFlags builds the create body shared by `create` and
 // `preflight`. Flags left at their zero value are omitted so the server's
-// documented defaults apply (k3s, stacked etcd, retain, the platform's
-// default instance types and Ubuntu series, egress mode auto-detected from
-// the node subnets).
-func awsCreateRequestFromFlags(cmd *cobra.Command) client.CreateAwsClusterRequest {
+// documented defaults apply (kubeadm, stacked etcd, retain, cilium, the
+// platform's default instance types and Ubuntu series, egress mode resolved
+// by preflight from the node subnets).
+func awsCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAwsClusterRequest, error) {
 	name, _ := cmd.Flags().GetString("name")
 	description, _ := cmd.Flags().GetString("description")
 	credentialID, _ := cmd.Flags().GetString("credential-id")
@@ -152,7 +184,13 @@ func awsCreateRequestFromFlags(cmd *cobra.Command) client.CreateAwsClusterReques
 	gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
 	gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
 	retentionPolicy, _ := cmd.Flags().GetString("retention-policy")
-	classification, _ := cmd.Flags().GetString("classification")
+	environment, _ := cmd.Flags().GetString("environment")
+	criticality, _ := cmd.Flags().GetString("criticality")
+
+	cniFeatureFlags, cniFeaturesError := awsCNIFeaturesFromFlag(cniFeatures)
+	if cniFeaturesError != nil {
+		return client.CreateAwsClusterRequest{}, cniFeaturesError
+	}
 
 	request := client.CreateAwsClusterRequest{
 		Name:                  name,
@@ -173,13 +211,12 @@ func awsCreateRequestFromFlags(cmd *cobra.Command) client.CreateAwsClusterReques
 		EtcdNodeCount:         etcdNodeCount,
 		EtcdType:              etcdType,
 		CNI:                   cni,
-		CNIFeatures:           cniFeatures,
+		CNIFeatures:           cniFeatureFlags,
 		K3sDisabledComponents: k3sDisabledComponents,
 		UbuntuSeries:          ubuntuSeries,
 		Architecture:          architecture,
 		RootVolumeGiB:         rootVolumeGiB,
 		RetentionPolicy:       retentionPolicy,
-		Classification:        classification,
 	}
 	// worker-count is tri-state: 0 is a legitimate value (node-group-only
 	// clusters), so only send it when the user actually set the flag.
@@ -210,7 +247,13 @@ func awsCreateRequestFromFlags(cmd *cobra.Command) client.CreateAwsClusterReques
 	if gitopsBranch != "" {
 		request.GitopsBranch = &gitopsBranch
 	}
-	return request
+	if environment != "" {
+		request.Environment = &environment
+	}
+	if criticality != "" {
+		request.Criticality = &criticality
+	}
+	return request, nil
 }
 
 var awsCreateCmd = &cobra.Command{
@@ -234,7 +277,11 @@ Examples:
     --node-subnet-ids subnet-0aaa,subnet-0bbb --bastion-subnet-id subnet-0ccc \
     --bastion-allowed-ips 203.0.113.0/24`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		result, createError := apiClient.CreateAwsCluster(awsCreateRequestFromFlags(cmd))
+		request, requestError := awsCreateRequestFromFlags(cmd)
+		if requestError != nil {
+			return requestError
+		}
+		result, createError := apiClient.CreateAwsCluster(request)
 		if createError != nil {
 			return fmt.Errorf("creating AWS cluster: %w", createError)
 		}
@@ -247,6 +294,12 @@ Examples:
 
 		fmt.Printf("AWS cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+		if result.State != "" {
+			fmt.Printf("  State: %s\n", result.State)
+		}
+		if result.OperationID != nil && *result.OperationID != "" {
+			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+		}
 		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
 			strings.TrimRight(baseURL, "/"), result.ClusterID)
 		return nil
@@ -263,7 +316,11 @@ left unset.
 
 Takes the same flags as 'create'.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		result, preflightError := apiClient.PreflightAwsCluster(awsCreateRequestFromFlags(cmd))
+		request, requestError := awsCreateRequestFromFlags(cmd)
+		if requestError != nil {
+			return requestError
+		}
+		result, preflightError := apiClient.PreflightAwsCluster(request)
 		if preflightError != nil {
 			return fmt.Errorf("running AWS preflight: %w", preflightError)
 		}
@@ -283,8 +340,13 @@ Takes the same flags as 'create'.`,
 		}
 		t.Render()
 
-		if result.ResolvedEgressMode != "" {
-			fmt.Printf("\nResolved egress mode: %s\n", result.ResolvedEgressMode)
+		// A null resolved mode is the server saying it could not settle one
+		// (a check failed first), not "existing": say so rather than
+		// printing nothing and leaving the reader to infer a default.
+		if result.ResolvedEgressMode != nil && *result.ResolvedEgressMode != "" {
+			fmt.Printf("\nResolved egress mode: %s\n", *result.ResolvedEgressMode)
+		} else {
+			fmt.Println("\nResolved egress mode: not resolved")
 		}
 		if result.CanProceed {
 			fmt.Println(text.FgGreen.Sprint("\nPreflight passed: the cluster can be created."))
@@ -421,17 +483,39 @@ var awsAccessInfoCmd = &cobra.Command{
 		if result.ControlPlaneIP != nil && *result.ControlPlaneIP != "" {
 			controlPlaneIP = *result.ControlPlaneIP
 		}
+		bastionHost := result.BastionHost
+		if bastionHost == "" {
+			bastionHost = bastionIP
+		}
+		bastionUser := result.BastionUser
+		if bastionUser == "" {
+			bastionUser = "ubuntu"
+		}
+		targetUser := result.TargetUser
+		if targetUser == "" {
+			targetUser = "ubuntu"
+		}
+		bastionPort := result.BastionPort
+		if bastionPort == 0 {
+			bastionPort = 22
+		}
 		if result.ClusterName != nil && *result.ClusterName != "" {
 			fmt.Printf("Cluster: %s\n", *result.ClusterName)
 		}
 		fmt.Printf("Bastion IP: %s\n", bastionIP)
+		fmt.Printf("Bastion SSH: %s@%s:%d\n", bastionUser, bastionHost, bastionPort)
 		fmt.Printf("Control Plane IP: %s\n", controlPlaneIP)
 		if len(result.ControlPlaneIPs) > 0 {
 			fmt.Printf("Control Plane IPs: %s\n", strings.Join(result.ControlPlaneIPs, ", "))
 		}
-		if bastionIP != "-" && controlPlaneIP != "-" {
-			fmt.Printf("\nSSH jump:\n  ssh -J ubuntu@%s ubuntu@%s\n", bastionIP, controlPlaneIP)
-			fmt.Printf("Kubernetes API port-forward:\n  ssh -L 6443:%s:6443 ubuntu@%s\n", controlPlaneIP, bastionIP)
+		fmt.Printf("Node user: %s\n", targetUser)
+		if bastionHost != "-" && controlPlaneIP != "-" {
+			portFlag := ""
+			if bastionPort != 22 {
+				portFlag = fmt.Sprintf(":%d", bastionPort)
+			}
+			fmt.Printf("\nSSH jump:\n  ssh -J %s@%s%s %s@%s\n", bastionUser, bastionHost, portFlag, targetUser, controlPlaneIP)
+			fmt.Printf("Kubernetes API port-forward:\n  ssh -p %d -L 6443:%s:6443 %s@%s\n", bastionPort, controlPlaneIP, bastionUser, bastionHost)
 		}
 		return nil
 	},
@@ -469,35 +553,61 @@ var awsRegionsCmd = &cobra.Command{
 		t.SetStyle(table.StyleRounded)
 		t.AppendHeader(table.Row{"Region", "Name"})
 		for _, region := range result.Regions {
-			t.AppendRow(table.Row{region.Name, region.DisplayName})
+			t.AppendRow(table.Row{region.Slug, region.Name})
 		}
 		t.Render()
+		if !result.PricingComplete {
+			fmt.Println(text.FgYellow.Sprint("\nPricing is incomplete for this credential: some prices in the regional catalogs will show as -"))
+		}
 		return nil
 	},
 }
 
-func renderAwsInstanceTypes(result *client.AwsCatalogResult, emptyMessage string) {
-	if len(result.InstanceTypes) == 0 {
-		fmt.Println(emptyMessage)
+// awsUSD renders a nullable USD price. A nil price is one the pricing API
+// did not publish, which is not a price of zero, so it renders as "-" and
+// never as 0.
+func awsUSD(price *float64, decimals int) string {
+	if price == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%.*f USD", decimals, *price)
+}
+
+// renderAwsInstanceTypes prints the instance-type table shared by the
+// instance-types and pricing catalogs, then the incomplete-pricing warning
+// when the server flagged one.
+func renderAwsInstanceTypes(instanceTypes []client.AwsInstanceType, pricingComplete bool, incompleteReasons []string, emptyMessage string) {
+	if len(instanceTypes) == 0 {
+		if emptyMessage != "" {
+			fmt.Println(emptyMessage)
+		}
 		return
 	}
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{"Name", "vCPU", "Memory (GiB)", "Arch", "Hourly", "Monthly"})
-	for _, instanceType := range result.InstanceTypes {
-		currency := strings.ToUpper(instanceType.Currency)
+	t.AppendHeader(table.Row{"Name", "vCPU", "Memory (GiB)", "Arch", "Category", "Current gen", "Hourly", "Monthly"})
+	for _, instanceType := range instanceTypes {
 		t.AppendRow(table.Row{
 			instanceType.Name, instanceType.VCPUs, instanceType.MemoryGiB,
-			instanceType.Architecture,
-			fmt.Sprintf("%.4f %s", instanceType.HourlyPrice, currency),
-			fmt.Sprintf("%.2f %s", instanceType.MonthlyPrice, currency),
+			instanceType.Architecture, instanceType.Category, yesNo(instanceType.CurrentGeneration),
+			awsUSD(instanceType.HourlyPriceUSD, 4),
+			awsUSD(instanceType.MonthlyPriceUSD, 2),
 		})
 	}
 	t.Render()
-	if !result.PricingComplete && len(result.IncompleteReasons) > 0 {
-		fmt.Println(text.FgYellow.Sprintf("\nPricing is incomplete: %s", strings.Join(result.IncompleteReasons, "; ")))
+	renderAwsPricingWarning(pricingComplete, incompleteReasons)
+}
+
+func renderAwsPricingWarning(pricingComplete bool, incompleteReasons []string) {
+	if pricingComplete {
+		return
 	}
+	if len(incompleteReasons) > 0 {
+		fmt.Println(text.FgYellow.Sprintf("\nPricing is incomplete: %s", strings.Join(incompleteReasons, "; ")))
+		return
+	}
+	fmt.Println(text.FgYellow.Sprint("\nPricing is incomplete: some prices are unknown and shown as -"))
 }
 
 var awsInstanceTypesCmd = &cobra.Command{
@@ -515,14 +625,36 @@ var awsInstanceTypesCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		renderAwsInstanceTypes(result, "No instance types available for this credential and region.")
+		renderAwsInstanceTypes(result.InstanceTypes, result.PricingComplete, result.IncompleteReasons,
+			"No instance types available for this credential and region.")
 		return nil
 	},
+}
+
+// awsDhcpDomain renders the VPC's DHCP domain as three states: the domain
+// when the option set names one, "(none)" when it names none, and "?" when
+// the option set could not be read - the last is not "no domain".
+func awsDhcpDomain(vpc client.AwsVpc) string {
+	switch vpc.DhcpDomainNameState {
+	case "set":
+		if vpc.DhcpDomainName != nil {
+			return *vpc.DhcpDomainName
+		}
+		return "?"
+	case "empty":
+		return "(none)"
+	default:
+		return "?"
+	}
 }
 
 var awsVpcsCmd = &cobra.Command{
 	Use:   "vpcs",
 	Short: "List VPCs a credential can adopt in a region",
+	Long: `List the VPCs of a region with their CIDR and DHCP domain name. The DHCP
+domain column is the domain the VPC's DHCP option set hands to instances;
+"(none)" means the option set names no domain and "?" means it could not be
+read, which is not the same thing.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialID, region, _ := awsCatalogArgs(cmd)
 		result, listError := apiClient.ListAwsVpcs(credentialID, region)
@@ -543,13 +675,13 @@ var awsVpcsCmd = &cobra.Command{
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{"ID", "Name", "CIDR", "Default"})
+		t.AppendHeader(table.Row{"ID", "Name", "CIDR", "Default", "DHCP domain"})
 		for _, vpc := range result.Vpcs {
 			isDefault := ""
 			if vpc.IsDefault {
 				isDefault = "yes"
 			}
-			t.AppendRow(table.Row{vpc.ID, vpc.Name, vpc.CIDR, isDefault})
+			t.AppendRow(table.Row{vpc.ID, vpc.Name, vpc.CIDR, isDefault, awsDhcpDomain(vpc)})
 		}
 		t.Render()
 		return nil
@@ -559,10 +691,13 @@ var awsVpcsCmd = &cobra.Command{
 var awsSubnetsCmd = &cobra.Command{
 	Use:   "subnets",
 	Short: "List the subnets of a VPC",
-	Long: `List the subnets of a VPC with their availability zone and whether they
-route to an internet gateway. Nodes go in private subnets (egress via a NAT
-gateway, or via the bastion with --egress-mode bastion_nat); the bastion
-needs a public one.`,
+	Long: `List the subnets of a VPC with their availability zone, how their route
+table reaches the internet (egress: internet_gateway, nat_gateway,
+nat_instance, transit, none or unknown) and how many instances Ankra did
+not create already live in them. Nodes go in private subnets (egress via a
+NAT gateway, or via the bastion with --egress-mode bastion_nat, which is
+refused when a node subnet carries foreign instances); the bastion needs a
+public one (internet_gateway).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialID, region, vpcID := awsCatalogArgs(cmd)
 		result, listError := apiClient.ListAwsSubnets(credentialID, region, vpcID)
@@ -583,13 +718,15 @@ needs a public one.`,
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{"ID", "Name", "CIDR", "Zone", "Public"})
+		t.AppendHeader(table.Row{"ID", "Name", "CIDR", "Zone", "Egress", "Public IP on launch", "Foreign instances"})
 		for _, subnet := range result.Subnets {
-			public := "no"
-			if subnet.Public {
-				public = "yes"
+			// A null count is a listing that failed, not an empty subnet.
+			foreign := "-"
+			if subnet.ForeignInstanceCount != nil {
+				foreign = fmt.Sprintf("%d", *subnet.ForeignInstanceCount)
 			}
-			t.AppendRow(table.Row{subnet.ID, subnet.Name, subnet.CIDR, subnet.AvailabilityZone, public})
+			t.AppendRow(table.Row{subnet.ID, subnet.Name, subnet.CIDR, subnet.AvailabilityZone,
+				subnet.Egress.Kind, yesNo(subnet.MapPublicIPOnLaunch), foreign})
 		}
 		t.Render()
 		return nil
@@ -612,7 +749,7 @@ var awsAvailabilityZonesCmd = &cobra.Command{
 			return nil
 		}
 
-		if len(result.AvailabilityZones) == 0 {
+		if len(result.Zones) == 0 {
 			fmt.Println("No availability zones found for this region.")
 			return nil
 		}
@@ -620,8 +757,8 @@ var awsAvailabilityZonesCmd = &cobra.Command{
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
 		t.AppendHeader(table.Row{"Zone", "Zone ID", "State"})
-		for _, zone := range result.AvailabilityZones {
-			t.AppendRow(table.Row{zone.Name, zone.ZoneID, zone.State})
+		for _, zone := range result.Zones {
+			t.AppendRow(table.Row{zone.Name, zone.ID, zone.State})
 		}
 		t.Render()
 		return nil
@@ -630,7 +767,10 @@ var awsAvailabilityZonesCmd = &cobra.Command{
 
 var awsImagesCmd = &cobra.Command{
 	Use:   "images",
-	Short: "List the Ubuntu AMIs nodes can boot from in a region",
+	Short: "List the Ubuntu series and architectures nodes can boot from in a region",
+	Long: `List the Ubuntu series and CPU architectures a create may ask for with
+--ubuntu-series and --architecture. The platform resolves the actual AMI at
+build time, so there is no AMI id to pick.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialID, region, _ := awsCatalogArgs(cmd)
 		result, listError := apiClient.ListAwsImages(credentialID, region)
@@ -644,18 +784,23 @@ var awsImagesCmd = &cobra.Command{
 			return nil
 		}
 
-		if len(result.Images) == 0 {
-			fmt.Println("No images found for this region.")
+		if len(result.UbuntuSeries) == 0 {
+			fmt.Println("No Ubuntu series available for this region.")
 			return nil
 		}
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{"AMI", "Name", "Ubuntu", "Arch", "Created"})
-		for _, image := range result.Images {
-			t.AppendRow(table.Row{image.ID, image.Name, image.UbuntuSeries, image.Architecture, image.CreatedAt})
+		t.AppendHeader(table.Row{"Ubuntu series", "Default"})
+		for _, series := range result.UbuntuSeries {
+			isDefault := ""
+			if series == result.DefaultSeries {
+				isDefault = "yes"
+			}
+			t.AppendRow(table.Row{series, isDefault})
 		}
 		t.Render()
+		fmt.Printf("Architectures: %s\n", strings.Join(result.Architectures, ", "))
 		return nil
 	},
 }
@@ -676,30 +821,13 @@ var awsPricingCmd = &cobra.Command{
 			return nil
 		}
 
-		if len(result.Pricing) == 0 && len(result.InstanceTypes) == 0 {
-			fmt.Println("No pricing available for this credential and region.")
+		fmt.Printf("Storage: gp3 %s per GiB-month\n", awsUSD(result.Storage.Gp3GiBMonthUSD, 4))
+		if len(result.InstanceTypes) == 0 {
+			fmt.Println("No instance prices available for this credential and region.")
+			renderAwsPricingWarning(result.PricingComplete, result.IncompleteReasons)
 			return nil
 		}
-		if len(result.Pricing) > 0 {
-			t := table.NewWriter()
-			t.SetOutputMirror(os.Stdout)
-			t.SetStyle(table.StyleRounded)
-			t.AppendHeader(table.Row{"Item", "Hourly", "Monthly"})
-			for _, item := range result.Pricing {
-				currency := strings.ToUpper(item.Currency)
-				t.AppendRow(table.Row{
-					item.Item,
-					fmt.Sprintf("%.4f %s", item.HourlyPrice, currency),
-					fmt.Sprintf("%.2f %s", item.MonthlyPrice, currency),
-				})
-			}
-			t.Render()
-		}
-		if len(result.InstanceTypes) > 0 {
-			renderAwsInstanceTypes(result, "")
-		} else if !result.PricingComplete && len(result.IncompleteReasons) > 0 {
-			fmt.Println(text.FgYellow.Sprintf("\nPricing is incomplete: %s", strings.Join(result.IncompleteReasons, "; ")))
-		}
+		renderAwsInstanceTypes(result.InstanceTypes, result.PricingComplete, result.IncompleteReasons, "")
 		return nil
 	},
 }
@@ -718,27 +846,28 @@ func registerAwsCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("bastion-subnet-id", "", "Public subnet the bastion is placed in (required)")
 		command.Flags().StringSlice("bastion-allowed-ips", nil, "CIDRs allowed to reach the bastion over SSH, comma-separated (required)")
 		command.Flags().String("egress-mode", "", "How the nodes reach the internet: 'existing' (the subnets' own NAT or internet gateway) or 'bastion_nat' (the bastion is the NAT); default: detected from the node subnets' route tables")
-		command.Flags().String("bastion-instance-type", "", "Bastion instance type (server default)")
-		command.Flags().Int("control-plane-count", 0, "Control plane node count (server default: 1)")
-		command.Flags().String("control-plane-type", "", "Control plane instance type (server default)")
+		command.Flags().String("bastion-instance-type", "", "Bastion instance type (server default: t3.small)")
+		command.Flags().Int("control-plane-count", 0, "Control plane node count, 1-9; at least 3 when the node subnets span more than one zone (server default: 1)")
+		command.Flags().String("control-plane-type", "", "Control plane instance type (server default: t3.medium)")
 		command.Flags().Int("worker-count", 0, "Default-pool worker count (server default: 1)")
-		command.Flags().String("worker-type", "", "Worker instance type (server default)")
-		command.Flags().String("distribution", "", "Kubernetes distribution: k3s or kubeadm (server default: k3s)")
+		command.Flags().String("worker-type", "", "Worker instance type (server default: t3.medium)")
+		command.Flags().String("distribution", "", "Kubernetes distribution: k3s or kubeadm (server default: kubeadm)")
 		command.Flags().String("kubernetes-version", "", "Pin a Kubernetes version (default: latest supported)")
 		command.Flags().String("etcd-topology", "", "etcd topology: stacked or external (server default: stacked)")
 		command.Flags().Int("etcd-node-count", 0, "External etcd node count, 3 or 5 (server default: 3)")
-		command.Flags().String("etcd-type", "", "External etcd instance type (server default)")
-		command.Flags().String("cni", "", "CNI plugin (default: the platform default; immutable after create)")
-		command.Flags().StringSlice("cni-features", nil, "CNI features to enable, comma-separated (default: the platform default)")
+		command.Flags().String("etcd-type", "", "External etcd instance type (server default: t3.medium)")
+		command.Flags().String("cni", "", "CNI plugin: cilium, calico or flannel (server default: cilium; kubeadm requires cilium; immutable after create)")
+		command.Flags().StringSlice("cni-features", nil, "CNI features to switch on, comma-separated: kube_proxy_replacement, hubble, wireguard_encryption, ebpf_dataplane (default: all off)")
 		command.Flags().StringSlice("k3s-disabled-components", nil, "k3s packaged components to disable, comma-separated (e.g. traefik,servicelb)")
-		command.Flags().String("ubuntu-series", "", "Ubuntu series for the node AMI (server default)")
-		command.Flags().String("architecture", "", "Node CPU architecture: x86_64 or arm64 (server default: x86_64)")
-		command.Flags().Int("root-volume-gib", 0, "Root EBS volume size in GiB per node (server default)")
+		command.Flags().String("ubuntu-series", "", "Ubuntu series for the node AMI, e.g. 24.04 (server default: 24.04; see 'images')")
+		command.Flags().String("architecture", "", "Node CPU architecture (server default: amd64; arm64 is refused until its image catalogue is audited)")
+		command.Flags().Int("root-volume-gib", 0, "Encrypted gp3 root volume size in GiB per instance, 20-2000 (server default: 40)")
 		command.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated stack is committed to Git")
 		command.Flags().String("gitops-repository", "", "GitOps repository (owner/repo) the generated stack is committed to")
 		command.Flags().String("gitops-branch", "", "GitOps branch (server default: master)")
 		command.Flags().String("retention-policy", "", "Teardown policy for EBS volumes and load balancers: retain or delete (server default: retain)")
-		command.Flags().String("classification", "", "Cluster classification label, e.g. production or development")
+		command.Flags().String("environment", "", "Cluster environment label, e.g. production or development (server default)")
+		command.Flags().String("criticality", "", "Cluster criticality label (server default)")
 		command.Flags().Bool("include-networking", true, "Provision the networking stack (default on; pass --include-networking=false to skip)")
 		registerIncludeDNSFlag(command)
 		_ = command.MarkFlagRequired("name")
