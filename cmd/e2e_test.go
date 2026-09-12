@@ -2300,43 +2300,55 @@ func (m baseMock) ResyncAwsClusterSSHKeys(clusterID string) (*client.ResyncSSHKe
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) GetAwsAccessInfo(clusterID string) (*client.ClusterAccessInfo, error) {
+func (m baseMock) GetAwsAccessInfo(clusterID string) (*client.AwsAccessInfo, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListAwsRegions(credentialID string) (*client.AwsCatalogResult, error) {
+func (m baseMock) ListAwsRegions(credentialID string) (*client.AwsRegionsCatalog, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListAwsInstanceTypes(credentialID, region string) (*client.AwsCatalogResult, error) {
+func (m baseMock) ListAwsInstanceTypes(credentialID, region string) (*client.AwsInstanceTypesCatalog, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListAwsVpcs(credentialID, region string) (*client.AwsCatalogResult, error) {
+func (m baseMock) ListAwsVpcs(credentialID, region string) (*client.AwsVpcsCatalog, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListAwsSubnets(credentialID, region, vpcID string) (*client.AwsCatalogResult, error) {
+func (m baseMock) ListAwsSubnets(credentialID, region, vpcID string) (*client.AwsSubnetsCatalog, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListAwsAvailabilityZones(credentialID, region string) (*client.AwsCatalogResult, error) {
+func (m baseMock) ListAwsAvailabilityZones(credentialID, region string) (*client.AwsAvailabilityZonesCatalog, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListAwsImages(credentialID, region string) (*client.AwsCatalogResult, error) {
+func (m baseMock) ListAwsImages(credentialID, region string) (*client.AwsImagesCatalog, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListAwsPricing(credentialID, region string) (*client.AwsCatalogResult, error) {
+func (m baseMock) ListAwsPricing(credentialID, region string) (*client.AwsPricingCatalog, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListAwsClusterInstanceTypes(clusterID string) (*client.AwsCatalogResult, error) {
+func (m baseMock) ListAwsClusterInstanceTypes(clusterID string) (*client.AwsInstanceTypesCatalog, error) {
 	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) ListAwsCredentials() ([]client.Credential, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAwsOnboarding(scope string) (*client.AwsOnboardingResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateAwsRoleCredential(request client.AwsRoleCredentialCreateRequest) (*client.AwsCredentialCreateResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateAwsKeysCredential(request client.AwsKeysCredentialCreateRequest) (*client.AwsCredentialCreateResponse, error) {
 	return nil, errors.New("not implemented")
 }
 

@@ -17,9 +17,11 @@ Gateway, and `aws` builds k3s/kubeadm on plain EC2 inside a VPC you already own 
 EKS use `ankra cluster managed`). The AWS create adopts your networking, so it takes `--vpc-id`,
 `--node-subnet-ids`, `--bastion-subnet-id` and `--bastion-allowed-ips` on top of the usual flags;
 list them with `ankra cluster aws vpcs|subnets|availability-zones --credential-id <id> --region
-<r>`. The AWS credential is the organisation's existing AWS credential (keys or role, connected in
-the dashboard; `ankra credentials aws list` shows the ids), and the SSH key credential comes from
-any provider's `ssh-key create`.
+<r>` (`subnets` shows each subnet's egress kind, which is what decides `--egress-mode`). The AWS
+credential is the organisation's existing AWS credential - an assumable role connected with
+`ankra credentials aws onboarding --scope self_managed` then `create-role`, or an access key pair
+with `create-keys`; `ankra credentials aws list` shows the ids. A role onboarded with scope `cost`
+cannot build clusters. The SSH key credential comes from any provider's `ssh-key create`.
 
 For a control plane the *provider* runs — DOKS, UKS, GKE, OVH MKS, AKS, EKS, Kapsule — use
 `ankra cluster managed ...` and the `ankra-managed-kubernetes` skill instead. Rule of thumb: this
@@ -38,6 +40,9 @@ ankra credentials upcloud create --name upcloud-prod
 ankra credentials digitalocean create --name do-prod
 ankra credentials proxmox create --name pve-lab
 ankra credentials morpheus create --name morpheus-prod
+ankra credentials aws onboarding --scope self_managed          # external id + launch-stack URL
+ankra credentials aws create-role --name aws-prod --role-arn <arn> --external-id <id> --scope self_managed
+ankra credentials aws create-keys --name aws-prod --access-key-id AKIA...   # prompts for the secret
 
 ankra credentials list                 # the IDs to pass to create
 ankra credentials get <name>

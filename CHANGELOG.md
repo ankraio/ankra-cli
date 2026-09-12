@@ -18,10 +18,16 @@
   `instance-types`, `vpcs`, `subnets`, `availability-zones`, `images` and
   `pricing`. The provider-agnostic `ankra cluster scale|upgrade|node-group|
   ssh-keys|deprovision|power-schedules` commands detect an AWS cluster like
-  any other. `ankra credentials aws list` shows the AWS credentials (keys or
-  role) the organisation has connected; connecting one stays in the
-  dashboard, because the platform serves that onboarding on the session
-  surface only.
+  any other. The catalogs answer with the shapes the platform ships: a price
+  the pricing API did not publish renders as `-`, never as 0, a VPC's DHCP
+  domain is shown as the domain, `(none)` or `?` (unreadable), and a subnet
+  lists its egress kind and how many foreign instances it carries, with `-`
+  when they could not be counted. `ankra credentials aws` connects the AWS
+  credential too: `onboarding --scope cost|provisioning|self_managed` prints
+  the external id and CloudFormation launch-stack URL for a role,
+  `create-role` registers the role the stack created, `create-keys`
+  registers an access key pair (the secret is prompted for, masked, or read
+  from stdin - never a flag), and `list` shows the ids.
 
 ### Fixed
 

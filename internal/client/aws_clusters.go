@@ -11,13 +11,24 @@ import (
 
 const awsKind = "aws"
 
+// AwsCNIFeatures is the cni_features object of the create body: four
+// booleans, each defaulting to false on the server when omitted. Sent only
+// when at least one feature is switched on.
+type AwsCNIFeatures struct {
+	KubeProxyReplacement bool `json:"kube_proxy_replacement,omitempty"`
+	Hubble               bool `json:"hubble,omitempty"`
+	WireguardEncryption  bool `json:"wireguard_encryption,omitempty"`
+	EbpfDataplane        bool `json:"ebpf_dataplane,omitempty"`
+}
+
 // CreateAwsClusterRequest mirrors the cluster-api decoder for
 // POST /api/v1/clusters/aws (ankra-rtpno): an Ankra-managed k3s or kubeadm
 // cluster on EC2 inside a VPC the operator already owns. Omitted optional
 // members take the server's default, so the zero value of an omitempty field
-// means "let the server decide" rather than "send zero": distribution k3s,
-// etcd_topology stacked, etcd_node_count 3, retention_policy retain, and the
-// egress mode is auto-detected from the node subnets when it is omitted.
+// means "let the server decide" rather than "send zero": distribution
+// kubeadm, etcd_topology stacked, etcd_node_count 3, retention_policy
+// retain, cni cilium, and the egress mode is resolved by preflight from the
+// node subnets when it is omitted.
 //
 // The VPC, the node subnets and the bastion subnet are adopted, never
 // created: AWS networking is the operator's, Ankra owns only the instances,
@@ -46,7 +57,7 @@ type CreateAwsClusterRequest struct {
 	EtcdNodeCount         int                   `json:"etcd_node_count,omitempty"`
 	EtcdType              string                `json:"etcd_type,omitempty"`
 	CNI                   string                `json:"cni,omitempty"`
-	CNIFeatures           []string              `json:"cni_features,omitempty"`
+	CNIFeatures           *AwsCNIFeatures       `json:"cni_features,omitempty"`
 	K3sDisabledComponents []string              `json:"k3s_disabled_components,omitempty"`
 	UbuntuSeries          string                `json:"ubuntu_series,omitempty"`
 	Architecture          string                `json:"architecture,omitempty"`
@@ -57,15 +68,23 @@ type CreateAwsClusterRequest struct {
 	IncludeNetworking     *bool                 `json:"include_networking,omitempty"`
 	IncludeDNS            *bool                 `json:"include_dns,omitempty"`
 	RetentionPolicy       string                `json:"retention_policy,omitempty"`
-	Classification        string                `json:"classification,omitempty"`
+	Environment           *string               `json:"environment,omitempty"`
+	Criticality           *string               `json:"criticality,omitempty"`
 }
 
+// CreateAwsClusterResponse is AwsCreateClusterResponse: the record the
+// create wrote plus the operation carrying the build. OperationID is null
+// when the create scheduled no work yet.
 type CreateAwsClusterResponse struct {
-	ClusterID string `json:"cluster_id"`
-	Name      string `json:"name"`
+	ClusterID   string  `json:"cluster_id"`
+	Name        string  `json:"name"`
+	Kind        string  `json:"kind"`
+	State       string  `json:"state"`
+	OperationID *string `json:"operation_id"`
 }
 
-// AwsPreflightItem is one check from POST /api/v1/clusters/aws/preflight.
+// AwsPreflightItem is one check from POST /api/v1/clusters/aws/preflight;
+// Status is ok, warning or error.
 type AwsPreflightItem struct {
 	Check   string `json:"check"`
 	Status  string `json:"status"`
@@ -74,86 +93,147 @@ type AwsPreflightItem struct {
 
 // AwsPreflightResult carries the checks plus the egress mode the server
 // settled on: when the request left egress_mode unset the server resolves
-// it from the node subnets' route tables, and ResolvedEgressMode is the
-// only place that decision is reported before the cluster is built.
+// it (existing or bastion_nat) from the node subnets' route tables, and
+// ResolvedEgressMode is the only place that decision is reported before the
+// cluster is built. It is null when the preflight could not resolve one -
+// a failed check, not a mode - so a nil here is "unknown", never "existing".
 type AwsPreflightResult struct {
-	CanProceed         bool               `json:"can_proceed"`
 	Items              []AwsPreflightItem `json:"items"`
-	ResolvedEgressMode string             `json:"resolved_egress_mode,omitempty"`
+	CanProceed         bool               `json:"can_proceed"`
+	ResolvedEgressMode *string            `json:"resolved_egress_mode"`
 }
 
-// AwsRegion is one region from the regions catalog.
+// AwsRegion is one region from the regions catalog: Slug is the API name
+// (eu-north-1), Name the human one (Europe (Stockholm)).
 type AwsRegion struct {
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name,omitempty"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
 }
 
-// AwsInstanceType is one EC2 instance type from the instance-types catalog.
+// AwsRegionsCatalog is GET /api/v1/clusters/aws/regions.
+type AwsRegionsCatalog struct {
+	Regions         []AwsRegion `json:"regions"`
+	PricingComplete bool        `json:"pricing_complete"`
+}
+
+// AwsInstanceType is one EC2 instance type from the instance-types and
+// pricing catalogs. The two prices are USD on-demand and nullable: a nil
+// price is one the pricing API did not publish for this type in this
+// region, which is not a free instance, so callers render it as unknown.
 type AwsInstanceType struct {
-	Name         string  `json:"name"`
-	VCPUs        int     `json:"vcpus"`
-	MemoryGiB    float64 `json:"memory_gib"`
-	Architecture string  `json:"architecture"`
-	HourlyPrice  float64 `json:"hourly_price"`
-	MonthlyPrice float64 `json:"monthly_price"`
-	Currency     string  `json:"currency"`
+	Name              string   `json:"name"`
+	VCPUs             int      `json:"vcpus"`
+	MemoryGiB         float64  `json:"memory_gib"`
+	Architecture      string   `json:"architecture"`
+	Category          string   `json:"category"`
+	HourlyPriceUSD    *float64 `json:"hourly_price_usd"`
+	MonthlyPriceUSD   *float64 `json:"monthly_price_usd"`
+	CurrentGeneration bool     `json:"current_generation"`
 }
 
-// AwsVpc is one VPC the credential can adopt.
+// AwsInstanceTypesCatalog is GET /api/v1/clusters/aws/instance-types and
+// GET /api/v1/clusters/aws/{cluster_id}/instance-types. PricingComplete
+// and IncompleteReasons say when the price columns are partial.
+type AwsInstanceTypesCatalog struct {
+	InstanceTypes     []AwsInstanceType `json:"instance_types"`
+	PricingComplete   bool              `json:"pricing_complete"`
+	IncompleteReasons []string          `json:"incomplete_reasons"`
+}
+
+// AwsVpc is one VPC the credential can adopt. DhcpDomainNameState is
+// three-valued - set (DhcpDomainName holds the DHCP option set's domain),
+// empty (the option set names none) or unknown (the option set could not be
+// read) - so a nil DhcpDomainName is not on its own "no domain".
 type AwsVpc struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	CIDR      string `json:"cidr"`
-	IsDefault bool   `json:"is_default"`
+	ID                  string  `json:"id"`
+	Name                string  `json:"name"`
+	CIDR                string  `json:"cidr"`
+	IsDefault           bool    `json:"is_default"`
+	DhcpDomainName      *string `json:"dhcp_domain_name"`
+	DhcpDomainNameState string  `json:"dhcp_domain_name_state"`
 }
 
-// AwsSubnet is one subnet of a VPC; Public reports whether its route table
-// reaches an internet gateway, which is what decides the egress mode.
+// AwsVpcsCatalog is GET /api/v1/clusters/aws/vpcs.
+type AwsVpcsCatalog struct {
+	Vpcs []AwsVpc `json:"vpcs"`
+}
+
+// AwsSubnetEgress is how a subnet's route table reaches the internet:
+// nat_gateway, nat_instance, internet_gateway, transit, none or unknown.
+type AwsSubnetEgress struct {
+	Kind string `json:"kind"`
+}
+
+// AwsSubnet is one subnet of a VPC. Egress decides which egress mode a
+// create can use; ForeignInstanceCount is the number of instances in the
+// subnet Ankra did not create (bastion_nat is refused when it is non-zero)
+// and is null when the instances could not be listed.
 type AwsSubnet struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	CIDR             string `json:"cidr"`
-	AvailabilityZone string `json:"availability_zone"`
-	VpcID            string `json:"vpc_id"`
-	Public           bool   `json:"public"`
+	ID                   string          `json:"id"`
+	Name                 string          `json:"name"`
+	CIDR                 string          `json:"cidr"`
+	AvailabilityZone     string          `json:"availability_zone"`
+	MapPublicIPOnLaunch  bool            `json:"map_public_ip_on_launch"`
+	Egress               AwsSubnetEgress `json:"egress"`
+	ForeignInstanceCount *int            `json:"foreign_instance_count"`
 }
 
+// AwsSubnetsCatalog is GET /api/v1/clusters/aws/subnets.
+type AwsSubnetsCatalog struct {
+	Subnets []AwsSubnet `json:"subnets"`
+}
+
+// AwsAvailabilityZone is one zone of a region: Name is the zone name
+// (eu-north-1a), ID the account-independent zone id (eun1-az1).
 type AwsAvailabilityZone struct {
-	Name   string `json:"name"`
-	ZoneID string `json:"zone_id"`
-	State  string `json:"state"`
+	Name  string `json:"name"`
+	ID    string `json:"id"`
+	State string `json:"state"`
 }
 
-// AwsImage is one Ubuntu AMI the platform will boot nodes from.
-type AwsImage struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	UbuntuSeries string `json:"ubuntu_series"`
-	Architecture string `json:"architecture"`
-	CreatedAt    string `json:"created_at"`
+// AwsAvailabilityZonesCatalog is GET /api/v1/clusters/aws/availability-zones.
+type AwsAvailabilityZonesCatalog struct {
+	Zones []AwsAvailabilityZone `json:"zones"`
 }
 
-// AwsPriceItem is one priced line from the pricing catalog.
-type AwsPriceItem struct {
-	Item         string  `json:"item"`
-	HourlyPrice  float64 `json:"hourly_price"`
-	MonthlyPrice float64 `json:"monthly_price"`
-	Currency     string  `json:"currency"`
+// AwsImagesCatalog is GET /api/v1/clusters/aws/images: the Ubuntu series
+// and CPU architectures a create may ask for, not individual AMIs - the
+// platform resolves the AMI itself at build time.
+type AwsImagesCatalog struct {
+	UbuntuSeries  []string `json:"ubuntu_series"`
+	Architectures []string `json:"architectures"`
+	DefaultSeries string   `json:"default_series"`
 }
 
-// AwsCatalogResult is the envelope the AWS catalog routes return. Each route
-// fills its own member; PricingComplete and IncompleteReasons follow the
-// Scaleway catalog convention so a partial price list says what is missing.
-type AwsCatalogResult struct {
-	Regions           []AwsRegion           `json:"regions,omitempty"`
-	InstanceTypes     []AwsInstanceType     `json:"instance_types,omitempty"`
-	Vpcs              []AwsVpc              `json:"vpcs,omitempty"`
-	Subnets           []AwsSubnet           `json:"subnets,omitempty"`
-	AvailabilityZones []AwsAvailabilityZone `json:"availability_zones,omitempty"`
-	Images            []AwsImage            `json:"images,omitempty"`
-	Pricing           []AwsPriceItem        `json:"pricing,omitempty"`
-	PricingComplete   bool                  `json:"pricing_complete"`
-	IncompleteReasons []string              `json:"incomplete_reasons,omitempty"`
+// AwsStoragePrice is the EBS line of the pricing catalog; the gp3 price is
+// nullable like the instance prices.
+type AwsStoragePrice struct {
+	Gp3GiBMonthUSD *float64 `json:"gp3_gib_month_usd"`
+}
+
+// AwsPricingCatalog is GET /api/v1/clusters/aws/pricing: the on-demand
+// instance prices a cluster estimate is built from plus the root-volume
+// storage price.
+type AwsPricingCatalog struct {
+	InstanceTypes     []AwsInstanceType `json:"instance_types"`
+	Storage           AwsStoragePrice   `json:"storage"`
+	PricingComplete   bool              `json:"pricing_complete"`
+	IncompleteReasons []string          `json:"incomplete_reasons"`
+}
+
+// AwsAccessInfo is GET /api/v1/clusters/aws/{cluster_id}/access-info: the
+// bastion's public address and the SSH users on either side of the jump,
+// plus the control plane's private addresses. BastionIP and ControlPlaneIP
+// are null while the instances have no address yet.
+type AwsAccessInfo struct {
+	BastionIP       *string  `json:"bastion_ip"`
+	BastionHost     string   `json:"bastion_host"`
+	BastionPort     int      `json:"bastion_port"`
+	BastionUser     string   `json:"bastion_user"`
+	TargetUser      string   `json:"target_user"`
+	ControlPlaneIP  *string  `json:"control_plane_ip"`
+	ControlPlaneIPs []string `json:"control_plane_ips"`
+	ClusterName     *string  `json:"cluster_name"`
 }
 
 func (c *Client) CreateAwsCluster(request CreateAwsClusterRequest) (*CreateAwsClusterResponse, error) {
@@ -323,20 +403,20 @@ func (c *Client) ResyncAwsClusterSSHKeys(clusterID string) (*ResyncSSHKeysResult
 }
 
 // GetAwsAccessInfo reads the bastion and control plane addresses plus the
-// SSH jump details, the same shape the OVH access-info route answers.
-func (c *Client) GetAwsAccessInfo(clusterID string) (*ClusterAccessInfo, error) {
-	var result ClusterAccessInfo
+// SSH users and port for the jump.
+func (c *Client) GetAwsAccessInfo(clusterID string) (*AwsAccessInfo, error) {
+	var result AwsAccessInfo
 	if getError := c.getJSON(c.providerClusterURL(awsKind, clusterID, "access-info"), &result); getError != nil {
 		return nil, getError
 	}
 	return &result, nil
 }
 
-// awsCatalog reads one of the credential-scoped AWS catalogs. Every catalog
-// takes the credential; region and vpc_id are sent only when given, so a
-// region-less read (regions) and a VPC-scoped one (subnets) share the path
-// shape.
-func (c *Client) awsCatalog(catalog, credentialID, region, vpcID string) (*AwsCatalogResult, error) {
+// awsCatalogURL builds the URL of one credential-scoped AWS catalog. Every
+// catalog takes the credential; region and vpc_id are sent only when given,
+// so a region-less read (regions) and a VPC-scoped one (subnets) share the
+// path shape.
+func (c *Client) awsCatalogURL(catalog, credentialID, region, vpcID string) string {
 	query := url.Values{}
 	query.Set("credential_id", credentialID)
 	if region != "" {
@@ -345,47 +425,53 @@ func (c *Client) awsCatalog(catalog, credentialID, region, vpcID string) (*AwsCa
 	if vpcID != "" {
 		query.Set("vpc_id", vpcID)
 	}
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/aws/%s?%s", c.BaseURL, catalog, query.Encode())
-	var result AwsCatalogResult
-	if getError := c.getJSON(endpoint, &result); getError != nil {
+	return fmt.Sprintf("%s/api/v1/clusters/aws/%s?%s", c.BaseURL, catalog, query.Encode())
+}
+
+// awsCatalog reads one catalog into its own response type: each AWS
+// catalog is a separate endpoint with its own envelope, so there is no
+// shared result the members could be missing from.
+func awsCatalog[T any](c *Client, catalog, credentialID, region, vpcID string) (*T, error) {
+	var result T
+	if getError := c.getJSON(c.awsCatalogURL(catalog, credentialID, region, vpcID), &result); getError != nil {
 		return nil, getError
 	}
 	return &result, nil
 }
 
-func (c *Client) ListAwsRegions(credentialID string) (*AwsCatalogResult, error) {
-	return c.awsCatalog("regions", credentialID, "", "")
+func (c *Client) ListAwsRegions(credentialID string) (*AwsRegionsCatalog, error) {
+	return awsCatalog[AwsRegionsCatalog](c, "regions", credentialID, "", "")
 }
 
-func (c *Client) ListAwsInstanceTypes(credentialID, region string) (*AwsCatalogResult, error) {
-	return c.awsCatalog("instance-types", credentialID, region, "")
+func (c *Client) ListAwsInstanceTypes(credentialID, region string) (*AwsInstanceTypesCatalog, error) {
+	return awsCatalog[AwsInstanceTypesCatalog](c, "instance-types", credentialID, region, "")
 }
 
-func (c *Client) ListAwsVpcs(credentialID, region string) (*AwsCatalogResult, error) {
-	return c.awsCatalog("vpcs", credentialID, region, "")
+func (c *Client) ListAwsVpcs(credentialID, region string) (*AwsVpcsCatalog, error) {
+	return awsCatalog[AwsVpcsCatalog](c, "vpcs", credentialID, region, "")
 }
 
-func (c *Client) ListAwsSubnets(credentialID, region, vpcID string) (*AwsCatalogResult, error) {
-	return c.awsCatalog("subnets", credentialID, region, vpcID)
+func (c *Client) ListAwsSubnets(credentialID, region, vpcID string) (*AwsSubnetsCatalog, error) {
+	return awsCatalog[AwsSubnetsCatalog](c, "subnets", credentialID, region, vpcID)
 }
 
-func (c *Client) ListAwsAvailabilityZones(credentialID, region string) (*AwsCatalogResult, error) {
-	return c.awsCatalog("availability-zones", credentialID, region, "")
+func (c *Client) ListAwsAvailabilityZones(credentialID, region string) (*AwsAvailabilityZonesCatalog, error) {
+	return awsCatalog[AwsAvailabilityZonesCatalog](c, "availability-zones", credentialID, region, "")
 }
 
-func (c *Client) ListAwsImages(credentialID, region string) (*AwsCatalogResult, error) {
-	return c.awsCatalog("images", credentialID, region, "")
+func (c *Client) ListAwsImages(credentialID, region string) (*AwsImagesCatalog, error) {
+	return awsCatalog[AwsImagesCatalog](c, "images", credentialID, region, "")
 }
 
-func (c *Client) ListAwsPricing(credentialID, region string) (*AwsCatalogResult, error) {
-	return c.awsCatalog("pricing", credentialID, region, "")
+func (c *Client) ListAwsPricing(credentialID, region string) (*AwsPricingCatalog, error) {
+	return awsCatalog[AwsPricingCatalog](c, "pricing", credentialID, region, "")
 }
 
 // ListAwsClusterInstanceTypes reads the instance types available to an
 // existing cluster, scoped by the cluster's own credential and region so the
 // caller does not have to repeat them.
-func (c *Client) ListAwsClusterInstanceTypes(clusterID string) (*AwsCatalogResult, error) {
-	var result AwsCatalogResult
+func (c *Client) ListAwsClusterInstanceTypes(clusterID string) (*AwsInstanceTypesCatalog, error) {
+	var result AwsInstanceTypesCatalog
 	if getError := c.getJSON(c.providerClusterURL(awsKind, clusterID, "instance-types"), &result); getError != nil {
 		return nil, getError
 	}
