@@ -1275,6 +1275,14 @@ func (m baseMock) DiscoverEndpointModels(endpointID string) ([]string, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListAILaneModels() ([]client.AILaneModel, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetAILaneModel(lane string, modelKey string) ([]client.AILaneModel, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListCharts(page, pageSize int, onlySubscribed bool) (*client.ListChartsResponse, error) {
 	return nil, errors.New("not implemented")
 }

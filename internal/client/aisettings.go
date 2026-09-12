@@ -3,6 +3,7 @@ package client
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 // AI provider settings and the custom model catalog, reachable over the
@@ -265,4 +266,54 @@ func (c *Client) DiscoverEndpointModels(endpointID string) ([]string, error) {
 		return nil, err
 	}
 	return response.Models, nil
+}
+
+// AILaneModel is one AI lane - a function such as stack README generation or
+// AI code review - with the organisation's selection and the model the lane
+// runs on today. An empty SelectedModelKey means the lane follows its default
+// tier; IsSelectionStale means the selection no longer resolves and the lane
+// is running on that default.
+type AILaneModel struct {
+	Lane               string `json:"lane"`
+	DisplayName        string `json:"display_name"`
+	Description        string `json:"description"`
+	DefaultTier        string `json:"default_tier"`
+	SelectedModelKey   string `json:"selected_model_key"`
+	EffectiveModelID   string `json:"effective_model_id"`
+	EffectiveModelName string `json:"effective_model_name"`
+	IsSelectionStale   bool   `json:"is_selection_stale"`
+}
+
+// aiLaneModelsResponse is the shape both lane-model routes answer.
+type aiLaneModelsResponse struct {
+	Lanes []AILaneModel `json:"lanes"`
+}
+
+// ListAILaneModels returns every AI lane with its selection and the model it
+// runs on (member-level).
+func (c *Client) ListAILaneModels() ([]AILaneModel, error) {
+	var response aiLaneModelsResponse
+	if requestError := c.sendJSON(http.MethodGet, c.BaseURL+aiSettingsBasePath+"/lane-models", nil, &response); requestError != nil {
+		return nil, requestError
+	}
+	return response.Lanes, nil
+}
+
+// SetAILaneModel runs one lane on a catalog key or an exact OpenRouter model
+// id; an empty modelKey sends an explicit null, which returns the lane to its
+// default tier. It requires the ai.manage permission and answers every lane
+// as it stands after the change. The lane is path-escaped, so a name carrying
+// a slash or a query character is refused as an unknown lane instead of
+// reaching a different route.
+func (c *Client) SetAILaneModel(lane string, modelKey string) ([]AILaneModel, error) {
+	payload := map[string]any{"model_key": nil}
+	if modelKey != "" {
+		payload["model_key"] = modelKey
+	}
+	var response aiLaneModelsResponse
+	laneURL := fmt.Sprintf("%s%s/lane-models/%s", c.BaseURL, aiSettingsBasePath, url.PathEscape(lane))
+	if requestError := c.sendJSON(http.MethodPut, laneURL, payload, &response); requestError != nil {
+		return nil, requestError
+	}
+	return response.Lanes, nil
 }

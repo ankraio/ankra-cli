@@ -373,6 +373,8 @@ type APIClient interface {
 	UpdateAIEndpoint(endpointID, name, baseURL, apiKey string) (*client.AIEndpoint, error)
 	DeleteAIEndpoint(endpointID string) error
 	DiscoverEndpointModels(endpointID string) ([]string, error)
+	ListAILaneModels() ([]client.AILaneModel, error)
+	SetAILaneModel(lane string, modelKey string) ([]client.AILaneModel, error)
 
 	ListCharts(page, pageSize int, onlySubscribed bool) (*client.ListChartsResponse, error)
 	SearchCharts(query string) ([]client.ChartItem, error)
