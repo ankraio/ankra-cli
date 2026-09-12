@@ -591,6 +591,11 @@ func TestApplicationAddCommandMapsEveryRegistryFlag(t *testing.T) {
 // An application added without --registry-url publishes to the organisation's
 // own Ankra registry project. The key is omitted entirely rather than sent
 // empty: an empty declaration would name a registry with no host.
+//
+// The command says which registry that is. It used to print nothing at all,
+// which is what PLA-825 reported: an organisation that also runs its own
+// Harbor had no way to see the choice had been made for it, and found out
+// from a build workflow logging in to the wrong registry.
 func TestApplicationAddCommandOmitsTheRegistryWhenUndeclared(t *testing.T) {
 	repositoryPath := createTestGitRepository(
 		t,
@@ -619,8 +624,14 @@ func TestApplicationAddCommandOmitsTheRegistryWhenUndeclared(t *testing.T) {
 	if strings.Contains(string(encoded), "image_registry") {
 		t.Errorf("the key must be omitted entirely, got %s", encoded)
 	}
-	if strings.Contains(output.String(), "Registry:") {
-		t.Errorf("nothing to report without a declaration: %q", output.String())
+	if !strings.Contains(output.String(), "Registry:") {
+		t.Errorf("the defaulted registry must be named, not left silent: %q", output.String())
+	}
+	if !strings.Contains(output.String(), ankraRegistryHost) {
+		t.Errorf("the default is the organisation's Ankra registry and must be named as such: %q", output.String())
+	}
+	if !strings.Contains(output.String(), "--registry-url") {
+		t.Errorf("the notice must name the flag that overrides the default: %q", output.String())
 	}
 }
 
