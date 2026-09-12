@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -180,5 +181,23 @@ func TestCreateAwsKeysCredential_SurfacesConflict(t *testing.T) {
 	_, createError := testClient.CreateAwsKeysCredential(AwsKeysCredentialCreateRequest{Name: "aws-keys", AccessKeyID: "a", SecretAccessKey: "b"})
 	if createError == nil {
 		t.Fatal("a 409 must surface as an error")
+	}
+}
+
+func TestListAwsCredentialsCarriesScopeAndAuthMethod(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`[{"id":"c1","name":"prod","provider":"aws","organisation_id":"o","available":true,"created_at":"2026-09-12T00:00:00Z","scope":"self_managed","auth_method":"role"},{"id":"c2","name":"legacy","provider":"aws","organisation_id":"o","available":true,"created_at":"2026-09-12T00:00:00Z"}]`))
+	}))
+	defer server.Close()
+	credentials, listError := New("token", server.URL).ListAwsCredentials()
+	if listError != nil {
+		t.Fatalf("unexpected error: %v", listError)
+	}
+	if len(credentials) != 2 || credentials[0].Scope == nil || *credentials[0].Scope != "self_managed" || credentials[0].AuthMethod == nil || *credentials[0].AuthMethod != "role" {
+		t.Fatalf("expected scope and auth_method on the first credential, got %+v", credentials)
+	}
+	if credentials[1].Scope != nil || credentials[1].AuthMethod != nil {
+		t.Fatalf("an absent scope must stay nil, got %+v", credentials[1])
 	}
 }
