@@ -62,6 +62,15 @@ func scalewayControlPlaneOps() controlPlaneOps {
 	}
 }
 
+func awsControlPlaneOps() controlPlaneOps {
+	return controlPlaneOps{
+		provider:        "aws",
+		get:             apiClient.GetAwsControlPlane,
+		setCount:        apiClient.ChangeAwsControlPlaneCount,
+		setInstanceType: apiClient.ChangeAwsControlPlaneInstanceType,
+	}
+}
+
 func proxmoxControlPlaneOps() controlPlaneOps {
 	return controlPlaneOps{
 		provider:        "proxmox",

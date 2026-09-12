@@ -40,6 +40,33 @@ name where it previously accepted only its id.
   minute of the platform being unreachable instead of reporting one failed
   read the way it reports a failed run.
 
+### Added
+
+- **`ankra cluster aws` builds self-managed k3s (or kubeadm) clusters on EC2**
+  (ankra-rtpno.13). This is not EKS: Ankra installs Kubernetes on plain
+  instances inside a VPC you already own, so `create` and `preflight` take
+  the VPC, the node subnets, the bastion subnet and the CIDRs allowed to
+  reach the bastion, and adopt them rather than creating networking. Egress
+  for the nodes is detected from the subnets' route tables, or pinned with
+  `--egress-mode existing|bastion_nat`; `preflight` reports what it resolved
+  before anything is built. The group carries the same day-2 verbs as the
+  other providers - `stop`, `start`, `deprovision` (with a confirmation
+  prompt), `workers`, `k8s-version`, `access-info`, `control-plane`, `nodes`
+  and `bastion` - plus the catalogs that answer the create flags: `regions`,
+  `instance-types`, `vpcs`, `subnets`, `availability-zones`, `images` and
+  `pricing`. The provider-agnostic `ankra cluster scale|upgrade|node-group|
+  ssh-keys|deprovision|power-schedules` commands detect an AWS cluster like
+  any other. The catalogs answer with the shapes the platform ships: a price
+  the pricing API did not publish renders as `-`, never as 0, a VPC's DHCP
+  domain is shown as the domain, `(none)` or `?` (unreadable), and a subnet
+  lists its egress kind and how many foreign instances it carries, with `-`
+  when they could not be counted. `ankra credentials aws` connects the AWS
+  credential too: `onboarding --scope cost|provisioning|self_managed` prints
+  the external id and CloudFormation launch-stack URL for a role,
+  `create-role` registers the role the stack created, `create-keys`
+  registers an access key pair (the secret is prompted for, masked, or read
+  from stdin - never a flag), and `list` shows the ids.
+
 ### Fixed
 
 - **`pipeline logs` prints the output of steps a current agent ran.** The

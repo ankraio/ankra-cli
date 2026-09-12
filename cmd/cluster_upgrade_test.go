@@ -18,9 +18,11 @@ type clusterUpgradeMock struct {
 	cluster       client.ClusterListItem
 	getClusterErr error
 
-	hetznerCalls []k8sUpgradeCall
-	ovhCalls     []k8sUpgradeCall
-	upcloudCalls []k8sUpgradeCall
+	hetznerCalls  []k8sUpgradeCall
+	ovhCalls      []k8sUpgradeCall
+	upcloudCalls  []k8sUpgradeCall
+	scalewayCalls []k8sUpgradeCall
+	awsCalls      []k8sUpgradeCall
 }
 
 func (m *clusterUpgradeMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
@@ -54,19 +56,33 @@ func (m *clusterUpgradeMock) UpgradeUpcloudK8sVersion(clusterID, targetVersion s
 	return m.upgradeResult(), nil
 }
 
+func (m *clusterUpgradeMock) UpgradeScalewayK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
+	m.scalewayCalls = append(m.scalewayCalls, k8sUpgradeCall{ClusterID: clusterID, TargetVersion: targetVersion, Force: force})
+	return m.upgradeResult(), nil
+}
+
+func (m *clusterUpgradeMock) UpgradeAwsK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
+	m.awsCalls = append(m.awsCalls, k8sUpgradeCall{ClusterID: clusterID, TargetVersion: targetVersion, Force: force})
+	return m.upgradeResult(), nil
+}
+
 func TestClusterUpgrade_DispatchesByKind(t *testing.T) {
 	const clusterID = "62f4559a-a44d-46d7-aab3-a57c9dd6b4c6"
 	const targetVersion = "v1.36.1+k3s1"
 
 	cases := []struct {
-		kind        string
-		wantHetzner int
-		wantOvh     int
-		wantUpcloud int
+		kind         string
+		wantHetzner  int
+		wantOvh      int
+		wantUpcloud  int
+		wantScaleway int
+		wantAws      int
 	}{
 		{kind: "hetzner", wantHetzner: 1},
 		{kind: "ovh", wantOvh: 1},
 		{kind: "upcloud", wantUpcloud: 1},
+		{kind: "scaleway", wantScaleway: 1},
+		{kind: "aws", wantAws: 1},
 	}
 
 	for _, tc := range cases {
@@ -91,6 +107,12 @@ func TestClusterUpgrade_DispatchesByKind(t *testing.T) {
 			}
 			if len(mock.upcloudCalls) != tc.wantUpcloud {
 				t.Errorf("upcloud calls = %d, want %d", len(mock.upcloudCalls), tc.wantUpcloud)
+			}
+			if len(mock.scalewayCalls) != tc.wantScaleway {
+				t.Errorf("scaleway calls = %d, want %d", len(mock.scalewayCalls), tc.wantScaleway)
+			}
+			if len(mock.awsCalls) != tc.wantAws {
+				t.Errorf("aws calls = %d, want %d", len(mock.awsCalls), tc.wantAws)
 			}
 			if !strings.Contains(out, "v1.36.1+k3s1") {
 				t.Errorf("expected new version in output, got:\n%s", out)
@@ -150,7 +172,7 @@ func TestUpgradeFunctionForKind_SupportedKinds(t *testing.T) {
 	mock := &clusterUpgradeMock{}
 	setMockClient(t, mock)
 
-	for _, kind := range []string{"hetzner", "ovh", "upcloud", "digitalocean", "proxmox", "morpheus"} {
+	for _, kind := range []string{"hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "aws", "proxmox", "morpheus"} {
 		if _, supported := upgradeFunctionForKind(kind); !supported {
 			t.Errorf("kind %q should be upgradeable", kind)
 		}

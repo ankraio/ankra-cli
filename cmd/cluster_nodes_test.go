@@ -138,6 +138,7 @@ func TestClusterNodesRestartSurfaceMatchesProviderSupport(t *testing.T) {
 		"upcloud":      true,
 		"digitalocean": true,
 		"scaleway":     true,
+		"aws":          true,
 		"proxmox":      true,
 		"morpheus":     false,
 	}

@@ -2180,6 +2180,178 @@ func (m baseMock) ListScalewayNetworks(credentialID, region, zone string) (*clie
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateAwsCluster(request client.CreateAwsClusterRequest) (*client.CreateAwsClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PreflightAwsCluster(request client.CreateAwsClusterRequest) (*client.AwsPreflightResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeprovisionAwsCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StopAwsCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartAwsCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAwsWorkerCount(clusterID string) (*client.WorkerCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ScaleAwsWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAwsK8sVersion(clusterID string) (*client.K8sVersionInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpgradeAwsK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAwsNodeGroups(clusterID string) (*client.NodeGroupListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddAwsNodeGroup(ctx context.Context, clusterID string, request client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) ScaleAwsNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAwsNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAwsNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAwsNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteAwsNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetAwsNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAwsNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, request client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetAwsControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeAwsControlPlaneCount(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeAwsControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAwsClusterNodes(clusterID string) (*client.NodeListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAwsClusterNode(clusterID, nodeID string) (*client.NodeDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RestartAwsClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AwsNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAwsBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DiagnoseAwsBastion(ctx context.Context, clusterID string) (*client.BastionDiagnoseResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAwsClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAwsClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResyncAwsClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAwsAccessInfo(clusterID string) (*client.AwsAccessInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAwsRegions(credentialID string) (*client.AwsRegionsCatalog, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAwsInstanceTypes(credentialID, region string) (*client.AwsInstanceTypesCatalog, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAwsVpcs(credentialID, region string) (*client.AwsVpcsCatalog, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAwsSubnets(credentialID, region, vpcID string) (*client.AwsSubnetsCatalog, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAwsAvailabilityZones(credentialID, region string) (*client.AwsAvailabilityZonesCatalog, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAwsImages(credentialID, region string) (*client.AwsImagesCatalog, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAwsPricing(credentialID, region string) (*client.AwsPricingCatalog, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAwsClusterInstanceTypes(clusterID string) (*client.AwsInstanceTypesCatalog, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAwsCredentials() ([]client.Credential, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAwsOnboarding(scope string) (*client.AwsOnboardingResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateAwsRoleCredential(request client.AwsRoleCredentialCreateRequest) (*client.AwsCredentialCreateResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateAwsKeysCredential(request client.AwsKeysCredentialCreateRequest) (*client.AwsCredentialCreateResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateProxmoxCluster(request client.CreateProxmoxClusterRequest) (*client.CreateProxmoxClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
