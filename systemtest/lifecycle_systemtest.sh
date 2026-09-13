@@ -952,7 +952,7 @@ run_aws_provider() {
 
   # 5. Node list through the provider node route: both nodes present.
   select_cluster "$name"
-  out="$(ank cluster nodes list "$id")"
+  out="$(ank cluster aws nodes list "$id")"
   printf '%s\n' "$out"
   if [ "$(printf '%s\n' "$out" | grep -cE 'control[-_ ]?plane|worker')" -ge 2 ]; then
     pass "$label node list (control plane + worker)"

@@ -267,7 +267,7 @@ func TestDeprovisionAwsCluster(t *testing.T) {
 		jsonResponse(t, responseWriter, http.StatusOK, ProviderDeprovisionClusterResponse{Success: true, ClusterID: "cluster-123"})
 	})
 
-	result, deprovisionError := testClient.DeprovisionAwsCluster("cluster-123")
+	result, deprovisionError := testClient.DeprovisionAwsCluster("cluster-123", false)
 	if deprovisionError != nil {
 		t.Fatalf("DeprovisionAwsCluster: %v", deprovisionError)
 	}

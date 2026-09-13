@@ -513,7 +513,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			}
 			return nil
 		case cloudClusterKindAws:
-			result, deprovisionError := apiClient.DeprovisionAwsCluster(clusterID)
+			result, deprovisionError := apiClient.DeprovisionAwsCluster(clusterID, force)
 			if deprovisionError != nil {
 				return fmt.Errorf("deprovisioning AWS cluster: %w", deprovisionError)
 			}
