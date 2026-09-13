@@ -156,7 +156,10 @@ A failed build carries an error_class saying whose failure it was. build_failed
 is the repository's - the recipe did not build - and is the one worth reading
 the error_message for. clone_auth and recipe_missing are the application's
 configuration. push_failed, timeout and capacity are Ankra's, and are already
-visible to Ankra without anyone reporting them.`,
+visible to Ankra without anyone reporting them. build_unknown is Ankra's too,
+but not visible the same way: the build ran and failed in a way the builder
+could not classify, and its error_message - the end of the build's output - is
+the only copy of that output, so include it when reporting the failure.`,
 		Example: "  ankra application build get <application-id> <build-id>",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, arguments []string) error {
@@ -380,7 +383,9 @@ func waitReadError(waitContext context.Context, what string, readError error) er
 // describeFailedBuild names whose failure it was, because the error classes
 // split cleanly and the split is the useful part: build_failed is the
 // repository's to fix, the platform classes are Ankra's and are already
-// visible to Ankra.
+// visible to Ankra. build_unknown is Ankra's as well, but it is a build that
+// ran and failed unclassified, never one that could not run, and its message
+// is the only copy of the build's output Ankra keeps.
 func describeFailedBuild(build followedBuild) error {
 	errorClass := ""
 	if build.ErrorClass != nil {
@@ -405,6 +410,12 @@ func describeFailedBuild(build followedBuild) error {
 	case "push_failed", "timeout", "capacity":
 		return fmt.Errorf("the build did not finish (%s): %s", errorClass, fallbackMessage(message,
 			"this is a platform-side failure and Ankra can see it"))
+	case "build_unknown":
+		if message == "" {
+			return errors.New("the build ran and failed unclassified (build_unknown), and the builder recorded none of its output")
+		}
+		return fmt.Errorf("the build ran and failed unclassified (build_unknown); "+
+			"Ankra keeps no other copy of this output, so include it when reporting the failure: %s", message)
 	}
 	return fmt.Errorf("the build failed: %s", fallbackMessage(message, "no reason was recorded"))
 }
