@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra cluster aws create` and `preflight` no longer require `--bastion-allowed-ips`.**
+  Omitted, the bastion's SSH port is open to everyone (`0.0.0.0/0`): access is
+  key-only, password login is off and sshd is rate-limited on the host, the
+  same posture as the other providers' bastions. `0.0.0.0/0` is also accepted
+  when given. Name your own CIDRs to restrict it; `preflight` reports the
+  exposure as `bastion_ssh_exposure` either way. (ankra-rtpno)
+
 ### Added
 
 - **`ankra cluster aws` builds self-managed k3s (or kubeadm) clusters on EC2**

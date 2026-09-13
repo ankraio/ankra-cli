@@ -994,7 +994,7 @@ func registerAwsCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("network-ip-range", "", "Created network only: CIDR of the VPC Ankra creates (server default: 10.0.0.0/16)")
 		command.Flags().StringSlice("availability-zones", nil, "Created network only: zones the subnets are created in, comma-separated (server default: 1 zone, or 3 when --control-plane-count is 3 or more)")
 		command.Flags().Bool("nat-gateway-single-zone", false, "Created network only: with --egress-mode nat_gateway, place one NAT gateway in the first zone instead of one per zone (cheaper, not zone-redundant)")
-		command.Flags().StringSlice("bastion-allowed-ips", nil, "CIDRs allowed to reach the bastion over SSH, comma-separated (required)")
+		command.Flags().StringSlice("bastion-allowed-ips", nil, "CIDRs allowed to reach the bastion over SSH, comma-separated (server default: 0.0.0.0/0 - open to everyone, key-only and rate-limited on the host; name your own CIDRs to restrict it)")
 		command.Flags().String("egress-mode", "", "How the nodes reach the internet: 'nat_gateway' (created network only; default for one), 'bastion_nat' (either; the bastion is the NAT) or 'existing' (adopted VPC only; the subnets' own NAT or internet gateway, and the default there, detected from their route tables)")
 		command.Flags().String("bastion-instance-type", "", "Bastion instance type (server default: t3.small)")
 		command.Flags().Int("control-plane-count", 0, "Control plane node count, 1-9; at least 3 when the network spans more than one zone, and 3 or more makes a created network default to three zones (server default: 1)")
@@ -1024,7 +1024,6 @@ func registerAwsCreateFlags(commands ...*cobra.Command) {
 		_ = command.MarkFlagRequired("credential-id")
 		_ = command.MarkFlagRequired("ssh-key-credential-id")
 		_ = command.MarkFlagRequired("region")
-		_ = command.MarkFlagRequired("bastion-allowed-ips")
 	}
 }
 
