@@ -28,7 +28,9 @@
 #    needs only credentials - no pre-made VPC: it preflights, creates a cluster
 #    with 1 control plane + 1 worker in a network Ankra creates (egress
 #    bastion_nat by default, the cheapest for CI), waits for online + Ready,
-#    checks access-info and the node list, stops and starts the cluster, then
+#    checks access-info and the node list, stops and starts the cluster,
+#    upgrades Kubernetes to the newest listed version (the create pins the
+#    second-newest so there is a step to take), then
 #    deprovisions - and afterwards asserts with the AWS CLI that nothing tagged
 #    ankra.cloud/cluster-id=<id> remains: instances, security groups, key
 #    pairs, IAM roles/instance profiles AND the created network itself (VPC,
@@ -832,14 +834,26 @@ aws_egress_mode() {
 # request create sends. Without AWS_VPC_ID it names no network at all beyond
 # what was explicitly asked for, so the platform creates one with its own
 # defaults (one zone for this 1-control-plane cluster).
+# The AWS lane creates on the second-newest listed version so its upgrade
+# step has somewhere to go (AWS_CREATE_K8S_VERSION overrides; empty when the
+# listing has fewer than two entries, in which case the upgrade is skipped).
+aws_pick_create_version() {
+  local distribution="$1" versions_cmd="k3s-versions"
+  if [ -n "${AWS_CREATE_K8S_VERSION:-}" ]; then echo "$AWS_CREATE_K8S_VERSION"; return; fi
+  if [ "$distribution" = "kubeadm" ]; then versions_cmd="kubeadm-versions"; fi
+  ank cluster "$versions_cmd" | awk '/Available versions:/{f=1;next} f&&NF{n++; if(n==2){print $1; exit}}'
+}
+
 aws_create_args() {
-  local name="$1" distribution="$2" allowed_ips="$3" egress_mode
+  local name="$1" distribution="$2" allowed_ips="$3" egress_mode create_version
   local -a args=(--name "$name" --credential-id "$AWS_CREDENTIAL_ID" --ssh-key-credential-id "$SSH_KEY_CREDENTIAL_ID" \
     --region "$AWS_REGION" --bastion-allowed-ips "$allowed_ips" \
     --bastion-instance-type "$AWS_BASTION_TYPE" \
     --control-plane-type "$AWS_CP_TYPE" --control-plane-count 1 \
     --worker-type "$AWS_WORKER_TYPE" --worker-count 1 \
     --distribution "$distribution")
+  create_version="$(aws_pick_create_version "$distribution")"
+  if [ -n "$create_version" ]; then args+=(--kubernetes-version "$create_version"); fi
   if aws_adopts_vpc; then
     args+=(--vpc-id "$AWS_VPC_ID" --node-subnet-ids "$AWS_NODE_SUBNET_IDS" --bastion-subnet-id "$AWS_BASTION_SUBNET_ID")
   else
@@ -970,6 +984,24 @@ run_aws_provider() {
     pass "$label start -> online (cp+worker Ready)"
   else
     fail "$label start"
+  fi
+
+  # 6b. Kubernetes upgrade to the newest listed version (the create pinned
+  # the second-newest so there is a step to take): cordon, drain, upgrade,
+  # Ready at the target - control plane first, then the worker.
+  local target want_ver
+  target="$(pick_upgrade_target "$name" "$distribution")"
+  want_ver="${target#v}"; want_ver="${want_ver%%+*}"
+  if [ -z "$target" ]; then
+    skip "$label k8s upgrade (no target version listed)"
+  elif daytwo "k8s upgrade" "$name" upgrade "$id" "$target"; then
+    if wait_until_version "$name" "$want_ver" "$DAYTWO_TIMEOUT" && wait_for_nodes "$name" 2 "$DAYTWO_TIMEOUT"; then
+      pass "$label k8s upgrade -> $target (cp+worker Ready)"
+    else
+      fail "$label k8s upgrade did not reach $target with both nodes Ready"
+    fi
+  else
+    fail "$label k8s upgrade (submit)"
   fi
 
   # 7. Deprovision -> removed (with a bounded force fallback on stall)
