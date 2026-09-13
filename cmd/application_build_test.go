@@ -216,6 +216,94 @@ func TestApplicationBuildStartWaitFailsWhenTheBuildFailed(t *testing.T) {
 	}
 }
 
+// Every error class names whose failure it was. build_unknown is a build that
+// ran and failed in a way the builder could not classify: it must read neither
+// as the repository's broken recipe nor as a platform that could not run the
+// build, and it must carry the builder's output, which is the only copy.
+func TestDescribeFailedBuildAttributesEachErrorClass(t *testing.T) {
+	testCases := []struct {
+		name         string
+		errorClass   string
+		errorMessage string
+		wantPresent  []string
+		wantAbsent   []string
+	}{
+		{
+			name:         "build_failed is the repository's",
+			errorClass:   "build_failed",
+			errorMessage: "npm ci exited 1",
+			wantPresent:  []string{"the build failed: npm ci exited 1"},
+		},
+		{
+			name:        "clone_auth is the application's credential",
+			errorClass:  "clone_auth",
+			wantPresent: []string{"could not clone the repository", "repository credential"},
+		},
+		{
+			name:        "recipe_missing is the application's recipe",
+			errorClass:  "recipe_missing",
+			wantPresent: []string{"no recipe could be resolved"},
+		},
+		{
+			name:         "push_failed is Ankra's",
+			errorClass:   "push_failed",
+			errorMessage: "401 Unauthorized",
+			wantPresent:  []string{"did not finish (push_failed)", "401 Unauthorized"},
+		},
+		{
+			name:        "timeout is Ankra's",
+			errorClass:  "timeout",
+			wantPresent: []string{"did not finish (timeout)", "platform-side failure"},
+		},
+		{
+			name:        "capacity is Ankra's",
+			errorClass:  "capacity",
+			wantPresent: []string{"did not finish (capacity)", "platform-side failure"},
+		},
+		{
+			name:       "build_unknown ran and keeps the builder's output",
+			errorClass: "build_unknown",
+			errorMessage: "The build ran and failed in a way the builder could not classify; " +
+				"the end of its output follows: #14 ERROR: signal: killed",
+			wantPresent: []string{"ran and failed unclassified (build_unknown)", "include it when reporting",
+				"#14 ERROR: signal: killed"},
+			wantAbsent: []string{"did not finish", "platform-side failure", "the build failed:"},
+		},
+		{
+			name:        "build_unknown without output says none was recorded",
+			errorClass:  "build_unknown",
+			wantPresent: []string{"ran and failed unclassified (build_unknown)", "recorded none of its output"},
+			wantAbsent:  []string{"did not finish", "no reason was recorded"},
+		},
+		{
+			name:        "an unrecognised class keeps the generic failure",
+			errorClass:  "a_class_this_cli_predates",
+			wantPresent: []string{"the build failed: no reason was recorded"},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			errorClass := testCase.errorClass
+			build := followedBuild{ID: "build-9", Status: "failed", ErrorClass: &errorClass}
+			if testCase.errorMessage != "" {
+				errorMessage := testCase.errorMessage
+				build.ErrorMessage = &errorMessage
+			}
+			described := describeFailedBuild(build).Error()
+			for _, want := range testCase.wantPresent {
+				if !strings.Contains(described, want) {
+					t.Errorf("%q must contain %q", described, want)
+				}
+			}
+			for _, unwanted := range testCase.wantAbsent {
+				if strings.Contains(described, unwanted) {
+					t.Errorf("%q must not contain %q", described, unwanted)
+				}
+			}
+		})
+	}
+}
+
 // A request withdrawn before any builder took it is a failure of the ask, and
 // must not leave --wait polling forever.
 func TestApplicationBuildStartWaitStopsOnACancelledRequest(t *testing.T) {

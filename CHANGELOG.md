@@ -15,6 +15,18 @@
   `ankra application build list` answering 404 means the capability is off.
   (PLA-850)
 
+### Fixed
+
+- **A platform build that fails as `build_unknown` now says whose failure it
+  is.** Ankra's builders report `build_unknown` when a build ran and failed in
+  a way the builder could not classify, where they used to report `capacity`.
+  The CLI did not know the class, so `ankra application build start --wait`
+  and the build step of `ankra application ship` printed a bare "the build
+  failed", which read as your repository's fault. They now say the build ran
+  and failed unclassified, and that its message - the end of the build's
+  output - is the only copy Ankra keeps, so it belongs in the report.
+  `ankra application build get --help` lists the class with the others.
+
 ## v0.16.1 — 2026-09-13
 
 Adds `ankra ai lanes`, the terminal side of the new per-function AI model
