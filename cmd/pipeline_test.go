@@ -1045,6 +1045,95 @@ func TestPipelineRunConclusionErrorNamesAnAbsentOutcomeAsAbsent(t *testing.T) {
 	}
 }
 
+// TestPipelineRunDetailPrintsTheRecordedErrorClass pins PLA-851's ask: a
+// failed run must name its error class where a caller reads the run, not only
+// under -o json. The push case is the reported one - Smartoptics read
+// `ankra pipeline get` on five failed builds and nothing on the run said the
+// failure was their registry's.
+func TestPipelineRunDetailPrintsTheRecordedErrorClass(t *testing.T) {
+	pushFailed := "registry_push_failed"
+	pushMessage := "The build ran, and its image could not be pushed to the image registry it publishes to; " +
+		"its builder reported \"push_failed\". BuildKit stopped with: failed to solve: " +
+		"failed to push artifact.example.dev/smart-hub/backend:sha-abc1234: 401 Unauthorized"
+	outcome := "infra_error"
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, client.PipelineRunDetail{
+		PipelineRun: client.PipelineRun{
+			RunNumber: 98, ID: "run-98", Status: "concluded", Outcome: &outcome,
+			ErrorClass: &pushFailed, ErrorMessage: &pushMessage,
+		},
+	})
+	rendered := output.String()
+	if !strings.Contains(rendered, "Class:     registry_push_failed") {
+		t.Fatalf("the run's error class must be printed, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "401 Unauthorized") || !strings.Contains(rendered, "artifact.example.dev") {
+		t.Fatalf("the message keeps the registry host and its answer, got:\n%s", rendered)
+	}
+	if strings.Index(rendered, "Class:") > strings.Index(rendered, "Error:") {
+		t.Fatalf("the class is read before the message it classifies, got:\n%s", rendered)
+	}
+}
+
+// TestPipelineRunDetailPrintsNoClassLineWhenNoneWasRecorded holds the other
+// half: a class the server never recorded is not a class called "", so the
+// line is absent rather than empty, and a run with only a message still
+// prints it the way it always did.
+func TestPipelineRunDetailPrintsNoClassLineWhenNoneWasRecorded(t *testing.T) {
+	outcome := "success"
+	var succeeded bytes.Buffer
+	printPipelineRunDetail(&succeeded, client.PipelineRunDetail{
+		PipelineRun: client.PipelineRun{RunNumber: 99, ID: "run-99", Status: "concluded", Outcome: &outcome},
+	})
+	if strings.Contains(succeeded.String(), "Class:") {
+		t.Fatalf("a run with no recorded class prints no class line, got:\n%s", succeeded.String())
+	}
+
+	blank := "   "
+	message := "The gate blocked this run."
+	failure := "failure"
+	var unclassified bytes.Buffer
+	printPipelineRunDetail(&unclassified, client.PipelineRunDetail{
+		PipelineRun: client.PipelineRun{
+			RunNumber: 100, ID: "run-100", Status: "concluded", Outcome: &failure,
+			ErrorClass: &blank, ErrorMessage: &message,
+		},
+	})
+	rendered := unclassified.String()
+	if strings.Contains(rendered, "Class:") {
+		t.Fatalf("a whitespace-only class is not a class, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "Error:     The gate blocked this run.") {
+		t.Fatalf("the message is printed as it always was, got:\n%s", rendered)
+	}
+}
+
+// TestPipelineRunConclusionErrorNamesTheErrorClass covers the same fact on the
+// --wait and --exit-code path, where the conclusion reaches a script as an
+// error string rather than a rendered block. Outcome and class are different
+// vocabularies - infra_error is the pipeline's, registry_push_failed is the
+// step's - and a caller needs both.
+func TestPipelineRunConclusionErrorNamesTheErrorClass(t *testing.T) {
+	outcome := "infra_error"
+	errorClass := "registry_push_failed"
+	message := "The build ran, and its image could not be pushed to the image registry it publishes to."
+	classified := pipelineRunConclusionError(client.PipelineRun{
+		RunNumber: 98, Outcome: &outcome, ErrorClass: &errorClass, ErrorMessage: &message,
+	})
+	if classified == nil {
+		t.Fatal("a non-success conclusion is an error")
+	}
+	if !strings.Contains(classified.Error(), "concluded infra_error (registry_push_failed): ") {
+		t.Fatalf("the outcome and the class are both named, got %v", classified)
+	}
+	unclassified := pipelineRunConclusionError(client.PipelineRun{
+		RunNumber: 99, Outcome: &outcome, ErrorMessage: &message,
+	})
+	if unclassified == nil || strings.Contains(unclassified.Error(), "()") {
+		t.Fatalf("an unrecorded class adds nothing to the sentence, got %v", unclassified)
+	}
+}
+
 func TestPipelineSchedulesDeleteConfirms(t *testing.T) {
 	mockClient := &pipelineLaneMock{}
 	previousClient := apiClient
