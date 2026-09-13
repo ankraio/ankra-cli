@@ -66,6 +66,17 @@
   output - is the only copy Ankra keeps, so it belongs in the report.
   `ankra application build get --help` lists the class with the others.
 
+- **`ankra pipeline get` now names a failed run's error class.** The class the
+  server records - `step_failed` for your own build script, `image_gate_blocked`
+  for the gate, `registry_push_failed` for an image registry that refused the
+  push, `platform_build_infra` and `build_runtime_confined` for Ankra's own
+  build lane - was carried on the wire and shown only under `-o json`, so a run
+  read the way runs are read showed the message alone. It is now a `Class:`
+  line above `Error:`, and `--wait` and `--exit-code` carry it in the error
+  they exit with ("run #98 concluded infra_error (registry_push_failed): ...").
+  This is what tells you at a glance that a build reached your registry and was
+  turned away, rather than failing in your Dockerfile.
+
 ## v0.16.1 — 2026-09-13
 
 Adds `ankra ai lanes`, the terminal side of the new per-function AI model

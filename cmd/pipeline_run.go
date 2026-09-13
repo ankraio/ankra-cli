@@ -203,6 +203,9 @@ func pipelineRunConclusionError(run client.PipelineRun) error {
 		return fmt.Errorf("run #%d concluded without recording an outcome", run.RunNumber)
 	}
 	message := fmt.Sprintf("run #%d concluded %s", run.RunNumber, outcome)
+	if errorClass := pipelineRunErrorClass(run); errorClass != "" {
+		message += " (" + errorClass + ")"
+	}
 	if run.ErrorMessage != nil && *run.ErrorMessage != "" {
 		message += ": " + *run.ErrorMessage
 	}
@@ -456,9 +459,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 	_, _ = fmt.Fprintf(out, "  Trigger:   %s (%s)\n", detail.Trigger, detail.TriggerRef)
 	_, _ = fmt.Fprintf(out, "  Commit:    %s\n", detail.HeadSHA)
 	printPipelineRunAuthority(out, detail.PipelineRun)
-	if detail.ErrorMessage != nil && *detail.ErrorMessage != "" {
-		_, _ = fmt.Fprintf(out, "  Error:     %s\n", *detail.ErrorMessage)
-	}
+	printPipelineRunFailure(out, detail.PipelineRun)
 	_, _ = fmt.Fprintf(out, "  Queued:    %s\n", formatTimeAgo(detail.QueuedAt))
 	if detail.StartedAt != nil {
 		_, _ = fmt.Fprintf(out, "  Started:   %s\n", formatTimeAgo(*detail.StartedAt))
@@ -489,6 +490,53 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 		})
 	}
 	writer.Render()
+}
+
+// printPipelineRunFailure prints how a run failed: the error class the server
+// recorded, then the message.
+//
+// The class is printed because it is the only part of a failure that is a
+// fixed vocabulary rather than prose, and it names WHOSE failure the run was -
+// step_failed is the repository's, registry_push_failed is the organisation's
+// image registry, platform_build_infra and build_runtime_confined are Ankra's.
+// It was on the wire from the start and only `-o json` ever showed it, so a
+// caller reading the run the way a caller does - `ankra pipeline get <run>` -
+// saw the message alone. For a platform-builders build that message used to be
+// a fragment of the BuildKit transcript, and Smartoptics spent a day auditing
+// their own Dockerfiles over a 401 from their own Harbor because nothing on
+// the run said registry_push_failed (PLA-851, ankra-edt1b).
+//
+// The class is printed verbatim - the same token `ankra pipeline get -o json`,
+// `ankra application build get` and the API all spell - rather than mapped to
+// a sentence: the message is already the sentence, the vocabulary grows on the
+// server (build_runtime_confined, build_fallback_unsupported and
+// registry_push_failed all arrived after this command shipped), and a mapper
+// that has not been taught a new class renders it as nothing at all. A class
+// the reader does not recognise is still a search term; a blank is not.
+//
+// The message keeps its own line breaks and is not indented past the first
+// line. A platform build's message carries the tail of the build transcript
+// whole, deliberately (cluster's platformBuildClassMessage), and re-indenting
+// somebody's build output to line up a label would corrupt the one copy of it
+// Ankra keeps.
+func printPipelineRunFailure(out io.Writer, run client.PipelineRun) {
+	if errorClass := pipelineRunErrorClass(run); errorClass != "" {
+		_, _ = fmt.Fprintf(out, "  Class:     %s\n", errorClass)
+	}
+	if run.ErrorMessage != nil && *run.ErrorMessage != "" {
+		_, _ = fmt.Fprintf(out, "  Error:     %s\n", *run.ErrorMessage)
+	}
+}
+
+// pipelineRunErrorClass is the run's recorded error class, or "" when the
+// server recorded none. A successful run has none, and neither has a run that
+// failed before anything classified it, which is "not recorded" rather than a
+// class called "" - so nothing is printed for either.
+func pipelineRunErrorClass(run client.PipelineRun) string {
+	if run.ErrorClass == nil {
+		return ""
+	}
+	return strings.TrimSpace(*run.ErrorClass)
 }
 
 // printPipelineRunAuthority prints the run's recorded authority state
