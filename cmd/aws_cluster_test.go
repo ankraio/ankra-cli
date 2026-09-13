@@ -108,16 +108,22 @@ func (mock *awsClusterMock) GetAwsAccessInfo(clusterID string) (*client.AwsAcces
 	}, nil
 }
 
-// awsCreateArgs is a complete, valid create invocation; tests append to it.
+// awsCreateArgs is a complete, valid create invocation in the default mode,
+// where Ankra creates the network: no VPC or subnets are named. Tests
+// append to it.
 var awsCreateArgs = []string{
 	"--name", "prod",
 	"--credential-id", "cred-aws",
 	"--ssh-key-credential-id", "cred-ssh",
 	"--region", "eu-north-1",
+	"--bastion-allowed-ips", "203.0.113.0/24,198.51.100.7/32",
+}
+
+// awsAdoptedNetworkArgs switches a create to adopting an existing VPC.
+var awsAdoptedNetworkArgs = []string{
 	"--vpc-id", "vpc-0abc",
 	"--node-subnet-ids", "subnet-0aaa,subnet-0bbb",
 	"--bastion-subnet-id", "subnet-0ccc",
-	"--bastion-allowed-ips", "203.0.113.0/24,198.51.100.7/32",
 }
 
 func runAwsCreate(t *testing.T, mock *awsClusterMock, verb string, extra ...string) (string, error) {
@@ -134,10 +140,11 @@ func runAwsCreate(t *testing.T, mock *awsClusterMock, verb string, extra ...stri
 }
 
 // The create body is what the platform decodes, so every flag has to land on
-// its snake_case member and the omitted ones have to stay omitted.
+// its snake_case member and the omitted ones have to stay omitted. This is
+// the adopted-network shape; the created-network one is pinned below.
 func TestAwsCreateSerialisesTheRequest(t *testing.T) {
 	mock := &awsClusterMock{}
-	output, runError := runAwsCreate(t, mock, "create",
+	output, runError := runAwsCreate(t, mock, "create", append(awsAdoptedNetworkArgs,
 		"--description", "the prod cluster",
 		"--egress-mode", "bastion_nat",
 		"--bastion-instance-type", "t3.micro",
@@ -161,7 +168,7 @@ func TestAwsCreateSerialisesTheRequest(t *testing.T) {
 		"--retention-policy", "delete",
 		"--environment", "production",
 		"--criticality", "high",
-	)
+	)...)
 	if runError != nil {
 		t.Fatalf("create failed: %v", runError)
 	}
@@ -232,9 +239,151 @@ func TestAwsCreateSerialisesTheRequest(t *testing.T) {
 	if request.IncludeNetworking != nil || request.IncludeDNS != nil {
 		t.Errorf("include_networking/include_dns must be omitted when untouched, got %v/%v", request.IncludeNetworking, request.IncludeDNS)
 	}
+	// The created-network members do not apply to an adopted VPC and stay
+	// absent.
+	if request.NetworkIPRange != "" || len(request.AvailabilityZones) != 0 || request.NatGatewaySingleZone {
+		t.Errorf("created-network members must be absent when adopting a VPC, got range=%q zones=%v single_zone=%v",
+			request.NetworkIPRange, request.AvailabilityZones, request.NatGatewaySingleZone)
+	}
 	if !strings.Contains(output, "AWS cluster 'prod' created successfully") || !strings.Contains(output, testClusterID) ||
 		!strings.Contains(output, "State: creating") || !strings.Contains(output, "Operation ID: op-1") {
 		t.Errorf("unexpected output: %s", output)
+	}
+}
+
+// Without --vpc-id Ankra creates the network, and the request carries the
+// created-network members only: no VPC, no subnets, and the CIDR, zones and
+// NAT layout the flags named.
+func TestAwsCreateSerialisesACreatedNetwork(t *testing.T) {
+	mock := &awsClusterMock{}
+	if _, runError := runAwsCreate(t, mock, "create",
+		"--network-ip-range", "10.42.0.0/16",
+		"--availability-zones", "eu-north-1a,eu-north-1b,eu-north-1c",
+		"--nat-gateway-single-zone",
+		"--egress-mode", "nat_gateway",
+		"--control-plane-count", "3",
+	); runError != nil {
+		t.Fatalf("create failed: %v", runError)
+	}
+	if mock.createRequest == nil {
+		t.Fatal("create request was never sent")
+	}
+	request := *mock.createRequest
+	if request.VpcID != "" || len(request.NodeSubnetIDs) != 0 || request.BastionSubnetID != "" {
+		t.Errorf("a created network must name no VPC or subnets, got vpc=%q subnets=%v bastion=%q", request.VpcID, request.NodeSubnetIDs, request.BastionSubnetID)
+	}
+	if request.NetworkIPRange != "10.42.0.0/16" {
+		t.Errorf("network_ip_range = %q, want 10.42.0.0/16", request.NetworkIPRange)
+	}
+	if got := strings.Join(request.AvailabilityZones, ","); got != "eu-north-1a,eu-north-1b,eu-north-1c" {
+		t.Errorf("availability_zones = %q, want the three zones", got)
+	}
+	if !request.NatGatewaySingleZone {
+		t.Error("nat_gateway_single_zone must be sent when the flag is set")
+	}
+	if request.EgressMode != "nat_gateway" || request.ControlPlaneCount != 3 {
+		t.Errorf("egress_mode/control_plane_count = %q/%d, want nat_gateway/3", request.EgressMode, request.ControlPlaneCount)
+	}
+	if got := strings.Join(request.BastionAllowedIPs, ","); got != "203.0.113.0/24,198.51.100.7/32" {
+		t.Errorf("bastion_allowed_ips = %q, want the two CIDRs", got)
+	}
+}
+
+// The minimal created-network create sends nothing about the network at
+// all, so the server's defaults (10.0.0.0/16, its zone count, NAT gateways)
+// apply rather than the CLI's idea of them.
+func TestAwsCreateLeavesTheCreatedNetworkToTheServerByDefault(t *testing.T) {
+	mock := &awsClusterMock{}
+	if _, runError := runAwsCreate(t, mock, "create"); runError != nil {
+		t.Fatalf("create failed: %v", runError)
+	}
+	request := *mock.createRequest
+	if request.VpcID != "" || len(request.NodeSubnetIDs) != 0 || request.BastionSubnetID != "" ||
+		request.NetworkIPRange != "" || len(request.AvailabilityZones) != 0 || request.NatGatewaySingleZone || request.EgressMode != "" {
+		t.Errorf("every network member must be omitted by default, got %+v", request)
+	}
+}
+
+// --vpc-id switches to adopting a network, which has to name the subnets;
+// without it the subnet flags have nothing to refer to. Both directions are
+// refused before the request is sent, naming the flag.
+func TestAwsCreateRefusesAMixedNetworkMode(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		extra []string
+		want  []string
+	}{
+		"vpc without subnets": {
+			extra: []string{"--vpc-id", "vpc-0abc"},
+			want:  []string{"--vpc-id", "--node-subnet-ids", "--bastion-subnet-id"},
+		},
+		"vpc without bastion subnet": {
+			extra: []string{"--vpc-id", "vpc-0abc", "--node-subnet-ids", "subnet-0aaa"},
+			want:  []string{"--bastion-subnet-id"},
+		},
+		"node subnets without vpc": {
+			extra: []string{"--node-subnet-ids", "subnet-0aaa"},
+			want:  []string{"--node-subnet-ids", "--vpc-id"},
+		},
+		"bastion subnet without vpc": {
+			extra: []string{"--bastion-subnet-id", "subnet-0ccc"},
+			want:  []string{"--bastion-subnet-id", "--vpc-id"},
+		},
+		"network range with vpc": {
+			extra: append(append([]string{}, awsAdoptedNetworkArgs...), "--network-ip-range", "10.42.0.0/16"),
+			want:  []string{"--network-ip-range", "--vpc-id"},
+		},
+		"zones with vpc": {
+			extra: append(append([]string{}, awsAdoptedNetworkArgs...), "--availability-zones", "eu-north-1a"),
+			want:  []string{"--availability-zones", "--vpc-id"},
+		},
+		"single-zone nat with vpc": {
+			extra: append(append([]string{}, awsAdoptedNetworkArgs...), "--nat-gateway-single-zone"),
+			want:  []string{"--nat-gateway-single-zone", "--vpc-id"},
+		},
+		"nat_gateway egress with vpc": {
+			extra: append(append([]string{}, awsAdoptedNetworkArgs...), "--egress-mode", "nat_gateway"),
+			want:  []string{"nat_gateway", "existing", "bastion_nat"},
+		},
+		"existing egress without vpc": {
+			extra: []string{"--egress-mode", "existing"},
+			want:  []string{"existing", "--vpc-id", "nat_gateway"},
+		},
+		"unknown egress mode": {
+			extra: []string{"--egress-mode", "igw"},
+			want:  []string{"igw", "nat_gateway", "bastion_nat", "existing"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mock := &awsClusterMock{}
+			_, runError := runAwsCreate(t, mock, "create", testCase.extra...)
+			if runError == nil {
+				t.Fatal("a mixed network mode must be refused")
+			}
+			for _, want := range testCase.want {
+				if !strings.Contains(runError.Error(), want) {
+					t.Errorf("refusal must name %q, got: %v", want, runError)
+				}
+			}
+			if mock.createRequest != nil {
+				t.Fatal("a refused network mode must not reach the client")
+			}
+		})
+	}
+}
+
+// bastion_nat works in both modes, so it is the one egress mode neither
+// direction refuses.
+func TestAwsCreateAcceptsBastionNatInBothNetworkModes(t *testing.T) {
+	created := &awsClusterMock{}
+	if _, runError := runAwsCreate(t, created, "create", "--egress-mode", "bastion_nat"); runError != nil {
+		t.Fatalf("bastion_nat with a created network: %v", runError)
+	}
+	adopted := &awsClusterMock{}
+	if _, runError := runAwsCreate(t, adopted, "create", append(append([]string{}, awsAdoptedNetworkArgs...), "--egress-mode", "bastion_nat")...); runError != nil {
+		t.Fatalf("bastion_nat with an adopted VPC: %v", runError)
+	}
+	if created.createRequest.EgressMode != "bastion_nat" || adopted.createRequest.EgressMode != "bastion_nat" {
+		t.Errorf("egress_mode = %q/%q, want bastion_nat in both", created.createRequest.EgressMode, adopted.createRequest.EgressMode)
 	}
 }
 
@@ -285,10 +434,13 @@ func TestAwsCreateSendsTriStateFlagsWhenSet(t *testing.T) {
 	}
 }
 
-func TestAwsCreateRequiresTheNetworkingFlags(t *testing.T) {
+// The required set is what a created network needs: the VPC and subnet
+// flags are no longer required, because the default is a network Ankra
+// creates.
+func TestAwsCreateRequiresTheCreatedNetworkFlags(t *testing.T) {
 	setMockClient(t, &awsClusterMock{})
 	t.Cleanup(func() { resetTreeFlags(t, awsCreateCmd) })
-	for _, required := range []string{"name", "credential-id", "ssh-key-credential-id", "region", "vpc-id", "node-subnet-ids", "bastion-subnet-id", "bastion-allowed-ips"} {
+	for _, required := range []string{"name", "credential-id", "ssh-key-credential-id", "region", "bastion-allowed-ips"} {
 		var args []string
 		for index := 0; index < len(awsCreateArgs); index += 2 {
 			if strings.TrimPrefix(awsCreateArgs[index], "--") == required {
@@ -306,21 +458,60 @@ func TestAwsCreateRequiresTheNetworkingFlags(t *testing.T) {
 
 func TestAwsPreflightRendersChecksAndResolvedEgress(t *testing.T) {
 	mock := &awsClusterMock{preflightResult: &client.AwsPreflightResult{
-		CanProceed:         true,
-		ResolvedEgressMode: stringPointer("existing"),
+		CanProceed:                true,
+		ResolvedEgressMode:        stringPointer("existing"),
+		NetworkOwnership:          client.AwsNetworkOwnershipAdopted,
+		ResolvedAvailabilityZones: []string{"eu-north-1a", "eu-north-1b"},
 		Items: []client.AwsPreflightItem{
 			{Check: "vpc", Status: "ok", Message: "vpc-0abc is reachable"},
 			{Check: "node_subnets", Status: "ok", Message: "route to nat-0f00"},
 		},
 	}}
-	output, runError := runAwsCreate(t, mock, "preflight")
+	output, runError := runAwsCreate(t, mock, "preflight", awsAdoptedNetworkArgs...)
 	if runError != nil {
 		t.Fatalf("preflight failed: %v", runError)
 	}
 	if mock.preflightRequest == nil || mock.preflightRequest.VpcID != "vpc-0abc" {
 		t.Fatalf("preflight must send the same body as create, got %+v", mock.preflightRequest)
 	}
-	for _, want := range []string{"node_subnets", "route to nat-0f00", "Resolved egress mode: existing", "Preflight passed"} {
+	for _, want := range []string{
+		"node_subnets", "route to nat-0f00",
+		"Network ownership: adopted",
+		"Resolved availability zones: eu-north-1a, eu-north-1b",
+		"Resolved egress mode: existing",
+		"Preflight passed",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected %q in output, got:\n%s", want, output)
+		}
+	}
+}
+
+// A created-network preflight reports the ownership and the zones the
+// server settled on, which is the only place the one-or-three default is
+// visible before the network exists.
+func TestAwsPreflightRendersACreatedNetwork(t *testing.T) {
+	mock := &awsClusterMock{preflightResult: &client.AwsPreflightResult{
+		CanProceed:                true,
+		ResolvedEgressMode:        stringPointer("nat_gateway"),
+		NetworkOwnership:          client.AwsNetworkOwnershipCreated,
+		ResolvedAvailabilityZones: []string{"eu-north-1a"},
+		Items:                     []client.AwsPreflightItem{{Check: "network_ip_range", Status: "ok", Message: "10.0.0.0/16 is free"}},
+	}}
+	output, runError := runAwsCreate(t, mock, "preflight")
+	if runError != nil {
+		t.Fatalf("preflight failed: %v", runError)
+	}
+	if mock.preflightRequest == nil || mock.preflightRequest.VpcID != "" || len(mock.preflightRequest.NodeSubnetIDs) != 0 {
+		t.Fatalf("a created-network preflight must name no VPC, got %+v", mock.preflightRequest)
+	}
+	for _, want := range []string{
+		"10.0.0.0/16 is free",
+		"Network ownership: created",
+		"Resolved availability zones: eu-north-1a",
+		"Resolved egress mode: nat_gateway",
+		"Preflight passed",
+	} {
 		if !strings.Contains(output, want) {
 			t.Errorf("expected %q in output, got:\n%s", want, output)
 		}
@@ -339,10 +530,17 @@ func TestAwsPreflightFailsWhenItCannotProceed(t *testing.T) {
 	if !strings.Contains(output, "no route to an internet gateway") {
 		t.Errorf("the failing check must be rendered, got:\n%s", output)
 	}
-	// A null resolved mode is "could not resolve", which the output has to
-	// say rather than leaving the line out and implying a default.
-	if !strings.Contains(output, "Resolved egress mode: not resolved") {
-		t.Errorf("an unresolved egress mode must be reported as such, got:\n%s", output)
+	// A null resolved mode is "could not resolve", and an ownership or zone
+	// list the server did not report is unknown: each has to be said
+	// rather than leaving the line out and implying a default.
+	for _, want := range []string{
+		"Resolved egress mode: not resolved",
+		"Network ownership: not reported",
+		"Resolved availability zones: not resolved",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected %q in output, got:\n%s", want, output)
+		}
 	}
 }
 

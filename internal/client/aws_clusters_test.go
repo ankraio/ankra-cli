@@ -81,16 +81,84 @@ func TestCreateAwsCluster_PostsSnakeCaseBody(t *testing.T) {
 	if !isObject || features["hubble"] != true || len(features) != 1 {
 		t.Errorf("cni_features = %v, want {hubble: true}", received["cni_features"])
 	}
-	// Unset optionals are omitted so the server default applies.
-	for _, absent := range []string{"description", "kubernetes_version", "control_plane_count", "distribution", "include_networking", "bastion_instance_type", "k3s_disabled_components", "node_groups", "criticality", "classification"} {
+	// Unset optionals are omitted so the server default applies, and the
+	// created-network members do not belong in an adopted-VPC body.
+	for _, absent := range []string{"description", "kubernetes_version", "control_plane_count", "distribution", "include_networking", "bastion_instance_type", "k3s_disabled_components", "node_groups", "criticality", "classification",
+		"network_ip_range", "availability_zones", "nat_gateway_single_zone"} {
 		if _, present := received[absent]; present {
 			t.Errorf("body[%q] must be omitted when unset, got %v", absent, received[absent])
 		}
 	}
-	// The required list members are always sent, even when empty.
-	for _, always := range []string{"node_subnet_ids", "bastion_allowed_ips"} {
-		if _, present := received[always]; !present {
-			t.Errorf("body[%q] must always be sent", always)
+	// bastion_allowed_ips is required in both modes and is always sent,
+	// even when empty.
+	if _, present := received["bastion_allowed_ips"]; !present {
+		t.Error("body[\"bastion_allowed_ips\"] must always be sent")
+	}
+}
+
+// Without a vpc_id the body asks the server to create the network: the
+// VPC and subnet members are absent (an empty node_subnet_ids would read as
+// an adopted VPC with no subnets), and the created-network members carry
+// what was asked for.
+func TestCreateAwsCluster_CreatedNetworkBody(t *testing.T) {
+	var received map[string]any
+	testClient := newTestClient(t, func(responseWriter http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		if decodeError := json.Unmarshal(body, &received); decodeError != nil {
+			t.Fatalf("body is not JSON: %v", decodeError)
+		}
+		jsonResponse(t, responseWriter, http.StatusCreated, CreateAwsClusterResponse{ClusterID: "cluster-123", Name: "prod", Kind: "aws", State: "creating"})
+	})
+
+	if _, createError := testClient.CreateAwsCluster(CreateAwsClusterRequest{
+		Name:                 "prod",
+		CredentialID:         "cred-aws",
+		SSHKeyCredentialID:   "cred-ssh",
+		Region:               "eu-north-1",
+		BastionAllowedIPs:    []string{"203.0.113.0/24"},
+		NetworkIPRange:       "10.42.0.0/16",
+		AvailabilityZones:    []string{"eu-north-1a", "eu-north-1b", "eu-north-1c"},
+		NatGatewaySingleZone: true,
+		EgressMode:           "nat_gateway",
+	}); createError != nil {
+		t.Fatalf("CreateAwsCluster: %v", createError)
+	}
+	for _, absent := range []string{"vpc_id", "node_subnet_ids", "bastion_subnet_id"} {
+		if _, present := received[absent]; present {
+			t.Errorf("body[%q] must be absent for a created network, got %v", absent, received[absent])
+		}
+	}
+	for key, want := range map[string]any{
+		"network_ip_range":        "10.42.0.0/16",
+		"nat_gateway_single_zone": true,
+		"egress_mode":             "nat_gateway",
+	} {
+		if got := received[key]; got != want {
+			t.Errorf("body[%q] = %v, want %v", key, got, want)
+		}
+	}
+	if zones, _ := received["availability_zones"].([]any); len(zones) != 3 || zones[0] != "eu-north-1a" || zones[2] != "eu-north-1c" {
+		t.Errorf("availability_zones = %v, want the three zones", received["availability_zones"])
+	}
+}
+
+// A created network left entirely to the server sends none of its members:
+// the CIDR, zones and NAT layout are the server's defaults, and a false
+// nat_gateway_single_zone is omitted rather than sent, so the server's
+// default for it is never overridden by the CLI's zero value.
+func TestCreateAwsCluster_CreatedNetworkDefaultsOmitEveryNetworkMember(t *testing.T) {
+	var received map[string]any
+	testClient := newTestClient(t, func(responseWriter http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		_ = json.Unmarshal(body, &received)
+		jsonResponse(t, responseWriter, http.StatusCreated, CreateAwsClusterResponse{ClusterID: "cluster-123"})
+	})
+	if _, createError := testClient.CreateAwsCluster(CreateAwsClusterRequest{Name: "prod", BastionAllowedIPs: []string{"203.0.113.0/24"}}); createError != nil {
+		t.Fatalf("CreateAwsCluster: %v", createError)
+	}
+	for _, absent := range []string{"vpc_id", "node_subnet_ids", "bastion_subnet_id", "network_ip_range", "availability_zones", "nat_gateway_single_zone", "egress_mode"} {
+		if _, present := received[absent]; present {
+			t.Errorf("body[%q] must be omitted by default, got %v", absent, received[absent])
 		}
 	}
 }
@@ -103,11 +171,9 @@ func TestPreflightAwsCluster(t *testing.T) {
 		if request.URL.Path != "/api/v1/clusters/aws/preflight" {
 			t.Errorf("path = %s, want /api/v1/clusters/aws/preflight", request.URL.Path)
 		}
-		jsonResponse(t, responseWriter, http.StatusOK, AwsPreflightResult{
-			CanProceed:         false,
-			ResolvedEgressMode: strPtr("existing"),
-			Items:              []AwsPreflightItem{{Check: "vpc", Status: "error", Message: "vpc-0abc not found"}},
-		})
+		responseWriter.Header().Set("Content-Type", "application/json")
+		_, _ = responseWriter.Write([]byte(`{"items":[{"check":"vpc","status":"error","message":"vpc-0abc not found"}],"can_proceed":false,` +
+			`"resolved_egress_mode":"existing","network_ownership":"adopted","resolved_availability_zones":["eu-north-1a","eu-north-1b"]}`))
 	})
 
 	result, preflightError := testClient.PreflightAwsCluster(CreateAwsClusterRequest{Name: "prod"})
@@ -120,8 +186,40 @@ func TestPreflightAwsCluster(t *testing.T) {
 	if result.ResolvedEgressMode == nil || *result.ResolvedEgressMode != "existing" {
 		t.Errorf("ResolvedEgressMode = %v, want existing", result.ResolvedEgressMode)
 	}
+	if result.NetworkOwnership != AwsNetworkOwnershipAdopted {
+		t.Errorf("NetworkOwnership = %q, want adopted", result.NetworkOwnership)
+	}
+	if len(result.ResolvedAvailabilityZones) != 2 || result.ResolvedAvailabilityZones[1] != "eu-north-1b" {
+		t.Errorf("ResolvedAvailabilityZones = %v, want the two zones", result.ResolvedAvailabilityZones)
+	}
 	if len(result.Items) != 1 || result.Items[0].Check != "vpc" {
 		t.Errorf("Items = %+v, want the vpc check", result.Items)
+	}
+}
+
+// A created-network preflight reports the ownership and the zones the
+// server chose - the request named none, so this is the only place the
+// one-or-three default is visible before the network exists.
+func TestPreflightAwsCluster_ReportsACreatedNetwork(t *testing.T) {
+	testClient := newTestClient(t, func(responseWriter http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		var received map[string]any
+		_ = json.Unmarshal(body, &received)
+		if _, present := received["vpc_id"]; present {
+			t.Errorf("a created-network preflight must not send vpc_id, got %v", received["vpc_id"])
+		}
+		responseWriter.Header().Set("Content-Type", "application/json")
+		_, _ = responseWriter.Write([]byte(`{"items":[],"can_proceed":true,"resolved_egress_mode":"nat_gateway","network_ownership":"created","resolved_availability_zones":["eu-north-1a"]}`))
+	})
+	result, preflightError := testClient.PreflightAwsCluster(CreateAwsClusterRequest{Name: "prod", Region: "eu-north-1"})
+	if preflightError != nil {
+		t.Fatalf("PreflightAwsCluster: %v", preflightError)
+	}
+	if result.NetworkOwnership != AwsNetworkOwnershipCreated || len(result.ResolvedAvailabilityZones) != 1 || result.ResolvedAvailabilityZones[0] != "eu-north-1a" {
+		t.Errorf("result = %+v, want created / [eu-north-1a]", result)
+	}
+	if result.ResolvedEgressMode == nil || *result.ResolvedEgressMode != "nat_gateway" {
+		t.Errorf("ResolvedEgressMode = %v, want nat_gateway", result.ResolvedEgressMode)
 	}
 }
 
@@ -138,6 +236,11 @@ func TestPreflightAwsCluster_KeepsAnUnresolvedEgressModeNil(t *testing.T) {
 	}
 	if result.ResolvedEgressMode != nil {
 		t.Errorf("ResolvedEgressMode = %q, want nil for a null", *result.ResolvedEgressMode)
+	}
+	// A server that reports no ownership or zones leaves them unknown: an
+	// empty ownership is not "adopted" and a nil zone list is not "none".
+	if result.NetworkOwnership != "" || result.ResolvedAvailabilityZones != nil {
+		t.Errorf("unreported ownership/zones must stay empty/nil, got %q/%v", result.NetworkOwnership, result.ResolvedAvailabilityZones)
 	}
 }
 

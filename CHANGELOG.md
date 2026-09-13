@@ -6,12 +6,24 @@
 
 - **`ankra cluster aws` builds self-managed k3s (or kubeadm) clusters on EC2**
   (ankra-rtpno.13). This is not EKS: Ankra installs Kubernetes on plain
-  instances inside a VPC you already own, so `create` and `preflight` take
-  the VPC, the node subnets, the bastion subnet and the CIDRs allowed to
-  reach the bastion, and adopt them rather than creating networking. Egress
-  for the nodes is detected from the subnets' route tables, or pinned with
-  `--egress-mode existing|bastion_nat`; `preflight` reports what it resolved
-  before anything is built. The group carries the same day-2 verbs as the
+  instances. By default it creates the whole network too - `create` needs
+  only `--name`, `--credential-id`, `--ssh-key-credential-id`, `--region`
+  and `--bastion-allowed-ips`, and the platform builds a VPC from
+  `--network-ip-range` (default `10.0.0.0/16`) across `--availability-zones`
+  (default: one zone, or three when the control plane has 3+ nodes) with an
+  internet gateway, route tables and the nodes' egress: `--egress-mode
+  nat_gateway` (the default; `--nat-gateway-single-zone` keeps it to one
+  gateway) or `bastion_nat`. The created network is Ankra's and is deleted
+  with the cluster. Pass `--vpc-id` with `--node-subnet-ids` and
+  `--bastion-subnet-id` to adopt a VPC you already own instead: nothing is
+  created or deleted there, egress is detected from the subnets' route
+  tables or pinned with `--egress-mode existing|bastion_nat`, and the
+  created-network flags are refused. The CLI checks the split before
+  sending: a `--vpc-id` without its subnets, subnets without a `--vpc-id`,
+  or an egress mode that belongs to the other network mode are refused
+  naming the flag. `preflight` reports the network ownership, the zones the
+  network will span and the resolved egress mode before anything is built.
+  The group carries the same day-2 verbs as the
   other providers - `stop`, `start`, `deprovision` (with a confirmation
   prompt), `workers`, `k8s-version`, `access-info`, `control-plane`, `nodes`
   and `bastion` - plus the catalogs that answer the create flags: `regions`,

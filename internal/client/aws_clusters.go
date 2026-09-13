@@ -23,26 +23,42 @@ type AwsCNIFeatures struct {
 
 // CreateAwsClusterRequest mirrors the cluster-api decoder for
 // POST /api/v1/clusters/aws (ankra-rtpno): an Ankra-managed k3s or kubeadm
-// cluster on EC2 inside a VPC the operator already owns. Omitted optional
-// members take the server's default, so the zero value of an omitempty field
-// means "let the server decide" rather than "send zero": distribution
-// kubeadm, etcd_topology stacked, etcd_node_count 3, retention_policy
-// retain, cni cilium, and the egress mode is resolved by preflight from the
-// node subnets when it is omitted.
+// cluster on EC2. Omitted optional members take the server's default, so the
+// zero value of an omitempty field means "let the server decide" rather than
+// "send zero": distribution kubeadm, etcd_topology stacked, etcd_node_count
+// 3, retention_policy retain, cni cilium.
 //
-// The VPC, the node subnets and the bastion subnet are adopted, never
-// created: AWS networking is the operator's, Ankra owns only the instances,
-// security groups, generated SSH key and (with egress_mode bastion_nat) the
-// NAT role the bastion plays.
+// The network is either created or adopted, and vpc_id is the switch:
+//
+//   - vpc_id absent (the default): Ankra creates the whole network - VPC,
+//     subnets, internet gateway, route tables and (egress_mode nat_gateway)
+//     the NAT gateways - from network_ip_range (server default 10.0.0.0/16)
+//     across availability_zones (server default: one zone, or three when
+//     control_plane_count is 3 or more). egress_mode is nat_gateway (the
+//     default) or bastion_nat; nat_gateway_single_zone puts one NAT gateway
+//     in the first zone instead of one per zone. node_subnet_ids and
+//     bastion_subnet_id must not be sent. The created network is Ankra's and
+//     is deleted with the cluster.
+//   - vpc_id given: the VPC, node_subnet_ids and bastion_subnet_id are
+//     adopted, never created or deleted; egress_mode is existing or
+//     bastion_nat, resolved by preflight from the node subnets' route
+//     tables when omitted. network_ip_range, availability_zones and
+//     nat_gateway_single_zone do not apply.
+//
+// In both modes Ankra owns the instances, security groups, generated SSH
+// key and (with egress_mode bastion_nat) the NAT role the bastion plays.
 type CreateAwsClusterRequest struct {
 	Name                  string                `json:"name"`
 	Description           *string               `json:"description,omitempty"`
 	CredentialID          string                `json:"credential_id"`
 	SSHKeyCredentialID    string                `json:"ssh_key_credential_id"`
 	Region                string                `json:"region"`
-	VpcID                 string                `json:"vpc_id"`
-	NodeSubnetIDs         []string              `json:"node_subnet_ids"`
-	BastionSubnetID       string                `json:"bastion_subnet_id"`
+	VpcID                 string                `json:"vpc_id,omitempty"`
+	NodeSubnetIDs         []string              `json:"node_subnet_ids,omitempty"`
+	BastionSubnetID       string                `json:"bastion_subnet_id,omitempty"`
+	NetworkIPRange        string                `json:"network_ip_range,omitempty"`
+	AvailabilityZones     []string              `json:"availability_zones,omitempty"`
+	NatGatewaySingleZone  bool                  `json:"nat_gateway_single_zone,omitempty"`
 	EgressMode            string                `json:"egress_mode,omitempty"`
 	BastionInstanceType   string                `json:"bastion_instance_type,omitempty"`
 	BastionAllowedIPs     []string              `json:"bastion_allowed_ips"`
@@ -91,16 +107,32 @@ type AwsPreflightItem struct {
 	Message string `json:"message"`
 }
 
-// AwsPreflightResult carries the checks plus the egress mode the server
-// settled on: when the request left egress_mode unset the server resolves
-// it (existing or bastion_nat) from the node subnets' route tables, and
-// ResolvedEgressMode is the only place that decision is reported before the
-// cluster is built. It is null when the preflight could not resolve one -
-// a failed check, not a mode - so a nil here is "unknown", never "existing".
+// AwsNetworkOwnership is the network_ownership a preflight reports: created
+// (Ankra builds the VPC and everything in it) or adopted (the request named
+// a vpc_id and Ankra builds inside it).
+const (
+	AwsNetworkOwnershipCreated = "created"
+	AwsNetworkOwnershipAdopted = "adopted"
+)
+
+// AwsPreflightResult carries the checks plus what the server settled on
+// before anything is built: the egress mode (resolved from the node
+// subnets' route tables when an adopted-network request left it unset), the
+// network ownership, and the availability zones a created network will span
+// (the request's own, or the server's one-or-three default). Each is the
+// only place that decision is reported before the cluster exists.
+//
+// ResolvedEgressMode is null when the preflight could not resolve one - a
+// failed check, not a mode - so a nil here is "unknown", never "existing".
+// NetworkOwnership is empty and ResolvedAvailabilityZones nil when the
+// server did not report them, which is likewise "unknown": an empty
+// ownership is not "adopted" and a nil zone list is not "no zones".
 type AwsPreflightResult struct {
-	Items              []AwsPreflightItem `json:"items"`
-	CanProceed         bool               `json:"can_proceed"`
-	ResolvedEgressMode *string            `json:"resolved_egress_mode"`
+	Items                     []AwsPreflightItem `json:"items"`
+	CanProceed                bool               `json:"can_proceed"`
+	ResolvedEgressMode        *string            `json:"resolved_egress_mode"`
+	NetworkOwnership          string             `json:"network_ownership,omitempty"`
+	ResolvedAvailabilityZones []string           `json:"resolved_availability_zones,omitempty"`
 }
 
 // AwsRegion is one region from the regions catalog: Slug is the API name

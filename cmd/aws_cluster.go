@@ -17,8 +17,11 @@ var awsCmd = &cobra.Command{
 	Short: "Manage self-managed AWS clusters",
 	Long: `Manage the lifecycle of self-managed Kubernetes clusters Ankra builds on EC2.
 
-These are k3s (or kubeadm) clusters on plain EC2 instances inside a VPC you
-already own, not EKS. For an EKS control plane use 'ankra cluster managed'.`,
+These are k3s (or kubeadm) clusters on plain EC2 instances, not EKS. By
+default Ankra creates the whole network for the cluster (VPC, subnets,
+internet gateway, route tables, NAT) and removes it with the cluster; pass
+--vpc-id to build inside a VPC you already own instead. For an EKS control
+plane use 'ankra cluster managed'.`,
 }
 
 var awsStopCmd = &cobra.Command{
@@ -149,11 +152,90 @@ func awsCNIFeaturesFromFlag(names []string) (*client.AwsCNIFeatures, error) {
 	return &features, nil
 }
 
+// awsEgressModes are the egress_mode values and the network mode each one
+// belongs to. nat_gateway needs the NAT gateways a created network gets;
+// existing needs the route tables an adopted network already has;
+// bastion_nat works in both.
+const (
+	awsEgressModeNatGateway = "nat_gateway"
+	awsEgressModeBastionNat = "bastion_nat"
+	awsEgressModeExisting   = "existing"
+)
+
+// awsNetworkFlags is the subset of the create flags that decides whether
+// the network is created or adopted, gathered so the rule can be checked in
+// one place.
+type awsNetworkFlags struct {
+	vpcID                       string
+	nodeSubnetIDs               []string
+	bastionSubnetID             string
+	networkIPRange              string
+	availabilityZones           []string
+	natGatewaySingleZoneChanged bool
+	egressMode                  string
+}
+
+// validateAwsNetworkFlags enforces the created/adopted split before the
+// request is sent: --vpc-id switches the mode, and each mode has flags the
+// other must not carry. Refusing here names the flag; the server would
+// answer a 422 about a body member instead.
+func validateAwsNetworkFlags(flags awsNetworkFlags) error {
+	switch flags.egressMode {
+	case "", awsEgressModeNatGateway, awsEgressModeBastionNat, awsEgressModeExisting:
+	default:
+		return fmt.Errorf("invalid --egress-mode %q: want %s, %s or %s", flags.egressMode, awsEgressModeNatGateway, awsEgressModeBastionNat, awsEgressModeExisting)
+	}
+	if flags.vpcID == "" {
+		var offending []string
+		if len(flags.nodeSubnetIDs) > 0 {
+			offending = append(offending, "--node-subnet-ids")
+		}
+		if flags.bastionSubnetID != "" {
+			offending = append(offending, "--bastion-subnet-id")
+		}
+		if len(offending) > 0 {
+			return fmt.Errorf("%s only applies when adopting a VPC: pass --vpc-id as well, or drop it to let Ankra create the network", strings.Join(offending, " and "))
+		}
+		if flags.egressMode == awsEgressModeExisting {
+			return fmt.Errorf("--egress-mode existing needs a VPC whose subnets already route out: pass --vpc-id, or use %s or %s for a created network", awsEgressModeNatGateway, awsEgressModeBastionNat)
+		}
+		return nil
+	}
+	var missing []string
+	if len(flags.nodeSubnetIDs) == 0 {
+		missing = append(missing, "--node-subnet-ids")
+	}
+	if flags.bastionSubnetID == "" {
+		missing = append(missing, "--bastion-subnet-id")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("--vpc-id adopts an existing VPC and needs %s as well", strings.Join(missing, " and "))
+	}
+	var offending []string
+	if flags.networkIPRange != "" {
+		offending = append(offending, "--network-ip-range")
+	}
+	if len(flags.availabilityZones) > 0 {
+		offending = append(offending, "--availability-zones")
+	}
+	if flags.natGatewaySingleZoneChanged {
+		offending = append(offending, "--nat-gateway-single-zone")
+	}
+	if len(offending) > 0 {
+		return fmt.Errorf("%s only applies to a network Ankra creates and cannot be combined with --vpc-id (an adopted VPC keeps its own CIDR, subnets and NAT)", strings.Join(offending, ", "))
+	}
+	if flags.egressMode == awsEgressModeNatGateway {
+		return fmt.Errorf("--egress-mode nat_gateway only applies to a network Ankra creates: with --vpc-id use %s (the subnets' own routes) or %s", awsEgressModeExisting, awsEgressModeBastionNat)
+	}
+	return nil
+}
+
 // awsCreateRequestFromFlags builds the create body shared by `create` and
 // `preflight`. Flags left at their zero value are omitted so the server's
 // documented defaults apply (kubeadm, stacked etcd, retain, cilium, the
-// platform's default instance types and Ubuntu series, egress mode resolved
-// by preflight from the node subnets).
+// platform's default instance types and Ubuntu series, a created
+// 10.0.0.0/16 network with NAT gateways, or - with --vpc-id - the egress
+// mode resolved by preflight from the node subnets).
 func awsCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAwsClusterRequest, error) {
 	name, _ := cmd.Flags().GetString("name")
 	description, _ := cmd.Flags().GetString("description")
@@ -163,6 +245,9 @@ func awsCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAwsClusterReque
 	vpcID, _ := cmd.Flags().GetString("vpc-id")
 	nodeSubnetIDs, _ := cmd.Flags().GetStringSlice("node-subnet-ids")
 	bastionSubnetID, _ := cmd.Flags().GetString("bastion-subnet-id")
+	networkIPRange, _ := cmd.Flags().GetString("network-ip-range")
+	availabilityZones, _ := cmd.Flags().GetStringSlice("availability-zones")
+	natGatewaySingleZone, _ := cmd.Flags().GetBool("nat-gateway-single-zone")
 	egressMode, _ := cmd.Flags().GetString("egress-mode")
 	bastionInstanceType, _ := cmd.Flags().GetString("bastion-instance-type")
 	bastionAllowedIPs, _ := cmd.Flags().GetStringSlice("bastion-allowed-ips")
@@ -191,6 +276,17 @@ func awsCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAwsClusterReque
 	if cniFeaturesError != nil {
 		return client.CreateAwsClusterRequest{}, cniFeaturesError
 	}
+	if networkError := validateAwsNetworkFlags(awsNetworkFlags{
+		vpcID:                       vpcID,
+		nodeSubnetIDs:               nodeSubnetIDs,
+		bastionSubnetID:             bastionSubnetID,
+		networkIPRange:              networkIPRange,
+		availabilityZones:           availabilityZones,
+		natGatewaySingleZoneChanged: cmd.Flags().Changed("nat-gateway-single-zone"),
+		egressMode:                  egressMode,
+	}); networkError != nil {
+		return client.CreateAwsClusterRequest{}, networkError
+	}
 
 	request := client.CreateAwsClusterRequest{
 		Name:                  name,
@@ -200,6 +296,9 @@ func awsCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAwsClusterReque
 		VpcID:                 vpcID,
 		NodeSubnetIDs:         nodeSubnetIDs,
 		BastionSubnetID:       bastionSubnetID,
+		NetworkIPRange:        networkIPRange,
+		AvailabilityZones:     availabilityZones,
+		NatGatewaySingleZone:  natGatewaySingleZone,
 		EgressMode:            egressMode,
 		BastionInstanceType:   bastionInstanceType,
 		BastionAllowedIPs:     bastionAllowedIPs,
@@ -259,19 +358,44 @@ func awsCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAwsClusterReque
 var awsCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new self-managed AWS (EC2) cluster",
-	Long: `Create an Ankra-managed k3s or kubeadm cluster on EC2 instances inside a VPC
-you already own.
+	Long: `Create an Ankra-managed k3s or kubeadm cluster on EC2 instances.
 
-Ankra adopts the VPC, the node subnets and the bastion subnet - it never
-creates AWS networking - and owns the instances, security groups, the
-generated SSH key and the bastion. Egress for the nodes is detected from the
-node subnets' route tables unless --egress-mode pins it: 'existing' uses the
-NAT gateway or internet gateway the subnets already route through,
-'bastion_nat' makes the bastion the nodes' NAT. Run 'preflight' first to
-check the region, VPC, subnets, instance-type availability and the resolved
-egress mode.
+By default Ankra creates the whole network: a VPC from --network-ip-range
+(default 10.0.0.0/16) with a public bastion subnet and private node subnets
+in each of --availability-zones (default: one zone, or three when the
+control plane has 3 or more nodes), an internet gateway, route tables and
+the nodes' egress - 'nat_gateway' (the default; one NAT gateway per zone, or
+one in total with --nat-gateway-single-zone) or 'bastion_nat' (the bastion is
+the nodes' NAT, the cheapest option). The created network is Ankra's and is
+deleted with the cluster.
+
+Pass --vpc-id to build inside a VPC you already own instead: Ankra adopts
+the VPC, --node-subnet-ids and --bastion-subnet-id and never creates or
+deletes networking there. Egress is then detected from the node subnets'
+route tables unless --egress-mode pins it: 'existing' uses the NAT gateway
+or internet gateway the subnets already route through, 'bastion_nat' makes
+the bastion the NAT. --network-ip-range, --availability-zones and
+--nat-gateway-single-zone do not apply to an adopted VPC.
+
+In both modes Ankra owns the instances, security groups, the generated SSH
+key and the bastion. Run 'preflight' first to check the region, the network
+(ownership, zones, CIDR or the adopted subnets), instance-type availability
+and the resolved egress mode.
 
 Examples:
+  # Ankra creates the network (default)
+  ankra cluster aws create --name prod --credential-id <id> \
+    --ssh-key-credential-id <id> --region eu-north-1 \
+    --bastion-allowed-ips 203.0.113.0/24
+
+  # ... spanning three zones with a single NAT gateway
+  ankra cluster aws create --name prod --credential-id <id> \
+    --ssh-key-credential-id <id> --region eu-north-1 \
+    --bastion-allowed-ips 203.0.113.0/24 --control-plane-count 3 \
+    --availability-zones eu-north-1a,eu-north-1b,eu-north-1c \
+    --nat-gateway-single-zone
+
+  # Build inside a VPC you already own
   ankra cluster aws create --name prod --credential-id <id> \
     --ssh-key-credential-id <id> --region eu-north-1 --vpc-id vpc-0abc \
     --node-subnet-ids subnet-0aaa,subnet-0bbb --bastion-subnet-id subnet-0ccc \
@@ -309,10 +433,12 @@ Examples:
 var awsPreflightCmd = &cobra.Command{
 	Use:   "preflight",
 	Short: "Validate an AWS cluster create request without provisioning",
-	Long: `Run the AWS create preflight: credential and region reachability, VPC and
-subnet membership, bastion subnet routing, instance-type and AMI
-availability, and the egress mode the server resolves when --egress-mode is
-left unset.
+	Long: `Run the AWS create preflight: credential and region reachability, the
+network (a free CIDR and the zones for a created network; VPC and subnet
+membership and bastion subnet routing for an adopted one), instance-type
+and AMI availability, and what the server resolved - the network ownership
+(created or adopted), the availability zones the network will span, and
+the egress mode when --egress-mode is left unset.
 
 Takes the same flags as 'create'.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -340,13 +466,25 @@ Takes the same flags as 'create'.`,
 		}
 		t.Render()
 
-		// A null resolved mode is the server saying it could not settle one
-		// (a check failed first), not "existing": say so rather than
-		// printing nothing and leaving the reader to infer a default.
-		if result.ResolvedEgressMode != nil && *result.ResolvedEgressMode != "" {
-			fmt.Printf("\nResolved egress mode: %s\n", *result.ResolvedEgressMode)
+		// Each resolved value is reported or said to be missing, never left
+		// out: a null egress mode is the server saying it could not settle
+		// one (a check failed first), not "existing"; an absent ownership
+		// is not "adopted" and an absent zone list is not "no zones".
+		fmt.Println()
+		if result.NetworkOwnership != "" {
+			fmt.Printf("Network ownership: %s\n", result.NetworkOwnership)
 		} else {
-			fmt.Println("\nResolved egress mode: not resolved")
+			fmt.Println("Network ownership: not reported")
+		}
+		if len(result.ResolvedAvailabilityZones) > 0 {
+			fmt.Printf("Resolved availability zones: %s\n", strings.Join(result.ResolvedAvailabilityZones, ", "))
+		} else {
+			fmt.Println("Resolved availability zones: not resolved")
+		}
+		if result.ResolvedEgressMode != nil && *result.ResolvedEgressMode != "" {
+			fmt.Printf("Resolved egress mode: %s\n", *result.ResolvedEgressMode)
+		} else {
+			fmt.Println("Resolved egress mode: not resolved")
 		}
 		if result.CanProceed {
 			fmt.Println(text.FgGreen.Sprint("\nPreflight passed: the cluster can be created."))
@@ -360,10 +498,11 @@ var awsDeprovisionCmd = &cobra.Command{
 	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision an AWS cluster and release its EC2 resources",
 	Long: `Permanently delete an AWS cluster and the provider resources Ankra created
-for it: the instances, security groups, bastion and generated SSH key. The
-adopted VPC and subnets are never touched. EBS volumes and load balancers
-follow the cluster's retention_policy: 'retain' keeps them, 'delete' sweeps
-the tagged orphans.`,
+for it: the instances, security groups, bastion and generated SSH key, and -
+when Ankra created the network - the VPC, subnets, internet gateway, NAT
+gateways, route tables and elastic IPs. An adopted VPC and its subnets are
+never touched. EBS volumes and load balancers follow the cluster's
+retention_policy: 'retain' keeps them, 'delete' sweeps the tagged orphans.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
@@ -841,13 +980,16 @@ func registerAwsCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("credential-id", "", "AWS credential ID - an access key pair or an assumable role (required)")
 		command.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
 		command.Flags().String("region", "", "AWS region, e.g. eu-north-1 (required)")
-		command.Flags().String("vpc-id", "", "Existing VPC to build the cluster in; Ankra never creates one (required)")
-		command.Flags().StringSlice("node-subnet-ids", nil, "Subnets the control plane and workers are spread across, comma-separated (required)")
-		command.Flags().String("bastion-subnet-id", "", "Public subnet the bastion is placed in (required)")
+		command.Flags().String("vpc-id", "", "Adopt an existing VPC instead of letting Ankra create the network; needs --node-subnet-ids and --bastion-subnet-id")
+		command.Flags().StringSlice("node-subnet-ids", nil, "Adopted VPC only: subnets the control plane and workers are spread across, comma-separated (required with --vpc-id)")
+		command.Flags().String("bastion-subnet-id", "", "Adopted VPC only: public subnet the bastion is placed in (required with --vpc-id)")
+		command.Flags().String("network-ip-range", "", "Created network only: CIDR of the VPC Ankra creates (server default: 10.0.0.0/16)")
+		command.Flags().StringSlice("availability-zones", nil, "Created network only: zones the subnets are created in, comma-separated (server default: 1 zone, or 3 when --control-plane-count is 3 or more)")
+		command.Flags().Bool("nat-gateway-single-zone", false, "Created network only: with --egress-mode nat_gateway, place one NAT gateway in the first zone instead of one per zone (cheaper, not zone-redundant)")
 		command.Flags().StringSlice("bastion-allowed-ips", nil, "CIDRs allowed to reach the bastion over SSH, comma-separated (required)")
-		command.Flags().String("egress-mode", "", "How the nodes reach the internet: 'existing' (the subnets' own NAT or internet gateway) or 'bastion_nat' (the bastion is the NAT); default: detected from the node subnets' route tables")
+		command.Flags().String("egress-mode", "", "How the nodes reach the internet: 'nat_gateway' (created network only; default for one), 'bastion_nat' (either; the bastion is the NAT) or 'existing' (adopted VPC only; the subnets' own NAT or internet gateway, and the default there, detected from their route tables)")
 		command.Flags().String("bastion-instance-type", "", "Bastion instance type (server default: t3.small)")
-		command.Flags().Int("control-plane-count", 0, "Control plane node count, 1-9; at least 3 when the node subnets span more than one zone (server default: 1)")
+		command.Flags().Int("control-plane-count", 0, "Control plane node count, 1-9; at least 3 when the network spans more than one zone, and 3 or more makes a created network default to three zones (server default: 1)")
 		command.Flags().String("control-plane-type", "", "Control plane instance type (server default: t3.medium)")
 		command.Flags().Int("worker-count", 0, "Default-pool worker count (server default: 1)")
 		command.Flags().String("worker-type", "", "Worker instance type (server default: t3.medium)")
@@ -874,9 +1016,6 @@ func registerAwsCreateFlags(commands ...*cobra.Command) {
 		_ = command.MarkFlagRequired("credential-id")
 		_ = command.MarkFlagRequired("ssh-key-credential-id")
 		_ = command.MarkFlagRequired("region")
-		_ = command.MarkFlagRequired("vpc-id")
-		_ = command.MarkFlagRequired("node-subnet-ids")
-		_ = command.MarkFlagRequired("bastion-subnet-id")
 		_ = command.MarkFlagRequired("bastion-allowed-ips")
 	}
 }
