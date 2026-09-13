@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra org ci-settings get` says whether Ankra has granted the build
+  lane.** A build fallback of `platform_builders` only reaches Ankra's
+  builders when Ankra has also granted the organisation the platform-builders
+  capability, and until now nothing you could run showed that grant. The
+  command now prints `Platform builds enabled: yes` or `no` (and
+  `platform_builds_enabled` in `-o json`), and when the answer is `no` it says
+  the grant is missing rather than the setting. Against a platform too old to
+  report the grant, it keeps the previous caveat and adds that
+  `ankra application build list` answering 404 means the capability is off.
+  (PLA-850)
+
 ### Fixed
 
 - **A platform build that fails as `build_unknown` now says whose failure it
