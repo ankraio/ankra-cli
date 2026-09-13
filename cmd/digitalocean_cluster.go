@@ -367,8 +367,9 @@ var digitaloceanNodeGroupListCmd = &cobra.Command{
 			return nil
 		}
 		for _, ng := range result.NodeGroups {
-			fmt.Printf("%-20s  type=%-12s  count=%d  labels=%d  taints=%d\n",
-				ng.Name, ng.InstanceType, ng.Count, len(ng.Labels), len(ng.Taints))
+			fmt.Printf("%-20s  type=%-12s  count=%d%s  labels=%d  taints=%d\n",
+				ng.Name, ng.InstanceType, ng.Count, nodeGroupJoinedSuffix(ng), len(ng.Labels), len(ng.Taints))
+			printNodeGroupUnregistered(ng)
 		}
 		return nil
 	},
