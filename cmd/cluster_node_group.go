@@ -278,12 +278,39 @@ var clusterNodeGroupListCmd = &cobra.Command{
 			return nil
 		}
 		for _, nodeGroup := range result.NodeGroups {
-			fmt.Printf("%-20s  type=%-8s  count=%d  labels=%d  taints=%d%s\n",
-				nodeGroup.Name, nodeGroup.InstanceType, nodeGroup.Count,
+			fmt.Printf("%-20s  type=%-8s  count=%d%s  labels=%d  taints=%d%s\n",
+				nodeGroup.Name, nodeGroup.InstanceType, nodeGroup.Count, nodeGroupJoinedSuffix(nodeGroup),
 				len(nodeGroup.Labels), len(nodeGroup.Taints), nodeGroupZoneSuffix(nodeGroup))
+			printNodeGroupUnregistered(nodeGroup)
 		}
 		return nil
 	},
+}
+
+// nodeGroupJoinedSuffix renders how many of a group's recorded workers are
+// Kubernetes nodes when that differs from the count, or "" when they agree,
+// against a platform that could not tell, and against one that does not
+// serve the field yet. So a healthy line is unchanged, and the suffix is
+// printed next to count on purpose: "count=3  joined=2" is the whole reason
+// it exists. Every count the platform reports comes from its worker
+// records, and a record can stay on the books with no node behind it, so an
+// operator looking at a two-node cluster was told count=3 by every surface
+// (PLA-853).
+func nodeGroupJoinedSuffix(nodeGroup client.NodeGroupInfo) string {
+	if nodeGroup.JoinedCount == nil || *nodeGroup.JoinedCount == nodeGroup.Count {
+		return ""
+	}
+	return fmt.Sprintf("  joined=%d", *nodeGroup.JoinedCount)
+}
+
+// printNodeGroupUnregistered follows a group's list line with the workers
+// that have no Kubernetes node behind them, so the mismatch is visible
+// without reading execution steps. Silent when there are none.
+func printNodeGroupUnregistered(nodeGroup client.NodeGroupInfo) {
+	if len(nodeGroup.UnregisteredWorkers) == 0 {
+		return
+	}
+	fmt.Printf("  no Kubernetes node is registered for: %s\n", strings.Join(nodeGroup.UnregisteredWorkers, ", "))
 }
 
 // nodeGroupZoneSuffix renders a node group's availability zones for a list

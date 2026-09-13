@@ -235,6 +235,15 @@ type NodeGroupInfo struct {
 	// Zones is the same listing for an UpCloud multi-zone cluster: the
 	// distinct zones of the pool the group's nodes were placed in.
 	Zones []string `json:"zones,omitempty"`
+	// JoinedCount is how many of the counted workers are Kubernetes
+	// nodes. Count is the platform's worker records, and a record can
+	// exist with no node behind it; this is the listing-side sign of that.
+	// Nil when the platform cannot tell (empty node mirror, stopped
+	// cluster, AWS) and against a platform that predates the field.
+	JoinedCount *int `json:"joined_count,omitempty"`
+	// UnregisteredWorkers names the counted workers that have no
+	// Kubernetes node behind them.
+	UnregisteredWorkers []string `json:"unregistered_workers,omitempty"`
 }
 
 type NodeGroupListResult struct {
