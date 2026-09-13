@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -152,6 +153,100 @@ func TestRunOrgCISettingsGet_WarnsThatPlatformBuildersNeedsTheCapabilityToo(t *t
 	}
 	if !strings.Contains(output, "platform-builders capability") {
 		t.Errorf("the capability gate must be named, got %s", output)
+	}
+}
+
+// On a platform that predates platform_builds_enabled the grant is unknown,
+// not denied: the caveat stays, it names the read that does reveal the grant,
+// and nothing prints a line claiming an answer the platform never gave.
+func TestRunOrgCISettingsGet_KeepsTheCaveatWhenThePlatformDoesNotReportTheGrant(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "ankra application build list") {
+		t.Errorf("the caveat must name the read that reveals the grant, got %s", output)
+	}
+	if strings.Contains(output, "Platform builds enabled:") {
+		t.Errorf("an unreported grant must not be printed as an answer, got %s", output)
+	}
+}
+
+// PLA-850: a platform that reports the grant replaces the caveat with the
+// answer, so an administrator reading platform_builders knows the lane is on.
+func TestRunOrgCISettingsGet_ShowsAGrantedPlatformBuildsCapabilityInsteadOfTheCaveat(t *testing.T) {
+	settings := defaultCISettings()
+	isGranted := true
+	settings.PlatformBuildsEnabled = &isGranted
+	mock := &orgCISettingsMock{settings: settings}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "Platform builds enabled: yes") {
+		t.Errorf("the grant must be shown, got %s", output)
+	}
+	if strings.Contains(output, "Note:") {
+		t.Errorf("nothing is left to warn about once the grant is reported, got %s", output)
+	}
+}
+
+func TestRunOrgCISettingsGet_SaysWhoseGrantIsMissingWhenPlatformBuildsIsOff(t *testing.T) {
+	settings := defaultCISettings()
+	isGranted := false
+	settings.PlatformBuildsEnabled = &isGranted
+	mock := &orgCISettingsMock{settings: settings}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "Platform builds enabled: no") {
+		t.Errorf("the denial must be shown, got %s", output)
+	}
+	if !strings.Contains(output, "Ankra has not granted this organisation") {
+		t.Errorf("a denial beside platform_builders must say whose grant is missing, got %s", output)
+	}
+	if strings.Contains(output, "which these\nsettings do not show") {
+		t.Errorf("the settings do show the grant now; the old caveat must not print, got %s", output)
+	}
+}
+
+// -o json carries the grant as the platform reported it: true and false as
+// themselves, and an unreported grant left out rather than invented as false.
+func TestRunOrgCISettingsGet_StructuredOutputCarriesThePlatformBuildsGrant(t *testing.T) {
+	isGranted := true
+	isDenied := false
+	for name, testCase := range map[string]struct {
+		grant       *bool
+		wantPresent bool
+		wantValue   bool
+	}{
+		"granted":    {grant: &isGranted, wantPresent: true, wantValue: true},
+		"denied":     {grant: &isDenied, wantPresent: true, wantValue: false},
+		"unreported": {grant: nil, wantPresent: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			settings := defaultCISettings()
+			settings.PlatformBuildsEnabled = testCase.grant
+			mock := &orgCISettingsMock{settings: settings}
+			output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get", "-o", "json")
+			if executeError != nil {
+				t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+			}
+			var decoded map[string]any
+			if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+				t.Fatalf("stdout is not parseable JSON (%v):\n%s", decodeError, output)
+			}
+			value, isPresent := decoded["platform_builds_enabled"]
+			if isPresent != testCase.wantPresent {
+				t.Fatalf("platform_builds_enabled present = %v, want %v:\n%s",
+					isPresent, testCase.wantPresent, output)
+			}
+			if testCase.wantPresent && value != testCase.wantValue {
+				t.Errorf("platform_builds_enabled = %v, want %v", value, testCase.wantValue)
+			}
+		})
 	}
 }
 

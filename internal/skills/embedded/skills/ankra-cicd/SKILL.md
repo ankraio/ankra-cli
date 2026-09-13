@@ -155,9 +155,13 @@ ankra org ci-settings get
 ankra org ci-settings set --build-fallback platform_builders
 ```
 
-`platform_builders` also needs the platform-builders capability enabled for the organisation: a
-build that still refuses while this setting reads `platform_builders` is missing the capability,
-not the setting.
+`platform_builders` also needs the platform-builders capability, which Ankra grants per
+organisation. `ankra org ci-settings get` shows it as `Platform builds enabled`
+(`platform_builds_enabled` in `-o json`). When it reads `no`, a build that still refuses while the
+fallback reads `platform_builders` is missing that grant, not the setting, and only Ankra can
+enable it. The field is Ankra's, not the organisation's: a write naming it is refused. On an Ankra
+too old to report it, `ankra application build list <application-id>` answering 404 means the
+capability is off.
 
 ## When there is no pipeline to run
 

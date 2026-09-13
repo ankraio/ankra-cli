@@ -49,6 +49,13 @@ type OrganisationCISettings struct {
 	// no available fix out of the verdict; false keeps every unfixed finding
 	// blocking whatever any pipeline asks for.
 	IgnoreUnfixed bool `json:"ci_ignore_unfixed" yaml:"ci_ignore_unfixed"`
+	// PlatformBuildsEnabled reports whether Ankra has granted the organisation
+	// the platform-builders capability that gates the Ankra-operated build
+	// lane. It is Ankra's grant rather than a setting, so the platform refuses
+	// a write naming it. Nil means the platform predates the field: the answer
+	// is unknown, not a denial, so it stays out of structured output instead
+	// of reading as false.
+	PlatformBuildsEnabled *bool `json:"platform_builds_enabled,omitempty" yaml:"platform_builds_enabled,omitempty"`
 
 	// IsDefault reports that every answer above is Ankra's own default, so a
 	// caller can say "this organisation runs on Ankra's defaults" without

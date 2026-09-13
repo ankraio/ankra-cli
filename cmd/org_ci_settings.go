@@ -282,26 +282,47 @@ func renderOrganisationCISettings(cmd *cobra.Command, settings *client.Organisat
 	_, _ = fmt.Fprintf(out, "Run retention:           %d days\n", settings.RunRetentionDays)
 	_, _ = fmt.Fprintf(out, "Image gate:              %s\n", settings.ImageGate)
 	_, _ = fmt.Fprintf(out, "Ignore unfixed findings: %s\n", yesNo(settings.IgnoreUnfixed))
+	if settings.PlatformBuildsEnabled != nil {
+		_, _ = fmt.Fprintf(out, "Platform builds enabled: %s\n", yesNo(*settings.PlatformBuildsEnabled))
+	}
 
 	if settings.IsDefault {
 		_, _ = fmt.Fprintln(out,
 			"\nEvery value above is Ankra's default; nothing has been set on this organisation.")
 	}
 
-	// The one thing this endpoint cannot answer, said plainly rather than
-	// left to be discovered from a contradiction. Opting into the fallback is
-	// necessary but not sufficient: the Ankra-operated build lane is
-	// additionally gated on a capability enabled per organisation, which is
-	// not part of these settings and is not readable here. When it is off, a
-	// build step still concludes "the organisation's build fallback is
-	// 'none'" - naming a setting that this command shows as platform_builders
-	// - and an administrator who trusts that sentence goes and changes a
-	// setting that was already correct (PLA-825).
-	if settings.BuildFallback == client.CIBuildFallbackPlatformBuilders {
+	renderPlatformBuildsNote(cmd, settings)
+}
+
+// renderPlatformBuildsNote says what platform_builders cannot promise on its
+// own. Opting into the fallback is necessary but not sufficient: the
+// Ankra-operated build lane is additionally gated on a capability Ankra grants
+// per organisation. When it is off, a build step still concludes "the
+// organisation's build fallback is 'none'" - naming a setting this command
+// shows as platform_builders - and an administrator who trusts that sentence
+// goes and changes a setting that was already correct (PLA-825, PLA-850).
+//
+// A platform that reports the grant settles it, so only a denial needs a
+// sentence. A platform that predates the field leaves the grant unknown, and
+// the caveat stays, with the one read that does reveal it.
+func renderPlatformBuildsNote(cmd *cobra.Command, settings *client.OrganisationCISettings) {
+	if settings.BuildFallback != client.CIBuildFallbackPlatformBuilders {
+		return
+	}
+	out := cmd.OutOrStdout()
+	switch {
+	case settings.PlatformBuildsEnabled == nil:
 		_, _ = fmt.Fprintln(out,
 			"\nNote: platform_builders also needs the platform-builders capability, which these\n"+
 				"settings do not show. A build step that fails with \"build fallback is 'none'\"\n"+
-				"while this reads platform_builders is missing the capability, not the setting.")
+				"while this reads platform_builders is missing the capability, not the setting.\n"+
+				"`ankra application build list <application-id>` answering 404 means it is off.")
+	case !*settings.PlatformBuildsEnabled:
+		_, _ = fmt.Fprintln(out,
+			"\nNote: Ankra has not granted this organisation the platform-builders capability, so\n"+
+				"no build falls back to Ankra's builders even though this reads platform_builders.\n"+
+				"A build step that fails with \"build fallback is 'none'\" is missing that grant,\n"+
+				"not the setting, and only Ankra can enable it.")
 	}
 }
 
