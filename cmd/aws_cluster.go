@@ -39,6 +39,9 @@ var awsStopCmd = &cobra.Command{
 		if stopError != nil {
 			return fmt.Errorf("stopping AWS cluster: %w", stopError)
 		}
+		if structured, renderError := renderStructured(cmd, result); renderError != nil || structured {
+			return renderError
+		}
 
 		if result.Success {
 			fmt.Println(text.FgGreen.Sprint("AWS cluster stop initiated."))
@@ -75,6 +78,9 @@ var awsStartCmd = &cobra.Command{
 		if startError != nil {
 			return fmt.Errorf("starting AWS cluster: %w", startError)
 		}
+		if structured, renderError := renderStructured(command, result); renderError != nil || structured {
+			return renderError
+		}
 
 		fmt.Println(text.FgGreen.Sprint("AWS cluster start initiated."))
 		fmt.Printf("  Scope: %s\n", result.Scope)
@@ -88,6 +94,8 @@ var awsStartCmd = &cobra.Command{
 
 func init() {
 	awsStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
+	awsStartCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
+	awsStopCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
 	awsStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged EBS volumes and load balancers even when retention_policy is retain (destroys persisted data)")
 	registerAwsCreateFlags(awsCreateCmd, awsPreflightCmd)
 	registerAwsCatalogFlags(false, false, awsRegionsCmd)
