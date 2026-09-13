@@ -620,7 +620,7 @@ func (m *awsDeprovisionConfirmMock) ListClusters(page int, pageSize int) (*clien
 	}, nil
 }
 
-func (m *awsDeprovisionConfirmMock) DeprovisionAwsCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m *awsDeprovisionConfirmMock) DeprovisionAwsCluster(clusterID string, force bool) (*client.ProviderDeprovisionClusterResponse, error) {
 	m.deprovisioned = clusterID
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }

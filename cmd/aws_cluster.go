@@ -102,6 +102,7 @@ func init() {
 	registerAwsCatalogFlags(true, false, awsInstanceTypesCmd, awsVpcsCmd, awsAvailabilityZonesCmd, awsImagesCmd, awsPricingCmd)
 	registerAwsCatalogFlags(true, true, awsSubnetsCmd)
 	awsDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	awsDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's CSI storage volumes and load balancers (destroys persisted data), and tolerate unreachable infrastructure - the agent's dependency chain is skipped so the EC2 teardown runs even when the cluster can no longer be reached")
 	registerStructuredOutputFlags(
 		awsCreateCmd, awsPreflightCmd, awsDeprovisionCmd,
 		awsWorkersCmd, awsK8sVersionCmd, awsAccessInfoCmd,
@@ -518,13 +519,14 @@ retention_policy: 'retain' keeps them, 'delete' sweeps the tagged orphans.`,
 			return resolveError
 		}
 		awsDeprovisionYes, _ := cmd.Flags().GetBool("yes")
+		force, _ := cmd.Flags().GetBool("force")
 		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
 			fmt.Sprintf("Deprovision AWS cluster %s? This permanently deletes its EC2 resources and the cluster record! [y/N]: ",
 				clusterTarget(args[0], clusterID)),
 			awsDeprovisionYes); confirmError != nil {
 			return confirmError
 		}
-		result, deprovisionError := apiClient.DeprovisionAwsCluster(clusterID)
+		result, deprovisionError := apiClient.DeprovisionAwsCluster(clusterID, force)
 		if deprovisionError != nil {
 			return fmt.Errorf("deprovisioning AWS cluster: %w", deprovisionError)
 		}

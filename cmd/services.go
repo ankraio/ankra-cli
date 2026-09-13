@@ -634,7 +634,7 @@ type APIClient interface {
 
 	CreateAwsCluster(request client.CreateAwsClusterRequest) (*client.CreateAwsClusterResponse, error)
 	PreflightAwsCluster(request client.CreateAwsClusterRequest) (*client.AwsPreflightResult, error)
-	DeprovisionAwsCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error)
+	DeprovisionAwsCluster(clusterID string, force bool) (*client.ProviderDeprovisionClusterResponse, error)
 	StopAwsCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error)
 	StartAwsCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error)
 	GetAwsWorkerCount(clusterID string) (*client.WorkerCountResult, error)

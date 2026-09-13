@@ -21,6 +21,7 @@ func TestDeprovisionForceHelpNamesWhatItDeletes(t *testing.T) {
 		command *cobra.Command
 	}{
 		{name: "hetzner", command: hetznerDeprovisionCmd},
+		{name: "aws", command: awsDeprovisionCmd},
 		{name: "upcloud", command: upcloudDeprovisionCmd},
 		{name: "digitalocean", command: digitaloceanDeprovisionCmd},
 		{name: "ovh", command: ovhDeprovisionCmd},

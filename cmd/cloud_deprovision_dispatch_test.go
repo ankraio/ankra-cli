@@ -80,7 +80,7 @@ func (m *cloudDeprovisionDispatchMock) DeprovisionScalewayCluster(clusterID stri
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionAwsCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m *cloudDeprovisionDispatchMock) DeprovisionAwsCluster(clusterID string, force bool) (*client.ProviderDeprovisionClusterResponse, error) {
 	m.calledProvider = "aws"
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }

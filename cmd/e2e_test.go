@@ -2196,7 +2196,7 @@ func (m baseMock) PreflightAwsCluster(request client.CreateAwsClusterRequest) (*
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionAwsCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m baseMock) DeprovisionAwsCluster(clusterID string, force bool) (*client.ProviderDeprovisionClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
