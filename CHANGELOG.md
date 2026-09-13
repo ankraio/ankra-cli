@@ -14,6 +14,33 @@
   output - is the only copy Ankra keeps, so it belongs in the report.
   `ankra application build get --help` lists the class with the others.
 
+## v0.16.1 — 2026-09-13
+
+Adds `ankra ai lanes`, the terminal side of the new per-function AI model
+settings, and makes `ankra application add` say which registry an application
+will publish to when you did not declare one.
+
+### Added
+
+- **`ankra ai lanes` chooses the model each AI function runs on.** Deploy
+  analysis, troubleshooting, CI/CD generation, stack README generation and AI
+  code review each run on a lane that follows its default tier in the model
+  catalog. `list` shows every lane with its selection and the model it runs
+  on, and labels a selection that no longer resolves. `set <lane> <model>`
+  takes a catalog key or an exact OpenRouter model id, and `clear <lane>`
+  returns a lane to its default tier. A change the platform's answer does not
+  confirm, or a selection that does not resolve, exits non-zero instead of
+  reporting success. Changing a lane requires organisation admin. (#296)
+
+### Changed
+
+- **`ankra application add` says which registry the application will publish
+  to.** With no `--registry-url` it now prints the organisation's Ankra
+  registry it defaulted to and the flag that overrides it. When other
+  applications of the organisation publish somewhere else, it also names their
+  registry hosts and the command that declares one here, while a correction is
+  still cheap. (PLA-825)
+
 ## v0.16.0 — 2026-09-12
 
 Promotes the v0.16.0 line to stable. The headline is that automation can wait
