@@ -11,9 +11,11 @@ type clusterSSHKeysMock struct {
 	baseMock
 	cluster client.ClusterListItem
 
-	hetznerResync []string
-	ovhResync     []string
-	upcloudResync []string
+	hetznerResync  []string
+	ovhResync      []string
+	upcloudResync  []string
+	scalewayResync []string
+	awsResync      []string
 }
 
 func (m *clusterSSHKeysMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
@@ -39,18 +41,32 @@ func (m *clusterSSHKeysMock) ResyncUpcloudClusterSSHKeys(clusterID string) (*cli
 	return m.resyncResult(), nil
 }
 
+func (m *clusterSSHKeysMock) ResyncScalewayClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error) {
+	m.scalewayResync = append(m.scalewayResync, clusterID)
+	return m.resyncResult(), nil
+}
+
+func (m *clusterSSHKeysMock) ResyncAwsClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error) {
+	m.awsResync = append(m.awsResync, clusterID)
+	return m.resyncResult(), nil
+}
+
 func TestClusterSSHKeysResync_DispatchesByKind(t *testing.T) {
 	const clusterID = "62f4559a-a44d-46d7-aab3-a57c9dd6b4c6"
 
 	cases := []struct {
-		kind        string
-		wantHetzner int
-		wantOvh     int
-		wantUpcloud int
+		kind         string
+		wantHetzner  int
+		wantOvh      int
+		wantUpcloud  int
+		wantScaleway int
+		wantAws      int
 	}{
 		{kind: "hetzner", wantHetzner: 1},
 		{kind: "ovh", wantOvh: 1},
 		{kind: "upcloud", wantUpcloud: 1},
+		{kind: "scaleway", wantScaleway: 1},
+		{kind: "aws", wantAws: 1},
 	}
 
 	for _, tc := range cases {
@@ -76,6 +92,12 @@ func TestClusterSSHKeysResync_DispatchesByKind(t *testing.T) {
 			if len(mock.upcloudResync) != tc.wantUpcloud {
 				t.Errorf("upcloud resync calls = %d, want %d", len(mock.upcloudResync), tc.wantUpcloud)
 			}
+			if len(mock.scalewayResync) != tc.wantScaleway {
+				t.Errorf("scaleway resync calls = %d, want %d", len(mock.scalewayResync), tc.wantScaleway)
+			}
+			if len(mock.awsResync) != tc.wantAws {
+				t.Errorf("aws resync calls = %d, want %d", len(mock.awsResync), tc.wantAws)
+			}
 			if !strings.Contains(out, "resource-1") {
 				t.Errorf("expected resource id in output, got:\n%s", out)
 			}
@@ -87,7 +109,7 @@ func TestSSHKeysSelectorsForKind(t *testing.T) {
 	mock := &clusterSSHKeysMock{}
 	setMockClient(t, mock)
 
-	for _, kind := range []string{"hetzner", "ovh", "upcloud", "digitalocean", "proxmox", "morpheus"} {
+	for _, kind := range []string{"hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "aws", "proxmox", "morpheus"} {
 		if sshKeysGetForKind(kind) == nil ||
 			sshKeysSetForKind(kind) == nil ||
 			sshKeysResyncForKind(kind) == nil {

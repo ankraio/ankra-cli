@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster aws` builds self-managed k3s (or kubeadm) clusters on EC2**
+  (ankra-rtpno.13). This is not EKS: Ankra installs Kubernetes on plain
+  instances. By default it creates the whole network too - `create` needs
+  only `--name`, `--credential-id`, `--ssh-key-credential-id`, `--region`
+  and `--bastion-allowed-ips`, and the platform builds a VPC from
+  `--network-ip-range` (default `10.0.0.0/16`) across `--availability-zones`
+  (default: one zone, or three when the control plane has 3+ nodes) with an
+  internet gateway, route tables and the nodes' egress: `--egress-mode
+  nat_gateway` (the default; `--nat-gateway-single-zone` keeps it to one
+  gateway) or `bastion_nat`. The created network is Ankra's and is deleted
+  with the cluster. Pass `--vpc-id` with `--node-subnet-ids` and
+  `--bastion-subnet-id` to adopt a VPC you already own instead: nothing is
+  created or deleted there, egress is detected from the subnets' route
+  tables or pinned with `--egress-mode existing|bastion_nat`, and the
+  created-network flags are refused. The CLI checks the split before
+  sending: a `--vpc-id` without its subnets, subnets without a `--vpc-id`,
+  or an egress mode that belongs to the other network mode are refused
+  naming the flag. `preflight` reports the network ownership, the zones the
+  network will span and the resolved egress mode before anything is built.
+  The group carries the same day-2 verbs as the
+  other providers - `stop`, `start`, `deprovision` (with a confirmation
+  prompt), `workers`, `k8s-version`, `access-info`, `control-plane`, `nodes`
+  and `bastion` - plus the catalogs that answer the create flags: `regions`,
+  `instance-types`, `vpcs`, `subnets`, `availability-zones`, `images` and
+  `pricing`. The provider-agnostic `ankra cluster scale|upgrade|node-group|
+  ssh-keys|deprovision|power-schedules` commands detect an AWS cluster like
+  any other. The catalogs answer with the shapes the platform ships: a price
+  the pricing API did not publish renders as `-`, never as 0, a VPC's DHCP
+  domain is shown as the domain, `(none)` or `?` (unreadable), and a subnet
+  lists its egress kind and how many foreign instances it carries, with `-`
+  when they could not be counted. `ankra credentials aws` connects the AWS
+  credential too: `onboarding --scope cost|provisioning|self_managed` prints
+  the external id and CloudFormation launch-stack URL for a role,
+  `create-role` registers the role the stack created, `create-keys`
+  registers an access key pair (the secret is prompted for, masked, or read
+  from stdin - never a flag), and `list` shows the ids.
+
 ### Changed
 
 - **`ankra org ci-settings get` says whether Ankra has granted the build

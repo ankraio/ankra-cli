@@ -13,24 +13,30 @@ import (
 // removed in the v2 list; they are kept here only for backwards
 // compatibility against older platform versions.
 type Credential struct {
-	ID                  string                   `json:"id"`
-	Name                string                   `json:"name"`
-	Provider            string                   `json:"provider"`
-	OrganisationID      string                   `json:"organisation_id"`
-	System              bool                     `json:"system"`
-	Available           bool                     `json:"available"`
-	State               *string                  `json:"state,omitempty"`
-	CreatedAt           string                   `json:"created_at"`
-	UpdatedAt           *string                  `json:"updated_at,omitempty"`
-	AccountLogin        *string                  `json:"account_login,omitempty"`
-	AccountType         *string                  `json:"account_type,omitempty"`
-	InstallationID      *int                     `json:"installation_id,omitempty"`
-	RepositorySelection *string                  `json:"repository_selection,omitempty"`
-	CoTenantCount       *int                     `json:"co_tenant_count,omitempty"`
-	LastSyncedAt        *string                  `json:"last_synced_at,omitempty"`
-	Syncing             bool                     `json:"syncing"`
-	RepositoryCount     *int                     `json:"repository_count,omitempty"`
-	Health              *CredentialHealthSummary `json:"health,omitempty"`
+	ID                  string  `json:"id"`
+	Name                string  `json:"name"`
+	Provider            string  `json:"provider"`
+	OrganisationID      string  `json:"organisation_id"`
+	System              bool    `json:"system"`
+	Available           bool    `json:"available"`
+	State               *string `json:"state,omitempty"`
+	CreatedAt           string  `json:"created_at"`
+	UpdatedAt           *string `json:"updated_at,omitempty"`
+	AccountLogin        *string `json:"account_login,omitempty"`
+	AccountType         *string `json:"account_type,omitempty"`
+	InstallationID      *int    `json:"installation_id,omitempty"`
+	RepositorySelection *string `json:"repository_selection,omitempty"`
+	CoTenantCount       *int    `json:"co_tenant_count,omitempty"`
+	// Scope and AuthMethod are answered for AWS credentials only: the
+	// onboarding scope the role was launched for (cost, provisioning,
+	// self_managed) and whether the credential is an access-key pair or an
+	// assumable role. Nil means the platform did not say, not "none".
+	Scope           *string                  `json:"scope,omitempty"`
+	AuthMethod      *string                  `json:"auth_method,omitempty"`
+	LastSyncedAt    *string                  `json:"last_synced_at,omitempty"`
+	Syncing         bool                     `json:"syncing"`
+	RepositoryCount *int                     `json:"repository_count,omitempty"`
+	Health          *CredentialHealthSummary `json:"health,omitempty"`
 
 	// Legacy fields kept for old responses; preferring backend values
 	// where available.

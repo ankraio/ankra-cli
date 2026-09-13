@@ -30,6 +30,9 @@ func TestProviderCreateCommandsExposeTheFlagTrio(t *testing.T) {
 		{name: "ovh", cmd: ovhCreateCmd, externalCloudProvider: true},
 		{name: "proxmox", cmd: proxmoxCreateCmd},
 		{name: "morpheus", cmd: morpheusCreateCmd},
+		// AWS EC2 clusters take the AWS CCM decision server-side; the CLI has no
+		// --external-cloud-provider for them, like Proxmox and Morpheus.
+		{name: "aws", cmd: awsCreateCmd},
 	}
 
 	for _, tt := range tests {
@@ -60,7 +63,7 @@ func TestProviderCreateCommandsExposeTheFlagTrio(t *testing.T) {
 func TestIncludeDNSHelpNamesItsScope(t *testing.T) {
 	for _, cmd := range []*cobra.Command{
 		upcloudCreateCmd, digitaloceanCreateCmd, hetznerCreateCmd,
-		ovhCreateCmd, proxmoxCreateCmd, morpheusCreateCmd,
+		ovhCreateCmd, proxmoxCreateCmd, morpheusCreateCmd, awsCreateCmd,
 	} {
 		flag := cmd.Flags().Lookup("include-dns")
 		if flag == nil {
