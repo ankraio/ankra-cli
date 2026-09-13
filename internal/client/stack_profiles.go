@@ -115,6 +115,32 @@ type InstantiateStackProfileResult struct {
 	JobCount       int      `json:"job_count"`
 }
 
+// AdoptStackProfileRequest records a stack the cluster already runs as a
+// tracked deployment of a profile. Nothing is written to the cluster.
+type AdoptStackProfileRequest struct {
+	ProfileID  string             `json:"profile_id"`
+	StackName  string             `json:"stack_name"`
+	Version    *int               `json:"version,omitempty"`
+	Parameters []ParameterBinding `json:"parameters"`
+}
+
+// AdoptStackProfileDrift names the members that differ between the live
+// stack and the version it was adopted at. OnlyOnCluster is the
+// consequential half: a rollout of that version stops and deletes them.
+type AdoptStackProfileDrift struct {
+	OnlyOnCluster []string `json:"only_on_cluster"`
+	OnlyInVersion []string `json:"only_in_version"`
+}
+
+type AdoptStackProfileResult struct {
+	StackName      string                  `json:"stack_name"`
+	ProfileVersion int                     `json:"profile_version"`
+	CurrentVersion int                     `json:"current_version"`
+	Outdated       bool                    `json:"outdated"`
+	Retracked      bool                    `json:"retracked"`
+	Drift          *AdoptStackProfileDrift `json:"drift"`
+}
+
 type ImportStackProfileRequest struct {
 	Name          *string  `json:"name,omitempty"`
 	Description   *string  `json:"description,omitempty"`
@@ -317,6 +343,42 @@ func (c *Client) InstantiateStackProfile(ctx context.Context, clusterID string, 
 	var result InstantiateStackProfileResult
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+// AdoptStackProfile records an already-deployed stack as a tracked
+// deployment of a profile. It writes one provenance row and touches no
+// cluster state, so a retry is harmless: adopting the same stack twice
+// supersedes the first record rather than adding a second deployment.
+func (c *Client) AdoptStackProfile(ctx context.Context, clusterID string, adoptRequest AdoptStackProfileRequest) (*AdoptStackProfileResult, error) {
+	requestURL := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/adopt-profile",
+		c.BaseURL, neturl.PathEscape(clusterID))
+	payload, marshalError := json.Marshal(adoptRequest)
+	if marshalError != nil {
+		return nil, fmt.Errorf("marshal request: %w", marshalError)
+	}
+	request, requestError := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(payload))
+	if requestError != nil {
+		return nil, fmt.Errorf("create request: %w", requestError)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+	response, doError := c.HTTP.Do(request)
+	if doError != nil {
+		return nil, fmt.Errorf("request failed: %w", doError)
+	}
+	defer closeBody(response)
+	body, readError := readResponseBody(response)
+	if readError != nil {
+		return nil, fmt.Errorf("read response: %w", readError)
+	}
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
+		return nil, newUnexpectedResponseError("adopt stack profile failed", response.StatusCode, redactedBodyForError(body, 512))
+	}
+	var result AdoptStackProfileResult
+	if unmarshalError := json.Unmarshal(body, &result); unmarshalError != nil {
+		return nil, fmt.Errorf("parse response: %w", unmarshalError)
 	}
 	return &result, nil
 }

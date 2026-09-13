@@ -196,6 +196,7 @@ type APIClient interface {
 	ImportStackProfileAsDraft(importRequest client.ImportStackProfileDraftRequest) (*client.ImportStackProfileDraftResult, error)
 	GetStackProfile(profileID string) (*client.StackProfileDetail, error)
 	InstantiateStackProfile(ctx context.Context, clusterID string, instantiateRequest client.InstantiateStackProfileRequest) (*client.InstantiateStackProfileResult, error)
+	AdoptStackProfile(ctx context.Context, clusterID string, adoptRequest client.AdoptStackProfileRequest) (*client.AdoptStackProfileResult, error)
 	CreateStackProfileDraft(request client.CreateStackProfileDraftRequest) (*client.StackProfileDraft, error)
 	ListStackProfileDrafts() ([]client.StackProfileDraftSummary, error)
 	GetStackProfileDraft(draftID string) (*client.StackProfileDraft, error)

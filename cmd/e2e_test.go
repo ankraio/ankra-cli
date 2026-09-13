@@ -137,6 +137,10 @@ func (m baseMock) InstantiateStackProfile(ctx context.Context, clusterID string,
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) AdoptStackProfile(ctx context.Context, clusterID string, adoptRequest client.AdoptStackProfileRequest) (*client.AdoptStackProfileResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateStackProfileDraft(request client.CreateStackProfileDraftRequest) (*client.StackProfileDraft, error) {
 	return nil, errors.New("not implemented")
 }
