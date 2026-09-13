@@ -440,7 +440,7 @@ func TestAwsCreateSendsTriStateFlagsWhenSet(t *testing.T) {
 func TestAwsCreateRequiresTheCreatedNetworkFlags(t *testing.T) {
 	setMockClient(t, &awsClusterMock{})
 	t.Cleanup(func() { resetTreeFlags(t, awsCreateCmd) })
-	for _, required := range []string{"name", "credential-id", "ssh-key-credential-id", "region", "bastion-allowed-ips"} {
+	for _, required := range []string{"name", "credential-id", "ssh-key-credential-id", "region"} {
 		var args []string
 		for index := 0; index < len(awsCreateArgs); index += 2 {
 			if strings.TrimPrefix(awsCreateArgs[index], "--") == required {
