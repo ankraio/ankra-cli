@@ -608,16 +608,17 @@ func TestApplyAddonMutations_CarriesConfigurationBlock(t *testing.T) {
 		t.Errorf("registry-only change must keep the values reference, got %+v", registryOut.Configuration)
 	}
 
-	// Replacing the values inlines them, so the pointer is deliberately
-	// dropped (it would contradict the inline document) while the SOPS
-	// paths survive.
+	// Replacing the values sends them inline and keeps both the pointer (the
+	// GitOps file the platform writes them to, ankra-syg75) and the SOPS
+	// paths.
 	newB64 := "aGVsbG8="
 	replaced := applyAddonMutations(orig, addonsUpgradeFlags{}, &newB64)
 	if replaced.Configuration == nil || replaced.Configuration.ValuesBase64 != newB64 {
 		t.Fatalf("values replacement did not land: %+v", replaced.Configuration)
 	}
-	if replaced.Configuration.FromFile != "" {
-		t.Errorf("from_file = %q, want it cleared when values are sent inline", replaced.Configuration.FromFile)
+	if replaced.Configuration.FromFile != orig.Configuration.FromFile {
+		t.Errorf("from_file = %q, want %q kept through a values replacement",
+			replaced.Configuration.FromFile, orig.Configuration.FromFile)
 	}
 	if len(replaced.Configuration.EncryptedPaths) != 1 {
 		t.Errorf("encrypted_paths must survive a values replacement, got %v", replaced.Configuration.EncryptedPaths)
