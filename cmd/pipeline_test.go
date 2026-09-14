@@ -59,6 +59,10 @@ type pipelineLaneMock struct {
 	cancelResult *client.PipelineRun
 	cancelError  error
 
+	// applicationsListing, when set, answers ListApplicationsRaw, so a test
+	// can bind an application to the repository a checkout points at.
+	applicationsListing string
+
 	rerunRunID      string
 	rerunFailedOnly bool
 	rerunResult     *client.CreatePipelineRunResult
@@ -155,6 +159,13 @@ func (mock *pipelineLaneMock) ListPipelineRuns(ctx context.Context, selector cli
 		return &page, nil
 	}
 	return mock.listResult, nil
+}
+
+func (mock *pipelineLaneMock) ListApplicationsRaw(ctx context.Context, page int, pageSize int, search string) (json.RawMessage, error) {
+	if mock.applicationsListing == "" {
+		return mock.baseMock.ListApplicationsRaw(ctx, page, pageSize, search)
+	}
+	return json.RawMessage(mock.applicationsListing), nil
 }
 
 func (mock *pipelineLaneMock) CreatePipelineRun(ctx context.Context, selector client.PipelineSelector, request client.CreatePipelineRunRequest) (*client.CreatePipelineRunResult, error) {
@@ -545,41 +556,65 @@ func TestPipelineGetNotFound(t *testing.T) {
 	}
 }
 
-// TestPipelineRunRequiresSHA pins that OUTSIDE a Git checkout the commit must
-// still be named: a dispatch never runs against whatever commit the platform
-// stored last. Inside a checkout the sha is read from HEAD instead
-// (TestPipelineRunReadsTheWorkingDirectoryHead), so this case runs from a
-// directory that is not a repository.
-func TestPipelineRunRequiresSHA(t *testing.T) {
-	t.Chdir(t.TempDir())
-	mockClient := &pipelineLaneMock{}
-	_, executeError := runPipelineCommand(t, mockClient, "run", "--application", testApplicationID, "--ref", "main")
-	if executeError == nil {
-		t.Fatal("expected --sha to be required")
-	}
-	if exitCodeFor(executeError) != exitUsage {
-		t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitUsage)
-	}
-	if mockClient.createCalls != 0 {
-		t.Errorf("CreatePipelineRun calls = %d, want 0", mockClient.createCalls)
-	}
-}
-
-// TestPipelineRunReadsTheWorkingDirectoryHead pins the simplification: inside
-// a checkout the dispatch runs the commit under the user's cursor, and says
-// so, instead of making them paste `git rev-parse HEAD` back (ankra-ctsmd).
-func TestPipelineRunReadsTheWorkingDirectoryHead(t *testing.T) {
-	repositoryPath := createTestGitRepository(t, "main", "https://github.com/acme/payments.git")
-	if writeError := os.WriteFile(filepath.Join(repositoryPath, "service.txt"), []byte("payments\n"), 0o600); writeError != nil {
+// seedPipelineCheckout creates a checkout on main with one commit whose origin
+// is remoteURL, and makes it the working directory.
+func seedPipelineCheckout(t *testing.T, remoteURL string) {
+	t.Helper()
+	repositoryPath := createTestGitRepository(t, "main", remoteURL)
+	if writeError := os.WriteFile(filepath.Join(repositoryPath, "service.txt"), []byte("service\n"), 0o600); writeError != nil {
 		t.Fatalf("seeding the checkout: %v", writeError)
 	}
 	runTestGit(t, repositoryPath, "add", "service.txt")
 	runTestGit(t, repositoryPath, "-c", "user.email=test@example.com", "-c", "user.name=Test",
 		"commit", "-m", "Add the service")
 	t.Chdir(repositoryPath)
-	mockClient := &pipelineLaneMock{createResult: &client.CreatePipelineRunResult{
+}
+
+// applicationBoundTo is an applications listing with testApplicationID bound to
+// owner/name.
+func applicationBoundTo(owner string, name string) string {
+	return `{"result":[{"id":"` + testApplicationID + `","name":"` + name + `","app_repo_owner":"` + owner +
+		`","app_repo_name":"` + name + `"}],"pagination":{"total_pages":1}}`
+}
+
+func queuedRunMock() *pipelineLaneMock {
+	return &pipelineLaneMock{createResult: &client.CreatePipelineRunResult{
 		RunID: "umbrella-1", PipelineRunID: "run-1", RunNumber: 1,
 	}}
+}
+
+// TestPipelineRunOutsideACheckoutRunsTheTipOfTheRef pins that with no --sha and
+// no checkout to read, the dispatch goes out without a commit and the platform
+// reads the tip of the ref from the repository's host (cluster
+// verifyRunProvenance, cluster#2612). That is a live read at dispatch, not a
+// commit the platform stored earlier, so refusing it only made the user look
+// the sha up by hand (PLA-863).
+func TestPipelineRunOutsideACheckoutRunsTheTipOfTheRef(t *testing.T) {
+	t.Chdir(t.TempDir())
+	mockClient := queuedRunMock()
+	output, executeError := runPipelineCommand(t, mockClient, "run", "--application", testApplicationID, "--ref", "main")
+	if executeError != nil {
+		t.Fatalf("dispatch with a ref and no sha = %v, want it sent for the platform to resolve", executeError)
+	}
+	if mockClient.createCalls != 1 {
+		t.Fatalf("CreatePipelineRun calls = %d, want 1", mockClient.createCalls)
+	}
+	if mockClient.createRequest.HeadSHA != "" || mockClient.createRequest.Ref != "main" {
+		t.Errorf("dispatched sha %q ref %q, want no sha and ref main", mockClient.createRequest.HeadSHA, mockClient.createRequest.Ref)
+	}
+	if !strings.Contains(output, "tip of main") {
+		t.Errorf("output = %q, want it to say the tip of main runs", output)
+	}
+}
+
+// TestPipelineRunReadsTheWorkingDirectoryHead pins the simplification: inside
+// a checkout of the pipeline's own repository the dispatch runs the commit
+// under the user's cursor, and says so, instead of making them paste
+// `git rev-parse HEAD` back (ankra-ctsmd).
+func TestPipelineRunReadsTheWorkingDirectoryHead(t *testing.T) {
+	seedPipelineCheckout(t, "https://github.com/acme/payments.git")
+	mockClient := queuedRunMock()
+	mockClient.applicationsListing = applicationBoundTo("acme", "payments")
 	if _, executeError := runPipelineCommand(t, mockClient, "run",
 		"--application", testApplicationID); executeError != nil {
 		t.Fatalf("dispatch inside a checkout = %v, want the HEAD commit used", executeError)
@@ -595,30 +630,61 @@ func TestPipelineRunReadsTheWorkingDirectoryHead(t *testing.T) {
 	}
 }
 
+// TestPipelineRunIgnoresTheHeadOfAnotherRepositorysCheckout is the PLA-863
+// case: 'pipeline run --application smartinsight' typed in a checkout of
+// commerce must not dispatch smartinsight with commerce's commit and branch.
+func TestPipelineRunIgnoresTheHeadOfAnotherRepositorysCheckout(t *testing.T) {
+	seedPipelineCheckout(t, "https://github.com/acme/commerce.git")
+	mockClient := queuedRunMock()
+	mockClient.applicationsListing = applicationBoundTo("acme", "smartinsight")
+	output, executeError := runPipelineCommand(t, mockClient, "run", "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("dispatch = %v", executeError)
+	}
+	if mockClient.createRequest.HeadSHA != "" || mockClient.createRequest.Ref != "" {
+		t.Errorf("dispatched sha %q ref %q from another repository's checkout, want neither",
+			mockClient.createRequest.HeadSHA, mockClient.createRequest.Ref)
+	}
+	if strings.Contains(output, "working directory's HEAD") || !strings.Contains(output, "default branch") {
+		t.Errorf("output = %q, want the default branch named and no local HEAD", output)
+	}
+}
+
+// TestPipelineRunDoesNotTrustACheckoutItCannotMatch pins the fail-closed arms:
+// a listing that cannot be read, and a --repository id there is no
+// owner/name lookup for, both leave the commit to the platform rather than
+// sending a HEAD that may belong to a different repository.
+func TestPipelineRunDoesNotTrustACheckoutItCannotMatch(t *testing.T) {
+	seedPipelineCheckout(t, "https://github.com/acme/payments.git")
+	for name, arguments := range map[string][]string{
+		"unreadable listing": {"run", "--application", testApplicationID},
+		"repository id":      {"run", "--repository", "7d0c5a4e-7f55-4f0e-9d8a-2f5a3c1b9e61"},
+	} {
+		mockClient := queuedRunMock()
+		if _, executeError := runPipelineCommand(t, mockClient, arguments...); executeError != nil {
+			t.Fatalf("%s: dispatch = %v", name, executeError)
+		}
+		if mockClient.createRequest.HeadSHA != "" {
+			t.Errorf("%s: dispatched sha = %q, want none", name, mockClient.createRequest.HeadSHA)
+		}
+	}
+}
+
 // TestPipelineRunDoesNotPairANamedRefWithTheLocalHead pins that a ref the
 // user named is never dispatched against whatever the checkout happens to
-// have: running "release-2.0" from a checkout sitting on main must ask for
-// the sha rather than send main's commit under the release ref (ankra-ctsmd).
+// have: running "release-2.0" from a checkout sitting on main sends the ref
+// alone, never main's commit under the release ref (ankra-ctsmd).
 func TestPipelineRunDoesNotPairANamedRefWithTheLocalHead(t *testing.T) {
-	repositoryPath := createTestGitRepository(t, "main", "https://github.com/acme/payments.git")
-	if writeError := os.WriteFile(filepath.Join(repositoryPath, "service.txt"), []byte("payments\n"), 0o600); writeError != nil {
-		t.Fatalf("seeding the checkout: %v", writeError)
+	seedPipelineCheckout(t, "https://github.com/acme/payments.git")
+	mockClient := queuedRunMock()
+	mockClient.applicationsListing = applicationBoundTo("acme", "payments")
+	if _, executeError := runPipelineCommand(t, mockClient, "run",
+		"--application", testApplicationID, "--ref", "release-2.0"); executeError != nil {
+		t.Fatalf("dispatch = %v", executeError)
 	}
-	runTestGit(t, repositoryPath, "add", "service.txt")
-	runTestGit(t, repositoryPath, "-c", "user.email=test@example.com", "-c", "user.name=Test",
-		"commit", "-m", "Add the service")
-	t.Chdir(repositoryPath)
-	mockClient := &pipelineLaneMock{}
-	_, executeError := runPipelineCommand(t, mockClient, "run",
-		"--application", testApplicationID, "--ref", "release-2.0")
-	if executeError == nil {
-		t.Fatal("a named ref with no sha must be refused, not paired with the local HEAD")
-	}
-	if exitCodeFor(executeError) != exitUsage {
-		t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitUsage)
-	}
-	if mockClient.createCalls != 0 {
-		t.Errorf("CreatePipelineRun calls = %d, want 0", mockClient.createCalls)
+	if mockClient.createRequest.HeadSHA != "" || mockClient.createRequest.Ref != "release-2.0" {
+		t.Errorf("dispatched sha %q ref %q, want no sha and ref release-2.0",
+			mockClient.createRequest.HeadSHA, mockClient.createRequest.Ref)
 	}
 }
 

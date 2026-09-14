@@ -144,12 +144,37 @@ func resolvePipelineSelector(command *cobra.Command) (client.PipelineSelector, e
 // empty answer rather than an error, because the caller has a perfectly good
 // usage error to fall back on and a wrong inference is worse than none.
 func pipelineSelectorFromWorkingDirectory(requestContext context.Context) (client.PipelineSelector, string, error) {
-	if apiClient == nil {
+	fullName, matchedIDs, matchedNames, known := checkoutApplications(requestContext)
+	if !known {
 		return client.PipelineSelector{}, "", nil
+	}
+	if len(matchedIDs) > 1 {
+		// The checkout answered the question and the answer was "more than
+		// one". Saying so beats repeating the generic usage line, which
+		// would leave the user re-reading a flag they were about to pass.
+		sort.Strings(matchedNames)
+		return client.PipelineSelector{}, "", withExitCode(exitUsage, fmt.Errorf(
+			"%s has %d applications in this organisation (%s); pass --application to say which",
+			fullName, len(matchedNames), strings.Join(matchedNames, ", ")))
+	}
+	if len(matchedIDs) == 0 {
+		return client.PipelineSelector{}, "", nil
+	}
+	return client.PipelineSelector{ApplicationID: matchedIDs[0]}, fullName, nil
+}
+
+// checkoutApplications answers the "owner/name" of the repository checked out
+// in the working directory and every application bound to it, by id and by
+// label. known is false for every way of not having a complete answer - not
+// inside a checkout, no origin remote, a failed or partly read listing - so
+// callers never mistake an unread page for "no application here".
+func checkoutApplications(requestContext context.Context) (string, []string, []string, bool) {
+	if apiClient == nil {
+		return "", nil, nil, false
 	}
 	repository, inspectError := inspectLocalApplicationRepository(requestContext, ".", "origin", "")
 	if inspectError != nil {
-		return client.PipelineSelector{}, "", nil
+		return "", nil, nil, false
 	}
 	fullName := repository.Owner + "/" + repository.Name
 	matchedIDs := []string{}
@@ -164,11 +189,11 @@ func pipelineSelectorFromWorkingDirectory(requestContext context.Context) (clien
 		payload, listError := apiClient.ListApplicationsRaw(
 			requestContext, page, maxApplicationLookupPageSize, "")
 		if listError != nil {
-			return client.PipelineSelector{}, "", nil
+			return "", nil, nil, false
 		}
 		var listing applicationRepositoryListingPage
 		if unmarshalError := json.Unmarshal(payload, &listing); unmarshalError != nil {
-			return client.PipelineSelector{}, "", nil
+			return "", nil, nil, false
 		}
 		for _, application := range listing.Result {
 			if strings.EqualFold(strings.TrimSpace(application.RepositoryOwner), repository.Owner) &&
@@ -187,21 +212,9 @@ func pipelineSelectorFromWorkingDirectory(requestContext context.Context) (clien
 	// answers nothing and the caller asks for the flag, rather than treating
 	// an unread page as an absence.
 	if !listingExhausted {
-		return client.PipelineSelector{}, "", nil
+		return "", nil, nil, false
 	}
-	if len(matchedIDs) > 1 {
-		// The checkout answered the question and the answer was "more than
-		// one". Saying so beats repeating the generic usage line, which
-		// would leave the user re-reading a flag they were about to pass.
-		sort.Strings(matchedNames)
-		return client.PipelineSelector{}, "", withExitCode(exitUsage, fmt.Errorf(
-			"%s has %d applications in this organisation (%s); pass --application to say which",
-			fullName, len(matchedNames), strings.Join(matchedNames, ", ")))
-	}
-	if len(matchedIDs) == 0 {
-		return client.PipelineSelector{}, "", nil
-	}
-	return client.PipelineSelector{ApplicationID: matchedIDs[0]}, fullName, nil
+	return fullName, matchedIDs, matchedNames, true
 }
 
 // applicationRepositoryListingPage is the applications listing read for the

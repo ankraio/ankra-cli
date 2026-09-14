@@ -27,12 +27,22 @@ func newPipelineRunCommand() *cobra.Command {
 		Short: "Dispatch a manual pipeline run",
 		Long: `Dispatch a manual run of a pipeline's stored definition.
 
-A run is always dispatched at one named commit: resolving a ref to a commit
-belongs to the trigger lane (push/PR/tag webhooks), so a dispatch never runs
-against whatever commit the platform happens to have stored last. Inside a Git
-checkout the commit is read from HEAD, and --application is read from the
-repository the checkout points at, so 'ankra pipeline run' on its own runs
-what you are looking at. Outside a checkout, name them with --sha and --application.`,
+A run executes one commit, and Ankra checks it against the repository's own
+host before anything is queued: a --sha that is not reachable from --ref (or
+the repository's default branch) on that repository is refused.
+
+Without --sha, the commit is:
+
+  - the working directory's HEAD, when the checkout is the repository the
+    pipeline builds and --ref is not given. --application is read from the
+    checkout too, so 'ankra pipeline run' on its own runs what you are
+    looking at;
+  - otherwise the tip of --ref, or of the default branch, which Ankra reads
+    from the repository's host when it dispatches.
+
+A checkout of any other repository never supplies the commit, so
+'ankra pipeline run --application other-app' from the wrong directory runs
+other-app's default branch, not your local HEAD.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -52,7 +62,7 @@ what you are looking at. Outside a checkout, name them with --sha and --applicat
 // `application pipeline run`.
 func registerPipelineRunDispatchFlags(command *cobra.Command) {
 	command.Flags().String("ref", "", "Git reference to run at (defaults to the repository's default branch)")
-	command.Flags().String("sha", "", "Full commit sha to run (defaults to the working directory's HEAD)")
+	command.Flags().String("sha", "", "Full commit sha to run (defaults to HEAD of a checkout of this pipeline's repository, else the tip of --ref)")
 	command.Flags().StringArray("input", nil, "Dispatch input as key=value (repeatable)")
 	command.Flags().String("reason", "", "Human note recorded on the run")
 	command.Flags().String("spec-file", "", "Run this pipeline definition instead of the stored one (requires pipelines.manage)")
@@ -84,6 +94,30 @@ func localHeadCommit(requestContext context.Context) (string, string) {
 	return headSHA, strings.TrimSpace(branch)
 }
 
+// checkoutBuildsSelectedPipeline answers whether the working directory is a
+// checkout of the repository the selected pipeline builds: the one case in
+// which its HEAD is a commit of that pipeline's repository.
+//
+// A --repository selector names a pipeline repository by id, and there is no
+// lookup from that id to "owner/name" here, so a checkout cannot be matched
+// to it and the answer is no. So is every incomplete answer from the listing:
+// sending a foreign commit is worse than letting the platform read the tip.
+func checkoutBuildsSelectedPipeline(requestContext context.Context, selector client.PipelineSelector) bool {
+	if selector.ApplicationID == "" {
+		return false
+	}
+	_, applicationIDs, _, known := checkoutApplications(requestContext)
+	if !known {
+		return false
+	}
+	for _, applicationID := range applicationIDs {
+		if strings.EqualFold(applicationID, selector.ApplicationID) {
+			return true
+		}
+	}
+	return false
+}
+
 // runPipelineDispatch reads the dispatch flags and drives the shared
 // CreatePipelineRun call; used by both `pipeline run` and
 // `application pipeline run`.
@@ -104,31 +138,39 @@ func runPipelineDispatch(command *cobra.Command, selector client.PipelineSelecto
 	}
 
 	sha = strings.TrimSpace(sha)
+	ref = strings.TrimSpace(ref)
 	if sha == "" {
-		// The commit still has to be named - resolving a ref belongs to the
-		// trigger lane, and that contract is unchanged. What changed is who
-		// names it: a user standing in the checkout has the sha under their
-		// cursor, and asking them to paste `git rev-parse HEAD` back is a
-		// step the command can take off them (ankra-ctsmd). Outside a
-		// checkout there is nothing to read and --sha is required exactly as
-		// before.
-		// A --ref the user named is NOT paired with whatever the working
-		// directory happens to have checked out: asking to run "release-2.0"
-		// from a checkout sitting on main would otherwise dispatch main's
-		// commit under the release ref, which is worse than being asked for
-		// the sha. The checkout answers only when it is the whole question.
-		localSHA, localRef := "", ""
-		if strings.TrimSpace(ref) == "" {
-			localSHA, localRef = localHeadCommit(command.Context())
+		// A user standing in the checkout has the sha under their cursor, and
+		// asking them to paste `git rev-parse HEAD` back is a step the
+		// command can take off them (ankra-ctsmd). The checkout answers only
+		// when it is the whole question:
+		//   - a --ref the user named is NOT paired with whatever the working
+		//     directory has checked out: running "release-2.0" from a checkout
+		//     sitting on main would dispatch main's commit under that ref;
+		//   - a checkout of a DIFFERENT repository answers nothing: its HEAD
+		//     is not a commit of the pipeline being run (PLA-863).
+		if ref == "" {
+			localSHA, localRef := localHeadCommit(command.Context())
+			if localSHA != "" && checkoutBuildsSelectedPipeline(command.Context(), selector) {
+				sha = localSHA
+				ref = localRef
+				_, _ = fmt.Fprintf(command.ErrOrStderr(),
+					"Running at the working directory's HEAD %s (pass --sha to choose another).\n", sha)
+			}
 		}
-		if localSHA == "" {
-			return withExitCode(exitUsage, fmt.Errorf(
-				"--sha is required: a pipeline run needs the full commit sha to run at"))
+		if sha == "" {
+			// No commit named and none to read: the dispatch goes out without
+			// one and the platform reads the tip of the ref, or of the
+			// repository's default branch, from the repository's host
+			// (verifyRunProvenance in cluster, since cluster#2612). That is a
+			// live read at dispatch, not a commit the platform stored earlier.
+			target := "the repository's default branch"
+			if ref != "" {
+				target = ref
+			}
+			_, _ = fmt.Fprintf(command.ErrOrStderr(),
+				"Running at the tip of %s, resolved by Ankra at dispatch (pass --sha to run a specific commit).\n", target)
 		}
-		sha = localSHA
-		ref = localRef
-		_, _ = fmt.Fprintf(command.ErrOrStderr(),
-			"Running at the working directory's HEAD %s (pass --sha to choose another).\n", sha)
 	}
 	inputs, inputsError := parsePipelineInputFlags(rawInputs)
 	if inputsError != nil {
@@ -144,7 +186,7 @@ func runPipelineDispatch(command *cobra.Command, selector client.PipelineSelecto
 	}
 
 	result, createError := apiClient.CreatePipelineRun(command.Context(), selector, client.CreatePipelineRunRequest{
-		Ref:      strings.TrimSpace(ref),
+		Ref:      ref,
 		HeadSHA:  sha,
 		Inputs:   inputs,
 		Reason:   strings.TrimSpace(reason),
