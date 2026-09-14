@@ -86,6 +86,19 @@ that approves the right definition, and no spinner on a finished run.
   exactly one. Both repositories must be ones that installation can reach: a
   pair it cannot is refused rather than stored. Adding and removing require
   organisation admin. (ankra-zs1xm.16)
+- **`ankra bucket create|list|get|delete` manages object storage buckets Ankra
+  creates on your own provider credentials.** Until now a bucket for anything
+  that was not a backup vault - a container registry, application storage -
+  had to be made by hand in a provider console. `ankra bucket create <name>`
+  creates one on a Hetzner, Scaleway, DigitalOcean or UpCloud credential,
+  defaulting the credential to the only one that fits and the region to the
+  provider's usual one; `--wait` blocks until the bucket is ready. Ankra keeps
+  the access keys and never prints them. Hetzner's Cloud API cannot mint
+  Object Storage keys, so store the pair on the Hetzner credential once, or
+  pass `--access-key-id` and type the secret at the hidden prompt.
+  `ankra bucket delete` stops managing the bucket and leaves it and its
+  objects on the provider; `--destroy-provider-resources` empties and deletes
+  it, after a prompt that names the provider-side bucket. (ankra-93ve0.5)
 
 - **`ankra cluster aws` builds self-managed k3s (or kubeadm) clusters on EC2**
   (ankra-rtpno.13). This is not EKS: Ankra installs Kubernetes on plain
