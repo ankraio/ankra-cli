@@ -25,6 +25,7 @@ import (
 
 	"ankra/internal/client"
 
+	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
 )
 
@@ -257,6 +258,28 @@ func parsePipelineInputFlags(rawInputs []string) (map[string]string, error) {
 	return inputs, nil
 }
 
+// The PipelineRun.Outcome / PipelineStep.Outcome vocabulary: one set for
+// runs and steps alike (enginekit/pipelinerun's Outcome* constants, mirrored
+// by the outcome CHECK constraints in migrations pipe_003 and pipe_004). An
+// outcome is only ever set once the status is "concluded"; the status itself
+// is the lifecycle, never the verdict - see pipelineGetLongHelp.
+const (
+	// pipelineOutcomeSuccess is work that did what was asked.
+	pipelineOutcomeSuccess = "success"
+	// pipelineOutcomeFailure is the user's own work failing.
+	pipelineOutcomeFailure = "failure"
+	// pipelineOutcomeCancelled is work stopped on purpose.
+	pipelineOutcomeCancelled = "cancelled"
+	// pipelineOutcomeTimedOut is work that exceeded its timeout.
+	pipelineOutcomeTimedOut = "timed_out"
+	// pipelineOutcomeSkipped is work that never ran: a dependency did not
+	// succeed, a condition excluded it, or the trigger filter excluded the
+	// whole run.
+	pipelineOutcomeSkipped = "skipped"
+	// pipelineOutcomeInfraError is Ankra failing, not the user's work.
+	pipelineOutcomeInfraError = "infra_error"
+)
+
 // pipelineOutcomeLabel renders a run or step's status/outcome pair as one
 // word for a table cell: the outcome once the work has concluded, the status
 // while it has not.
@@ -265,6 +288,46 @@ func pipelineOutcomeLabel(status string, outcome *string) string {
 		return *outcome
 	}
 	return status
+}
+
+// renderPipelineState renders a run or step's status/outcome pair for a
+// human-readable cell: pipelineOutcomeLabel's word behind a glyph and a
+// colour that mean the same thing everywhere the pipeline commands print a
+// state for a person (get and list). wait's failure summary deliberately
+// prints bare words instead: it is as often a CI log as a terminal, and
+// glyphs and escapes do not belong there (see pipeline_wait.go).
+//
+// The glyph is the point (PLA-856, support #1178). ⟳ is the spinner, and it
+// is reserved for work that has not concluded - queued, pending, running -
+// so a run that finished failed never reads as if it were still working.
+// The terminal outcomes each get their own: ✓ success; ✗ for failure,
+// timed_out and infra_error, which are the three ways work can end badly;
+// ⊘ cancelled; ○ skipped. A blocked step is ○ too - it is waiting, not
+// working - but in the live colour, since it is going to move. Anything
+// outside the vocabulary the server publishes is printed as a bare word,
+// because a glyph would claim a meaning the CLI does not know.
+func renderPipelineState(status string, outcome *string) string {
+	label := pipelineOutcomeLabel(status, outcome)
+	if outcome == nil || *outcome == "" {
+		switch strings.ToLower(status) {
+		case pipelineRunStatusQueued, pipelineStepStatusPending, pipelineStepStatusRunning:
+			return text.FgYellow.Sprint("⟳ " + label)
+		case pipelineStepStatusBlocked:
+			return text.FgYellow.Sprint("○ " + label)
+		}
+		return label
+	}
+	switch strings.ToLower(*outcome) {
+	case pipelineOutcomeSuccess:
+		return text.FgGreen.Sprint("✓ " + label)
+	case pipelineOutcomeFailure, pipelineOutcomeTimedOut, pipelineOutcomeInfraError:
+		return text.FgRed.Sprint("✗ " + label)
+	case pipelineOutcomeCancelled:
+		return text.FgHiBlack.Sprint("⊘ " + label)
+	case pipelineOutcomeSkipped:
+		return text.FgHiBlack.Sprint("○ " + label)
+	}
+	return label
 }
 
 func pipelineOptionalString(value *string) string {

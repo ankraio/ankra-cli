@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra pipeline get` and `pipeline list` no longer paint a finished run
+  with the in-progress spinner.** A concluded run or step used to render
+  every outcome but `success` and `cancelled` as `⟳ failure`, `⟳ infra_error`,
+  `⟳ skipped` - the same glyph as a running one - so a failed run read as
+  still working. Each state now has its own glyph: `⟳` only for queued,
+  pending and running, `✓ success`, `✗ failure` / `✗ timed_out` /
+  `✗ infra_error` in red, `⊘ cancelled` and `○ skipped` dimmed, `○ blocked`
+  for a step waiting on its dependencies. `pipeline get --help` now documents
+  the `status` / `outcome` split in `-o json` - `status` is the lifecycle
+  (`queued`, `running`, `concluded`; steps also `blocked`, `pending`) and
+  `outcome` is the verdict, set only once `status` is `concluded` (`success`,
+  `failure`, `cancelled`, `timed_out`, `skipped`, `infra_error`) - and the
+  `authority_state` values `approved`, `unapproved`, `changed_on_head` and
+  null. (PLA-856, support #1178)
+
 ### Changed
 
 - **`ankra cluster aws create` and `preflight` no longer require `--bastion-allowed-ips`.**
