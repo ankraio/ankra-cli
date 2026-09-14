@@ -211,38 +211,53 @@ var clusterAddonsAvailableCmd = &cobra.Command{
 	},
 }
 
+// clusterAddonsSettingsCmd carries both the group and the original bare form.
+// `ankra cluster addons settings <addon>` shipped before `get` and `set`
+// existed, so cobra falls through to this RunE whenever the first argument is
+// not one of the subcommands - the old spelling keeps working rather than
+// turning into an unknown-command error in every script that uses it.
 var clusterAddonsSettingsCmd = &cobra.Command{
 	Use:   "settings <addon_name>",
+	Short: "Read and write an addon's settings",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runAddonSettingsGet(cmd, args[0])
+	},
+}
+
+var clusterAddonsSettingsGetCmd = &cobra.Command{
+	Use:   "get <addon_name>",
 	Short: "Get settings for an addon",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		addonName := args[0]
-
-		cluster, err := resolveActiveCluster(cmd)
-		if err != nil {
-			return err
-		}
-
-		settings, err := apiClient.GetAddonSettings(cluster.ID, addonName)
-		if err != nil {
-			return fmt.Errorf("getting addon settings: %w", err)
-		}
-		if handled, err := renderStructured(cmd, settings); err != nil {
-			return err
-		} else if handled {
-			return nil
-		}
-
-		fmt.Printf("Settings for addon '%s':\n\n", settings.AddonName)
-
-		// Pretty print as JSON
-		jsonData, err := json.MarshalIndent(settings.Settings, "", "  ")
-		if err != nil {
-			return fmt.Errorf("formatting settings: %w", err)
-		}
-		fmt.Println(string(jsonData))
-		return nil
+		return runAddonSettingsGet(cmd, args[0])
 	},
+}
+
+func runAddonSettingsGet(cmd *cobra.Command, addonName string) error {
+	cluster, err := resolveActiveCluster(cmd)
+	if err != nil {
+		return err
+	}
+
+	settings, err := apiClient.GetAddonSettings(cluster.ID, addonName)
+	if err != nil {
+		return fmt.Errorf("getting addon settings: %w", err)
+	}
+	if handled, err := renderStructured(cmd, settings); err != nil {
+		return err
+	} else if handled {
+		return nil
+	}
+
+	fmt.Printf("Settings for addon '%s':\n\n", settings.AddonName)
+
+	jsonData, err := json.MarshalIndent(settings.Settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("formatting settings: %w", err)
+	}
+	fmt.Println(string(jsonData))
+	return nil
 }
 
 var clusterAddonsValuesCmd = &cobra.Command{
@@ -685,7 +700,9 @@ func init() {
 	clusterAddonsUpgradeCmd.Flags().Bool("dry-run", false, "Print the proposed before/after spec without applying changes")
 	clusterAddonsUpgradeCmd.Flags().Bool("yes", false, "Skip the confirmation prompt for destructive changes (--namespace)")
 	clusterAddonsUpgradeCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
-	registerStructuredOutputFlags(clusterAddonsListCmd, clusterAddonsAvailableCmd, clusterAddonsSettingsCmd)
+	registerStructuredOutputFlags(clusterAddonsListCmd, clusterAddonsAvailableCmd,
+		clusterAddonsSettingsCmd, clusterAddonsSettingsGetCmd)
+	registerAddonSettingsSetFlags(clusterAddonsSettingsSetCmd)
 	registerSortFlags(clusterAddonsListCmd, clusterAddonSortFields)
 
 	clusterAddonsValuesCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
@@ -693,6 +710,8 @@ func init() {
 
 	clusterAddonsCmd.AddCommand(clusterAddonsListCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsAvailableCmd)
+	clusterAddonsSettingsCmd.AddCommand(clusterAddonsSettingsGetCmd)
+	clusterAddonsSettingsCmd.AddCommand(clusterAddonsSettingsSetCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsSettingsCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsValuesCmd)
 	clusterAddonsCmd.AddCommand(clusterAddonsUninstallCmd)

@@ -338,6 +338,58 @@ type Stack struct {
 	// stack's variables - which is what happened before the CLI read them
 	// (ankra-yxxa).
 	Variables map[string]string `json:"variables,omitempty"`
+	// Backup is the stack's backup policy (epic ankra-0xsdd, WS4). Pointer
+	// semantics are load-bearing and the opposite of Variables': nil means
+	// the file carried no block, and the platform then PRESERVES whatever
+	// policy the stack already has. That is what stops an apply from a file
+	// written before this field existed - or by a tool that does not emit it
+	// - from silently unprotecting a stack. Removing protection is an
+	// explicit `backup: {enabled: false}`.
+	Backup *StackBackup `json:"backup,omitempty"`
+}
+
+// StackBackup is spec.stacks[].backup: the one switch that protects a stack.
+// Ankra derives the Velero Schedule, CloudNativePG ScheduledBackup and
+// Percona schedule entries from it at render time - they are never stack
+// members, so an apply cannot remove them while leaving the block, or the
+// other way round.
+type StackBackup struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	// Vault is the backup vault's name or id. Required while enabled.
+	Vault string `json:"vault,omitempty" yaml:"vault,omitempty"`
+	// Schedule is hourly, daily, weekly, or a five-field cron expression.
+	// Empty takes the platform's default (daily).
+	Schedule  string                `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	Retention *StackBackupRetention `json:"retention,omitempty" yaml:"retention,omitempty"`
+	Selection *StackBackupSelection `json:"selection,omitempty" yaml:"selection,omitempty"`
+}
+
+// StackBackupRetention is the grandfather-father-son retention the policy
+// asks for. A zero tier is disabled, so the keys are omitted when unset and
+// an unconfigured retention keeps everything.
+type StackBackupRetention struct {
+	Hourly       int    `json:"hourly,omitempty" yaml:"hourly,omitempty"`
+	Daily        int    `json:"daily,omitempty" yaml:"daily,omitempty"`
+	Weekly       int    `json:"weekly,omitempty" yaml:"weekly,omitempty"`
+	Monthly      int    `json:"monthly,omitempty" yaml:"monthly,omitempty"`
+	Yearly       int    `json:"yearly,omitempty" yaml:"yearly,omitempty"`
+	MinimumCount int    `json:"minimum_count,omitempty" yaml:"minimum_count,omitempty"`
+	MinimumAge   string `json:"minimum_age,omitempty" yaml:"minimum_age,omitempty"`
+}
+
+// StackBackupSelection is which of the stack's data assets the policy covers.
+//
+// Databases is a pointer because absent and false are different answers:
+// absent takes the default (captured), while an explicit false needs
+// ConfirmExcludeDatabases alongside it and leaves a standing warning on the
+// stack. PersistentVolumeClaims really is empty by default - protecting a
+// stack does not start copying every volume in its namespaces.
+type StackBackupSelection struct {
+	Databases              *bool    `json:"databases,omitempty" yaml:"databases,omitempty"`
+	PersistentVolumeClaims []string `json:"persistent_volume_claims,omitempty" yaml:"persistent_volume_claims,omitempty"`
+	// ConfirmExcludeDatabases acknowledges Databases: false. It is sent, not
+	// stored: the acknowledgement covers this apply only.
+	ConfirmExcludeDatabases bool `json:"confirm_exclude_databases,omitempty" yaml:"confirm_exclude_databases,omitempty"`
 }
 
 type GitRepository struct {

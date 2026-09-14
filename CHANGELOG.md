@@ -15,6 +15,25 @@
   never touched). Nothing waits on the merge. Calling again while the pull
   request is open answers the same conversion. Requires cluster#3074 on
   the platform.
+- **`backup:` on a stack in the cluster file, and
+  `ankra cluster addons settings get|set`.** A stack can now declare its own
+  backup policy - `backup: {enabled, vault, schedule, retention, selection}` -
+  and `ankra cluster apply` carries it to the platform, which materialises the
+  Velero `Schedule`, CloudNativePG `ScheduledBackup` and Percona schedule
+  entries from it. Databases are captured by default; volumes only the ones
+  named in `selection.persistent_volume_claims`, so protecting a stack does
+  not start copying every claim in its namespaces. A file that omits the block
+  leaves protection exactly as it was - the apply dialect can no longer
+  unprotect a stack by not knowing about it - while `backup: {enabled: false}`
+  removes it deliberately, and `selection.databases: false` is refused unless
+  `selection.confirm_exclude_databases: true` acknowledges that the stack's
+  restore points will carry no database contents. `ankra cluster addons
+  settings get <addon>` is the old `settings <addon>` (which still works), and
+  `settings set <addon>` changes one field at a time - including the add-on's
+  `--backup-*` override of its stack's policy - instead of resending a whole
+  settings document. Closed beta: requires the **backups** feature and
+  cluster#3072 on the platform.
+
 - **`ankra registry robots` creates, lists, rotates and revokes robot
   accounts on the organisation's Ankra registry project.** Ankra minted
   every registry login itself - the organisation's ci and pull robots, one

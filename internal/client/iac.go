@@ -86,6 +86,11 @@ type StackSpec struct {
 	// DeployWave orders stacks against each other: stacks in wave N deploy
 	// only after every stack in a lower wave finished. Nil = unordered.
 	DeployWave *int `json:"deploy_wave,omitempty" yaml:"deploy_wave,omitempty"`
+	// Backup is the stack's backup policy, the same block CreateResourceSpec
+	// carries. It round-trips through the exported IaC so a `GET /iac` dump
+	// re-applies with protection intact; nil means the patch is not writing
+	// a policy, which preserves the stored one.
+	Backup *StackBackup `json:"backup,omitempty" yaml:"backup,omitempty"`
 }
 
 // ResourceSpecSpec is the spec envelope expected by the PATCH endpoint
