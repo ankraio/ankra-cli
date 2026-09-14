@@ -196,7 +196,7 @@ func sleepInterrupted(ctx context.Context, duration time.Duration) error {
 // for an outcome nothing wrote.
 func pipelineRunConclusionError(run client.PipelineRun) error {
 	outcome := pipelineOptionalString(run.Outcome)
-	if outcome == "success" {
+	if outcome == pipelineOutcomeSuccess {
 		return nil
 	}
 	if run.Outcome == nil || strings.TrimSpace(*run.Outcome) == "" {
@@ -217,7 +217,15 @@ func newPipelineListCommand() *cobra.Command {
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List a pipeline's runs",
-		Args:    cobra.NoArgs,
+		Long: `List a pipeline's runs, newest first.
+
+--status filters on the run's lifecycle - queued, running or concluded - not
+on how it ended: every finished run is concluded, and its verdict is the
+separate 'outcome' field (success, failure, cancelled, timed_out, skipped or
+infra_error), which the STATUS column prints in place of the status once
+there is one. 'ankra pipeline get --help' documents both fields and the
+run's 'authority_state'.`,
+		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
 			if selectorError != nil {
@@ -292,7 +300,7 @@ func renderPipelineRunTable(out io.Writer, runs []client.PipelineRun) {
 		writer.AppendRow(table.Row{
 			run.ID,
 			run.RunNumber,
-			renderColouredStatus(pipelineOutcomeLabel(run.Status, run.Outcome)),
+			renderPipelineState(run.Status, run.Outcome),
 			run.Trigger,
 			run.TriggerRef,
 			pipelineShortSHA(run.HeadSHA),
@@ -328,7 +336,37 @@ the platform could not be read; 2 when a selection matches several runs and
 --latest was not given; 3 when nothing matches; 5 when --timeout ran out or,
 with --exit-code, when the run has not concluded yet. Without --wait, --watch
 or --exit-code the command exits 0 whatever the run's outcome, as it always
-has.`
+has.
+
+Status and outcome (-o json): 'status' is the lifecycle, never the verdict.
+A run's status is queued, running or concluded; a step's is blocked (waiting
+on its dependencies), pending (ready, not yet claimed), running or concluded.
+How the work ended is the separate 'outcome' field, which is null until the
+status is concluded and then always one of: success, failure (the work
+itself failed), cancelled, timed_out, skipped (it never ran - a dependency
+did not succeed, a condition or the trigger filter excluded it) or
+infra_error (Ankra failed, not the work). The same two fields with the same
+vocabulary sit on the run and on each step, mirroring GitHub Actions'
+status/conclusion split - so a monitor that filters on status finds every
+finished run under concluded, and must read outcome for whether it passed.
+The human-readable Status line and STATUS column print the outcome once
+there is one and the status until then, with a glyph that says which:
+✓ success, ✗ failure / timed_out / infra_error, ⊘ cancelled, ○ skipped, and
+⟳ only for a run or step that has not concluded (○ for a blocked step).
+
+Authority (-o json 'authority_state', the Authority line): the protected
+authority the run executed under. 'approved' - the default branch's
+definition declares no protected section, or an administrator approved
+exactly what it declares, and the head changes nothing. 'unapproved' - a run
+of the default branch whose definition changed authority no administrator
+has approved yet; it executes under the last approved authority, or under
+none when nothing was ever approved. 'changed_on_head' - a run of another
+branch or a pull request whose definition declares different authority; it
+executes under the default branch's, and the head's change is ignored and
+reported. null - the planner never resolved authority for this run: it is
+still queued, it concluded skipped because its trigger filter excluded every
+stage before planning, or it was planned before authority was recorded.
+null is "not recorded", never "no authority".`
 
 func newPipelineGetCommand() *cobra.Command {
 	getCommand := &cobra.Command{
@@ -455,7 +493,7 @@ func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, ru
 
 func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 	_, _ = fmt.Fprintf(out, "Run #%d (%s)\n", detail.RunNumber, detail.ID)
-	_, _ = fmt.Fprintf(out, "  Status:    %s\n", renderColouredStatus(pipelineOutcomeLabel(detail.Status, detail.Outcome)))
+	_, _ = fmt.Fprintf(out, "  Status:    %s\n", renderPipelineState(detail.Status, detail.Outcome))
 	_, _ = fmt.Fprintf(out, "  Trigger:   %s (%s)\n", detail.Trigger, detail.TriggerRef)
 	_, _ = fmt.Fprintf(out, "  Commit:    %s\n", detail.HeadSHA)
 	printPipelineRunAuthority(out, detail.PipelineRun)
@@ -485,7 +523,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 			step.StepKey,
 			step.Stage,
 			step.Kind,
-			renderColouredStatus(pipelineOutcomeLabel(step.Status, step.Outcome)),
+			renderPipelineState(step.Status, step.Outcome),
 			exitCode,
 		})
 	}

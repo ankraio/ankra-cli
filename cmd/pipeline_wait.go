@@ -540,10 +540,8 @@ func watchPipelineRun(command *cobra.Command, selector client.PipelineSelector, 
 // pipelineRunWatchLine renders one event as a line of text: when it was seen,
 // what changed, and - once a step or the run has concluded - its exit code
 // and the platform's own error message. The state is printed as a plain word
-// rather than through renderColouredStatus, whose palette predates the
-// pipeline outcomes (it paints "failure" in the in-progress yellow) and
-// writes terminal escapes into a stream that is as often a CI log as a
-// terminal.
+// rather than through renderPipelineState, which writes glyphs and terminal
+// escapes into a stream that is as often a CI log as a terminal.
 func pipelineRunWatchLine(event pipelineRunWatchEvent) string {
 	label := fmt.Sprintf("run #%d", event.RunNumber)
 	var exitCode *int32

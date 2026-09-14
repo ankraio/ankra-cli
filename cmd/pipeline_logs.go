@@ -78,6 +78,16 @@ const (
 // cannot help.
 const pipelineRunStatusConcluded = "concluded"
 
+// pipelineRunStatusQueued and pipelineRunStatusRunning are the run's two
+// live statuses (enginekit/pipelinerun's RunStatus* set, mirrored by the
+// status CHECK constraint in pipe_003). A run has no "blocked" or "pending"
+// of its own - those are step statuses - so with pipelineRunStatusConcluded
+// this is the run's whole vocabulary.
+const (
+	pipelineRunStatusQueued  = "queued"
+	pipelineRunStatusRunning = "running"
+)
+
 // pipelineStepStartPollInterval is how often `logs --follow` re-reads the run
 // while it waits for a step that has not been dispatched yet. Five seconds
 // is slower than the two-second reconnect delay above on purpose: nothing is
