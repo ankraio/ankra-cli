@@ -188,3 +188,17 @@ func TestRenderIsDeterministic(t *testing.T) {
 		t.Error("warnings differ between runs")
 	}
 }
+
+func TestRenderNamesTheStackWhenOneIsAsked(t *testing.T) {
+	result := renderFixture(t, RenderOptions{StackName: "notes"})
+	if stacks := result.Cluster.Spec.Stacks; len(stacks) != 1 || stacks[0].Name != "notes" {
+		t.Fatalf("stacks = %+v, want one named notes (the requested name, not the project's)", result.Cluster.Spec.Stacks)
+	}
+	if result.Cluster.Metadata.Name != "office" {
+		t.Errorf("the stack name must not touch the cluster's: %q", result.Cluster.Metadata.Name)
+	}
+	unnamed := renderFixture(t, RenderOptions{})
+	if stacks := unnamed.Cluster.Spec.Stacks; len(stacks) != 1 || stacks[0].Name != "office" {
+		t.Errorf("without a requested name the stack keeps the project's: %+v", unnamed.Cluster.Spec.Stacks)
+	}
+}

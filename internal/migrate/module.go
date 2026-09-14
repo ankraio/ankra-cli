@@ -102,6 +102,10 @@ type ConvertRequest struct {
 	Dir string `json:"dir"`
 	// ClusterName names the generated ImportCluster.
 	ClusterName string `json:"cluster_name"`
+	// StackName names the stack inside it, which is the name the stack
+	// carries on the cluster. Empty leaves the choice to the module, which
+	// names it after the source's own project.
+	StackName string `json:"stack_name,omitempty"`
 	// Namespace is where the generated workloads are placed.
 	Namespace string `json:"namespace"`
 	// Options carries module-specific settings from --option key=value, so a

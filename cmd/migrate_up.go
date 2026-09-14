@@ -176,14 +176,11 @@ func runMigrateUp(cmd *cobra.Command, args []string) error {
 	progress := cmd.ErrOrStderr()
 	_, _ = fmt.Fprintf(progress, "\n==> Converting %s\n", dir)
 	convertSummary, _, err := performMigrateConvert(dir, migrateConvertRequest{
-		Module: module, ClusterName: plan.ClusterName, Namespace: plan.Namespace, Options: options,
+		Module: module, ClusterName: plan.ClusterName, StackName: plan.Stack, Namespace: plan.Namespace, Options: options,
 		Out: filepath.Join(plan.Out, "stack"), Force: true,
 	})
 	if err != nil {
 		return err
-	}
-	if len(convertSummary.Cluster.Spec.Stacks) > 0 {
-		plan.Stack = convertSummary.Cluster.Spec.Stacks[0].Name
 	}
 	_, _ = fmt.Fprintf(progress, "Wrote %d file(s) to %s\n", len(convertSummary.Files), convertSummary.Out)
 	printMigrateWarnings(cmd, convertSummary.Warnings)
@@ -254,9 +251,11 @@ func planMigrateUp(cmd *cobra.Command, dir string, module migrate.Module, option
 	if err != nil {
 		return migrateUpPlan{}, withExitCode(exitUsage, err)
 	}
-	stackName := migrateUpStack
-	if stackName == "" {
-		stackName = migrateResourceName(filepath.Base(dir))
+	// One name: the plan announces it, the conversion writes it into
+	// cluster.yaml, the deploy applies it and the restore imports into it.
+	stackName := migrateResourceName(filepath.Base(dir))
+	if migrateUpStack != "" {
+		stackName = migrateResourceName(migrateUpStack)
 	}
 	namespace := migrateUpNamespace
 	if namespace == "" {

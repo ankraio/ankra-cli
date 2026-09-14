@@ -21,6 +21,31 @@
   An unknown `--scope` is refused before any request. Requires
   cluster#3058 on the platform.
 
+### Fixed
+
+- **A converted database no longer crashloops on a block volume.** A compose
+  volume on `/var/lib/postgresql/data` or `/var/lib/mysql` became a claim
+  mounted at exactly that path, and every ext4 block volume - Hetzner,
+  UpCloud, DigitalOcean and the rest - carries a `lost+found` directory at
+  its root, so postgres's initdb refused to initialise into it and the pod
+  crashlooped until `ankra migrate up` ran out its `--timeout`. The claim of
+  a postgres, mysql or mariadb workload is now mounted with `subPath: data`:
+  the path inside the container is unchanged and the engine gets the empty
+  directory it expects. The conversion warns which mount it adjusted, and a
+  source that already writes below the mount - `PGDATA` or `--datadir` set to
+  a subdirectory - is left exactly as it was. A stack converted before this
+  change holds its data at the volume root: re-converting moves the data
+  directory one level down, so re-run the restore (`ankra migrate up` does it
+  for you) rather than expecting the running database to find it.
+- **`ankra migrate up --stack <name>` names the stack it deploys.** The plan
+  announced the name and the namespace honoured it, but the conversion named
+  the stack after the source directory, and that was the name the stack
+  landed under. The name asked for is now the one written into `cluster.yaml`,
+  applied to the cluster, recorded on the data import and printed in the
+  summary. `ankra migrate convert` takes the same `--stack` flag, separate
+  from `--cluster-name`, and external modules receive it as `stack_name` in
+  the convert request.
+
 ## v0.17.0-rc0 — 2026-09-14
 
 Opens the v0.17.0 line. The headline is `ankra cluster aws`: self-managed

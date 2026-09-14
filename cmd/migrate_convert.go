@@ -18,6 +18,7 @@ var (
 	migrateConvertModule      string
 	migrateConvertOut         string
 	migrateConvertClusterName string
+	migrateConvertStack       string
 	migrateConvertNamespace   string
 	migrateConvertOptions     []string
 	migrateConvertForce       bool
@@ -66,6 +67,7 @@ func init() {
 	migrateConvertCmd.Flags().StringVar(&migrateConvertModule, "module", "", "Module to use (default: the most confident detection)")
 	migrateConvertCmd.Flags().StringVar(&migrateConvertOut, "out", "ankra-migration", "Output directory")
 	migrateConvertCmd.Flags().StringVar(&migrateConvertClusterName, "cluster-name", "", "Name for the generated ImportCluster (default: the directory name)")
+	migrateConvertCmd.Flags().StringVar(&migrateConvertStack, "stack", "", "Name for the generated stack (default: the source's own project name)")
 	migrateConvertCmd.Flags().StringVar(&migrateConvertNamespace, "namespace", "", "Namespace for the generated workloads (default: the cluster name)")
 	migrateConvertCmd.Flags().StringArrayVar(&migrateConvertOptions, "option", nil, "Module option as key=value (repeatable)")
 	migrateConvertCmd.Flags().BoolVar(&migrateConvertForce, "force", false, "Overwrite an output directory that is not empty")
@@ -105,8 +107,13 @@ func runMigrateConvert(cmd *cobra.Command, args []string) error {
 		namespace = clusterName
 	}
 
+	stackName := ""
+	if migrateConvertStack != "" {
+		stackName = migrateResourceName(migrateConvertStack)
+	}
+
 	summary, clusterYAML, err := performMigrateConvert(dir, migrateConvertRequest{
-		Module: module, ClusterName: clusterName, Namespace: namespace, Options: options,
+		Module: module, ClusterName: clusterName, StackName: stackName, Namespace: namespace, Options: options,
 		Out: migrateConvertOut, Force: migrateConvertForce, DryRun: migrateConvertDryRun,
 	})
 	if err != nil {
@@ -141,11 +148,14 @@ func runMigrateConvert(cmd *cobra.Command, args []string) error {
 type migrateConvertRequest struct {
 	Module      migrate.Module
 	ClusterName string
-	Namespace   string
-	Options     map[string]string
-	Out         string
-	Force       bool
-	DryRun      bool
+	// StackName is the name the generated stack carries on the cluster;
+	// empty leaves it to the module.
+	StackName string
+	Namespace string
+	Options   map[string]string
+	Out       string
+	Force     bool
+	DryRun    bool
 }
 
 // performMigrateConvert runs the module, validates its result, and writes
@@ -156,6 +166,7 @@ func performMigrateConvert(dir string, request migrateConvertRequest) (migrateCo
 	result, err := module.Convert(context.Background(), migrate.ConvertRequest{
 		Dir:         dir,
 		ClusterName: request.ClusterName,
+		StackName:   request.StackName,
 		Namespace:   request.Namespace,
 		Options:     request.Options,
 	})
@@ -164,6 +175,13 @@ func performMigrateConvert(dir string, request migrateConvertRequest) (migrateCo
 	}
 	if err := migrate.Validate(result); err != nil {
 		return migrateConvertSummary{}, nil, fmt.Errorf("%s: %w", module.Describe().Name, err)
+	}
+	// A module written before stack_name existed names the stack after the
+	// source it read. The name was asked for, and 'migrate up' has already
+	// told the user which stack it is deploying, so the request wins over
+	// the module's own choice.
+	if request.StackName != "" && len(result.Cluster.Spec.Stacks) == 1 {
+		result.Cluster.Spec.Stacks[0].Name = request.StackName
 	}
 	clusterYAML, err := yaml.Marshal(result.Cluster)
 	if err != nil {

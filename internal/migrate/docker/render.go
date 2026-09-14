@@ -15,7 +15,10 @@ import (
 // RenderOptions shape the Kubernetes output.
 type RenderOptions struct {
 	ClusterName string
-	Namespace   string
+	// StackName names the stack in the generated cluster; empty falls back to
+	// the project's own name.
+	StackName string
+	Namespace string
 	// VolumeSize is the request for every PersistentVolumeClaim; compose has
 	// no notion of size, so one value covers them all.
 	VolumeSize   string
@@ -44,8 +47,12 @@ func Render(project Project, options RenderOptions) migrate.Result {
 		result.Warnings = append(result.Warnings, fmt.Sprintf(format, args...))
 	}
 
+	stackName := project.Name
+	if options.StackName != "" {
+		stackName = options.StackName
+	}
 	stack := migrate.Stack{
-		Name:        sanitiseName(project.Name),
+		Name:        sanitiseName(stackName),
 		Description: "Converted from " + project.Source,
 	}
 
@@ -169,7 +176,12 @@ func renderWorkload(project Project, workload Workload, options RenderOptions) (
 	for _, volume := range workload.Volumes {
 		switch {
 		case volume.Named:
-			mounts = append(mounts, volumeMount{Name: volume.Name, MountPath: volume.Target, ReadOnly: volume.ReadOnly})
+			mount := volumeMount{Name: volume.Name, MountPath: volume.Target, ReadOnly: volume.ReadOnly}
+			if subPath := databaseMountSubPath(workload, volume); subPath != "" {
+				mount.SubPath = subPath
+				warn("claim %s is mounted at %s with subPath %s: a block volume carries lost+found at its root, and the database refuses to initialise into a directory that is not empty", volume.Name, volume.Target, subPath)
+			}
+			mounts = append(mounts, mount)
 			podVolumes = append(podVolumes, podVolume{Name: volume.Name, PersistentVolumeClaim: &nameRef{ClaimName: volume.Name}})
 		case volume.BindFile:
 			for fileName, content := range volume.HostFiles {

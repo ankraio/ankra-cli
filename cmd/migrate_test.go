@@ -68,6 +68,7 @@ func resetMigrateFlags() {
 	migrateConvertModule = ""
 	migrateConvertOut = "ankra-migration"
 	migrateConvertClusterName = ""
+	migrateConvertStack = ""
 	migrateConvertNamespace = ""
 	migrateConvertOptions = nil
 	migrateConvertForce = false
@@ -238,5 +239,25 @@ func TestMigrateConvertNothingRecognised(t *testing.T) {
 	_, _, err := runMigrate(t, "convert", t.TempDir(), "--dry-run")
 	if err == nil || !strings.Contains(err.Error(), "no module recognises") {
 		t.Errorf("an empty directory should explain itself, got %v", err)
+	}
+}
+
+func TestMigrateConvertNamesTheStackApartFromTheCluster(t *testing.T) {
+	offlineRegistry(t)
+	dir := writeMigrateFixture(t)
+	out := filepath.Join(t.TempDir(), "out")
+
+	if _, stderr, err := runMigrate(t, "convert", dir, "--out", out, "--cluster-name", "prod", "--stack", "Notes App"); err != nil {
+		t.Fatalf("%v\n%s", err, stderr)
+	}
+	cluster, err := os.ReadFile(filepath.Join(out, "cluster.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cluster), "metadata:\n    name: prod\n") {
+		t.Errorf("--cluster-name names the ImportCluster:\n%s", cluster)
+	}
+	if !strings.Contains(string(cluster), "- name: notes-app\n") {
+		t.Errorf("--stack names the stack, sanitised for Kubernetes:\n%s", cluster)
 	}
 }
