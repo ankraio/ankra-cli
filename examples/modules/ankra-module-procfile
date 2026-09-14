@@ -122,7 +122,7 @@ def convert(request):
             "apiVersion": "ankra.io/v1alpha1",
             "kind": "ImportCluster",
             "metadata": {"name": request["cluster_name"], "description": "Converted from Procfile"},
-            "spec": {"stacks": [{"name": request["cluster_name"], "manifests": manifests}]},
+            "spec": {"stacks": [{"name": request.get("stack_name") or request["cluster_name"], "manifests": manifests}]},
         },
         "files": files,
         "warnings": warnings,

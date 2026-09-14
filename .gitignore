@@ -6,9 +6,6 @@ ankra.exe
 *.so
 *.dylib
 
-# Test binary
-testdata/
-
 # Go build artifacts
 *.test
 *.prof

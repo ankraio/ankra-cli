@@ -43,11 +43,14 @@ should score itself lower so a more specific module wins the directory.
 Input:
 
 ```json
-{"dir": "/absolute/path", "cluster_name": "shop", "namespace": "shop",
- "options": {"image": "ghcr.io/org/shop:1.2"}}
+{"dir": "/absolute/path", "cluster_name": "shop", "stack_name": "shop",
+ "namespace": "shop", "options": {"image": "ghcr.io/org/shop:1.2"}}
 ```
 
-`options` carries every `--option key=value` the user passed, untouched, so
+`stack_name` is the name the generated stack must carry on the cluster -
+`ankra migrate up --stack <name>` announces it in its plan and deploys it
+under exactly that name - and is absent when the user left the choice to the
+module. `options` carries every `--option key=value` the user passed, untouched, so
 a module can take input the CLI knows nothing about. Reply with the
 resources:
 

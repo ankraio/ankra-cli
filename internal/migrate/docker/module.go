@@ -74,6 +74,7 @@ func (Module) Convert(ctx context.Context, request migrate.ConvertRequest) (migr
 
 	render := RenderOptions{
 		ClusterName:   request.ClusterName,
+		StackName:     request.StackName,
 		Namespace:     request.Namespace,
 		VolumeSize:    options[OptionVolumeSize],
 		StorageClass:  options[OptionStorageClass],

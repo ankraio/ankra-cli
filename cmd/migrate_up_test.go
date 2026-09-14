@@ -294,3 +294,40 @@ func TestMigrateUpRunsAgainIntoTheSameDirectory(t *testing.T) {
 		t.Errorf("--force overwrites: %v", err)
 	}
 }
+
+func TestMigrateUpDeploysUnderTheRequestedStackName(t *testing.T) {
+	fakeDockerOnPath(t)
+	mock := newMigrateUpMock()
+	installMigrateUpMock(t, mock)
+	dir := writeMigrateFixture(t)
+	out := filepath.Join(t.TempDir(), "migration")
+
+	stdout, stderr, err := runMigrate(t, "up", dir, "--out", out, "--cluster", migrateRestoreTestCluster, "--stack", "notes", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr)
+	}
+	if stacks := mock.applied[0].Spec.Stacks; len(stacks) != 1 || stacks[0].Name != "notes" {
+		t.Errorf("--stack names the stack on the cluster, not the source directory: %+v", stacks)
+	}
+	cluster, readError := os.ReadFile(filepath.Join(out, "stack", "cluster.yaml"))
+	if readError != nil {
+		t.Fatal(readError)
+	}
+	if !strings.Contains(string(cluster), "- name: notes\n") {
+		t.Errorf("the converted cluster.yaml must carry the same stack name:\n%s", cluster)
+	}
+	if mock.createdWith == nil || mock.createdWith.StackName != "notes" {
+		t.Errorf("the data import must be registered against the same stack: %+v", mock.createdWith)
+	}
+	for _, want := range []string{
+		"stack      notes (new), namespace notes",
+		"==> Deploying stack notes to cluster shop-cluster",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("progress must say %q:\n%s", want, stderr)
+		}
+	}
+	if !strings.Contains(stdout, "as stack notes (namespace notes)") {
+		t.Errorf("stdout:\n%s", stdout)
+	}
+}

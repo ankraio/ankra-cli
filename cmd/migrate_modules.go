@@ -28,11 +28,14 @@ and a JSON reply on stdout:
       <- {"dir":"/path/to/project"}
       -> {"confidence":0.9,"files":["Procfile"],"reason":"Procfile present"}
   ankra-module-<name> convert
-      <- {"dir":"...","cluster_name":"...","namespace":"...","options":{"k":"v"}}
+      <- {"dir":"...","cluster_name":"...","stack_name":"...",
+          "namespace":"...","options":{"k":"v"}}
       -> {"cluster":{<ImportCluster>},"files":{"manifests/web.yaml":"..."},
           "warnings":["..."]}
 
-Confidence runs 0 (not mine) to 1 (certain); reserve 1 for an unambiguous
+"stack_name" is the name the generated stack must carry; it is absent when
+the user left the choice to the module. Confidence runs 0 (not mine) to 1
+(certain); reserve 1 for an unambiguous
 marker file so a specific module wins over a general one. File paths in the
 reply are relative to the output directory and may not escape it. A non-zero
 exit fails the verb and the module's stderr is shown as the reason.
