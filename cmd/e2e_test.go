@@ -321,6 +321,10 @@ func (m baseMock) StartApplicationPlatformBuild(requestContext context.Context, 
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ConvertApplicationPipeline(requestContext context.Context, applicationID string, keepWorkflows bool) (*client.PipelineConversion, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListApplicationPlatformBuilds(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }

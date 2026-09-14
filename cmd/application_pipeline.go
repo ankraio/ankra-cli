@@ -10,6 +10,9 @@ package cmd
 // implemented.
 
 import (
+	"fmt"
+	"strings"
+
 	"ankra/internal/client"
 
 	"github.com/spf13/cobra"
@@ -32,8 +35,96 @@ func newApplicationPipelineCommand() *cobra.Command {
 		newApplicationPipelineValidateCommand(),
 		newApplicationPipelineDefinitionCommand(),
 		newApplicationPipelineSchedulesCommand(),
+		newApplicationPipelineConvertCommand(),
 	)
 	return pipelineCommand
+}
+
+// newApplicationPipelineConvertCommand is the one-click conversion of an
+// application that still builds from a GitHub Actions workflow onto Ankra
+// Pipelines (cluster ankra-484en). It has no `ankra pipeline` twin: the
+// conversion is judged from the application's stored pipeline_source, which
+// only an application carries.
+func newApplicationPipelineConvertCommand() *cobra.Command {
+	convertCommand := &cobra.Command{
+		Use:   "convert <application-id>",
+		Short: "Convert the application from its GitHub workflow onto Ankra Pipelines",
+		Long: `Convert an application that still builds from a GitHub Actions workflow onto
+Ankra Pipelines, with one call.
+
+Ankra reads the workflow, converts it to a .ankra/pipeline.yaml, stores that as
+the application's pipeline definition of record and builds the next push
+through it. It switches the generated workflow off on GitHub so the two never
+build the same commit twice, and opens a pull request that commits the pipeline
+file and removes Ankra's generated workflow file. A workflow the repository
+wrote itself is never touched. Nothing about building waits on the pull
+request merging.
+
+--keep-workflows leaves the generated workflow file in the repository (it stays
+switched off). Calling again while the pull request is still open answers the
+same conversion; an application already on Ankra Pipelines is refused with
+nothing to convert.`,
+		Example: `  ankra application pipeline convert <application-id>
+  ankra application pipeline convert <application-id> --keep-workflows
+  ankra application pipeline convert <application-id> -o json`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			keepWorkflows, _ := command.Flags().GetBool("keep-workflows")
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			conversion, convertError := apiClient.ConvertApplicationPipeline(command.Context(), applicationID, keepWorkflows)
+			if convertError != nil {
+				return convertError
+			}
+			if rendered, renderError := renderStructured(command, conversion); rendered || renderError != nil {
+				return renderError
+			}
+			return renderPipelineConversion(command, conversion)
+		},
+	}
+	convertCommand.Flags().Bool("keep-workflows", false,
+		"Leave Ankra's generated workflow file in the repository instead of removing it in the pull request")
+	registerStructuredOutputFlags(convertCommand)
+	return convertCommand
+}
+
+// renderPipelineConversion says what the click did, in the order a reader
+// acts on it: the sentence, the pull request, what leaves the repository,
+// what is already switched off, and the one thing they may still have to do
+// by hand.
+func renderPipelineConversion(command *cobra.Command, conversion *client.PipelineConversion) error {
+	output := command.OutOrStdout()
+	if _, writeError := fmt.Fprintln(output, conversion.Message); writeError != nil {
+		return writeError
+	}
+	if conversion.PullRequestURL != "" {
+		if _, writeError := fmt.Fprintf(output, "Pull request: %s\n", conversion.PullRequestURL); writeError != nil {
+			return writeError
+		}
+	}
+	if len(conversion.RemovedPaths) > 0 {
+		if _, writeError := fmt.Fprintf(output, "Removed by the pull request: %s\n",
+			strings.Join(conversion.RemovedPaths, ", ")); writeError != nil {
+			return writeError
+		}
+	}
+	if len(conversion.DisabledWorkflows) > 0 {
+		if _, writeError := fmt.Fprintf(output, "Switched off on GitHub: %s\n",
+			strings.Join(conversion.DisabledWorkflows, ", ")); writeError != nil {
+			return writeError
+		}
+	}
+	if conversion.DisableWorkflowsMessage != "" {
+		if _, writeError := fmt.Fprintf(output, "Warning: %s\n", conversion.DisableWorkflowsMessage); writeError != nil {
+			return writeError
+		}
+	}
+	return nil
 }
 
 func newApplicationPipelineRunCommand() *cobra.Command {

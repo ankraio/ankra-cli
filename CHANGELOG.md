@@ -4,6 +4,17 @@
 
 ### Added
 
+- **`ankra application pipeline convert <application-id>` converts an
+  application that still builds from a GitHub Actions workflow onto Ankra
+  Pipelines with one call.** Ankra converts the workflow to a
+  `.ankra/pipeline.yaml`, stores it as the application's definition of
+  record and builds the next push through it, switches the generated
+  workflow off on GitHub, and opens a pull request that commits the
+  pipeline file and removes Ankra's generated workflow file
+  (`--keep-workflows` leaves it; a workflow the repository wrote itself is
+  never touched). Nothing waits on the merge. Calling again while the pull
+  request is open answers the same conversion. Requires cluster#3074 on
+  the platform.
 - **`ankra registry robots` creates, lists, rotates and revokes robot
   accounts on the organisation's Ankra registry project.** Ankra minted
   every registry login itself - the organisation's ci and pull robots, one
