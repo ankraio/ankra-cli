@@ -73,8 +73,11 @@ var (
 	placeholderPattern = regexp.MustCompile(`\.\.\.|\||\$\{|^\s*ankra\s*=`)
 )
 
-// collectDocumentedCommands reads every embedded skill and returns the ankra
-// invocations in it, with backslash continuations joined.
+// collectDocumentedCommands reads every embedded skill and every workflow
+// body and returns the ankra invocations in them, with backslash
+// continuations joined. Workflow bodies are Go string literals rather than
+// embedded files, which is how one of them documented a flag that never
+// existed for a month; they are held to the same tree as the skills.
 func collectDocumentedCommands(t *testing.T) []documentedCommand {
 	t.Helper()
 	fsys, err := skills.EmbeddedFS()
@@ -90,21 +93,33 @@ func collectDocumentedCommands(t *testing.T) []documentedCommand {
 		if readError != nil {
 			return readError
 		}
-		joined := continuationPattern.ReplaceAllString(string(data), " ")
-		for number, line := range strings.Split(joined, "\n") {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "ankra ") {
-				found = append(found, documentedCommand{path, number + 1, stripComment(trimmed)})
-				continue
-			}
-			for _, match := range inlineCommandPattern.FindAllStringSubmatch(trimmed, -1) {
-				found = append(found, documentedCommand{path, number + 1, match[1]})
-			}
-		}
+		found = append(found, collectCommandsFromText(path, string(data))...)
 		return nil
 	})
 	if walkError != nil {
 		t.Fatalf("walking the embedded skills: %v", walkError)
+	}
+	for _, workflow := range skills.Workflows() {
+		found = append(found, collectCommandsFromText("workflow:"+workflow.Name, workflow.Body)...)
+	}
+	return found
+}
+
+// collectCommandsFromText returns the ankra invocations in one document: a
+// line that starts with "ankra " is taken whole (minus a trailing comment),
+// otherwise every backticked `ankra ...` on the line is taken.
+func collectCommandsFromText(source string, text string) []documentedCommand {
+	var found []documentedCommand
+	joined := continuationPattern.ReplaceAllString(text, " ")
+	for number, line := range strings.Split(joined, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "ankra ") {
+			found = append(found, documentedCommand{source, number + 1, stripComment(trimmed)})
+			continue
+		}
+		for _, match := range inlineCommandPattern.FindAllStringSubmatch(trimmed, -1) {
+			found = append(found, documentedCommand{source, number + 1, match[1]})
+		}
 	}
 	return found
 }
