@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra registry robots` creates, lists, rotates and revokes robot
+  accounts on the organisation's Ankra registry project.** Ankra minted
+  every registry login itself - the organisation's ci and pull robots, one
+  push robot per application - and a login for CI you run outside Ankra, a
+  laptop pushing an image by hand, or a cluster Ankra does not manage had
+  to be asked for. `robots create <name> [--scope push|pull]
+  [--description ...]` mints one and prints its secret exactly once, with
+  the `docker login` command that uses it (`-o json` carries it as
+  `secret`); the login is stored as the managed credential
+  `ankra-harbor-robot-<name>` so clusters and applications can reference
+  it. `robots list` and `robots get` never show a secret, `robots rotate`
+  mints a new one and invalidates the old, `robots delete --yes` removes
+  the robot from the registry and the credential in one step. Requires
+  cluster#3058 on the platform.
+
 ### Fixed
 
 - **`ankra pipeline get` and `pipeline list` no longer paint a finished run

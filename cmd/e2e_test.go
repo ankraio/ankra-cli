@@ -4255,6 +4255,26 @@ func (m baseMock) GetApplicationRegistryRobot(requestContext context.Context, ap
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateRegistryRobot(requestContext context.Context, robotRequest client.CreateRegistryRobotRequest) (*client.RegistryRobotWithSecret, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListRegistryRobots(requestContext context.Context) (*client.RegistryRobotList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetRegistryRobot(requestContext context.Context, robotName string) (*client.RegistryRobot, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RotateRegistryRobotSecret(requestContext context.Context, robotName string) (*client.RegistryRobotWithSecret, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteRegistryRobot(requestContext context.Context, robotName string) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) EnsureApplicationRegistryRobot(requestContext context.Context, applicationID string, robotRequest client.EnsureApplicationRegistryRobotRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
