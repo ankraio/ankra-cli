@@ -113,6 +113,19 @@ func TestRenderMountsDatabaseDataDirectoriesBelowTheVolumeRoot(t *testing.T) {
 			wantSubPath: false,
 		},
 		{
+			// The source moved its data directory and mounted the volume
+			// straight onto it, so the volume root is the data directory
+			// again and carries lost+found again.
+			name: "postgres with PGDATA mounted at the volume root",
+			service: `    image: postgres:17
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes: ['store:/var/lib/postgresql/data/pgdata']
+`,
+			mountPath:   "/var/lib/postgresql/data/pgdata",
+			wantSubPath: true,
+		},
+		{
 			name: "mariadb with --datadir already below the mount",
 			service: `    image: mariadb:11
     command: ['--datadir=/var/lib/mysql/data']
