@@ -162,6 +162,18 @@ type PipelineRunDetail struct {
 	// nothing the approve route would accept, and absent from servers older
 	// than the field (ankra-erdtu). It is never AuthorityDefinitionID.
 	ApproveDefinitionID *string `json:"approve_definition_id"`
+	// QueueReason and QueueReasonMessage say why a QUEUED run has not started
+	// (ankra-a0yh3): one of "planning", "waiting_on_concurrency_group",
+	// "waiting_on_run_cap", "waiting_on_step_cap", "waiting_on_ci_workers" or
+	// "waiting_on_capacity", and the sentence to show a person. Both are
+	// empty for a run that is running or concluded, where the question does
+	// not apply, and on servers older than the fields.
+	QueueReason        string `json:"queue_reason"`
+	QueueReasonMessage string `json:"queue_reason_message"`
+	// QueueReasonUnavailable is why the server could not derive the reason,
+	// empty when it did. An empty QueueReason alone is not "nothing is
+	// blocking this run" while this is set.
+	QueueReasonUnavailable string `json:"queue_reason_unavailable"`
 }
 
 // ListPipelineRunsOptions is the GET …/pipeline-runs query.

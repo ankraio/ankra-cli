@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"ankra/internal/client"
 
@@ -1498,3 +1499,53 @@ func TestPipelineGetOmitsAuthorityWhenNotRecorded(t *testing.T) {
 }
 
 func strPipelinePtr(value string) *string { return &value }
+
+// TestPipelineRunDetailPrintsWhyAQueuedRunIsWaiting pins ankra-a0yh3's ask:
+// a queued run has to say what it is waiting for where a person reads the run.
+// The reported case is Smartoptics watching four repositories' runs sit behind
+// one pull request's for up to thirty-eight minutes, with "Queued: 14 minutes
+// ago" as the only answer any surface gave.
+func TestPipelineRunDetailPrintsWhyAQueuedRunIsWaiting(t *testing.T) {
+	var waiting bytes.Buffer
+	printPipelineRunDetail(&waiting, client.PipelineRunDetail{
+		PipelineRun: client.PipelineRun{
+			RunNumber: 71, ID: "run-71", Status: "queued",
+			QueuedAt: time.Now().Add(-14 * time.Minute).UTC().Format(time.RFC3339),
+		},
+		QueueReason: "waiting_on_ci_workers",
+		QueueReasonMessage: "The agent on cluster \"build-01\" runs no pipeline-step workers " +
+			"(ci_worker_count is 0), so nothing can claim this run's steps.",
+	})
+	rendered := waiting.String()
+	if !strings.Contains(rendered, "Waiting:   The agent on cluster \"build-01\" runs no pipeline-step workers") {
+		t.Fatalf("a queued run prints what it is waiting for, got:\n%s", rendered)
+	}
+	if strings.Index(rendered, "Queued:") > strings.Index(rendered, "Waiting:") {
+		t.Fatalf("the wait is read under the time it has been queued for, got:\n%s", rendered)
+	}
+}
+
+// TestPipelineRunDetailPrintsNoWaitingLineWhenNothingIsWaiting holds the other
+// half. A run that is not queued has nothing to wait for, so there is no line;
+// but a server that could not derive the reason says so, because no line at
+// all reads as "nothing is blocking this run".
+func TestPipelineRunDetailPrintsNoWaitingLineWhenNothingIsWaiting(t *testing.T) {
+	outcome := "success"
+	var concluded bytes.Buffer
+	printPipelineRunDetail(&concluded, client.PipelineRunDetail{
+		PipelineRun: client.PipelineRun{RunNumber: 72, ID: "run-72", Status: "concluded", Outcome: &outcome},
+	})
+	if strings.Contains(concluded.String(), "Waiting:") {
+		t.Fatalf("a concluded run is not waiting for anything, got:\n%s", concluded.String())
+	}
+
+	var unreadable bytes.Buffer
+	printPipelineRunDetail(&unreadable, client.PipelineRunDetail{
+		PipelineRun:            client.PipelineRun{RunNumber: 73, ID: "run-73", Status: "queued"},
+		QueueReasonUnavailable: "Why this run is still queued could not be read; read the run again.",
+	})
+	if !strings.Contains(unreadable.String(), "Waiting:   Why this run is still queued could not be read") {
+		t.Fatalf("a derivation the server could not complete is reported, not hidden, got:\n%s",
+			unreadable.String())
+	}
+}
