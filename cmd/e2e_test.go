@@ -742,6 +742,20 @@ func (m baseMock) UpdateOrganisationPreviewSettings(ctx context.Context,
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListRelatedRepositories(ctx context.Context,
+	installationID string) ([]client.RelatedRepository, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateRelatedRepository(ctx context.Context, installationID string, repoFullName string,
+	relatedRepoFullName string) (*client.RelatedRepository, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteRelatedRepository(ctx context.Context, relatedRepositoryID string) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) GetOrganisationCISettings(ctx context.Context) (*client.OrganisationCISettings, error) {
 	return nil, errors.New("not implemented")
 }
