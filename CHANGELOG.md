@@ -31,6 +31,16 @@
   the credential in one step (`--yes` skips either prompt for scripts).
   An unknown `--scope` is refused before any request. Requires
   cluster#3058 on the platform.
+- **`ankra pipeline get` says what a queued run is waiting for.** A run that
+  has not started now prints a `Waiting:` line under `Queued:` naming the
+  reason the platform derived - the run holding its concurrency group, the
+  organisation's run cap, its own step cap, a cluster whose agent runs no
+  pipeline-step workers (with the `ankra cluster agent ci set --workers N
+  --cluster <name>` command that fixes it), or simply busy workers. Until now
+  the only answer any surface gave was how long the run had been queued for,
+  which is the one thing the reader could already see. A server that could not
+  work the reason out says so on the same line rather than printing nothing,
+  and a server older than the fields prints no line at all.
 
 ### Fixed
 

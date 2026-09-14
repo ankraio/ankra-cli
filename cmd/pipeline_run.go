@@ -491,6 +491,24 @@ func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, ru
 	return nil
 }
 
+// printPipelineRunWaiting prints what a queued run is waiting for, under the
+// time it has been queued for (ankra-a0yh3).
+//
+// Until the server derived this, "Queued: 14 minutes ago" was the whole answer
+// `ankra pipeline get` had - which told the reader the one thing they could
+// already see. A server that could not derive a reason says so rather than
+// printing nothing: no line at all reads as "nothing is blocking this run",
+// which is the answer a failed read must never give.
+func printPipelineRunWaiting(out io.Writer, detail client.PipelineRunDetail) {
+	if message := strings.TrimSpace(detail.QueueReasonMessage); message != "" {
+		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", message)
+		return
+	}
+	if unavailable := strings.TrimSpace(detail.QueueReasonUnavailable); unavailable != "" {
+		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", unavailable)
+	}
+}
+
 func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 	_, _ = fmt.Fprintf(out, "Run #%d (%s)\n", detail.RunNumber, detail.ID)
 	_, _ = fmt.Fprintf(out, "  Status:    %s\n", renderPipelineState(detail.Status, detail.Outcome))
@@ -499,6 +517,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 	printPipelineRunAuthority(out, detail)
 	printPipelineRunFailure(out, detail.PipelineRun)
 	_, _ = fmt.Fprintf(out, "  Queued:    %s\n", formatTimeAgo(detail.QueuedAt))
+	printPipelineRunWaiting(out, detail)
 	if detail.StartedAt != nil {
 		_, _ = fmt.Fprintf(out, "  Started:   %s\n", formatTimeAgo(*detail.StartedAt))
 	}
