@@ -687,18 +687,21 @@ func renderSecurityNetworkExposure(out io.Writer, exposure *client.SecurityClust
 }
 
 var securityPolicyModeCmd = &cobra.Command{
-	Use:   "policy-mode <audit|enforce>",
-	Short: "Switch a cluster's pod-security policies between audit and enforce",
+	Use:   "policy-mode <audit|enforce|off>",
+	Short: "Switch a cluster's pod-security policies between audit, enforce and off",
 	Long: `Set the cluster's pod-security policy mode. audit records violations
-without blocking; enforce rejects non-compliant workloads at admission, so
-it always asks for confirmation - --yes skips the prompt for audit and
-enforce alike. The change is committed to the cluster's GitOps repository
-and rolled out by the platform.`,
+without blocking; enforce rejects non-compliant workloads at admission; off
+uninstalls the Kyverno policy engine from the cluster (its admission
+webhook and reports controller are what load a small control plane) while
+native pod security keeps observing in audit - audit or enforce afterwards
+do not reinstall it. Every mode asks for confirmation; --yes skips the
+prompt. The change is committed to the cluster's GitOps repository and
+rolled out by the platform.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mode := strings.ToLower(strings.TrimSpace(args[0]))
-		if mode != "audit" && mode != "enforce" {
-			return withExitCode(exitUsage, fmt.Errorf("mode must be audit or enforce, got %q", args[0]))
+		if mode != "audit" && mode != "enforce" && mode != "off" {
+			return withExitCode(exitUsage, fmt.Errorf("mode must be audit, enforce or off, got %q", args[0]))
 		}
 		clusterID, err := requiredClusterIDFromFlags(cmd)
 		if err != nil {
@@ -716,6 +719,9 @@ and rolled out by the platform.`,
 		prompt := fmt.Sprintf("Set the pod-security policy mode to %s? [y/N]: ", mode)
 		if mode == "enforce" {
 			prompt = "Set the pod-security policy mode to enforce? Non-compliant workloads will be rejected at admission. [y/N]: "
+		}
+		if mode == "off" {
+			prompt = "Set the pod-security policy mode to off? The Kyverno policy engine will be uninstalled from the cluster; native pod security keeps observing in audit. [y/N]: "
 		}
 		if confirmError := confirmPrompt(cmd.InOrStdin(), narration, prompt, yes); confirmError != nil {
 			return confirmError
