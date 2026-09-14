@@ -376,6 +376,10 @@ type APIClient interface {
 	DiscoverEndpointModels(endpointID string) ([]string, error)
 	ListAILaneModels() ([]client.AILaneModel, error)
 	SetAILaneModel(lane string, modelKey string) ([]client.AILaneModel, error)
+	ListRelatedRepositories(ctx context.Context, installationID string) ([]client.RelatedRepository, error)
+	CreateRelatedRepository(ctx context.Context, installationID string, repoFullName string,
+		relatedRepoFullName string) (*client.RelatedRepository, error)
+	DeleteRelatedRepository(ctx context.Context, relatedRepositoryID string) error
 
 	ListCharts(page, pageSize int, onlySubscribed bool) (*client.ListChartsResponse, error)
 	SearchCharts(query string) ([]client.ChartItem, error)

@@ -42,6 +42,19 @@
 
 ### Added
 
+- **`ankra org ai-review related-repos` states which repositories an AI code
+  review may also read.** Applications installed on the same cluster are
+  related with no configuration; these commands cover the relationships a
+  deploy graph cannot know about, such as a client and the API it calls.
+  `list` shows the relationships stated under a GitHub App installation,
+  `add <repository> <related-repository>` relates two repositories, and
+  `remove` takes either a relationship's ID or its two repositories in either
+  order. `--credential` names the GitHub App credential whose installation the
+  relationships belong to, and can be left out when the organisation has
+  exactly one. Both repositories must be ones that installation can reach: a
+  pair it cannot is refused rather than stored. Adding and removing require
+  organisation admin. (ankra-zs1xm.16)
+
 - **`ankra cluster aws` builds self-managed k3s (or kubeadm) clusters on EC2**
   (ankra-rtpno.13). This is not EKS: Ankra installs Kubernetes on plain
   instances. By default it creates the whole network too - `create` needs
