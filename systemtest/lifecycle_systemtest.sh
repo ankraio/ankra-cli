@@ -774,16 +774,61 @@ aws_leaked_resources() {
   awscli ec2 describe-internet-gateways --filters "$tag" | jq -r '.InternetGateways[] | "internet-gateway " + .InternetGatewayId'
   awscli ec2 describe-nat-gateways --filter "$tag" "Name=state,Values=pending,failed,available,deleting" \
     | jq -r '.NatGateways[] | "nat-gateway " + .NatGatewayId + " " + .State'
-  # IAM is global: the tagging API answers for it from us-east-1.
-  aws --region us-east-1 --output json resourcegroupstaggingapi get-resources \
-      --resource-type-filters iam:role iam:instance-profile \
-      --tag-filters "Key=ankra.cloud/cluster-id,Values=$cluster_id" \
-    | jq -r '.ResourceTagMappingList[] | "iam " + .ResourceARN'
-  # Any other tagged kind in the region. Terminated instances and deleted
-  # NAT gateways keep their tags for a while and are excluded here; the
-  # checks above already cover every state of theirs that is not gone.
-  awscli resourcegroupstaggingapi get-resources --tag-filters "Key=ankra.cloud/cluster-id,Values=$cluster_id" \
-    | jq -r '.ResourceTagMappingList[] | .ResourceARN | select((contains(":instance/") or contains(":natgateway/")) | not) | "tagged " + .'
+  awscli ec2 describe-network-interfaces --filters "$tag" | jq -r '.NetworkInterfaces[] | "network-interface " + .NetworkInterfaceId'
+  # IAM is global and the two roles and instance profiles of a cluster have
+  # deterministic names (clusterengine.AwsIAMName: ankra-k3s-<id>-cp and
+  # -node), so they are looked up by name with the iam:GetRole /
+  # iam:GetInstanceProfile the provisioning keys already hold. NoSuchEntity
+  # is the only answer that means gone: any other failure is an unknown
+  # answer and is listed as such, so it keeps the sweep red rather than
+  # passing for a role nobody could see.
+  local suffix iam_name iam_answer
+  for suffix in cp node; do
+    iam_name="ankra-k3s-${cluster_id}-${suffix}"
+    if iam_answer="$(aws --region us-east-1 --output json iam get-role --role-name "$iam_name" 2>&1)"; then
+      echo "iam role $iam_name"
+    elif ! printf '%s' "$iam_answer" | grep -q NoSuchEntity; then
+      echo "iam role $iam_name (cannot check: $(printf '%s' "$iam_answer" | head -n1))"
+    fi
+    if iam_answer="$(aws --region us-east-1 --output json iam get-instance-profile --instance-profile-name "$iam_name" 2>&1)"; then
+      echo "iam instance-profile $iam_name"
+    elif ! printf '%s' "$iam_answer" | grep -q NoSuchEntity; then
+      echo "iam instance-profile $iam_name (cannot check: $(printf '%s' "$iam_answer" | head -n1))"
+    fi
+  done
+  # Any other tagged kind in the region, when the keys may ask (see
+  # aws_tag_sweep_permitted). Terminated instances and deleted NAT gateways
+  # keep their tags for a while and are excluded here; the checks above
+  # already cover every state of theirs that is not gone.
+  if [ "$AWS_TAG_SWEEP" = yes ]; then
+    awscli resourcegroupstaggingapi get-resources --tag-filters "Key=ankra.cloud/cluster-id,Values=$cluster_id" \
+      | jq -r '.ResourceTagMappingList[] | .ResourceARN | select((contains(":instance/") or contains(":natgateway/")) | not) | "tagged " + .'
+  fi
+}
+
+# The Resource Groups Tagging API sweep needs tag:GetResources, which the
+# provisioning template does not grant (nothing Ankra does needs it), so
+# keys scoped exactly like a customer's role cannot ask. Probed once, before
+# the sweep: a refusal is logged and the sweep covers the explicitly listed
+# kinds; an unexpected failure is logged too and treated the same way. The
+# answer is cached in AWS_TAG_SWEEP because aws_leaked_resources runs inside
+# a command substitution, where a log line would be read as a leaked
+# resource. The run that shipped this (ankra-cli nightly 34781352847) failed
+# its leak check on 900 seconds of AccessDenied while the account was clean.
+AWS_TAG_SWEEP=""
+aws_tag_sweep_permitted() {
+  local probe
+  if [ -n "$AWS_TAG_SWEEP" ]; then [ "$AWS_TAG_SWEEP" = yes ]; return; fi
+  if probe="$(awscli resourcegroupstaggingapi get-resources --resources-per-page 1 2>&1)"; then
+    AWS_TAG_SWEEP=yes
+  elif printf '%s' "$probe" | grep -q AccessDenied; then
+    AWS_TAG_SWEEP=no
+    log "  tag:GetResources is not granted to these keys: the leak sweep covers the explicitly listed kinds only (grant tag:GetResources to sweep every tagged kind)"
+  else
+    AWS_TAG_SWEEP=no
+    log "  tagging API probe failed, the leak sweep covers the explicitly listed kinds only: $(printf '%s' "$probe" | head -n1)"
+  fi
+  [ "$AWS_TAG_SWEEP" = yes ]
 }
 
 wait_for_no_leaks() {
@@ -1023,9 +1068,10 @@ run_aws_provider() {
   # 8. Leak check: nothing tagged with the cluster id may remain - for a
   # created network that includes the VPC, subnets, internet gateway, NAT
   # gateways, route tables and elastic IPs, which the sweep lists by kind.
-  local leak_scope="instances, security groups, key pairs, IAM"
+  local leak_scope="instances, security groups, key pairs, volumes, network interfaces, IAM roles and instance profiles"
   if ! aws_adopts_vpc; then leak_scope="$leak_scope and the created network (VPC, subnets, IGW, NAT, route tables, EIPs)"; fi
   if aws_cli_available; then
+    if aws_tag_sweep_permitted; then leak_scope="$leak_scope, plus every other tagged kind"; else leak_scope="$leak_scope; tagging-API sweep not permitted"; fi
     if wait_for_no_leaks "$id" "$AWS_LEAK_TIMEOUT"; then
       pass "$label no resources tagged ankra.cloud/cluster-id=$id remain ($leak_scope)"
     else
