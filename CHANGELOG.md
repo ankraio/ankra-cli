@@ -18,6 +18,18 @@
   `failure`, `cancelled`, `timed_out`, `skipped`, `infra_error`) - and the
   `authority_state` values `approved`, `unapproved`, `changed_on_head` and
   null. (PLA-856, support #1178)
+- **`ankra pipeline get` on a run that is not approved prints the approve
+  command for the right definition.** The Authority block used to show only
+  `authority_definition_id`, the already-trusted definition the run executed,
+  next to a note about approving - and `ankra pipeline definitions approve`
+  refuses that id. It now prints
+  `ankra pipeline definitions approve <approve_definition_id>`, the
+  repository's current default-branch definition as the API reports it, marks
+  the trusted definition as not the one to approve, and says when no
+  approvable definition was reported. An approval applies to runs planned
+  after it. `pipeline definitions --help` no longer points at
+  `authority_definition_id`. Needs an Ankra API that reports
+  `approve_definition_id`. (ankra-erdtu, PLA-855, support #1177)
 
 ### Changed
 
