@@ -192,6 +192,7 @@ ankra security benchmarks resources --cluster <c> --check 5.1.1 --benchmark cis-
 ankra security violations --cluster <c>          # pod-security policy results and the policy mode
 ankra security network-exposure --cluster <c>    # NetworkPolicy over-privilege per direction
 ankra security policy-mode enforce --cluster <c> # audit -> enforce; always confirms
+ankra security policy-mode off --cluster <c>     # uninstall the Kyverno engine; native pod security stays in audit
 ankra security enable-baseline --cluster <c>     # install the scanner and policy add-ons
 ankra security history --cluster <c> --days 30   # daily snapshots: how the posture moved
 ankra security report-schedule --cluster <c>     # the emailed security report: frequency, recipients, last sent
