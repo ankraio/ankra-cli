@@ -96,6 +96,10 @@ type APIClient interface {
 	ProvisionBackupVault(request client.ProvisionBackupVaultRequest) (*client.BackupVault, error)
 	VerifyBackupVault(vaultID string) (*client.BackupVault, error)
 	DeleteBackupVault(vaultID string, destroyProviderResources bool) error
+	ListObjectStorageBuckets() (*client.ObjectStorageBucketListResult, error)
+	GetObjectStorageBucket(bucketID string) (*client.ObjectStorageBucket, error)
+	CreateObjectStorageBucket(request client.CreateObjectStorageBucketRequest) (*client.ObjectStorageBucket, error)
+	DeleteObjectStorageBucket(bucketID string, destroyProviderResources bool) error
 	CreateBackupVaultImport(vaultID string, request client.CreateBackupVaultImportRequest) (*client.CreateBackupVaultImportResult, error)
 	CompleteBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
 	RestoreBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)

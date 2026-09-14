@@ -569,6 +569,22 @@ func (m baseMock) DeleteBackupVault(vaultID string, destroyProviderResources boo
 	return errors.New("not implemented")
 }
 
+func (m baseMock) ListObjectStorageBuckets() (*client.ObjectStorageBucketListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetObjectStorageBucket(bucketID string) (*client.ObjectStorageBucket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateObjectStorageBucket(request client.CreateObjectStorageBucketRequest) (*client.ObjectStorageBucket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteObjectStorageBucket(bucketID string, destroyProviderResources bool) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) CreateBackupVaultImport(vaultID string, request client.CreateBackupVaultImportRequest) (*client.CreateBackupVaultImportResult, error) {
 	return nil, errors.New("not implemented")
 }
