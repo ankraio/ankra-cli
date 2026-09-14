@@ -182,16 +182,16 @@ stages:
     kind: publish
     needs: [gate]
     when: { events: [push] }
-    with: { image: "harbor.ankra.cloud/<project>/shop" }
+    with: { image: "harbor.ankra.cloud/<project>/shop" }   # recorded, not read: the target is the app's registry
 ```
 
 Stages without `needs` run in parallel; `publish` refuses without a successful `gate` upstream and
-only runs on `push`, so a pull request builds, scans and reports but never publishes. The
-`registry_auth` and `source_token` bindings are reserved and added by Ankra from the application's
-push robot — never declare them. Do not pin `build.platforms`: the build runs natively on the CI
-cluster's architecture, and a fabricated `linux/amd64` fails on an arm64 cluster with "no QEMU
-emulation registered". [reference.md](reference.md) has the full schema with services, matrix,
-caches, schedules and manual inputs.
+only runs on `push`, so a pull request builds, scans and reports but never publishes. `fail_on`
+values outside a scanner's own severity words (`trivy: "app"`, `checkov: "none"`) carry no floor
+and leave the organisation gate to decide. `registry_auth` and `source_token` are reserved bindings
+Ankra adds from the push robot — never declare them. Do not pin `build.platforms`: builds run
+natively, and a fabricated `linux/amd64` fails on an arm64 cluster ("no QEMU emulation
+registered"). [reference.md](reference.md) has the full schema.
 
 ### 3d. Approve the authority — a human does this
 

@@ -79,7 +79,7 @@ Kind blocks:
 | Block | Fields |
 |---|---|
 | `build` | `dockerfile` (path from the repo root), `context`, `target`, `platforms` (do not pin), `build_args` (names, resolved from variables), `provenance`, `sbom`, `cache_to`. `dockerfile` and `context` resolve independently: `context: backend` + `dockerfile: Dockerfile` reads the **root** Dockerfile; write `dockerfile: backend/Dockerfile`. |
-| `scan` | `scanners` (`semgrep`, `checkov`, `trivy`), `fail_on` (scanner → its own severity word; tighten-only), `with.semgrep_config` (space-separated packs; else `--config=auto`), `with.image_gate` (`app`/`all`/`off`, tighten-only) |
+| `scan` | `scanners` (`semgrep`, `checkov`, `trivy`), `fail_on` (scanner → its own severity word, folded into the gate tighten-only; a value outside that scanner's vocabulary — the generated `trivy: "app"`, `checkov: "none"` — carries no floor and leaves the organisation gate to decide), `with.semgrep_config` (space-separated packs; else `--config=auto`), `with.image_gate` (`app`/`all`/`off`, tighten-only) |
 | `gate` | `require_stages` (the scan stages whose findings it judges; a required scanner that recorded nothing fails it by name), `approval_roles` |
 | `publish` | `with.image` is accepted and **not read** — the target is the application's own registry, resolved like the build's push target. Needs a successful `gate` upstream; re-tags the judged digest as `sha-<7>`. |
 
@@ -99,7 +99,9 @@ What every step carries: the workspace at `/workspace`; `ANKRA_RUN_ID`, `ANKRA_S
 is_fork|head_repo`, `ref`, `before_sha`, `changed_files`), `inputs.<name>`, `matrix.<name>`,
 `vars.<NAME>` (organisation, cluster and environment variables), `env.<NAME>`,
 `steps.<key>.outputs.<name>` / `.outcome`, `needs.<stage>.outputs.<name>` / `.result`,
-`secrets.<NAME>` (`true` when declared, never the value). Functions: `hashFiles`, `contains`,
+`secrets.<NAME>` (`true` when declared, never the value). A bare object such as `${{ ankra.repository }}`
+(what the generated pipeline's concurrency group uses) renders as compact JSON, so it is a unique
+per-repository key; `ankra.repository.owner`/`.name` is the readable form. Functions: `hashFiles`, `contains`,
 `startsWith`, `endsWith`, `fromJSON`, `toJSON`, `format`, `join`, `always()`, `success()`,
 `failure()`, `cancelled()`, `skipped()`, plus the CEL standard library. Two departures from GitHub:
 `toJSON` is compact, and comparisons are typed (`'1' == 1` is an error). A reference to an
@@ -120,7 +122,9 @@ on:
   manual:
     inputs:
       - { name: "suite", type: "choice", enum: ["unit", "e2e", "all"], default: "unit" }
-concurrency: { group: "${{ ankra.repository }}-${{ ankra.ref }}", cancel_in_progress: true }
+concurrency:
+  group: "${{ ankra.repository.owner }}-${{ ankra.repository.name }}-${{ ankra.ref }}"
+  cancel_in_progress: true
 workspace: { size: "10Gi", access: "rwo" }
 defaults: { image: "node:22-bookworm-slim", timeout: "20m" }
 permissions: { contents: "read" }
