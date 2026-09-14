@@ -79,6 +79,11 @@ is lost or leaked.`,
 				return formatError
 			}
 			scope, _ := command.Flags().GetString("scope")
+			scope = strings.ToLower(strings.TrimSpace(scope))
+			if scope != client.RegistryRobotScopePush && scope != client.RegistryRobotScopePull {
+				return withExitCode(exitUsage, fmt.Errorf("--scope must be %q (push and pull) or %q, got %q",
+					client.RegistryRobotScopePush, client.RegistryRobotScopePull, scope))
+			}
 			description, _ := command.Flags().GetString("description")
 			created, createError := apiClient.CreateRegistryRobot(command.Context(), client.CreateRegistryRobotRequest{
 				Name:        strings.TrimSpace(arguments[0]),
@@ -182,20 +187,29 @@ func newRegistryRobotsRotateCommand() *cobra.Command {
 The previous secret stops working the moment the registry answers, which makes
 this the response to a leaked or lost secret. Update every place that logs in
 with the robot afterwards. A robot the registry no longer has is minted again
-under the same name and scope.`,
-		Example: "  ankra registry robots rotate jenkins",
+under the same name and scope. Asks first, because a mistyped name would take
+another robot's consumers down; --yes skips the prompt for scripts.`,
+		Example: "  ankra registry robots rotate jenkins\n  ankra registry robots rotate jenkins --yes -o json | jq -r .secret",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			rotated, rotateError := apiClient.RotateRegistryRobotSecret(command.Context(), strings.TrimSpace(arguments[0]))
+			robotName := strings.TrimSpace(arguments[0])
+			yes, _ := command.Flags().GetBool("yes")
+			if confirmError := confirmPrompt(command.InOrStdin(), command.OutOrStdout(),
+				fmt.Sprintf("Rotate the secret of robot account %q? Everything logging in with the current secret stops working. [y/N]: ", robotName),
+				yes); confirmError != nil {
+				return confirmError
+			}
+			rotated, rotateError := apiClient.RotateRegistryRobotSecret(command.Context(), robotName)
 			if rotateError != nil {
 				return rotateError
 			}
 			return renderRegistryRobotSecret(command, rotated, "Robot secret rotated. The previous secret no longer works.")
 		},
 	}
+	rotateCommand.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	registerStructuredOutputFlags(rotateCommand)
 	return rotateCommand
 }

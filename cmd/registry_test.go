@@ -140,11 +140,28 @@ func TestRegistryRobotsListAndGet(t *testing.T) {
 	}
 }
 
-func TestRegistryRobotsRotateShowsTheNewSecret(t *testing.T) {
+func TestRegistryRobotsRotateConfirmsFirstThenShowsTheNewSecret(t *testing.T) {
 	mock := &registryRobotsMock{}
-	output, runError := runRegistryCommand(t, mock, "", "robots", "rotate", "jenkins")
+	_, runError := runRegistryCommand(t, mock, "n\n", "robots", "rotate", "jenkins")
+	if exitCodeFor(runError) != exitCancelled || mock.rotated != "" {
+		t.Fatalf("a declined prompt must cancel without calling the API: error=%v rotated=%q", runError, mock.rotated)
+	}
+	output, runError := runRegistryCommand(t, mock, "", "robots", "rotate", "jenkins", "--yes")
 	if runError != nil || mock.rotated != "jenkins" || !strings.Contains(output, "r0tated") {
-		t.Fatalf("rotate: error=%v rotated=%q output=\n%s", runError, mock.rotated, output)
+		t.Fatalf("rotate --yes: error=%v rotated=%q output=\n%s", runError, mock.rotated, output)
+	}
+}
+
+// A scope outside the vocabulary is refused locally, before any request.
+func TestRegistryRobotsCreateRefusesAnUnknownScope(t *testing.T) {
+	mock := &registryRobotsMock{}
+	_, runError := runRegistryCommand(t, mock, "", "robots", "create", "jenkins", "--scope", "admin")
+	if exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "--scope must be") || mock.createRequest != nil {
+		t.Fatalf("error=%v request=%+v", runError, mock.createRequest)
+	}
+	if _, runError := runRegistryCommand(t, mock, "", "robots", "create", "jenkins", "--scope", " PULL "); runError != nil ||
+		mock.createRequest == nil || mock.createRequest.Scope != "pull" {
+		t.Fatalf("scope is normalised before the request: error=%v request=%+v", runError, mock.createRequest)
 	}
 }
 

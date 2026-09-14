@@ -120,8 +120,10 @@ func (c *Client) RotateRegistryRobotSecret(ctx context.Context, robotName string
 // DeleteRegistryRobot deletes the robot on the registry and the credential
 // holding its login.
 func (c *Client) DeleteRegistryRobot(ctx context.Context, robotName string) error {
+	// The platform answers a 200 with {"success": true}; 204 is accepted too
+	// so a future no-content answer never reads as a failed revoke.
 	_, requestError := c.doRegistryRobotRequest(ctx, http.MethodDelete,
-		registryRobotsAPIPath+"/"+url.PathEscape(robotName), nil, http.StatusOK)
+		registryRobotsAPIPath+"/"+url.PathEscape(robotName), nil, http.StatusOK, http.StatusNoContent)
 	return requestError
 }
 

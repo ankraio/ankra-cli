@@ -15,8 +15,10 @@
   `secret`); the login is stored as the managed credential
   `ankra-harbor-robot-<name>` so clusters and applications can reference
   it. `robots list` and `robots get` never show a secret, `robots rotate`
-  mints a new one and invalidates the old, `robots delete --yes` removes
-  the robot from the registry and the credential in one step. Requires
+  asks first and then mints a new one and invalidates the old,
+  `robots delete` asks first and removes the robot from the registry and
+  the credential in one step (`--yes` skips either prompt for scripts).
+  An unknown `--scope` is refused before any request. Requires
   cluster#3058 on the platform.
 
 ### Fixed
