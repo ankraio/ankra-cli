@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"ankra/internal/client"
 )
@@ -226,6 +228,58 @@ func TestBucketDeleteWithDestroyNamesTheBucketAndHonoursANo(t *testing.T) {
 	if !mock.destroyRequested || !strings.Contains(output, "destroyed at the provider") {
 		t.Fatalf("destroy=%v output:\n%s", mock.destroyRequested, output)
 	}
+}
+
+// The platform tears a still-provisioning bucket down whatever is asked, so
+// the prompt and the result must say so rather than promise the bucket stays.
+func TestBucketDeleteOfAProvisioningBucketSaysItIsTornDown(t *testing.T) {
+	provisioning := registryBucket()
+	provisioning.Status = "provisioning"
+	mock := &bucketsMock{buckets: []client.ObjectStorageBucket{*provisioning}, bucket: provisioning}
+	setMockClient(t, mock)
+	resetBucketFlags(t)
+
+	rootCmd.SetIn(strings.NewReader("y\n"))
+	t.Cleanup(func() { rootCmd.SetIn(nil) })
+	var prompt string
+	var executeError error
+	output := captureStdout(t, func() {
+		prompt, executeError = executeCommand("bucket", "delete", "registry")
+	})
+	if executeError != nil {
+		t.Fatal(executeError)
+	}
+	if !strings.Contains(prompt, "still being created") || strings.Contains(prompt, "stay on the provider") {
+		t.Fatalf("prompt must say the half-made bucket is removed:\n%s", prompt)
+	}
+	if !strings.Contains(output, "destroyed at the provider") {
+		t.Fatalf("output must not claim the bucket stays:\n%s", output)
+	}
+}
+
+func TestWaitForBucketProvisioningKeepsPollingOnAStatusThatIsNotAVerdict(t *testing.T) {
+	original := bucketPollInterval
+	bucketPollInterval = time.Millisecond
+	t.Cleanup(func() { bucketPollInterval = original })
+
+	statuses := []string{"provisioning", "", "deleting", "ready"}
+	mock := &sequencedBucketsMock{statuses: statuses}
+	final, waitError := waitForBucketProvisioning(context.Background(), mock, bucketTestID)
+	if waitError != nil || final.Status != "ready" || mock.calls != len(statuses) {
+		t.Fatalf("final=%+v calls=%d err=%v", final, mock.calls, waitError)
+	}
+}
+
+type sequencedBucketsMock struct {
+	baseMock
+	statuses []string
+	calls    int
+}
+
+func (mock *sequencedBucketsMock) GetObjectStorageBucket(bucketID string) (*client.ObjectStorageBucket, error) {
+	status := mock.statuses[mock.calls]
+	mock.calls++
+	return &client.ObjectStorageBucket{ID: bucketID, Name: "registry", Status: status}, nil
 }
 
 func TestBucketGetShowsTheErrorAndTheWayOut(t *testing.T) {

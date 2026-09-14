@@ -197,7 +197,10 @@ func waitForBucketProvisioning(ctx context.Context, buckets APIClient, bucketID 
 		if getError != nil {
 			return nil, getError
 		}
-		if bucket.Status != "provisioning" {
+		// Only ready and error are verdicts. Any other status - one a newer
+		// platform adds, or an empty one - is not a finished create, so the
+		// poll keeps going until the bucket settles or --timeout expires.
+		if bucket.Status == "ready" || bucket.Status == "error" {
 			return bucket, nil
 		}
 		timer := time.NewTimer(bucketPollInterval)
@@ -225,7 +228,8 @@ provider-side bucket name to a unique one derived from <name>.
 Hetzner's Cloud API cannot mint Object Storage keys. Store the key pair on the
 Hetzner credential once and every bucket after that needs nothing more, or
 pass --access-key-id here: the secret key is then prompted for, hidden, so it
-stays out of your shell history.
+stays out of your shell history. --secret-access-key exists for automation;
+a value passed that way is recorded wherever the command line is.
 
 Examples:
   ankra bucket create registry-storage --credential hetzner-main --region fsn1 --wait
@@ -345,14 +349,20 @@ have made something billable.`,
 		if resolveError != nil {
 			return resolveError
 		}
+		// Read the bucket first so the prompt names what is really at stake:
+		// the provider-side bucket that a teardown empties, and whether the
+		// platform tears it down regardless because it is still being created.
+		bucket, getError := apiClient.GetObjectStorageBucket(bucketID)
+		if getError != nil {
+			return fmt.Errorf("reading bucket: %w", getError)
+		}
+		stillProvisioning := bucket.Status == "provisioning"
 		prompt := fmt.Sprintf("Stop managing bucket %q? The bucket and its objects stay on the provider. [y/N]: ", args[0])
-		if destroyProviderResources {
-			// Name the provider-side bucket that is about to be emptied: the
-			// Ankra name alone does not tell an operator what data is at stake.
-			bucket, getError := apiClient.GetObjectStorageBucket(bucketID)
-			if getError != nil {
-				return fmt.Errorf("reading bucket: %w", getError)
-			}
+		switch {
+		case stillProvisioning:
+			prompt = fmt.Sprintf("Bucket %q is still being created, so deleting it also removes anything Ankra already "+
+				"made for it on %s. Delete it? [y/N]: ", args[0], bucket.Provider)
+		case destroyProviderResources:
 			prompt = fmt.Sprintf("Delete bucket %q AND destroy bucket %q on %s, including every object in it? [y/N]: ",
 				args[0], bucket.Bucket, bucket.Provider)
 		}
@@ -362,7 +372,7 @@ have made something billable.`,
 		if deleteError := apiClient.DeleteObjectStorageBucket(bucketID, destroyProviderResources); deleteError != nil {
 			return fmt.Errorf("deleting bucket: %w", deleteError)
 		}
-		if destroyProviderResources {
+		if destroyProviderResources || stillProvisioning {
 			fmt.Printf("Bucket '%s' deleted; it is being emptied and destroyed at the provider.\n", args[0])
 			return nil
 		}
@@ -380,7 +390,8 @@ func init() {
 	bucketCreateCmd.Flags().String("access-key-id", "",
 		"Hetzner Object Storage access key (Hetzner only; omit to use the pair stored on the credential)")
 	bucketCreateCmd.Flags().String("secret-access-key", "",
-		"Hetzner Object Storage secret key (Hetzner only; prompted for hidden when --access-key-id is given)")
+		"Hetzner Object Storage secret key (Hetzner only). Prefer the hidden prompt you get by passing only "+
+			"--access-key-id: a flag value lands in your shell history and process list. Use the flag for automation")
 	registerAsyncWriteFlagsWithTimeout(bucketCreateCmd, bucketProvisionWaitTimeout)
 
 	bucketDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
