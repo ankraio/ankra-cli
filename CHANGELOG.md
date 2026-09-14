@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra security policy-mode off`** uninstalls the Kyverno policy engine
+  from a cluster whose control planes cannot afford its admission webhook
+  and reports controller. Native pod security keeps observing in audit, the
+  change is committed to GitOps like the other modes, and `audit` or
+  `enforce` afterwards do not reinstall the engine (it is the opt-in
+  policy-engine profile). Always confirms; `--yes` skips the prompt.
+
 ### Fixed
 
 - **`ankra pipeline get` and `pipeline list` no longer paint a finished run

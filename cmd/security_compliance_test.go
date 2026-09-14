@@ -478,3 +478,31 @@ func TestApplicationSecurityVersions_RendersNotScannedAndLicenceVerdict(t *testi
 }
 
 func intPointer(value int) *int { return &value }
+
+func TestSecurityPolicyMode_OffUninstallsTheEngineAfterConfirmation(t *testing.T) {
+	mock := &securityComplianceMock{policyMode: &client.SecurityPolicyModeResult{Mode: "off", Valid: true}}
+	output, narration, err := runSecurityCommandWithInput(t, mock, "y\n", "security", "policy-mode", "off", "--cluster", securityTestClusterID)
+	if err != nil {
+		t.Fatalf("expected off to be accepted, got %v", err)
+	}
+	if mock.policyModeSet != "off" {
+		t.Fatalf("expected off forwarded to the platform, got %q", mock.policyModeSet)
+	}
+	if !strings.Contains(narration+output, "Kyverno policy engine will be uninstalled") {
+		t.Errorf("expected the off prompt to say what it removes, got %q %q", narration, output)
+	}
+	if !strings.Contains(output, "Policy mode set to off") {
+		t.Errorf("expected the result rendered, got %q", output)
+	}
+}
+
+func TestSecurityPolicyMode_OffDeclineWritesNothing(t *testing.T) {
+	mock := &securityComplianceMock{policyMode: &client.SecurityPolicyModeResult{Mode: "off", Valid: true}}
+	_, _, err := runSecurityCommandWithInput(t, mock, "n\n", "security", "policy-mode", "off", "--cluster", securityTestClusterID)
+	if err == nil {
+		t.Fatalf("expected the decline to abort")
+	}
+	if mock.policyModeSet != "" {
+		t.Fatalf("expected no write after a decline, got %q", mock.policyModeSet)
+	}
+}
