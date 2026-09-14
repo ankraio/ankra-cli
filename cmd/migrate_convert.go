@@ -179,9 +179,17 @@ func performMigrateConvert(dir string, request migrateConvertRequest) (migrateCo
 	// A module written before stack_name existed names the stack after the
 	// source it read. The name was asked for, and 'migrate up' has already
 	// told the user which stack it is deploying, so the request wins over
-	// the module's own choice.
-	if request.StackName != "" && len(result.Cluster.Spec.Stacks) == 1 {
-		result.Cluster.Spec.Stacks[0].Name = request.StackName
+	// the module's own choice - and where it cannot (a module that split the
+	// source across several stacks), the mismatch is said out loud rather
+	// than left for the user to find on the cluster.
+	if request.StackName != "" {
+		switch stacks := result.Cluster.Spec.Stacks; len(stacks) {
+		case 1:
+			stacks[0].Name = request.StackName
+		default:
+			result.Warnings = append(result.Warnings, fmt.Sprintf("the %s module returned %d stacks, so the name %s could not be applied; they deploy under the names the module chose",
+				module.Describe().Name, len(stacks), request.StackName))
+		}
 	}
 	clusterYAML, err := yaml.Marshal(result.Cluster)
 	if err != nil {

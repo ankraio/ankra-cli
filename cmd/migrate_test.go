@@ -261,3 +261,39 @@ func TestMigrateConvertNamesTheStackApartFromTheCluster(t *testing.T) {
 		t.Errorf("--stack names the stack, sanitised for Kubernetes:\n%s", cluster)
 	}
 }
+
+// twoStackModule stands in for a module that splits a source across several
+// stacks, which is the one shape a requested stack name cannot be given to.
+type twoStackModule struct{}
+
+func (twoStackModule) Describe() migrate.Description {
+	return migrate.Description{Name: "two-stack", Version: "1", Protocol: migrate.ProtocolVersion}
+}
+
+func (twoStackModule) Detect(context.Context, string) (migrate.Detection, error) {
+	return migrate.Detection{Confidence: 1}, nil
+}
+
+func (twoStackModule) Convert(context.Context, migrate.ConvertRequest) (migrate.Result, error) {
+	return migrate.Result{Cluster: migrate.Cluster{
+		APIVersion: migrate.APIVersion, Kind: migrate.KindImport,
+		Metadata: migrate.Metadata{Name: "shop"},
+		Spec:     migrate.Spec{Stacks: []migrate.Stack{{Name: "platform"}, {Name: "app"}}},
+	}}, nil
+}
+
+func TestPerformMigrateConvertSaysWhenTheStackNameCouldNotBeApplied(t *testing.T) {
+	summary, _, err := performMigrateConvert(t.TempDir(), migrateConvertRequest{
+		Module: twoStackModule{}, ClusterName: "shop", StackName: "notes", DryRun: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := []string{summary.Cluster.Spec.Stacks[0].Name, summary.Cluster.Spec.Stacks[1].Name}; names[0] != "platform" || names[1] != "app" {
+		t.Errorf("a multi-stack module keeps its own names, got %v", names)
+	}
+	want := "the two-stack module returned 2 stacks, so the name notes could not be applied"
+	if len(summary.Warnings) != 1 || !strings.Contains(summary.Warnings[0], want) {
+		t.Errorf("warnings = %v, want one containing %q", summary.Warnings, want)
+	}
+}
