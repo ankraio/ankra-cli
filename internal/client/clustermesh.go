@@ -99,16 +99,26 @@ type ClusterMeshMakeReadyResult struct {
 	CiliumClusterName     string `json:"cilium_cluster_name"`
 	IdentityAllocated     bool   `json:"identity_allocated"`
 	TransitionedResources int    `json:"transitioned_resources"`
+	// PodCIDR is the pod range the identity records after the call;
+	// PodCIDRChanged says the call moved it (every node re-registers once).
+	PodCIDR        string `json:"pod_cidr"`
+	PodCIDRChanged bool   `json:"pod_cidr_changed"`
 }
 
-// MakeClusterMeshReady turns an existing cluster mesh-capable, day-2.
-func (c *Client) MakeClusterMeshReady(clusterID string, sitePublicIP string) (*ClusterMeshMakeReadyResult, error) {
+// MakeClusterMeshReady turns an existing cluster mesh-capable, day-2. podCIDR
+// is "" to keep the cluster's pod range, "auto" to draw a fresh one from the
+// organisation's pool when the current range collides with another
+// cluster's, or a CIDR to record.
+func (c *Client) MakeClusterMeshReady(clusterID string, sitePublicIP string, podCIDR string) (*ClusterMeshMakeReadyResult, error) {
 	var response struct {
 		MakeReady ClusterMeshMakeReadyResult `json:"make_ready"`
 	}
 	body := map[string]any{"cluster_id": clusterID}
 	if sitePublicIP != "" {
 		body["site_public_ip"] = sitePublicIP
+	}
+	if podCIDR != "" {
+		body["pod_cidr"] = podCIDR
 	}
 	if err := c.sendJSON(http.MethodPost, c.BaseURL+clusterMeshAPIPath+"/make-ready", body, &response); err != nil {
 		return nil, err
