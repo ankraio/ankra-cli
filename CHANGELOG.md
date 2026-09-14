@@ -1,5 +1,26 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra registry robots` creates, lists, rotates and revokes robot
+  accounts on the organisation's Ankra registry project.** Ankra minted
+  every registry login itself - the organisation's ci and pull robots, one
+  push robot per application - and a login for CI you run outside Ankra, a
+  laptop pushing an image by hand, or a cluster Ankra does not manage had
+  to be asked for. `robots create <name> [--scope push|pull]
+  [--description ...]` mints one and prints its secret exactly once, with
+  the `docker login` command that uses it (`-o json` carries it as
+  `secret`); the login is stored as the managed credential
+  `ankra-harbor-robot-<name>` so clusters and applications can reference
+  it. `robots list` and `robots get` never show a secret, `robots rotate`
+  asks first and then mints a new one and invalidates the old,
+  `robots delete` asks first and removes the robot from the registry and
+  the credential in one step (`--yes` skips either prompt for scripts).
+  An unknown `--scope` is refused before any request. Requires
+  cluster#3058 on the platform.
+
 ## v0.17.0-rc0 — 2026-09-14
 
 Opens the v0.17.0 line. The headline is `ankra cluster aws`: self-managed
