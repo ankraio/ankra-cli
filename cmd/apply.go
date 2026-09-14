@@ -626,6 +626,11 @@ func buildStack(sm map[string]interface{}, baseDir string) (client.Stack, error)
 		return client.Stack{}, err
 	}
 
+	backup, err := parseStackBackup(sm["backup"])
+	if err != nil {
+		return client.Stack{}, err
+	}
+
 	return client.Stack{
 		Name:        name,
 		Description: desc,
@@ -633,6 +638,7 @@ func buildStack(sm map[string]interface{}, baseDir string) (client.Stack, error)
 		Addons:      addons,
 		DeployWave:  deployWave,
 		Variables:   variables,
+		Backup:      backup,
 	}, nil
 }
 

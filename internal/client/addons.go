@@ -43,9 +43,39 @@ type ListClusterAddonsResponse struct {
 }
 
 type AddonSettings struct {
-	RetryPolicy          *RetryPolicy `json:"retry_policy,omitempty"`
-	SyncPolicy           *SyncPolicy  `json:"sync_policy,omitempty"`
-	RevisionHistoryLimit *int         `json:"revision_history_limit,omitempty"`
+	RetryPolicy          *RetryPolicy         `json:"retry_policy,omitempty"`
+	SyncPolicy           *SyncPolicy          `json:"sync_policy,omitempty"`
+	RevisionHistoryLimit *int                 `json:"revision_history_limit,omitempty"`
+	Backup               *AddonBackupSettings `json:"backup,omitempty"`
+}
+
+// AddonBackupSettings is the add-on's override of its stack's backup policy
+// (epic ankra-0xsdd, WS4). Omitted means the add-on follows the stack: the
+// override exists for the one add-on in a protected stack that should be
+// captured differently, not as a second place to configure protection.
+type AddonBackupSettings struct {
+	// Enabled says whether this add-on's data assets are captured. The
+	// Stateful settings profile defaults it on.
+	Enabled bool `json:"enabled"`
+	// Consistency is how the capture is taken: transactional, application,
+	// crash or logical. Empty leaves the engine's own choice in place.
+	Consistency string `json:"consistency,omitempty"`
+	// Schedule and Retention override the stack's for this add-on only.
+	// Empty / nil inherits.
+	Schedule  string                `json:"schedule,omitempty"`
+	Retention *AddonBackupRetention `json:"retention,omitempty"`
+}
+
+// AddonBackupRetention mirrors the stack block's retention, for an add-on
+// whose data needs keeping longer (or shorter) than the rest of the stack.
+type AddonBackupRetention struct {
+	Hourly       int    `json:"hourly,omitempty"`
+	Daily        int    `json:"daily,omitempty"`
+	Weekly       int    `json:"weekly,omitempty"`
+	Monthly      int    `json:"monthly,omitempty"`
+	Yearly       int    `json:"yearly,omitempty"`
+	MinimumCount int    `json:"minimum_count,omitempty"`
+	MinimumAge   string `json:"minimum_age,omitempty"`
 }
 
 type RetryPolicy struct {
