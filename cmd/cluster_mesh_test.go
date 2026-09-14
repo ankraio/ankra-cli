@@ -29,9 +29,11 @@ type clusterMeshMock struct {
 
 	joinError error
 
-	madeReadyCluster string
-	madeReadySiteIP  string
-	makeReadyError   error
+	madeReadyCluster  string
+	madeReadySiteIP   string
+	madeReadyPodCIDR  string
+	madeReadyClusters []string
+	makeReadyError    error
 }
 
 func (m *clusterMeshMock) ListClusterMeshes() ([]client.ClusterMesh, error) {
@@ -57,15 +59,18 @@ func (m *clusterMeshMock) DeleteClusterMesh(meshID string) error {
 	return nil
 }
 
-func (m *clusterMeshMock) MakeClusterMeshReady(clusterID string, sitePublicIP string) (*client.ClusterMeshMakeReadyResult, error) {
+func (m *clusterMeshMock) MakeClusterMeshReady(clusterID string, sitePublicIP string, podCIDR string) (*client.ClusterMeshMakeReadyResult, error) {
 	m.madeReadyCluster = clusterID
 	m.madeReadySiteIP = sitePublicIP
+	m.madeReadyPodCIDR = podCIDR
+	m.madeReadyClusters = append(m.madeReadyClusters, clusterID)
 	if m.makeReadyError != nil {
 		return nil, m.makeReadyError
 	}
 	return &client.ClusterMeshMakeReadyResult{
 		ClusterID: clusterID, CiliumClusterID: 7, CiliumClusterName: "made-ready-7",
 		IdentityAllocated: true, TransitionedResources: 2,
+		PodCIDR: "10.216.128.0/18", PodCIDRChanged: podCIDR != "",
 	}, nil
 }
 

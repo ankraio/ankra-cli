@@ -1692,7 +1692,7 @@ func (m baseMock) DeleteClusterMesh(string) error {
 	return errors.New("not implemented")
 }
 
-func (m baseMock) MakeClusterMeshReady(string, string) (*client.ClusterMeshMakeReadyResult, error) {
+func (m baseMock) MakeClusterMeshReady(string, string, string) (*client.ClusterMeshMakeReadyResult, error) {
 	return &client.ClusterMeshMakeReadyResult{}, nil
 }
 

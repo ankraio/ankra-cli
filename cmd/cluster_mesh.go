@@ -143,7 +143,10 @@ var clusterMeshLeaveCmd = &cobra.Command{
 	},
 }
 
-var clusterMeshMakeReadySiteIP string
+var (
+	clusterMeshMakeReadySiteIP  string
+	clusterMeshMakeReadyPodCIDR string
+)
 
 var clusterMeshMakeReadyCmd = &cobra.Command{
 	Use:   "make-ready <cluster_id|name>",
@@ -151,6 +154,10 @@ var clusterMeshMakeReadyCmd = &cobra.Command{
 	Long: "Turn an existing cluster mesh-capable, day-2: allocate its Cilium identity and overlay range, stamp the " +
 		"overlay onto its stored definitions, and set its resources converging so every node joins the platform " +
 		"WireGuard overlay. The node-IP switch restarts kubelets once; nothing is deleted or recreated.\n\n" +
+		"Two clusters prepared from the kubeadm default share one pod range and cannot mesh with each other. " +
+		"--pod-cidr auto moves this cluster onto a fresh range from the organisation's pool when its range collides " +
+		"with another cluster's (a CIDR records that range instead); every node is drained and re-registered once, " +
+		"one at a time. UpCloud clusters only.\n\n" +
 		"Proxmox clusters need --site-public-ip: the address other sites dial this cluster's site gateway on.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -158,7 +165,7 @@ var clusterMeshMakeReadyCmd = &cobra.Command{
 		if resolveError != nil {
 			return resolveError
 		}
-		result, makeReadyError := apiClient.MakeClusterMeshReady(clusterID, clusterMeshMakeReadySiteIP)
+		result, makeReadyError := apiClient.MakeClusterMeshReady(clusterID, clusterMeshMakeReadySiteIP, clusterMeshMakeReadyPodCIDR)
 		if makeReadyError != nil {
 			return fmt.Errorf("making the cluster mesh-ready: %w", makeReadyError)
 		}
@@ -173,6 +180,9 @@ var clusterMeshMakeReadyCmd = &cobra.Command{
 		}
 		fmt.Printf("Cluster %s %s: cilium-id=%d name=%s; %d resources converging onto the overlay.\n",
 			result.ClusterID, identity, result.CiliumClusterID, result.CiliumClusterName, result.TransitionedResources)
+		if result.PodCIDRChanged {
+			fmt.Printf("Pod range moved to %s: every node leaves and re-registers once, one node at a time.\n", result.PodCIDR)
+		}
 		return nil
 	},
 }
@@ -181,8 +191,10 @@ var clusterMeshReadinessCmd = &cobra.Command{
 	Use:   "readiness <cluster_id|name> [cluster_id|name...]",
 	Short: "Check whether clusters can mesh together, and why not",
 	Long: "Check whether the given clusters could form one mesh. Each cluster is reported ready or not, with the " +
-		"failing checks spelled out.\n\nSome failures cannot be fixed on a running cluster: the Cilium identity and " +
-		"the overlay network mode are set when the cluster is created, so a cluster without them has to be rebuilt to mesh.",
+		"failing checks spelled out.\n\nA missing Cilium identity, a node network no other cluster can reach, and (on " +
+		"UpCloud) a pod range that overlaps another member's are fixed in place by `ankra cluster mesh make-ready`; " +
+		"the cloud, the distribution and the container network are settled when the cluster is created, so a " +
+		"cluster failing those has to be rebuilt to mesh. `ankra cluster mesh up` runs the whole path for a set of clusters.",
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Every argument is a cluster, so each is resolved; the label the
@@ -242,6 +254,8 @@ func init() {
 	clusterMeshCmd.AddCommand(clusterMeshReadinessCmd)
 	clusterMeshMakeReadyCmd.Flags().StringVar(&clusterMeshMakeReadySiteIP, "site-public-ip", "",
 		"Public address other sites dial this cluster's site gateway on (proxmox clusters only)")
+	clusterMeshMakeReadyCmd.Flags().StringVar(&clusterMeshMakeReadyPodCIDR, "pod-cidr", "",
+		"Renumber the pod range: 'auto' draws a fresh range from the organisation's pool when the current one collides with another cluster's, a CIDR records that range (upcloud only; every node re-registers once)")
 	clusterMeshCmd.AddCommand(clusterMeshMakeReadyCmd)
 	clusterCmd.AddCommand(clusterMeshCmd)
 }
