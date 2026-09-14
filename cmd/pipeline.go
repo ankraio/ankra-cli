@@ -293,7 +293,9 @@ func pipelineOutcomeLabel(status string, outcome *string) string {
 // renderPipelineState renders a run or step's status/outcome pair for a
 // human-readable cell: pipelineOutcomeLabel's word behind a glyph and a
 // colour that mean the same thing everywhere the pipeline commands print a
-// state (get, list, and the failure summary wait prints).
+// state for a person (get and list). wait's failure summary deliberately
+// prints bare words instead: it is as often a CI log as a terminal, and
+// glyphs and escapes do not belong there (see pipeline_wait.go).
 //
 // The glyph is the point (PLA-856, support #1178). ⟳ is the spinner, and it
 // is reserved for work that has not concluded - queued, pending, running -
