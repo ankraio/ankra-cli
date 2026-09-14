@@ -36,9 +36,16 @@ around but never grant itself ("logic is open, authority is closed").
 These two commands address one stored definition directly by its own id,
 unlike 'pipeline definition get|put' which read and write the definition of
 record for a repository or application. There is no lookup or listing route
-for a definition's id: find one from a pull request's status comment, or from
-the "authority_definition_id" field 'ankra pipeline get' prints on a run
-whose authority changed.`,
+for a definition's id. The one to approve is the repository's current
+default-branch definition: 'ankra pipeline get <run>' prints its approve
+command on a run that is not approved ("approve_definition_id" in -o json),
+and a pull request's status comment names it too. The run's
+"authority_definition_id" is the definition its trusted authority came from:
+useful to inspect with 'get', but not the one to approve - it is normally
+already approved, and 'approve' refuses it.
+
+An approval applies to runs planned after it; a run keeps the authority it
+was planned under.`,
 	}
 	definitionsCommand.AddCommand(newPipelineDefinitionsGetCommand(), newPipelineDefinitionsApproveCommand())
 	return definitionsCommand

@@ -496,7 +496,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 	_, _ = fmt.Fprintf(out, "  Status:    %s\n", renderPipelineState(detail.Status, detail.Outcome))
 	_, _ = fmt.Fprintf(out, "  Trigger:   %s (%s)\n", detail.Trigger, detail.TriggerRef)
 	_, _ = fmt.Fprintf(out, "  Commit:    %s\n", detail.HeadSHA)
-	printPipelineRunAuthority(out, detail.PipelineRun)
+	printPipelineRunAuthority(out, detail)
 	printPipelineRunFailure(out, detail.PipelineRun)
 	_, _ = fmt.Fprintf(out, "  Queued:    %s\n", formatTimeAgo(detail.QueuedAt))
 	if detail.StartedAt != nil {
@@ -579,38 +579,48 @@ func pipelineRunErrorClass(run client.PipelineRun) string {
 
 // printPipelineRunAuthority prints the run's recorded authority state
 // (ankra-vn0bd.10.8) when the server recorded one: whose protected sections
-// the run executed and, for a state other than "approved", that an
-// administrator's approval would change it. A run planned before authority
-// tracking existed carries no state and this prints nothing, matching how
-// the wire field is null rather than empty.
+// the run executed and, for a state other than "approved", the approve
+// command for the definition the server says can be approved. A run planned
+// before authority tracking existed carries no state and this prints nothing,
+// matching how the wire field is null rather than empty.
 //
-// This deliberately never turns AuthorityDefinitionID into an
-// "ankra pipeline definitions approve <id>" command. That field names the
-// definition the run's CURRENTLY TRUSTED authority was drawn from - already
-// approved, or the default branch's own when it protects nothing - never the
-// definition an "unapproved" or "changed_on_head" run is waiting on: that is
-// always the repository's CURRENT default-branch definition
-// (enginekit/pipelinerun.CurrentDefaultBranchDefinition, resolved
-// server-side for the pull request status comment and not carried on this
-// response at all). Naming AuthorityDefinitionID as "the one to approve"
-// would be wrong exactly when it matters most: for "unapproved" it is
-// typically an older definition an administrator already approved (or
-// empty, when none ever was), and for "changed_on_head" it is at best the
-// default branch's own already-approved definition - approving either 409s
-// rather than fixing anything.
-func printPipelineRunAuthority(out io.Writer, run client.PipelineRun) {
-	if run.AuthorityState == nil || *run.AuthorityState == "" {
+// The id in the approve command is ApproveDefinitionID, never
+// AuthorityDefinitionID. The latter names the definition the run's trusted
+// authority was drawn from - already approved, or the default branch's own
+// when it protects nothing - and approving it is refused or changes nothing. PLA-855's
+// reporter did exactly that, because the only id this printed sat next to the
+// word "approving" (ankra-erdtu). The approvable one is the repository's
+// CURRENT default-branch definition, which the server resolves and reports as
+// approve_definition_id, null when there is nothing the approve route would
+// accept. A server older than that field reports nothing either, so its
+// absence prints no id rather than a guess.
+//
+// Authority is recorded when a run is planned, so an approval changes the
+// runs planned after it, never the state printed here.
+func printPipelineRunAuthority(out io.Writer, detail client.PipelineRunDetail) {
+	if detail.AuthorityState == nil || *detail.AuthorityState == "" {
 		return
 	}
-	_, _ = fmt.Fprintf(out, "  Authority: %s\n", *run.AuthorityState)
-	if run.AuthorityDefinitionID != nil && *run.AuthorityDefinitionID != "" {
-		_, _ = fmt.Fprintf(out, "             trusted authority taken from definition %s\n", *run.AuthorityDefinitionID)
+	isApproved := *detail.AuthorityState == "approved"
+	_, _ = fmt.Fprintf(out, "  Authority: %s\n", *detail.AuthorityState)
+	if detail.AuthorityDefinitionID != nil && *detail.AuthorityDefinitionID != "" {
+		note := ""
+		if !isApproved {
+			note = " (already trusted - not the definition to approve)"
+		}
+		_, _ = fmt.Fprintf(out, "             trusted authority taken from definition %s%s\n",
+			*detail.AuthorityDefinitionID, note)
 	}
-	if *run.AuthorityState != "approved" {
-		_, _ = fmt.Fprintln(out, "             an administrator approving the repository's current default-branch "+
-			"definition would update this - see the pull request's status comment for its id, or "+
-			"'ankra pipeline definitions get <id>' once you have one")
+	if isApproved {
+		return
 	}
+	if detail.ApproveDefinitionID != nil && *detail.ApproveDefinitionID != "" {
+		_, _ = fmt.Fprintf(out, "             to approve the default branch's current definition for runs planned "+
+			"after it: ankra pipeline definitions approve %s\n", *detail.ApproveDefinitionID)
+		return
+	}
+	_, _ = fmt.Fprintln(out, "             no definition to approve was reported for this run: the default branch's "+
+		"current definition is already approved or cannot be approved, or the server predates reporting it")
 }
 
 func newPipelineCancelCommand() *cobra.Command {

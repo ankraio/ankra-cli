@@ -97,14 +97,14 @@ type PipelineRun struct {
 	// is "not recorded", never "no authority"; the definition id alone is
 	// also null for a run executing under the organisation's baseline.
 	//
-	// AuthorityDefinitionID is not always the definition to approve:
+	// AuthorityDefinitionID is never the definition to approve:
 	// GetPipelineDefinitionApproval and ApprovePipelineDefinition read and
 	// approve a stored definition by id, but this field names where the run's
 	// CURRENTLY TRUSTED authority came from - which, for a run whose state is
 	// not "approved", is typically the older definition an administrator
-	// already approved, not the one waiting on approval. See
-	// cmd/pipeline_run.go's printPipelineRunAuthority for the reasoning and
-	// what it prints instead.
+	// already approved, not the one waiting on approval. The run detail's
+	// ApproveDefinitionID is that one; see cmd/pipeline_run.go's
+	// printPipelineRunAuthority.
 	AuthorityState        *string `json:"authority_state"`
 	AuthorityHash         *string `json:"authority_hash"`
 	AuthorityDefinitionID *string `json:"authority_definition_id"`
@@ -156,6 +156,12 @@ type PipelineRunList struct {
 type PipelineRunDetail struct {
 	PipelineRun
 	Steps []PipelineStep `json:"steps"`
+	// ApproveDefinitionID is the definition an administrator can approve with
+	// ApprovePipelineDefinition for a run that is not approved: the
+	// repository's current default-branch definition. Null when there is
+	// nothing the approve route would accept, and absent from servers older
+	// than the field (ankra-erdtu). It is never AuthorityDefinitionID.
+	ApproveDefinitionID *string `json:"approve_definition_id"`
 }
 
 // ListPipelineRunsOptions is the GET …/pipeline-runs query.
@@ -363,7 +369,8 @@ type PipelineDefinition struct {
 // ankra-vn0bd.10.8): one stored definition's protected-authority approval
 // state, addressed by the definition's own id rather than through a
 // repository or application - the id a pull request status comment names,
-// or a run detail's AuthorityDefinitionID field.
+// or a run detail's ApproveDefinitionID (to approve) or AuthorityDefinitionID
+// (to inspect the trusted authority).
 //
 // ApprovedHash is "" until an administrator approves it; once they do it
 // equals ProtectedHash. It is redundant with ProtectedHash under today's
