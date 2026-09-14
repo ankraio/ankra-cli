@@ -297,6 +297,7 @@ type APIClient interface {
 	ListApplicationPlatformBuilds(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationPlatformBuild(requestContext context.Context, applicationID string, buildID string) (json.RawMessage, error)
 	GetApplicationPlatformBuildRequest(requestContext context.Context, applicationID string, buildRequestID string) (json.RawMessage, error)
+	ConvertApplicationPipeline(requestContext context.Context, applicationID string, keepWorkflows bool) (*client.PipelineConversion, error)
 	GetApplicationSettings(requestContext context.Context) (json.RawMessage, error)
 	UpdateApplicationSettings(requestContext context.Context, ciRunnerLabel *string) (json.RawMessage, error)
 	GetManifestAddon(requestContext context.Context, addonID string) (json.RawMessage, error)
