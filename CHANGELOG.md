@@ -1,6 +1,16 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.17.0-rc0 — 2026-09-14
+
+Opens the v0.17.0 line. The headline is `ankra cluster aws`: self-managed
+k3s or kubeadm clusters on plain EC2 instances, with the network Ankra builds
+or one you adopt. Alongside it, `ankra cluster mesh up` takes a set of
+clusters into one Cilium mesh in a single command and `make-ready --pod-cidr`
+moves a colliding UpCloud cluster onto a fresh pod range, `ankra org ai-review
+related-repos` states which repositories an AI review may read,
+`stack-profiles adopt` tracks a stack the cluster already runs, and
+`pipeline get` reads a failed run truthfully: its error class, the command
+that approves the right definition, and no spinner on a finished run.
 
 ### Added
 
@@ -10,46 +20,51 @@
   change is committed to GitOps like the other modes, and `audit` or
   `enforce` afterwards do not reinstall the engine (it is the opt-in
   policy-engine profile). Always confirms; `--yes` skips the prompt.
+- **`ankra cluster mesh up` takes a set of clusters to one mesh in a single
+  command.** `up <mesh> <cluster>...` reads their readiness, runs `make-ready`
+  on every cluster that only lacks its network identity or the overlay, joins
+  every cluster that is ready, creates the mesh when none of that name exists,
+  and keeps passing until every member reports ready or `--wait` runs out.
+  `--plan` prints what one pass would do and changes nothing. A cluster whose
+  pod range overlaps another member's is only moved with `--renumber-pods`,
+  and then only the colliding clusters after the first in your argument
+  order - the first keeps its range. Re-running is safe: members are skipped
+  and a make-ready re-arms a cluster whose nodes did not converge.
+  (ankra-p6xof)
+- **`ankra cluster mesh make-ready --pod-cidr auto|<cidr>` moves an UpCloud
+  cluster onto a fresh pod range.** Two clusters built before the overlay both
+  run the kubeadm default pod range, and a mesh needs disjoint pod ranges, so
+  the platform now refuses the second make-ready by name instead of failing
+  on a constraint. `--pod-cidr auto` draws the first free range from the
+  organisation's pool when the current one collides; a CIDR records that range.
+  Every node of the cluster is drained and re-registered once, one node at a
+  time, and the result says the range it recorded and whether it moved. The
+  `readiness` help no longer claims the identity and the network mode need a
+  rebuild. (ankra-p6xof)
+- **`ankra stack-profiles adopt` tracks a stack the cluster already runs as a
+  deployment of a profile.** `create --stack` and `save-version --stack`
+  snapshot a live stack into a profile but register no deployment for it, so
+  `deployments` listed nothing and `rollout` had no target. `adopt <profile>
+  --stack <name> --cluster <cluster> [--version N]` writes the missing
+  deployment record and nothing else on the cluster, then prints loudly what
+  the next rollout would remove: every member the cluster runs that the
+  version omits. A rollout replaces the stack with exactly what the version
+  lists, so adopt at a version that carries them (`--version`) or publish one
+  that does before rolling the deployment out.
+  Needs a platform that serves the adoption route. (ankra-zcu9z, PLA-847)
 
-### Fixed
-
-- **`ankra pipeline get` and `pipeline list` no longer paint a finished run
-  with the in-progress spinner.** A concluded run or step used to render
-  every outcome but `success` and `cancelled` as `⟳ failure`, `⟳ infra_error`,
-  `⟳ skipped` - the same glyph as a running one - so a failed run read as
-  still working. Each state now has its own glyph: `⟳` only for queued,
-  pending and running, `✓ success`, `✗ failure` / `✗ timed_out` /
-  `✗ infra_error` in red, `⊘ cancelled` and `○ skipped` dimmed, `○ blocked`
-  for a step waiting on its dependencies. `pipeline get --help` now documents
-  the `status` / `outcome` split in `-o json` - `status` is the lifecycle
-  (`queued`, `running`, `concluded`; steps also `blocked`, `pending`) and
-  `outcome` is the verdict, set only once `status` is `concluded` (`success`,
-  `failure`, `cancelled`, `timed_out`, `skipped`, `infra_error`) - and the
-  `authority_state` values `approved`, `unapproved`, `changed_on_head` and
-  null. (PLA-856, support #1178)
-- **`ankra pipeline get` on a run that is not approved prints the approve
-  command for the right definition.** The Authority block used to show only
-  `authority_definition_id`, the already-trusted definition the run executed,
-  next to a note about approving - and `ankra pipeline definitions approve`
-  refuses that id. It now prints
-  `ankra pipeline definitions approve <approve_definition_id>`, the
-  repository's current default-branch definition as the API reports it, marks
-  the trusted definition as not the one to approve, and says when no
-  approvable definition was reported. An approval applies to runs planned
-  after it. `pipeline definitions --help` no longer points at
-  `authority_definition_id`. Needs an Ankra API that reports
-  `approve_definition_id`. (ankra-erdtu, PLA-855, support #1177)
-
-### Changed
-
-- **`ankra cluster aws create` and `preflight` no longer require `--bastion-allowed-ips`.**
-  Omitted, the bastion's SSH port is open to everyone (`0.0.0.0/0`): access is
-  key-only, password login is off and sshd is rate-limited on the host, the
-  same posture as the other providers' bastions. `0.0.0.0/0` is also accepted
-  when given. Name your own CIDRs to restrict it; `preflight` reports the
-  exposure as `bastion_ssh_exposure` either way. (ankra-rtpno)
-
-### Added
+- **`ankra org ai-review related-repos` states which repositories an AI code
+  review may also read.** Applications installed on the same cluster are
+  related with no configuration; these commands cover the relationships a
+  deploy graph cannot know about, such as a client and the API it calls.
+  `list` shows the relationships stated under a GitHub App installation,
+  `add <repository> <related-repository>` relates two repositories, and
+  `remove` takes either a relationship's ID or its two repositories in either
+  order. `--credential` names the GitHub App credential whose installation the
+  relationships belong to, and can be left out when the organisation has
+  exactly one. Both repositories must be ones that installation can reach: a
+  pair it cannot is refused rather than stored. Adding and removing require
+  organisation admin. (ankra-zs1xm.16)
 
 - **`ankra cluster aws` builds self-managed k3s (or kubeadm) clusters on EC2**
   (ankra-rtpno.13). This is not EKS: Ankra installs Kubernetes on plain
@@ -90,6 +105,13 @@
 
 ### Changed
 
+- **`ankra cluster aws create` and `preflight` no longer require `--bastion-allowed-ips`.**
+  Omitted, the bastion's SSH port is open to everyone (`0.0.0.0/0`): access is
+  key-only, password login is off and sshd is rate-limited on the host, the
+  same posture as the other providers' bastions. `0.0.0.0/0` is also accepted
+  when given. Name your own CIDRs to restrict it; `preflight` reports the
+  exposure as `bastion_ssh_exposure` either way. (ankra-rtpno)
+
 - **`ankra org ci-settings get` says whether Ankra has granted the build
   lane.** A build fallback of `platform_builders` only reaches Ankra's
   builders when Ankra has also granted the organisation the platform-builders
@@ -102,6 +124,47 @@
   (PLA-850)
 
 ### Fixed
+
+- **`ankra cluster node-group list` shows how many workers actually joined
+  next to the recorded count.** A worker record can stay on the books with no
+  Kubernetes node behind it, and the count alone hid that. `joined=N` now
+  appears whenever it differs from `count`, and a second line names every
+  counted worker with no registered node; a worker still creating lowers
+  `joined` without being named. `-o json` carries `joined_count` and
+  `unregistered_workers` as served, and an older platform renders as before.
+  The provider-specific `node-group list` verbs do the same. (ankra-a56o8.1,
+  PLA-853)
+- **`ankra cluster aws deprovision --force` reaches the API.** The generic
+  `cluster deprovision --force` never sent the force flag for an AWS cluster,
+  so a stalled deprovision stayed stalled; the AWS verb now carries `--force`
+  and the generic one forwards it. (ankra-rtpno.24)
+
+- **`ankra pipeline get` and `pipeline list` no longer paint a finished run
+  with the in-progress spinner.** A concluded run or step used to render
+  every outcome but `success` and `cancelled` as `⟳ failure`, `⟳ infra_error`,
+  `⟳ skipped` - the same glyph as a running one - so a failed run read as
+  still working. Each state now has its own glyph: `⟳` only for queued,
+  pending and running, `✓ success`, `✗ failure` / `✗ timed_out` /
+  `✗ infra_error` in red, `⊘ cancelled` and `○ skipped` dimmed, `○ blocked`
+  for a step waiting on its dependencies. `pipeline get --help` now documents
+  the `status` / `outcome` split in `-o json` - `status` is the lifecycle
+  (`queued`, `running`, `concluded`; steps also `blocked`, `pending`) and
+  `outcome` is the verdict, set only once `status` is `concluded` (`success`,
+  `failure`, `cancelled`, `timed_out`, `skipped`, `infra_error`) - and the
+  `authority_state` values `approved`, `unapproved`, `changed_on_head` and
+  null. (PLA-856, support #1178)
+- **`ankra pipeline get` on a run that is not approved prints the approve
+  command for the right definition.** The Authority block used to show only
+  `authority_definition_id`, the already-trusted definition the run executed,
+  next to a note about approving - and `ankra pipeline definitions approve`
+  refuses that id. It now prints
+  `ankra pipeline definitions approve <approve_definition_id>`, the
+  repository's current default-branch definition as the API reports it, marks
+  the trusted definition as not the one to approve, and says when no
+  approvable definition was reported. An approval applies to runs planned
+  after it. `pipeline definitions --help` no longer points at
+  `authority_definition_id`. Needs an Ankra API that reports
+  `approve_definition_id`. (ankra-erdtu, PLA-855, support #1177)
 
 - **A platform build that fails as `build_unknown` now says whose failure it
   is.** Ankra's builders report `build_unknown` when a build ran and failed in

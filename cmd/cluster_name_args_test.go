@@ -51,7 +51,7 @@ func (m *clusterArgMock) GetScalewayWorkerCount(clusterID string) (*client.Worke
 	return &client.WorkerCountResult{WorkerCount: 3, Min: 1, Max: 5}, nil
 }
 
-func (m *clusterArgMock) MakeClusterMeshReady(clusterID string, sitePublicIP string) (*client.ClusterMeshMakeReadyResult, error) {
+func (m *clusterArgMock) MakeClusterMeshReady(clusterID string, sitePublicIP string, podCIDR string) (*client.ClusterMeshMakeReadyResult, error) {
 	m.meshReadyRequested = clusterID
 	return &client.ClusterMeshMakeReadyResult{ClusterID: clusterID}, nil
 }
