@@ -326,7 +326,7 @@ ankra application auto-deploy set <application-id> --enabled=false   # gate prod
 ankra application deploy <application-id> --cluster <cluster> --namespace shop --mode high_availability --set replicas=3
 ankra application deployments <application-id>        # where it runs, the ingress host, publication state
 ankra application env-secrets list <application-id>
-printf '%s' "$DATABASE_URL" | ankra application env-secrets set <application-id> DATABASE_URL
+printf '%s' "${DATABASE_URL:?}" | ankra application env-secrets set <application-id> DATABASE_URL   # :? refuses an unset value
 ankra application env-secrets apply <application-id>  # set stores; apply seals into the workloads and rolls
 ankra org variables set SUPPORT_EMAIL support@example.com          # non-secret config: variables, not secrets
 ```
