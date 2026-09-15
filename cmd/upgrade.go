@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,11 +10,14 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"ankra/internal/skills"
 
 	"github.com/spf13/cobra"
 )
@@ -47,7 +51,12 @@ v0.3.0-rc.1) is installed instead. Use --beta or --beta=false to override
 the saved channel for a single run.
 
 The downloaded binary is verified against its published SHA-256 checksum
-before it replaces the existing executable.`,
+before it replaces the existing executable.
+
+The Ankra agent skills ('ankra skills install') ship inside the binary, so
+an upgrade also offers to refresh the copies already installed for your
+assistants; the new binary reinstalls them once it is in place. --yes takes
+the offer, --skills=false declines it, and --skills takes it without asking.`,
 	Aliases: []string{"self-update"},
 	Args:    cobra.NoArgs,
 	RunE:    runUpgrade,
@@ -60,6 +69,7 @@ func init() {
 	upgradeCmd.Flags().Bool("force", false, "reinstall even if already on the target version")
 	upgradeCmd.Flags().Bool("beta", false, "include pre-release versions for this run (overrides the saved channel)")
 	upgradeCmd.Flags().Bool("allow-unverified", false, "install even when no SHA-256 checksum is published (insecure)")
+	upgradeCmd.Flags().Bool("skills", true, "refresh the Ankra agent skills already installed for your assistants once the new binary is in place (--skills=false leaves them as they are)")
 
 	setRequiresAuth(upgradeCmd, false)
 	rootCmd.AddCommand(upgradeCmd)
@@ -154,7 +164,24 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	}
 	prompt := fmt.Sprintf("%s ankra from v%s to v%s (%s)? [y/N]: ",
 		action, currentVersion, targetVersion, executablePath)
-	if err := confirmPrompt(cmd.InOrStdin(), out, prompt, skipConfirm); err != nil {
+	input := bufio.NewReader(cmd.InOrStdin())
+	if err := confirmPrompt(input, out, prompt, skipConfirm); err != nil {
+		return err
+	}
+
+	skillsFlag, _ := cmd.Flags().GetBool("skills")
+	installedSkillClients, detectionError := skillsInstalledClientsForUpgrade()
+	if detectionError != nil && skillsFlag {
+		_, _ = fmt.Fprintf(out, "Warning: could not check which assistants carry the Ankra agent skills (%v); refresh them by hand afterwards with `ankra skills install --force`.\n", detectionError)
+	}
+	refreshSkills, err := decideSkillsRefresh(input, out, skillsRefreshChoice{
+		Clients:       installedSkillClients,
+		TargetVersion: targetVersion,
+		FlagValue:     skillsFlag,
+		FlagExplicit:  cmd.Flags().Changed("skills"),
+		SkipPrompts:   skipConfirm,
+	})
+	if err != nil {
 		return err
 	}
 
@@ -203,7 +230,122 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	}
 
 	_, _ = fmt.Fprintf(out, "Ankra CLI upgraded to v%s.\n", targetVersion)
+
+	switch {
+	case refreshSkills:
+		refreshInstalledSkills(out, executablePath, installedSkillClients)
+	case len(installedSkillClients) == 0 && skillsFlag && detectionError == nil:
+		_, _ = fmt.Fprintln(out, "No Ankra agent skills are installed for this user; `ankra skills install` adds them to your assistants.")
+	}
 	return nil
+}
+
+// skillsRefreshChoice is what decideSkillsRefresh weighs: which assistants
+// carry an install, and how the caller answered before being asked.
+type skillsRefreshChoice struct {
+	Clients       []skills.Client
+	TargetVersion string
+	// FlagValue is --skills; FlagExplicit says whether it was passed at all,
+	// because the flag defaults to true and a default is an offer, not an
+	// answer.
+	FlagValue    bool
+	FlagExplicit bool
+	// SkipPrompts is --yes, which takes the offer the way it takes the
+	// upgrade itself.
+	SkipPrompts bool
+}
+
+// decideSkillsRefresh answers whether the installed skills are refreshed
+// after the binary swap. Nothing installed means nothing to refresh and no
+// question; an explicit --skills or --skills=false is the answer; --yes says
+// yes; otherwise the user is asked, and Enter means yes, because skills that
+// lag the binary are the failure this exists to prevent. Input that ends
+// before the question is answered is not Enter: nobody saw the question, so
+// nothing is overwritten and the command to run by hand is printed instead.
+func decideSkillsRefresh(in io.Reader, out io.Writer, choice skillsRefreshChoice) (bool, error) {
+	if len(choice.Clients) == 0 || (choice.FlagExplicit && !choice.FlagValue) {
+		return false, nil
+	}
+	if choice.FlagExplicit || choice.SkipPrompts {
+		return true, nil
+	}
+	_, _ = fmt.Fprintf(out, "Also refresh the Ankra agent skills installed for %s to v%s? [Y/n]: ",
+		clientDisplayNames(choice.Clients), choice.TargetVersion)
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return false, fmt.Errorf("read confirmation: %w", err)
+	}
+	if err == io.EOF && line == "" {
+		_, _ = fmt.Fprintf(out, "\nNo answer; the skills are left as they are. Refresh them afterwards with: ankra %s\n",
+			strings.Join(skillsRefreshArguments(choice.Clients), " "))
+		return false, nil
+	}
+	answer := strings.TrimSpace(strings.ToLower(line))
+	return answer == "" || answer == "y" || answer == "yes", nil
+}
+
+// clientDisplayNames renders "Claude Code", "Claude Code and Cursor" or
+// "Claude Code, Cursor and Codex".
+func clientDisplayNames(clients []skills.Client) string {
+	names := make([]string, 0, len(clients))
+	for _, client := range clients {
+		names = append(names, client.DisplayName)
+	}
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	default:
+		return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	}
+}
+
+// skillsInstalledClientsForUpgrade lists the assistants whose personal Ankra
+// skills install the upgrade may refresh. A failure to look is reported and
+// the offer is skipped; it never fails the upgrade and is never read as
+// "nothing installed".
+func skillsInstalledClientsForUpgrade() ([]skills.Client, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("determine the home directory: %w", err)
+	}
+	return skillsInstalledClients(home)
+}
+
+// skillsRefreshArguments is the argument list the new binary is run with to
+// reinstall the skills: --force, because the point is to overwrite the copies
+// the previous release installed, and one --client per assistant that carries
+// an install, so nothing is installed anywhere new.
+func skillsRefreshArguments(clients []skills.Client) []string {
+	arguments := []string{"skills", "install", "--force"}
+	for _, client := range clients {
+		arguments = append(arguments, "--client", client.ID)
+	}
+	return arguments
+}
+
+// runSkillsRefresh runs the freshly installed binary so the skills that land
+// are the ones embedded in the target version, not the ones in this process.
+// Replaced in tests.
+var runSkillsRefresh = func(out io.Writer, executable string, arguments []string) error {
+	command := exec.Command(executable, arguments...)
+	command.Stdout = out
+	command.Stderr = out
+	return command.Run()
+}
+
+// refreshInstalledSkills reinstalls the skills through the new binary. A
+// failure here is reported with the command to run by hand and does not fail
+// the upgrade: the binary is already replaced, and saying so is more useful
+// than a non-zero exit that reads as a failed upgrade.
+func refreshInstalledSkills(out io.Writer, executable string, clients []skills.Client) {
+	arguments := skillsRefreshArguments(clients)
+	_, _ = fmt.Fprintf(out, "Refreshing the Ankra agent skills for %s ...\n", clientDisplayNames(clients))
+	if err := runSkillsRefresh(out, executable, arguments); err != nil {
+		_, _ = fmt.Fprintf(out, "Warning: the agent skills were not refreshed: %v\nRun it by hand: %s %s\n",
+			err, executable, strings.Join(arguments, " "))
+	}
 }
 
 // releaseAssetName maps the Go runtime OS/arch onto the published release

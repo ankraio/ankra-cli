@@ -4,6 +4,18 @@
 
 ### Added
 
+- **`ankra upgrade` refreshes the agent skills with the binary.** The skills
+  `ankra skills install` puts into Claude Code, Cursor, Codex and the rest ship
+  inside the binary, so every upgrade used to leave the assistants on the
+  previous release's skills until someone remembered `--force`. The upgrade
+  now finds which assistants carry an Ankra install for your user and asks,
+  right after the upgrade confirmation, whether to refresh them to the new
+  version (Enter is yes). Once the binary is swapped it runs the new binary's
+  `skills install --force` for exactly those assistants, so the copies that
+  land are the ones embedded in the version you just installed. `--yes` takes
+  the offer along with the upgrade, `--skills=false` declines it, `--skills`
+  takes it without asking, and a failed refresh is reported with the command
+  to run by hand rather than failing an upgrade that already happened.
 - **A skill for shipping code: `ankra-ship`.** The go-to skill when someone has
   just vibe-coded a project or needs to get code live. It takes a repository
   from "does this even run outside a laptop" through `ankra application ship`

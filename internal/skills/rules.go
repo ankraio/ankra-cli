@@ -124,6 +124,25 @@ func RemoveClaudeRule(path string) (bool, error) {
 	return RemoveManagedBlock(path)
 }
 
+// HasManagedBlock reports whether the file at path carries the Ankra managed
+// block. It is how an install is recognised for a client that reads skills
+// through an index rather than a skills directory of its own: several such
+// clients share one skills directory, so the directory alone cannot say which
+// of them the skills were installed for. A file that does not exist has no
+// block; a file that cannot be read is an error, because a failed look is not
+// the same answer as an empty one.
+func HasManagedBlock(path string) (bool, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	_, _, ok := findManagedBlock(string(content))
+	return ok, nil
+}
+
 // findManagedBlock locates the managed block including its markers and
 // returns the byte offsets [begin, end) covering it.
 func findManagedBlock(content string) (begin, end int, ok bool) {

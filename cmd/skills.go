@@ -555,6 +555,49 @@ func skillsDirectoryHasAnkraSkills(target skills.Target) bool {
 	return len(installedSkillsIn(target)) > 0
 }
 
+// skillsInstalledClients returns the assistants that carry an Ankra skills
+// install for this user, in registry order. A client that loads skills from
+// its own directory (or as uploadable bundles) counts when that directory
+// holds Ankra skills; a client that reads them through an index counts only
+// when its instructions file also carries the managed block, because seven of
+// those share one skills directory and the directory alone would claim an
+// install for every one of them.
+//
+// A failure to look is returned as an error rather than as an empty list:
+// "no assistant carries an install" is an answer, and an unreadable home
+// directory or a registry that cannot be resolved is not that answer.
+func skillsInstalledClients(home string) ([]skills.Client, error) {
+	clients, err := skills.ResolveClients([]string{"all"}, home, skills.ScopePersonal)
+	if err != nil {
+		return nil, err
+	}
+	installed := make([]skills.Client, 0, len(clients))
+	for _, client := range clients {
+		target, targetError := skills.ResolveTarget(client, skills.ScopePersonal, home)
+		if targetError != nil {
+			return nil, fmt.Errorf("resolve the %s install location: %w", client.DisplayName, targetError)
+		}
+		carries, carriesError := targetCarriesAnkraInstall(target)
+		if carriesError != nil {
+			return nil, fmt.Errorf("read the %s instructions file: %w", client.DisplayName, carriesError)
+		}
+		if carries {
+			installed = append(installed, client)
+		}
+	}
+	return installed, nil
+}
+
+func targetCarriesAnkraInstall(target skills.Target) (bool, error) {
+	if !skillsDirectoryHasAnkraSkills(target) {
+		return false, nil
+	}
+	if target.Client.Packaged || target.Client.LoadsSkillsNatively || target.InstructionsPath == "" {
+		return true, nil
+	}
+	return skills.HasManagedBlock(target.InstructionsPath)
+}
+
 func skillInstalledInAnyTarget(targets []skills.Target, name string) bool {
 	for _, target := range targets {
 		if target.Client.Packaged {
