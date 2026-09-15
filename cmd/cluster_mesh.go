@@ -154,10 +154,11 @@ var clusterMeshMakeReadyCmd = &cobra.Command{
 	Long: "Turn an existing cluster mesh-capable, day-2: allocate its Cilium identity and overlay range, stamp the " +
 		"overlay onto its stored definitions, and set its resources converging so every node joins the platform " +
 		"WireGuard overlay. The node-IP switch restarts kubelets once; nothing is deleted or recreated.\n\n" +
-		"Two clusters prepared from the kubeadm default share one pod range and cannot mesh with each other. " +
-		"--pod-cidr auto moves this cluster onto a fresh range from the organisation's pool when its range collides " +
-		"with another cluster's (a CIDR records that range instead); every node is drained and re-registered once, " +
-		"one at a time. UpCloud clusters only.\n\n" +
+		"Two clusters prepared from the kubeadm default share one pod range and cannot mesh with each other. Moving a " +
+		"running cluster onto another pod range is disabled while it is redesigned - the platform refuses it, because a " +
+		"kube-controller-manager whose --cluster-cidr excludes a node's range exits at start - so such a pair cannot mesh " +
+		"for now. --pod-cidr still accepts the kubeadm default 10.244.0.0/16, which puts a cluster an earlier move split " +
+		"back onto the range its nodes run. UpCloud clusters only.\n\n" +
 		"Proxmox clusters need --site-public-ip: the address other sites dial this cluster's site gateway on.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -181,7 +182,7 @@ var clusterMeshMakeReadyCmd = &cobra.Command{
 		fmt.Printf("Cluster %s %s: cilium-id=%d name=%s; %d resources converging onto the overlay.\n",
 			result.ClusterID, identity, result.CiliumClusterID, result.CiliumClusterName, result.TransitionedResources)
 		if result.PodCIDRChanged {
-			fmt.Printf("Pod range moved to %s: every node leaves and re-registers once, one node at a time.\n", result.PodCIDR)
+			fmt.Printf("Pod range recorded as %s: the cluster's nodes already run it, so no node moves.\n", result.PodCIDR)
 		}
 		return nil
 	},
@@ -191,10 +192,11 @@ var clusterMeshReadinessCmd = &cobra.Command{
 	Use:   "readiness <cluster_id|name> [cluster_id|name...]",
 	Short: "Check whether clusters can mesh together, and why not",
 	Long: "Check whether the given clusters could form one mesh. Each cluster is reported ready or not, with the " +
-		"failing checks spelled out.\n\nA missing Cilium identity, a node network no other cluster can reach, and (on " +
-		"UpCloud) a pod range that overlaps another member's are fixed in place by `ankra cluster mesh make-ready`; " +
-		"the cloud, the distribution and the container network are settled when the cluster is created, so a " +
-		"cluster failing those has to be rebuilt to mesh. `ankra cluster mesh up` runs the whole path for a set of clusters.",
+		"failing checks spelled out.\n\nA missing Cilium identity and a node network no other cluster can reach are " +
+		"fixed in place by `ankra cluster mesh make-ready`; a pod range that overlaps another member's is not, while " +
+		"moving a running cluster onto a fresh range is disabled. The cloud, the distribution and the container " +
+		"network are settled when the cluster is created, so a cluster failing those has to be rebuilt to mesh. " +
+		"`ankra cluster mesh up` runs the whole path for a set of clusters.",
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Every argument is a cluster, so each is resolved; the label the
@@ -255,7 +257,7 @@ func init() {
 	clusterMeshMakeReadyCmd.Flags().StringVar(&clusterMeshMakeReadySiteIP, "site-public-ip", "",
 		"Public address other sites dial this cluster's site gateway on (proxmox clusters only)")
 	clusterMeshMakeReadyCmd.Flags().StringVar(&clusterMeshMakeReadyPodCIDR, "pod-cidr", "",
-		"Renumber the pod range: 'auto' draws a fresh range from the organisation's pool when the current one collides with another cluster's, a CIDR records that range (upcloud only; every node re-registers once)")
+		"Record a pod range: the platform accepts only the kubeadm default 10.244.0.0/16 for now, to put back a cluster an earlier pod-range move split (upcloud only; moving a running cluster onto another range is disabled while it is redesigned)")
 	clusterMeshCmd.AddCommand(clusterMeshMakeReadyCmd)
 	clusterCmd.AddCommand(clusterMeshCmd)
 }

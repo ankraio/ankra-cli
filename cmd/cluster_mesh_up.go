@@ -147,9 +147,9 @@ var clusterMeshUpCmd = &cobra.Command{
 		"every cluster that only lacks its network identity or the overlay, join every cluster that is ready, and " +
 		"keep going until each member reports ready or --wait runs out. The mesh is created when no mesh of that " +
 		"name exists.\n\n" +
-		"Two clusters prepared from the kubeadm default share one pod range and cannot mesh with each other; " +
-		"--renumber-pods lets `up` move every colliding cluster after the first onto a fresh range from the " +
-		"organisation's pool. That drains and re-registers each of their nodes once, so it is never done without the flag.\n\n" +
+		"Two clusters prepared from the kubeadm default share one pod range and cannot mesh with each other, and moving " +
+		"one onto a fresh range is disabled while it is redesigned, so `up` reports such a cluster blocked with the " +
+		"platform's reason. --renumber-pods has no effect until that move returns.\n\n" +
 		"--plan prints what a pass would do and changes nothing. Re-running is safe: members are skipped and a " +
 		"make-ready re-arms a cluster whose nodes did not converge.",
 	Args: cobra.MinimumNArgs(2),
@@ -242,7 +242,7 @@ func printMeshUpPlan(cmd *cobra.Command, actions []meshUpAction) {
 		case meshUpMakeReady:
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "plan: make-ready %s (%s)\n", action.Label, action.Reason)
 		case meshUpRenumber:
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "plan: make-ready %s --pod-cidr auto (%s; every node drains and re-registers once)\n", action.Label, action.Reason)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "plan: %s needs its pod range moved (%s), which the platform refuses while that move is disabled\n", action.Label, action.Reason)
 		case meshUpWait:
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "plan: wait for %s (%s)\n", action.Label, action.Reason)
 		case meshUpBlocked:
@@ -329,7 +329,7 @@ func waitForMeshMembersReady(cmd *cobra.Command, meshID string, deadline time.Ti
 
 func init() {
 	clusterMeshUpCmd.Flags().BoolVar(&clusterMeshUpRenumber, "renumber-pods", false,
-		"Move every colliding cluster after the first onto a fresh pod range from the organisation's pool (drains and re-registers each of its nodes once)")
+		"Ask `up` to move every colliding cluster after the first onto a fresh pod range (the platform refuses that move while it is redesigned, so the flag has no effect for now)")
 	clusterMeshUpCmd.Flags().BoolVar(&clusterMeshUpPlan, "plan", false,
 		"Print what one pass would do and change nothing")
 	clusterMeshUpCmd.Flags().DurationVar(&clusterMeshUpWait, "wait", 45*time.Minute,
