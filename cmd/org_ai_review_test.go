@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -76,6 +77,14 @@ func relatedReposCredentials() []client.Credential {
 
 func runRelatedRepos(t *testing.T, mock *relatedReposMock, stdin string, args ...string) (string, error) {
 	t.Helper()
+	stdout, stderr, executeError := runRelatedReposSplit(t, mock, stdin, args...)
+	return stdout + stderr, executeError
+}
+
+// runRelatedReposSplit captures stdout and stderr separately, so a test can
+// prove what a script capturing stdout would receive.
+func runRelatedReposSplit(t *testing.T, mock *relatedReposMock, stdin string, args ...string) (string, string, error) {
+	t.Helper()
 	setMockClient(t, mock)
 	for _, flagged := range []interface{ Flags() *pflag.FlagSet }{
 		orgAIReviewRelatedReposListCmd, orgAIReviewRelatedReposAddCmd, orgAIReviewRelatedReposRemoveCmd,
@@ -85,9 +94,15 @@ func runRelatedRepos(t *testing.T, mock *relatedReposMock, stdin string, args ..
 			flag.Changed = false
 		})
 	}
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
 	rootCmd.SetIn(strings.NewReader(stdin))
 	t.Cleanup(func() { rootCmd.SetIn(nil) })
-	return executeCommand(append([]string{"org", "ai-review", "related-repos"}, args...)...)
+	rootCmd.SetArgs(append([]string{"org", "ai-review", "related-repos"}, args...))
+	executeError := rootCmd.Execute()
+	return stdout.String(), stderr.String(), executeError
 }
 
 func TestRelatedReposListUsesTheOnlyGitHubAppInstallation(t *testing.T) {
@@ -283,6 +298,33 @@ func TestRelatedReposRemoveDeclinedRemovesNothing(t *testing.T) {
 	}
 	if len(mock.deletedIDs) != 0 {
 		t.Errorf("deleted %v after the prompt was declined", mock.deletedIDs)
+	}
+}
+
+// The confirmation prompt is for the person at the terminal, so it goes to
+// stderr: a script capturing stdout gets the answer and nothing else. -y is
+// the same shorthand for --yes the other confirming commands take.
+func TestRelatedReposRemovePromptStaysOffStdout(t *testing.T) {
+	mock := &relatedReposMock{}
+
+	stdout, stderr, executeError := runRelatedReposSplit(t, mock, "y\n", "remove", "relation-9")
+	if executeError != nil {
+		t.Fatalf("remove: %v\nstdout=%s\nstderr=%s", executeError, stdout, stderr)
+	}
+	if strings.Join(mock.deletedIDs, ",") != "relation-9" {
+		t.Errorf("deleted = %v, want relation-9", mock.deletedIDs)
+	}
+	if strings.TrimSpace(stdout) != "Removed related repository relationship relation-9." {
+		t.Errorf("stdout = %q, want the answer line only", stdout)
+	}
+	if !strings.Contains(stderr, "Remove related repository relationship relation-9?") {
+		t.Errorf("the prompt did not reach stderr: %q", stderr)
+	}
+
+	mock.deletedIDs = nil
+	if _, executeError := runRelatedRepos(t, mock, "", "remove", "relation-9", "-y"); executeError != nil ||
+		strings.Join(mock.deletedIDs, ",") != "relation-9" {
+		t.Errorf("remove -y: error=%v deleted=%v", executeError, mock.deletedIDs)
 	}
 }
 

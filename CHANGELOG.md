@@ -76,6 +76,23 @@ while the platform redesigns that move. Both fixes in v0.17.1 are included.
 
 ### Fixed
 
+- **`ankra registry robots create` and `rotate` no longer print a login
+  command with the secret on it.** The human output showed the secret and
+  then the platform's `docker login ... -p '<secret>'` line, so pasting the
+  line the CLI told you to paste put the secret into the shell history and
+  into the argv every user on the machine can read with `ps` - the very
+  hazard the bucket create help warns about. The secret is now printed
+  exactly once, on its own line, and the login command that follows is
+  `docker login <host> -u '<robot login>' --password-stdin`, built from the
+  robot's own host and login, which takes the secret on stdin. `-o json`
+  still carries `secret` and `docker_login` untouched, for scripts.
+- **`registry robots rotate`, `registry robots delete` and
+  `org ai-review related-repos remove` no longer write their confirmation
+  prompt to stdout.** With `-o json` and no `--yes`, a script piping stdout
+  got the prompt text ahead of the JSON and then the cancel error on EOF.
+  The prompt now goes to stderr, where a person sees it and `jq` does not,
+  and all three commands take `-y` as the shorthand for `--yes` like the
+  other confirming commands.
 - **`ankra upgrade` refreshes the agent skills the way they were installed,
   and `--yes` no longer does it unasked.** The refresh v0.17.0 added ran a
   plain `skills install --force` for every assistant, so an install made with
