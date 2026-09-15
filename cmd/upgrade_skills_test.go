@@ -85,6 +85,21 @@ func TestSkillsInstalledClientsRecognisesNativeAndIndexedInstalls(t *testing.T) 
 	}
 }
 
+func TestSkillsInstalledClientsReportsAnUnreadableInstructionsFile(t *testing.T) {
+	home := t.TempDir()
+	target := writeInstalledSkill(t, home, clientNamed(t, "windsurf"), true)
+	if err := os.Chmod(target.InstructionsPath, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(target.InstructionsPath, 0o644) })
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode 000 file")
+	}
+	if _, err := skillsInstalledClients(home); err == nil {
+		t.Fatal("an unreadable instructions file must be an error, not \"not installed\"")
+	}
+}
+
 func TestDecideSkillsRefresh(t *testing.T) {
 	claudeCode := clientNamed(t, "claude-code")
 	cursor := clientNamed(t, "cursor")

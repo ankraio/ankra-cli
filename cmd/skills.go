@@ -577,19 +577,23 @@ func skillsInstalledClients(home string) ([]skills.Client, error) {
 		if targetError != nil {
 			return nil, fmt.Errorf("resolve the %s install location: %w", client.DisplayName, targetError)
 		}
-		if targetCarriesAnkraInstall(target) {
+		carries, carriesError := targetCarriesAnkraInstall(target)
+		if carriesError != nil {
+			return nil, fmt.Errorf("read the %s instructions file: %w", client.DisplayName, carriesError)
+		}
+		if carries {
 			installed = append(installed, client)
 		}
 	}
 	return installed, nil
 }
 
-func targetCarriesAnkraInstall(target skills.Target) bool {
+func targetCarriesAnkraInstall(target skills.Target) (bool, error) {
 	if !skillsDirectoryHasAnkraSkills(target) {
-		return false
+		return false, nil
 	}
 	if target.Client.Packaged || target.Client.LoadsSkillsNatively || target.InstructionsPath == "" {
-		return true
+		return true, nil
 	}
 	return skills.HasManagedBlock(target.InstructionsPath)
 }
