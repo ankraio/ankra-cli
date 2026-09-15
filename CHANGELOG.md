@@ -4,6 +4,18 @@
 
 ### Added
 
+- **A run a newer run replaced now reads "superseded", and `ankra pipeline
+  get` names the run that took its place.** A push that lands while the
+  previous run is still going takes its concurrency group, and the older run
+  is stopped. That run used to read exactly like one somebody had cancelled,
+  with no hint of the newer run anywhere, so the person who pushed went
+  looking for whoever had cancelled their build. The STATUS cell in
+  `ankra pipeline list` now says `superseded`, and `ankra pipeline get`
+  prints `Superseded: by run #M` under the status. With `-o json` the run
+  carries `error_class: "superseded"`, `superseded_by_run_id` and
+  `superseded_by_run_number`; `outcome` is still `cancelled`, so a script
+  filtering on the outcome alone finds these runs and reads the class to tell
+  them from a run somebody stopped. Requires the matching platform change.
 - **Restore points have verbs: protect a stack, back it up, restore it, and
   watch the run that does it.** `ankra cluster stacks protect <stack> --vault
   <vault>` turns on protection - a schedule, a retention ladder and a selection

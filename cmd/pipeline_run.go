@@ -265,8 +265,9 @@ func newPipelineListCommand() *cobra.Command {
 on how it ended: every finished run is concluded, and its verdict is the
 separate 'outcome' field (success, failure, cancelled, timed_out, skipped or
 infra_error), which the STATUS column prints in place of the status once
-there is one. 'ankra pipeline get --help' documents both fields and the
-run's 'authority_state'.`,
+there is one - except for a run a newer run superseded, which reads
+'superseded' rather than 'cancelled'. 'ankra pipeline get --help' documents
+both fields, supersession and the run's 'authority_state'.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -342,7 +343,7 @@ func renderPipelineRunTable(out io.Writer, runs []client.PipelineRun) {
 		writer.AppendRow(table.Row{
 			run.ID,
 			run.RunNumber,
-			renderPipelineState(run.Status, run.Outcome),
+			renderPipelineRunState(run),
 			run.Trigger,
 			run.TriggerRef,
 			pipelineShortSHA(run.HeadSHA),
@@ -395,6 +396,15 @@ The human-readable Status line and STATUS column print the outcome once
 there is one and the status until then, with a glyph that says which:
 ✓ success, ✗ failure / timed_out / infra_error, ⊘ cancelled, ○ skipped, and
 ⟳ only for a run or step that has not concluded (○ for a blocked step).
+
+Superseded runs: a run cancelled because a NEWER run took its concurrency
+group reads 'superseded' rather than 'cancelled', and 'pipeline get' names
+the run that took its place under the Status line. Nobody stopped that run,
+and the run worth looking at is the newer one. In -o json the fields are
+'error_class' ("superseded"), 'superseded_by_run_id' and
+'superseded_by_run_number'; 'outcome' stays "cancelled", so a script
+filtering on outcome alone still finds these runs and must read the class to
+tell them from a run somebody cancelled.
 
 Authority (-o json 'authority_state', the Authority line): the protected
 authority the run executed under. 'approved' - the default branch's
@@ -553,7 +563,8 @@ func printPipelineRunWaiting(out io.Writer, detail client.PipelineRunDetail) {
 
 func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 	_, _ = fmt.Fprintf(out, "Run #%d (%s)\n", detail.RunNumber, detail.ID)
-	_, _ = fmt.Fprintf(out, "  Status:    %s\n", renderPipelineState(detail.Status, detail.Outcome))
+	_, _ = fmt.Fprintf(out, "  Status:    %s\n", renderPipelineRunState(detail.PipelineRun))
+	printPipelineRunSupersession(out, detail.PipelineRun)
 	_, _ = fmt.Fprintf(out, "  Trigger:   %s (%s)\n", detail.Trigger, detail.TriggerRef)
 	_, _ = fmt.Fprintf(out, "  Commit:    %s\n", detail.HeadSHA)
 	printPipelineRunAuthority(out, detail)
@@ -589,6 +600,31 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 		})
 	}
 	writer.Render()
+}
+
+// printPipelineRunSupersession names the run that took a superseded run's
+// concurrency group, under the Status line it qualifies.
+//
+// A superseded run is the one cancelled run nobody chose to stop, and the
+// run a person should be looking at instead is the one that replaced it.
+// Without this the status read "cancelled" and the whole explanation was the
+// server's sentence on the Error line, which names no run - so the author of
+// the superseded run went looking for whoever had cancelled it.
+//
+// A server that reports the supersession but not the number - the newer run
+// has since been removed by retention - says so without naming a run, rather
+// than printing an id nobody can quote or, worse, "#0". A server too old to
+// report supersessions at all prints nothing here, which is "this platform
+// does not answer the question", never "this run was not superseded".
+func printPipelineRunSupersession(out io.Writer, run client.PipelineRun) {
+	if pipelineRunErrorClass(run) != pipelineErrorClassSuperseded {
+		return
+	}
+	if run.SupersededByRunNumber == nil {
+		_, _ = fmt.Fprintln(out, "  Superseded: by a newer run the platform no longer reports")
+		return
+	}
+	_, _ = fmt.Fprintf(out, "  Superseded: by run #%d\n", *run.SupersededByRunNumber)
 }
 
 // printPipelineRunFailure prints how a run failed: the error class the server
