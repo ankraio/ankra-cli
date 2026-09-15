@@ -168,6 +168,7 @@ func TestPipelineGetExitCodeCarriesTheOutcome(t *testing.T) {
 		{"succeeded", pipelineRunDetailFixture("concluded", strPipelinePtr("success")), exitOK},
 		{"failed", pipelineRunDetailFixture("concluded", strPipelinePtr("failure")), exitError},
 		{"cancelled", pipelineRunDetailFixture("concluded", strPipelinePtr("cancelled")), exitError},
+		{"superseded", client.PipelineRunDetail{PipelineRun: supersededPipelineRun()}, exitError},
 		{"concluded with no outcome", pipelineRunDetailFixture("concluded", nil), exitError},
 		{"still running", pipelineRunDetailFixture("running", nil), exitWaitTimeout},
 		{"queued", pipelineRunDetailFixture("queued", nil), exitWaitTimeout},
@@ -519,6 +520,120 @@ func TestPipelineGetWatchPrintsReadableLinesByDefault(t *testing.T) {
 	}
 	if strings.Contains(output, "\x1b[") {
 		t.Errorf("stdout = %q, want no terminal escapes in lines that are as often a CI log", output)
+	}
+}
+
+// supersededPipelineRunDetail is supersededPipelineRun() as `pipeline get`
+// reads it: run #17, cancelled with the superseded class, replaced by #18.
+func supersededPipelineRunDetail() client.PipelineRunDetail {
+	return client.PipelineRunDetail{PipelineRun: supersededPipelineRun()}
+}
+
+// TestPipelineGetWaitOnASupersededRunConcludesSuperseded pins ankra-ohzw6:
+// `get --wait` (and the `run --wait` it shares its conclusion with) ends on
+// the word `pipeline get` and `pipeline list` print for the same run. It
+// ended on "run #17 concluded cancelled (superseded): ..." before, so the
+// same run read "cancelled" in the wait and "superseded" in the get, and the
+// wait's reader went looking for who had cancelled it. The exit code is the
+// cancelled outcome's, unchanged: only the word differs.
+func TestPipelineGetWaitOnASupersededRunConcludesSuperseded(t *testing.T) {
+	shortenPipelineRunWait(t, time.Second)
+	running := supersededPipelineRunDetail()
+	running.Status, running.Outcome, running.ErrorClass, running.ErrorMessage = "running", nil, nil, nil
+	running.SupersededByRunID, running.SupersededByRunNumber = nil, nil
+	mockClient := &pipelineLaneMock{getResults: []client.PipelineRunDetail{running, supersededPipelineRunDetail()}}
+	output, errorOutput, executeError := runPipelineCommandSeparately(t, mockClient,
+		"get", "run-17", "--application", testApplicationID, "--wait")
+	if executeError == nil || exitCodeFor(executeError) != exitError {
+		t.Fatalf("error = %v, want exit %d: a superseded run is still a cancelled outcome", executeError, exitError)
+	}
+	if executeError.Error() != "run #17 concluded superseded by run #18" {
+		t.Errorf("error = %q, want the conclusion to read superseded and name the run that took its place", executeError.Error())
+	}
+	if !strings.Contains(output, "⊘ superseded") || !strings.Contains(output, "Superseded: by run #18") {
+		t.Errorf("stdout = %q, want the final detail to read superseded and name run #18", output)
+	}
+	for _, unwanted := range []string{"cancelled", "Class:", "Error:"} {
+		if strings.Contains(output, unwanted) {
+			t.Errorf("stdout = %q, want no %q for a superseded run", output, unwanted)
+		}
+	}
+	if strings.Contains(errorOutput, "cancelled") {
+		t.Errorf("stderr = %q, want nothing about the superseded run reading cancelled", errorOutput)
+	}
+}
+
+// TestPipelineGetWatchOnASupersededRunEndsOnSuperseded pins the watch half of
+// ankra-ohzw6: the run's last line reads superseded and names the run that
+// took its place, in place of the platform's sentence, which names none. The
+// -o json stream is untouched: 'outcome' stays "cancelled" there, with the
+// class beside it, so a consumer filtering on outcome still finds the run.
+func TestPipelineGetWatchOnASupersededRunEndsOnSuperseded(t *testing.T) {
+	shortenPipelineRunWait(t, time.Second)
+	running := supersededPipelineRunDetail()
+	running.Status, running.Outcome, running.ErrorClass, running.ErrorMessage = "running", nil, nil, nil
+	running.SupersededByRunID, running.SupersededByRunNumber = nil, nil
+	mockClient := &pipelineLaneMock{getResults: []client.PipelineRunDetail{running, supersededPipelineRunDetail()}}
+	output, _, executeError := runPipelineCommandSeparately(t, mockClient,
+		"get", "run-17", "--application", testApplicationID, "--watch")
+	if exitCodeFor(executeError) != exitError {
+		t.Fatalf("exit code = %d, want %d (error %v)", exitCodeFor(executeError), exitError, executeError)
+	}
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	lastLine := lines[len(lines)-1]
+	if !strings.Contains(lastLine, "run #17  superseded  by run #18") {
+		t.Errorf("last line = %q, want the run to end on superseded, naming run #18", lastLine)
+	}
+	if strings.Contains(output, "cancelled") {
+		t.Errorf("stdout = %q, want no line of the watch reading cancelled for a superseded run", output)
+	}
+
+	mockClient = &pipelineLaneMock{getResults: []client.PipelineRunDetail{running, supersededPipelineRunDetail()}}
+	jsonOutput, _, _ := runPipelineCommandSeparately(t, mockClient,
+		"get", "run-17", "--application", testApplicationID, "--watch", "-o", "json")
+	for _, want := range []string{`"outcome":"cancelled"`, `"error_class":"superseded"`, `"superseded_by_run_number":18`} {
+		if !strings.Contains(jsonOutput, want) {
+			t.Errorf("-o json stdout = %q, want %s carried through unchanged", jsonOutput, want)
+		}
+	}
+}
+
+// TestPipelineWaitOnACancelledRunStillReadsCancelled pins the contrast for
+// ankra-ohzw6: a run somebody stopped keeps its own word in the wait's
+// conclusion and in the watch, and its detail keeps the Class and Error lines
+// that say who and why. Only supersession is folded into one line.
+func TestPipelineWaitOnACancelledRunStillReadsCancelled(t *testing.T) {
+	shortenPipelineRunWait(t, time.Second)
+	cancelled := pipelineRunDetailFixture("concluded", strPipelinePtr("cancelled"))
+	cancelled.ErrorClass = strPipelinePtr("operator_cancelled")
+	cancelled.ErrorMessage = strPipelinePtr("Stopped by jane@example.com.")
+	mockClient := &pipelineLaneMock{getResults: []client.PipelineRunDetail{
+		pipelineRunDetailFixture("running", nil), cancelled,
+	}}
+	output, _, executeError := runPipelineCommandSeparately(t, mockClient,
+		"get", "run-44", "--application", testApplicationID, "--wait")
+	if exitCodeFor(executeError) != exitError {
+		t.Fatalf("exit code = %d, want %d (error %v)", exitCodeFor(executeError), exitError, executeError)
+	}
+	if executeError.Error() != "run #44 concluded cancelled (operator_cancelled): Stopped by jane@example.com." {
+		t.Errorf("error = %q, want a cancelled run's conclusion with its class and message", executeError.Error())
+	}
+	for _, want := range []string{"⊘ cancelled", "Class:     operator_cancelled", "Error:     Stopped by jane@example.com."} {
+		if !strings.Contains(output, want) {
+			t.Errorf("stdout = %q, want %q", output, want)
+		}
+	}
+	if strings.Contains(output, "uperseded") {
+		t.Errorf("stdout = %q, a person's cancel names no supersession", output)
+	}
+
+	mockClient = &pipelineLaneMock{getResults: []client.PipelineRunDetail{
+		pipelineRunDetailFixture("running", nil), cancelled,
+	}}
+	watchOutput, _, _ := runPipelineCommandSeparately(t, mockClient,
+		"get", "run-44", "--application", testApplicationID, "--watch")
+	if !strings.Contains(watchOutput, "run #44  cancelled  Stopped by jane@example.com.") {
+		t.Errorf("watch stdout = %q, want the run's last line to read cancelled with the platform's message", watchOutput)
 	}
 }
 
