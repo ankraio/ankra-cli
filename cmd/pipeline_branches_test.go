@@ -38,6 +38,11 @@ func (mock *pipelineBranchesMock) ListPipelineBranches(ctx context.Context,
 
 func branchOutcome(value string) *string { return &value }
 
+// branchPageCursor is a cursor in the shape the platform mints: the page
+// position base64url-encoded, so a ref carrying a character a URL reads
+// specially survives the round trip. The CLI treats it as opaque.
+const branchPageCursor = "MjAyNi0wOS0xNVQwOTowMDowMFoscmVmcy9oZWFkcy9tYWlu"
+
 // testPipelineRepositoryID is a UUID, because resolvePipelineSelector
 // refuses a --repository that is not one.
 const testPipelineRepositoryID = "3f6b2c91-4e07-4a5d-8b31-9c0d7e2a4f18"
@@ -205,13 +210,13 @@ func TestPipelineBranchesAllStaleSaysWhatWasHidden(t *testing.T) {
 func TestPipelineBranchesPassesPagingThrough(t *testing.T) {
 	mockClient := &pipelineBranchesMock{branchesResult: threeBranchPage()}
 	if _, executeError := runPipelineCommand(t, mockClient, "branches",
-		"--application", testApplicationID, "--limit", "5", "--cursor", "false,2026-09-15T09:00:00Z,refs/heads/main"); executeError != nil {
+		"--application", testApplicationID, "--limit", "5", "--cursor", branchPageCursor); executeError != nil {
 		t.Fatalf("branches error = %v", executeError)
 	}
 	if mockClient.branchesOptions.Limit != 5 {
 		t.Errorf("limit = %d, want 5", mockClient.branchesOptions.Limit)
 	}
-	if mockClient.branchesOptions.Cursor != "false,2026-09-15T09:00:00Z,refs/heads/main" {
+	if mockClient.branchesOptions.Cursor != branchPageCursor {
 		t.Errorf("cursor = %q", mockClient.branchesOptions.Cursor)
 	}
 }
