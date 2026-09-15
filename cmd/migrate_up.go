@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -86,7 +87,7 @@ func init() {
 	migrateUpCmd.Flags().StringVar(&migrateUpVault, "vault", "", "Backup vault the data goes through, by name or id (default: the organisation's only ready vault)")
 	migrateUpCmd.Flags().StringVar(&migrateUpModule, "module", "", "Module to use (default: the most confident detection)")
 	migrateUpCmd.Flags().StringVar(&migrateUpOut, "out", "ankra-migration", "Output directory: <out>/stack for the conversion, <out>/data for the dumps")
-	migrateUpCmd.Flags().StringVar(&migrateUpStack, "stack", "", "Name of the stack on the cluster (default: the directory name)")
+	migrateUpCmd.Flags().StringVar(&migrateUpStack, "stack", "", "Name of the stack on the cluster (default: the name the module gives the source, such as a compose project name, else the directory name)")
 	migrateUpCmd.Flags().StringVar(&migrateUpNamespace, "namespace", "", "Namespace the workloads run in (default: the stack name)")
 	migrateUpCmd.Flags().StringArrayVar(&migrateUpOptions, "option", nil, "Module option as key=value (repeatable); convert and export options both apply")
 	migrateUpCmd.Flags().BoolVar(&migrateUpForce, "force", false, "Overwrite an output directory that holds files no earlier run of this command wrote")
@@ -175,8 +176,15 @@ func runMigrateUp(cmd *cobra.Command, args []string) error {
 
 	progress := cmd.ErrOrStderr()
 	_, _ = fmt.Fprintf(progress, "\n==> Converting %s\n", dir)
+	// The stack name reaches the module only when --stack asked for one;
+	// otherwise the plan already carries the module's own choice, and
+	// sending it back would read as a request the module has to honour.
+	requestedStack := ""
+	if migrateUpStack != "" {
+		requestedStack = plan.Stack
+	}
 	convertSummary, _, err := performMigrateConvert(dir, migrateConvertRequest{
-		Module: module, ClusterName: plan.ClusterName, StackName: plan.Stack, Namespace: plan.Namespace, Options: options,
+		Module: module, ClusterName: plan.ClusterName, StackName: requestedStack, Namespace: plan.Namespace, Options: options,
 		Out: filepath.Join(plan.Out, "stack"), Force: true,
 	})
 	if err != nil {
@@ -253,13 +261,30 @@ func planMigrateUp(cmd *cobra.Command, dir string, module migrate.Module, option
 	}
 	// One name: the plan announces it, the conversion writes it into
 	// cluster.yaml, the deploy applies it and the restore imports into it.
-	stackName := migrateResourceName(filepath.Base(dir))
+	// Without --stack that name is the module's own choice for the source -
+	// a compose file's project name, say - exactly as it was before --stack
+	// existed, so a migration re-run lands on the stack it deployed the
+	// first time rather than beside it under the directory's name.
+	directoryName := migrateResourceName(filepath.Base(dir))
+	var stackName string
 	if migrateUpStack != "" {
 		stackName = migrateResourceName(migrateUpStack)
+	} else {
+		moduleName, nameError := moduleStackName(cmd.Context(), module, dir, directoryName, options)
+		if nameError != nil {
+			return migrateUpPlan{}, nameError
+		}
+		stackName = moduleName
 	}
+	// The namespace follows the name asked for with --stack; without one it
+	// is the directory's name, which is where every earlier migration of
+	// this source put its workloads.
 	namespace := migrateUpNamespace
 	if namespace == "" {
-		namespace = stackName
+		namespace = directoryName
+		if migrateUpStack != "" {
+			namespace = stackName
+		}
 	}
 	plan := migrateUpPlan{Module: module.Describe().Name, Dir: dir, Out: out, Stack: stackName, Namespace: namespace}
 
@@ -386,6 +411,23 @@ func clusterNameForID(clusterID string) (string, error) {
 		}
 	}
 	return "", withExitCode(exitNotFound, fmt.Errorf("no cluster with id %s in this organisation", clusterID))
+}
+
+// moduleStackName is the name the stack carries when --stack is not given:
+// what the module itself calls the source, learned by converting it once in
+// memory. Nothing is written - the conversion that writes files follows the
+// confirmation - and a module that yields no stack falls back to the
+// directory's name.
+func moduleStackName(ctx context.Context, module migrate.Module, dir, fallback string, options map[string]string) (string, error) {
+	result, err := module.Convert(ctx, migrate.ConvertRequest{Dir: dir, ClusterName: fallback, Namespace: fallback, Options: options})
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", module.Describe().Name, err)
+	}
+	stacks := result.Cluster.Spec.Stacks
+	if len(stacks) == 0 || stacks[0].Name == "" {
+		return fallback, nil
+	}
+	return stacks[0].Name, nil
 }
 
 func printMigrateUpPlan(cmd *cobra.Command, plan migrateUpPlan, carryData bool) {

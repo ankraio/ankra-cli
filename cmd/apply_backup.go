@@ -17,7 +17,9 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 
 	"ankra/internal/client"
 )
@@ -31,6 +33,9 @@ func parseStackBackup(raw interface{}) (*client.StackBackup, error) {
 	rawMap, isMap := raw.(map[string]interface{})
 	if !isMap {
 		return nil, fmt.Errorf("'backup' must be a block with fields such as 'enabled' and 'vault', got %v", raw)
+	}
+	if unknownError := backupUnknownKeys(rawMap, "backup", "enabled", "vault", "schedule", "retention", "selection"); unknownError != nil {
+		return nil, unknownError
 	}
 	backup := &client.StackBackup{}
 	enabled, enabledError := backupBool(rawMap, "enabled", "backup.enabled")
@@ -81,6 +86,10 @@ func parseStackBackupRetention(raw interface{}) (*client.StackBackupRetention, e
 	if !isMap {
 		return nil, fmt.Errorf("'backup.retention' must be a block of tier counts, got %v", raw)
 	}
+	if unknownError := backupUnknownKeys(rawMap, "backup.retention",
+		"hourly", "daily", "weekly", "monthly", "yearly", "minimum_count", "minimum_age"); unknownError != nil {
+		return nil, unknownError
+	}
 	retention := &client.StackBackupRetention{}
 	for _, tier := range []struct {
 		key    string
@@ -115,6 +124,10 @@ func parseStackBackupSelection(raw interface{}) (*client.StackBackupSelection, e
 	if !isMap {
 		return nil, fmt.Errorf("'backup.selection' must be a block with 'databases' and 'persistent_volume_claims', got %v", raw)
 	}
+	if unknownError := backupUnknownKeys(rawMap, "backup.selection",
+		"databases", "confirm_exclude_databases", "persistent_volume_claims"); unknownError != nil {
+		return nil, unknownError
+	}
 	selection := &client.StackBackupSelection{}
 	databases, databasesError := backupBool(rawMap, "databases", "backup.selection.databases")
 	if databasesError != nil {
@@ -144,6 +157,32 @@ func parseStackBackupSelection(raw interface{}) (*client.StackBackupSelection, e
 		selection.PersistentVolumeClaims = append(selection.PersistentVolumeClaims, name)
 	}
 	return selection, nil
+}
+
+// backupUnknownKeys refuses a block carrying a key the dialect does not
+// read. A backup block is the one place a typo is not harmless: 'enable:
+// true' parses as a block with enabled unset, which the platform reads as a
+// deliberate "enabled: false" and unprotects the stack.
+func backupUnknownKeys(rawMap map[string]interface{}, field string, known ...string) error {
+	var unknown []string
+	for key := range rawMap {
+		recognised := false
+		for _, candidate := range known {
+			if key == candidate {
+				recognised = true
+				break
+			}
+		}
+		if !recognised {
+			unknown = append(unknown, key)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	sort.Strings(unknown)
+	return fmt.Errorf("'%s' has keys this CLI does not read: %s (it reads %s); a block with a mistyped key would reach the platform as a narrower policy than the file means, so it is refused",
+		field, strings.Join(unknown, ", "), strings.Join(known, ", "))
 }
 
 // backupBool reads an optional boolean. The pointer return keeps absent and

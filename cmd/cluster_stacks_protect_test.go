@@ -325,3 +325,21 @@ func TestUnprotectYesSkipsTheTypedConfirmation(t *testing.T) {
 		t.Fatalf("expected one unprotect call, got %d", mock.unprotectCalls)
 	}
 }
+
+// With --backup-now the protect dispatches a capture, so a mistyped -o must
+// fail before the write, not after it.
+func TestProtectChecksTheOutputFormatBeforeWriting(t *testing.T) {
+	mock := newBackupLaneMock()
+
+	_, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksProtectCmd},
+		"cluster", "stacks", "protect", backupTestStack, "--cluster", "demo",
+		"--vault", "production-backups", "--backup-now", "-o", "josn")
+
+	if executeError == nil {
+		t.Fatal("an unknown output format must fail the command")
+	}
+	if mock.protected != nil {
+		t.Fatalf("nothing may reach the platform when the flags are wrong, got %+v", mock.protected)
+	}
+}

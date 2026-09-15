@@ -167,3 +167,26 @@ backup:
 		t.Fatalf("schedule = %q", backup.Schedule)
 	}
 }
+
+// A key the dialect does not read is the one typo that is not harmless here:
+// 'enable: true' parses as a block with enabled unset, which the platform
+// reads as a deliberate "enabled: false" and unprotects the stack. Refusing
+// the block with the file's own vocabulary is the whole point of parsing it.
+func TestParseStackBackupRefusesAKeyItDoesNotRead(t *testing.T) {
+	for name, document := range map[string]string{
+		"enabled misspelled":        "backup:\n  enable: true\n  vault: prod\n",
+		"vault misspelled":          "backup:\n  enabled: true\n  vaults: prod\n",
+		"retention tier misspelled": "backup:\n  enabled: true\n  vault: prod\n  retention:\n    dayly: 7\n",
+		"selection key misspelled":  "backup:\n  enabled: true\n  vault: prod\n  selection:\n    database: false\n",
+	} {
+		t.Run(name, func(subtest *testing.T) {
+			_, parseError := parseStackBackup(decodeBackupBlock(subtest, document))
+			if parseError == nil {
+				subtest.Fatal("a block with a key this CLI does not read must be refused, not sent as a narrower policy")
+			}
+			if !strings.Contains(parseError.Error(), "does not read") {
+				subtest.Fatalf("the refusal must name the unread key, got: %v", parseError)
+			}
+		})
+	}
+}

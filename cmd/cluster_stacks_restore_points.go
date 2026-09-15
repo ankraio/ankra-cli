@@ -627,6 +627,13 @@ restore point with certainty.`,
 		stackName, reference := args[0], args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 		force, _ := cmd.Flags().GetBool("force")
+		// Every flag is checked before the restore is dispatched: a
+		// mistyped -o must not be discovered after the stack's volumes are
+		// already gone.
+		format, formatError := structuredFormatFromFlags(cmd)
+		if formatError != nil {
+			return formatError
+		}
 		cluster, clusterError := resolveActiveCluster(cmd)
 		if clusterError != nil {
 			return clusterError
@@ -648,10 +655,6 @@ restore point with certainty.`,
 			return backupLaneError("restoring restore point", restoreError)
 		}
 
-		format, formatError := structuredFormatFromFlags(cmd)
-		if formatError != nil {
-			return formatError
-		}
 		progress := cmd.OutOrStdout()
 		if format != outputDefault {
 			progress = cmd.ErrOrStderr()

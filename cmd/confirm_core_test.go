@@ -398,3 +398,24 @@ func TestCredentialsDelete_PipedYesProceeds(t *testing.T) {
 		t.Errorf("expected one delete call with piped y, got %d", mock.deleteCalls)
 	}
 }
+
+// The AWS deprovision endpoint honours force (cluster_aws.go forwards it),
+// so the generic command must not tell the operator it has no effect right
+// before the destructive confirmation.
+func TestClusterDeprovision_ForceIsHonouredOnAws(t *testing.T) {
+	mock := &cloudDeprovisionDispatchMock{
+		cluster: client.ClusterListItem{ID: testClusterID, Name: "demo", Kind: "aws"},
+	}
+	output, err := runConfirmCommand(t, mock, "",
+		[]*cobra.Command{clusterDeprovisionCmd},
+		"cluster", "deprovision", "demo", "--yes", "--force")
+	if err != nil {
+		t.Fatalf("expected success with --yes --force, got %v", err)
+	}
+	if strings.Contains(output, "--force has no effect") {
+		t.Errorf("AWS honours --force, so no ignored---force warning may print, got %q", output)
+	}
+	if mock.calledProvider != "aws" {
+		t.Errorf("expected the AWS deprovision lane, got %q", mock.calledProvider)
+	}
+}

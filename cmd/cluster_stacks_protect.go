@@ -198,6 +198,17 @@ Examples:
 			return selectionError
 		}
 		backupNow, _ := cmd.Flags().GetBool("backup-now")
+		// Output flags are checked before the write: with --backup-now the
+		// write dispatches a capture, and a mistyped -o must fail before
+		// that, not after.
+		format, formatError := structuredFormatFromFlags(cmd)
+		if formatError != nil {
+			return formatError
+		}
+		wait, waitFlagError := asyncWriteWaitFlag(cmd)
+		if waitFlagError != nil {
+			return waitFlagError
+		}
 
 		protection, protectError := apiClient.ProtectStack(cluster.ID, stackName, client.ProtectStackRequest{
 			VaultID:   vaultID,
@@ -210,14 +221,6 @@ Examples:
 			return backupPolicyRefusal(cmd.ErrOrStderr(), protectError)
 		}
 
-		format, formatError := structuredFormatFromFlags(cmd)
-		if formatError != nil {
-			return formatError
-		}
-		wait, waitFlagError := asyncWriteWaitFlag(cmd)
-		if waitFlagError != nil {
-			return waitFlagError
-		}
 		shouldFollow := wait && protection.RunID != nil && *protection.RunID != ""
 
 		if !shouldFollow {

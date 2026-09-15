@@ -295,6 +295,46 @@ func TestMigrateUpRunsAgainIntoTheSameDirectory(t *testing.T) {
 	}
 }
 
+// TestMigrateUpNamesTheStackAfterTheComposeProjectByDefault pins the default
+// --stack falls back to: a compose file with its own project name deploys
+// under that name, as every migration before --stack existed did, so a re-run
+// updates that stack instead of creating a second one named after the
+// directory. The namespace keeps the directory's name, which is where those
+// earlier migrations put the workloads.
+func TestMigrateUpNamesTheStackAfterTheComposeProjectByDefault(t *testing.T) {
+	fakeDockerOnPath(t)
+	mock := newMigrateUpMock()
+	mock.stacks = []string{"shopfront"}
+	installMigrateUpMock(t, mock)
+	dir := writeMigrateFixture(t)
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("name: shopfront\n"+migrateTestCompose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "migration")
+
+	stdout, stderr, err := runMigrate(t, "up", dir, "--out", out, "--cluster", migrateRestoreTestCluster, "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr)
+	}
+	if stacks := mock.applied[0].Spec.Stacks; len(stacks) != 1 || stacks[0].Name != "shopfront" {
+		t.Errorf("without --stack the stack carries the compose project's name, not the directory's: %+v", stacks)
+	}
+	if mock.createdWith == nil || mock.createdWith.StackName != "shopfront" {
+		t.Errorf("the data import must be registered against the deployed stack: %+v", mock.createdWith)
+	}
+	for _, want := range []string{
+		"stack      shopfront (exists, will be updated), namespace shop",
+		"==> Deploying stack shopfront to cluster shop-cluster",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("progress must say %q:\n%s", want, stderr)
+		}
+	}
+	if !strings.Contains(stdout, "as stack shopfront (namespace shop)") {
+		t.Errorf("stdout:\n%s", stdout)
+	}
+}
+
 func TestMigrateUpDeploysUnderTheRequestedStackName(t *testing.T) {
 	fakeDockerOnPath(t)
 	mock := newMigrateUpMock()

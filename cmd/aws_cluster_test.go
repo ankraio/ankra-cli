@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -1048,5 +1049,46 @@ func TestAwsCredentialsCreateKeysRefusesAnEmptySecret(t *testing.T) {
 	}
 	if mock.keysRequest != nil {
 		t.Fatal("an empty secret must not reach the client")
+	}
+}
+
+// The platform decodes bastion_allowed_ips as a list and reads an EMPTY one
+// as its own default (open to everyone); a null is refused as "not a list".
+// So an omitted --bastion-allowed-ips has to reach the wire as [], or the
+// omitted case the flag help advertises fails with a 422 before anything is
+// created.
+func TestAwsCreateSendsAnEmptyBastionListWhenTheFlagIsOmitted(t *testing.T) {
+	for _, verb := range []string{"create", "preflight"} {
+		t.Run(verb, func(subtest *testing.T) {
+			mock := &awsClusterMock{preflightResult: &client.AwsPreflightResult{CanProceed: true}}
+			setMockClient(subtest, mock)
+			subtest.Cleanup(func() { resetTreeFlags(subtest, awsCreateCmd, awsPreflightCmd) })
+			var runError error
+			captureStdout(subtest, func() {
+				_, runError = executeCommand("cluster", "aws", verb,
+					"--name", "prod", "--credential-id", "cred-aws",
+					"--ssh-key-credential-id", "cred-ssh", "--region", "eu-north-1")
+			})
+			if runError != nil {
+				subtest.Fatalf("%s without --bastion-allowed-ips: %v", verb, runError)
+			}
+			request := mock.createRequest
+			if verb == "preflight" {
+				request = mock.preflightRequest
+			}
+			if request == nil {
+				subtest.Fatal("the request never reached the client")
+			}
+			if request.BastionAllowedIPs == nil || len(request.BastionAllowedIPs) != 0 {
+				subtest.Fatalf("bastion_allowed_ips = %#v, want an empty (not nil) list", request.BastionAllowedIPs)
+			}
+			body, marshalError := json.Marshal(request)
+			if marshalError != nil {
+				subtest.Fatal(marshalError)
+			}
+			if !strings.Contains(string(body), `"bastion_allowed_ips":[]`) {
+				subtest.Fatalf("the wire must carry [] for the platform default, got %s", body)
+			}
+		})
 	}
 }
