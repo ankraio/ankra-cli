@@ -402,4 +402,7 @@ func TestRefreshInstalledSkillsWithNothingDetectedSaysSo(t *testing.T) {
 	if !strings.Contains(out.String(), "/usr/local/bin/ankra skills install --force") {
 		t.Fatalf("the by-hand command must be named, got %q", out.String())
 	}
+	if strings.Contains(out.String(), "were found") {
+		t.Fatalf("the message must not assert that nothing is installed, got %q", out.String())
+	}
 }
