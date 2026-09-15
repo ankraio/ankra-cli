@@ -88,6 +88,31 @@ func registerPipelineSelectorFlags(command *cobra.Command) {
 	command.Flags().String("repository", "", "Pipeline repository id to act on (mutually exclusive with --application)")
 }
 
+// pipelineSelectorArguments renders a resolved selector back into the flags
+// that reproduce it, for printing inside a command we are telling the reader
+// to run. A selector is not optional - resolvePipelineTarget ends in a usage
+// error when neither flag is given and the working directory answers for
+// neither - so a printed command that leaves it out is one the reader cannot
+// paste.
+//
+// It is rendered from the RESOLVED selector, not from this invocation's
+// flags, because the selector also arrives ways that leave those flags empty:
+// as a leading argument (`ankra application pipeline logs <application-id>
+// <run>`) and by inference from the checkout. A command printed for either of
+// those callers has to carry the selector they never typed - the inferred one
+// most of all, since the inference only answers from inside the checkout and
+// a command is pasted anywhere.
+func pipelineSelectorArguments(selector client.PipelineSelector) string {
+	switch {
+	case strings.TrimSpace(selector.ApplicationID) != "":
+		return " --application " + strings.TrimSpace(selector.ApplicationID)
+	case strings.TrimSpace(selector.RepositoryID) != "":
+		return " --repository " + strings.TrimSpace(selector.RepositoryID)
+	default:
+		return ""
+	}
+}
+
 // pipelineTarget is a resolved selector together with what resolving it
 // learned about the working directory. A command that wants the checkout's
 // HEAD reads it off here instead of asking the applications listing a second

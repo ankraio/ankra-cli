@@ -42,6 +42,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -538,7 +539,7 @@ func resolvePipelineStep(command *cobra.Command, selector client.PipelineSelecto
 		// A key names the step, and a retried step is several rows under one
 		// key; the newest attempt is the one doing the work now.
 		if newest, wasFound := newestPipelineStepAttempt(detail.Steps, stepReference); wasFound {
-			announceSupersededPipelineStepAttempts(command, detail, newest)
+			announceSupersededPipelineStepAttempts(command, detail, newest, selector)
 			return newest, nil
 		}
 		return client.PipelineStep{}, withExitCode(exitNotFound,
@@ -561,7 +562,7 @@ func resolvePipelineStep(command *cobra.Command, selector client.PipelineSelecto
 		return client.PipelineStep{}, fmt.Errorf("run %s has no planned steps yet", runID)
 	case 1:
 		newest, _ := newestPipelineStepAttempt(detail.Steps, stepKeys[0])
-		announceSupersededPipelineStepAttempts(command, detail, newest)
+		announceSupersededPipelineStepAttempts(command, detail, newest, selector)
 		return newest, nil
 	default:
 		return client.PipelineStep{}, withExitCode(exitUsage,
@@ -637,7 +638,7 @@ func newestPipelineStepAttempt(steps []client.PipelineStep, stepKey string) (cli
 // has to skip it. Nothing is printed when the resolved attempt is the only
 // one, which is almost every call.
 func announceSupersededPipelineStepAttempts(command *cobra.Command, detail *client.PipelineRunDetail,
-	resolved client.PipelineStep) {
+	resolved client.PipelineStep, selector client.PipelineSelector) {
 	if detail == nil {
 		return
 	}
@@ -650,13 +651,22 @@ func announceSupersededPipelineStepAttempts(command *cobra.Command, detail *clie
 	if len(earlier) == 0 {
 		return
 	}
+	// By attempt, not by the order the payload listed them: these are all one
+	// key, so the number is the only thing telling them apart, and a step
+	// retried twice must not name attempt 2 before attempt 1.
+	sort.SliceStable(earlier, func(first, second int) bool {
+		return earlier[first].Attempt < earlier[second].Attempt
+	})
 	progress := command.ErrOrStderr()
 	_, _ = fmt.Fprintf(progress,
 		"Showing attempt %d of step %q; Ankra retried it, and %d earlier attempt(s) have their own log:\n",
 		resolved.Attempt, resolved.StepKey, len(earlier))
 	for _, step := range earlier {
-		_, _ = fmt.Fprintf(progress, "  attempt %d: ankra pipeline logs %s --step %s\n",
-			step.Attempt, detail.ID, step.ID)
+		// The selector is carried into the printed command because the caller
+		// has one by definition - resolving this run needed it - and the
+		// command is worth printing only if it can be pasted.
+		_, _ = fmt.Fprintf(progress, "  attempt %d: ankra pipeline logs %s%s --step %s\n",
+			step.Attempt, detail.ID, pipelineSelectorArguments(selector), step.ID)
 	}
 }
 

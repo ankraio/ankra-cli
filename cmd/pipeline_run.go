@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -224,7 +225,7 @@ func runPipelineDispatch(command *cobra.Command, target pipelineTarget) error {
 	if waitError != nil {
 		return waitError
 	}
-	return renderConcludedPipelineRun(command, format, detail)
+	return renderConcludedPipelineRun(command, format, detail, selector)
 }
 
 // sleepInterrupted waits, or stops early when the command is interrupted. A
@@ -579,7 +580,7 @@ func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, ru
 		if waitError != nil {
 			return waitError
 		}
-		return renderConcludedPipelineRun(command, format, detail)
+		return renderConcludedPipelineRun(command, format, detail, selector)
 	}
 
 	detail, getError := apiClient.GetPipelineRun(command.Context(), selector, runID)
@@ -591,7 +592,7 @@ func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, ru
 			return encodeError
 		}
 	} else {
-		printPipelineRunDetail(command.OutOrStdout(), *detail)
+		printPipelineRunDetail(command.OutOrStdout(), *detail, selector)
 	}
 	if isExitCodeRequested {
 		return pipelineRunExitCodeError(detail.PipelineRun)
@@ -617,7 +618,7 @@ func printPipelineRunWaiting(out io.Writer, detail client.PipelineRunDetail) {
 	}
 }
 
-func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
+func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, selector client.PipelineSelector) {
 	_, _ = fmt.Fprintf(out, "Run #%d (%s)\n", detail.RunNumber, detail.ID)
 	_, _ = fmt.Fprintf(out, "  Status:    %s\n", renderPipelineRunState(detail.PipelineRun))
 	printPipelineRunSupersession(out, detail.PipelineRun)
@@ -657,7 +658,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 		})
 	}
 	writer.Render()
-	printPipelineSupersededAttempts(out, detail)
+	printPipelineSupersededAttempts(out, detail, selector)
 }
 
 // printPipelineSupersededAttempts explains the rows above that a retry
@@ -683,7 +684,8 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 //
 // Nothing is printed for a run with no retried step, which is almost every
 // run.
-func printPipelineSupersededAttempts(out io.Writer, detail client.PipelineRunDetail) {
+func printPipelineSupersededAttempts(out io.Writer, detail client.PipelineRunDetail,
+	selector client.PipelineSelector) {
 	newestAttempts := map[string]int16{}
 	for _, step := range detail.Steps {
 		if attempt, seen := newestAttempts[step.StepKey]; !seen || step.Attempt > attempt {
@@ -699,6 +701,18 @@ func printPipelineSupersededAttempts(out io.Writer, detail client.PipelineRunDet
 	if len(superseded) == 0 {
 		return
 	}
+	// Ordered here rather than taken from the payload, for the same reason
+	// newestPipelineStepAttempt compares attempt numbers instead of trusting
+	// the listing's order: which row comes first is a server-side ORDER BY
+	// this lane has no guarantee about. A block whose whole subject is the
+	// chronology of a retried step is the last place to print attempt 2
+	// above attempt 1 because a query happened to return it that way.
+	sort.SliceStable(superseded, func(first, second int) bool {
+		if superseded[first].StepKey != superseded[second].StepKey {
+			return superseded[first].StepKey < superseded[second].StepKey
+		}
+		return superseded[first].Attempt < superseded[second].Attempt
+	})
 	_, _ = fmt.Fprintf(out, "\nEarlier attempts (%d), superseded by a retry:\n", len(superseded))
 	for _, step := range superseded {
 		_, _ = fmt.Fprintf(out, "  %s attempt %d: %s\n", step.StepKey, step.Attempt,
@@ -709,7 +723,8 @@ func printPipelineSupersededAttempts(out io.Writer, detail client.PipelineRunDet
 		if step.ErrorMessage != nil && strings.TrimSpace(*step.ErrorMessage) != "" {
 			_, _ = fmt.Fprintf(out, "    Error: %s\n", strings.TrimSpace(*step.ErrorMessage))
 		}
-		_, _ = fmt.Fprintf(out, "    Log:   ankra pipeline logs %s --step %s\n", detail.ID, step.ID)
+		_, _ = fmt.Fprintf(out, "    Log:   ankra pipeline logs %s%s --step %s\n",
+			detail.ID, pipelineSelectorArguments(selector), step.ID)
 	}
 }
 
@@ -965,5 +980,5 @@ func runPipelineRerun(command *cobra.Command, selector client.PipelineSelector, 
 	if waitError != nil {
 		return waitError
 	}
-	return renderConcludedPipelineRun(command, format, detail)
+	return renderConcludedPipelineRun(command, format, detail, selector)
 }

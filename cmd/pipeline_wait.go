@@ -240,13 +240,14 @@ func pipelineRunWaitExpiredError(runID string, lastRead *client.PipelineRunDetai
 // to return straight after encoding, which made `run --wait -o json` exit 0
 // on a failed run - the one thing --wait exists to report. The error reaches
 // stderr, so stdout still holds only the document.
-func renderConcludedPipelineRun(command *cobra.Command, format outputFormat, detail *client.PipelineRunDetail) error {
+func renderConcludedPipelineRun(command *cobra.Command, format outputFormat, detail *client.PipelineRunDetail,
+	selector client.PipelineSelector) error {
 	if format != outputDefault {
 		if encodeError := encodeStructured(command.OutOrStdout(), format, detail); encodeError != nil {
 			return encodeError
 		}
 	} else {
-		printPipelineRunDetail(command.OutOrStdout(), *detail)
+		printPipelineRunDetail(command.OutOrStdout(), *detail, selector)
 	}
 	return pipelineRunConclusionError(detail.PipelineRun)
 }

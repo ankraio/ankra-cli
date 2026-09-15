@@ -42,8 +42,14 @@ func TestPipelineLogsByKeyNamesTheEarlierAttempts(t *testing.T) {
 	if !strings.Contains(standardError, `Showing attempt 2 of step "build"`) {
 		t.Errorf("stderr must say which attempt was shown, got %q", standardError)
 	}
-	if !strings.Contains(standardError, "attempt 1: ankra pipeline logs run-1 --step step-1-attempt-1") {
-		t.Errorf("stderr must give the command that reads the earlier attempt, got %q", standardError)
+	// The selector is part of the command, not decoration: `pipeline logs`
+	// resolves no run without one (resolvePipelineTarget ends in a usage
+	// error when neither flag is given and the working directory answers for
+	// neither), so a hint that printed only --step was one this very caller
+	// could not have pasted.
+	if !strings.Contains(standardError,
+		"attempt 1: ankra pipeline logs run-1 --application "+testApplicationID+" --step step-1-attempt-1") {
+		t.Errorf("stderr must give a runnable command for the earlier attempt, got %q", standardError)
 	}
 }
 
