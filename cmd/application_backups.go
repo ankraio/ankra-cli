@@ -41,10 +41,31 @@ func resolveApplicationDeployment(applicationID string, clusterReference string)
 	if readError != nil {
 		return applicationDeploymentTarget{}, backupLaneError("reading the application's backups", readError)
 	}
+	// An id match is exact and unique, so it wins outright. A NAME match is
+	// collected rather than taken: two clusters whose names differ only in
+	// case would otherwise send the capture to whichever the listing
+	// happened to return first, which is a coin toss over where somebody's
+	// data is written.
+	matched := []client.ApplicationBackupDeployment{}
 	for _, deployment := range backups.Deployments {
-		if deployment.ClusterID == clusterReference || strings.EqualFold(deployment.ClusterName, clusterReference) {
+		if deployment.ClusterID == clusterReference {
 			return applicationDeploymentTarget{deployment: deployment, backups: backups}, nil
 		}
+		if strings.EqualFold(deployment.ClusterName, clusterReference) {
+			matched = append(matched, deployment)
+		}
+	}
+	if len(matched) == 1 {
+		return applicationDeploymentTarget{deployment: matched[0], backups: backups}, nil
+	}
+	if len(matched) > 1 {
+		identifiers := make([]string, 0, len(matched))
+		for _, deployment := range matched {
+			identifiers = append(identifiers, deployment.ClusterID)
+		}
+		return applicationDeploymentTarget{}, withExitCode(exitUsage, fmt.Errorf(
+			"%d of this application's deployments are on a cluster named %q - pass the cluster id instead (%s)",
+			len(matched), clusterReference, strings.Join(identifiers, ", ")))
 	}
 	names := make([]string, 0, len(backups.Deployments))
 	for _, deployment := range backups.Deployments {
@@ -168,7 +189,7 @@ behalf.`,
 	}
 	protectCommand.Flags().String("cluster", "", "Cluster the deployment runs on (name or id, required)")
 	protectCommand.Flags().String("vault", "",
-		"Backup vault the restore points are written to (name or id; the organisation's only ready vault when omitted)")
+		"Backup vault the restore points are written to (name or id; the organisation's only ready vault when omitted, refused when it has several)")
 	protectCommand.Flags().String("schedule", "",
 		"hourly, daily, weekly, or a five-field cron expression (daily when omitted)")
 	protectCommand.Flags().Bool("backup-now", false,
@@ -270,7 +291,7 @@ that is, and the restore point it takes is the same artifact
 	}
 	backupCommand.Flags().String("cluster", "", "Cluster the deployment runs on (name or id, required)")
 	backupCommand.Flags().String("vault", "",
-		"Backup vault to write to (name or id; the deployment's own vault when omitted)")
+		"Backup vault to write to (name or id; the deployment's own backup policy, then the organisation's only ready vault, when omitted)")
 	backupCommand.Flags().String("note", "", "Why this backup was taken, recorded on the audit row and the run")
 	registerAsyncWriteFlagsWithTimeout(backupCommand, backupRunWaitTimeout)
 	registerStructuredOutputFlags(backupCommand)
