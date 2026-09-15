@@ -137,7 +137,9 @@ func newApplicationPipelineRunCommand() *cobra.Command {
 			if resolveError != nil {
 				return resolveError
 			}
-			return runPipelineDispatch(command, client.PipelineSelector{ApplicationID: applicationID})
+			return runPipelineDispatch(command, pipelineTarget{
+				selector: client.PipelineSelector{ApplicationID: applicationID},
+			})
 		},
 	}
 	registerPipelineRunDispatchFlags(runCommand)

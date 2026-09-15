@@ -88,10 +88,36 @@ func registerPipelineSelectorFlags(command *cobra.Command) {
 	command.Flags().String("repository", "", "Pipeline repository id to act on (mutually exclusive with --application)")
 }
 
+// pipelineTarget is a resolved selector together with what resolving it
+// learned about the working directory. A command that wants the checkout's
+// HEAD reads it off here instead of asking the applications listing a second
+// time to re-learn what the first read already established (ankra-4dq9l).
+type pipelineTarget struct {
+	selector client.PipelineSelector
+	// checkoutIsRepository is true when the selector was inferred from the
+	// working directory: the listing walk that inferred it matched the
+	// checkout's origin to the selected application's repository, so the
+	// checkout IS that repository and its HEAD is one of its commits. It is
+	// false when the selector came from a flag, which says nothing about the
+	// checkout either way - a dispatch that needs to know asks the listing,
+	// once.
+	checkoutIsRepository bool
+}
+
 // resolvePipelineSelector reads --application / --repository and resolves
 // them into the PipelineSelector every pipeline client call takes. Exactly
-// one of the two must be given.
+// one of the two must be given, or the working directory must answer for
+// them - see resolvePipelineTarget, which this is the selector-only view of.
 func resolvePipelineSelector(command *cobra.Command) (client.PipelineSelector, error) {
+	target, resolveError := resolvePipelineTarget(command)
+	return target.selector, resolveError
+}
+
+// resolvePipelineTarget is resolvePipelineSelector with what the resolution
+// learned about the working directory kept beside the selector, for the one
+// command that wants it: `pipeline run`, whose default commit is the
+// checkout's HEAD exactly when the checkout is the selected repository.
+func resolvePipelineTarget(command *cobra.Command) (pipelineTarget, error) {
 	applicationReference, _ := command.Flags().GetString("application")
 	repositoryID, _ := command.Flags().GetString("repository")
 	applicationReference = strings.TrimSpace(applicationReference)
@@ -99,22 +125,22 @@ func resolvePipelineSelector(command *cobra.Command) (client.PipelineSelector, e
 
 	switch {
 	case applicationReference != "" && repositoryID != "":
-		return client.PipelineSelector{}, withExitCode(exitUsage,
+		return pipelineTarget{}, withExitCode(exitUsage,
 			errors.New("--application and --repository are mutually exclusive"))
 	case applicationReference != "":
 		applicationID, resolveError := resolveApplicationID(command.Context(), apiClient, applicationReference)
 		if resolveError != nil {
-			return client.PipelineSelector{}, resolveError
+			return pipelineTarget{}, resolveError
 		}
-		return client.PipelineSelector{ApplicationID: applicationID}, nil
+		return pipelineTarget{selector: client.PipelineSelector{ApplicationID: applicationID}}, nil
 	case repositoryID != "":
 		if !looksLikeUUID(repositoryID) {
-			return client.PipelineSelector{}, withExitCode(exitUsage, fmt.Errorf(
+			return pipelineTarget{}, withExitCode(exitUsage, fmt.Errorf(
 				"--repository %q must be the pipeline repository id - there is no lookup by owner/name yet, "+
 					"so pass the id from 'ankra pipeline definition get --application <name>' "+
 					"(its repository.id field), or use --application instead", repositoryID))
 		}
-		return client.PipelineSelector{RepositoryID: repositoryID}, nil
+		return pipelineTarget{selector: client.PipelineSelector{RepositoryID: repositoryID}}, nil
 	default:
 		// Neither flag: the working directory usually answers the question.
 		// A user standing in the checkout they want built has already told
@@ -125,13 +151,20 @@ func resolvePipelineSelector(command *cobra.Command) (client.PipelineSelector, e
 		// through to the same usage error as before.
 		selector, inferred, inferError := pipelineSelectorFromWorkingDirectory(command.Context())
 		if inferError != nil {
-			return client.PipelineSelector{}, inferError
+			return pipelineTarget{}, inferError
 		}
 		if inferred != "" {
 			reportInferredPipelineTarget(command, inferred)
-			return selector, nil
+			// The selector was matched FROM the checkout's origin, so the
+			// checkout is the selected repository by construction. Record
+			// that here rather than have the dispatch walk the listing again
+			// to rediscover it: the second walk was pure cost on a large
+			// organisation, and when any page of it failed the dispatch
+			// dropped the HEAD it had every right to use and built the
+			// default branch instead of the user's feature branch.
+			return pipelineTarget{selector: selector, checkoutIsRepository: true}, nil
 		}
-		return client.PipelineSelector{}, withExitCode(exitUsage,
+		return pipelineTarget{}, withExitCode(exitUsage,
 			errors.New("one of --application or --repository is required"))
 	}
 }

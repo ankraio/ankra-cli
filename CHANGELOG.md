@@ -52,6 +52,19 @@ while the platform redesigns that move. Both fixes in v0.17.1 are included.
 
 ### Fixed
 
+- **Plain `ankra pipeline run` no longer forgets the checkout it just
+  resolved.** With neither `--application` nor `--repository`, the command
+  walks the organisation's applications listing to match the checkout's
+  origin to an application, says which one it found, and then walked the
+  whole listing a second time to decide whether that same checkout's HEAD
+  could be the commit. Any failed page of the second walk dropped the HEAD,
+  and a user on a feature branch was told "Running at the tip of the
+  repository's default branch" and built main instead of their branch - one
+  line after being told their checkout was the application's repository. The
+  inference now carries what it learned into the dispatch, so the listing is
+  read exactly once per run: by the inference, or by the checkout match for a
+  named `--application`, never both. On a large organisation that is also
+  half the listing traffic of every run.
 - **`ankra cluster apply` no longer clears a manifest's stored `force` /
   `auto_remediate` when the file does not mention them.** The platform
   inherits the stored value when the key is omitted from the request and
