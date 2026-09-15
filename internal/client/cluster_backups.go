@@ -122,6 +122,11 @@ type ClusterBackupsPage struct {
 	NextCursor       *string              `json:"next_cursor" yaml:"next_cursor"`
 }
 
+// MaximumClusterBackupsPageSize mirrors the platform's ceiling. It is stated
+// here so the CLI can refuse an over-large page itself rather than send one
+// and relay a server validation error for a bound it already documents.
+const MaximumClusterBackupsPageSize = 100
+
 // ClusterBackupsOptions selects one page. ProtectionStates narrows the rows
 // and never the rollup, which answers for the cluster.
 type ClusterBackupsOptions struct {

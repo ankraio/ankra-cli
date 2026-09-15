@@ -232,6 +232,41 @@ func TestClusterBackupsStatusRefusesAVerdictThatDoesNotExist(t *testing.T) {
 	}
 }
 
+// The help promises a bound, so the command enforces it rather than relaying
+// a server validation error - and a negative limit is refused rather than
+// dropped into a page size nobody gets and nobody is told about.
+func TestClusterBackupsStatusRefusesALimitOutsideTheBoundItPromises(t *testing.T) {
+	for _, limit := range []string{"0", "-3", "5000"} {
+		mock := newClusterBackupsMock()
+		mock.page = sampleClusterBackupsPage()
+		_, executeError := runClusterBackups(t, mock, "cluster", "backups", "status",
+			"--cluster", "demo", "--limit", limit)
+		if executeError == nil {
+			t.Errorf("--limit %s was accepted", limit)
+			continue
+		}
+		if !strings.Contains(executeError.Error(), "between 1 and 100") {
+			t.Errorf("--limit %s: error = %v, want it to name the bound", limit, executeError)
+		}
+		if len(mock.options) != 0 {
+			t.Errorf("--limit %s still reached the API", limit)
+		}
+	}
+}
+
+// A data-plane state this build does not know is reported as unrecognised: a
+// bare word reads as a verdict the command stands behind.
+func TestClusterBackupsStatusSaysWhenItDoesNotRecogniseTheDataPlaneState(t *testing.T) {
+	mock := newClusterBackupsMock()
+	mock.page = sampleClusterBackupsPage()
+	mock.page.BackupStackState = "quiescing"
+
+	output, _ := runClusterBackups(t, mock, "cluster", "backups", "status", "--cluster", "demo")
+	if !strings.Contains(stripANSICodes(output), "does not recognise that state") {
+		t.Errorf("expected an unrecognised state to say so, got:\n%s", output)
+	}
+}
+
 func TestClusterBackupsStatusRendersStructuredOutputVerbatim(t *testing.T) {
 	mock := newClusterBackupsMock()
 	mock.page = sampleClusterBackupsPage()

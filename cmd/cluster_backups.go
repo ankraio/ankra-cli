@@ -81,7 +81,16 @@ func clusterBackupsOptions(cmd *cobra.Command) (client.ClusterBackupsOptions, er
 		options.ProtectionStates = append(options.ProtectionStates, normalised)
 	}
 	options.Cursor, _ = cmd.Flags().GetString("cursor")
-	options.Limit, _ = cmd.Flags().GetInt("limit")
+	// A limit outside the bound the help promises is refused here, not sent.
+	// Passing it through would relay a server validation error for a rule
+	// this command already states, and a negative one would be dropped
+	// silently - a page size nobody gets and nobody is told about.
+	limit, _ := cmd.Flags().GetInt("limit")
+	if cmd.Flags().Changed("limit") && (limit < 1 || limit > client.MaximumClusterBackupsPageSize) {
+		return options, withExitCode(exitUsage, fmt.Errorf(
+			"--limit must be between 1 and %d", client.MaximumClusterBackupsPageSize))
+	}
+	options.Limit = limit
 	return options, nil
 }
 
@@ -100,7 +109,10 @@ func describeBackupStackState(state string) string {
 	case client.ClusterBackupStackAbsent:
 		return "not installed - Ankra installs it once a stack here is protected and a vault is ready"
 	default:
-		return state
+		// A state this build does not know is said to be unrecognised rather
+		// than printed bare: a lone word reads as a verdict this command
+		// stands behind, and "ready" is the one it must never imply.
+		return fmt.Sprintf("%q - this version of the CLI does not recognise that state", state)
 	}
 }
 
@@ -225,7 +237,8 @@ func init() {
 	clusterBackupsStatusCmd.Flags().StringArray("protection", nil,
 		"Only stacks with this verdict: "+strings.Join(client.ProtectionStates, ", ")+" (repeatable)")
 	clusterBackupsStatusCmd.Flags().String("cursor", "", "Continue from a previous page's cursor")
-	clusterBackupsStatusCmd.Flags().Int("limit", 0, "Stacks per page (default 25, maximum 100)")
+	clusterBackupsStatusCmd.Flags().Int("limit", 0,
+		fmt.Sprintf("Stacks per page (default 25, maximum %d)", client.MaximumClusterBackupsPageSize))
 	registerStructuredOutputFlags(clusterBackupsStatusCmd)
 
 	clusterBackupsCmd.AddCommand(clusterBackupsStatusCmd)
