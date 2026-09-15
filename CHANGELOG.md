@@ -50,14 +50,6 @@ while the platform redesigns that move. Both fixes in v0.17.1 are included.
   has no effect until the move returns: a cluster whose pod range overlaps a
   member's is reported blocked with the platform's reason.
 
-## v0.17.1 — 2026-09-15
-
-Two fixes on top of v0.17.0, both for operations that previously had no way
-forward: a retried vault upload that died on its own body instead of
-reporting the error underneath it, and `--force` reaching the Proxmox
-deprovision lane, so a cluster whose host is gone can leave
-`deprovisioning` instead of holding its name forever.
-
 ### Fixed
 
 - **A superseded pipeline run reads `superseded` in every view of it, and
@@ -77,6 +69,17 @@ deprovision lane, so a cluster whose host is gone can leave
   `Error: A newer run took this run's concurrency group.` - and prints the
   `Superseded:` line alone; a run somebody stopped keeps its `Class:` and
   `Error:` lines.
+
+## v0.17.1 — 2026-09-15
+
+Two fixes on top of v0.17.0, both for operations that previously had no way
+forward: a retried vault upload that died on its own body instead of
+reporting the error underneath it, and `--force` reaching the Proxmox
+deprovision lane, so a cluster whose host is gone can leave
+`deprovisioning` instead of holding its name forever.
+
+### Fixed
+
 - **A retried upload no longer fails on its own body.** `ankra migrate up`,
   `migrate restore` and `migrate data` send each dump to the backup vault with
   retries. The dump was handed to the transport as an open file, which closed it
