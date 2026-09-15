@@ -327,8 +327,11 @@ func runManifestsUpgrade(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// mutated keeps the exported from_file. On this PATCH lane it is where the
+	// platform writes the manifest in the GitOps repository, not a source to
+	// read; clearing it relocated the file to the default path (ankra-syg75).
+	// --from-file (flags.FromFile) is the local source and a different thing.
 	mutated := *manifest
-	mutated.FromFile = ""
 
 	switch {
 	case flags.HasContent():

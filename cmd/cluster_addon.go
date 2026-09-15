@@ -532,12 +532,12 @@ func runAddonsUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	mutatedAddon := applyAddonMutations(*addon, flags, newValuesB64)
-	// Replacing the values inlines them, so the GitOps pointer they came
-	// from goes away: say so rather than letting it vanish from the diff
-	// unremarked. A non-values change keeps the pointer (ankra-u8ho).
+	// The values travel inline, but the pointer stays: say which GitOps file
+	// they land in, since the dry-run diff shows only the inline bytes
+	// (ankra-syg75).
 	if newValuesB64 != nil && addon.Configuration != nil && addon.Configuration.FromFile != "" {
 		notices = append(notices, fmt.Sprintf(
-			"values are sent inline, replacing the configuration.from_file reference %q", addon.Configuration.FromFile))
+			"values are written to the GitOps file configuration.from_file %q", addon.Configuration.FromFile))
 	}
 	if flags.HasParentEdit() {
 		parents, pErr := mergeParents(addon.Parents, flags.AddParents, flags.RemoveParents, flags.SetParents)

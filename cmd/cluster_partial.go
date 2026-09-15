@@ -576,15 +576,17 @@ func applyAddonMutations(orig client.AddonSpec, flags addonsUpgradeFlags, newVal
 	// GitOps values reference (from_file) and the encrypted_paths list, and
 	// dropping either would re-deploy the addon with default/empty values
 	// or with its SOPS paths unmarked (ankra-u8ho). A values replacement
-	// overwrites only values_base64 - and clears from_file, because the new
-	// values are inline and a stale pointer would contradict them.
+	// overwrites only values_base64 and keeps from_file: on this PATCH lane
+	// from_file is not a source to read but where the platform writes the
+	// values in the GitOps repository, so clearing it moved a hand-placed
+	// values file to the default path and left the old one behind
+	// (ankra-syg75, PLA-863).
 	out.Configuration = copyAddonConfiguration(orig.Configuration)
 	if newValuesB64 != nil {
 		if out.Configuration == nil {
 			out.Configuration = &client.AddonConfigurationSpec{}
 		}
 		out.Configuration.ValuesBase64 = *newValuesB64
-		out.Configuration.FromFile = ""
 	}
 	return out
 }

@@ -1211,8 +1211,9 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName string, leafKeys
 		}
 	}
 
+	// from_file is kept: it is where the sealed manifest lands in the GitOps
+	// repository, not a source the PATCH reads (ankra-syg75).
 	mutated := *manifest
-	mutated.FromFile = ""
 	mutated.ManifestBase64 = base64.StdEncoding.EncodeToString([]byte(encryptedYAML))
 	mutated.EncryptedPaths = newPaths
 
@@ -1290,6 +1291,9 @@ func runEncryptAddonCluster(cmd *cobra.Command, addonName string, leafKeys []str
 	mutatedAddon.Configuration = &client.AddonConfigurationSpec{
 		ValuesBase64:   base64.StdEncoding.EncodeToString([]byte(encryptedYAML)),
 		EncryptedPaths: newPaths,
+	}
+	if addon.Configuration != nil {
+		mutatedAddon.Configuration.FromFile = addon.Configuration.FromFile
 	}
 
 	patchStack := copyStackMetadata(stack)
