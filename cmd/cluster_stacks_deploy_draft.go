@@ -13,7 +13,6 @@ package cmd
 // This verb closes it over the write the portal's own Deploy button uses.
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -59,7 +58,9 @@ var clusterStacksDeployDraftCmd = &cobra.Command{
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Deploying draft stack '%s' on cluster '%s'...\n",
 				document.Name(), cluster.Name)
 		}
-		result, deployError := apiClient.DeployClusterStackDraft(context.Background(), cluster.ID, document)
+		// The command's own context, so Ctrl-C cancels the request rather
+		// than leaving its outcome unknown.
+		result, deployError := apiClient.DeployClusterStackDraft(cmd.Context(), cluster.ID, document)
 		if deployError != nil {
 			return fmt.Errorf("deploying the draft: %w", deployError)
 		}

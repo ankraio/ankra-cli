@@ -212,14 +212,22 @@ func (c *Client) ListClusterStackDocuments(clusterID string) ([]ClusterStackDocu
 			return nil, fmt.Errorf("failed to list cluster stacks: %w", requestError)
 		}
 		documents = append(documents, response.Stacks...)
-		// A short page is the end of the listing whatever the pagination
-		// block says. Trusting total_pages alone truncates silently when it
-		// is absent (it decodes as 0), and a draft on a later page would
-		// then be reported as not found rather than deployed.
-		if len(response.Stacks) < stackListingPageSize {
+		if len(response.Stacks) == 0 {
 			break
 		}
-		if response.Pagination.TotalPages > 0 && page >= response.Pagination.TotalPages {
+		// total_pages is authoritative when the server sends it, including
+		// when it caps page_size below the size asked for - every page is
+		// then "short" and a size-only rule would stop after the first.
+		// Only when the block is absent (it decodes as 0) does a short page
+		// end the walk, which is what keeps an absent block from truncating
+		// the listing and reporting a draft on a later page as not found.
+		if response.Pagination.TotalPages > 0 {
+			if page >= response.Pagination.TotalPages {
+				break
+			}
+			continue
+		}
+		if len(response.Stacks) < stackListingPageSize {
 			break
 		}
 	}

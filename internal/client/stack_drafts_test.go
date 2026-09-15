@@ -312,3 +312,50 @@ func TestListClusterStackDocumentsStopsOnAShortPage(t *testing.T) {
 		t.Fatalf("a short page ends the listing; made %d requests", requests)
 	}
 }
+
+func TestListClusterStackDocumentsFollowsTotalPagesWhenTheServerCapsThePageSize(t *testing.T) {
+	// A server that silently caps page_size makes every page "short", so a
+	// size-only end rule stops after page 1 and a draft on a later page is
+	// reported as not found - the exact failure the short-page rule exists
+	// to prevent, reintroduced from the other side. total_pages wins when
+	// the server sends it.
+	const cappedPageSize = 25
+	requestedPages := []string{}
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		requestedPages = append(requestedPages, page)
+		stacks := make([]map[string]any, 0, cappedPageSize)
+		for index := 0; index < cappedPageSize; index++ {
+			entry := map[string]any{"name": fmt.Sprintf("filler-%s-%d", page, index)}
+			if page == "3" && index == 0 {
+				entry = map[string]any{"name": "notes", "lifecycle": "draft_only"}
+			}
+			stacks = append(stacks, entry)
+		}
+		jsonResponse(t, w, http.StatusOK, map[string]any{
+			"stacks":     stacks,
+			"pagination": map[string]any{"total_pages": 3},
+		})
+	}
+	testClient := newTestClient(t, handler)
+
+	documents, listError := testClient.ListClusterStackDocuments("cluster-1")
+	if listError != nil {
+		t.Fatalf("ListClusterStackDocuments: %v", listError)
+	}
+	if strings.Join(requestedPages, ",") != "1,2,3" {
+		t.Fatalf("every page total_pages promises must be walked, requested %v", requestedPages)
+	}
+	if len(documents) != cappedPageSize*3 {
+		t.Fatalf("expected %d stacks, got %d", cappedPageSize*3, len(documents))
+	}
+	var found bool
+	for _, document := range documents {
+		if document.Name() == "notes" && document.IsDraftOnly() {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the draft on the last capped page was lost")
+	}
+}
