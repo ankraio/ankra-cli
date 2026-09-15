@@ -45,11 +45,11 @@ A checkout of any other repository never supplies the commit, so
 other-app's default branch, not your local HEAD.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
-			selector, selectorError := resolvePipelineSelector(command)
-			if selectorError != nil {
-				return selectorError
+			target, targetError := resolvePipelineTarget(command)
+			if targetError != nil {
+				return targetError
 			}
-			return runPipelineDispatch(command, selector)
+			return runPipelineDispatch(command, target)
 		},
 	}
 	registerPipelineSelectorFlags(runCommand)
@@ -98,12 +98,21 @@ func localHeadCommit(requestContext context.Context) (string, string) {
 // checkout of the repository the selected pipeline builds: the one case in
 // which its HEAD is a commit of that pipeline's repository.
 //
+// A target inferred from the working directory already knows: the walk that
+// inferred it matched the checkout's origin to the application, and asking
+// the listing again would only rediscover that at the same cost - or, when a
+// page of the second walk failed, forget it (ankra-4dq9l). Only a target the
+// user named by --application needs the listing read, and it is read once.
+//
 // A --repository selector names a pipeline repository by id, and there is no
 // lookup from that id to "owner/name" here, so a checkout cannot be matched
 // to it and the answer is no. So is every incomplete answer from the listing:
 // sending a foreign commit is worse than letting the platform read the tip.
-func checkoutBuildsSelectedPipeline(requestContext context.Context, selector client.PipelineSelector) bool {
-	if selector.ApplicationID == "" {
+func checkoutBuildsSelectedPipeline(requestContext context.Context, target pipelineTarget) bool {
+	if target.checkoutIsRepository {
+		return true
+	}
+	if target.selector.ApplicationID == "" {
 		return false
 	}
 	_, applicationIDs, _, known := checkoutApplications(requestContext)
@@ -111,7 +120,7 @@ func checkoutBuildsSelectedPipeline(requestContext context.Context, selector cli
 		return false
 	}
 	for _, applicationID := range applicationIDs {
-		if strings.EqualFold(applicationID, selector.ApplicationID) {
+		if strings.EqualFold(applicationID, target.selector.ApplicationID) {
 			return true
 		}
 	}
@@ -120,8 +129,12 @@ func checkoutBuildsSelectedPipeline(requestContext context.Context, selector cli
 
 // runPipelineDispatch reads the dispatch flags and drives the shared
 // CreatePipelineRun call; used by both `pipeline run` and
-// `application pipeline run`.
-func runPipelineDispatch(command *cobra.Command, selector client.PipelineSelector) error {
+// `application pipeline run`. The target carries what resolving the selector
+// learned about the working directory, so the applications listing is walked
+// at most once per dispatch: by the inference that produced the target, or
+// by the checkout match for a target the user named, never both.
+func runPipelineDispatch(command *cobra.Command, target pipelineTarget) error {
+	selector := target.selector
 	format, formatError := structuredFormatFromFlags(command)
 	if formatError != nil {
 		return formatError
@@ -151,7 +164,7 @@ func runPipelineDispatch(command *cobra.Command, selector client.PipelineSelecto
 		//     is not a commit of the pipeline being run (PLA-863).
 		if ref == "" {
 			localSHA, localRef := localHeadCommit(command.Context())
-			if localSHA != "" && checkoutBuildsSelectedPipeline(command.Context(), selector) {
+			if localSHA != "" && checkoutBuildsSelectedPipeline(command.Context(), target) {
 				sha = localSHA
 				ref = localRef
 				_, _ = fmt.Fprintf(command.ErrOrStderr(),

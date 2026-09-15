@@ -63,6 +63,14 @@ type pipelineLaneMock struct {
 	// applicationsListing, when set, answers ListApplicationsRaw, so a test
 	// can bind an application to the repository a checkout points at.
 	applicationsListing string
+	// applicationsListingCalls counts ListApplicationsRaw calls, so a test
+	// can pin that a dispatch walks the listing exactly as often as it must
+	// (ankra-4dq9l: once, never twice).
+	applicationsListingCalls int
+	// applicationsListingErrorsOnCall fails the numbered ListApplicationsRaw
+	// calls (counting from one) with the given error, so a test can stage a
+	// listing that answers the first walk and fails a second one.
+	applicationsListingErrorsOnCall map[int]error
 
 	rerunRunID      string
 	rerunFailedOnly bool
@@ -163,6 +171,10 @@ func (mock *pipelineLaneMock) ListPipelineRuns(ctx context.Context, selector cli
 }
 
 func (mock *pipelineLaneMock) ListApplicationsRaw(ctx context.Context, page int, pageSize int, search string) (json.RawMessage, error) {
+	mock.applicationsListingCalls++
+	if failure, isFailing := mock.applicationsListingErrorsOnCall[mock.applicationsListingCalls]; isFailing {
+		return nil, failure
+	}
 	if mock.applicationsListing == "" {
 		return mock.baseMock.ListApplicationsRaw(ctx, page, pageSize, search)
 	}
@@ -629,6 +641,10 @@ func TestPipelineRunReadsTheWorkingDirectoryHead(t *testing.T) {
 	if mockClient.createRequest.Ref != "main" {
 		t.Errorf("dispatched ref = %q, want the checked-out branch", mockClient.createRequest.Ref)
 	}
+	if mockClient.applicationsListingCalls != 1 {
+		t.Errorf("applications listing read %d times, want exactly once: the checkout match for a named --application is the only walk",
+			mockClient.applicationsListingCalls)
+	}
 }
 
 // TestPipelineRunIgnoresTheHeadOfAnotherRepositorysCheckout is the PLA-863
@@ -649,25 +665,108 @@ func TestPipelineRunIgnoresTheHeadOfAnotherRepositorysCheckout(t *testing.T) {
 	if strings.Contains(output, "working directory's HEAD") || !strings.Contains(output, "default branch") {
 		t.Errorf("output = %q, want the default branch named and no local HEAD", output)
 	}
+	if mockClient.applicationsListingCalls != 1 {
+		t.Errorf("applications listing read %d times, want exactly once", mockClient.applicationsListingCalls)
+	}
 }
 
 // TestPipelineRunDoesNotTrustACheckoutItCannotMatch pins the fail-closed arms:
 // a listing that cannot be read, and a --repository id there is no
 // owner/name lookup for, both leave the commit to the platform rather than
-// sending a HEAD that may belong to a different repository.
+// sending a HEAD that may belong to a different repository. The repository
+// arm never reads the listing at all: there is nothing in it to match an id
+// against, so a walk would be cost with no answer.
 func TestPipelineRunDoesNotTrustACheckoutItCannotMatch(t *testing.T) {
 	seedPipelineCheckout(t, "https://github.com/acme/payments.git")
-	for name, arguments := range map[string][]string{
-		"unreadable listing": {"run", "--application", testApplicationID},
-		"repository id":      {"run", "--repository", "7d0c5a4e-7f55-4f0e-9d8a-2f5a3c1b9e61"},
+	for name, testCase := range map[string]struct {
+		arguments    []string
+		listingReads int
+	}{
+		"unreadable listing": {
+			arguments:    []string{"run", "--application", testApplicationID},
+			listingReads: 1,
+		},
+		"repository id": {
+			arguments:    []string{"run", "--repository", "7d0c5a4e-7f55-4f0e-9d8a-2f5a3c1b9e61"},
+			listingReads: 0,
+		},
 	} {
 		mockClient := queuedRunMock()
-		if _, executeError := runPipelineCommand(t, mockClient, arguments...); executeError != nil {
+		if _, executeError := runPipelineCommand(t, mockClient, testCase.arguments...); executeError != nil {
 			t.Fatalf("%s: dispatch = %v", name, executeError)
 		}
 		if mockClient.createRequest.HeadSHA != "" {
 			t.Errorf("%s: dispatched sha = %q, want none", name, mockClient.createRequest.HeadSHA)
 		}
+		if mockClient.applicationsListingCalls != testCase.listingReads {
+			t.Errorf("%s: applications listing read %d times, want %d",
+				name, mockClient.applicationsListingCalls, testCase.listingReads)
+		}
+	}
+}
+
+// TestPipelineRunInferredFromTheCheckoutWalksTheListingOnce is the
+// ankra-4dq9l regression. Plain 'ankra pipeline run' infers --application by
+// walking the applications listing and matching the checkout's origin; the
+// dispatch then used to walk the whole listing AGAIN to decide whether that
+// same checkout's HEAD could be the commit. When any page of the second walk
+// failed, the HEAD was dropped and a user on a feature branch built the
+// default branch instead - after being told which application their checkout
+// had just resolved to. The listing here answers once and fails every call
+// after it: the inference must be enough for the HEAD to be used.
+func TestPipelineRunInferredFromTheCheckoutWalksTheListingOnce(t *testing.T) {
+	seedPipelineCheckout(t, "https://github.com/acme/payments.git")
+	mockClient := queuedRunMock()
+	mockClient.applicationsListing = applicationBoundTo("acme", "payments")
+	mockClient.applicationsListingErrorsOnCall = map[int]error{2: errors.New("second walk must not happen")}
+	output, executeError := runPipelineCommand(t, mockClient, "run")
+	if executeError != nil {
+		t.Fatalf("plain dispatch inside a checkout = %v, want the inferred application run at HEAD", executeError)
+	}
+	if mockClient.applicationsListingCalls != 1 {
+		t.Errorf("applications listing read %d times, want exactly once: the inference is the only walk",
+			mockClient.applicationsListingCalls)
+	}
+	if mockClient.createCalls != 1 {
+		t.Fatalf("CreatePipelineRun calls = %d, want 1", mockClient.createCalls)
+	}
+	if mockClient.lastSelector.ApplicationID != testApplicationID || mockClient.lastSelector.RepositoryID != "" {
+		t.Errorf("dispatched selector = %+v, want the application the checkout resolved to", mockClient.lastSelector)
+	}
+	if len(mockClient.createRequest.HeadSHA) != 40 {
+		t.Errorf("dispatched sha = %q, want the checkout's full HEAD sha", mockClient.createRequest.HeadSHA)
+	}
+	if mockClient.createRequest.Ref != "main" {
+		t.Errorf("dispatched ref = %q, want the checked-out branch", mockClient.createRequest.Ref)
+	}
+	if !strings.Contains(output, "Using the application bound to acme/payments") {
+		t.Errorf("output = %q, want the inferred application named", output)
+	}
+	if !strings.Contains(output, "working directory's HEAD") || strings.Contains(output, "default branch") {
+		t.Errorf("output = %q, want the local HEAD announced and no default-branch fallback", output)
+	}
+}
+
+// TestPipelineRunInferredFromTheCheckoutStillHonoursANamedRef pins that
+// knowing the checkout is the selected repository does not loosen the --ref
+// rule: an inferred application run at "release-2.0" sends the ref alone,
+// never the HEAD of whatever branch the checkout sits on.
+func TestPipelineRunInferredFromTheCheckoutStillHonoursANamedRef(t *testing.T) {
+	seedPipelineCheckout(t, "https://github.com/acme/payments.git")
+	mockClient := queuedRunMock()
+	mockClient.applicationsListing = applicationBoundTo("acme", "payments")
+	if _, executeError := runPipelineCommand(t, mockClient, "run", "--ref", "release-2.0"); executeError != nil {
+		t.Fatalf("dispatch = %v", executeError)
+	}
+	if mockClient.lastSelector.ApplicationID != testApplicationID {
+		t.Errorf("dispatched selector = %+v, want the inferred application", mockClient.lastSelector)
+	}
+	if mockClient.createRequest.HeadSHA != "" || mockClient.createRequest.Ref != "release-2.0" {
+		t.Errorf("dispatched sha %q ref %q, want no sha and ref release-2.0",
+			mockClient.createRequest.HeadSHA, mockClient.createRequest.Ref)
+	}
+	if mockClient.applicationsListingCalls != 1 {
+		t.Errorf("applications listing read %d times, want exactly once", mockClient.applicationsListingCalls)
 	}
 }
 
