@@ -19,6 +19,18 @@
   reported as unprotected. Narrow it with `--protection`, page it with
   `--limit` and `--cursor`, script it with `-o json`.
 
+### Changed
+
+- **`mesh make-ready --pod-cidr` no longer moves a cluster onto a fresh pod
+  range.** The platform refuses that move while it is redesigned: a
+  kube-controller-manager whose `--cluster-cidr` excludes a node's range exits
+  at start, so the move took a cluster's controllers down instead of
+  renumbering it. The flag still accepts the kubeadm default
+  `10.244.0.0/16`, which puts a cluster an earlier move split back onto the
+  range its nodes run, and the help text says so. `mesh up --renumber-pods`
+  has no effect until the move returns: a cluster whose pod range overlaps a
+  member's is reported blocked with the platform's reason.
+
 ### Fixed
 
 - **A retried upload no longer fails on its own body.** `ankra migrate up`,
