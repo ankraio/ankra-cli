@@ -443,6 +443,14 @@ func refreshInstalledSkills(out io.Writer, executable string, groups []skillsRef
 	for _, group := range groups {
 		all = append(all, group.Clients...)
 	}
+	if len(all) == 0 {
+		// Nothing to refresh: no assistant was detected with an Ankra install
+		// for this user, or the install record could not be read (a warning
+		// above says which). Neither is asserted here, so the person is not
+		// told to reinstall over an install that may be perfectly fine.
+		_, _ = fmt.Fprintf(out, "Nothing to refresh: no assistant with an Ankra skills install was detected for your user, or its install record could not be read. To refresh by hand once that is resolved: %s skills install --force\n", executable)
+		return
+	}
 	_, _ = fmt.Fprintf(out, "Refreshing the Ankra agent skills for %s ...\n", clientDisplayNames(all))
 	for _, group := range groups {
 		arguments := skillsRefreshArguments(group)

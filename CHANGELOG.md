@@ -129,6 +129,13 @@ while the platform redesigns that move. Both fixes in v0.17.1 are included.
 
 ### Fixed
 
+- **Removing named skills no longer makes the next `ankra upgrade` refresh
+  with the default options.** `ankra skills uninstall <name>` leaves the
+  install in place but forgot the recorded install options, so the following
+  upgrade re-added the rule block or workflows the person had declined. Only a
+  full uninstall forgets them. A forced `--skills` refresh with nothing
+  detected now says so and names the by-hand command instead of announcing a
+  refresh for nobody.
 - **`ankra registry robots create` and `rotate` no longer print a login
   command with the secret on it.** The human output showed the secret and
   then the platform's `docker login ... -p '<secret>'` line, so pasting the

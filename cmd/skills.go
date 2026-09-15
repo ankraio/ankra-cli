@@ -446,7 +446,11 @@ func uninstallForTarget(target skills.Target, names []string, full bool) error {
 	if found {
 		fmt.Printf("  hook      removed from %s\n", skills.DisplayPath(hookPath))
 	}
-	if target.Scope == skills.ScopePersonal {
+	// Only a full uninstall forgets the recorded options: removing named
+	// skills leaves the install (rule block, workflows, hook) in place, and
+	// the next upgrade must refresh it with the options it was made with,
+	// not with the defaults.
+	if full && target.Scope == skills.ScopePersonal {
 		if err := skills.ForgetInstallOptions(target.Root, target.Client.ID); err != nil {
 			return fmt.Errorf("could not forget the recorded install options: %w", err)
 		}

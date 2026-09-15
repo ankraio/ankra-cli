@@ -355,6 +355,19 @@ func TestSkillsInstallRecordsTheOptionsItUsed(t *testing.T) {
 		t.Fatalf("a re-install must replace the record, got found=%v %+v", found, recorded)
 	}
 
+	// Removing named skills leaves the install in place, so the record
+	// stays: the next upgrade must replay these options, not the defaults.
+	var partialError error
+	captureStdout(t, func() {
+		partialError = uninstallForTarget(target, []string{"ankra-cli"}, false)
+	})
+	if partialError != nil {
+		t.Fatalf("partial uninstall: %v", partialError)
+	}
+	if _, found, _ := skills.RecordedInstallOptions(home, "claude-code"); !found {
+		t.Fatal("a partial uninstall must keep the recorded options")
+	}
+
 	var uninstallError error
 	captureStdout(t, func() {
 		uninstallError = uninstallForTarget(target, []string{"ankra-cli"}, true)
@@ -364,5 +377,32 @@ func TestSkillsInstallRecordsTheOptionsItUsed(t *testing.T) {
 	}
 	if _, found, _ := skills.RecordedInstallOptions(home, "claude-code"); found {
 		t.Fatal("a full uninstall must forget the recorded options")
+	}
+}
+
+// TestRefreshInstalledSkillsWithNothingDetectedSaysSo pins the forced
+// refresh after a detection failure: no banner for nobody, nothing run, the
+// by-hand command instead.
+func TestRefreshInstalledSkillsWithNothingDetectedSaysSo(t *testing.T) {
+	original := runSkillsRefresh
+	t.Cleanup(func() { runSkillsRefresh = original })
+	runs := 0
+	runSkillsRefresh = func(io.Writer, string, []string) error {
+		runs++
+		return nil
+	}
+	var out bytes.Buffer
+	refreshInstalledSkills(&out, "/usr/local/bin/ankra", nil)
+	if runs != 0 {
+		t.Fatalf("nothing may run with no clients, got %d runs", runs)
+	}
+	if strings.Contains(out.String(), "Refreshing the Ankra agent skills for") {
+		t.Fatalf("no refresh banner for nobody, got %q", out.String())
+	}
+	if !strings.Contains(out.String(), "/usr/local/bin/ankra skills install --force") {
+		t.Fatalf("the by-hand command must be named, got %q", out.String())
+	}
+	if strings.Contains(out.String(), "were found") {
+		t.Fatalf("the message must not assert that nothing is installed, got %q", out.String())
 	}
 }
