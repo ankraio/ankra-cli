@@ -979,6 +979,14 @@ func (m baseMock) ListClusterStacks(clusterID string) ([]client.ClusterStackList
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListClusterStackDocuments(clusterID string) ([]client.ClusterStackDocument, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeployClusterStackDraft(ctx context.Context, clusterID string, document client.ClusterStackDocument) (*client.StackWriteResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) DeleteStack(ctx context.Context, clusterID, stackName string) (*client.DeleteStackResult, error) {
 	return nil, errors.New("not implemented")
 }
