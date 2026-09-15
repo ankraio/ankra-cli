@@ -653,6 +653,10 @@ func (m baseMock) GetStackDataAssets(string, string) (*client.StackDataInventory
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetClusterBackups(string, client.ClusterBackupsOptions) (*client.ClusterBackupsPage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListRuns(client.ListRunsOptions) (*client.RunListResult, error) {
 	return nil, errors.New("not implemented")
 }

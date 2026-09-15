@@ -117,6 +117,7 @@ type APIClient interface {
 	ProtectStack(clusterID string, stackName string, request client.ProtectStackRequest) (*client.StackProtection, error)
 	UnprotectStack(clusterID string, stackName string, request client.UnprotectStackRequest) (*client.StackProtection, error)
 	GetStackDataAssets(clusterID string, stackName string) (*client.StackDataInventory, error)
+	GetClusterBackups(clusterID string, options client.ClusterBackupsOptions) (*client.ClusterBackupsPage, error)
 
 	ListRuns(options client.ListRunsOptions) (*client.RunListResult, error)
 	GetRun(runID string) (*client.Run, error)
