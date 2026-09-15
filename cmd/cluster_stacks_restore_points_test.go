@@ -518,6 +518,59 @@ func TestRestorePointsCreateSendsNoSelectionWhenNoneWasAsked(t *testing.T) {
 	}
 }
 
+// Naming volumes is not a decision about databases. Sending an explicit
+// `databases: true` alongside --include-pvc would silently re-include the
+// databases of a stack whose stored policy excludes them.
+func TestRestorePointsCreateLeavesDatabasesUndecidedWhenOnlyVolumesAreNamed(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.createResult = &client.CreateRestorePointResult{
+		RestorePointID: backupTestRestorePointID, RunID: backupTestRunID,
+	}
+
+	_, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsCreateCmd},
+		"cluster", "stacks", "restore-points", "create", backupTestStack,
+		"--cluster", "demo", "--include-pvc", "shop/data")
+
+	if executeError != nil {
+		t.Fatalf("creating a restore point: %v", executeError)
+	}
+	selection := mock.created.Selection
+	if selection == nil || len(selection.PersistentVolumeClaims) != 1 {
+		t.Fatalf("the named volume must reach the selection, got %+v", selection)
+	}
+	if selection.Databases != nil {
+		t.Fatalf("naming a volume must not decide the databases, got %v", *selection.Databases)
+	}
+	if selection.ConfirmExcludeDatabases {
+		t.Fatal("no exclusion was asked for, so nothing may be acknowledged")
+	}
+}
+
+func TestProtectLeavesDatabasesUndecidedWhenOnlyVolumesAreNamed(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.protection = &client.StackProtection{
+		StackName: backupTestStack,
+		Policy:    client.BackupPolicy{Enabled: true, Vault: "production-backups"},
+	}
+
+	_, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksProtectCmd},
+		"cluster", "stacks", "protect", backupTestStack, "--cluster", "demo",
+		"--vault", "production-backups", "--include-pvc", "shop/data")
+
+	if executeError != nil {
+		t.Fatalf("protecting a stack: %v", executeError)
+	}
+	selection := mock.protected.Selection
+	if selection == nil || len(selection.PersistentVolumeClaims) != 1 {
+		t.Fatalf("the named volume must reach the selection, got %+v", selection)
+	}
+	if selection.Databases != nil {
+		t.Fatalf("naming a volume must not decide the databases, got %v", *selection.Databases)
+	}
+}
+
 func TestRestorePointsCreateRefusesExcludingDatabasesWithoutConfirmation(t *testing.T) {
 	mock := newBackupLaneMock()
 

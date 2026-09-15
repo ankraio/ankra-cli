@@ -339,7 +339,8 @@ var clusterStacksRestorePointsGetCmd = &cobra.Command{
 	Short: "Show a restore point's manifest, assets and producing run",
 	Long: "Describe one restore point: the manifest it carries, every asset in it, " +
 		"everything it does not carry, and the run that produced it. The id may be " +
-		"an unambiguous prefix of the one the listing printed.",
+		"an unambiguous prefix of the one the listing printed, resolved against the " +
+		"stack's 200 most recent restore points - pass the full id for an older one.",
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName, reference := args[0], args[1]
@@ -367,6 +368,11 @@ var clusterStacksRestorePointsGetCmd = &cobra.Command{
 // and `protect`. A command whose selection flags were all left alone sends no
 // selection at all, so the platform falls back to the stack's stored one
 // rather than being told to widen to everything.
+//
+// Naming volumes is not a decision about databases. The platform tells an
+// absent `databases` from an explicit one, so only --exclude-databases sets
+// it: sending `databases: true` alongside --include-pvc would silently
+// re-include the databases of a stack whose stored policy excludes them.
 func buildSelection(cmd *cobra.Command) (*client.RestorePointSelection, error) {
 	includeClaims, _ := cmd.Flags().GetStringArray("include-pvc")
 	excludeDatabases, _ := cmd.Flags().GetBool("exclude-databases")
@@ -374,18 +380,20 @@ func buildSelection(cmd *cobra.Command) (*client.RestorePointSelection, error) {
 	if len(includeClaims) == 0 && !excludeDatabases {
 		return nil, nil
 	}
-	if excludeDatabases && !confirmExclusion {
+	selection := &client.RestorePointSelection{PersistentVolumeClaims: includeClaims}
+	if !excludeDatabases {
+		return selection, nil
+	}
+	if !confirmExclusion {
 		return nil, withExitCode(exitUsage, fmt.Errorf(
 			"--exclude-databases also needs --confirm-exclude-databases: every restore point taken "+
 				"under this selection carries no database contents, and that is not something to "+
 				"discover during a restore"))
 	}
-	databases := !excludeDatabases
-	return &client.RestorePointSelection{
-		Databases:               &databases,
-		PersistentVolumeClaims:  includeClaims,
-		ConfirmExcludeDatabases: confirmExclusion,
-	}, nil
+	databasesExcluded := false
+	selection.Databases = &databasesExcluded
+	selection.ConfirmExcludeDatabases = true
+	return selection, nil
 }
 
 // resolveSelectedVault turns --vault into the id the request carries. An
@@ -496,7 +504,11 @@ source cluster, and when no sweep could be dispatched the command says why the
 objects were left behind rather than understating the storage bill.
 
 A restore point a backup, restore or clone is currently using is refused, and
-so is one that is still being taken.`,
+so is one that is still being taken.
+
+The id may be an unambiguous prefix of the one the listing printed, resolved
+against the stack's 200 most recent restore points; pass the full id for an
+older one.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName, reference := args[0], args[1]
@@ -543,22 +555,27 @@ var clusterStacksRestorePointsRestoreCmd = &cobra.Command{
 	Short: "Restore a restore point over the stack it was taken from",
 	Long: `Restore a restore point over the stack it was taken from.
 
-This destroys before it replaces. The platform answers with the sequence it
-will follow, and the command prints it before anything happens:
+This destroys before it replaces. Typing the stack's own name is what gates
+it - the sequence the platform will follow is printed from its answer, once
+the restore has been accepted and before any of its steps run:
 
   1. Scale down the workloads that own the data.
   2. Remove the volumes the restore point replaces.
   3. Restore the restore point's assets onto the cluster.
   4. Scale the workloads back up over the restored data.
 
-Confirmation is typing the stack's own name, not y/N; --yes skips it for
+Confirmation is the typed stack name, not y/N; --yes skips it for
 scripts. A restore point carrying a CloudNativePG or Percona database is
 refused with the platform's own reason - the ordinary restore path would
 report success over unchanged data, which is worse than refusing.
 
 A stack whose data has changed since the restore point was taken is refused
 unless --force. An inventory whose live database scan did not run counts as
-drift, because "we could not read it" is not "it is unchanged".`,
+drift, because "we could not read it" is not "it is unchanged".
+
+The id may be an unambiguous prefix of the one the listing printed, resolved
+against the stack's 200 most recent restore points; pass the full id for an
+older one.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName, reference := args[0], args[1]
