@@ -77,6 +77,8 @@ func (mock *applicationBackupsMock) ListBackupVaults() (*client.BackupVaultListR
 
 func applicationBackupText(value string) *string { return &value }
 
+func applicationBackupSetting(value bool) *bool { return &value }
+
 // applicationBackupCommands is what every test below hands runBackupCommand
 // as its flag resets.
 //
@@ -115,7 +117,7 @@ func sampleApplicationBackups() *client.ApplicationBackups {
 		Database: client.ApplicationDatabase{
 			Status: "recorded", Engine: "postgresql", Operator: "cloudnative-pg",
 		},
-		DatabaseBackup: true,
+		DatabaseBackup: applicationBackupSetting(true),
 		Deployments: []client.ApplicationBackupDeployment{{
 			DeploymentID:     applicationBackupsClusterID,
 			ClusterID:        applicationBackupsClusterID,
@@ -183,6 +185,47 @@ func TestApplicationBackupsNeverCallsAnUnreadPostureUnprotected(t *testing.T) {
 	}
 	if !strings.Contains(stripped, "not created yet") {
 		t.Fatalf("expected the stack to be reported as not created yet, got:\n%s", stripped)
+	}
+}
+
+// The database backup is ON by default for an application that declares a
+// database, so a response that carries no setting must not print "off" - that
+// is the opposite of what the application's next deploy does.
+func TestApplicationBackupsReportsAnUnreportedDatabaseBackupAsUnknown(t *testing.T) {
+	backups := sampleApplicationBackups()
+	backups.DatabaseBackup = nil
+	mock := &applicationBackupsMock{backups: backups}
+
+	output, executeError := runBackupCommand(t, mock, "",
+		applicationBackupCommands(t), "application", "backups", applicationBackupsAppID)
+
+	if executeError != nil {
+		t.Fatalf("reading the application's backups: %v", executeError)
+	}
+	stripped := stripANSICodes(output)
+	if strings.Contains(stripped, "Database backup: off") {
+		t.Fatalf("an unreported database-backup setting was rendered as off:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "Database backup: unknown") {
+		t.Fatalf("expected the unreported setting to render as unknown, got:\n%s", stripped)
+	}
+}
+
+// And a setting the platform reports as off still reads off, so the unknown
+// rendering above is not swallowing a real negative.
+func TestApplicationBackupsReportsADisabledDatabaseBackupAsOff(t *testing.T) {
+	backups := sampleApplicationBackups()
+	backups.DatabaseBackup = applicationBackupSetting(false)
+	mock := &applicationBackupsMock{backups: backups}
+
+	output, executeError := runBackupCommand(t, mock, "",
+		applicationBackupCommands(t), "application", "backups", applicationBackupsAppID)
+
+	if executeError != nil {
+		t.Fatalf("reading the application's backups: %v", executeError)
+	}
+	if !strings.Contains(stripANSICodes(output), "Database backup: off") {
+		t.Fatalf("expected a disabled setting to render as off, got:\n%s", stripANSICodes(output))
 	}
 }
 

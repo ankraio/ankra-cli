@@ -307,11 +307,7 @@ that is, and the restore point it takes is the same artifact
 func printApplicationBackups(out io.Writer, backups *client.ApplicationBackups) {
 	_, _ = fmt.Fprintf(out, "Application '%s':\n", backups.ApplicationName)
 	_, _ = fmt.Fprintf(out, "  Database:        %s\n", describeApplicationDatabaseStatus(backups.Database))
-	databaseBackup := "off"
-	if backups.DatabaseBackup {
-		databaseBackup = "on"
-	}
-	_, _ = fmt.Fprintf(out, "  Database backup: %s\n", databaseBackup)
+	_, _ = fmt.Fprintf(out, "  Database backup: %s\n", describeDatabaseBackupSetting(backups.DatabaseBackup))
 	if backups.ReadyVaultKnown {
 		_, _ = fmt.Fprintf(out, "  Ready vaults:    %d\n", backups.ReadyVaultCount)
 	} else {
@@ -346,6 +342,21 @@ func printApplicationBackups(out io.Writer, backups *client.ApplicationBackups) 
 		}
 	}
 	printWarnings(out, backups.Warnings)
+}
+
+// describeDatabaseBackupSetting keeps an unreported setting apart from one
+// that is off. Ankra turns the database backup on by default for an
+// application that declares a database, so rendering a response that carries
+// no setting as "off" would tell an operator their next deploy takes no
+// backup when it will take one.
+func describeDatabaseBackupSetting(setting *bool) string {
+	if setting == nil {
+		return "unknown (the platform did not report the setting)"
+	}
+	if *setting {
+		return "on"
+	}
+	return "off"
 }
 
 // describeApplicationDatabaseStatus keeps the contract's three values apart.

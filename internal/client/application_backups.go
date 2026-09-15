@@ -75,11 +75,16 @@ type StackBackupPosture struct {
 // ReadyVaultKnown is false when the vault listing could not be read: the
 // count is then not established rather than zero, and nothing may render
 // "backups are not set up" from it.
+//
+// DatabaseBackup is a pointer for the same reason. The platform's default
+// for an application that has never been decided on is ON, so a bare bool
+// would read a response that carries no setting as "off" - the opposite of
+// what the next deploy of that application will do.
 type ApplicationBackups struct {
 	ApplicationID   string                        `json:"application_id" yaml:"application_id"`
 	ApplicationName string                        `json:"application_name" yaml:"application_name"`
 	Database        ApplicationDatabase           `json:"database" yaml:"database"`
-	DatabaseBackup  bool                          `json:"database_backup" yaml:"database_backup"`
+	DatabaseBackup  *bool                         `json:"database_backup" yaml:"database_backup"`
 	Deployments     []ApplicationBackupDeployment `json:"deployments" yaml:"deployments"`
 	ReadyVaultCount int                           `json:"ready_vault_count" yaml:"ready_vault_count"`
 	ReadyVaultKnown bool                          `json:"ready_vault_known" yaml:"ready_vault_known"`
