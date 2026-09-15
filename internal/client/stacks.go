@@ -15,6 +15,10 @@ type ClusterStackListItem struct {
 	Description string          `json:"description"`
 	Manifests   []StackManifest `json:"manifests"`
 	Addons      []StackAddon    `json:"addons"`
+	// Applications are the third member kind a stack can hold. A stack
+	// deployed from an Ankra application is often nothing but these, so
+	// omitting them rendered such a stack as empty.
+	Applications []StackApplication `json:"applications"`
 	// DeployWave orders stacks against each other (nil = unordered).
 	DeployWave        *int   `json:"deploy_wave,omitempty"`
 	State             string `json:"state"`
@@ -45,6 +49,20 @@ type StackAddon struct {
 
 type StackAddonConfig struct {
 	ValuesBase64 string `json:"values_base64"`
+}
+
+// StackApplication is a stack member backed by an Ankra application. The
+// namespace and version members are nullable on the wire, so a missing one
+// decodes to the empty string rather than failing the whole listing.
+type StackApplication struct {
+	Name                       string   `json:"name"`
+	Namespace                  string   `json:"namespace"`
+	PlatformApplicationID      string   `json:"platform_application_id"`
+	PlatformApplicationVersion string   `json:"platform_application_version"`
+	Parents                    []Parent `json:"parents"`
+	State                      string   `json:"state"`
+	Health                     string   `json:"health"`
+	DeletePermanently          bool     `json:"delete_permanently"`
 }
 
 type ListClusterStacksResponse struct {
