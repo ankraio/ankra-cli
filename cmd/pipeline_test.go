@@ -1566,6 +1566,125 @@ func TestPipelineGetOmitsAuthorityWhenNotRecorded(t *testing.T) {
 
 func strPipelinePtr(value string) *string { return &value }
 
+func int64PipelinePtr(value int64) *int64 { return &value }
+
+// supersededPipelineRun is a run a newer run took the concurrency group from,
+// as the platform reports it: cancelled, with the class that says nobody
+// pressed cancel and the run that replaced it.
+func supersededPipelineRun() client.PipelineRun {
+	return client.PipelineRun{
+		ID: "run-17", RunNumber: 17, Status: "concluded",
+		Outcome:      strPipelinePtr("cancelled"),
+		ErrorClass:   strPipelinePtr("superseded"),
+		ErrorMessage: strPipelinePtr("A newer run took this run's concurrency group."),
+		Trigger:      "push", TriggerRef: "refs/heads/main", HeadSHA: strings.Repeat("c", 40),
+		QueuedAt:              "2026-09-15T00:00:00Z",
+		SupersededByRunID:     strPipelinePtr("run-18"),
+		SupersededByRunNumber: int64PipelinePtr(18),
+	}
+}
+
+// TestPipelineGetNamesTheRunThatSupersededIt pins ankra-n8q38.1's CLI half:
+// a run a newer run replaced says so under its status and names the run to
+// look at instead. It read "cancelled" with no run named before, which sent
+// the author of the superseded run looking for whoever had cancelled it.
+func TestPipelineGetNamesTheRunThatSupersededIt(t *testing.T) {
+	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{
+		PipelineRun: supersededPipelineRun(),
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "get", "run-17",
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("get error = %v", executeError)
+	}
+	if !strings.Contains(output, "Superseded: by run #18") {
+		t.Errorf("output = %q, want the run that took this run's place", output)
+	}
+	if !strings.Contains(output, "⊘ superseded") {
+		t.Errorf("output = %q, want the status line to say superseded", output)
+	}
+	if strings.Contains(output, "⊘ cancelled") {
+		t.Errorf("output = %q, want no state cell reading cancelled for a superseded run", output)
+	}
+}
+
+// TestPipelineGetSaysSupersededWithoutNamingARunTheServerDidNotReport pins the
+// absent case: the superseding run has been removed by retention, so there is
+// no number to quote. The run is still superseded, and saying nothing at all
+// would read as a run somebody cancelled.
+func TestPipelineGetSaysSupersededWithoutNamingARunTheServerDidNotReport(t *testing.T) {
+	run := supersededPipelineRun()
+	run.SupersededByRunNumber = nil
+	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{PipelineRun: run}}
+	output, executeError := runPipelineCommand(t, mockClient, "get", "run-17",
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("get error = %v", executeError)
+	}
+	if !strings.Contains(output, "Superseded: by a newer run the platform no longer reports") {
+		t.Errorf("output = %q, want the supersession named without a run number", output)
+	}
+	if strings.Contains(output, "#0") {
+		t.Errorf("output = %q, must never print a run number nothing reported", output)
+	}
+}
+
+// TestPipelineGetOfACancelledRunNamesNoSupersession pins the contrast: a run a
+// person stopped carries no class, so it stays "cancelled" and names nothing.
+func TestPipelineGetOfACancelledRunNamesNoSupersession(t *testing.T) {
+	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-17", RunNumber: 17, Status: "concluded", Outcome: strPipelinePtr("cancelled"),
+		Trigger: "push", TriggerRef: "refs/heads/main", HeadSHA: strings.Repeat("c", 40),
+		QueuedAt: "2026-09-15T00:00:00Z",
+	}}}
+	output, executeError := runPipelineCommand(t, mockClient, "get", "run-17",
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("get error = %v", executeError)
+	}
+	if strings.Contains(output, "Superseded") {
+		t.Errorf("output = %q, a person's cancel names no supersession", output)
+	}
+	if !strings.Contains(output, "cancelled") {
+		t.Errorf("output = %q, a person's cancel keeps its own word", output)
+	}
+}
+
+// TestPipelineListShowsSupersededInTheStatusCell pins the listing half: the
+// STATUS column reads superseded rather than cancelled, so a page of runs
+// says which of its stopped runs were simply replaced.
+func TestPipelineListShowsSupersededInTheStatusCell(t *testing.T) {
+	mockClient := &pipelineLaneMock{listResult: &client.PipelineRunList{
+		Runs: []client.PipelineRun{supersededPipelineRun()},
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "list", "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("list error = %v", executeError)
+	}
+	if !strings.Contains(output, "superseded") {
+		t.Errorf("output = %q, want the STATUS cell to read superseded", output)
+	}
+}
+
+// TestPipelineGetJSONCarriesTheSupersession pins that -o json passes both
+// fields through, so a script can follow the run that took the place of this
+// one without reading the human output.
+func TestPipelineGetJSONCarriesTheSupersession(t *testing.T) {
+	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{
+		PipelineRun: supersededPipelineRun(),
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "get", "run-17",
+		"--application", testApplicationID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("get error = %v", executeError)
+	}
+	for _, want := range []string{`"superseded_by_run_id": "run-18"`, `"superseded_by_run_number": 18`} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output = %q, want %s", output, want)
+		}
+	}
+}
+
 // TestPipelineRunDetailPrintsWhyAQueuedRunIsWaiting pins ankra-a0yh3's ask:
 // a queued run has to say what it is waiting for where a person reads the run.
 // The reported case is Smartoptics watching four repositories' runs sit behind

@@ -293,6 +293,13 @@ const (
 	pipelineOutcomeInfraError = "infra_error"
 )
 
+// pipelineErrorClassSuperseded is the run error class that tells a
+// supersession apart from a cancel (enginekit/pipelinerun's
+// ErrorClassSuperseded). Both settle "cancelled": one because a newer run
+// took the concurrency group, the other because somebody stopped it. Only
+// the class says which, so it is what the state cell reads.
+const pipelineErrorClassSuperseded = "superseded"
+
 // pipelineOutcomeLabel renders a run or step's status/outcome pair as one
 // word for a table cell: the outcome once the work has concluded, the status
 // while it has not.
@@ -320,7 +327,33 @@ func pipelineOutcomeLabel(status string, outcome *string) string {
 // outside the vocabulary the server publishes is printed as a bare word,
 // because a glyph would claim a meaning the CLI does not know.
 func renderPipelineState(status string, outcome *string) string {
-	label := pipelineOutcomeLabel(status, outcome)
+	return renderPipelineStateAs(status, outcome, pipelineOutcomeLabel(status, outcome))
+}
+
+// renderPipelineRunState is renderPipelineState for a RUN, whose cancelled
+// outcome has one thing more to say: a run a newer run superseded reads
+// "superseded", not "cancelled". The glyph and the colour stay the ones
+// every stopped run carries - it was stopped, and nothing about it needs a
+// person's attention - so the word is the only difference.
+func renderPipelineRunState(run client.PipelineRun) string {
+	return renderPipelineStateAs(run.Status, run.Outcome, pipelineRunStateLabel(run))
+}
+
+// pipelineRunStateLabel is the word a run's state cell carries:
+// pipelineOutcomeLabel's, except that a run cancelled because a newer run
+// took its concurrency group reads "superseded". Nobody stopped that run,
+// and "cancelled" sends its author looking for who did.
+func pipelineRunStateLabel(run client.PipelineRun) string {
+	label := pipelineOutcomeLabel(run.Status, run.Outcome)
+	if label == pipelineOutcomeCancelled && pipelineRunErrorClass(run) == pipelineErrorClassSuperseded {
+		return pipelineErrorClassSuperseded
+	}
+	return label
+}
+
+// renderPipelineStateAs is the shared body: the glyph and colour for a
+// status/outcome pair, around whichever word the caller decided on.
+func renderPipelineStateAs(status string, outcome *string, label string) string {
 	if outcome == nil || *outcome == "" {
 		switch strings.ToLower(status) {
 		case pipelineRunStatusQueued, pipelineStepStatusPending, pipelineStepStatusRunning:

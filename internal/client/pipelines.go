@@ -89,6 +89,19 @@ type PipelineRun struct {
 	ErrorMessage      *string `json:"error_message"`
 	RequestedBy       string  `json:"requested_by"`
 	RerunOfRunID      *string `json:"rerun_of_run_id"`
+	// SupersededByRunID and SupersededByRunNumber name the run that took
+	// this run's concurrency group and cancelled it. Both are null for every
+	// run that was not superseded; the number alone is null when the
+	// superseding run is no longer held, which is "no number to quote"
+	// rather than "not superseded". A superseded run's ErrorClass is
+	// "superseded", which is what tells it apart from a run a person
+	// cancelled - the two settle with the same outcome.
+	//
+	// A server older than these fields answers neither, so their absence is
+	// "this platform does not report supersessions" and prints nothing,
+	// never "this run was not superseded".
+	SupersededByRunID     *string `json:"superseded_by_run_id"`
+	SupersededByRunNumber *int64  `json:"superseded_by_run_number"`
 	// AuthorityState, AuthorityHash and AuthorityDefinitionID are the
 	// authority the run was planned under (ankra-vn0bd.10.8): whose
 	// protected sections it executes, their digest, and the stored
