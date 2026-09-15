@@ -555,6 +555,41 @@ func skillsDirectoryHasAnkraSkills(target skills.Target) bool {
 	return len(installedSkillsIn(target)) > 0
 }
 
+// skillsInstalledClients returns the assistants that carry an Ankra skills
+// install for this user, in registry order. A client that loads skills from
+// its own directory (or as uploadable bundles) counts when that directory
+// holds Ankra skills; a client that reads them through an index counts only
+// when its instructions file also carries the managed block, because seven of
+// those share one skills directory and the directory alone would claim an
+// install for every one of them.
+func skillsInstalledClients(home string) []skills.Client {
+	clients, err := skills.ResolveClients([]string{"all"}, home, skills.ScopePersonal)
+	if err != nil {
+		return nil
+	}
+	installed := make([]skills.Client, 0, len(clients))
+	for _, client := range clients {
+		target, targetError := skills.ResolveTarget(client, skills.ScopePersonal, home)
+		if targetError != nil {
+			continue
+		}
+		if targetCarriesAnkraInstall(target) {
+			installed = append(installed, client)
+		}
+	}
+	return installed
+}
+
+func targetCarriesAnkraInstall(target skills.Target) bool {
+	if !skillsDirectoryHasAnkraSkills(target) {
+		return false
+	}
+	if target.Client.Packaged || target.Client.LoadsSkillsNatively || target.InstructionsPath == "" {
+		return true
+	}
+	return skills.HasManagedBlock(target.InstructionsPath)
+}
+
 func skillInstalledInAnyTarget(targets []skills.Target, name string) bool {
 	for _, target := range targets {
 		if target.Client.Packaged {

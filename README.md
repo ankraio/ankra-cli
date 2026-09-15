@@ -86,7 +86,12 @@ For script or manual installs, the CLI can update itself:
 ankra upgrade                       # upgrade to the latest release
 ankra upgrade --check               # report whether a newer release is available
 ankra upgrade --version v0.2.5      # install (or roll back to) an exact release
+ankra upgrade --skills=false        # upgrade without refreshing the installed agent skills
 ```
+
+The agent skills (`ankra skills install`) ship inside the binary, so an upgrade
+offers to refresh the copies your assistants already carry; `--yes` takes the
+offer and `--skills=false` declines it.
 
 Downloads are verified against the published SHA-256 checksum and the running
 binary is replaced atomically; if it lives somewhere you cannot write (such as
