@@ -119,6 +119,13 @@ type APIClient interface {
 	GetStackDataAssets(clusterID string, stackName string) (*client.StackDataInventory, error)
 	GetClusterBackups(clusterID string, options client.ClusterBackupsOptions) (*client.ClusterBackupsPage, error)
 
+	// The application half of the backup lane (bead ankra-0xsdd.44): the
+	// same restore points, addressed by application and cluster rather
+	// than by stack.
+	GetApplicationBackups(applicationID string) (*client.ApplicationBackups, error)
+	ProtectApplicationDeployment(applicationID string, deploymentID string, request client.ProtectApplicationDeploymentRequest) (*client.StackProtection, error)
+	CreateApplicationRestorePoint(applicationID string, deploymentID string, request client.CreateRestorePointRequest) (*client.CreateRestorePointResult, error)
+
 	ListRuns(options client.ListRunsOptions) (*client.RunListResult, error)
 	GetRun(runID string) (*client.Run, error)
 	CancelRun(runID string) (*client.Run, error)
