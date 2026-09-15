@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -229,5 +230,85 @@ func TestStripRenderOnlyStateLeavesNonArrayMembersByteIdentical(t *testing.T) {
 		if wasStripped {
 			t.Fatalf("%s must be passed through untouched, got %s", value, stripped)
 		}
+	}
+}
+
+func TestIsDraftOnlyFallsBackToLifecycleWhenTheBooleanIsAbsent(t *testing.T) {
+	// The caller's "no" branch means "deployed, with edits in flight" - a
+	// refusal - so an absent observation must not be read as that answer.
+	cases := map[string]struct {
+		body string
+		want bool
+	}{
+		"boolean present and true":       {`{"name":"n","is_draft_only":true,"lifecycle":"deployed_clean"}`, true},
+		"boolean present and false":      {`{"name":"n","is_draft_only":false,"lifecycle":"draft_only"}`, false},
+		"boolean absent, draft-only":     {`{"name":"n","lifecycle":"draft_only"}`, true},
+		"boolean absent, deployed":       {`{"name":"n","lifecycle":"deployed_dirty"}`, false},
+		"boolean undecodable, lifecycle": {`{"name":"n","is_draft_only":"yes","lifecycle":"draft_only"}`, true},
+		"neither member":                 {`{"name":"n"}`, false},
+	}
+	for name, testCase := range cases {
+		var document ClusterStackDocument
+		if unmarshalError := json.Unmarshal([]byte(testCase.body), &document); unmarshalError != nil {
+			t.Fatalf("%s: %v", name, unmarshalError)
+		}
+		if document.IsDraftOnly() != testCase.want {
+			t.Fatalf("%s: IsDraftOnly() = %v, want %v", name, document.IsDraftOnly(), testCase.want)
+		}
+	}
+}
+
+func TestListClusterStackDocumentsWalksPastAnAbsentPaginationBlock(t *testing.T) {
+	// total_pages decodes as 0 when the block is absent; trusting it alone
+	// truncated the listing after page 1, and a draft on a later page was
+	// then reported as not found rather than deployed.
+	requestedPages := []string{}
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		requestedPages = append(requestedPages, page)
+		stacks := make([]map[string]any, 0, stackListingPageSize)
+		if page == "1" {
+			for index := 0; index < stackListingPageSize; index++ {
+				stacks = append(stacks, map[string]any{"name": fmt.Sprintf("filler-%d", index)})
+			}
+		} else {
+			stacks = append(stacks, map[string]any{"name": "notes", "lifecycle": "draft_only"})
+		}
+		jsonResponse(t, w, http.StatusOK, map[string]any{"stacks": stacks})
+	}
+	testClient := newTestClient(t, handler)
+
+	documents, listError := testClient.ListClusterStackDocuments("cluster-1")
+	if listError != nil {
+		t.Fatalf("ListClusterStackDocuments: %v", listError)
+	}
+	if len(requestedPages) != 2 || requestedPages[1] != "2" {
+		t.Fatalf("a full page must be followed by the next one, requested %v", requestedPages)
+	}
+	if len(documents) != stackListingPageSize+1 {
+		t.Fatalf("expected %d stacks, got %d", stackListingPageSize+1, len(documents))
+	}
+	last := documents[len(documents)-1]
+	if last.Name() != "notes" || !last.IsDraftOnly() {
+		t.Fatalf("the stack on page 2 was lost or misread: %+v", last)
+	}
+}
+
+func TestListClusterStackDocumentsStopsOnAShortPage(t *testing.T) {
+	requests := 0
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		jsonResponse(t, w, http.StatusOK, map[string]any{
+			"stacks":     []map[string]any{{"name": "notes"}},
+			"pagination": map[string]any{"total_pages": 0},
+		})
+	}
+	testClient := newTestClient(t, handler)
+
+	if _, listError := testClient.ListClusterStackDocuments("cluster-1"); listError != nil {
+		t.Fatalf("ListClusterStackDocuments: %v", listError)
+	}
+	if requests != 1 {
+		t.Fatalf("a short page ends the listing; made %d requests", requests)
 	}
 }

@@ -70,17 +70,25 @@ func (document ClusterStackDocument) Lifecycle() string {
 
 // IsDraftOnly reports a stack that exists only as a draft - nothing of it is
 // deployed, which is what a clone leaves behind.
+//
+// lifecycle is consulted when the boolean is absent or undecodable, because
+// the two are rendered from the same fact and the caller's "no" branch means
+// "deployed, with edits in flight" - a refusal. An absent observation must
+// not be read as that negative answer.
 func (document ClusterStackDocument) IsDraftOnly() bool {
 	raw, present := document["is_draft_only"]
-	if !present {
-		return false
+	if present {
+		var value bool
+		if json.Unmarshal(raw, &value) == nil {
+			return value
+		}
 	}
-	var value bool
-	if json.Unmarshal(raw, &value) != nil {
-		return false
-	}
-	return value
+	return document.Lifecycle() == stackLifecycleDraftOnly
 }
+
+// stackLifecycleDraftOnly is the lifecycle of a stack nothing of which is
+// deployed.
+const stackLifecycleDraftOnly = "draft_only"
 
 func (document ClusterStackDocument) stringMember(key string) string {
 	raw, present := document[key]
@@ -149,6 +157,14 @@ func stripRenderOnlyStateFromArray(value json.RawMessage) (json.RawMessage, bool
 	return encoded, true, nil
 }
 
+// stackListingPageSize is the listing's maximum accepted page size.
+// maximumStackListingPages bounds the walk so a server that answers a full
+// page forever cannot spin here; 100 pages is 10,000 stacks on one cluster.
+const (
+	stackListingPageSize     = 100
+	maximumStackListingPages = 100
+)
+
 type listClusterStackDocumentsResponse struct {
 	Stacks     []ClusterStackDocument `json:"stacks"`
 	Pagination Pagination             `json:"pagination"`
@@ -188,15 +204,22 @@ type StackResourceErrorItem struct {
 // going to be posted back must not lose the members those structs omit.
 func (c *Client) ListClusterStackDocuments(clusterID string) ([]ClusterStackDocument, error) {
 	var documents []ClusterStackDocument
-	for page := 1; ; page++ {
-		url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks?page=%d&page_size=100",
-			c.BaseURL, neturl.PathEscape(clusterID), page)
+	for page := 1; page <= maximumStackListingPages; page++ {
+		url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks?page=%d&page_size=%d",
+			c.BaseURL, neturl.PathEscape(clusterID), page, stackListingPageSize)
 		var response listClusterStackDocumentsResponse
 		if requestError := c.getJSON(url, &response); requestError != nil {
 			return nil, fmt.Errorf("failed to list cluster stacks: %w", requestError)
 		}
 		documents = append(documents, response.Stacks...)
-		if page >= response.Pagination.TotalPages || len(response.Stacks) == 0 {
+		// A short page is the end of the listing whatever the pagination
+		// block says. Trusting total_pages alone truncates silently when it
+		// is absent (it decodes as 0), and a draft on a later page would
+		// then be reported as not found rather than deployed.
+		if len(response.Stacks) < stackListingPageSize {
+			break
+		}
+		if response.Pagination.TotalPages > 0 && page >= response.Pagination.TotalPages {
 			break
 		}
 	}
