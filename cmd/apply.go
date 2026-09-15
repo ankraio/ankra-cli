@@ -775,24 +775,27 @@ func parseGroupField(m map[string]interface{}) (string, error) {
 }
 
 // parseBoolField extracts an optional boolean key such as a manifest's
-// 'force' or 'auto_remediate'. Absent (or explicitly null) is false, the
-// declarative reading the GitOps cluster file gets too. A non-boolean value
-// is an error rather than false: the platform types both as booleans and
-// would answer 422, and quietly reading "true" (a quoted string) as off is
-// the same silent drop that lost the flag in the first place (ankra-cbktk).
-func parseBoolField(m map[string]interface{}, key string) (bool, error) {
+// 'force' or 'auto_remediate'. Absent (or explicitly null) is nil, which
+// the payload omits so the platform keeps the stored value (cluster#2843
+// inherits a flag whose key the request does not carry); an explicit true
+// or false comes back as a pointer to it and is sent, so `force: false` in
+// the file still clears the flag (ankra-mp2tr). A non-boolean value is an
+// error rather than nil: the platform types both as booleans and would
+// answer 422, and quietly reading "true" (a quoted string) as off is the
+// same silent drop that lost the flag in the first place (ankra-cbktk).
+func parseBoolField(m map[string]interface{}, key string) (*bool, error) {
 	raw, present := m[key]
 	if !present || raw == nil {
-		return false, nil
+		return nil, nil
 	}
 	value, ok := raw.(bool)
 	if !ok {
 		// Name the type as well as the value: force: "true" and force: true
 		// both print as true, and the quoted string is the case this guard
 		// exists for.
-		return false, fmt.Errorf("'%s' must be true or false (got %v of type %T)", key, raw, raw)
+		return nil, fmt.Errorf("'%s' must be true or false (got %v of type %T)", key, raw, raw)
 	}
-	return value, nil
+	return &value, nil
 }
 
 func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, error) {
@@ -869,7 +872,10 @@ func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, 
 
 	// The apply flags. Dropped on the floor until ankra-cbktk: a file that
 	// said force: true applied without it, and the platform stored false over
-	// the flag the customer had set through a GitOps PR (PLA-834).
+	// the flag the customer had set through a GitOps PR (PLA-834). Then sent
+	// as false for every file that did not mention them, which cleared a
+	// stored true on every routine apply (ankra-mp2tr): a file that omits
+	// the key now omits it on the wire, and only an explicit false clears.
 	force, err := parseBoolField(mm, "force")
 	if err != nil {
 		return client.Manifest{}, err
