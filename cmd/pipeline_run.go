@@ -267,7 +267,13 @@ separate 'outcome' field (success, failure, cancelled, timed_out, skipped or
 infra_error), which the STATUS column prints in place of the status once
 there is one - except for a run a newer run superseded, which reads
 'superseded' rather than 'cancelled'. 'ankra pipeline get --help' documents
-both fields, supersession and the run's 'authority_state'.`,
+both fields, supersession and the run's 'authority_state'.
+
+--latest-per-branch answers the other question a listing is usually opened
+for: not the last N runs of everything, but the newest run of each branch.
+It prints the same table as 'ankra pipeline branches' - see that command's
+help - and cannot be combined with the run filters, which narrow runs rather
+than refs.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -291,10 +297,35 @@ func registerPipelineListFlags(command *cobra.Command) {
 	command.Flags().String("branch", "", "Filter by trigger branch")
 	command.Flags().String("head-sha", "", "Filter by the exact full commit sha")
 	command.Flags().String("cursor", "", "Page cursor from a previous listing's next_cursor")
-	command.Flags().Int("limit", 0, "Maximum number of runs to return (server default 50, max 100)")
+	command.Flags().Int("limit", 0, "Maximum number of runs to return (server default 50, max 100); with --latest-per-branch, the number of branches (server default 20)")
+	command.Flags().Bool("latest-per-branch", false,
+		"List one row per branch with the newest run on each, the table 'ankra pipeline branches' prints")
+	command.Flags().Bool("all", false,
+		"With --latest-per-branch, include branches with no run in the last 14 days")
 }
 
+// pipelineListRunFilterFlags are the flags that only mean anything when the
+// listing is over runs. --latest-per-branch answers a different question -
+// one row per ref, every trigger and status folded into it - so combining the
+// two is refused rather than silently ignoring the filter.
+var pipelineListRunFilterFlags = []string{"status", "trigger", "branch", "head-sha"}
+
 func runPipelineList(command *cobra.Command, selector client.PipelineSelector) error {
+	latestPerBranch, _ := command.Flags().GetBool("latest-per-branch")
+	if latestPerBranch {
+		for _, filterName := range pipelineListRunFilterFlags {
+			if command.Flags().Changed(filterName) {
+				return withExitCode(exitUsage, fmt.Errorf(
+					"--%s filters runs and --latest-per-branch lists branches; "+
+						"drop one of the two", filterName))
+			}
+		}
+		return runPipelineBranches(command, selector)
+	}
+	if command.Flags().Changed("all") {
+		return withExitCode(exitUsage,
+			errors.New("--all only applies with --latest-per-branch"))
+	}
 	format, formatError := structuredFormatFromFlags(command)
 	if formatError != nil {
 		return formatError

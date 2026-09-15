@@ -4,6 +4,21 @@
 
 ### Added
 
+- **`ankra pipeline branches` lists one row per branch, with the newest run
+  on each.** The question a person opens a pipeline listing to answer is
+  usually "where does each branch stand", not "what were the last fifty runs",
+  and until now the two were the same list with every branch mixed into it.
+  Each row carries the latest run on the ref, the outcome of the run before
+  it, how many runs the ref has ever had, and how many of those a newer commit
+  superseded - runs cancelled because something newer took their concurrency
+  group, which are history rather than failures to look at. The repository's
+  default branch leads the table and the rest follow by most recent activity;
+  branches with no run in the last fourteen days are hidden, with a line
+  saying how many and that `--all` shows them. `ankra pipeline list
+  --latest-per-branch` prints the same table, and works on
+  `ankra application pipeline list` too. `--application` is read from the
+  checkout when you are standing in one, exactly as the rest of the family
+  does. Requires cluster#3092 on the platform.
 - **A run a newer run replaced now reads "superseded", and `ankra pipeline
   get` names the run that took its place.** A push that lands while the
   previous run is still going takes its concurrency group, and the older run
