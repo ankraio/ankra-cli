@@ -236,6 +236,12 @@ func sleepInterrupted(ctx context.Context, duration time.Duration) error {
 // rather than as a named failure: it is the same distinction the rest of this
 // lane keeps, and telling someone their run "concluded -" sends them looking
 // for an outcome nothing wrote.
+//
+// The word is pipelineRunStateLabel's - the one `pipeline get` and `pipeline
+// list` print - so a superseded run concludes "superseded" here too, and the
+// line names the run that took its place instead of repeating the class and
+// the platform's sentence, neither of which names one. The exit code does not
+// change: a superseded run is a cancelled outcome, and exits as one.
 func pipelineRunConclusionError(run client.PipelineRun) error {
 	outcome := pipelineOptionalString(run.Outcome)
 	if outcome == pipelineOutcomeSuccess {
@@ -244,7 +250,10 @@ func pipelineRunConclusionError(run client.PipelineRun) error {
 	if run.Outcome == nil || strings.TrimSpace(*run.Outcome) == "" {
 		return fmt.Errorf("run #%d concluded without recording an outcome", run.RunNumber)
 	}
-	message := fmt.Sprintf("run #%d concluded %s", run.RunNumber, outcome)
+	message := fmt.Sprintf("run #%d concluded %s", run.RunNumber, pipelineRunStateLabel(run))
+	if pipelineRunIsSuperseded(run) {
+		return fmt.Errorf("%s %s", message, pipelineRunSupersessionPhrase(run))
+	}
 	if errorClass := pipelineRunErrorClass(run); errorClass != "" {
 		message += " (" + errorClass + ")"
 	}
@@ -429,13 +438,16 @@ there is one and the status until then, with a glyph that says which:
 ⟳ only for a run or step that has not concluded (○ for a blocked step).
 
 Superseded runs: a run cancelled because a NEWER run took its concurrency
-group reads 'superseded' rather than 'cancelled', and 'pipeline get' names
-the run that took its place under the Status line. Nobody stopped that run,
-and the run worth looking at is the newer one. In -o json the fields are
-'error_class' ("superseded"), 'superseded_by_run_id' and
-'superseded_by_run_number'; 'outcome' stays "cancelled", so a script
-filtering on outcome alone still finds these runs and must read the class to
-tell them from a run somebody cancelled.
+group reads 'superseded' rather than 'cancelled' - on the Status line, in
+the STATUS column, on the last line of --watch and in the conclusion --wait
+reports - and 'pipeline get' names the run that took its place. Nobody
+stopped that run, and the run worth looking at is the newer one. Only the
+word differs: --wait, --watch and --exit-code exit 1 for a superseded run as
+for any cancelled one. In -o json the fields are 'error_class'
+("superseded"), 'superseded_by_run_id' and 'superseded_by_run_number';
+'outcome' stays "cancelled", so a script filtering on outcome alone still
+finds these runs and must read the class to tell them from a run somebody
+cancelled.
 
 Authority (-o json 'authority_state', the Authority line): the protected
 authority the run executed under. 'approved' - the default branch's
@@ -647,15 +659,37 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 // than printing an id nobody can quote or, worse, "#0". A server too old to
 // report supersessions at all prints nothing here, which is "this platform
 // does not answer the question", never "this run was not superseded".
+//
+// This line is the whole of what the detail says about the supersession:
+// printPipelineRunFailure prints no Class or Error line for a superseded run,
+// since the class is the word the Status line already carries and the
+// platform's message ("A newer run took this run's concurrency group.") is
+// this line without the run number. Printing all three said one thing three
+// ways (ankra-ohzw6).
 func printPipelineRunSupersession(out io.Writer, run client.PipelineRun) {
-	if pipelineRunErrorClass(run) != pipelineErrorClassSuperseded {
+	if !pipelineRunIsSuperseded(run) {
 		return
 	}
+	_, _ = fmt.Fprintf(out, "  Superseded: %s\n", pipelineRunSupersessionPhrase(run))
+}
+
+// pipelineRunIsSuperseded reports whether a newer run took this run's
+// concurrency group: the platform records that as the superseded error class
+// on a cancelled run, and nothing else marks it.
+func pipelineRunIsSuperseded(run client.PipelineRun) bool {
+	return pipelineRunErrorClass(run) == pipelineErrorClassSuperseded
+}
+
+// pipelineRunSupersessionPhrase names the run that took a superseded run's
+// place, as the phrase every line about the supersession ends with: "by run
+// #18", or - when the platform reports the supersession but no longer the
+// run, which retention removed - "by a newer run the platform no longer
+// reports". It never prints a number nothing reported.
+func pipelineRunSupersessionPhrase(run client.PipelineRun) string {
 	if run.SupersededByRunNumber == nil {
-		_, _ = fmt.Fprintln(out, "  Superseded: by a newer run the platform no longer reports")
-		return
+		return "by a newer run the platform no longer reports"
 	}
-	_, _ = fmt.Fprintf(out, "  Superseded: by run #%d\n", *run.SupersededByRunNumber)
+	return fmt.Sprintf("by run #%d", *run.SupersededByRunNumber)
 }
 
 // printPipelineRunFailure prints how a run failed: the error class the server
@@ -685,7 +719,15 @@ func printPipelineRunSupersession(out io.Writer, run client.PipelineRun) {
 // whole, deliberately (cluster's platformBuildClassMessage), and re-indenting
 // somebody's build output to line up a label would corrupt the one copy of it
 // Ankra keeps.
+//
+// A superseded run prints neither line: its class is the word its Status line
+// already reads, and its message is the Superseded line without the run
+// number (see printPipelineRunSupersession). Nothing failed in that run, and
+// a Class and an Error under it read as if something had.
 func printPipelineRunFailure(out io.Writer, run client.PipelineRun) {
+	if pipelineRunIsSuperseded(run) {
+		return
+	}
 	if errorClass := pipelineRunErrorClass(run); errorClass != "" {
 		_, _ = fmt.Fprintf(out, "  Class:     %s\n", errorClass)
 	}

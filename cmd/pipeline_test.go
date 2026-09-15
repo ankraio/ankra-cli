@@ -1606,6 +1606,18 @@ func TestPipelineGetNamesTheRunThatSupersededIt(t *testing.T) {
 	if strings.Contains(output, "⊘ cancelled") {
 		t.Errorf("output = %q, want no state cell reading cancelled for a superseded run", output)
 	}
+	// The supersession is said once (ankra-ohzw6): the class is the word the
+	// Status line carries and the platform's message is the Superseded line
+	// without the number, so neither gets a line of its own.
+	if strings.Contains(output, "Class:") {
+		t.Errorf("output = %q, want no Class line repeating the word superseded", output)
+	}
+	if strings.Contains(output, "Error:") {
+		t.Errorf("output = %q, want no Error line repeating the supersession", output)
+	}
+	if strings.Count(output, "uperseded") != 2 {
+		t.Errorf("output = %q, want the supersession said exactly twice: the status word and the run it names", output)
+	}
 }
 
 // TestPipelineGetSaysSupersededWithoutNamingARunTheServerDidNotReport pins the

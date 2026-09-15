@@ -404,7 +404,7 @@ func pipelineRunSelectionAmbiguousError(selection pipelineRunSelection, page *cl
 	candidates := make([]string, 0, len(page.Runs))
 	for _, run := range page.Runs {
 		candidates = append(candidates, fmt.Sprintf("#%d %s (%s, %s)",
-			run.RunNumber, run.ID, run.Trigger, pipelineOutcomeLabel(run.Status, run.Outcome)))
+			run.RunNumber, run.ID, run.Trigger, pipelineRunStateLabel(run)))
 	}
 	count := fmt.Sprintf("%d runs", len(page.Runs))
 	if page.NextCursor != nil && *page.NextCursor != "" {
@@ -542,10 +542,19 @@ func watchPipelineRun(command *cobra.Command, selector client.PipelineSelector, 
 // and the platform's own error message. The state is printed as a plain word
 // rather than through renderPipelineState, which writes glyphs and terminal
 // escapes into a stream that is as often a CI log as a terminal.
+//
+// The run's word is pipelineRunStateLabel's, the one `pipeline get` and
+// `pipeline list` print, so a watch that ends on a superseded run ends on
+// "superseded" like every other view of that run - it ended on "cancelled"
+// before, which sent the reader of the watch looking for who had cancelled
+// it (ankra-ohzw6). The tail of that line names the run that took its place
+// rather than repeating the platform's sentence, which names no run.
 func pipelineRunWatchLine(event pipelineRunWatchEvent) string {
 	label := fmt.Sprintf("run #%d", event.RunNumber)
+	word := pipelineOutcomeLabel(event.Status, event.Outcome)
 	var exitCode *int32
 	var errorMessage *string
+	tail := ""
 	switch {
 	case event.Step != nil:
 		label = "step " + event.StepKey
@@ -555,14 +564,22 @@ func pipelineRunWatchLine(event pipelineRunWatchEvent) string {
 		exitCode = event.Step.ExitCode
 		errorMessage = event.Step.ErrorMessage
 	case event.Run != nil:
-		errorMessage = event.Run.ErrorMessage
+		word = pipelineRunStateLabel(*event.Run)
+		if pipelineRunIsSuperseded(*event.Run) {
+			tail = pipelineRunSupersessionPhrase(*event.Run)
+		} else {
+			errorMessage = event.Run.ErrorMessage
+		}
 	}
-	line := fmt.Sprintf("%s  %s  %s", event.ObservedAt, label, pipelineOutcomeLabel(event.Status, event.Outcome))
+	line := fmt.Sprintf("%s  %s  %s", event.ObservedAt, label, word)
 	if event.Status != pipelineRunStatusConcluded {
 		return line
 	}
 	if exitCode != nil {
 		line += fmt.Sprintf("  exit %d", *exitCode)
+	}
+	if tail != "" {
+		line += "  " + tail
 	}
 	if errorMessage != nil && *errorMessage != "" {
 		line += "  " + *errorMessage

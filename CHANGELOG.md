@@ -45,6 +45,23 @@
 
 ### Fixed
 
+- **A superseded pipeline run reads `superseded` in every view of it, and
+  `pipeline get` says so once.** v0.17.0 taught `pipeline list` and `pipeline
+  get` that a run cancelled because a newer run took its concurrency group is
+  `superseded`, not `cancelled` - but `pipeline get --wait`, `--watch` and
+  `run --wait` still concluded the same run with `run #17 concluded cancelled
+  (superseded)`, so the wait said one word and the get another, and the
+  wait's reader went looking for who had cancelled it. The wait's conclusion
+  and the watch's last line now read `run #17 concluded superseded by run
+  #18`, naming the run to look at instead of repeating the platform's
+  sentence, which names none. The exit code is unchanged: a superseded run is
+  still a cancelled outcome, so `--wait`, `--watch` and `--exit-code` exit 1
+  for it as before, and `-o json` still carries `outcome: cancelled` with
+  `error_class: superseded` beside it. `pipeline get` also stopped saying the
+  same thing three times - `Superseded: by run #18`, `Class: superseded` and
+  `Error: A newer run took this run's concurrency group.` - and prints the
+  `Superseded:` line alone; a run somebody stopped keeps its `Class:` and
+  `Error:` lines.
 - **A retried upload no longer fails on its own body.** `ankra migrate up`,
   `migrate restore` and `migrate data` send each dump to the backup vault with
   retries. The dump was handed to the transport as an open file, which closed it
