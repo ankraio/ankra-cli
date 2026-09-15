@@ -203,9 +203,9 @@ mutations and asks for confirmation.`,
 		options.force, _ = cmd.Flags().GetBool("force")
 		noRules, _ := cmd.Flags().GetBool("no-rules")
 		noWorkflows, _ := cmd.Flags().GetBool("no-workflows")
-		options.rules = !noRules
-		options.workflows = !noWorkflows
-		options.hooks, _ = cmd.Flags().GetBool("with-hooks")
+		options.Rules = !noRules
+		options.Workflows = !noWorkflows
+		options.Hooks, _ = cmd.Flags().GetBool("with-hooks")
 
 		// Several assistants share the client-neutral library, so the same
 		// directory can be the target twice in one run. Copying it again would
@@ -298,11 +298,12 @@ read-only commands and anything unparseable pass through unchanged.`,
 	},
 }
 
+// skillsInstallOptions is what one install run does: force decides whether
+// present skills are overwritten, and the embedded InstallOptions are the
+// per-client choices that are recorded so `ankra upgrade` replays them.
 type skillsInstallOptions struct {
-	force     bool
-	rules     bool
-	workflows bool
-	hooks     bool
+	force bool
+	skills.InstallOptions
 }
 
 // installForTarget installs the selected skills and the client's supporting
@@ -331,7 +332,7 @@ func installForTarget(fsys fs.FS, target skills.Target, names []string, options 
 		writtenDirectories[target.SkillsDirectory] = target.Client.DisplayName
 	}
 
-	if options.rules {
+	if options.Rules {
 		rulePath, ruleError := installAgentRule(target)
 		if ruleError != nil {
 			return fmt.Errorf("could not install the agent rule for %s: %w", target.Client.DisplayName, ruleError)
@@ -341,7 +342,7 @@ func installForTarget(fsys fs.FS, target skills.Target, names []string, options 
 		}
 	}
 
-	if options.workflows {
+	if options.Workflows {
 		written, workflowError := skills.WriteWorkflows(target)
 		if workflowError != nil {
 			return fmt.Errorf("could not install the workflow commands for %s: %w", target.Client.DisplayName, workflowError)
@@ -351,7 +352,7 @@ func installForTarget(fsys fs.FS, target skills.Target, names []string, options 
 		}
 	}
 
-	if options.hooks {
+	if options.Hooks {
 		if !target.SupportsHooks() {
 			fmt.Printf("  hook      not supported by %s; skipped\n", target.Client.DisplayName)
 		} else {
@@ -360,6 +361,17 @@ func installForTarget(fsys fs.FS, target skills.Target, names []string, options 
 				return fmt.Errorf("could not install the agent hook for %s: %w", target.Client.DisplayName, hookError)
 			}
 			fmt.Printf("  hook      %s (kubectl/helm cluster mutations ask for confirmation)\n", skills.DisplayPath(hookPath))
+		}
+	}
+
+	// The personal install is what `ankra upgrade` refreshes, so its options
+	// are recorded for the refresh to replay. Failing to record them is not a
+	// failed install: everything above is in place, so say what the refresh
+	// will do instead and carry on.
+	if target.Scope == skills.ScopePersonal {
+		if recordError := skills.RecordInstallOptions(target.Root, target.Client.ID, options.InstallOptions); recordError != nil {
+			fmt.Printf("  warning   could not record the install options (%v); `ankra upgrade` will refresh %s with the defaults\n",
+				recordError, target.Client.DisplayName)
 		}
 	}
 
@@ -433,6 +445,11 @@ func uninstallForTarget(target skills.Target, names []string, full bool) error {
 	}
 	if found {
 		fmt.Printf("  hook      removed from %s\n", skills.DisplayPath(hookPath))
+	}
+	if target.Scope == skills.ScopePersonal {
+		if err := skills.ForgetInstallOptions(target.Root, target.Client.ID); err != nil {
+			return fmt.Errorf("could not forget the recorded install options: %w", err)
+		}
 	}
 	return nil
 }

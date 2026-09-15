@@ -55,8 +55,12 @@ before it replaces the existing executable.
 
 The Ankra agent skills ('ankra skills install') ship inside the binary, so
 an upgrade also offers to refresh the copies already installed for your
-assistants; the new binary reinstalls them once it is in place. --yes takes
-the offer, --skills=false declines it, and --skills takes it without asking.`,
+assistants; the new binary reinstalls them once it is in place, with the
+same --no-rules, --no-workflows and --with-hooks choices each install was
+made with. --skills takes the offer without asking and --skills=false
+declines it. --yes skips only the upgrade confirmation: a scripted
+'ankra upgrade --yes' leaves the installed skills as they are and says how
+to refresh them; pass --yes --skills to refresh them without any question.`,
 	Aliases: []string{"self-update"},
 	Args:    cobra.NoArgs,
 	RunE:    runUpgrade,
@@ -65,11 +69,11 @@ the offer, --skills=false declines it, and --skills takes it without asking.`,
 func init() {
 	upgradeCmd.Flags().String("version", "", "exact release to install for an upgrade or downgrade, e.g. v0.2.5 (default: latest)")
 	upgradeCmd.Flags().Bool("check", false, "check for a newer release without installing")
-	upgradeCmd.Flags().BoolP("yes", "y", false, "skip the confirmation prompt")
+	upgradeCmd.Flags().BoolP("yes", "y", false, "skip the upgrade confirmation prompt (the installed agent skills are refreshed only with --skills)")
 	upgradeCmd.Flags().Bool("force", false, "reinstall even if already on the target version")
 	upgradeCmd.Flags().Bool("beta", false, "include pre-release versions for this run (overrides the saved channel)")
 	upgradeCmd.Flags().Bool("allow-unverified", false, "install even when no SHA-256 checksum is published (insecure)")
-	upgradeCmd.Flags().Bool("skills", true, "refresh the Ankra agent skills already installed for your assistants once the new binary is in place (--skills=false leaves them as they are)")
+	upgradeCmd.Flags().Bool("skills", true, "refresh the Ankra agent skills already installed for your assistants once the new binary is in place, replaying each install's options; --skills=false leaves them as they are, and without the flag you are asked (never refreshed by --yes alone)")
 
 	setRequiresAuth(upgradeCmd, false)
 	rootCmd.AddCommand(upgradeCmd)
@@ -170,12 +174,13 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	}
 
 	skillsFlag, _ := cmd.Flags().GetBool("skills")
-	installedSkillClients, detectionError := skillsInstalledClientsForUpgrade()
+	installedSkillClients, skillRefreshGroups, detectionError := skillsInstalledClientsForUpgrade()
 	if detectionError != nil && skillsFlag {
 		_, _ = fmt.Fprintf(out, "Warning: could not check which assistants carry the Ankra agent skills (%v); refresh them by hand afterwards with `ankra skills install --force`.\n", detectionError)
 	}
-	refreshSkills, err := decideSkillsRefresh(input, out, skillsRefreshChoice{
+	refreshSkills, err := decideSkillsRefresh(input, out, cmd.ErrOrStderr(), skillsRefreshChoice{
 		Clients:       installedSkillClients,
+		Groups:        skillRefreshGroups,
 		TargetVersion: targetVersion,
 		FlagValue:     skillsFlag,
 		FlagExplicit:  cmd.Flags().Changed("skills"),
@@ -233,7 +238,7 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 
 	switch {
 	case refreshSkills:
-		refreshInstalledSkills(out, executablePath, installedSkillClients)
+		refreshInstalledSkills(out, executablePath, skillRefreshGroups)
 	case len(installedSkillClients) == 0 && skillsFlag && detectionError == nil:
 		_, _ = fmt.Fprintln(out, "No Ankra agent skills are installed for this user; `ankra skills install` adds them to your assistants.")
 	}
@@ -241,33 +246,47 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 }
 
 // skillsRefreshChoice is what decideSkillsRefresh weighs: which assistants
-// carry an install, and how the caller answered before being asked.
+// carry an install, how each was installed, and how the caller answered
+// before being asked.
 type skillsRefreshChoice struct {
-	Clients       []skills.Client
+	Clients []skills.Client
+	// Groups are the same clients grouped by the install options recorded
+	// for them, which is what the refresh replays. Empty means every client
+	// refreshes with the defaults.
+	Groups        []skillsRefreshGroup
 	TargetVersion string
 	// FlagValue is --skills; FlagExplicit says whether it was passed at all,
 	// because the flag defaults to true and a default is an offer, not an
 	// answer.
 	FlagValue    bool
 	FlagExplicit bool
-	// SkipPrompts is --yes, which takes the offer the way it takes the
-	// upgrade itself.
+	// SkipPrompts is --yes. It skips the upgrade confirmation and nothing
+	// else: a script that meant "do not ask me" did not mean "write into my
+	// assistants' configuration", so without --skills the offer is declined
+	// and the command to run by hand is printed instead.
 	SkipPrompts bool
 }
 
 // decideSkillsRefresh answers whether the installed skills are refreshed
 // after the binary swap. Nothing installed means nothing to refresh and no
-// question; an explicit --skills or --skills=false is the answer; --yes says
-// yes; otherwise the user is asked, and Enter means yes, because skills that
-// lag the binary are the failure this exists to prevent. Input that ends
-// before the question is answered is not Enter: nobody saw the question, so
-// nothing is overwritten and the command to run by hand is printed instead.
-func decideSkillsRefresh(in io.Reader, out io.Writer, choice skillsRefreshChoice) (bool, error) {
+// question; an explicit --skills or --skills=false is the answer; --yes on
+// its own declines and says so on stderr, because it only ever promised to
+// skip the upgrade confirmation; otherwise the user is asked, and Enter
+// means yes, because skills that lag the binary are the failure this exists
+// to prevent. Input that ends before the question is answered is not Enter:
+// nobody saw the question, so nothing is overwritten and the command to run
+// by hand is printed instead.
+func decideSkillsRefresh(in io.Reader, out, errOut io.Writer, choice skillsRefreshChoice) (bool, error) {
 	if len(choice.Clients) == 0 || (choice.FlagExplicit && !choice.FlagValue) {
 		return false, nil
 	}
-	if choice.FlagExplicit || choice.SkipPrompts {
+	if choice.FlagExplicit {
 		return true, nil
+	}
+	if choice.SkipPrompts {
+		_, _ = fmt.Fprintf(errOut, "The Ankra agent skills installed for %s were not refreshed: --yes skips only the upgrade confirmation. Pass --skills next time, or run: %s\n",
+			clientDisplayNames(choice.Clients), skillsRefreshCommandLine("ankra", choice.refreshGroups()))
+		return false, nil
 	}
 	_, _ = fmt.Fprintf(out, "Also refresh the Ankra agent skills installed for %s to v%s? [Y/n]: ",
 		clientDisplayNames(choice.Clients), choice.TargetVersion)
@@ -276,12 +295,24 @@ func decideSkillsRefresh(in io.Reader, out io.Writer, choice skillsRefreshChoice
 		return false, fmt.Errorf("read confirmation: %w", err)
 	}
 	if err == io.EOF && line == "" {
-		_, _ = fmt.Fprintf(out, "\nNo answer; the skills are left as they are. Refresh them afterwards with: ankra %s\n",
-			strings.Join(skillsRefreshArguments(choice.Clients), " "))
+		_, _ = fmt.Fprintf(out, "\nNo answer; the skills are left as they are. Refresh them afterwards with: %s\n",
+			skillsRefreshCommandLine("ankra", choice.refreshGroups()))
 		return false, nil
 	}
 	answer := strings.TrimSpace(strings.ToLower(line))
 	return answer == "" || answer == "y" || answer == "yes", nil
+}
+
+// refreshGroups is what the refresh would run: the recorded groups when the
+// caller resolved them, otherwise every client with the defaults.
+func (choice skillsRefreshChoice) refreshGroups() []skillsRefreshGroup {
+	if len(choice.Groups) > 0 {
+		return choice.Groups
+	}
+	if len(choice.Clients) == 0 {
+		return nil
+	}
+	return []skillsRefreshGroup{{Options: skills.DefaultInstallOptions(), Clients: choice.Clients}}
 }
 
 // clientDisplayNames renders "Claude Code", "Claude Code and Cursor" or
@@ -302,27 +333,94 @@ func clientDisplayNames(clients []skills.Client) string {
 }
 
 // skillsInstalledClientsForUpgrade lists the assistants whose personal Ankra
-// skills install the upgrade may refresh. A failure to look is reported and
-// the offer is skipped; it never fails the upgrade and is never read as
+// skills install the upgrade may refresh, and those same assistants grouped
+// by the install options recorded for them. A failure to look is reported
+// and the offer is skipped; it never fails the upgrade and is never read as
 // "nothing installed".
-func skillsInstalledClientsForUpgrade() ([]skills.Client, error) {
+func skillsInstalledClientsForUpgrade() ([]skills.Client, []skillsRefreshGroup, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("determine the home directory: %w", err)
+		return nil, nil, fmt.Errorf("determine the home directory: %w", err)
 	}
-	return skillsInstalledClients(home)
+	clients, err := skillsInstalledClients(home)
+	if err != nil {
+		return nil, nil, err
+	}
+	groups, err := skillsRefreshGroupsFor(home, clients)
+	if err != nil {
+		return nil, nil, err
+	}
+	return clients, groups, nil
+}
+
+// skillsRefreshGroup is one `skills install` run of the refresh: the clients
+// that were installed with the same options, so one command replays them.
+type skillsRefreshGroup struct {
+	Options skills.InstallOptions
+	Clients []skills.Client
+}
+
+// skillsRefreshGroupsFor reads the options `skills install` recorded for each
+// client under root and groups the clients by them, in order of first
+// appearance so the output is stable. A client with nothing recorded (an
+// install made before the options were recorded) joins the defaults group,
+// which is what the refresh always did for everyone. A record that cannot
+// be read is an error: replaying the defaults over an install whose options
+// are unknown is the defect this prevents.
+func skillsRefreshGroupsFor(root string, clients []skills.Client) ([]skillsRefreshGroup, error) {
+	var groups []skillsRefreshGroup
+	for _, client := range clients {
+		options, _, err := skills.RecordedInstallOptions(root, client.ID)
+		if err != nil {
+			return nil, fmt.Errorf("read the recorded install options for %s: %w", client.DisplayName, err)
+		}
+		placed := false
+		for index := range groups {
+			if groups[index].Options == options {
+				groups[index].Clients = append(groups[index].Clients, client)
+				placed = true
+				break
+			}
+		}
+		if !placed {
+			groups = append(groups, skillsRefreshGroup{Options: options, Clients: []skills.Client{client}})
+		}
+	}
+	return groups, nil
 }
 
 // skillsRefreshArguments is the argument list the new binary is run with to
-// reinstall the skills: --force, because the point is to overwrite the copies
-// the previous release installed, and one --client per assistant that carries
-// an install, so nothing is installed anywhere new.
-func skillsRefreshArguments(clients []skills.Client) []string {
+// reinstall the skills for one group: --force, because the point is to
+// overwrite the copies the previous release installed; the group's recorded
+// --no-rules, --no-workflows and --with-hooks, so a person who declined the
+// rule block or asked for the hook gets exactly that again; and one --client
+// per assistant that carries an install, so nothing is installed anywhere
+// new.
+func skillsRefreshArguments(group skillsRefreshGroup) []string {
 	arguments := []string{"skills", "install", "--force"}
-	for _, client := range clients {
+	if !group.Options.Rules {
+		arguments = append(arguments, "--no-rules")
+	}
+	if !group.Options.Workflows {
+		arguments = append(arguments, "--no-workflows")
+	}
+	if group.Options.Hooks {
+		arguments = append(arguments, "--with-hooks")
+	}
+	for _, client := range group.Clients {
 		arguments = append(arguments, "--client", client.ID)
 	}
 	return arguments
+}
+
+// skillsRefreshCommandLine renders the refresh as something to paste into a
+// shell: one command per group, chained with &&.
+func skillsRefreshCommandLine(executable string, groups []skillsRefreshGroup) string {
+	commands := make([]string, 0, len(groups))
+	for _, group := range groups {
+		commands = append(commands, executable+" "+strings.Join(skillsRefreshArguments(group), " "))
+	}
+	return strings.Join(commands, " && ")
 }
 
 // runSkillsRefresh runs the freshly installed binary so the skills that land
@@ -335,16 +433,23 @@ var runSkillsRefresh = func(out io.Writer, executable string, arguments []string
 	return command.Run()
 }
 
-// refreshInstalledSkills reinstalls the skills through the new binary. A
-// failure here is reported with the command to run by hand and does not fail
-// the upgrade: the binary is already replaced, and saying so is more useful
-// than a non-zero exit that reads as a failed upgrade.
-func refreshInstalledSkills(out io.Writer, executable string, clients []skills.Client) {
-	arguments := skillsRefreshArguments(clients)
-	_, _ = fmt.Fprintf(out, "Refreshing the Ankra agent skills for %s ...\n", clientDisplayNames(clients))
-	if err := runSkillsRefresh(out, executable, arguments); err != nil {
-		_, _ = fmt.Fprintf(out, "Warning: the agent skills were not refreshed: %v\nRun it by hand: %s %s\n",
-			err, executable, strings.Join(arguments, " "))
+// refreshInstalledSkills reinstalls the skills through the new binary, one
+// run per group of clients that share install options. A failure is reported
+// with the command to run by hand and does not fail the upgrade: the binary
+// is already replaced, and saying so is more useful than a non-zero exit
+// that reads as a failed upgrade. A failed group does not stop the others.
+func refreshInstalledSkills(out io.Writer, executable string, groups []skillsRefreshGroup) {
+	all := make([]skills.Client, 0)
+	for _, group := range groups {
+		all = append(all, group.Clients...)
+	}
+	_, _ = fmt.Fprintf(out, "Refreshing the Ankra agent skills for %s ...\n", clientDisplayNames(all))
+	for _, group := range groups {
+		arguments := skillsRefreshArguments(group)
+		if err := runSkillsRefresh(out, executable, arguments); err != nil {
+			_, _ = fmt.Fprintf(out, "Warning: the agent skills for %s were not refreshed: %v\nRun it by hand: %s %s\n",
+				clientDisplayNames(group.Clients), err, executable, strings.Join(arguments, " "))
+		}
 	}
 }
 
