@@ -21,6 +21,18 @@
 
 ### Changed
 
+- **A restore point id prefix is now checked against the stack's whole
+  history, and `restore-points delete` and `restore` want at least 8
+  characters of it.** The prefix was declared unambiguous if it matched
+  exactly one of the newest 200 restore points, so `restore shop 0b2f` could
+  resolve to the one in front of you while an older one the check never read
+  shared the prefix - and restore removes the stack's volumes before it writes
+  anything back. The resolver now follows the listing's cursor to the end for
+  every verb, and the two destructive ones refuse a prefix shorter than the
+  uuid's first group with a usage error that names the full-id alternative,
+  before anything is read. `get` still takes any unambiguous prefix, and a
+  full id is always accepted as it is.
+
 - **`mesh make-ready --pod-cidr` no longer moves a cluster onto a fresh pod
   range.** The platform refuses that move while it is redesigned: a
   kube-controller-manager whose `--cluster-cidr` excludes a node's range exits

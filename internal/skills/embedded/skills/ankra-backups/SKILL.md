@@ -132,8 +132,8 @@ backups and **keeps** every restore point already taken.
 ankra cluster stacks restore-points create shop --note "before the 3.2 upgrade" --wait
 ankra cluster stacks restore-points list shop --status complete
 ankra cluster stacks restore-points get shop 0b2f          # an unambiguous id prefix is enough
-ankra cluster stacks restore-points restore shop 0b2f --wait
-ankra cluster stacks restore-points delete shop 0b2f
+ankra cluster stacks restore-points restore shop 0b2f1c3d --wait   # destructive: 8+ characters or the full id
+ankra cluster stacks restore-points delete shop 0b2f1c3d
 ankra backup restore-points list --cluster production      # across every cluster
 ```
 
