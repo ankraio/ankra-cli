@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +28,11 @@ type backupLaneMock struct {
 	baseMock
 	cluster client.ClusterListItem
 
-	listing      *client.RestorePointListResult
+	listing *client.RestorePointListResult
+	// listPages scripts a keyset-paged listing by cursor, "" being the first
+	// page; when set it takes precedence over listing, and a cursor nothing
+	// scripted is an error so a resolver cannot silently loop or stop short.
+	listPages    map[string]*client.RestorePointListResult
 	listError    error
 	listOptions  []client.ListRestorePointsOptions
 	organisation *client.RestorePointListResult
@@ -93,6 +98,13 @@ func (mock *backupLaneMock) ListStackRestorePoints(_ string, _ string,
 	mock.listOptions = append(mock.listOptions, options)
 	if mock.listError != nil {
 		return nil, mock.listError
+	}
+	if mock.listPages != nil {
+		page, scripted := mock.listPages[options.Cursor]
+		if !scripted {
+			return nil, errors.New("no restore point page scripted for cursor " + strconv.Quote(options.Cursor))
+		}
+		return page, nil
 	}
 	if mock.listing == nil {
 		return &client.RestorePointListResult{}, nil
@@ -574,6 +586,165 @@ func TestResolveRestorePointIDReportsAnUnknownPrefixAsNotFound(t *testing.T) {
 
 	if exitCodeFor(resolveError) != exitNotFound {
 		t.Fatalf("an unknown prefix must exit not-found, got %d (%v)", exitCodeFor(resolveError), resolveError)
+	}
+}
+
+// pagedRestorePointListing scripts a two-page keyset listing: the first page
+// carries a cursor to the second, the second is the last.
+func pagedRestorePointListing(first []client.RestorePoint, second []client.RestorePoint,
+) map[string]*client.RestorePointListResult {
+	secondCursor := "page-2"
+	return map[string]*client.RestorePointListResult{
+		"":           {RestorePoints: first, NextCursor: &secondCursor},
+		secondCursor: {RestorePoints: second},
+	}
+}
+
+// A prefix that only matches on a later page must still be found: stopping at
+// the first page would report it as not found, or worse, unique.
+func TestResolveRestorePointIDFollowsEveryPage(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.listPages = pagedRestorePointListing(
+		[]client.RestorePoint{{ID: "ffffffff-1111-4111-8111-111111111111"}},
+		[]client.RestorePoint{sampleRestorePoint()},
+	)
+
+	resolved, resolveError := resolveRestorePointID(mock, testClusterID, backupTestStack, "0b2f")
+
+	if resolveError != nil {
+		t.Fatalf("a prefix on the second page must resolve: %v", resolveError)
+	}
+	if resolved != backupTestRestorePointID {
+		t.Fatalf("resolved to %q", resolved)
+	}
+	if len(mock.listOptions) != 2 {
+		t.Fatalf("expected both pages to be read, got %d list calls", len(mock.listOptions))
+	}
+	if mock.listOptions[0].Cursor != "" || mock.listOptions[1].Cursor != "page-2" {
+		t.Fatalf("the second read must follow the first page's cursor, got %+v", mock.listOptions)
+	}
+	if mock.listOptions[0].Limit != restorePointResolutionPageSize {
+		t.Fatalf("each page must ask for the platform's maximum, got %d", mock.listOptions[0].Limit)
+	}
+}
+
+// A prefix unique on the newest page can still collide with an older restore
+// point on the next one; the resolver must read on and refuse it.
+func TestResolveRestorePointIDRefusesAPrefixAmbiguousAcrossPages(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.listPages = pagedRestorePointListing(
+		[]client.RestorePoint{{ID: "0b2f1111-1111-4111-8111-111111111111"}},
+		[]client.RestorePoint{{ID: "0b2f2222-2222-4222-8222-222222222222"}},
+	)
+
+	_, resolveError := resolveRestorePointID(mock, testClusterID, backupTestStack, "0b2f")
+
+	if resolveError == nil {
+		t.Fatal("a prefix shared with an older page must be refused")
+	}
+	if exitCodeFor(resolveError) != exitUsage {
+		t.Fatalf("an ambiguous prefix is a bad invocation, got exit %d (%v)", exitCodeFor(resolveError), resolveError)
+	}
+	if !strings.Contains(resolveError.Error(), "0b2f1111") || !strings.Contains(resolveError.Error(), "0b2f2222") {
+		t.Fatalf("the refusal must name the candidate from each page: %v", resolveError)
+	}
+}
+
+// Delete is destructive, so a prefix short enough to be typed from memory is
+// refused before the platform is asked anything.
+func TestRestorePointsDeleteRefusesAShortPrefix(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.listing = &client.RestorePointListResult{RestorePoints: []client.RestorePoint{sampleRestorePoint()}}
+
+	_, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsDeleteCmd},
+		"cluster", "stacks", "restore-points", "delete", backupTestStack, "0b2f",
+		"--cluster", "demo", "--yes")
+
+	if executeError == nil {
+		t.Fatal("a four-character prefix must not delete anything")
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("a short prefix is a bad invocation, got exit %d (%v)", exitCodeFor(executeError), executeError)
+	}
+	if !strings.Contains(executeError.Error(), "full id") {
+		t.Fatalf("the refusal must name the full-id alternative: %v", executeError)
+	}
+	if len(mock.listOptions) != 0 {
+		t.Fatalf("a refused prefix must not be looked up, got %d list calls", len(mock.listOptions))
+	}
+	if mock.deleteCalls != 0 {
+		t.Fatalf("nothing may be deleted on a refused prefix, got %d calls", mock.deleteCalls)
+	}
+}
+
+// Restore removes the stack's volumes, so it holds the same line as delete.
+func TestRestorePointsRestoreRefusesAShortPrefix(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.listing = &client.RestorePointListResult{RestorePoints: []client.RestorePoint{sampleRestorePoint()}}
+
+	_, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsRestoreCmd},
+		"cluster", "stacks", "restore-points", "restore", backupTestStack, "0b2f",
+		"--cluster", "demo", "--yes")
+
+	if executeError == nil {
+		t.Fatal("a four-character prefix must not restore anything")
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("a short prefix is a bad invocation, got exit %d (%v)", exitCodeFor(executeError), executeError)
+	}
+	if !strings.Contains(executeError.Error(), "full id") {
+		t.Fatalf("the refusal must name the full-id alternative: %v", executeError)
+	}
+	if len(mock.listOptions) != 0 {
+		t.Fatalf("a refused prefix must not be looked up, got %d list calls", len(mock.listOptions))
+	}
+	if mock.restored != nil {
+		t.Fatalf("nothing may reach the platform on a refused prefix, got %+v", mock.restored)
+	}
+}
+
+func TestRestorePointsDeleteAcceptsAnEightCharacterPrefix(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.listing = &client.RestorePointListResult{RestorePoints: []client.RestorePoint{sampleRestorePoint()}}
+	mock.deleteResult = &client.DeleteRestorePointResult{
+		RestorePointID: backupTestRestorePointID, Status: client.RestorePointStatusDeleted,
+	}
+
+	output, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsDeleteCmd},
+		"cluster", "stacks", "restore-points", "delete", backupTestStack, "0b2f1c3d",
+		"--cluster", "demo", "--yes")
+
+	if executeError != nil {
+		t.Fatalf("deleting by an eight-character prefix: %v", executeError)
+	}
+	if mock.deleteCalls != 1 {
+		t.Fatalf("expected exactly one delete, got %d", mock.deleteCalls)
+	}
+	if !strings.Contains(output, backupTestRestorePointID) {
+		t.Fatalf("the resolved full id must be printed, got:\n%s", output)
+	}
+}
+
+func TestRestorePointsRestoreAcceptsAnEightCharacterPrefix(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.listing = &client.RestorePointListResult{RestorePoints: []client.RestorePoint{sampleRestorePoint()}}
+	mock.restoreResult = &client.RestoreRestorePointResult{
+		RestorePointID: backupTestRestorePointID, RunID: backupTestRunID, Mode: client.RestoreModeInPlace,
+	}
+
+	_, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsRestoreCmd},
+		"cluster", "stacks", "restore-points", "restore", backupTestStack, "0b2f1c3d",
+		"--cluster", "demo", "--yes")
+
+	if executeError != nil {
+		t.Fatalf("restoring by an eight-character prefix: %v", executeError)
+	}
+	if mock.restored == nil || mock.restored.Confirm != backupTestStack {
+		t.Fatalf("the restore must reach the platform with the stack name confirmed, got %+v", mock.restored)
 	}
 }
 

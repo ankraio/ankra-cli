@@ -50,11 +50,11 @@ var restorePointIDPattern = regexp.MustCompile(
 // form there is; an ambiguous one is refused rather than resolved to whichever
 // the listing happened to order first.
 //
-// The ambiguity check is only as wide as the page it searched: a prefix unique
-// among the stack's most recent restore points can still collide with an older
-// one that was never read. That is why the help says so and why the full id is
-// always accepted - a short prefix is a convenience for the listing in front of
-// you, not an addressing scheme.
+// The ambiguity check covers the stack's whole history: the listing is keyset
+// paged and the platform offers no id filter, so every page is read until the
+// cursor runs out. Stopping at the first page would declare a prefix unique
+// among the newest restore points when an older one, never read, shares it -
+// and two of the verbs that resolve a prefix destroy data.
 func resolveRestorePointID(restorePoints APIClient, clusterID string, stackName string,
 	reference string) (string, error) {
 	if restorePointIDPattern.MatchString(reference) {
@@ -63,24 +63,33 @@ func resolveRestorePointID(restorePoints APIClient, clusterID string, stackName 
 	if strings.TrimSpace(reference) == "" {
 		return "", withExitCode(exitUsage, fmt.Errorf("a restore point id is required"))
 	}
-	listing, listError := restorePoints.ListStackRestorePoints(clusterID, stackName,
-		client.ListRestorePointsOptions{Limit: restorePointResolutionPageSize})
-	if listError != nil {
-		return "", backupLaneError("looking up restore point "+reference, listError)
-	}
 	matched := make([]string, 0, 2)
-	for _, restorePoint := range listing.RestorePoints {
-		if strings.HasPrefix(restorePoint.ID, reference) {
-			matched = append(matched, restorePoint.ID)
+	cursor := ""
+	for {
+		listing, listError := restorePoints.ListStackRestorePoints(clusterID, stackName,
+			client.ListRestorePointsOptions{Limit: restorePointResolutionPageSize, Cursor: cursor})
+		if listError != nil {
+			return "", backupLaneError("looking up restore point "+reference, listError)
 		}
+		for _, restorePoint := range listing.RestorePoints {
+			if strings.HasPrefix(restorePoint.ID, reference) {
+				matched = append(matched, restorePoint.ID)
+			}
+		}
+		// A nil cursor is the last page; a cursor that repeats would page
+		// forever, so it ends the read too rather than trusting the server.
+		if listing.NextCursor == nil || *listing.NextCursor == "" || *listing.NextCursor == cursor {
+			break
+		}
+		cursor = *listing.NextCursor
 	}
 	switch len(matched) {
 	case 1:
 		return matched[0], nil
 	case 0:
 		return "", withExitCode(exitNotFound, fmt.Errorf(
-			"no restore point on stack %q has an id starting with %q among the %d most recent - pass the full id",
-			stackName, reference, restorePointResolutionPageSize))
+			"no restore point on stack %q has an id starting with %q - pass the full id",
+			stackName, reference))
 	default:
 		return "", withExitCode(exitUsage, fmt.Errorf(
 			"%d restore points on stack %q have an id starting with %q - pass the full id (%s)",
@@ -88,10 +97,36 @@ func resolveRestorePointID(restorePoints APIClient, clusterID string, stackName 
 	}
 }
 
-// restorePointResolutionPageSize is how far back an id prefix is resolved. It
-// is the platform's maximum page, so the refusal can say exactly what was
-// searched instead of implying the whole history was.
+// resolveDestructiveRestorePointID is resolveRestorePointID for the verbs
+// that destroy data: delete removes the restore point, restore removes the
+// stack's volumes. A prefix short enough to be typed from memory is refused
+// for those before anything is read, because a prefix that is unique today is
+// not unique after the next capture, and the ambiguity check only sees what
+// exists at the moment it runs. The full id is always accepted.
+func resolveDestructiveRestorePointID(restorePoints APIClient, clusterID string, stackName string,
+	reference string, verb string) (string, error) {
+	if restorePointIDPattern.MatchString(reference) {
+		return reference, nil
+	}
+	if trimmed := strings.TrimSpace(reference); trimmed != "" &&
+		len(trimmed) < restorePointDestructivePrefixMinimum {
+		return "", withExitCode(exitUsage, fmt.Errorf(
+			"%q is too short a prefix to %s a restore point by: %s is destructive, so give at least "+
+				"%d characters of the id or the full id from `restore-points list %s`",
+			reference, verb, verb, restorePointDestructivePrefixMinimum, stackName))
+	}
+	return resolveRestorePointID(restorePoints, clusterID, stackName, reference)
+}
+
+// restorePointResolutionPageSize is the page an id prefix is resolved with.
+// It is the platform's maximum page, so the whole history is read in as few
+// round trips as the platform allows.
 const restorePointResolutionPageSize = 200
+
+// restorePointDestructivePrefixMinimum is the shortest prefix delete and
+// restore accept: the whole first group of the uuid, which is what the
+// listing's ID column shows at a glance and what a copy-paste of it yields.
+const restorePointDestructivePrefixMinimum = 8
 
 func printRestorePointTable(out io.Writer, restorePoints []client.RestorePoint, withLocation bool) {
 	writer := table.NewWriter()
@@ -381,10 +416,9 @@ var clusterStacksRestorePointsGetCmd = &cobra.Command{
 	Short: "Show a restore point's manifest, assets and producing run",
 	Long: "Describe one restore point: the manifest it carries, every asset in it, " +
 		"everything it does not carry, and the run that produced it. The id may be " +
-		"an unambiguous prefix of the one the listing printed, resolved against the " +
-		"stack's 200 most recent restore points, so it is checked for ambiguity only " +
-		"within that window - the full id is what addresses an older restore point " +
-		"with certainty.",
+		"an unambiguous prefix of the one the listing printed; it is checked for " +
+		"ambiguity against every restore point the stack has, not just the newest " +
+		"page, and a prefix two of them share is refused with both named.",
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName, reference := args[0], args[1]
@@ -550,10 +584,10 @@ objects were left behind rather than understating the storage bill.
 A restore point a backup, restore or clone is currently using is refused, and
 so is one that is still being taken.
 
-The id may be an unambiguous prefix of the one the listing printed, resolved
-against the stack's 200 most recent restore points, so it is checked for
-ambiguity only within that window; the full id is what addresses an older
-restore point with certainty.`,
+The id may be a prefix of the one the listing printed, at least 8 characters
+long (the uuid's first group), checked for ambiguity against every restore
+point the stack has; a shorter prefix is refused because a delete cannot be
+undone, and the full id is always accepted.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName, reference := args[0], args[1]
@@ -562,7 +596,8 @@ restore point with certainty.`,
 		if clusterError != nil {
 			return clusterError
 		}
-		restorePointID, resolveError := resolveRestorePointID(apiClient, cluster.ID, stackName, reference)
+		restorePointID, resolveError := resolveDestructiveRestorePointID(apiClient, cluster.ID, stackName,
+			reference, "delete")
 		if resolveError != nil {
 			return resolveError
 		}
@@ -618,10 +653,11 @@ A stack whose data has changed since the restore point was taken is refused
 unless --force. An inventory whose live database scan did not run counts as
 drift, because "we could not read it" is not "it is unchanged".
 
-The id may be an unambiguous prefix of the one the listing printed, resolved
-against the stack's 200 most recent restore points, so it is checked for
-ambiguity only within that window; the full id is what addresses an older
-restore point with certainty.`,
+The id may be a prefix of the one the listing printed, at least 8 characters
+long (the uuid's first group), checked for ambiguity against every restore
+point the stack has; a shorter prefix is refused because the stack's volumes
+are removed before anything is written back, and the full id is always
+accepted.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName, reference := args[0], args[1]
@@ -638,7 +674,8 @@ restore point with certainty.`,
 		if clusterError != nil {
 			return clusterError
 		}
-		restorePointID, resolveError := resolveRestorePointID(apiClient, cluster.ID, stackName, reference)
+		restorePointID, resolveError := resolveDestructiveRestorePointID(apiClient, cluster.ID, stackName,
+			reference, "restore")
 		if resolveError != nil {
 			return resolveError
 		}
