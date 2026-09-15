@@ -19,6 +19,16 @@
   reported as unprotected. Narrow it with `--protection`, page it with
   `--limit` and `--cursor`, script it with `-o json`.
 
+### Fixed
+
+- **A retried upload no longer fails on its own body.** `ankra migrate up`,
+  `migrate restore` and `migrate data` send each dump to the backup vault with
+  retries. The dump was handed to the transport as an open file, which closed it
+  when the first attempt ended, so the retry died on `rewind upload body: ...
+  file already closed` — and that, not the transport error or the 5xx underneath
+  it, was the only thing the operator ever saw. A retry now re-reads the whole
+  file, and an upload that fails says why it failed.
+
 ## v0.17.0 — 2026-09-15
 
 Promotes v0.17.0-rc0 to stable. The headline is `ankra cluster aws`:
