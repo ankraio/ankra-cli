@@ -243,14 +243,18 @@ func (c *Client) UploadPresignedObject(ctx context.Context, upload BackupVaultIm
 }
 
 // putPresigned sends body to one presigned URL with retries and returns the
-// ETag the store answered with, which a multipart completion needs.
+// ETag the store answered with, which a multipart completion needs. The body
+// is handed over as an io.NopCloser because the transport closes a request
+// body it can close: an *os.File passed straight in is closed when the first
+// attempt ends, and every retry after that fails on the rewind instead of on
+// whatever actually went wrong.
 func putPresigned(ctx context.Context, uploadClient *http.Client, method string, uploadURL string, body io.ReadSeeker, size int64) (string, error) {
 	var lastError error
 	for attempt := 1; attempt <= presignedUploadAttempts; attempt++ {
 		if _, seekError := body.Seek(0, io.SeekStart); seekError != nil {
 			return "", fmt.Errorf("rewind upload body: %w", seekError)
 		}
-		request, requestError := http.NewRequestWithContext(ctx, method, uploadURL, body)
+		request, requestError := http.NewRequestWithContext(ctx, method, uploadURL, io.NopCloser(body))
 		if requestError != nil {
 			return "", fmt.Errorf("create upload request: %w", requestError)
 		}
