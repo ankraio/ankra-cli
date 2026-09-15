@@ -90,7 +90,7 @@ func TestDeprovisionProxmoxCluster_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, deprovisionError := testClient.DeprovisionProxmoxCluster("pve-cluster-123")
+	result, deprovisionError := testClient.DeprovisionProxmoxCluster("pve-cluster-123", false)
 	if deprovisionError != nil {
 		t.Fatalf("DeprovisionProxmoxCluster: %v", deprovisionError)
 	}

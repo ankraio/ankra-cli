@@ -92,8 +92,12 @@ func (c *Client) CreateProxmoxCluster(request CreateProxmoxClusterRequest) (*Cre
 	return &result, nil
 }
 
-func (c *Client) DeprovisionProxmoxCluster(clusterID string) (*ProviderDeprovisionClusterResponse, error) {
-	return c.deprovisionProviderCluster(proxmoxKind, clusterID, false)
+// DeprovisionProxmoxCluster tears the cluster down. force asks the platform to
+// finish even when Proxmox itself cannot be reached: the VMs are marked down
+// and may leak, which is the only way a cluster whose host or jumphost is gone
+// can leave "deprovisioning" (ankra-4tret).
+func (c *Client) DeprovisionProxmoxCluster(clusterID string, force bool) (*ProviderDeprovisionClusterResponse, error) {
+	return c.deprovisionProviderCluster(proxmoxKind, clusterID, force)
 }
 
 func (c *Client) StopProxmoxCluster(clusterID string, force bool) (*ProviderStopClusterResponse, error) {
