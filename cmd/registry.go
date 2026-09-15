@@ -296,7 +296,14 @@ func registryRobotLoginCommand(robot *client.RegistryRobot) string {
 	}
 	// The login is robot$<project>+user-<name>: the $ must not reach the
 	// shell unquoted, so it is single-quoted like the platform's own line.
-	return fmt.Sprintf("docker login %s -u '%s' --password-stdin", host, strings.ReplaceAll(login, "'", "'\\''"))
+	// The host is quoted the same way; both come from the server's answer.
+	return fmt.Sprintf("docker login %s -u %s --password-stdin", shellSingleQuote(host), shellSingleQuote(login))
+}
+
+// shellSingleQuote wraps a value in single quotes for a line meant to be
+// pasted into a shell, escaping any single quote inside it.
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 // printRegistryRobot prints the robot's record as labelled lines.

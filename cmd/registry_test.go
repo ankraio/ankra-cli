@@ -121,7 +121,7 @@ func TestRegistryRobotsCreateShowsTheSecretOnce(t *testing.T) {
 	if occurrences := strings.Count(output, "s3cret"); occurrences != 1 {
 		t.Fatalf("the secret appears %d times, want exactly once:\n%s", occurrences, output)
 	}
-	for _, expected := range []string{"will not be shown again", "docker login artifact.ankra.cloud -u 'robot$org-abc+user-jenkins' --password-stdin"} {
+	for _, expected := range []string{"will not be shown again", "docker login 'artifact.ankra.cloud' -u 'robot$org-abc+user-jenkins' --password-stdin"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output lacks %q:\n%s", expected, output)
 		}
@@ -148,7 +148,7 @@ func TestRegistryRobotsCreateShowsTheSecretOnce(t *testing.T) {
 func TestRegistryRobotLoginCommandNeverCarriesTheSecret(t *testing.T) {
 	robot := registryRobotFixture()
 	if got, want := registryRobotLoginCommand(&robot),
-		"docker login artifact.ankra.cloud -u 'robot$org-abc+user-jenkins' --password-stdin"; got != want {
+		"docker login 'artifact.ankra.cloud' -u 'robot$org-abc+user-jenkins' --password-stdin"; got != want {
 		t.Fatalf("login = %q, want %q", got, want)
 	}
 	noHost := registryRobotFixture()
