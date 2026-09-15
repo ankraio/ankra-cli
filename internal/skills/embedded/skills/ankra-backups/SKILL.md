@@ -1,6 +1,6 @@
 ---
 name: ankra-backups
-description: Manage the organisation's backup vaults with `ankra backup vaults` - the S3-compatible buckets cluster backups and migration data move through - and, where the closed-beta `backups` feature is on, the restore points over them: protect a stack on a schedule, take a restore point now, inspect what one carries and what it does not, restore a stack in place, and follow the runs that move the data. Use when the user mentions backups, backup vaults, restore points, protecting or restoring a stack, object storage for backups, an S3 or MinIO bucket for the platform, or asks where migration dumps are kept.
+description: Manage the organisation's backup vaults with `ankra backup vaults` - the S3-compatible buckets cluster backups and migration data move through - and, where the closed-beta `backups` feature is on, the restore points over them: protect a stack on a schedule, take a restore point now, inspect what one carries and what it does not, restore a stack in place, clone a stack onto another cluster with its data, and follow the runs that move the data. Use when the user mentions backups, backup vaults, restore points, protecting or restoring a stack, cloning a stack with its data, object storage for backups, an S3 or MinIO bucket for the platform, or asks where migration dumps are kept.
 ---
 
 # Backup vaults
@@ -147,6 +147,66 @@ whose data has changed since the restore point was taken is refused unless `--fo
 
 **Every read shows what the restore point does not carry**, next to what it does. Read that
 list before you rely on a restore point, not after.
+
+### Clone a stack with its data
+
+```bash
+ankra cluster stacks clone shop --to staging --with-data --wait
+ankra cluster stacks clone shop --to staging --with-data --from latest
+ankra cluster stacks clone shop --to staging --with-data \
+  --vault production-backups --include-pvc shop/data --protect-source
+```
+
+Cloning with data is one sentence: **take a restore point on the source, restore it on the
+target**. It is the same clone as without `--with-data`, with a data block on it, so the
+target gets the same draft plus a run that moves the bytes. `--from fresh` (the default)
+takes a restore point as part of the clone, so the copy is of the stack as it is now;
+`--from latest` restores the newest complete restore point the stack already has and moves
+nothing out of the source.
+
+**The copy is a draft, and it is not deployed.** A with-data clone never deploys at clone
+time - the restore has to land before the workloads come up, or the release would adopt
+nothing - so `--deploy` *plans* the deploy step and the run parks on `blocked` with
+`awaiting_deploy` once the restore is in. Deploy the cloned stack from the builder in the
+meantime. A clone onto a cluster whose agent has never connected (the ordinary case for a
+cluster you just created) parks on `blocked` too, and says the restore starts when the new
+cluster connects. `--wait` follows the run to `succeeded`, `failed` or `blocked` and prints
+the platform's reason verbatim; blocked is not a failure and exits 0.
+
+Databases travel by default and volumes only where named with `--include-pvc namespace/name`;
+`--exclude-databases` needs `--confirm-exclude-databases`. **Naming any selection flag replaces
+the stack's stored backup selection for this clone** - the platform resolves the request's
+selection instead of the stored one, not on top of it, and an absent field inside a carried
+selection takes the platform default rather than the stored answer. So `--exclude-databases`
+on its own carries no volumes either, and `--include-pvc` on its own carries the databases of
+a stack whose stored policy excluded them. The command prints what the selection settled on
+before it sends. Leave every selection flag off and the stored selection decides. The vault resolves `--vault`,
+then the stack's policy vault, then the organisation's single ready vault; with `--from latest`
+the restore point is read from the vault that holds it, so `--vault` is refused there rather
+than silently ignored.
+
+What the clone reports rather than fixes, in `data_warnings`: assets outside the selection,
+a storage class the target does not have, an asset whose owning member could not be rewritten
+and is therefore **not carried**, custom resource definitions a cloned subset needs from
+stacks that were not cloned, and environment-pinned `nodeSelector` / `tolerations` / affinity
+the target may not satisfy. Read those before treating the target as a copy.
+
+Refusals come back as the platform's own sentence: a target that already has a stack of this
+name (a data clone keeps the names, so it cannot suffix around a conflict), a clone into
+another organisation (the vault, its credential and the audit trail belong to one), a `--name`
+rename while the plan carries volume data (a database-only clone may still be renamed), an
+agent on either end too old to capture or restore, a target with none of the source's storage
+classes, `--from latest` on a stack with no complete restore point, and a playground without
+room for the restore. Every one of them is raised before the configuration clone writes
+anything.
+
+**CloudNativePG and Percona are rewritten, not copied.** The cloned CloudNativePG `Cluster`
+comes back with `bootstrap.recovery` and a new archive server name; a Percona cluster has
+point-in-time recovery turned off and its system-account secret is added as a member holding
+a placeholder, so the draft reads as needing input rather than deploying the placeholder as
+the password. Both show up under `Needs input`.
+
+Cloning a whole cluster with its data is a portal flow - that route has no CLI twin yet.
 
 ### Watch the runs
 

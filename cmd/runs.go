@@ -278,6 +278,19 @@ again, so anything watching it would wait forever.`,
 // so a command's structured output stays parseable while it waits.
 func followRunToCompletion(ctx context.Context, runs APIClient, runID string,
 	progressWriter io.Writer) (*client.Run, error) {
+	return followRunUntil(ctx, runs, runID, progressWriter, func(run *client.Run) bool {
+		return client.IsTerminalRunStatus(run.Status)
+	})
+}
+
+// followRunUntil polls a run until isSettled accepts it or the context
+// expires. A clone waits on more than the terminal statuses: it parks on
+// `blocked` when the target's agent has not connected or the deploy step has
+// no dispatcher, and neither state ends on its own, so a caller that stopped
+// only at a terminal status would wait out its whole timeout on a clone that
+// had already said what it was waiting for.
+func followRunUntil(ctx context.Context, runs APIClient, runID string,
+	progressWriter io.Writer, isSettled func(*client.Run) bool) (*client.Run, error) {
 	lastReported := ""
 	for {
 		run, getError := runs.GetRun(runID)
@@ -292,7 +305,7 @@ func followRunToCompletion(ctx context.Context, runs APIClient, runID string,
 			_, _ = fmt.Fprintf(progressWriter, "Run %s: %s\n", runID, state)
 			lastReported = state
 		}
-		if client.IsTerminalRunStatus(run.Status) {
+		if isSettled(run) {
 			return run, nil
 		}
 		timer := time.NewTimer(dataRunPollInterval)

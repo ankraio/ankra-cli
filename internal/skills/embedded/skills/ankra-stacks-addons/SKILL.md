@@ -74,7 +74,9 @@ The moment a stack would be copy-pasted to a second cluster and edited, stop and
 stack profile instead: every per-cluster difference becomes a parameter, and the two clusters
 cannot drift apart silently. `ankra cluster stacks clone <stack> --to <cluster>` is the one-off
 route (it lands as a draft on the target and strips encrypted values, which must be reconfigured
-there); a profile is the durable one. See `ankra-stack-profiles`.
+there); a profile is the durable one. See `ankra-stack-profiles`. A clone copies configuration
+only unless `--with-data` is passed, which carries the stack's data through a backup vault -
+see `ankra-backups`.
 
 ## Related skills
 

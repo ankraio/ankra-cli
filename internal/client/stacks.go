@@ -226,30 +226,113 @@ func (c *Client) RenameStack(ctx context.Context, clusterID, stackName, newName 
 	return &RenameStackResult{Success: true, Message: "Stack renamed"}, nil
 }
 
+// Data clone modes, mirroring importedwrite's CloneDataModeFresh and
+// CloneDataModeLatest. Fresh takes a new restore point on the source as part
+// of the clone, so the copy is of the stack as it is now; latest restores the
+// newest complete restore point the stack already has and moves nothing out
+// of the source.
+const (
+	CloneDataModeFresh  = "fresh"
+	CloneDataModeLatest = "latest"
+)
+
+// CloneDataSelection is decision D12's selection as a clone request carries
+// it. Databases is a pointer because the platform tells an absent field from
+// an explicit false: absent takes the stack's stored backup selection and,
+// failing that, the default, while false is a deliberate exclusion.
+//
+// The route reads `databases` and `persistent_volume_claims` and nothing
+// else, so the acknowledgement that a database exclusion needs is a CLI-side
+// guard rather than a field: sending one the platform does not define would
+// read as a promise it had been recorded.
+type CloneDataSelection struct {
+	Databases              *bool    `json:"databases,omitempty" yaml:"databases,omitempty"`
+	PersistentVolumeClaims []string `json:"persistent_volume_claims,omitempty" yaml:"persistent_volume_claims,omitempty"`
+}
+
+// CloneDataAsset is one asset a with-data clone carries, as the clone's
+// result reports it. SizeBytes is zero for a capture that has not run yet,
+// which is every asset of a clone in `fresh` mode.
+type CloneDataAsset struct {
+	ID             string `json:"id" yaml:"id"`
+	Kind           string `json:"kind" yaml:"kind"`
+	Engine         string `json:"engine" yaml:"engine"`
+	Namespace      string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	Name           string `json:"name" yaml:"name"`
+	DatabaseEngine string `json:"database_engine,omitempty" yaml:"database_engine,omitempty"`
+	SizeBytes      int64  `json:"size_bytes" yaml:"size_bytes"`
+}
+
+// CloneNeedsInputItem is one cloned member that still holds stripped secrets
+// and must be filled in before the target stack can come up.
+type CloneNeedsInputItem struct {
+	MemberKind string   `json:"member_kind" yaml:"member_kind"`
+	MemberName string   `json:"member_name" yaml:"member_name"`
+	Reason     string   `json:"reason" yaml:"reason"`
+	Paths      []string `json:"paths" yaml:"paths"`
+}
+
+// CloneStackToClusterRequest is the clone body. The data half (bead
+// ankra-0xsdd.9, cluster#3101) is absent from a configuration-only clone,
+// which stays byte-identical to what the CLI sent before it existed.
+//
+// DataSelection is a pointer for the same reason the platform carries a
+// Present flag: a body with no selection falls back to the stack's stored
+// one, while an empty selection would be read as a selection covering
+// nothing.
 type CloneStackToClusterRequest struct {
-	SourceClusterID            string `json:"source_cluster_id"`
-	StackName                  string `json:"stack_name"`
-	NewStackName               string `json:"new_stack_name,omitempty"`
-	IncludeAddonConfigurations bool   `json:"include_addon_configurations"`
+	SourceClusterID            string              `json:"source_cluster_id"`
+	StackName                  string              `json:"stack_name"`
+	NewStackName               string              `json:"new_stack_name,omitempty"`
+	IncludeAddonConfigurations bool                `json:"include_addon_configurations"`
+	DeployAfterClone           bool                `json:"deploy_after_clone,omitempty"`
+	IncludeData                bool                `json:"include_data,omitempty"`
+	DataCloneMode              string              `json:"data_clone_mode,omitempty"`
+	BackupVaultID              string              `json:"backup_vault_id,omitempty"`
+	DataSelection              *CloneDataSelection `json:"data_selection,omitempty"`
+	ProtectSource              bool                `json:"protect_source,omitempty"`
+	// IdempotencyKey is sent as the optional Idempotency-Key header, never in
+	// the body. A with-data clone takes a restore point and dispatches a
+	// capture, so a retry that slipped past a dropped response would take a
+	// second restore point of the same stack; replaying the key answers the
+	// recorded response instead.
+	IdempotencyKey string `json:"-"`
 }
 
 type CloneStackToClusterResult struct {
-	DraftID         string   `json:"draft_id"`
-	StackName       string   `json:"stack_name"`
-	Warnings        []string `json:"warnings"`
-	AddonsCloned    int      `json:"addons_cloned"`
-	ManifestsCloned int      `json:"manifests_cloned"`
+	DraftID         string   `json:"draft_id" yaml:"draft_id"`
+	StackName       string   `json:"stack_name" yaml:"stack_name"`
+	Warnings        []string `json:"warnings" yaml:"warnings"`
+	AddonsCloned    int      `json:"addons_cloned" yaml:"addons_cloned"`
+	ManifestsCloned int      `json:"manifests_cloned" yaml:"manifests_cloned"`
 	// ApplicationsCloned is absent from platforms that predate application
 	// cloning (cluster#1971) and decodes to 0 there, which is also what those
 	// platforms cloned.
-	ApplicationsCloned int `json:"applications_cloned"`
+	ApplicationsCloned int `json:"applications_cloned" yaml:"applications_cloned"`
+	// NeedsInput names the cloned members whose secrets were stripped, and
+	// Deployed / OperationID / DeployError report the deploy a
+	// deploy_after_clone request ran - or why one that was asked for did not
+	// happen. The draft is kept either way.
+	NeedsInput  []CloneNeedsInputItem `json:"needs_input,omitempty" yaml:"needs_input,omitempty"`
+	Deployed    bool                  `json:"deployed" yaml:"deployed"`
+	OperationID *string               `json:"operation_id,omitempty" yaml:"operation_id,omitempty"`
+	DeployError *string               `json:"deploy_error,omitempty" yaml:"deploy_error,omitempty"`
+	// DataCloneRunID is the run carrying the data half of the clone, nil for
+	// a configuration-only clone. DataRestorePointID is the restore point
+	// that run fills or reads, DataAssets what it was asked to carry, and
+	// DataWarnings everything it will not carry - the omissions first,
+	// because they are what changes the answer to "is this a copy".
+	DataCloneRunID     *string          `json:"data_clone_run_id,omitempty" yaml:"data_clone_run_id,omitempty"`
+	DataRestorePointID *string          `json:"data_restore_point_id,omitempty" yaml:"data_restore_point_id,omitempty"`
+	DataAssets         []CloneDataAsset `json:"data_assets,omitempty" yaml:"data_assets,omitempty"`
+	DataWarnings       []string         `json:"data_warnings,omitempty" yaml:"data_warnings,omitempty"`
 }
 
-func (c *Client) CloneStackToCluster(ctx context.Context, targetClusterID string, cloneReq CloneStackToClusterRequest) (*CloneStackToClusterResult, error) {
+func (c *Client) CloneStackToCluster(ctx context.Context, targetClusterID string, cloneRequest CloneStackToClusterRequest) (*CloneStackToClusterResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/clone",
 		c.BaseURL, neturl.PathEscape(targetClusterID))
 
-	payload, err := json.Marshal(cloneReq)
+	payload, err := json.Marshal(cloneRequest)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -260,6 +343,9 @@ func (c *Client) CloneStackToCluster(ctx context.Context, targetClusterID string
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+	if cloneRequest.IdempotencyKey != "" {
+		httpReq.Header.Set("Idempotency-Key", cloneRequest.IdempotencyKey)
+	}
 
 	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
@@ -271,7 +357,20 @@ func (c *Client) CloneStackToCluster(ctx context.Context, targetClusterID string
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, ErrUnauthorized
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		// The data half refuses with sentences the caller has to read to act
+		// on - which permission is missing, why a rename cannot carry volume
+		// data, which storage class the target lacks - so the detail is
+		// surfaced as the message rather than buried in a raw body dump.
+		if denied := PermissionDeniedFromResponse(resp.StatusCode, body); denied != nil {
+			return nil, denied
+		}
+		if detail := detailFromBody(body); detail != "" {
+			return nil, newBackendDetailError(resp.StatusCode, detail)
+		}
 		return nil, newUnexpectedResponseError("clone failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
