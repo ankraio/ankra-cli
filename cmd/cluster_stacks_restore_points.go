@@ -100,7 +100,7 @@ func printRestorePointTable(out io.Writer, restorePoints []client.RestorePoint, 
 		row := table.Row{
 			restorePoint.ID, restorePoint.Status, restorePoint.Trigger,
 			formatByteSize(restorePoint.TotalBytes), restorePoint.AssetCount,
-			len(restorePoint.NotCarried), formatTimeAgo(restorePoint.CreatedAt),
+			restorePointOmissions(restorePoint), formatTimeAgo(restorePoint.CreatedAt),
 		}
 		if withLocation {
 			row = table.Row{
@@ -108,12 +108,24 @@ func printRestorePointTable(out io.Writer, restorePoints []client.RestorePoint, 
 				strings.Join(restorePoint.StackNames, ", "),
 				restorePoint.Status, restorePoint.Trigger,
 				formatByteSize(restorePoint.TotalBytes), restorePoint.AssetCount,
-				len(restorePoint.NotCarried), formatTimeAgo(restorePoint.CreatedAt),
+				restorePointOmissions(restorePoint), formatTimeAgo(restorePoint.CreatedAt),
 			}
 		}
 		writer.AppendRow(row)
 	}
 	writer.Render()
+}
+
+// restorePointOmissions renders the not-carried column. A restore point that
+// is still being taken has not reported its omissions yet, so its empty list
+// is "not known" rather than "nothing missing", and printing 0 there would
+// present an unknown as a clean bill - the exact silence the column exists to
+// remove.
+func restorePointOmissions(restorePoint client.RestorePoint) any {
+	if restorePoint.Status == client.RestorePointStatusCreating {
+		return "unknown"
+	}
+	return len(restorePoint.NotCarried)
 }
 
 // restorePointClusterName names the source cluster. A restore point outlives
@@ -209,7 +221,12 @@ func printRestorePointDetail(out io.Writer, restorePoint *client.RestorePoint) {
 		writer.Render()
 	}
 
-	printNotCarried(out, restorePoint.NotCarried)
+	if restorePoint.Status == client.RestorePointStatusCreating && len(restorePoint.NotCarried) == 0 {
+		_, _ = fmt.Fprintln(out,
+			"\nNot carried: not known yet - this restore point is still being taken.")
+	} else {
+		printNotCarried(out, restorePoint.NotCarried)
+	}
 
 	if run := restorePoint.Run; run != nil {
 		_, _ = fmt.Fprintln(out, "\nProducing run:")

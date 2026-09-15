@@ -276,6 +276,70 @@ func TestRestorePointsListCountsWhatIsNotCarried(t *testing.T) {
 	}
 }
 
+// A restore point still being taken has not reported its omissions, so its
+// empty list is "not known" rather than "nothing missing". Printing 0 there
+// would present an unknown as a clean bill.
+func TestRestorePointsListDoesNotCallAnUnreportedOmissionListEmpty(t *testing.T) {
+	creating := sampleRestorePoint()
+	creating.Status = client.RestorePointStatusCreating
+	creating.NotCarried = nil
+	creating.CompletedAt = nil
+	mock := newBackupLaneMock()
+	mock.listing = &client.RestorePointListResult{RestorePoints: []client.RestorePoint{creating}}
+
+	output, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsListCmd},
+		"cluster", "stacks", "restore-points", "list", backupTestStack, "--cluster", "demo")
+
+	if executeError != nil {
+		t.Fatalf("listing restore points: %v", executeError)
+	}
+	if !strings.Contains(stripANSICodes(output), "unknown") {
+		t.Fatalf("a capture that has not reported its omissions must not read as 0, got:\n%s", output)
+	}
+}
+
+func TestRestorePointsGetSaysTheOmissionsAreNotKnownYet(t *testing.T) {
+	creating := sampleRestorePoint()
+	creating.Status = client.RestorePointStatusCreating
+	creating.NotCarried = nil
+	creating.CompletedAt = nil
+	mock := newBackupLaneMock()
+	mock.restorePoint = &creating
+
+	output, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsGetCmd},
+		"cluster", "stacks", "restore-points", "get", backupTestStack, backupTestRestorePointID,
+		"--cluster", "demo")
+
+	if executeError != nil {
+		t.Fatalf("getting a restore point: %v", executeError)
+	}
+	if !strings.Contains(output, "not known yet") {
+		t.Fatalf("a capture still running must say its omissions are unknown, got:\n%s", output)
+	}
+}
+
+// A sealed restore point with nothing omitted really does carry everything,
+// and must not be reported as unknown.
+func TestRestorePointsListCountsOmissionsOnceTheCaptureHasReported(t *testing.T) {
+	sealed := sampleRestorePoint()
+	sealed.NotCarried = nil
+	mock := newBackupLaneMock()
+	mock.listing = &client.RestorePointListResult{RestorePoints: []client.RestorePoint{sealed}}
+
+	output, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsListCmd},
+		"cluster", "stacks", "restore-points", "list", backupTestStack, "--cluster", "demo")
+
+	if executeError != nil {
+		t.Fatalf("listing restore points: %v", executeError)
+	}
+	if strings.Contains(stripANSICodes(output), "unknown") {
+		t.Fatalf("a sealed restore point's omissions are known, got:\n%s", output)
+	}
+}
+
 func TestRestorePointsListEmptyPointsAtCreate(t *testing.T) {
 	mock := newBackupLaneMock()
 
