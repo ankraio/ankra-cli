@@ -61,8 +61,14 @@ the restore has landed - a with-data clone never deploys at clone time, and
 
 Data flags need --with-data beside them. Databases travel by default and
 volumes only where named with --include-pvc namespace/name; --exclude-databases
-needs --confirm-exclude-databases. The vault resolves in order: --vault, the
-stack's own backup policy, then the organisation's single ready vault.
+needs --confirm-exclude-databases. Naming any selection flag REPLACES the
+stack's stored backup selection for this clone rather than narrowing it, so
+name the volumes to keep alongside --exclude-databases; leave every selection
+flag off and the stored selection decides.
+
+The vault resolves in order: --vault, the stack's own backup policy, then the
+organisation's single ready vault. With --from latest the restore point is
+read from the vault that holds it, so --vault is not accepted there.
 
 Carrying volume data keeps the stack, Helm release and namespace names, so the
 platform refuses --name for a clone whose plan holds volumes (a database-only
@@ -130,6 +136,7 @@ Examples:
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Cloning stack '%s' to cluster '%s'...\n",
 				stackName, targetCluster)
 		}
+		describeCloneSelection(cmd.ErrOrStderr(), cloneRequest.DataSelection)
 
 		requestContext, cancelRequest := context.WithTimeout(context.Background(), cloneRequestTimeout)
 		defer cancelRequest()
@@ -253,11 +260,23 @@ func buildCloneDataRequest(cmd *cobra.Command, withData bool, wait bool) (cloneD
 	}
 	request.DataSelection = selection
 
-	vaultID, vaultError := resolveSelectedVault(cmd)
-	if vaultError != nil {
-		return cloneDataRequest{}, vaultError
+	// A clone in `latest` mode reads the restore point it found, and a
+	// restore point's objects live in the vault that took it, so the
+	// platform uses that vault and never looks at the request's. A --vault
+	// accepted here would be a flag that silently did nothing.
+	if request.DataCloneMode == client.CloneDataModeLatest && cmd.Flags().Changed("vault") {
+		return cloneDataRequest{}, withExitCode(exitUsage, fmt.Errorf(
+			"--vault does not apply with --from latest: the clone restores the stack's newest complete "+
+				"restore point from the vault that holds it. Drop --vault, or use --from fresh to take a "+
+				"new restore point in a vault you choose"))
 	}
-	request.BackupVaultID = vaultID
+	if request.DataCloneMode != client.CloneDataModeLatest {
+		vaultID, vaultError := resolveSelectedVault(cmd)
+		if vaultError != nil {
+			return cloneDataRequest{}, vaultError
+		}
+		request.BackupVaultID = vaultID
+	}
 	request.ProtectSource, _ = cmd.Flags().GetBool("protect-source")
 	request.IdempotencyKey, _ = cmd.Flags().GetString("idempotency-key")
 	return request, nil
@@ -268,12 +287,24 @@ func buildCloneDataRequest(cmd *cobra.Command, withData bool, wait bool) (cloneD
 // back to the stack's stored one rather than being told to widen to
 // everything - and naming a volume is not a decision about databases, so
 // only --exclude-databases sets that field.
+//
+// A selection the request DOES carry replaces the stack's stored one whole:
+// the platform resolves "the request, then the stored policy, then the
+// default" and does not merge the two field by field. So --exclude-databases
+// on its own is a clone of the databases-excluded, no-volumes selection, not
+// the stored selection minus its databases, and describeCloneSelection says
+// so rather than leaving the difference to be found on the target.
 func buildCloneDataSelection(cmd *cobra.Command) (*client.CloneDataSelection, error) {
 	includeClaims, _ := cmd.Flags().GetStringArray("include-pvc")
 	excludeDatabases, _ := cmd.Flags().GetBool("exclude-databases")
 	confirmExclusion, _ := cmd.Flags().GetBool("confirm-exclude-databases")
 	if len(includeClaims) == 0 && !excludeDatabases {
 		return nil, nil
+	}
+	for _, claim := range includeClaims {
+		if validationError := validatePersistentVolumeClaimReference(claim); validationError != nil {
+			return nil, validationError
+		}
 	}
 	selection := &client.CloneDataSelection{PersistentVolumeClaims: includeClaims}
 	if !excludeDatabases {
@@ -287,6 +318,44 @@ func buildCloneDataSelection(cmd *cobra.Command) (*client.CloneDataSelection, er
 	databasesExcluded := false
 	selection.Databases = &databasesExcluded
 	return selection, nil
+}
+
+// validatePersistentVolumeClaimReference refuses an --include-pvc value that
+// is not namespace/name. The platform matches claims on exactly that
+// spelling, so a malformed one names no volume, travels as a selection
+// covering nothing, and is discovered as an empty target - the silence this
+// lane exists to remove, and a lot cheaper to catch before a restore point
+// is taken.
+func validatePersistentVolumeClaimReference(claim string) error {
+	namespace, name, separatorFound := strings.Cut(claim, "/")
+	if separatorFound && namespace != "" && name != "" && !strings.Contains(name, "/") {
+		return nil
+	}
+	return withExitCode(exitUsage, fmt.Errorf(
+		"--include-pvc %q is not namespace/name: name the volume the way "+
+			"'ankra cluster stacks data list' prints it, for example shop/data", claim))
+}
+
+// describeCloneSelection says what a carried selection covers, because the
+// platform applies it instead of the stack's stored selection rather than
+// alongside it. A stack protected with volumes named in its policy and
+// cloned with --exclude-databases alone carries neither its databases nor
+// those volumes, and nothing else in the output would say so.
+func describeCloneSelection(out io.Writer, selection *client.CloneDataSelection) {
+	if selection == nil {
+		return
+	}
+	databases := "databases as the stack's own selection has them"
+	if selection.Databases != nil && !*selection.Databases {
+		databases = "no databases"
+	}
+	volumes := "no volumes"
+	if len(selection.PersistentVolumeClaims) > 0 {
+		volumes = "volumes " + strings.Join(selection.PersistentVolumeClaims, ", ")
+	}
+	_, _ = fmt.Fprintf(out, "This clone carries %s and %s. A selection given on the command line "+
+		"replaces the stack's stored backup selection for this clone rather than narrowing it.\n",
+		databases, volumes)
 }
 
 // cloneRunHasSettled reports whether a clone's data run has stopped moving.
@@ -421,11 +490,11 @@ func init() {
 	clusterStacksCloneCmd.Flags().String("from", client.CloneDataModeFresh,
 		"Where the data comes from: 'fresh' takes a restore point now, 'latest' restores the newest complete one the stack already has")
 	clusterStacksCloneCmd.Flags().String("vault", "",
-		"Backup vault name or id for the clone's restore point (default: the stack's policy vault, then the organisation's single ready vault)")
+		"Backup vault name or id for the restore point --from fresh takes (default: the stack's policy vault, then the organisation's single ready vault); not accepted with --from latest")
 	clusterStacksCloneCmd.Flags().StringArray("include-pvc", nil,
-		"Carry this volume as namespace/name (repeatable); volumes travel only where named")
+		"Carry this volume as namespace/name (repeatable); naming any selection flag replaces the stack's stored backup selection for this clone")
 	clusterStacksCloneCmd.Flags().Bool("exclude-databases", false,
-		"Carry no database contents (needs --confirm-exclude-databases)")
+		"Carry no database contents (needs --confirm-exclude-databases); name the volumes to keep with --include-pvc, since this replaces the stored selection")
 	clusterStacksCloneCmd.Flags().Bool("confirm-exclude-databases", false,
 		"Acknowledge that the clone carries no database contents")
 	clusterStacksCloneCmd.Flags().Bool("protect-source", false,

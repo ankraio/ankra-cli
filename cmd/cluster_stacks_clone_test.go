@@ -611,3 +611,139 @@ func TestStacksCloneChecksTheOutputFormatBeforeDispatching(t *testing.T) {
 		t.Error("nothing may reach the platform when the invocation is refused")
 	}
 }
+
+// A clone in `latest` mode restores the newest complete restore point from
+// the vault that holds it - the platform never reads the request's vault
+// there - so accepting --vault would be accepting a flag that does nothing.
+func TestStacksCloneRefusesAVaultWithFromLatest(t *testing.T) {
+	mock := newCloneLaneMock()
+
+	_, executeError := runCloneCommand(t, mock,
+		"cluster", "stacks", "clone", backupTestStack, "--cluster", "demo",
+		"--to", "staging", "--with-data", "--from", "latest", "--vault", "production-backups")
+
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("--vault with --from latest must be a usage error, got %v", executeError)
+	}
+	if !strings.Contains(executeError.Error(), "--from latest") {
+		t.Errorf("the refusal must name the mode it conflicts with, got: %v", executeError)
+	}
+	if mock.cloned != nil {
+		t.Error("nothing may reach the platform when the invocation is refused")
+	}
+}
+
+// Without --vault, `latest` sends no vault at all rather than resolving the
+// stack's or the organisation's - the restore point's own vault is the only
+// one where its objects are.
+func TestStacksCloneLatestSendsNoVault(t *testing.T) {
+	mock := newCloneLaneMock()
+	mock.cloneResult = sampleCloneWithDataResult()
+
+	_, executeError := runCloneCommand(t, mock,
+		"cluster", "stacks", "clone", backupTestStack, "--cluster", "demo",
+		"--to", "staging", "--with-data", "--from", "latest")
+
+	if executeError != nil {
+		t.Fatalf("cloning from the latest restore point: %v", executeError)
+	}
+	if mock.cloned.BackupVaultID != "" {
+		t.Fatalf("latest mode must send no vault, got %q", mock.cloned.BackupVaultID)
+	}
+}
+
+// The platform matches claims on exactly namespace/name, so a malformed one
+// would name no volume and travel as a selection covering nothing.
+func TestStacksCloneRefusesAMalformedIncludePVC(t *testing.T) {
+	for _, claim := range []string{"shopdata", "/data", "shop/", "shop/ns/data"} {
+		t.Run(claim, func(t *testing.T) {
+			mock := newCloneLaneMock()
+
+			_, executeError := runCloneCommand(t, mock,
+				"cluster", "stacks", "clone", backupTestStack, "--cluster", "demo",
+				"--to", "staging", "--with-data", "--include-pvc", claim)
+
+			if executeError == nil || exitCodeFor(executeError) != exitUsage {
+				t.Fatalf("--include-pvc %q must be a usage error, got %v", claim, executeError)
+			}
+			if mock.cloned != nil {
+				t.Error("nothing may reach the platform when the invocation is refused")
+			}
+		})
+	}
+}
+
+func TestStacksCloneAcceptsAWellFormedIncludePVC(t *testing.T) {
+	mock := newCloneLaneMock()
+	mock.cloneResult = sampleCloneWithDataResult()
+
+	_, executeError := runCloneCommand(t, mock,
+		"cluster", "stacks", "clone", backupTestStack, "--cluster", "demo",
+		"--to", "staging", "--with-data", "--include-pvc", "shop/data")
+
+	if executeError != nil {
+		t.Fatalf("a well-formed volume reference must be accepted: %v", executeError)
+	}
+	if mock.cloned.DataSelection == nil ||
+		mock.cloned.DataSelection.PersistentVolumeClaims[0] != "shop/data" {
+		t.Fatalf("the named volume must reach the selection, got %+v", mock.cloned.DataSelection)
+	}
+}
+
+// The platform resolves the request's selection INSTEAD of the stack's
+// stored one, not alongside it, so --exclude-databases on its own carries no
+// volumes either. The command says which, because nothing else in the output
+// would and the difference is only visible on the target.
+func TestStacksCloneSaysACarriedSelectionReplacesTheStoredOne(t *testing.T) {
+	mock := newCloneLaneMock()
+	mock.cloneResult = sampleCloneWithDataResult()
+
+	output, executeError := runCloneCommand(t, mock,
+		"cluster", "stacks", "clone", backupTestStack, "--cluster", "demo",
+		"--to", "staging", "--with-data", "--exclude-databases", "--confirm-exclude-databases")
+
+	if executeError != nil {
+		t.Fatalf("cloning with data: %v", executeError)
+	}
+	plain := stripANSICodes(output)
+	if !strings.Contains(plain, "no databases and no volumes") {
+		t.Errorf("the command must say what the selection covers, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "replaces the stack's stored backup selection") {
+		t.Errorf("the command must say the stored selection is replaced, got:\n%s", plain)
+	}
+}
+
+func TestStacksCloneNamesTheVolumesACarriedSelectionCovers(t *testing.T) {
+	mock := newCloneLaneMock()
+	mock.cloneResult = sampleCloneWithDataResult()
+
+	output, executeError := runCloneCommand(t, mock,
+		"cluster", "stacks", "clone", backupTestStack, "--cluster", "demo",
+		"--to", "staging", "--with-data", "--include-pvc", "shop/data")
+
+	if executeError != nil {
+		t.Fatalf("cloning with data: %v", executeError)
+	}
+	if !strings.Contains(stripANSICodes(output), "volumes shop/data") {
+		t.Errorf("the command must name the volumes it carries, got:\n%s", output)
+	}
+}
+
+// A clone with no selection flags carries the stack's stored selection, so
+// there is nothing for the command to describe.
+func TestStacksCloneSaysNothingAboutSelectionWhenNoneWasGiven(t *testing.T) {
+	mock := newCloneLaneMock()
+	mock.cloneResult = sampleCloneWithDataResult()
+
+	output, executeError := runCloneCommand(t, mock,
+		"cluster", "stacks", "clone", backupTestStack, "--cluster", "demo",
+		"--to", "staging", "--with-data")
+
+	if executeError != nil {
+		t.Fatalf("cloning with data: %v", executeError)
+	}
+	if strings.Contains(output, "replaces the stack's stored backup selection") {
+		t.Errorf("an untouched selection must not be described, got:\n%s", output)
+	}
+}

@@ -174,10 +174,14 @@ cluster connects. `--wait` follows the run to `succeeded`, `failed` or `blocked`
 the platform's reason verbatim; blocked is not a failure and exits 0.
 
 Databases travel by default and volumes only where named with `--include-pvc namespace/name`;
-`--exclude-databases` needs `--confirm-exclude-databases`. Leave every selection flag off and
-the stack's own backup selection decides. The vault resolves `--vault`, then the stack's
-policy vault, then the organisation's single ready vault - and in `latest` mode the restore
-point's own vault, because that is where the objects are.
+`--exclude-databases` needs `--confirm-exclude-databases`. **Naming any selection flag replaces
+the stack's stored backup selection for this clone** - the platform resolves the request's
+selection instead of the stored one, not on top of it - so `--exclude-databases` on its own
+carries no volumes either, and the command prints what the selection covers before it sends.
+Leave every selection flag off and the stored selection decides. The vault resolves `--vault`,
+then the stack's policy vault, then the organisation's single ready vault; with `--from latest`
+the restore point is read from the vault that holds it, so `--vault` is refused there rather
+than silently ignored.
 
 What the clone reports rather than fixes, in `data_warnings`: assets outside the selection,
 a storage class the target does not have, an asset whose owning member could not be rewritten
