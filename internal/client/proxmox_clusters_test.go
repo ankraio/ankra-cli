@@ -90,12 +90,35 @@ func TestDeprovisionProxmoxCluster_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, deprovisionError := testClient.DeprovisionProxmoxCluster("pve-cluster-123")
+	result, deprovisionError := testClient.DeprovisionProxmoxCluster("pve-cluster-123", false)
 	if deprovisionError != nil {
 		t.Fatalf("DeprovisionProxmoxCluster: %v", deprovisionError)
 	}
 	if !result.Success {
 		t.Error("Success = false, want true")
+	}
+}
+
+// force has to reach the API as ?force=true: it is what lets the platform
+// finish a teardown whose Proxmox host or jumphost is unreachable, by marking
+// the VMs down instead of failing every pass forever (ankra-4tret).
+func TestDeprovisionProxmoxClusterSendsForce(t *testing.T) {
+	for _, forced := range []bool{true, false} {
+		var receivedForce string
+		testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			receivedForce = r.URL.Query().Get("force")
+			jsonResponse(t, w, http.StatusOK, ProviderDeprovisionClusterResponse{Success: true})
+		})
+		if _, deprovisionError := testClient.DeprovisionProxmoxCluster("pve-1", forced); deprovisionError != nil {
+			t.Fatalf("DeprovisionProxmoxCluster(force=%v): %v", forced, deprovisionError)
+		}
+		want := ""
+		if forced {
+			want = "true"
+		}
+		if receivedForce != want {
+			t.Fatalf("force query = %q, want %q", receivedForce, want)
+		}
 	}
 }
 

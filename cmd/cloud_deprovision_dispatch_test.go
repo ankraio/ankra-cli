@@ -33,6 +33,7 @@ type cloudDeprovisionDispatchMock struct {
 
 	calledProvider string
 	genericCalls   int
+	proxmoxForce   bool
 }
 
 func (m *cloudDeprovisionDispatchMock) GetCluster(name string) (client.ClusterListItem, error) {
@@ -85,8 +86,9 @@ func (m *cloudDeprovisionDispatchMock) DeprovisionAwsCluster(clusterID string, f
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionProxmoxCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m *cloudDeprovisionDispatchMock) DeprovisionProxmoxCluster(clusterID string, force bool) (*client.ProviderDeprovisionClusterResponse, error) {
 	m.calledProvider = "proxmox"
+	m.proxmoxForce = force
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }
 
@@ -139,5 +141,33 @@ func TestIsCloudClusterKindCoversEveryCloudKind(t *testing.T) {
 	}
 	if isCloudClusterKind("") {
 		t.Error(`isCloudClusterKind("") = true, want false: an unknown kind must not take the cloud lane`)
+	}
+}
+
+// A Proxmox host or jumphost the platform can no longer reach fails
+// proxmox_delete_server on every teardown pass, so the cluster never leaves
+// "deprovisioning" and its name stays taken. force is what lets the platform
+// mark those VMs down and finish, so the flag has to reach the Proxmox lane
+// rather than being dropped with a warning (ankra-4tret).
+func TestProxmoxDeprovisionForwardsForce(t *testing.T) {
+	for _, forced := range []bool{true, false} {
+		mock := &cloudDeprovisionDispatchMock{
+			cluster: client.ClusterListItem{ID: "c-1", Name: "demo", Kind: string(cloudClusterKindProxmox)},
+		}
+		// The flag is spelled out both ways on purpose: clusterDeprovisionCmd
+		// is package-level, so a bare --force in one iteration stays set for
+		// the next one and the false case would pass on stale state.
+		forceArgument := "--force=false"
+		if forced {
+			forceArgument = "--force=true"
+		}
+		arguments := []string{"cluster", "deprovision", "demo", "--yes", forceArgument}
+		if _, executeError := runConfirmCommand(t, mock, "",
+			[]*cobra.Command{clusterDeprovisionCmd}, arguments...); executeError != nil {
+			t.Fatalf("deprovision failed: %v", executeError)
+		}
+		if mock.proxmoxForce != forced {
+			t.Fatalf("force reached the Proxmox lane as %v, want %v", mock.proxmoxForce, forced)
+		}
 	}
 }
