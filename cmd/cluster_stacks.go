@@ -367,89 +367,6 @@ var clusterStacksHistoryCmd = &cobra.Command{
 	},
 }
 
-var clusterStacksCloneCmd = &cobra.Command{
-	Use:   "clone <stack_name> --to <target_cluster>",
-	Short: "Clone a stack to another cluster as a draft",
-	Long: `Clone a stack from the current cluster to a target cluster.
-The cloned stack will be created as a draft in the target cluster,
-allowing you to review and modify it before deployment.
-
-Encrypted values will be stripped during cloning for security reasons
-and will need to be reconfigured in the target cluster.`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		stackName := args[0]
-		targetCluster, _ := cmd.Flags().GetString("to")
-		newName, _ := cmd.Flags().GetString("name")
-		includeConfig, _ := cmd.Flags().GetBool("include-config")
-
-		if targetCluster == "" {
-			return fmt.Errorf("--to flag is required: specify the target cluster name or ID")
-		}
-
-		sourceCluster, err := resolveActiveCluster(cmd)
-		if err != nil {
-			return err
-		}
-
-		targetClusterID, err := resolveClusterID(targetCluster)
-		if err != nil {
-			return fmt.Errorf("resolving target cluster: %w", err)
-		}
-
-		if sourceCluster.ID == targetClusterID {
-			return fmt.Errorf("cannot clone a stack to the same cluster")
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-		defer cancel()
-
-		format, err := structuredFormatFromFlags(cmd)
-		if err != nil {
-			return err
-		}
-
-		req := client.CloneStackToClusterRequest{
-			SourceClusterID:            sourceCluster.ID,
-			StackName:                  stackName,
-			NewStackName:               newName,
-			IncludeAddonConfigurations: includeConfig,
-		}
-
-		if format == outputDefault {
-			fmt.Printf("Cloning stack '%s' to cluster '%s'...\n", stackName, targetCluster)
-		}
-
-		result, err := apiClient.CloneStackToCluster(ctx, targetClusterID, req)
-		if err != nil {
-			return fmt.Errorf("cloning stack: %w", err)
-		}
-
-		if format != outputDefault {
-			return encodeStructured(cmd.OutOrStdout(), format, result)
-		}
-
-		fmt.Printf("\nStack cloned successfully!\n")
-		fmt.Printf("  Draft ID:    %s\n", result.DraftID)
-		fmt.Printf("  Stack Name:  %s\n", result.StackName)
-		fmt.Printf("  Addons:      %d\n", result.AddonsCloned)
-		fmt.Printf("  Manifests:   %d\n", result.ManifestsCloned)
-		if result.ApplicationsCloned > 0 {
-			fmt.Printf("  Applications: %d\n", result.ApplicationsCloned)
-		}
-
-		if len(result.Warnings) > 0 {
-			fmt.Println("\nWarnings:")
-			for _, warning := range result.Warnings {
-				fmt.Printf("  - %s\n", warning)
-			}
-		}
-
-		fmt.Printf("\nThe stack has been created as a draft. Open the Ankra dashboard to review and deploy.\n")
-		return nil
-	},
-}
-
 // resolveClusterID resolves a cluster name or ID to a cluster ID.
 //
 // If the input already looks like a UUID, it is returned as-is so
@@ -534,19 +451,12 @@ func resolveClusterID(nameOrID string) (string, error) {
 func init() {
 	clusterStacksDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
-	// Clone command flags
-	clusterStacksCloneCmd.Flags().StringP("to", "t", "", "Target cluster name or ID (required)")
-	clusterStacksCloneCmd.Flags().StringP("name", "n", "", "New stack name (optional, defaults to original)")
-	clusterStacksCloneCmd.Flags().Bool("include-config", true, "Include addon configurations")
-	_ = clusterStacksCloneCmd.MarkFlagRequired("to")
-
-	registerStructuredOutputFlags(clusterStacksListCmd, clusterStacksHistoryCmd, clusterStacksCloneCmd)
+	registerStructuredOutputFlags(clusterStacksListCmd, clusterStacksHistoryCmd)
 
 	clusterStacksCmd.AddCommand(clusterStacksListCmd)
 	clusterStacksCmd.AddCommand(clusterStacksDeleteCmd)
 	clusterStacksCmd.AddCommand(clusterStacksRenameCmd)
 	clusterStacksCmd.AddCommand(clusterStacksHistoryCmd)
-	clusterStacksCmd.AddCommand(clusterStacksCloneCmd)
 
 	clusterCmd.AddCommand(clusterStacksCmd)
 }

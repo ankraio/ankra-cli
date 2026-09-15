@@ -23,6 +23,52 @@
   backup policy vault first and falls back to that same single verified vault.
   The restore points are the same artefacts `ankra cluster stacks restore-points`
   lists, so the stack verbs still restore them.
+- **`ankra cluster stacks clone <stack> --to <cluster> --with-data` carries
+  the stack's data, not just its configuration.** The data clone shipped on
+  the platform in cluster#3101 and until now the only way to reach it was to
+  call `/api/v1` by hand, so the CLI could copy a stack's shape onto another
+  cluster and nothing inside it. `--with-data` takes a restore point on the
+  source and restores it onto the target, and the command answers with the
+  run that moves the bytes, the restore point behind it, every asset it was
+  asked to carry and — first, because it is what changes the answer to
+  whether this is a copy — everything it will not carry. `--from latest`
+  restores the newest complete restore point the stack already has instead of
+  taking a fresh one; `--vault` names where it lives, falling back to the
+  stack's own policy and then the organisation's single ready vault;
+  `--include-pvc namespace/name` names the volumes to carry and
+  `--exclude-databases` (with `--confirm-exclude-databases`) drops the
+  databases, while leaving every selection flag alone keeps the stack's
+  stored selection rather than silently widening to everything;
+  `--protect-source` turns the restore point this clone took into the first
+  of a series. `--wait` follows the run to `succeeded`, `failed` or `blocked`
+  and prints the platform's reason verbatim — a clone onto a cluster whose
+  agent has not connected parks by design and exits 0, a failed one exits
+  non-zero carrying the platform's excerpt. Every refusal (a target that
+  already holds the stack, a cross-organisation clone, a rename while
+  carrying volume data, an agent too old on either end, a missing storage
+  class, a playground without room) is relayed as the platform's own
+  sentence. `-o json|yaml` carries the whole result, and with `--wait` the
+  clone and the settled run together. Requires cluster#3101 on the platform.
+- **`--deploy` on `cluster stacks clone`** asks the platform to deploy the
+  cloned stack on the target. With `--with-data` the deploy is *planned*, not
+  run: the restore has to land before the workloads come up, so the run parks
+  on `awaiting_deploy` and the cloned stack is deployed from the builder in
+  the meantime. The help text and the `ankra-backups` skill both say so
+  rather than leaving it to be discovered.
+
+### Fixed
+
+- **A refused clone now says why.** `cluster stacks clone` reported any
+  non-2xx as `clone failed: status 409, body: {...}`, which buried the
+  platform's sentence — the one thing that says whether to rename the stack,
+  pick another vault or ask for a permission — inside a raw body dump. The
+  detail is now the error message, an RBAC denial maps to the permission exit
+  code, and the backups feature flag being dark gets the same "ask Ankra to
+  enable it" hint the rest of the backup lane gives.
+- **`cluster stacks clone -o yaml` emits the API's field names** (`draft_id`,
+  `stack_name`, `addons_cloned`) instead of the Go struct's lower-cased ones
+  (`draftid`, `stackname`), matching `-o json` and the rest of the backup
+  lane.
 
 ## v0.18.0-rc0 — 2026-09-15
 
@@ -49,7 +95,6 @@ while the platform redesigns that move. Both fixes in v0.17.1 are included.
   `unknown` is a stack Ankra could not assess, and it is deliberately never
   reported as unprotected. Narrow it with `--protection`, page it with
   `--limit` and `--cursor`, script it with `-o json`.
-
 ### Changed
 
 - **A restore point id prefix is now checked against the stack's whole
