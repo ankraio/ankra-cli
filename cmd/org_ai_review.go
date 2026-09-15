@@ -158,7 +158,7 @@ Requires organisation admin.`,
 
 		if len(args) == 1 {
 			relationshipID := args[0]
-			if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 				fmt.Sprintf("Remove related repository relationship %s? [y/N]: ", relationshipID),
 				skipConfirmation); confirmError != nil {
 				return confirmError
@@ -187,7 +187,7 @@ Requires organisation admin.`,
 					"'ankra org ai-review related-repos list' to see the ones that are",
 				repository, relatedRepository, installation.describe()))
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Remove the relationship between %s and %s? [y/N]: ", repository, relatedRepository),
 			skipConfirmation); confirmError != nil {
 			return confirmError
@@ -370,7 +370,7 @@ func init() {
 			"GitHub App credential (name or ID) whose installation the relationships belong to; "+
 				"defaults to the organisation's only one")
 	}
-	orgAIReviewRelatedReposRemoveCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	orgAIReviewRelatedReposRemoveCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 	orgAIReviewRelatedReposCmd.AddCommand(orgAIReviewRelatedReposListCmd, orgAIReviewRelatedReposAddCmd,
 		orgAIReviewRelatedReposRemoveCmd)
 	orgAIReviewCmd.AddCommand(orgAIReviewRelatedReposCmd)

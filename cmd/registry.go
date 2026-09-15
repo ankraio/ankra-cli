@@ -67,8 +67,9 @@ secret once.
 The name is 2 to 32 lower-case letters, digits and hyphens. The registry login
 becomes robot$<project>+user-<name>. --scope push (the default) grants push and
 pull; --scope pull grants pull only. The secret is printed exactly once, with
-the docker login command that uses it - copy it now, it is not stored anywhere
-you can read it back from. Rotate it with 'ankra registry robots rotate' if it
+a docker login command that reads it from stdin - copy it now, it is not stored
+anywhere you can read it back from. The secret is never put on a command line,
+where the shell history and 'ps' would keep it. Rotate it with 'ankra registry robots rotate' if it
 is lost or leaked.`,
 		Example: `  ankra registry robots create jenkins --description "Jenkins on the office server"
   ankra registry robots create edge-cluster --scope pull
@@ -197,7 +198,7 @@ another robot's consumers down; --yes skips the prompt for scripts.`,
 			}
 			robotName := strings.TrimSpace(arguments[0])
 			yes, _ := command.Flags().GetBool("yes")
-			if confirmError := confirmPrompt(command.InOrStdin(), command.OutOrStdout(),
+			if confirmError := confirmPrompt(command.InOrStdin(), command.ErrOrStderr(),
 				fmt.Sprintf("Rotate the secret of robot account %q? Everything logging in with the current secret stops working. [y/N]: ", robotName),
 				yes); confirmError != nil {
 				return confirmError
@@ -209,7 +210,7 @@ another robot's consumers down; --yes skips the prompt for scripts.`,
 			return renderRegistryRobotSecret(command, rotated, "Robot secret rotated. The previous secret no longer works.")
 		},
 	}
-	rotateCommand.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	rotateCommand.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 	registerStructuredOutputFlags(rotateCommand)
 	return rotateCommand
 }
@@ -233,7 +234,7 @@ secret.`,
 			}
 			robotName := strings.TrimSpace(arguments[0])
 			yes, _ := command.Flags().GetBool("yes")
-			if confirmError := confirmPrompt(command.InOrStdin(), command.OutOrStdout(),
+			if confirmError := confirmPrompt(command.InOrStdin(), command.ErrOrStderr(),
 				fmt.Sprintf("Revoke robot account %q? Everything logging in with it stops working. [y/N]: ", robotName),
 				yes); confirmError != nil {
 				return confirmError
@@ -248,14 +249,21 @@ secret.`,
 			return nil
 		},
 	}
-	deleteCommand.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	deleteCommand.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 	registerStructuredOutputFlags(deleteCommand)
 	return deleteCommand
 }
 
 // renderRegistryRobotSecret prints a create or rotate answer: structured
-// output carries the secret as a field; the human form shows it once with
-// the login command that uses it.
+// output carries the secret and the platform's docker_login as fields, for
+// scripts; the human form shows the secret exactly once, followed by a login
+// command that reads it from stdin.
+//
+// The platform's docker_login embeds the secret as -p '<secret>'. Pasting that
+// line puts the secret into the shell history and into the argv every user on
+// the machine can read with ps, so the human form never prints it: the login
+// it prints takes the password on stdin instead, and the secret appears in the
+// output once, on its own line.
 func renderRegistryRobotSecret(command *cobra.Command, robot *client.RegistryRobotWithSecret, headline string) error {
 	if rendered, renderError := renderStructured(command, robot); rendered || renderError != nil {
 		return renderError
@@ -267,10 +275,28 @@ func renderRegistryRobotSecret(command *cobra.Command, robot *client.RegistryRob
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintln(out, "Secret (save this, it will not be shown again):")
 	_, _ = fmt.Fprintf(out, "  %s\n", robot.Secret)
-	_, _ = fmt.Fprintln(out)
-	_, _ = fmt.Fprintln(out, "Log in with it:")
-	_, _ = fmt.Fprintf(out, "  %s\n", robot.DockerLogin)
+	if login := registryRobotLoginCommand(&robot.RegistryRobot); login != "" {
+		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(out, "Log in with it (paste the secret when prompted, or pipe it on stdin):")
+		_, _ = fmt.Fprintf(out, "  %s\n", login)
+	}
 	return nil
+}
+
+// registryRobotLoginCommand is the docker login for the robot with the
+// password taken from stdin, so the secret never sits on a command line. It
+// is built from the robot's own host and login; when either is missing there
+// is no safe line to print and it answers "", never the platform's
+// secret-bearing docker_login.
+func registryRobotLoginCommand(robot *client.RegistryRobot) string {
+	host := strings.TrimSpace(robot.Host)
+	login := strings.TrimSpace(robot.RobotName)
+	if host == "" || login == "" {
+		return ""
+	}
+	// The login is robot$<project>+user-<name>: the $ must not reach the
+	// shell unquoted, so it is single-quoted like the platform's own line.
+	return fmt.Sprintf("docker login %s -u '%s' --password-stdin", host, strings.ReplaceAll(login, "'", "'\\''"))
 }
 
 // printRegistryRobot prints the robot's record as labelled lines.
