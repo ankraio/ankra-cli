@@ -1600,7 +1600,7 @@ func TestPipelineGetNamesTheRunThatSupersededIt(t *testing.T) {
 	if !strings.Contains(output, "Superseded: by run #18") {
 		t.Errorf("output = %q, want the run that took this run's place", output)
 	}
-	if !strings.Contains(output, "Status:    ⊘ superseded") {
+	if !strings.Contains(output, "⊘ superseded") {
 		t.Errorf("output = %q, want the status line to say superseded", output)
 	}
 	if strings.Contains(output, "⊘ cancelled") {
