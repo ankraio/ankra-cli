@@ -104,19 +104,21 @@ func runPipelineBranches(command *cobra.Command, selector client.PipelineSelecto
 	}
 
 	shown, hidden := partitionPipelineBranches(page.Branches, includeStale)
-	if len(shown) == 0 {
-		if hidden > 0 {
-			_, _ = fmt.Fprintf(command.OutOrStdout(),
-				"No branches with a run in the last 14 days. %s\n", stalePipelineBranchHint(hidden))
-			return nil
-		}
+	switch {
+	case len(shown) == 0 && hidden > 0:
+		_, _ = fmt.Fprintf(command.OutOrStdout(),
+			"No branches with a run in the last 14 days. %s\n", stalePipelineBranchHint(hidden))
+	case len(shown) == 0:
 		_, _ = fmt.Fprintln(command.OutOrStdout(), "No pipeline branches found.")
-		return nil
+	default:
+		renderPipelineBranchTable(command.OutOrStdout(), shown)
+		if hidden > 0 {
+			_, _ = fmt.Fprintf(command.ErrOrStderr(), "\n%s\n", stalePipelineBranchHint(hidden))
+		}
 	}
-	renderPipelineBranchTable(command.OutOrStdout(), shown)
-	if hidden > 0 {
-		_, _ = fmt.Fprintf(command.ErrOrStderr(), "\n%s\n", stalePipelineBranchHint(hidden))
-	}
+	// The next-page hint prints whatever the page showed: a page whose every
+	// row was hidden as stale still has pages after it, and --all only
+	// unhides this one.
 	if page.NextCursor != nil {
 		_, _ = fmt.Fprintf(command.ErrOrStderr(),
 			"\nMore branches available: pass --cursor %s to see the next page.\n", *page.NextCursor)

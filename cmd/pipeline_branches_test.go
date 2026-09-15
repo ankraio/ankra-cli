@@ -228,6 +228,30 @@ func TestPipelineBranchesAllStaleSaysWhatWasHidden(t *testing.T) {
 	}
 }
 
+// TestPipelineBranchesAllStalePageStillNamesTheNextPage pins the cursor hint
+// to the page, not to the rows shown: a page whose every row was hidden as
+// stale still has pages after it, and --all only unhides this one.
+func TestPipelineBranchesAllStalePageStillNamesTheNextPage(t *testing.T) {
+	page := threeBranchPage()
+	for index := range page.Branches {
+		page.Branches[index].Stale = true
+	}
+	cursor := "eyJvZmZzZXQiOjIwfQ"
+	page.NextCursor = &cursor
+	mockClient := &pipelineBranchesMock{branchesResult: page}
+	output, executeError := runPipelineCommand(t, mockClient, "branches",
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("branches error = %v", executeError)
+	}
+	if !strings.Contains(output, "No branches with a run in the last 14 days.") {
+		t.Errorf("an all-stale page must say so: %q", output)
+	}
+	if !strings.Contains(output, "--cursor "+cursor) {
+		t.Errorf("an all-stale page must still name the next page: %q", output)
+	}
+}
+
 func TestPipelineBranchesPassesPagingThrough(t *testing.T) {
 	mockClient := &pipelineBranchesMock{branchesResult: threeBranchPage()}
 	if _, executeError := runPipelineCommand(t, mockClient, "branches",
