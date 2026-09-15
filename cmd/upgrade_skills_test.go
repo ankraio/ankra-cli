@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"io"
 	"os"
@@ -42,6 +43,15 @@ func clientNamed(t *testing.T, id string) skills.Client {
 	return client
 }
 
+func installedClientIDsOf(t *testing.T, home string) []string {
+	t.Helper()
+	clients, err := skillsInstalledClients(home)
+	if err != nil {
+		t.Fatalf("skillsInstalledClients: %v", err)
+	}
+	return installedClientIDs(clients)
+}
+
 func installedClientIDs(clients []skills.Client) []string {
 	ids := make([]string, 0, len(clients))
 	for _, client := range clients {
@@ -52,24 +62,24 @@ func installedClientIDs(clients []skills.Client) []string {
 
 func TestSkillsInstalledClientsRecognisesNativeAndIndexedInstalls(t *testing.T) {
 	home := t.TempDir()
-	if got := skillsInstalledClients(home); len(got) != 0 {
-		t.Fatalf("empty home should carry no install, got %v", installedClientIDs(got))
+	if got := installedClientIDsOf(t, home); len(got) != 0 {
+		t.Fatalf("empty home should carry no install, got %v", got)
 	}
 
 	writeInstalledSkill(t, home, clientNamed(t, "claude-code"), false)
-	got := installedClientIDs(skillsInstalledClients(home))
+	got := installedClientIDsOf(t, home)
 	if strings.Join(got, ",") != "claude-code" {
 		t.Fatalf("a native skills directory alone is an install; got %v", got)
 	}
 
 	writeInstalledSkill(t, home, clientNamed(t, "windsurf"), false)
-	got = installedClientIDs(skillsInstalledClients(home))
+	got = installedClientIDsOf(t, home)
 	if strings.Join(got, ",") != "claude-code" {
 		t.Fatalf("an indexed client without its managed block is not an install; got %v", got)
 	}
 
 	writeInstalledSkill(t, home, clientNamed(t, "windsurf"), true)
-	got = installedClientIDs(skillsInstalledClients(home))
+	got = installedClientIDsOf(t, home)
 	if strings.Join(got, ",") != "claude-code,windsurf" {
 		t.Fatalf("the managed block makes the indexed install count; got %v", got)
 	}
@@ -92,7 +102,7 @@ func TestDecideSkillsRefresh(t *testing.T) {
 		{name: "enter means yes", choice: skillsRefreshChoice{Clients: []skills.Client{claudeCode, cursor}, FlagValue: true, TargetVersion: "0.18.0"}, input: "\n", want: true, asked: true},
 		{name: "y means yes", choice: skillsRefreshChoice{Clients: []skills.Client{claudeCode}, FlagValue: true}, input: "y\n", want: true, asked: true},
 		{name: "n means no", choice: skillsRefreshChoice{Clients: []skills.Client{claudeCode}, FlagValue: true}, input: "n\n", want: false, asked: true},
-		{name: "closed stdin means yes", choice: skillsRefreshChoice{Clients: []skills.Client{claudeCode}, FlagValue: true}, input: "", want: true, asked: true},
+		{name: "closed stdin means no", choice: skillsRefreshChoice{Clients: []skills.Client{claudeCode}, FlagValue: true}, input: "", want: false, asked: true},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -111,7 +121,33 @@ func TestDecideSkillsRefresh(t *testing.T) {
 			if testCase.asked && len(testCase.choice.Clients) == 2 && !strings.Contains(out.String(), "Claude Code and Cursor to v0.18.0") {
 				t.Fatalf("prompt should name the assistants and the version: %q", out.String())
 			}
+			if testCase.asked && testCase.input == "" && !strings.Contains(out.String(), "ankra skills install --force --client claude-code") {
+				t.Fatalf("an unanswered question must print the by-hand command: %q", out.String())
+			}
 		})
+	}
+}
+
+// TestSkillsPromptReadsTypedAheadInputAfterTheUpgradePrompt pins the shared
+// reader contract runUpgrade relies on: confirmPrompt wraps its reader in
+// bufio.NewReader, which hands back the same *bufio.Reader when given one, so
+// a second line typed ahead of the first question is still there for the
+// second question instead of being swallowed by a discarded buffer.
+func TestSkillsPromptReadsTypedAheadInputAfterTheUpgradePrompt(t *testing.T) {
+	input := bufio.NewReader(strings.NewReader("y\nn\n"))
+	var out bytes.Buffer
+	if err := confirmPrompt(input, &out, "Upgrade? [y/N]: ", false); err != nil {
+		t.Fatalf("the first prompt should read the y: %v", err)
+	}
+	refresh, err := decideSkillsRefresh(input, &out, skillsRefreshChoice{
+		Clients:   []skills.Client{clientNamed(t, "claude-code")},
+		FlagValue: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refresh {
+		t.Fatalf("the second prompt must read the typed-ahead n, not fall to a default; output %q", out.String())
 	}
 }
 

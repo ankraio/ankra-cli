@@ -42,6 +42,7 @@ never rely on the selection — pass both explicitly.
 |------|-------------|-------|
 | Clusters, stacks, addons, manifests | `ankra cluster ...` | `ankra-import-cluster`, `ankra-stacks-addons` |
 | Your own code, deployed | `ankra application ...` | `ankra-applications` |
+| Shipping code end to end, in-cluster CI | `ankra application ship`, `ankra pipeline ...`, `ankra org ci-settings`, `ankra cluster agent ci` | `ankra-ship` |
 | Reusable parameterised stacks | `ankra stack-profiles ...` | `ankra-stack-profiles` |
 | Cloud clusters Ankra provisions | `ankra cluster hetzner\|ovh\|upcloud\|digitalocean\|scaleway\|aws\|proxmox\|morpheus ...` | `ankra-cloud-clusters` |
 | Provider-managed Kubernetes | `ankra cluster managed ...` | `ankra-managed-kubernetes` |

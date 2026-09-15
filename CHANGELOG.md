@@ -16,6 +16,21 @@
   the offer along with the upgrade, `--skills=false` declines it, `--skills`
   takes it without asking, and a failed refresh is reported with the command
   to run by hand rather than failing an upgrade that already happened.
+- **A skill for shipping code: `ankra-ship`.** The go-to skill when someone has
+  just vibe-coded a project or needs to get code live. It takes a repository
+  from "does this even run outside a laptop" through `ankra application ship`
+  and the full Ankra Pipelines path - the generated `.ankra/pipeline.yaml`,
+  tests with services, matrix and caches, the rootless in-cluster build by
+  digest, Semgrep, Checkov and Trivy, the organisation image gate, the
+  immutable `sha-` publish, push-to-deploy and the `Live:` URL - and then day
+  2: pull-request previews, environment secrets, rollback, promotion,
+  schedules, alerts, and Ankra AI reviewing every pull request, watching
+  every run and opening the fix when a build breaks. It says plainly which
+  stage kinds execute today and which are accepted and skipped, and carries a
+  symptom table for the silent failures (zero runs, an unapproved definition,
+  a confined build runtime, a missing vault). `ankra-platform-principles` and
+  `ankra-cli` route to it, and the `/ankra-ship-service` workflow now reads it
+  first.
 - **`ankra application pipeline convert <application-id>` converts an
   application that still builds from a GitHub Actions workflow onto Ankra
   Pipelines with one call.** Ankra converts the workflow to a

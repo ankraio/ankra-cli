@@ -170,7 +170,10 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	}
 
 	skillsFlag, _ := cmd.Flags().GetBool("skills")
-	installedSkillClients := skillsInstalledClientsForUpgrade()
+	installedSkillClients, detectionError := skillsInstalledClientsForUpgrade()
+	if detectionError != nil && skillsFlag {
+		_, _ = fmt.Fprintf(out, "Warning: could not check which assistants carry the Ankra agent skills (%v); refresh them by hand afterwards with `ankra skills install --force`.\n", detectionError)
+	}
 	refreshSkills, err := decideSkillsRefresh(input, out, skillsRefreshChoice{
 		Clients:       installedSkillClients,
 		TargetVersion: targetVersion,
@@ -231,7 +234,7 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	switch {
 	case refreshSkills:
 		refreshInstalledSkills(out, executablePath, installedSkillClients)
-	case len(installedSkillClients) == 0 && skillsFlag:
+	case len(installedSkillClients) == 0 && skillsFlag && detectionError == nil:
 		_, _ = fmt.Fprintln(out, "No Ankra agent skills are installed for this user; `ankra skills install` adds them to your assistants.")
 	}
 	return nil
@@ -256,7 +259,9 @@ type skillsRefreshChoice struct {
 // after the binary swap. Nothing installed means nothing to refresh and no
 // question; an explicit --skills or --skills=false is the answer; --yes says
 // yes; otherwise the user is asked, and Enter means yes, because skills that
-// lag the binary are the failure this exists to prevent.
+// lag the binary are the failure this exists to prevent. Input that ends
+// before the question is answered is not Enter: nobody saw the question, so
+// nothing is overwritten and the command to run by hand is printed instead.
 func decideSkillsRefresh(in io.Reader, out io.Writer, choice skillsRefreshChoice) (bool, error) {
 	if len(choice.Clients) == 0 || (choice.FlagExplicit && !choice.FlagValue) {
 		return false, nil
@@ -269,6 +274,11 @@ func decideSkillsRefresh(in io.Reader, out io.Writer, choice skillsRefreshChoice
 	line, err := bufio.NewReader(in).ReadString('\n')
 	if err != nil && err != io.EOF {
 		return false, fmt.Errorf("read confirmation: %w", err)
+	}
+	if err == io.EOF && line == "" {
+		_, _ = fmt.Fprintf(out, "\nNo answer; the skills are left as they are. Refresh them afterwards with: ankra %s\n",
+			strings.Join(skillsRefreshArguments(choice.Clients), " "))
+		return false, nil
 	}
 	answer := strings.TrimSpace(strings.ToLower(line))
 	return answer == "" || answer == "y" || answer == "yes", nil
@@ -292,12 +302,13 @@ func clientDisplayNames(clients []skills.Client) string {
 }
 
 // skillsInstalledClientsForUpgrade lists the assistants whose personal Ankra
-// skills install the upgrade may refresh. An unreadable home directory means
-// no offer rather than a failed upgrade.
-func skillsInstalledClientsForUpgrade() []skills.Client {
+// skills install the upgrade may refresh. A failure to look is reported and
+// the offer is skipped; it never fails the upgrade and is never read as
+// "nothing installed".
+func skillsInstalledClientsForUpgrade() ([]skills.Client, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("determine the home directory: %w", err)
 	}
 	return skillsInstalledClients(home)
 }

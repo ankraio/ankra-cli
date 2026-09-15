@@ -26,7 +26,7 @@ var skillsCmd = &cobra.Command{
 The skills teach an agent to follow Ankra's practices for the CLI, getting
 started, building and importing clusters (provider, region, instance family),
 domains/DNS/TLS, ImportCluster YAML, stacks and addons, applications and their
-CI/CD, stack profiles, GitOps, SOPS secrets, Helm registries, observability,
+CI/CD, shipping code end to end through Ankra Pipelines, stack profiles, GitOps, SOPS secrets, Helm registries, observability,
 troubleshooting, security, and the AI agent surface.
 
 Claude Code, the Claude app, Cursor, Codex, GitHub Copilot, Windsurf, Gemini CLI,
@@ -562,22 +562,26 @@ func skillsDirectoryHasAnkraSkills(target skills.Target) bool {
 // when its instructions file also carries the managed block, because seven of
 // those share one skills directory and the directory alone would claim an
 // install for every one of them.
-func skillsInstalledClients(home string) []skills.Client {
+//
+// A failure to look is returned as an error rather than as an empty list:
+// "no assistant carries an install" is an answer, and an unreadable home
+// directory or a registry that cannot be resolved is not that answer.
+func skillsInstalledClients(home string) ([]skills.Client, error) {
 	clients, err := skills.ResolveClients([]string{"all"}, home, skills.ScopePersonal)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	installed := make([]skills.Client, 0, len(clients))
 	for _, client := range clients {
 		target, targetError := skills.ResolveTarget(client, skills.ScopePersonal, home)
 		if targetError != nil {
-			continue
+			return nil, fmt.Errorf("resolve the %s install location: %w", client.DisplayName, targetError)
 		}
 		if targetCarriesAnkraInstall(target) {
 			installed = append(installed, client)
 		}
 	}
-	return installed
+	return installed, nil
 }
 
 func targetCarriesAnkraInstall(target skills.Target) bool {
