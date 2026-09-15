@@ -21,7 +21,8 @@ const draftOnlyStackListing = `{
       "deploy_wave": null,
       "state": "draft",
       "delete_permanently": false,
-      "jobs": [],
+      "jobs": [{"job_id": "j-1", "name": "seed", "status": "succeeded", "state": "up"}],
+      "future_members": [{"name": "later", "state": "draft"}],
       "manifests": [
         {
           "name": "api",
@@ -191,5 +192,42 @@ func TestDeployClusterStackDraftSurfacesARefusal(t *testing.T) {
 	if len(result.Errors) != 1 || len(result.Errors[0].Errors) != 1 ||
 		result.Errors[0].Errors[0].Message != "A manifest named 'api' already exists." {
 		t.Fatalf("the refusal must survive decoding: %+v", result.Errors)
+	}
+}
+
+func TestAsDeployableSpecStripsStateFromEveryMemberArray(t *testing.T) {
+	// The strip is generic rather than a list of the member names known
+	// today, so a member array added to the listing later is covered without
+	// this client learning about it. "future_members" stands in for one.
+	specification, specificationError := decodeListing(t)[0].asDeployableSpec()
+	if specificationError != nil {
+		t.Fatalf("asDeployableSpec: %v", specificationError)
+	}
+	encoded, marshalError := json.Marshal(specification)
+	if marshalError != nil {
+		t.Fatalf("marshalling the spec: %v", marshalError)
+	}
+	if strings.Contains(string(encoded), `"state"`) {
+		t.Fatalf("no entry of any member array may keep its state: %s", encoded)
+	}
+	// Everything else in those same entries survives.
+	for _, fragment := range []string{`"job_id":"j-1"`, `"status":"succeeded"`, `"name":"later"`} {
+		if !strings.Contains(string(encoded), fragment) {
+			t.Fatalf("stripping state must not disturb %s, got: %s", fragment, encoded)
+		}
+	}
+}
+
+func TestStripRenderOnlyStateLeavesNonArrayMembersByteIdentical(t *testing.T) {
+	// A member that is not an array of objects is passed through as the exact
+	// bytes the server sent - no decode, no re-encode, nothing to lose.
+	for _, value := range []string{`{"replicas":"2"}`, `["data.PGPASSWORD"]`, `null`, `true`, `"notes"`, `[]`} {
+		stripped, wasStripped, stripError := stripRenderOnlyStateFromArray(json.RawMessage(value))
+		if stripError != nil {
+			t.Fatalf("%s: %v", value, stripError)
+		}
+		if wasStripped {
+			t.Fatalf("%s must be passed through untouched, got %s", value, stripped)
+		}
 	}
 }

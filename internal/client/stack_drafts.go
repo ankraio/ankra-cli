@@ -43,11 +43,14 @@ type ClusterStackDocument map[string]json.RawMessage
 // accepted values are creating/updating/stopping/up/down. Every member of a
 // draft-only stack renders state "draft", so posting the listing object back
 // unedited is a 422 on the first manifest.
+//
+// It is the ONLY member that has to go. The parser reads members by name and
+// ignores the ones it does not know, so the listing's other render-only
+// output (is_draft_only, lifecycle, has_encrypted_values, version_history,
+// jobs, job, draft, health, intent_requested_at) rides along inert, and the
+// three it does read - resource_id, chart_icon, force_delete - are part of
+// the draft's identity and are meant to survive.
 const stackDocumentRenderOnlyMember = "state"
-
-// stackDocumentMemberLists are the member arrays whose entries carry their
-// own render-only state.
-var stackDocumentMemberLists = []string{"manifests", "addons", "applications"}
 
 // Name is the stack's name, empty when the object carries none.
 func (document ClusterStackDocument) Name() string {
@@ -91,35 +94,59 @@ func (document ClusterStackDocument) stringMember(key string) string {
 	return strings.TrimSpace(*value)
 }
 
-// asDeployableSpec returns the stack object with the render-only members
-// removed, ready to be posted as the create-stack spec.
+// asDeployableSpec returns the stack object with the render-only state
+// removed - from the stack itself and from the entries of every member array
+// it holds.
+//
+// The array walk is generic rather than a list of the member names known
+// today: "strip state wherever it appears" is the same rule the write
+// enforces, so a member list added later is covered without this file
+// learning about it. It cannot strip anything the write needs, because state
+// is the one member the write refuses. Members that are not arrays of
+// objects - variables, encrypted_paths, scalars - never decode and are
+// passed through as the exact bytes the server sent.
 func (document ClusterStackDocument) asDeployableSpec() (map[string]json.RawMessage, error) {
 	specification := make(map[string]json.RawMessage, len(document))
 	for key, value := range document {
 		if key == stackDocumentRenderOnlyMember {
 			continue
 		}
-		specification[key] = value
-	}
-	for _, listName := range stackDocumentMemberLists {
-		raw, present := specification[listName]
-		if !present {
+		stripped, wasStripped, stripError := stripRenderOnlyStateFromArray(value)
+		if stripError != nil {
+			return nil, fmt.Errorf("re-encoding the stack's %s: %w", key, stripError)
+		}
+		if wasStripped {
+			specification[key] = stripped
 			continue
 		}
-		var members []map[string]json.RawMessage
-		if unmarshalError := json.Unmarshal(raw, &members); unmarshalError != nil {
-			return nil, fmt.Errorf("reading the stack's %s: %w", listName, unmarshalError)
-		}
-		for _, member := range members {
-			delete(member, stackDocumentRenderOnlyMember)
-		}
-		encoded, marshalError := json.Marshal(members)
-		if marshalError != nil {
-			return nil, fmt.Errorf("re-encoding the stack's %s: %w", listName, marshalError)
-		}
-		specification[listName] = encoded
+		specification[key] = value
 	}
 	return specification, nil
+}
+
+// stripRenderOnlyStateFromArray removes the render-only state from each entry
+// of an array-of-objects member. It reports false, and changes nothing, for
+// any value that is not one.
+func stripRenderOnlyStateFromArray(value json.RawMessage) (json.RawMessage, bool, error) {
+	var entries []map[string]json.RawMessage
+	if json.Unmarshal(value, &entries) != nil {
+		return nil, false, nil
+	}
+	carriesState := false
+	for _, entry := range entries {
+		if _, present := entry[stackDocumentRenderOnlyMember]; present {
+			delete(entry, stackDocumentRenderOnlyMember)
+			carriesState = true
+		}
+	}
+	if !carriesState {
+		return nil, false, nil
+	}
+	encoded, marshalError := json.Marshal(entries)
+	if marshalError != nil {
+		return nil, false, marshalError
+	}
+	return encoded, true, nil
 }
 
 type listClusterStackDocumentsResponse struct {
