@@ -641,7 +641,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 	writer := table.NewWriter()
 	writer.SetOutputMirror(out)
 	writer.SetStyle(table.StyleRounded)
-	writer.AppendHeader(table.Row{"STEP", "STAGE", "KIND", "STATUS", "EXIT"})
+	writer.AppendHeader(table.Row{"STEP", "ATTEMPT", "STAGE", "KIND", "STATUS", "EXIT"})
 	for _, step := range detail.Steps {
 		exitCode := "-"
 		if step.ExitCode != nil {
@@ -649,6 +649,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 		}
 		writer.AppendRow(table.Row{
 			step.StepKey,
+			step.Attempt,
 			step.Stage,
 			step.Kind,
 			renderPipelineState(step.Status, step.Outcome),
@@ -656,6 +657,71 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 		})
 	}
 	writer.Render()
+	printPipelineSupersededAttempts(out, detail)
+}
+
+// printPipelineSupersededAttempts explains the rows above that a retry
+// replaced: every step row that is not the newest attempt of its step key.
+//
+// A retried step is several rows under one key, and the table prints all of
+// them because the run carries all of them - the lost attempt is kept on the
+// run as evidence (enginekit/pipelinerun's insertRetryAttempt). Until now
+// those rows were indistinguishable: same key, same stage, same kind, and
+// neither the attempt number nor the row id to tell one from the other. So a
+// run whose build failed once and succeeded on Ankra's own retry showed two
+// build rows, and the only thing that said WHY the first one failed - the
+// attempt's own error class and message, both already in this payload - was
+// never printed anywhere.
+//
+// It matters most for the log. `pipeline logs --step <key>` resolves a key to
+// the newest attempt (resolvePipelineStep), which is the right default and
+// also means the failed attempt's log is reachable only by that attempt's row
+// id - an id nothing printed. PLA-871's reporter watched both build steps of
+// a run fail once and pass on the retry, and could not read either first
+// attempt. The command is spelled out per attempt rather than described,
+// because the id is the part nobody can guess.
+//
+// Nothing is printed for a run with no retried step, which is almost every
+// run.
+func printPipelineSupersededAttempts(out io.Writer, detail client.PipelineRunDetail) {
+	newestAttempts := map[string]int16{}
+	for _, step := range detail.Steps {
+		if attempt, seen := newestAttempts[step.StepKey]; !seen || step.Attempt > attempt {
+			newestAttempts[step.StepKey] = step.Attempt
+		}
+	}
+	superseded := []client.PipelineStep{}
+	for _, step := range detail.Steps {
+		if step.Attempt < newestAttempts[step.StepKey] {
+			superseded = append(superseded, step)
+		}
+	}
+	if len(superseded) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "\nEarlier attempts (%d), superseded by a retry:\n", len(superseded))
+	for _, step := range superseded {
+		_, _ = fmt.Fprintf(out, "  %s attempt %d: %s\n", step.StepKey, step.Attempt,
+			renderPipelineState(step.Status, step.Outcome))
+		if errorClass := pipelineStepErrorClass(step); errorClass != "" {
+			_, _ = fmt.Fprintf(out, "    Class: %s\n", errorClass)
+		}
+		if step.ErrorMessage != nil && strings.TrimSpace(*step.ErrorMessage) != "" {
+			_, _ = fmt.Fprintf(out, "    Error: %s\n", strings.TrimSpace(*step.ErrorMessage))
+		}
+		_, _ = fmt.Fprintf(out, "    Log:   ankra pipeline logs %s --step %s\n", detail.ID, step.ID)
+	}
+}
+
+// pipelineStepErrorClass is one step attempt's recorded error class, or ""
+// when the server recorded none - the step-level twin of
+// pipelineRunErrorClass, and absent for the same reason: a class the server
+// never wrote is not a class called "".
+func pipelineStepErrorClass(step client.PipelineStep) string {
+	if step.ErrorClass == nil {
+		return ""
+	}
+	return strings.TrimSpace(*step.ErrorClass)
 }
 
 // printPipelineRunSupersession names the run that took a superseded run's

@@ -1845,3 +1845,58 @@ func TestPipelineRunDetailPrintsNoWaitingLineWhenNothingIsWaiting(t *testing.T) 
 			unreadable.String())
 	}
 }
+
+// TestPipelineRunDetailNamesASupersededAttempt pins PLA-871's ask. A retried
+// step is several rows under one key and the detail carries all of them, so
+// the table printed two build rows that differed in nothing a reader could
+// see - and the attempt Ankra threw away, the only one that says what went
+// wrong, was the one with no way to read its log.
+func TestPipelineRunDetailNamesASupersededAttempt(t *testing.T) {
+	infraError, confined := "infra_error", "build_runtime_confined"
+	message := "This cluster's node runtime confines the rootless image builder, so the build cannot run in-cluster."
+	lost := pipelineStepFixture("step-build-attempt-1", "build-commerce-backend", "concluded", &infraError)
+	lost.Stage, lost.Kind = "build", "build"
+	lost.ErrorClass, lost.ErrorMessage = &confined, &message
+	succeeded := pipelineStepFixture("step-build-attempt-2", "build-commerce-backend", "concluded",
+		strPipelinePtr("success"))
+	succeeded.Stage, succeeded.Kind, succeeded.Attempt = "build", "build", 2
+
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, pipelineRunDetailFixture("concluded", strPipelinePtr("success"), lost, succeeded))
+	rendered := output.String()
+
+	if !strings.Contains(rendered, "ATTEMPT") {
+		t.Fatalf("the step table must distinguish attempts of one key, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "Earlier attempts (1), superseded by a retry:") {
+		t.Fatalf("a superseded attempt must be named, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "Class: build_runtime_confined") {
+		t.Fatalf("the superseded attempt's own class explains the retry, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "confines the rootless image builder") {
+		t.Fatalf("the superseded attempt's own message is printed, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "ankra pipeline logs run-44 --step step-build-attempt-1") {
+		t.Fatalf("the command that reads the lost attempt's log names its row id, got:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "--step step-build-attempt-2") {
+		t.Fatalf("the newest attempt is what --step <key> already answers; it is not listed, got:\n%s", rendered)
+	}
+}
+
+// TestPipelineRunDetailSaysNothingAboutAttemptsWhenNothingWasRetried holds the
+// other half: almost every run has one attempt per step, and those must not
+// grow a block explaining a retry that never happened.
+func TestPipelineRunDetailSaysNothingAboutAttemptsWhenNothingWasRetried(t *testing.T) {
+	checkout := pipelineStepFixture("step-checkout", "checkout", "concluded", strPipelinePtr("success"))
+	build := pipelineStepFixture("step-build", "build", "concluded", strPipelinePtr("success"))
+
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, pipelineRunDetailFixture("concluded", strPipelinePtr("success"), checkout, build))
+	rendered := output.String()
+
+	if strings.Contains(rendered, "Earlier attempts") {
+		t.Fatalf("a run with no retried step explains no retry, got:\n%s", rendered)
+	}
+}
