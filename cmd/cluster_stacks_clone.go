@@ -285,15 +285,17 @@ func buildCloneDataRequest(cmd *cobra.Command, withData bool, wait bool) (cloneD
 // buildCloneDataSelection reads the selection flags. A clone whose selection
 // flags were all left alone sends no selection at all, so the platform falls
 // back to the stack's stored one rather than being told to widen to
-// everything - and naming a volume is not a decision about databases, so
-// only --exclude-databases sets that field.
+// everything.
 //
 // A selection the request DOES carry replaces the stack's stored one whole:
-// the platform resolves "the request, then the stored policy, then the
-// default" and does not merge the two field by field. So --exclude-databases
-// on its own is a clone of the databases-excluded, no-volumes selection, not
-// the stored selection minus its databases, and describeCloneSelection says
-// so rather than leaving the difference to be found on the target.
+// the platform resolves the request, then the stored policy, then the
+// default, and never merges them field by field. Inside a carried selection
+// an absent `databases` is the DEFAULT, not the stored answer - the
+// platform reads it as selected - so --include-pvc on its own carries the
+// databases of a stack whose stored policy excluded them, and
+// --exclude-databases on its own carries no volumes of a stack whose stored
+// policy named them. Neither is guessable from the flags, which is why
+// describeCloneSelection states what the request settled on before it goes.
 func buildCloneDataSelection(cmd *cobra.Command) (*client.CloneDataSelection, error) {
 	includeClaims, _ := cmd.Flags().GetStringArray("include-pvc")
 	excludeDatabases, _ := cmd.Flags().GetBool("exclude-databases")
@@ -341,16 +343,18 @@ func validatePersistentVolumeClaimReference(claim string) error {
 			"'ankra cluster stacks data list' prints it, for example shop/data", claim))
 }
 
-// describeCloneSelection says what a carried selection covers, because the
-// platform applies it instead of the stack's stored selection rather than
-// alongside it. A stack protected with volumes named in its policy and
-// cloned with --exclude-databases alone carries neither its databases nor
-// those volumes, and nothing else in the output would say so.
+// describeCloneSelection says what a carried selection settled on, because
+// the platform applies it instead of the stack's stored selection rather
+// than alongside it, and an absent field inside it takes the platform
+// default rather than the stored answer. A stack whose policy names volumes,
+// cloned with --exclude-databases alone, carries neither its databases nor
+// those volumes; one whose policy excludes databases, cloned with
+// --include-pvc alone, carries them. Nothing else in the output would say so.
 func describeCloneSelection(out io.Writer, selection *client.CloneDataSelection) {
 	if selection == nil {
 		return
 	}
-	databases := "databases as the stack's own selection has them"
+	databases := "the stack's databases"
 	if selection.Databases != nil && !*selection.Databases {
 		databases = "no databases"
 	}
@@ -359,7 +363,8 @@ func describeCloneSelection(out io.Writer, selection *client.CloneDataSelection)
 		volumes = "volumes " + strings.Join(selection.PersistentVolumeClaims, ", ")
 	}
 	_, _ = fmt.Fprintf(out, "This clone carries %s and %s. A selection given on the command line "+
-		"replaces the stack's stored backup selection for this clone rather than narrowing it.\n",
+		"replaces the stack's stored backup selection for this clone rather than narrowing it, "+
+		"and databases travel unless --exclude-databases says otherwise.\n",
 		databases, volumes)
 }
 

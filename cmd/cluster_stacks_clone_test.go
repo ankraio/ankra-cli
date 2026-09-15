@@ -714,6 +714,30 @@ func TestStacksCloneSaysACarriedSelectionReplacesTheStoredOne(t *testing.T) {
 	}
 }
 
+// An absent `databases` inside a carried selection is the platform DEFAULT,
+// not the stack's stored answer, so naming only volumes carries the
+// databases of a stack whose stored policy excluded them. The sentence has
+// to say that rather than deferring to a stored selection nothing reads.
+func TestStacksCloneSaysDatabasesTravelWhenOnlyVolumesAreNamed(t *testing.T) {
+	mock := newCloneLaneMock()
+	mock.cloneResult = sampleCloneWithDataResult()
+
+	output, executeError := runCloneCommand(t, mock,
+		"cluster", "stacks", "clone", backupTestStack, "--cluster", "demo",
+		"--to", "staging", "--with-data", "--include-pvc", "shop/data")
+
+	if executeError != nil {
+		t.Fatalf("cloning with data: %v", executeError)
+	}
+	plain := stripANSICodes(output)
+	if !strings.Contains(plain, "the stack's databases and volumes shop/data") {
+		t.Errorf("the sentence must say the databases travel, got:\n%s", plain)
+	}
+	if strings.Contains(plain, "as the stack's own selection has them") {
+		t.Errorf("the stored selection is not consulted for an absent databases field, got:\n%s", plain)
+	}
+}
+
 func TestStacksCloneNamesTheVolumesACarriedSelectionCovers(t *testing.T) {
 	mock := newCloneLaneMock()
 	mock.cloneResult = sampleCloneWithDataResult()

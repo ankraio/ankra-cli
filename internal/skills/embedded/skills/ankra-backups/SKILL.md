@@ -176,9 +176,11 @@ the platform's reason verbatim; blocked is not a failure and exits 0.
 Databases travel by default and volumes only where named with `--include-pvc namespace/name`;
 `--exclude-databases` needs `--confirm-exclude-databases`. **Naming any selection flag replaces
 the stack's stored backup selection for this clone** - the platform resolves the request's
-selection instead of the stored one, not on top of it - so `--exclude-databases` on its own
-carries no volumes either, and the command prints what the selection covers before it sends.
-Leave every selection flag off and the stored selection decides. The vault resolves `--vault`,
+selection instead of the stored one, not on top of it, and an absent field inside a carried
+selection takes the platform default rather than the stored answer. So `--exclude-databases`
+on its own carries no volumes either, and `--include-pvc` on its own carries the databases of
+a stack whose stored policy excluded them. The command prints what the selection settled on
+before it sends. Leave every selection flag off and the stored selection decides. The vault resolves `--vault`,
 then the stack's policy vault, then the organisation's single ready vault; with `--from latest`
 the restore point is read from the vault that holds it, so `--vault` is refused there rather
 than silently ignored.

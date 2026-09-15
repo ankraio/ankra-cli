@@ -40,8 +40,10 @@
   databases, while leaving every selection flag alone keeps the stack's
   stored selection rather than silently widening to everything. Naming a
   selection flag replaces that stored selection rather than narrowing it -
-  the platform resolves one or the other, never both - so the command prints
-  what the selection covers before it sends, and a malformed
+  the platform resolves one or the other, never both, and an absent field
+  inside a carried selection takes the platform's default rather than the
+  stored answer - so the command prints what the selection settled on before
+  it sends, and a malformed
   `--include-pvc` is refused rather than travelling as a selection that
   names no volume. `--vault` is refused with `--from latest`, where the
   restore point is read from the vault that already holds it;
