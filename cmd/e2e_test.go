@@ -617,6 +617,58 @@ func (m baseMock) UploadPresignedObject(context.Context, client.BackupVaultImpor
 	return errors.New("not implemented")
 }
 
+func (m baseMock) ListStackRestorePoints(string, string, client.ListRestorePointsOptions) (*client.RestorePointListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListOrganisationRestorePoints(client.ListRestorePointsOptions) (*client.RestorePointListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackRestorePoint(string, string, string) (*client.RestorePoint, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateStackRestorePoint(string, string, client.CreateRestorePointRequest) (*client.CreateRestorePointResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteStackRestorePoint(string, string, string) (*client.DeleteRestorePointResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RestoreStackRestorePoint(string, string, string, client.RestoreRestorePointRequest) (*client.RestoreRestorePointResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ProtectStack(string, string, client.ProtectStackRequest) (*client.StackProtection, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UnprotectStack(string, string, client.UnprotectStackRequest) (*client.StackProtection, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackDataAssets(string, string) (*client.StackDataInventory, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListRuns(client.ListRunsOptions) (*client.RunListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetRun(string) (*client.Run, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CancelRun(string) (*client.Run, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RetryRun(string) (*client.Run, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error) {
 	return client.ExecutionListResponse{}, errors.New("not implemented")
 }

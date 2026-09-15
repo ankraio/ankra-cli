@@ -55,6 +55,7 @@ never rely on the selection — pass both explicitly.
 | Credentials | `ankra credentials ...` | `ankra-security` |
 | Vulnerabilities and CVEs | `ankra security ...` | `ankra-security` |
 | Backup vaults | `ankra backup vaults ...` | `ankra-backups` |
+| Protecting and restoring a stack's data | `ankra cluster stacks protect\|unprotect\|restore-points\|data ...`, `ankra backup restore-points ...`, `ankra runs ...` | `ankra-backups` |
 | Migrating existing deployments | `ankra migrate ...` | `ankra-migrate` |
 | Cloud cost | `ankra cost summary\|cluster\|settings` | below |
 | Support requests | `ankra support create\|list\|get\|comment\|attach\|close` | below |

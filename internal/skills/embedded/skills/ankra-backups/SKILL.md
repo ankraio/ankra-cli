@@ -1,6 +1,6 @@
 ---
 name: ankra-backups
-description: Manage the organisation's backup vaults with `ankra backup vaults` - the S3-compatible buckets cluster backups and migration data move through. Let Ankra provision a bucket from a provider credential or register one you already run, watch the verification status, re-verify after rotating keys, see what a vault holds, and delete a vault with or without destroying the bucket behind it. Use when the user mentions backups, backup vaults, restore points, object storage for backups, an S3 or MinIO bucket for the platform, or asks where migration dumps are kept.
+description: Manage the organisation's backup vaults with `ankra backup vaults` - the S3-compatible buckets cluster backups and migration data move through - and, where the closed-beta `backups` feature is on, the restore points over them: protect a stack on a schedule, take a restore point now, inspect what one carries and what it does not, restore a stack in place, and follow the runs that move the data. Use when the user mentions backups, backup vaults, restore points, protecting or restoring a stack, object storage for backups, an S3 or MinIO bucket for the platform, or asks where migration dumps are kept.
 ---
 
 # Backup vaults
@@ -95,9 +95,73 @@ vault registering a bucket you created yourself - your bucket, your teardown.
   much does. Know which of the two you mean before `--yes`.
 - **Clean up imports after a verified migration** - dumps left in object storage are the
   quiet kind of data leak.
+- **Read `Not carried` before you rely on a restore point.** Every listing and detail prints
+  it; an omission nobody read is the same as an omission nobody was told about.
+
+## Restore points (closed beta)
+
+Everything below is gated by the organisation's `backups` feature. While it is off every
+command answers `Backups are not enabled for this organisation.` - ask Ankra to switch it on
+rather than looking for a permission or a typo.
+
+A **restore point** is an immutable copy of a stack's data in a vault, self-describing enough
+to be read without the cluster it came from. Backing up creates one; restoring applies one.
+
+### Protect a stack
+
+```bash
+ankra cluster stacks data list shop                       # what a backup would have to carry
+ankra cluster stacks protect shop --vault production-backups \
+  --schedule daily --retention daily=7,weekly=4,monthly=6
+ankra cluster stacks unprotect shop                        # retype the stack name to confirm
+```
+
+Protection is a property of the stack, not a separate object: `protect` writes a backup block
+onto the stack's definition and the platform converges on it by installing the backup data
+plane. The command prints `Backup stack: installing` until that plane is actually on the
+cluster, so nothing is called protected while the Velero that would do the protecting is still
+arriving. `--vault` is required - a protected stack with nowhere to write to is not protected.
+`--schedule` takes `hourly`, `daily`, `weekly` or a five-field cron expression. Databases are
+captured by default and volumes only where named with `--include-pvc namespace/name`;
+`--exclude-databases` needs `--confirm-exclude-databases` beside it. Unprotecting stops future
+backups and **keeps** every restore point already taken.
+
+### Take one, read one, restore one
+
+```bash
+ankra cluster stacks restore-points create shop --note "before the 3.2 upgrade" --wait
+ankra cluster stacks restore-points list shop --status complete
+ankra cluster stacks restore-points get shop 0b2f          # an unambiguous id prefix is enough
+ankra cluster stacks restore-points restore shop 0b2f --wait
+ankra cluster stacks restore-points delete shop 0b2f
+ankra backup restore-points list --cluster production      # across every cluster
+```
+
+`create` dispatches a capture and answers with the run that will seal it; `--wait` follows
+that run and prints the sealed restore point. `restore` prints the four-step sequence the
+platform will follow - scale down, remove the volumes it replaces, restore, scale back up -
+and asks you to retype the stack's name before any of it starts. A restore point carrying a
+CloudNativePG or Percona database is refused with the platform's own reason: the ordinary
+restore path would report success over unchanged data, which is worse than refusing. A stack
+whose data has changed since the restore point was taken is refused unless `--force`.
+
+**Every read shows what the restore point does not carry**, next to what it does. Read that
+list before you rely on a restore point, not after.
+
+### Watch the runs
+
+```bash
+ankra runs list --kind backup --cluster production
+ankra runs get <run-id>            # the plan, and every attempt of every step
+ankra runs cancel <run-id>
+ankra runs retry <run-id>          # opens a NEW run from the step that failed
+```
+
+`retry` answers with the new run, not the old one: the failed row will never move again.
 
 ## Related skills
 
 - `ankra-migrate` - the restore path that moves data through a vault.
+- `ankra-troubleshooting` - reading a failed backup or restore run on the cluster.
 - `ankra-security` - credential scope and the review pass that should include vault keys.
 - `ankra-cloud-clusters` - the provider credentials `provision` draws on.
