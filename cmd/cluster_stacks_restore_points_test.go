@@ -320,6 +320,63 @@ func TestRestorePointsGetSaysTheOmissionsAreNotKnownYet(t *testing.T) {
 	}
 }
 
+// A capture that failed never sealed a manifest, so its empty omission list
+// is as unknown as a running one's - and the lifecycle reaches every other
+// status from complete, so those really did report.
+func TestRestorePointOmissionsAreKnownOnlyOnceAManifestWasSealed(t *testing.T) {
+	for status, expected := range map[string]bool{
+		client.RestorePointStatusCreating: false,
+		client.RestorePointStatusFailed:   false,
+		client.RestorePointStatusComplete: true,
+		client.RestorePointStatusExpiring: true,
+		client.RestorePointStatusExpired:  true,
+		client.RestorePointStatusDeleted:  true,
+	} {
+		if known := restorePointOmissionsAreKnown(client.RestorePoint{Status: status}); known != expected {
+			t.Errorf("%s: omissions known = %v, want %v", status, known, expected)
+		}
+	}
+}
+
+func TestRestorePointsListDoesNotCallAFailedCapturesOmissionListEmpty(t *testing.T) {
+	failed := sampleRestorePoint()
+	failed.Status = client.RestorePointStatusFailed
+	failed.NotCarried = nil
+	mock := newBackupLaneMock()
+	mock.listing = &client.RestorePointListResult{RestorePoints: []client.RestorePoint{failed}}
+
+	output, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsListCmd},
+		"cluster", "stacks", "restore-points", "list", backupTestStack, "--cluster", "demo")
+
+	if executeError != nil {
+		t.Fatalf("listing restore points: %v", executeError)
+	}
+	if !strings.Contains(stripANSICodes(output), "unknown") {
+		t.Fatalf("a capture that never sealed a manifest must not read as 0, got:\n%s", output)
+	}
+}
+
+func TestRestorePointsGetSaysAFailedCaptureNeverReported(t *testing.T) {
+	failed := sampleRestorePoint()
+	failed.Status = client.RestorePointStatusFailed
+	failed.NotCarried = nil
+	mock := newBackupLaneMock()
+	mock.restorePoint = &failed
+
+	output, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsGetCmd},
+		"cluster", "stacks", "restore-points", "get", backupTestStack, backupTestRestorePointID,
+		"--cluster", "demo")
+
+	if executeError != nil {
+		t.Fatalf("getting a restore point: %v", executeError)
+	}
+	if !strings.Contains(output, "never sealed a manifest") {
+		t.Fatalf("a failed capture must say its omissions were never reported, got:\n%s", output)
+	}
+}
+
 // A sealed restore point with nothing omitted really does carry everything,
 // and must not be reported as unknown.
 func TestRestorePointsListCountsOmissionsOnceTheCaptureHasReported(t *testing.T) {

@@ -49,6 +49,12 @@ var restorePointIDPattern = regexp.MustCompile(
 // prefix of one. Restore points have no names, so a prefix is the only short
 // form there is; an ambiguous one is refused rather than resolved to whichever
 // the listing happened to order first.
+//
+// The ambiguity check is only as wide as the page it searched: a prefix unique
+// among the stack's most recent restore points can still collide with an older
+// one that was never read. That is why the help says so and why the full id is
+// always accepted - a short prefix is a convenience for the listing in front of
+// you, not an addressing scheme.
 func resolveRestorePointID(restorePoints APIClient, clusterID string, stackName string,
 	reference string) (string, error) {
 	if restorePointIDPattern.MatchString(reference) {
@@ -116,13 +122,27 @@ func printRestorePointTable(out io.Writer, restorePoints []client.RestorePoint, 
 	writer.Render()
 }
 
-// restorePointOmissions renders the not-carried column. A restore point that
-// is still being taken has not reported its omissions yet, so its empty list
-// is "not known" rather than "nothing missing", and printing 0 there would
-// present an unknown as a clean bill - the exact silence the column exists to
-// remove.
+// restorePointOmissionsAreKnown reports whether the capture has reported what
+// it left behind. Only a sealed manifest carries that answer: a restore point
+// still being taken has not reported yet, and one whose capture failed never
+// sealed a manifest at all, so an empty list in either state means "not known"
+// rather than "nothing missing". Every other status is reached FROM complete -
+// the lifecycle allows complete -> expiring -> expired and complete -> deleted
+// and nothing else - so their omissions were reported before they got there.
+func restorePointOmissionsAreKnown(restorePoint client.RestorePoint) bool {
+	switch restorePoint.Status {
+	case client.RestorePointStatusCreating, client.RestorePointStatusFailed:
+		return false
+	default:
+		return true
+	}
+}
+
+// restorePointOmissions renders the not-carried column. Printing 0 for a
+// capture that has not reported would present an unknown as a clean bill - the
+// exact silence the column exists to remove.
 func restorePointOmissions(restorePoint client.RestorePoint) any {
-	if restorePoint.Status == client.RestorePointStatusCreating {
+	if !restorePointOmissionsAreKnown(restorePoint) && len(restorePoint.NotCarried) == 0 {
 		return "unknown"
 	}
 	return len(restorePoint.NotCarried)
@@ -221,11 +241,16 @@ func printRestorePointDetail(out io.Writer, restorePoint *client.RestorePoint) {
 		writer.Render()
 	}
 
-	if restorePoint.Status == client.RestorePointStatusCreating && len(restorePoint.NotCarried) == 0 {
+	switch {
+	case restorePointOmissionsAreKnown(*restorePoint) || len(restorePoint.NotCarried) > 0:
+		printNotCarried(out, restorePoint.NotCarried)
+	case restorePoint.Status == client.RestorePointStatusCreating:
 		_, _ = fmt.Fprintln(out,
 			"\nNot carried: not known yet - this restore point is still being taken.")
-	} else {
-		printNotCarried(out, restorePoint.NotCarried)
+	default:
+		_, _ = fmt.Fprintln(out,
+			"\nNot carried: not known - this capture never sealed a manifest, so what it "+
+				"would have left behind was never reported.")
 	}
 
 	if run := restorePoint.Run; run != nil {
@@ -357,7 +382,9 @@ var clusterStacksRestorePointsGetCmd = &cobra.Command{
 	Long: "Describe one restore point: the manifest it carries, every asset in it, " +
 		"everything it does not carry, and the run that produced it. The id may be " +
 		"an unambiguous prefix of the one the listing printed, resolved against the " +
-		"stack's 200 most recent restore points - pass the full id for an older one.",
+		"stack's 200 most recent restore points, so it is checked for ambiguity only " +
+		"within that window - the full id is what addresses an older restore point " +
+		"with certainty.",
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName, reference := args[0], args[1]
@@ -524,8 +551,9 @@ A restore point a backup, restore or clone is currently using is refused, and
 so is one that is still being taken.
 
 The id may be an unambiguous prefix of the one the listing printed, resolved
-against the stack's 200 most recent restore points; pass the full id for an
-older one.`,
+against the stack's 200 most recent restore points, so it is checked for
+ambiguity only within that window; the full id is what addresses an older
+restore point with certainty.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName, reference := args[0], args[1]
@@ -591,8 +619,9 @@ unless --force. An inventory whose live database scan did not run counts as
 drift, because "we could not read it" is not "it is unchanged".
 
 The id may be an unambiguous prefix of the one the listing printed, resolved
-against the stack's 200 most recent restore points; pass the full id for an
-older one.`,
+against the stack's 200 most recent restore points, so it is checked for
+ambiguity only within that window; the full id is what addresses an older
+restore point with certainty.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName, reference := args[0], args[1]
