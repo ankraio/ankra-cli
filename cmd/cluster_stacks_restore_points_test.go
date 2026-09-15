@@ -947,3 +947,22 @@ func withFastRunPolling(t *testing.T) {
 	dataRunPollInterval = time.Millisecond
 	t.Cleanup(func() { dataRunPollInterval = original })
 }
+
+// A mistyped -o has to fail before the restore is dispatched: after it, the
+// stack's volumes are already being removed and the run id the caller needed
+// is never printed.
+func TestRestorePointsRestoreChecksTheOutputFormatBeforeDispatching(t *testing.T) {
+	mock := newBackupLaneMock()
+
+	_, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsRestoreCmd},
+		"cluster", "stacks", "restore-points", "restore", backupTestStack, backupTestRestorePointID,
+		"--cluster", "demo", "--yes", "-o", "josn")
+
+	if executeError == nil {
+		t.Fatal("an unknown output format must fail the command")
+	}
+	if mock.restored != nil {
+		t.Fatalf("nothing may reach the platform when the flags are wrong, got %+v", mock.restored)
+	}
+}

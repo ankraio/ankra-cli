@@ -148,7 +148,11 @@ func applyAddonBackupFlags(cmd *cobra.Command, settings *client.AddonSettings) (
 		return false, nil
 	}
 	if settings.Backup == nil {
-		settings.Backup = &client.AddonBackupSettings{}
+		// A block created by a schedule or retention flag alone is an
+		// override of HOW the add-on is captured, not a request to stop
+		// capturing it: 'enabled' has no omitempty on the wire, so the block
+		// starts on and only --backup-enabled=false turns it off.
+		settings.Backup = &client.AddonBackupSettings{Enabled: true}
 	}
 	backup := settings.Backup
 

@@ -156,6 +156,10 @@ type migrateConvertRequest struct {
 	Out       string
 	Force     bool
 	DryRun    bool
+	// Converted is a conversion of the same source already made with the
+	// same cluster name, namespace and options; set, it is written instead
+	// of converting again.
+	Converted *migrate.Result
 }
 
 // performMigrateConvert runs the module, validates its result, and writes
@@ -163,15 +167,21 @@ type migrateConvertRequest struct {
 // returns the summary (Out set when written) and the rendered cluster.yaml.
 func performMigrateConvert(dir string, request migrateConvertRequest) (migrateConvertSummary, []byte, error) {
 	module := request.Module
-	result, err := module.Convert(context.Background(), migrate.ConvertRequest{
-		Dir:         dir,
-		ClusterName: request.ClusterName,
-		StackName:   request.StackName,
-		Namespace:   request.Namespace,
-		Options:     request.Options,
-	})
-	if err != nil {
-		return migrateConvertSummary{}, nil, fmt.Errorf("%s: %w", module.Describe().Name, err)
+	var result migrate.Result
+	if request.Converted != nil {
+		result = *request.Converted
+	} else {
+		converted, err := module.Convert(context.Background(), migrate.ConvertRequest{
+			Dir:         dir,
+			ClusterName: request.ClusterName,
+			StackName:   request.StackName,
+			Namespace:   request.Namespace,
+			Options:     request.Options,
+		})
+		if err != nil {
+			return migrateConvertSummary{}, nil, fmt.Errorf("%s: %w", module.Describe().Name, err)
+		}
+		result = converted
 	}
 	if err := migrate.Validate(result); err != nil {
 		return migrateConvertSummary{}, nil, fmt.Errorf("%s: %w", module.Describe().Name, err)

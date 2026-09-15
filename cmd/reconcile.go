@@ -409,14 +409,14 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			return err
 		}
 
-		// The Hetzner, UpCloud, OVH and DigitalOcean deprovision endpoints
-		// honor force; the Proxmox/Morpheus lanes and the generic imported
-		// deprovision drop it, so say so instead of implying a forced
-		// teardown that never happens.
+		// The Hetzner, UpCloud, OVH, DigitalOcean and AWS deprovision
+		// endpoints honor force; the Proxmox/Morpheus lanes and the generic
+		// imported deprovision drop it, so say so instead of implying a
+		// forced teardown that never happens.
 		if force {
 			switch cloudClusterKind(clusterKind) {
 			case cloudClusterKindHetzner, cloudClusterKindUpcloud,
-				cloudClusterKindOvh, cloudClusterKindDigitalocean:
+				cloudClusterKindOvh, cloudClusterKindDigitalocean, cloudClusterKindAws:
 			default:
 				_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
 					"warning: --force has no effect for this cluster type")
@@ -646,7 +646,7 @@ func init() {
 	// so existing scripts don't break on an unknown flag; see DEPRECATIONS.md.
 	_ = clusterDeprovisionCmd.Flags().MarkDeprecated("auto-delete",
 		"the backend does not support it; deprovision never deletes the cluster record (use 'ankra delete cluster' afterwards)")
-	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state; on UpCloud, Hetzner, OVH and DigitalOcean also deletes leftover CSI storage volumes and load balancers")
+	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state; on UpCloud, Hetzner, OVH, DigitalOcean and AWS also deletes leftover CSI storage volumes and load balancers")
 	clusterDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	clusterRollToCmd.Flags().String("version", "", "Resource version ID to roll to (required)")

@@ -86,7 +86,7 @@ func init() {
 	migrateUpCmd.Flags().StringVar(&migrateUpVault, "vault", "", "Backup vault the data goes through, by name or id (default: the organisation's only ready vault)")
 	migrateUpCmd.Flags().StringVar(&migrateUpModule, "module", "", "Module to use (default: the most confident detection)")
 	migrateUpCmd.Flags().StringVar(&migrateUpOut, "out", "ankra-migration", "Output directory: <out>/stack for the conversion, <out>/data for the dumps")
-	migrateUpCmd.Flags().StringVar(&migrateUpStack, "stack", "", "Name of the stack on the cluster (default: the directory name)")
+	migrateUpCmd.Flags().StringVar(&migrateUpStack, "stack", "", "Name of the stack on the cluster (default: the name the module gives the source, such as a compose project name, else the directory name)")
 	migrateUpCmd.Flags().StringVar(&migrateUpNamespace, "namespace", "", "Namespace the workloads run in (default: the stack name)")
 	migrateUpCmd.Flags().StringArrayVar(&migrateUpOptions, "option", nil, "Module option as key=value (repeatable); convert and export options both apply")
 	migrateUpCmd.Flags().BoolVar(&migrateUpForce, "force", false, "Overwrite an output directory that holds files no earlier run of this command wrote")
@@ -119,6 +119,10 @@ type migrateUpPlan struct {
 	// FreeBytes is the space left where the dumps go; zero when unknown.
 	FreeBytes int64    `json:"free_bytes" yaml:"free_bytes"`
 	Warnings  []string `json:"warnings,omitempty" yaml:"warnings,omitempty"`
+	// converted is the source's conversion when the plan had to make one to
+	// learn the stack's name (no --stack). The write step reuses it, so the
+	// source is converted once and the name announced is the name deployed.
+	converted *migrate.Result
 }
 
 // migrateUpSummary is the structured shape of a completed migration.
@@ -175,9 +179,16 @@ func runMigrateUp(cmd *cobra.Command, args []string) error {
 
 	progress := cmd.ErrOrStderr()
 	_, _ = fmt.Fprintf(progress, "\n==> Converting %s\n", dir)
+	// With --stack the name reaches the module as a request; without it the
+	// plan already holds the conversion it made to learn the module's own
+	// name, and that one is written rather than converting the source again.
+	requestedStack := ""
+	if migrateUpStack != "" {
+		requestedStack = plan.Stack
+	}
 	convertSummary, _, err := performMigrateConvert(dir, migrateConvertRequest{
-		Module: module, ClusterName: plan.ClusterName, StackName: plan.Stack, Namespace: plan.Namespace, Options: options,
-		Out: filepath.Join(plan.Out, "stack"), Force: true,
+		Module: module, ClusterName: plan.ClusterName, StackName: requestedStack, Namespace: plan.Namespace, Options: options,
+		Out: filepath.Join(plan.Out, "stack"), Force: true, Converted: plan.converted,
 	})
 	if err != nil {
 		return err
@@ -253,13 +264,24 @@ func planMigrateUp(cmd *cobra.Command, dir string, module migrate.Module, option
 	}
 	// One name: the plan announces it, the conversion writes it into
 	// cluster.yaml, the deploy applies it and the restore imports into it.
-	stackName := migrateResourceName(filepath.Base(dir))
+	// Without --stack that name is the module's own choice for the source -
+	// a compose file's project name, say - exactly as it was before --stack
+	// existed, so a migration re-run lands on the stack it deployed the
+	// first time rather than beside it under the directory's name.
+	directoryName := migrateResourceName(filepath.Base(dir))
+	stackName := directoryName
 	if migrateUpStack != "" {
 		stackName = migrateResourceName(migrateUpStack)
 	}
+	// The namespace follows the name asked for with --stack; without one it
+	// is the directory's name, which is where every earlier migration of
+	// this source put its workloads.
 	namespace := migrateUpNamespace
 	if namespace == "" {
-		namespace = stackName
+		namespace = directoryName
+		if migrateUpStack != "" {
+			namespace = stackName
+		}
 	}
 	plan := migrateUpPlan{Module: module.Describe().Name, Dir: dir, Out: out, Stack: stackName, Namespace: namespace}
 
@@ -274,12 +296,28 @@ func planMigrateUp(cmd *cobra.Command, dir string, module migrate.Module, option
 		}
 	}
 	plan.ClusterID, plan.ClusterName = clusterID, clusterName
+	if migrateUpStack == "" {
+		// The module's own name for the source is only known by converting
+		// it. That conversion is made once, here, with the cluster and
+		// namespace it will be written with, and kept on the plan for the
+		// write step.
+		converted, convertError := module.Convert(cmd.Context(), migrate.ConvertRequest{
+			Dir: dir, ClusterName: clusterName, Namespace: namespace, Options: options,
+		})
+		if convertError != nil {
+			return migrateUpPlan{}, fmt.Errorf("%s: %w", module.Describe().Name, convertError)
+		}
+		plan.converted = &converted
+		if stacks := converted.Cluster.Spec.Stacks; len(stacks) > 0 && stacks[0].Name != "" {
+			plan.Stack = stacks[0].Name
+		}
+	}
 	stacks, err := apiClient.ListClusterStacks(clusterID)
 	if err != nil {
 		return migrateUpPlan{}, fmt.Errorf("listing the stacks of cluster %s: %w", clusterName, err)
 	}
 	for _, stack := range stacks {
-		plan.StackExists = plan.StackExists || stack.Name == stackName
+		plan.StackExists = plan.StackExists || stack.Name == plan.Stack
 	}
 
 	if carryData {

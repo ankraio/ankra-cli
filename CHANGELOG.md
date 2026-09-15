@@ -137,6 +137,21 @@
   work the reason out says so on the same line rather than printing nothing,
   and a server older than the fields prints no line at all.
 
+### Changed
+
+- **`ankra pipeline run` no longer needs `--sha` outside a checkout, and never
+  takes the commit from another repository's checkout.** Typed in a checkout
+  of repository A, `pipeline run --application B` used to read A's HEAD and
+  dispatch it as B's commit, and a named `--ref` with no `--sha` was refused
+  as "--sha is required" (PLA-863). The working directory's HEAD is now used
+  only when the checkout is the repository the selected application builds;
+  in every other case - a `--repository` id, a `--ref` on its own, no
+  checkout at all - the dispatch goes out without a commit and Ankra reads
+  the tip of the ref, or of the repository's default branch, from the
+  repository's host at dispatch. stderr says which commit source was used.
+  A script that relied on the old refusal to catch a missing `--sha` now
+  gets a run at the tip of the default branch instead.
+
 ### Fixed
 
 - **`ankra cluster stacks list` no longer renders an application-backed stack
@@ -149,6 +164,50 @@
   `<application-id>:<version>` they deploy, and the structured output carries
   them. Anyone who read the old output reasonably concluded the stack was
   empty, or that cloning it had produced nothing.
+- **`ankra migrate up` without `--stack` deploys under the source's own
+  name again.** v0.17.0-rc0 named the stack after the source directory
+  whenever `--stack` was not given, so a compose project with its own
+  `name:` migrated on v0.16 was re-deployed as a second stack beside the
+  first, and a module that returned several stacks had the restore
+  registered against a stack that did not exist. The default is once more
+  the name the module gives the source - the compose project name - with
+  the directory's name only for a module that names nothing; the namespace
+  keeps defaulting to the directory's name, where earlier migrations put the
+  workloads. `--stack` still names both.
+- **`ankra cluster aws create|preflight` without `--bastion-allowed-ips` no
+  longer fails with a 422.** The flag became optional in v0.17.0-rc0, but an
+  unset flag reached the platform as `null`, which it refuses as "not a
+  list"; only an empty list means its default of open to everyone. The
+  omitted flag now sends `[]`, so the documented default works.
+- **`ankra cluster deprovision --force` on an AWS cluster no longer warns
+  that `--force` has no effect.** The AWS lane forwards it and deletes the
+  leftover volumes and load balancers like the other cloud lanes; the
+  warning, printed right before the destructive confirmation, said the
+  opposite.
+- **A typo in a stack's `backup:` block no longer unprotects the stack.**
+  `ankra cluster apply` read `backup: {enable: true, vault: prod}` as a
+  block with `enabled` unset and sent it as `enabled: false`, which the
+  platform honours as a deliberate removal. A key the dialect does not read
+  - in `backup`, `backup.retention` or `backup.selection` - is now refused
+  with the file's own vocabulary before anything is sent.
+- **`ankra cluster addons settings set --backup-schedule` (or a retention
+  flag) alone no longer switches the add-on's backup off.** On an add-on
+  with no override yet, the block those flags created started with
+  `enabled: false`, so the command's own example stopped capturing the
+  add-on it meant to capture more often. A block created by a schedule or
+  retention flag starts enabled; `--backup-enabled=false` still turns it off.
+- **`ankra cluster stacks restore-points restore` and `stacks protect`
+  check `-o` before they write.** A mistyped output format was discovered
+  after the restore had been dispatched - the stack's volumes already being
+  removed, the run id never printed, the command exiting 2 as if nothing had
+  happened. Both commands now refuse a bad `-o` before any request.
+- **`cluster addons upgrade`, `cluster manifests upgrade` and `cluster encrypt
+  manifest|addon` keep a hand-placed `from_file`.** The three cleared the
+  exported `from_file` before their partial-stack update, which moved the
+  values to the default GitOps path and left the old file behind, and the
+  addon dry-run announced the reference as replaced (PLA-863). The pointer
+  now travels with the update, and the dry-run notice names the file the
+  values land in.
 - **A converted database no longer crashloops on a block volume.** A compose
   volume on `/var/lib/postgresql/data` or `/var/lib/mysql` became a claim
   mounted at exactly that path, and every ext4 block volume - Hetzner,

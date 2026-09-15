@@ -210,7 +210,7 @@ can be approved, once; `ankra pipeline get` on an unapproved run prints the exac
 ### 3e. Run, gate on it, read it
 
 ```bash
-ankra pipeline run --application <application-id> --wait                 # --sha defaults to HEAD in a checkout
+ankra pipeline run --application <application-id> --wait                 # --sha defaults to HEAD in the application's own checkout, else the default branch tip
 ankra pipeline run --application <application-id> --sha <full-sha> --ref main --wait --timeout 45m
 ankra pipeline get --application <application-id> --head-sha "$(git rev-parse HEAD)" --trigger push --latest --wait --exit-code
 ankra pipeline get <run-id> --application <application-id> --watch -o json   # one JSON object per state change

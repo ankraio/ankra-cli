@@ -260,6 +260,12 @@ func awsCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAwsClusterReque
 	egressMode, _ := cmd.Flags().GetString("egress-mode")
 	bastionInstanceType, _ := cmd.Flags().GetString("bastion-instance-type")
 	bastionAllowedIPs, _ := cmd.Flags().GetStringSlice("bastion-allowed-ips")
+	if bastionAllowedIPs == nil {
+		// The platform reads the list itself: an empty one means its own
+		// default (open to everyone), while a null is refused as not a list.
+		// An unset flag has to reach it as [] for the omitted case to work.
+		bastionAllowedIPs = []string{}
+	}
 	controlPlaneCount, _ := cmd.Flags().GetInt("control-plane-count")
 	controlPlaneType, _ := cmd.Flags().GetString("control-plane-type")
 	workerType, _ := cmd.Flags().GetString("worker-type")

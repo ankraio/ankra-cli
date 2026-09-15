@@ -112,7 +112,9 @@ ankra pipeline definitions approve <definition-id>
 ankra pipeline run --application <application> --sha <full-sha> --wait
 ```
 
-`--sha` is required outside a checkout of the repository. Follow with
+Without `--sha` the run builds the tip of `--ref`, or of the repository's default
+branch, resolved by Ankra at dispatch; in a checkout of the application's own
+repository the working directory's HEAD is used. Follow with
 `ankra pipeline list --application <application>`, `ankra pipeline get <run>` and
 `ankra pipeline logs <run>`.
 
