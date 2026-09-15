@@ -116,6 +116,27 @@ func TestPipelineBranchesTableCarriesEveryColumn(t *testing.T) {
 	}
 }
 
+// TestPipelineBranchesLatestRunReadsSupersededLikeTheRunListing pins the two
+// tables to one vocabulary: a latest run a newer run replaced reads
+// "superseded" here exactly as it does in 'ankra pipeline list', never
+// "cancelled" in one and "superseded" in the other for the same run.
+func TestPipelineBranchesLatestRunReadsSupersededLikeTheRunListing(t *testing.T) {
+	page := threeBranchPage()
+	page.Branches[0].LatestRun = supersededPipelineRun()
+	mockClient := &pipelineBranchesMock{branchesResult: page}
+	output, executeError := runPipelineCommand(t, mockClient, "branches",
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("branches error = %v", executeError)
+	}
+	if !strings.Contains(output, "⊘ superseded") {
+		t.Errorf("the OUTCOME cell of a superseded latest run must read superseded: %q", output)
+	}
+	if strings.Contains(output, "⊘ cancelled") {
+		t.Errorf("a superseded run must not read cancelled anywhere in the table: %q", output)
+	}
+}
+
 func TestPipelineBranchesHidesStaleRowsAndSaysSo(t *testing.T) {
 	mockClient := &pipelineBranchesMock{branchesResult: threeBranchPage()}
 	output, executeError := runPipelineCommand(t, mockClient, "branches",

@@ -297,7 +297,7 @@ func registerPipelineListFlags(command *cobra.Command) {
 	command.Flags().String("branch", "", "Filter by trigger branch")
 	command.Flags().String("head-sha", "", "Filter by the exact full commit sha")
 	command.Flags().String("cursor", "", "Page cursor from a previous listing's next_cursor")
-	command.Flags().Int("limit", 0, "Maximum number of runs to return (server default 50, max 100)")
+	command.Flags().Int("limit", 0, "Maximum number of runs to return (server default 50, max 100); with --latest-per-branch, the number of branches (server default 20)")
 	command.Flags().Bool("latest-per-branch", false,
 		"List one row per branch with the newest run on each, the table 'ankra pipeline branches' prints")
 	command.Flags().Bool("all", false,

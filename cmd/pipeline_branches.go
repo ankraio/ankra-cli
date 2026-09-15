@@ -164,7 +164,7 @@ func renderPipelineBranchTable(out io.Writer, branches []client.PipelineBranch) 
 			branch.Kind,
 			branch.LatestRun.RunNumber,
 			branch.LatestRun.Status,
-			renderPipelineBranchOutcome(branch.LatestRun.Outcome),
+			renderPipelineBranchLatestOutcome(branch.LatestRun),
 			renderPipelineBranchOutcome(branch.PreviousOutcome),
 			branch.RunCount,
 			branch.SupersededCount,
@@ -183,6 +183,17 @@ func renderPipelineBranchOutcome(outcome *string) string {
 		return "-"
 	}
 	return renderPipelineState(pipelineRunStatusConcluded, outcome)
+}
+
+// renderPipelineBranchLatestOutcome is renderPipelineBranchOutcome for the
+// latest run, which is a whole run rather than an outcome string: a run a
+// newer run superseded reads "superseded" here exactly as it does in
+// 'ankra pipeline list', so the two tables never disagree about one run.
+func renderPipelineBranchLatestOutcome(run client.PipelineRun) string {
+	if run.Outcome == nil || *run.Outcome == "" {
+		return "-"
+	}
+	return renderPipelineRunState(run)
 }
 
 // pipelineBranchLabel is what the BRANCH column prints: the short name, with
