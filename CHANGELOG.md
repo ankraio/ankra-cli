@@ -1,6 +1,12 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.17.1 — 2026-09-15
+
+Two fixes on top of v0.17.0, both for operations that previously had no way
+forward: a retried vault upload that died on its own body instead of
+reporting the error underneath it, and `--force` reaching the Proxmox
+deprovision lane, so a cluster whose host is gone can leave
+`deprovisioning` instead of holding its name forever.
 
 ### Fixed
 
@@ -11,6 +17,18 @@
   file already closed` — and that, not the transport error or the 5xx underneath
   it, was the only thing the operator ever saw. A retry now re-reads the whole
   file, and an upload that fails says why it failed.
+
+- **`--force` now reaches the Proxmox deprovision lane, so a cluster whose
+  host is gone can still be torn down.** The endpoint has always honoured
+  `force`, but the CLI hard-coded it to `false` and warned that the flag has
+  no effect for this cluster type, which left calling the API by hand as the
+  only way to reach it. `force` is what lets a teardown finish when the
+  Proxmox host or jumphost is unreachable: the platform marks the VMs down,
+  accepting that they may leak, so the cluster leaves `deprovisioning` and
+  releases its name. Without it a cluster whose infrastructure is gone is
+  stuck there forever. The warning now names Morpheus and the generic
+  imported lane as the ones that still drop the flag, and the flag help says
+  what force means on Proxmox.
 
 ## v0.17.0 — 2026-09-15
 
