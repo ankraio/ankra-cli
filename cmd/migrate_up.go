@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -120,6 +119,10 @@ type migrateUpPlan struct {
 	// FreeBytes is the space left where the dumps go; zero when unknown.
 	FreeBytes int64    `json:"free_bytes" yaml:"free_bytes"`
 	Warnings  []string `json:"warnings,omitempty" yaml:"warnings,omitempty"`
+	// converted is the source's conversion when the plan had to make one to
+	// learn the stack's name (no --stack). The write step reuses it, so the
+	// source is converted once and the name announced is the name deployed.
+	converted *migrate.Result
 }
 
 // migrateUpSummary is the structured shape of a completed migration.
@@ -176,16 +179,16 @@ func runMigrateUp(cmd *cobra.Command, args []string) error {
 
 	progress := cmd.ErrOrStderr()
 	_, _ = fmt.Fprintf(progress, "\n==> Converting %s\n", dir)
-	// The stack name reaches the module only when --stack asked for one;
-	// otherwise the plan already carries the module's own choice, and
-	// sending it back would read as a request the module has to honour.
+	// With --stack the name reaches the module as a request; without it the
+	// plan already holds the conversion it made to learn the module's own
+	// name, and that one is written rather than converting the source again.
 	requestedStack := ""
 	if migrateUpStack != "" {
 		requestedStack = plan.Stack
 	}
 	convertSummary, _, err := performMigrateConvert(dir, migrateConvertRequest{
 		Module: module, ClusterName: plan.ClusterName, StackName: requestedStack, Namespace: plan.Namespace, Options: options,
-		Out: filepath.Join(plan.Out, "stack"), Force: true,
+		Out: filepath.Join(plan.Out, "stack"), Force: true, Converted: plan.converted,
 	})
 	if err != nil {
 		return err
@@ -266,15 +269,9 @@ func planMigrateUp(cmd *cobra.Command, dir string, module migrate.Module, option
 	// existed, so a migration re-run lands on the stack it deployed the
 	// first time rather than beside it under the directory's name.
 	directoryName := migrateResourceName(filepath.Base(dir))
-	var stackName string
+	stackName := directoryName
 	if migrateUpStack != "" {
 		stackName = migrateResourceName(migrateUpStack)
-	} else {
-		moduleName, nameError := moduleStackName(cmd.Context(), module, dir, directoryName, options)
-		if nameError != nil {
-			return migrateUpPlan{}, nameError
-		}
-		stackName = moduleName
 	}
 	// The namespace follows the name asked for with --stack; without one it
 	// is the directory's name, which is where every earlier migration of
@@ -299,12 +296,28 @@ func planMigrateUp(cmd *cobra.Command, dir string, module migrate.Module, option
 		}
 	}
 	plan.ClusterID, plan.ClusterName = clusterID, clusterName
+	if migrateUpStack == "" {
+		// The module's own name for the source is only known by converting
+		// it. That conversion is made once, here, with the cluster and
+		// namespace it will be written with, and kept on the plan for the
+		// write step.
+		converted, convertError := module.Convert(cmd.Context(), migrate.ConvertRequest{
+			Dir: dir, ClusterName: clusterName, Namespace: namespace, Options: options,
+		})
+		if convertError != nil {
+			return migrateUpPlan{}, fmt.Errorf("%s: %w", module.Describe().Name, convertError)
+		}
+		plan.converted = &converted
+		if stacks := converted.Cluster.Spec.Stacks; len(stacks) > 0 && stacks[0].Name != "" {
+			plan.Stack = stacks[0].Name
+		}
+	}
 	stacks, err := apiClient.ListClusterStacks(clusterID)
 	if err != nil {
 		return migrateUpPlan{}, fmt.Errorf("listing the stacks of cluster %s: %w", clusterName, err)
 	}
 	for _, stack := range stacks {
-		plan.StackExists = plan.StackExists || stack.Name == stackName
+		plan.StackExists = plan.StackExists || stack.Name == plan.Stack
 	}
 
 	if carryData {
@@ -411,23 +424,6 @@ func clusterNameForID(clusterID string) (string, error) {
 		}
 	}
 	return "", withExitCode(exitNotFound, fmt.Errorf("no cluster with id %s in this organisation", clusterID))
-}
-
-// moduleStackName is the name the stack carries when --stack is not given:
-// what the module itself calls the source, learned by converting it once in
-// memory. Nothing is written - the conversion that writes files follows the
-// confirmation - and a module that yields no stack falls back to the
-// directory's name.
-func moduleStackName(ctx context.Context, module migrate.Module, dir, fallback string, options map[string]string) (string, error) {
-	result, err := module.Convert(ctx, migrate.ConvertRequest{Dir: dir, ClusterName: fallback, Namespace: fallback, Options: options})
-	if err != nil {
-		return "", fmt.Errorf("%s: %w", module.Describe().Name, err)
-	}
-	stacks := result.Cluster.Spec.Stacks
-	if len(stacks) == 0 || stacks[0].Name == "" {
-		return fallback, nil
-	}
-	return stacks[0].Name, nil
 }
 
 func printMigrateUpPlan(cmd *cobra.Command, plan migrateUpPlan, carryData bool) {
