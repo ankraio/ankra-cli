@@ -102,8 +102,19 @@ func applicationBackupsURL(baseURL string, applicationID string) string {
 	return fmt.Sprintf("%s/api/v1/org/applications/%s/backups", baseURL, neturl.PathEscape(applicationID))
 }
 
-func applicationDeploymentURL(baseURL string, applicationID string, deploymentID string) string {
-	return fmt.Sprintf("%s/api/v1/org/applications/%s/deployments/%s",
+// The two deployment routes are built by their own functions rather than from
+// a shared `/deployments/{id}` prefix. That prefix is not itself a route, and
+// TestClusterRoutesAreRegistered resolves every /api/v1 literal in this
+// package against the cluster's route census - so a helper that produces one
+// is reported as a path the router does not register.
+
+func applicationProtectURL(baseURL string, applicationID string, deploymentID string) string {
+	return fmt.Sprintf("%s/api/v1/org/applications/%s/deployments/%s/protect",
+		baseURL, neturl.PathEscape(applicationID), neturl.PathEscape(deploymentID))
+}
+
+func applicationRestorePointsURL(baseURL string, applicationID string, deploymentID string) string {
+	return fmt.Sprintf("%s/api/v1/org/applications/%s/deployments/%s/restore-points",
 		baseURL, neturl.PathEscape(applicationID), neturl.PathEscape(deploymentID))
 }
 
@@ -125,7 +136,7 @@ func (c *Client) GetApplicationBackups(applicationID string) (*ApplicationBackup
 func (c *Client) ProtectApplicationDeployment(applicationID string, deploymentID string,
 	request ProtectApplicationDeploymentRequest) (*StackProtection, error) {
 	return c.sendProtectionRequest(http.MethodPost,
-		applicationDeploymentURL(c.BaseURL, applicationID, deploymentID)+"/protect", request)
+		applicationProtectURL(c.BaseURL, applicationID, deploymentID), request)
 }
 
 // CreateApplicationRestorePoint asks for a capture of one deployment now and
@@ -135,7 +146,7 @@ func (c *Client) CreateApplicationRestorePoint(applicationID string, deploymentI
 	request CreateRestorePointRequest) (*CreateRestorePointResult, error) {
 	var result CreateRestorePointResult
 	if requestError := c.sendJSON(http.MethodPost,
-		applicationDeploymentURL(c.BaseURL, applicationID, deploymentID)+"/restore-points",
+		applicationRestorePointsURL(c.BaseURL, applicationID, deploymentID),
 		request, &result); requestError != nil {
 		return nil, requestError
 	}
