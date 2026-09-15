@@ -270,6 +270,40 @@ ankra application reconcile <application-id>                          # request 
 `platform` detects which operators (ingress, cert-manager, a database operator) a target cluster
 already runs, so the generated manifests reuse them rather than duplicating them.
 
+## 10. Backups of an application's data
+
+An application deploys as one stack per cluster, and the stack is what the backup lane protects.
+These verbs address the deployment by its **cluster** and let the platform resolve the stack, so
+nobody has to know that `shop` runs as `deploy-shop`:
+
+```bash
+ankra application backups <application-id>                                  # one row per deployment
+ankra application protect <application-id> --cluster production             # turn scheduled backups on
+ankra application backup  <application-id> --cluster production --wait      # back up now
+```
+
+`backups` answers, per deployment: whether it carries a database, its three-valued protection
+verdict, its vault and schedule, when it was last backed up and when it is next scheduled. The
+verdict's third value matters - `unknown` means Ankra could not establish whether the deployment
+is protected, which is **not** the same answer as `unprotected`, and nothing should be reported as
+unprotected on the strength of a read that did not happen.
+
+**An application that ships a database is protected by default.** When it is deployed into an
+organisation with backups enabled and exactly one verified backup vault, its stack is created with
+a daily backup already on. The deploy says so, and says why not when it could not: no verified
+vault, or more than one and nothing naming which - Ankra does not choose where somebody's data
+lives. The per-application `database_backup` setting turns the default off; it is on the
+application's Settings page in the portal and on
+`PUT /api/v1/org/applications/{id}/backups/database-backup`.
+
+Turning the default off decides the FUTURE. It does not unprotect a running deployment - that is
+`ankra cluster stacks unprotect`, behind its typed confirmation.
+
+The restore points these take are the same artefacts the stack lane lists, so
+`ankra cluster stacks restore-points list <stack> --cluster <cluster>` and
+`ankra cluster stacks restore-points restore` still work on them. See `ankra-backups` for vaults
+and `ankra-migrate` for moving data between clusters.
+
 ## Rules
 
 - **Declare the registry at `add` time.** A late `--registry-url` leaves a wrong build workflow.
@@ -292,3 +326,4 @@ already runs, so the generated manifests reuse them rather than duplicating them
 - `ankra-stack-profiles` — one definition, many clusters, per-cluster parameters.
 - `ankra-troubleshooting` — when the first deploy does not come up.
 - `ankra-security` — tokens, scanning findings, and least-privilege registry credentials.
+- `ankra-backups` — the backup vaults an application's restore points are written to.

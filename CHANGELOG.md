@@ -1,5 +1,29 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra application backups`, `application protect` and `application backup`
+  put backups where the data is.** An application deploys as one stack per
+  cluster, so protecting it meant first finding out that `shop` runs as
+  `deploy-shop` - a name nobody chose and nobody should have to know. These
+  three name the deployment by its **cluster** and let the platform resolve the
+  stack: `ankra application protect shop --cluster production` turns scheduled
+  backups on, `ankra application backup shop --cluster production --wait` takes
+  one now and follows the run, and `ankra application backups shop` answers, per
+  deployment, whether it carries a database, whether its data is protected, its
+  vault and schedule, and when it was last and is next backed up. The protection
+  verdict keeps its third value: `unknown` means Ankra could not establish
+  whether a deployment is protected, which is never printed as `unprotected`,
+  and the application's own database-backup setting reads `unknown` rather than
+  `off` when the platform did not report it. Without `--vault`, `protect` uses
+  the organisation's single verified vault and refuses an organisation with more
+  than one rather than choosing for it; `backup` writes to the deployment's own
+  backup policy vault first and falls back to that same single verified vault.
+  The restore points are the same artefacts `ankra cluster stacks restore-points`
+  lists, so the stack verbs still restore them.
+
 ## v0.18.0-rc0 — 2026-09-15
 
 Opens the v0.18.0 line. The headline is `ankra cluster backups status`:

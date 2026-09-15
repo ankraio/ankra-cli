@@ -139,6 +139,13 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 	applicationCommand.AddCommand(newApplicationBuildCommand())
 	applicationCommand.AddCommand(newApplicationSettingsCommand())
 	applicationCommand.AddCommand(newApplicationManifestAddonCommand())
+	// Backups, where the data is (bead ankra-0xsdd.44). They name the
+	// deployment by its cluster; the stack the application runs as is
+	// resolved by the platform, which is the whole reason these exist
+	// beside `ankra cluster stacks protect` rather than instead of it.
+	applicationCommand.AddCommand(newApplicationBackupsCommand())
+	applicationCommand.AddCommand(newApplicationProtectCommand())
+	applicationCommand.AddCommand(newApplicationBackupCommand())
 	applicationCommand.AddCommand(newApplicationPipelineCommand())
 }
 

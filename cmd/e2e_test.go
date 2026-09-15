@@ -645,6 +645,20 @@ func (m baseMock) ProtectStack(string, string, client.ProtectStackRequest) (*cli
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetApplicationBackups(string) (*client.ApplicationBackups, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ProtectApplicationDeployment(string, string,
+	client.ProtectApplicationDeploymentRequest) (*client.StackProtection, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateApplicationRestorePoint(string, string,
+	client.CreateRestorePointRequest) (*client.CreateRestorePointResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) UnprotectStack(string, string, client.UnprotectStackRequest) (*client.StackProtection, error) {
 	return nil, errors.New("not implemented")
 }
