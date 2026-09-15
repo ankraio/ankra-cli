@@ -108,6 +108,21 @@ type APIClient interface {
 	DeleteBackupVaultImport(vaultID string, importID string) error
 	UploadPresignedObject(ctx context.Context, upload client.BackupVaultImportUpload, body client.UploadBody, size int64) error
 
+	ListStackRestorePoints(clusterID string, stackName string, options client.ListRestorePointsOptions) (*client.RestorePointListResult, error)
+	ListOrganisationRestorePoints(options client.ListRestorePointsOptions) (*client.RestorePointListResult, error)
+	GetStackRestorePoint(clusterID string, stackName string, restorePointID string) (*client.RestorePoint, error)
+	CreateStackRestorePoint(clusterID string, stackName string, request client.CreateRestorePointRequest) (*client.CreateRestorePointResult, error)
+	DeleteStackRestorePoint(clusterID string, stackName string, restorePointID string) (*client.DeleteRestorePointResult, error)
+	RestoreStackRestorePoint(clusterID string, stackName string, restorePointID string, request client.RestoreRestorePointRequest) (*client.RestoreRestorePointResult, error)
+	ProtectStack(clusterID string, stackName string, request client.ProtectStackRequest) (*client.StackProtection, error)
+	UnprotectStack(clusterID string, stackName string, request client.UnprotectStackRequest) (*client.StackProtection, error)
+	GetStackDataAssets(clusterID string, stackName string) (*client.StackDataInventory, error)
+
+	ListRuns(options client.ListRunsOptions) (*client.RunListResult, error)
+	GetRun(runID string) (*client.Run, error)
+	CancelRun(runID string) (*client.Run, error)
+	RetryRun(runID string) (*client.Run, error)
+
 	ListExecutions(opts client.ListExecutionsOptions) (client.ExecutionListResponse, error)
 	GetExecution(executionID string) (client.ExecutionDetail, error)
 	GetExecutionResult(executionID string) (client.ExecutionResultResponse, error)

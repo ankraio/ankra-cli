@@ -4,6 +4,28 @@
 
 ### Added
 
+- **Restore points have verbs: protect a stack, back it up, restore it, and
+  watch the run that does it.** `ankra cluster stacks protect <stack> --vault
+  <vault>` turns on protection - a schedule, a retention ladder and a selection
+  written onto the stack itself - and reports the backup data plane as
+  `installing` until it is actually on the cluster, so nothing is ever called
+  protected while the Velero that would do the protecting is still arriving.
+  `ankra cluster stacks restore-points list|get|create|delete|restore <stack>`
+  is the artifact every other verb is a verb over: `create` dispatches a
+  capture and, with `--wait`, follows its run to the sealed restore point;
+  `restore` prints the four-step sequence the platform will follow, asks you to
+  retype the stack's name before it destroys anything, and relays the
+  platform's own refusal verbatim for a restore point carrying a database the
+  platform cannot yet recreate in place. Every read carries what the restore
+  point does **not** contain alongside what it does - a backup listing that
+  showed sizes and hid omissions is the one failure mode worth designing
+  against. `ankra backup restore-points list` is the same listing across every
+  cluster, `ankra cluster stacks data list <stack>` shows what a backup would
+  have to carry before one exists, and `ankra runs list|get|cancel|retry` reads
+  the backup, restore and clone runs with every attempt of every step - which
+  is what explains an hour nobody can otherwise account for. The lane is in
+  closed beta: every command answers "Backups are not enabled for this
+  organisation." until Ankra switches the feature on for your organisation.
 - **`ankra upgrade` refreshes the agent skills with the binary.** The skills
   `ankra skills install` puts into Claude Code, Cursor, Codex and the rest ship
   inside the binary, so every upgrade used to leave the assistants on the

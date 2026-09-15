@@ -40,15 +40,17 @@ var backupVaultsCmd = &cobra.Command{
 // refusal - also a 403 - on its own path.
 const backupsNotEnabledDetail = "Backups are not enabled for this organisation."
 
-// backupLaneError wraps a backup vault API error for the terminal. The dark
-// lane is the one case with something better to say than the raw detail:
-// the fix is organisational (enable the feature, or select the right
-// organisation), not a permission or a typo, so the message says so.
+// backupLaneError wraps an error from anything behind the organisation's
+// `backups` feature - vaults, restore points, protection and the runs that
+// move the data - for the terminal. The dark lane is the one case with
+// something better to say than the raw detail: the fix is organisational
+// (enable the feature, or select the right organisation), not a permission or
+// a typo, so the message says so.
 func backupLaneError(operation string, apiError error) error {
 	var unexpected *client.UnexpectedResponseError
 	if errors.As(apiError, &unexpected) && unexpected.StatusCode == http.StatusForbidden &&
 		strings.TrimSpace(unexpected.Error()) == backupsNotEnabledDetail {
-		return fmt.Errorf("%s: %s Backup vaults are rolling out gradually - ask Ankra to enable the "+
+		return fmt.Errorf("%s: %s Backups are rolling out gradually - ask Ankra to enable the "+
 			"`backups` feature for this organisation, or check which organisation is selected "+
 			"with `ankra org current`", operation, backupsNotEnabledDetail)
 	}
