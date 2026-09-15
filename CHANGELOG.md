@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster backups status` answers what a whole cluster is backing
+  up, in one read.** `restore-points list` answers that one stack at a time
+  and only about restore points, so finding the stack nobody protected meant
+  knowing to ask about it first. The new command prints every stack on the
+  cluster against its protection verdict and why, its data assets and
+  databases, the vault and schedule that protect it, what it can be restored
+  from and how big that is, when it next runs, and what its last run of any
+  kind did. Above the table it says whether the backup components are
+  installed on the cluster at all - a cluster whose every stack names a ready
+  vault and which has no backup data plane is not a protected cluster, and
+  nothing before this said so. The verdict has three values, not two:
+  `unknown` is a stack Ankra could not assess, and it is deliberately never
+  reported as unprotected. Narrow it with `--protection`, page it with
+  `--limit` and `--cursor`, script it with `-o json`.
+
 ### Fixed
 
 - **A retried upload no longer fails on its own body.** `ankra migrate up`,
