@@ -9,8 +9,14 @@ import (
 // ankra-cbktk (PLA-834): the manifests[] 'force' and 'auto_remediate' keys
 // were never read, so a file carrying force: true applied with no force key
 // in the payload and the platform stored false over the flag a GitOps PR
-// had just set. The flags are read as booleans and always sent, so the file
-// is authoritative either way.
+// had just set. The first fix sent the flags as plain booleans, false when
+// the file did not mention them - but the platform (cluster#2843) inherits
+// the stored flag when the key is absent from the request and takes the
+// sent value, true OR false, when it is present, so a routine apply of a
+// file that never spelled out `force` cleared a `force: true` someone had
+// set through Git or the portal (ankra-mp2tr). The ruling: omitted in the
+// file is omitted on the wire, and an explicit false in the file still
+// clears.
 func TestBuildManifestApplyFlags(t *testing.T) {
 	t.Run("force and auto_remediate pass through and are sent", func(t *testing.T) {
 		mm := map[string]interface{}{
@@ -23,8 +29,8 @@ func TestBuildManifestApplyFlags(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !m.Force || !m.AutoRemediate {
-			t.Fatalf("force = %v, auto_remediate = %v, want both true", m.Force, m.AutoRemediate)
+		if m.Force == nil || !*m.Force || m.AutoRemediate == nil || !*m.AutoRemediate {
+			t.Fatalf("force = %v, auto_remediate = %v, want both pointers to true", m.Force, m.AutoRemediate)
 		}
 		payload, err := json.Marshal(m)
 		if err != nil {
@@ -37,7 +43,7 @@ func TestBuildManifestApplyFlags(t *testing.T) {
 		}
 	})
 
-	t.Run("absent flags are false and still sent", func(t *testing.T) {
+	t.Run("absent flags are omitted on the wire", func(t *testing.T) {
 		mm := map[string]interface{}{
 			"name":     "plain",
 			"manifest": "apiVersion: v1\nkind: Namespace",
@@ -46,16 +52,46 @@ func TestBuildManifestApplyFlags(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if m.Force || m.AutoRemediate {
-			t.Fatalf("force = %v, auto_remediate = %v, want both false for a file without the keys", m.Force, m.AutoRemediate)
+		if m.Force != nil || m.AutoRemediate != nil {
+			t.Fatalf("force = %v, auto_remediate = %v, want both nil for a file without the keys", m.Force, m.AutoRemediate)
 		}
 		payload, err := json.Marshal(m)
 		if err != nil {
 			t.Fatalf("marshal: %v", err)
 		}
-		// Declarative: the key is on the wire as false, never omitted, so an
-		// apply of a file that dropped force: true clears it on the platform
-		// the way the GitOps cluster file would.
+		// The platform inherits the stored flag when the key is absent
+		// (cluster#2843), so a file that does not mention the flag must not
+		// put it on the wire at all: `"force":false` here would clear a
+		// force: true set through Git or the portal on every routine apply
+		// (ankra-mp2tr).
+		for _, unwanted := range []string{`"force"`, `"auto_remediate"`} {
+			if strings.Contains(string(payload), unwanted) {
+				t.Errorf("payload %s carries %s for a file that never mentioned it", payload, unwanted)
+			}
+		}
+	})
+
+	t.Run("an explicit false is sent as false", func(t *testing.T) {
+		mm := map[string]interface{}{
+			"name":           "cleared",
+			"manifest":       "apiVersion: v1\nkind: Namespace",
+			"force":          false,
+			"auto_remediate": false,
+		}
+		m, err := buildManifest(mm, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if m.Force == nil || *m.Force || m.AutoRemediate == nil || *m.AutoRemediate {
+			t.Fatalf("force = %v, auto_remediate = %v, want both pointers to false", m.Force, m.AutoRemediate)
+		}
+		payload, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		// An explicit false is the one way a file clears a stored flag, so
+		// omitempty must not swallow it: the platform only honours a clear
+		// it can see.
 		for _, want := range []string{`"force":false`, `"auto_remediate":false`} {
 			if !strings.Contains(string(payload), want) {
 				t.Errorf("payload %s lacks %s", payload, want)
@@ -63,7 +99,7 @@ func TestBuildManifestApplyFlags(t *testing.T) {
 		}
 	})
 
-	t.Run("explicit null reads as false", func(t *testing.T) {
+	t.Run("explicit null reads as absent", func(t *testing.T) {
 		mm := map[string]interface{}{
 			"name":     "nulled",
 			"manifest": "apiVersion: v1\nkind: Namespace",
@@ -73,8 +109,17 @@ func TestBuildManifestApplyFlags(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if m.Force {
-			t.Fatal("force = true, want false for 'force:' with no value")
+		// 'force:' with no value is not a decision either way; the platform
+		// treats a sent null like an absent key, and so does the CLI.
+		if m.Force != nil {
+			t.Fatalf("force = %v, want nil for 'force:' with no value", *m.Force)
+		}
+		payload, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if strings.Contains(string(payload), `"force"`) {
+			t.Errorf("payload %s carries force for 'force:' with no value", payload)
 		}
 	})
 

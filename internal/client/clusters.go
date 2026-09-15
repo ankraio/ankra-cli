@@ -309,13 +309,19 @@ type Manifest struct {
 	EncryptedPaths []string `json:"encrypted_paths,omitempty"`
 	// Force and AutoRemediate are the manifest's apply flags (force =
 	// server-side apply with --force-conflicts, the way a CRD hop takes a
-	// field another manager owns). Always sent, never omitted: apply is
-	// declarative, so a file without the key means false, the same rule the
-	// GitOps cluster file follows. Until ankra-cbktk neither key was read at
-	// all, so a file carrying force: true applied without it and the
-	// platform stored false over the flag a GitOps PR had just set (PLA-834).
-	Force         bool `json:"force"`
-	AutoRemediate bool `json:"auto_remediate"`
+	// field another manager owns). Pointer semantics matter: the platform
+	// (cluster#2843) inherits the stored flag when the key is absent from
+	// the request and takes the sent value, true or false, when it is
+	// present. So nil = the file never mentioned the key, omitted on the
+	// wire, stored value preserved; pointer to false = an explicit
+	// `force: false` in the file, sent, clears the flag. Until ankra-cbktk
+	// neither key was read at all, so a file carrying force: true applied
+	// without it (PLA-834); the first fix then sent false for every file
+	// that did not spell the flag out, which the platform read as an
+	// authoritative clear of a flag set through Git or the portal
+	// (ankra-mp2tr).
+	Force         *bool `json:"force,omitempty"`
+	AutoRemediate *bool `json:"auto_remediate,omitempty"`
 	// Group: see the Addon field of the same name.
 	Group string `json:"group,omitempty"`
 	// AgentsMd / AgentsMdFromFile: see the Addon fields of the same name.

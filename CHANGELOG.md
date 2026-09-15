@@ -60,6 +60,17 @@ deprovision lane, so a cluster whose host is gone can leave
 
 ### Fixed
 
+- **`ankra cluster apply` no longer clears a manifest's stored `force` /
+  `auto_remediate` when the file does not mention them.** The platform
+  inherits the stored value when the key is omitted from the request and
+  honours an explicit `false` when the key is present (PLA-834). Since
+  v0.15.1 the CLI sent `false` for every manifest whose file did not spell
+  the flag out, and the platform read that as an authoritative clear: a
+  routine apply of a file that never said `force` undid a `force: true`
+  someone had set through Git or the portal. A key that is absent or null in
+  the file is now left off the wire, so the stored flag survives the apply;
+  an explicit `force: false` is still sent and still clears it, and a
+  non-boolean value is still refused with an error naming the key.
 - **A superseded pipeline run reads `superseded` in every view of it, and
   `pipeline get` says so once.** v0.17.0 taught `pipeline list` and `pipeline
   get` that a run cancelled because a newer run took its concurrency group is
