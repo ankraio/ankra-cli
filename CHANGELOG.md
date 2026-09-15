@@ -1,6 +1,26 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.17.0 — 2026-09-15
+
+Promotes v0.17.0-rc0 to stable. The headline is `ankra cluster aws`:
+self-managed k3s or kubeadm clusters on EC2, with a bastion, `preflight`,
+`deprovision --force` that reaches the API, and a bastion allow-list you may
+now omit. Beside it, the first cut of backups in closed beta - a `backup:`
+block on a stack in the cluster file, `stacks protect`, restore points with
+`create|restore` and the runs that do them, and `addons settings get|set` -
+and a pipelines surface that answers "where does each branch stand":
+`ankra pipeline branches`, `pipeline list --latest-per-branch`, a superseded
+run reading as superseded rather than cancelled, `pipeline get` naming what a
+queued run is waiting for, and `application pipeline convert` moving a
+workflow-built application onto Ankra Pipelines in one call. rc0 and the day
+after it also carried `registry robots`, `bucket create|list|get|delete`,
+`stack-profiles adopt`, `cluster mesh up`, `org ai-review related-repos`,
+`security policy-mode off`, `ankra upgrade` refreshing the installed agent
+skills, the `ankra-ship` skill, and `ankra migrate up` mounting a converted
+database below the volume root. A pre-release review of everything since
+v0.16.1 fixed six defects before this cut, among them `migrate up` naming a
+re-run's stack after the directory and a typo in a `backup:` block silently
+unprotecting a stack. The rc section below carries the full detail.
 
 ### Added
 
