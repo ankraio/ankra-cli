@@ -116,6 +116,11 @@ ankra pipeline run --application <application> --sha <full-sha> --wait
 `ankra pipeline list --application <application>`, `ankra pipeline get <run>` and
 `ankra pipeline logs <run>`.
 
+To answer "where does each branch stand" rather than "what were the last N runs",
+use `ankra pipeline branches --application <application>`: one row per ref with the
+newest run on it, the outcome before it, and how many of the ref's runs a newer
+commit superseded. Branches quiet for a fortnight are hidden until `--all`.
+
 ### Do not route around this with a hand-rolled workflow
 
 For a repository registered with `ankra application add`, adding your own

@@ -819,6 +819,7 @@ type APIClient interface {
 	DisableClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error)
 
 	ListPipelineRuns(ctx context.Context, selector client.PipelineSelector, options client.ListPipelineRunsOptions) (*client.PipelineRunList, error)
+	ListPipelineBranches(ctx context.Context, selector client.PipelineSelector, options client.ListPipelineBranchesOptions) (*client.PipelineBranchList, error)
 	CreatePipelineRun(ctx context.Context, selector client.PipelineSelector, request client.CreatePipelineRunRequest) (*client.CreatePipelineRunResult, error)
 	GetPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunDetail, error)
 	RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool) (*client.CreatePipelineRunResult, error)

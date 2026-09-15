@@ -2866,6 +2866,10 @@ func (m baseMock) ListPipelineRuns(ctx context.Context, selector client.Pipeline
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListPipelineBranches(ctx context.Context, selector client.PipelineSelector, options client.ListPipelineBranchesOptions) (*client.PipelineBranchList, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreatePipelineRun(ctx context.Context, selector client.PipelineSelector, request client.CreatePipelineRunRequest) (*client.CreatePipelineRunResult, error) {
 	return nil, errors.New("not implemented")
 }

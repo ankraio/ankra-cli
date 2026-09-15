@@ -61,6 +61,7 @@ stored definition directly by its own id and take neither flag - see
 	pipelineCommand.AddCommand(
 		newPipelineRunCommand(),
 		newPipelineListCommand(),
+		newPipelineBranchesCommand(),
 		newPipelineGetCommand(),
 		newPipelineCancelCommand(),
 		newPipelineRerunCommand(),
