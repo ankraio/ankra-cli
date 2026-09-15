@@ -298,6 +298,11 @@ func buildCloneDataSelection(cmd *cobra.Command) (*client.CloneDataSelection, er
 	includeClaims, _ := cmd.Flags().GetStringArray("include-pvc")
 	excludeDatabases, _ := cmd.Flags().GetBool("exclude-databases")
 	confirmExclusion, _ := cmd.Flags().GetBool("confirm-exclude-databases")
+	if !excludeDatabases && confirmExclusion {
+		return nil, withExitCode(exitUsage, fmt.Errorf(
+			"--confirm-exclude-databases acknowledges --exclude-databases and does nothing on its own: "+
+				"add --exclude-databases, or drop the acknowledgement"))
+	}
 	if len(includeClaims) == 0 && !excludeDatabases {
 		return nil, nil
 	}

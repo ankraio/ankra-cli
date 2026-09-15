@@ -747,3 +747,25 @@ func TestStacksCloneSaysNothingAboutSelectionWhenNoneWasGiven(t *testing.T) {
 		t.Errorf("an untouched selection must not be described, got:\n%s", output)
 	}
 }
+
+// An acknowledgement with nothing to acknowledge is refused, not dropped:
+// every other data flag on this command is validated or refused when it
+// would do nothing, and a confirmation that travelled silently would be the
+// one flag whose absence of effect nobody was told about.
+func TestStacksCloneRefusesALoneConfirmExcludeDatabases(t *testing.T) {
+	mock := newCloneLaneMock()
+
+	_, executeError := runCloneCommand(t, mock,
+		"cluster", "stacks", "clone", backupTestStack, "--cluster", "demo",
+		"--to", "staging", "--with-data", "--confirm-exclude-databases")
+
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("a lone --confirm-exclude-databases must be a usage error, got %v", executeError)
+	}
+	if !strings.Contains(executeError.Error(), "--exclude-databases") {
+		t.Errorf("the refusal must name the flag it acknowledges, got: %v", executeError)
+	}
+	if mock.cloned != nil {
+		t.Error("nothing may reach the platform when the invocation is refused")
+	}
+}
