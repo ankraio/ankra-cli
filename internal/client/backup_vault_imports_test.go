@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -80,6 +82,39 @@ func TestUploadPresignedObjectRetriesAServerFailureFromTheStart(t *testing.T) {
 	}
 	if len(bodies) != 2 || bodies[0] != "PGDMP" || bodies[1] != "PGDMP" {
 		t.Errorf("a 5xx must be retried with the whole body again, got %q", bodies)
+	}
+}
+
+func TestUploadPresignedObjectRetriesFromAFileTheTransportClosed(t *testing.T) {
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		content, _ := io.ReadAll(request.Body)
+		bodies = append(bodies, string(content))
+		if len(bodies) == 1 {
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	path := filepath.Join(t.TempDir(), "office.dump")
+	if writeError := os.WriteFile(path, []byte("PGDMP"), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	file, openError := os.Open(path)
+	if openError != nil {
+		t.Fatal(openError)
+	}
+	defer func() { _ = file.Close() }()
+
+	apiClient := &Client{BaseURL: server.URL, HTTP: server.Client()}
+	uploadError := apiClient.UploadPresignedObject(context.Background(), BackupVaultImportUpload{Method: http.MethodPut, URL: server.URL + "/x"}, file, 5)
+	if uploadError != nil {
+		t.Fatalf("the retry must not fail on the body the transport closed: %v", uploadError)
+	}
+	if len(bodies) != 2 || bodies[0] != "PGDMP" || bodies[1] != "PGDMP" {
+		t.Errorf("a 5xx must be retried with the whole file again, got %q", bodies)
 	}
 }
 
