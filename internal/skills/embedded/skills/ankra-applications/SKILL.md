@@ -285,6 +285,7 @@ already runs, so the generated manifests reuse them rather than duplicating them
 
 ## Related skills
 
+- `ankra-ship` — the end-to-end shipping path on Ankra Pipelines, and day 2.
 - `ankra-cicd` — the pipeline shape and the GitOps bump that drives deploys.
 - `ankra-app-integrations` — wiring the application to LiteLLM, Harbor, a database, an internal API.
 - `ankra-stack-profiles` — one definition, many clusters, per-cluster parameters.

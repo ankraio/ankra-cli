@@ -80,6 +80,7 @@ On an SCM PR itself, `@ankra`-mention a failing pull request from an Agent-mode 
 
 ## Related skills
 
+- `ankra-ship` — where the AI review, run watch and auto-fix sit in the shipping path.
 - `ankra-cli` — `ankra chat --mode ask|agent`, and MCP token scopes (`mcp:read` = Ask surface, `mcp:write` = Agent surface).
 - `ankra-cicd` — the GitOps deploy pattern the fix PRs plug into.
 - `ankra-stacks-addons` / `ankra-import-cluster` — the Applications and stacks the AI reasons about.

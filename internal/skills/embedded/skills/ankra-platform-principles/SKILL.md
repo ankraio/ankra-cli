@@ -20,6 +20,7 @@ defaults Ankra follows; deviate only with a stated reason.
 | Custom domain, DNS records, why TLS is missing | `ankra-domains-dns` |
 | Composing stacks, Helm addons, manifests, ordering | `ankra-stacks-addons` |
 | One stack across many clusters, parameterised | `ankra-stack-profiles` |
+| Shipping code: a new or vibe-coded project to a live URL, CI/CD, tests, builds, scans, release, day 2 | `ankra-ship` |
 | Deploying your own source code | `ankra-applications` |
 | Wiring an app to LiteLLM, Harbor, a database, an API | `ankra-app-integrations` |
 | Pipelines that build and roll out | `ankra-cicd` |
@@ -34,8 +35,8 @@ defaults Ankra follows; deviate only with a stated reason.
 | Ask/Agent mode per Slack/Teams/SCM binding | `ankra-ai-gateway` |
 | Managing Ankra itself as code | `ankra-terraform` |
 
-Several usually apply at once. Shipping a new service touches `ankra-applications`,
-`ankra-cicd` and `ankra-stack-profiles`; standing up a first cluster touches
+Several usually apply at once. Shipping a new service starts at `ankra-ship` and touches
+`ankra-applications`, `ankra-cicd` and `ankra-stack-profiles`; standing up a first cluster touches
 `ankra-getting-started`, `ankra-cloud-clusters` and `ankra-domains-dns`. The principles below apply
 to all of them.
 

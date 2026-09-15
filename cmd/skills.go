@@ -26,7 +26,7 @@ var skillsCmd = &cobra.Command{
 The skills teach an agent to follow Ankra's practices for the CLI, getting
 started, building and importing clusters (provider, region, instance family),
 domains/DNS/TLS, ImportCluster YAML, stacks and addons, applications and their
-CI/CD, stack profiles, GitOps, SOPS secrets, Helm registries, observability,
+CI/CD, shipping code end to end through Ankra Pipelines, stack profiles, GitOps, SOPS secrets, Helm registries, observability,
 troubleshooting, security, and the AI agent surface.
 
 Claude Code, the Claude app, Cursor, Codex, GitHub Copilot, Windsurf, Gemini CLI,

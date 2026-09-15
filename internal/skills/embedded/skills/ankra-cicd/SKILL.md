@@ -184,6 +184,7 @@ above.
 
 ## Related skills
 
+- `ankra-ship` for the whole path from a fresh repository to a live URL and day 2 on Ankra Pipelines.
 - `ankra-applications` for Ankra-generated builds, registries, env-secrets and deploys.
 - `ankra-gitops` for the repo layout CI writes into.
 - `ankra-cli` for post-deploy verification (`ankra cluster operations list`).
