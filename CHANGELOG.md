@@ -76,6 +76,24 @@ while the platform redesigns that move. Both fixes in v0.17.1 are included.
 
 ### Fixed
 
+- **`ankra upgrade` refreshes the agent skills the way they were installed,
+  and `--yes` no longer does it unasked.** The refresh v0.17.0 added ran a
+  plain `skills install --force` for every assistant, so an install made with
+  `--no-rules` or `--no-workflows` got the managed rule block and the slash
+  commands written into the assistant's instructions on the next upgrade,
+  and one made with `--with-hooks` had its guard hook left behind on the old
+  binary. `ankra skills install` now records the rule, workflow and hook
+  choices per assistant (in `~/.ankra/skills-install.json`, forgotten again
+  by a full uninstall) and the upgrade replays exactly those flags; an
+  install made by an earlier release, which recorded nothing, refreshes with
+  the defaults it always had. `--yes` also took the skills offer along with
+  the upgrade confirmation, so a scripted `ankra upgrade --yes` wrote into
+  `~/.claude`, `~/.cursor` and the rest when the script only meant "do not
+  ask". It now skips the confirmation and nothing else: the skills are
+  refreshed when `--skills` is passed or the prompt is answered yes, and a
+  `--yes` without it prints one stderr line saying the skills were not
+  refreshed and the `ankra skills install --force ...` that does it.
+  `--skills=false` still declines.
 - **Plain `ankra pipeline run` no longer forgets the checkout it just
   resolved.** With neither `--application` nor `--repository`, the command
   walks the organisation's applications listing to match the checkout's
