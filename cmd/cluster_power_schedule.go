@@ -31,7 +31,7 @@ func registerPowerScheduleSpecFlags(cmd *cobra.Command) {
 	cmd.Flags().String("cron", "", "Fire repeatedly per this 5-field cron expression, e.g. '0 19 * * 1-5' (mutually exclusive with --at)")
 	cmd.Flags().String("timezone", "", "IANA timezone the cron expression is evaluated in, e.g. Europe/Stockholm (default UTC)")
 	cmd.Flags().Bool("enabled", true, "Whether the schedule is armed; --enabled=false creates or leaves it paused")
-	cmd.Flags().String("stop-mode", "", "How a stop schedule stops the cluster: delete_resources (default; terminates the VMs) or scale_to_zero (removes only the workers, keeps the control plane)")
+	cmd.Flags().String("stop-mode", "", "How a stop schedule stops the cluster: delete_resources (default; terminates the VMs), scale_to_zero (removes only the workers, keeps the control plane) or pause (powers every server off and keeps it with its disks; k3s on Hetzner, UpCloud and DigitalOcean, and what a stop always does on AWS and Scaleway)")
 	cmd.Flags().String("preserve-state", "", "For delete_resources stop schedules: omit to capture the cluster's state (an encrypted etcd snapshot the next start restores) whenever the provider and distribution support it; 'false' to tear down without it; 'true' to state the default explicitly")
 	_ = cmd.MarkFlagRequired("action")
 }
@@ -52,8 +52,8 @@ func powerScheduleFlagsFromCommand(cmd *cobra.Command) (powerScheduleFlags, erro
 		return flags, withExitCode(exitUsage, fmt.Errorf("--action must be stop or start"))
 	}
 	flags.stopMode = strings.ToLower(strings.TrimSpace(flags.stopMode))
-	if flags.stopMode != "" && flags.stopMode != "delete_resources" && flags.stopMode != "scale_to_zero" {
-		return flags, withExitCode(exitUsage, fmt.Errorf("--stop-mode must be delete_resources or scale_to_zero"))
+	if flags.stopMode != "" && flags.stopMode != "delete_resources" && flags.stopMode != "scale_to_zero" && flags.stopMode != "pause" {
+		return flags, withExitCode(exitUsage, fmt.Errorf("--stop-mode must be delete_resources, scale_to_zero or pause"))
 	}
 	if flags.action != "stop" && (flags.stopMode != "" || flags.preserveState != nil) {
 		return flags, withExitCode(exitUsage, fmt.Errorf("--stop-mode and --preserve-state only apply to stop schedules"))
@@ -113,7 +113,7 @@ like stopping the cluster yourself: on Hetzner, OVHcloud, UpCloud and
 DigitalOcean the cluster's state is captured first (an encrypted etcd
 snapshot the next start restores) unless --preserve-state=false; elsewhere
 the provider VMs are terminated and only the configuration is preserved.
---stop-mode scale_to_zero removes only the workers instead.
+--stop-mode scale_to_zero removes only the workers instead; --stop-mode pause powers the servers off and keeps them.
 
 Examples:
   # Park a development cluster on weekday evenings, back before morning
