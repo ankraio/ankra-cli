@@ -416,3 +416,40 @@ func TestBackupVaultsContentsDisambiguatesCollidingRestorePointIDs(t *testing.T)
 		t.Errorf("the ids were not extended to distinguish them, got:\n%s", plain)
 	}
 }
+
+// --objects must actually render the keys and sizes. The first version of this
+// test only asserted the flag reached the request, which is why it did not
+// catch the server returning VaultObject untagged - every object would have
+// decoded as an empty key and 0 B, a listing of objects that all look empty.
+func TestBackupVaultsContentsRendersObjectKeysAndSizes(t *testing.T) {
+	contents := sealedVaultContents()
+	contents.Objects = []client.VaultObject{
+		{Key: "clusters/53878fde/backups/ankra-rp-d800471b/velero-backup.json", SizeBytes: 2107},
+		{Key: "clusters/53878fde/kopia/notes/p4e7a1b2c3", SizeBytes: 21737338},
+	}
+
+	mock := &backupVaultContentsMock{
+		vaults:   []client.BackupVault{{ID: contentsVaultID, Name: "backups-verify"}},
+		contents: contents,
+	}
+	setMockClient(t, mock)
+	resetContentsFlags(t)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("backup", "vaults", "contents", contentsVaultID, "--objects")
+	})
+	plain := stripANSICodes(stdoutOutput)
+
+	for _, expected := range []string{
+		"clusters/53878fde/backups/ankra-rp-d800471b/velero-backup.json",
+		"clusters/53878fde/kopia/notes/p4e7a1b2c3",
+		"22 MB",
+	} {
+		if !strings.Contains(plain, expected) {
+			t.Errorf("expected the object listing to contain %q, got:\n%s", expected, plain)
+		}
+	}
+	if strings.Contains(plain, "0 B  clusters/") {
+		t.Errorf("an object rendered as 0 B, so its size did not decode:\n%s", plain)
+	}
+}
