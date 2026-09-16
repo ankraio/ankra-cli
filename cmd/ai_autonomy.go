@@ -18,7 +18,7 @@ var aiAutonomyCmd = &cobra.Command{
 Engaging it stops all AI for everyone in the organisation: running sessions
 and agent runs are cancelled, and chat is refused until it is released. Reach
 for it during an incident, not to tighten a policy - a narrower stop lives in
-the auto-remediation policy.`,
+the auto-remediation policy, which 'ankra ai remediation policy' reads.`,
 }
 
 var aiAutonomyStatusCmd = &cobra.Command{

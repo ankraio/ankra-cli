@@ -55,6 +55,15 @@ package client
 //     twin, so `ankra cluster power-schedules` 404s. Tracked as
 //     ankra-htxvm.15; it comes off this list when the route exists on the
 //     cluster side, not before.
+//   - `/api/v1/org/ai-remediation/policy`, the same shape: airemediationapi
+//     mounts the auto-remediation policy read on the session surface only,
+//     so `ankra ai remediation policy` 404s until the bearer twin lands.
+//     Tracked as ankra-7vxh6, whose other half is that cluster-side route.
+//     Verified against production on 2026-09-16: the `/api/v1` path answers
+//     404 while `/org/ai-remediation/policy` answers a login redirect. The
+//     command reports that 404 as a missing route rather than as a missing
+//     policy, because the endpoint answers a default document for an
+//     organisation that has none.
 
 import (
 	"encoding/json"
