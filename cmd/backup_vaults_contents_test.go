@@ -159,7 +159,7 @@ func TestBackupVaultsContentsRendersASurvivingDeletedRestorePoint(t *testing.T) 
 		Kind:           "deleted_restore_point",
 		RestorePointID: "d800471b-c68d-4ac5-bf64-f4ff064a1605",
 		RowDeletedAt:   &deletedAt,
-		Reason: "The restore point was deleted from Ankra, but its objects are still in the vault.",
+		Reason:         "The restore point was deleted from Ankra, but its objects are still in the vault.",
 	}}
 
 	mock := &backupVaultContentsMock{
@@ -291,5 +291,128 @@ func TestBackupVaultsContentsResolvesAVaultName(t *testing.T) {
 
 	if mock.vaultIDReceived != contentsVaultID {
 		t.Errorf("vault id = %q, want the resolved id %q", mock.vaultIDReceived, contentsVaultID)
+	}
+}
+
+// A partial listing must qualify its own totals, and must do so from Complete
+// rather than from whatever happened to land in Warnings: a capped read whose
+// cause the server did not put into words would otherwise print as a full
+// inventory. (Ankra AI review on #345.)
+func TestBackupVaultsContentsMarksPartialTotalsWithoutRelyingOnWarnings(t *testing.T) {
+	contents := sealedVaultContents()
+	contents.Complete = false
+	contents.OrphansDetermined = false
+	contents.Warnings = nil
+
+	mock := &backupVaultContentsMock{
+		vaults:   []client.BackupVault{{ID: contentsVaultID, Name: "backups-verify"}},
+		contents: contents,
+	}
+	setMockClient(t, mock)
+	resetContentsFlags(t)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("backup", "vaults", "contents", contentsVaultID)
+	})
+	plain := stripANSICodes(stdoutOutput)
+
+	if !strings.Contains(plain, "PARTIAL") || !strings.Contains(plain, "FLOOR") {
+		t.Errorf("a partial listing presented its totals as definitive, got:\n%s", plain)
+	}
+}
+
+func TestBackupVaultsContentsDoesNotMarkACompleteListingPartial(t *testing.T) {
+	mock := &backupVaultContentsMock{
+		vaults:   []client.BackupVault{{ID: contentsVaultID, Name: "backups-verify"}},
+		contents: sealedVaultContents(),
+	}
+	setMockClient(t, mock)
+	resetContentsFlags(t)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("backup", "vaults", "contents", contentsVaultID)
+	})
+
+	if strings.Contains(stripANSICodes(stdoutOutput), "PARTIAL") {
+		t.Errorf("a complete listing was marked partial, got:\n%s", stdoutOutput)
+	}
+}
+
+// The printed id invites being passed back to --restore-point, so it has to
+// tell the listing's own rows apart. (Ankra AI review on #345.)
+func TestRestorePointIDWidthExtendsUntilUnique(t *testing.T) {
+	cases := []struct {
+		name          string
+		identifiers   []string
+		expectedWidth int
+	}{
+		{
+			name:          "distinct within eight characters",
+			identifiers:   []string{"d800471b-c68d-4ac5", "34ca8837-0000-4000"},
+			expectedWidth: 8,
+		},
+		{
+			// The two differ first at index 15, so 16 characters is the
+			// shortest prefix that tells them apart.
+			name:          "sharing a long prefix extends past eight",
+			identifiers:   []string{"d800471b-c68d-4ac5", "d800471b-c68d-4bbb"},
+			expectedWidth: 16,
+		},
+		{
+			name:          "one restore point needs no disambiguation",
+			identifiers:   []string{"d800471b-c68d-4ac5"},
+			expectedWidth: 8,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			restorePoints := make([]client.VaultRestorePointContents, 0, len(testCase.identifiers))
+			for _, identifier := range testCase.identifiers {
+				restorePoints = append(restorePoints, client.VaultRestorePointContents{RestorePointID: identifier})
+			}
+
+			width := restorePointIDWidth(restorePoints)
+
+			if width != testCase.expectedWidth {
+				t.Errorf("width = %d, want %d", width, testCase.expectedWidth)
+			}
+			seen := map[string]bool{}
+			for _, identifier := range testCase.identifiers {
+				short := shortRestorePointID(identifier, width)
+				if seen[short] {
+					t.Errorf("%q is not unique at width %d", short, width)
+				}
+				seen[short] = true
+			}
+		})
+	}
+}
+
+// Two restore points sharing their first eight characters must not render as
+// the same row label.
+func TestBackupVaultsContentsDisambiguatesCollidingRestorePointIDs(t *testing.T) {
+	contents := sealedVaultContents()
+	second := contents.RestorePoints[0]
+	second.RestorePointID = "d800471b-c68d-4ac5-bf64-ffffffffffff"
+	contents.RestorePoints = append(contents.RestorePoints, second)
+
+	mock := &backupVaultContentsMock{
+		vaults:   []client.BackupVault{{ID: contentsVaultID, Name: "backups-verify"}},
+		contents: contents,
+	}
+	setMockClient(t, mock)
+	resetContentsFlags(t)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("backup", "vaults", "contents", contentsVaultID)
+	})
+	plain := stripANSICodes(stdoutOutput)
+
+	if strings.Count(plain, "d800471b ") >= 2 {
+		t.Errorf("two restore points rendered under the same truncated id, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "d800471b-c68d-4ac5-bf64-f") && !strings.Contains(plain, "d800471b-c68d-4ac5-bf64-ffff") {
+		t.Errorf("the ids were not extended to distinguish them, got:\n%s", plain)
 	}
 }

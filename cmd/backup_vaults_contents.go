@@ -79,6 +79,15 @@ func printBackupVaultContents(contents *client.BackupVaultContents, orphansOnly 
 		fmt.Printf("  Prefix:   %s\n", contents.ScannedPrefix)
 	}
 	fmt.Printf("  Objects:  %d (%s)\n", contents.ObjectCount, humanize.Bytes(uint64(contents.TotalBytes)))
+	// The totals above are the headline number a reader takes away, so a
+	// partial listing has to qualify them right here rather than rely on a
+	// warning further down. Keying this off Complete instead of off Warnings
+	// is deliberate: a partial read whose cause the server did not put into
+	// words would otherwise print as a full inventory, which is the exact
+	// conflation this command exists to remove.
+	if !contents.Complete {
+		fmt.Println("  PARTIAL:  this listing stopped short - the counts above are a FLOOR, not a total.")
+	}
 
 	for _, warning := range contents.Warnings {
 		fmt.Printf("\n  ! %s\n", warning)
@@ -102,13 +111,14 @@ func printVaultRestorePoints(restorePoints []client.VaultRestorePointContents) {
 		fmt.Println("  (none recorded in this vault)")
 		return
 	}
+	idWidth := restorePointIDWidth(restorePoints)
 	writer := table.NewWriter()
 	writer.SetOutputMirror(os.Stdout)
 	writer.SetStyle(table.StyleRounded)
 	writer.AppendHeader(table.Row{"Restore Point", "Status", "Stacks", "Objects", "Size", "Located Under"})
 	for _, restorePoint := range restorePoints {
 		writer.AppendRow(table.Row{
-			shortRestorePointID(restorePoint.RestorePointID),
+			shortRestorePointID(restorePoint.RestorePointID, idWidth),
 			restorePoint.Status,
 			strings.Join(restorePoint.StackNames, ","),
 			restorePoint.ObjectCount,
@@ -122,7 +132,7 @@ func printVaultRestorePoints(restorePoints []client.VaultRestorePointContents) {
 		if len(restorePoint.Notes) == 0 {
 			continue
 		}
-		fmt.Printf("\n  %s:\n", shortRestorePointID(restorePoint.RestorePointID))
+		fmt.Printf("\n  %s:\n", shortRestorePointID(restorePoint.RestorePointID, idWidth))
 		for _, note := range restorePoint.Notes {
 			fmt.Printf("    - %s\n", note)
 		}
@@ -215,13 +225,47 @@ func printVaultObjects(objects []client.VaultObject) {
 	}
 }
 
-// shortRestorePointID keeps the table narrow while staying unambiguous enough
-// to pass back to --restore-point.
-func shortRestorePointID(restorePointID string) string {
-	if len(restorePointID) <= 8 {
+// restorePointIDWidth is the shortest prefix length that tells every restore
+// point in THIS listing apart, starting at 8.
+//
+// A fixed 8 characters is not safe to print beside an invitation to pass the
+// value back to --restore-point: two restore points sharing those characters
+// render identically, and the id the reader copies is then ambiguous. The
+// platform refuses an ambiguous prefix rather than resolving it to the newest
+// match, so the failure is loud rather than wrong - but a table that cannot
+// distinguish two of its own rows is no good to read either.
+func restorePointIDWidth(restorePoints []client.VaultRestorePointContents) int {
+	longest := 0
+	for _, restorePoint := range restorePoints {
+		if len(restorePoint.RestorePointID) > longest {
+			longest = len(restorePoint.RestorePointID)
+		}
+	}
+	for width := 8; width < longest; width++ {
+		seen := make(map[string]bool, len(restorePoints))
+		collided := false
+		for _, restorePoint := range restorePoints {
+			short := shortRestorePointID(restorePoint.RestorePointID, width)
+			if seen[short] {
+				collided = true
+				break
+			}
+			seen[short] = true
+		}
+		if !collided {
+			return width
+		}
+	}
+	return longest
+}
+
+// shortRestorePointID keeps the table narrow at the width the listing proved
+// unambiguous.
+func shortRestorePointID(restorePointID string, width int) string {
+	if len(restorePointID) <= width {
 		return restorePointID
 	}
-	return restorePointID[:8]
+	return restorePointID[:width]
 }
 
 func init() {
