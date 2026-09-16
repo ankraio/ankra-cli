@@ -69,7 +69,8 @@ func sampleClusterBackupsPage() *client.ClusterBackupsPage {
 				NextScheduledAt: backupsTimePointer("2026-09-16T03:00:00Z"),
 				LastRestorePoint: &client.StackRestorePointSummary{
 					ID: backupTestRestorePointID, Status: "complete",
-					SizeBytes: 5368709120, CreatedAt: "2026-09-14T09:00:00Z",
+					SizeBytes: 5368709120, SizeBytesKnown: true,
+					CreatedAt: "2026-09-14T09:00:00Z",
 				},
 				LatestRun: &client.StackRunSummary{
 					ID: backupTestRunID, Kind: "restore", Status: "running",
@@ -315,5 +316,19 @@ func TestClusterBackupsStatusPrintsTheNextPageCommand(t *testing.T) {
 	}
 	if !strings.Contains(stripANSICodes(output), "ankra cluster backups status --cursor c2hvcA") {
 		t.Errorf("expected the next page to be printed as a command, got:\n%s", output)
+	}
+}
+
+// TestClusterBackupsStatusSaysUnknownWhenNothingMeasuredTheRestorePoint: the
+// posture's LAST RESTORE POINT cell reads the same measured/unmeasured
+// distinction as every other size surface. A capture whose engine published
+// no byte count must not be reported as a backup holding nothing
+// (ankra-0xsdd.76).
+func TestClusterBackupsStatusSaysUnknownWhenNothingMeasuredTheRestorePoint(t *testing.T) {
+	if got := describeRestorePointSize(0, false); got != "unknown" {
+		t.Fatalf("an unmeasured restore point size is unknown, got %q", got)
+	}
+	if got := describeRestorePointSize(0, true); got != "0 B" {
+		t.Fatalf("a measured empty restore point still renders its measurement, got %q", got)
 	}
 }

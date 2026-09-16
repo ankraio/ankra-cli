@@ -53,11 +53,17 @@ const (
 )
 
 // StackRestorePointSummary is the newest restore point covering a stack.
+//
+// SizeBytesKnown is a separate fact from SizeBytes for the same reason
+// DataAssetCountKnown is separate from DataAssetCount: a capture whose engine
+// reported no byte count leaves SizeBytes zero, and zero bytes is not "this
+// backup holds nothing".
 type StackRestorePointSummary struct {
-	ID        string `json:"id" yaml:"id"`
-	Status    string `json:"status" yaml:"status"`
-	SizeBytes int64  `json:"size_bytes" yaml:"size_bytes"`
-	CreatedAt string `json:"created_at" yaml:"created_at"`
+	ID             string `json:"id" yaml:"id"`
+	Status         string `json:"status" yaml:"status"`
+	SizeBytes      int64  `json:"size_bytes" yaml:"size_bytes"`
+	SizeBytesKnown bool   `json:"size_bytes_known" yaml:"size_bytes_known"`
+	CreatedAt      string `json:"created_at" yaml:"created_at"`
 }
 
 // StackRunSummary is the newest data run of any kind that named the stack as

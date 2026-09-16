@@ -140,7 +140,7 @@ func printRestorePointTable(out io.Writer, restorePoints []client.RestorePoint, 
 	for _, restorePoint := range restorePoints {
 		row := table.Row{
 			restorePoint.ID, restorePoint.Status, restorePoint.Trigger,
-			formatByteSize(restorePoint.TotalBytes), restorePoint.AssetCount,
+			describeRestorePointSize(restorePoint.TotalBytes, restorePoint.TotalBytesKnown), restorePoint.AssetCount,
 			restorePointOmissions(restorePoint), formatTimeAgo(restorePoint.CreatedAt),
 		}
 		if withLocation {
@@ -148,7 +148,7 @@ func printRestorePointTable(out io.Writer, restorePoints []client.RestorePoint, 
 				restorePoint.ID, restorePointClusterName(restorePoint),
 				strings.Join(restorePoint.StackNames, ", "),
 				restorePoint.Status, restorePoint.Trigger,
-				formatByteSize(restorePoint.TotalBytes), restorePoint.AssetCount,
+				describeRestorePointSize(restorePoint.TotalBytes, restorePoint.TotalBytesKnown), restorePoint.AssetCount,
 				restorePointOmissions(restorePoint), formatTimeAgo(restorePoint.CreatedAt),
 			}
 		}
@@ -181,6 +181,32 @@ func restorePointOmissions(restorePoint client.RestorePoint) any {
 		return "unknown"
 	}
 	return len(restorePoint.NotCarried)
+}
+
+// describeRestorePointSize renders a byte count the capture may never have
+// taken. Printing "0 B" for an unmeasured size tells the person checking
+// whether their backup worked that it captured nothing - which is how a
+// restore point holding 46 MiB read as empty on every surface
+// (ankra-0xsdd.76). It mirrors restorePointOmissions exactly: the number
+// when there is one, the word "unknown" when there is not.
+func describeRestorePointSize(sizeBytes int64, isKnown bool) string {
+	if !isKnown {
+		return "unknown"
+	}
+	return formatByteSize(sizeBytes)
+}
+
+// describeRestorePointCoverage says what a restore would actually replace
+// when the engine's unit is bigger than the assets named. A velero backup is
+// scoped by namespace, so naming one claim seals - and restores - every
+// object in it.
+func describeRestorePointCoverage(coverage client.RestorePointCoverage) string {
+	line := fmt.Sprintf("  %s %s: restoring replaces everything in it, not only the %d asset(s) named here",
+		coverage.Unit, coverage.Name, coverage.Assets)
+	if coverage.ItemsCapturedKnown {
+		line += fmt.Sprintf(" (%d object(s) captured)", coverage.ItemsCaptured)
+	}
+	return line
 }
 
 // restorePointClusterName names the source cluster. A restore point outlives
@@ -230,7 +256,8 @@ func printRestorePointDetail(out io.Writer, restorePoint *client.RestorePoint) {
 	_, _ = fmt.Fprintf(out, "  Status:        %s\n", restorePoint.Status)
 	_, _ = fmt.Fprintf(out, "  Trigger:       %s\n", restorePoint.Trigger)
 	_, _ = fmt.Fprintf(out, "  Vault:         %s\n", restorePoint.BackupVaultID)
-	_, _ = fmt.Fprintf(out, "  Size:          %s\n", formatByteSize(restorePoint.TotalBytes))
+	_, _ = fmt.Fprintf(out, "  Size:          %s\n",
+		describeRestorePointSize(restorePoint.TotalBytes, restorePoint.TotalBytesKnown))
 	_, _ = fmt.Fprintf(out, "  Assets:        %d\n", restorePoint.AssetCount)
 	_, _ = fmt.Fprintf(out, "  Immutability:  %s\n", restorePoint.ImmutabilityMode)
 	_, _ = fmt.Fprintf(out, "  Verification:  %s\n", restorePoint.VerificationStatus)
@@ -256,8 +283,16 @@ func printRestorePointDetail(out io.Writer, restorePoint *client.RestorePoint) {
 		if len(manifest.Source.StorageClasses) > 0 {
 			_, _ = fmt.Fprintf(out, "  Storage classes: %s\n", strings.Join(manifest.Source.StorageClasses, ", "))
 		}
-		_, _ = fmt.Fprintf(out, "  Volumes:        %s\n", formatByteSize(manifest.Sizes.VolumesBytes))
-		_, _ = fmt.Fprintf(out, "  Databases:      %s\n", formatByteSize(manifest.Sizes.DatabasesBytes))
+		_, _ = fmt.Fprintf(out, "  Volumes:        %s\n",
+			describeRestorePointSize(manifest.Sizes.VolumesBytes, manifest.Sizes.Known))
+		_, _ = fmt.Fprintf(out, "  Databases:      %s\n",
+			describeRestorePointSize(manifest.Sizes.DatabasesBytes, manifest.Sizes.Known))
+		if len(manifest.Coverage) > 0 {
+			_, _ = fmt.Fprintln(out, "\nCoverage:")
+			for _, coverage := range manifest.Coverage {
+				_, _ = fmt.Fprintln(out, describeRestorePointCoverage(coverage))
+			}
+		}
 		printWarnings(out, manifest.Warnings)
 	}
 
@@ -270,7 +305,8 @@ func printRestorePointDetail(out io.Writer, restorePoint *client.RestorePoint) {
 		for _, asset := range restorePoint.Assets {
 			writer.AppendRow(table.Row{
 				asset.ID, asset.Kind, asset.Engine, asset.Consistency,
-				asset.Namespace, asset.Name, formatByteSize(asset.SizeBytes),
+				asset.Namespace, asset.Name,
+				describeRestorePointSize(asset.SizeBytes, asset.SizeBytesKnown),
 			})
 		}
 		writer.Render()
