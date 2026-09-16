@@ -1557,11 +1557,11 @@ func (m baseMock) DeprovisionHetznerCluster(clusterID string, force bool) (*clie
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopHetznerCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
+func (m baseMock) StopHetznerCluster(clusterID string, options client.StopClusterOptions) (*client.ProviderStopClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StartHetznerCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error) {
+func (m baseMock) StartHetznerCluster(clusterID string, options client.StartClusterOptions) (*client.ProviderStartClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1709,11 +1709,11 @@ func (m baseMock) DeprovisionOvhCluster(clusterID string, force bool) (*client.D
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopOvhCluster(clusterID string, force bool) (*client.StopOvhClusterResponse, error) {
+func (m baseMock) StopOvhCluster(clusterID string, options client.StopClusterOptions) (*client.StopOvhClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StartOvhCluster(clusterID, scope string) (*client.StartOvhClusterResult, error) {
+func (m baseMock) StartOvhCluster(clusterID string, options client.StartClusterOptions) (*client.StartOvhClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1941,11 +1941,11 @@ func (m baseMock) DeprovisionUpcloudCluster(clusterID string, force bool) (*clie
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopUpcloudCluster(clusterID string, force bool) (*client.StopUpcloudClusterResponse, error) {
+func (m baseMock) StopUpcloudCluster(clusterID string, options client.StopClusterOptions) (*client.StopUpcloudClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StartUpcloudCluster(clusterID, scope string) (*client.StartUpcloudClusterResult, error) {
+func (m baseMock) StartUpcloudCluster(clusterID string, options client.StartClusterOptions) (*client.StartUpcloudClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2045,11 +2045,11 @@ func (m baseMock) DeprovisionDigitaloceanCluster(clusterID string, force bool) (
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopDigitaloceanCluster(clusterID string, force bool) (*client.StopDigitaloceanClusterResponse, error) {
+func (m baseMock) StopDigitaloceanCluster(clusterID string, options client.StopClusterOptions) (*client.StopDigitaloceanClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StartDigitaloceanCluster(clusterID, scope string) (*client.StartDigitaloceanClusterResult, error) {
+func (m baseMock) StartDigitaloceanCluster(clusterID string, options client.StartClusterOptions) (*client.StartDigitaloceanClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2169,11 +2169,11 @@ func (m baseMock) CreateDigitaloceanSSHKeyCredential(req client.CreateSSHKeyCred
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopScalewayCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
+func (m baseMock) StopScalewayCluster(clusterID string, options client.StopClusterOptions) (*client.ProviderStopClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StartScalewayCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error) {
+func (m baseMock) StartScalewayCluster(clusterID string, options client.StartClusterOptions) (*client.ProviderStartClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2321,11 +2321,11 @@ func (m baseMock) DeprovisionAwsCluster(clusterID string, force bool) (*client.P
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopAwsCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
+func (m baseMock) StopAwsCluster(clusterID string, options client.StopClusterOptions) (*client.ProviderStopClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StartAwsCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error) {
+func (m baseMock) StartAwsCluster(clusterID string, options client.StartClusterOptions) (*client.ProviderStartClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2489,11 +2489,11 @@ func (m baseMock) DeprovisionProxmoxCluster(clusterID string, _ bool) (*client.P
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopProxmoxCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
+func (m baseMock) StopProxmoxCluster(clusterID string, options client.StopClusterOptions) (*client.ProviderStopClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StartProxmoxCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error) {
+func (m baseMock) StartProxmoxCluster(clusterID string, options client.StartClusterOptions) (*client.ProviderStartClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2633,11 +2633,11 @@ func (m baseMock) DeprovisionMorpheusCluster(clusterID string) (*client.Provider
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StopMorpheusCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
+func (m baseMock) StopMorpheusCluster(clusterID string, options client.StopClusterOptions) (*client.ProviderStopClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) StartMorpheusCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error) {
+func (m baseMock) StartMorpheusCluster(clusterID string, options client.StartClusterOptions) (*client.ProviderStartClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
 

@@ -210,7 +210,7 @@ func TestStopProxmoxCluster_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, ProviderStopClusterResponse{Success: true, ClusterID: "cluster-123"})
 	})
-	result, stopError := testClient.StopProxmoxCluster("cluster-123", false)
+	result, stopError := testClient.StopProxmoxCluster("cluster-123", StopClusterOptions{Force: false})
 	if stopError != nil {
 		t.Fatalf("StopProxmoxCluster: %v", stopError)
 	}
@@ -226,7 +226,7 @@ func TestStopProxmoxCluster_ForceOnTheWire(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, ProviderStopClusterResponse{Success: true, ClusterID: "cluster-123"})
 	})
-	if _, stopError := testClient.StopProxmoxCluster("cluster-123", true); stopError != nil {
+	if _, stopError := testClient.StopProxmoxCluster("cluster-123", StopClusterOptions{Force: true}); stopError != nil {
 		t.Fatalf("StopProxmoxCluster: %v", stopError)
 	}
 }
@@ -242,7 +242,7 @@ func TestStartProxmoxCluster_SendsScope(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, ProviderStartClusterResult{Scope: "control_plane", CreatedOperations: 1})
 	})
-	result, startError := testClient.StartProxmoxCluster("cluster-123", "control_plane")
+	result, startError := testClient.StartProxmoxCluster("cluster-123", StartClusterOptions{Scope: "control_plane"})
 	if startError != nil {
 		t.Fatalf("StartProxmoxCluster: %v", startError)
 	}

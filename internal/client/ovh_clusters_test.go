@@ -161,7 +161,7 @@ func TestStopOvhCluster_Success(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	result, err := testClient.StopOvhCluster("ovh-cluster-123", false)
+	result, err := testClient.StopOvhCluster("ovh-cluster-123", StopClusterOptions{Force: false})
 	if err != nil {
 		t.Fatalf("StopOvhCluster: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestStopOvhCluster_Error(t *testing.T) {
 		jsonResponse(t, w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
 	testClient := newTestClient(t, handler)
-	_, err := testClient.StopOvhCluster("ovh-cluster-123", false)
+	_, err := testClient.StopOvhCluster("ovh-cluster-123", StopClusterOptions{Force: false})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -196,7 +196,7 @@ func TestStartOvhCluster_Success(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	result, err := testClient.StartOvhCluster("ovh-cluster-123", "control_plane")
+	result, err := testClient.StartOvhCluster("ovh-cluster-123", StartClusterOptions{Scope: "control_plane"})
 	if err != nil {
 		t.Fatalf("StartOvhCluster: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestStartOvhCluster_Error(t *testing.T) {
 		jsonResponse(t, w, http.StatusConflict, map[string]string{"error": "operation in progress"})
 	}
 	testClient := newTestClient(t, handler)
-	_, err := testClient.StartOvhCluster("ovh-cluster-123", "all")
+	_, err := testClient.StartOvhCluster("ovh-cluster-123", StartClusterOptions{Scope: "all"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

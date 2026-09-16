@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 )
 
 // ProviderStopClusterResponse is the shared stop-cluster response shape for
@@ -21,6 +22,69 @@ type ProviderStopClusterResponse struct {
 	Success     bool    `json:"success"`
 	ClusterID   string  `json:"cluster_id"`
 	OperationID *string `json:"operation_id,omitempty"`
+	// StatePreserved reports a stop that first captures an encrypted etcd
+	// snapshot and tears the VMs down only once it is stored; the next
+	// start restores it (StateSnapshot names the capture to follow).
+	StatePreserved bool              `json:"state_preserved"`
+	StateSnapshot  *StateSnapshotRef `json:"state_snapshot,omitempty"`
+	// Message explains a stop that could not preserve state, or what a
+	// preserving stop does next.
+	Message string `json:"message,omitempty"`
+}
+
+// StateSnapshotRef points at the cluster state capture a stop armed.
+type StateSnapshotRef struct {
+	ID          string `json:"id"`
+	ExecutionID string `json:"execution_id"`
+	Status      string `json:"status"`
+}
+
+// StopClusterOptions parameterises a provider cluster stop.
+type StopClusterOptions struct {
+	// Force cancels every in-flight operation and tears down now; it never
+	// captures the cluster's state.
+	Force bool
+	// PreserveState: nil lets the backend capture the cluster's state
+	// (an encrypted etcd snapshot) whenever the provider and distribution
+	// support it, true requires the capture, false tears down without it.
+	PreserveState *bool
+}
+
+// StartClusterOptions parameterises a provider cluster start.
+type StartClusterOptions struct {
+	// Scope is "all" or "control_plane"; "" leaves the backend default.
+	Scope string
+	// RestoreState: nil restores the newest captured state snapshot when
+	// there is one, true requires one, false starts a fresh cluster.
+	RestoreState *bool
+}
+
+func (options StopClusterOptions) query() string {
+	values := url.Values{}
+	if options.Force {
+		values.Set("force", "true")
+	}
+	if options.PreserveState != nil {
+		values.Set("preserve_state", strconv.FormatBool(*options.PreserveState))
+	}
+	if len(values) == 0 {
+		return ""
+	}
+	return "?" + values.Encode()
+}
+
+func (options StartClusterOptions) query() string {
+	values := url.Values{}
+	if options.Scope != "" {
+		values.Set("scope", options.Scope)
+	}
+	if options.RestoreState != nil {
+		values.Set("restore_state", strconv.FormatBool(*options.RestoreState))
+	}
+	if len(values) == 0 {
+		return ""
+	}
+	return "?" + values.Encode()
 }
 
 // ProviderStartClusterResult is the shared start-cluster response shape for
@@ -29,6 +93,11 @@ type ProviderStartClusterResult struct {
 	MarkedToStartAt   string `json:"marked_to_start_at"`
 	Scope             string `json:"scope"`
 	CreatedOperations int    `json:"created_operations"`
+	// StateRestore is "requested" when the first control plane restores a
+	// captured state snapshot, "none" when there was none, "skipped" when
+	// the caller asked for a fresh cluster; "" from older backends.
+	StateRestore    string  `json:"state_restore,omitempty"`
+	StateSnapshotID *string `json:"state_snapshot_id,omitempty"`
 }
 
 // ProviderDeprovisionClusterResponse is the shared deprovision response shape
@@ -112,11 +181,8 @@ func (c *Client) deprovisionProviderCluster(kind, clusterID string, force bool) 
 	return &result, nil
 }
 
-func (c *Client) stopProviderCluster(kind, clusterID string, force bool) (*ProviderStopClusterResponse, error) {
-	endpoint := c.providerClusterURL(kind, clusterID, "stop")
-	if force {
-		endpoint += "?force=true"
-	}
+func (c *Client) stopProviderCluster(kind, clusterID string, options StopClusterOptions) (*ProviderStopClusterResponse, error) {
+	endpoint := c.providerClusterURL(kind, clusterID, "stop") + options.query()
 	httpRequest, requestError := http.NewRequest(http.MethodPost, endpoint, nil)
 	if requestError != nil {
 		return nil, fmt.Errorf("create request: %w", requestError)
@@ -144,11 +210,8 @@ func (c *Client) stopProviderCluster(kind, clusterID string, force bool) (*Provi
 	return &result, nil
 }
 
-func (c *Client) startProviderCluster(kind, clusterID, scope string) (*ProviderStartClusterResult, error) {
-	endpoint := c.providerClusterURL(kind, clusterID, "start")
-	if scope != "" {
-		endpoint += "?scope=" + url.QueryEscape(scope)
-	}
+func (c *Client) startProviderCluster(kind, clusterID string, options StartClusterOptions) (*ProviderStartClusterResult, error) {
+	endpoint := c.providerClusterURL(kind, clusterID, "start") + options.query()
 	httpRequest, requestError := http.NewRequest(http.MethodPost, endpoint, nil)
 	if requestError != nil {
 		return nil, fmt.Errorf("create request: %w", requestError)

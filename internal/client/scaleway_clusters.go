@@ -161,12 +161,12 @@ func (c *Client) DeprovisionScalewayCluster(clusterID string) (*ProviderDeprovis
 	return c.deprovisionProviderCluster(scalewayKind, clusterID, false)
 }
 
-func (c *Client) StopScalewayCluster(clusterID string, force bool) (*ProviderStopClusterResponse, error) {
-	return c.stopProviderCluster(scalewayKind, clusterID, force)
+func (c *Client) StopScalewayCluster(clusterID string, options StopClusterOptions) (*ProviderStopClusterResponse, error) {
+	return c.stopProviderCluster(scalewayKind, clusterID, options)
 }
 
-func (c *Client) StartScalewayCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {
-	return c.startProviderCluster(scalewayKind, clusterID, scope)
+func (c *Client) StartScalewayCluster(clusterID string, options StartClusterOptions) (*ProviderStartClusterResult, error) {
+	return c.startProviderCluster(scalewayKind, clusterID, options)
 }
 
 func (c *Client) GetScalewayWorkerCount(clusterID string) (*WorkerCountResult, error) {

@@ -29,7 +29,9 @@ var scalewayStopCmd = &cobra.Command{
 			return resolveError
 		}
 		force, _ := cmd.Flags().GetBool("force")
-		result, stopError := apiClient.StopScalewayCluster(clusterID, force)
+		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd)}
+
+		result, stopError := apiClient.StopScalewayCluster(clusterID, stopOptions)
 		if stopError != nil {
 			return fmt.Errorf("stopping Scaleway cluster: %w", stopError)
 		}
@@ -43,6 +45,7 @@ var scalewayStopCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
+		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message)
 		return nil
 	},
 }
@@ -65,7 +68,7 @@ var scalewayStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartScalewayCluster(clusterID, scope)
+		result, startError := apiClient.StartScalewayCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command)})
 		if startError != nil {
 			return fmt.Errorf("starting Scaleway cluster: %w", startError)
 		}
@@ -76,13 +79,16 @@ var scalewayStartCmd = &cobra.Command{
 			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
 		}
 		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
+		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
 }
 
 func init() {
 	scalewayStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
+	scalewayStartCmd.Flags().String("restore-state", "", restoreStateFlagUsage)
 	scalewayStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged volumes and load balancers even when retention_policy is retain (destroys persisted data)")
+	scalewayStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
 	registerScalewayCreateFlags(scalewayCreateCmd, scalewayPreflightCmd)
 	registerScalewayCatalogFlags(false, scalewayLocationsCmd)
 	registerScalewayCatalogFlags(true, scalewayInstanceTypesCmd, scalewayGatewayTypesCmd, scalewayNetworksCmd)

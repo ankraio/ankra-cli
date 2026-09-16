@@ -160,7 +160,7 @@ func TestStopMorpheusCluster_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, ProviderStopClusterResponse{Success: true, ClusterID: "cluster-123"})
 	})
-	result, stopError := testClient.StopMorpheusCluster("cluster-123", false)
+	result, stopError := testClient.StopMorpheusCluster("cluster-123", StopClusterOptions{Force: false})
 	if stopError != nil {
 		t.Fatalf("StopMorpheusCluster: %v", stopError)
 	}
@@ -176,7 +176,7 @@ func TestStopMorpheusCluster_ForceOnTheWire(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, ProviderStopClusterResponse{Success: true, ClusterID: "cluster-123"})
 	})
-	if _, stopError := testClient.StopMorpheusCluster("cluster-123", true); stopError != nil {
+	if _, stopError := testClient.StopMorpheusCluster("cluster-123", StopClusterOptions{Force: true}); stopError != nil {
 		t.Fatalf("StopMorpheusCluster: %v", stopError)
 	}
 }
@@ -192,7 +192,7 @@ func TestStartMorpheusCluster_SendsScope(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, ProviderStartClusterResult{Scope: "all", CreatedOperations: 3})
 	})
-	result, startError := testClient.StartMorpheusCluster("cluster-123", "all")
+	result, startError := testClient.StartMorpheusCluster("cluster-123", StartClusterOptions{Scope: "all"})
 	if startError != nil {
 		t.Fatalf("StartMorpheusCluster: %v", startError)
 	}

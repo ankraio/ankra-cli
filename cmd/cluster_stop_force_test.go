@@ -16,9 +16,9 @@ type proxmoxStopMock struct {
 	gotForce      bool
 }
 
-func (mock *proxmoxStopMock) StopProxmoxCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
+func (mock *proxmoxStopMock) StopProxmoxCluster(clusterID string, options client.StopClusterOptions) (*client.ProviderStopClusterResponse, error) {
 	mock.stopClusterID = clusterID
-	mock.gotForce = force
+	mock.gotForce = options.Force
 	return &client.ProviderStopClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
 
@@ -28,9 +28,9 @@ type morpheusStopMock struct {
 	gotForce      bool
 }
 
-func (mock *morpheusStopMock) StopMorpheusCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
+func (mock *morpheusStopMock) StopMorpheusCluster(clusterID string, options client.StopClusterOptions) (*client.ProviderStopClusterResponse, error) {
 	mock.stopClusterID = clusterID
-	mock.gotForce = force
+	mock.gotForce = options.Force
 	return &client.ProviderStopClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
 

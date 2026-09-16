@@ -316,12 +316,12 @@ func (c *Client) DeprovisionAwsCluster(clusterID string, force bool) (*ProviderD
 	return c.deprovisionProviderCluster(awsKind, clusterID, force)
 }
 
-func (c *Client) StopAwsCluster(clusterID string, force bool) (*ProviderStopClusterResponse, error) {
-	return c.stopProviderCluster(awsKind, clusterID, force)
+func (c *Client) StopAwsCluster(clusterID string, options StopClusterOptions) (*ProviderStopClusterResponse, error) {
+	return c.stopProviderCluster(awsKind, clusterID, options)
 }
 
-func (c *Client) StartAwsCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {
-	return c.startProviderCluster(awsKind, clusterID, scope)
+func (c *Client) StartAwsCluster(clusterID string, options StartClusterOptions) (*ProviderStartClusterResult, error) {
+	return c.startProviderCluster(awsKind, clusterID, options)
 }
 
 func (c *Client) GetAwsWorkerCount(clusterID string) (*WorkerCountResult, error) {
