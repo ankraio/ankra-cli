@@ -62,10 +62,16 @@ never set means every cluster is in scope, including Ankra's own.`,
 // at all. Letting it through would exit 3 ("the targeted resource does not
 // exist"), which scripts and readers would take as "this organisation has no
 // policy" - the opposite of what a 404 here proves.
+//
+// The status alone decides, deliberately. UnexpectedResponseError.Detail
+// exists to tell a backend-authored not-found from a bare router one, and it
+// is the right key on a route that has a resource to miss. This one does not:
+// whether a 404 arrives bare, from a proxy, or with a detail body, the policy
+// was still not answered by a route that would have answered a document. A
+// Detail check here would only add a way for the misreading to come back.
 func aiRemediationPolicyReadError(readError error) error {
 	var unexpected *client.UnexpectedResponseError
-	if errors.As(readError, &unexpected) && unexpected.StatusCode == http.StatusNotFound &&
-		unexpected.Detail == "" {
+	if errors.As(readError, &unexpected) && unexpected.StatusCode == http.StatusNotFound {
 		return withExitCode(exitError, errors.New(
 			"this platform does not serve the auto-remediation policy to API tokens: "+
 				"GET /api/v1/org/ai-remediation/policy is not registered. The policy is readable "+

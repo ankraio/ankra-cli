@@ -234,6 +234,20 @@ func TestAIRemediationPolicyReportsAMissingRouteAsSuch(t *testing.T) {
 	if got := exitCodeFor(runError); got != exitError {
 		t.Fatalf("exit code = %d, want %d (not the not-found code)", got, exitError)
 	}
+
+	// A 404 that carries a backend detail is the same fact: no route answered
+	// with a policy document. Keying the rewrite on anything but the status
+	// would let this one fall through to exit 3.
+	withDetail := &aiRemediationMock{readError: &client.UnexpectedResponseError{
+		StatusCode: 404, Detail: "Not Found."}}
+	_, runError = runAIRemediationCommand(t, withDetail, "ai", "remediation", "policy")
+	if runError == nil ||
+		!strings.Contains(runError.Error(), "does not serve the auto-remediation policy to API tokens") {
+		t.Fatalf("error = %v", runError)
+	}
+	if got := exitCodeFor(runError); got != exitError {
+		t.Fatalf("exit code = %d, want %d (not the not-found code)", got, exitError)
+	}
 }
 
 func TestAIRemediationPolicyRelaysOtherFailures(t *testing.T) {
