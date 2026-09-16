@@ -92,6 +92,7 @@ type APIClient interface {
 
 	ListBackupVaults() (*client.BackupVaultListResult, error)
 	GetBackupVault(vaultID string) (*client.BackupVault, error)
+	GetBackupVaultContents(vaultID string, request client.BackupVaultContentsRequest) (*client.BackupVaultContents, error)
 	CreateBackupVault(request client.CreateBackupVaultRequest) (*client.BackupVault, error)
 	ProvisionBackupVault(request client.ProvisionBackupVaultRequest) (*client.BackupVault, error)
 	VerifyBackupVault(vaultID string) (*client.BackupVault, error)

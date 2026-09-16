@@ -4,6 +4,30 @@
 
 ### Added
 
+- **`ankra backup vaults contents` reads what a vault actually holds, so a
+  delete can be checked rather than believed.** Every other backup command
+  reports Ankra's own rows; this one lists the bucket, which is the only way to
+  find out that deleting a restore point removed nothing. It did not: a live
+  verification on 2026-09-16 deleted a complete restore point, was told the
+  objects were being swept, and found all nine of them and 36 MB still there —
+  discoverable only by going around the product and listing the bucket by hand.
+  Per restore point the listing prints two prefixes, because they differ: the
+  **declared** one the restore point records and that a delete sweeps, and the
+  **located** one where the backup data plane actually wrote. Volume data lives
+  in a repository **shared** by every backup of a cluster and namespace, so its
+  bytes are reported separately and never counted into a single restore point —
+  no restore point owns them, and deleting that prefix would destroy other
+  restore points' data. `--orphans-only` shows just the objects no restore point
+  accounts for, including the leak shape: a restore point Ankra deleted whose
+  objects are still in the vault. Narrow a large vault with `--prefix`, scope to
+  one restore point with `--restore-point`, list individual keys with
+  `--objects`, and script it with `-o json`. Orphan detection is withheld —
+  loudly — whenever the read was partial, since "nothing accounts for this" is
+  only true if everything was read. A vault whose bucket cannot be read **fails**
+  instead of printing an empty listing: an unreadable vault and an empty vault
+  are different facts, and four verification passes in a row recorded the
+  difference as a pass.
+
 - **`ankra application backups`, `application protect` and `application backup`
   put backups where the data is.** An application deploys as one stack per
   cluster, so protecting it meant first finding out that `shop` runs as
