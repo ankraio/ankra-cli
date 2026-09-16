@@ -74,8 +74,8 @@ func aiRemediationPolicyReadError(readError error) error {
 	if errors.As(readError, &unexpected) && unexpected.StatusCode == http.StatusNotFound {
 		return withExitCode(exitError, errors.New(
 			"this platform does not serve the auto-remediation policy to API tokens: "+
-				"GET /api/v1/org/ai-remediation/policy is not registered. The policy is readable "+
-				"in the portal until the platform ships the token route"))
+				"GET /api/v1/org/ai-remediation/policy is not registered, so this platform predates "+
+				"the token route. The policy is readable in the portal"))
 	}
 	return readError
 }

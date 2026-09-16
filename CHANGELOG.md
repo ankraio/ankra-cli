@@ -21,8 +21,8 @@
   auto-remediation policy is configured" instead of presenting the defaults as
   somebody's decision, and `-o json|yaml` carries the same distinction as a
   `configured` field beside `cluster_scope` and `tools_without_approval`.
-  Platforms that serve the policy only to browser sessions answer the token
-  route with a 404; the command says exactly that rather than reporting the
+  Older platforms, which serve the policy only to browser sessions, answer the
+  token route with a 404; the command says exactly that rather than reporting the
   organisation as having no policy.
 
 - **`ankra backup vaults contents` reads what a vault actually holds, so a
