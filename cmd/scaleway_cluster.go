@@ -29,7 +29,11 @@ var scalewayStopCmd = &cobra.Command{
 			return resolveError
 		}
 		force, _ := cmd.Flags().GetBool("force")
-		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd)}
+		stopMode, modeError := stopModeFlag(cmd)
+		if modeError != nil {
+			return modeError
+		}
+		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd), Mode: stopMode}
 
 		result, stopError := apiClient.StopScalewayCluster(clusterID, stopOptions)
 		if stopError != nil {
@@ -45,7 +49,7 @@ var scalewayStopCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
-		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message)
+		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
 }
@@ -89,6 +93,7 @@ func init() {
 	scalewayStartCmd.Flags().String("restore-state", "", restoreStateFlagUsage)
 	scalewayStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged volumes and load balancers even when retention_policy is retain (destroys persisted data)")
 	scalewayStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
+	scalewayStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	registerScalewayCreateFlags(scalewayCreateCmd, scalewayPreflightCmd)
 	registerScalewayCatalogFlags(false, scalewayLocationsCmd)
 	registerScalewayCatalogFlags(true, scalewayInstanceTypesCmd, scalewayGatewayTypesCmd, scalewayNetworksCmd)

@@ -24,6 +24,24 @@ const preserveStateFlagUsage = "Cluster state across the stop: omit to let Ankra
 const restoreStateFlagUsage = "Cluster state on start: omit to restore the newest state snapshot captured at " +
 	"stop when there is one; 'true' to require one (refused otherwise); 'false' to start a fresh cluster."
 
+const stopModeFlagUsage = "How the stop leaves the VMs: 'delete_resources' (default) terminates them (capturing the " +
+	"cluster state first where supported); 'pause' powers the servers off and keeps them with their disks, so " +
+	"etcd, local data and node identities survive and start powers them back on - compute and storage keep " +
+	"billing while paused. Pause is available for k3s clusters on Hetzner, UpCloud and DigitalOcean (a stop on " +
+	"AWS and Scaleway always pauses), cannot be combined with --force, and takes no --preserve-state."
+
+// stopModeFlag reads --mode, normalised; anything but delete_resources or
+// pause is refused here so a typo never reaches the API as a teardown.
+func stopModeFlag(cmd *cobra.Command) (string, error) {
+	raw, _ := cmd.Flags().GetString("mode")
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	switch mode {
+	case "", "delete_resources", "pause":
+		return mode, nil
+	}
+	return "", fmt.Errorf("invalid --mode %q: must be delete_resources or pause", raw)
+}
+
 // preserveStateFlag reads --preserve-state as the three-state choice the API
 // takes: unset is nil (backend default), "true"/"false" the two answers.
 func preserveStateFlag(cmd *cobra.Command) *bool {
@@ -51,7 +69,10 @@ func threeStateFlag(cmd *cobra.Command, name string) *bool {
 
 // printStopStateOutcome tells the operator what happened to the cluster's
 // state, after the stop's cluster and operation lines.
-func printStopStateOutcome(statePreserved bool, snapshot *client.StateSnapshotRef, message string) {
+func printStopStateOutcome(statePreserved bool, snapshot *client.StateSnapshotRef, message string, stopMode string) {
+	if stopMode == "pause" {
+		fmt.Println(text.FgGreen.Sprint("  Stop mode: pause - the servers are powered off and kept with their disks; start powers them back on. Compute and storage keep billing while paused."))
+	}
 	if statePreserved {
 		fmt.Println(text.FgGreen.Sprint("  Cluster state: preserved - an encrypted etcd snapshot is captured first; the VMs are terminated once it is stored, and the next start restores it."))
 		if snapshot != nil {

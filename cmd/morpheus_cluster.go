@@ -106,7 +106,11 @@ var morpheusStopCmd = &cobra.Command{
 			return resolveError
 		}
 		force, _ := cmd.Flags().GetBool("force")
-		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd)}
+		stopMode, modeError := stopModeFlag(cmd)
+		if modeError != nil {
+			return modeError
+		}
+		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd), Mode: stopMode}
 
 		result, stopError := apiClient.StopMorpheusCluster(clusterID, stopOptions)
 		if stopError != nil {
@@ -122,7 +126,7 @@ var morpheusStopCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
-		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message)
+		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
 }
@@ -416,6 +420,7 @@ func init() {
 	morpheusCmd.AddCommand(morpheusNetworksCmd)
 	morpheusStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands (also stops a cluster that is still being created)")
 	morpheusStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
+	morpheusStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	morpheusCmd.AddCommand(morpheusStopCmd)
 	morpheusCmd.AddCommand(morpheusStartCmd)
 	morpheusCmd.AddCommand(morpheusWorkersCmd)

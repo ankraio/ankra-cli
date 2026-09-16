@@ -53,6 +53,7 @@ type StopUpcloudClusterResponse struct {
 	StatePreserved bool              `json:"state_preserved"`
 	StateSnapshot  *StateSnapshotRef `json:"state_snapshot,omitempty"`
 	Message        string            `json:"message,omitempty"`
+	StopMode       string            `json:"stop_mode,omitempty"`
 }
 
 type StartUpcloudClusterResult struct {

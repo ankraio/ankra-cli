@@ -162,7 +162,11 @@ var upcloudStopCmd = &cobra.Command{
 			return resolveError
 		}
 		force, _ := cmd.Flags().GetBool("force")
-		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd)}
+		stopMode, modeError := stopModeFlag(cmd)
+		if modeError != nil {
+			return modeError
+		}
+		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd), Mode: stopMode}
 
 		result, err := apiClient.StopUpcloudCluster(clusterID, stopOptions)
 		if err != nil {
@@ -178,7 +182,7 @@ var upcloudStopCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
-		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message)
+		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
 }
@@ -655,6 +659,7 @@ func init() {
 	upcloudDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's CSI storage volumes and load balancers, and tolerate unreachable infrastructure")
 	upcloudStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's CSI storage volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
 	upcloudStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
+	upcloudStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	upcloudNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	upcloudNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
