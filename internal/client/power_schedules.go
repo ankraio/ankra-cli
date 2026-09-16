@@ -15,6 +15,8 @@ import (
 type PowerSchedule struct {
 	ID             string  `json:"id"`
 	Action         string  `json:"action"`
+	StopMode       string  `json:"stop_mode"`
+	PreserveState  bool    `json:"preserve_state"`
 	ScheduleKind   string  `json:"schedule_kind"`
 	RunAt          *string `json:"run_at"`
 	CronExpression *string `json:"cron_expression"`
@@ -40,7 +42,14 @@ type PowerScheduleListResult struct {
 // "cron") applies. Updates are full replaces on the backend: Enabled must
 // always be sent, and Timezone must be restated for "cron" schedules.
 type PowerScheduleRequest struct {
-	Action         string  `json:"action"`
+	Action string `json:"action"`
+	// StopMode is how a stop schedule stops the cluster: "delete_resources"
+	// (the default) or "scale_to_zero"; omitted for start schedules.
+	StopMode string `json:"stop_mode,omitempty"`
+	// PreserveState makes a delete_resources stop capture the cluster's
+	// state (an encrypted etcd snapshot the next start restores) on the
+	// providers that support it. nil leaves the backend default (true).
+	PreserveState  *bool   `json:"preserve_state,omitempty"`
 	ScheduleKind   string  `json:"schedule_kind"`
 	RunAt          *string `json:"run_at,omitempty"`
 	CronExpression *string `json:"cron_expression,omitempty"`

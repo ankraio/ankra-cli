@@ -212,3 +212,47 @@ func TestClusterPowerSchedulesDelete_YesSkipsPrompt(t *testing.T) {
 		t.Fatalf("expected one delete call for sched-1, got %+v", mock.deletes)
 	}
 }
+
+// --stop-mode and --preserve-state ride the stop schedule request: the mode
+// as given, preserve-state three-state (absent leaves the backend default),
+// and both refused on a start schedule.
+func TestClusterPowerSchedulesCreate_SendsStopModeAndPreserveState(t *testing.T) {
+	mock := &powerScheduleMock{}
+	setMockClient(t, mock)
+	t.Cleanup(func() {
+		_ = clusterPowerSchedulesCreateCmd.Flags().Set("stop-mode", "")
+		_ = clusterPowerSchedulesCreateCmd.Flags().Set("preserve-state", "")
+	})
+
+	if err := executePowerScheduleCommand(t, "", "cluster", "power-schedules", "create",
+		"--cluster", "my-cluster", "--action", "stop", "--cron", "0 19 * * 1-5",
+		"--stop-mode", "delete_resources", "--preserve-state=false"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if len(mock.creates) != 1 {
+		t.Fatalf("expected one create call, got %d", len(mock.creates))
+	}
+	request := mock.creates[0].Request
+	if request.StopMode != "delete_resources" || request.PreserveState == nil || *request.PreserveState {
+		t.Fatalf("unexpected request: %+v", request)
+	}
+
+	_ = clusterPowerSchedulesCreateCmd.Flags().Set("stop-mode", "")
+	_ = clusterPowerSchedulesCreateCmd.Flags().Set("preserve-state", "")
+	if err := executePowerScheduleCommand(t, "", "cluster", "power-schedules", "create",
+		"--cluster", "my-cluster", "--action", "stop", "--cron", "0 19 * * 1-5"); err != nil {
+		t.Fatalf("create without state flags: %v", err)
+	}
+	request = mock.creates[1].Request
+	if request.StopMode != "" || request.PreserveState != nil {
+		t.Fatalf("absent flags must leave the backend defaults: %+v", request)
+	}
+
+	_ = clusterPowerSchedulesCreateCmd.Flags().Set("stop-mode", "")
+	_ = clusterPowerSchedulesCreateCmd.Flags().Set("preserve-state", "")
+	err := executePowerScheduleCommand(t, "", "cluster", "power-schedules", "create",
+		"--cluster", "my-cluster", "--action", "start", "--cron", "0 7 * * 1-5", "--preserve-state=true")
+	if err == nil || !strings.Contains(err.Error(), "only apply to stop schedules") {
+		t.Fatalf("a start schedule must refuse the state flags, got %v", err)
+	}
+}
