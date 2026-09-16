@@ -15,11 +15,13 @@ import (
 // expression, evaluated in timezone) must be set; the backend validates the
 // values themselves (future run_at, parseable cron, IANA timezone).
 type powerScheduleFlags struct {
-	action   string
-	at       string
-	cron     string
-	timezone string
-	enabled  bool
+	action        string
+	at            string
+	cron          string
+	timezone      string
+	enabled       bool
+	stopMode      string
+	preserveState *bool
 }
 
 // registerPowerScheduleSpecFlags declares the shared create/update flag set.
@@ -29,6 +31,8 @@ func registerPowerScheduleSpecFlags(cmd *cobra.Command) {
 	cmd.Flags().String("cron", "", "Fire repeatedly per this 5-field cron expression, e.g. '0 19 * * 1-5' (mutually exclusive with --at)")
 	cmd.Flags().String("timezone", "", "IANA timezone the cron expression is evaluated in, e.g. Europe/Stockholm (default UTC)")
 	cmd.Flags().Bool("enabled", true, "Whether the schedule is armed; --enabled=false creates or leaves it paused")
+	cmd.Flags().String("stop-mode", "", "How a stop schedule stops the cluster: delete_resources (default; terminates the VMs) or scale_to_zero (removes only the workers, keeps the control plane)")
+	cmd.Flags().String("preserve-state", "", "For delete_resources stop schedules: omit to capture the cluster's state (an encrypted etcd snapshot the next start restores) whenever the provider and distribution support it; 'false' to tear down without it; 'true' to state the default explicitly")
 	_ = cmd.MarkFlagRequired("action")
 }
 
@@ -40,10 +44,19 @@ func powerScheduleFlagsFromCommand(cmd *cobra.Command) (powerScheduleFlags, erro
 	flags.cron, _ = cmd.Flags().GetString("cron")
 	flags.timezone, _ = cmd.Flags().GetString("timezone")
 	flags.enabled, _ = cmd.Flags().GetBool("enabled")
+	flags.stopMode, _ = cmd.Flags().GetString("stop-mode")
+	flags.preserveState = threeStateFlag(cmd, "preserve-state")
 
 	flags.action = strings.ToLower(strings.TrimSpace(flags.action))
 	if flags.action != "stop" && flags.action != "start" {
 		return flags, withExitCode(exitUsage, fmt.Errorf("--action must be stop or start"))
+	}
+	flags.stopMode = strings.ToLower(strings.TrimSpace(flags.stopMode))
+	if flags.stopMode != "" && flags.stopMode != "delete_resources" && flags.stopMode != "scale_to_zero" {
+		return flags, withExitCode(exitUsage, fmt.Errorf("--stop-mode must be delete_resources or scale_to_zero"))
+	}
+	if flags.action != "stop" && (flags.stopMode != "" || flags.preserveState != nil) {
+		return flags, withExitCode(exitUsage, fmt.Errorf("--stop-mode and --preserve-state only apply to stop schedules"))
 	}
 	flags.at = strings.TrimSpace(flags.at)
 	flags.cron = strings.TrimSpace(flags.cron)
@@ -63,8 +76,10 @@ func powerScheduleFlagsFromCommand(cmd *cobra.Command) (powerScheduleFlags, erro
 // matching the create-time default).
 func (flags powerScheduleFlags) request() client.PowerScheduleRequest {
 	request := client.PowerScheduleRequest{
-		Action:  flags.action,
-		Enabled: flags.enabled,
+		Action:        flags.action,
+		Enabled:       flags.enabled,
+		StopMode:      flags.stopMode,
+		PreserveState: flags.preserveState,
 	}
 	if flags.at != "" {
 		request.ScheduleKind = "once"
@@ -94,9 +109,11 @@ development cluster can park itself outside working hours.
 Power schedules are available for self-managed Hetzner, OVHcloud, UpCloud,
 DigitalOcean, Scaleway, AWS (EC2), Proxmox VE, and HPE Morpheus clusters - the same
 clusters that support manual stop and start. A scheduled stop behaves
-exactly like stopping the cluster yourself: the provider VMs are
-terminated and only the cluster's configuration is preserved for the next
-start.
+like stopping the cluster yourself: on Hetzner, OVHcloud, UpCloud and
+DigitalOcean the cluster's state is captured first (an encrypted etcd
+snapshot the next start restores) unless --preserve-state=false; elsewhere
+the provider VMs are terminated and only the configuration is preserved.
+--stop-mode scale_to_zero removes only the workers instead.
 
 Examples:
   # Park a development cluster on weekday evenings, back before morning
