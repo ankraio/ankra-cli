@@ -4491,6 +4491,10 @@ func (m baseMock) SetAIAutonomyPause(paused bool, reason string) (*client.AIAuto
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetAIRemediationPolicy() (*client.AIRemediationPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (baseMock) ListAzureCredentials() ([]client.AzureCredentialListItem, error) {
 	return nil, nil
 }

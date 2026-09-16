@@ -384,6 +384,7 @@ type APIClient interface {
 	SetAIPause(paused bool, reason string) (*client.AIPauseOutcome, error)
 	GetAIAutonomyState() (*client.AIAutonomyState, error)
 	SetAIAutonomyPause(paused bool, reason string) (*client.AIAutonomyOutcome, error)
+	GetAIRemediationPolicy() (*client.AIRemediationPolicy, error)
 
 	ListTickets(filter client.TicketListFilter) (*client.TicketListResponse, error)
 	GetTicket(ticketID string) (*client.Ticket, error)

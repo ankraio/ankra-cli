@@ -4,6 +4,27 @@
 
 ### Added
 
+- **`ankra ai remediation policy` reads the document that decides what the AI
+  may change on its own.** The auto-remediation policy is the only surface
+  carrying `autonomy_level`, the per-tool `tier_overrides` and the
+  `cluster_allow_list`, and it had no command at all: a P0 safety question
+  about whether stack applies execute with no approval card had to be answered
+  with a bearer token and a hand-written curl. The command is read-only by
+  design; changing the policy stays an organisation-admin action in the portal.
+  Two readings a safety review needs are spelled out rather than left to be
+  inferred. A per-tool override of `auto` is labelled "executes with NO
+  approval card", and a cluster allow list that was never set is reported as
+  "every cluster", which is a different answer from a list that is present and
+  empty ("no cluster"): the platform's dispatcher reads those two differently
+  and so does this. An organisation that never saved a policy is answered by
+  the platform with its own defaults and an HTTP 200, so the command says "No
+  auto-remediation policy is configured" instead of presenting the defaults as
+  somebody's decision, and `-o json|yaml` carries the same distinction as a
+  `configured` field beside `cluster_scope` and `tools_without_approval`.
+  Older platforms, which serve the policy only to browser sessions, answer the
+  token route with a 404; the command says exactly that rather than reporting the
+  organisation as having no policy.
+
 - **`ankra backup vaults contents` reads what a vault actually holds, so a
   delete can be checked rather than believed.** Every other backup command
   reports Ankra's own rows; this one lists the bucket, which is the only way to
