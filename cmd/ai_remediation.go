@@ -245,7 +245,7 @@ func aiRemediationApproversPhrase(approverUserIDs []string) string {
 
 func aiRemediationWebhookPhrase(slackWebhookID *string) string {
 	if slackWebhookID == nil || *slackWebhookID == "" {
-		return "none (approval cards have nowhere to go)"
+		return "none (no Slack destination for the approve and deny messages)"
 	}
 	return *slackWebhookID
 }
