@@ -233,7 +233,8 @@ func sampleRestorePoint() client.RestorePoint {
 		StackNames: []string{backupTestStack},
 		Trigger:    client.RestorePointTriggerManual, Status: client.RestorePointStatusComplete,
 		ObjectPrefix: "restore-points/" + backupTestRestorePointID,
-		TotalBytes:   5368709120, ImmutabilityMode: "none", VerificationStatus: "unverified",
+		TotalBytes:   5368709120, TotalBytesKnown: true,
+		ImmutabilityMode: "none", VerificationStatus: "unverified",
 		CreatedAt: "2026-09-15T10:04:11Z", UpdatedAt: completedAt, CompletedAt: &completedAt,
 		AssetCount: 1,
 		NotCarried: []client.RestorePointNotCarried{{
@@ -487,7 +488,8 @@ func TestRestorePointsGetPrintsManifestAssetsAndOmissions(t *testing.T) {
 	restorePoint := sampleRestorePoint()
 	restorePoint.Assets = []client.RestorePointAsset{{
 		ID: "volume-shop-data", Kind: "volume", Engine: "velero", Consistency: "crash",
-		Namespace: "shop", Name: "data", SizeBytes: 5368709120, Path: "volumes/shop/data",
+		Namespace: "shop", Name: "data", SizeBytes: 5368709120, SizeBytesKnown: true,
+		Path: "volumes/shop/data",
 	}}
 	restorePoint.Manifest = &client.RestorePointManifest{
 		SchemaVersion: 2,
@@ -495,7 +497,13 @@ func TestRestorePointsGetPrintsManifestAssetsAndOmissions(t *testing.T) {
 			Kind: "cluster", ClusterName: "ankra-prod-hel1",
 			KubernetesVersion: "1.33.4", Topology: "k3s", StorageClasses: []string{"standard"},
 		},
-		Sizes:    client.RestorePointSizes{TotalBytes: 5368709120, VolumesBytes: 5368709120},
+		Sizes: client.RestorePointSizes{
+			Known: true, TotalBytes: 5368709120, VolumesBytes: 5368709120,
+		},
+		Coverage: []client.RestorePointCoverage{{
+			Engine: "velero", Unit: "namespace", Name: "shop",
+			Assets: 1, ItemsCaptured: 92, ItemsCapturedKnown: true,
+		}},
 		Warnings: []string{"This cluster's storage capabilities were never probed."},
 	}
 	restorePoint.Run = &client.RestorePointRun{
@@ -516,6 +524,7 @@ func TestRestorePointsGetPrintsManifestAssetsAndOmissions(t *testing.T) {
 	stripped := stripANSICodes(output)
 	for _, expected := range []string{
 		backupTestRestorePointID, "1.33.4", "volume-shop-data", "velero",
+		"Coverage:", "namespace shop", "92 object(s) captured",
 		"Not carried:", "shop/cache", "Remedy:", "Warnings:",
 		"ankra runs get " + backupTestRunID,
 	} {
@@ -1135,5 +1144,76 @@ func TestRestorePointsRestoreChecksTheOutputFormatBeforeDispatching(t *testing.T
 	}
 	if mock.restored != nil {
 		t.Fatalf("nothing may reach the platform when the flags are wrong, got %+v", mock.restored)
+	}
+}
+
+// TestRestorePointsRenderAnUnmeasuredSizeAsUnknownEverywhere is the defect
+// the fourth live verification pass found: a restore point holding 46 MiB
+// rendered "0 B" on every surface because nothing measured it and nothing
+// said so. The listing's SIZE column, the detail's Size, Volumes and
+// Databases lines and each asset's Size must all read "unknown", and none of
+// them may read "0 B" (ankra-0xsdd.76).
+func TestRestorePointsRenderAnUnmeasuredSizeAsUnknownEverywhere(t *testing.T) {
+	unmeasured := sampleRestorePoint()
+	unmeasured.TotalBytes = 0
+	unmeasured.TotalBytesKnown = false
+	unmeasured.Assets = []client.RestorePointAsset{{
+		ID: "volume-notes-db", Kind: "volume", Engine: "velero", Consistency: "crash",
+		Namespace: "notes", Name: "db", SizeBytes: 0, SizeBytesKnown: false,
+		Path: "volumes/notes/db",
+	}}
+	unmeasured.Manifest = &client.RestorePointManifest{
+		SchemaVersion: 2,
+		Sizes:         client.RestorePointSizes{Known: false},
+		Warnings:      []string{"The capture reported no per-asset detail."},
+	}
+
+	listMock := newBackupLaneMock()
+	listMock.listing = &client.RestorePointListResult{RestorePoints: []client.RestorePoint{unmeasured}}
+	listing, listError := runBackupCommand(t, listMock, "",
+		[]*cobra.Command{clusterStacksRestorePointsListCmd},
+		"cluster", "stacks", "restore-points", "list", backupTestStack, "--cluster", "demo")
+	if listError != nil {
+		t.Fatalf("listing restore points: %v", listError)
+	}
+	if strings.Contains(stripANSICodes(listing), "0 B") {
+		t.Errorf("a listing never renders an unmeasured size as 0 B, got:\n%s", stripANSICodes(listing))
+	}
+	if !strings.Contains(stripANSICodes(listing), "unknown") {
+		t.Errorf("a listing says the size is unknown, got:\n%s", stripANSICodes(listing))
+	}
+
+	detailMock := newBackupLaneMock()
+	detailMock.restorePoint = &unmeasured
+	detail, detailError := runBackupCommand(t, detailMock, "",
+		[]*cobra.Command{clusterStacksRestorePointsGetCmd},
+		"cluster", "stacks", "restore-points", "get", backupTestStack, backupTestRestorePointID,
+		"--cluster", "demo")
+	if detailError != nil {
+		t.Fatalf("getting a restore point: %v", detailError)
+	}
+	stripped := stripANSICodes(detail)
+	if strings.Contains(stripped, "0 B") {
+		t.Errorf("the detail never renders an unmeasured size as 0 B, got:\n%s", stripped)
+	}
+	for _, expected := range []string{"Size:          unknown", "Volumes:        unknown", "Databases:      unknown"} {
+		if !strings.Contains(stripped, expected) {
+			t.Errorf("expected %q, got:\n%s", expected, stripped)
+		}
+	}
+}
+
+// TestDescribeRestorePointSizeKeepsAMeasuredZeroApartFromAnUnmeasuredOne: an
+// asset someone measured and found empty still renders a number, because
+// that is a fact somebody established.
+func TestDescribeRestorePointSizeKeepsAMeasuredZeroApartFromAnUnmeasuredOne(t *testing.T) {
+	if got := describeRestorePointSize(0, true); got != "0 B" {
+		t.Errorf("a measured empty asset renders its measurement, got %q", got)
+	}
+	if got := describeRestorePointSize(0, false); got != "unknown" {
+		t.Errorf("an unmeasured asset renders unknown, got %q", got)
+	}
+	if got := describeRestorePointSize(5368709120, true); got != "5.0 GiB" {
+		t.Errorf("a measured size renders as bytes, got %q", got)
 	}
 }

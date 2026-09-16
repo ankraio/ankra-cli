@@ -77,6 +77,7 @@ type RestorePointAsset struct {
 	Name            string  `json:"name" yaml:"name"`
 	DatabaseEngine  string  `json:"database_engine,omitempty" yaml:"database_engine,omitempty"`
 	SizeBytes       int64   `json:"size_bytes" yaml:"size_bytes"`
+	SizeBytesKnown  bool    `json:"size_bytes_known" yaml:"size_bytes_known"`
 	Path            string  `json:"path,omitempty" yaml:"path,omitempty"`
 	PointInTimeFrom *string `json:"pitr_from,omitempty" yaml:"pitr_from,omitempty"`
 	PointInTimeTo   *string `json:"pitr_to,omitempty" yaml:"pitr_to,omitempty"`
@@ -101,11 +102,32 @@ type RestorePointSource struct {
 	StorageClasses    []string `json:"storage_classes" yaml:"storage_classes"`
 }
 
-// RestorePointSizes is what the capture measured.
+// RestorePointSizes is what the capture measured. Known is false when it
+// measured nothing, or only some of the assets: the three figures are then
+// not established rather than zero, exactly as StackBackupsRow keeps
+// DataAssetCountKnown beside its count.
+//
+// It defaults to false rather than true, which is the opposite of vaults_known
+// and deliberate. An older server that does not send the field has never
+// measured a restore point either, so "unknown" is the correct reading of its
+// silence - and rendering unknown is never the answer that misleads.
 type RestorePointSizes struct {
+	Known          bool  `json:"known" yaml:"known"`
 	TotalBytes     int64 `json:"total_bytes" yaml:"total_bytes"`
 	VolumesBytes   int64 `json:"volumes_bytes" yaml:"volumes_bytes"`
 	DatabasesBytes int64 `json:"databases_bytes" yaml:"databases_bytes"`
+}
+
+// RestorePointCoverage is what a restore actually replaces where the engine
+// copies more than the assets named. Velero's unit is the namespace, so a
+// restore point naming one claim puts a whole namespace back.
+type RestorePointCoverage struct {
+	Engine             string `json:"engine" yaml:"engine"`
+	Unit               string `json:"unit" yaml:"unit"`
+	Name               string `json:"name" yaml:"name"`
+	Assets             int    `json:"assets" yaml:"assets"`
+	ItemsCaptured      int    `json:"items_captured" yaml:"items_captured"`
+	ItemsCapturedKnown bool   `json:"items_captured_known" yaml:"items_captured_known"`
 }
 
 // RestorePointManifest is manifest.json verbatim: the self-describing index
@@ -121,6 +143,7 @@ type RestorePointManifest struct {
 	Scope          RestorePointScope        `json:"scope" yaml:"scope"`
 	Source         RestorePointSource       `json:"source" yaml:"source"`
 	Assets         []RestorePointAsset      `json:"assets" yaml:"assets"`
+	Coverage       []RestorePointCoverage   `json:"coverage" yaml:"coverage"`
 	NotCarried     []RestorePointNotCarried `json:"not_carried" yaml:"not_carried"`
 	Sizes          RestorePointSizes        `json:"sizes" yaml:"sizes"`
 	Warnings       []string                 `json:"warnings" yaml:"warnings"`
@@ -154,6 +177,7 @@ type RestorePoint struct {
 	Status             string                   `json:"status" yaml:"status"`
 	ObjectPrefix       string                   `json:"object_prefix" yaml:"object_prefix"`
 	TotalBytes         int64                    `json:"total_bytes" yaml:"total_bytes"`
+	TotalBytesKnown    bool                     `json:"total_bytes_known" yaml:"total_bytes_known"`
 	ImmutabilityMode   string                   `json:"immutability_mode" yaml:"immutability_mode"`
 	RetainUntil        *string                  `json:"retain_until" yaml:"retain_until"`
 	HoldReason         *string                  `json:"hold_reason" yaml:"hold_reason"`

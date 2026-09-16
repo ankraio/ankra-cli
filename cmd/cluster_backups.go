@@ -152,7 +152,8 @@ func describeLastRestorePoint(row client.StackBackupsRow) string {
 		return "none"
 	}
 	return fmt.Sprintf("%s %s, %s", row.LastRestorePoint.Status,
-		formatByteSize(row.LastRestorePoint.SizeBytes), formatTimeAgo(row.LastRestorePoint.CreatedAt))
+		describeRestorePointSize(row.LastRestorePoint.SizeBytes, row.LastRestorePoint.SizeBytesKnown),
+		formatTimeAgo(row.LastRestorePoint.CreatedAt))
 }
 
 func describeLatestRun(row client.StackBackupsRow) string {
