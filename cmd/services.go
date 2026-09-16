@@ -211,6 +211,8 @@ type APIClient interface {
 	UploadSupportAttachment(ctx context.Context, ticketID, filePath string) (*client.SupportTicket, error)
 
 	ListClusterStacks(clusterID string) ([]client.ClusterStackListItem, error)
+	ListClusterStackDocuments(clusterID string) ([]client.ClusterStackDocument, error)
+	DeployClusterStackDraft(ctx context.Context, clusterID string, document client.ClusterStackDocument) (*client.StackWriteResult, error)
 	DeleteStack(ctx context.Context, clusterID, stackName string) (*client.DeleteStackResult, error)
 	RenameStack(ctx context.Context, clusterID, stackName, newName string) (*client.RenameStackResult, error)
 	GetStackHistory(clusterID, stackName string) (*client.GetStackHistoryResponse, error)
