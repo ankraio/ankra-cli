@@ -1228,7 +1228,7 @@ func TestPipelineRunDetailPrintsTheRecordedErrorClass(t *testing.T) {
 			RunNumber: 98, ID: "run-98", Status: "concluded", Outcome: &outcome,
 			ErrorClass: &pushFailed, ErrorMessage: &pushMessage,
 		},
-	})
+	}, client.PipelineSelector{})
 	rendered := output.String()
 	if !strings.Contains(rendered, "Class:     registry_push_failed") {
 		t.Fatalf("the run's error class must be printed, got:\n%s", rendered)
@@ -1250,7 +1250,7 @@ func TestPipelineRunDetailPrintsNoClassLineWhenNoneWasRecorded(t *testing.T) {
 	var succeeded bytes.Buffer
 	printPipelineRunDetail(&succeeded, client.PipelineRunDetail{
 		PipelineRun: client.PipelineRun{RunNumber: 99, ID: "run-99", Status: "concluded", Outcome: &outcome},
-	})
+	}, client.PipelineSelector{})
 	if strings.Contains(succeeded.String(), "Class:") {
 		t.Fatalf("a run with no recorded class prints no class line, got:\n%s", succeeded.String())
 	}
@@ -1264,7 +1264,7 @@ func TestPipelineRunDetailPrintsNoClassLineWhenNoneWasRecorded(t *testing.T) {
 			RunNumber: 100, ID: "run-100", Status: "concluded", Outcome: &failure,
 			ErrorClass: &blank, ErrorMessage: &message,
 		},
-	})
+	}, client.PipelineSelector{})
 	rendered := unclassified.String()
 	if strings.Contains(rendered, "Class:") {
 		t.Fatalf("a whitespace-only class is not a class, got:\n%s", rendered)
@@ -1811,7 +1811,7 @@ func TestPipelineRunDetailPrintsWhyAQueuedRunIsWaiting(t *testing.T) {
 		QueueReason: "waiting_on_ci_workers",
 		QueueReasonMessage: "The agent on cluster \"build-01\" runs no pipeline-step workers " +
 			"(ci_worker_count is 0), so nothing can claim this run's steps.",
-	})
+	}, client.PipelineSelector{})
 	rendered := waiting.String()
 	if !strings.Contains(rendered, "Waiting:   The agent on cluster \"build-01\" runs no pipeline-step workers") {
 		t.Fatalf("a queued run prints what it is waiting for, got:\n%s", rendered)
@@ -1830,7 +1830,7 @@ func TestPipelineRunDetailPrintsNoWaitingLineWhenNothingIsWaiting(t *testing.T) 
 	var concluded bytes.Buffer
 	printPipelineRunDetail(&concluded, client.PipelineRunDetail{
 		PipelineRun: client.PipelineRun{RunNumber: 72, ID: "run-72", Status: "concluded", Outcome: &outcome},
-	})
+	}, client.PipelineSelector{})
 	if strings.Contains(concluded.String(), "Waiting:") {
 		t.Fatalf("a concluded run is not waiting for anything, got:\n%s", concluded.String())
 	}
@@ -1839,9 +1839,123 @@ func TestPipelineRunDetailPrintsNoWaitingLineWhenNothingIsWaiting(t *testing.T) 
 	printPipelineRunDetail(&unreadable, client.PipelineRunDetail{
 		PipelineRun:            client.PipelineRun{RunNumber: 73, ID: "run-73", Status: "queued"},
 		QueueReasonUnavailable: "Why this run is still queued could not be read; read the run again.",
-	})
+	}, client.PipelineSelector{})
 	if !strings.Contains(unreadable.String(), "Waiting:   Why this run is still queued could not be read") {
 		t.Fatalf("a derivation the server could not complete is reported, not hidden, got:\n%s",
 			unreadable.String())
+	}
+}
+
+// TestPipelineRunDetailNamesASupersededAttempt pins PLA-871's ask. A retried
+// step is several rows under one key and the detail carries all of them, so
+// the table printed two build rows that differed in nothing a reader could
+// see - and the attempt Ankra threw away, the only one that says what went
+// wrong, was the one with no way to read its log.
+func TestPipelineRunDetailNamesASupersededAttempt(t *testing.T) {
+	infraError, confined := "infra_error", "build_runtime_confined"
+	message := "This cluster's node runtime confines the rootless image builder, so the build cannot run in-cluster."
+	lost := pipelineStepFixture("step-build-attempt-1", "build-commerce-backend", "concluded", &infraError)
+	lost.Stage, lost.Kind = "build", "build"
+	lost.ErrorClass, lost.ErrorMessage = &confined, &message
+	succeeded := pipelineStepFixture("step-build-attempt-2", "build-commerce-backend", "concluded",
+		strPipelinePtr("success"))
+	succeeded.Stage, succeeded.Kind, succeeded.Attempt = "build", "build", 2
+
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, pipelineRunDetailFixture("concluded", strPipelinePtr("success"), lost, succeeded),
+		client.PipelineSelector{ApplicationID: "application-7"})
+	rendered := output.String()
+
+	if !strings.Contains(rendered, "ATTEMPT") {
+		t.Fatalf("the step table must distinguish attempts of one key, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "Earlier attempts (1), superseded by a retry:") {
+		t.Fatalf("a superseded attempt must be named, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "Class: build_runtime_confined") {
+		t.Fatalf("the superseded attempt's own class explains the retry, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "confines the rootless image builder") {
+		t.Fatalf("the superseded attempt's own message is printed, got:\n%s", rendered)
+	}
+	// With the selector, because the printed command is worth printing only
+	// if it runs: `pipeline logs` resolves no run without one, so a hint that
+	// dropped it failed for every reader not standing in the checkout that
+	// the selector can be inferred from.
+	if !strings.Contains(rendered,
+		"ankra pipeline logs run-44 --application application-7 --step step-build-attempt-1") {
+		t.Fatalf("the command that reads the lost attempt's log names its row id and carries "+
+			"the selector that resolves the run, got:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "--step step-build-attempt-2") {
+		t.Fatalf("the newest attempt is what --step <key> already answers; it is not listed, got:\n%s", rendered)
+	}
+}
+
+// TestPipelineRunDetailOrdersEarlierAttemptsByAttempt pins the chronology the
+// block exists to explain. The rows arrive in whatever order the server's
+// query returned them, and this lane already declines to inherit that order
+// where it decides which attempt is newest (newestPipelineStepAttempt); a
+// section listing attempt 2 above attempt 1 would be the same trust, in the
+// one place a reader is reading for sequence.
+func TestPipelineRunDetailOrdersEarlierAttemptsByAttempt(t *testing.T) {
+	infraError := "infra_error"
+	first := pipelineStepFixture("step-build-attempt-1", "build", "concluded", &infraError)
+	second := pipelineStepFixture("step-build-attempt-2", "build", "concluded", &infraError)
+	second.Attempt = 2
+	newest := pipelineStepFixture("step-build-attempt-3", "build", "concluded", strPipelinePtr("success"))
+	newest.Attempt = 3
+
+	var output bytes.Buffer
+	// Handed over newest-first, which is exactly the order this must not keep.
+	printPipelineRunDetail(&output, pipelineRunDetailFixture("concluded", strPipelinePtr("success"),
+		newest, second, first), client.PipelineSelector{})
+	rendered := output.String()
+
+	if !strings.Contains(rendered, "Earlier attempts (2), superseded by a retry:") {
+		t.Fatalf("both superseded attempts must be named, got:\n%s", rendered)
+	}
+	if strings.Index(rendered, "build attempt 1:") > strings.Index(rendered, "build attempt 2:") {
+		t.Fatalf("earlier attempts are listed oldest first, got:\n%s", rendered)
+	}
+}
+
+// TestPipelineRunDetailPrintsNoSelectorItWasNotGiven holds the other half of
+// the hint: an empty selector prints no flag rather than an empty one. It is
+// reachable only through a caller that resolved no selector, and
+// "--application " with nothing after it would be worse than no hint at all.
+func TestPipelineRunDetailPrintsNoSelectorItWasNotGiven(t *testing.T) {
+	infraError := "infra_error"
+	lost := pipelineStepFixture("step-build-attempt-1", "build", "concluded", &infraError)
+	succeeded := pipelineStepFixture("step-build-attempt-2", "build", "concluded", strPipelinePtr("success"))
+	succeeded.Attempt = 2
+
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, pipelineRunDetailFixture("concluded", strPipelinePtr("success"), lost, succeeded),
+		client.PipelineSelector{})
+	rendered := output.String()
+
+	if !strings.Contains(rendered, "ankra pipeline logs run-44 --step step-build-attempt-1") {
+		t.Fatalf("with no selector resolved the command prints none, got:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "--application ") || strings.Contains(rendered, "--repository ") {
+		t.Fatalf("an empty selector prints no flag at all, got:\n%s", rendered)
+	}
+}
+
+// TestPipelineRunDetailSaysNothingAboutAttemptsWhenNothingWasRetried holds the
+// other half: almost every run has one attempt per step, and those must not
+// grow a block explaining a retry that never happened.
+func TestPipelineRunDetailSaysNothingAboutAttemptsWhenNothingWasRetried(t *testing.T) {
+	checkout := pipelineStepFixture("step-checkout", "checkout", "concluded", strPipelinePtr("success"))
+	build := pipelineStepFixture("step-build", "build", "concluded", strPipelinePtr("success"))
+
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, pipelineRunDetailFixture("concluded", strPipelinePtr("success"), checkout, build),
+		client.PipelineSelector{})
+	rendered := output.String()
+
+	if strings.Contains(rendered, "Earlier attempts") {
+		t.Fatalf("a run with no retried step explains no retry, got:\n%s", rendered)
 	}
 }

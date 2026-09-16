@@ -42,6 +42,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -197,7 +198,12 @@ waits for it - saying what it is blocked on - and attaches as soon as the
 step starts; a step that concludes without ever starting prints its outcome
 and whatever log it does have. One invocation spends at most 30 minutes
 waiting, in total across every time the step goes back to waiting. Without
---follow the command says the step has not started and stops.`,
+--follow the command says the step has not started and stops.
+
+A step Ankra retried is several attempts under one key, each with its own
+log. --step <key> shows the newest attempt - the one that did the work - and
+names the earlier ones on stderr; pass --step <attempt id>, as
+'ankra pipeline get' prints it, to read one of those instead.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -215,7 +221,9 @@ waiting, in total across every time the step goes back to waiting. Without
 // registerPipelineLogsFlags is shared by `pipeline logs` and
 // `application pipeline logs`.
 func registerPipelineLogsFlags(command *cobra.Command) {
-	command.Flags().String("step", "", "Step key to follow (required when the run has more than one step)")
+	command.Flags().String("step", "",
+		"Step key to follow (required when the run has more than one step), or the id of "+
+			"one attempt of it as 'ankra pipeline get' prints for a retried step")
 	command.Flags().Bool("follow", false,
 		"Wait for the step to start if it has not, then keep streaming, "+
 			"reconnecting through transient stream faults, until it concludes")
@@ -531,6 +539,7 @@ func resolvePipelineStep(command *cobra.Command, selector client.PipelineSelecto
 		// A key names the step, and a retried step is several rows under one
 		// key; the newest attempt is the one doing the work now.
 		if newest, wasFound := newestPipelineStepAttempt(detail.Steps, stepReference); wasFound {
+			announceSupersededPipelineStepAttempts(command, detail, newest, selector)
 			return newest, nil
 		}
 		return client.PipelineStep{}, withExitCode(exitNotFound,
@@ -553,6 +562,7 @@ func resolvePipelineStep(command *cobra.Command, selector client.PipelineSelecto
 		return client.PipelineStep{}, fmt.Errorf("run %s has no planned steps yet", runID)
 	case 1:
 		newest, _ := newestPipelineStepAttempt(detail.Steps, stepKeys[0])
+		announceSupersededPipelineStepAttempts(command, detail, newest, selector)
 		return newest, nil
 	default:
 		return client.PipelineStep{}, withExitCode(exitUsage,
@@ -606,6 +616,58 @@ func newestPipelineStepAttempt(steps []client.PipelineStep, stepKey string) (cli
 		}
 	}
 	return newest, wasFound
+}
+
+// announceSupersededPipelineStepAttempts says on stderr that the step key
+// this command resolved has earlier attempts, and gives the command that
+// reads each one - because an attempt is addressable only by its own row id,
+// and nothing else prints that id.
+//
+// Resolving a key to the newest attempt is right: it is the attempt that did
+// the work, and the one a caller following a running step means. What was
+// wrong is that it was also silent. A step Ankra retried after its own infra
+// failure succeeds on the attempt this returns, so `logs --step <key>` prints
+// a clean build and says nothing about the failure that preceded it - and the
+// failed attempt's log exists, uploaded like any other (the platform builder
+// uploads its transcript on both outcomes, and an in-cluster step archives a
+// step_log per attempt row). PLA-871's reporter read both build steps of a
+// run that way and concluded the output had been lost.
+//
+// It goes to stderr, with the log itself on stdout, so a caller redirecting
+// the log to a file still sees the note and a caller parsing the log never
+// has to skip it. Nothing is printed when the resolved attempt is the only
+// one, which is almost every call.
+func announceSupersededPipelineStepAttempts(command *cobra.Command, detail *client.PipelineRunDetail,
+	resolved client.PipelineStep, selector client.PipelineSelector) {
+	if detail == nil {
+		return
+	}
+	earlier := []client.PipelineStep{}
+	for _, step := range detail.Steps {
+		if step.StepKey == resolved.StepKey && step.Attempt < resolved.Attempt {
+			earlier = append(earlier, step)
+		}
+	}
+	if len(earlier) == 0 {
+		return
+	}
+	// By attempt, not by the order the payload listed them: these are all one
+	// key, so the number is the only thing telling them apart, and a step
+	// retried twice must not name attempt 2 before attempt 1.
+	sort.SliceStable(earlier, func(first, second int) bool {
+		return earlier[first].Attempt < earlier[second].Attempt
+	})
+	progress := command.ErrOrStderr()
+	_, _ = fmt.Fprintf(progress,
+		"Showing attempt %d of step %q; Ankra retried it, and %d earlier attempt(s) have their own log:\n",
+		resolved.Attempt, resolved.StepKey, len(earlier))
+	for _, step := range earlier {
+		// The selector is carried into the printed command because the caller
+		// has one by definition - resolving this run needed it - and the
+		// command is worth printing only if it can be pasted.
+		_, _ = fmt.Fprintf(progress, "  attempt %d: ankra pipeline logs %s%s --step %s\n",
+			step.Attempt, detail.ID, pipelineSelectorArguments(selector), step.ID)
+	}
 }
 
 // consumePipelineLiveTail prints one live connection's frames until the relay

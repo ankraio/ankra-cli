@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -224,7 +225,7 @@ func runPipelineDispatch(command *cobra.Command, target pipelineTarget) error {
 	if waitError != nil {
 		return waitError
 	}
-	return renderConcludedPipelineRun(command, format, detail)
+	return renderConcludedPipelineRun(command, format, detail, selector)
 }
 
 // sleepInterrupted waits, or stops early when the command is interrupted. A
@@ -579,7 +580,7 @@ func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, ru
 		if waitError != nil {
 			return waitError
 		}
-		return renderConcludedPipelineRun(command, format, detail)
+		return renderConcludedPipelineRun(command, format, detail, selector)
 	}
 
 	detail, getError := apiClient.GetPipelineRun(command.Context(), selector, runID)
@@ -591,7 +592,7 @@ func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, ru
 			return encodeError
 		}
 	} else {
-		printPipelineRunDetail(command.OutOrStdout(), *detail)
+		printPipelineRunDetail(command.OutOrStdout(), *detail, selector)
 	}
 	if isExitCodeRequested {
 		return pipelineRunExitCodeError(detail.PipelineRun)
@@ -617,7 +618,7 @@ func printPipelineRunWaiting(out io.Writer, detail client.PipelineRunDetail) {
 	}
 }
 
-func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
+func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, selector client.PipelineSelector) {
 	_, _ = fmt.Fprintf(out, "Run #%d (%s)\n", detail.RunNumber, detail.ID)
 	_, _ = fmt.Fprintf(out, "  Status:    %s\n", renderPipelineRunState(detail.PipelineRun))
 	printPipelineRunSupersession(out, detail.PipelineRun)
@@ -641,7 +642,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 	writer := table.NewWriter()
 	writer.SetOutputMirror(out)
 	writer.SetStyle(table.StyleRounded)
-	writer.AppendHeader(table.Row{"STEP", "STAGE", "KIND", "STATUS", "EXIT"})
+	writer.AppendHeader(table.Row{"STEP", "ATTEMPT", "STAGE", "KIND", "STATUS", "EXIT"})
 	for _, step := range detail.Steps {
 		exitCode := "-"
 		if step.ExitCode != nil {
@@ -649,6 +650,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 		}
 		writer.AppendRow(table.Row{
 			step.StepKey,
+			step.Attempt,
 			step.Stage,
 			step.Kind,
 			renderPipelineState(step.Status, step.Outcome),
@@ -656,6 +658,85 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail) {
 		})
 	}
 	writer.Render()
+	printPipelineSupersededAttempts(out, detail, selector)
+}
+
+// printPipelineSupersededAttempts explains the rows above that a retry
+// replaced: every step row that is not the newest attempt of its step key.
+//
+// A retried step is several rows under one key, and the table prints all of
+// them because the run carries all of them - the lost attempt is kept on the
+// run as evidence (enginekit/pipelinerun's insertRetryAttempt). Until now
+// those rows were indistinguishable: same key, same stage, same kind, and
+// neither the attempt number nor the row id to tell one from the other. So a
+// run whose build failed once and succeeded on Ankra's own retry showed two
+// build rows, and the only thing that said WHY the first one failed - the
+// attempt's own error class and message, both already in this payload - was
+// never printed anywhere.
+//
+// It matters most for the log. `pipeline logs --step <key>` resolves a key to
+// the newest attempt (resolvePipelineStep), which is the right default and
+// also means the failed attempt's log is reachable only by that attempt's row
+// id - an id nothing printed. PLA-871's reporter watched both build steps of
+// a run fail once and pass on the retry, and could not read either first
+// attempt. The command is spelled out per attempt rather than described,
+// because the id is the part nobody can guess.
+//
+// Nothing is printed for a run with no retried step, which is almost every
+// run.
+func printPipelineSupersededAttempts(out io.Writer, detail client.PipelineRunDetail,
+	selector client.PipelineSelector) {
+	newestAttempts := map[string]int16{}
+	for _, step := range detail.Steps {
+		if attempt, seen := newestAttempts[step.StepKey]; !seen || step.Attempt > attempt {
+			newestAttempts[step.StepKey] = step.Attempt
+		}
+	}
+	superseded := []client.PipelineStep{}
+	for _, step := range detail.Steps {
+		if step.Attempt < newestAttempts[step.StepKey] {
+			superseded = append(superseded, step)
+		}
+	}
+	if len(superseded) == 0 {
+		return
+	}
+	// Ordered here rather than taken from the payload, for the same reason
+	// newestPipelineStepAttempt compares attempt numbers instead of trusting
+	// the listing's order: which row comes first is a server-side ORDER BY
+	// this lane has no guarantee about. A block whose whole subject is the
+	// chronology of a retried step is the last place to print attempt 2
+	// above attempt 1 because a query happened to return it that way.
+	sort.SliceStable(superseded, func(first, second int) bool {
+		if superseded[first].StepKey != superseded[second].StepKey {
+			return superseded[first].StepKey < superseded[second].StepKey
+		}
+		return superseded[first].Attempt < superseded[second].Attempt
+	})
+	_, _ = fmt.Fprintf(out, "\nEarlier attempts (%d), superseded by a retry:\n", len(superseded))
+	for _, step := range superseded {
+		_, _ = fmt.Fprintf(out, "  %s attempt %d: %s\n", step.StepKey, step.Attempt,
+			renderPipelineState(step.Status, step.Outcome))
+		if errorClass := pipelineStepErrorClass(step); errorClass != "" {
+			_, _ = fmt.Fprintf(out, "    Class: %s\n", errorClass)
+		}
+		if step.ErrorMessage != nil && strings.TrimSpace(*step.ErrorMessage) != "" {
+			_, _ = fmt.Fprintf(out, "    Error: %s\n", strings.TrimSpace(*step.ErrorMessage))
+		}
+		_, _ = fmt.Fprintf(out, "    Log:   ankra pipeline logs %s%s --step %s\n",
+			detail.ID, pipelineSelectorArguments(selector), step.ID)
+	}
+}
+
+// pipelineStepErrorClass is one step attempt's recorded error class, or ""
+// when the server recorded none - the step-level twin of
+// pipelineRunErrorClass, and absent for the same reason: a class the server
+// never wrote is not a class called "".
+func pipelineStepErrorClass(step client.PipelineStep) string {
+	if step.ErrorClass == nil {
+		return ""
+	}
+	return strings.TrimSpace(*step.ErrorClass)
 }
 
 // printPipelineRunSupersession names the run that took a superseded run's
@@ -899,5 +980,5 @@ func runPipelineRerun(command *cobra.Command, selector client.PipelineSelector, 
 	if waitError != nil {
 		return waitError
 	}
-	return renderConcludedPipelineRun(command, format, detail)
+	return renderConcludedPipelineRun(command, format, detail, selector)
 }
