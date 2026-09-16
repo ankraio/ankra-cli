@@ -100,12 +100,12 @@ func (c *Client) DeprovisionProxmoxCluster(clusterID string, force bool) (*Provi
 	return c.deprovisionProviderCluster(proxmoxKind, clusterID, force)
 }
 
-func (c *Client) StopProxmoxCluster(clusterID string, force bool) (*ProviderStopClusterResponse, error) {
-	return c.stopProviderCluster(proxmoxKind, clusterID, force)
+func (c *Client) StopProxmoxCluster(clusterID string, options StopClusterOptions) (*ProviderStopClusterResponse, error) {
+	return c.stopProviderCluster(proxmoxKind, clusterID, options)
 }
 
-func (c *Client) StartProxmoxCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {
-	return c.startProviderCluster(proxmoxKind, clusterID, scope)
+func (c *Client) StartProxmoxCluster(clusterID string, options StartClusterOptions) (*ProviderStartClusterResult, error) {
+	return c.startProviderCluster(proxmoxKind, clusterID, options)
 }
 
 func (c *Client) GetProxmoxWorkerCount(clusterID string) (*WorkerCountResult, error) {

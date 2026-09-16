@@ -259,8 +259,9 @@ var hetznerStopCmd = &cobra.Command{
 			return resolveError
 		}
 		force, _ := cmd.Flags().GetBool("force")
+		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd)}
 
-		result, stopError := apiClient.StopHetznerCluster(clusterID, force)
+		result, stopError := apiClient.StopHetznerCluster(clusterID, stopOptions)
 		if stopError != nil {
 			return fmt.Errorf("stopping cluster: %w", stopError)
 		}
@@ -280,6 +281,7 @@ var hetznerStopCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
+		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message)
 		return nil
 	},
 }
@@ -299,7 +301,7 @@ var hetznerStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartHetznerCluster(clusterID, scope)
+		result, startError := apiClient.StartHetznerCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
 		if startError != nil {
 			return fmt.Errorf("starting cluster: %w", startError)
 		}
@@ -316,6 +318,7 @@ var hetznerStartCmd = &cobra.Command{
 			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
 		}
 		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
+		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
 }
@@ -684,7 +687,9 @@ func init() {
 	registerAsyncWriteFlags(nodeGroupDeleteCmd)
 
 	hetznerStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
+	hetznerStartCmd.Flags().String("restore-state", "", restoreStateFlagUsage)
 	hetznerStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's CSI volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
+	hetznerStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
 
 	registerStructuredOutputFlags(
 		hetznerCreateCmd,

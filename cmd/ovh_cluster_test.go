@@ -17,7 +17,7 @@ type ovhStopMock struct {
 	gotClusterID string
 }
 
-func (m *ovhStopMock) StopOvhCluster(clusterID string, force bool) (*client.StopOvhClusterResponse, error) {
+func (m *ovhStopMock) StopOvhCluster(clusterID string, options client.StopClusterOptions) (*client.StopOvhClusterResponse, error) {
 	m.gotClusterID = clusterID
 	return &client.StopOvhClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
@@ -47,10 +47,10 @@ type ovhStartMock struct {
 	gotScope     string
 }
 
-func (m *ovhStartMock) StartOvhCluster(clusterID, scope string) (*client.StartOvhClusterResult, error) {
+func (m *ovhStartMock) StartOvhCluster(clusterID string, options client.StartClusterOptions) (*client.StartOvhClusterResult, error) {
 	m.gotClusterID = clusterID
-	m.gotScope = scope
-	return &client.StartOvhClusterResult{MarkedToStartAt: "2026-01-01T00:00:00Z", Scope: scope, CreatedOperations: 1}, nil
+	m.gotScope = options.Scope
+	return &client.StartOvhClusterResult{MarkedToStartAt: "2026-01-01T00:00:00Z", Scope: options.Scope, CreatedOperations: 1}, nil
 }
 
 func TestOvhStartCommandWithScope(t *testing.T) {

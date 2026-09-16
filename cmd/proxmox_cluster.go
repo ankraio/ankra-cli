@@ -130,8 +130,9 @@ var proxmoxStopCmd = &cobra.Command{
 			return resolveError
 		}
 		force, _ := cmd.Flags().GetBool("force")
+		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd)}
 
-		result, stopError := apiClient.StopProxmoxCluster(clusterID, force)
+		result, stopError := apiClient.StopProxmoxCluster(clusterID, stopOptions)
 		if stopError != nil {
 			return fmt.Errorf("stopping cluster: %w", stopError)
 		}
@@ -145,6 +146,7 @@ var proxmoxStopCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
+		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message)
 		return nil
 	},
 }
@@ -164,7 +166,7 @@ var proxmoxStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartProxmoxCluster(clusterID, scope)
+		result, startError := apiClient.StartProxmoxCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
 		if startError != nil {
 			return fmt.Errorf("starting cluster: %w", startError)
 		}
@@ -175,6 +177,7 @@ var proxmoxStartCmd = &cobra.Command{
 			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
 		}
 		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
+		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
 }
@@ -405,6 +408,7 @@ func init() {
 	_ = proxmoxCreateCmd.MarkFlagRequired("bridge")
 
 	proxmoxStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
+	proxmoxStartCmd.Flags().String("restore-state", "", restoreStateFlagUsage)
 
 	proxmoxHostsCmd.Flags().String("credential-id", "", "Proxmox VE API credential ID (required)")
 	_ = proxmoxHostsCmd.MarkFlagRequired("credential-id")
@@ -428,6 +432,7 @@ func init() {
 	proxmoxCmd.AddCommand(proxmoxTemplatesCmd)
 	proxmoxCmd.AddCommand(proxmoxSizesCmd)
 	proxmoxStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands (also stops a cluster that is still being created)")
+	proxmoxStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
 	proxmoxCmd.AddCommand(proxmoxStopCmd)
 	proxmoxCmd.AddCommand(proxmoxStartCmd)
 	proxmoxCmd.AddCommand(proxmoxWorkersCmd)

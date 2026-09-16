@@ -35,16 +35,16 @@ func (mock *awsClusterMock) PreflightAwsCluster(request client.CreateAwsClusterR
 	return mock.preflightResult, nil
 }
 
-func (mock *awsClusterMock) StopAwsCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
+func (mock *awsClusterMock) StopAwsCluster(clusterID string, options client.StopClusterOptions) (*client.ProviderStopClusterResponse, error) {
 	mock.stopClusterID = clusterID
-	mock.stopForce = force
+	mock.stopForce = options.Force
 	return &client.ProviderStopClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
 
-func (mock *awsClusterMock) StartAwsCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error) {
+func (mock *awsClusterMock) StartAwsCluster(clusterID string, options client.StartClusterOptions) (*client.ProviderStartClusterResult, error) {
 	mock.startClusterID = clusterID
-	mock.startScope = scope
-	return &client.ProviderStartClusterResult{Scope: scope, CreatedOperations: 2}, nil
+	mock.startScope = options.Scope
+	return &client.ProviderStartClusterResult{Scope: options.Scope, CreatedOperations: 2}, nil
 }
 
 func floatPointer(value float64) *float64 { return &value }

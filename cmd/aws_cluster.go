@@ -35,7 +35,9 @@ var awsStopCmd = &cobra.Command{
 			return resolveError
 		}
 		force, _ := cmd.Flags().GetBool("force")
-		result, stopError := apiClient.StopAwsCluster(clusterID, force)
+		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd)}
+
+		result, stopError := apiClient.StopAwsCluster(clusterID, stopOptions)
 		if stopError != nil {
 			return fmt.Errorf("stopping AWS cluster: %w", stopError)
 		}
@@ -52,6 +54,7 @@ var awsStopCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
+		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message)
 		return nil
 	},
 }
@@ -74,7 +77,7 @@ var awsStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartAwsCluster(clusterID, scope)
+		result, startError := apiClient.StartAwsCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command)})
 		if startError != nil {
 			return fmt.Errorf("starting AWS cluster: %w", startError)
 		}
@@ -88,15 +91,18 @@ var awsStartCmd = &cobra.Command{
 			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
 		}
 		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
+		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
 }
 
 func init() {
 	awsStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
+	awsStartCmd.Flags().String("restore-state", "", restoreStateFlagUsage)
 	awsStartCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
 	awsStopCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
 	awsStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged EBS volumes and load balancers even when retention_policy is retain (destroys persisted data)")
+	awsStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
 	registerAwsCreateFlags(awsCreateCmd, awsPreflightCmd)
 	registerAwsCatalogFlags(false, false, awsRegionsCmd)
 	registerAwsCatalogFlags(true, false, awsInstanceTypesCmd, awsVpcsCmd, awsAvailabilityZonesCmd, awsImagesCmd, awsPricingCmd)

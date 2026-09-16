@@ -47,15 +47,20 @@ type CreateUpcloudClusterResponse struct {
 }
 
 type StopUpcloudClusterResponse struct {
-	Success     bool    `json:"success"`
-	ClusterID   string  `json:"cluster_id"`
-	OperationID *string `json:"operation_id,omitempty"`
+	Success        bool              `json:"success"`
+	ClusterID      string            `json:"cluster_id"`
+	OperationID    *string           `json:"operation_id,omitempty"`
+	StatePreserved bool              `json:"state_preserved"`
+	StateSnapshot  *StateSnapshotRef `json:"state_snapshot,omitempty"`
+	Message        string            `json:"message,omitempty"`
 }
 
 type StartUpcloudClusterResult struct {
-	MarkedToStartAt   string `json:"marked_to_start_at"`
-	Scope             string `json:"scope"`
-	CreatedOperations int    `json:"created_operations"`
+	MarkedToStartAt   string  `json:"marked_to_start_at"`
+	Scope             string  `json:"scope"`
+	CreatedOperations int     `json:"created_operations"`
+	StateRestore      string  `json:"state_restore,omitempty"`
+	StateSnapshotID   *string `json:"state_snapshot_id,omitempty"`
 }
 
 // DeprovisionUpcloudClusterResponse mirrors the backend's shared
@@ -234,11 +239,8 @@ func (c *Client) ScaleUpcloudWorkers(clusterID string, workerCount int) (*ScaleW
 	return c.doScaleWorkers(scaleURL, workerCount)
 }
 
-func (c *Client) StopUpcloudCluster(clusterID string, force bool) (*StopUpcloudClusterResponse, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/stop", c.BaseURL, url.PathEscape(clusterID))
-	if force {
-		endpoint = endpoint + "?force=true"
-	}
+func (c *Client) StopUpcloudCluster(clusterID string, options StopClusterOptions) (*StopUpcloudClusterResponse, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/stop", c.BaseURL, url.PathEscape(clusterID)) + options.query()
 	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -266,11 +268,8 @@ func (c *Client) StopUpcloudCluster(clusterID string, force bool) (*StopUpcloudC
 	return &result, nil
 }
 
-func (c *Client) StartUpcloudCluster(clusterID, scope string) (*StartUpcloudClusterResult, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/start", c.BaseURL, url.PathEscape(clusterID))
-	if scope != "" {
-		endpoint += "?scope=" + url.QueryEscape(scope)
-	}
+func (c *Client) StartUpcloudCluster(clusterID string, options StartClusterOptions) (*StartUpcloudClusterResult, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/start", c.BaseURL, url.PathEscape(clusterID)) + options.query()
 	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

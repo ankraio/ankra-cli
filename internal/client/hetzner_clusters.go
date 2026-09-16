@@ -182,12 +182,12 @@ func (c *Client) DeprovisionHetznerCluster(clusterID string, force bool) (*Depro
 	return &result, nil
 }
 
-func (c *Client) StopHetznerCluster(clusterID string, force bool) (*ProviderStopClusterResponse, error) {
-	return c.stopProviderCluster("hetzner", clusterID, force)
+func (c *Client) StopHetznerCluster(clusterID string, options StopClusterOptions) (*ProviderStopClusterResponse, error) {
+	return c.stopProviderCluster("hetzner", clusterID, options)
 }
 
-func (c *Client) StartHetznerCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {
-	return c.startProviderCluster("hetzner", clusterID, scope)
+func (c *Client) StartHetznerCluster(clusterID string, options StartClusterOptions) (*ProviderStartClusterResult, error) {
+	return c.startProviderCluster("hetzner", clusterID, options)
 }
 
 func (c *Client) GetHetznerWorkerCount(clusterID string) (*WorkerCountResult, error) {

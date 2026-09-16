@@ -72,15 +72,20 @@ type DeprovisionOvhClusterResponse struct {
 }
 
 type StopOvhClusterResponse struct {
-	Success     bool    `json:"success"`
-	ClusterID   string  `json:"cluster_id"`
-	OperationID *string `json:"operation_id,omitempty"`
+	Success        bool              `json:"success"`
+	ClusterID      string            `json:"cluster_id"`
+	OperationID    *string           `json:"operation_id,omitempty"`
+	StatePreserved bool              `json:"state_preserved"`
+	StateSnapshot  *StateSnapshotRef `json:"state_snapshot,omitempty"`
+	Message        string            `json:"message,omitempty"`
 }
 
 type StartOvhClusterResult struct {
-	MarkedToStartAt   string `json:"marked_to_start_at"`
-	Scope             string `json:"scope"`
-	CreatedOperations int    `json:"created_operations"`
+	MarkedToStartAt   string  `json:"marked_to_start_at"`
+	Scope             string  `json:"scope"`
+	CreatedOperations int     `json:"created_operations"`
+	StateRestore      string  `json:"state_restore,omitempty"`
+	StateSnapshotID   *string `json:"state_snapshot_id,omitempty"`
 }
 
 type ClusterSSHKeyEntry struct {
@@ -292,11 +297,8 @@ func (c *Client) ScaleOvhWorkers(clusterID string, workerCount int) (*ScaleWorke
 	return c.doScaleWorkers(url, workerCount)
 }
 
-func (c *Client) StopOvhCluster(clusterID string, force bool) (*StopOvhClusterResponse, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/stop", c.BaseURL, url.PathEscape(clusterID))
-	if force {
-		endpoint = endpoint + "?force=true"
-	}
+func (c *Client) StopOvhCluster(clusterID string, options StopClusterOptions) (*StopOvhClusterResponse, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/stop", c.BaseURL, url.PathEscape(clusterID)) + options.query()
 	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -324,11 +326,8 @@ func (c *Client) StopOvhCluster(clusterID string, force bool) (*StopOvhClusterRe
 	return &result, nil
 }
 
-func (c *Client) StartOvhCluster(clusterID, scope string) (*StartOvhClusterResult, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/start", c.BaseURL, url.PathEscape(clusterID))
-	if scope != "" {
-		endpoint += "?scope=" + url.QueryEscape(scope)
-	}
+func (c *Client) StartOvhCluster(clusterID string, options StartClusterOptions) (*StartOvhClusterResult, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/start", c.BaseURL, url.PathEscape(clusterID)) + options.query()
 	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

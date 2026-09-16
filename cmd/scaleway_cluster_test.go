@@ -14,15 +14,15 @@ type scalewayLifecycleMock struct {
 	stopClusterID  string
 }
 
-func (mock *scalewayLifecycleMock) StopScalewayCluster(clusterID string, force bool) (*client.ProviderStopClusterResponse, error) {
+func (mock *scalewayLifecycleMock) StopScalewayCluster(clusterID string, options client.StopClusterOptions) (*client.ProviderStopClusterResponse, error) {
 	mock.stopClusterID = clusterID
 	return &client.ProviderStopClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
 
-func (mock *scalewayLifecycleMock) StartScalewayCluster(clusterID, scope string) (*client.ProviderStartClusterResult, error) {
+func (mock *scalewayLifecycleMock) StartScalewayCluster(clusterID string, options client.StartClusterOptions) (*client.ProviderStartClusterResult, error) {
 	mock.startClusterID = clusterID
-	mock.startScope = scope
-	return &client.ProviderStartClusterResult{Scope: scope, CreatedOperations: 2}, nil
+	mock.startScope = options.Scope
+	return &client.ProviderStartClusterResult{Scope: options.Scope, CreatedOperations: 2}, nil
 }
 
 func TestScalewayStopCommand(t *testing.T) {

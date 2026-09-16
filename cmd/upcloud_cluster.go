@@ -162,8 +162,9 @@ var upcloudStopCmd = &cobra.Command{
 			return resolveError
 		}
 		force, _ := cmd.Flags().GetBool("force")
+		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd)}
 
-		result, err := apiClient.StopUpcloudCluster(clusterID, force)
+		result, err := apiClient.StopUpcloudCluster(clusterID, stopOptions)
 		if err != nil {
 			return fmt.Errorf("stopping cluster: %w", err)
 		}
@@ -177,6 +178,7 @@ var upcloudStopCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
+		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message)
 		return nil
 	},
 }
@@ -196,7 +198,7 @@ var upcloudStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, err := apiClient.StartUpcloudCluster(clusterID, scope)
+		result, err := apiClient.StartUpcloudCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
 		if err != nil {
 			return fmt.Errorf("starting cluster: %w", err)
 		}
@@ -207,6 +209,7 @@ var upcloudStartCmd = &cobra.Command{
 			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
 		}
 		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
+		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
 }
@@ -646,10 +649,12 @@ func init() {
 	_ = upcloudCreateCmd.MarkFlagRequired("zone")
 
 	upcloudStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
+	upcloudStartCmd.Flags().String("restore-state", "", restoreStateFlagUsage)
 
 	upcloudDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	upcloudDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's CSI storage volumes and load balancers, and tolerate unreachable infrastructure")
 	upcloudStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's CSI storage volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
+	upcloudStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
 	upcloudNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	upcloudNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")

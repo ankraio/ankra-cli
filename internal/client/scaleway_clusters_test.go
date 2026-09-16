@@ -19,7 +19,7 @@ func TestStopScalewayCluster(t *testing.T) {
 		})
 	})
 
-	result, stopError := testClient.StopScalewayCluster("cluster-123", false)
+	result, stopError := testClient.StopScalewayCluster("cluster-123", StopClusterOptions{Force: false})
 	if stopError != nil {
 		t.Fatalf("StopScalewayCluster: %v", stopError)
 	}
@@ -49,7 +49,7 @@ func TestStartScalewayCluster(t *testing.T) {
 		})
 	})
 
-	result, startError := testClient.StartScalewayCluster("cluster-123", "control_plane")
+	result, startError := testClient.StartScalewayCluster("cluster-123", StartClusterOptions{Scope: "control_plane"})
 	if startError != nil {
 		t.Fatalf("StartScalewayCluster: %v", startError)
 	}

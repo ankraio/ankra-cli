@@ -290,7 +290,7 @@ func TestStopAwsCluster(t *testing.T) {
 		jsonResponse(t, responseWriter, http.StatusOK, ProviderStopClusterResponse{Success: true, ClusterID: "cluster-123"})
 	})
 
-	result, stopError := testClient.StopAwsCluster("cluster-123", true)
+	result, stopError := testClient.StopAwsCluster("cluster-123", StopClusterOptions{Force: true})
 	if stopError != nil {
 		t.Fatalf("StopAwsCluster: %v", stopError)
 	}
@@ -313,7 +313,7 @@ func TestStartAwsCluster(t *testing.T) {
 		jsonResponse(t, responseWriter, http.StatusOK, ProviderStartClusterResult{Scope: "control_plane", CreatedOperations: 2})
 	})
 
-	result, startError := testClient.StartAwsCluster("cluster-123", "control_plane")
+	result, startError := testClient.StartAwsCluster("cluster-123", StartClusterOptions{Scope: "control_plane"})
 	if startError != nil {
 		t.Fatalf("StartAwsCluster: %v", startError)
 	}

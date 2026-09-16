@@ -86,12 +86,12 @@ func (c *Client) DeprovisionMorpheusCluster(clusterID string) (*ProviderDeprovis
 	return c.deprovisionProviderCluster(morpheusKind, clusterID, false)
 }
 
-func (c *Client) StopMorpheusCluster(clusterID string, force bool) (*ProviderStopClusterResponse, error) {
-	return c.stopProviderCluster(morpheusKind, clusterID, force)
+func (c *Client) StopMorpheusCluster(clusterID string, options StopClusterOptions) (*ProviderStopClusterResponse, error) {
+	return c.stopProviderCluster(morpheusKind, clusterID, options)
 }
 
-func (c *Client) StartMorpheusCluster(clusterID, scope string) (*ProviderStartClusterResult, error) {
-	return c.startProviderCluster(morpheusKind, clusterID, scope)
+func (c *Client) StartMorpheusCluster(clusterID string, options StartClusterOptions) (*ProviderStartClusterResult, error) {
+	return c.startProviderCluster(morpheusKind, clusterID, options)
 }
 
 func (c *Client) GetMorpheusWorkerCount(clusterID string) (*WorkerCountResult, error) {
