@@ -557,6 +557,11 @@ func (m baseMock) GetBackupVault(vaultID string) (*client.BackupVault, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetBackupVaultContents(vaultID string,
+	request client.BackupVaultContentsRequest) (*client.BackupVaultContents, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateBackupVault(request client.CreateBackupVaultRequest) (*client.BackupVault, error) {
 	return nil, errors.New("not implemented")
 }
