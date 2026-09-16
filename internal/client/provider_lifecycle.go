@@ -30,6 +30,9 @@ type ProviderStopClusterResponse struct {
 	// Message explains a stop that could not preserve state, or what a
 	// preserving stop does next.
 	Message string `json:"message,omitempty"`
+	// StopMode is what the stop does to the VMs: "pause" (powered off and
+	// kept with their disks) or "delete_resources" (terminated).
+	StopMode string `json:"stop_mode,omitempty"`
 }
 
 // StateSnapshotRef points at the cluster state capture a stop armed.
@@ -48,6 +51,12 @@ type StopClusterOptions struct {
 	// (an encrypted etcd snapshot) whenever the provider and distribution
 	// support it, true requires the capture, false tears down without it.
 	PreserveState *bool
+	// Mode is how the stop leaves the VMs: "" or "delete_resources" tears
+	// them down, "pause" powers the servers off and keeps them with their
+	// disks (k3s on Hetzner, UpCloud and DigitalOcean; what a stop always
+	// does on AWS and Scaleway). A pause cannot be forced and takes no
+	// preserve_state.
+	Mode string
 }
 
 // StartClusterOptions parameterises a provider cluster start.
@@ -66,6 +75,9 @@ func (options StopClusterOptions) query() string {
 	}
 	if options.PreserveState != nil {
 		values.Set("preserve_state", strconv.FormatBool(*options.PreserveState))
+	}
+	if options.Mode != "" {
+		values.Set("mode", options.Mode)
 	}
 	if len(values) == 0 {
 		return ""

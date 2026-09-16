@@ -35,7 +35,11 @@ var awsStopCmd = &cobra.Command{
 			return resolveError
 		}
 		force, _ := cmd.Flags().GetBool("force")
-		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd)}
+		stopMode, modeError := stopModeFlag(cmd)
+		if modeError != nil {
+			return modeError
+		}
+		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd), Mode: stopMode}
 
 		result, stopError := apiClient.StopAwsCluster(clusterID, stopOptions)
 		if stopError != nil {
@@ -54,7 +58,7 @@ var awsStopCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
-		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message)
+		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
 }
@@ -103,6 +107,7 @@ func init() {
 	awsStopCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
 	awsStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged EBS volumes and load balancers even when retention_policy is retain (destroys persisted data)")
 	awsStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
+	awsStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	registerAwsCreateFlags(awsCreateCmd, awsPreflightCmd)
 	registerAwsCatalogFlags(false, false, awsRegionsCmd)
 	registerAwsCatalogFlags(true, false, awsInstanceTypesCmd, awsVpcsCmd, awsAvailabilityZonesCmd, awsImagesCmd, awsPricingCmd)

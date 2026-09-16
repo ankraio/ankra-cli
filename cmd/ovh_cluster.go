@@ -343,7 +343,11 @@ var ovhStopCmd = &cobra.Command{
 			return resolveError
 		}
 		force, _ := cmd.Flags().GetBool("force")
-		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd)}
+		stopMode, modeError := stopModeFlag(cmd)
+		if modeError != nil {
+			return modeError
+		}
+		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd), Mode: stopMode}
 
 		result, err := apiClient.StopOvhCluster(clusterID, stopOptions)
 		if err != nil {
@@ -365,7 +369,7 @@ var ovhStopCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
-		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message)
+		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
 }
@@ -1002,6 +1006,7 @@ func init() {
 	ovhDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's Cinder volumes and load balancers, and tolerate unreachable infrastructure")
 	ovhStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's Cinder volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
 	ovhStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
+	ovhStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	ovhNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	ovhRegionsCmd.Flags().String("credential-id", "", "OVH API credential ID (required)")

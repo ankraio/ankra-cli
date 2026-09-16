@@ -112,3 +112,33 @@ func TestHetznerStartRestoreStateFlagIsThreeState(t *testing.T) {
 		})
 	}
 }
+
+func TestHetznerStopModeFlagIsSentAndValidated(t *testing.T) {
+	t.Cleanup(func() {
+		_ = hetznerStopCmd.Flags().Set("mode", "")
+		_ = hetznerStopCmd.Flags().Set("force", "false")
+	})
+	mock := &hetznerStateMock{}
+	setMockClient(t, mock)
+	var err error
+	output := captureStdout(t, func() {
+		_, err = executeCommand("cluster", "hetzner", "stop", testClusterID, "--mode", "Pause")
+	})
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, output)
+	}
+	if mock.stopOptions == nil || mock.stopOptions.Mode != "pause" {
+		t.Fatalf("--mode must reach the client normalised, got %+v", mock.stopOptions)
+	}
+
+	_ = hetznerStopCmd.Flags().Set("mode", "")
+	mock = &hetznerStateMock{}
+	setMockClient(t, mock)
+	_, err = executeCommand("cluster", "hetzner", "stop", testClusterID, "--mode", "hibernate")
+	if err == nil || !strings.Contains(err.Error(), "invalid --mode") {
+		t.Fatalf("an unknown mode must be refused locally, got %v", err)
+	}
+	if mock.stopOptions != nil {
+		t.Fatal("a refused mode must not reach the client")
+	}
+}

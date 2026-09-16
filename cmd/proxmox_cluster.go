@@ -130,7 +130,11 @@ var proxmoxStopCmd = &cobra.Command{
 			return resolveError
 		}
 		force, _ := cmd.Flags().GetBool("force")
-		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd)}
+		stopMode, modeError := stopModeFlag(cmd)
+		if modeError != nil {
+			return modeError
+		}
+		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd), Mode: stopMode}
 
 		result, stopError := apiClient.StopProxmoxCluster(clusterID, stopOptions)
 		if stopError != nil {
@@ -146,7 +150,7 @@ var proxmoxStopCmd = &cobra.Command{
 		if result.OperationID != nil {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
-		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message)
+		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
 }
@@ -433,6 +437,7 @@ func init() {
 	proxmoxCmd.AddCommand(proxmoxSizesCmd)
 	proxmoxStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands (also stops a cluster that is still being created)")
 	proxmoxStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
+	proxmoxStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	proxmoxCmd.AddCommand(proxmoxStopCmd)
 	proxmoxCmd.AddCommand(proxmoxStartCmd)
 	proxmoxCmd.AddCommand(proxmoxWorkersCmd)
