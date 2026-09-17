@@ -76,6 +76,27 @@ func concludedBuildStep() client.PipelineStep {
 	return step
 }
 
+// platformBuildersStep is that step once Ankra's platform builders took it:
+// running, on a lane that opens no execution, so it carries no execution ids
+// and never will. It is the shape PLA-868 was reported against - the CLI read
+// the missing ids as "has not started" while the build was in flight.
+func platformBuildersStep() client.PipelineStep {
+	step := blockedStep()
+	step.Status = pipelineStepStatusRunning
+	step.Executor = pipelineExecutorPlatformBuilders
+	return step
+}
+
+// concludedPlatformBuildersStep is that build once Ankra's builders finished
+// it, which is when its archived log becomes readable.
+func concludedPlatformBuildersStep() client.PipelineStep {
+	step := platformBuildersStep()
+	step.Status = pipelineStepStatusConcluded
+	outcome := "success"
+	step.Outcome = &outcome
+	return step
+}
+
 // lostAttemptOf is the row a retry leaves behind: the attempt Ankra threw
 // away, concluded infra_error and kept on the run as evidence, which the
 // run detail lists ahead of the fresh attempt that replaced it.
@@ -993,6 +1014,108 @@ func TestPipelineLogsFollowReadsAStepThatConcludedWithoutStarting(t *testing.T) 
 	if len(mockClient.streamOptions) != 0 {
 		t.Errorf("stream calls = %d, want none for a step that never reached an execution",
 			len(mockClient.streamOptions))
+	}
+}
+
+// PLA-868, the report this whole executor branch exists for. A build running
+// on Ankra's platform builders has no execution ids, because that lane never
+// opens one - and the not-started test reads exactly those ids, so a customer
+// watching Ankra build their image was told the step had not started.
+func TestPipelineLogsSaysAPlatformBuildersStepIsRunningOnAnkrasBuilders(t *testing.T) {
+	detail := runDetailWithStep("running", platformBuildersStep())
+	mockClient := &pipelineLaneMock{getResult: &detail}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build")
+	if executeError == nil {
+		t.Fatalf("a step with no live stream must refuse, output: %s", output)
+	}
+	if strings.Contains(executeError.Error(), "has not started") {
+		t.Fatalf("error = %v, want the running build not reported as a step that never began", executeError)
+	}
+	for _, want := range []string{
+		`step "build" is building on Ankra's platform builders`,
+		"no live log stream",
+		"prints it once the step concludes",
+		"--follow",
+	} {
+		if !strings.Contains(executeError.Error(), want) {
+			t.Errorf("error = %v, want it to say %q", executeError, want)
+		}
+	}
+	if len(mockClient.streamOptions) != 0 {
+		t.Errorf("stream calls = %d, want no relay opened for a lane that has none",
+			len(mockClient.streamOptions))
+	}
+}
+
+// The same step under --follow: waiting is right, what it is waiting FOR is
+// not the step's start but its conclusion, and what it produces is the
+// archived log - the path that already worked and that nothing pointed at.
+func TestPipelineLogsFollowWaitsForAPlatformBuildToConcludeAndPrintsItsArchive(t *testing.T) {
+	shortenPipelineStepStartWait(t, time.Minute)
+	stepID := "step-1"
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", platformBuildersStep()),
+			runDetailWithStep("running", concludedPlatformBuildersStep()),
+		},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{
+			{ID: "artifact-1", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+				Status: client.PipelineArtifactStatusUploaded},
+		}},
+		downloadPayload: "#1 [internal] load build definition\n",
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build", "--follow")
+	if executeError != nil {
+		t.Fatalf("logs --follow error = %v", executeError)
+	}
+	if strings.Contains(output, `Waiting for step "build" to start`) {
+		t.Errorf("output = %q, want no wait for a start that already happened", output)
+	}
+	if !strings.Contains(output,
+		`Step "build" is building on Ankra's platform builders, which have no live log stream; `+
+			"waiting for it to conclude so its archived log can be printed.") {
+		t.Errorf("output = %q, want the wait to say what it is waiting for", output)
+	}
+	if !strings.Contains(output, `Step "build" concluded on Ankra's platform builders: success.`) {
+		t.Errorf("output = %q, want the conclusion reported on the lane it happened on", output)
+	}
+	if !strings.Contains(output, "#1 [internal] load build definition") {
+		t.Errorf("output = %q, want the archived build log printed", output)
+	}
+	if len(mockClient.streamOptions) != 0 {
+		t.Errorf("stream calls = %d, want none for a lane with no live stream", len(mockClient.streamOptions))
+	}
+}
+
+// A step that genuinely has not been dispatched keeps today's refusal
+// verbatim: it carries no executor, and a script branching on that sentence
+// must not have to learn a second one for the case it already handles.
+func TestPipelineLogsKeepsTheNotStartedRefusalForAStepWithNoExecutor(t *testing.T) {
+	detail := runDetailWithStep("running", pendingStep())
+	mockClient := &pipelineLaneMock{getResult: &detail}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "build")
+	if executeError == nil || executeError.Error() !=
+		`step "build" has not started, so it has no log stream yet - check 'ankra pipeline get run-1' for its status` {
+		t.Fatalf("error = %v, want today's refusal verbatim for a step with no lane yet", executeError)
+	}
+}
+
+// A lane added to pipelineStepRunsWithoutLiveStream and not to the two
+// wording helpers must name itself rather than borrow the builders' sentence.
+// Nothing makes that omission fail to compile, and reporting a step as
+// building on Ankra's builders when it did no such thing is the class of
+// wrong answer this change exists to remove.
+func TestPipelineStepExecutorWordingNamesALaneThisBuildDoesNotKnow(t *testing.T) {
+	step := platformBuildersStep()
+	step.Executor = "some_future_lane"
+	if lane := pipelineStepExecutorLane(step); !strings.Contains(lane, "some_future_lane") {
+		t.Errorf("lane = %q, want the platform's own token for a lane this build does not know", lane)
+	}
+	if phrase := pipelineStepExecutorPhrase(step); strings.Contains(phrase, "platform builders") {
+		t.Errorf("phrase = %q, want no claim that an unknown lane is the builders", phrase)
 	}
 }
 

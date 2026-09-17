@@ -35,6 +35,16 @@ package cmd
 // now polls the run until the step has something to show and then attaches
 // exactly as it always did. Without --follow the immediate refusal stands:
 // a one-shot read that silently blocked for half an hour would be worse.
+//
+// Not every step ever gets a live stream, though. A build Ankra took on its
+// platform builders, and a gate or publish the platform settles itself, run
+// on lanes that open no execution for the relay to subscribe to, so their
+// only copy is the archive. They have no execution ids either, which is what
+// the not-started test reads - so a build running on Ankra's own builders
+// used to be reported as a step that had not started, and --follow waited for
+// a start that had already happened (PLA-868). The executor is what tells
+// those two apart, and both the refusal and the wait line now say which of
+// the two the reader is looking at.
 
 import (
 	"context"
@@ -70,6 +80,31 @@ const (
 	// pipelineStepStatusConcluded is a settled step, shared by the
 	// archive-log branch below and readPipelineStep's callers.
 	pipelineStepStatusConcluded = "concluded"
+)
+
+// The PipelineStep.Executor values this command branches on: the lane the
+// platform placed the step on (enginekit/pipelinerun's Executor* set, written
+// by cluster-scheduler's pipeline_step_dispatch and pipeline_step_settle).
+//
+// Only an in-cluster step is dispatched to an agent, and only that dispatch
+// opens the execution a relay subscribes to. Everything Ankra runs on its own
+// produces its record some other way, so a relay asked for one of those has
+// nothing to tail however far along the step is - which is a different fact
+// from "the step has not started", and used to be reported as if it were the
+// same one (PLA-868). The archive is the answer for these, and is the only
+// answer there ever was.
+//
+// A step nothing has dispatched yet carries no executor at all, so an empty
+// value is "not placed on a lane yet", never "in cluster".
+const (
+	// pipelineExecutorPlatformBuilders is a build step the run's cluster
+	// could not build - its agent does not run pipeline steps, or its node
+	// runtime confines the rootless builder - which Ankra's platform-operated
+	// builders took under the organisation's build fallback.
+	pipelineExecutorPlatformBuilders = "platform_builders"
+	// pipelineExecutorPlatform is a gate, publish or approval step the
+	// platform settled itself rather than dispatching anywhere.
+	pipelineExecutorPlatform = "platform"
 )
 
 // pipelineRunStatusConcluded is the PipelineRun.Status value a settled run
@@ -200,6 +235,14 @@ and whatever log it does have. One invocation spends at most 30 minutes
 waiting, in total across every time the step goes back to waiting. Without
 --follow the command says the step has not started and stops.
 
+A step Ankra runs on its own lanes never gets a live stream at all: a build
+the platform builders took over because the run's cluster cannot build it,
+and a gate, publish or approval the platform settles itself. Its log is
+archived and printed here once the step concludes. 'ankra pipeline get' marks
+those steps in the EXECUTOR column; with --follow the command waits for such
+a step to conclude and then prints the archived log, and without it the
+command says where the step is running and stops.
+
 A step Ankra retried is several attempts under one key, each with its own
 log. --step <key> shows the newest attempt - the one that did the work - and
 names the earlier ones on stderr; pass --step <attempt id>, as
@@ -226,7 +269,9 @@ func registerPipelineLogsFlags(command *cobra.Command) {
 			"one attempt of it as 'ankra pipeline get' prints for a retried step")
 	command.Flags().Bool("follow", false,
 		"Wait for the step to start if it has not, then keep streaming, "+
-			"reconnecting through transient stream faults, until it concludes")
+			"reconnecting through transient stream faults, until it concludes; "+
+			"for a step on Ankra's platform builders, which has no live stream, "+
+			"wait for it to conclude and print its archived log")
 	command.Flags().Bool("replay", false,
 		"Also show the output a running step produced before this command connected "+
 			"(a concluded step's log is always shown whole)")
@@ -253,7 +298,7 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 		}
 		if !pipelineStepHasLogStream(step) {
 			if !follow || !pipelineStepIsWaitingToStart(step) {
-				return pipelineStepNotStartedError(step, runID)
+				return pipelineStepNoLogStreamError(step, runID)
 			}
 			startedStep, unspentWait, waitError := waitForPipelineStepToStart(command, selector,
 				runID, step, remainingWait)
@@ -390,18 +435,21 @@ func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.Pipel
 func waitForPipelineStepToStart(command *cobra.Command, selector client.PipelineSelector, runID string,
 	step client.PipelineStep, remainingWait time.Duration) (client.PipelineStep, time.Duration, error) {
 	progress := command.ErrOrStderr()
-	announcedReason := ""
+	announcedLine := ""
 	deadline := time.Now().Add(remainingWait)
 	for {
 		if !time.Now().Before(deadline) {
-			return client.PipelineStep{}, 0, pipelineStepNotStartedError(step, runID)
+			return client.PipelineStep{}, 0, pipelineStepNoLogStreamError(step, runID)
 		}
 		// One line per distinct reason, not one per poll: a step blocked for
 		// twenty minutes must not print two hundred and forty identical
-		// lines into whatever is capturing this command's stderr.
-		if reason := pipelineStepWaitReason(step); reason != announcedReason {
-			_, _ = fmt.Fprintf(progress, "Waiting for step %q to start (%s).\n", step.StepKey, reason)
-			announcedReason = reason
+		// lines into whatever is capturing this command's stderr. The whole
+		// rendered line is compared rather than the reason alone, so a step
+		// that keeps its status while Ankra places it on the platform-builders
+		// lane still says so once.
+		if line := pipelineStepWaitLine(step); line != announcedLine {
+			_, _ = fmt.Fprintln(progress, line)
+			announcedLine = line
 		}
 		if sleepError := sleepInterrupted(command.Context(), pipelineStepStartPollInterval); sleepError != nil {
 			return client.PipelineStep{}, 0, sleepError
@@ -422,7 +470,7 @@ func waitForPipelineStepToStart(command *cobra.Command, selector client.Pipeline
 		// know, or one that lost its execution without concluding - is the
 		// not-started answer rather than more polling.
 		if !pipelineStepIsWaitingToStart(step) {
-			return client.PipelineStep{}, 0, pipelineStepNotStartedError(step, runID)
+			return client.PipelineStep{}, 0, pipelineStepNoLogStreamError(step, runID)
 		}
 		// Checked after the step, so a run whose last step concluded in the
 		// same poll is read from that step rather than from the run.
@@ -445,6 +493,23 @@ func unspentPipelineStepWait(deadline time.Time) time.Duration {
 	return remaining
 }
 
+// pipelineStepWaitLine is what `logs --follow` says about the step it is
+// holding open for.
+//
+// A step on one of Ankra's own lanes gets a different line, because the
+// ordinary one would be false: that step HAS started - the build may be
+// running on Ankra's builders this second - and what the command is waiting
+// for is not its start but its conclusion, which is when the archived log
+// becomes readable. Announcing "waiting for it to start" left PLA-868's
+// reporter watching a build they had been told had not begun.
+func pipelineStepWaitLine(step client.PipelineStep) string {
+	if pipelineStepRunsWithoutLiveStream(step) {
+		return fmt.Sprintf("Step %q %s; waiting for it to conclude so its archived log can be printed.",
+			step.StepKey, pipelineStepExecutorPhrase(step))
+	}
+	return fmt.Sprintf("Waiting for step %q to start (%s).", step.StepKey, pipelineStepWaitReason(step))
+}
+
 // pipelineStepWaitReason says why a step has not started yet, in the words
 // the wait line prints. A blocked step names the steps it is waiting on,
 // because "blocked" on its own does not tell anyone whether waiting is worth
@@ -464,28 +529,95 @@ func pipelineStepWaitReason(step client.PipelineStep) string {
 // because a dependency did not succeed, cancelled with its run, or refused
 // before dispatch - has no output to explain itself with, so its outcome and
 // the platform's own error message are the whole answer.
+//
+// A step on one of Ankra's own lanes did run, so it is not said to have
+// concluded "while waiting for it to start": the wait was for its conclusion,
+// and the archived log the caller is about to print is that step's own
+// output.
 func pipelineStepConcludedWhileWaitingLine(step client.PipelineStep) string {
 	outcome := "no outcome recorded"
 	if step.Outcome != nil && *step.Outcome != "" {
 		outcome = *step.Outcome
 	}
-	if step.ErrorMessage != nil && *step.ErrorMessage != "" {
-		return fmt.Sprintf("Step %q concluded while waiting for it to start: %s - %s",
-			step.StepKey, outcome, *step.ErrorMessage)
+	what := "concluded while waiting for it to start"
+	if pipelineStepRunsWithoutLiveStream(step) {
+		what = "concluded on " + pipelineStepExecutorLane(step)
 	}
-	return fmt.Sprintf("Step %q concluded while waiting for it to start: %s.", step.StepKey, outcome)
+	if step.ErrorMessage != nil && *step.ErrorMessage != "" {
+		return fmt.Sprintf("Step %q %s: %s - %s", step.StepKey, what, outcome, *step.ErrorMessage)
+	}
+	return fmt.Sprintf("Step %q %s: %s.", step.StepKey, what, outcome)
 }
 
-// pipelineStepNotStartedError is the answer for a step with no log stream:
+// pipelineStepNoLogStreamError is the answer for a step with no log stream:
 // the immediate refusal a bare `logs` call gives, and the one the bounded
 // wait gives up with. Deliberately the same sentence and the same exit code
-// in both cases - "the step has not started" is the same fact whether the
-// command established it in one read or in thirty minutes of them, and a
+// in both cases - the reason a step has no stream is the same fact whether
+// the command established it in one read or in thirty minutes of them, and a
 // script that already branches on it should not have to learn a second
 // answer to keep working.
-func pipelineStepNotStartedError(step client.PipelineStep, runID string) error {
+//
+// Which sentence depends on WHY there is no stream, because the two have
+// different ways out. A step nothing has dispatched yet has not started, and
+// waiting is what produces its log. A step Ankra placed on one of its own
+// lanes has started - it may be building right now - and no amount of waiting
+// produces a live stream for it, because that lane never opens one; its log
+// arrives whole, from the archive, when the step concludes.
+func pipelineStepNoLogStreamError(step client.PipelineStep, runID string) error {
+	if pipelineStepRunsWithoutLiveStream(step) {
+		return fmt.Errorf("step %q %s - its log is archived, and this command prints it once the "+
+			"step concludes; check 'ankra pipeline get %s' for its progress, or re-run with "+
+			"--follow to wait for the archived log",
+			step.StepKey, pipelineStepExecutorPhrase(step), runID)
+	}
 	return fmt.Errorf("step %q has not started, so it has no log stream yet - "+
 		"check 'ankra pipeline get %s' for its status", step.StepKey, runID)
+}
+
+// pipelineStepRunsWithoutLiveStream reports whether the step was placed on a
+// lane Ankra runs itself, which never opens an execution for the relay to
+// subscribe to. It is the CLI's copy of enginekit/pipelinerun's
+// ExecutorHasNoLiveStream, and it answers a question
+// pipelineStepHasLogStream cannot: that function reads the execution ids, so
+// a running platform build and a step that was never dispatched look
+// identical to it - both simply have no ids.
+func pipelineStepRunsWithoutLiveStream(step client.PipelineStep) bool {
+	return step.Executor == pipelineExecutorPlatformBuilders || step.Executor == pipelineExecutorPlatform
+}
+
+// pipelineStepExecutorPhrase names the Ankra-operated lane a step is on and
+// what that costs the reader, as the middle of a sentence about that step.
+// Only the lanes without a live stream are ever asked for.
+//
+// A lane added to pipelineStepRunsWithoutLiveStream and not here names itself
+// with the platform's own token rather than borrowing the builders' sentence:
+// nothing makes such an omission fail to compile, and a step reported as
+// building on Ankra's builders when it did no such thing is the class of
+// wrong answer this whole change exists to remove.
+func pipelineStepExecutorPhrase(step client.PipelineStep) string {
+	switch step.Executor {
+	case pipelineExecutorPlatformBuilders:
+		return "is building on Ankra's platform builders, which have no live log stream"
+	case pipelineExecutorPlatform:
+		return "runs on Ankra's platform, which has no live log stream"
+	default:
+		return fmt.Sprintf("runs on %s, which has no live log stream",
+			pipelineStepExecutorLane(step))
+	}
+}
+
+// pipelineStepExecutorLane names that lane on its own, for a sentence that
+// has already said what the lane costs. Same contract as the phrase above for
+// a lane this build does not know.
+func pipelineStepExecutorLane(step client.PipelineStep) string {
+	switch step.Executor {
+	case pipelineExecutorPlatformBuilders:
+		return "Ankra's platform builders"
+	case pipelineExecutorPlatform:
+		return "Ankra's platform"
+	default:
+		return fmt.Sprintf("Ankra's %q lane", step.Executor)
+	}
 }
 
 // pipelineStepSupersedingAttempt reports the step row to act on when the one
@@ -992,6 +1124,12 @@ func pipelineStepHasLogStream(step client.PipelineStep) bool {
 // pipelineStepIsWaitingToStart reports whether a step has no log stream yet
 // but is in a state the scheduler still moves it out of - so one is coming
 // and is worth waiting for.
+//
+// A step on one of Ankra's own lanes (pipelineStepRunsWithoutLiveStream) is
+// worth waiting for too, and for the same states, but never for a stream:
+// what the wait produces there is the step's conclusion and with it the
+// archived log. Only the sentences differ (pipelineStepWaitLine), so the
+// states stay enumerated once here.
 //
 // It names the states it waits in rather than asking what the step is not.
 // A step that concluded without ever reaching an execution (skipped because

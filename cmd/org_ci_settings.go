@@ -34,8 +34,12 @@ The two that decide whether a run can start at all:
                       steps have nowhere to run and conclude with a named
                       reason rather than guessing a cluster.
   --build-fallback    Whether a 'build' step may fall back to the
-                      Ankra-operated build cluster when the pipeline cluster's
-                      agent does not run pipeline steps.
+                      Ankra-operated build cluster when the pipeline cluster
+                      cannot build it. Two things put a build there: the
+                      cluster's agent does not run pipeline steps at all, or
+                      it does but the node runtime confines the rootless
+                      image builder (AppArmor or seccomp, as on k3s and
+                      Ubuntu nodes), so the build cannot run in-cluster.
                         platform_builders  keep the fallback available (default)
                         none               refuse the build instead, for
                                            organisations whose source may not
@@ -93,6 +97,14 @@ restriction, or no private egress beyond the public internet.
 default, letting a gate stage leave findings with no available fix out of its
 verdict; set it to false and every unfixed finding blocks, whatever any
 pipeline asks for.
+
+One thing 'get' shows has no flag here and never will:
+platform_builds_enabled, printed as "Platform builds enabled". It is Ankra's
+grant of the platform-builders capability to this organisation, not a setting
+of it - a read-only report of a decision only Ankra can take. The endpoint
+refuses a body that names it with HTTP 422 ("platform_builds_enabled is
+Ankra's grant, not a setting of this organisation"), so writing back a 'get'
+payload wholesale is refused rather than half-applied. Ask Ankra to enable it.
 
 Requires organisation admin. A member's attempt is refused with exit code 7.`,
 	Args: cobra.NoArgs,
@@ -297,10 +309,21 @@ func renderOrganisationCISettings(cmd *cobra.Command, settings *client.Organisat
 // renderPlatformBuildsNote says what platform_builders cannot promise on its
 // own. Opting into the fallback is necessary but not sufficient: the
 // Ankra-operated build lane is additionally gated on a capability Ankra grants
-// per organisation. When it is off, a build step still concludes "the
-// organisation's build fallback is 'none'" - naming a setting this command
-// shows as platform_builders - and an administrator who trusts that sentence
-// goes and changes a setting that was already correct (PLA-825, PLA-850).
+// per organisation. When it is off, a build step concludes with a sentence
+// about the fallback, and an administrator who reads it as being about the
+// setting goes and changes a setting that was already correct (PLA-825,
+// PLA-850).
+//
+// The sentence this note quotes is the one the platform emits today, and it
+// is quoted so a reader can match it against the step in front of them. It
+// used to be "the organisation's build fallback is 'none'", which named the
+// setting for a failure that was never about the setting; cluster-scheduler's
+// pipeline_step_dispatch now says "Ankra's platform-operated build fallback is
+// not enabled for this organisation yet" for the dark grant, and keeps the
+// 'none' sentence for an organisation whose setting really is none - which
+// this note never prints for, since there is no contradiction to warn about
+// then. Quoting the retired sentence sent a reader looking for text no step
+// carries any more (PLA-868).
 //
 // A platform that reports the grant settles it, so only a denial needs a
 // sentence. A platform that predates the field leaves the grant unknown, and
@@ -314,15 +337,17 @@ func renderPlatformBuildsNote(cmd *cobra.Command, settings *client.OrganisationC
 	case settings.PlatformBuildsEnabled == nil:
 		_, _ = fmt.Fprintln(out,
 			"\nNote: platform_builders also needs the platform-builders capability, which these\n"+
-				"settings do not show. A build step that fails with \"build fallback is 'none'\"\n"+
-				"while this reads platform_builders is missing the capability, not the setting.\n"+
+				"settings do not show. A build step that fails with \"Ankra's platform-operated\n"+
+				"build fallback is not enabled for this organisation yet\" while this reads\n"+
+				"platform_builders is missing the capability, not the setting.\n"+
 				"`ankra application build list <application-id>` answering 404 means it is off.")
 	case !*settings.PlatformBuildsEnabled:
 		_, _ = fmt.Fprintln(out,
 			"\nNote: Ankra has not granted this organisation the platform-builders capability, so\n"+
 				"no build falls back to Ankra's builders even though this reads platform_builders.\n"+
-				"A build step that fails with \"build fallback is 'none'\" is missing that grant,\n"+
-				"not the setting, and only Ankra can enable it.")
+				"A build step that fails with \"Ankra's platform-operated build fallback is not\n"+
+				"enabled for this organisation yet\" is missing that grant, not the setting, and\n"+
+				"only Ankra can enable it.")
 	}
 }
 
@@ -332,7 +357,9 @@ func init() {
 	orgCISettingsSetCmd.Flags().String("cluster", "",
 		"Cluster name or id that pipeline steps run on; empty clears it")
 	orgCISettingsSetCmd.Flags().String("build-fallback", "",
-		"Whether a build may fall back to Ankra's build cluster: platform_builders or none")
+		"Whether a build may fall back to Ankra's build cluster when the pipeline cluster's agent "+
+			"does not run pipeline steps, or its node runtime confines the rootless builder: "+
+			"platform_builders or none")
 	orgCISettingsSetCmd.Flags().StringArray("allowed-image-prefix", nil,
 		"Image prefix a step may name (repeatable); replaces the list, empty clears it")
 	orgCISettingsSetCmd.Flags().String("image-gate", "",
