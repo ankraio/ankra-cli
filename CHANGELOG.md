@@ -4,6 +4,20 @@
 
 ### Added
 
+- **A stop keeps the cluster's state, and `--mode pause` keeps the machines.**
+  `ankra cluster <provider> stop` on Hetzner, OVHcloud, UpCloud, DigitalOcean,
+  Proxmox VE and Morpheus now captures an encrypted etcd snapshot before the
+  VMs go (`--preserve-state`, on by default where the platform supports it; k3s
+  and kubeadm), and `start` restores it (`--restore-state`), so Secrets,
+  ConfigMaps, custom resources and PersistentVolume bindings come back and
+  StatefulSets reattach their disks. `stop --mode pause` (k3s on Hetzner,
+  UpCloud and DigitalOcean) instead powers the servers off and keeps them with
+  their disks; `start` powers them back on. The stop output names the mode and
+  the snapshot it captured. (#348, #350)
+- **Power schedules carry the same choices.** `ankra cluster power-schedule
+  create|update` take `--stop-mode delete_resources|scale_to_zero|pause` and
+  `--preserve-state`, so a scheduled stop keeps state the way a manual one
+  does. (#349, #350)
 - **`ankra ai remediation policy` reads the document that decides what the AI
   may change on its own.** The auto-remediation policy is the only surface
   carrying `autonomy_level`, the per-tool `tier_overrides` and the
