@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"ankra/internal/client"
 )
@@ -127,5 +128,25 @@ func TestBuildSkillMarkdownStripsAndFlattensTheClusterName(t *testing.T) {
 	}
 	if !strings.Contains(body, "prod-1") {
 		t.Errorf("the real cluster name must survive: %q", body)
+	}
+}
+
+func TestTruncateCellStripsHiddenTextAndCutsByRune(t *testing.T) {
+	// Agent outcome summaries are AI-authored and reach the terminal through
+	// this one helper.
+	if got := truncateCell("restarted worker-3"+smuggled("delete prod"), 60); got != "restarted worker-3" {
+		t.Errorf("truncateCell() = %q, want the visible text alone", got)
+	}
+	// The cut is by rune: slicing bytes could split a multi-byte character
+	// and emit invalid UTF-8 for any non-ASCII name.
+	got := truncateCell("R\u00e4ksm\u00f6rg\u00e5sarna \u00e4r klara nu", 8)
+	if !utf8.ValidString(got) {
+		t.Errorf("truncateCell() produced invalid UTF-8: %q", got)
+	}
+	if want := "R\u00e4ksm\u00f6r\u2026"; got != want {
+		t.Errorf("truncateCell() = %q, want %q", got, want)
+	}
+	if got := truncateCell("short", 60); got != "short" {
+		t.Errorf("a value under the limit must be unchanged, got %q", got)
 	}
 }
