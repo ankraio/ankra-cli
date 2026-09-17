@@ -57,7 +57,7 @@ $HOME/.openclaw/skills/ankra-<cluster>.md but can be overridden via
 		// frontmatter fields around itself. sanitiseSkillName above only ever
 		// covered the filename (ankra-4r75g.9).
 		clusterName, nameHidden := hiddenunicode.Line(cluster.Name)
-		body := buildSkillMarkdown(cluster.Name, cluster.ID, baseURL)
+		body := buildSkillMarkdown(clusterName, cluster.ID, baseURL)
 		if err := os.WriteFile(out, []byte(body), 0o644); err != nil {
 			return fmt.Errorf("writing skill file: %w", err)
 		}

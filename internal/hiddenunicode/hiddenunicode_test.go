@@ -188,3 +188,67 @@ func TestNoticeIsEmptyWhenNothingWasRemoved(t *testing.T) {
 		t.Errorf("Notice() must name the count, got %q", notice)
 	}
 }
+
+// TestSharedContractCorpus pins the behaviour this package shares with
+// ankra.cloud/enginekit/hiddenunicode in the cluster repo. The two copies
+// cannot import each other (separate repositories and modules), so this
+// corpus IS the contract: the identical table exists on the cluster side, and
+// either copy drifting makes its own test fail rather than silently changing
+// what counts as hidden. Add a case here and there together, never to one.
+//
+// Keep entries written as escapes, not literal characters: a literal
+// invisible rune in a source file is unreviewable, which is the bug class
+// this package exists to stop.
+func TestSharedContractCorpus(t *testing.T) {
+	corpus := []struct {
+		name    string
+		input   string
+		want    string
+		removed int
+	}{
+		{"tag block is removed", "ok" + tags("hidden"), "ok", 6},
+		{"zero width space is removed", "a\u200bb", "ab", 1},
+		{"zero width non joiner is removed", "a\u200cb", "ab", 1},
+		{"word joiner is removed", "a\u2060b", "ab", 1},
+		{"byte order mark is removed", "a\ufeffb", "ab", 1},
+		{"rtl override is removed", "a\u202eb", "ab", 1},
+		{"first strong isolate is removed", "a\u2068b", "ab", 1},
+		{"pop directional isolate is removed", "a\u2069b", "ab", 1},
+		{"arabic letter mark is removed", "a\u061cb", "ab", 1},
+		{"soft hyphen is removed", "a\u00adb", "ab", 1},
+		{"mongolian vowel separator is removed", "a\u180eb", "ab", 1},
+		{"variation selector 1 is removed", "a\ufe00b", "ab", 1},
+		{"variation selector 15 is removed", "a\ufe0eb", "ab", 1},
+		{"variation selector 17 is removed", "a\U000e0100b", "ab", 1},
+		{"combining grapheme joiner is removed", "a\u034fb", "ab", 1},
+		{"hangul filler is removed", "a\u3164b", "ab", 1},
+		{"private use is removed", "a\ue000b", "ab", 1},
+		{"c0 control is removed", "a\x01b", "ab", 1},
+		{"escape is removed", "a\x1bb", "ab", 1},
+		{"tab newline carriage return are kept", "a\tb\nc\rd", "a\tb\nc\rd", 0},
+		{"presentation selector is kept", "\u26a0\ufe0f", "\u26a0\ufe0f", 0},
+		{"emoji joiner is kept", "\U0001f468\u200d\U0001f467", "\U0001f468\u200d\U0001f467", 0},
+		{"skin tone is kept", "\U0001f44d\U0001f3fd", "\U0001f44d\U0001f3fd", 0},
+		{"england flag is kept", "\U0001f3f4" + tags("gbeng") + "\U000e007f", "\U0001f3f4" + tags("gbeng") + "\U000e007f", 0},
+		{"scotland flag is kept", "\U0001f3f4" + tags("gbsct") + "\U000e007f", "\U0001f3f4" + tags("gbsct") + "\U000e007f", 0},
+		{"wales flag is kept", "\U0001f3f4" + tags("gbwls") + "\U000e007f", "\U0001f3f4" + tags("gbwls") + "\U000e007f", 0},
+		{"flag shaped word is not a flag", "\U0001f3f4" + tags("close") + "\U000e007f", "\U0001f3f4", 6},
+		{"joiner between letters is removed", "a\u200db", "ab", 1},
+		{"accents are kept", "R\u00e4ksm\u00f6rg\u00e5s", "R\u00e4ksm\u00f6rg\u00e5s", 0},
+		{"cjk is kept", "\u65e5\u672c\u8a9e", "\u65e5\u672c\u8a9e", 0},
+		{"arabic is kept", "\u0627\u0644\u0639\u0631\u0628\u064a\u0629", "\u0627\u0644\u0639\u0631\u0628\u064a\u0629", 0},
+		{"empty stays empty", "", "", 0},
+	}
+
+	for _, testCase := range corpus {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, removed := Strip(testCase.input)
+			if got != testCase.want {
+				t.Errorf("Strip() = %q, want %q", got, testCase.want)
+			}
+			if removed != testCase.removed {
+				t.Errorf("Strip() removed %d, want %d", removed, testCase.removed)
+			}
+		})
+	}
+}

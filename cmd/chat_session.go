@@ -266,6 +266,11 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 	printLine := func(line string) {
 		cleaned, removed := hiddenunicode.Strip(line)
 		outcome.hiddenRemoved += removed
+		if cleaned == "" {
+			// A line made entirely of hidden runes leaves nothing to say;
+			// printing the brackets around it would be a stray "[]".
+			return
+		}
 		if hasStartedContent {
 			_, _ = fmt.Fprintf(out, "\n\n[%s]\n\n", cleaned)
 		} else {
