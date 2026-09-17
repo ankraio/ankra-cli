@@ -282,6 +282,29 @@ func TestCostSavingsWithNothingPricedSaysWhyAndNeverPrintsZeroSavings(t *testing
 	}
 }
 
+func TestCostSavingsWithOnlyStaleClustersDoesNotSayYet(t *testing.T) {
+	stale := &client.CloudSavings{
+		Currency: "eur", Recommendations: []client.CloudSavingsRecommendation{}, Breakdowns: []client.CloudSavingsBreakdown{},
+		Namespaces: []client.CloudSavingsNamespace{}, UnpricedClusters: []client.CloudSavingsCluster{},
+		UnreadableClusters: []client.CloudSavingsCluster{},
+		StaleClusters:      []client.CloudSavingsCluster{{ClusterID: costClusterID, ClusterName: "old-dev", Kind: "k3s"}},
+		StaleClusterCount:  1,
+		Waste:              client.CloudSavingsWaste{Available: true, HasData: true},
+		Thresholds:         client.CloudSavingsThresholds{MinimumSavingsCents: 500, AnalysedClusterLimit: 8},
+	}
+	output, executeError := runCostCommand(t, &costMock{savings: stale}, "cost", "savings")
+	if executeError != nil {
+		t.Fatalf("cost savings failed: %v", executeError)
+	}
+	if !strings.Contains(output, "No cluster is priced right now (1 cluster with stalled metering)") ||
+		!strings.Contains(output, "Stale clusters (metering stopped over a day ago):") || !strings.Contains(output, "old-dev") {
+		t.Fatalf("a fleet whose only clusters are stale must say so:\n%s", output)
+	}
+	if strings.Contains(output, "No priced clusters yet") {
+		t.Fatalf("a formerly priced cluster must not be described as never priced:\n%s", output)
+	}
+}
+
 func TestCostSavingsWithPricedClustersButNoLeverNamesTheMinimum(t *testing.T) {
 	quiet := &client.CloudSavings{
 		Currency: "gbp", PricedClusterCount: 2, AnalysedClusterCount: 2,

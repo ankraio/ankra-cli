@@ -473,7 +473,14 @@ func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, curr
 func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 	currency := savings.Currency
 	if savings.PricedClusterCount == 0 && len(savings.Recommendations) == 0 {
-		_, _ = fmt.Fprintln(out, "No priced clusters yet, so there is nothing to recommend.")
+		// A stale cluster was priced before its metering stalled, so "yet" would
+		// misname it; the two absences read differently.
+		if len(savings.StaleClusters) > 0 {
+			_, _ = fmt.Fprintf(out, "No cluster is priced right now (%s with stalled metering), so there is nothing to recommend.\n",
+				pluralClusters(len(savings.StaleClusters)))
+		} else {
+			_, _ = fmt.Fprintln(out, "No priced clusters yet, so there is nothing to recommend.")
+		}
 		_, _ = fmt.Fprintln(out, "Estimates appear once a cluster on AWS, Google Cloud, Azure, Hetzner, OVHcloud, UpCloud or Scaleway has reported pricing in the last day; AWS, Google Cloud and Azure clusters need a connected cloud credential.")
 		renderCloudSavingsClusters(out, "Unpriced clusters (no cost snapshot yet):", savings.UnpricedClusters, true)
 		renderCloudSavingsClusters(out, "Stale clusters (metering stopped over a day ago):", savings.StaleClusters, true)
