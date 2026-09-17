@@ -4,6 +4,17 @@
 
 ### Added
 
+- **`ankra cost savings` reads the savings model.** The platform now computes
+  the organisation's savings recommendations server-side (one lever per
+  cluster: right-size idle capacity, reduce the run rate no namespace claims,
+  or an off-hours schedule for a non-production cluster with no enabled power
+  schedule), and the command prints them with the monthly saving, its share of
+  the cluster's run rate and the cluster id, followed by the clusters the
+  model could not analyse (unpriced, stale metering, unreadable on this pass)
+  and the open cloud-waste summary. A fleet with nothing priced says so
+  instead of printing zero savings, and a waste scan that could not be read is
+  reported as unreadable rather than as no waste. `-o json` returns the same
+  document the portal's Cost page reads (`GET /api/v1/org/cloud-cost/savings`).
 - **A stop keeps the cluster's state, and `--mode pause` keeps the machines.**
   `ankra cluster <provider> stop` on Hetzner, OVHcloud, UpCloud, DigitalOcean,
   Proxmox VE and Morpheus now captures an encrypted etcd snapshot before the
