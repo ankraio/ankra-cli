@@ -642,7 +642,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, sele
 	writer := table.NewWriter()
 	writer.SetOutputMirror(out)
 	writer.SetStyle(table.StyleRounded)
-	writer.AppendHeader(table.Row{"STEP", "ATTEMPT", "STAGE", "KIND", "STATUS", "EXIT"})
+	writer.AppendHeader(table.Row{"STEP", "ATTEMPT", "STAGE", "KIND", "EXECUTOR", "STATUS", "EXIT"})
 	for _, step := range detail.Steps {
 		exitCode := "-"
 		if step.ExitCode != nil {
@@ -653,12 +653,68 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, sele
 			step.Attempt,
 			step.Stage,
 			step.Kind,
+			renderPipelineStepExecutor(step),
 			renderPipelineState(step.Status, step.Outcome),
 			exitCode,
 		})
 	}
 	writer.Render()
+	printPipelinePlatformBuilderSteps(out, detail)
 	printPipelineSupersededAttempts(out, detail, selector)
+}
+
+// renderPipelineStepExecutor is the lane the platform placed a step on, in
+// the platform's own vocabulary: in_cluster, platform_builders or platform.
+//
+// It was on the wire from the start (PipelineStep.Executor) and nothing ever
+// printed it, so the one run detail a person reads - `ankra pipeline get` -
+// could not say that a build had left their cluster for Ankra's builders.
+// That is the fact every other answer about such a step depends on: why there
+// is no live log, why no node name, why a Dockerfile that builds on their own
+// agent behaves differently here (PLA-868).
+//
+// Printed verbatim rather than mapped to a phrase, for the reason
+// printPipelineRunFailure prints its class verbatim: it is the same token
+// `-o json` and the API spell, the vocabulary grows on the server, and a
+// mapper that has not been taught a new lane renders it as nothing at all.
+// A step nothing has dispatched yet carries no executor, which prints as "-":
+// "not placed on a lane yet", never "in cluster".
+func renderPipelineStepExecutor(step client.PipelineStep) string {
+	if executor := strings.TrimSpace(step.Executor); executor != "" {
+		return executor
+	}
+	return "-"
+}
+
+// printPipelinePlatformBuilderSteps says what the platform_builders rows
+// above mean, under the table that now shows them.
+//
+// The column alone answers "where did this run", but not the question that
+// brings someone to this command: where is the log. A step on Ankra's
+// builders has no live stream to tail - the lane opens no execution for the
+// relay - so `pipeline logs` on it can only answer with the archive, and only
+// once the step concludes. Saying so here is what keeps a reader from tailing
+// a running build for twenty minutes and concluding Ankra is stuck.
+//
+// Nothing is printed for a run whose steps all ran in its own cluster, which
+// is most runs.
+func printPipelinePlatformBuilderSteps(out io.Writer, detail client.PipelineRunDetail) {
+	stepKeys := []string{}
+	seen := map[string]bool{}
+	for _, step := range detail.Steps {
+		if step.Executor != pipelineExecutorPlatformBuilders || seen[step.StepKey] {
+			continue
+		}
+		seen[step.StepKey] = true
+		stepKeys = append(stepKeys, step.StepKey)
+	}
+	if len(stepKeys) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "\nOn Ankra's platform builders: %s\n", strings.Join(stepKeys, ", "))
+	_, _ = fmt.Fprintln(out, "  This run's cluster could not build these steps, so Ankra's own builders took")
+	_, _ = fmt.Fprintln(out, "  them. They have no live log stream; 'ankra pipeline logs' prints the archived")
+	_, _ = fmt.Fprintln(out, "  log of one once it concludes.")
 }
 
 // printPipelineSupersededAttempts explains the rows above that a retry

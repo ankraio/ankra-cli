@@ -125,6 +125,34 @@
 
 ### Fixed
 
+- **The CLI can see Ankra's platform builders.** A build the run's cluster
+  cannot take is moved to Ankra's own builders, a lane that opens no execution
+  and so has no live log stream. `pipeline logs` read the missing execution
+  ids as "step has not started, so it has no log stream yet" and `--follow`
+  announced that it was waiting for a start that had already happened, so a
+  customer watching Ankra build their image was told nothing had begun. The
+  refusal now says the build is running on Ankra's platform builders and that
+  its archived log is printed here once the step concludes; `--follow` waits
+  for that conclusion and prints the archive, which is the path that already
+  worked and that nothing pointed at. `pipeline get` grows an **EXECUTOR**
+  column — `in_cluster`, `platform_builders` or `platform`, from the step
+  field that was on the wire all along — and names the steps Ankra's builders
+  took under the table.
+- **`org ci-settings get` quotes the sentence a dark-grant build actually
+  fails with.** The note beside `platform_builders` quoted "build fallback is
+  `'none'`", which the platform now emits only when the setting really is
+  none; a missing capability grant concludes "Ankra's platform-operated build
+  fallback is not enabled for this organisation yet". The note quotes that
+  instead, so the text matches the step in front of the reader.
+- **`--build-fallback` help names both reasons a build leaves the cluster.**
+  It named only an agent that does not run pipeline steps. A cluster whose
+  agent runs them perfectly well still cannot build when its node runtime
+  confines the rootless builder (AppArmor or seccomp, as on k3s and Ubuntu
+  nodes), which is the case the fallback most often carries.
+- **`org ci-settings set --help` says `platform_builds_enabled` cannot be
+  set.** It is Ankra's grant of the platform-builders capability, reported by
+  `get` and refused by the endpoint with a 422, so writing a `get` payload
+  back wholesale fails rather than half-applies.
 - **A refused clone now says why.** `cluster stacks clone` reported any
   non-2xx as `clone failed: status 409, body: {...}`, which buried the
   platform's sentence — the one thing that says whether to rename the stack,

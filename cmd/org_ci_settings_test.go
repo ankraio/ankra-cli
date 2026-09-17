@@ -156,6 +156,36 @@ func TestRunOrgCISettingsGet_WarnsThatPlatformBuildersNeedsTheCapabilityToo(t *t
 	}
 }
 
+// PLA-868: the note quotes the sentence a dark-grant build step concludes
+// with, so a reader can match it against the step in front of them. The
+// platform stopped emitting "build fallback is 'none'" for a missing grant -
+// that sentence is now reserved for an organisation whose setting really is
+// none - and a note quoting it sent people looking for text no step carries.
+func TestRunOrgCISettingsGet_QuotesTheSentenceTheStepActuallyFailsWith(t *testing.T) {
+	isDenied := false
+	for name, grant := range map[string]*bool{"unreported": nil, "denied": &isDenied} {
+		t.Run(name, func(t *testing.T) {
+			settings := defaultCISettings()
+			settings.PlatformBuildsEnabled = grant
+			mock := &orgCISettingsMock{settings: settings}
+			output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+			if executeError != nil {
+				t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+			}
+			// The note wraps, so the quote is matched with its line breaks
+			// collapsed rather than pinning where the wrap happens to fall.
+			unwrapped := strings.Join(strings.Fields(output), " ")
+			if !strings.Contains(unwrapped,
+				`"Ankra's platform-operated build fallback is not enabled for this organisation yet"`) {
+				t.Errorf("the note must quote the sentence the platform emits today, got %s", output)
+			}
+			if strings.Contains(unwrapped, `build fallback is 'none'`) {
+				t.Errorf("the retired sentence must not be quoted for a missing grant, got %s", output)
+			}
+		})
+	}
+}
+
 // On a platform that predates platform_builds_enabled the grant is unknown,
 // not denied: the caveat stays, it names the read that does reveal the grant,
 // and nothing prints a line claiming an answer the platform never gave.
@@ -457,6 +487,41 @@ func TestRunOrgCISettingsSet_DoesNotWriteIgnoreUnfixedWhenUntouched(t *testing.T
 	}
 	if changes["ci_run_retention_days"] != 30 {
 		t.Errorf("expected ci_run_retention_days 30, got %v", changes)
+	}
+}
+
+// PLA-868: a cluster whose agent runs pipeline steps perfectly well can still
+// be unable to build, because its node runtime confines the rootless builder
+// (AppArmor or seccomp, as on k3s and Ubuntu nodes). Help that named only the
+// agent cause read as "this does not apply to me" to exactly the customer the
+// fallback exists for.
+func TestOrgCISettingsHelp_NamesBothReasonsABuildLeavesTheCluster(t *testing.T) {
+	help := orgCISettingsCmd.Long + "\n" +
+		orgCISettingsSetCmd.Flags().Lookup("build-fallback").Usage
+	for _, want := range []string{"does not run pipeline steps", "confines the rootless"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("the --build-fallback help must name %q, got:\n%s", want, help)
+		}
+	}
+}
+
+// PLA-868: platform_builds_enabled is printed by `get` and is not a setting
+// anyone here can write - the endpoint answers 422 for a body that names it.
+// A `set` help that did not say so left the field looking like a flag that
+// had been forgotten, and writing a `get` payload back wholesale is refused.
+func TestOrgCISettingsSetHelp_SaysThePlatformBuildsGrantIsReadOnly(t *testing.T) {
+	help := orgCISettingsSetCmd.Long
+	if !strings.Contains(help, "platform_builds_enabled") {
+		t.Fatalf("the set help must name the field it cannot write, got:\n%s", help)
+	}
+	if !strings.Contains(help, "422") {
+		t.Errorf("the set help must say the endpoint refuses it, got:\n%s", help)
+	}
+	if !strings.Contains(help, "Ankra's grant") {
+		t.Errorf("the set help must say whose decision it is, got:\n%s", help)
+	}
+	if orgCISettingsSetCmd.Flags().Lookup("platform-builds-enabled") != nil {
+		t.Errorf("a read-only grant must not grow a flag")
 	}
 }
 

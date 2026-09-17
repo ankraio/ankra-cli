@@ -1892,6 +1892,52 @@ func TestPipelineRunDetailNamesASupersededAttempt(t *testing.T) {
 	}
 }
 
+// TestPipelineRunDetailNamesTheLaneEachStepRanOn pins PLA-868's ask on this
+// command. PipelineStep.Executor was on the wire from the start and nothing
+// printed it, so the one run detail a person reads could not say that a build
+// had left their cluster for Ankra's builders - the fact every other question
+// about that step depends on, starting with where its log is.
+func TestPipelineRunDetailNamesTheLaneEachStepRanOn(t *testing.T) {
+	checkout := pipelineStepFixture("step-checkout", "checkout", "concluded", strPipelinePtr("success"))
+	checkout.Stage, checkout.Kind, checkout.Executor = "build", "run", "in_cluster"
+	build := pipelineStepFixture("step-build", "build", "running", nil)
+	build.Stage, build.Kind, build.Executor = "build", "build", "platform_builders"
+	planned := pipelineStepFixture("step-publish", "publish", "blocked", nil)
+	planned.Stage, planned.Kind = "publish", "publish"
+
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, pipelineRunDetailFixture("running", nil, checkout, build, planned),
+		client.PipelineSelector{})
+	rendered := output.String()
+
+	if !strings.Contains(rendered, "EXECUTOR") {
+		t.Fatalf("the step table must name the lane each step ran on, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "platform_builders") || !strings.Contains(rendered, "in_cluster") {
+		t.Fatalf("the lane is printed in the platform's own vocabulary, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "On Ankra's platform builders: build") {
+		t.Fatalf("a step on Ankra's builders must be called out under the table, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "no live log stream") {
+		t.Fatalf("the note must say why 'pipeline logs' cannot tail it, got:\n%s", rendered)
+	}
+}
+
+// A run whose steps all ran in its own cluster grows no note: there is
+// nothing to explain, and most runs are this one.
+func TestPipelineRunDetailSaysNothingAboutPlatformBuildersWhenNoStepUsedThem(t *testing.T) {
+	checkout := pipelineStepFixture("step-checkout", "checkout", "concluded", strPipelinePtr("success"))
+	checkout.Executor = "in_cluster"
+
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, pipelineRunDetailFixture("concluded", strPipelinePtr("success"), checkout),
+		client.PipelineSelector{})
+	if strings.Contains(output.String(), "On Ankra's platform builders") {
+		t.Fatalf("a run that never left its cluster explains no fallback, got:\n%s", output.String())
+	}
+}
+
 // TestPipelineRunDetailOrdersEarlierAttemptsByAttempt pins the chronology the
 // block exists to explain. The rows arrive in whatever order the server's
 // query returned them, and this lane already declines to inherit that order
