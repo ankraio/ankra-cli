@@ -1103,6 +1103,22 @@ func TestPipelineLogsKeepsTheNotStartedRefusalForAStepWithNoExecutor(t *testing.
 	}
 }
 
+// A lane added to pipelineStepRunsWithoutLiveStream and not to the two
+// wording helpers must name itself rather than borrow the builders' sentence.
+// Nothing makes that omission fail to compile, and reporting a step as
+// building on Ankra's builders when it did no such thing is the class of
+// wrong answer this change exists to remove.
+func TestPipelineStepExecutorWordingNamesALaneThisBuildDoesNotKnow(t *testing.T) {
+	step := platformBuildersStep()
+	step.Executor = "some_future_lane"
+	if lane := pipelineStepExecutorLane(step); !strings.Contains(lane, "some_future_lane") {
+		t.Errorf("lane = %q, want the platform's own token for a lane this build does not know", lane)
+	}
+	if phrase := pipelineStepExecutorPhrase(step); strings.Contains(phrase, "platform builders") {
+		t.Errorf("phrase = %q, want no claim that an unknown lane is the builders", phrase)
+	}
+}
+
 func TestPipelineLogsFollowStopsWhenTheRunConcludesWithoutTheStep(t *testing.T) {
 	// A run can conclude leaving a step it never dispatched behind (its
 	// stage was cancelled, the run was stopped). Waiting longer cannot

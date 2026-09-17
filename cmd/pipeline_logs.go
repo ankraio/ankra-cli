@@ -587,22 +587,37 @@ func pipelineStepRunsWithoutLiveStream(step client.PipelineStep) bool {
 
 // pipelineStepExecutorPhrase names the Ankra-operated lane a step is on and
 // what that costs the reader, as the middle of a sentence about that step.
-// Only the lanes without a live stream have one; anything else is never
-// asked.
+// Only the lanes without a live stream are ever asked for.
+//
+// A lane added to pipelineStepRunsWithoutLiveStream and not here names itself
+// with the platform's own token rather than borrowing the builders' sentence:
+// nothing makes such an omission fail to compile, and a step reported as
+// building on Ankra's builders when it did no such thing is the class of
+// wrong answer this whole change exists to remove.
 func pipelineStepExecutorPhrase(step client.PipelineStep) string {
-	if step.Executor == pipelineExecutorPlatform {
+	switch step.Executor {
+	case pipelineExecutorPlatformBuilders:
+		return "is building on Ankra's platform builders, which have no live log stream"
+	case pipelineExecutorPlatform:
 		return "runs on Ankra's platform, which has no live log stream"
+	default:
+		return fmt.Sprintf("runs on %s, which has no live log stream",
+			pipelineStepExecutorLane(step))
 	}
-	return "is building on Ankra's platform builders, which have no live log stream"
 }
 
 // pipelineStepExecutorLane names that lane on its own, for a sentence that
-// has already said what the lane costs.
+// has already said what the lane costs. Same contract as the phrase above for
+// a lane this build does not know.
 func pipelineStepExecutorLane(step client.PipelineStep) string {
-	if step.Executor == pipelineExecutorPlatform {
+	switch step.Executor {
+	case pipelineExecutorPlatformBuilders:
+		return "Ankra's platform builders"
+	case pipelineExecutorPlatform:
 		return "Ankra's platform"
+	default:
+		return fmt.Sprintf("Ankra's %q lane", step.Executor)
 	}
-	return "Ankra's platform builders"
 }
 
 // pipelineStepSupersedingAttempt reports the step row to act on when the one
