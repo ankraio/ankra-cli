@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"ankra/internal/client"
+	"ankra/internal/hiddenunicode"
 )
 
 // chatTailMaxReconnects bounds how many times a dropped event tail is
@@ -44,6 +45,9 @@ type chatTurnOutcome struct {
 	response     string
 	proposals    []*client.ChatActionProposal
 	errorMessage string
+	// hiddenRemoved counts the invisible runes stripped from this turn's
+	// printed text, reported once when the turn ends.
+	hiddenRemoved int
 }
 
 // newChatUUID mints a random v4 UUID for conversation ids and idempotency
@@ -237,8 +241,17 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 	var response strings.Builder
 	var hasStartedContent bool
 	var hadStatus bool
+	// Everything printed here is model- or backend-authored. Invisible
+	// Unicode is removed before it reaches the terminal (a bidirectional
+	// control reorders what is displayed, and an escape sequence could
+	// repaint the screen), and the count is reported once at the end of the
+	// turn rather than per line - a per-line notice would bury the answer
+	// (ankra-4r75g.9). The stripped text is what goes into outcome.response,
+	// so the history replayed to the model carries no hidden runes either.
 	printContent := func(text string) {
-		if text == "" {
+		cleaned, removed := hiddenunicode.Strip(text)
+		outcome.hiddenRemoved += removed
+		if cleaned == "" {
 			return
 		}
 		if !hasStartedContent {
@@ -247,14 +260,16 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 			}
 			hasStartedContent = true
 		}
-		_, _ = fmt.Fprint(out, text)
-		response.WriteString(text)
+		_, _ = fmt.Fprint(out, cleaned)
+		response.WriteString(cleaned)
 	}
 	printLine := func(line string) {
+		cleaned, removed := hiddenunicode.Strip(line)
+		outcome.hiddenRemoved += removed
 		if hasStartedContent {
-			_, _ = fmt.Fprintf(out, "\n\n[%s]\n\n", line)
+			_, _ = fmt.Fprintf(out, "\n\n[%s]\n\n", cleaned)
 		} else {
-			_, _ = fmt.Fprintf(out, "[%s]", line)
+			_, _ = fmt.Fprintf(out, "[%s]", cleaned)
 			hadStatus = true
 		}
 	}
@@ -317,6 +332,11 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 		}
 	}
 	outcome.response = response.String()
+	// The notice goes to stderr so a piped answer stays parseable, the same
+	// reason the conversation id does.
+	if outcome.hiddenRemoved > 0 {
+		_, _ = fmt.Fprintf(errOut, "\n%s\n", hiddenunicode.Notice(outcome.hiddenRemoved))
+	}
 	return outcome
 }
 

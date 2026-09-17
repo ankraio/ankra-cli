@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"ankra/internal/hiddenunicode"
 )
 
 type ChatMessage struct {
@@ -130,6 +132,15 @@ var chatStreamIdleTimeout = 3 * time.Minute
 var deprecatedChatWarningOnce sync.Once
 
 func (c *Client) StreamChat(clusterID *string, chatReq ChatRequest) (<-chan ChatStreamEvent, error) {
+	// Belt and braces behind the command layer, which strips and reports
+	// what it removed: no request leaves with invisible runes in the text a
+	// model will read, whatever a future caller forgets (ankra-4r75g.9).
+	chatReq.Query, _ = hiddenunicode.Strip(chatReq.Query)
+	for index := range chatReq.ConversationHistory {
+		chatReq.ConversationHistory[index].Content, _ =
+			hiddenunicode.Strip(chatReq.ConversationHistory[index].Content)
+	}
+
 	var url string
 	if clusterID != nil && *clusterID != "" {
 		url = fmt.Sprintf("%s/api/v1/org/clusters/%s/kubernetes/chat", c.BaseURL, *clusterID)

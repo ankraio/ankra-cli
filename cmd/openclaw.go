@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"ankra/internal/hiddenunicode"
 )
 
 // openclawCmd is the parent for OpenClaw integration helpers. OpenClaw
@@ -49,11 +51,20 @@ $HOME/.openclaw/skills/ankra-<cluster>.md but can be overridden via
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 			return fmt.Errorf("creating output directory: %w", err)
 		}
+		// The cluster name is server-authored and lands in a file an AI
+		// assistant loads as instructions, so invisible runes are removed and
+		// the value is flattened to one line: a newline would let it forge
+		// frontmatter fields around itself. sanitiseSkillName above only ever
+		// covered the filename (ankra-4r75g.9).
+		clusterName, nameHidden := hiddenunicode.Line(cluster.Name)
 		body := buildSkillMarkdown(cluster.Name, cluster.ID, baseURL)
 		if err := os.WriteFile(out, []byte(body), 0o644); err != nil {
 			return fmt.Errorf("writing skill file: %w", err)
 		}
-		fmt.Printf("Wrote OpenClaw skill for cluster '%s' to %s\n", cluster.Name, out)
+		if nameHidden > 0 {
+			_, _ = fmt.Fprintf(os.Stderr, "%s\n", hiddenunicode.Notice(nameHidden))
+		}
+		fmt.Printf("Wrote OpenClaw skill for cluster '%s' to %s\n", clusterName, out)
 		fmt.Println("Reload OpenClaw or restart your editor to pick it up.")
 		return nil
 	},
@@ -88,7 +99,15 @@ func sanitiseSkillName(name string) string {
 	return strings.Trim(out.String(), "-")
 }
 
+// buildSkillMarkdown renders the SKILL.md body. Every interpolated value is
+// server-authored and the result is loaded by an AI assistant as
+// instructions, so the values are stripped of invisible Unicode and
+// flattened to one line here as well as at the call site: a future caller
+// must not be able to reintroduce the hole (ankra-4r75g.9).
 func buildSkillMarkdown(clusterName, clusterID, base string) string {
+	clusterName, _ = hiddenunicode.Line(clusterName)
+	clusterID, _ = hiddenunicode.Line(clusterID)
+	base, _ = hiddenunicode.Line(base)
 	now := time.Now().UTC().Format(time.RFC3339)
 	return fmt.Sprintf(`---
 name: ankra-%s
