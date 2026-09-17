@@ -186,11 +186,36 @@ func TestCostSavingsRendersRecommendationsUnanalysedClustersAndWaste(t *testing.
 		"prod-eu", "Right-size idle capacity", "€438.00", "22%", "€2000.00",
 		"data-platform", "Reduce unallocated run rate (35% unclaimed)", "€600.00", "35%",
 		"staging-1", "staging", "Off-hours schedule (weeknights and weekends)", "€128.57", "54%",
-		"stop \"0 19 * * 1-5\" / start \"0 7 * * 1-5\"", "ankra cluster power-schedules create",
+		"Off-hours saving for staging-1 is computed for stop \"0 19 * * 1-5\" / start \"0 7 * * 1-5\"", "ankra cluster power-schedules create",
 		"Unpriced clusters (no cost snapshot yet):", "imported-lab", "imported",
 		"Stale clusters (metering stopped over a day ago):", "old-dev", "k3s",
 		"Unreadable clusters (breakdown could not be read on this pass):", "flaky",
 		"Waste: 7 findings open, €120.00/mo (2 unpriced, not in that figure) · scanned 2026-09-17T22:00:00",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output lacks %q:\n%s", expected, output)
+		}
+	}
+}
+
+func TestCostSavingsOffHoursHintGroupsClustersByTheirOwnCrons(t *testing.T) {
+	savings := cloudSavingsFixture()
+	weekendStop := "0 20 * * 5"
+	weekendStart := "0 6 * * 1"
+	sameStop := "0 19 * * 1-5"
+	sameStart := "0 7 * * 1-5"
+	savings.Recommendations = append(savings.Recommendations,
+		client.CloudSavingsRecommendation{Kind: "off_hours_schedule", ClusterName: "qa-2", ClusterID: "77777777-7777-4777-8777-777777777777",
+			Evidence: client.CloudSavingsEvidence{StopCron: &sameStop, StartCron: &sameStart}},
+		client.CloudSavingsRecommendation{Kind: "off_hours_schedule", ClusterName: "perf-lab", ClusterID: "88888888-8888-4888-8888-888888888888",
+			Evidence: client.CloudSavingsEvidence{StopCron: &weekendStop, StartCron: &weekendStart}})
+	output, executeError := runCostCommand(t, &costMock{savings: savings}, "cost", "savings")
+	if executeError != nil {
+		t.Fatalf("cost savings failed: %v", executeError)
+	}
+	for _, expected := range []string{
+		"Off-hours saving for staging-1, qa-2 is computed for stop \"0 19 * * 1-5\" / start \"0 7 * * 1-5\"",
+		"Off-hours saving for perf-lab is computed for stop \"0 20 * * 5\" / start \"0 6 * * 1\"",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output lacks %q:\n%s", expected, output)

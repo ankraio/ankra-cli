@@ -424,6 +424,30 @@ func renderCloudSavingsClusters(out io.Writer, heading string, clusters []client
 	writer.Render()
 }
 
+// renderCloudSavingsOffHoursHint names the stop/start schedule each
+// off-hours saving was computed for. The model uses one schedule today, but
+// the hint groups clusters by their own pair so a second schedule could never
+// be printed under the first one's crons.
+func renderCloudSavingsOffHoursHint(out io.Writer, recommendations []client.CloudSavingsRecommendation) {
+	type cronPair struct{ stop, start string }
+	clustersByPair := map[cronPair][]string{}
+	pairs := []cronPair{}
+	for _, recommendation := range recommendations {
+		if recommendation.Kind != "off_hours_schedule" || recommendation.Evidence.StopCron == nil || recommendation.Evidence.StartCron == nil {
+			continue
+		}
+		pair := cronPair{stop: *recommendation.Evidence.StopCron, start: *recommendation.Evidence.StartCron}
+		if _, seen := clustersByPair[pair]; !seen {
+			pairs = append(pairs, pair)
+		}
+		clustersByPair[pair] = append(clustersByPair[pair], recommendation.ClusterName)
+	}
+	for _, pair := range pairs {
+		_, _ = fmt.Fprintf(out, "Off-hours saving for %s is computed for stop %q / start %q; create them with ankra cluster power-schedules create --action stop|start --cron.\n",
+			strings.Join(clustersByPair[pair], ", "), pair.stop, pair.start)
+	}
+}
+
 func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, currency string) {
 	_, _ = fmt.Fprintln(out)
 	switch {
@@ -498,13 +522,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 			})
 		}
 		writer.Render()
-		for _, recommendation := range savings.Recommendations {
-			if recommendation.Kind == "off_hours_schedule" && recommendation.Evidence.StopCron != nil && recommendation.Evidence.StartCron != nil {
-				_, _ = fmt.Fprintf(out, "Off-hours schedules are computed for stop %q / start %q; create them with ankra cluster power-schedules create --action stop|start --cron.\n",
-					*recommendation.Evidence.StopCron, *recommendation.Evidence.StartCron)
-				break
-			}
-		}
+		renderCloudSavingsOffHoursHint(out, savings.Recommendations)
 	}
 
 	renderCloudSavingsClusters(out, "Unpriced clusters (no cost snapshot yet):", savings.UnpricedClusters, true)
