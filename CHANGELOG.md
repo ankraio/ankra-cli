@@ -4,6 +4,16 @@
 
 ### Added
 
+- **`-o json` and `-o yaml` no longer hand a script text that hides
+  characters.** The human-readable rendering already stripped invisible
+  Unicode, but structured output is written earlier and went out untouched,
+  which is the payload that actually gets piped into another tool. Every
+  command with `-o json|yaml` now strips it and says so: an object payload
+  carries a `hidden_characters_removed` count, and a warning naming the count
+  goes to stderr so stdout stays parseable. Output that was hiding nothing is
+  byte-identical to before, field order included, so existing scripts see no
+  change.
+
 - **Invisible characters can no longer change what an action proposal says.**
   Unicode Tag characters render as nothing and mirror ASCII one to one, and
   bidirectional controls reorder what a terminal displays, so a server- or
@@ -138,6 +148,15 @@
   rather than leaving it to be discovered.
 
 ### Fixed
+
+- **A Persian or Hindi name is no longer reshaped in what the CLI prints.**
+  The invisible-character strip removed every zero-width joiner and
+  non-joiner, but those scripts write them inside ordinary words, so a
+  customer's own name could come back misspelled. The joiner is now kept
+  where it is doing real work, between letters of a script that uses joiners
+  and inside an emoji sequence, and still removed between Latin letters,
+  which is the case that hides text and makes `prod-1` and `prod<joiner>-1`
+  look identical.
 
 - **The CLI can see Ankra's platform builders.** A build the run's cluster
   cannot take is moved to Ankra's own builders, a lane that opens no execution
