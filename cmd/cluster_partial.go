@@ -230,19 +230,44 @@ func parseOutputFormat(s string) (outputFormat, error) {
 // encodeStructured writes value as indented JSON or YAML for the structured -o
 // formats. It is a no-op for outputDefault, so callers gate on the format being
 // non-default before falling back to their human-readable rendering.
+//
+// Hidden Unicode is stripped on the way out and the count reported in the
+// document, because this is the seam every machine-readable payload passes
+// through; see cmd/output_hidden.go for what that changes and why.
 func encodeStructured(out io.Writer, format outputFormat, value interface{}) error {
+	_, err := encodeStructuredCounting(out, format, value)
+	return err
+}
+
+// encodeStructuredCounting is encodeStructured plus the number of hidden
+// characters it removed, for callers that also want to tell the operator.
+func encodeStructuredCounting(out io.Writer, format outputFormat, value interface{}) (int, error) {
+	switch format {
+	case outputJSON, outputYAML:
+	default:
+		return 0, nil
+	}
+	cleaned, removed, err := sanitizeStructured(format, value)
+	if err != nil {
+		return 0, err
+	}
+	if removed > 0 {
+		// Only a payload that was hiding something takes the generic path,
+		// so untouched output stays byte-identical to before.
+		value = cleaned
+	}
 	switch format {
 	case outputJSON:
 		encoder := json.NewEncoder(out)
 		encoder.SetIndent("", "  ")
-		return encoder.Encode(value)
+		return removed, encoder.Encode(value)
 	case outputYAML:
 		encoder := yaml.NewEncoder(out)
 		encoder.SetIndent(2)
 		defer func() { _ = encoder.Close() }()
-		return encoder.Encode(value)
+		return removed, encoder.Encode(value)
 	default:
-		return nil
+		return 0, nil
 	}
 }
 

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
@@ -41,7 +43,17 @@ func renderStructured(cmd *cobra.Command, value interface{}) (bool, error) {
 	if format == outputDefault {
 		return false, nil
 	}
-	return true, encodeStructured(cmd.OutOrStdout(), format, value)
+	removed, err := encodeStructuredCounting(cmd.OutOrStdout(), format, value)
+	if err != nil {
+		return true, err
+	}
+	// The notice goes to stderr so a script parsing stdout is unaffected by
+	// it, and the count is in the document too when its shape allows
+	// (cmd/output_hidden.go).
+	if notice := structuredHiddenNotice(removed); notice != "" {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), notice)
+	}
+	return true, nil
 }
 
 // asyncSubmittedResult is the structured shape emitted when an asynchronous
