@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -185,6 +186,9 @@ func TestRenderStructuredWarnsOnStderr(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "6 invisible character(s) were removed") {
 		t.Errorf("stderr is missing the warning, got %q", stderr.String())
+	}
+	if count := strings.Count(stderr.String(), "invisible character(s) were removed"); count != 1 {
+		t.Errorf("the notice was written %d times, want exactly one", count)
 	}
 	if strings.Contains(stdout.String(), "warning:") {
 		t.Error("the warning must not go to stdout, which is what scripts parse")
@@ -374,5 +378,67 @@ func TestStructuredMarkerIsUnconditional(t *testing.T) {
 	fallback, ok := decoded[hiddenRemovedKey+"_2"].(float64)
 	if !ok || int(fallback) != stats.removed {
 		t.Errorf("expected a suffixed marker carrying %d, got %#v", stats.removed, decoded)
+	}
+}
+
+// The two findings from the third AI review round, on ca9db02.
+
+func TestStructuredNoticeReachesDirectCallers(t *testing.T) {
+	// 55 call sites reach encodeStructured directly rather than through
+	// renderStructured. Emitting the notice only in renderStructured meant
+	// those paths stripped with no notice, and an array or scalar payload,
+	// which cannot carry the in-band marker without changing shape, was
+	// altered with no signal at all.
+	cases := map[string]interface{}{
+		"object payload": map[string]interface{}{"summary": "text " + tagRun("hidden")},
+		"array payload":  []string{"clean", "hidden " + tagRun("x")},
+		"scalar payload": "hidden " + tagRun("y"),
+	}
+	for name, payload := range cases {
+		t.Run(name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			stats, err := encodeStructuredCounting(&out, outputJSON, payload, &errOut)
+			if err != nil {
+				t.Fatalf("encodeStructuredCounting: %v", err)
+			}
+			if stats.removed == 0 {
+				t.Fatal("expected this payload to be stripped")
+			}
+			if !strings.Contains(errOut.String(), "invisible character(s) were removed") {
+				t.Errorf("a direct caller got no notice, stderr was %q", errOut.String())
+			}
+			if strings.Contains(out.String(), "invisible character(s)") {
+				t.Error("the notice must not go to stdout, which is what scripts parse")
+			}
+		})
+	}
+}
+
+func TestStructuredNoticeIsSilentForCleanPayloads(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if _, err := encodeStructuredCounting(&out, outputJSON, healthPayload{Summary: "all good"}, &errOut); err != nil {
+		t.Fatalf("encodeStructuredCounting: %v", err)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("a clean payload must produce no notice, got %q", errOut.String())
+	}
+}
+
+func TestMarkerFallbackNeverCollides(t *testing.T) {
+	// A payload that owns the marker name and every suffix we would reach for
+	// is contrived, which is exactly the shape an adversarial payload takes.
+	// The name we pick must be free, whatever the payload holds.
+	existing := map[string]bool{hiddenRemovedKey: true}
+	for suffix := 2; suffix < 250; suffix++ {
+		existing[fmt.Sprintf("%s_%d", hiddenRemovedKey, suffix)] = true
+	}
+	existing[hiddenRemovedKey+"_cli"] = true
+
+	chosen := markerKeyForNames(existing)
+	if existing[chosen] {
+		t.Errorf("markerKeyForNames chose %q, which the payload already owns", chosen)
+	}
+	if !strings.HasPrefix(chosen, hiddenRemovedKey) {
+		t.Errorf("chosen name %q should still be recognisable as the marker", chosen)
 	}
 }

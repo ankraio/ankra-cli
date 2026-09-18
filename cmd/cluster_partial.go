@@ -239,9 +239,14 @@ func encodeStructured(out io.Writer, format outputFormat, value interface{}) err
 	return err
 }
 
-// encodeStructuredCounting is encodeStructured plus the number of hidden
-// characters it removed, for callers that also want to tell the operator.
-func encodeStructuredCounting(out io.Writer, format outputFormat, value interface{}) (stripStats, error) {
+// encodeStructuredCounting is encodeStructured plus what the strip found.
+//
+// The hidden-character notice is written here, so every structured path emits
+// it exactly once: most callers reach this function directly rather than
+// through renderStructured. errOut names where the notice goes; callers that
+// hold a *cobra.Command pass its ErrOrStderr so the command's own redirection
+// is honoured, and the rest default to os.Stderr.
+func encodeStructuredCounting(out io.Writer, format outputFormat, value interface{}, errOut ...io.Writer) (stripStats, error) {
 	switch format {
 	case outputJSON, outputYAML:
 	default:
@@ -256,19 +261,33 @@ func encodeStructuredCounting(out io.Writer, format outputFormat, value interfac
 		// so untouched output stays byte-identical to before.
 		value = cleaned
 	}
+	var encodeErr error
 	switch format {
 	case outputJSON:
 		encoder := json.NewEncoder(out)
 		encoder.SetIndent("", "  ")
-		return stats, encoder.Encode(value)
+		encodeErr = encoder.Encode(value)
 	case outputYAML:
 		encoder := yaml.NewEncoder(out)
 		encoder.SetIndent(2)
-		defer func() { _ = encoder.Close() }()
-		return stats, encoder.Encode(value)
+		encodeErr = encoder.Encode(value)
+		_ = encoder.Close()
 	default:
 		return stripStats{}, nil
 	}
+	if notice := structuredHiddenNotice(stats); notice != "" {
+		_, _ = fmt.Fprintln(structuredErrWriter(errOut), notice)
+	}
+	return stats, encodeErr
+}
+
+// structuredErrWriter resolves where the notice goes: the writer a caller
+// supplied, or os.Stderr for the call sites that hold no command.
+func structuredErrWriter(errOut []io.Writer) io.Writer {
+	if len(errOut) > 0 && errOut[0] != nil {
+		return errOut[0]
+	}
+	return os.Stderr
 }
 
 // dryRunEnvelope is the structured shape emitted by --dry-run -o json|yaml so

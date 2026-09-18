@@ -198,14 +198,16 @@ func markerKeyForNames(existing map[string]bool) string {
 	if !existing[hiddenRemovedKey] {
 		return hiddenRemovedKey
 	}
-	// The payload owns the name. Take a suffixed one rather than stay silent.
-	for suffix := 2; suffix < 100; suffix++ {
+	// The payload owns the name. Take a suffixed one rather than stay silent,
+	// and keep counting until one is free: a payload that owns the first
+	// hundred variants is contrived, but this is the adversarial path, which
+	// is where contrived inputs live. The map is finite, so this terminates.
+	for suffix := 2; ; suffix++ {
 		candidate := fmt.Sprintf("%s_%d", hiddenRemovedKey, suffix)
 		if !existing[candidate] {
 			return candidate
 		}
 	}
-	return hiddenRemovedKey + "_cli"
 }
 
 func marshalFor(format outputFormat, value interface{}) ([]byte, error) {
@@ -276,6 +278,13 @@ func (s *stripStats) add(other stripStats) {
 // structuredHiddenNotice is the stderr line for a structured payload that was
 // carrying hidden characters. It goes to stderr so a script parsing stdout is
 // unaffected by it.
+//
+// It is emitted by encodeStructuredCounting rather than by renderStructured,
+// because 55 call sites reach encodeStructured directly. Emitting it only in
+// renderStructured meant those paths stripped with an in-band marker but no
+// notice, and for an array or scalar payload, which cannot carry the marker
+// without changing shape, with no signal at all: the "strip and say so"
+// contract quietly degrading to "strip silently" on most of its call sites.
 func structuredHiddenNotice(stats stripStats) string {
 	if stats.removed <= 0 {
 		return ""
