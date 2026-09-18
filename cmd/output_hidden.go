@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 
 	"ankra/internal/hiddenunicode"
 
@@ -31,7 +32,9 @@ import (
 //
 // A marker is added rather than stripping silently, mirroring what the
 // human-facing surfaces do: a machine consumer that is handed quietly altered
-// bytes has no way to know the payload was hostile. For an object payload the
+// bytes has no way to know the payload was hostile. The marker is
+// unconditional: if the payload already owns the field name, a suffixed one
+// is used rather than leaving the document unmarked. For an object payload the
 // marker is an extra field; for an array or a scalar it cannot be added
 // without changing the document's shape, so those get the stderr notice
 // (written by renderStructured) and nothing in band. A reviewer who would
@@ -56,13 +59,34 @@ type stripStats struct {
 // honoured per format, strips every string it finds, and reports what it
 // found. It returns a nil value when there was nothing to strip, so the
 // caller knows to encode the original.
+//
+// The two formats take different routes for the same reason: a number must
+// come out spelled exactly as it went in. JSON decodes with UseNumber; YAML
+// walks a yaml.Node, where every scalar keeps its literal and mapping order
+// survives as a bonus.
 func sanitizeStructured(format outputFormat, value interface{}) (interface{}, stripStats, error) {
 	raw, err := marshalFor(format, value)
 	if err != nil {
 		return nil, stripStats{}, err
 	}
-	generic, err := decodeGeneric(format, raw)
-	if err != nil {
+	if format == outputYAML {
+		return sanitizeYAMLDocument(raw)
+	}
+	return sanitizeJSONDocument(raw)
+}
+
+// sanitizeJSONDocument decodes with UseNumber so a number keeps its literal
+// instead of becoming a float64: without it, re-encoding a stripped payload
+// would round an integer above 2^53 (a resource quantity, a nanosecond
+// timestamp) and respell large or small floats. The payload that was hostile
+// would also have been the payload whose numbers stopped being exact.
+// json.Number is a distinct type, so the strip walk passes it through
+// untouched and it marshals back as the literal it came in as.
+func sanitizeJSONDocument(raw []byte) (interface{}, stripStats, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var generic interface{}
+	if err := decoder.Decode(&generic); err != nil {
 		return nil, stripStats{}, err
 	}
 	cleaned, stats := stripStructured(generic)
@@ -70,13 +94,118 @@ func sanitizeStructured(format outputFormat, value interface{}) (interface{}, st
 		return nil, stripStats{}, nil
 	}
 	if object, ok := cleaned.(map[string]interface{}); ok {
-		// Never overwrite a field the payload already owns.
-		if _, taken := object[hiddenRemovedKey]; !taken {
-			object[hiddenRemovedKey] = stats.removed
-		}
+		object[markerKeyFor(object)] = stats.removed
 		return object, stats, nil
 	}
 	return cleaned, stats, nil
+}
+
+// sanitizeYAMLDocument walks the document as nodes rather than decoding into
+// plain Go values. yaml.Unmarshal into interface{} resolves numbers itself,
+// so anything outside int64/uint64, or a float literal carrying more
+// precision than float64 holds, would be respelled on the way back out. A
+// node keeps the literal it was written with, and walking nodes also cleans
+// string keys wherever they appear, including inside a mapping whose other
+// keys are not strings, and preserves the document's own key order.
+func sanitizeYAMLDocument(raw []byte) (interface{}, stripStats, error) {
+	var document yaml.Node
+	if err := yaml.Unmarshal(raw, &document); err != nil {
+		return nil, stripStats{}, err
+	}
+	stats := stripYAMLNode(&document)
+	if stats.removed == 0 {
+		return nil, stripStats{}, nil
+	}
+	if root := documentRoot(&document); root != nil && root.Kind == yaml.MappingNode {
+		existing := map[string]bool{}
+		for index := 0; index+1 < len(root.Content); index += 2 {
+			existing[root.Content[index].Value] = true
+		}
+		key := markerKeyForNames(existing)
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(stats.removed)},
+		)
+	}
+	return &document, stats, nil
+}
+
+func documentRoot(node *yaml.Node) *yaml.Node {
+	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		return node.Content[0]
+	}
+	return node
+}
+
+// stripYAMLNode cleans every string scalar in the tree, keys included, and
+// drops a key/value pair whose key collides with an earlier one once cleaned.
+// Mapping content is already in document order, so the resolution is
+// deterministic without sorting.
+func stripYAMLNode(node *yaml.Node) stripStats {
+	var stats stripStats
+	switch node.Kind {
+	case yaml.DocumentNode, yaml.SequenceNode:
+		for _, child := range node.Content {
+			stats.add(stripYAMLNode(child))
+		}
+	case yaml.MappingNode:
+		seen := make(map[string]bool, len(node.Content)/2)
+		kept := make([]*yaml.Node, 0, len(node.Content))
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			key, value := node.Content[index], node.Content[index+1]
+			if key.Kind == yaml.ScalarNode && key.Tag == "!!str" {
+				cleanKey, removed := hiddenunicode.Strip(key.Value)
+				stats.removed += removed
+				key.Value = cleanKey
+				if seen[cleanKey] {
+					stats.keyCollisions++
+					continue
+				}
+				seen[cleanKey] = true
+			} else {
+				stats.add(stripYAMLNode(key))
+			}
+			stats.add(stripYAMLNode(value))
+			kept = append(kept, key, value)
+		}
+		node.Content = kept
+	case yaml.ScalarNode:
+		// Only strings are cleaned. Every other scalar keeps the literal it
+		// was written with, which is the whole point of walking nodes.
+		if node.Tag == "!!str" {
+			cleaned, removed := hiddenunicode.Strip(node.Value)
+			if removed > 0 {
+				node.Value = cleaned
+				stats.removed += removed
+			}
+		}
+	}
+	return stats
+}
+
+// markerKeyFor picks a name for the marker that the payload does not already
+// own, so the in-band signal is unconditional: a pipeline that never reads
+// stderr still learns the document was altered.
+func markerKeyFor(object map[string]interface{}) string {
+	existing := make(map[string]bool, len(object))
+	for key := range object {
+		existing[key] = true
+	}
+	return markerKeyForNames(existing)
+}
+
+func markerKeyForNames(existing map[string]bool) string {
+	if !existing[hiddenRemovedKey] {
+		return hiddenRemovedKey
+	}
+	// The payload owns the name. Take a suffixed one rather than stay silent.
+	for suffix := 2; suffix < 100; suffix++ {
+		candidate := fmt.Sprintf("%s_%d", hiddenRemovedKey, suffix)
+		if !existing[candidate] {
+			return candidate
+		}
+	}
+	return hiddenRemovedKey + "_cli"
 }
 
 func marshalFor(format outputFormat, value interface{}) ([]byte, error) {
@@ -88,34 +217,10 @@ func marshalFor(format outputFormat, value interface{}) ([]byte, error) {
 	}
 }
 
-// decodeGeneric decodes an encoded document into plain maps and slices.
-//
-// JSON goes through a decoder with UseNumber, so a number keeps its literal
-// instead of becoming a float64: without it, re-encoding a stripped payload
-// would round an integer above 2^53 (a resource quantity, a nanosecond
-// timestamp) and respell large or small floats. The payload that was hostile
-// would also have been the payload whose numbers stopped being exact.
-// json.Number is a distinct type, so the strip walk passes it through
-// untouched and it marshals back as the literal it came in as.
-func decodeGeneric(format outputFormat, raw []byte) (interface{}, error) {
-	var generic interface{}
-	if format == outputYAML {
-		if err := yaml.Unmarshal(raw, &generic); err != nil {
-			return nil, err
-		}
-		return generic, nil
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	if err := decoder.Decode(&generic); err != nil {
-		return nil, err
-	}
-	return generic, nil
-}
-
-// stripStructured walks a decoded document, cleaning every string in it, keys
-// included: a hidden character in a key hides the key itself from whoever
-// reads the output.
+// stripStructured walks a JSON-decoded document, cleaning every string in it,
+// keys included: a hidden character in a key hides the key itself from
+// whoever reads the output. YAML goes through stripYAMLNode instead, so the
+// map[interface{}]interface{} shape yaml.v3 produces never reaches here.
 //
 // Keys are visited in sorted order rather than Go's randomised map order, so
 // that when two keys clean to the same name the outcome is the same on every
@@ -158,16 +263,6 @@ func stripStructured(value interface{}) (interface{}, stripStats) {
 			rebuilt[cleanKey] = cleaned
 		}
 		return rebuilt, stats
-	case map[interface{}]interface{}:
-		// yaml.v3 decodes into map[string]interface{} for string keys, but a
-		// document with non-string keys still lands here.
-		var stats stripStats
-		for key, element := range typed {
-			cleaned, elementStats := stripStructured(element)
-			typed[key] = cleaned
-			stats.add(elementStats)
-		}
-		return typed, stats
 	default:
 		return value, stripStats{}
 	}

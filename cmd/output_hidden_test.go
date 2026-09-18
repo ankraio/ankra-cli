@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // tagRun spells text in Unicode Tag characters, which render as nothing and
@@ -282,5 +284,95 @@ func TestStructuredNoticeNamesKeyCollisions(t *testing.T) {
 	}
 	if strings.Contains(structuredHiddenNotice(stripStats{removed: 3}), "field name(s)") {
 		t.Error("a payload with no collisions must not mention them")
+	}
+}
+
+// The three findings from the second AI review round, on 839bbbc.
+
+type yamlNumbers struct {
+	Beta    uint64 `yaml:"beta"`
+	Alpha   int64  `yaml:"alpha"`
+	Summary string `yaml:"summary"`
+}
+
+func TestStructuredYAMLKeepsNumbersAndKeyOrder(t *testing.T) {
+	// Decoding YAML into interface{} resolves numbers and sorts keys, so a
+	// stripped payload used to come back respelled and reordered. Walking
+	// nodes keeps both. Beta is past uint64's float64-exact range and Alpha is
+	// 2^53+1, the first integer a float64 cannot hold.
+	payload := yamlNumbers{
+		Beta:    18000000000000000000,
+		Alpha:   9007199254740993,
+		Summary: "degraded " + tagRun("leak"),
+	}
+
+	var out bytes.Buffer
+	stats, err := encodeStructuredCounting(&out, outputYAML, payload)
+	if err != nil {
+		t.Fatalf("encodeStructuredCounting: %v", err)
+	}
+	if stats.removed != 4 {
+		t.Fatalf("removed = %d, want 4 so the generic path is exercised", stats.removed)
+	}
+	if !strings.Contains(out.String(), "18000000000000000000") {
+		t.Errorf("integer beyond int64 was respelled:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "9007199254740993") {
+		t.Errorf("2^53+1 lost precision:\n%s", out.String())
+	}
+	if betaAt, alphaAt := strings.Index(out.String(), "beta"), strings.Index(out.String(), "alpha"); betaAt > alphaAt {
+		t.Errorf("document key order was not preserved:\n%s", out.String())
+	}
+}
+
+func TestStructuredYAMLCleansStringKeysBesideNonStringKeys(t *testing.T) {
+	// A mapping with a non-string key still carries string keys, and a hidden
+	// character in one of those hides the key itself.
+	zeroWidth := string(rune(0x200B))
+	raw := "1: numeric key\n" +
+		"clu" + zeroWidth + "ster: prod-1\n"
+	var value interface{}
+	if err := yaml.Unmarshal([]byte(raw), &value); err != nil {
+		t.Fatalf("seed unmarshal: %v", err)
+	}
+	var out bytes.Buffer
+	stats, err := encodeStructuredCounting(&out, outputYAML, value)
+	if err != nil {
+		t.Fatalf("encodeStructuredCounting: %v", err)
+	}
+	if stats.removed != 1 {
+		t.Errorf("removed = %d, want 1", stats.removed)
+	}
+	if strings.ContainsRune(out.String(), rune(0x200B)) {
+		t.Errorf("hidden character survived in a key:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "cluster:") {
+		t.Errorf("cleaned key missing:\n%s", out.String())
+	}
+}
+
+func TestStructuredMarkerIsUnconditional(t *testing.T) {
+	// When the payload owns the marker's name, the signal must still be in
+	// band: a pipeline that never reads stderr would otherwise be handed an
+	// altered document with nothing to show for it.
+	payload := map[string]interface{}{
+		"summary":        "text " + tagRun("hidden"),
+		hiddenRemovedKey: "owned by the payload",
+	}
+	var out bytes.Buffer
+	stats, err := encodeStructuredCounting(&out, outputJSON, payload)
+	if err != nil {
+		t.Fatalf("encodeStructuredCounting: %v", err)
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if decoded[hiddenRemovedKey] != "owned by the payload" {
+		t.Errorf("the payload's own field was overwritten: %v", decoded[hiddenRemovedKey])
+	}
+	fallback, ok := decoded[hiddenRemovedKey+"_2"].(float64)
+	if !ok || int(fallback) != stats.removed {
+		t.Errorf("expected a suffixed marker carrying %d, got %#v", stats.removed, decoded)
 	}
 }
