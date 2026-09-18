@@ -122,6 +122,24 @@
       "classes": []
     },
     {
+      "name": "indic_joiner_after_the_virama_survives",
+      "note": "The real Devanagari sequence: ka + virama + ZWJ + sha, where the joiner forces a half-form. The rule's look-behind skips combining marks for exactly this reason, so the consonant, not the virama, is what the letter test sees.",
+      "input": "\u0915\u094d\u200d\u0937",
+      "output": "\u0915\u094d\u200d\u0937",
+      "removed": 0,
+      "classes": []
+    },
+    {
+      "name": "joiner_before_a_combining_mark_is_stripped",
+      "note": "The reversed ordering, ka + ZWJ + virama + sha, is not a sequence any Indic text produces, so the joiner has no shaping job and is stripped. Pinning both orderings is what stops a look-behind change from silently flipping either one. My own first attempt at the Devanagari case used this ordering and I wrongly concluded from the failure that no implementation handled Indic at all; the ankra-cli fork caught it by reading the Go.",
+      "input": "\u0915\u200d\u094d\u0937",
+      "output": "\u0915\u094d\u0937",
+      "removed": 1,
+      "classes": [
+        "zero-width"
+      ]
+    },
+    {
       "name": "emoji_zwj_family_survives",
       "note": "A real ZWJ sequence. Stripping these joiners would corrupt ordinary user text.",
       "input": "\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67 family",
@@ -209,7 +227,7 @@
       "remaining_non_conformers": "ankra-cli internal/hiddenunicode and agent internal/hiddenunicode drop every joiner except between emoji, so they still reshape Persian and Indic words. Tracked as ankra-4r75g.13; both are in review as PR #353 and PR #161.",
       "known_narrower_variant": "portal's named list is narrower than cluster's denylist, so a joiner between two CJK characters is kept by cluster and dropped by portal. Harmless today (CJK does not use joiners for shaping) and not worth a third rule, but it is why this case uses Persian and Devanagari rather than CJK.",
       "beware": "portal's first attempt used \\p{L} for 'joining script', which includes Latin, so de<ZWJ>lete still survived. The zwj_between_latin_letters_is_stripped case above is what catches getting it wrong.",
-      "known_limit": "the rule tests whether the NEIGHBOURS ARE LETTERS (Go unicode.IsLetter, Python str.isalpha), so a joiner next to a combining mark is stripped. That is exactly where Devanagari puts ZWJ, between a virama and a consonant to force a half-form, so Indic conjuncts are still reshaped by every implementation including the source of truth. Found on 2026-09-18 by asserting the opposite and watching it fail against four implementations at once. Widening the neighbour test to accept marks would fix it and belongs with ankra-4r75g.13, so every implementation moves together."
+      "combining_marks": "the look-behind skips Mn/Mc, because an Indic joiner follows the virama rather than the consonant, so ka+virama+ZWJ+sha is kept and the reversed ordering is stripped. Both are asserted above. An earlier note here claimed the opposite - that every implementation reshaped Indic conjuncts - which was wrong: I had written the test vector in the reversed ordering and drew the conclusion from my own bad vector rather than from the code."
     }
   ]
 }

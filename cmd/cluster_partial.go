@@ -241,17 +241,17 @@ func encodeStructured(out io.Writer, format outputFormat, value interface{}) err
 
 // encodeStructuredCounting is encodeStructured plus the number of hidden
 // characters it removed, for callers that also want to tell the operator.
-func encodeStructuredCounting(out io.Writer, format outputFormat, value interface{}) (int, error) {
+func encodeStructuredCounting(out io.Writer, format outputFormat, value interface{}) (stripStats, error) {
 	switch format {
 	case outputJSON, outputYAML:
 	default:
-		return 0, nil
+		return stripStats{}, nil
 	}
-	cleaned, removed, err := sanitizeStructured(format, value)
+	cleaned, stats, err := sanitizeStructured(format, value)
 	if err != nil {
-		return 0, err
+		return stripStats{}, err
 	}
-	if removed > 0 {
+	if stats.removed > 0 {
 		// Only a payload that was hiding something takes the generic path,
 		// so untouched output stays byte-identical to before.
 		value = cleaned
@@ -260,14 +260,14 @@ func encodeStructuredCounting(out io.Writer, format outputFormat, value interfac
 	case outputJSON:
 		encoder := json.NewEncoder(out)
 		encoder.SetIndent("", "  ")
-		return removed, encoder.Encode(value)
+		return stats, encoder.Encode(value)
 	case outputYAML:
 		encoder := yaml.NewEncoder(out)
 		encoder.SetIndent(2)
 		defer func() { _ = encoder.Close() }()
-		return removed, encoder.Encode(value)
+		return stats, encoder.Encode(value)
 	default:
-		return 0, nil
+		return stripStats{}, nil
 	}
 }
 

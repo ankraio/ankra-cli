@@ -34,7 +34,7 @@ const (
 	// moved ahead. That comparison needs the canonical copy, which lives in
 	// another repository, so it cannot run from inside this one. The
 	// cross-repo gate is still open on ankra-4r75g.11.
-	canonicalCorpusMD5 = "34a3bb79c70f03bd61cefc3411c06176"
+	canonicalCorpusMD5 = "483986725b9a480a32eb8b890bdced3e"
 
 	// canonicalCorpusVersion is the corpus schema version this loader
 	// understands. A bump means the shape changed, so the loader is reviewed

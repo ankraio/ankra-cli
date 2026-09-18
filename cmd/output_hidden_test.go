@@ -31,12 +31,12 @@ func TestStructuredOutputStripsHiddenUnicodeAndReportsIt(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	removed, err := encodeStructuredCounting(&out, outputJSON, payload)
+	stats, err := encodeStructuredCounting(&out, outputJSON, payload)
 	if err != nil {
 		t.Fatalf("encodeStructuredCounting: %v", err)
 	}
-	if removed != 34 {
-		t.Errorf("removed = %d, want 34 (33 tag characters and one zero-width space)", removed)
+	if stats.removed != 34 {
+		t.Errorf("removed = %d, want 34 (33 tag characters and one zero-width space)", stats.removed)
 	}
 
 	var decoded map[string]interface{}
@@ -60,12 +60,12 @@ func TestStructuredOutputLeavesCleanPayloadsByteIdentical(t *testing.T) {
 	payload := healthPayload{Summary: "all good", Issues: []string{"none"}, Score: 1}
 
 	var withStrip bytes.Buffer
-	removed, err := encodeStructuredCounting(&withStrip, outputJSON, payload)
+	stats, err := encodeStructuredCounting(&withStrip, outputJSON, payload)
 	if err != nil {
 		t.Fatalf("encodeStructuredCounting: %v", err)
 	}
-	if removed != 0 {
-		t.Fatalf("removed = %d, want 0 for a clean payload", removed)
+	if stats.removed != 0 {
+		t.Fatalf("removed = %d, want 0 for a clean payload", stats.removed)
 	}
 
 	// The reference is the encoder this function used before the strip was
@@ -88,12 +88,12 @@ func TestStructuredOutputLeavesCleanPayloadsByteIdentical(t *testing.T) {
 func TestStructuredOutputStripsYAML(t *testing.T) {
 	payload := healthPayload{Summary: "degraded " + tagRun("leak"), Score: 7}
 	var out bytes.Buffer
-	removed, err := encodeStructuredCounting(&out, outputYAML, payload)
+	stats, err := encodeStructuredCounting(&out, outputYAML, payload)
 	if err != nil {
 		t.Fatalf("encodeStructuredCounting: %v", err)
 	}
-	if removed != 4 {
-		t.Errorf("removed = %d, want 4", removed)
+	if stats.removed != 4 {
+		t.Errorf("removed = %d, want 4", stats.removed)
 	}
 	if !strings.Contains(out.String(), hiddenRemovedKey) {
 		t.Errorf("YAML output is missing the marker:\n%s", out.String())
@@ -109,12 +109,12 @@ func TestStructuredOutputKeepsArrayShape(t *testing.T) {
 	// instead (renderStructured). The shape is the contract here.
 	payload := []string{"clean", "hidden " + tagRun("x")}
 	var out bytes.Buffer
-	removed, err := encodeStructuredCounting(&out, outputJSON, payload)
+	stats, err := encodeStructuredCounting(&out, outputJSON, payload)
 	if err != nil {
 		t.Fatalf("encodeStructuredCounting: %v", err)
 	}
-	if removed != 1 {
-		t.Errorf("removed = %d, want 1", removed)
+	if stats.removed != 1 {
+		t.Errorf("removed = %d, want 1", stats.removed)
 	}
 	var decoded []string
 	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
@@ -149,12 +149,12 @@ func TestStructuredOutputStripsHiddenCharactersFromKeys(t *testing.T) {
 	// output, so keys are cleaned too.
 	payload := map[string]interface{}{"clu" + string(rune(0x200B)) + "ster": "prod-1"}
 	var out bytes.Buffer
-	removed, err := encodeStructuredCounting(&out, outputJSON, payload)
+	stats, err := encodeStructuredCounting(&out, outputJSON, payload)
 	if err != nil {
 		t.Fatalf("encodeStructuredCounting: %v", err)
 	}
-	if removed != 1 {
-		t.Errorf("removed = %d, want 1", removed)
+	if stats.removed != 1 {
+		t.Errorf("removed = %d, want 1", stats.removed)
 	}
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
@@ -191,11 +191,96 @@ func TestRenderStructuredWarnsOnStderr(t *testing.T) {
 
 func TestStructuredOutputIsUntouchedForDefaultFormat(t *testing.T) {
 	var out bytes.Buffer
-	removed, err := encodeStructuredCounting(&out, outputDefault, healthPayload{Summary: "x"})
+	stats, err := encodeStructuredCounting(&out, outputDefault, healthPayload{Summary: "x"})
 	if err != nil {
 		t.Fatalf("encodeStructuredCounting: %v", err)
 	}
-	if removed != 0 || out.Len() != 0 {
-		t.Errorf("outputDefault must write nothing, got %d bytes and removed=%d", out.Len(), removed)
+	if stats.removed != 0 || out.Len() != 0 {
+		t.Errorf("outputDefault must write nothing, got %d bytes and removed=%d", out.Len(), stats.removed)
+	}
+}
+
+// The two findings from the AI review on 754121d, pinned so neither can come
+// back.
+
+type quotaPayload struct {
+	Summary  string `json:"summary"`
+	Bytes    int64  `json:"bytes"`
+	Nanos    int64  `json:"nanos"`
+	Fraction string `json:"fraction"`
+}
+
+func TestStructuredOutputKeepsLargeNumbersExact(t *testing.T) {
+	// A generic JSON decode turns every number into a float64, which rounds
+	// anything above 2^53. The payload that was hostile would also have been
+	// the payload whose resource quantities and nanosecond timestamps stopped
+	// being exact, which is a poor trade for stripping some characters.
+	payload := quotaPayload{
+		Summary: "quota " + tagRun("hidden"),
+		Bytes:   9007199254740993, // 2^53 + 1: the first integer a float64 cannot hold
+		Nanos:   1758153600123456789,
+	}
+	var out bytes.Buffer
+	stats, err := encodeStructuredCounting(&out, outputJSON, payload)
+	if err != nil {
+		t.Fatalf("encodeStructuredCounting: %v", err)
+	}
+	if stats.removed == 0 {
+		t.Fatal("expected this payload to be stripped, so it takes the generic path")
+	}
+	if !strings.Contains(out.String(), "9007199254740993") {
+		t.Errorf("large integer lost precision in the stripped payload:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "1758153600123456789") {
+		t.Errorf("nanosecond timestamp lost precision in the stripped payload:\n%s", out.String())
+	}
+}
+
+func TestStructuredOutputKeyCollisionIsDeterministicAndReported(t *testing.T) {
+	// Two keys that render identically make the document ambiguous. Whatever
+	// we do must at least be the same on every run: Go's map order is random,
+	// so "whichever was visited last" would not have been.
+	zeroWidth := string(rune(0x200B))
+	payload := map[string]interface{}{
+		"cluster":                  "first",
+		"clu" + zeroWidth + "ster": "second",
+	}
+	var firstRun string
+	for attempt := 0; attempt < 8; attempt++ {
+		var out bytes.Buffer
+		stats, err := encodeStructuredCounting(&out, outputJSON, payload)
+		if err != nil {
+			t.Fatalf("encodeStructuredCounting: %v", err)
+		}
+		if stats.keyCollisions != 1 {
+			t.Errorf("keyCollisions = %d, want 1", stats.keyCollisions)
+		}
+		if attempt == 0 {
+			firstRun = out.String()
+			continue
+		}
+		if out.String() != firstRun {
+			t.Fatalf("collision resolved differently between runs:\n%s\nvs\n%s", firstRun, out.String())
+		}
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal([]byte(firstRun), &decoded); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if decoded["cluster"] != "first" {
+		t.Errorf("cluster = %v, want the first key in sorted order to keep the name", decoded["cluster"])
+	}
+}
+
+func TestStructuredNoticeNamesKeyCollisions(t *testing.T) {
+	notice := structuredHiddenNotice(stripStats{removed: 3, keyCollisions: 2})
+	if !strings.Contains(notice, "3 invisible character(s)") {
+		t.Errorf("notice must name the character count, got %q", notice)
+	}
+	if !strings.Contains(notice, "2 field name(s) became identical") {
+		t.Errorf("notice must name the collisions, got %q", notice)
+	}
+	if strings.Contains(structuredHiddenNotice(stripStats{removed: 3}), "field name(s)") {
+		t.Error("a payload with no collisions must not mention them")
 	}
 }
