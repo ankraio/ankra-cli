@@ -102,6 +102,21 @@ type PipelineRun struct {
 	// never "this run was not superseded".
 	SupersededByRunID     *string `json:"superseded_by_run_id"`
 	SupersededByRunNumber *int64  `json:"superseded_by_run_number"`
+	// CancelledBy, CancelReason and CancelledAt are who stopped the run and
+	// why (ankra-57z1w). CancelledBy is the actor in the same "<kind>:<id>"
+	// vocabulary RequestedBy uses - "user:<id>" for the cancel route,
+	// "github:<login>" for the Cancel action on a check run,
+	// "concurrency:<run id>" for a supersession - and CancelReason one of
+	// "user_requested", "source_control", "superseded".
+	//
+	// All three are null for a run that was not cancelled, for one cancelled
+	// before the platform recorded any of this, AND against a server too old
+	// to answer them at all. That is "not recorded", never "nobody": Outcome
+	// is what says a run was cancelled, and their absence must never be
+	// printed as the platform having cancelled it.
+	CancelledBy  *string `json:"cancelled_by"`
+	CancelReason *string `json:"cancel_reason"`
+	CancelledAt  *string `json:"cancelled_at"`
 	// AuthorityState, AuthorityHash and AuthorityDefinitionID are the
 	// authority the run was planned under (ankra-vn0bd.10.8): whose
 	// protected sections it executes, their digest, and the stored
