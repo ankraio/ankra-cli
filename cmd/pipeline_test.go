@@ -1761,6 +1761,71 @@ func TestPipelineGetOfACancelledRunNamesNoSupersession(t *testing.T) {
 	}
 }
 
+// TestPipelineGetNamesWhoCancelledTheRunAndWhy pins ankra-57z1w's CLI half
+// (PLA-866 ask j): a cancelled run says who stopped it and why, under a Status
+// line that used to be the whole answer. Smartoptics had two cancelled runs
+// and no way to tell a person's press from the concurrency policy.
+func TestPipelineGetNamesWhoCancelledTheRunAndWhy(t *testing.T) {
+	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-17", RunNumber: 17, Status: "concluded", Outcome: strPipelinePtr("cancelled"),
+		Trigger: "push", TriggerRef: "refs/heads/main", HeadSHA: strings.Repeat("c", 40),
+		QueuedAt:     "2026-09-15T00:00:00Z",
+		CancelledBy:  strPipelinePtr("github:octocat"),
+		CancelReason: strPipelinePtr("source_control"),
+		CancelledAt:  strPipelinePtr("2026-09-15T00:06:00Z"),
+	}}}
+	output, executeError := runPipelineCommand(t, mockClient, "get", "run-17",
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("get error = %v", executeError)
+	}
+	if !strings.Contains(output, "Cancelled: by github:octocat (source_control)") {
+		t.Errorf("output = %q, want the actor and the reason under the status line", output)
+	}
+}
+
+// TestPipelineGetOfACancelledRunSaysNothingTheServerDidNotRecord pins the
+// absent case, which is the whole estate of runs cancelled before the platform
+// recorded any of this, plus every run read from an older server. Printing a
+// Cancelled line with nobody in it would read as the platform having done it.
+func TestPipelineGetOfACancelledRunSaysNothingTheServerDidNotRecord(t *testing.T) {
+	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-17", RunNumber: 17, Status: "concluded", Outcome: strPipelinePtr("cancelled"),
+		Trigger: "push", TriggerRef: "refs/heads/main", HeadSHA: strings.Repeat("c", 40),
+		QueuedAt: "2026-09-15T00:00:00Z",
+	}}}
+	output, executeError := runPipelineCommand(t, mockClient, "get", "run-17",
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("get error = %v", executeError)
+	}
+	if strings.Contains(output, "Cancelled:") {
+		t.Errorf("output = %q, want no Cancelled line for a run the server attributed to nobody", output)
+	}
+}
+
+// TestPipelineGetOfASupersededRunSaysTheSupersessionOnce pins that the
+// supersession keeps its own line and does not also print as a cancellation:
+// a supersession records concurrency:<run id> as its actor, and the Superseded
+// line already says that in the words the run's author needs.
+func TestPipelineGetOfASupersededRunSaysTheSupersessionOnce(t *testing.T) {
+	run := supersededPipelineRun()
+	run.CancelledBy = strPipelinePtr("concurrency:run-18")
+	run.CancelReason = strPipelinePtr("superseded")
+	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{PipelineRun: run}}
+	output, executeError := runPipelineCommand(t, mockClient, "get", "run-17",
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("get error = %v", executeError)
+	}
+	if strings.Contains(output, "Cancelled:") {
+		t.Errorf("output = %q, want the supersession said once, on the Superseded line", output)
+	}
+	if !strings.Contains(output, "Superseded: by run #18") {
+		t.Errorf("output = %q, want the Superseded line kept", output)
+	}
+}
+
 // TestPipelineListShowsSupersededInTheStatusCell pins the listing half: the
 // STATUS column reads superseded rather than cancelled, so a page of runs
 // says which of its stopped runs were simply replaced.

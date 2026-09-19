@@ -463,6 +463,15 @@ for any cancelled one. In -o json the fields are 'error_class'
 finds these runs and must read the class to tell them from a run somebody
 cancelled.
 
+Cancelled runs (-o json 'cancelled_by', 'cancel_reason', 'cancelled_at';
+the Cancelled line): who stopped a run and why. 'cancelled_by' is the actor
+in the same form 'requested_by' uses - "user:<id>" for a cancel pressed in
+the portal, the CLI or the API, "github:<login>" for the Cancel action on a
+pull request's check run, "concurrency:<run id>" for a supersession - and
+'cancel_reason' is one of "user_requested", "source_control", "superseded".
+All three are null for a run nobody cancelled and for one cancelled before
+Ankra recorded this, which is "not recorded", never "the platform did it".
+
 Authority (-o json 'authority_state', the Authority line): the protected
 authority the run executed under. 'approved' - the default branch's
 definition declares no protected section, or an administrator approved
@@ -622,6 +631,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, sele
 	_, _ = fmt.Fprintf(out, "Run #%d (%s)\n", detail.RunNumber, detail.ID)
 	_, _ = fmt.Fprintf(out, "  Status:    %s\n", renderPipelineRunState(detail.PipelineRun))
 	printPipelineRunSupersession(out, detail.PipelineRun)
+	printPipelineRunCancellation(out, detail.PipelineRun)
 	_, _ = fmt.Fprintf(out, "  Trigger:   %s (%s)\n", detail.Trigger, detail.TriggerRef)
 	_, _ = fmt.Fprintf(out, "  Commit:    %s\n", detail.HeadSHA)
 	printPipelineRunAuthority(out, detail)
@@ -840,6 +850,52 @@ func pipelineRunSupersessionPhrase(run client.PipelineRun) string {
 		return "by a newer run the platform no longer reports"
 	}
 	return fmt.Sprintf("by run #%d", *run.SupersededByRunNumber)
+}
+
+// printPipelineRunCancellation names who stopped a cancelled run and why,
+// under the Status line that says only that it was stopped (ankra-57z1w).
+//
+// A cancelled run used to end "status concluded, outcome cancelled,
+// error_class null" with nothing saying whether that was the concurrency
+// policy, a queue watchdog, a person in the portal or the platform - and with
+// several sessions and webhooks acting on one repository, that is the
+// difference between "expected" and "something is wrong" (PLA-866 ask j,
+// Smartoptics). The platform now records the actor and a reason code, and this
+// is where a reader of `ankra pipeline get` sees them.
+//
+// A superseded run prints nothing here: printPipelineRunSupersession already
+// names the run that took its group, which is the same fact in the words that
+// run's author needs, and printing both said one thing twice.
+//
+// A server too old to report any of this prints nothing, which is "this
+// platform does not answer the question" - never "nobody cancelled it".
+func printPipelineRunCancellation(out io.Writer, run client.PipelineRun) {
+	if pipelineRunIsSuperseded(run) {
+		return
+	}
+	actor := optionalPipelineRunField(run.CancelledBy)
+	reason := optionalPipelineRunField(run.CancelReason)
+	if actor == "" && reason == "" {
+		return
+	}
+	switch {
+	case actor != "" && reason != "":
+		_, _ = fmt.Fprintf(out, "  Cancelled: by %s (%s)\n", actor, reason)
+	case actor != "":
+		_, _ = fmt.Fprintf(out, "  Cancelled: by %s\n", actor)
+	default:
+		_, _ = fmt.Fprintf(out, "  Cancelled: %s\n", reason)
+	}
+}
+
+// optionalPipelineRunField is a nullable run string as a plain one: "" for a
+// field the server did not answer, which every caller of it treats as "not
+// recorded" and prints nothing for.
+func optionalPipelineRunField(field *string) string {
+	if field == nil {
+		return ""
+	}
+	return strings.TrimSpace(*field)
 }
 
 // printPipelineRunFailure prints how a run failed: the error class the server
