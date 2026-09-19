@@ -1,6 +1,12 @@
 package cmd
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+)
 
 func TestReleaseAssetName(t *testing.T) {
 	cases := []struct {
@@ -89,6 +95,64 @@ func TestIsHomebrewManagedPath(t *testing.T) {
 	for input, want := range cases {
 		if got := isHomebrewManagedPath(input); got != want {
 			t.Errorf("isHomebrewManagedPath(%q) = %v, want %v", input, got, want)
+		}
+	}
+}
+
+func TestEnsureInstallPathWritableAcceptsAWritableDirectoryAndLeavesNothingBehind(t *testing.T) {
+	installDirectory := t.TempDir()
+	executablePath := filepath.Join(installDirectory, "ankra")
+	if writeError := os.WriteFile(executablePath, []byte("binary"), 0o755); writeError != nil {
+		t.Fatalf("write the stand-in binary: %v", writeError)
+	}
+
+	if probeError := ensureInstallPathWritable(executablePath); probeError != nil {
+		t.Fatalf("a writable install directory must pass the preflight, got: %v", probeError)
+	}
+
+	entries, readError := os.ReadDir(installDirectory)
+	if readError != nil {
+		t.Fatalf("read the install directory: %v", readError)
+	}
+	if len(entries) != 1 || entries[0].Name() != "ankra" {
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		t.Errorf("the preflight must clean up after itself, directory holds: %v", names)
+	}
+}
+
+// TestEnsureInstallPathWritableRefusesAnUnwritableDirectory is the customer
+// case from PLA-865: a root-owned /usr/local/bin/ankra upgraded as an
+// ordinary user. The refusal has to arrive here, before the confirmation
+// prompt and the download, and it has to name the command that works.
+func TestEnsureInstallPathWritableRefusesAnUnwritableDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not govern file creation on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root writes into a read-only directory, so the refusal cannot be provoked")
+	}
+
+	installDirectory := t.TempDir()
+	executablePath := filepath.Join(installDirectory, "ankra")
+	if writeError := os.WriteFile(executablePath, []byte("binary"), 0o755); writeError != nil {
+		t.Fatalf("write the stand-in binary: %v", writeError)
+	}
+	if chmodError := os.Chmod(installDirectory, 0o555); chmodError != nil {
+		t.Fatalf("make the install directory read-only: %v", chmodError)
+	}
+	t.Cleanup(func() { _ = os.Chmod(installDirectory, 0o755) })
+
+	probeError := ensureInstallPathWritable(executablePath)
+	if probeError == nil {
+		t.Fatal("an unwritable install directory must be refused before anything is downloaded")
+	}
+	message := probeError.Error()
+	for _, expected := range []string{"permission denied", installDirectory, executablePath, "sudo ankra upgrade", installScriptURL} {
+		if !strings.Contains(message, expected) {
+			t.Errorf("the refusal must name %q, got: %s", expected, message)
 		}
 	}
 }
