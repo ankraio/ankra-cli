@@ -127,13 +127,13 @@ ankra cluster managed node-pool update <cluster_id> autoscaled --provider uks --
 ```
 
 `update` takes at least one of `--count`, `--autoscaling`, `--autoscaling-min`,
-`--autoscaling-max`; anything unspecified is left unchanged. `--autoscaling` is a boolean —
+`--autoscaling-max`, or `--externally-managed` by itself; anything unspecified is left unchanged. `--autoscaling` is a boolean —
 `--autoscaling=false` turns it off.
 
 `--externally-managed` is passed on its own. It marks the pool's node count as owned by
 something outside Ankra (UpCloud's Cluster Autoscaler on UKS, where Ankra does not manage
-autoscaling). While it is set, Ankra refuses to scale, update, replace or delete the pool, from
-the CLI, the portal, the API and Ankra AI alike; the pool listing shows `externally_managed`
+autoscaling). While it is set, Ankra refuses to scale the pool, change any other pool setting, replace it or
+delete it, from the CLI, the portal, the API and Ankra AI alike; the pool listing shows `externally_managed`
 and the provider's live `observed_count`. `--externally-managed=false` hands the pool back and
 adopts the live count. Ankra never changes a managed pool's count on its own, so the flag only
 guards explicit writes.
