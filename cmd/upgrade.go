@@ -158,6 +158,9 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 				"  brew update && brew upgrade ankra",
 			executablePath)
 	}
+	if writableError := ensureInstallPathWritable(executablePath); writableError != nil {
+		return writableError
+	}
 
 	action := "Upgrade"
 	switch {
@@ -650,6 +653,31 @@ func currentExecutablePath() (string, error) {
 		return executable, nil
 	}
 	return resolved, nil
+}
+
+// ensureInstallPathWritable answers the one failure the upgrade could always
+// have known up front: the running binary sits in a directory this user
+// cannot write, typically a root-owned /usr/local/bin. replaceExecutable
+// stages the replacement in that directory and renames it over the binary, so
+// the probe here is the same os.CreateTemp it will do, and the refusal is the
+// same one, only minutes earlier. Without it the release lookup, both
+// prompts, the download and the checksum all run first and the permission
+// error arrives last, which is how "I upgraded the CLI" ends with the old
+// version still installed.
+func ensureInstallPathWritable(executablePath string) error {
+	destinationDir := filepath.Dir(executablePath)
+
+	probe, createError := os.CreateTemp(destinationDir, ".ankra-upgrade-probe-*")
+	if createError != nil {
+		if os.IsPermission(createError) {
+			return permissionDeniedError(destinationDir, executablePath)
+		}
+		return fmt.Errorf("stage new binary in %s: %w", destinationDir, createError)
+	}
+	probePath := probe.Name()
+	_ = probe.Close()
+	_ = os.Remove(probePath)
+	return nil
 }
 
 // replaceExecutable atomically swaps the running binary for the freshly

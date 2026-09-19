@@ -136,6 +136,15 @@
 
 ### Fixed
 
+- **`ankra upgrade` says it cannot write the binary before it downloads one.**
+  An install owned by root (the usual `/usr/local/bin/ankra`) was only found
+  to be unwritable at the very last step, after the release lookup, the
+  confirmation prompt, the skills question, the download and the checksum had
+  all run. The permission refusal now arrives first, naming the directory, the
+  binary and `sudo ankra upgrade`, so an upgrade that cannot land stops in a
+  second instead of ending several steps later on a version that never
+  changed.
+
 - **The CLI can see Ankra's platform builders.** A build the run's cluster
   cannot take is moved to Ankra's own builders, a lane that opens no execution
   and so has no live log stream. `pipeline logs` read the missing execution
