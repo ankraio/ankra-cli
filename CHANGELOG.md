@@ -9,9 +9,9 @@
   pool's count on its own, but a scale, a `--count` update, a size replacement or
   a delete could still override the count a provider autoscaler had reached
   (UpCloud's Cluster Autoscaler on UKS, where Ankra does not manage autoscaling).
-  With the flag set the platform refuses all four until
-  `--externally-managed=false` hands the pool back, which adopts the provider's
-  live count. The flag is passed on its own, matching the API. The
+  With the flag set the platform refuses to scale the pool, change any other
+  pool setting, replace it or delete it, until `--externally-managed=false`
+  hands the pool back, which adopts the provider's live count. The flag is passed on its own, matching the API. The
   `ankra-managed-kubernetes` skill documents it.
 - **`ankra pipeline validate --ref` checks a candidate definition before it is
   merged.** Validating a change meant merging it to the default branch and
