@@ -288,13 +288,19 @@ func newApplicationPipelineValidateCommand() *cobra.Command {
 			if resolveError != nil {
 				return resolveError
 			}
-			filePath := defaultPipelineDefinitionPath
-			if len(arguments) == 2 {
-				filePath = arguments[1]
+			filePath, pathError := pipelineValidateFilePath(command, arguments[1:])
+			if pathError != nil {
+				return pathError
 			}
-			return runPipelineValidate(command, client.PipelineSelector{ApplicationID: applicationID}, filePath)
+			gitReference, _ := command.Flags().GetString("ref")
+			return runPipelineValidate(command, client.PipelineSelector{ApplicationID: applicationID},
+				filePath, strings.TrimSpace(gitReference))
 		},
 	}
+	validateCommand.Flags().String("spec-file", "",
+		"Validate this definition file, the same as passing it as the argument")
+	validateCommand.Flags().String("ref", "",
+		"Read the definition from this git reference in the current checkout (for example origin/my-branch) instead of the working tree")
 	registerStructuredOutputFlags(validateCommand)
 	return validateCommand
 }
