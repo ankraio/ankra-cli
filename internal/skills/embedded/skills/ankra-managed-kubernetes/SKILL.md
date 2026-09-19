@@ -120,11 +120,23 @@ ankra cluster managed node-pool update <cluster_id> workers --provider doks \
   --autoscaling --autoscaling-min 2 --autoscaling-max 10
 ankra cluster managed node-pool update <cluster_id> workers --provider doks --autoscaling=false
 ankra cluster managed node-pool delete <cluster_id> pool-b --provider doks --yes
+
+# hand a pool's node count to an autoscaler you run yourself, and take it back
+ankra cluster managed node-pool update <cluster_id> autoscaled --provider uks --externally-managed
+ankra cluster managed node-pool update <cluster_id> autoscaled --provider uks --externally-managed=false
 ```
 
 `update` takes at least one of `--count`, `--autoscaling`, `--autoscaling-min`,
 `--autoscaling-max`; anything unspecified is left unchanged. `--autoscaling` is a boolean —
 `--autoscaling=false` turns it off.
+
+`--externally-managed` is passed on its own. It marks the pool's node count as owned by
+something outside Ankra (UpCloud's Cluster Autoscaler on UKS, where Ankra does not manage
+autoscaling). While it is set, Ankra refuses to scale, update, replace or delete the pool, from
+the CLI, the portal, the API and Ankra AI alike; the pool listing shows `externally_managed`
+and the provider's live `observed_count`. `--externally-managed=false` hands the pool back and
+adopts the live count. Ankra never changes a managed pool's count on its own, so the flag only
+guards explicit writes.
 
 To see the pools, read the cluster: `ankra cluster info` and `ankra cluster get nodes`.
 
@@ -163,6 +175,8 @@ cluster created: those are frequently left behind and keep billing.
 - **`--provider-cluster-id` on import**, from `discover`.
 - **Autoscaling flags are `--autoscaling` / `--autoscaling-min` / `--autoscaling-max`** on
   `create`, `node-pool add` and `node-pool update`.
+- **UKS has no Ankra-managed autoscaling.** Run UpCloud's Cluster Autoscaler yourself and mark
+  the pool `--externally-managed` so nothing in Ankra overrides the count it reaches.
 - **Wire GitOps at create time** rather than retrofitting it.
 - **Confirm before create, import, upgrade and delete** — each costs money or is destructive.
 - **Prefer autoscaling bounds** to a large fixed count when the workload varies.
