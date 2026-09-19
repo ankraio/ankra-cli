@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -17,6 +18,20 @@ import (
 
 const (
 	defaultExecutionsPageSize = 50
+	// maxExecutionsPageSize is the largest page the executions API serves.
+	// A listing that wants more than one page's worth - because --name has
+	// to be matched client-side, or because --limit asks for more - walks
+	// the pages instead of asking for an oversized one, which the API
+	// refuses.
+	maxExecutionsPageSize = 100
+	// maxExecutionsPagesWalked bounds that walk, so a filter matching
+	// nothing costs a known number of calls rather than every execution the
+	// cluster has ever run.
+	maxExecutionsPagesWalked = 20
+	// collapsedRunLoopThreshold is the length of a run of identical
+	// successful executions at which the listing says out loud that it looks
+	// like a reconcile loop rather than that many real changes.
+	collapsedRunLoopThreshold = 5
 	executionRequestTimeout   = 30 * time.Second
 	defaultWatchInterval      = 5 * time.Second
 	// minWatchInterval keeps a misconfigured --interval from hammering the API
@@ -107,13 +122,19 @@ var clusterOperationsListCmd = &cobra.Command{
 		if failedOnly {
 			statusList = append(statusList, "failed", "critical")
 		}
-		options := client.ListExecutionsOptions{
-			ClusterID:                 cluster.ID,
-			StatusList:                statusList,
-			IncludeInternalExecutions: includeInternal,
-			AttentionState:            attentionState,
-			Page:                      1,
-			PageSize:                  limit,
+		nameFilter, _ := cmd.Flags().GetString("name")
+		noCollapse, _ := cmd.Flags().GetBool("no-collapse")
+		query := executionsQuery{
+			options: client.ListExecutionsOptions{
+				ClusterID:                 cluster.ID,
+				StatusList:                statusList,
+				IncludeInternalExecutions: includeInternal,
+				AttentionState:            attentionState,
+				Page:                      1,
+				PageSize:                  limit,
+			},
+			nameFilter: strings.TrimSpace(nameFilter),
+			limit:      limit,
 		}
 
 		executionID := ""
@@ -122,11 +143,11 @@ var clusterOperationsListCmd = &cobra.Command{
 		}
 
 		if format != outputDefault {
-			return renderExecutionsStructured(format, options, executionID)
+			return renderExecutionsStructured(format, query, executionID)
 		}
 
 		if !watch {
-			_, err := renderExecutionsOnce(options, executionID, true)
+			_, err := renderExecutionsOnce(query, executionID, true, !noCollapse)
 			return err
 		}
 
@@ -134,7 +155,7 @@ var clusterOperationsListCmd = &cobra.Command{
 			clearScreen()
 			fmt.Printf("Watching executions (every %s, press Ctrl+C to stop) - %s\n\n",
 				interval, time.Now().Format("15:04:05"))
-			keepWatching, err := renderExecutionsOnce(options, executionID, false)
+			keepWatching, err := renderExecutionsOnce(query, executionID, false, !noCollapse)
 			if err != nil {
 				return err
 			}
@@ -147,11 +168,89 @@ var clusterOperationsListCmd = &cobra.Command{
 	},
 }
 
+// executionsQuery is one listing request: the API options, plus the parts of
+// it the API cannot answer. The executions API takes no name filter, so a
+// --name listing that read only the first page would hide exactly what the
+// filter is for - on a cluster where one add-on reconciles every two minutes,
+// the executions a person is looking for are hundreds of rows back (PLA-863).
+type executionsQuery struct {
+	options    client.ListExecutionsOptions
+	nameFilter string
+	limit      int
+}
+
+// needsPageWalk reports whether this query cannot be served by a single API
+// call: a name filter has to be matched here, and a limit above one page has
+// to be collected across pages, because an oversized page_size is refused.
+func (query executionsQuery) needsPageWalk() bool {
+	return query.nameFilter != "" || query.limit > maxExecutionsPageSize
+}
+
+// fetch returns the executions this query selects, newest first, at most
+// `limit` of them.
+func (query executionsQuery) fetch() ([]client.ExecutionSummary, error) {
+	if !query.needsPageWalk() {
+		response, listError := apiClient.ListExecutions(query.options)
+		if listError != nil {
+			return nil, fmt.Errorf("listing executions: %w", listError)
+		}
+		return response.Result, nil
+	}
+
+	pageOptions := query.options
+	pageOptions.PageSize = maxExecutionsPageSize
+	matched := make([]client.ExecutionSummary, 0, query.limit)
+	for page := 1; page <= maxExecutionsPagesWalked; page++ {
+		pageOptions.Page = page
+		response, listError := apiClient.ListExecutions(pageOptions)
+		if listError != nil {
+			return nil, fmt.Errorf("listing executions: %w", listError)
+		}
+		for _, execution := range response.Result {
+			if !executionMatchesName(execution, query.nameFilter) {
+				continue
+			}
+			matched = append(matched, execution)
+			if len(matched) >= query.limit {
+				return matched, nil
+			}
+		}
+		if response.Pagination.TotalPages > 0 {
+			if page >= response.Pagination.TotalPages {
+				break
+			}
+		} else if len(response.Result) < maxExecutionsPageSize {
+			// A platform that sends no pagination totals is out of rows once
+			// it sends a short page.
+			break
+		}
+	}
+	return matched, nil
+}
+
+// executionMatchesName reports whether an execution's name contains the
+// filter, case-insensitively. Both the display name and the stored name are
+// matched, because an add-on's name reaches the listing through either
+// depending on what the execution was created by.
+func executionMatchesName(execution client.ExecutionSummary, nameFilter string) bool {
+	if nameFilter == "" {
+		return true
+	}
+	lowered := strings.ToLower(nameFilter)
+	return strings.Contains(strings.ToLower(execution.DisplayName), lowered) ||
+		strings.Contains(strings.ToLower(execution.Name), lowered)
+}
+
 // renderExecutionsOnce prints either the executions table or a single
 // execution detail, returning whether any rendered execution is still active
 // (used to decide whether a --watch loop keeps polling). Drift enrichment is
 // skipped in watch mode to avoid fetching full step results every poll tick.
-func renderExecutionsOnce(options client.ListExecutionsOptions, executionID string, includeDrift bool) (keepWatching bool, err error) {
+func renderExecutionsOnce(
+	query executionsQuery,
+	executionID string,
+	includeDrift bool,
+	collapseRepeats bool,
+) (keepWatching bool, err error) {
 	if executionID != "" {
 		var detail client.ExecutionDetail
 		if includeDrift {
@@ -167,17 +266,21 @@ func renderExecutionsOnce(options client.ListExecutionsOptions, executionID stri
 		return !isTerminalExecutionStatus(detail.Execution.Status), nil
 	}
 
-	response, err := apiClient.ListExecutions(options)
+	executions, err := query.fetch()
 	if err != nil {
-		return false, fmt.Errorf("listing executions: %w", err)
+		return false, err
 	}
-	if len(response.Result) == 0 {
+	if len(executions) == 0 {
+		if query.nameFilter != "" {
+			fmt.Printf("No executions matching %q for the active cluster.\n", query.nameFilter)
+			return false, nil
+		}
 		fmt.Println("No executions found for the active cluster.")
 		return false, nil
 	}
-	renderExecutionsTable(response.Result)
+	renderExecutionsTable(executions, collapseRepeats)
 
-	for _, execution := range response.Result {
+	for _, execution := range executions {
 		if !isTerminalExecutionStatus(execution.Status) {
 			return true, nil
 		}
@@ -186,8 +289,11 @@ func renderExecutionsOnce(options client.ListExecutionsOptions, executionID stri
 }
 
 // renderExecutionsStructured prints the list response (or a single execution
-// detail) using a structured -o format (json or yaml).
-func renderExecutionsStructured(format outputFormat, options client.ListExecutionsOptions, executionID string) error {
+// detail) using a structured -o format (json or yaml). --name narrows the
+// rows here too, because it is a filter; collapsing repeats does not apply,
+// because it is a way of reading the table and a script wants every row it
+// asked for.
+func renderExecutionsStructured(format outputFormat, query executionsQuery, executionID string) error {
 	if executionID != "" {
 		detail, err := loadExecutionDetailWithDrift(executionID)
 		if err != nil {
@@ -195,11 +301,11 @@ func renderExecutionsStructured(format outputFormat, options client.ListExecutio
 		}
 		return encodeStructured(os.Stdout, format, detail)
 	}
-	response, err := apiClient.ListExecutions(options)
+	executions, err := query.fetch()
 	if err != nil {
-		return fmt.Errorf("listing executions: %w", err)
+		return err
 	}
-	return encodeStructured(os.Stdout, format, response.Result)
+	return encodeStructured(os.Stdout, format, executions)
 }
 
 var clusterOperationsCancelCmd = &cobra.Command{
@@ -474,7 +580,95 @@ func renderAttention(execution client.ExecutionSummary) string {
 	return ""
 }
 
-func renderExecutionsTable(executions []client.ExecutionSummary) {
+// collapsedExecutionRun is a run of consecutive executions the listing
+// returned with the same name and a successful outcome, kept as one row.
+// Count is 1 for every execution that stands on its own, which is every
+// failure and anything with a different name beside it.
+type collapsedExecutionRun struct {
+	execution client.ExecutionSummary
+	count     int
+	earliest  *string
+	latest    *string
+}
+
+// isCollapsibleExecution reports whether an execution says nothing a person
+// needs row by row: it succeeded, so the only thing repeating it carries is
+// that it happened again.
+func isCollapsibleExecution(execution client.ExecutionSummary) bool {
+	switch strings.ToLower(strings.TrimSpace(execution.Status)) {
+	case "success", "succeeded":
+		return true
+	}
+	return false
+}
+
+// collapseRepeatedExecutions folds each run of consecutive identical
+// successful executions into a single row carrying how many there were and
+// the window they span. An add-on reconciling every two minutes used to push
+// the failures that explain an outage off the first page of the listing
+// (PLA-863); collapsed, those 16 rows are one, and nothing that failed or
+// differs from its neighbour is ever merged away.
+func collapseRepeatedExecutions(executions []client.ExecutionSummary) []collapsedExecutionRun {
+	runs := make([]collapsedExecutionRun, 0, len(executions))
+	for _, execution := range executions {
+		if len(runs) > 0 {
+			previous := &runs[len(runs)-1]
+			if isCollapsibleExecution(execution) && isCollapsibleExecution(previous.execution) &&
+				previous.execution.DisplayName == execution.DisplayName {
+				previous.count++
+				previous.earliest = earlierTimestamp(previous.earliest, execution.CreatedAt)
+				previous.latest = laterTimestamp(previous.latest, execution.UpdatedAt)
+				continue
+			}
+		}
+		runs = append(runs, collapsedExecutionRun{
+			execution: execution,
+			count:     1,
+			earliest:  execution.CreatedAt,
+			latest:    execution.UpdatedAt,
+		})
+	}
+	return runs
+}
+
+// earlierTimestamp and laterTimestamp compare the API's RFC 3339 timestamps
+// as text, which orders them correctly, so a collapsed row spans its whole
+// run whichever way the listing was ordered. A missing timestamp never wins.
+func earlierTimestamp(current *string, candidate *string) *string {
+	if candidate == nil || *candidate == "" {
+		return current
+	}
+	if current == nil || *current == "" || *candidate < *current {
+		return candidate
+	}
+	return current
+}
+
+func laterTimestamp(current *string, candidate *string) *string {
+	if candidate == nil || *candidate == "" {
+		return current
+	}
+	if current == nil || *current == "" || *candidate > *current {
+		return candidate
+	}
+	return current
+}
+
+func renderExecutionsTable(executions []client.ExecutionSummary, collapseRepeats bool) {
+	runs := make([]collapsedExecutionRun, 0, len(executions))
+	if collapseRepeats {
+		runs = collapseRepeatedExecutions(executions)
+	} else {
+		for _, execution := range executions {
+			runs = append(runs, collapsedExecutionRun{
+				execution: execution,
+				count:     1,
+				earliest:  execution.CreatedAt,
+				latest:    execution.UpdatedAt,
+			})
+		}
+	}
+
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.SetStyle(table.StyleRounded)
@@ -490,7 +684,8 @@ func renderExecutionsTable(executions []client.ExecutionSummary) {
 		{Number: 8, WidthMin: 20},
 	})
 
-	for _, execution := range executions {
+	for _, run := range runs {
+		execution := run.execution
 		summary := fmt.Sprintf("%d/%d/%d",
 			execution.StepSummary.Succeeded,
 			execution.StepSummary.Failed,
@@ -500,18 +695,49 @@ func renderExecutionsTable(executions []client.ExecutionSummary) {
 		if execution.ErrorExcerpt != nil {
 			errExcerpt = truncateString(*execution.ErrorExcerpt, 80)
 		}
+		displayName := execution.DisplayName
+		if run.count > 1 {
+			displayName = fmt.Sprintf("%s (x%d)", displayName, run.count)
+		}
 		t.AppendRow(table.Row{
 			execution.ID,
-			execution.DisplayName,
+			displayName,
 			renderColouredStatus(execution.Status),
 			renderAttention(execution),
 			summary,
 			errExcerpt,
-			formatOptionalTime(execution.CreatedAt),
-			formatOptionalTime(execution.UpdatedAt),
+			formatOptionalTime(run.earliest),
+			formatOptionalTime(run.latest),
 		})
 	}
 	t.Render()
+	printCollapsedExecutionsNotice(os.Stdout, runs)
+}
+
+// printCollapsedExecutionsNotice says what the table folded away and names
+// the repeats long enough to be a reconcile loop rather than that many real
+// changes - the add-on updating successfully every two minutes the customer
+// had to spot by counting rows.
+func printCollapsedExecutionsNotice(out io.Writer, runs []collapsedExecutionRun) {
+	foldedAway := 0
+	loopingNames := make([]collapsedExecutionRun, 0, len(runs))
+	for _, run := range runs {
+		if run.count > 1 {
+			foldedAway += run.count - 1
+		}
+		if run.count >= collapsedRunLoopThreshold {
+			loopingNames = append(loopingNames, run)
+		}
+	}
+	if foldedAway == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "\n%d repeated successful execution(s) collapsed into the rows marked (xN). --no-collapse lists every one.\n",
+		foldedAway)
+	for _, run := range loopingNames {
+		_, _ = fmt.Fprintf(out, "%q succeeded %d times with nothing else between them, which usually means it is reapplying without a change in desired state rather than %d real changes.\n",
+			run.execution.DisplayName, run.count, run.count)
+	}
 }
 
 // loadExecutionDetailWithDrift enriches best-effort: older platforms without
@@ -609,7 +835,12 @@ func init() {
 	clusterOperationsListCmd.Flags().StringSlice("status", nil, "Filter by execution status (repeatable). Examples: failed, critical, running")
 	clusterOperationsListCmd.Flags().Bool("failed", false, "Shortcut for --status failed --status critical")
 	clusterOperationsListCmd.Flags().String("attention", "", "Keep only executions in this attention state: 'open' (a failure that still needs you) or 'resolved' (a later run or the resource's own recovery cleared it)")
-	clusterOperationsListCmd.Flags().Int("limit", defaultExecutionsPageSize, "Maximum number of executions to return (max 100)")
+	clusterOperationsListCmd.Flags().String("name", "",
+		"Keep only executions whose name contains this text, case-insensitive: an add-on, manifest or stack name, for example 'kyverno'")
+	clusterOperationsListCmd.Flags().Bool("no-collapse", false,
+		"List every execution, instead of folding a run of identical successful ones into one row with a count")
+	clusterOperationsListCmd.Flags().Int("limit", defaultExecutionsPageSize,
+		"Maximum number of executions to return. Above 100, or with --name, the listing walks the API's pages instead of asking for one oversized page")
 	clusterOperationsListCmd.Flags().Bool("include-internal", false,
 		"Also list the platform's internal maintenance executions, such as the GitOps reconcile snapshot push, which the default listing hides")
 	clusterOperationsListCmd.Flags().BoolP("watch", "w", false,

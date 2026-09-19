@@ -4,6 +4,26 @@
 
 ### Added
 
+- **`ankra pipeline validate --ref` checks a candidate definition before it is
+  merged.** Validating a change meant merging it to the default branch and
+  running it, because `validate` only ever read the working tree or the stored
+  definition (PLA-863). `--ref` now reads the definition as it stands on a git
+  reference in the current checkout - `ankra pipeline validate --ref
+  origin/my-branch --application my-app` - so a branch is dry-run without being
+  checked out and without reaching the default branch first. The reference is
+  resolved locally, so someone else's branch needs a `git fetch` first, and a
+  reference that does not carry the file is an error rather than a quiet
+  fall-back to the stored definition. `--spec-file` is accepted as the flag
+  spelling of the file argument, matching `pipeline run --spec-file`; naming
+  the file both ways is a usage error. `application pipeline validate` takes
+  both flags too.
+- **`ankra cluster operations list --name` filters the listing by add-on,
+  manifest or stack name.** The executions API takes no name filter, so the
+  listing walks its pages instead of filtering one of them: on a cluster where
+  one add-on reconciles every two minutes, the rows a person is looking for are
+  pages back (PLA-863). `--limit` above 100 walks the pages the same way rather
+  than asking for a page the API refuses.
+
 - **`ankra cost savings` reads the savings model.** The platform now computes
   the organisation's savings recommendations server-side (one lever per
   cluster: right-size idle capacity, reduce the run rate no namespace claims,
@@ -133,6 +153,19 @@
   on `awaiting_deploy` and the cloned stack is deployed from the builder in
   the meantime. The help text and the `ankra-backups` skill both say so
   rather than leaving it to be discovered.
+
+### Changed
+
+- **`ankra cluster operations list` folds a run of identical successful
+  executions into one row.** Sixteen of the latest fifty executions on a
+  cluster were the same add-on updating successfully every two minutes, which
+  pushed the failures that explained an outage off the first page (PLA-863).
+  Consecutive successes with the same name are now one row marked `(xN)`,
+  spanning the whole run's timestamps, and a run of five or more is called out
+  as an add-on reapplying without a change in desired state rather than that
+  many real changes. Nothing that failed, and nothing whose name differs from
+  the row beside it, is ever folded. `--no-collapse` lists every execution, and
+  `-o json|yaml` is unchanged.
 
 ### Fixed
 
