@@ -292,13 +292,13 @@ func TestExecutionsQueryWalksPagesForANameFilter(t *testing.T) {
 		nameFilter: "kyverno",
 		limit:      50,
 	}
-	matched, fetchError := query.fetch()
+	page, fetchError := query.fetch()
 
 	if fetchError != nil {
 		t.Fatalf("fetch error = %v", fetchError)
 	}
-	if len(matched) != 1 || matched[0].ID != "execution-1" {
-		t.Fatalf("matched = %+v, want only the kyverno execution from the second page", matched)
+	if len(page.executions) != 1 || page.executions[0].ID != "execution-1" {
+		t.Fatalf("matched = %+v, want only the kyverno execution from the second page", page.executions)
 	}
 	if len(mock.requestedOptions) != 2 {
 		t.Fatalf("API calls = %d, want both pages read", len(mock.requestedOptions))
@@ -325,13 +325,13 @@ func TestExecutionsQueryStopsAtTheLimit(t *testing.T) {
 		nameFilter: "defectdojo",
 		limit:      2,
 	}
-	matched, fetchError := query.fetch()
+	page, fetchError := query.fetch()
 
 	if fetchError != nil {
 		t.Fatalf("fetch error = %v", fetchError)
 	}
-	if len(matched) != 2 {
-		t.Fatalf("matched = %d rows, want the limit", len(matched))
+	if len(page.executions) != 2 {
+		t.Fatalf("matched = %d rows, want the limit", len(page.executions))
 	}
 	if len(mock.requestedOptions) != 1 {
 		t.Errorf("API calls = %d, want the walk to stop once the limit was reached", len(mock.requestedOptions))
@@ -350,13 +350,13 @@ func TestExecutionsQueryReadsOnePageWhenItCan(t *testing.T) {
 		options: client.ListExecutionsOptions{ClusterID: "cluster-uuid", Page: 1, PageSize: 50},
 		limit:   50,
 	}
-	matched, fetchError := query.fetch()
+	page, fetchError := query.fetch()
 
 	if fetchError != nil {
 		t.Fatalf("fetch error = %v", fetchError)
 	}
-	if len(matched) != 1 {
-		t.Fatalf("matched = %d rows, want the single page", len(matched))
+	if len(page.executions) != 1 {
+		t.Fatalf("matched = %d rows, want the single page", len(page.executions))
 	}
 	if len(mock.requestedOptions) != 1 || mock.requestedOptions[0].PageSize != 50 {
 		t.Errorf("requested options = %+v, want one call at the caller's page size", mock.requestedOptions)
@@ -425,5 +425,126 @@ func TestClusterOperationsListNameFilterKeepsOnlyMatchingRows(t *testing.T) {
 	}
 	if strings.Contains(output, "execution-2") {
 		t.Errorf("output = %q, want the non-matching execution filtered out", output)
+	}
+}
+
+// TestCollapseRepeatedExecutionsKeepsTwoOperationsSharingADisplayName pins
+// that the display name alone never merges two rows: two different pieces of
+// work can be shown under the same label, and folding them would put a count
+// on a row that does not speak for the other.
+func TestCollapseRepeatedExecutionsKeepsTwoOperationsSharingADisplayName(t *testing.T) {
+	first := executionSummaryFixture("execution-1", "Update addon", "success", "2026-09-14T10:02:00Z")
+	second := executionSummaryFixture("execution-0", "Update addon", "success", "2026-09-14T10:00:00Z")
+	second.Name = "update_addon_kyverno"
+
+	runs := collapseRepeatedExecutions([]client.ExecutionSummary{first, second})
+
+	if len(runs) != 2 {
+		t.Fatalf("collapsed rows = %d, want both kept when the stored names differ", len(runs))
+	}
+}
+
+// TestCollapsedRunSpansAMixOfTimestampOffsets pins that the window a
+// collapsed row reports is built from parsed instants, so a listing mixing
+// "Z" and "+02:00" is not ordered by the text of the offset.
+func TestCollapsedRunSpansAMixOfTimestampOffsets(t *testing.T) {
+	newest := executionSummaryFixture("execution-1", "Update addon defectdojo", "success", "2026-09-14T12:30:00+02:00")
+	oldest := executionSummaryFixture("execution-0", "Update addon defectdojo", "success", "2026-09-14T10:00:00Z")
+
+	runs := collapseRepeatedExecutions([]client.ExecutionSummary{newest, oldest})
+
+	if len(runs) != 1 || runs[0].count != 2 {
+		t.Fatalf("collapsed rows = %+v, want one row folding both", runs)
+	}
+	if runs[0].earliest == nil || *runs[0].earliest != "2026-09-14T10:00:00Z" {
+		t.Errorf("run starts at %v, want the earlier instant rather than the earlier text", runs[0].earliest)
+	}
+	if runs[0].latest == nil || *runs[0].latest != "2026-09-14T12:30:00+02:00" {
+		t.Errorf("run ends at %v, want the later instant rather than the later text", runs[0].latest)
+	}
+}
+
+// fullExecutionsPage is a page of the largest size the API serves, so a test
+// can make the walk keep going.
+func fullExecutionsPage(prefix string, displayName string) []client.ExecutionSummary {
+	page := make([]client.ExecutionSummary, 0, maxExecutionsPageSize)
+	for index := 0; index < maxExecutionsPageSize; index++ {
+		page = append(page, executionSummaryFixture(fmt.Sprintf("%s-%d", prefix, index), displayName, "success",
+			"2026-09-14T10:00:00Z"))
+	}
+	return page
+}
+
+// TestExecutionsQueryReportsACappedWalk pins that a walk which stopped at its
+// page cap says so, because "nothing matched in the pages I read" is not the
+// same answer as "nothing matched", and reporting the second would send a
+// person away from rows that do exist.
+func TestExecutionsQueryReportsACappedWalk(t *testing.T) {
+	pages := make([][]client.ExecutionSummary, 0, maxExecutionsPagesWalked+1)
+	for pageNumber := 0; pageNumber <= maxExecutionsPagesWalked; pageNumber++ {
+		pages = append(pages, fullExecutionsPage(fmt.Sprintf("page-%d", pageNumber), "Update addon defectdojo"))
+	}
+	mock := &executionsPageMock{pages: pages}
+	setMockClient(t, mock)
+
+	query := executionsQuery{
+		options:    client.ListExecutionsOptions{ClusterID: "cluster-uuid", Page: 1, PageSize: 50},
+		nameFilter: "kyverno",
+		limit:      50,
+	}
+	page, fetchError := query.fetch()
+
+	if fetchError != nil {
+		t.Fatalf("fetch error = %v", fetchError)
+	}
+	if len(page.executions) != 0 {
+		t.Fatalf("matched = %d rows, want none", len(page.executions))
+	}
+	if !page.stoppedAtCap {
+		t.Error("stoppedAtCap = false, want the walk to report that it stopped short of the data")
+	}
+	if len(mock.requestedOptions) != maxExecutionsPagesWalked {
+		t.Errorf("API calls = %d, want the walk bounded at %d pages", len(mock.requestedOptions), maxExecutionsPagesWalked)
+	}
+}
+
+// TestExecutionsQueryDoesNotReportACappedWalkWhenItReadEverything pins the
+// other side: a walk that reached the end of the listing reports nothing.
+func TestExecutionsQueryDoesNotReportACappedWalkWhenItReadEverything(t *testing.T) {
+	mock := &executionsPageMock{pages: [][]client.ExecutionSummary{
+		{executionSummaryFixture("execution-1", "Update addon defectdojo", "success", "2026-09-14T10:04:00Z")},
+	}}
+	setMockClient(t, mock)
+
+	query := executionsQuery{
+		options:    client.ListExecutionsOptions{ClusterID: "cluster-uuid", Page: 1, PageSize: 50},
+		nameFilter: "kyverno",
+		limit:      50,
+	}
+	page, fetchError := query.fetch()
+
+	if fetchError != nil {
+		t.Fatalf("fetch error = %v", fetchError)
+	}
+	if page.stoppedAtCap {
+		t.Error("stoppedAtCap = true, want a walk that reached the end of the listing to say nothing")
+	}
+}
+
+func TestPrintExecutionsReadCapNoticeOnlySpeaksForACappedWalk(t *testing.T) {
+	query := executionsQuery{nameFilter: "kyverno"}
+	notice := new(bytes.Buffer)
+
+	printExecutionsReadCapNotice(notice, query, executionsPage{stoppedAtCap: false})
+	if notice.Len() != 0 {
+		t.Errorf("notice = %q, want nothing when the whole listing was read", notice.String())
+	}
+
+	printExecutionsReadCapNotice(notice, query, executionsPage{stoppedAtCap: true})
+	if !strings.Contains(notice.String(), fmt.Sprintf("%d most recent executions", executionsReadCap())) {
+		t.Errorf("notice = %q, want how far back the listing read", notice.String())
+	}
+	if !strings.Contains(notice.String(), "kyverno") {
+		t.Errorf("notice = %q, want the filter named in the advice", notice.String())
 	}
 }

@@ -186,46 +186,64 @@ func (query executionsQuery) needsPageWalk() bool {
 	return query.nameFilter != "" || query.limit > maxExecutionsPageSize
 }
 
+// executionsPage is what one listing read: the executions it selected, and
+// whether the page walk stopped at its cap with pages still unread. The
+// second is the difference between "nothing matched" and "nothing matched in
+// what was read", and a capped read must never be reported as the first.
+type executionsPage struct {
+	executions   []client.ExecutionSummary
+	stoppedAtCap bool
+}
+
 // fetch returns the executions this query selects, newest first, at most
 // `limit` of them.
-func (query executionsQuery) fetch() ([]client.ExecutionSummary, error) {
+func (query executionsQuery) fetch() (executionsPage, error) {
 	if !query.needsPageWalk() {
 		response, listError := apiClient.ListExecutions(query.options)
 		if listError != nil {
-			return nil, fmt.Errorf("listing executions: %w", listError)
+			return executionsPage{}, fmt.Errorf("listing executions: %w", listError)
 		}
-		return response.Result, nil
+		return executionsPage{executions: response.Result}, nil
 	}
 
 	pageOptions := query.options
 	pageOptions.PageSize = maxExecutionsPageSize
-	matched := make([]client.ExecutionSummary, 0, query.limit)
-	for page := 1; page <= maxExecutionsPagesWalked; page++ {
-		pageOptions.Page = page
+	page := executionsPage{executions: make([]client.ExecutionSummary, 0, query.limit)}
+	for pageNumber := 1; pageNumber <= maxExecutionsPagesWalked; pageNumber++ {
+		pageOptions.Page = pageNumber
 		response, listError := apiClient.ListExecutions(pageOptions)
 		if listError != nil {
-			return nil, fmt.Errorf("listing executions: %w", listError)
+			return executionsPage{}, fmt.Errorf("listing executions: %w", listError)
 		}
 		for _, execution := range response.Result {
 			if !executionMatchesName(execution, query.nameFilter) {
 				continue
 			}
-			matched = append(matched, execution)
-			if len(matched) >= query.limit {
-				return matched, nil
+			page.executions = append(page.executions, execution)
+			if len(page.executions) >= query.limit {
+				return page, nil
 			}
 		}
 		if response.Pagination.TotalPages > 0 {
-			if page >= response.Pagination.TotalPages {
-				break
+			if pageNumber >= response.Pagination.TotalPages {
+				return page, nil
 			}
 		} else if len(response.Result) < maxExecutionsPageSize {
 			// A platform that sends no pagination totals is out of rows once
 			// it sends a short page.
-			break
+			return page, nil
+		}
+		if pageNumber == maxExecutionsPagesWalked {
+			page.stoppedAtCap = true
 		}
 	}
-	return matched, nil
+	return page, nil
+}
+
+// executionsReadCap is how many executions a capped walk got through, which
+// is what a listing that stopped there has to say instead of "none".
+func executionsReadCap() int {
+	return maxExecutionsPagesWalked * maxExecutionsPageSize
 }
 
 // executionMatchesName reports whether an execution's name contains the
@@ -266,19 +284,25 @@ func renderExecutionsOnce(
 		return !isTerminalExecutionStatus(detail.Execution.Status), nil
 	}
 
-	executions, err := query.fetch()
+	page, err := query.fetch()
 	if err != nil {
 		return false, err
 	}
+	executions := page.executions
 	if len(executions) == 0 {
-		if query.nameFilter != "" {
+		switch {
+		case query.nameFilter != "" && page.stoppedAtCap:
+			fmt.Printf("No executions matching %q in the %d most recent executions, which is as far back as this listing reads. Narrow it with --failed or --status, or search for a shorter name.\n",
+				query.nameFilter, executionsReadCap())
+		case query.nameFilter != "":
 			fmt.Printf("No executions matching %q for the active cluster.\n", query.nameFilter)
-			return false, nil
+		default:
+			fmt.Println("No executions found for the active cluster.")
 		}
-		fmt.Println("No executions found for the active cluster.")
 		return false, nil
 	}
 	renderExecutionsTable(executions, collapseRepeats)
+	printExecutionsReadCapNotice(os.Stdout, query, page)
 
 	for _, execution := range executions {
 		if !isTerminalExecutionStatus(execution.Status) {
@@ -301,11 +325,28 @@ func renderExecutionsStructured(format outputFormat, query executionsQuery, exec
 		}
 		return encodeStructured(os.Stdout, format, detail)
 	}
-	executions, err := query.fetch()
+	page, err := query.fetch()
 	if err != nil {
 		return err
 	}
-	return encodeStructured(os.Stdout, format, executions)
+	// The cap notice is a hint about what was read, not part of the
+	// document, so it goes to stderr and leaves stdout parseable.
+	printExecutionsReadCapNotice(os.Stderr, query, page)
+	return encodeStructured(os.Stdout, format, page.executions)
+}
+
+// printExecutionsReadCapNotice says when a listing stopped at the page cap
+// with executions still unread, so rows that were never looked at are not
+// mistaken for rows that do not exist.
+func printExecutionsReadCapNotice(out io.Writer, query executionsQuery, page executionsPage) {
+	if !page.stoppedAtCap {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "\nRead the %d most recent executions and stopped there; older ones may also match.\n",
+		executionsReadCap())
+	if query.nameFilter != "" {
+		_, _ = fmt.Fprintf(out, "Narrow the listing with --failed or --status to reach further back for %q.\n", query.nameFilter)
+	}
 }
 
 var clusterOperationsCancelCmd = &cobra.Command{
@@ -602,6 +643,17 @@ func isCollapsibleExecution(execution client.ExecutionSummary) bool {
 	return false
 }
 
+// isSameExecutionOperation reports whether two executions are the same piece
+// of work repeated. The display name is what a person reads, but two
+// different operations can carry the same one (and an older platform may send
+// none at all), so the stored name and the type have to agree as well before
+// a row is allowed to speak for another.
+func isSameExecutionOperation(first client.ExecutionSummary, second client.ExecutionSummary) bool {
+	return first.DisplayName == second.DisplayName &&
+		first.Name == second.Name &&
+		first.Type == second.Type
+}
+
 // collapseRepeatedExecutions folds each run of consecutive identical
 // successful executions into a single row carrying how many there were and
 // the window they span. An add-on reconciling every two minutes used to push
@@ -614,7 +666,7 @@ func collapseRepeatedExecutions(executions []client.ExecutionSummary) []collapse
 		if len(runs) > 0 {
 			previous := &runs[len(runs)-1]
 			if isCollapsibleExecution(execution) && isCollapsibleExecution(previous.execution) &&
-				previous.execution.DisplayName == execution.DisplayName {
+				isSameExecutionOperation(previous.execution, execution) {
 				previous.count++
 				previous.earliest = earlierTimestamp(previous.earliest, execution.CreatedAt)
 				previous.latest = laterTimestamp(previous.latest, execution.UpdatedAt)
@@ -631,24 +683,39 @@ func collapseRepeatedExecutions(executions []client.ExecutionSummary) []collapse
 	return runs
 }
 
-// earlierTimestamp and laterTimestamp compare the API's RFC 3339 timestamps
-// as text, which orders them correctly, so a collapsed row spans its whole
-// run whichever way the listing was ordered. A missing timestamp never wins.
+// earlierTimestamp and laterTimestamp widen a collapsed row's window, so it
+// spans its whole run whichever way the listing was ordered. A missing
+// timestamp never wins.
 func earlierTimestamp(current *string, candidate *string) *string {
-	if candidate == nil || *candidate == "" {
-		return current
-	}
-	if current == nil || *current == "" || *candidate < *current {
-		return candidate
-	}
-	return current
+	return chooseTimestamp(current, candidate, true)
 }
 
 func laterTimestamp(current *string, candidate *string) *string {
+	return chooseTimestamp(current, candidate, false)
+}
+
+// chooseTimestamp picks the earlier or the later of two API timestamps.
+// They are parsed rather than compared as text, because comparing RFC 3339
+// as text only orders correctly while every timestamp carries the same
+// offset; a mix of "Z" and "+02:00" would order wrong and give a collapsed
+// row the wrong window. A timestamp that will not parse falls back to the
+// text comparison rather than being dropped.
+func chooseTimestamp(current *string, candidate *string, wantEarlier bool) *string {
 	if candidate == nil || *candidate == "" {
 		return current
 	}
-	if current == nil || *current == "" || *candidate > *current {
+	if current == nil || *current == "" {
+		return candidate
+	}
+	currentTime, currentError := time.Parse(time.RFC3339, *current)
+	candidateTime, candidateError := time.Parse(time.RFC3339, *candidate)
+	if currentError == nil && candidateError == nil {
+		if candidateTime.Before(currentTime) == wantEarlier && !candidateTime.Equal(currentTime) {
+			return candidate
+		}
+		return current
+	}
+	if (*candidate < *current) == wantEarlier && *candidate != *current {
 		return candidate
 	}
 	return current
