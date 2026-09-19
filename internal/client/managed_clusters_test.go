@@ -133,6 +133,41 @@ func TestUpdateManagedNodePool_SendsPatchWithChangedFieldsOnly(t *testing.T) {
 	}
 }
 
+func TestUpdateManagedNodePool_SendsExternallyManagedAlone(t *testing.T) {
+	var receivedBody map[string]any
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		isExternallyManaged := true
+		jsonResponse(t, w, http.StatusOK, UpdateManagedNodePoolResponse{
+			ClusterID:         "cluster-1",
+			NodePoolName:      "autoscaled",
+			Count:             intPtr(3),
+			ExternallyManaged: &isExternallyManaged,
+		})
+	}
+	testClient := newTestClient(t, handler)
+
+	isExternallyManaged := true
+	result, err := testClient.UpdateManagedNodePool(ManagedK8sProviderUks, "cluster-1", "autoscaled",
+		UpdateManagedNodePoolRequest{ExternallyManaged: &isExternallyManaged})
+	if err != nil {
+		t.Fatalf("UpdateManagedNodePool: %v", err)
+	}
+	if result.ExternallyManaged == nil || !*result.ExternallyManaged {
+		t.Errorf("result = %+v, want externally managed", result)
+	}
+	if flag, _ := receivedBody["externally_managed"].(bool); !flag {
+		t.Errorf("externally_managed = %v, want true", receivedBody["externally_managed"])
+	}
+	for _, field := range []string{"count", "autoscaling_enabled", "autoscaling_min", "autoscaling_max"} {
+		if _, present := receivedBody[field]; present {
+			t.Errorf("%s should be omitted when only the flag is set, body = %v", field, receivedBody)
+		}
+	}
+}
+
 func TestUpdateManagedNodePool_SendsAutoscalingFields(t *testing.T) {
 	var receivedBody map[string]any
 	handler := func(w http.ResponseWriter, r *http.Request) {
