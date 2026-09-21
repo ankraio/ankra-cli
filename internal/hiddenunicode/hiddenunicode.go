@@ -229,6 +229,6 @@ func Notice(removed int) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"%d invisible character(s) were removed before display. Text that hides characters "+
+		"%d invisible character(s) were removed from this text. Text that hides characters "+
 			"from you can read differently than it is.", removed)
 }

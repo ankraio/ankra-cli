@@ -379,8 +379,17 @@ var chatShowCmd = &cobra.Command{
 			return nil
 		}
 
+		// The title is derived from a question and every message body is
+		// either a person's or the model's, so a replayed conversation is
+		// the same untrusted text `ankra chat` strips live (ankra-4r75g.9).
+		hiddenRemoved := 0
+		clean := func(value string) string {
+			cleaned, removed := hiddenunicode.Strip(value)
+			hiddenRemoved += removed
+			return cleaned
+		}
 		if conv.Title != nil {
-			fmt.Printf("Conversation: %s\n", *conv.Title)
+			fmt.Printf("Conversation: %s\n", clean(*conv.Title))
 		} else {
 			fmt.Printf("Conversation: %s\n", conv.ID)
 		}
@@ -389,10 +398,13 @@ var chatShowCmd = &cobra.Command{
 
 		for _, msg := range conv.Messages {
 			if msg.Role == "user" {
-				fmt.Printf("%s: %s\n\n", text.FgCyan.Sprint("You"), msg.Content)
+				fmt.Printf("%s: %s\n\n", text.FgCyan.Sprint("You"), clean(msg.Content))
 			} else {
-				fmt.Printf("%s: %s\n\n", text.FgGreen.Sprint("Assistant"), msg.Content)
+				fmt.Printf("%s: %s\n\n", text.FgGreen.Sprint("Assistant"), clean(msg.Content))
 			}
+		}
+		if hiddenRemoved > 0 {
+			_, _ = fmt.Fprintf(os.Stderr, "%s\n", hiddenunicode.Notice(hiddenRemoved))
 		}
 		return nil
 	},
