@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- **Invisible characters can no longer change what an action proposal says.**
+  Unicode Tag characters render as nothing and mirror ASCII one to one, and
+  bidirectional controls reorder what a terminal displays, so a server- or
+  model-authored description could read as one action while carrying another,
+  and a suggested command could print differently than the bytes it is made
+  of. `ankra chat` now strips them from the answer, the status and tool lines,
+  the agent-mode approval card, `chat health` summaries and suggested actions,
+  and from the cluster name that `ankra openclaw skill` writes into a SKILL.md
+  an assistant loads as instructions. Removal is reported, not silent: the
+  approval card carries a warning naming the count before you answer the
+  prompt, and the chat lanes print one notice per turn on stderr so a piped
+  answer stays parseable. What the CLI sends to the platform's AI (`chat`,
+  `tickets comment`, `support create`) is stripped the same way, since a
+  payload pasted from a log would otherwise reach the model intact.
+
 ## v0.18.0 — 2026-09-21
 
 Promotes v0.18.0-rc0 to stable. The headline is that a stop no longer costs
