@@ -244,6 +244,8 @@ type APIClient interface {
 	SaveStackProfileVersion(requestContext context.Context, profileID string, saveRequest client.SaveStackProfileVersionRequest) (json.RawMessage, error)
 	SetStackProfileCurrentVersion(requestContext context.Context, profileID string, version int) (json.RawMessage, error)
 	DiffStackProfileVersions(requestContext context.Context, profileID string, fromVersion int, toVersion int) (json.RawMessage, error)
+	DeprecateStackProfileVersion(requestContext context.Context, profileID string, version int, deprecateRequest client.DeprecateStackProfileVersionRequest) (json.RawMessage, error)
+	UndeprecateStackProfileVersion(requestContext context.Context, profileID string, version int) (json.RawMessage, error)
 	ListStackProfileInstantiations(requestContext context.Context, profileID string) (json.RawMessage, error)
 	ListStackProfileShares(requestContext context.Context, profileID string) (json.RawMessage, error)
 	CreateStackProfileShare(requestContext context.Context, profileID string, organisationSlug string) (json.RawMessage, error)

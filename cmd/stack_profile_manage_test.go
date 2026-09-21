@@ -24,30 +24,36 @@ type stackProfileManageMock struct {
 	payload  json.RawMessage
 	versions map[int]json.RawMessage
 
-	createRequest      *client.CreateStackProfileFromStackRequest
-	updateProfileID    string
-	updateRequest      *client.UpdateStackProfileRequest
-	deleteCalls        int
-	saveRequest        *client.SaveStackProfileVersionRequest
-	currentVersion     int
-	versionRequested   int
-	diffFrom           int
-	diffTo             int
-	instantiationCalls int
-	shareSlug          string
-	shareRemovedID     string
-	shareListCalls     int
-	approveRequest     *client.ApproveStackProfileSuggestionRequest
-	rejectNote         string
-	withdrawCalls      int
-	launchRequest      *client.LaunchStackProfileDemoRequest
-	demoStopped        string
-	logo               *client.StackProfileLogo
-	logoPutType        string
-	logoClearCalls     int
-	validatedDraftID   string
-	rebaseRequest      *client.RebaseStackProfileDraftRequest
-	suggestionTitle    string
+	createRequest       *client.CreateStackProfileFromStackRequest
+	updateProfileID     string
+	updateRequest       *client.UpdateStackProfileRequest
+	deleteCalls         int
+	saveRequest         *client.SaveStackProfileVersionRequest
+	currentVersion      int
+	versionRequested    int
+	diffFrom            int
+	diffTo              int
+	deprecateRequest    *client.DeprecateStackProfileVersionRequest
+	deprecatedVersion   int
+	deprecateCalls      int
+	undeprecatedVersion int
+	undeprecateCalls    int
+	profileDetail       *client.StackProfileDetail
+	instantiationCalls  int
+	shareSlug           string
+	shareRemovedID      string
+	shareListCalls      int
+	approveRequest      *client.ApproveStackProfileSuggestionRequest
+	rejectNote          string
+	withdrawCalls       int
+	launchRequest       *client.LaunchStackProfileDemoRequest
+	demoStopped         string
+	logo                *client.StackProfileLogo
+	logoPutType         string
+	logoClearCalls      int
+	validatedDraftID    string
+	rebaseRequest       *client.RebaseStackProfileDraftRequest
+	suggestionTitle     string
 }
 
 func (mock *stackProfileManageMock) answer() (json.RawMessage, error) {
@@ -95,6 +101,23 @@ func (mock *stackProfileManageMock) DiffStackProfileVersions(requestContext cont
 	mock.diffFrom = fromVersion
 	mock.diffTo = toVersion
 	return mock.answer()
+}
+
+func (mock *stackProfileManageMock) DeprecateStackProfileVersion(requestContext context.Context, profileID string, version int, deprecateRequest client.DeprecateStackProfileVersionRequest) (json.RawMessage, error) {
+	mock.deprecateCalls++
+	mock.deprecatedVersion = version
+	mock.deprecateRequest = &deprecateRequest
+	return mock.answer()
+}
+
+func (mock *stackProfileManageMock) UndeprecateStackProfileVersion(requestContext context.Context, profileID string, version int) (json.RawMessage, error) {
+	mock.undeprecateCalls++
+	mock.undeprecatedVersion = version
+	return mock.answer()
+}
+
+func (mock *stackProfileManageMock) GetStackProfile(profileID string) (*client.StackProfileDetail, error) {
+	return mock.profileDetail, nil
 }
 
 func (mock *stackProfileManageMock) ListStackProfileInstantiations(requestContext context.Context, profileID string) (json.RawMessage, error) {
@@ -642,5 +665,268 @@ func TestStackProfilesUpdateValidatesOutputBeforeRequest(t *testing.T) {
 	}
 	if mock.updateRequest != nil {
 		t.Fatal("expected no update call with an invalid output format")
+	}
+}
+
+func TestStackProfilesDeprecateSendsTheReasonNoteAndReferences(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDeprecateCmd)
+	mock := &stackProfileManageMock{}
+	output, executeError := runStackProfilesCommand(t, mock, "", "deprecate", "postgres-ha", "v3",
+		"--reason", "cve", "--note", "Fixed in v11; see the advisory.",
+		"--reference", "CVE-2026-12345", "--reference", "https://example.test/advisory")
+	if executeError != nil {
+		t.Fatalf("deprecate failed: %v", executeError)
+	}
+	request := mock.deprecateRequest
+	if request == nil {
+		t.Fatal("expected a deprecate call")
+	}
+	if request.Reason != "cve" {
+		t.Errorf("reason = %q, want cve", request.Reason)
+	}
+	if request.Note != "Fixed in v11; see the advisory." {
+		t.Errorf("note = %q", request.Note)
+	}
+	if len(request.References) != 2 || request.References[1] != "https://example.test/advisory" {
+		t.Errorf("references = %v", request.References)
+	}
+	if mock.deprecatedVersion != 3 {
+		t.Errorf("version = %d, want 3", mock.deprecatedVersion)
+	}
+	if !strings.Contains(output, "Deprecated postgres-ha v3 (CVE).") {
+		t.Errorf("output = %q, want the confirmation line", output)
+	}
+}
+
+func TestStackProfilesDeprecateAcceptsTheHyphenatedReasonSpelling(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDeprecateCmd)
+	mock := &stackProfileManageMock{}
+	output, executeError := runStackProfilesCommand(t, mock, "", "deprecate", "postgres-ha", "3",
+		"--reason", "critical-bug")
+	if executeError != nil {
+		t.Fatalf("deprecate failed: %v", executeError)
+	}
+	if mock.deprecateRequest == nil || mock.deprecateRequest.Reason != "critical_bug" {
+		t.Fatalf("reason = %+v, want the snake_case critical_bug on the wire", mock.deprecateRequest)
+	}
+	if !strings.Contains(output, "Deprecated postgres-ha v3 (critical bug).") {
+		t.Errorf("output = %q, want the human label", output)
+	}
+}
+
+func TestStackProfilesDeprecateOmitsAnEmptyNoteAndReferenceList(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDeprecateCmd)
+	mock := &stackProfileManageMock{}
+	if _, executeError := runStackProfilesCommand(t, mock, "", "deprecate", "postgres-ha", "v2",
+		"--reason", "incompatibility"); executeError != nil {
+		t.Fatalf("deprecate failed: %v", executeError)
+	}
+	request := mock.deprecateRequest
+	if request == nil {
+		t.Fatal("expected a deprecate call")
+	}
+	if request.Note != "" || len(request.References) != 0 {
+		t.Errorf("request = %+v, want no note and no references", request)
+	}
+}
+
+func TestStackProfilesDeprecateRejectsAnUnknownReason(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDeprecateCmd)
+	mock := &stackProfileManageMock{}
+	_, executeError := runStackProfilesCommand(t, mock, "", "deprecate", "postgres-ha", "v3",
+		"--reason", "just-because")
+	if executeError == nil {
+		t.Fatal("expected an unknown reason to be refused")
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitUsage)
+	}
+	for _, want := range []string{"incompatibility", "critical-bug", "cve"} {
+		if !strings.Contains(executeError.Error(), want) {
+			t.Errorf("error = %q, want it to list %q", executeError, want)
+		}
+	}
+	if mock.deprecateCalls != 0 {
+		t.Errorf("expected no API call on a usage error, got %d", mock.deprecateCalls)
+	}
+}
+
+func TestStackProfilesDeprecateRequiresAReason(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDeprecateCmd)
+	mock := &stackProfileManageMock{}
+	_, executeError := runStackProfilesCommand(t, mock, "", "deprecate", "postgres-ha", "v3")
+	if executeError == nil {
+		t.Fatal("expected a missing --reason to be refused")
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitUsage)
+	}
+	if mock.deprecateCalls != 0 {
+		t.Errorf("expected no API call without a reason, got %d", mock.deprecateCalls)
+	}
+}
+
+func TestStackProfilesDeprecateRejectsAMalformedVersion(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDeprecateCmd)
+	mock := &stackProfileManageMock{}
+	_, executeError := runStackProfilesCommand(t, mock, "", "deprecate", "postgres-ha", "latest",
+		"--reason", "cve")
+	if executeError == nil {
+		t.Fatal("expected a malformed version to be refused")
+	}
+	if mock.deprecateCalls != 0 {
+		t.Errorf("expected no API call on a malformed version, got %d", mock.deprecateCalls)
+	}
+}
+
+func TestStackProfilesDeprecatePrintsTheReturnedSummaryAsJSON(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDeprecateCmd)
+	mock := &stackProfileManageMock{payload: json.RawMessage(`{"version":3,"deprecation":{"reason":"cve"}}`)}
+	output, executeError := runStackProfilesCommand(t, mock, "", "deprecate", "postgres-ha", "v3",
+		"--reason", "cve", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("deprecate -o json failed: %v", executeError)
+	}
+	if !strings.Contains(output, `"deprecation"`) {
+		t.Errorf("output = %q, want the returned version summary", output)
+	}
+	if strings.Contains(output, "Deprecated postgres-ha") {
+		t.Errorf("output = %q, want structured output only", output)
+	}
+}
+
+func TestStackProfilesUndeprecateLiftsTheDeprecation(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesUndeprecateCmd)
+	mock := &stackProfileManageMock{}
+	output, executeError := runStackProfilesCommand(t, mock, "", "undeprecate", "postgres-ha", "v3")
+	if executeError != nil {
+		t.Fatalf("undeprecate failed: %v", executeError)
+	}
+	if mock.undeprecateCalls != 1 || mock.undeprecatedVersion != 3 {
+		t.Fatalf("undeprecate calls = %d, version = %d", mock.undeprecateCalls, mock.undeprecatedVersion)
+	}
+	if !strings.Contains(output, "Version 3 of postgres-ha is no longer deprecated.") {
+		t.Errorf("output = %q, want the confirmation line", output)
+	}
+}
+
+func TestStackProfilesUndeprecateRejectsAMalformedVersion(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesUndeprecateCmd)
+	mock := &stackProfileManageMock{}
+	if _, executeError := runStackProfilesCommand(t, mock, "", "undeprecate", "postgres-ha", "newest"); executeError == nil {
+		t.Fatal("expected a malformed version to be refused")
+	}
+	if mock.undeprecateCalls != 0 {
+		t.Errorf("expected no API call on a malformed version, got %d", mock.undeprecateCalls)
+	}
+}
+
+// deprecatedProfileDetail is a two-version profile whose v1 was withdrawn
+// for a CVE, as `get` reads it.
+func deprecatedProfileDetail(note *string) *client.StackProfileDetail {
+	return &client.StackProfileDetail{
+		Profile: client.StackProfileSummary{
+			ID: "profile-1", Name: "postgres-ha", Category: "database",
+			Visibility: "organisation", LatestVersion: 2, CurrentVersion: 2,
+		},
+		Versions: []client.StackProfileVersionSummary{
+			{
+				ID: "version-1", Version: 1, Channel: "stable", CreatedAt: "2026-09-10T19:49:37Z",
+				Deprecation: &client.StackProfileVersionDeprecation{
+					Reason:       "cve",
+					Note:         note,
+					References:   []string{"CVE-2026-12345"},
+					DeprecatedAt: "2026-09-21T22:10:00.123456Z",
+				},
+			},
+			{ID: "version-2", Version: 2, Channel: "stable", CreatedAt: "2026-09-11T08:00:00Z"},
+		},
+	}
+}
+
+func TestStackProfilesGetShowsDeprecatedVersionsInTheStatusColumn(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesGetCmd)
+	note := "Fixed in v11; see the advisory."
+	mock := &stackProfileManageMock{profileDetail: deprecatedProfileDetail(&note)}
+	setMockClient(t, mock)
+
+	output := captureStdout(t, func() {
+		if _, executeError := executeCommand("stack-profiles", "get", "postgres-ha"); executeError != nil {
+			t.Fatalf("get failed: %v", executeError)
+		}
+	})
+
+	for _, want := range []string{"STATUS", "deprecated: CVE - Fixed in v11; see the advisory."} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output = %q, want %q", output, want)
+		}
+	}
+}
+
+func TestStackProfilesGetShowsADashForVersionsThatAreNotDeprecated(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesGetCmd)
+	mock := &stackProfileManageMock{profileDetail: deprecatedProfileDetail(nil)}
+	setMockClient(t, mock)
+
+	output := captureStdout(t, func() {
+		if _, executeError := executeCommand("stack-profiles", "get", "postgres-ha"); executeError != nil {
+			t.Fatalf("get failed: %v", executeError)
+		}
+	})
+
+	if !strings.Contains(output, "deprecated: CVE") {
+		t.Errorf("output = %q, want the reason without a note", output)
+	}
+	if strings.Contains(output, "deprecated: CVE -") {
+		t.Errorf("output = %q, want no note separator when there is no note", output)
+	}
+	if !strings.Contains(output, "│ -") {
+		t.Errorf("output = %q, want a dash for the version that is still fit to deploy", output)
+	}
+}
+
+func TestStackProfileVersionStatusCellTruncatesALongNote(t *testing.T) {
+	note := strings.Repeat("a", 120)
+	cell := stackProfileVersionStatusCell(&client.StackProfileVersionDeprecation{Reason: "critical_bug", Note: &note})
+	if !strings.HasPrefix(cell, "deprecated: critical bug - ") {
+		t.Fatalf("cell = %q", cell)
+	}
+	if len([]rune(cell)) != len([]rune("deprecated: critical bug - "))+60 {
+		t.Errorf("cell = %q, want the note cut at 60 runes", cell)
+	}
+}
+
+const fleetDeprecatedDeploymentsPayload = `{"current_version": 3, "result": [
+  {"id": "i-1", "target_cluster_id": "11111111-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "hello-fleet", "stack_state": "up", "version": 1, "outdated": true, "deprecated": true, "created_at": "2026-09-10T19:49:37Z"},
+  {"id": "i-2", "target_cluster_id": "22222222-2222-2222-2222-222222222222", "cluster_name": "prod-us", "stack_name": "hello-fleet", "stack_state": "up", "version": 3, "outdated": false, "deprecated": false, "created_at": "2026-09-10T20:03:41Z"}
+]}`
+
+func TestStackProfilesDeploymentsShowsDeprecatedAheadOfOutdated(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDeploymentsCmd)
+	mock := &stackProfileManageMock{payload: json.RawMessage(fleetDeprecatedDeploymentsPayload)}
+	output, executeError := runStackProfilesCommand(t, mock, "", "deployments", "profile-1")
+	if executeError != nil {
+		t.Fatalf("deployments failed: %v", executeError)
+	}
+	if !strings.Contains(output, "deprecated") {
+		t.Errorf("output = %q, want the deprecated status", output)
+	}
+	if strings.Contains(output, "update available") {
+		t.Errorf("output = %q, want deprecated to take precedence over outdated", output)
+	}
+	if !strings.Contains(output, "1 on a deprecated version") {
+		t.Errorf("output = %q, want the deprecated count in the summary line", output)
+	}
+}
+
+func TestStackProfilesDeploymentsOmitsTheDeprecatedCountWhenThereIsNone(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesDeploymentsCmd)
+	mock := &stackProfileManageMock{payload: json.RawMessage(fleetDeploymentsPayload)}
+	output, executeError := runStackProfilesCommand(t, mock, "", "deployments", "profile-1")
+	if executeError != nil {
+		t.Fatalf("deployments failed: %v", executeError)
+	}
+	if strings.Contains(output, "on a deprecated version") {
+		t.Errorf("output = %q, want no deprecated count when no deployment is on one", output)
 	}
 }

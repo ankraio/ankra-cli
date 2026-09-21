@@ -231,6 +231,146 @@ Rolling back is setting the pointer to an earlier version.`,
 	},
 }
 
+// stackProfileDeprecationReasonLabels maps the wire vocabulary the platform
+// stores to the words its refusal sentences, the portal badges and this
+// CLI's output all use for it.
+var stackProfileDeprecationReasonLabels = map[string]string{
+	"incompatibility": "incompatibility",
+	"critical_bug":    "critical bug",
+	"cve":             "CVE",
+}
+
+// parseStackProfileDeprecationReason accepts either spelling of the reason
+// a person types - "critical-bug" reads better on a command line than the
+// stored "critical_bug" - and returns the value the platform expects. An
+// unknown reason is an invocation mistake, so it never reaches the API.
+func parseStackProfileDeprecationReason(raw string) (string, error) {
+	normalised := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(raw)), "-", "_")
+	if normalised == "" {
+		return "", withExitCode(exitUsage, errors.New(
+			"--reason is required: one of incompatibility, critical-bug, cve"))
+	}
+	if _, known := stackProfileDeprecationReasonLabels[normalised]; !known {
+		return "", withExitCode(exitUsage, fmt.Errorf(
+			"invalid --reason %q: use one of incompatibility, critical-bug, cve", raw))
+	}
+	return normalised, nil
+}
+
+func stackProfileDeprecationReasonLabel(reason string) string {
+	if label, known := stackProfileDeprecationReasonLabels[reason]; known {
+		return label
+	}
+	return reason
+}
+
+// stackProfileVersionStatusCell renders a version's standing for the
+// versions table: the deprecation reason in the platform's own words,
+// carrying the note so a reader sees why without a second command.
+func stackProfileVersionStatusCell(deprecation *client.StackProfileVersionDeprecation) string {
+	if deprecation == nil {
+		return "-"
+	}
+	status := "deprecated: " + stackProfileDeprecationReasonLabel(deprecation.Reason)
+	if deprecation.Note == nil {
+		return status
+	}
+	note := strings.TrimSpace(*deprecation.Note)
+	if note == "" {
+		return status
+	}
+	return status + " - " + truncateCell(note, 60)
+}
+
+var stackProfilesDeprecateCmd = &cobra.Command{
+	Use:   "deprecate [profile-id|profile-name] <version>",
+	Short: "Mark a published version as unfit to deploy",
+	Long: `Withdraw a published version so nobody deploys it again. A deprecated
+version cannot be made current and cannot be applied to a cluster; stacks
+already running it keep running, and 'ankra stack-profiles deployments'
+reports which ones are on it.
+
+The reason is one of incompatibility, critical-bug or cve. Use --note for
+the sentence the platform shows when it refuses the version, such as which
+version carries the fix, and repeat --reference for the advisories, CVE ids
+or issues behind it. Deprecating an already-deprecated version replaces its
+reason, note and references.`,
+	Example: `  ankra stack-profiles deprecate postgres-ha v3 --reason cve \
+    --note "Fixed in v11; see the advisory." --reference CVE-2026-12345
+  ankra stack-profiles deprecate postgres-ha 3 --reason critical-bug -o json`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
+		reasonFlag, _ := cmd.Flags().GetString("reason")
+		reason, reasonError := parseStackProfileDeprecationReason(reasonFlag)
+		if reasonError != nil {
+			return reasonError
+		}
+		version, versionError := parseRequiredProfileVersionArgument(args[1])
+		if versionError != nil {
+			return versionError
+		}
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		note, _ := cmd.Flags().GetString("note")
+		references, _ := cmd.Flags().GetStringArray("reference")
+		request := client.DeprecateStackProfileVersionRequest{
+			Reason:     reason,
+			Note:       strings.TrimSpace(note),
+			References: references,
+		}
+		payload, deprecateError := apiClient.DeprecateStackProfileVersion(cmd.Context(), profileID, version, request)
+		if deprecateError != nil {
+			return fmt.Errorf("deprecating stack profile version: %w", deprecateError)
+		}
+		format, _ := structuredFormatFromFlags(cmd)
+		if format != outputDefault {
+			return renderApplicationPayload(cmd, payload)
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Deprecated %s v%d (%s).\n",
+			args[0], version, stackProfileDeprecationReasonLabel(reason))
+		return nil
+	},
+}
+
+var stackProfilesUndeprecateCmd = &cobra.Command{
+	Use:   "undeprecate [profile-id|profile-name] <version>",
+	Short: "Lift a version's deprecation",
+	Long: `Remove the deprecation from a published version: it becomes deployable
+again and eligible to be made current. Undeprecating a version that was
+never deprecated changes nothing and still succeeds.`,
+	Example: `  ankra stack-profiles undeprecate postgres-ha v3
+  ankra stack-profiles undeprecate postgres-ha 3 -o json`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
+		version, versionError := parseRequiredProfileVersionArgument(args[1])
+		if versionError != nil {
+			return versionError
+		}
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		payload, undeprecateError := apiClient.UndeprecateStackProfileVersion(cmd.Context(), profileID, version)
+		if undeprecateError != nil {
+			return fmt.Errorf("undeprecating stack profile version: %w", undeprecateError)
+		}
+		format, _ := structuredFormatFromFlags(cmd)
+		if format != outputDefault {
+			return renderApplicationPayload(cmd, payload)
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Version %d of %s is no longer deprecated.\n", version, args[0])
+		return nil
+	},
+}
+
 var stackProfilesVersionCmd = &cobra.Command{
 	Use:   "version [profile-id|profile-name] <version>",
 	Short: "Show one published version's record and parameters",
@@ -474,6 +614,15 @@ func init() {
 	registerStructuredOutputFlags(stackProfilesSetCurrentVersionCmd)
 	registerStructuredOutputFlags(stackProfilesVersionCmd)
 
+	stackProfilesDeprecateCmd.Flags().String("reason", "",
+		"Why the version is withdrawn: incompatibility, critical-bug or cve (required)")
+	stackProfilesDeprecateCmd.Flags().String("note", "",
+		"Sentence shown when the platform refuses the version, e.g. which version fixes it")
+	stackProfilesDeprecateCmd.Flags().StringArray("reference", nil,
+		"Advisory, CVE id or issue URL behind the deprecation (repeatable)")
+	registerStructuredOutputFlags(stackProfilesDeprecateCmd)
+	registerStructuredOutputFlags(stackProfilesUndeprecateCmd)
+
 	stackProfilesDiffCmd.Flags().String("from", "", "Version to compare from, as 1 or v1 (required)")
 	stackProfilesDiffCmd.Flags().String("to", "", "Version to compare to, as 1 or v1 (required)")
 	registerStructuredOutputFlags(stackProfilesDiffCmd)
@@ -487,6 +636,8 @@ func init() {
 		stackProfilesDeleteCmd,
 		stackProfilesSaveVersionCmd,
 		stackProfilesSetCurrentVersionCmd,
+		stackProfilesDeprecateCmd,
+		stackProfilesUndeprecateCmd,
 		stackProfilesVersionCmd,
 		stackProfilesDiffCmd,
 		stackProfilesDeploymentsCmd,

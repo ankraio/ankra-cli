@@ -205,6 +205,14 @@ func (m baseMock) DiffStackProfileVersions(requestContext context.Context, profi
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) DeprecateStackProfileVersion(requestContext context.Context, profileID string, version int, deprecateRequest client.DeprecateStackProfileVersionRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UndeprecateStackProfileVersion(requestContext context.Context, profileID string, version int) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListStackProfileInstantiations(requestContext context.Context, profileID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }

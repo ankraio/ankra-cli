@@ -4,6 +4,19 @@
 
 ### Added
 
+- **A stack profile version can be withdrawn without deleting it.**
+  `ankra stack-profiles deprecate <profile> <version> --reason
+  <incompatibility|critical-bug|cve>` marks a published version as unfit to
+  deploy, with an optional `--note` explaining it and repeatable
+  `--reference` for the advisory, CVE id or issue behind it;
+  `ankra stack-profiles undeprecate` lifts it again. The platform then
+  refuses to make that version current or to apply it to a cluster, and the
+  refusal reaches you as the platform wrote it, naming the reason and the
+  note. Stacks already on the version keep running:
+  `stack-profiles deployments` marks each such row `deprecated` and counts
+  them in its summary line, and `stack-profiles get` gains a Status column
+  saying which versions were withdrawn and why.
+
 - **Invisible characters can no longer change what an action proposal says.**
   Unicode Tag characters render as nothing and mirror ASCII one to one, and
   bidirectional controls reorder what a terminal displays, so a server- or
