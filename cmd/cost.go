@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 
 	"ankra/internal/client"
@@ -59,15 +60,16 @@ var costSummaryCmd = &cobra.Command{
 
 var costSavingsCmd = &cobra.Command{
 	Use:   "savings",
-	Short: "Savings recommendations: one lever per cluster with its monthly saving, plus the clusters the model could not price",
+	Short: "Savings recommendations per cluster with their monthly saving, plus the clusters the model could not price",
 	Long: `Read the organisation's savings model - the same recommendations the portal
 shows under Cost.
 
-The model analyses the biggest priced clusters and proposes at most one lever
-per cluster: right-size idle capacity, reduce run rate no namespace claims,
+The model analyses the biggest priced clusters and proposes the levers that
+apply to each: right-size idle capacity, reduce run rate no namespace claims,
 or an off-hours schedule (weeknights and weekends) for a known non-production
-cluster with no enabled power schedule. The total counts each cluster once at
-its best lever. Clusters the model could not analyse are listed rather than
+cluster with no enabled power schedule. A cluster can carry several. The total
+counts each cluster once, at its best lever, so it is smaller than the sum of
+the rows when a cluster has more than one. Clusters the model could not analyse are listed rather than
 treated as having nothing to save: unpriced (never had a cost snapshot),
 stale (metering stopped over a day ago) and unreadable on this pass. The
 waste summary counts the open cloud-waste findings.
@@ -79,7 +81,7 @@ Every figure is a list-price estimate in the organisation's display currency.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		savings, err := apiClient.GetCloudSavings()
 		if err != nil {
-			return fmt.Errorf("reading cloud savings: %w", err)
+			return cloudSavingsReadError(err)
 		}
 		if rendered, err := renderStructured(cmd, savings); rendered || err != nil {
 			return err
@@ -509,7 +511,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 			formatCostCents(savings.Thresholds.MinimumSavingsCents, currency))
 	} else {
 		_, _ = fmt.Fprintln(out)
-		_, _ = fmt.Fprintln(out, "Recommendations (one lever per cluster):")
+		_, _ = fmt.Fprintln(out, "Recommendations (a cluster can carry several; the total counts each cluster once, at its best lever):")
 		writer := newCostTable(out)
 		writer.AppendHeader(table.Row{"#", "Cluster", "Environment", "Lever", "Savings/mo", "Share", "Run rate/mo", "Cluster ID"})
 		for index, recommendation := range savings.Recommendations {
@@ -560,4 +562,20 @@ func init() {
 	costCmd.AddCommand(costClusterCmd)
 	costCmd.AddCommand(costSettingsCmd)
 	rootCmd.AddCommand(costCmd)
+}
+
+// cloudSavingsReadError maps the one 404 this route can answer with: a
+// platform that predates the savings model serves no /api/v1/org/cloud-cost/
+// savings at all, and "request failed: status 404" reads as an auth or
+// token problem. The status alone decides, for the reason
+// aiRemediationPolicyReadError gives.
+func cloudSavingsReadError(readError error) error {
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(readError, &unexpected) && unexpected.StatusCode == http.StatusNotFound {
+		return withExitCode(exitError, errors.New(
+			"this platform does not serve the savings model to API tokens: "+
+				"GET /api/v1/org/cloud-cost/savings is not registered, so this platform predates it. "+
+				"The recommendations are readable in the portal under Cost"))
+	}
+	return fmt.Errorf("reading cloud savings: %w", readError)
 }

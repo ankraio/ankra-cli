@@ -691,9 +691,9 @@ func init() {
 	registerAsyncWriteFlags(nodeGroupDeleteCmd)
 
 	hetznerStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	hetznerStartCmd.Flags().String("restore-state", "", restoreStateFlagUsage)
+	registerThreeStateFlag(hetznerStartCmd, "restore-state", restoreStateFlagUsage)
 	hetznerStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's CSI volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
-	hetznerStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
+	registerThreeStateFlag(hetznerStopCmd, "preserve-state", preserveStateFlagUsage)
 	hetznerStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 
 	registerStructuredOutputFlags(
