@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+## v0.18.0 — 2026-09-21
+
+Promotes v0.18.0-rc0 to stable. The headline is that a stop no longer costs
+a cluster its state: on Hetzner, OVHcloud, UpCloud, DigitalOcean, Proxmox VE
+and HPE Morpheus the platform captures an encrypted etcd snapshot before the
+VMs go and the next start restores it, so Secrets, ConfigMaps, custom
+resources and persistent volume claims come back and StatefulSets reattach
+their disks; `--preserve-state` and `--restore-state` steer it, `--mode pause`
+powers the servers off and keeps them instead, and power schedules carry the
+same choices with `--stop-mode` and `--preserve-state`. Beside it, the
+backups surface grows `cluster backups status`, `backup vaults contents`,
+`application backups|protect|backup` and `cluster stacks clone --with-data`,
+a draft becomes deployable from the terminal with `cluster stacks
+deploy-draft`, `ankra cost savings` reads the savings model, `ankra ai
+remediation policy` reads the auto-remediation policy, `pipeline validate
+--ref` dry-runs a branch before it is merged, `operations list --name`
+filters by name, and managed node pools can be handed to a provider
+autoscaler with `--externally-managed`. A pre-release review of everything
+since v0.17.1 fixed nine defects before this cut, among them a power-schedule
+update that could not be made the way its help implied and silently reset
+`preserve_state`, tri-state flag typos read as "not given", `cluster stacks
+clone` exiting 0 on a refused deploy or a failed data run, and `ankra
+upgrade` putting back skills a person had uninstalled. The rc section below
+carries the full detail.
+
 ### Added
 
 - **`ankra cluster managed node-pool update --externally-managed` hands a pool's
