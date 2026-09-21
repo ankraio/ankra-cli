@@ -443,7 +443,7 @@ func TestBackupVaultsContentsRendersObjectKeysAndSizes(t *testing.T) {
 	for _, expected := range []string{
 		"clusters/53878fde/backups/ankra-rp-d800471b/velero-backup.json",
 		"clusters/53878fde/kopia/notes/p4e7a1b2c3",
-		"22 MB",
+		"20.7 MiB",
 	} {
 		if !strings.Contains(plain, expected) {
 			t.Errorf("expected the object listing to contain %q, got:\n%s", expected, plain)

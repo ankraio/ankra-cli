@@ -177,3 +177,146 @@ func (c *Client) UpdateCostSettings(settings CostSettings) (*CostSettings, error
 	}
 	return &result, nil
 }
+
+// CloudSavingsEvidence carries the numbers a recommendation was computed
+// from, per kind; members that do not apply to the kind are null.
+type CloudSavingsEvidence struct {
+	IdleMonthlyCents        *int64  `json:"idle_monthly_cents" yaml:"idle_monthly_cents"`
+	UnallocatedMonthlyCents *int64  `json:"unallocated_monthly_cents" yaml:"unallocated_monthly_cents"`
+	UnallocatedSharePercent *int    `json:"unallocated_share_percent" yaml:"unallocated_share_percent"`
+	StoppableMonthlyCents   *int64  `json:"stoppable_monthly_cents" yaml:"stoppable_monthly_cents"`
+	OffHoursSharePercent    *int    `json:"off_hours_share_percent" yaml:"off_hours_share_percent"`
+	StopCron                *string `json:"stop_cron" yaml:"stop_cron"`
+	StartCron               *string `json:"start_cron" yaml:"start_cron"`
+}
+
+// CloudSavingsRecommendation is one lever on one cluster. Kind is one of
+// right_size_idle, reduce_unallocated or off_hours_schedule; ID is stable
+// across reads (kind and cluster).
+type CloudSavingsRecommendation struct {
+	ID                  string               `json:"id" yaml:"id"`
+	Kind                string               `json:"kind" yaml:"kind"`
+	ClusterID           string               `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName         string               `json:"cluster_name" yaml:"cluster_name"`
+	Provider            string               `json:"provider" yaml:"provider"`
+	Environment         *string              `json:"environment" yaml:"environment"`
+	MonthlySavingsCents int64                `json:"monthly_savings_cents" yaml:"monthly_savings_cents"`
+	MonthlyCostCents    int64                `json:"monthly_cost_cents" yaml:"monthly_cost_cents"`
+	SharePercent        int                  `json:"share_percent" yaml:"share_percent"`
+	Evidence            CloudSavingsEvidence `json:"evidence" yaml:"evidence"`
+}
+
+// CloudSavingsComponent is one billed component of a cluster's run rate.
+type CloudSavingsComponent struct {
+	Key          string `json:"key" yaml:"key"`
+	Label        string `json:"label" yaml:"label"`
+	MonthlyCents int64  `json:"monthly_cents" yaml:"monthly_cents"`
+}
+
+// CloudSavingsNamespace is one namespace's allocated share of its cluster's
+// run rate.
+type CloudSavingsNamespace struct {
+	ClusterID    string `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName  string `json:"cluster_name" yaml:"cluster_name"`
+	Namespace    string `json:"namespace" yaml:"namespace"`
+	MonthlyCents int64  `json:"monthly_cents" yaml:"monthly_cents"`
+	SharePercent int    `json:"share_percent" yaml:"share_percent"`
+}
+
+// CloudSavingsBreakdown is one analysed cluster's run rate split by
+// component, with the idle and unallocated shares the recommendations read.
+type CloudSavingsBreakdown struct {
+	ClusterID               string                  `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName             string                  `json:"cluster_name" yaml:"cluster_name"`
+	Provider                string                  `json:"provider" yaml:"provider"`
+	MonthlyCents            int64                   `json:"monthly_cents" yaml:"monthly_cents"`
+	Components              []CloudSavingsComponent `json:"components" yaml:"components"`
+	IdleMonthlyCents        int64                   `json:"idle_monthly_cents" yaml:"idle_monthly_cents"`
+	UnallocatedMonthlyCents int64                   `json:"unallocated_monthly_cents" yaml:"unallocated_monthly_cents"`
+	BestRecommendationID    *string                 `json:"best_recommendation_id" yaml:"best_recommendation_id"`
+	TopNamespaces           []CloudSavingsNamespace `json:"top_namespaces" yaml:"top_namespaces"`
+}
+
+// CloudSavingsCluster names a cluster the model could not analyse: never
+// priced (unpriced_clusters), priced before but with stalled metering
+// (stale_clusters), or priced but unreadable on this pass
+// (unreadable_clusters, where Kind is empty).
+type CloudSavingsCluster struct {
+	ClusterID   string `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName string `json:"cluster_name" yaml:"cluster_name"`
+	Kind        string `json:"kind,omitempty" yaml:"kind,omitempty"`
+}
+
+// CloudSavingsWaste summarises the open cloud-waste findings. Available is
+// false when the waste scan could not be read, which is not the same as no
+// waste.
+type CloudSavingsWaste struct {
+	Available             bool    `json:"available" yaml:"available"`
+	HasData               bool    `json:"has_data" yaml:"has_data"`
+	ScannedAt             *string `json:"scanned_at" yaml:"scanned_at"`
+	TotalMonthlyCostCents int64   `json:"total_monthly_cost_cents" yaml:"total_monthly_cost_cents"`
+	FindingCount          int     `json:"finding_count" yaml:"finding_count"`
+	UnpricedFindingCount  int     `json:"unpriced_finding_count" yaml:"unpriced_finding_count"`
+}
+
+// CloudSavingsThresholds echoes the model's constants, so a reading can be
+// explained without hard-coding them again.
+type CloudSavingsThresholds struct {
+	MinimumSavingsCents         int64   `json:"minimum_savings_cents" yaml:"minimum_savings_cents"`
+	MinimumOffHoursMonthlyCents int64   `json:"minimum_off_hours_monthly_cents" yaml:"minimum_off_hours_monthly_cents"`
+	UnallocatedShareThreshold   float64 `json:"unallocated_share_threshold" yaml:"unallocated_share_threshold"`
+	OffHoursShare               float64 `json:"off_hours_share" yaml:"off_hours_share"`
+	AnalysedClusterLimit        int     `json:"analysed_cluster_limit" yaml:"analysed_cluster_limit"`
+}
+
+// CloudSavings is GET /org/cloud-cost/savings: the organisation's savings
+// model in the display currency. TotalMonthlySavingsCents counts each
+// cluster once, at its best lever. Only the biggest priced clusters are
+// analysed; the unanalysed, unpriced, stale and unreadable ones are named
+// so an unknown never reads as nothing to save.
+type CloudSavings struct {
+	Currency                 string                       `json:"currency" yaml:"currency"`
+	GeneratedAt              string                       `json:"generated_at" yaml:"generated_at"`
+	TotalMonthlySavingsCents int64                        `json:"total_monthly_savings_cents" yaml:"total_monthly_savings_cents"`
+	Recommendations          []CloudSavingsRecommendation `json:"recommendations" yaml:"recommendations"`
+	Breakdowns               []CloudSavingsBreakdown      `json:"breakdowns" yaml:"breakdowns"`
+	Namespaces               []CloudSavingsNamespace      `json:"namespaces" yaml:"namespaces"`
+	AnalysedClusterCount     int                          `json:"analysed_cluster_count" yaml:"analysed_cluster_count"`
+	UnanalysedClusterCount   int                          `json:"unanalysed_cluster_count" yaml:"unanalysed_cluster_count"`
+	PricedClusterCount       int                          `json:"priced_cluster_count" yaml:"priced_cluster_count"`
+	UnpricedClusterCount     int                          `json:"unpriced_cluster_count" yaml:"unpriced_cluster_count"`
+	UnpricedClusters         []CloudSavingsCluster        `json:"unpriced_clusters" yaml:"unpriced_clusters"`
+	StaleClusterCount        int                          `json:"stale_cluster_count" yaml:"stale_cluster_count"`
+	StaleClusters            []CloudSavingsCluster        `json:"stale_clusters" yaml:"stale_clusters"`
+	UnreadableClusters       []CloudSavingsCluster        `json:"unreadable_clusters" yaml:"unreadable_clusters"`
+	Waste                    CloudSavingsWaste            `json:"waste" yaml:"waste"`
+	Thresholds               CloudSavingsThresholds       `json:"thresholds" yaml:"thresholds"`
+}
+
+// GetCloudSavings returns the organisation's savings model.
+// GET /api/v1/org/cloud-cost/savings
+func (c *Client) GetCloudSavings() (*CloudSavings, error) {
+	var result CloudSavings
+	if err := c.sendJSON(http.MethodGet, c.BaseURL+costBasePath+"/savings", nil, &result); err != nil {
+		return nil, err
+	}
+	if result.Recommendations == nil {
+		result.Recommendations = []CloudSavingsRecommendation{}
+	}
+	if result.Breakdowns == nil {
+		result.Breakdowns = []CloudSavingsBreakdown{}
+	}
+	if result.Namespaces == nil {
+		result.Namespaces = []CloudSavingsNamespace{}
+	}
+	if result.UnpricedClusters == nil {
+		result.UnpricedClusters = []CloudSavingsCluster{}
+	}
+	if result.StaleClusters == nil {
+		result.StaleClusters = []CloudSavingsCluster{}
+	}
+	if result.UnreadableClusters == nil {
+		result.UnreadableClusters = []CloudSavingsCluster{}
+	}
+	return &result, nil
+}

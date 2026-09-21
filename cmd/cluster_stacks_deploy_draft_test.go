@@ -92,7 +92,7 @@ func TestPrintStackDraftDeployResultReportsTheAcceptedDeploy(t *testing.T) {
 		t.Fatalf("an accepted deploy must not error: %v", printError)
 	}
 	for _, fragment := range []string{"Draft deployed.", "notes", "4", operationID,
-		"carries the source cluster's generated hostname", "ankra cluster operations get"} {
+		"carries the source cluster's generated hostname", "ankra cluster operations list"} {
 		if !strings.Contains(output.String(), fragment) {
 			t.Fatalf("output must carry %q, got:\n%s", fragment, output.String())
 		}

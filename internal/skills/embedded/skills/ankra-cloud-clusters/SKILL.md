@@ -238,7 +238,7 @@ ankra cluster <provider> workers <cluster_id>
 ankra cluster <provider> nodes list|get <cluster_id> [node]
 ankra cluster <provider> control-plane get|set-count|set-instance-type <cluster_id>
 ankra cluster <provider> bastion ...
-ankra cluster <provider> stop <cluster_id>            # power off, keep state
+ankra cluster <provider> stop <cluster_id>            # terminate the VMs after capturing state (--mode pause keeps them)
 ankra cluster <provider> start <cluster_id>
 ankra cluster ovh access-info <cluster_id>            # bastion/control-plane IPs, ssh -J commands
 ankra cluster power-schedules ...                     # scheduled stop/start

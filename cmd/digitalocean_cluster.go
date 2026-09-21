@@ -655,12 +655,12 @@ func init() {
 	_ = digitaloceanCreateCmd.MarkFlagRequired("region")
 
 	digitaloceanStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	digitaloceanStartCmd.Flags().String("restore-state", "", restoreStateFlagUsage)
+	registerThreeStateFlag(digitaloceanStartCmd, "restore-state", restoreStateFlagUsage)
 
 	digitaloceanDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	digitaloceanDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's block storage volumes and load balancers, and tolerate unreachable infrastructure")
 	digitaloceanStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's block storage volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
-	digitaloceanStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
+	registerThreeStateFlag(digitaloceanStopCmd, "preserve-state", preserveStateFlagUsage)
 	digitaloceanStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	digitaloceanNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 

@@ -57,7 +57,7 @@ never rely on the selection — pass both explicitly.
 | Backup vaults | `ankra backup vaults ...` | `ankra-backups` |
 | Protecting and restoring a stack's data | `ankra cluster stacks protect\|unprotect\|restore-points\|data ...`, `ankra backup restore-points ...`, `ankra runs ...` | `ankra-backups` |
 | Migrating existing deployments | `ankra migrate ...` | `ankra-migrate` |
-| Cloud cost | `ankra cost summary\|cluster\|settings` | below |
+| Cloud cost | `ankra cost summary\|savings\|cluster\|settings` | below |
 | Support requests | `ankra support create\|list\|get\|comment\|attach\|close` | below |
 
 ## Applying configuration
@@ -201,6 +201,7 @@ flagged request anyway. Attach the evidence (operations output, logs) rather tha
 
 ```bash
 ankra cost summary                       # fleet rollup: projected month end, month to date, run rate, by provider, costliest clusters
+ankra cost savings                       # savings levers per cluster (right-size idle, reduce unallocated, off-hours schedule) with their monthly saving, the total counting each cluster once at its best; unpriced and stale clusters; waste summary
 ankra cost cluster prod-eu               # one cluster: breakdown by component, namespace allocation, daily trend
 ankra cost settings get                  # display currency, effective discount, network egress estimate
 ankra cost settings set --currency eur --discount 12.5   # admins only; only the flags you pass change
