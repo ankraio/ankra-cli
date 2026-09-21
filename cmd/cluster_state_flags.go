@@ -39,7 +39,7 @@ func stopModeFlag(cmd *cobra.Command) (string, error) {
 	case "", "delete_resources", "pause":
 		return mode, nil
 	}
-	return "", fmt.Errorf("invalid --mode %q: must be delete_resources or pause", raw)
+	return "", withExitCode(exitUsage, fmt.Errorf("invalid --mode %q: must be delete_resources or pause", raw))
 }
 
 // preserveStateFlag reads --preserve-state as the three-state choice the API
@@ -53,9 +53,61 @@ func restoreStateFlag(cmd *cobra.Command) *bool {
 	return threeStateFlag(cmd, "restore-state")
 }
 
-func threeStateFlag(cmd *cobra.Command, name string) *bool {
-	raw, _ := cmd.Flags().GetString(name)
+// threeStateValue is the pflag.Value behind every tri-state flag. Parsing
+// refuses anything but the spellings of true and false: the first shape of
+// these flags read them as plain strings and treated a typo as "not given",
+// so `stop --preserve-state=1` became a best-effort capture instead of a
+// required one and `start --restore-state=0` restored the snapshot the
+// person meant to skip. A refused value is a usage error (exit 2) before any
+// request is made, the way --mode already behaved.
+type threeStateValue struct {
+	value *bool
+}
+
+func (flag *threeStateValue) String() string {
+	if flag == nil || flag.value == nil {
+		return ""
+	}
+	if *flag.value {
+		return "true"
+	}
+	return "false"
+}
+
+func (flag *threeStateValue) Set(raw string) error {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "yes", "on":
+		value := true
+		flag.value = &value
+	case "false", "no", "off":
+		value := false
+		flag.value = &value
+	case "":
+		flag.value = nil
+	default:
+		return fmt.Errorf("must be true or false, got %q", raw)
+	}
+	return nil
+}
+
+func (flag *threeStateValue) Type() string { return "true|false" }
+
+// registerThreeStateFlag declares a tri-state flag that is nil when omitted.
+func registerThreeStateFlag(cmd *cobra.Command, name string, usage string) {
+	cmd.Flags().Var(&threeStateValue{}, name, usage)
+}
+
+func threeStateFlag(cmd *cobra.Command, name string) *bool {
+	flag := cmd.Flags().Lookup(name)
+	if flag == nil {
+		return nil
+	}
+	if value, ok := flag.Value.(*threeStateValue); ok {
+		return value.value
+	}
+	// A flag registered as a plain string (tests, or a caller that did not
+	// use registerThreeStateFlag) is read leniently as before.
+	switch strings.ToLower(strings.TrimSpace(flag.Value.String())) {
 	case "true", "yes", "on":
 		value := true
 		return &value

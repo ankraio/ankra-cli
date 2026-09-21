@@ -182,7 +182,7 @@ func TestCostSavingsRendersRecommendationsUnanalysedClustersAndWaste(t *testing.
 	for _, expected := range []string{
 		"Cloud savings (EUR): €1166.57/mo across 3 recommendations",
 		"3 of 5 clusters analysed (2 not analysed: only the 8 biggest are) · 1 unpriced · 1 stale · 1 unreadable · generated 2026-09-18T06:00:00Z",
-		"Recommendations (one lever per cluster):",
+		"Recommendations (a cluster can carry several; the total counts each cluster once, at its best lever):",
 		"prod-eu", "Right-size idle capacity", "€438.00", "22%", "€2000.00",
 		"data-platform", "Reduce unallocated run rate (35% unclaimed)", "€600.00", "35%",
 		"staging-1", "staging", "Off-hours schedule (weeknights and weekends)", "€128.57", "54%",
@@ -328,7 +328,7 @@ func TestCostSavingsWithPricedClustersButNoLeverNamesTheMinimum(t *testing.T) {
 			t.Fatalf("output lacks %q:\n%s", expected, output)
 		}
 	}
-	if strings.Contains(output, "Recommendations (one lever per cluster):") {
+	if strings.Contains(output, "Recommendations (a cluster can carry several; the total counts each cluster once, at its best lever):") {
 		t.Fatalf("an empty recommendation list must not render a table:\n%s", output)
 	}
 }

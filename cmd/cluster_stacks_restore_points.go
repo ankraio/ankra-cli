@@ -628,6 +628,11 @@ undone, and the full id is always accepted.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stackName, reference := args[0], args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
+		// The output format is checked before the delete: a mistyped -o must
+		// fail before the restore point is gone, not after.
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
 		cluster, clusterError := resolveActiveCluster(cmd)
 		if clusterError != nil {
 			return clusterError
