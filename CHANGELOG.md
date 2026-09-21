@@ -18,6 +18,101 @@
   answer stays parseable. What the CLI sends to the platform's AI (`chat`,
   `tickets comment`, `support create`) is stripped the same way, since a
   payload pasted from a log would otherwise reach the model intact.
+
+## v0.18.0 — 2026-09-21
+
+Promotes v0.18.0-rc0 to stable. The headline is that a stop no longer costs
+a cluster its state: on Hetzner, OVHcloud, UpCloud, DigitalOcean, Proxmox VE
+and HPE Morpheus the platform captures an encrypted etcd snapshot before the
+VMs go and the next start restores it, so Secrets, ConfigMaps, custom
+resources and persistent volume claims come back and StatefulSets reattach
+their disks; `--preserve-state` and `--restore-state` steer it, `--mode pause`
+powers the servers off and keeps them instead, and power schedules carry the
+same choices with `--stop-mode` and `--preserve-state`. Beside it, the
+backups surface grows `cluster backups status`, `backup vaults contents`,
+`application backups|protect|backup` and `cluster stacks clone --with-data`,
+a draft becomes deployable from the terminal with `cluster stacks
+deploy-draft`, `ankra cost savings` reads the savings model, `ankra ai
+remediation policy` reads the auto-remediation policy, `pipeline validate
+--ref` dry-runs a branch before it is merged, `operations list --name`
+filters by name, and managed node pools can be handed to a provider
+autoscaler with `--externally-managed`. A pre-release review of everything
+since v0.17.1 fixed nine defects before this cut, among them a power-schedule
+update that could not be made the way its help implied and silently reset
+`preserve_state`, tri-state flag typos read as "not given", `cluster stacks
+clone` exiting 0 on a refused deploy or a failed data run, and `ankra
+upgrade` putting back skills a person had uninstalled. The rc section below
+carries the full detail.
+
+### Added
+
+- **`ankra cluster managed node-pool update --externally-managed` hands a pool's
+  node count to an autoscaler you run yourself.** Ankra never changes a managed
+  pool's count on its own, but a scale, a `--count` update, a size replacement or
+  a delete could still override the count a provider autoscaler had reached
+  (UpCloud's Cluster Autoscaler on UKS, where Ankra does not manage autoscaling).
+  With the flag set the platform refuses to scale the pool, change any other
+  pool setting, replace it or delete it, until `--externally-managed=false`
+  hands the pool back, which adopts the provider's live count. The flag is passed on its own, matching the API. The
+  `ankra-managed-kubernetes` skill documents it.
+- **`ankra pipeline validate --ref` checks a candidate definition before it is
+  merged.** Validating a change meant merging it to the default branch and
+  running it, because `validate` only ever read the working tree or the stored
+  definition (PLA-863). `--ref` now reads the definition as it stands on a git
+  reference in the current checkout - `ankra pipeline validate --ref
+  origin/my-branch --application my-app` - so a branch is dry-run without being
+  checked out and without reaching the default branch first. The reference is
+  resolved locally, so someone else's branch needs a `git fetch` first, and a
+  reference that does not carry the file is an error rather than a quiet
+  fall-back to the stored definition. `--spec-file` is accepted as the flag
+  spelling of the file argument, matching `pipeline run --spec-file`; naming
+  the file both ways is a usage error. `application pipeline validate` takes
+  both flags too.
+- **`ankra cluster operations list --name` filters the listing by add-on,
+  manifest or stack name.** The executions API takes no name filter, so the
+  listing walks its pages instead of filtering one of them: on a cluster where
+  one add-on reconciles every two minutes, the rows a person is looking for are
+  pages back (PLA-863). `--limit` above 100 walks the pages the same way rather
+  than asking for a page the API refuses.
+
+- **`ankra cluster stacks deploy-draft <stack>` deploys a draft from the
+  terminal.** Everything that builds a stack without running it leaves a
+  draft: a clone, a stack-profile instantiation, `ankra cluster draft -f`.
+  Deploying one was a portal-only move. The command posts the draft back to
+  the platform exactly as it holds it, the same write the portal's Deploy
+  button makes, so no member is re-modelled or dropped on the way, and it
+  prints the operation to follow. (#344)
+
+- **`ankra application protect` takes `--retention` and `--include-pvc`.**
+  Protecting a deployment writes its whole backup policy, and a second run
+  replaces what is there, so a deployment protected with a retention and a
+  named volume through `cluster stacks protect` used to lose both to the
+  defaults on the next `application protect`. The flags let the policy be
+  restated on this verb, the help says the write replaces, and
+  `--backup-now` now prints the run it dispatched.
+
+- **Power schedules show and keep their stop choices.** `ankra cluster
+  power-schedules list` gains STOP_MODE and STATE columns (whether a
+  delete_resources stop preserves or discards the cluster's state), and an
+  `update` that omits `--stop-mode` or `--preserve-state` carries the
+  schedule's current choices over. The backend treats an update as a full
+  replace and requires the stop mode, so a change of timing alone was
+  refused with "Stop mode must be provided", and one that restated the mode
+  silently reset a state-discarding schedule to preserving.
+
+- **`ankra cost savings` reads the savings model.** The platform now computes
+  the organisation's savings recommendations server-side (the levers that
+  apply to each cluster: right-size idle capacity, reduce the run rate no
+  namespace claims, or an off-hours schedule for a non-production cluster with
+  no enabled power schedule; a cluster can carry several, and the total counts
+  each cluster once at its best lever), and the command prints them with the
+  monthly saving, its share of the cluster's run rate and the cluster id,
+  followed by the clusters the
+  model could not analyse (unpriced, stale metering, unreadable on this pass)
+  and the open cloud-waste summary. A fleet with nothing priced says so
+  instead of printing zero savings, and a waste scan that could not be read is
+  reported as unreadable rather than as no waste. `-o json` returns the same
+  document the portal's Cost page reads (`GET /api/v1/org/cloud-cost/savings`).
 - **A stop keeps the cluster's state, and `--mode pause` keeps the machines.**
   `ankra cluster <provider> stop` on Hetzner, OVHcloud, UpCloud, DigitalOcean,
   Proxmox VE and Morpheus now captures an encrypted etcd snapshot before the
@@ -137,7 +232,89 @@
   the meantime. The help text and the `ankra-backups` skill both say so
   rather than leaving it to be discovered.
 
+### Changed
+
+- **`ankra cluster operations list` folds a run of identical successful
+  executions into one row.** Sixteen of the latest fifty executions on a
+  cluster were the same add-on updating successfully every two minutes, which
+  pushed the failures that explained an outage off the first page (PLA-863).
+  Consecutive successes with the same name are now one row marked `(xN)`,
+  spanning the whole run's timestamps, and a run of five or more is called out
+  as an add-on reapplying without a change in desired state rather than that
+  many real changes. Nothing that failed, and nothing whose name differs from
+  the row beside it, is ever folded. `--no-collapse` lists every execution, and
+  `-o json|yaml` is unchanged.
+
 ### Fixed
+
+- **`ankra upgrade` says it cannot write the binary before it downloads one.**
+  An install owned by root (the usual `/usr/local/bin/ankra`) was only found
+  to be unwritable at the very last step, after the release lookup, the
+  confirmation prompt, the skills question, the download and the checksum had
+  all run. The permission refusal now arrives first, naming the directory, the
+  binary and `sudo ankra upgrade`, so an upgrade that cannot land stops in a
+  second instead of ending several steps later on a version that never
+  changed.
+
+- **`pipeline get` tells a retried step's attempts apart.** A retried step
+  is several rows under one key, and the listing printed them with nothing
+  to tell them apart, so a build that failed once and passed on Ankra's retry
+  showed two identical rows and `logs --step <key>` answered the successful
+  one in silence. `pipeline get` now prints an ATTEMPT column and, for a run
+  with a retried step, an "Earlier attempts" block naming each superseded
+  attempt's outcome, error class and message together with the
+  `pipeline logs --step <attempt id>` command that reads its log;
+  `logs --step <key>` says on stderr which attempt it is showing. Runs with
+  no retried step are unchanged. (#343, PLA-871)
+
+- **Restore point sizes read `unknown` when nothing measured them.** A
+  restore point holding 48 MB of volume data rendered every size as `0 B` in
+  the listing, the detail and the asset table, which told a person checking
+  their backup that it was empty. The number is printed when the platform
+  measured it and `unknown` when it did not; a measured zero still reads
+  `0 B`. `restore-points get` also prints the sealed manifest's Coverage
+  block, which says that a restore point naming one volume restores every
+  object in that namespace. (#346)
+
+- **A typo in `--preserve-state` or `--restore-state` is refused.** The
+  flags read `1`, `ture` or `0` as "not given", so
+  `stop --preserve-state=1` became a best-effort capture instead of a
+  required one and `start --restore-state=0` restored the snapshot the
+  person meant to skip. Anything but true or false is now a usage error
+  before any request is made, and an invalid `--mode` exits 2 the same way.
+
+- **`cluster stacks clone` reports its deploy.** `--deploy` printed "created
+  as a draft, deploy it from the dashboard" whether the deploy started or
+  was refused, and exited 0 either way; `--with-data --wait -o json` exited 0
+  when the data run had failed. The human output now says the deploy started
+  (with the operation to follow) or why it was refused, a refused deploy and
+  a failed data run both exit non-zero, and `deploy-draft`'s follow-up hint
+  names a command that exists (`operations list <id>`).
+
+- **`ankra cost savings` says what it lists.** The help and the table
+  heading claimed one lever per cluster; the model lists every lever that
+  applies, so a cluster can appear more than once, and the total counts each
+  cluster once at its best lever, which is why it is smaller than the sum of
+  the rows. A platform that predates the savings model now gets a clear
+  message instead of a bare 404.
+
+- **`ankra upgrade` refreshes only the skills each assistant holds.** The
+  refresh ran `skills install` with no names, which put back every skill a
+  person had uninstalled on each upgrade. It now names the skills found in
+  each assistant's install and leaves an assistant with none alone.
+
+- **`pipeline logs` hints are pasteable outside the checkout.** The
+  "check `ankra pipeline get <run>`" hints now carry the `--application` or
+  `--repository` selector the command was run with, as the other pipeline
+  hints already did.
+
+- **`restore-points delete` checks `-o` before deleting.** A mistyped output
+  format used to delete the restore point and then exit 2.
+
+- **`backup vaults contents -o yaml` uses the same field names as its JSON,
+  and its sizes use the same units as the restore-point commands.** The
+  yaml output rendered Go-cased keys and nested the prefix usage; sizes read
+  `48 MB` where `restore-points list` said `46.0 MiB` for the same bytes.
 
 - **The CLI can see Ankra's platform builders.** A build the run's cluster
   cannot take is moved to Ankra's own builders, a lane that opens no execution

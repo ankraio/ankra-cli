@@ -399,7 +399,7 @@ func init() {
 	_ = morpheusCreateCmd.MarkFlagRequired("worker-plan-id")
 
 	morpheusStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	morpheusStartCmd.Flags().String("restore-state", "", restoreStateFlagUsage)
+	registerThreeStateFlag(morpheusStartCmd, "restore-state", restoreStateFlagUsage)
 
 	for _, catalogCmd := range []*cobra.Command{morpheusGroupsCmd, morpheusCloudsCmd, morpheusPlansCmd, morpheusLayoutsCmd, morpheusNetworksCmd} {
 		catalogCmd.Flags().String("credential-id", "", "HPE Morpheus API credential ID (required)")
@@ -419,7 +419,7 @@ func init() {
 	morpheusCmd.AddCommand(morpheusLayoutsCmd)
 	morpheusCmd.AddCommand(morpheusNetworksCmd)
 	morpheusStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands (also stops a cluster that is still being created)")
-	morpheusStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
+	registerThreeStateFlag(morpheusStopCmd, "preserve-state", preserveStateFlagUsage)
 	morpheusStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	morpheusCmd.AddCommand(morpheusStopCmd)
 	morpheusCmd.AddCommand(morpheusStartCmd)

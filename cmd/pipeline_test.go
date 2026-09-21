@@ -2005,3 +2005,100 @@ func TestPipelineRunDetailSaysNothingAboutAttemptsWhenNothingWasRetried(t *testi
 		t.Fatalf("a run with no retried step explains no retry, got:\n%s", rendered)
 	}
 }
+
+// seedPipelineDefinitionCommit makes a checkout whose committed
+// .ankra/pipeline.yaml differs from the one in the working tree, and makes it
+// the working directory. The two contents are what tells a `--ref` read apart
+// from a working-tree read.
+func seedPipelineDefinitionCommit(t *testing.T, committedYAML string, workingTreeYAML string) {
+	t.Helper()
+	repositoryPath := createTestGitRepository(t, "main", "https://github.com/acme/service.git")
+	definitionDirectory := filepath.Join(repositoryPath, ".ankra")
+	if makeError := os.MkdirAll(definitionDirectory, 0o750); makeError != nil {
+		t.Fatalf("creating .ankra: %v", makeError)
+	}
+	definitionPath := filepath.Join(definitionDirectory, "pipeline.yaml")
+	if writeError := os.WriteFile(definitionPath, []byte(committedYAML), 0o600); writeError != nil {
+		t.Fatalf("writing the committed definition: %v", writeError)
+	}
+	runTestGit(t, repositoryPath, "add", ".ankra/pipeline.yaml")
+	runTestGit(t, repositoryPath, "-c", "user.email=test@example.com", "-c", "user.name=Test",
+		"commit", "-m", "Add the pipeline definition")
+	if writeError := os.WriteFile(definitionPath, []byte(workingTreeYAML), 0o600); writeError != nil {
+		t.Fatalf("writing the working-tree definition: %v", writeError)
+	}
+	t.Chdir(repositoryPath)
+}
+
+// TestPipelineValidateReadsTheDefinitionAtAGitRef pins the candidate check
+// the customer asked for: until now the only way to find out whether a
+// change was valid was to merge it to the default branch and run it
+// (PLA-863). The ref is read from the repository, not the working tree.
+func TestPipelineValidateReadsTheDefinitionAtAGitRef(t *testing.T) {
+	seedPipelineDefinitionCommit(t,
+		"apiVersion: ankra.io/v1\nkind: Pipeline\nname: committed\n",
+		"apiVersion: ankra.io/v1\nkind: Pipeline\nname: working-tree\n")
+	mockClient := &pipelineLaneMock{validateResult: &client.PipelineValidation{Severity: "ok", Events: []client.PipelineEventPlan{}}}
+
+	_, executeError := runPipelineCommand(t, mockClient, "validate", "--ref", "main", "--application", testApplicationID)
+
+	if executeError != nil {
+		t.Fatalf("validate at a ref = %v", executeError)
+	}
+	if !strings.Contains(mockClient.validateSpecYAML, "name: committed") {
+		t.Errorf("spec yaml = %q, want the definition as committed on the ref", mockClient.validateSpecYAML)
+	}
+}
+
+// TestPipelineValidateAtARefReportsAMissingDefinition pins that a ref without
+// the file is an error, not a quiet fall-back to whatever is stored
+// server-side: "ok" would answer a question the caller did not ask.
+func TestPipelineValidateAtARefReportsAMissingDefinition(t *testing.T) {
+	seedPipelineDefinitionCommit(t,
+		"apiVersion: ankra.io/v1\nkind: Pipeline\nname: committed\n",
+		"apiVersion: ankra.io/v1\nkind: Pipeline\nname: working-tree\n")
+	mockClient := &pipelineLaneMock{validateResult: &client.PipelineValidation{Severity: "ok", Events: []client.PipelineEventPlan{}}}
+
+	_, executeError := runPipelineCommand(t, mockClient, "validate", ".ankra/absent.yaml",
+		"--ref", "main", "--application", testApplicationID)
+
+	if executeError == nil {
+		t.Fatal("validate at a ref without the file = nil, want an error")
+	}
+	if mockClient.validateSpecYAML != "" {
+		t.Errorf("spec yaml = %q, want nothing sent when the file is not on the ref", mockClient.validateSpecYAML)
+	}
+}
+
+// TestPipelineValidateSpecFileFlagMatchesTheArgument pins that --spec-file is
+// the flag spelling of the positional file, so a caller that already writes
+// `pipeline run --spec-file` does not have to learn a second shape.
+func TestPipelineValidateSpecFileFlagMatchesTheArgument(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: &client.PipelineValidation{Severity: "ok", Events: []client.PipelineEventPlan{}}}
+	fixturePath := writePipelineFixture(t)
+
+	_, executeError := runPipelineCommand(t, mockClient, "validate", "--spec-file", fixturePath,
+		"--application", testApplicationID)
+
+	if executeError != nil {
+		t.Fatalf("validate --spec-file = %v", executeError)
+	}
+	if mockClient.validateSpecYAML != "apiVersion: ankra.io/v1\nkind: Pipeline\n" {
+		t.Errorf("spec yaml = %q", mockClient.validateSpecYAML)
+	}
+}
+
+func TestPipelineValidateRefusesTheDefinitionNamedTwice(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: &client.PipelineValidation{Severity: "ok", Events: []client.PipelineEventPlan{}}}
+	fixturePath := writePipelineFixture(t)
+
+	_, executeError := runPipelineCommand(t, mockClient, "validate", fixturePath, "--spec-file", fixturePath,
+		"--application", testApplicationID)
+
+	if executeError == nil {
+		t.Fatal("naming the definition twice = nil, want a usage error")
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitUsage)
+	}
+}

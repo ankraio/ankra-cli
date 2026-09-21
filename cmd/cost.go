@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 
 	"ankra/internal/client"
@@ -20,7 +21,7 @@ const costTopNamespaceRows = 15
 
 var costCmd = &cobra.Command{
 	Use:   "cost",
-	Short: "Read cloud cost: the fleet rollup, a cluster's estimate and the pricing settings",
+	Short: "Read cloud cost: the fleet rollup, a cluster's estimate, the savings model and the pricing settings",
 	Long: `Read the organisation's cloud cost - the same figures the portal shows under
 Cost - for reporting and automation.
 
@@ -29,7 +30,10 @@ list price and allocates the result to namespaces by their CPU and memory
 share, so each team sees the share it drives. The fleet summary rolls every
 priced cluster up by provider and lists the costliest clusters; a cluster
 read adds the component breakdown, the namespace allocation and the daily
-trend. Pricing settings (display currency, effective discount, network
+trend. The savings model reads the biggest priced clusters and proposes one
+lever per cluster (right-size idle capacity, reduce unallocated run rate, or
+an off-hours schedule for non-production) with the monthly saving each is
+worth. Pricing settings (display currency, effective discount, network
 egress estimate) apply to every figure.
 
 Pass -o json (or yaml) for the full API document.`,
@@ -50,6 +54,39 @@ var costSummaryCmd = &cobra.Command{
 			return err
 		}
 		renderFleetCloudCost(cmd.OutOrStdout(), summary)
+		return nil
+	},
+}
+
+var costSavingsCmd = &cobra.Command{
+	Use:   "savings",
+	Short: "Savings recommendations per cluster with their monthly saving, plus the clusters the model could not price",
+	Long: `Read the organisation's savings model - the same recommendations the portal
+shows under Cost.
+
+The model analyses the biggest priced clusters and proposes the levers that
+apply to each: right-size idle capacity, reduce run rate no namespace claims,
+or an off-hours schedule (weeknights and weekends) for a known non-production
+cluster with no enabled power schedule. A cluster can carry several. The total
+counts each cluster once, at its best lever, so it is smaller than the sum of
+the rows when a cluster has more than one. Clusters the model could not analyse are listed rather than
+treated as having nothing to save: unpriced (never had a cost snapshot),
+stale (metering stopped over a day ago) and unreadable on this pass. The
+waste summary counts the open cloud-waste findings.
+
+Every figure is a list-price estimate in the organisation's display currency.`,
+	Args: cobra.NoArgs,
+	Example: `  ankra cost savings
+  ankra cost savings -o json`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		savings, err := apiClient.GetCloudSavings()
+		if err != nil {
+			return cloudSavingsReadError(err)
+		}
+		if rendered, err := renderStructured(cmd, savings); rendered || err != nil {
+			return err
+		}
+		renderCloudSavings(cmd.OutOrStdout(), savings)
 		return nil
 	},
 }
@@ -343,6 +380,166 @@ func renderClusterCost(out io.Writer, clusterReference string, cost *client.Clus
 	}
 }
 
+// costSavingsLever names a recommendation's lever the way the portal does.
+func costSavingsLever(recommendation client.CloudSavingsRecommendation) string {
+	switch recommendation.Kind {
+	case "right_size_idle":
+		return "Right-size idle capacity"
+	case "reduce_unallocated":
+		if recommendation.Evidence.UnallocatedSharePercent != nil {
+			return fmt.Sprintf("Reduce unallocated run rate (%d%% unclaimed)", *recommendation.Evidence.UnallocatedSharePercent)
+		}
+		return "Reduce unallocated run rate"
+	case "off_hours_schedule":
+		return "Off-hours schedule (weeknights and weekends)"
+	default:
+		return recommendation.Kind
+	}
+}
+
+func pluralCount(count int, singular string) string {
+	if count == 1 {
+		return "1 " + singular
+	}
+	return fmt.Sprintf("%d %ss", count, singular)
+}
+
+func renderCloudSavingsClusters(out io.Writer, heading string, clusters []client.CloudSavingsCluster, withKind bool) {
+	if len(clusters) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, heading)
+	writer := newCostTable(out)
+	if withKind {
+		writer.AppendHeader(table.Row{"Cluster", "Kind", "Cluster ID"})
+	} else {
+		writer.AppendHeader(table.Row{"Cluster", "Cluster ID"})
+	}
+	for _, cluster := range clusters {
+		if withKind {
+			writer.AppendRow(table.Row{cluster.ClusterName, cluster.Kind, cluster.ClusterID})
+		} else {
+			writer.AppendRow(table.Row{cluster.ClusterName, cluster.ClusterID})
+		}
+	}
+	writer.Render()
+}
+
+// renderCloudSavingsOffHoursHint names the stop/start schedule each
+// off-hours saving was computed for. The model uses one schedule today, but
+// the hint groups clusters by their own pair so a second schedule could never
+// be printed under the first one's crons.
+func renderCloudSavingsOffHoursHint(out io.Writer, recommendations []client.CloudSavingsRecommendation) {
+	type cronPair struct{ stop, start string }
+	clustersByPair := map[cronPair][]string{}
+	pairs := []cronPair{}
+	for _, recommendation := range recommendations {
+		if recommendation.Kind != "off_hours_schedule" || recommendation.Evidence.StopCron == nil || recommendation.Evidence.StartCron == nil {
+			continue
+		}
+		pair := cronPair{stop: *recommendation.Evidence.StopCron, start: *recommendation.Evidence.StartCron}
+		if _, seen := clustersByPair[pair]; !seen {
+			pairs = append(pairs, pair)
+		}
+		clustersByPair[pair] = append(clustersByPair[pair], recommendation.ClusterName)
+	}
+	for _, pair := range pairs {
+		_, _ = fmt.Fprintf(out, "Off-hours saving for %s is computed for stop %q / start %q; create them with ankra cluster power-schedules create --action stop|start --cron.\n",
+			strings.Join(clustersByPair[pair], ", "), pair.stop, pair.start)
+	}
+}
+
+func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, currency string) {
+	_, _ = fmt.Fprintln(out)
+	switch {
+	case !waste.Available:
+		_, _ = fmt.Fprintln(out, "Waste: the scan could not be read (this is not the same as no waste).")
+	case !waste.HasData:
+		_, _ = fmt.Fprintln(out, "Waste: no scan yet.")
+	case waste.FindingCount == 0:
+		_, _ = fmt.Fprintln(out, "Waste: no open findings.")
+	default:
+		line := fmt.Sprintf("Waste: %s open, %s/mo", pluralCount(waste.FindingCount, "finding"),
+			formatCostCents(waste.TotalMonthlyCostCents, currency))
+		if waste.UnpricedFindingCount > 0 {
+			line += fmt.Sprintf(" (%d unpriced, not in that figure)", waste.UnpricedFindingCount)
+		}
+		if waste.ScannedAt != nil && *waste.ScannedAt != "" {
+			line += " · scanned " + *waste.ScannedAt
+		}
+		_, _ = fmt.Fprintln(out, line)
+	}
+}
+
+func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
+	currency := savings.Currency
+	if savings.PricedClusterCount == 0 && len(savings.Recommendations) == 0 {
+		// A stale cluster was priced before its metering stalled, so "yet" would
+		// misname it; the two absences read differently.
+		if len(savings.StaleClusters) > 0 {
+			_, _ = fmt.Fprintf(out, "No cluster is priced right now (%s with stalled metering), so there is nothing to recommend.\n",
+				pluralClusters(len(savings.StaleClusters)))
+		} else {
+			_, _ = fmt.Fprintln(out, "No priced clusters yet, so there is nothing to recommend.")
+		}
+		_, _ = fmt.Fprintln(out, "Estimates appear once a cluster on AWS, Google Cloud, Azure, Hetzner, OVHcloud, UpCloud or Scaleway has reported pricing in the last day; AWS, Google Cloud and Azure clusters need a connected cloud credential.")
+		renderCloudSavingsClusters(out, "Unpriced clusters (no cost snapshot yet):", savings.UnpricedClusters, true)
+		renderCloudSavingsClusters(out, "Stale clusters (metering stopped over a day ago):", savings.StaleClusters, true)
+		renderCloudSavingsWaste(out, savings.Waste, currency)
+		return
+	}
+	_, _ = fmt.Fprintf(out, "Cloud savings (%s): %s/mo across %s\n", strings.ToUpper(currency),
+		formatCostCents(savings.TotalMonthlySavingsCents, currency),
+		pluralCount(len(savings.Recommendations), "recommendation"))
+	_, _ = fmt.Fprintf(out, "  %d of %s analysed", savings.AnalysedClusterCount, pluralClusters(savings.PricedClusterCount))
+	if savings.UnanalysedClusterCount > 0 {
+		_, _ = fmt.Fprintf(out, " (%d not analysed: only the %d biggest are)", savings.UnanalysedClusterCount,
+			savings.Thresholds.AnalysedClusterLimit)
+	}
+	_, _ = fmt.Fprintf(out, " · %d unpriced · %d stale", savings.UnpricedClusterCount, savings.StaleClusterCount)
+	if len(savings.UnreadableClusters) > 0 {
+		_, _ = fmt.Fprintf(out, " · %d unreadable", len(savings.UnreadableClusters))
+	}
+	if savings.GeneratedAt != "" {
+		_, _ = fmt.Fprintf(out, " · generated %s", savings.GeneratedAt)
+	}
+	_, _ = fmt.Fprintln(out)
+
+	if len(savings.Recommendations) == 0 {
+		_, _ = fmt.Fprintf(out, "\nNo recommendation clears the %s/mo minimum on the analysed clusters.\n",
+			formatCostCents(savings.Thresholds.MinimumSavingsCents, currency))
+	} else {
+		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(out, "Recommendations (a cluster can carry several; the total counts each cluster once, at its best lever):")
+		writer := newCostTable(out)
+		writer.AppendHeader(table.Row{"#", "Cluster", "Environment", "Lever", "Savings/mo", "Share", "Run rate/mo", "Cluster ID"})
+		for index, recommendation := range savings.Recommendations {
+			environment := "-"
+			if recommendation.Environment != nil && *recommendation.Environment != "" {
+				environment = *recommendation.Environment
+			}
+			writer.AppendRow(table.Row{
+				index + 1,
+				recommendation.ClusterName,
+				environment,
+				costSavingsLever(recommendation),
+				formatCostCents(recommendation.MonthlySavingsCents, currency),
+				fmt.Sprintf("%d%%", recommendation.SharePercent),
+				formatCostCents(recommendation.MonthlyCostCents, currency),
+				recommendation.ClusterID,
+			})
+		}
+		writer.Render()
+		renderCloudSavingsOffHoursHint(out, savings.Recommendations)
+	}
+
+	renderCloudSavingsClusters(out, "Unpriced clusters (no cost snapshot yet):", savings.UnpricedClusters, true)
+	renderCloudSavingsClusters(out, "Stale clusters (metering stopped over a day ago):", savings.StaleClusters, true)
+	renderCloudSavingsClusters(out, "Unreadable clusters (breakdown could not be read on this pass):", savings.UnreadableClusters, false)
+	renderCloudSavingsWaste(out, savings.Waste, currency)
+}
+
 func renderCostSettings(out io.Writer, settings *client.CostSettings) {
 	egress := "off"
 	if settings.IncludeNetworkEgressEstimate {
@@ -357,11 +554,28 @@ func init() {
 	costSettingsSetCmd.Flags().String("currency", "", "Display currency: usd, eur or gbp")
 	costSettingsSetCmd.Flags().Float64("discount", 0, "Effective discount in percent (0-100), applied on top of list prices; 10 means 10%")
 	costSettingsSetCmd.Flags().Bool("include-egress", false, "Include an estimated network egress charge (pass --include-egress=false to drop it)")
-	registerStructuredOutputFlags(costSummaryCmd, costClusterCmd, costSettingsGetCmd, costSettingsSetCmd)
+	registerStructuredOutputFlags(costSummaryCmd, costSavingsCmd, costClusterCmd, costSettingsGetCmd, costSettingsSetCmd)
 	costSettingsCmd.AddCommand(costSettingsGetCmd)
 	costSettingsCmd.AddCommand(costSettingsSetCmd)
 	costCmd.AddCommand(costSummaryCmd)
+	costCmd.AddCommand(costSavingsCmd)
 	costCmd.AddCommand(costClusterCmd)
 	costCmd.AddCommand(costSettingsCmd)
 	rootCmd.AddCommand(costCmd)
+}
+
+// cloudSavingsReadError maps the one 404 this route can answer with: a
+// platform that predates the savings model serves no /api/v1/org/cloud-cost/
+// savings at all, and "request failed: status 404" reads as an auth or
+// token problem. The status alone decides, for the reason
+// aiRemediationPolicyReadError gives.
+func cloudSavingsReadError(readError error) error {
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(readError, &unexpected) && unexpected.StatusCode == http.StatusNotFound {
+		return withExitCode(exitError, errors.New(
+			"this platform does not serve the savings model to API tokens: "+
+				"GET /api/v1/org/cloud-cost/savings is not registered, so this platform predates it. "+
+				"The recommendations are readable in the portal under Cost"))
+	}
+	return fmt.Errorf("reading cloud savings: %w", readError)
 }

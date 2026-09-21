@@ -4535,6 +4535,10 @@ func (m baseMock) GetFleetCloudCost() (*client.FleetCloudCost, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetCloudSavings() (*client.CloudSavings, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetClusterCost(clusterID string) (*client.ClusterCost, error) {
 	return nil, errors.New("not implemented")
 }

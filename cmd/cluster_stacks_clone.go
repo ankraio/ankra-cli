@@ -169,10 +169,13 @@ Examples:
 
 		if !wait {
 			if format != outputDefault {
-				return encodeStructured(cmd.OutOrStdout(), format, result)
+				if encodeError := encodeStructured(cmd.OutOrStdout(), format, result); encodeError != nil {
+					return encodeError
+				}
+				return cloneDeployError(result)
 			}
 			printCloneResult(cmd.OutOrStdout(), result)
-			return nil
+			return cloneDeployError(result)
 		}
 
 		return waitForCloneRun(cmd, format, result, dataCloneRunID)
@@ -196,7 +199,15 @@ func waitForCloneRun(cmd *cobra.Command, format outputFormat,
 		return asyncWriteError("cloning stack with its data", true, followError)
 	}
 	if format != outputDefault {
-		return encodeStructured(cmd.OutOrStdout(), format, cloneWaitResult{Clone: result, Run: run})
+		if encodeError := encodeStructured(cmd.OutOrStdout(), format, cloneWaitResult{Clone: result, Run: run}); encodeError != nil {
+			return encodeError
+		}
+		// The document carries the settled run either way; the exit code
+		// has to say how it settled, as the human path does.
+		if run != nil && run.Status != client.RunStatusBlocked {
+			return runOutcomeError("cloning stack with its data", run)
+		}
+		return nil
 	}
 	return reportSettledCloneRun(cmd.OutOrStdout(), run)
 }
@@ -428,13 +439,41 @@ func printCloneResult(out io.Writer, result *client.CloneStackToClusterResult) {
 	printCloneDataResult(out, result)
 
 	if result.DataCloneRunID == nil || *result.DataCloneRunID == "" {
-		_, _ = fmt.Fprintf(out,
-			"\nThe stack has been created as a draft. Review and deploy it from the Ankra dashboard.\n")
+		switch {
+		case result.DeployError != nil && *result.DeployError != "":
+			_, _ = fmt.Fprintf(out, "\nThe stack has been created as a draft, but the deploy you asked for was refused: %s\n"+
+				"Deploy it with 'ankra cluster stacks deploy-draft %s' once that is resolved.\n",
+				*result.DeployError, result.StackName)
+		case result.Deployed:
+			_, _ = fmt.Fprintf(out, "\nThe stack has been created and its deploy has started")
+			if result.OperationID != nil && *result.OperationID != "" {
+				_, _ = fmt.Fprintf(out, " (operation %s). Follow it with 'ankra cluster operations list %s'.\n",
+					*result.OperationID, *result.OperationID)
+			} else {
+				_, _ = fmt.Fprintln(out, ".")
+			}
+		default:
+			_, _ = fmt.Fprintf(out,
+				"\nThe stack has been created as a draft. Review and deploy it from the Ankra dashboard, "+
+					"or run 'ankra cluster stacks deploy-draft %s'.\n", result.StackName)
+		}
 		return
 	}
 	_, _ = fmt.Fprintf(out, "\nThe stack has been created as a draft and its data is being moved by "+
 		"run %s. Follow it with 'ankra runs get %s', or re-run with --wait.\n",
 		*result.DataCloneRunID, *result.DataCloneRunID)
+}
+
+// cloneDeployError turns a refused --deploy into the exit code: the clone
+// itself landed (the draft is on the target and has been printed), but the
+// deploy the person asked for did not start, and exit 0 would say it did.
+func cloneDeployError(result *client.CloneStackToClusterResult) error {
+	if result == nil || result.DeployError == nil || *result.DeployError == "" {
+		return nil
+	}
+	return fmt.Errorf("the stack was cloned as a draft but its deploy was refused: %s - "+
+		"deploy it with 'ankra cluster stacks deploy-draft %s' once that is resolved",
+		*result.DeployError, result.StackName)
 }
 
 // printCloneDataResult renders the data half of a clone, or nothing at all

@@ -967,7 +967,7 @@ func TestPipelineLogsWithoutFollowStillRefusesAStepThatHasNotStarted(t *testing.
 	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
 		"--application", testApplicationID, "--step", "build")
 	if executeError == nil || executeError.Error() !=
-		`step "build" has not started, so it has no log stream yet - check 'ankra pipeline get run-1' for its status` {
+		`step "build" has not started, so it has no log stream yet - check 'ankra pipeline get run-1 --application `+testApplicationID+`' for its status` {
 		t.Fatalf("error = %v, want today's refusal verbatim", executeError)
 	}
 	if mockClient.getCalls != 1 {
@@ -1098,7 +1098,7 @@ func TestPipelineLogsKeepsTheNotStartedRefusalForAStepWithNoExecutor(t *testing.
 	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
 		"--application", testApplicationID, "--step", "build")
 	if executeError == nil || executeError.Error() !=
-		`step "build" has not started, so it has no log stream yet - check 'ankra pipeline get run-1' for its status` {
+		`step "build" has not started, so it has no log stream yet - check 'ankra pipeline get run-1 --application `+testApplicationID+`' for its status` {
 		t.Fatalf("error = %v, want today's refusal verbatim for a step with no lane yet", executeError)
 	}
 }

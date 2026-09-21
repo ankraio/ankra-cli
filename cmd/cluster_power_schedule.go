@@ -31,8 +31,8 @@ func registerPowerScheduleSpecFlags(cmd *cobra.Command) {
 	cmd.Flags().String("cron", "", "Fire repeatedly per this 5-field cron expression, e.g. '0 19 * * 1-5' (mutually exclusive with --at)")
 	cmd.Flags().String("timezone", "", "IANA timezone the cron expression is evaluated in, e.g. Europe/Stockholm (default UTC)")
 	cmd.Flags().Bool("enabled", true, "Whether the schedule is armed; --enabled=false creates or leaves it paused")
-	cmd.Flags().String("stop-mode", "", "How a stop schedule stops the cluster: delete_resources (default; terminates the VMs), scale_to_zero (removes only the workers, keeps the control plane) or pause (powers every server off and keeps it with its disks; k3s on Hetzner, UpCloud and DigitalOcean, and what a stop always does on AWS and Scaleway)")
-	cmd.Flags().String("preserve-state", "", "For delete_resources stop schedules: omit to capture the cluster's state (an encrypted etcd snapshot the next start restores) whenever the provider and distribution support it; 'false' to tear down without it; 'true' to state the default explicitly")
+	cmd.Flags().String("stop-mode", "", "How a stop schedule stops the cluster: delete_resources (default on create; terminates the VMs), scale_to_zero (removes only the workers, keeps the control plane) or pause (powers every server off and keeps it with its disks; k3s on Hetzner, UpCloud and DigitalOcean, and what a stop always does on AWS and Scaleway). On update, omitting it keeps the schedule's current mode")
+	registerThreeStateFlag(cmd, "preserve-state", "For delete_resources stop schedules: omit to capture the cluster's state (an encrypted etcd snapshot the next start restores) whenever the provider and distribution support it; 'false' to tear down without it; 'true' to state the default explicitly. On update, omitting it keeps the schedule's current choice")
 	_ = cmd.MarkFlagRequired("action")
 }
 
@@ -68,6 +68,35 @@ func powerScheduleFlagsFromCommand(cmd *cobra.Command) (powerScheduleFlags, erro
 		return flags, withExitCode(exitUsage, fmt.Errorf("--timezone only applies to --cron schedules; encode the offset in the --at timestamp instead"))
 	}
 	return flags, nil
+}
+
+// carryStopChoicesFrom fills the stop mode and preserve-state choices an
+// update left out from the schedule as it is now. The backend treats an
+// update as a full replace and requires stop_mode on a stop schedule, so an
+// update that only moved the cron would have been refused (422 "Stop mode
+// must be provided") and one that restated the mode would have reset
+// preserve_state to the server default. A schedule that is not found, or
+// that is being turned from a start into a stop, gets delete_resources with
+// the server's default for preserve_state, which is what create does.
+func (flags powerScheduleFlags) carryStopChoicesFrom(schedules []client.PowerSchedule, scheduleID string) powerScheduleFlags {
+	var current *client.PowerSchedule
+	for index := range schedules {
+		if schedules[index].ID == scheduleID {
+			current = &schedules[index]
+			break
+		}
+	}
+	if flags.stopMode == "" {
+		flags.stopMode = "delete_resources"
+		if current != nil && current.Action == "stop" && current.StopMode != "" {
+			flags.stopMode = current.StopMode
+		}
+	}
+	if flags.preserveState == nil && flags.stopMode == "delete_resources" && current != nil && current.Action == "stop" {
+		preserve := current.PreserveState
+		flags.preserveState = &preserve
+	}
+	return flags
 }
 
 // request maps the validated flags onto the API body. The backend treats
@@ -185,8 +214,11 @@ var clusterPowerSchedulesUpdateCmd = &cobra.Command{
 	Long: `Replace a power schedule. This is a full replace, not a patch: pass the
 complete schedule as it should be afterwards - --action plus one of --at or
 --cron (with --timezone for cron schedules), and --enabled=false to leave it
-paused. Use 'ankra cluster power-schedules list' for the schedule ID and the
-current values.`,
+paused. A stop schedule's --stop-mode and --preserve-state are the exception:
+when omitted, the schedule's current choices are carried over, so a change of
+timing never silently turns a state-discarding stop into a preserving one.
+Use 'ankra cluster power-schedules list' for the schedule ID and the current
+values.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		flags, err := powerScheduleFlagsFromCommand(cmd)
@@ -197,7 +229,15 @@ current values.`,
 		if err != nil {
 			return err
 		}
-		result, err := apiClient.UpdatePowerSchedule(cluster.ID, strings.TrimSpace(args[0]), flags.request())
+		scheduleID := strings.TrimSpace(args[0])
+		if flags.action == "stop" && (flags.stopMode == "" || flags.preserveState == nil) {
+			current, listError := apiClient.ListPowerSchedules(cluster.ID)
+			if listError != nil {
+				return fmt.Errorf("reading the schedule's current stop mode: %w", listError)
+			}
+			flags = flags.carryStopChoicesFrom(current.Schedules, scheduleID)
+		}
+		result, err := apiClient.UpdatePowerSchedule(cluster.ID, scheduleID, flags.request())
 		if err != nil {
 			return fmt.Errorf("updating power schedule: %w", err)
 		}
@@ -253,12 +293,14 @@ func printPowerScheduleTable(schedules []client.PowerSchedule) {
 		fmt.Println("No power schedules found.")
 		return
 	}
-	fmt.Printf("%-36s  %-6s  %-5s  %-28s  %-8s  %-14s  %-14s  %-10s\n",
-		"ID", "ACTION", "KIND", "SCHEDULE", "ENABLED", "NEXT_RUN", "LAST_RUN", "LAST_STATUS")
+	fmt.Printf("%-36s  %-6s  %-16s  %-9s  %-5s  %-28s  %-8s  %-14s  %-14s  %-10s\n",
+		"ID", "ACTION", "STOP_MODE", "STATE", "KIND", "SCHEDULE", "ENABLED", "NEXT_RUN", "LAST_RUN", "LAST_STATUS")
 	for _, schedule := range schedules {
-		fmt.Printf("%-36s  %-6s  %-5s  %-28s  %-8t  %-14s  %-14s  %-10s\n",
+		fmt.Printf("%-36s  %-6s  %-16s  %-9s  %-5s  %-28s  %-8t  %-14s  %-14s  %-10s\n",
 			schedule.ID,
 			schedule.Action,
+			powerScheduleStopMode(schedule),
+			powerScheduleStateChoice(schedule),
 			schedule.ScheduleKind,
 			truncate(powerScheduleCadence(schedule), 28),
 			schedule.Enabled,
@@ -270,6 +312,31 @@ func printPowerScheduleTable(schedules []client.PowerSchedule) {
 			fmt.Printf("%-36s    last run: %s\n", "", truncate(detail, 100))
 		}
 	}
+}
+
+// powerScheduleStopMode is the STOP_MODE column: the mode of a stop
+// schedule, "-" for a start.
+func powerScheduleStopMode(schedule client.PowerSchedule) string {
+	if schedule.Action != "stop" {
+		return "-"
+	}
+	if schedule.StopMode == "" {
+		return "delete_resources"
+	}
+	return schedule.StopMode
+}
+
+// powerScheduleStateChoice is the STATE column: whether a delete_resources
+// stop captures the cluster's state first ("preserved") or tears down
+// without it ("discarded"); "-" where the question does not arise.
+func powerScheduleStateChoice(schedule client.PowerSchedule) string {
+	if schedule.Action != "stop" || powerScheduleStopMode(schedule) != "delete_resources" {
+		return "-"
+	}
+	if schedule.PreserveState {
+		return "preserved"
+	}
+	return "discarded"
 }
 
 // powerScheduleCadence phrases a schedule's timing for the table.

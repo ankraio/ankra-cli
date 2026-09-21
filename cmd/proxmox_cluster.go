@@ -412,7 +412,7 @@ func init() {
 	_ = proxmoxCreateCmd.MarkFlagRequired("bridge")
 
 	proxmoxStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	proxmoxStartCmd.Flags().String("restore-state", "", restoreStateFlagUsage)
+	registerThreeStateFlag(proxmoxStartCmd, "restore-state", restoreStateFlagUsage)
 
 	proxmoxHostsCmd.Flags().String("credential-id", "", "Proxmox VE API credential ID (required)")
 	_ = proxmoxHostsCmd.MarkFlagRequired("credential-id")
@@ -436,7 +436,7 @@ func init() {
 	proxmoxCmd.AddCommand(proxmoxTemplatesCmd)
 	proxmoxCmd.AddCommand(proxmoxSizesCmd)
 	proxmoxStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands (also stops a cluster that is still being created)")
-	proxmoxStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
+	registerThreeStateFlag(proxmoxStopCmd, "preserve-state", preserveStateFlagUsage)
 	proxmoxStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	proxmoxCmd.AddCommand(proxmoxStopCmd)
 	proxmoxCmd.AddCommand(proxmoxStartCmd)
