@@ -130,6 +130,20 @@ ankra cluster agent status
 A failed platform execution explains more deploy failures than pod logs do — start there. See
 `ankra-troubleshooting`.
 
+## Agent upgrades
+
+```bash
+ankra cluster agent status                       # version, check-in, whether auto-upgrade is on
+ankra cluster agent auto-upgrade disable         # fence this agent off from the fleet rollout (a freeze window)
+ankra cluster agent auto-upgrade enable          # put it back in
+ankra cluster agent upgrade                      # apply the latest release now, whichever way the switch sits
+```
+
+The fleet rollout upgrades every online agent that has not opted out, as soon as the cluster has
+no write execution running; it knows nothing about your freeze windows, so disable it ahead of
+one and enable it after. The MCP twins are `get_cluster_agent_status`, `set_cluster_agent_auto_upgrade`
+and `upgrade_cluster_agent`.
+
 ## Migrating a Docker deployment
 
 ```bash

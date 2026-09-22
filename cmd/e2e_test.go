@@ -1536,6 +1536,10 @@ func (m baseMock) GenerateAgentToken(ctx context.Context, clusterID string) (*cl
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) SetClusterAgentAutoUpgrade(context.Context, string, bool) (*client.AgentSettingsResult, error) {
+	return &client.AgentSettingsResult{Success: true, Message: "Cluster agent settings updated successfully"}, nil
+}
+
 func (m baseMock) UpgradeClusterAgent(ctx context.Context, clusterID string) (*client.UpgradeAgentResult, error) {
 	return nil, errors.New("not implemented")
 }
