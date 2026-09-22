@@ -41,7 +41,14 @@ func renderStructured(cmd *cobra.Command, value interface{}) (bool, error) {
 	if format == outputDefault {
 		return false, nil
 	}
-	return true, encodeStructured(cmd.OutOrStdout(), format, value)
+	// The notice itself is written by encodeStructuredCounting, so that the
+	// call sites which reach it directly emit one too; this passes the
+	// command's own error writer so SetErr redirection is honoured.
+	_, err = encodeStructuredCounting(cmd.OutOrStdout(), format, value, cmd.ErrOrStderr())
+	if err != nil {
+		return true, err
+	}
+	return true, nil
 }
 
 // asyncSubmittedResult is the structured shape emitted when an asynchronous

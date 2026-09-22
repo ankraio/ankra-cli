@@ -19,9 +19,11 @@
 // there is no NFKC-folded comparison to make.
 //
 // What is kept, deliberately:
-//   - U+FE0F, the emoji presentation selector, and zero-width joiners that
-//     sit between emoji, so a family emoji (two joiners) and a warning sign
-//     with its presentation selector survive intact.
+//   - U+FE0F, the emoji presentation selector, and the zero-width joiner and
+//     non-joiner where they are doing real work: between emoji, so a family
+//     emoji survives intact, and between letters of a script that uses
+//     joiners in ordinary writing, so a Persian name is not reshaped. See
+//     joinerIsLegitimate.
 //   - The tag runs of the three subdivision flags that actually exist
 //     (gbeng, gbsct, gbwls). That is a closed list, not a shape: a review on
 //     the cluster side found that accepting "any short lowercase tag run"
@@ -44,6 +46,9 @@ const (
 	skinToneStart   = 0x1F3FB
 	skinToneEnd     = 0x1F3FF
 	zeroWidthJoiner = 0x200D
+	// zeroWidthNonJoiner is kept under the same rule as the joiner: Persian
+	// writes it inside ordinary words, so stripping it reshapes a name.
+	zeroWidthNonJoiner = 0x200C
 )
 
 // rgiSubdivisionTags are the only subdivision-flag tag sequences with
@@ -64,7 +69,8 @@ var emojiRanges = [][2]rune{
 
 var emojiSingles = map[rune]bool{
 	0x00A9: true, 0x00AE: true, 0x203C: true, 0x2049: true,
-	0x2122: true, 0x2139: true, 0x20E3: true,
+	0x20E3: true, 0x2122: true, 0x2139: true, 0x24C2: true,
+	0x2934: true, 0x2935: true, 0x3297: true, 0x3299: true,
 }
 
 // hiddenSingles are the invisible runes that unicode.Cf and friends do not
@@ -132,11 +138,32 @@ func isHidden(r rune) bool {
 	return false
 }
 
-// joinsEmoji reports whether the joiner at runes[index] sits between two
-// emoji, skipping the modifiers that may sit in between.
-func joinsEmoji(runes []rune, index int) bool {
+// isJoiningScriptLetter is a letter outside the scripts whose words never
+// take a joiner. Latin, Greek and Cyrillic are excluded because they are the
+// scripts our identifiers, English instructions and fingerprint patterns are
+// written in, so a joiner between two of those letters is doing nothing but
+// hiding: it splits a word past a match and makes prod-1 and prod<ZWJ>-1
+// render identically.
+func isJoiningScriptLetter(r rune) bool {
+	return unicode.IsLetter(r) &&
+		!unicode.In(r, unicode.Latin, unicode.Greek, unicode.Cyrillic, unicode.Common)
+}
+
+// joinerIsLegitimate reports whether the joiner at runes[index] is doing real
+// work: holding an emoji sequence together, or shaping a word in a script
+// that uses joiners in ordinary writing.
+//
+// The look-behind skips combining marks as well as emoji modifiers, because
+// an Indic joiner follows the virama rather than the consonant, so without
+// that skip a real Devanagari conjunct would look like a joiner between a
+// mark and a letter and be stripped.
+//
+// Mirrors joinerIsLegitimate in ankra.cloud/enginekit/hiddenunicode, which is
+// the source of truth for this rule; keep the two in step.
+func joinerIsLegitimate(runes []rune, index int) bool {
 	left := index - 1
-	for left >= 0 && isEmojiModifier(runes[left]) {
+	for left >= 0 && (isEmojiModifier(runes[left]) ||
+		unicode.In(runes[left], unicode.Mn, unicode.Mc)) {
 		left--
 	}
 	right := index + 1
@@ -146,7 +173,11 @@ func joinsEmoji(runes []rune, index int) bool {
 	if left < 0 || right >= len(runes) {
 		return false
 	}
-	return isEmoji(runes[left]) && isEmoji(runes[right])
+	previous, next := runes[left], runes[right]
+	if runes[index] == zeroWidthJoiner && isEmoji(previous) && isEmoji(next) {
+		return true
+	}
+	return isJoiningScriptLetter(previous) && isJoiningScriptLetter(next)
 }
 
 // flagTagEnd returns the index just past a real subdivision-flag tag run that
@@ -191,7 +222,7 @@ func Strip(text string) (string, int) {
 				continue
 			}
 		}
-		if r == zeroWidthJoiner && joinsEmoji(runes, index) {
+		if (r == zeroWidthJoiner || r == zeroWidthNonJoiner) && joinerIsLegitimate(runes, index) {
 			cleaned.WriteRune(r)
 			continue
 		}
@@ -229,6 +260,6 @@ func Notice(removed int) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"%d invisible character(s) were removed from this text. Text that hides characters "+
+		"%d invisible character(s) were removed before display. Text that hides characters "+
 			"from you can read differently than it is.", removed)
 }
