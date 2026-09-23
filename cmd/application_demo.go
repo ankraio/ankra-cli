@@ -350,6 +350,9 @@ entries override by name, everything else is carried forward.`,
 			if updateError != nil {
 				return updateError
 			}
+			if command.Flags().Changed("protected") && document.Protected != nil && !*document.Protected {
+				command.PrintErrln("Demo protection is off: the shared password is cleared and new launches answer without a login. Running demos keep their guard until their next redeploy.")
+			}
 			if command.Flags().Changed("protected") && document.Protected != nil && *document.Protected {
 				// The one time this password is visible anywhere. It goes to
 				// stderr so a piped JSON answer stays a JSON answer. No
