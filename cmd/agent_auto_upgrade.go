@@ -66,8 +66,18 @@ func runClusterAgentAutoUpgrade(command *cobra.Command, enabled bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if _, err := apiClient.SetClusterAgentAutoUpgrade(ctx, cluster.ID, enabled); err != nil {
+	result, err := apiClient.SetClusterAgentAutoUpgrade(ctx, cluster.ID, enabled)
+	if err != nil {
 		return fmt.Errorf("updating agent auto-upgrade: %w", err)
+	}
+	if !result.Success {
+		// The route answers success=true or a 4xx today; a 200 that says
+		// otherwise is still not a landed write, so it is not reported as one.
+		message := result.Message
+		if message == "" {
+			message = "the platform did not confirm the change"
+		}
+		return fmt.Errorf("updating agent auto-upgrade: %s", message)
 	}
 
 	output := agentAutoUpgradeOutput{ClusterID: cluster.ID, ClusterName: cluster.Name, AutoUpgradeEnabled: enabled}

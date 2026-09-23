@@ -19,6 +19,7 @@ type agentAutoUpgradeMock struct {
 	baseMock
 	calls       []agentAutoUpgradeCall
 	updateError error
+	unconfirmed bool
 }
 
 func (mock *agentAutoUpgradeMock) SetClusterAgentAutoUpgrade(_ context.Context, clusterID string,
@@ -26,6 +27,9 @@ func (mock *agentAutoUpgradeMock) SetClusterAgentAutoUpgrade(_ context.Context, 
 	mock.calls = append(mock.calls, agentAutoUpgradeCall{clusterID: clusterID, enabled: enabled})
 	if mock.updateError != nil {
 		return nil, mock.updateError
+	}
+	if mock.unconfirmed {
+		return &client.AgentSettingsResult{Success: false, Message: "Cluster agent settings were not changed"}, nil
 	}
 	return &client.AgentSettingsResult{Success: true, Message: "Cluster agent settings updated successfully"}, nil
 }
@@ -100,6 +104,20 @@ func TestClusterAgentAutoUpgradeRefusalReachesTheUser(t *testing.T) {
 	}
 	if strings.Contains(output, "disabled for cluster") {
 		t.Fatalf("a refused switch printed success:\n%s", output)
+	}
+}
+
+// A 200 whose envelope says success=false is not a landed write: the
+// platform's own message reaches the user and nothing prints as success.
+func TestClusterAgentAutoUpgradeUnconfirmedEnvelopeIsAnError(t *testing.T) {
+	mock := &agentAutoUpgradeMock{unconfirmed: true}
+
+	output, runError := runAgentAutoUpgradeCommand(t, mock, "cluster", "agent", "auto-upgrade", "enable")
+	if runError == nil || !strings.Contains(runError.Error(), "updating agent auto-upgrade: Cluster agent settings were not changed") {
+		t.Fatalf("expected the unconfirmed envelope as an error, got %v", runError)
+	}
+	if strings.Contains(output, "enabled for cluster") {
+		t.Fatalf("an unconfirmed switch printed success:\n%s", output)
 	}
 }
 
