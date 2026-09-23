@@ -209,10 +209,14 @@ preview). Turn protection on first with 'demo config set --protected'.`,
 			// The same once-only notice the set path prints: a piped or
 			// structured answer must never be the only place the password
 			// appears without a word that it will not be shown again.
-			if password := demoRotatedPassword(payload); password != "" {
-				command.PrintErrf("Demo password rotated (shown once, store it now): preview / %s\n", password)
-			} else {
+			password, readError := demoRotatedPassword(payload)
+			switch {
+			case readError != nil:
+				command.PrintErrln("The rotation's answer could not be read; a password may have been minted. Inspect the JSON output below before retrying.")
+			case password == "":
 				command.PrintErrln("The rotation answered no password; nothing was shown. Check the JSON output and retry.")
+			default:
+				command.PrintErrf("Demo password rotated (shown once, store it now): preview / %s\n", password)
 			}
 			return renderApplicationPayload(command, payload)
 		},
@@ -351,10 +355,16 @@ entries override by name, everything else is carried forward.`,
 				// stderr so a piped JSON answer stays a JSON answer. No
 				// password in the answer means protection was already on
 				// (nothing was minted), which is said rather than left silent.
-				if generated := demoGeneratedPassword(payload); generated != "" {
-					command.PrintErrf("Demo password minted (shown once, store it now): preview / %s\n", generated)
-				} else {
+				generated, readError := demoGeneratedPassword(payload)
+				switch {
+				case readError != nil:
+					// Never assert a state that was not observed: an unreadable
+					// answer may still carry a password the user must see.
+					command.PrintErrln("The answer could not be read; a password may have been minted. Inspect the JSON output below.")
+				case generated == "":
 					command.PrintErrln("Protection was already on, so no new password was minted; run 'demo config rotate-password' to get one.")
+				default:
+					command.PrintErrf("Demo password minted (shown once, store it now): preview / %s\n", generated)
 				}
 			}
 			return renderApplicationPayload(command, payload)
@@ -712,26 +722,26 @@ func newApplicationDemoStopCommand() *cobra.Command {
 // demoGeneratedPassword reads the once-only generated_password a demo-config
 // answer carries after protection was turned on; empty otherwise (protection
 // was already on, or the answer was not a configuration echo).
-func demoGeneratedPassword(payload json.RawMessage) string {
+func demoGeneratedPassword(payload json.RawMessage) (string, error) {
 	var answer struct {
 		GeneratedPassword string `json:"generated_password"`
 	}
 	if unmarshalError := json.Unmarshal(payload, &answer); unmarshalError != nil {
-		return ""
+		return "", unmarshalError
 	}
-	return answer.GeneratedPassword
+	return answer.GeneratedPassword, nil
 }
 
 // demoRotatedPassword reads the once-only password a rotation answers. The
 // rotate route answers {username, password, rotated_at, detail}, a different
 // shape from the configuration echo's generated_password on purpose: one is
 // a credential receipt, the other a configuration with a receipt attached.
-func demoRotatedPassword(payload json.RawMessage) string {
+func demoRotatedPassword(payload json.RawMessage) (string, error) {
 	var answer struct {
 		Password string `json:"password"`
 	}
 	if unmarshalError := json.Unmarshal(payload, &answer); unmarshalError != nil {
-		return ""
+		return "", unmarshalError
 	}
-	return answer.Password
+	return answer.Password, nil
 }
