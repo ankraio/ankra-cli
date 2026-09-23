@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 
 	"ankra/internal/client"
 
@@ -104,8 +105,10 @@ func costLedgerLever(lever string) string {
 	case "":
 		return "—"
 	default:
-		words := strings.ReplaceAll(lever, "_", " ")
-		return strings.ToUpper(words[:1]) + words[1:]
+		// A lever this CLI predates reads as its words, capitalised by rune
+		// so a multibyte first letter is never split.
+		words := []rune(strings.ReplaceAll(lever, "_", " "))
+		return string(unicode.ToUpper(words[0])) + string(words[1:])
 	}
 }
 

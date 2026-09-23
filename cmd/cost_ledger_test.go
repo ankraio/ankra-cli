@@ -308,3 +308,16 @@ func TestFormatCostCentsSignsBeforeTheSymbol(t *testing.T) {
 		t.Errorf("a known zero = %q, want €0.00", got)
 	}
 }
+
+func TestCostLedgerLeverNamesALeverThisCLIPredates(t *testing.T) {
+	for lever, want := range map[string]string{
+		"right_size":       "Right-size",
+		"spot_migration":   "Spot migration",
+		"égress_reduction": "Égress reduction",
+		"":                 "—",
+	} {
+		if got := costLedgerLever(lever); got != want {
+			t.Errorf("costLedgerLever(%q) = %q, want %q", lever, got, want)
+		}
+	}
+}
