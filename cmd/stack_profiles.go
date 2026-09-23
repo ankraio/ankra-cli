@@ -347,7 +347,7 @@ var stackProfilesGetCmd = &cobra.Command{
 			versionsTable := table.NewWriter()
 			versionsTable.SetOutputMirror(os.Stdout)
 			versionsTable.SetStyle(table.StyleRounded)
-			versionsTable.AppendHeader(table.Row{"Version", "Channel", "Created", "Changelog"})
+			versionsTable.AppendHeader(table.Row{"Version", "Channel", "Status", "Created", "Changelog"})
 			for _, profileVersion := range detail.Versions {
 				changelog := "-"
 				if profileVersion.Changelog != nil && *profileVersion.Changelog != "" {
@@ -356,6 +356,7 @@ var stackProfilesGetCmd = &cobra.Command{
 				versionsTable.AppendRow(table.Row{
 					fmt.Sprintf("v%d", profileVersion.Version),
 					profileVersion.Channel,
+					stackProfileVersionStatusCell(profileVersion.Deprecation),
 					profileVersion.CreatedAt,
 					changelog,
 				})

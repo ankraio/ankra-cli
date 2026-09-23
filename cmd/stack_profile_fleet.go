@@ -30,6 +30,7 @@ type stackProfileDeployment struct {
 	StackState      string                    `json:"stack_state"`
 	Version         int                       `json:"version"`
 	Outdated        bool                      `json:"outdated"`
+	Deprecated      bool                      `json:"deprecated"`
 	Parameters      []client.ParameterBinding `json:"parameters"`
 	CreatedAt       string                    `json:"created_at"`
 }
@@ -55,8 +56,13 @@ func loadStackProfileDeployments(requestContext context.Context, profileID strin
 
 // stackProfileDeploymentStatus reads the platform's own outdated flag; the
 // current version is quoted only when the payload carried one, so an older
-// platform that omits it never shows a defaulted "v0" as if measured.
+// platform that omits it never shows a defaulted "v0" as if measured. A
+// deprecated version outranks being behind: the version the row runs was
+// withdrawn, which is the thing to act on.
 func stackProfileDeploymentStatus(deployment stackProfileDeployment, currentVersion int) string {
+	if deployment.Deprecated {
+		return "deprecated"
+	}
 	if !deployment.Outdated {
 		return "up to date"
 	}
@@ -86,10 +92,14 @@ func renderStackProfileDeployments(out io.Writer, deployments *stackProfileDeplo
 	})
 	clusters := map[string]bool{}
 	behind := 0
+	onDeprecatedVersion := 0
 	for _, deployment := range deployments.Result {
 		clusters[deployment.TargetClusterID] = true
 		if deployment.Outdated {
 			behind++
+		}
+		if deployment.Deprecated {
+			onDeprecatedVersion++
 		}
 	}
 	drift := "all up to date"
@@ -103,11 +113,15 @@ func renderStackProfileDeployments(out io.Writer, deployments *stackProfileDeplo
 	if deployments.CurrentVersion > 0 {
 		currentVersion = fmt.Sprintf("Current version v%d", deployments.CurrentVersion)
 	}
-	_, _ = fmt.Fprintf(out, "%s  ·  %d %s across %d %s  ·  %s\n",
+	_, _ = fmt.Fprintf(out, "%s  ·  %d %s across %d %s  ·  %s",
 		currentVersion,
 		len(deployments.Result), pluralise(len(deployments.Result), "deployment", "deployments"),
 		len(clusters), pluralise(len(clusters), "cluster", "clusters"),
 		drift)
+	if onDeprecatedVersion > 0 {
+		_, _ = fmt.Fprintf(out, "  ·  %d on a deprecated version", onDeprecatedVersion)
+	}
+	_, _ = fmt.Fprintln(out)
 	if len(rows) == 0 {
 		if onlyOutdated {
 			_, _ = fmt.Fprintln(out, "No deployment is behind the current version.")

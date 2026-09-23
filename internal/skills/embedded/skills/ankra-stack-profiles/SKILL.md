@@ -144,6 +144,20 @@ ankra stack-profiles delete payments
 `deployments` is the fleet view: which clusters are on which version. Upgrade by publishing a
 version and re-applying per cluster — one cluster, verified, then the rest.
 
+### Withdraw a version that must not be deployed
+
+```bash
+ankra stack-profiles deprecate payments 3 --reason cve \
+  --note "Fixed in v4." --reference CVE-2026-12345      # reasons: incompatibility | critical-bug | cve
+ankra stack-profiles undeprecate payments 3
+```
+
+A deprecated version stays in the history but nothing deploys it: `apply --version 3`, `rollout`,
+a demo launch and an in-place update all answer `409` with the reason and the note, so the person
+who tried learns what to do instead. `deployments` marks the stacks still on it as `deprecated`.
+The current version cannot be deprecated — `set-current-version` another one first — and a
+deprecated version cannot be made current.
+
 ## 7. Share and move profiles between organisations
 
 ```bash

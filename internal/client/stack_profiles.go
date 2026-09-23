@@ -56,26 +56,41 @@ type StackProfileParameterOption struct {
 	Sets        map[string]string `json:"sets,omitempty"`
 }
 
+// StackProfileVersionDeprecation records why a published version was
+// withdrawn. It is nil on versions that are still fit to deploy; when set,
+// the platform refuses to make the version current and refuses to
+// instantiate it.
+type StackProfileVersionDeprecation struct {
+	Reason             string   `json:"reason"`
+	Note               *string  `json:"note"`
+	References         []string `json:"references"`
+	DeprecatedAt       string   `json:"deprecated_at"`
+	DeprecatedByUserID *string  `json:"deprecated_by_user_id"`
+}
+
 type StackProfileVersionSummary struct {
-	ID        string  `json:"id"`
-	Version   int     `json:"version"`
-	Channel   string  `json:"channel"`
-	Changelog *string `json:"changelog"`
-	CreatedAt string  `json:"created_at"`
+	ID          string                          `json:"id"`
+	Version     int                             `json:"version"`
+	Channel     string                          `json:"channel"`
+	Changelog   *string                         `json:"changelog"`
+	CreatedAt   string                          `json:"created_at"`
+	Deprecation *StackProfileVersionDeprecation `json:"deprecation"`
 }
 
 type StackProfileVersionDetail struct {
-	ID         string                  `json:"id"`
-	Version    int                     `json:"version"`
-	Channel    string                  `json:"channel"`
-	Parameters []StackProfileParameter `json:"parameters"`
-	Changelog  *string                 `json:"changelog"`
-	CreatedAt  string                  `json:"created_at"`
+	ID          string                          `json:"id"`
+	Version     int                             `json:"version"`
+	Channel     string                          `json:"channel"`
+	Parameters  []StackProfileParameter         `json:"parameters"`
+	Changelog   *string                         `json:"changelog"`
+	CreatedAt   string                          `json:"created_at"`
+	Deprecation *StackProfileVersionDeprecation `json:"deprecation"`
 }
 
 type StackProfileUpdateStatus struct {
-	OutdatedInstantiationCount int  `json:"outdated_instantiation_count"`
-	HasUpdateAvailable         bool `json:"has_update_available"`
+	OutdatedInstantiationCount   int  `json:"outdated_instantiation_count"`
+	HasUpdateAvailable           bool `json:"has_update_available"`
+	DeprecatedInstantiationCount int  `json:"deprecated_instantiation_count"`
 }
 
 type StackProfileDetail struct {
@@ -338,6 +353,13 @@ func (c *Client) InstantiateStackProfile(ctx context.Context, clusterID string, 
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
+		// The platform refuses an instantiation with a sentence the caller
+		// needs verbatim ("Version 3 of this profile is deprecated (CVE): ...
+		// Deploy another version."), so the `detail` string is the error
+		// message rather than a wrapped dump of the body.
+		if detail := detailFromBody(body); detail != "" {
+			return nil, newBackendDetailError(response.StatusCode, detail)
+		}
 		return nil, newUnexpectedResponseError("instantiate stack profile failed", response.StatusCode, redactedBodyForError(body, 512))
 	}
 	var result InstantiateStackProfileResult

@@ -171,6 +171,31 @@ func (client *Client) DiffStackProfileVersions(requestContext context.Context, p
 		stackProfilePath(profileID, "/diff"), query, nil)
 }
 
+// DeprecateStackProfileVersionRequest mirrors the deprecation body. Reason
+// is one of incompatibility, critical_bug or cve; an empty note or an empty
+// reference list is omitted so the stored value is not cleared by accident.
+type DeprecateStackProfileVersionRequest struct {
+	Reason     string   `json:"reason"`
+	Note       string   `json:"note,omitempty"`
+	References []string `json:"references,omitempty"`
+}
+
+// DeprecateStackProfileVersion marks one published version as unfit to
+// deploy. Re-deprecating a version replaces its reason, note and
+// references; the platform answers with the updated version summary.
+func (client *Client) DeprecateStackProfileVersion(requestContext context.Context, profileID string, version int, deprecateRequest DeprecateStackProfileVersionRequest) (json.RawMessage, error) {
+	return client.stackProfileResourceRequest(requestContext, http.MethodPost,
+		stackProfilePath(profileID, "/versions/"+strconv.Itoa(version)+"/deprecation"), nil, deprecateRequest)
+}
+
+// UndeprecateStackProfileVersion lifts a deprecation. Calling it on a
+// version that was never deprecated is a no-op that still answers with the
+// version summary.
+func (client *Client) UndeprecateStackProfileVersion(requestContext context.Context, profileID string, version int) (json.RawMessage, error) {
+	return client.stackProfileResourceRequest(requestContext, http.MethodDelete,
+		stackProfilePath(profileID, "/versions/"+strconv.Itoa(version)+"/deprecation"), nil, nil)
+}
+
 // --- fleet ---
 
 func (client *Client) ListStackProfileInstantiations(requestContext context.Context, profileID string) (json.RawMessage, error) {
