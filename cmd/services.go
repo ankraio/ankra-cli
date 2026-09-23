@@ -297,6 +297,7 @@ type APIClient interface {
 	GetApplicationDemoLogs(requestContext context.Context, applicationID string, workspaceID string, podName string, tailLines int) (json.RawMessage, error)
 	GetApplicationDemoConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	UpdateApplicationDemoConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error)
+	RotateApplicationDemoProtection(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	FixApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error)
 	FixApplicationBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error)
 	GetApplicationImageRegistry(requestContext context.Context, applicationID string) (json.RawMessage, error)
@@ -465,6 +466,7 @@ type APIClient interface {
 	GetAgentToken(clusterID string) (*client.AgentToken, error)
 	GenerateAgentToken(ctx context.Context, clusterID string) (*client.AgentToken, error)
 	UpgradeClusterAgent(ctx context.Context, clusterID string) (*client.UpgradeAgentResult, error)
+	SetClusterAgentAutoUpgrade(ctx context.Context, clusterID string, enabled bool) (*client.AgentSettingsResult, error)
 	GetAgentCISettings(ctx context.Context, clusterID string) (*client.AgentCISettings, error)
 	UpdateAgentCISettings(ctx context.Context, clusterID string, update client.AgentCISettingsUpdate) (*client.AgentCISettings, error)
 

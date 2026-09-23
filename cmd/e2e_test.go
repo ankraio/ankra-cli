@@ -500,6 +500,9 @@ func (m baseMock) GetApplicationDemoConfig(requestContext context.Context, appli
 func (m baseMock) UpdateApplicationDemoConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
+func (m baseMock) RotateApplicationDemoProtection(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return json.RawMessage(`{"username":"preview","password":"minted-once","rotated_at":"2026-09-23T10:00:00Z","detail":"shown once"}`), nil
+}
 
 func (m baseMock) FixApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
@@ -1542,6 +1545,10 @@ func (m baseMock) GetAgentToken(clusterID string) (*client.AgentToken, error) {
 
 func (m baseMock) GenerateAgentToken(ctx context.Context, clusterID string) (*client.AgentToken, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetClusterAgentAutoUpgrade(context.Context, string, bool) (*client.AgentSettingsResult, error) {
+	return &client.AgentSettingsResult{Success: true, Message: "Cluster agent settings updated successfully"}, nil
 }
 
 func (m baseMock) UpgradeClusterAgent(ctx context.Context, clusterID string) (*client.UpgradeAgentResult, error) {
