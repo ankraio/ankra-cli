@@ -21,7 +21,7 @@ const costTopNamespaceRows = 15
 
 var costCmd = &cobra.Command{
 	Use:   "cost",
-	Short: "Read cloud cost: the fleet rollup, a cluster's estimate, the savings model and the pricing settings",
+	Short: "Read cloud cost: the fleet rollup, a cluster's estimate, the savings model, the measured ledger and the pricing settings",
 	Long: `Read the organisation's cloud cost - the same figures the portal shows under
 Cost - for reporting and automation.
 
@@ -33,8 +33,9 @@ read adds the component breakdown, the namespace allocation and the daily
 trend. The savings model reads the biggest priced clusters and proposes one
 lever per cluster (right-size idle capacity, reduce unallocated run rate, or
 an off-hours schedule for non-production) with the monthly saving each is
-worth. Pricing settings (display currency, effective discount, network
-egress estimate) apply to every figure.
+worth. The ledger follows each approved cost change through to the saving
+measured seven days after it ran. Pricing settings (display currency,
+effective discount, network egress estimate) apply to every figure.
 
 Pass -o json (or yaml) for the full API document.`,
 }
@@ -187,9 +188,26 @@ only and every fleet and cluster figure re-prices on the next read.`,
 	},
 }
 
-// formatCostCents renders integer cents in the display currency.
+// formatCostCents renders integer cents in the display currency. The sign
+// goes before the symbol ("-$42.00", not "$-42.00"): a measured saving can be
+// negative when the run rate rose, and it must read as a negative amount.
+// Integer arithmetic keeps large figures exact.
 func formatCostCents(cents int64, currency string) string {
-	return fmt.Sprintf("%s%.2f", currencySymbol(currency), float64(cents)/100)
+	sign := ""
+	if cents < 0 {
+		sign = "-"
+		cents = -cents
+	}
+	return fmt.Sprintf("%s%s%d.%02d", sign, currencySymbol(currency), cents/100, cents%100)
+}
+
+// formatOptionalCostCents is formatCostCents for a figure the platform may
+// not know. Absent is not zero: an unknown renders as "—", never "0.00".
+func formatOptionalCostCents(cents *int64, currency string) string {
+	if cents == nil {
+		return "—"
+	}
+	return formatCostCents(*cents, currency)
 }
 
 func costProviderLabel(provider string) string {
