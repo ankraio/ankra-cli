@@ -295,6 +295,7 @@ type APIClient interface {
 	GetApplicationDemoLogs(requestContext context.Context, applicationID string, workspaceID string, podName string, tailLines int) (json.RawMessage, error)
 	GetApplicationDemoConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	UpdateApplicationDemoConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error)
+	RotateApplicationDemoProtection(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	FixApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error)
 	FixApplicationBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error)
 	GetApplicationImageRegistry(requestContext context.Context, applicationID string) (json.RawMessage, error)

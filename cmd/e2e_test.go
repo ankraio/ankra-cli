@@ -492,6 +492,9 @@ func (m baseMock) GetApplicationDemoConfig(requestContext context.Context, appli
 func (m baseMock) UpdateApplicationDemoConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
+func (m baseMock) RotateApplicationDemoProtection(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return json.RawMessage(`{"username":"preview","password":"minted-once","rotated_at":"2026-09-23T10:00:00Z","detail":"shown once"}`), nil
+}
 
 func (m baseMock) FixApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
