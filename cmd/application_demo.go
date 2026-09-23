@@ -206,6 +206,14 @@ preview). Turn protection on first with 'demo config set --protected'.`,
 			if rotateError != nil {
 				return rotateError
 			}
+			// The same once-only notice the set path prints: a piped or
+			// structured answer must never be the only place the password
+			// appears without a word that it will not be shown again.
+			if password := demoRotatedPassword(payload); password != "" {
+				command.PrintErrf("Demo password rotated (shown once, store it now): preview / %s\n", password)
+			} else {
+				command.PrintErrln("The rotation answered no password; nothing was shown. Check the JSON output and retry.")
+			}
 			return renderApplicationPayload(command, payload)
 		},
 	}
@@ -338,10 +346,16 @@ entries override by name, everything else is carried forward.`,
 			if updateError != nil {
 				return updateError
 			}
-			if generated := demoGeneratedPassword(payload); generated != "" {
+			if command.Flags().Changed("protected") && document.Protected != nil && *document.Protected {
 				// The one time this password is visible anywhere. It goes to
-				// stderr so a piped JSON answer stays a JSON answer.
-				command.PrintErrf("Demo password minted (shown once, store it now): preview / %s\n", generated)
+				// stderr so a piped JSON answer stays a JSON answer. No
+				// password in the answer means protection was already on
+				// (nothing was minted), which is said rather than left silent.
+				if generated := demoGeneratedPassword(payload); generated != "" {
+					command.PrintErrf("Demo password minted (shown once, store it now): preview / %s\n", generated)
+				} else {
+					command.PrintErrln("Protection was already on, so no new password was minted; run 'demo config rotate-password' to get one.")
+				}
 			}
 			return renderApplicationPayload(command, payload)
 		},
@@ -696,7 +710,8 @@ func newApplicationDemoStopCommand() *cobra.Command {
 }
 
 // demoGeneratedPassword reads the once-only generated_password a demo-config
-// answer carries after protection was turned on; empty otherwise.
+// answer carries after protection was turned on; empty otherwise (protection
+// was already on, or the answer was not a configuration echo).
 func demoGeneratedPassword(payload json.RawMessage) string {
 	var answer struct {
 		GeneratedPassword string `json:"generated_password"`
@@ -705,4 +720,18 @@ func demoGeneratedPassword(payload json.RawMessage) string {
 		return ""
 	}
 	return answer.GeneratedPassword
+}
+
+// demoRotatedPassword reads the once-only password a rotation answers. The
+// rotate route answers {username, password, rotated_at, detail}, a different
+// shape from the configuration echo's generated_password on purpose: one is
+// a credential receipt, the other a configuration with a receipt attached.
+func demoRotatedPassword(payload json.RawMessage) string {
+	var answer struct {
+		Password string `json:"password"`
+	}
+	if unmarshalError := json.Unmarshal(payload, &answer); unmarshalError != nil {
+		return ""
+	}
+	return answer.Password
 }
