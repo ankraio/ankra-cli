@@ -18,6 +18,8 @@ type costMock struct {
 	clusterCost *client.ClusterCost
 	settings    *client.CostSettings
 	updates     []client.CostSettings
+	ledger      *client.CloudLedger
+	ledgerError error
 }
 
 func (m *costMock) GetFleetCloudCost() (*client.FleetCloudCost, error) {
@@ -26,6 +28,13 @@ func (m *costMock) GetFleetCloudCost() (*client.FleetCloudCost, error) {
 
 func (m *costMock) GetCloudSavings() (*client.CloudSavings, error) {
 	return m.savings, nil
+}
+
+func (m *costMock) GetCloudLedger() (*client.CloudLedger, error) {
+	if m.ledgerError != nil {
+		return nil, m.ledgerError
+	}
+	return m.ledger, nil
 }
 
 func (m *costMock) GetClusterCost(string) (*client.ClusterCost, error) {
@@ -43,7 +52,7 @@ func (m *costMock) UpdateCostSettings(settings client.CostSettings) (*client.Cos
 }
 
 func costCommandTree() []*cobra.Command {
-	return []*cobra.Command{costSummaryCmd, costSavingsCmd, costClusterCmd, costSettingsGetCmd, costSettingsSetCmd}
+	return []*cobra.Command{costSummaryCmd, costSavingsCmd, costLedgerCmd, costClusterCmd, costSettingsGetCmd, costSettingsSetCmd}
 }
 
 func runCostCommand(t *testing.T, mock APIClient, args ...string) (string, error) {

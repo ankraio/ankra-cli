@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -156,5 +157,107 @@ func TestCost_BackendDetailSurfaces(t *testing.T) {
 	_, err = testClient.GetCostSettings()
 	if err == nil || !strings.Contains(err.Error(), "Only organisation admins") {
 		t.Fatalf("expected the backend detail to surface on a read too, got %v", err)
+	}
+}
+
+func TestGetCloudLedger_DecodesRowsNullsAndNegatives(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/v1/org/cloud-cost/ledger" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"currency":"usd","generated_at":"2026-09-23T21:33:14Z","measured_total_cents":-4200,` +
+			`"month":"2026-09","measured_this_month_cents":-4200,"running_total_cents":23100,` +
+			`"counts":{"pending":1,"measured":1,"unmeasured":1,"reverted":0},"rows":[` +
+			`{"decision_id":"d1","cluster_id":"c1","cluster_name":"staging-1","lever":"off_hours_schedule",` +
+			`"summary":"Stop staging-1 weeknights and weekends","status":"succeeded","expected_monthly_cents":23100,` +
+			`"baseline_monthly_cents":null,"measured_monthly_cents":null,"measurement_status":"pending",` +
+			`"measurement_reason":null,"days":3,"decided_at":"2026-09-19T08:00:00Z","executed_at":"2026-09-20T10:00:00Z",` +
+			`"verify_until":"2026-09-27T10:00:00Z","measured_at":null},` +
+			`{"decision_id":"d2","cluster_id":null,"cluster_name":null,"lever":"right_size","summary":"Resize workers",` +
+			`"status":"succeeded","expected_monthly_cents":null,"baseline_monthly_cents":41000,"measured_monthly_cents":-4200,` +
+			`"measurement_status":"measured","measurement_reason":null,"days":7,"decided_at":null,"executed_at":null,` +
+			`"verify_until":null,"measured_at":"2026-09-23T10:00:00Z","verification_status":"passed",` +
+			`"verification_days":[{"day":1,"from":"2026-09-16T10:00:00Z","to":"2026-09-17T10:00:00Z","state":"clear",` +
+			`"cpu_p95_share":0.41,"memory_p95_share":null,"hottest_node":"batch-1","nodes":2,"reporting":2}]},` +
+			`{"decision_id":"d3","cluster_id":"c3","cluster_name":"data","lever":"waste_cleanup","summary":"Delete volumes",` +
+			`"status":"succeeded","expected_monthly_cents":null,"baseline_monthly_cents":null,"measured_monthly_cents":null,` +
+			`"measurement_status":"unmeasured_coverage_moved","measurement_reason":"Coverage moved.","days":7,` +
+			`"decided_at":null,"executed_at":null,"verify_until":null,"measured_at":null}],"truncated":true}`))
+	}
+	testClient := newTestClient(t, handler)
+	result, err := testClient.GetCloudLedger()
+	if err != nil {
+		t.Fatalf("GetCloudLedger: %v", err)
+	}
+	if result.Currency != "usd" || result.Month != "2026-09" || result.MeasuredTotalCents != -4200 ||
+		result.MeasuredThisMonthCents != -4200 || result.RunningTotalCents != 23100 || !result.Truncated {
+		t.Fatalf("totals did not decode: %+v", result)
+	}
+	if result.Counts != (CloudLedgerCounts{Pending: 1, Measured: 1, Unmeasured: 1, Reverted: 0}) {
+		t.Fatalf("counts did not decode: %+v", result.Counts)
+	}
+	if len(result.Rows) != 3 {
+		t.Fatalf("rows did not decode: %+v", result.Rows)
+	}
+	pending := result.Rows[0]
+	if pending.ExpectedMonthlyCents == nil || *pending.ExpectedMonthlyCents != 23100 || pending.MeasuredMonthlyCents != nil ||
+		pending.BaselineMonthlyCents != nil || pending.Days == nil || *pending.Days != 3 || pending.MeasuredAt != nil ||
+		pending.VerifyUntil == nil || *pending.VerifyUntil != "2026-09-27T10:00:00Z" {
+		t.Fatalf("pending row did not decode: %+v", pending)
+	}
+	if pending.VerificationStatus != nil || pending.VerificationDays != nil {
+		t.Fatalf("a row sent without verification must decode without one: %+v", pending)
+	}
+	measured := result.Rows[1]
+	if measured.ClusterID != nil || measured.ClusterName != nil || measured.ExpectedMonthlyCents != nil ||
+		measured.MeasuredMonthlyCents == nil || *measured.MeasuredMonthlyCents != -4200 {
+		t.Fatalf("an unknown must decode as nil and a negative measurement as negative: %+v", measured)
+	}
+	if measured.VerificationStatus == nil || *measured.VerificationStatus != "passed" || measured.VerificationDays == nil ||
+		len(*measured.VerificationDays) != 1 {
+		t.Fatalf("verification did not decode: %+v", measured)
+	}
+	day := (*measured.VerificationDays)[0]
+	if day.State != "clear" || day.CPUP95Share == nil || *day.CPUP95Share != 0.41 || day.MemoryP95Share != nil ||
+		day.HottestNode != "batch-1" || day.Nodes != 2 || day.Reporting != 2 {
+		t.Fatalf("verification day did not decode: %+v", day)
+	}
+	unmeasured := result.Rows[2]
+	if unmeasured.MeasurementReason == nil || *unmeasured.MeasurementReason != "Coverage moved." {
+		t.Fatalf("the reason did not decode: %+v", unmeasured)
+	}
+}
+
+func TestGetCloudLedger_AbsentRowsDecodeAsEmpty(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(t, w, http.StatusOK, map[string]any{"currency": "eur", "month": "2026-09"})
+	}
+	testClient := newTestClient(t, handler)
+	result, err := testClient.GetCloudLedger()
+	if err != nil {
+		t.Fatalf("GetCloudLedger: %v", err)
+	}
+	if result.Rows == nil || len(result.Rows) != 0 {
+		t.Fatalf("an absent rows list must decode as empty, not nil: %+v", result)
+	}
+}
+
+// A platform that predates the ledger answers the route with a bare 404; the
+// command keys its "this platform predates it" message on the status.
+func TestGetCloudLedger_SurfacesTheStatusCode(t *testing.T) {
+	handler := func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}
+	testClient := newTestClient(t, handler)
+	_, readError := testClient.GetCloudLedger()
+	if readError == nil {
+		t.Fatal("a 404 is an error")
+	}
+	var unexpected *UnexpectedResponseError
+	if !errors.As(readError, &unexpected) || unexpected.StatusCode != http.StatusNotFound {
+		t.Fatalf("error = %v", readError)
 	}
 }

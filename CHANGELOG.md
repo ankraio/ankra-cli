@@ -4,6 +4,22 @@
 
 ### Added
 
+- **`ankra cost ledger` shows what cost decisions actually saved.** Every
+  cost change the organisation approves is followed through to a measured
+  outcome: seven days after it runs, the platform compares the cluster's run
+  rate before and after the change, from the cluster's own cost snapshots.
+  The command leads with the saving measured this month and in all, the
+  expected saving still in flight (approved, running or verifying, which
+  counts only once it is measured) and how many changes are measured,
+  verifying, unmeasured or reverted, then lists each change with its expected
+  and measured monthly figure. A figure the platform does not know prints as
+  `—`, never as zero, and a negative measurement (the run rate rose) prints
+  as the negative amount it is. An unmeasured or reverted change carries the
+  platform's reason directly under its row, and a right-size carries its
+  usage verification. When the list stops at the newest changes the command
+  says so, and the totals still cover all of them. A platform that predates
+  the ledger is reported as such rather than as a bare 404. `-o json` returns
+  the document the portal reads (`GET /api/v1/org/cloud-cost/ledger`).
 - **`-o json` and `-o yaml` no longer hand a script text that hides
   characters.** The human-readable rendering already stripped invisible
   Unicode, but structured output is written earlier and went out untouched,

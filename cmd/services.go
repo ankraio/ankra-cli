@@ -87,6 +87,7 @@ type APIClient interface {
 
 	GetFleetCloudCost() (*client.FleetCloudCost, error)
 	GetCloudSavings() (*client.CloudSavings, error)
+	GetCloudLedger() (*client.CloudLedger, error)
 	GetClusterCost(clusterID string) (*client.ClusterCost, error)
 	GetCostSettings() (*client.CostSettings, error)
 	UpdateCostSettings(settings client.CostSettings) (*client.CostSettings, error)
