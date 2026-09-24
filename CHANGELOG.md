@@ -4,6 +4,17 @@
 
 ### Added
 
+- **The savings model's analysed-cluster limit is a setting.**
+  `ankra cost settings set --analysed-cluster-limit N` (1 to 50) sets how many
+  of the costliest priced clusters the savings model analyses, and
+  `--analysed-cluster-limit default` returns it to the platform default of 8.
+  Without the flag the limit is not sent, so changing the currency, discount
+  or egress estimate never touches it. `ankra cost settings get` shows the
+  limit in effect, or says it is unknown on a platform that does not report
+  it. `ankra cost savings` shows the limit even when every priced cluster was
+  analysed, says when the analysis time budget rather than the limit left
+  clusters unanalysed, and names stale clusters by the platform's own
+  staleness window.
 - **`ankra cost ledger` shows what cost decisions actually saved.** Every
   cost change the organisation approves is followed through to a measured
   outcome: seven days after it runs, the platform compares the cluster's run
