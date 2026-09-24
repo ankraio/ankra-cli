@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -273,12 +274,25 @@ func TestCostBudgetsReportAMissingRouteAsSuch(t *testing.T) {
 			t.Fatalf("create error = %v", createError)
 		}
 	}
-	// On the item routes, a bare 404 is the route missing, but the route's
-	// own 404 names the budget that is not the organisation's (exit 3).
-	_, bareError := runCostBudgetsCommand(t, &costBudgetsMock{writeError: client.NewUnexpectedResponseError(404, "request failed")},
-		"", "cost", "budgets", "set", costBudgetProdID, "--amount", "1800")
-	if bareError == nil || !strings.Contains(bareError.Error(), "PUT /api/v1/org/cloud-cost/budgets/{budget_id} is not registered") {
-		t.Fatalf("bare 404 error = %v", bareError)
+	// On the item routes, a 404 that does not name the budget could be a
+	// budget that is gone or a platform without budgets; it says both rather
+	// than pick one. A 405 there is still the route missing.
+	for _, itemError := range []error{
+		client.NewUnexpectedResponseError(404, "request failed"),
+		&client.UnexpectedResponseError{StatusCode: 404, Detail: "Not Found"},
+	} {
+		_, ambiguousError := runCostBudgetsCommand(t, &costBudgetsMock{writeError: itemError},
+			"", "cost", "budgets", "set", costBudgetProdID, "--amount", "1800")
+		if ambiguousError == nil || !strings.Contains(ambiguousError.Error(),
+			"PUT /api/v1/org/cloud-cost/budgets/{budget_id} answered 404 without naming the budget, so either the budget is not one of this organisation's") ||
+			!strings.Contains(ambiguousError.Error(), "or this platform predates budgets") || exitCodeFor(ambiguousError) != exitError {
+			t.Fatalf("an item 404 that does not name the budget must admit both causes, got %v (exit %d)", ambiguousError, exitCodeFor(ambiguousError))
+		}
+	}
+	_, methodError := runCostBudgetsCommand(t, &costBudgetsMock{deleteError: client.NewUnexpectedResponseError(405, "Method Not Allowed")},
+		"", "cost", "budgets", "delete", costBudgetProdID, "--yes")
+	if methodError == nil || !strings.Contains(methodError.Error(), "DELETE /api/v1/org/cloud-cost/budgets/{budget_id} is not registered") {
+		t.Fatalf("a 405 on an item route is the route missing, got %v", methodError)
 	}
 	notFound := &client.UnexpectedResponseError{StatusCode: 404, Detail: "Budget not found"}
 	_, missingError := runCostBudgetsCommand(t, &costBudgetsMock{deleteError: notFound}, "", "cost", "budgets", "delete", costBudgetProdID, "--yes")
@@ -488,5 +502,48 @@ func TestParseCostBudgetAmountIsExact(t *testing.T) {
 		if _, parseError := parseCostBudgetAmount(raw); parseError == nil {
 			t.Errorf("parseCostBudgetAmount(%q) should fail", raw)
 		}
+	}
+}
+
+type budgetsContextKey struct{}
+
+// costBudgetsApplicationMock resolves an application name through the listing
+// and records the context the lookup ran under.
+type costBudgetsApplicationMock struct {
+	costBudgetsMock
+	lookupContexts []context.Context
+}
+
+func (m *costBudgetsApplicationMock) ListApplicationsRaw(requestContext context.Context, page int, pageSize int, search string) (json.RawMessage, error) {
+	m.lookupContexts = append(m.lookupContexts, requestContext)
+	return json.RawMessage(`{"result":[{"id":"66666666-6666-4666-8666-666666666666","name":"checkout"}],"pagination":{"total_pages":1}}`), nil
+}
+
+// The application lookup runs under the command's own context, so Ctrl-C or a
+// deadline on the command stops its listing requests.
+func TestCostBudgetsSetResolvesAnApplicationUnderTheCommandContext(t *testing.T) {
+	mock := &costBudgetsApplicationMock{costBudgetsMock: costBudgetsMock{written: &costBudgetsFixture().Budgets[0]}}
+	withTempHome(t)
+	setMockClient(t, mock)
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+	rootCmd.SetArgs([]string{"cost", "budgets", "set", "--scope", "application", "--scope-id", "checkout",
+		"--name", "Checkout", "--amount", "900", "--currency", "eur"})
+	resetTreeFlags(t, costBudgetsListCmd, costBudgetsSetCmd, costBudgetsDeleteCmd)
+	t.Cleanup(func() { resetTreeFlags(t, costBudgetsListCmd, costBudgetsSetCmd, costBudgetsDeleteCmd) })
+	// Cobra hands a subcommand the root's context only while its own is
+	// unset, and an earlier run in this process has set it, so the command's
+	// context is set on the command itself (and put back afterwards).
+	commandContext := context.WithValue(context.Background(), budgetsContextKey{}, "the command's")
+	costBudgetsSetCmd.SetContext(commandContext)
+	t.Cleanup(func() { costBudgetsSetCmd.SetContext(context.Background()) })
+	if executeError := rootCmd.Execute(); executeError != nil {
+		t.Fatalf("cost budgets set --scope application failed: %v", executeError)
+	}
+	if len(mock.lookupContexts) == 0 || mock.lookupContexts[0].Value(budgetsContextKey{}) != "the command's" {
+		t.Fatalf("the application lookup must run under the command's context, got %v", mock.lookupContexts)
+	}
+	if len(mock.creates) != 1 || mock.creates[0].Body()["scope_id"] != "66666666-6666-4666-8666-666666666666" {
+		t.Fatalf("the application name resolves to its id: %+v", mock.creates)
 	}
 }

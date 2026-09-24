@@ -132,10 +132,12 @@ func init() {
 }
 
 // costBudgetsError maps what a budget route answers into what the user reads.
-// A 404 or 405 is the route missing on a platform that predates budgets,
-// except the item routes' own 404, which names the budget that is not the
-// organisation's. The budget writes' admin gate answers a bare-detail 403;
-// it is a role problem (exit 7), and it names the permission it wants.
+// A 404 or 405 on the collection is the route missing on a platform that
+// predates budgets, as is a 405 on an item route. An item route's 404 whose
+// detail names the budget ("Budget not found") is the budget that is not the
+// organisation's (exit 3); any other item 404 could be either, so it says so
+// rather than pick one. The budget writes' admin gate answers a bare-detail
+// 403; it is a role problem (exit 7), and it names the permission it wants.
 func costBudgetsError(routeError error, operation string, method string, itemRoute bool) error {
 	var denied *client.PermissionDeniedError
 	if errors.As(routeError, &denied) {
@@ -156,12 +158,17 @@ func costBudgetsError(routeError error, operation string, method string, itemRou
 		}
 		return fmt.Errorf("%s: %w", operation, refusal)
 	case http.StatusNotFound, http.StatusMethodNotAllowed:
-		if itemRoute && unexpected.StatusCode == http.StatusNotFound && strings.Contains(strings.ToLower(unexpected.Detail), "budget") {
-			return fmt.Errorf("%s: %w", operation, routeError)
-		}
 		route := "/api/v1/org/cloud-cost/budgets"
 		if itemRoute {
 			route += "/{budget_id}"
+		}
+		if itemRoute && unexpected.StatusCode == http.StatusNotFound {
+			if strings.Contains(strings.ToLower(unexpected.Detail), "budget") {
+				return fmt.Errorf("%s: %w", operation, routeError)
+			}
+			return withExitCode(exitError, fmt.Errorf(
+				"%s: %s %s answered 404 without naming the budget, so either the budget is not one of this organisation's "+
+					"('ankra cost budgets list' shows them) or this platform predates budgets", operation, method, route))
 		}
 		return withExitCode(exitError, fmt.Errorf(
 			"this platform does not serve cost budgets: %s %s is not registered, so this platform predates them", method, route))
@@ -240,13 +247,15 @@ func costBudgetFieldsFromFlags(cmd *cobra.Command) (client.CostBudgetWrite, erro
 }
 
 // costBudgetScopeID resolves --scope-id for the scope kind: a cluster or an
-// application name becomes its id, an environment label passes as given.
-func costBudgetScopeID(scopeKind string, reference string) (string, error) {
+// application name becomes its id, an environment label passes as given. The
+// application lookup runs under the command's context, so Ctrl-C or a
+// deadline stops its listing requests.
+func costBudgetScopeID(requestContext context.Context, scopeKind string, reference string) (string, error) {
 	switch scopeKind {
 	case "cluster":
 		return resolveClusterID(reference)
 	case "application":
-		return resolveApplicationID(context.Background(), apiClient, reference)
+		return resolveApplicationID(requestContext, apiClient, reference)
 	default:
 		return reference, nil
 	}
@@ -287,7 +296,7 @@ func runCostBudgetCreate(cmd *cobra.Command) error {
 			}
 			return withExitCode(exitUsage, fmt.Errorf("%s %s budget needs --scope-id", article, scopeKind))
 		}
-		scopeID, resolveError := costBudgetScopeID(scopeKind, scopeReference)
+		scopeID, resolveError := costBudgetScopeID(cmd.Context(), scopeKind, scopeReference)
 		if resolveError != nil {
 			return resolveError
 		}
