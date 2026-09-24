@@ -59,6 +59,13 @@
 
 ### Fixed
 
+- **Offline cluster validation works with an explicit target.**
+  `ankra cluster apply --dry-run --cluster <name|id>` validates the file
+  without contacting the API, including when no login is available. It no
+  longer crashes while resolving the target. The output states that the
+  target was not checked and points to `ankra cluster validate` for server
+  validation. Applying without `--dry-run` still resolves the target normally.
+
 - **A Persian or Hindi name is no longer reshaped in what the CLI prints.**
   The invisible-character strip removed every zero-width joiner and
   non-joiner, but those scripts write them inside ordinary words, so a

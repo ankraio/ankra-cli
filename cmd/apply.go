@@ -83,17 +83,17 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	if dryRun {
+		fmt.Printf("Validation succeeded for %q; no changes applied (--dry-run).\n", filePath)
+		if target := clusterFlagOverride(cmd); target != "" {
+			fmt.Printf("Target cluster %q was not checked during offline validation. Use 'ankra cluster validate' with --cluster for server checks.\n", target)
+		}
+		return nil
+	}
+
 	targetNote, err := applyClusterOverride(cmd, &importRequest)
 	if err != nil {
 		return err
-	}
-
-	if dryRun {
-		fmt.Printf("Validation succeeded for %q; no changes applied (--dry-run).\n", filePath)
-		if targetNote != "" {
-			fmt.Println(targetNote)
-		}
-		return nil
 	}
 	if targetNote != "" {
 		fmt.Println(targetNote)

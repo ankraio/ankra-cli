@@ -140,3 +140,23 @@ func TestClusterApplyUnknownClusterFlagFails(t *testing.T) {
 		t.Errorf("nothing should be applied: %+v", mock.applied)
 	}
 }
+
+// Offline validation must work with no API client at all, just like the
+// authentication preflight promises for --dry-run.
+func TestClusterApplyDryRunWithClusterIsOffline(t *testing.T) {
+	for _, target := range []string{"prod-eu", "11111111-1111-1111-1111-111111111111"} {
+		t.Run(target, func(t *testing.T) {
+			resetClusterApplyFlags(t)
+			setMockClient(t, nil)
+			path := writeApplyOverrideDocument(t)
+			stdout := captureStdout(t, func() {
+				if _, err := executeCommand("cluster", "apply", "-f", path, "--dry-run", "--cluster", target); err != nil {
+					t.Fatalf("offline validation failed: %v", err)
+				}
+			})
+			if !strings.Contains(stdout, "no changes applied") || !strings.Contains(stdout, "not checked") {
+				t.Fatalf("expected local validation and unresolved target notice, got: %s", stdout)
+			}
+		})
+	}
+}
