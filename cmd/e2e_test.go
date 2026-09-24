@@ -4569,3 +4569,19 @@ func (m baseMock) GetCostSettings() (*client.CostSettings, error) {
 func (m baseMock) UpdateCostSettings(settings client.CostSettings) (*client.CostSettings, error) {
 	return nil, errors.New("not implemented")
 }
+
+func (m baseMock) ListCostBudgets() (*client.CostBudgets, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateCostBudget(write client.CostBudgetWrite) (*client.CostBudget, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateCostBudget(budgetID string, write client.CostBudgetWrite) (*client.CostBudget, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteCostBudget(budgetID string) error {
+	return errors.New("not implemented")
+}

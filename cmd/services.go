@@ -91,6 +91,10 @@ type APIClient interface {
 	GetClusterCost(clusterID string) (*client.ClusterCost, error)
 	GetCostSettings() (*client.CostSettings, error)
 	UpdateCostSettings(settings client.CostSettings) (*client.CostSettings, error)
+	ListCostBudgets() (*client.CostBudgets, error)
+	CreateCostBudget(write client.CostBudgetWrite) (*client.CostBudget, error)
+	UpdateCostBudget(budgetID string, write client.CostBudgetWrite) (*client.CostBudget, error)
+	DeleteCostBudget(budgetID string) error
 
 	ListBackupVaults() (*client.BackupVaultListResult, error)
 	GetBackupVault(vaultID string) (*client.BackupVault, error)

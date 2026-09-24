@@ -29,6 +29,22 @@
   goes to stderr so stdout stays parseable. Output that was hiding nothing is
   byte-identical to before, field order included, so existing scripts see no
   change.
+- **`ankra cost budgets` reads and manages monthly cost budgets.** `list`
+  shows every budget with its scope (the organisation, a cluster, an
+  environment label or an application), the amount, what is spent so far,
+  the projected month end with its share of the budget, and the status
+  (under, approaching, crossing, over budget or unknown). Under each budget
+  sit its id, the hour it crosses at the current pace (or that the hour is
+  unknown), where the month lands once the changes already approved or
+  running have landed, and how much of the scope is priced. A budget whose
+  scope has nothing priced reads `unknown`, never zero. `set` adds a budget
+  (`--scope`, `--scope-id`, `--name`, `--amount` in major units, `--currency`,
+  optional `--notify-at` and `--owner`) or, given a budget id, changes only
+  the flags you pass, so an omitted field is never cleared; `--clear-owner`
+  removes the owner. `delete` asks before it removes a budget (`--yes` skips
+  the prompt). A write refused for lack of `billing.manage` exits 7 and names
+  the permission, a platform that predates budgets is reported as such, and
+  `-o json` returns the route's document (`/api/v1/org/cloud-cost/budgets`).
 - **A stack profile version can be withdrawn without deleting it.**
   `ankra stack-profiles deprecate <profile> <version> --reason
   <incompatibility|critical-bug|cve>` marks a published version as unfit to
