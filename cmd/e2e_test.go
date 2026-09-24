@@ -4550,6 +4550,14 @@ func (m baseMock) GetFleetCloudCost() (*client.FleetCloudCost, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetFleetCostTrend(days int) (*client.FleetCostTrend, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetCostEvents(days int) (*client.CostEvents, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetCloudSavings() (*client.CloudSavings, error) {
 	return nil, errors.New("not implemented")
 }

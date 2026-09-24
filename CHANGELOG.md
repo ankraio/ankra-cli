@@ -20,6 +20,25 @@
   says so, and the totals still cover all of them. A platform that predates
   the ledger is reported as such rather than as a bare 404. `-o json` returns
   the document the portal reads (`GET /api/v1/org/cloud-cost/ledger`).
+- **`ankra cost trend` and `ankra cost events` show how the fleet's run rate
+  moved and what moved it.** `cost trend` prints the run rate per UTC day
+  over every priced cluster, with how many clusters each day covers. A day no
+  cluster was priced reads `not priced`, never zero, and a day where some
+  clusters were only partly priced is called out as a floor. The days the
+  set of priced clusters changed are listed apart, naming the clusters that
+  entered and left and what that moved the line by, because a cluster being
+  created, stopped or losing its pricing moves the line without anything
+  being spent. `cost events` lists what happened, newest first: releases,
+  node-count changes, scheduled and manual stops and starts, executed cost
+  decisions, clusters entering or leaving pricing and resolved waste, each
+  with its move on the run rate. A move shared with other events in the same
+  metering window says so rather than claim a split, a move with no priced
+  hour on one side reads `unknown`, and the platform's note sits under the
+  row. A kind of event the platform could not read is named above the table,
+  so its absence never reads as quiet. `--days` sets the window (at most 34).
+  A platform that predates either route is reported as such rather than as a
+  bare 404. `-o json` returns the documents the portal reads
+  (`GET /api/v1/org/cloud-cost/trend` and `/events`).
 - **`-o json` and `-o yaml` no longer hand a script text that hides
   characters.** The human-readable rendering already stripped invisible
   Unicode, but structured output is written earlier and went out untouched,
