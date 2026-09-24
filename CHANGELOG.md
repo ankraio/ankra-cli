@@ -88,6 +88,23 @@
   them in its summary line, and `stack-profiles get` gains a Status column
   saying which versions were withdrawn and why.
 
+- **`ankra cost autopilot` shows and changes how much Ankra may do about
+  cost unasked.** `get` prints the tier each environment kind defaults to
+  beside the recommended one, the quiet hours, where the pre-notices go, what
+  each tier lets Ankra do, and every live cluster with its tier and what set
+  it, with the sentence the portal's card shows under it. `set` changes only
+  what you pass: `--default KIND=TIER` names the kinds it changes,
+  `--quiet-hours START-END --timezone ZONE` and `--notification-route` set
+  the others, and `--clear-quiet-hours` and `--clear-notification-route`
+  clear them, so an omitted part is never cleared. `override <cluster>` puts
+  one cluster in a tier with the reason a card shows and an optional
+  `--expires-at` or `--expires-in`; `clear <cluster>` asks before it returns
+  the cluster to its environment's tier (`--yes` skips the prompt). A write
+  refused for lack of `billing.manage` or `clusters.write` exits 7 and names
+  the permission, a cluster that is not a live one of the organisation exits
+  3, a platform that predates the autopilot is reported as such, and
+  `-o json` returns the route's document (`/api/v1/org/cloud-cost/autopilot`).
+
 - **Invisible characters can no longer change what an action proposal says.**
   Unicode Tag characters render as nothing and mirror ASCII one to one, and
   bidirectional controls reorder what a terminal displays, so a server- or

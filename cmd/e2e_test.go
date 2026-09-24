@@ -4566,6 +4566,22 @@ func (m baseMock) GetCloudLedger() (*client.CloudLedger, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetCostAutopilot() (*client.CostAutopilotPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateCostAutopilot(update client.CostAutopilotPolicyUpdate) (*client.CostAutopilotPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetCostAutopilotOverride(clusterID string, request client.CostAutopilotOverrideRequest) (*client.CostAutopilotCluster, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ClearCostAutopilotOverride(clusterID string) (*client.CostAutopilotCluster, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetClusterCost(clusterID string) (*client.ClusterCost, error) {
 	return nil, errors.New("not implemented")
 }
