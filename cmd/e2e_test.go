@@ -719,6 +719,30 @@ func (m baseMock) EnrichExecutionDetailWithDrift(detail *client.ExecutionDetail)
 	return nil
 }
 
+func (m baseMock) ListDecisions(filter client.DecisionListFilter) (*client.DecisionProposalList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetDecision(decisionID string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetDecisionActivity(decisionID string) (*client.DecisionActivity, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ApproveDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetAsideDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ExecuteDecision(decisionID string, options client.DecisionExecuteOptions) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListExecutionSteps(executionID string) ([]client.ExecutionStep, error) {
 	return nil, errors.New("not implemented")
 }

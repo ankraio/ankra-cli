@@ -144,6 +144,13 @@ type APIClient interface {
 	BatchCancelExecutions(ctx context.Context, executionIDs []string) (*client.BatchCancelExecutionsResponse, error)
 	RetryExecution(ctx context.Context, executionID string) (*client.ExecutionSummary, error)
 
+	ListDecisions(filter client.DecisionListFilter) (*client.DecisionProposalList, error)
+	GetDecision(decisionID string) (*client.DecisionProposal, error)
+	GetDecisionActivity(decisionID string) (*client.DecisionActivity, error)
+	ApproveDecision(decisionID string, note *string) (*client.DecisionProposal, error)
+	SetAsideDecision(decisionID string, note *string) (*client.DecisionProposal, error)
+	ExecuteDecision(decisionID string, options client.DecisionExecuteOptions) (*client.DecisionProposal, error)
+
 	GetClusterIaC(ctx context.Context, clusterID string) (string, error)
 	PatchClusterStackPartial(ctx context.Context, clusterID, stackName string, body client.PatchStackRequest) (*client.PatchStackResult, error)
 
