@@ -140,6 +140,11 @@
 
 ### Fixed
 
+- **`ankra cost budgets set --owner ""` is refused instead of sent.** An
+  empty (or whitespace-only) owner used to go to the platform as an empty
+  user id, which is neither an owner nor a removal. It is now a usage error
+  that points at `--clear-owner`, the flag that removes a budget's owner,
+  and nothing is written.
 - **`ankra cluster power-schedules` says when `--stop-mode pause` saves
   nothing.** Hetzner, DigitalOcean and UpCloud (Developer and General Purpose
   plans) bill a powered-off server at its full price, so a pause schedule

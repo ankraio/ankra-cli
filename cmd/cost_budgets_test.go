@@ -390,6 +390,26 @@ func TestCostBudgetsSetChangesOnlyTheGivenFields(t *testing.T) {
 	}
 }
 
+// TestCostBudgetsSetRefusesAnEmptyOwner pins that an explicit empty --owner
+// (or one that is only whitespace) is refused rather than sent as "", on
+// create and on change alike: removing the owner is --clear-owner.
+func TestCostBudgetsSetRefusesAnEmptyOwner(t *testing.T) {
+	for _, args := range [][]string{
+		{costBudgetProdID, "--owner", ""},
+		{costBudgetProdID, "--owner", "   "},
+		{"--name", "Prod", "--scope", "organisation", "--amount", "10", "--currency", "eur", "--owner", ""},
+	} {
+		mock := &costBudgetsMock{}
+		_, executeError := runCostBudgetsCommand(t, mock, "", append([]string{"cost", "budgets", "set"}, args...)...)
+		if executeError == nil || !strings.Contains(executeError.Error(), "pass --clear-owner") || exitCodeFor(executeError) != exitUsage {
+			t.Fatalf("%v: error = %v, want the usage error pointing at --clear-owner", args, executeError)
+		}
+		if len(mock.updates) != 0 || len(mock.creates) != 0 {
+			t.Fatalf("%v: a refused write must not be sent", args)
+		}
+	}
+}
+
 func TestCostBudgetsSetChangeRefusesScopeAndEmptyChanges(t *testing.T) {
 	for _, testCase := range []struct {
 		args []string
