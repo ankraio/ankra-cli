@@ -238,6 +238,11 @@ func costBudgetFieldsFromFlags(cmd *cobra.Command) (client.CostBudgetWrite, erro
 	if flags.Changed("owner") {
 		owner, _ := flags.GetString("owner")
 		owner = strings.TrimSpace(owner)
+		// An empty --owner is neither an owner nor a clear: sending "" would
+		// ask the platform for a fourth state it does not have.
+		if owner == "" {
+			return write, withExitCode(exitUsage, errors.New("--owner needs a member's user id; to remove the owner, pass --clear-owner"))
+		}
 		write.OwnerUserID = &owner
 	}
 	if flags.Changed("clear-owner") {
