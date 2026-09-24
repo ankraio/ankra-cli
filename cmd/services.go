@@ -84,6 +84,7 @@ type APIClient interface {
 	CreatePowerSchedule(clusterID string, request client.PowerScheduleRequest) (*client.PowerScheduleListResult, error)
 	UpdatePowerSchedule(clusterID, scheduleID string, request client.PowerScheduleRequest) (*client.PowerScheduleListResult, error)
 	DeletePowerSchedule(clusterID, scheduleID string) (*client.DeletePowerScheduleResult, error)
+	GetPowerScheduleNodeLocalStorage(clusterID string) (*client.PowerScheduleNodeLocalStorage, error)
 
 	GetFleetCloudCost() (*client.FleetCloudCost, error)
 	GetCloudSavings() (*client.CloudSavings, error)

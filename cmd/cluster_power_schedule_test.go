@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -22,6 +24,17 @@ type powerScheduleMock struct {
 	creates []powerScheduleCall
 	updates []powerScheduleCall
 	deletes []powerScheduleCall
+
+	// nodeLocal and nodeLocalError answer the node-local read; both nil is
+	// a reading that could not be made. nodeLocalReads counts the reads.
+	nodeLocal      *client.PowerScheduleNodeLocalStorage
+	nodeLocalError error
+	nodeLocalReads int
+}
+
+func (m *powerScheduleMock) GetPowerScheduleNodeLocalStorage(clusterID string) (*client.PowerScheduleNodeLocalStorage, error) {
+	m.nodeLocalReads++
+	return m.nodeLocal, m.nodeLocalError
 }
 
 func (m *powerScheduleMock) GetCluster(name string) (client.ClusterListItem, error) {
@@ -61,16 +74,26 @@ func (m *powerScheduleMock) DeletePowerSchedule(clusterID, scheduleID string) (*
 // (rootCmd is a process global).
 func executePowerScheduleCommand(t *testing.T, stdinContent string, args ...string) error {
 	t.Helper()
+	_, err := executePowerScheduleCommandCapturingStderr(t, stdinContent, args...)
+	return err
+}
+
+// executePowerScheduleCommandCapturingStderr is executePowerScheduleCommand
+// that also answers what the command wrote to stderr.
+func executePowerScheduleCommandCapturingStderr(t *testing.T, stdinContent string, args ...string) (string, error) {
+	t.Helper()
 	resetPowerScheduleFlags()
 	t.Cleanup(func() {
 		rootCmd.SetIn(nil)
 		resetPowerScheduleFlags()
 	})
+	stderr := new(strings.Builder)
 	rootCmd.SetOut(new(strings.Builder))
-	rootCmd.SetErr(new(strings.Builder))
+	rootCmd.SetErr(stderr)
 	rootCmd.SetIn(strings.NewReader(stdinContent))
 	rootCmd.SetArgs(args)
-	return rootCmd.Execute()
+	err := rootCmd.Execute()
+	return stderr.String(), err
 }
 
 func resetPowerScheduleFlags() {
@@ -276,5 +299,132 @@ func TestClusterPowerSchedulesHelp_SaysPauseSavesNoComputeOnFullBillingProviders
 				t.Errorf("%s help does not say %q: %q", command.name, want, command.usage)
 			}
 		}
+	}
+}
+
+func presentNodeLocal(names ...string) *client.PowerScheduleNodeLocalStorage {
+	count := len(names)
+	return &client.PowerScheduleNodeLocalStorage{State: "present", PVCCount: &count, PVCNames: names, ConsentRequired: true}
+}
+
+// answerPromptInteractively makes the acknowledgement prompt treat the test's
+// stdin as a terminal.
+func answerPromptInteractively(t *testing.T) {
+	t.Helper()
+	previous := promptIsInteractive
+	promptIsInteractive = func(io.Reader) bool { return true }
+	t.Cleanup(func() { promptIsInteractive = previous })
+}
+
+var scaleToZeroCreateArgs = []string{"cluster", "power-schedules", "create", "--cluster", "my-cluster",
+	"--action", "stop", "--cron", "0 19 * * 1-5", "--stop-mode", "scale_to_zero"}
+
+// TestClusterPowerSchedulesCreate_ScaleToZeroOnNodeLocalDataNeedsTheFlag pins
+// the non-interactive refusal (ankra-u3jsj.30): a scale_to_zero stop deletes
+// the worker servers, so on a cluster whose volumes keep data on worker
+// disks the command says so, names the volumes, and fails without writing
+// unless --accept-node-local-data-loss is passed.
+func TestClusterPowerSchedulesCreate_ScaleToZeroOnNodeLocalDataNeedsTheFlag(t *testing.T) {
+	mock := &powerScheduleMock{nodeLocal: presentNodeLocal("apps/cache", "db/pg")}
+	setMockClient(t, mock)
+
+	stderr, err := executePowerScheduleCommandCapturingStderr(t, "", scaleToZeroCreateArgs...)
+	if err == nil || !strings.Contains(err.Error(), "apps/cache, db/pg") ||
+		!strings.Contains(err.Error(), "--accept-node-local-data-loss") {
+		t.Fatalf("create without the flag = %v, want a refusal naming the volumes and the flag", err)
+	}
+	if exitCodeFor(err) != exitUsage {
+		t.Fatalf("exit code = %d, want %d", exitCodeFor(err), exitUsage)
+	}
+	if len(mock.creates) != 0 {
+		t.Fatalf("nothing may be written without the acknowledgement, got %+v", mock.creates)
+	}
+	for _, want := range []string{"deletes the worker servers", "Data on the workers' own disks is lost", "apps/cache, db/pg"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr does not say %q: %q", want, stderr)
+		}
+	}
+
+	if err := executePowerScheduleCommand(t, "", append(scaleToZeroCreateArgs, "--accept-node-local-data-loss")...); err != nil {
+		t.Fatalf("create with the flag: %v", err)
+	}
+	if len(mock.creates) != 1 || !mock.creates[0].Request.AcceptNodeLocalDataLoss {
+		t.Fatalf("the acknowledgement must reach the backend: %+v", mock.creates)
+	}
+}
+
+// TestClusterPowerSchedulesCreate_ScaleToZeroPromptsOnATerminal pins the
+// interactive path: a yes sends the acknowledgement, anything else cancels
+// without writing.
+func TestClusterPowerSchedulesCreate_ScaleToZeroPromptsOnATerminal(t *testing.T) {
+	mock := &powerScheduleMock{nodeLocal: presentNodeLocal("apps/cache")}
+	setMockClient(t, mock)
+	answerPromptInteractively(t)
+
+	if err := executePowerScheduleCommand(t, "n\n", scaleToZeroCreateArgs...); !errors.Is(err, errCancelled) {
+		t.Fatalf("declined prompt = %v, want errCancelled", err)
+	}
+	if len(mock.creates) != 0 {
+		t.Fatalf("a declined prompt must not write: %+v", mock.creates)
+	}
+	if err := executePowerScheduleCommand(t, "y\n", scaleToZeroCreateArgs...); err != nil {
+		t.Fatalf("accepted prompt: %v", err)
+	}
+	if len(mock.creates) != 1 || !mock.creates[0].Request.AcceptNodeLocalDataLoss {
+		t.Fatalf("an accepted prompt must send the acknowledgement: %+v", mock.creates)
+	}
+}
+
+// TestClusterPowerSchedulesCreate_ScaleToZeroWithoutNodeLocalData covers the
+// states that need no acknowledgement: none writes without it, and a
+// reading that could not be made warns and writes, like the backend.
+func TestClusterPowerSchedulesCreate_ScaleToZeroWithoutNodeLocalData(t *testing.T) {
+	zero := 0
+	for name, mock := range map[string]*powerScheduleMock{
+		"none":       {nodeLocal: &client.PowerScheduleNodeLocalStorage{State: "none", PVCCount: &zero, PVCNames: []string{}}},
+		"unknown":    {nodeLocal: &client.PowerScheduleNodeLocalStorage{State: "unknown"}},
+		"read error": {nodeLocalError: errors.New("404 Not Found")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			setMockClient(t, mock)
+			stderr, err := executePowerScheduleCommandCapturingStderr(t, "", scaleToZeroCreateArgs...)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+			if len(mock.creates) != 1 || mock.creates[0].Request.AcceptNodeLocalDataLoss {
+				t.Fatalf("expected one create without the acknowledgement: %+v", mock.creates)
+			}
+			couldNotCheck := strings.Contains(stderr, "could not check")
+			if couldNotCheck != (name != "none") {
+				t.Fatalf("could-not-check warning = %t for %s: %q", couldNotCheck, name, stderr)
+			}
+		})
+	}
+}
+
+// TestClusterPowerSchedulesNodeLocalCheck_OnlyForAnEnabledScaleToZeroStop
+// keeps the read off every other schedule, and on update applies it to a
+// scale_to_zero mode carried over from the schedule as it is now.
+func TestClusterPowerSchedulesNodeLocalCheck_OnlyForAnEnabledScaleToZeroStop(t *testing.T) {
+	mock := &powerScheduleMock{nodeLocal: presentNodeLocal("apps/cache")}
+	setMockClient(t, mock)
+
+	for _, args := range [][]string{
+		{"cluster", "power-schedules", "create", "--cluster", "my-cluster", "--action", "stop", "--cron", "0 19 * * 1-5", "--stop-mode", "delete_resources"},
+		{"cluster", "power-schedules", "create", "--cluster", "my-cluster", "--action", "start", "--cron", "0 7 * * 1-5"},
+		append(append([]string{}, scaleToZeroCreateArgs...), "--enabled=false"),
+	} {
+		if err := executePowerScheduleCommand(t, "", args...); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	if mock.nodeLocalReads != 0 {
+		t.Fatalf("only an enabled scale_to_zero stop reads the node-local volumes, got %d reads", mock.nodeLocalReads)
+	}
+
+	err := executePowerScheduleCommand(t, "", "cluster", "power-schedules", "update", "sched-1",
+		"--cluster", "my-cluster", "--action", "stop", "--cron", "0 20 * * 1-5", "--timezone", "UTC", "--stop-mode", "scale_to_zero")
+	if err == nil || !strings.Contains(err.Error(), "--accept-node-local-data-loss") || len(mock.updates) != 0 {
+		t.Fatalf("update to scale_to_zero without the flag = %v (updates %d)", err, len(mock.updates))
 	}
 }

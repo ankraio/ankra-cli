@@ -55,6 +55,27 @@ type PowerScheduleRequest struct {
 	CronExpression *string `json:"cron_expression,omitempty"`
 	Timezone       *string `json:"timezone,omitempty"`
 	Enabled        bool    `json:"enabled"`
+	// AcceptNodeLocalDataLoss is the caller's acknowledgement that a
+	// scale_to_zero stop loses the data on the worker disks. The backend
+	// refuses an enabled scale_to_zero stop on a cluster with such volumes
+	// (409) without it.
+	AcceptNodeLocalDataLoss bool `json:"accept_node_local_data_loss,omitempty"`
+}
+
+// PowerScheduleNodeLocalStorage is what a scale_to_zero stop would lose on
+// a cluster: the stop deletes the worker servers, so persistent volume
+// claims keeping their data on a worker's own disk are emptied at every
+// stop. State is "present", "none" or "unknown" (the inventory could not
+// tell); PVCCount and PVCNames are nil when it is unknown, and PVCNames
+// holds up to 25 claims as namespace/name. ConsentRequired is true when the
+// backend refuses an enabled scale_to_zero stop without
+// AcceptNodeLocalDataLoss.
+type PowerScheduleNodeLocalStorage struct {
+	State           string   `json:"state"`
+	PVCCount        *int     `json:"pvc_count"`
+	PVCNames        []string `json:"pvc_names"`
+	Warning         string   `json:"warning"`
+	ConsentRequired bool     `json:"consent_required"`
 }
 
 // DeletePowerScheduleResult reports a schedule deletion.
@@ -68,6 +89,19 @@ func (c *Client) ListPowerSchedules(clusterID string) (*PowerScheduleListResult,
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/power-schedules",
 		c.BaseURL, neturl.PathEscape(clusterID))
 	var result PowerScheduleListResult
+	if err := c.getJSON(url, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetPowerScheduleNodeLocalStorage reads the cluster's node-local storage:
+// the volumes a scale_to_zero stop would empty.
+// GET /api/v1/org/clusters/imported/{cluster_id}/power-schedules/node-local-storage
+func (c *Client) GetPowerScheduleNodeLocalStorage(clusterID string) (*PowerScheduleNodeLocalStorage, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/power-schedules/node-local-storage",
+		c.BaseURL, neturl.PathEscape(clusterID))
+	var result PowerScheduleNodeLocalStorage
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
 	}
