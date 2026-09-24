@@ -59,6 +59,13 @@
 
 ### Fixed
 
+- **`ankra cluster power-schedules` says when `--stop-mode pause` saves
+  nothing.** Hetzner, DigitalOcean and UpCloud (Developer and General Purpose
+  plans) bill a powered-off server at its full price, so a pause schedule
+  there keeps the cluster's state but does not cut compute cost. The flag
+  and command help now say so and point to `scale_to_zero` or
+  `delete_resources` for savings. On AWS and Scaleway a powered-off server
+  stops billing compute.
 - **A Persian or Hindi name is no longer reshaped in what the CLI prints.**
   The invisible-character strip removed every zero-width joiner and
   non-joiner, but those scripts write them inside ordinary words, so a

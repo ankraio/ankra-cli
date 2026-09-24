@@ -31,7 +31,7 @@ func registerPowerScheduleSpecFlags(cmd *cobra.Command) {
 	cmd.Flags().String("cron", "", "Fire repeatedly per this 5-field cron expression, e.g. '0 19 * * 1-5' (mutually exclusive with --at)")
 	cmd.Flags().String("timezone", "", "IANA timezone the cron expression is evaluated in, e.g. Europe/Stockholm (default UTC)")
 	cmd.Flags().Bool("enabled", true, "Whether the schedule is armed; --enabled=false creates or leaves it paused")
-	cmd.Flags().String("stop-mode", "", "How a stop schedule stops the cluster: delete_resources (default on create; terminates the VMs), scale_to_zero (removes only the workers, keeps the control plane) or pause (powers every server off and keeps it with its disks; k3s on Hetzner, UpCloud and DigitalOcean, and what a stop always does on AWS and Scaleway). On update, omitting it keeps the schedule's current mode")
+	cmd.Flags().String("stop-mode", "", "How a stop schedule stops the cluster: delete_resources (default on create; terminates the VMs), scale_to_zero (removes only the workers, keeps the control plane) or pause (powers every server off and keeps it with its disks; k3s on Hetzner, UpCloud and DigitalOcean, and what a stop always does on AWS and Scaleway). pause saves no compute cost on Hetzner, DigitalOcean or UpCloud, which bill a powered-off server in full; use scale_to_zero or delete_resources to save. On update, omitting it keeps the schedule's current mode")
 	registerThreeStateFlag(cmd, "preserve-state", "For delete_resources stop schedules: omit to capture the cluster's state (an encrypted etcd snapshot the next start restores) whenever the provider and distribution support it; 'false' to tear down without it; 'true' to state the default explicitly. On update, omitting it keeps the schedule's current choice")
 	_ = cmd.MarkFlagRequired("action")
 }
@@ -143,6 +143,12 @@ DigitalOcean the cluster's state is captured first (an encrypted etcd
 snapshot the next start restores) unless --preserve-state=false; elsewhere
 the provider VMs are terminated and only the configuration is preserved.
 --stop-mode scale_to_zero removes only the workers instead; --stop-mode pause powers the servers off and keeps them.
+
+--stop-mode pause keeps the cluster's state but saves no compute cost on
+Hetzner, DigitalOcean or UpCloud (Developer and General Purpose plans):
+they bill a powered-off server at its full price. To save money there, use
+scale_to_zero or delete_resources. On AWS and Scaleway a powered-off server
+stops billing compute; its disks and IPs keep billing.
 
 Examples:
   # Park a development cluster on weekday evenings, back before morning
