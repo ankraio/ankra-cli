@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -474,9 +475,33 @@ func TestCostDecisionsRefusalsKeepTheirMeaning(t *testing.T) {
 			exitCodeFor(listError) != exitError {
 			t.Fatalf("list error = %v (exit %d)", listError, exitCodeFor(listError))
 		}
-		_, _, executeError = runCostDecisionsCommand(t, &costDecisionsMock{writeError: routeError}, "", "cost", "decisions", "execute", decisionsWasteID, "--yes")
-		if executeError == nil || !strings.Contains(executeError.Error(), "POST /api/v1/org/decisions/{decision_id}/execute is not registered") {
-			t.Fatalf("execute error = %v", executeError)
+	}
+	// On an item route, a 405 is the route missing; a 404 that does not name
+	// the proposal could be a proposal that is gone or a platform without the
+	// ledger, and says both rather than pick one.
+	_, _, executeError = runCostDecisionsCommand(t, &costDecisionsMock{writeError: client.NewUnexpectedResponseError(405, "Method Not Allowed")},
+		"", "cost", "decisions", "execute", decisionsWasteID, "--yes")
+	if executeError == nil || !strings.Contains(executeError.Error(), "POST /api/v1/org/decisions/{decision_id}/execute is not registered") {
+		t.Fatalf("execute 405 error = %v", executeError)
+	}
+	for _, itemError := range []error{
+		client.NewUnexpectedResponseError(404, "unexpected status: 404 Not Found"),
+		&client.UnexpectedResponseError{StatusCode: 404, Detail: "Not Found"},
+	} {
+		_, _, executeError = runCostDecisionsCommand(t, &costDecisionsMock{writeError: itemError}, "", "cost", "decisions", "execute", decisionsWasteID, "--yes")
+		if executeError == nil || !strings.Contains(executeError.Error(),
+			"POST /api/v1/org/decisions/{decision_id}/execute answered 404 without naming the proposal, so either the proposal is not one of this organisation's") ||
+			!strings.Contains(executeError.Error(), "or this platform predates the decision ledger") || exitCodeFor(executeError) != exitError {
+			t.Fatalf("an item 404 that does not name the proposal must admit both causes, got %v (exit %d)", executeError, exitCodeFor(executeError))
+		}
+	}
+	// "Decision not found" names the proposal as well as "Decision proposal
+	// not found" does.
+	for _, detail := range []string{"Decision proposal not found", "Decision not found"} {
+		_, _, getError := runCostDecisionsCommand(t, &costDecisionsMock{getError: &client.UnexpectedResponseError{StatusCode: 404, Detail: detail}},
+			"", "cost", "decisions", "activity", decisionsWasteID)
+		if getError == nil || strings.Contains(getError.Error(), "predates") || exitCodeFor(getError) != exitNotFound {
+			t.Fatalf("detail %q is a proposal that is not found (exit 3), got %v (exit %d)", detail, getError, exitCodeFor(getError))
 		}
 	}
 
@@ -488,5 +513,55 @@ func TestCostDecisionsRefusalsKeepTheirMeaning(t *testing.T) {
 	_, _, executeError = runCostDecisionsCommand(t, &costDecisionsMock{writeError: conflict}, "", "cost", "decisions", "approve", decisionsWasteID)
 	if executeError == nil || !strings.Contains(executeError.Error(), "approving the decision: The proposal's status does not allow this action.") {
 		t.Fatalf("an approval the status refuses relays the detail, got %v", executeError)
+	}
+}
+
+// fullDecisionsPage is a page of exactly the most the list route serves: the
+// ladder's waves, if any, among filler proposals.
+func fullDecisionsPage(waves ...client.DecisionProposal) *client.DecisionProposalList {
+	proposals := append([]client.DecisionProposal{}, waves...)
+	for index := len(proposals); index < costDecisionsMaxLimit; index++ {
+		filler := decisionFixture(fmt.Sprintf("aaaaaaaa-aaaa-4aaa-8aaa-%012d", index), "off_hours_schedule", "succeeded",
+			"Stop a cluster weeknights", decisionsOtherID)
+		proposals = append(proposals, filler)
+	}
+	return &client.DecisionProposalList{Proposals: proposals, UnsettledProposalIDs: []string{}}
+}
+
+// A ladder's waves are read from the newest 500 proposals. A full page is a
+// capped read, so neither "none" nor the waves found may be reported as the
+// whole answer.
+func TestCostDecisionsGetSaysAFullPageMayHideWaves(t *testing.T) {
+	ladder := decisionFixture(decisionsLadderID, "right_size_ladder", "running", "Right-size prod-eu in three waves", decisionsClusterID)
+
+	output, _, executeError := runCostDecisionsCommand(t, &costDecisionsMock{proposal: &ladder, listing: fullDecisionsPage()},
+		"", "cost", "decisions", "get", decisionsLadderID)
+	if executeError != nil {
+		t.Fatalf("cost decisions get failed: %v", executeError)
+	}
+	if strings.Contains(output, "none filed yet") ||
+		!strings.Contains(output, "Waves: none among the newest 500 proposals, which is not the same as none filed:") ||
+		!strings.Contains(output, "ankra cost decisions list --status succeeded --kind right_size --limit 500") {
+		t.Fatalf("a full page with no wave must not claim none were filed, and says how to look further:\n%s", output)
+	}
+
+	wave := costDecisionsFixture().Proposals[0]
+	output, _, executeError = runCostDecisionsCommand(t, &costDecisionsMock{proposal: &ladder, listing: fullDecisionsPage(wave)},
+		"", "cost", "decisions", "get", decisionsLadderID)
+	if executeError != nil {
+		t.Fatalf("cost decisions get failed: %v", executeError)
+	}
+	if !strings.Contains(output, "Waves (1 found among the newest 500 proposals; there may be more):") ||
+		!strings.Contains(output, decisionsWave2ID) || strings.Contains(output, "Waves (1):") ||
+		!strings.Contains(output, "(the platform lists at most the newest 500 proposals") {
+		t.Fatalf("a full page with waves lists them and says there may be more:\n%s", output)
+	}
+
+	// A page short of the cap is the whole ledger, so its answer stands.
+	output, _, executeError = runCostDecisionsCommand(t, &costDecisionsMock{proposal: &ladder,
+		listing: &client.DecisionProposalList{Proposals: []client.DecisionProposal{}, UnsettledProposalIDs: []string{}}},
+		"", "cost", "decisions", "get", decisionsLadderID)
+	if executeError != nil || !strings.Contains(output, "Waves: none filed yet.") || strings.Contains(output, "may be more") {
+		t.Fatalf("a short page with no wave says none were filed, got %v:\n%s", executeError, output)
 	}
 }

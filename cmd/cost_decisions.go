@@ -295,21 +295,30 @@ func init() {
 }
 
 // costDecisionsError maps what a ledger route answers into what the user
-// reads. A 404 or 405 is the route missing on a platform that predates the
-// ledger, except an item route's own 404, which says the proposal is not the
-// organisation's (exit 3). A refusal for the area's permission arrives in the
-// RBAC shape and keeps its exit 7 and the permission it names.
+// reads. A 404 or 405 on the list route, and a 405 on an item route, is the
+// route missing on a platform that predates the ledger. An item route's 404
+// whose detail names the proposal ("Decision proposal not found") is a
+// proposal that is not the organisation's (exit 3); any other item 404 could
+// be either, so it says so rather than pick one. A refusal for the area's
+// permission arrives in the RBAC shape and keeps its exit 7 and the
+// permission it names.
 func costDecisionsError(routeError error, operation string, route string, itemRoute bool) error {
 	var unexpected *client.UnexpectedResponseError
-	if errors.As(routeError, &unexpected) &&
-		(unexpected.StatusCode == http.StatusNotFound || unexpected.StatusCode == http.StatusMethodNotAllowed) {
-		if itemRoute && unexpected.StatusCode == http.StatusNotFound && strings.Contains(strings.ToLower(unexpected.Detail), "proposal") {
+	if !errors.As(routeError, &unexpected) ||
+		(unexpected.StatusCode != http.StatusNotFound && unexpected.StatusCode != http.StatusMethodNotAllowed) {
+		return fmt.Errorf("%s: %w", operation, routeError)
+	}
+	if itemRoute && unexpected.StatusCode == http.StatusNotFound {
+		detail := strings.ToLower(unexpected.Detail)
+		if strings.Contains(detail, "proposal") || strings.Contains(detail, "decision") {
 			return fmt.Errorf("%s: %w", operation, routeError)
 		}
 		return withExitCode(exitError, fmt.Errorf(
-			"this platform does not serve the decision ledger: %s is not registered, so this platform predates it", route))
+			"%s: %s answered 404 without naming the proposal, so either the proposal is not one of this organisation's "+
+				"('ankra cost decisions list' shows them) or this platform predates the decision ledger", operation, route))
 	}
-	return fmt.Errorf("%s: %w", operation, routeError)
+	return withExitCode(exitError, fmt.Errorf(
+		"this platform does not serve the decision ledger: %s is not registered, so this platform predates it", route))
 }
 
 // costDecisionExecuteError reports why a run did not happen. Written consent
@@ -687,8 +696,11 @@ func renderCostDecisionReceipt(out io.Writer, receipt *client.DecisionReceipt) {
 }
 
 // renderCostDecisionWaves lists a ladder's waves: the proposals whose
-// parent_id is the ladder. A listing that cannot be read is said, not
-// rendered as a ladder with no waves.
+// parent_id is the ladder. The list route has no parent filter and serves at
+// most the newest 500, so the waves are read from that page. A listing that
+// cannot be read is said, not rendered as a ladder with no waves, and a full
+// page is said too: a wave older than the page is not on it, so "none" or the
+// waves found may not be the whole answer.
 func renderCostDecisionWaves(out io.Writer, ladder *client.DecisionProposal) {
 	_, _ = fmt.Fprintln(out)
 	listing, listError := apiClient.ListDecisions(client.DecisionListFilter{Area: ladder.Area, Limit: costDecisionsMaxLimit})
@@ -696,17 +708,28 @@ func renderCostDecisionWaves(out io.Writer, ladder *client.DecisionProposal) {
 		_, _ = fmt.Fprintf(out, "Waves: could not be read (%v).\n", listError)
 		return
 	}
+	pageFull := len(listing.Proposals) >= costDecisionsMaxLimit
 	waves := []client.DecisionProposal{}
 	for _, proposal := range listing.Proposals {
 		if proposal.ParentID != nil && *proposal.ParentID == ladder.ID {
 			waves = append(waves, proposal)
 		}
 	}
-	if len(waves) == 0 {
+	incomplete := fmt.Sprintf("the platform lists at most the newest %d proposals, so a wave older than those is not on this read. "+
+		"To look further back, list one status at a time, which the platform filters before it caps the page: "+
+		"ankra cost decisions list --status succeeded --kind right_size --limit %d", costDecisionsMaxLimit, costDecisionsMaxLimit)
+	switch {
+	case len(waves) == 0 && pageFull:
+		_, _ = fmt.Fprintf(out, "Waves: none among the newest %d proposals, which is not the same as none filed: %s\n", costDecisionsMaxLimit, incomplete)
+		return
+	case len(waves) == 0:
 		_, _ = fmt.Fprintln(out, "Waves: none filed yet.")
 		return
+	case pageFull:
+		_, _ = fmt.Fprintf(out, "Waves (%d found among the newest %d proposals; there may be more):\n", len(waves), costDecisionsMaxLimit)
+	default:
+		_, _ = fmt.Fprintf(out, "Waves (%d):\n", len(waves))
 	}
-	_, _ = fmt.Fprintf(out, "Waves (%d):\n", len(waves))
 	isWave := make([]bool, len(waves))
 	unsettled := map[string]bool{}
 	for _, id := range listing.UnsettledProposalIDs {
@@ -715,6 +738,9 @@ func renderCostDecisionWaves(out io.Writer, ladder *client.DecisionProposal) {
 	renderCostDecisionTable(out, waves, isWave, func(proposal client.DecisionProposal) []string {
 		return costDecisionListNotes(proposal, unsettled, map[string]bool{ladder.ID: true})
 	})
+	if pageFull {
+		_, _ = fmt.Fprintf(out, "(%s)\n", incomplete)
+	}
 }
 
 func renderCostDecisionActivity(out io.Writer, activity *client.DecisionActivity) {
