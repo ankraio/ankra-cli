@@ -120,10 +120,29 @@ type ClusterCost struct {
 // CostSettings is the organisation's pricing configuration: the display
 // currency (usd, eur or gbp), the effective discount in percent applied on
 // top of list prices, and whether a network egress estimate is included.
+//
+// AnalysedClusterLimit is how many of the costliest priced clusters the
+// savings model analyses: the limit in effect (the organisation's own, or the
+// platform default of 8). It is nil when the platform predates the setting,
+// which is unknown, not 8. It is read only: UpdateCostSettings never sends it
+// back, so restating the other settings cannot turn the default into an
+// organisation's own limit. AnalysedClusterLimitChange is how an update
+// changes it, and is never serialised.
 type CostSettings struct {
-	EffectiveDiscountPct         float64 `json:"effective_discount_pct" yaml:"effective_discount_pct"`
-	Currency                     string  `json:"currency" yaml:"currency"`
-	IncludeNetworkEgressEstimate bool    `json:"include_network_egress_estimate" yaml:"include_network_egress_estimate"`
+	EffectiveDiscountPct         float64                     `json:"effective_discount_pct" yaml:"effective_discount_pct"`
+	Currency                     string                      `json:"currency" yaml:"currency"`
+	IncludeNetworkEgressEstimate bool                        `json:"include_network_egress_estimate" yaml:"include_network_egress_estimate"`
+	AnalysedClusterLimit         *int                        `json:"analysed_cluster_limit,omitempty" yaml:"analysed_cluster_limit,omitempty"`
+	AnalysedClusterLimitChange   *AnalysedClusterLimitChange `json:"-" yaml:"-"`
+}
+
+// AnalysedClusterLimitChange is what a settings update does to the
+// analysed-cluster limit: set it to Limit (1 to 50), or return it to the
+// platform default when Default is true (sent as null). An update without a
+// change does not send the field at all, which keeps the stored limit.
+type AnalysedClusterLimitChange struct {
+	Limit   int
+	Default bool
 }
 
 // GetFleetCloudCost returns the organisation-wide cost rollup.
@@ -172,10 +191,26 @@ func (c *Client) GetCostSettings() (*CostSettings, error) {
 
 // UpdateCostSettings replaces the organisation's pricing configuration. The
 // route is organisation-admin only and guarded by the CSRF double-submit.
+// analysed_cluster_limit is three-state on the route, so it is sent only for
+// an AnalysedClusterLimitChange: omitted keeps the stored limit, null returns
+// it to the default, a number sets it. The read-only AnalysedClusterLimit is
+// never sent.
 // PUT /api/v1/org/cloud-cost/settings
 func (c *Client) UpdateCostSettings(settings CostSettings) (*CostSettings, error) {
+	body := map[string]any{
+		"effective_discount_pct":          settings.EffectiveDiscountPct,
+		"currency":                        settings.Currency,
+		"include_network_egress_estimate": settings.IncludeNetworkEgressEstimate,
+	}
+	if change := settings.AnalysedClusterLimitChange; change != nil {
+		if change.Default {
+			body["analysed_cluster_limit"] = nil
+		} else {
+			body["analysed_cluster_limit"] = change.Limit
+		}
+	}
 	var result CostSettings
-	if err := c.putCSRFJSON(c.BaseURL+"/api/v1/org/cloud-cost/settings", settings, &result, "update cost settings"); err != nil {
+	if err := c.putCSRFJSON(c.BaseURL+"/api/v1/org/cloud-cost/settings", body, &result, "update cost settings"); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -263,19 +298,26 @@ type CloudSavingsWaste struct {
 }
 
 // CloudSavingsThresholds echoes the model's constants, so a reading can be
-// explained without hard-coding them again.
+// explained without hard-coding them again. AnalysedClusterLimit is the
+// organisation's limit in effect. AnalysisBudgetSeconds (how long one read may
+// spend on per-cluster breakdowns) and SnapshotStaleAfterHours (how old a
+// latest snapshot may be before metering counts as stopped) are nil on a
+// platform that predates them, and stay absent in structured output.
 type CloudSavingsThresholds struct {
 	MinimumSavingsCents         int64   `json:"minimum_savings_cents" yaml:"minimum_savings_cents"`
 	MinimumOffHoursMonthlyCents int64   `json:"minimum_off_hours_monthly_cents" yaml:"minimum_off_hours_monthly_cents"`
 	UnallocatedShareThreshold   float64 `json:"unallocated_share_threshold" yaml:"unallocated_share_threshold"`
 	OffHoursShare               float64 `json:"off_hours_share" yaml:"off_hours_share"`
 	AnalysedClusterLimit        int     `json:"analysed_cluster_limit" yaml:"analysed_cluster_limit"`
+	AnalysisBudgetSeconds       *int    `json:"analysis_budget_seconds,omitempty" yaml:"analysis_budget_seconds,omitempty"`
+	SnapshotStaleAfterHours     *int    `json:"snapshot_stale_after_hours,omitempty" yaml:"snapshot_stale_after_hours,omitempty"`
 }
 
 // CloudSavings is GET /org/cloud-cost/savings: the organisation's savings
 // model in the display currency. TotalMonthlySavingsCents counts each
 // cluster once, at its best lever. Only the biggest priced clusters are
-// analysed; the unanalysed, unpriced, stale and unreadable ones are named
+// analysed (up to the organisation's limit, within the analysis time
+// budget); the unanalysed, unpriced, stale and unreadable ones are named
 // so an unknown never reads as nothing to save.
 type CloudSavings struct {
 	Currency                 string                       `json:"currency" yaml:"currency"`
@@ -286,14 +328,18 @@ type CloudSavings struct {
 	Namespaces               []CloudSavingsNamespace      `json:"namespaces" yaml:"namespaces"`
 	AnalysedClusterCount     int                          `json:"analysed_cluster_count" yaml:"analysed_cluster_count"`
 	UnanalysedClusterCount   int                          `json:"unanalysed_cluster_count" yaml:"unanalysed_cluster_count"`
-	PricedClusterCount       int                          `json:"priced_cluster_count" yaml:"priced_cluster_count"`
-	UnpricedClusterCount     int                          `json:"unpriced_cluster_count" yaml:"unpriced_cluster_count"`
-	UnpricedClusters         []CloudSavingsCluster        `json:"unpriced_clusters" yaml:"unpriced_clusters"`
-	StaleClusterCount        int                          `json:"stale_cluster_count" yaml:"stale_cluster_count"`
-	StaleClusters            []CloudSavingsCluster        `json:"stale_clusters" yaml:"stale_clusters"`
-	UnreadableClusters       []CloudSavingsCluster        `json:"unreadable_clusters" yaml:"unreadable_clusters"`
-	Waste                    CloudSavingsWaste            `json:"waste" yaml:"waste"`
-	Thresholds               CloudSavingsThresholds       `json:"thresholds" yaml:"thresholds"`
+	// AnalysisBudgetExhausted is true when the analysis time budget, not the
+	// analysed-cluster limit, left some priced clusters unanalysed; nil on a
+	// platform that predates it.
+	AnalysisBudgetExhausted *bool                  `json:"analysis_budget_exhausted,omitempty" yaml:"analysis_budget_exhausted,omitempty"`
+	PricedClusterCount      int                    `json:"priced_cluster_count" yaml:"priced_cluster_count"`
+	UnpricedClusterCount    int                    `json:"unpriced_cluster_count" yaml:"unpriced_cluster_count"`
+	UnpricedClusters        []CloudSavingsCluster  `json:"unpriced_clusters" yaml:"unpriced_clusters"`
+	StaleClusterCount       int                    `json:"stale_cluster_count" yaml:"stale_cluster_count"`
+	StaleClusters           []CloudSavingsCluster  `json:"stale_clusters" yaml:"stale_clusters"`
+	UnreadableClusters      []CloudSavingsCluster  `json:"unreadable_clusters" yaml:"unreadable_clusters"`
+	Waste                   CloudSavingsWaste      `json:"waste" yaml:"waste"`
+	Thresholds              CloudSavingsThresholds `json:"thresholds" yaml:"thresholds"`
 }
 
 // GetCloudSavings returns the organisation's savings model.

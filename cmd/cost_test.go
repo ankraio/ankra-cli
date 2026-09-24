@@ -329,7 +329,7 @@ func TestCostSavingsWithPricedClustersButNoLeverNamesTheMinimum(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"Cloud savings (GBP): £0.00/mo across 0 recommendations",
-		"2 of 2 clusters analysed · 0 unpriced · 0 stale",
+		"2 of 2 clusters analysed (limit 8) · 0 unpriced · 0 stale",
 		"No recommendation clears the £5.00/mo minimum on the analysed clusters.",
 		"Waste: no open findings.",
 	} {
