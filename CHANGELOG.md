@@ -119,6 +119,24 @@
   answer stays parseable. What the CLI sends to the platform's AI (`chat`,
   `tickets comment`, `support create`) is stripped the same way, since a
   payload pasted from a log would otherwise reach the model intact.
+- **`ankra cost decisions` works the cost decision ledger.** `list` shows the
+  organisation's cost proposals newest first, with a right-size ladder's
+  waves directly under the ladder, and narrows by `--status`, `--kind` and
+  `--cluster`; a running proposal the platform could not check on that read
+  is marked as possibly finished rather than shown as still running. `get`
+  shows one proposal's plan, who decided it, its expected and measured
+  outcome (unknown, never zero), its usage verification, its receipt and, for
+  a ladder, its waves. `activity` lists everything that happened to it.
+  `approve` and `set-aside` take an optional `--note`; `set-aside` and
+  `execute` ask first (`--yes` skips the prompt). `execute` sends the written
+  consent a deletion with no snapshot needs only when you pass
+  `--acknowledge-no-snapshot` (and `--min-unattached-days` only when you pass
+  it); without it the platform refuses, nothing is attempted and the command
+  says how to give it. A ladder whose latest wave is still running or inside
+  its verification is reported as not ready rather than as a failure to
+  retry, a failed run shows its receipt and exits 1, and a refusal for
+  `billing.manage` or `clusters.write` exits 7 naming the permission.
+  `-o json` returns the route's documents (`/api/v1/org/decisions`).
 
 ### Fixed
 
