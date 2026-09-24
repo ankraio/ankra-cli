@@ -256,3 +256,25 @@ func TestClusterPowerSchedulesCreate_SendsStopModeAndPreserveState(t *testing.T)
 		t.Fatalf("a start schedule must refuse the state flags, got %v", err)
 	}
 }
+
+// TestClusterPowerSchedulesHelp_SaysPauseSavesNoComputeOnFullBillingProviders
+// pins the pause billing note (ankra-u3jsj.27): Hetzner, DigitalOcean and
+// UpCloud bill a powered-off server in full, so the --stop-mode help on both
+// create and update, and the command's long help, must say a pause saves no
+// compute cost there and name the modes that do.
+func TestClusterPowerSchedulesHelp_SaysPauseSavesNoComputeOnFullBillingProviders(t *testing.T) {
+	for _, command := range []struct {
+		name  string
+		usage string
+	}{
+		{"create", clusterPowerSchedulesCreateCmd.Flags().Lookup("stop-mode").Usage},
+		{"update", clusterPowerSchedulesUpdateCmd.Flags().Lookup("stop-mode").Usage},
+		{"power-schedules", clusterPowerSchedulesCmd.Long},
+	} {
+		for _, want := range []string{"saves no compute cost", "Hetzner, DigitalOcean or UpCloud", "scale_to_zero or delete_resources"} {
+			if !strings.Contains(command.usage, want) {
+				t.Errorf("%s help does not say %q: %q", command.name, want, command.usage)
+			}
+		}
+	}
+}
