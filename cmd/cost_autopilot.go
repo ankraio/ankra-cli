@@ -190,26 +190,42 @@ func init() {
 }
 
 // costAutopilotError maps what an autopilot route answers into what the user
-// reads. A 404 or 405 is the route missing on a platform that predates the
-// autopilot, except the cluster routes' own 404, which says the cluster is
-// not a live one of the organisation (exit 3). The writes' permission
-// refusal arrives in the RBAC shape and keeps its exit 7 and the permission
-// it names.
+// reads. A 404 or 405 on the policy route, and a 405 on a cluster route, is
+// the route missing on a platform that predates the autopilot. A cluster
+// route's 404 is decided by the route rather than by the wording of its
+// detail: the policy route is asked, and if it answers the autopilot exists,
+// so the cluster is not a live one of the organisation (exit 3); if it is
+// missing too, the platform predates the autopilot; if it cannot be read,
+// the answer says it could be either. The writes' permission refusal arrives
+// in the RBAC shape and keeps its exit 7 and the permission it names.
 func costAutopilotError(routeError error, operation string, method string, clusterRoute bool) error {
 	var unexpected *client.UnexpectedResponseError
-	if errors.As(routeError, &unexpected) &&
-		(unexpected.StatusCode == http.StatusNotFound || unexpected.StatusCode == http.StatusMethodNotAllowed) {
-		if clusterRoute && unexpected.StatusCode == http.StatusNotFound && strings.Contains(strings.ToLower(unexpected.Detail), "cluster") {
-			return fmt.Errorf("%s: %w (it is not a live cluster of this organisation)", operation, routeError)
-		}
-		route := "/api/v1/org/cloud-cost/autopilot"
-		if clusterRoute {
-			route += "/clusters/{cluster_id}"
-		}
-		return withExitCode(exitError, fmt.Errorf(
-			"this platform does not serve the cost autopilot: %s %s is not registered, so this platform predates it", method, route))
+	if !errors.As(routeError, &unexpected) ||
+		(unexpected.StatusCode != http.StatusNotFound && unexpected.StatusCode != http.StatusMethodNotAllowed) {
+		return fmt.Errorf("%s: %w", operation, routeError)
 	}
-	return fmt.Errorf("%s: %w", operation, routeError)
+	route := "/api/v1/org/cloud-cost/autopilot"
+	if clusterRoute {
+		route += "/clusters/{cluster_id}"
+	}
+	predates := withExitCode(exitError, fmt.Errorf(
+		"this platform does not serve the cost autopilot: %s %s is not registered, so this platform predates it", method, route))
+	if !clusterRoute || unexpected.StatusCode == http.StatusMethodNotAllowed {
+		return predates
+	}
+	_, probeError := apiClient.GetCostAutopilot()
+	if probeError == nil {
+		return withExitCode(exitNotFound, fmt.Errorf("%s: it is not a live cluster of this organisation (%w)", operation, routeError))
+	}
+	var probeUnexpected *client.UnexpectedResponseError
+	if errors.As(probeError, &probeUnexpected) &&
+		(probeUnexpected.StatusCode == http.StatusNotFound || probeUnexpected.StatusCode == http.StatusMethodNotAllowed) {
+		return predates
+	}
+	return withExitCode(exitError, fmt.Errorf(
+		"%s: %s %s answered 404, and the autopilot policy could not be read to tell why (%v), "+
+			"so either the cluster is not a live one of this organisation or this platform predates the autopilot",
+		operation, method, route, probeError))
 }
 
 // costAutopilotUpdateFromFlags builds the partial policy write from the flags

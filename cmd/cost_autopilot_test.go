@@ -251,11 +251,53 @@ func TestCostAutopilotReportsAMissingRouteAsSuch(t *testing.T) {
 		if setError == nil || !strings.Contains(setError.Error(), "PUT /api/v1/org/cloud-cost/autopilot is not registered") {
 			t.Fatalf("set error = %v", setError)
 		}
-		_, _, overrideError := runCostAutopilotCommand(t, &costAutopilotMock{clusterError: routeError}, "", "cost", "autopilot",
-			"override", autopilotStagingID, "--tier", "managed", "--reason", "Load test week")
-		if overrideError == nil || !strings.Contains(overrideError.Error(), "PUT /api/v1/org/cloud-cost/autopilot/clusters/{cluster_id} is not registered") {
-			t.Fatalf("override error = %v", overrideError)
+		// A cluster route that is missing, on a platform whose policy route is
+		// missing too, is a platform that predates the autopilot.
+		_, _, overrideError := runCostAutopilotCommand(t, &costAutopilotMock{clusterError: routeError, readError: routeError}, "",
+			"cost", "autopilot", "override", autopilotStagingID, "--tier", "managed", "--reason", "Load test week")
+		if overrideError == nil || !strings.Contains(overrideError.Error(), "PUT /api/v1/org/cloud-cost/autopilot/clusters/{cluster_id} is not registered") ||
+			exitCodeFor(overrideError) != exitError {
+			t.Fatalf("override error = %v (exit %d)", overrideError, exitCodeFor(overrideError))
 		}
+	}
+}
+
+// A cluster route's 404 is classified by asking the policy route, never by
+// the wording of the 404's detail: whatever the detail says, a policy that
+// answers means the cluster is not a live one (exit 3), and a policy that is
+// missing too means the platform predates the autopilot.
+func TestCostAutopilotClusterRoute404IsClassifiedByProbingThePolicy(t *testing.T) {
+	for _, detail := range []string{"Cluster not found", "Not Found", ""} {
+		clusterMissing := &client.UnexpectedResponseError{StatusCode: 404, Detail: detail}
+
+		mock := &costAutopilotMock{clusterError: clusterMissing, policy: costAutopilotFixture()}
+		_, _, clearError := runCostAutopilotCommand(t, mock, "", "cost", "autopilot", "clear", autopilotStagingID, "--yes")
+		if clearError == nil || strings.Contains(clearError.Error(), "predates") ||
+			!strings.Contains(clearError.Error(), "it is not a live cluster of this organisation") || exitCodeFor(clearError) != exitNotFound {
+			t.Fatalf("detail %q, policy answers: error = %v (exit %d), want not a live cluster (exit 3)", detail, clearError, exitCodeFor(clearError))
+		}
+
+		mock = &costAutopilotMock{clusterError: clusterMissing, readError: client.NewUnexpectedResponseError(404, "request failed")}
+		_, _, overrideError := runCostAutopilotCommand(t, mock, "", "cost", "autopilot", "override", autopilotStagingID,
+			"--tier", "managed", "--reason", "Load test week")
+		if overrideError == nil || !strings.Contains(overrideError.Error(), "this platform does not serve the cost autopilot") ||
+			strings.Contains(overrideError.Error(), "not a live cluster of this organisation (") || exitCodeFor(overrideError) != exitError {
+			t.Fatalf("detail %q, policy missing too: error = %v (exit %d), want predates (exit 1)", detail, overrideError, exitCodeFor(overrideError))
+		}
+
+		mock = &costAutopilotMock{clusterError: clusterMissing, readError: client.NewUnexpectedResponseError(502, "bad gateway")}
+		_, _, unknownError := runCostAutopilotCommand(t, mock, "", "cost", "autopilot", "clear", autopilotStagingID, "--yes")
+		if unknownError == nil || !strings.Contains(unknownError.Error(), "the autopilot policy could not be read to tell why (bad gateway)") ||
+			!strings.Contains(unknownError.Error(), "so either the cluster is not a live one of this organisation or this platform predates the autopilot") ||
+			exitCodeFor(unknownError) != exitError {
+			t.Fatalf("detail %q, policy unreadable: error = %v (exit %d), want both causes named", detail, unknownError, exitCodeFor(unknownError))
+		}
+	}
+	// A 405 on a cluster route is the route missing, with no probe needed.
+	mock := &costAutopilotMock{clusterError: client.NewUnexpectedResponseError(405, "Method Not Allowed"), policy: costAutopilotFixture()}
+	_, _, methodError := runCostAutopilotCommand(t, mock, "", "cost", "autopilot", "clear", autopilotStagingID, "--yes")
+	if methodError == nil || !strings.Contains(methodError.Error(), "DELETE /api/v1/org/cloud-cost/autopilot/clusters/{cluster_id} is not registered") {
+		t.Fatalf("a 405 on a cluster route is the route missing, got %v", methodError)
 	}
 }
 
@@ -403,11 +445,11 @@ func TestCostAutopilotOverrideRefusals(t *testing.T) {
 			t.Fatalf("%v: a refused override must not be sent", testCase.args)
 		}
 	}
-	// The route's own 404 says the cluster is not a live one: exit 3, not
-	// "this platform predates it".
+	// The route's own 404, with the policy route answering, says the cluster
+	// is not a live one: exit 3, not "this platform predates it".
 	notLive := &client.UnexpectedResponseError{StatusCode: 404, Detail: "Cluster not found"}
-	_, _, executeError := runCostAutopilotCommand(t, &costAutopilotMock{clusterError: notLive}, "", "cost", "autopilot", "override",
-		autopilotStagingID, "--tier", "managed", "--reason", "why not")
+	_, _, executeError := runCostAutopilotCommand(t, &costAutopilotMock{clusterError: notLive, policy: costAutopilotFixture()}, "",
+		"cost", "autopilot", "override", autopilotStagingID, "--tier", "managed", "--reason", "why not")
 	if executeError == nil || strings.Contains(executeError.Error(), "predates") ||
 		!strings.Contains(executeError.Error(), "it is not a live cluster of this organisation") || exitCodeFor(executeError) != exitNotFound {
 		t.Fatalf("error = %v (exit %d)", executeError, exitCodeFor(executeError))
