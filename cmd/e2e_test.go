@@ -4590,6 +4590,10 @@ func (m baseMock) GetNamespaceCostHistory(clusterID string, days int, granularit
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetObjectCost(kind string, pathSegments ...string) (*client.ObjectCostProjection, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetCostEvents(days int) (*client.CostEvents, error) {
 	return nil, errors.New("not implemented")
 }

@@ -4,6 +4,22 @@
 
 ### Added
 
+- **`ankra cost object` shows what one cluster, namespace, stack,
+  application or credential costs.** `ankra cost object cluster <cluster>`,
+  `namespace <cluster> <namespace>`, `stack <cluster> <stack>`,
+  `application <application-id>` and `credential <credential-id>` each read
+  the object's monthly run rate, idle share, share of the fleet, confidence,
+  open waste and a 30-day trend, with the clusters and namespaces behind it.
+  A figure the platform does not know prints as `unknown`, never as zero, and
+  an object with no priced cluster behind it says why. When coverage is
+  incomplete the monthly figure reads "at least" and the clusters that
+  contributed nothing are named. The trend draws one mark per UTC day,
+  scaled to the object's own peak day, with `·` for a day nobody metered and
+  `_` for a metered day that cost nothing. A namespace another application
+  also runs in is marked shared, since its whole cost is counted for each.
+  Waste is found per cloud resource, so for a namespace, stack or application
+  it reads unknown with the platform's reason, not "none". `-o json` (or
+  yaml) returns the projection exactly as the platform serves it.
 - **`ankra cost namespaces <cluster>` shows a cluster's cost per namespace
   over time.** It reads the hourly metering the platform keeps for 35 days,
   day by day or, for at most seven days, hour by hour (`--days`,
