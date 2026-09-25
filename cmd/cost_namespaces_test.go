@@ -202,3 +202,30 @@ func TestCostNamespacesStructuredOutputIsTheApiDocument(t *testing.T) {
 		t.Fatalf("structured = %s", output)
 	}
 }
+
+// TestCostNamespacesOwnsItsOrderAndAlignment pins that the listed 25 are the
+// costliest whatever order the platform answered in, and that a series
+// without one value per bucket shows LATEST as unknown instead of reading a
+// misaligned bucket as the current one.
+func TestCostNamespacesOwnsItsOrderAndAlignment(t *testing.T) {
+	history := threeDayHistory()
+	history.Namespaces = []client.NamespaceCostSeries{
+		{Namespace: "cheap", CostCents: []*int64{nil, namespaceCents(100), namespaceCents(100)}, TotalCents: 200},
+		{Namespace: "short", CostCents: []*int64{namespaceCents(900)}, TotalCents: 900},
+		{Namespace: "costly", CostCents: []*int64{nil, namespaceCents(40000), namespaceCents(30000)}, TotalCents: 70000},
+	}
+	output, runError := runCostNamespacesCommand(t, &costNamespacesMock{history: history}, "cost", "namespaces", costNamespacesClusterID)
+	if runError != nil {
+		t.Fatalf("run: %v", runError)
+	}
+	costly, short, cheap := strings.Index(output, "costly"), strings.Index(output, "short"), strings.Index(output, "cheap")
+	isCostliestFirst := costly >= 0 && short > costly && cheap > short
+	if !isCostliestFirst {
+		t.Fatalf("rows are not costliest first:\n%s", output)
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "short") && (!strings.Contains(line, "unknown") || !strings.Contains(line, "···")) {
+			t.Fatalf("a misaligned series must read unknown: %q", line)
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"ankra/internal/client"
@@ -130,6 +131,15 @@ func renderNamespaceCostHistory(out io.Writer, clusterReference string, history 
 		_, _ = fmt.Fprintln(out, "No namespace was allocated any cost in the metered hours.")
 		return
 	}
+	// The costliest first is the route's contract; the CLI sorts anyway, so
+	// which 25 are listed never depends on the order the platform answered in.
+	namespaces := append([]client.NamespaceCostSeries(nil), history.Namespaces...)
+	sort.SliceStable(namespaces, func(left int, right int) bool {
+		if namespaces[left].TotalCents != namespaces[right].TotalCents {
+			return namespaces[left].TotalCents > namespaces[right].TotalCents
+		}
+		return namespaces[left].Namespace < namespaces[right].Namespace
+	})
 	drawTrend := len(history.Buckets) <= costNamespacesTrendMaxBuckets
 	_, _ = fmt.Fprintln(out)
 	tableWriter := newCostTable(out)
@@ -138,14 +148,22 @@ func renderNamespaceCostHistory(out io.Writer, clusterReference string, history 
 		header = append(header, "TREND")
 	}
 	tableWriter.AppendHeader(header)
-	for index, series := range history.Namespaces {
+	for index, series := range namespaces {
 		if index == costNamespacesRowLimit {
 			break
 		}
+		// A series is read by bucket position only when it has one value per
+		// bucket, as the route promises; one that does not is shown as
+		// unknown rather than misaligned.
+		aligned := len(series.CostCents) == len(history.Buckets)
+		latest, trend := "unknown", strings.Repeat(string(costNamespacesUnknownMark), len(history.Buckets))
+		if aligned {
+			latest, trend = costNamespacesLatest(series, history.Currency), costNamespacesTrend(series.CostCents)
+		}
 		row := table.Row{series.Namespace, formatCostCents(series.TotalCents, history.Currency),
-			costNamespacesLatest(series, history.Currency), costNamespacesPeak(series, history.Currency)}
+			latest, costNamespacesPeak(series, history.Currency)}
 		if drawTrend {
-			row = append(row, costNamespacesTrend(series.CostCents))
+			row = append(row, trend)
 		}
 		tableWriter.AppendRow(row)
 	}
