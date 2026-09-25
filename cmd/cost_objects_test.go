@@ -434,3 +434,129 @@ func TestCostObjectTrendScalesWithoutOverflow(t *testing.T) {
 		t.Fatalf("trend = %q, want the bottom mark, the top mark, unknown, zero", out.String())
 	}
 }
+
+// flaggedCredentialProjection is a credential whose figure is a floor with
+// the per-cluster coverage flag (cluster#3453): prod-eu contributed a figure
+// its snapshot could not price in full, dev-eu priced everything and
+// staging-eu is unpriced.
+func flaggedCredentialProjection() string {
+	return `{
+  "kind": "credential",
+  "object": {"id": "9f1d2e3c-4b5a-4968-8776-655443322110", "name": "aws-prod", "cluster_id": null, "cluster_name": null},
+  "currency": "usd",
+  "priced": true, "unpriced_reason": null,
+  "monthly_cents": 70000, "idle_pct": 20, "share_of_fleet_pct": 10, "confidence": "medium",
+  "coverage_incomplete": true,
+  "open_waste": {"available": true, "reason": null, "count": 0, "monthly_cents": 0, "unpriced_count": 0},
+  "trend_30d": ` + objectCostTrendJSON(steadyTrend(2300), 3, nil) + `,
+  "clusters": [
+    {"cluster_id": "` + costObjectClusterID + `", "cluster_name": "prod-eu", "priced": true, "monthly_cents": 50000, "confidence": "medium", "coverage_incomplete": true},
+    {"cluster_id": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", "cluster_name": "dev-eu", "priced": true, "monthly_cents": 20000, "confidence": "high", "coverage_incomplete": false},
+    {"cluster_id": "` + costObjectStagingID + `", "cluster_name": "staging-eu", "priced": false, "monthly_cents": null, "confidence": null, "coverage_incomplete": null}
+  ],
+  "namespaces": [],
+  "snapshot_stale_after_hours": 26
+}`
+}
+
+// TestCostObjectFloorNamesThePartlyPricedCluster pins the per-cluster flag:
+// the contributing cluster whose own snapshot could not price everything is
+// named and starred, the one that priced everything is not, the unpriced
+// one stays under "Contributed nothing", and the general sentence is gone.
+func TestCostObjectFloorNamesThePartlyPricedCluster(t *testing.T) {
+	output, runError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, flaggedCredentialProjection())},
+		"cost", "object", "credential", "9f1d2e3c-4b5a-4968-8776-655443322110")
+	if runError != nil {
+		t.Fatalf("run: %v", runError)
+	}
+	for _, want := range []string{
+		"Monthly run rate:  at least $700.00 (a floor: coverage is incomplete)",
+		"  Contributed nothing: staging-eu (not priced: no cost snapshot in the last 26 hours)\n",
+		"  Partly priced:       prod-eu (a node or billed resource could not be priced)\n",
+		"* Partly priced: that cluster could not price a node or billed resource, so its figure is a floor.",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output lacks %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "every cluster behind it contributed") || strings.Contains(output, "dev-eu (a node") {
+		t.Fatalf("a flagged payload must name its clusters, not fall back or name a fully priced one:\n%s", output)
+	}
+	for _, line := range strings.Split(output, "\n") {
+		switch {
+		case strings.Contains(line, costObjectClusterID) && !strings.Contains(line, "$500.00 *"):
+			t.Fatalf("the partly priced row must be starred: %q", line)
+		case strings.Contains(line, "dev-eu") && strings.Contains(line, "*"):
+			t.Fatalf("a fully priced row must not be starred: %q", line)
+		}
+	}
+}
+
+// TestCostObjectFloorFromAnOlderPlatformKeepsTheGeneralSentence pins a
+// platform that predates the per-cluster flag: with every cluster
+// contributing, the floor still reads as the general sentence, and nothing
+// is named or starred.
+func TestCostObjectFloorFromAnOlderPlatformKeepsTheGeneralSentence(t *testing.T) {
+	document := flaggedCredentialProjection()
+	for _, flag := range []string{`, "coverage_incomplete": true}`, `, "coverage_incomplete": false}`, `, "coverage_incomplete": null}`} {
+		document = strings.Replace(document, flag, `}`, 1)
+	}
+	document = strings.Replace(document, `"priced": false, "monthly_cents": null, "confidence": null}`,
+		`"priced": true, "monthly_cents": 1000, "confidence": "low"}`, 1)
+	if strings.Count(document, "coverage_incomplete") != 1 {
+		t.Fatalf("fixture still carries a per-cluster flag:\n%s", document)
+	}
+	output, runError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, document)},
+		"cost", "object", "credential", "9f1d2e3c-4b5a-4968-8776-655443322110")
+	if runError != nil {
+		t.Fatalf("run: %v", runError)
+	}
+	if !strings.Contains(output, "  Floor:             every cluster behind it contributed, but at least one could not price every node or billed resource\n") {
+		t.Fatalf("an older platform's floor must keep the general sentence:\n%s", output)
+	}
+	for _, unwanted := range []string{"Partly priced", "Contributed nothing", " *"} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("an older platform's floor printed %q:\n%s", unwanted, output)
+		}
+	}
+}
+
+// TestCostObjectStructuredOutputKeepsTheClusterFlags pins -o json for a
+// flagged payload: true, false and null come back as sent.
+func TestCostObjectStructuredOutputKeepsTheClusterFlags(t *testing.T) {
+	document := flaggedCredentialProjection()
+	output, runError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, document)},
+		"cost", "object", "credential", "9f1d2e3c-4b5a-4968-8776-655443322110", "-o", "json")
+	if runError != nil {
+		t.Fatalf("run: %v", runError)
+	}
+	var want, got map[string]any
+	if err := json.Unmarshal([]byte(document), &want); err != nil {
+		t.Fatalf("decoding the fixture: %v", err)
+	}
+	if err := json.Unmarshal([]byte(output), &got); err != nil {
+		t.Fatalf("decoding %s: %v", output, err)
+	}
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("-o json is not the projection:\nwant %v\ngot  %v", want, got)
+	}
+}
+
+// TestCostObjectFloorWithFlagsButNoClusterToName pins the inconsistent case
+// a current platform should not produce: every row carries the flag, none
+// explains the floor, and the output says so instead of claiming the older
+// platform's general sentence or leaving "at least" unexplained.
+func TestCostObjectFloorWithFlagsButNoClusterToName(t *testing.T) {
+	document := strings.Replace(flaggedCredentialProjection(), `"coverage_incomplete": true}`, `"coverage_incomplete": false}`, 1)
+	document = strings.Replace(document, `"priced": false, "monthly_cents": null, "confidence": null, "coverage_incomplete": null}`,
+		`"priced": true, "monthly_cents": 1000, "confidence": "low", "coverage_incomplete": false}`, 1)
+	output, runError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, document)},
+		"cost", "object", "credential", "9f1d2e3c-4b5a-4968-8776-655443322110")
+	if runError != nil {
+		t.Fatalf("run: %v", runError)
+	}
+	if !strings.Contains(output, "  Floor:             the platform marks the figure a floor but names no cluster behind it\n") ||
+		strings.Contains(output, "every cluster behind it contributed") || strings.Contains(output, "Partly priced") {
+		t.Fatalf("output:\n%s", output)
+	}
+}

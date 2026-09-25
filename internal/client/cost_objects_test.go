@@ -1,9 +1,14 @@
 package client
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 const objectCostTestClusterID = "1834920e-3001-4157-8938-33c447031033"
@@ -84,5 +89,51 @@ func TestGetObjectCost_KeepsThePlatformsRefusal(t *testing.T) {
 		if !errors.As(err, &unexpected) || unexpected.StatusCode != testCase.status || unexpected.Detail != testCase.wantDetail {
 			t.Fatalf("status %d: err = %#v, want status %d detail %q", testCase.status, err, testCase.status, testCase.wantDetail)
 		}
+	}
+}
+
+// TestObjectCostCluster_CoverageFlagKeepsAbsentApartFromNull pins the
+// per-cluster coverage_incomplete (cluster#3453): true, false and null are
+// read as sent, a platform that predates the field leaves it absent, and
+// encoding gives back exactly those keys, so an absent flag never returns
+// as a null (which the contract reads as an unpriced cluster).
+func TestObjectCostCluster_CoverageFlagKeepsAbsentApartFromNull(t *testing.T) {
+	document := `[{"cluster_id":"a","cluster_name":"a","priced":true,"monthly_cents":1,"confidence":"high","coverage_incomplete":true},` +
+		`{"cluster_id":"b","cluster_name":"b","priced":true,"monthly_cents":1,"confidence":"high","coverage_incomplete":false},` +
+		`{"cluster_id":"c","cluster_name":"c","priced":false,"monthly_cents":null,"confidence":null,"coverage_incomplete":null},` +
+		`{"cluster_id":"d","cluster_name":"d","priced":true,"monthly_cents":1,"confidence":"high"}]`
+	var clusters []ObjectCostCluster
+	if err := json.Unmarshal([]byte(document), &clusters); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	flags := clusters[0].CoverageIncomplete
+	if !flags.Present || !flags.IsTrue() {
+		t.Fatalf("true = %+v", flags)
+	}
+	if flags = clusters[1].CoverageIncomplete; !flags.Present || flags.Value == nil || *flags.Value || flags.IsTrue() {
+		t.Fatalf("false = %+v", flags)
+	}
+	if flags = clusters[2].CoverageIncomplete; !flags.Present || flags.Value != nil || flags.IsTrue() {
+		t.Fatalf("null = %+v", flags)
+	}
+	if flags = clusters[3].CoverageIncomplete; flags.Present || flags.Value != nil || flags.IsTrue() {
+		t.Fatalf("absent = %+v", flags)
+	}
+	encoded, err := json.Marshal(clusters)
+	if err != nil {
+		t.Fatalf("encoding: %v", err)
+	}
+	var want, got []map[string]any
+	_ = json.Unmarshal([]byte(document), &want)
+	_ = json.Unmarshal(encoded, &got)
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("round trip changed the rows:\nwant %s\ngot  %s", document, encoded)
+	}
+	yamlEncoded, err := yaml.Marshal(clusters)
+	if err != nil {
+		t.Fatalf("yaml: %v", err)
+	}
+	if strings.Count(string(yamlEncoded), "coverage_incomplete:") != 3 || !strings.Contains(string(yamlEncoded), "coverage_incomplete: null") {
+		t.Fatalf("yaml must carry the three sent flags and leave the absent one out:\n%s", yamlEncoded)
 	}
 }

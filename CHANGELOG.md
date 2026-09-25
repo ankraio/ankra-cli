@@ -13,7 +13,8 @@
   A figure the platform does not know prints as `unknown`, never as zero, and
   an object with no priced cluster behind it says why. When coverage is
   incomplete the monthly figure reads "at least" and the clusters that
-  contributed nothing are named. The trend draws one mark per UTC day,
+  contributed nothing are named, as are, on a platform that reports it, the
+  clusters that could not price a node or billed resource. The trend draws one mark per UTC day,
   scaled to the object's own peak day, with `·` for a day nobody metered and
   `_` for a metered day that cost nothing. A namespace another application
   also runs in is marked shared, since its whole cost is counted for each.

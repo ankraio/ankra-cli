@@ -1,6 +1,7 @@
 package client
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -74,12 +75,64 @@ type ObjectCostDay struct {
 
 // ObjectCostCluster is one cluster behind the object. MonthlyCents is null
 // when the cluster contributed nothing to the object's figure.
+// CoverageIncomplete is the cluster's own snapshot flag: true when a node or
+// billed resource of it could not be priced, false when it priced
+// everything, null when it is unpriced, and absent from a platform that
+// predates the field (cluster#3453).
 type ObjectCostCluster struct {
-	ClusterID    string  `json:"cluster_id" yaml:"cluster_id"`
-	ClusterName  string  `json:"cluster_name" yaml:"cluster_name"`
-	Priced       bool    `json:"priced" yaml:"priced"`
-	MonthlyCents *int64  `json:"monthly_cents" yaml:"monthly_cents"`
-	Confidence   *string `json:"confidence" yaml:"confidence"`
+	ClusterID          string       `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName        string       `json:"cluster_name" yaml:"cluster_name"`
+	Priced             bool         `json:"priced" yaml:"priced"`
+	MonthlyCents       *int64       `json:"monthly_cents" yaml:"monthly_cents"`
+	Confidence         *string      `json:"confidence" yaml:"confidence"`
+	CoverageIncomplete OptionalBool `json:"coverage_incomplete,omitzero" yaml:"coverage_incomplete,omitempty"`
+}
+
+// OptionalBool is a boolean the platform may send as true, false or null,
+// or leave out entirely. Present tells the last case from null, so
+// structured output re-emits the key exactly when the platform sent it: an
+// absent key never comes back as a null, which the contract reads as
+// something else.
+type OptionalBool struct {
+	Present bool
+	Value   *bool
+}
+
+// IsTrue reports a present, non-null true.
+func (o OptionalBool) IsTrue() bool {
+	return o.Value != nil && *o.Value
+}
+
+// IsZero is what omitzero (JSON) and omitempty (YAML) consult: only an
+// absent key is left out.
+func (o OptionalBool) IsZero() bool {
+	return !o.Present
+}
+
+// UnmarshalJSON runs only for a key that is present, null included.
+func (o *OptionalBool) UnmarshalJSON(data []byte) error {
+	o.Present = true
+	o.Value = nil
+	if string(data) == "null" {
+		return nil
+	}
+	var value bool
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	o.Value = &value
+	return nil
+}
+
+func (o OptionalBool) MarshalJSON() ([]byte, error) {
+	return json.Marshal(o.Value)
+}
+
+func (o OptionalBool) MarshalYAML() (any, error) {
+	if o.Value == nil {
+		return nil, nil
+	}
+	return *o.Value, nil
 }
 
 // ObjectCostNamespace is one namespace behind a namespace-based object.

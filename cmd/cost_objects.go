@@ -31,9 +31,9 @@ credential carry it.
 Every figure the platform cannot give prints as unknown, never as zero. An
 object with no priced cluster behind it says why. When coverage is incomplete
 the monthly figure is a floor ("at least"), and the clusters that contributed
-nothing are named. The trend draws one mark per UTC day, scaled to the
-object's own peak day: '·' is a day no cluster was metered (unknown), '_' a
-metered day that cost nothing.
+nothing, or could not price a node or billed resource, are named. The trend
+draws one mark per UTC day, scaled to the object's own peak day: '·' is a day
+no cluster was metered (unknown), '_' a metered day that cost nothing.
 
 Pass -o json (or yaml) for the projection exactly as the platform serves it.`
 
@@ -297,7 +297,9 @@ func renderObjectCost(out io.Writer, projection *client.ObjectCostProjection) {
 	_, _ = fmt.Fprintf(out, "  Coverage:          %s\n", coverage)
 	_, _ = fmt.Fprintf(out, "  Open waste:        %s\n", costObjectWaste(projection.OpenWaste, currency))
 	if isFloor {
-		_, _ = fmt.Fprintln(out, costObjectFloorLine(projection))
+		for _, line := range costObjectFloorLines(projection) {
+			_, _ = fmt.Fprintln(out, line)
+		}
 	}
 
 	_, _ = fmt.Fprintln(out)
@@ -325,12 +327,26 @@ func costObjectWaste(waste client.ObjectCostWaste, currency string) string {
 	return line
 }
 
-// costObjectFloorLine names why the figure is a floor: the clusters that
-// contributed nothing, or, when every cluster contributed, that one of them
-// could not price everything it runs.
-func costObjectFloorLine(projection *client.ObjectCostProjection) string {
-	var missing []string
+// costObjectPartlyPriced is a cluster that contributed a figure its own
+// snapshot could not price in full, so that figure is a floor.
+func costObjectPartlyPriced(cluster client.ObjectCostCluster) bool {
+	return cluster.MonthlyCents != nil && cluster.CoverageIncomplete.IsTrue()
+}
+
+// costObjectFloorLines name why the figure is a floor: the clusters that
+// contributed nothing, and the contributing clusters whose own snapshot
+// could not price a node or billed resource. A platform that predates the
+// per-cluster flag cannot name the second kind, so when it names nothing
+// the general sentence stands in.
+func costObjectFloorLines(projection *client.ObjectCostProjection) []string {
+	var missing, partly []string
+	flagged := false
 	for _, cluster := range projection.Clusters {
+		flagged = flagged || cluster.CoverageIncomplete.Present
+		name := costObjectText(&cluster.ClusterName)
+		if costObjectPartlyPriced(cluster) {
+			partly = append(partly, name+" (a node or billed resource could not be priced)")
+		}
 		if cluster.MonthlyCents != nil {
 			continue
 		}
@@ -341,12 +357,24 @@ func costObjectFloorLine(projection *client.ObjectCostProjection) string {
 				why = "priced, but its latest snapshot attributed no namespace"
 			}
 		}
-		missing = append(missing, fmt.Sprintf("%s (%s)", costObjectText(&cluster.ClusterName), why))
+		missing = append(missing, fmt.Sprintf("%s (%s)", name, why))
 	}
-	if len(missing) == 0 {
-		return "  Floor:             every cluster behind it contributed, but at least one could not price every node or billed resource"
+	var lines []string
+	if len(missing) > 0 {
+		lines = append(lines, "  Contributed nothing: "+strings.Join(missing, "; "))
 	}
-	return "  Contributed nothing: " + strings.Join(missing, "; ")
+	if len(partly) > 0 {
+		lines = append(lines, "  Partly priced:       "+strings.Join(partly, "; "))
+	}
+	switch {
+	case len(lines) > 0:
+	case flagged:
+		// Every row says how it was priced and none explains the floor.
+		lines = append(lines, "  Floor:             the platform marks the figure a floor but names no cluster behind it")
+	default:
+		lines = append(lines, "  Floor:             every cluster behind it contributed, but at least one could not price every node or billed resource")
+	}
+	return lines
 }
 
 // renderObjectCostTrend draws the 30 days with the marks and the scaling of
@@ -403,15 +431,23 @@ func renderObjectCostClusters(out io.Writer, projection *client.ObjectCostProjec
 	_, _ = fmt.Fprintln(out, "Clusters behind it:")
 	writer := newCostTable(out)
 	writer.AppendHeader(table.Row{"CLUSTER", "PRICED", "MONTHLY", "CONFIDENCE", "CLUSTER ID"})
+	anyPartly := false
 	for _, cluster := range projection.Clusters {
 		priced := "no"
 		if cluster.Priced {
 			priced = "yes"
 		}
-		writer.AppendRow(table.Row{costObjectText(&cluster.ClusterName), priced,
-			costObjectCents(cluster.MonthlyCents, projection.Currency), costObjectText(cluster.Confidence), cluster.ClusterID})
+		monthly := costObjectCents(cluster.MonthlyCents, projection.Currency)
+		if costObjectPartlyPriced(cluster) {
+			monthly, anyPartly = monthly+" *", true
+		}
+		writer.AppendRow(table.Row{costObjectText(&cluster.ClusterName), priced, monthly,
+			costObjectText(cluster.Confidence), cluster.ClusterID})
 	}
 	writer.Render()
+	if anyPartly {
+		_, _ = fmt.Fprintln(out, "* Partly priced: that cluster could not price a node or billed resource, so its figure is a floor.")
+	}
 }
 
 func renderObjectCostNamespaces(out io.Writer, projection *client.ObjectCostProjection) {
