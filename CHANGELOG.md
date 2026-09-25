@@ -119,6 +119,15 @@
   answer stays parseable. What the CLI sends to the platform's AI (`chat`,
   `tickets comment`, `support create`) is stripped the same way, since a
   payload pasted from a log would otherwise reach the model intact.
+- **`ankra cost decisions hold` and `release` stop and restart a proposal.**
+  `hold` stops an approved proposal before it runs: nothing runs a held
+  proposal, not the cost autopilot and not `execute`, until someone runs
+  `release` or sets it aside. `release` returns it to approved and says who
+  runs it next: the autopilot once its pre-notice time has passed, for one the
+  autopilot approved, or you with `execute` otherwise. Both take an optional
+  `--note`. A proposal whose status does not allow the move is refused with
+  the platform's reason and stays as it was, and a refusal for
+  `billing.manage` exits 7 naming it.
 - **`ankra cost decisions` works the cost decision ledger.** `list` shows the
   organisation's cost proposals newest first, with a right-size ladder's
   waves directly under the ladder, and narrows by `--status`, `--kind` and

@@ -218,6 +218,71 @@ var costDecisionsSetAsideCmd = &cobra.Command{
 	},
 }
 
+var costDecisionsHoldCmd = &cobra.Command{
+	Use:   "hold <decision-id>",
+	Short: "Hold an approved proposal before it runs, with your reason (nothing runs it until it is released or set aside)",
+	Long: `Hold an approved proposal before it runs. A held proposal is run by nothing:
+not the cost autopilot, whose pre-notice links here, and not execute. It stays
+held until someone releases it (ankra cost decisions release) or sets it
+aside. Only an approved proposal can be held; any other status is refused and
+the proposal stays as it stands.`,
+	Args:    cobra.ExactArgs(1),
+	Example: `  ankra cost decisions hold 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --note "Wait until the launch is over"`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		decisionID := strings.TrimSpace(args[0])
+		if err := costDecisionRequireID(decisionID); err != nil {
+			return err
+		}
+		proposal, err := apiClient.HoldDecision(decisionID, costDecisionNote(cmd))
+		if err != nil {
+			return costDecisionTransitionError(err, "held", "holding the decision", "POST /api/v1/org/decisions/{decision_id}/hold")
+		}
+		if rendered, err := renderStructured(cmd, proposal); rendered || err != nil {
+			return err
+		}
+		out := cmd.OutOrStdout()
+		_, _ = fmt.Fprintf(out, "Held %s: %s\n", proposal.ID, proposal.Summary)
+		_, _ = fmt.Fprintf(out, "Nothing runs it until it is released (ankra cost decisions release %s) or set aside.\n", proposal.ID)
+		return nil
+	},
+}
+
+var costDecisionsReleaseCmd = &cobra.Command{
+	Use:   "release <decision-id>",
+	Short: "Release a held proposal back to approved, with an optional note",
+	Long: `Return a held proposal to approved. One the cost autopilot approved itself
+runs on the autopilot's next pass once its run_after has passed; one a person
+approved waits for someone to run it (ankra cost decisions execute). Only a
+held proposal can be released; any other status is refused and the proposal
+stays as it stands.`,
+	Args:    cobra.ExactArgs(1),
+	Example: `  ankra cost decisions release 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --note "Launch is over"`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		decisionID := strings.TrimSpace(args[0])
+		if err := costDecisionRequireID(decisionID); err != nil {
+			return err
+		}
+		proposal, err := apiClient.ReleaseDecision(decisionID, costDecisionNote(cmd))
+		if err != nil {
+			return costDecisionTransitionError(err, "released", "releasing the decision", "POST /api/v1/org/decisions/{decision_id}/release")
+		}
+		if rendered, err := renderStructured(cmd, proposal); rendered || err != nil {
+			return err
+		}
+		out := cmd.OutOrStdout()
+		_, _ = fmt.Fprintf(out, "Released %s: %s\n", proposal.ID, proposal.Summary)
+		switch {
+		case proposal.RunAfter != nil && *proposal.RunAfter != "":
+			_, _ = fmt.Fprintf(out, "The cost autopilot runs it on its next pass once %s has passed; hold it again before then to stop it.\n", *proposal.RunAfter)
+		case proposal.Executable:
+			_, _ = fmt.Fprintf(out, "Run it with: ankra cost decisions execute %s\n", proposal.ID)
+		default:
+			_, _ = fmt.Fprintf(out, "The platform cannot run a %s proposal yet, so it stays approved until it is carried out another way.\n", proposal.Kind)
+		}
+		return nil
+	},
+}
+
 var costDecisionsExecuteCmd = &cobra.Command{
 	Use:   "execute <decision-id>",
 	Short: "Run an approved proposal: dispatch the platform operation its plan names",
@@ -275,7 +340,7 @@ func init() {
 	costDecisionsListCmd.Flags().String("kind", "", "Only proposals of this kind, e.g. right_size, right_size_ladder, off_hours_schedule, waste_cleanup")
 	costDecisionsListCmd.Flags().String("cluster", "", "Only proposals whose change is measured on this cluster (name or id)")
 	costDecisionsListCmd.Flags().Int("limit", 0, "How many of the newest proposals the platform returns (1-500; 200 when omitted)")
-	for _, command := range []*cobra.Command{costDecisionsApproveCmd, costDecisionsSetAsideCmd} {
+	for _, command := range []*cobra.Command{costDecisionsApproveCmd, costDecisionsSetAsideCmd, costDecisionsHoldCmd, costDecisionsReleaseCmd} {
 		command.Flags().String("note", "", "A note recorded with the decision (up to 2000 characters)")
 	}
 	costDecisionsSetAsideCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
@@ -284,12 +349,14 @@ func init() {
 	costDecisionsExecuteCmd.Flags().Int("min-unattached-days", 0, "The minimum age, in days, of what a waste cleanup deletes (0-3650; the platform raises anything under 30)")
 	costDecisionsExecuteCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 	registerStructuredOutputFlags(costDecisionsListCmd, costDecisionsGetCmd, costDecisionsActivityCmd, costDecisionsApproveCmd,
-		costDecisionsSetAsideCmd, costDecisionsExecuteCmd)
+		costDecisionsSetAsideCmd, costDecisionsHoldCmd, costDecisionsReleaseCmd, costDecisionsExecuteCmd)
 	costDecisionsCmd.AddCommand(costDecisionsListCmd)
 	costDecisionsCmd.AddCommand(costDecisionsGetCmd)
 	costDecisionsCmd.AddCommand(costDecisionsActivityCmd)
 	costDecisionsCmd.AddCommand(costDecisionsApproveCmd)
 	costDecisionsCmd.AddCommand(costDecisionsSetAsideCmd)
+	costDecisionsCmd.AddCommand(costDecisionsHoldCmd)
+	costDecisionsCmd.AddCommand(costDecisionsReleaseCmd)
 	costDecisionsCmd.AddCommand(costDecisionsExecuteCmd)
 	costCmd.AddCommand(costDecisionsCmd)
 }
@@ -340,6 +407,21 @@ func costDecisionExecuteError(executeError error, decisionID string) error {
 			strings.TrimSpace(unexpected.Detail)))
 	}
 	return costDecisionsError(executeError, "running the decision", "POST /api/v1/org/decisions/{decision_id}/execute", true)
+}
+
+// costDecisionTransitionError reports why a hold or a release did not happen.
+// A 409 is the proposal's status not allowing the move, or the status
+// changing while the request was in flight: the proposal survives it
+// unchanged, so the platform's reason is said plainly and not presented as a
+// failure worth retrying. Anything else maps like every other ledger route.
+func costDecisionTransitionError(transitionError error, verb string, operation string, route string) error {
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(transitionError, &unexpected) && unexpected.StatusCode == http.StatusConflict && unexpected.Detail != "" {
+		return withExitCode(exitError, fmt.Errorf(
+			"not %s: %s The proposal stays as it stands ('ankra cost decisions get' shows its status)",
+			verb, strings.TrimSpace(unexpected.Detail)))
+	}
+	return costDecisionsError(transitionError, operation, route, true)
 }
 
 // costDecisionRequireID refuses a reference that is not a proposal id before
