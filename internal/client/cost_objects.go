@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -146,19 +147,36 @@ type ObjectCostNamespace struct {
 	Shared       bool   `json:"shared" yaml:"shared"`
 }
 
-// GetObjectCost reads one object's cost projection from
-// /api/v1/org/cloud-cost/objects/{kind}/{pathSegments...}: the cluster id
-// for a cluster; the cluster id and the namespace for a namespace; the
-// cluster id and the stack name for a stack; the application id; or the
-// credential id. Each segment is path-escaped, so a name carrying a space
-// or a slash stays one segment.
+// objectCostPaths is each kind's route, written out whole (one %s per
+// path segment) so the cluster-routes check verifies every one against the
+// cluster's router rather than seeing only their shared prefix.
+var objectCostPaths = map[string]string{
+	ObjectCostKindCluster:     "/api/v1/org/cloud-cost/objects/cluster/%s",
+	ObjectCostKindNamespace:   "/api/v1/org/cloud-cost/objects/namespace/%s/%s",
+	ObjectCostKindStack:       "/api/v1/org/cloud-cost/objects/stack/%s/%s",
+	ObjectCostKindApplication: "/api/v1/org/cloud-cost/objects/application/%s",
+	ObjectCostKindCredential:  "/api/v1/org/cloud-cost/objects/credential/%s",
+}
+
+// GetObjectCost reads one object's cost projection: the cluster id for a
+// cluster; the cluster id and the namespace for a namespace; the cluster id
+// and the stack name for a stack; the application id; or the credential id.
+// Each segment is path-escaped, so a name carrying a space or a slash stays
+// one segment. A kind this client does not know, or the wrong number of
+// segments for it, is refused before any request.
 func (c *Client) GetObjectCost(kind string, pathSegments ...string) (*ObjectCostProjection, error) {
-	escaped := make([]string, 0, len(pathSegments)+1)
-	escaped = append(escaped, url.PathEscape(kind))
-	for _, segment := range pathSegments {
-		escaped = append(escaped, url.PathEscape(segment))
+	path, isKnown := objectCostPaths[kind]
+	if !isKnown {
+		return nil, fmt.Errorf("unknown object kind %q", kind)
 	}
-	endpoint := c.BaseURL + "/api/v1/org/cloud-cost/objects/" + strings.Join(escaped, "/")
+	if want := strings.Count(path, "%s"); want != len(pathSegments) {
+		return nil, fmt.Errorf("a %s object takes %d path segments, got %d", kind, want, len(pathSegments))
+	}
+	escaped := make([]any, len(pathSegments))
+	for index, segment := range pathSegments {
+		escaped[index] = url.PathEscape(segment)
+	}
+	endpoint := c.BaseURL + fmt.Sprintf(path, escaped...)
 	var result ObjectCostProjection
 	if err := c.sendJSON(http.MethodGet, endpoint, nil, &result); err != nil {
 		return nil, err
