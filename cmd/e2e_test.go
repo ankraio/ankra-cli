@@ -4586,6 +4586,10 @@ func (m baseMock) GetFleetCostTrend(days int) (*client.FleetCostTrend, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetNamespaceCostHistory(clusterID string, days int, granularity string) (*client.NamespaceCostHistory, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetCostEvents(days int) (*client.CostEvents, error) {
 	return nil, errors.New("not implemented")
 }
