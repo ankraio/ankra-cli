@@ -4,6 +4,17 @@
 
 ### Added
 
+- **`ankra cost namespaces <cluster>` shows a cluster's cost per namespace
+  over time.** It reads the hourly metering the platform keeps for 35 days,
+  day by day or, for at most seven days, hour by hour (`--days`,
+  `--granularity`). The header says how many of the window's buckets were
+  metered. A bucket the metering did not reach is unknown, drawn `·` and
+  never counted as zero; a metered bucket a namespace had nothing in is
+  drawn `_`. Each namespace shows its total over the metered hours, its
+  latest and its peak bucket, and a trend scaled to its own peak for windows
+  of at most 48 buckets. The costliest 25 are listed, and `-o json` carries
+  every namespace and bucket. A window the platform refuses is reported in
+  the platform's own words.
 - **The savings model's analysed-cluster limit is a setting.**
   `ankra cost settings set --analysed-cluster-limit N` (1 to 50) sets how many
   of the costliest priced clusters the savings model analyses, and
