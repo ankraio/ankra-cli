@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -152,16 +153,17 @@ func renderNamespaceCostHistory(out io.Writer, clusterReference string, history 
 		if index == costNamespacesRowLimit {
 			break
 		}
-		// A series is read by bucket position only when it has one value per
-		// bucket, as the route promises; one that does not is shown as
-		// unknown rather than misaligned.
+		// A series' buckets are read only when it has one value per bucket,
+		// as the route promises; one that does not is shown as unknown rather
+		// than misaligned or partial. TOTAL is the platform's own total, not
+		// a sum of those buckets, so it stands either way.
 		aligned := len(series.CostCents) == len(history.Buckets)
-		latest, trend := "unknown", strings.Repeat(string(costNamespacesUnknownMark), len(history.Buckets))
+		latest, peak, trend := "unknown", "unknown", strings.Repeat(string(costNamespacesUnknownMark), len(history.Buckets))
 		if aligned {
-			latest, trend = costNamespacesLatest(series, history.Currency), costNamespacesTrend(series.CostCents)
+			latest, peak = costNamespacesLatest(series, history.Currency), costNamespacesPeak(series, history.Currency)
+			trend = costNamespacesTrend(series.CostCents)
 		}
-		row := table.Row{series.Namespace, formatCostCents(series.TotalCents, history.Currency),
-			latest, costNamespacesPeak(series, history.Currency)}
+		row := table.Row{series.Namespace, formatCostCents(series.TotalCents, history.Currency), latest, peak}
 		if drawTrend {
 			row = append(row, trend)
 		}
@@ -218,10 +220,11 @@ func costNamespacesTrend(values []*int64) string {
 		case *value <= 0 || peak == 0:
 			trend.WriteRune(costNamespacesZeroMark)
 		default:
-			level := int((*value*int64(len(costNamespacesTrendMarks)) - 1) / peak)
-			if level >= len(costNamespacesTrendMarks) {
-				level = len(costNamespacesTrendMarks) - 1
-			}
+			// Scaled in floating point so no cents value can overflow; for
+			// every value that fits, ceil(marks*value/peak)-1 is the integer
+			// level exactly.
+			level := int(math.Ceil(float64(len(costNamespacesTrendMarks))*float64(*value)/float64(peak))) - 1
+			level = min(max(level, 0), len(costNamespacesTrendMarks)-1)
 			trend.WriteRune(costNamespacesTrendMarks[level])
 		}
 	}

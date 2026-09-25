@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -224,8 +225,31 @@ func TestCostNamespacesOwnsItsOrderAndAlignment(t *testing.T) {
 		t.Fatalf("rows are not costliest first:\n%s", output)
 	}
 	for _, line := range strings.Split(output, "\n") {
-		if strings.Contains(line, "short") && (!strings.Contains(line, "unknown") || !strings.Contains(line, "···")) {
-			t.Fatalf("a misaligned series must read unknown: %q", line)
+		if !strings.Contains(line, "short") {
+			continue
 		}
+		if strings.Count(line, "unknown") != 2 || !strings.Contains(line, "···") || strings.Count(line, "$9.00") != 1 {
+			t.Fatalf("a misaligned series must read LATEST, PEAK and TREND unknown and keep only the platform's TOTAL: %q", line)
+		}
+	}
+}
+
+// TestCostNamespacesTrendScalesWithoutOverflow pins the trend scaling at
+// the ends of the int64 range: a value the integer form would have
+// overflowed still draws the top mark, and a tiny share of a huge peak the
+// bottom one.
+func TestCostNamespacesTrendScalesWithoutOverflow(t *testing.T) {
+	huge := int64(math.MaxInt64 - 1)
+	trend := costNamespacesTrend([]*int64{namespaceCents(1), namespaceCents(huge / 2), namespaceCents(huge), nil, namespaceCents(0)})
+	marks := []rune(trend)
+	if len(marks) != 5 {
+		t.Fatalf("one mark per bucket: %q", trend)
+	}
+	top := costNamespacesTrendMarks[len(costNamespacesTrendMarks)-1]
+	if marks[0] != costNamespacesTrendMarks[0] || marks[2] != top || marks[3] != costNamespacesUnknownMark || marks[4] != costNamespacesZeroMark {
+		t.Fatalf("trend %q: want the bottom mark, a middle mark, the top mark, unknown, zero", trend)
+	}
+	if marks[1] == top || marks[1] == costNamespacesTrendMarks[0] {
+		t.Fatalf("half the peak must draw a middle mark: %q", trend)
 	}
 }
