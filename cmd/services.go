@@ -88,6 +88,7 @@ type APIClient interface {
 	GetFleetCloudCost() (*client.FleetCloudCost, error)
 	GetFleetCostTrend(days int) (*client.FleetCostTrend, error)
 	GetNamespaceCostHistory(clusterID string, days int, granularity string) (*client.NamespaceCostHistory, error)
+	GetObjectCost(kind string, pathSegments ...string) (*client.ObjectCostProjection, error)
 	GetCostEvents(days int) (*client.CostEvents, error)
 	GetCloudSavings() (*client.CloudSavings, error)
 	GetCloudLedger() (*client.CloudLedger, error)
