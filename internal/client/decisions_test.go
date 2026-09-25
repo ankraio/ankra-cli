@@ -175,6 +175,30 @@ func TestApproveAndSetAsideDecision_SendTheNoteOnlyWhenGiven(t *testing.T) {
 	}
 }
 
+// Hold and release post the same note body as approve and set-aside, to their
+// own routes: the note when one is given, an empty object otherwise.
+func TestHoldAndReleaseDecision_SendTheNoteOnlyWhenGiven(t *testing.T) {
+	held := decisionProposalJSON(decisionWasteID, "waste_cleanup", "held", `{}`, "")
+	testClient, captured := captureDecisionWrite(t, http.StatusOK, held)
+	if _, err := testClient.HoldDecision(decisionWasteID, nil); err != nil {
+		t.Fatalf("HoldDecision: %v", err)
+	}
+	if captured.method != http.MethodPost || captured.path != "/api/v1/org/decisions/"+decisionWasteID+"/hold" ||
+		string(captured.raw) != "{}" || captured.csrf != "" {
+		t.Fatalf("a hold with no note sends an empty object: %s %s %q (csrf %q)", captured.method, captured.path, captured.raw, captured.csrf)
+	}
+	note := "Launch is over"
+	approved := decisionProposalJSON(decisionWasteID, "waste_cleanup", "approved", `{}`, "")
+	testClient, captured = captureDecisionWrite(t, http.StatusOK, approved)
+	if _, err := testClient.ReleaseDecision(decisionWasteID, &note); err != nil {
+		t.Fatalf("ReleaseDecision: %v", err)
+	}
+	if captured.method != http.MethodPost || captured.path != "/api/v1/org/decisions/"+decisionWasteID+"/release" ||
+		string(captured.raw) != `{"note":"Launch is over"}` {
+		t.Fatalf("a release sends its note: %s %s %q", captured.method, captured.path, captured.raw)
+	}
+}
+
 // Consent is never assumed: execute sends a body only when a consent field
 // was given, and each field only when it was.
 func TestExecuteDecision_SendsConsentOnlyWhenGiven(t *testing.T) {

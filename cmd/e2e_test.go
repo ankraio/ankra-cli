@@ -739,6 +739,14 @@ func (m baseMock) SetAsideDecision(decisionID string, note *string) (*client.Dec
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) HoldDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReleaseDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ExecuteDecision(decisionID string, options client.DecisionExecuteOptions) (*client.DecisionProposal, error) {
 	return nil, errors.New("not implemented")
 }

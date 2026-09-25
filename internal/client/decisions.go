@@ -231,8 +231,8 @@ func (c *Client) GetDecisionActivity(decisionID string) (*DecisionActivity, erro
 	return &result, nil
 }
 
-// decisionNoteBody is the approve and set-aside body: the note when one was
-// given, and an empty object otherwise.
+// decisionNoteBody is the approve, set-aside, hold and release body: the note
+// when one was given, and an empty object otherwise.
 func decisionNoteBody(note *string) map[string]any {
 	body := map[string]any{}
 	if note != nil {
@@ -247,6 +247,30 @@ func decisionNoteBody(note *string) map[string]any {
 func (c *Client) ApproveDecision(decisionID string, note *string) (*DecisionProposal, error) {
 	var result DecisionProposal
 	if err := c.sendJSON(http.MethodPost, fmt.Sprintf("%s/api/v1/org/decisions/%s/approve", c.BaseURL, neturl.PathEscape(decisionID)), decisionNoteBody(note), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// HoldDecision holds an approved proposal before it runs, with the note when
+// one is given: nothing runs a held proposal, neither the cost autopilot nor
+// execute, until it is released or set aside. It needs the area's permission.
+// POST /api/v1/org/decisions/{decision_id}/hold
+func (c *Client) HoldDecision(decisionID string, note *string) (*DecisionProposal, error) {
+	var result DecisionProposal
+	if err := c.sendJSON(http.MethodPost, fmt.Sprintf("%s/api/v1/org/decisions/%s/hold", c.BaseURL, neturl.PathEscape(decisionID)), decisionNoteBody(note), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ReleaseDecision returns a held proposal to approved, with the note when one
+// is given. One the cost autopilot filed then runs on its next pass once its
+// run_after has passed. It needs the area's permission.
+// POST /api/v1/org/decisions/{decision_id}/release
+func (c *Client) ReleaseDecision(decisionID string, note *string) (*DecisionProposal, error) {
+	var result DecisionProposal
+	if err := c.sendJSON(http.MethodPost, fmt.Sprintf("%s/api/v1/org/decisions/%s/release", c.BaseURL, neturl.PathEscape(decisionID)), decisionNoteBody(note), &result); err != nil {
 		return nil, err
 	}
 	return &result, nil

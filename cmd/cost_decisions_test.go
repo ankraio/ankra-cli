@@ -25,6 +25,8 @@ type costDecisionsMock struct {
 	writeError     error
 	approvedNotes  []*string
 	setAsideNotes  []*string
+	heldNotes      []*string
+	releasedNotes  []*string
 	executeOptions []client.DecisionExecuteOptions
 	clusters       []client.ClusterListItem
 }
@@ -67,6 +69,22 @@ func (m *costDecisionsMock) SetAsideDecision(_ string, note *string) (*client.De
 	return m.written, nil
 }
 
+func (m *costDecisionsMock) HoldDecision(_ string, note *string) (*client.DecisionProposal, error) {
+	m.heldNotes = append(m.heldNotes, note)
+	if m.writeError != nil {
+		return nil, m.writeError
+	}
+	return m.written, nil
+}
+
+func (m *costDecisionsMock) ReleaseDecision(_ string, note *string) (*client.DecisionProposal, error) {
+	m.releasedNotes = append(m.releasedNotes, note)
+	if m.writeError != nil {
+		return nil, m.writeError
+	}
+	return m.written, nil
+}
+
 func (m *costDecisionsMock) ExecuteDecision(_ string, options client.DecisionExecuteOptions) (*client.DecisionProposal, error) {
 	m.executeOptions = append(m.executeOptions, options)
 	if m.writeError != nil {
@@ -91,7 +109,7 @@ func runCostDecisionsCommand(t *testing.T, mock APIClient, input string, args ..
 	rootCmd.SetIn(strings.NewReader(input))
 	rootCmd.SetArgs(args)
 	commands := []*cobra.Command{costDecisionsListCmd, costDecisionsGetCmd, costDecisionsActivityCmd, costDecisionsApproveCmd,
-		costDecisionsSetAsideCmd, costDecisionsExecuteCmd}
+		costDecisionsSetAsideCmd, costDecisionsHoldCmd, costDecisionsReleaseCmd, costDecisionsExecuteCmd}
 	// Reset before the run as well as after the test: a test that runs the
 	// command more than once must not carry one run's flags into the next.
 	resetTreeFlags(t, commands...)
@@ -368,6 +386,76 @@ func TestCostDecisionsSetAsideAsksFirstOnStderr(t *testing.T) {
 	var decoded map[string]any
 	if json.Unmarshal([]byte(stdout), &decoded) != nil || decoded["status"] != "set_aside" {
 		t.Fatalf("-o json stays parseable: %s", stdout)
+	}
+}
+
+// A hold sends the note only when one is given, says that nothing runs the
+// proposal until it is released or set aside, and keeps -o json parseable.
+func TestCostDecisionsHoldSendsTheNoteAndSaysNothingRunsIt(t *testing.T) {
+	held := decisionFixture(decisionsWasteID, "waste_cleanup", "held", "Delete unattached volume vol-1", decisionsOtherID)
+	mock := &costDecisionsMock{written: &held}
+	output, _, executeError := runCostDecisionsCommand(t, mock, "", "cost", "decisions", "hold", decisionsWasteID)
+	if executeError != nil {
+		t.Fatalf("cost decisions hold failed: %v", executeError)
+	}
+	if len(mock.heldNotes) != 1 || mock.heldNotes[0] != nil {
+		t.Fatalf("no --note sends no note, got %v", mock.heldNotes)
+	}
+	if !strings.Contains(output, "Held "+decisionsWasteID) ||
+		!strings.Contains(output, "ankra cost decisions release "+decisionsWasteID) {
+		t.Fatalf("a hold says how it ends:\n%s", output)
+	}
+	mock = &costDecisionsMock{written: &held}
+	stdout, _, executeError := runCostDecisionsCommand(t, mock, "", "cost", "decisions", "hold", decisionsWasteID, "--note", "After the launch", "-o", "json")
+	if executeError != nil || len(mock.heldNotes) != 1 || mock.heldNotes[0] == nil || *mock.heldNotes[0] != "After the launch" {
+		t.Fatalf("--note is sent, got %v, %v", mock.heldNotes, executeError)
+	}
+	var decoded map[string]any
+	if json.Unmarshal([]byte(stdout), &decoded) != nil || decoded["status"] != "held" {
+		t.Fatalf("-o json stays parseable: %s", stdout)
+	}
+}
+
+// A release says who runs the proposal next: the cost autopilot after its
+// run_after when it approved the proposal itself, and a person otherwise.
+func TestCostDecisionsReleaseSaysWhoRunsItNext(t *testing.T) {
+	autopilot := decisionFixture(decisionsWasteID, "waste_cleanup", "approved", "Delete unattached volume vol-1", decisionsOtherID)
+	autopilot.RunAfter = decisionsPointer("2026-09-26T06:00:00Z")
+	mock := &costDecisionsMock{written: &autopilot}
+	output, _, executeError := runCostDecisionsCommand(t, mock, "", "cost", "decisions", "release", decisionsWasteID, "--note", "Launch is over")
+	if executeError != nil || len(mock.releasedNotes) != 1 || *mock.releasedNotes[0] != "Launch is over" {
+		t.Fatalf("cost decisions release failed or dropped the note: %v %v", executeError, mock.releasedNotes)
+	}
+	if !strings.Contains(output, "Released "+decisionsWasteID) || !strings.Contains(output, "once 2026-09-26T06:00:00Z has passed") {
+		t.Fatalf("an autopilot proposal's release says when the autopilot runs it:\n%s", output)
+	}
+	personal := decisionFixture(decisionsWasteID, "waste_cleanup", "approved", "Delete unattached volume vol-1", decisionsOtherID)
+	mock = &costDecisionsMock{written: &personal}
+	output, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "release", decisionsWasteID)
+	if executeError != nil || !strings.Contains(output, "Run it with: ankra cost decisions execute "+decisionsWasteID) {
+		t.Fatalf("a person's proposal's release says how to run it: %v\n%s", executeError, output)
+	}
+}
+
+// A hold or a release the proposal's status does not allow is the platform's
+// 409: said as such, exit 1, never read as a missing route; a missing
+// permission keeps its exit 7.
+func TestCostDecisionsHoldAndReleaseReportRefusalsAsSuch(t *testing.T) {
+	for _, testCase := range []struct {
+		command string
+		verb    string
+	}{{"hold", "not held"}, {"release", "not released"}} {
+		conflict := &client.UnexpectedResponseError{StatusCode: 409, Detail: "Only an approved proposal can be held."}
+		_, _, executeError := runCostDecisionsCommand(t, &costDecisionsMock{writeError: conflict}, "", "cost", "decisions", testCase.command, decisionsWasteID)
+		if executeError == nil || !strings.Contains(executeError.Error(), testCase.verb+": Only an approved proposal can be held.") ||
+			strings.Contains(executeError.Error(), "predates") || exitCodeFor(executeError) != exitError {
+			t.Fatalf("%s: a 409 says the proposal stays as it stands (exit 1), got %v", testCase.command, executeError)
+		}
+		denied := &client.PermissionDeniedError{Permission: "billing.manage"}
+		_, _, executeError = runCostDecisionsCommand(t, &costDecisionsMock{writeError: denied}, "", "cost", "decisions", testCase.command, decisionsWasteID)
+		if executeError == nil || !strings.Contains(executeError.Error(), `"billing.manage"`) || exitCodeFor(executeError) != exitForbidden {
+			t.Fatalf("%s: a permission refusal names it and exits 7, got %v", testCase.command, executeError)
+		}
 	}
 }
 
