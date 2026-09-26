@@ -249,6 +249,8 @@ func costProviderLabel(provider string) string {
 		return "UpCloud"
 	case "scaleway":
 		return "Scaleway"
+	case "digitalocean":
+		return "DigitalOcean"
 	case "":
 		return "unknown provider"
 	default:

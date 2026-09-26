@@ -90,6 +90,7 @@ type APIClient interface {
 	GetNamespaceCostHistory(clusterID string, days int, granularity string) (*client.NamespaceCostHistory, error)
 	GetObjectCost(kind string, pathSegments ...string) (*client.ObjectCostProjection, error)
 	GetCostEvents(days int) (*client.CostEvents, error)
+	GetCostReconciliation(month string) (*client.CostReconciliation, error)
 	GetCloudSavings() (*client.CloudSavings, error)
 	GetCloudLedger() (*client.CloudLedger, error)
 	GetCostAutopilot() (*client.CostAutopilotPolicy, error)
