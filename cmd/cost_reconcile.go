@@ -124,23 +124,31 @@ func costReconcileImportLabel(state string) string {
 }
 
 // costReconcileImportCell is the Import column: the last attempt, and when
-// it stored nothing but an earlier one did, whether the lines kept from then
-// are final.
+// it stored nothing but earlier ones did, whether the lines kept from them
+// are final - only when every document that kept lines kept final ones.
 func costReconcileImportCell(credential client.CostReconciliationCredential) string {
 	label := costReconcileImportLabel(credential.State)
 	if credential.State == "complete" || credential.State == "partial" || credential.State == "absent" {
 		return label
 	}
+	keptLines, keptFinal := 0, 0
 	for _, document := range credential.Imports {
 		if document.LinesState == nil {
 			continue
 		}
+		keptLines++
 		if *document.LinesState == "complete" {
-			return label + "; final lines kept"
+			keptFinal++
 		}
+	}
+	switch {
+	case keptLines == 0:
+		return label
+	case keptFinal == keptLines:
+		return label + "; final lines kept"
+	default:
 		return label + "; month-to-date lines kept"
 	}
-	return label
 }
 
 // costReconcileAmount renders an amount in the credential's currency, or
@@ -157,10 +165,12 @@ func costReconcileAmount(cents *int64, credential client.CostReconciliationCrede
 }
 
 // costReconcileEstimate renders the estimate, marked as a floor when a named
-// cluster was metered for fewer hours than it existed.
+// cluster was metered for fewer hours than it existed. An estimate the
+// platform could not give reads unknown, like an amount, never a dash that
+// could pass for none.
 func costReconcileEstimate(credential client.CostReconciliationCredential) string {
 	if credential.EstimateMinor == nil || credential.Currency == nil {
-		return "—"
+		return "unknown"
 	}
 	estimate := formatCostCents(*credential.EstimateMinor, *credential.Currency)
 	if credential.EstimateComplete != nil && !*credential.EstimateComplete {

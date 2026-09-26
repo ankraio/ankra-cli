@@ -164,3 +164,30 @@ func TestCostReconcileSaysWhenThereIsNothingToReconcile(t *testing.T) {
 		t.Fatalf("output = %q, %v", output, err)
 	}
 }
+
+// TestCostReconcileImportCellJudgesEveryKeptDocument: a failed attempt's
+// cell says the kept lines are final only when every document that kept
+// lines kept final ones, whichever document is listed first.
+func TestCostReconcileImportCellJudgesEveryKeptDocument(t *testing.T) {
+	complete, partial := "complete", "partial"
+	for name, testCase := range map[string]struct {
+		imports []client.CostReconciliationImport
+		want    string
+	}{
+		"final first, month to date after": {[]client.CostReconciliationImport{{LinesState: &complete}, {LinesState: &partial}},
+			"failed; month-to-date lines kept"},
+		"month to date first, final after": {[]client.CostReconciliationImport{{LinesState: &partial}, {LinesState: &complete}},
+			"failed; month-to-date lines kept"},
+		"every kept document final": {[]client.CostReconciliationImport{{}, {LinesState: &complete}, {LinesState: &complete}},
+			"failed; final lines kept"},
+		"nothing kept": {[]client.CostReconciliationImport{{}}, "failed"},
+	} {
+		got := costReconcileImportCell(client.CostReconciliationCredential{State: "failed", Imports: testCase.imports})
+		if got != testCase.want {
+			t.Errorf("%s = %q, want %q", name, got, testCase.want)
+		}
+	}
+	if estimate := costReconcileEstimate(client.CostReconciliationCredential{}); estimate != "unknown" {
+		t.Errorf("an estimate the platform could not give = %q, want unknown", estimate)
+	}
+}
