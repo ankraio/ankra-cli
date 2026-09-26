@@ -4,6 +4,20 @@
 
 ### Added
 
+- **`ankra cost reconcile` sets what each cloud credential's provider billed
+  against the estimate.** For a month (`--month YYYY-MM`, the last closed
+  month when omitted) each credential shows what was billed, the part placed
+  on clusters, Ankra's estimate for those clusters converted into the
+  invoice's currency, and the difference. The provider's figures stay in its
+  own currency, and tax and credits are set apart because the estimate
+  carries neither. Nothing unknown reads as agreement: a credential no
+  billing document was imported for reads `unknown`, never zero; a failed
+  import is named with the provider's words and says whether earlier lines
+  were kept; and the difference is stated only on final figures and a
+  complete estimate, with the reason shown otherwise. Billed lines no
+  cluster could be placed on are counted with their amount. `-o json` (or
+  yaml) returns the document as the platform serves it, every cluster and
+  unplaced line included.
 - **`ankra cost object` shows what one cluster, namespace, stack,
   application or credential costs.** `ankra cost object cluster <cluster>`,
   `namespace <cluster> <namespace>`, `stack <cluster> <stack>`,

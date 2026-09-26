@@ -4598,6 +4598,10 @@ func (m baseMock) GetCostEvents(days int) (*client.CostEvents, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetCostReconciliation(month string) (*client.CostReconciliation, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetCloudSavings() (*client.CloudSavings, error) {
 	return nil, errors.New("not implemented")
 }
