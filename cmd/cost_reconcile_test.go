@@ -191,3 +191,25 @@ func TestCostReconcileImportCellJudgesEveryKeptDocument(t *testing.T) {
 		t.Errorf("an estimate the platform could not give = %q, want unknown", estimate)
 	}
 }
+
+// TestCostReconcileImportCellFollowsTheCountedDocument: when the platform
+// marks the document it sums, the kept lines are judged by that document
+// alone, since any other document holding lines is another reading of the
+// same month that is not added to it.
+func TestCostReconcileImportCellFollowsTheCountedDocument(t *testing.T) {
+	complete, partial := "complete", "partial"
+	for name, testCase := range map[string]struct {
+		imports []client.CostReconciliationImport
+		want    string
+	}{
+		"a counted final upload beside month-to-date API lines": {[]client.CostReconciliationImport{{},
+			{LinesState: &partial}, {LinesState: &complete, Counted: true}}, "failed; final lines kept"},
+		"counted month-to-date lines beside a final document": {[]client.CostReconciliationImport{
+			{LinesState: &complete}, {LinesState: &partial, Counted: true}}, "failed; month-to-date lines kept"},
+	} {
+		got := costReconcileImportCell(client.CostReconciliationCredential{State: "failed", Imports: testCase.imports})
+		if got != testCase.want {
+			t.Errorf("%s = %q, want %q", name, got, testCase.want)
+		}
+	}
+}

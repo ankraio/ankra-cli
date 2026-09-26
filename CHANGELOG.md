@@ -17,7 +17,9 @@
   complete estimate, with the reason shown otherwise. Billed lines no
   cluster could be placed on are counted with their amount. `-o json` (or
   yaml) returns the document as the platform serves it, every cluster and
-  unplaced line included.
+  unplaced line included. A month that holds more than one billing document
+  (an uploaded invoice beside the API read) is summed from the one the
+  platform counts, and the Import column judges the kept lines by that one.
 - **`ankra cost object` shows what one cluster, namespace, stack,
   application or credential costs.** `ankra cost object cluster <cluster>`,
   `namespace <cluster> <namespace>`, `stack <cluster> <stack>`,

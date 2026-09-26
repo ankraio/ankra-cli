@@ -124,12 +124,24 @@ func costReconcileImportLabel(state string) string {
 }
 
 // costReconcileImportCell is the Import column: the last attempt, and when
-// it stored nothing but earlier ones did, whether the lines kept from them
-// are final - only when every document that kept lines kept final ones.
+// it stored nothing but earlier lines were kept, whether those are final.
+// The platform sums one document per month and marks it counted, so that
+// document's lines say it; against a platform that marks none, the lines
+// are final only when every document that kept lines kept final ones.
 func costReconcileImportCell(credential client.CostReconciliationCredential) string {
 	label := costReconcileImportLabel(credential.State)
 	if credential.State == "complete" || credential.State == "partial" || credential.State == "absent" {
 		return label
+	}
+	for _, document := range credential.Imports {
+		switch {
+		case !document.Counted || document.LinesState == nil:
+			continue
+		case *document.LinesState == "complete":
+			return label + "; final lines kept"
+		default:
+			return label + "; month-to-date lines kept"
+		}
 	}
 	keptLines, keptFinal := 0, 0
 	for _, document := range credential.Imports {

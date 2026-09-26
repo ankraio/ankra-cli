@@ -9,7 +9,9 @@ import (
 // LinesState says whether the stored lines are the provider's final figures
 // ("complete") or month to date ("partial"), and is nil when no attempt
 // ever stored any; a failed attempt leaves it as it was. SucceededAt is when
-// the stored lines were read.
+// the stored lines were read. Counted marks the one document per credential
+// and month whose lines the amounts are read from; a platform that does not
+// say which leaves it false on every document.
 type CostReconciliationImport struct {
 	Source           string  `json:"source" yaml:"source"`
 	SourceDocumentID string  `json:"source_document_id" yaml:"source_document_id"`
@@ -20,6 +22,7 @@ type CostReconciliationImport struct {
 	LineCount        int     `json:"line_count" yaml:"line_count"`
 	AttemptedAt      string  `json:"attempted_at" yaml:"attempted_at"`
 	SucceededAt      *string `json:"succeeded_at" yaml:"succeeded_at"`
+	Counted          bool    `json:"counted" yaml:"counted"`
 }
 
 // CostReconciliationFX is the rate the estimate (held in USD) was converted
