@@ -1,10 +1,14 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/chzyer/readline"
 	"github.com/spf13/cobra"
 
 	"ankra/internal/client"
@@ -22,6 +26,10 @@ type powerScheduleFlags struct {
 	enabled       bool
 	stopMode      string
 	preserveState *bool
+	// acceptNodeLocalDataLoss is --accept-node-local-data-loss: the
+	// acknowledgement a scale_to_zero stop needs on a cluster whose volumes
+	// keep data on worker disks.
+	acceptNodeLocalDataLoss bool
 }
 
 // registerPowerScheduleSpecFlags declares the shared create/update flag set.
@@ -31,7 +39,8 @@ func registerPowerScheduleSpecFlags(cmd *cobra.Command) {
 	cmd.Flags().String("cron", "", "Fire repeatedly per this 5-field cron expression, e.g. '0 19 * * 1-5' (mutually exclusive with --at)")
 	cmd.Flags().String("timezone", "", "IANA timezone the cron expression is evaluated in, e.g. Europe/Stockholm (default UTC)")
 	cmd.Flags().Bool("enabled", true, "Whether the schedule is armed; --enabled=false creates or leaves it paused")
-	cmd.Flags().String("stop-mode", "", "How a stop schedule stops the cluster: delete_resources (default on create; terminates the VMs), scale_to_zero (removes only the workers, keeps the control plane) or pause (powers every server off and keeps it with its disks; k3s on Hetzner, UpCloud and DigitalOcean, and what a stop always does on AWS and Scaleway). pause saves no compute cost on Hetzner, DigitalOcean or UpCloud, which bill a powered-off server in full; use scale_to_zero or delete_resources to save. On update, omitting it keeps the schedule's current mode")
+	cmd.Flags().String("stop-mode", "", "How a stop schedule stops the cluster: delete_resources (default on create; terminates the VMs), scale_to_zero (deletes the worker servers at every stop and creates new ones at start: data on their own disks is lost; the control plane and etcd, cloud volumes and addresses are kept and keep billing) or pause (powers every server off and keeps it with its disks; k3s on Hetzner, UpCloud and DigitalOcean, and what a stop always does on AWS and Scaleway). pause saves no compute cost on Hetzner, DigitalOcean or UpCloud, which bill a powered-off server in full; use scale_to_zero or delete_resources to save. On update, omitting it keeps the schedule's current mode")
+	cmd.Flags().Bool("accept-node-local-data-loss", false, "For scale_to_zero stop schedules: accept that volumes keeping data on a worker's own disk (local-path, hostPath, local PVs) are emptied at every stop. Required when the cluster has such volumes and you are not answering the prompt interactively")
 	registerThreeStateFlag(cmd, "preserve-state", "For delete_resources stop schedules: omit to capture the cluster's state (an encrypted etcd snapshot the next start restores) whenever the provider and distribution support it; 'false' to tear down without it; 'true' to state the default explicitly. On update, omitting it keeps the schedule's current choice")
 	_ = cmd.MarkFlagRequired("action")
 }
@@ -46,6 +55,7 @@ func powerScheduleFlagsFromCommand(cmd *cobra.Command) (powerScheduleFlags, erro
 	flags.enabled, _ = cmd.Flags().GetBool("enabled")
 	flags.stopMode, _ = cmd.Flags().GetString("stop-mode")
 	flags.preserveState = threeStateFlag(cmd, "preserve-state")
+	flags.acceptNodeLocalDataLoss, _ = cmd.Flags().GetBool("accept-node-local-data-loss")
 
 	flags.action = strings.ToLower(strings.TrimSpace(flags.action))
 	if flags.action != "stop" && flags.action != "start" {
@@ -105,10 +115,11 @@ func (flags powerScheduleFlags) carryStopChoicesFrom(schedules []client.PowerSch
 // matching the create-time default).
 func (flags powerScheduleFlags) request() client.PowerScheduleRequest {
 	request := client.PowerScheduleRequest{
-		Action:        flags.action,
-		Enabled:       flags.enabled,
-		StopMode:      flags.stopMode,
-		PreserveState: flags.preserveState,
+		Action:                  flags.action,
+		Enabled:                 flags.enabled,
+		StopMode:                flags.stopMode,
+		PreserveState:           flags.preserveState,
+		AcceptNodeLocalDataLoss: flags.acceptNodeLocalDataLoss,
 	}
 	if flags.at != "" {
 		request.ScheduleKind = "once"
@@ -127,6 +138,83 @@ func (flags powerScheduleFlags) request() client.PowerScheduleRequest {
 	return request
 }
 
+// scaleToZeroStopNote is what every enabled scale_to_zero stop schedule
+// prints before it is written.
+const scaleToZeroStopNote = "A scale_to_zero stop deletes the worker servers each time and creates new ones at the next start. " +
+	"The control plane and etcd, cloud volumes and addresses are kept and keep billing. " +
+	"Data on the workers' own disks is lost at every stop."
+
+// nodeLocalNameLimit is how many volume names the warning spells out.
+const nodeLocalNameLimit = 10
+
+// promptIsInteractive reports whether the acknowledgement can be asked on
+// in: only a terminal can answer it. A variable so tests can answer it.
+var promptIsInteractive = func(in io.Reader) bool {
+	file, isFile := in.(*os.File)
+	return isFile && readline.IsTerminal(int(file.Fd()))
+}
+
+// nodeLocalVolumeList names the volumes, capped, with the remainder counted.
+func nodeLocalVolumeList(storage *client.PowerScheduleNodeLocalStorage) string {
+	count := len(storage.PVCNames)
+	if storage.PVCCount != nil {
+		count = *storage.PVCCount
+	}
+	shown := storage.PVCNames[:min(len(storage.PVCNames), nodeLocalNameLimit)]
+	named := strings.Join(shown, ", ")
+	if more := count - len(shown); more > 0 {
+		if named != "" {
+			named += fmt.Sprintf(" and %d more", more)
+		} else {
+			named = fmt.Sprintf("%d volumes", more)
+		}
+	}
+	return named
+}
+
+// acknowledgeNodeLocalDataLoss runs before an enabled scale_to_zero stop is
+// written. It prints what the stop deletes, reads the cluster's node-local
+// volumes and, when there are some, needs the loss accepted: by
+// --accept-node-local-data-loss, or by answering the prompt on a terminal.
+// Anywhere else it fails naming the volumes, because the backend refuses the
+// schedule without the acknowledgement. A reading that could not be made is
+// a warning, not a refusal, matching the backend. The notes go to stderr so
+// --output json|yaml stays parseable.
+func acknowledgeNodeLocalDataLoss(cmd *cobra.Command, cluster client.ClusterListItem, flags powerScheduleFlags) (powerScheduleFlags, error) {
+	if flags.action != "stop" || flags.stopMode != "scale_to_zero" || !flags.enabled {
+		return flags, nil
+	}
+	errOut := cmd.ErrOrStderr()
+	_, _ = fmt.Fprintln(errOut, scaleToZeroStopNote)
+	storage, readError := apiClient.GetPowerScheduleNodeLocalStorage(cluster.ID)
+	if readError != nil || storage == nil || (storage.State != "present" && storage.State != "none") {
+		_, _ = fmt.Fprintf(errOut, "Warning: Ankra could not check whether volumes on cluster %s keep data on worker disks. Any that do are emptied at every stop.\n", cluster.Name)
+		return flags, nil
+	}
+	if storage.State != "present" {
+		return flags, nil
+	}
+	volumes := nodeLocalVolumeList(storage)
+	_, _ = fmt.Fprintf(errOut, "Warning: these volumes on cluster %s keep data on worker disks, and it is deleted at every stop: %s\n", cluster.Name, volumes)
+	if flags.acceptNodeLocalDataLoss {
+		return flags, nil
+	}
+	if !promptIsInteractive(cmd.InOrStdin()) {
+		return flags, withExitCode(exitUsage, fmt.Errorf(
+			"cluster %s keeps data on worker disks (%s), which a scale_to_zero stop deletes at every stop; "+
+				"re-run with --accept-node-local-data-loss to schedule it anyway", cluster.Name, volumes))
+	}
+	if promptError := confirmPrompt(cmd.InOrStdin(), errOut,
+		"Schedule it anyway and lose the data on these volumes at every stop? [y/N]: ", false); promptError != nil {
+		if errors.Is(promptError, errCancelled) {
+			return flags, promptError
+		}
+		return flags, fmt.Errorf("reading the acknowledgement: %w", promptError)
+	}
+	flags.acceptNodeLocalDataLoss = true
+	return flags, nil
+}
+
 var clusterPowerSchedulesCmd = &cobra.Command{
 	Use:     "power-schedules",
 	Aliases: []string{"power-schedule"},
@@ -142,7 +230,12 @@ like stopping the cluster yourself: on Hetzner, OVHcloud, UpCloud and
 DigitalOcean the cluster's state is captured first (an encrypted etcd
 snapshot the next start restores) unless --preserve-state=false; elsewhere
 the provider VMs are terminated and only the configuration is preserved.
---stop-mode scale_to_zero removes only the workers instead; --stop-mode pause powers the servers off and keeps them.
+--stop-mode scale_to_zero deletes only the worker servers instead, and creates
+new ones at the next start: the control plane and etcd, cloud volumes and
+addresses are kept (and keep billing), and data on the workers' own disks is
+lost at every stop. On a cluster whose volumes keep data there, the schedule
+needs --accept-node-local-data-loss (or a yes at the prompt).
+--stop-mode pause powers the servers off and keeps them.
 
 --stop-mode pause keeps the cluster's state but saves no compute cost on
 Hetzner, DigitalOcean or UpCloud (Developer and General Purpose plans):
@@ -199,6 +292,10 @@ omitted). A cluster can hold up to 20 schedules.`,
 		if err != nil {
 			return err
 		}
+		flags, err = acknowledgeNodeLocalDataLoss(cmd, cluster, flags)
+		if err != nil {
+			return err
+		}
 		result, err := apiClient.CreatePowerSchedule(cluster.ID, flags.request())
 		if err != nil {
 			return fmt.Errorf("creating power schedule: %w", err)
@@ -242,6 +339,10 @@ values.`,
 				return fmt.Errorf("reading the schedule's current stop mode: %w", listError)
 			}
 			flags = flags.carryStopChoicesFrom(current.Schedules, scheduleID)
+		}
+		flags, err = acknowledgeNodeLocalDataLoss(cmd, cluster, flags)
+		if err != nil {
+			return err
 		}
 		result, err := apiClient.UpdatePowerSchedule(cluster.ID, scheduleID, flags.request())
 		if err != nil {

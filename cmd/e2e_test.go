@@ -560,6 +560,10 @@ func (m baseMock) DeletePowerSchedule(clusterID, scheduleID string) (*client.Del
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetPowerScheduleNodeLocalStorage(clusterID string) (*client.PowerScheduleNodeLocalStorage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListBackupVaults() (*client.BackupVaultListResult, error) {
 	return nil, errors.New("not implemented")
 }

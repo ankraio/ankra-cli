@@ -189,6 +189,17 @@
   and command help now say so and point to `scale_to_zero` or
   `delete_resources` for savings. On AWS and Scaleway a powered-off server
   stops billing compute.
+- **`ankra cluster power-schedules create|update --stop-mode scale_to_zero`
+  says it deletes the worker servers, and asks before losing data on their
+  disks.** The stop deletes the worker servers each time and creates new ones
+  at the next start: the control plane and etcd, cloud volumes and addresses
+  are kept and keep billing, and data on the workers' own disks is lost. The
+  command now prints that, reads the cluster's volumes, and when some keep
+  data on worker disks (local-path, hostPath, local PVs) names them and needs
+  the loss accepted: a yes at the prompt on a terminal, or
+  `--accept-node-local-data-loss`. Without either it fails naming the volumes,
+  because the platform refuses the schedule without the acknowledgement. A
+  cluster whose volumes could not be checked gets a warning, not a refusal.
 - **A Persian or Hindi name is no longer reshaped in what the CLI prints.**
   The invisible-character strip removed every zero-width joiner and
   non-joiner, but those scripts write them inside ordinary words, so a
