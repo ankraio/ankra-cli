@@ -260,12 +260,17 @@ pipeline is one with nothing to approve; add the sidecar in a second PR if the h
 # 0. Tell the human: "after the first merge an org admin has to run `ankra pipeline definitions approve <id>` once"
 ankra org ci-settings get                                                         # CI cluster named? else set it
 ankra cluster agent ci get --cluster <cluster>                                    # workers > 0? else ci set --workers 2
-# 1. author .ankra/pipeline.yaml (§3, reference.md) on a branch
+# 1. author .ankra/pipeline.yaml (§3, reference.md) on a branch, then connect - deliberately BEFORE the file is on the
+#    default branch: connect records no definition yet (nothing to read), but the connected row is what lets the PR's
+#    pull_request webhook plan a run and what `validate --repository` needs; the merge push in step 3 brings the
+#    committed file in as the definition. (Connecting AFTER the merge reads the file at connect time instead - also
+#    fine; what never works is expecting a second connect to re-read, see §2.)
 ankra pipeline repositories connect --provider github --owner <owner> --name <repository> --credential <credential> --default-branch main
 ankra pipeline validate .ankra/pipeline.yaml --repository <repository-id>         # planned steps, skips, network tiers
 # 2. open the PR: adds .ankra/pipeline.yaml, removes/disables the old workflow, repoints branch protection at "Ankra pipeline"
-#    the PR itself gets a run (pull_request trigger) - under the default branch's authority, so a sidecar stage skips until §5
-# 3. merge; the default-branch push plans a run from the committed file
+#    the PR itself gets a run (pull_request trigger) from the branch's file, under the default branch's (empty) authority,
+#    so a sidecar stage skips until §5
+# 3. merge; the default-branch push plans a run from the committed file, which becomes the definition of record
 ankra pipeline get --repository <repository-id> --branch main --latest                # Authority: unapproved → approve_definition_id
 ankra pipeline definitions approve <definition-id>                                    # the HUMAN runs this
 ankra pipeline run --repository <repository-id> --ref main --wait                     # first run under the approved authority
