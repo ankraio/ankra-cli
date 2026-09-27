@@ -77,9 +77,12 @@ connect time** and records it as the definition of record when it parses. Conseq
 - **Connect reads once.** Committing the file after connecting does not re-read it: connecting again
   is refused (409, with the existing id in the error). To force a fresh read:
   `ankra pipeline repositories disconnect <repository-id> --yes` then connect again — disconnect is
-  reversible and keeps runs, definitions and findings. In practice the order that never bites is:
-  commit the file to the default branch first, then connect. A push webhook on the default branch
-  also brings the committed file in as the run's definition.
+  reversible and keeps runs, definitions and findings. The recommended order (§6) is **connect
+  first, then open the PR that adds the file**: the connected row is what lets the PR's
+  `pull_request` webhook plan a run, and the merge push to the default branch brings the committed
+  file in as the definition of record. Connecting after the merge works too (the file is read at
+  connect time). The only order that bites is committing the file after connecting and expecting a
+  second `connect` to pick it up.
 - **A committed file wins.** `ankra pipeline definition put --repository <repository-id> <file>`
   stores a *generated* definition server-side; it is for pipelines Ankra generates, not ones you
   author. For a hand-authored pipeline, commit the file — the committed `.ankra/pipeline.yaml` at
@@ -251,8 +254,9 @@ run keeps the authority it was planned under, so **push a commit or `ankra pipel
 approval** — nothing re-plans the skipped run. A pull request that widens authority shows
 `changed_on_head`: it runs under the default branch's authority and the change is reported, not
 honoured, until it merges and is approved. A definition that declares **no** protected section
-(plain `run` stages, `egress-https`, no secrets) needs no approval at all — the cheapest first
-pipeline is one with nothing to approve; add the sidecar in a second PR if the human is not at hand.
+(plain `run` stages, `egress-https`, no `secrets`, no `permissions` block, no `fork_policy` — the
+empty value already means `read_only`) needs no approval at all — the cheapest first pipeline is one
+with nothing to approve; add the sidecar in a second PR if the human is not at hand.
 
 ## 6. The exact sequence, start to finish
 

@@ -137,11 +137,15 @@ stages:
 ```
 
 What to tell the human before the first merge: `api-test` declares a sidecar, `network: services`,
-a cache, a timeout and resources — all protected — so the first default-branch run will conclude
-**skipped** with the fatal-violation sentence until an organisation admin runs
+a cache, a timeout and resources, and the file declares `permissions` and `fork_policy` — all
+protected — so the first default-branch run executes with every one of them replaced by the trusted
+(empty) baseline: `api-test` concludes **skipped** with the fatal-violation sentence, and the
+`permissions`/`fork_policy` you wrote are not in force, until an organisation admin runs
 `ankra pipeline definitions approve <definition-id>` once. If nobody with `pipelines.manage` is at
-hand, land `agent-test`, `portal-test`, `api-lint` and `shellcheck` first (nothing to approve) and
-add `api-test` with its sidecar in a second PR. Then repoint branch protection at the single
+hand, land a version with nothing to approve first — `agent-test`, `portal-test`, `api-lint` and
+`shellcheck`, with the `permissions:` block and `fork_policy:` line removed (empty `fork_policy`
+already means `read_only`) — and add `api-test` with its sidecar, `permissions` and `fork_policy` in
+a second PR. Then repoint branch protection at the single
 **`Ankra pipeline`** check and delete `.github/workflows/`.
 
 ## B. An application: test → build → scan → gate → publish
