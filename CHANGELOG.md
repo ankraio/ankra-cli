@@ -4,6 +4,61 @@
 
 ### Added
 
+- **`ankra cost reconcile` sets what each cloud credential's provider billed
+  against the estimate.** For a month (`--month YYYY-MM`, the last closed
+  month when omitted) each credential shows what was billed, the part placed
+  on clusters, Ankra's estimate for those clusters converted into the
+  invoice's currency, and the difference. The provider's figures stay in its
+  own currency, and tax and credits are set apart because the estimate
+  carries neither. Nothing unknown reads as agreement: a credential no
+  billing document was imported for reads `unknown`, never zero; a failed
+  import is named with the provider's words and says whether earlier lines
+  were kept; and the difference is stated only on final figures and a
+  complete estimate, with the reason shown otherwise. Billed lines no
+  cluster could be placed on are counted with their amount. `-o json` (or
+  yaml) returns the document as the platform serves it, every cluster and
+  unplaced line included. A month that holds more than one billing document
+  (an uploaded invoice beside the API read) is summed from the one the
+  platform counts, and the Import column judges the kept lines by that one.
+- **`ankra cost object` shows what one cluster, namespace, stack,
+  application or credential costs.** `ankra cost object cluster <cluster>`,
+  `namespace <cluster> <namespace>`, `stack <cluster> <stack>`,
+  `application <application-id>` and `credential <credential-id>` each read
+  the object's monthly run rate, idle share, share of the fleet, confidence,
+  open waste and a 30-day trend, with the clusters and namespaces behind it.
+  A figure the platform does not know prints as `unknown`, never as zero, and
+  an object with no priced cluster behind it says why. When coverage is
+  incomplete the monthly figure reads "at least" and the clusters that
+  contributed nothing are named, as are, on a platform that reports it, the
+  clusters that could not price a node or billed resource. The trend draws one mark per UTC day,
+  scaled to the object's own peak day, with `·` for a day nobody metered and
+  `_` for a metered day that cost nothing. A namespace another application
+  also runs in is marked shared, since its whole cost is counted for each.
+  Waste is found per cloud resource, so for a namespace, stack or application
+  it reads unknown with the platform's reason, not "none". `-o json` (or
+  yaml) returns the projection exactly as the platform serves it.
+- **`ankra cost namespaces <cluster>` shows a cluster's cost per namespace
+  over time.** It reads the hourly metering the platform keeps for 35 days,
+  day by day or, for at most seven days, hour by hour (`--days`,
+  `--granularity`). The header says how many of the window's buckets were
+  metered. A bucket the metering did not reach is unknown, drawn `·` and
+  never counted as zero; a metered bucket a namespace had nothing in is
+  drawn `_`. Each namespace shows its total over the metered hours, its
+  latest and its peak bucket, and a trend scaled to its own peak for windows
+  of at most 48 buckets. The costliest 25 are listed, and `-o json` carries
+  every namespace and bucket. A window the platform refuses is reported in
+  the platform's own words.
+- **The savings model's analysed-cluster limit is a setting.**
+  `ankra cost settings set --analysed-cluster-limit N` (1 to 50) sets how many
+  of the costliest priced clusters the savings model analyses, and
+  `--analysed-cluster-limit default` returns it to the platform default of 8.
+  Without the flag the limit is not sent, so changing the currency, discount
+  or egress estimate never touches it. `ankra cost settings get` shows the
+  limit in effect, or says it is unknown on a platform that does not report
+  it. `ankra cost savings` shows the limit even when every priced cluster was
+  analysed, says when the analysis time budget rather than the limit left
+  clusters unanalysed, and names stale clusters by the platform's own
+  staleness window.
 - **`ankra cost ledger` shows what cost decisions actually saved.** Every
   cost change the organisation approves is followed through to a measured
   outcome: seven days after it runs, the platform compares the cluster's run
@@ -20,6 +75,25 @@
   says so, and the totals still cover all of them. A platform that predates
   the ledger is reported as such rather than as a bare 404. `-o json` returns
   the document the portal reads (`GET /api/v1/org/cloud-cost/ledger`).
+- **`ankra cost trend` and `ankra cost events` show how the fleet's run rate
+  moved and what moved it.** `cost trend` prints the run rate per UTC day
+  over every priced cluster, with how many clusters each day covers. A day no
+  cluster was priced reads `not priced`, never zero, and a day where some
+  clusters were only partly priced is called out as a floor. The days the
+  set of priced clusters changed are listed apart, naming the clusters that
+  entered and left and what that moved the line by, because a cluster being
+  created, stopped or losing its pricing moves the line without anything
+  being spent. `cost events` lists what happened, newest first: releases,
+  node-count changes, scheduled and manual stops and starts, executed cost
+  decisions, clusters entering or leaving pricing and resolved waste, each
+  with its move on the run rate. A move shared with other events in the same
+  metering window says so rather than claim a split, a move with no priced
+  hour on one side reads `unknown`, and the platform's note sits under the
+  row. A kind of event the platform could not read is named above the table,
+  so its absence never reads as quiet. `--days` sets the window (at most 34).
+  A platform that predates either route is reported as such rather than as a
+  bare 404. `-o json` returns the documents the portal reads
+  (`GET /api/v1/org/cloud-cost/trend` and `/events`).
 - **`-o json` and `-o yaml` no longer hand a script text that hides
   characters.** The human-readable rendering already stripped invisible
   Unicode, but structured output is written earlier and went out untouched,
@@ -29,6 +103,22 @@
   goes to stderr so stdout stays parseable. Output that was hiding nothing is
   byte-identical to before, field order included, so existing scripts see no
   change.
+- **`ankra cost budgets` reads and manages monthly cost budgets.** `list`
+  shows every budget with its scope (the organisation, a cluster, an
+  environment label or an application), the amount, what is spent so far,
+  the projected month end with its share of the budget, and the status
+  (under, approaching, crossing, over budget or unknown). Under each budget
+  sit its id, the hour it crosses at the current pace (or that the hour is
+  unknown), where the month lands once the changes already approved or
+  running have landed, and how much of the scope is priced. A budget whose
+  scope has nothing priced reads `unknown`, never zero. `set` adds a budget
+  (`--scope`, `--scope-id`, `--name`, `--amount` in major units, `--currency`,
+  optional `--notify-at` and `--owner`) or, given a budget id, changes only
+  the flags you pass, so an omitted field is never cleared; `--clear-owner`
+  removes the owner. `delete` asks before it removes a budget (`--yes` skips
+  the prompt). A write refused for lack of `billing.manage` exits 7 and names
+  the permission, a platform that predates budgets is reported as such, and
+  `-o json` returns the route's document (`/api/v1/org/cloud-cost/budgets`).
 - **A stack profile version can be withdrawn without deleting it.**
   `ankra stack-profiles deprecate <profile> <version> --reason
   <incompatibility|critical-bug|cve>` marks a published version as unfit to
@@ -41,6 +131,23 @@
   `stack-profiles deployments` marks each such row `deprecated` and counts
   them in its summary line, and `stack-profiles get` gains a Status column
   saying which versions were withdrawn and why.
+
+- **`ankra cost autopilot` shows and changes how much Ankra may do about
+  cost unasked.** `get` prints the tier each environment kind defaults to
+  beside the recommended one, the quiet hours, where the pre-notices go, what
+  each tier lets Ankra do, and every live cluster with its tier and what set
+  it, with the sentence the portal's card shows under it. `set` changes only
+  what you pass: `--default KIND=TIER` names the kinds it changes,
+  `--quiet-hours START-END --timezone ZONE` and `--notification-route` set
+  the others, and `--clear-quiet-hours` and `--clear-notification-route`
+  clear them, so an omitted part is never cleared. `override <cluster>` puts
+  one cluster in a tier with the reason a card shows and an optional
+  `--expires-at` or `--expires-in`; `clear <cluster>` asks before it returns
+  the cluster to its environment's tier (`--yes` skips the prompt). A write
+  refused for lack of `billing.manage` or `clusters.write` exits 7 and names
+  the permission, a cluster that is not a live one of the organisation exits
+  3, a platform that predates the autopilot is reported as such, and
+  `-o json` returns the route's document (`/api/v1/org/cloud-cost/autopilot`).
 
 - **Invisible characters can no longer change what an action proposal says.**
   Unicode Tag characters render as nothing and mirror ASCII one to one, and
@@ -56,9 +163,41 @@
   answer stays parseable. What the CLI sends to the platform's AI (`chat`,
   `tickets comment`, `support create`) is stripped the same way, since a
   payload pasted from a log would otherwise reach the model intact.
+- **`ankra cost decisions hold` and `release` stop and restart a proposal.**
+  `hold` stops an approved proposal before it runs: nothing runs a held
+  proposal, not the cost autopilot and not `execute`, until someone runs
+  `release` or sets it aside. `release` returns it to approved and says who
+  runs it next: the autopilot once its pre-notice time has passed, for one the
+  autopilot approved, or you with `execute` otherwise. Both take an optional
+  `--note`. A proposal whose status does not allow the move is refused with
+  the platform's reason and stays as it was, and a refusal for
+  `billing.manage` exits 7 naming it.
+- **`ankra cost decisions` works the cost decision ledger.** `list` shows the
+  organisation's cost proposals newest first, with a right-size ladder's
+  waves directly under the ladder, and narrows by `--status`, `--kind` and
+  `--cluster`; a running proposal the platform could not check on that read
+  is marked as possibly finished rather than shown as still running. `get`
+  shows one proposal's plan, who decided it, its expected and measured
+  outcome (unknown, never zero), its usage verification, its receipt and, for
+  a ladder, its waves. `activity` lists everything that happened to it.
+  `approve` and `set-aside` take an optional `--note`; `set-aside` and
+  `execute` ask first (`--yes` skips the prompt). `execute` sends the written
+  consent a deletion with no snapshot needs only when you pass
+  `--acknowledge-no-snapshot` (and `--min-unattached-days` only when you pass
+  it); without it the platform refuses, nothing is attempted and the command
+  says how to give it. A ladder whose latest wave is still running or inside
+  its verification is reported as not ready rather than as a failure to
+  retry, a failed run shows its receipt and exits 1, and a refusal for
+  `billing.manage` or `clusters.write` exits 7 naming the permission.
+  `-o json` returns the route's documents (`/api/v1/org/decisions`).
 
 ### Fixed
 
+- **`ankra cost budgets set --owner ""` is refused instead of sent.** An
+  empty (or whitespace-only) owner used to go to the platform as an empty
+  user id, which is neither an owner nor a removal. It is now a usage error
+  that points at `--clear-owner`, the flag that removes a budget's owner,
+  and nothing is written.
 - **`ankra cluster power-schedules` says when `--stop-mode pause` saves
   nothing.** Hetzner, DigitalOcean and UpCloud (Developer and General Purpose
   plans) bill a powered-off server at its full price, so a pause schedule

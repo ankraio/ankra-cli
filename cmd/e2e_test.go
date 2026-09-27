@@ -723,6 +723,38 @@ func (m baseMock) EnrichExecutionDetailWithDrift(detail *client.ExecutionDetail)
 	return nil
 }
 
+func (m baseMock) ListDecisions(filter client.DecisionListFilter) (*client.DecisionProposalList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetDecision(decisionID string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetDecisionActivity(decisionID string) (*client.DecisionActivity, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ApproveDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetAsideDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) HoldDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReleaseDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ExecuteDecision(decisionID string, options client.DecisionExecuteOptions) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListExecutionSteps(executionID string) ([]client.ExecutionStep, error) {
 	return nil, errors.New("not implemented")
 }
@@ -4554,11 +4586,47 @@ func (m baseMock) GetFleetCloudCost() (*client.FleetCloudCost, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetFleetCostTrend(days int) (*client.FleetCostTrend, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetNamespaceCostHistory(clusterID string, days int, granularity string) (*client.NamespaceCostHistory, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetObjectCost(kind string, pathSegments ...string) (*client.ObjectCostProjection, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetCostEvents(days int) (*client.CostEvents, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetCostReconciliation(month string) (*client.CostReconciliation, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetCloudSavings() (*client.CloudSavings, error) {
 	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) GetCloudLedger() (*client.CloudLedger, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetCostAutopilot() (*client.CostAutopilotPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateCostAutopilot(update client.CostAutopilotPolicyUpdate) (*client.CostAutopilotPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetCostAutopilotOverride(clusterID string, request client.CostAutopilotOverrideRequest) (*client.CostAutopilotCluster, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ClearCostAutopilotOverride(clusterID string) (*client.CostAutopilotCluster, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -4572,4 +4640,20 @@ func (m baseMock) GetCostSettings() (*client.CostSettings, error) {
 
 func (m baseMock) UpdateCostSettings(settings client.CostSettings) (*client.CostSettings, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListCostBudgets() (*client.CostBudgets, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateCostBudget(write client.CostBudgetWrite) (*client.CostBudget, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateCostBudget(budgetID string, write client.CostBudgetWrite) (*client.CostBudget, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteCostBudget(budgetID string) error {
+	return errors.New("not implemented")
 }
