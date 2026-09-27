@@ -187,6 +187,7 @@ stages:
   - name: "test"
     kind: "run"
     needs: ["checkout"]
+    image: "golang:${{ matrix.go }}"      # one leg per matrix value
     run: |
       go test ./... -race -json > test-results.json
     services: ["postgres"]
@@ -197,7 +198,7 @@ stages:
       - format: "go-test"
         path: "test-results.json"
     matrix:
-      go: ["1.25", "1.26"]              # one leg per value; image: "golang:${{ matrix.go }}" to use it
+      go: ["1.25", "1.26"]
   - name: "build"
     kind: "build"
     needs: ["test"]

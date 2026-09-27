@@ -184,8 +184,7 @@ managed registry auth this application already has. `ankra-cicd` §8 is the full
 
 Everything above routes the build through the Ankra pipeline generated for the repository. It can
 also build the image itself, on its own builders, when that pipeline cannot yet run (no CI cluster,
-no workers) — or for a legacy workflow application whose first image waits on the setup PR merge. Ankra can also build the
-image itself, on its own builders:
+no workers) — or for a legacy workflow application whose first image waits on the setup PR merge:
 
 ```bash
 ankra application build start <application-id> --commit <full-sha> --ref main
