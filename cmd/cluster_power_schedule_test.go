@@ -402,6 +402,32 @@ func TestClusterPowerSchedulesCreate_ScaleToZeroWithoutNodeLocalData(t *testing.
 	}
 }
 
+// TestClusterPowerSchedulesCreate_FollowsTheBackendsConsentRequired keeps the
+// CLI's demand for the acknowledgement on the backend's own statement that it
+// would refuse: a present reading with consent_required false still warns but
+// writes without it, and a present reading that names no volumes says so
+// instead of printing an empty list.
+func TestClusterPowerSchedulesCreate_FollowsTheBackendsConsentRequired(t *testing.T) {
+	notRequired := presentNodeLocal("apps/cache")
+	notRequired.ConsentRequired = false
+	mock := &powerScheduleMock{nodeLocal: notRequired}
+	setMockClient(t, mock)
+	stderr, err := executePowerScheduleCommandCapturingStderr(t, "", scaleToZeroCreateArgs...)
+	if err != nil {
+		t.Fatalf("create with consent_required false: %v", err)
+	}
+	if len(mock.creates) != 1 || mock.creates[0].Request.AcceptNodeLocalDataLoss || !strings.Contains(stderr, "apps/cache") {
+		t.Fatalf("expected a warning naming apps/cache and one create without the acknowledgement: %+v %q", mock.creates, stderr)
+	}
+
+	unnamed := &powerScheduleMock{nodeLocal: &client.PowerScheduleNodeLocalStorage{State: "present", ConsentRequired: true}}
+	setMockClient(t, unnamed)
+	_, err = executePowerScheduleCommandCapturingStderr(t, "", scaleToZeroCreateArgs...)
+	if err == nil || !strings.Contains(err.Error(), "volumes the inventory did not name") {
+		t.Fatalf("present with no names = %v, want a refusal that still says what is at risk", err)
+	}
+}
+
 // TestClusterPowerSchedulesNodeLocalCheck_OnlyForAnEnabledScaleToZeroStop
 // keeps the read off every other schedule, and on update applies it to a
 // scale_to_zero mode carried over from the schedule as it is now.

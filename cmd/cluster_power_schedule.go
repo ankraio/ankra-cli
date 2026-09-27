@@ -169,13 +169,19 @@ func nodeLocalVolumeList(storage *client.PowerScheduleNodeLocalStorage) string {
 			named = fmt.Sprintf("%d volumes", more)
 		}
 	}
+	if named == "" {
+		// A present reading that names nothing and counts nothing still
+		// has to say what is at risk rather than print an empty list.
+		named = "volumes the inventory did not name"
+	}
 	return named
 }
 
 // acknowledgeNodeLocalDataLoss runs before an enabled scale_to_zero stop is
 // written. It prints what the stop deletes, reads the cluster's node-local
-// volumes and, when there are some, needs the loss accepted: by
-// --accept-node-local-data-loss, or by answering the prompt on a terminal.
+// volumes and, when there are some and the backend reports consent_required,
+// needs the loss accepted: by --accept-node-local-data-loss, or by answering
+// the prompt on a terminal.
 // Anywhere else it fails naming the volumes, because the backend refuses the
 // schedule without the acknowledgement. A reading that could not be made is
 // a warning, not a refusal, matching the backend. The notes go to stderr so
@@ -196,7 +202,9 @@ func acknowledgeNodeLocalDataLoss(cmd *cobra.Command, cluster client.ClusterList
 	}
 	volumes := nodeLocalVolumeList(storage)
 	_, _ = fmt.Fprintf(errOut, "Warning: these volumes on cluster %s keep data on worker disks, and it is deleted at every stop: %s\n", cluster.Name, volumes)
-	if flags.acceptNodeLocalDataLoss {
+	// consent_required is the backend saying it will refuse this stop
+	// without the acknowledgement; only then is the flag or a yes needed.
+	if flags.acceptNodeLocalDataLoss || !storage.ConsentRequired {
 		return flags, nil
 	}
 	if !promptIsInteractive(cmd.InOrStdin()) {
