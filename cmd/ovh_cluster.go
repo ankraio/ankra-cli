@@ -1004,7 +1004,7 @@ func init() {
 
 	ovhDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	ovhDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's Cinder volumes and load balancers, and tolerate unreachable infrastructure")
-	ovhStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's Cinder volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
+	ovhStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's load balancers. The cluster's Cinder volumes are kept and keep billing while stopped: only a deprovision deletes them")
 	registerThreeStateFlag(ovhStopCmd, "preserve-state", preserveStateFlagUsage)
 	ovhStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	ovhNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")

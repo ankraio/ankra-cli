@@ -105,7 +105,7 @@ func init() {
 	registerThreeStateFlag(awsStartCmd, "restore-state", restoreStateFlagUsage)
 	awsStartCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
 	awsStopCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
-	awsStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged EBS volumes and load balancers even when retention_policy is retain (destroys persisted data)")
+	awsStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged load balancers even when retention_policy is retain. The cluster's EBS volumes are kept: only a deprovision deletes them")
 	registerThreeStateFlag(awsStopCmd, "preserve-state", preserveStateFlagUsage)
 	awsStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	registerAwsCreateFlags(awsCreateCmd, awsPreflightCmd)

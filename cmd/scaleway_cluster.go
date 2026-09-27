@@ -91,7 +91,7 @@ var scalewayStartCmd = &cobra.Command{
 func init() {
 	scalewayStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
 	registerThreeStateFlag(scalewayStartCmd, "restore-state", restoreStateFlagUsage)
-	scalewayStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged volumes and load balancers even when retention_policy is retain (destroys persisted data)")
+	scalewayStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged load balancers even when retention_policy is retain. The cluster's volumes are kept: only a deprovision deletes them")
 	registerThreeStateFlag(scalewayStopCmd, "preserve-state", preserveStateFlagUsage)
 	scalewayStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	registerScalewayCreateFlags(scalewayCreateCmd, scalewayPreflightCmd)
