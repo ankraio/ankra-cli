@@ -40,21 +40,15 @@ package client
 // listed one that resolves fails too, so the list only shrinks. Regenerate
 // it deliberately with ANKRA_CLUSTER_ROUTES_UPDATE=1.
 //
-// What is on it today is two different things, and only one of them is safe:
-//
-//   - A `%s` that holds a literal segment chosen at run time, not an
-//     identifier: the provider kind in `/api/v1/clusters/%s/%s` (hetzner,
-//     digitalocean, ...) and the relay sub-path in
-//     `/api/v1/clusters/%s/kubernetes/%s`. The census registers those
-//     segments literally, the strict rule accepts a dynamic call segment
-//     only where a route has a parameter, and the literal scan cannot see
-//     which value the variable holds. Unverifiable here, not a defect.
-//   - `/api/v1/org/clusters/imported/{}/power-schedules`, which the cluster
-//     genuinely does not register: importedapi mounts power schedules only
-//     on the session surface (`/org/...`), with no `/api/v1/org` bearer
-//     twin, so `ankra cluster power-schedules` 404s. Tracked as
-//     ankra-htxvm.15; it comes off this list when the route exists on the
-//     cluster side, not before.
+// Most of what is on it is a `%s` that holds a literal segment chosen at
+// run time, not an identifier: the provider kind in `/api/v1/clusters/%s/%s`
+// (hetzner, digitalocean, ...) and the relay sub-path in
+// `/api/v1/clusters/%s/kubernetes/%s`. The census registers those segments
+// literally, the strict rule accepts a dynamic call segment only where a
+// route has a parameter, and the literal scan cannot see which value the
+// variable holds. Unverifiable here, not a defect. (The power-schedule paths
+// that were listed for a route the cluster genuinely lacked came off when
+// cluster#3521 added their bearer twins, ankra-htxvm.15.)
 
 import (
 	"encoding/json"
