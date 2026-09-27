@@ -1,6 +1,6 @@
 ---
 name: ankra-applications
-description: Take source code from a Git repository to a running deployment on one or many Ankra clusters - registering an application, the generated Dockerfile/chart/build workflow, the image registry it publishes to, environment secrets, deployments, auto-deploy, PR demos, and publishing the result as a catalogue add-on. Use when the user wants to deploy their own code with Ankra, mentions `ankra application`, connects a repository, asks how to get a service live, or wants the same service on several clusters.
+description: Take source code from a Git repository to a running deployment on one or many Ankra clusters - registering an application, the generated Dockerfile, chart and `.ankra/pipeline.yaml` (Ankra Pipelines, never a GitHub Actions workflow), the image registry it publishes to, environment secrets, deployments, auto-deploy, PR demos, and publishing the result as a catalogue add-on. Use when the user wants to deploy their own code with Ankra, mentions `ankra application`, connects a repository, asks how to get a service live, or wants the same service on several clusters.
 ---
 
 # Ankra Applications
@@ -17,7 +17,7 @@ a catalogue add-on.
 ## The lifecycle
 
 ```
-repository → add → setup PR (Dockerfile, chart, build workflow) → build & push image
+repository → add → setup PR (Dockerfile, chart, .ankra/pipeline.yaml) → Ankra Pipelines build & publish
           → env-secrets → deploy to cluster → verify → auto-deploy / promote → many clusters
 ```
 
@@ -44,15 +44,17 @@ ankra application add . \
   --registry-pull-secret commerce-registry
 ```
 
-The setup job generates the build workflow *from the declaration the application is created
-with*. A registry added later leaves a workflow that logs in with the wrong one, and you will be
-debugging a push failure that has nothing to do with the code. With no declaration the
+The setup job generates the build pipeline (`.ankra/pipeline.yaml`, run by Ankra Pipelines on the
+organisation's CI cluster — never a GitHub Actions workflow) *from the declaration the application is
+created with*. A registry added later leaves a pipeline that publishes to the wrong one, and you will
+be debugging a push failure that has nothing to do with the code. With no declaration the
 application publishes into the organisation's own Ankra registry project, which is the right
 default when you do not already run a registry.
 
 Related flags: `--registry-api-url`, `--registry-username-secret`, `--registry-password-secret`
-(the repository Actions secrets the workflow logs in with) and `--registry-manage-actions-secrets`
-to let Ankra write the named credential into those secrets for you. See
+and `--registry-manage-actions-secrets` — these name and populate repository Actions secrets and
+matter only for an application still on the legacy generated GitHub workflow; an Ankra pipeline gets
+its `registry_auth` minted per build from the application's push robot and needs none of them. See
 [reference.md](reference.md) for the registry matrix (Harbor, ECR, GAR, ACR, GHCR, Docker Hub).
 
 ## 1b. From a Claude Design export (no repository yet)
@@ -81,8 +83,12 @@ account: use an organisation owner, or create the repository first and use `appl
 
 ## 2. Review what Ankra generated
 
-Ankra opens a **setup pull request** carrying the Dockerfile, the Helm chart, and the build
-workflow. Read it — this is the contract for everything that follows.
+Ankra opens a **setup pull request** carrying the Dockerfile, the Helm chart, and
+`.ankra/pipeline.yaml`. Read it — this is the contract for everything that follows. The pipeline is
+recorded as the definition of record before the PR opens, so Ankra Pipelines builds the next push
+whether or not the PR has merged; `ankra application get <application-id> -o json` shows
+`pipeline_source: ankra_pipeline`. A value of `generated_workflow` is an application from the legacy
+lane — run `ankra application pipeline convert <application-id>` (see `ankra-ship` §3f).
 
 ```bash
 ankra application list
@@ -144,36 +150,41 @@ ankra cluster logs -l app=<name> -n prod --follow=false --tail 100
 ```bash
 ankra application auto-deploy get <application-id>
 ankra application auto-deploy set <application-id> --enabled        # or --enabled=false
-ankra application settings get                        # org-wide CI settings
-ankra application settings set --ci-runner-label self-hosted
-ankra application workflow-runs <application-id>
-ankra application workflow-run-jobs <application-id> <run-id>
-ankra application rerun-workflow <application-id> <run-id>
+ankra pipeline list --application <application-id>    # the Ankra Pipelines runs
+ankra pipeline get <run-id> --application <application-id>
+ankra pipeline run --application <application-id> --wait
 ```
+
+Legacy only — an application whose `pipeline_source` is `generated_workflow`:
+`ankra application workflow-runs <application-id>`, `ankra application workflow-run-jobs
+<application-id> <run-id>`, `ankra application rerun-workflow <application-id> <run-id>` and the
+organisation's CI runner label (`ankra application settings set --ci-runner-label self-hosted`)
+read and steer the GitHub Actions workflow. Convert instead of tuning it:
+`ankra application pipeline convert <application-id>`.
 
 With auto-deploy on, a build Ankra observes on the tracked branch rolls itself out unattended.
 With it off, a push still builds and waits for an explicit `ankra application deploy`. Choose
 deliberately: auto-deploy is right for dev and staging, and for production only when the branch
 is protected and the pipeline gates on tests.
 
-The organisation's CI runner label decides which GitHub Actions runner the generated pipelines
-request — change it when GitHub-hosted runners are unavailable to you.
-
-**If `workflow-runs` stays empty after a merge**, the pipeline is not failing — it has nowhere to
+**If `pipeline list` stays empty after a merge**, the pipeline is not failing — it has nowhere to
 run. Ankra Pipelines execute on the cluster agent's own step scheduler, whose `ci_worker_count`
 defaults to 0, so a freshly imported cluster produces zero runs and no error. Check with
 `ankra cluster agent ci get --cluster <cluster>`, raise it with
 `ankra cluster agent ci set --workers 2 --cluster <cluster>`, and dispatch with
 `ankra pipeline run --application <application>` (add `--sha <full-sha>` to build a specific
-commit). Do not answer an empty run list
-by hand-writing a GitHub Actions workflow — that forks the deploy contract away from the scans,
-chart publish and managed registry auth this application already has. `ankra-cicd`, "The merge
-produced no run", is the full branch.
+commit). A run that concluded `skipped` with "at least one fatal violation", or a build refused
+over `registry_auth`, is the unapproved default-branch definition: a human admin runs
+`ankra pipeline definitions approve <definition-id>` once (`ankra pipeline get <run-id>
+--application <application-id>` prints the id). Do not answer an empty run list by hand-writing a
+GitHub Actions workflow — that forks the deploy contract away from the scans, chart publish and
+managed registry auth this application already has. `ankra-cicd` §8 is the full troubleshooting table.
 
 ## 5b. Building without the repository's CI
 
-Everything above routes the build through the workflow Ankra generated into the repository, which
-means the first image cannot exist until a human merges the setup PR. Ankra can also build the
+Everything above routes the build through the Ankra pipeline generated for the repository. It can
+also build the image itself, on its own builders, when that pipeline cannot yet run (no CI cluster,
+no workers) — or for a legacy workflow application whose first image waits on the setup PR merge. Ankra can also build the
 image itself, on its own builders:
 
 ```bash
@@ -208,14 +219,17 @@ organisation. A 404 on an application you can otherwise read means the flag, not
 ## 6. Security scanning
 
 ```bash
-ankra application upgrade-workflow <application-id>   # add scanning steps to the build workflow
+ankra pipeline findings <run-id> --application <application-id>   # the run's Semgrep/Checkov/Trivy findings
 ankra application code-security <application-id>      # source findings
 ankra application container-security <application-id> # image CVEs
 ankra application pull-request-reviews <application-id>
 ```
 
-Treat an application whose build workflow has no scanning step as unfinished. See
-`ankra-security` for how these findings fit the wider posture review.
+A generated `.ankra/pipeline.yaml` always carries the `scan` and `gate` stages; treat a pipeline
+without them as unfinished. `ankra application upgrade-workflow <application-id>` adds scanning to
+a legacy generated GitHub workflow only — prefer `ankra application pipeline convert
+<application-id>`, which leaves that lane. See `ankra-security` for how these findings fit the wider
+posture review.
 
 ## 7. Preview a branch before it merges
 
@@ -306,7 +320,10 @@ and `ankra-migrate` for moving data between clusters.
 
 ## Rules
 
-- **Declare the registry at `add` time.** A late `--registry-url` leaves a wrong build workflow.
+- **Declare the registry at `add` time.** A late `--registry-url` leaves a pipeline publishing to the
+  wrong registry.
+- **Ankra Pipelines, never a hand-written workflow.** `add` lands on `.ankra/pipeline.yaml`; an
+  application still on `generated_workflow` is converted with `ankra application pipeline convert`.
 - **Immutable image tags.** Commit SHA or semver; never `latest`. This is what makes promotion and
   rollback meaningful.
 - **Secrets by stdin or prompt**, never `--value`, and never printed back into a transcript.
@@ -321,7 +338,8 @@ and `ankra-migrate` for moving data between clusters.
 ## Related skills
 
 - `ankra-ship` — the end-to-end shipping path on Ankra Pipelines, and day 2.
-- `ankra-cicd` — the pipeline shape and the GitOps bump that drives deploys.
+- `ankra-cicd` — `.ankra/pipeline.yaml` authoring, repositories without an application, the authority
+  approval gate, and the GitOps bump that drives stack deploys.
 - `ankra-app-integrations` — wiring the application to LiteLLM, Harbor, a database, an internal API.
 - `ankra-stack-profiles` — one definition, many clusters, per-cluster parameters.
 - `ankra-troubleshooting` — when the first deploy does not come up.

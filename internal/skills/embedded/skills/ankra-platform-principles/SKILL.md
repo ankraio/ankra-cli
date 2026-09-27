@@ -23,7 +23,7 @@ defaults Ankra follows; deviate only with a stated reason.
 | Shipping code: a new or vibe-coded project to a live URL, CI/CD, tests, builds, scans, release, day 2 | `ankra-ship` |
 | Deploying your own source code | `ankra-applications` |
 | Wiring an app to LiteLLM, Harbor, a database, an API | `ankra-app-integrations` |
-| Pipelines that build and roll out | `ankra-cicd` |
+| CI/CD for any repository (with or without an application), tests on every PR, replacing GitHub Actions, the pipeline approval gate | `ankra-cicd` |
 | The repository layout Ankra syncs | `ankra-gitops` |
 | Secrets in Git | `ankra-sops-secrets` |
 | Private chart sources | `ankra-helm-registries` |
