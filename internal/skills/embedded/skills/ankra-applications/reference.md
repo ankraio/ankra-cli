@@ -38,8 +38,8 @@ ankra application registry set <application-id> \
   Actions secrets. Ankra never mints a robot for a registry it was not handed admin keys to.
 - `--manage-actions-secrets` (without an admin credential) writes the *declared* credential into
   the repository's Actions secrets instead. Use it when you want to keep control of the robot.
-- `--username-secret` / `--password-secret` name the Actions secrets the build workflow logs in
-  with, when you populate them yourself.
+- `--username-secret` / `--password-secret` name the Actions secrets a legacy generated GitHub
+  workflow logs in with, when you populate them yourself. An Ankra pipeline needs neither.
 - `--pull-secret` names the `dockerconfigjson` Secret the generated manifests reference, so the
   cluster can pull the private image. Without it, a private registry deploys to `ImagePullBackOff`.
 
@@ -106,7 +106,7 @@ ankra application get <app-id>
 ankra application branch-files <app-id>
 ```
 
-Read the generated Dockerfile, chart and workflow in the pull request. Adjust anything wrong and
+Read the generated Dockerfile, chart and `.ankra/pipeline.yaml` in the pull request. Adjust anything wrong and
 push it back:
 
 ```bash
@@ -156,7 +156,7 @@ The reviewable artefact for a change is the preview URL, not a screenshot.
 ### 7. Scanning before staging
 
 ```bash
-ankra application upgrade-workflow <app-id>
+ankra pipeline findings <run-id> --application <app-id>
 ankra application container-security <app-id>
 ankra application code-security <app-id>
 ```
@@ -183,7 +183,8 @@ ankra application auto-deploy get <app-id>
 ```
 
 For production, leave auto-deploy off unless the tracked branch is protected and the pipeline
-gates on tests. `ankra-cicd` covers the pipeline that bumps the tag in the GitOps repository.
+gates on tests. `ankra-cicd` covers `.ankra/pipeline.yaml` authoring and the GitOps bump for
+stack-managed deployments.
 
 ### 10. The rest of the fleet
 
@@ -214,7 +215,7 @@ See `ankra-stack-profiles`. Either way you build once and promote; you never for
 
 | Symptom | Usual cause |
 |---------|-------------|
-| Build pushes to the wrong registry | The registry was declared after `add`; the generated workflow still logs in with the old one. Re-run setup after `registry set`. |
+| Build pushes to the wrong registry | The registry was declared after `add`; the generated pipeline still publishes to the old one. Re-run setup after `registry set`. |
 | `ImagePullBackOff` on a private registry | No `--pull-secret`, or the `dockerconfigjson` Secret is not in the deploying namespace. |
 | Builds report "never published" | A registry with no `--credential`: Ankra cannot read it to verify the push. |
 | First deploy crash-loops immediately | An environment secret is unset, or was set but never `env-secrets apply`-ed. |

@@ -13,9 +13,9 @@ AI reads every pull request, watches every run, and opens the fix when a build b
 needs GitHub Actions minutes, a runner fleet, `kubectl` in CI, or a registry password in the repo.
 
 Use this skill first whenever the job is *get this code running and keep it running*. Reach for
-`ankra-applications` for the registry matrix and fleet-wide rollout, `ankra-cicd` for the
-GitOps-bump pattern and hand-rolled workflows, `ankra-troubleshooting` when the workload is up but
-unhealthy, and `ankra-ai-gateway` for the Ask/Agent binding modes the AI acts under.
+`ankra-applications` for the registry matrix and fleet-wide rollout, `ankra-cicd` for a repository with
+no application (connect it, author `.ankra/pipeline.yaml`), the authority gate and the GitOps bump,
+`ankra-troubleshooting` when the workload is up but unhealthy, and `ankra-ai-gateway` for the Ask/Agent binding modes the AI acts under.
 
 ## The contract
 
@@ -496,7 +496,7 @@ writer yet. `egress-https` reaches **public addresses only**; name a private ran
 ## Related skills
 
 - `ankra-applications` — the registry matrix, monorepo components, fleet rollout, the worked run.
-- `ankra-cicd` — the GitOps-bump pattern, and the full zero-runs / confined-build branches.
+- `ankra-cicd` — repositories without an application, the pipeline authoring primer, the authority gate, the GitOps bump.
 - `ankra-ai-gateway` — Ask vs Agent per binding, the staging cluster, workspaces and PR demos.
 - `ankra-security` — findings, KEV/EPSS, dispositions, tokens and least-privilege credentials.
 - `ankra-troubleshooting` — up but wrong; `ankra-domains-dns` — the public and preview domains, TLS.

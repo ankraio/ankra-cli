@@ -193,6 +193,29 @@
 
 ### Fixed
 
+- **The embedded agent skills put every repository on Ankra Pipelines instead
+  of steering it to GitHub Actions.** `ankra-cicd` used to describe CI/CD as
+  "GitHub Actions or GitLab CI" and offered a hand-written workflow as the only
+  path for a repository with no application, so an AI agent following it wrote
+  `.github/workflows/ci.yml` for a platform repository and treated a dead
+  Actions budget as a billing problem. The skill is rewritten around
+  `.ankra/pipeline.yaml`: a decision table (application, bare repository,
+  existing workflow, Actions over budget), `ankra pipeline repositories connect`
+  for repositories without an application and the `--repository <id>` scope
+  every later command then needs, an authoring primer grounded in the
+  platform's pipeline contract with a test-only example (Postgres sidecar) and
+  an application example, the exact connect → validate → commit → run sequence,
+  the single `Ankra pipeline` check run, and the authority gate - the first
+  definition declaring a sidecar, `network: services`, secrets, resources or a
+  timeout runs with those stripped until a human organisation admin runs
+  `ankra pipeline definitions approve <id>` once (agent and service tokens are
+  refused), which is why a run concludes `skipped` with "at least one fatal
+  violation". A hand-written GitHub or GitLab workflow is now documented only
+  for a repository on a provider Ankra cannot connect. `ankra-ship`,
+  `ankra-applications`, `ankra-getting-started` and `ankra-platform-principles`
+  no longer describe `ankra application add` as generating a build workflow -
+  it generates `.ankra/pipeline.yaml`, and an application still on the legacy
+  `generated_workflow` lane is pointed at `ankra application pipeline convert`.
 - **`ankra cost budgets set --owner ""` is refused instead of sent.** An
   empty (or whitespace-only) owner used to go to the platform as an empty
   user id, which is neither an owner nor a removal. It is now a usage error
