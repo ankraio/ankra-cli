@@ -59,8 +59,9 @@ func deprovisionVolumeList(volumes []client.DeprovisionVolume) string {
 // --accept-volume-data-loss, or by answering the prompt on a terminal.
 // Anywhere else it fails naming the volumes, because the platform refuses the
 // deprovision without the acknowledgement. A reading that could not be made
-// is unknown, never "no volumes": it asks too. Volumes the cluster's
-// retention policy keeps are named as kept and need nothing. The notes go to
+// is unknown, never "no volumes": it asks too, and so does any answer whose
+// consent_required the platform set. Volumes the cluster's retention policy
+// keeps are named as kept and need nothing. The notes go to
 // stderr so --output json|yaml stays parseable. It answers whether the
 // deprovision carries the acknowledgement.
 func acknowledgeVolumeDataLoss(cmd *cobra.Command, kind cloudClusterKind, clusterID string, clusterLabel string) (bool, error) {
@@ -72,7 +73,8 @@ func acknowledgeVolumeDataLoss(cmd *cobra.Command, kind cloudClusterKind, cluste
 	volumes, readError := apiClient.GetDeprovisionVolumes(string(kind), clusterID)
 	named := ""
 	switch {
-	case readError == nil && volumes != nil && volumes.State == "none" && len(volumes.Volumes) == 0:
+	case readError == nil && volumes != nil && volumes.State == "none" && len(volumes.Volumes) == 0 &&
+		!volumes.ConsentRequired:
 		if len(volumes.KeptVolumes) > 0 {
 			_, _ = fmt.Fprintf(errOut, "Note: the retention policy of cluster %s keeps its persistent volumes; "+
 				"they stay in your cloud account and keep billing: %s\n", clusterLabel, deprovisionVolumeList(volumes.KeptVolumes))

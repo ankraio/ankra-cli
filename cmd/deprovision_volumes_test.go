@@ -172,6 +172,20 @@ func TestDeprovisionOfAClusterWithoutVolumesAsksNothing(t *testing.T) {
 	}
 }
 
+// TestDeprovisionAsksWhenThePlatformRequiresConsent pins that the platform's
+// consent_required wins over the CLI's reading of the state: an answer that
+// says "none" but requires the consent still needs the acknowledgement,
+// rather than a deprovision the platform then refuses.
+func TestDeprovisionAsksWhenThePlatformRequiresConsent(t *testing.T) {
+	mock := hetznerVolumesMock(&client.DeprovisionVolumes{State: "none", ConsentRequired: true}, nil)
+	_, executeError := runConfirmCommand(t, mock, "", deprovisionResets,
+		"cluster", "deprovision", "demo", "--yes")
+	if executeError == nil || mock.deprovisioned || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("a deprovision the platform requires consent for must need the flag: %v (deprovisioned %v)",
+			executeError, mock.deprovisioned)
+	}
+}
+
 // TestDeprovisionVolumeListIsCapped pins the "and N more" of a long list.
 func TestDeprovisionVolumeListIsCapped(t *testing.T) {
 	claims := make([]string, 12)
