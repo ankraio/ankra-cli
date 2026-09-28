@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+## v0.19.0 — 2026-09-28
+
+The headline is consent before a teardown deletes data. `ankra cluster
+deprovision` (and each provider's `deprovision`) now names the persistent
+volumes a deprovision deletes on Hetzner, OVH, UpCloud, DigitalOcean,
+Scaleway and AWS, and deletes them only once you accept it, at the `[y/N]`
+prompt or with `--accept-volume-data-loss`; `--yes` and `--force` no longer
+stand in for it. Upgrade before the platform starts requiring that consent on
+the cluster delete routes: from then on an older CLI's deprovision of a
+cluster with volumes is refused (HTTP 409) with no way to give it.
+`power-schedules create|update --stop-mode scale_to_zero` asks the same way
+before data on worker disks is lost (`--accept-node-local-data-loss`), and
+`stop --force` now says it keeps the volumes. Beside it, the cost surface
+grows from `cost savings` into `cost trend`, `cost events`, `cost ledger`,
+`cost budgets`, `cost autopilot`, `cost decisions` with `hold` and `release`,
+`cost namespaces`, `cost object`, `cost reconcile` and
+`cost settings set --analysed-cluster-limit`; `stack-profiles
+deprecate|undeprecate` withdraws a published version without deleting it;
+`cluster agent auto-upgrade enable|disable` fences an agent off from the
+fleet rollout; `application demo config set --protected` and
+`rotate-password` put an application's demos behind a password; invisible
+Unicode is stripped from what the CLI prints, writes and sends, `-o
+json|yaml` included; and the embedded agent skills put repositories on Ankra
+Pipelines.
+
 ### Added
 
 - **Deprovisioning a cloud cluster names its persistent volumes and asks
@@ -206,6 +231,28 @@
   retry, a failed run shows its receipt and exits 1, and a refusal for
   `billing.manage` or `clusters.write` exits 7 naming the permission.
   `-o json` returns the route's documents (`/api/v1/org/decisions`).
+- **`ankra cluster agent auto-upgrade disable|enable` fences a cluster's agent
+  off from the fleet rollout.** The platform rolls a new agent release out to
+  every online agent as soon as its cluster has no write running, with no
+  notion of a freeze window, and the opt-out lived only in the portal's
+  cluster settings. `disable` keeps this cluster's agent out of the rollout,
+  for a migration night or a freeze, until `enable` puts it back; `ankra
+  cluster agent upgrade` still applies the latest release on demand either
+  way. `ankra cluster agent status` gains an `Auto-upgrade` line. A write the
+  platform does not confirm is reported as an error, not a success, and
+  `-o json` carries `auto_upgrade_enabled`.
+- **`ankra application demo config set --protected` puts an application's
+  demos behind a password.** With `--protected=true` every demo of the
+  application launches behind Ankra's edge password guard, and the shared
+  password Ankra mints is printed once, to stderr so a piped JSON answer stays
+  JSON; Ankra keeps only its hash and never shows it again.
+  `ankra application demo config rotate-password <application-id>` mints a new
+  one the same way, and running demos keep the previous password until their
+  next redeploy. `--protected=false` clears the password, and new launches
+  answer without a login. A save that minted nothing, because protection was
+  already on, says so and points at `rotate-password`, and an answer that
+  cannot be read says a password may have been minted rather than claiming
+  either.
 
 ### Changed
 
@@ -215,7 +262,8 @@
   (a stop is reversible, so the data is kept for the next start) and still
   cancels in-flight operations, tolerates unreachable infrastructure and
   deletes the cluster's load balancers. The volumes keep billing while the
-  cluster is stopped; `deprovision --force` deletes them. The platform change
+  cluster is stopped; a deprovision deletes them once you accept it (see
+  `--accept-volume-data-loss` above). The platform change
   is ankraio/cluster#3528; the `--force` help text and `upcloud stop` long
   help now say the same.
 
