@@ -157,8 +157,8 @@ func (c *Client) PreflightScalewayCluster(request CreateScalewayClusterRequest) 
 	return &result, nil
 }
 
-func (c *Client) DeprovisionScalewayCluster(clusterID string) (*ProviderDeprovisionClusterResponse, error) {
-	return c.deprovisionProviderCluster(scalewayKind, clusterID, false)
+func (c *Client) DeprovisionScalewayCluster(clusterID string, options DeprovisionOptions) (*ProviderDeprovisionClusterResponse, error) {
+	return c.deprovisionProviderCluster(scalewayKind, clusterID, options)
 }
 
 func (c *Client) StopScalewayCluster(clusterID string, options StopClusterOptions) (*ProviderStopClusterResponse, error) {

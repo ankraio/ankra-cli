@@ -72,10 +72,10 @@ type hetznerDeprovisionMock struct {
 	gotForce     bool
 }
 
-func (m *hetznerDeprovisionMock) DeprovisionHetznerCluster(clusterID string, force bool) (*client.DeprovisionHetznerClusterResponse, error) {
+func (m *hetznerDeprovisionMock) DeprovisionHetznerCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionHetznerClusterResponse, error) {
 	m.called = true
 	m.gotClusterID = clusterID
-	m.gotForce = force
+	m.gotForce = options.Force
 	return &client.DeprovisionHetznerClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
 

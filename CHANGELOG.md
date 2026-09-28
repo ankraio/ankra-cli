@@ -4,6 +4,22 @@
 
 ### Added
 
+- **Deprovisioning a cloud cluster names its persistent volumes and asks
+  before deleting them.** On Hetzner, OVH, UpCloud, DigitalOcean, Scaleway
+  and AWS a deprovision deletes the cloud volumes the cluster's CSI driver
+  provisioned, and the data on them, forced or not. `ankra cluster
+  deprovision` (and the per-provider `deprovision` commands) now lists
+  those volumes by claim and size first, and deletes them only once you
+  accept it: answer the `[y/N]` prompt on a terminal, or pass
+  `--accept-volume-data-loss`. `--yes` skips the teardown confirmation but
+  never this one, so a script that deprovisions a cluster with volumes, or
+  one whose volumes Ankra cannot list, fails with exit code 2 naming the
+  volumes until it passes the flag. A cluster whose `retention_policy` is
+  `retain` (AWS, Scaleway) keeps its volumes, which the command says, and
+  asks nothing. `--force` no longer stands in for this: it still deletes
+  the load balancers and tolerates unreachable infrastructure, and on AWS
+  and Scaleway it no longer deletes the volumes of a `retain` cluster.
+
 - **`ankra cost reconcile` sets what each cloud credential's provider billed
   against the estimate.** For a month (`--month YYYY-MM`, the last closed
   month when omitted) each credential shows what was billed, the part placed

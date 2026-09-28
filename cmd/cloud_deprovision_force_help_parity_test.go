@@ -7,10 +7,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Every cloud provider's `deprovision --force` deletes the cluster's storage
-// volumes and load balancers. The help text has to say so, because the flag is
-// destructive in a direction the operator cannot undo: the volumes hold their
-// data.
+// Every cloud provider's `deprovision --force` help has to say what the flag
+// does to the cluster's load balancers and to its storage volumes, because
+// the flag is destructive in a direction the operator cannot undo: the
+// volumes hold their data. Since ankra-pzrgy the volumes go only with
+// --accept-volume-data-loss, forced or not, and the help says so.
 //
 // Hetzner's said the opposite until ankra-eg2v5 ("cloud resources may leak"),
 // which was the pre-ankra-phep meaning of the flag — it survived three sibling

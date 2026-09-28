@@ -140,7 +140,7 @@ func TestDeprovisionOvhCluster_Success(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	result, err := testClient.DeprovisionOvhCluster("ovh-cluster-123", false)
+	result, err := testClient.DeprovisionOvhCluster("ovh-cluster-123", DeprovisionOptions{})
 	if err != nil {
 		t.Fatalf("DeprovisionOvhCluster: %v", err)
 	}

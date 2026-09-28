@@ -139,7 +139,7 @@ func TestDeprovisionUpcloudCluster_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, err := testClient.DeprovisionUpcloudCluster("upcloud-cluster-123", false)
+	result, err := testClient.DeprovisionUpcloudCluster("upcloud-cluster-123", DeprovisionOptions{})
 	if err != nil {
 		t.Fatalf("DeprovisionUpcloudCluster: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestDeprovisionUpcloudCluster_ForceAppendsQuery(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	if _, err := testClient.DeprovisionUpcloudCluster("upcloud-cluster-123", true); err != nil {
+	if _, err := testClient.DeprovisionUpcloudCluster("upcloud-cluster-123", DeprovisionOptions{Force: true}); err != nil {
 		t.Fatalf("DeprovisionUpcloudCluster: %v", err)
 	}
 }

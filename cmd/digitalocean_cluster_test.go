@@ -69,7 +69,7 @@ type digitaloceanDeprovisionMock struct {
 	gotClusterID string
 }
 
-func (m *digitaloceanDeprovisionMock) DeprovisionDigitaloceanCluster(clusterID string, force bool) (*client.DeprovisionDigitaloceanClusterResponse, error) {
+func (m *digitaloceanDeprovisionMock) DeprovisionDigitaloceanCluster(clusterID string, _ client.DeprovisionOptions) (*client.DeprovisionDigitaloceanClusterResponse, error) {
 	m.called = true
 	m.gotClusterID = clusterID
 	return &client.DeprovisionDigitaloceanClusterResponse{Success: true, ClusterID: clusterID}, nil

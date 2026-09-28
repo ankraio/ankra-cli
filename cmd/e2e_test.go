@@ -81,6 +81,12 @@ func (m baseMock) DeprovisionCluster(ctx context.Context, clusterID string) (*cl
 	return nil, errors.New("not implemented")
 }
 
+// GetDeprovisionVolumes answers a cluster without persistent volumes, so a
+// deprovision test that is not about volumes needs no acknowledgement.
+func (m baseMock) GetDeprovisionVolumes(kind, clusterID string) (*client.DeprovisionVolumes, error) {
+	return &client.DeprovisionVolumes{ClusterID: clusterID, State: "none"}, nil
+}
+
 func (m baseMock) RollToClusterResourceVersion(ctx context.Context, clusterID, versionID string) (*client.RollToClusterResourceVersionResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1604,7 +1610,7 @@ func (m baseMock) CreateHetznerCluster(req client.CreateHetznerClusterRequest) (
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionHetznerCluster(clusterID string, force bool) (*client.DeprovisionHetznerClusterResponse, error) {
+func (m baseMock) DeprovisionHetznerCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionHetznerClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1756,7 +1762,7 @@ func (m baseMock) CreateOvhCluster(req client.CreateOvhClusterRequest) (*client.
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionOvhCluster(clusterID string, force bool) (*client.DeprovisionOvhClusterResponse, error) {
+func (m baseMock) DeprovisionOvhCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionOvhClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1988,7 +1994,7 @@ func (m baseMock) CreateUpcloudCluster(req client.CreateUpcloudClusterRequest) (
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionUpcloudCluster(clusterID string, force bool) (*client.DeprovisionUpcloudClusterResponse, error) {
+func (m baseMock) DeprovisionUpcloudCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionUpcloudClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2092,7 +2098,7 @@ func (m baseMock) CreateDigitaloceanCluster(req client.CreateDigitaloceanCluster
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionDigitaloceanCluster(clusterID string, force bool) (*client.DeprovisionDigitaloceanClusterResponse, error) {
+func (m baseMock) DeprovisionDigitaloceanCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionDigitaloceanClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2248,7 +2254,7 @@ func (m baseMock) PreflightScalewayCluster(request client.CreateScalewayClusterR
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionScalewayCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m baseMock) DeprovisionScalewayCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2368,7 +2374,7 @@ func (m baseMock) PreflightAwsCluster(request client.CreateAwsClusterRequest) (*
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionAwsCluster(clusterID string, force bool) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m baseMock) DeprovisionAwsCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 

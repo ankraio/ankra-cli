@@ -149,11 +149,8 @@ func (c *Client) CreateOvhCluster(req CreateOvhClusterRequest) (*CreateOvhCluste
 	return &result, nil
 }
 
-func (c *Client) DeprovisionOvhCluster(clusterID string, force bool) (*DeprovisionOvhClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s", c.BaseURL, clusterID)
-	if force {
-		url = url + "?force=true"
-	}
+func (c *Client) DeprovisionOvhCluster(clusterID string, options DeprovisionOptions) (*DeprovisionOvhClusterResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s", c.BaseURL, clusterID) + options.query()
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

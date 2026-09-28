@@ -312,8 +312,8 @@ func (c *Client) PreflightAwsCluster(request CreateAwsClusterRequest) (*AwsPrefl
 	return &result, nil
 }
 
-func (c *Client) DeprovisionAwsCluster(clusterID string, force bool) (*ProviderDeprovisionClusterResponse, error) {
-	return c.deprovisionProviderCluster(awsKind, clusterID, force)
+func (c *Client) DeprovisionAwsCluster(clusterID string, options DeprovisionOptions) (*ProviderDeprovisionClusterResponse, error) {
+	return c.deprovisionProviderCluster(awsKind, clusterID, options)
 }
 
 func (c *Client) StopAwsCluster(clusterID string, options StopClusterOptions) (*ProviderStopClusterResponse, error) {

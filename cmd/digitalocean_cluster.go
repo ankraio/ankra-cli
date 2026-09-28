@@ -109,9 +109,14 @@ var digitaloceanDeprovisionCmd = &cobra.Command{
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		force, _ := cmd.Flags().GetBool("force")
+		acceptsVolumeDataLoss, volumeError := acknowledgeVolumeDataLoss(cmd, cloudClusterKindDigitalocean, clusterID,
+			clusterTarget(args[0], clusterID))
+		if volumeError != nil {
+			return volumeError
+		}
 		warning := "This deletes all its servers, networks and SSH keys!"
 		if force {
-			warning = "This deletes all its servers, networks, SSH keys, block storage volumes and load balancers!"
+			warning = "This deletes all its servers, networks, SSH keys and load balancers!"
 		}
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
 			fmt.Sprintf("Deprovision DigitalOcean cluster %s? %s [y/N]: ", clusterTarget(args[0], clusterID), warning),
@@ -119,7 +124,8 @@ var digitaloceanDeprovisionCmd = &cobra.Command{
 			return err
 		}
 
-		result, err := apiClient.DeprovisionDigitaloceanCluster(clusterID, force)
+		result, err := apiClient.DeprovisionDigitaloceanCluster(clusterID,
+			client.DeprovisionOptions{Force: force, AcceptVolumeDataLoss: acceptsVolumeDataLoss})
 		if err != nil {
 			return fmt.Errorf("deprovisioning cluster: %w", err)
 		}
@@ -658,7 +664,8 @@ func init() {
 	registerThreeStateFlag(digitaloceanStartCmd, "restore-state", restoreStateFlagUsage)
 
 	digitaloceanDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
-	digitaloceanDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's block storage volumes and load balancers, and tolerate unreachable infrastructure")
+	digitaloceanDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's load balancers, and tolerate unreachable infrastructure. The block storage volumes are deleted forced or not, and only with --accept-volume-data-loss or a yes at the prompt")
+	registerAcceptVolumeDataLossFlag(digitaloceanDeprovisionCmd)
 	digitaloceanStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's load balancers. The cluster's block storage volumes are kept and keep billing while stopped: only a deprovision deletes them")
 	registerThreeStateFlag(digitaloceanStopCmd, "preserve-state", preserveStateFlagUsage)
 	digitaloceanStopCmd.Flags().String("mode", "", stopModeFlagUsage)

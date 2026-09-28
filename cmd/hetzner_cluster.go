@@ -117,6 +117,11 @@ var hetznerDeprovisionCmd = &cobra.Command{
 		}
 		force, _ := cmd.Flags().GetBool("force")
 		yes, _ := cmd.Flags().GetBool("yes")
+		acceptsVolumeDataLoss, volumeError := acknowledgeVolumeDataLoss(cmd, cloudClusterKindHetzner, clusterID,
+			clusterTarget(args[0], clusterID))
+		if volumeError != nil {
+			return volumeError
+		}
 
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
 			fmt.Sprintf("Deprovision Hetzner cluster %s? This deletes all its servers, networks and SSH keys! [y/N]: ", clusterTarget(args[0], clusterID)),
@@ -124,7 +129,8 @@ var hetznerDeprovisionCmd = &cobra.Command{
 			return err
 		}
 
-		result, err := apiClient.DeprovisionHetznerCluster(clusterID, force)
+		result, err := apiClient.DeprovisionHetznerCluster(clusterID,
+			client.DeprovisionOptions{Force: force, AcceptVolumeDataLoss: acceptsVolumeDataLoss})
 		if err != nil {
 			return fmt.Errorf("deprovisioning cluster: %w", err)
 		}
@@ -670,8 +676,9 @@ func init() {
 	_ = hetznerCreateCmd.MarkFlagRequired("credential-id")
 	_ = hetznerCreateCmd.MarkFlagRequired("location")
 
-	hetznerDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's CSI storage volumes and load balancers (destroys persisted data), and tolerate unreachable infrastructure")
+	hetznerDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's load balancers, and tolerate unreachable infrastructure. The CSI storage volumes are deleted forced or not, and only with --accept-volume-data-loss or a yes at the prompt")
 	hetznerDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	registerAcceptVolumeDataLossFlag(hetznerDeprovisionCmd)
 	nodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	hetznerLocationsCmd.Flags().String("credential-id", "", "Hetzner API credential ID (required)")
