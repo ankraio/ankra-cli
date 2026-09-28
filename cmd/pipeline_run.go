@@ -464,7 +464,7 @@ finds these runs and must read the class to tell them from a run somebody
 cancelled.
 
 Cancelled runs (-o json 'cancelled_by', 'cancel_reason', 'cancelled_at';
-the Cancelled line): who stopped a run and why. 'cancelled_by' is the actor
+the Cancelled line): who stopped a run, why and when. 'cancelled_by' is the actor
 in the same form 'requested_by' uses - "user:<id>" for a cancel pressed in
 the portal, the CLI or the API, "github:<login>" for the Cancel action on a
 pull request's check run, "concurrency:<run id>" for a supersession - and
@@ -878,14 +878,19 @@ func printPipelineRunCancellation(out io.Writer, run client.PipelineRun) {
 	if actor == "" && reason == "" {
 		return
 	}
+	var line string
 	switch {
 	case actor != "" && reason != "":
-		_, _ = fmt.Fprintf(out, "  Cancelled: by %s (%s)\n", actor, reason)
+		line = fmt.Sprintf("by %s (%s)", actor, reason)
 	case actor != "":
-		_, _ = fmt.Fprintf(out, "  Cancelled: by %s\n", actor)
+		line = "by " + actor
 	default:
-		_, _ = fmt.Fprintf(out, "  Cancelled: %s\n", reason)
+		line = reason
 	}
+	if cancelledAt := optionalPipelineRunField(run.CancelledAt); cancelledAt != "" {
+		line += " at " + cancelledAt
+	}
+	_, _ = fmt.Fprintf(out, "  Cancelled: %s\n", line)
 }
 
 // optionalPipelineRunField is a nullable run string as a plain one: "" for a

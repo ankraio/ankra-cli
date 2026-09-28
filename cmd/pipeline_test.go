@@ -1779,8 +1779,8 @@ func TestPipelineGetNamesWhoCancelledTheRunAndWhy(t *testing.T) {
 	if executeError != nil {
 		t.Fatalf("get error = %v", executeError)
 	}
-	if !strings.Contains(output, "Cancelled: by github:octocat (source_control)") {
-		t.Errorf("output = %q, want the actor and the reason under the status line", output)
+	if !strings.Contains(output, "Cancelled: by github:octocat (source_control) at 2026-09-15T00:06:00Z") {
+		t.Errorf("output = %q, want the actor, the reason and the time under the status line", output)
 	}
 }
 
