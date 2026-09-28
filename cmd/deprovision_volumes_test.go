@@ -141,8 +141,8 @@ func TestDeprovisionTreatsAnUnreadableInventoryAsUnknown(t *testing.T) {
 	if executeError == nil || mock.deprovisioned || !strings.Contains(executeError.Error(), "could not list") {
 		t.Fatalf("an unreadable inventory must still need the acknowledgement: %v", executeError)
 	}
-	if !strings.Contains(output, "could not list the persistent volumes") {
-		t.Errorf("the unknown warning must be printed: %s", output)
+	if !strings.Contains(output, "could not list the persistent volumes") || !strings.Contains(output, "status 500") {
+		t.Errorf("the unknown warning must be printed with the reason the read failed: %s", output)
 	}
 }
 

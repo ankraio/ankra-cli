@@ -85,8 +85,12 @@ func acknowledgeVolumeDataLoss(cmd *cobra.Command, kind cloudClusterKind, cluste
 		_, _ = fmt.Fprintf(errOut, "Warning: deprovisioning cluster %s deletes its persistent volumes and the data on them: %s\n",
 			clusterLabel, named)
 	default:
-		_, _ = fmt.Fprintf(errOut, "Warning: Ankra could not list the persistent volumes of cluster %s. "+
-			"Any volume its CSI driver provisioned is deleted with it, together with its data.\n", clusterLabel)
+		reason := ""
+		if readError != nil {
+			reason = " (" + readError.Error() + ")"
+		}
+		_, _ = fmt.Fprintf(errOut, "Warning: Ankra could not list the persistent volumes of cluster %s%s. "+
+			"Any volume its CSI driver provisioned is deleted with it, together with its data.\n", clusterLabel, reason)
 	}
 	if isAccepted {
 		return true, nil
