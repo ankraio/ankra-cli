@@ -100,11 +100,8 @@ func (c *Client) CreateDigitaloceanCluster(req CreateDigitaloceanClusterRequest)
 	return &result, nil
 }
 
-func (c *Client) DeprovisionDigitaloceanCluster(clusterID string, force bool) (*DeprovisionDigitaloceanClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s", c.BaseURL, clusterID)
-	if force {
-		url = url + "?force=true"
-	}
+func (c *Client) DeprovisionDigitaloceanCluster(clusterID string, options DeprovisionOptions) (*DeprovisionDigitaloceanClusterResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s", c.BaseURL, clusterID) + options.query()
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

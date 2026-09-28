@@ -150,11 +150,8 @@ func (c *Client) CreateHetznerCluster(req CreateHetznerClusterRequest) (*CreateH
 	return &result, nil
 }
 
-func (c *Client) DeprovisionHetznerCluster(clusterID string, force bool) (*DeprovisionHetznerClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s", c.BaseURL, clusterID)
-	if force {
-		url = url + "?force=true"
-	}
+func (c *Client) DeprovisionHetznerCluster(clusterID string, options DeprovisionOptions) (*DeprovisionHetznerClusterResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s", c.BaseURL, clusterID) + options.query()
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

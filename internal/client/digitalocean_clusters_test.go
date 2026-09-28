@@ -130,7 +130,7 @@ func TestDeprovisionDigitaloceanCluster_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, err := testClient.DeprovisionDigitaloceanCluster("digitalocean-cluster-123", false)
+	result, err := testClient.DeprovisionDigitaloceanCluster("digitalocean-cluster-123", DeprovisionOptions{})
 	if err != nil {
 		t.Fatalf("DeprovisionDigitaloceanCluster: %v", err)
 	}

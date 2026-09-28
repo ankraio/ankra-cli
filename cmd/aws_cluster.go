@@ -113,7 +113,8 @@ func init() {
 	registerAwsCatalogFlags(true, false, awsInstanceTypesCmd, awsVpcsCmd, awsAvailabilityZonesCmd, awsImagesCmd, awsPricingCmd)
 	registerAwsCatalogFlags(true, true, awsSubnetsCmd)
 	awsDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
-	awsDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's CSI storage volumes and load balancers (destroys persisted data), and tolerate unreachable infrastructure - the agent's dependency chain is skipped so the EC2 teardown runs even when the cluster can no longer be reached")
+	awsDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's load balancers even when retention_policy is retain, and tolerate unreachable infrastructure - the agent's dependency chain is skipped so the EC2 teardown runs even when the cluster can no longer be reached. It never deletes the persistent volumes of a retain cluster; a delete cluster's volumes need --accept-volume-data-loss, forced or not")
+	registerAcceptVolumeDataLossFlag(awsDeprovisionCmd)
 	registerStructuredOutputFlags(
 		awsCreateCmd, awsPreflightCmd, awsDeprovisionCmd,
 		awsWorkersCmd, awsK8sVersionCmd, awsAccessInfoCmd,
@@ -528,7 +529,10 @@ for it: the instances, security groups, bastion and generated SSH key, and -
 when Ankra created the network - the VPC, subnets, internet gateway, NAT
 gateways, route tables and elastic IPs. An adopted VPC and its subnets are
 never touched. EBS volumes and load balancers follow the cluster's
-retention_policy: 'retain' keeps them, 'delete' sweeps the tagged orphans.`,
+retention_policy: 'retain' keeps them (forced or not, for the volumes),
+'delete' sweeps them. A 'delete' cluster's persistent volumes are named
+first and deleted only when you accept that: answer the prompt on a
+terminal, or pass --accept-volume-data-loss (--yes does not imply it).`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
@@ -537,13 +541,19 @@ retention_policy: 'retain' keeps them, 'delete' sweeps the tagged orphans.`,
 		}
 		awsDeprovisionYes, _ := cmd.Flags().GetBool("yes")
 		force, _ := cmd.Flags().GetBool("force")
+		acceptsVolumeDataLoss, volumeError := acknowledgeVolumeDataLoss(cmd, cloudClusterKindAws, clusterID,
+			clusterTarget(args[0], clusterID))
+		if volumeError != nil {
+			return volumeError
+		}
 		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
 			fmt.Sprintf("Deprovision AWS cluster %s? This permanently deletes its EC2 resources and the cluster record! [y/N]: ",
 				clusterTarget(args[0], clusterID)),
 			awsDeprovisionYes); confirmError != nil {
 			return confirmError
 		}
-		result, deprovisionError := apiClient.DeprovisionAwsCluster(clusterID, force)
+		result, deprovisionError := apiClient.DeprovisionAwsCluster(clusterID,
+			client.DeprovisionOptions{Force: force, AcceptVolumeDataLoss: acceptsVolumeDataLoss})
 		if deprovisionError != nil {
 			return fmt.Errorf("deprovisioning AWS cluster: %w", deprovisionError)
 		}

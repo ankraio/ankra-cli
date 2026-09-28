@@ -392,7 +392,7 @@ type ovhDeprovisionMock struct {
 	called bool
 }
 
-func (m *ovhDeprovisionMock) DeprovisionOvhCluster(clusterID string, force bool) (*client.DeprovisionOvhClusterResponse, error) {
+func (m *ovhDeprovisionMock) DeprovisionOvhCluster(clusterID string, _ client.DeprovisionOptions) (*client.DeprovisionOvhClusterResponse, error) {
 	m.called = true
 	return &client.DeprovisionOvhClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
