@@ -191,6 +191,18 @@
   `billing.manage` or `clusters.write` exits 7 naming the permission.
   `-o json` returns the route's documents (`/api/v1/org/decisions`).
 
+### Changed
+
+- **`stop --force` no longer says it deletes the cluster's volumes, because it
+  no longer does.** On DigitalOcean, UpCloud, OVH, Hetzner, AWS and Scaleway a
+  forced stop now keeps the CSI volumes the cluster's workloads provisioned
+  (a stop is reversible, so the data is kept for the next start) and still
+  cancels in-flight operations, tolerates unreachable infrastructure and
+  deletes the cluster's load balancers. The volumes keep billing while the
+  cluster is stopped; `deprovision --force` deletes them. The platform change
+  is ankraio/cluster#3528; the `--force` help text and `upcloud stop` long
+  help now say the same.
+
 ### Fixed
 
 - **The embedded agent skills put every repository on Ankra Pipelines instead

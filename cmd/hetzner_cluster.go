@@ -692,7 +692,7 @@ func init() {
 
 	hetznerStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
 	registerThreeStateFlag(hetznerStartCmd, "restore-state", restoreStateFlagUsage)
-	hetznerStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's CSI volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
+	hetznerStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's load balancers. The cluster's CSI volumes are kept and keep billing while stopped: only a deprovision deletes them")
 	registerThreeStateFlag(hetznerStopCmd, "preserve-state", preserveStateFlagUsage)
 	hetznerStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 

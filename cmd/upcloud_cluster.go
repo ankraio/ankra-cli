@@ -153,8 +153,8 @@ var upcloudStopCmd = &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop an UpCloud cluster",
 	Long: "Stop an UpCloud cluster's compute while keeping its configuration so it can be started again later.\n\n" +
-		"--force also deletes the cluster's CSI storage volumes and load balancers, which otherwise keep billing " +
-		"while the cluster is stopped - the persisted data is lost.",
+		"--force also deletes the cluster's load balancers. The CSI storage volumes are kept, forced or not, and keep " +
+		"billing while the cluster is stopped; deprovision the cluster to delete them.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
@@ -657,7 +657,7 @@ func init() {
 
 	upcloudDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	upcloudDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's CSI storage volumes and load balancers, and tolerate unreachable infrastructure")
-	upcloudStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's CSI storage volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
+	upcloudStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's load balancers. The cluster's CSI storage volumes are kept and keep billing while stopped: only a deprovision deletes them")
 	registerThreeStateFlag(upcloudStopCmd, "preserve-state", preserveStateFlagUsage)
 	upcloudStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	upcloudNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")

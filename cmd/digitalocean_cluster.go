@@ -659,7 +659,7 @@ func init() {
 
 	digitaloceanDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	digitaloceanDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's block storage volumes and load balancers, and tolerate unreachable infrastructure")
-	digitaloceanStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's block storage volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
+	digitaloceanStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's load balancers. The cluster's block storage volumes are kept and keep billing while stopped: only a deprovision deletes them")
 	registerThreeStateFlag(digitaloceanStopCmd, "preserve-state", preserveStateFlagUsage)
 	digitaloceanStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	digitaloceanNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
