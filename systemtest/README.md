@@ -24,6 +24,72 @@ cluster families the platform supports:
 7. **instance resize** of the default node group to a bigger plan
 8. **deprovision** and confirm the cluster record is removed (`deleted_at`)
 
+Between 7 and 8 the opt-in **node-group autoscaling** step runs when
+`ANKRA_SYSTEMTEST_AUTOSCALING=1` (see below); otherwise it is recorded as a
+`SKIP`, so every run says whether autoscaling was exercised.
+
+## Node-group autoscaling step (opt-in, every Ankra-managed lane)
+
+Nothing else tests node-group autoscaling end to end, and three production
+defects shipped through that gap (fixed in ankraio/cluster#3557, plus #3555
+for AWS scale-to-zero): AWS served the Cluster Autoscaler a target size of
+zero and refused every scale-down; the autoscaler saw every worker as an
+unregistered instance on every provider (`N unregistered nodes present`,
+`Nodegroup is nil for ...`); and a worker whose Kubernetes join was held let
+each scale-up spawn another billed server. With
+`ANKRA_SYSTEMTEST_AUTOSCALING=1` every Ankra-managed lane (Hetzner, OVH,
+UpCloud, DigitalOcean and the AWS lane; any provider with node-group
+autoscaling works, since the step only uses the generic verbs) runs, just
+before its deprovision:
+
+1. **enable** autoscaling on `AUTOSCALING_NODE_GROUP` (default `default`),
+   starting from exactly one Ready worker:
+   `ankra cluster node-group autoscaling set <id> <group> --enabled=true --min 1 --max 2`,
+   confirmed with `... autoscaling get -o json`
+2. wait for the **`cluster-autoscaler` Deployment** in the `ankra` namespace
+   to be Ready (`ankra cluster get deployments -n ankra -o json`)
+3. assert the autoscaler **registers every worker**: in its newest complete
+   main loop (`ankra cluster logs <pod> -n ankra --since 60 --follow=false`,
+   the lines between the last two `Starting main loop` markers) the
+   `unregistered nodes present` count must not exceed the group's nodes
+   with an empty `spec.providerID` (`ankra cluster get nodes -o json`).
+   Those are the documented fallback of #3557 - served under an id the
+   autoscaler cannot match - and are named in the result rather than
+   failed. Polled for `AUTOSCALING_IDENTITY_GRACE` after every worker is
+   Ready; checked at 1 worker and again at 2. When the CLI cannot read the
+   log (e.g. the token lacks log access) only this assertion is recorded as
+   `SKIP`, with the CLI's error
+4. **scale-up under pending pods**: a `systest-ca-load` stack holding one
+   Deployment of two `pause` pods, pinned to the group and one per node
+   (required pod anti-affinity), each requesting 90% of the CPU the worker
+   has not already promised to its pods (`ankra cluster get resources Pod
+   -A -o json`; `AUTOSCALING_LOAD_CPU_MILLICORES` overrides). One fits, the
+   second cannot, so the group must grow to 2 Ready workers and both pods
+   run. It is staged and deployed with the CLI's own stack path, `ankra
+   cluster draft -f <ImportCluster>` then `ankra cluster stacks deploy-draft
+   systest-ca-load`, which touches no other stack. The worker count going
+   past `max 2` on any poll fails the step at once
+5. **scale-down**: `ankra cluster stacks delete systest-ca-load` (plus `ankra
+   cluster delete deployment` in case the stack delete did not take), then
+   the group must return to 1 worker - and never go below it
+6. **disable** (`--enabled=false`) and confirm the group is left at 1 worker
+
+Any failure after the enable removes the load, disables autoscaling and
+scales the group back to 1 by hand before the lane goes on; whatever that
+cannot fix, the deprovision removes with the rest of the cluster (the
+abort trap deprovisions too), and on AWS the lane's leak check then proves
+no instance the autoscaler created outlived it.
+
+Timeouts are sized from the cluster-autoscaler platform profile
+(`alembic/platform_profiles/cluster-autoscaler.json` in ankraio/cluster:
+`max-node-provision-time` 15m, `scale-down-delay-after-add` 10m,
+`scale-down-unneeded-time` 10m): scale-up 20m, scale-down 30m. Expect the
+step to add roughly **25-50 minutes** to a lane (about 15 of them waiting
+for the scale-down) and to bill **one extra worker for ~15-25 minutes** plus
+the lane's cluster for the extra time. It is off by default and off on the
+schedule for that reason; turning it on for the scheduled run is a separate
+decision.
+
 ## AWS lane (opt-in, per distribution)
 
 `aws` in `ANKRA_SYSTEMTEST_PROVIDERS` runs a different lane, because the AWS
@@ -169,6 +235,10 @@ Common optional (defaults in parentheses):
 | `K8S_UPGRADE_TARGET` | highest version from `ankra cluster k3s-versions` / `kubeadm-versions` (Ankra-managed only) |
 | `ETCD_TOPOLOGY` | `stacked` (kubeadm only; `stacked` or `external`) |
 | `ONLINE_TIMEOUT` / `ADDONS_TIMEOUT` / `DAYTWO_TIMEOUT` / `DEPROVISION_TIMEOUT` | `1500` / `900` / `900` / `1500` (seconds) |
+| `ANKRA_SYSTEMTEST_AUTOSCALING` | `0` (`1` runs the node-group autoscaling step on every Ankra-managed lane; needs `jq`) |
+| `AUTOSCALING_NODE_GROUP` | `default` |
+| `AUTOSCALING_CA_READY_TIMEOUT` / `AUTOSCALING_IDENTITY_GRACE` / `AUTOSCALING_SCALE_UP_TIMEOUT` / `AUTOSCALING_SCALE_DOWN_TIMEOUT` | `900` / `300` / `1200` / `1800` (seconds) |
+| `AUTOSCALING_LOAD_CPU_MILLICORES` | unset: 90% of the worker's unrequested CPU per load pod |
 | `DEPROVISION_FORCE_TIMEOUT` | `600` (bounded force-deprovision fallback if a graceful deprovision stalls) |
 
 Discover valid values with the CLI:
@@ -231,6 +301,10 @@ AWS_EGRESS_MODE=nat_gateway AWS_AVAILABILITY_ZONES=eu-west-1a,eu-west-1b,eu-west
 # ... or adopting a VPC you own (adds the VPC-untouched diff)
 AWS_VPC_ID=vpc-... AWS_NODE_SUBNET_IDS=subnet-a,subnet-b AWS_BASTION_SUBNET_ID=subnet-c \
   ANKRA_SYSTEMTEST_PROVIDERS=aws ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="" ./systemtest/lifecycle_systemtest.sh
+
+# Hetzner with the opt-in node-group autoscaling step (needs jq; adds ~25-50 min)
+ANKRA_SYSTEMTEST_AUTOSCALING=1 ANKRA_SYSTEMTEST_PROVIDERS=hetzner ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="" \
+  ./systemtest/lifecycle_systemtest.sh
 ```
 
 By default the selected targets run **concurrently** within a single invocation
@@ -261,6 +335,15 @@ region and leak-check keys exist - no VPC is needed, Ankra creates the
 network; a manual dispatch that fills in `providers` has to name `aws`
 itself.
 
+The node-group autoscaling step runs only on a manual dispatch with
+`autoscaling: 1` (it needs no extra secrets). The scheduled run has no
+inputs, so it always runs with `ANKRA_SYSTEMTEST_AUTOSCALING=0`, and the
+switch is deliberately not a repository variable: running the step on the
+schedule adds ~25-50 minutes and one extra worker per Ankra-managed lane to
+every run, and is a change to the workflow, not a setting. With
+`parallel: 0` the added time is per lane, so select fewer providers to stay
+inside the job's 240-minute timeout.
+
 None of them are defaulted, because a run provisions real, billable
 infrastructure and the target org must be a deliberate choice. A repository
 without `SYSTEMTEST_ANKRA_API_TOKEN` therefore skips the job with a notice
@@ -281,7 +364,9 @@ This provisions real, billable cloud infrastructure: VM clusters (1
 control-plane + 1 worker, briefly scaled to 3, plus a temporary node group) on
 the Ankra-managed providers and provider-native managed clusters (1-node pool,
 briefly scaled to 3, plus a temporary second pool) on the cloud-managed
-providers. You must set `ANKRA_SYSTEMTEST_CONFIRM=yes` to run it. The run is
+providers. The opt-in autoscaling step adds one autoscaler-created worker per
+Ankra-managed lane for ~15-25 minutes and keeps each lane's cluster up
+~25-50 minutes longer. You must set `ANKRA_SYSTEMTEST_CONFIRM=yes` to run it. The run is
 short-lived and the script always attempts to tear everything down on exit
 (graceful, then `--force` as a fallback so nothing leaks), but verify with
 `ankra cluster list` afterwards.

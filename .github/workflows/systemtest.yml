@@ -49,6 +49,14 @@
 #                       then the VPC's route tables, subnets and DHCP options are also asserted
 #                       unchanged after deprovision
 #
+# The node-group autoscaling step is OPT-IN too, and manual-dispatch only:
+# `autoscaling: 1` runs it on every Ankra-managed lane (AWS included) just
+# before the deprovision - enable min 1 / max 2 on the default group, wait
+# for the Cluster Autoscaler, assert it registers every worker, force a
+# scale-up with pods that need a second node, wait for the scale-down, then
+# disable. It needs no extra secrets. Running it on the schedule is a
+# separate decision (~25-50 min and one extra worker per lane, per run).
+#
 name: Lifecycle system test
 
 on:
@@ -69,6 +77,10 @@ on:
         description: 'Run the selected targets concurrently (1) or one at a time (0).'
         required: false
         default: '1'
+      autoscaling:
+        description: 'Also run the opt-in node-group autoscaling step (1) on every Ankra-managed lane: min 1 / max 2 on the default group, a forced scale-up and the scale-down after it. Adds ~25-50 min per lane (with parallel=0 that adds up: select fewer providers) and one extra worker for ~15-25 min. The schedule never runs it.'
+        required: false
+        default: '0'
 
 permissions:
   contents: read
@@ -89,6 +101,12 @@ jobs:
       ANKRA_SYSTEMTEST_PROVIDERS: ${{ github.event.inputs.providers || 'hetzner ovh upcloud digitalocean' }}
       ANKRA_SYSTEMTEST_MANAGED_PROVIDERS: ${{ github.event.inputs.managed_providers || 'doks uks gke ovh_mks aks eks' }}
       ANKRA_SYSTEMTEST_PARALLEL: ${{ github.event.inputs.parallel || '1' }}
+      # Opt-in autoscaling step (see the header comment). Only a manual
+      # dispatch can turn it on: the schedule has no inputs, so it always
+      # reads '0' here. Deliberately not wired to a repository variable -
+      # running it on the schedule changes the scheduled cost and runtime
+      # and has to be an explicit change to this line.
+      ANKRA_SYSTEMTEST_AUTOSCALING: ${{ github.event.inputs.autoscaling || '0' }}
       ANKRA_API_TOKEN: ${{ secrets.SYSTEMTEST_ANKRA_API_TOKEN }}
       ANKRA_BASE_URL: ${{ vars.SYSTEMTEST_ANKRA_BASE_URL }}
       ANKRA_ORG: ${{ vars.SYSTEMTEST_ANKRA_ORG }}
@@ -193,6 +211,16 @@ jobs:
             sudo /tmp/awscliv2/aws/install
           fi
           aws --version
+
+      # The opt-in autoscaling step parses the CLI's -o json output with jq
+      # (ubuntu-latest ships it; a self-hosted runner may not).
+      - name: Ensure jq is available for the autoscaling step
+        if: steps.configuration.outputs.configured == 'true' && env.ANKRA_SYSTEMTEST_AUTOSCALING == '1'
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq jq
+          fi
+          jq --version
 
       - name: Run lifecycle system test
         if: steps.configuration.outputs.configured == 'true'
