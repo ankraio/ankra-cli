@@ -250,7 +250,7 @@ var clusterProvisionCmd = &cobra.Command{
 
 This works for a cluster that was created but never built, and for an imported
 cluster that was deprovisioned. It cannot rebuild a deprovisioned cloud cluster
-(hetzner, ovh, upcloud, digitalocean, scaleway, aws, proxmox, morpheus): that deprovision
+(hetzner, ovh, upcloud, digitalocean, scaleway, ankracloud, aws, proxmox, morpheus): that deprovision
 deleted the record, so there is nothing left to provision - create a new
 cluster instead.
 
@@ -317,6 +317,7 @@ const (
 	cloudClusterKindUpcloud      cloudClusterKind = "upcloud"
 	cloudClusterKindDigitalocean cloudClusterKind = "digitalocean"
 	cloudClusterKindScaleway     cloudClusterKind = "scaleway"
+	cloudClusterKindAnkraCloud   cloudClusterKind = "ankracloud"
 	cloudClusterKindAws          cloudClusterKind = "aws"
 	cloudClusterKindProxmox      cloudClusterKind = "proxmox"
 	cloudClusterKindMorpheus     cloudClusterKind = "morpheus"
@@ -331,9 +332,9 @@ const (
 // `ankra scaleway cluster deprovision` (ankra-e3pa7).
 //
 // It is NOT the only such list, and the other one still has a hole. This list
-// covers the eight SELF-HOSTED kinds, which are exactly the kinds
+// covers the nine SELF-HOSTED kinds, which are exactly the kinds
 // DeprovisionImportedCluster refuses (cluster providers/lifecycle.go). The
-// seven MANAGED kinds - kapsule, doks, uks, gke, ovh_mks, aks, eks - are
+// eight MANAGED kinds - kapsule, doks, uks, gke, ovh_mks, aks, eks, ankracloud_k8s - are
 // refused only by the imported DELETE route, not by deprovision, so they
 // still reach the generic lane and get a 200. Adding them here would be
 // wrong: they need managed-delete routing this dispatch does not have. See
@@ -350,6 +351,7 @@ var allCloudClusterKinds = []cloudClusterKind{
 	cloudClusterKindUpcloud,
 	cloudClusterKindDigitalocean,
 	cloudClusterKindScaleway,
+	cloudClusterKindAnkraCloud,
 	cloudClusterKindAws,
 	cloudClusterKindProxmox,
 	cloudClusterKindMorpheus,
@@ -376,7 +378,7 @@ var clusterDeprovisionCmd = &cobra.Command{
 Whether the cluster survives as a record depends on its kind, and the two
 outcomes are very different:
 
-  - cloud clusters (hetzner, ovh, upcloud, digitalocean, scaleway, aws, proxmox, morpheus)
+  - cloud clusters (hetzner, ovh, upcloud, digitalocean, scaleway, ankracloud, aws, proxmox, morpheus)
     go to the provider-specific endpoint, which DELETES the cluster. The
     record does not survive, "ankra cluster provision" cannot bring it back,
     and the cluster id, its stacks and anything referencing them are gone.
@@ -388,12 +390,12 @@ This is a teardown, not a power-off:
 
   - all cloud resources are released (servers, networks, SSH keys);
   - every stack resource on the cluster is uninstalled;
-  - on hetzner, ovh, upcloud, digitalocean, scaleway and aws the cluster's
+  - on hetzner, ovh, upcloud, digitalocean, scaleway, ankracloud and aws the cluster's
     persistent volumes (the cloud volumes its CSI driver provisioned) are
     deleted with it, and the data on them. The command names them first and
     deletes them only when you accept that: answer the prompt on a terminal,
     or pass --accept-volume-data-loss (--yes does not imply it). A cluster
-    whose retention_policy is retain (aws, scaleway) keeps its volumes, which
+    whose retention_policy is retain (aws, scaleway, ankracloud) keeps its volumes, which
     keep billing in your cloud account.
 
 To power a cluster off and back on while keeping its state, use the provider's
@@ -524,6 +526,20 @@ If no cluster name is provided, uses the currently selected cluster.`,
 				return encodeStructured(cmd.OutOrStdout(), format, result)
 			}
 			fmt.Printf("Scaleway cluster deprovision initiated.\n")
+			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+			if result.OperationID != nil && *result.OperationID != "" {
+				fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+			}
+			return nil
+		case cloudClusterKindAnkraCloud:
+			result, deprovisionError := apiClient.DeprovisionAnkraCloudCluster(clusterID, deprovisionOptions)
+			if deprovisionError != nil {
+				return fmt.Errorf("deprovisioning Ankra Cloud cluster: %w", deprovisionError)
+			}
+			if format != outputDefault {
+				return encodeStructured(cmd.OutOrStdout(), format, result)
+			}
+			fmt.Printf("Ankra Cloud cluster deprovision initiated.\n")
 			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 			if result.OperationID != nil && *result.OperationID != "" {
 				fmt.Printf("  Operation ID: %s\n", *result.OperationID)

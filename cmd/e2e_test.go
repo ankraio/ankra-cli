@@ -2366,6 +2366,162 @@ func (m baseMock) ListScalewayNetworks(credentialID, region, zone string) (*clie
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateAnkraCloudCluster(request client.CreateAnkraCloudClusterRequest) (*client.CreateAnkraCloudClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PreflightAnkraCloudCluster(request client.CreateAnkraCloudClusterRequest) (*client.AnkraCloudPreflightResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeprovisionAnkraCloudCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StopAnkraCloudCluster(clusterID string, options client.StopClusterOptions) (*client.ProviderStopClusterResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartAnkraCloudCluster(clusterID string, options client.StartClusterOptions) (*client.ProviderStartClusterResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAnkraCloudWorkerCount(clusterID string) (*client.WorkerCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ScaleAnkraCloudWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAnkraCloudK8sVersion(clusterID string) (*client.K8sVersionInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpgradeAnkraCloudK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAnkraCloudNodeGroups(clusterID string) (*client.NodeGroupListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddAnkraCloudNodeGroup(ctx context.Context, clusterID string, request client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) ScaleAnkraCloudNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAnkraCloudNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAnkraCloudNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAnkraCloudNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteAnkraCloudNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetAnkraCloudNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAnkraCloudNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, request client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetAnkraCloudControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeAnkraCloudControlPlaneCount(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ChangeAnkraCloudControlPlaneInstanceType(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAnkraCloudClusterNodes(clusterID string) (*client.NodeListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAnkraCloudClusterNode(clusterID, nodeID string) (*client.NodeDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RestartAnkraCloudClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAnkraCloudClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAnkraCloudClusterSSHKeys(clusterID string, sshKeyCredentialIDs []string) (*client.UpdateClusterSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResyncAnkraCloudClusterSSHKeys(clusterID string) (*client.ResyncSSHKeysResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAnkraCloudZones(credentialID string) (*client.AnkraCloudCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAnkraCloudPlans(credentialID string) (*client.AnkraCloudCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAnkraCloudTemplates(credentialID string) (*client.AnkraCloudCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAnkraCloudNetworks(credentialID, zone string) (*client.AnkraCloudCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAnkraCloudPricing(credentialID string) (*client.AnkraCloudCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAnkraCloudClusterPlans(clusterID string) (*client.AnkraCloudCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AnkraCloudNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAnkraCloudBastionInstanceType(ctx context.Context, clusterID, plan string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) GetAnkraCloudBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DiagnoseAnkraCloudBastion(ctx context.Context, clusterID string) (*client.BastionDiagnoseResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAnkraCloudCredentials() ([]client.Credential, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateAnkraCloudCredential(createRequest client.CreateAnkraCloudCredentialRequest) (*client.CreateAnkraCloudCredentialResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateAwsCluster(request client.CreateAwsClusterRequest) (*client.CreateAwsClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }

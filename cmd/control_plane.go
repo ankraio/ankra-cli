@@ -62,6 +62,15 @@ func scalewayControlPlaneOps() controlPlaneOps {
 	}
 }
 
+func ankraCloudControlPlaneOps() controlPlaneOps {
+	return controlPlaneOps{
+		provider:        "ankracloud",
+		get:             apiClient.GetAnkraCloudControlPlane,
+		setCount:        apiClient.ChangeAnkraCloudControlPlaneCount,
+		setInstanceType: apiClient.ChangeAnkraCloudControlPlaneInstanceType,
+	}
+}
+
 func awsControlPlaneOps() controlPlaneOps {
 	return controlPlaneOps{
 		provider:        "aws",

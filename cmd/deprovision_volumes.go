@@ -20,6 +20,7 @@ var volumeDeletingKinds = map[cloudClusterKind]bool{
 	cloudClusterKindUpcloud:      true,
 	cloudClusterKindDigitalocean: true,
 	cloudClusterKindScaleway:     true,
+	cloudClusterKindAnkraCloud:   true,
 	cloudClusterKindAws:          true,
 }
 
@@ -37,7 +38,7 @@ func registerAcceptVolumeDataLossFlag(cmd *cobra.Command) {
 		"Accept that deprovisioning deletes the cluster's persistent volumes (the cloud volumes its CSI driver "+
 			"provisioned) and the data on them, forced or not. Required when the cluster has such volumes, or Ankra "+
 			"cannot list them, and you are not answering the prompt on a terminal; --yes does not imply it. A cluster "+
-			"whose retention_policy is retain (AWS, Scaleway) keeps its volumes and needs no acknowledgement")
+			"whose retention_policy is retain (AWS, Scaleway, Ankra Cloud) keeps its volumes and needs no acknowledgement")
 }
 
 // deprovisionVolumeList names the volumes, capped, with the remainder counted.

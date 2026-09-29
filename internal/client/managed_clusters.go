@@ -15,7 +15,17 @@ const (
 	ManagedK8sProviderAks     ManagedK8sProvider = "aks"
 	ManagedK8sProviderEks     ManagedK8sProvider = "eks"
 	ManagedK8sProviderKapsule ManagedK8sProvider = "kapsule"
+	// ManagedK8sProviderAnkraCloudK8s is Ankra Cloud Kubernetes: the control
+	// plane is run by the Ankra team, and it reuses the ankracloud credential.
+	ManagedK8sProviderAnkraCloudK8s ManagedK8sProvider = "ankracloud_k8s"
 )
+
+// managedProviderDeleteIsExplicit reports whether a provider keeps the bare
+// DELETE as a disconnect and deletes the provider-side cluster only through
+// POST .../delete-provider-cluster. Kapsule and Ankra Cloud Kubernetes do.
+func managedProviderDeleteIsExplicit(provider ManagedK8sProvider) bool {
+	return provider == ManagedK8sProviderKapsule || provider == ManagedK8sProviderAnkraCloudK8s
+}
 
 // ManagedNodePoolAutoscaling mirrors the backend's node-pool autoscaling
 // request member: when Enabled, the pool scales between MinCount and MaxCount.
@@ -76,6 +86,16 @@ type KapsuleClusterOptions struct {
 	PrivateNetworkID string `json:"private_network_id"`
 }
 
+// AnkraCloudK8sClusterOptions carries the optional Ankra Cloud Kubernetes
+// create options: adopt an existing private network, or size the ankra-<name>
+// network the platform creates (server default 10.100.0.0/24), and whether
+// the API endpoint takes a public IPv4 address (server default true).
+type AnkraCloudK8sClusterOptions struct {
+	PrivateNetworkID *string `json:"private_network_id,omitempty"`
+	NetworkCIDR      *string `json:"network_cidr,omitempty"`
+	PublicIPv4       *bool   `json:"public_ipv4,omitempty"`
+}
+
 type CreateManagedClusterRequest struct {
 	Name                 string                          `json:"name"`
 	Description          *string                         `json:"description,omitempty"`
@@ -87,6 +107,7 @@ type CreateManagedClusterRequest struct {
 	GitopsRepository     *string                         `json:"gitops_repository,omitempty"`
 	GitopsBranch         *string                         `json:"gitops_branch,omitempty"`
 	Kapsule              *KapsuleClusterOptions          `json:"kapsule,omitempty"`
+	AnkraCloudK8s        *AnkraCloudK8sClusterOptions    `json:"ankracloud_k8s,omitempty"`
 	Aks                  *AksClusterOptions              `json:"aks,omitempty"`
 }
 
@@ -186,14 +207,27 @@ func (c *Client) CreateManagedCluster(provider ManagedK8sProvider, request Creat
 	return &response, nil
 }
 
+// DeprovisionManagedCluster deletes the cluster at the provider and in
+// Ankra. For the providers whose bare DELETE only disconnects (Kapsule,
+// Ankra Cloud Kubernetes) it goes through delete-provider-cluster, so the
+// provider-side cluster is really removed.
 func (c *Client) DeprovisionManagedCluster(provider ManagedK8sProvider, clusterID string, force bool) (*DeprovisionManagedClusterResponse, error) {
 	requestURL := fmt.Sprintf("%s/%s", c.managedClusterBasePath(provider), url.PathEscape(clusterID))
+	if managedProviderDeleteIsExplicit(provider) {
+		requestURL += "/delete-provider-cluster"
+	}
 	if force {
 		requestURL += "?force=true"
 	}
 	var response DeprovisionManagedClusterResponse
-	if err := c.deleteCSRFJSON(requestURL, &response, "deprovision managed cluster"); err != nil {
-		return nil, err
+	if managedProviderDeleteIsExplicit(provider) {
+		if deleteError := c.postCSRFJSON(requestURL, nil, &response, "delete provider managed cluster"); deleteError != nil {
+			return nil, deleteError
+		}
+		return &response, nil
+	}
+	if deleteError := c.deleteCSRFJSON(requestURL, &response, "deprovision managed cluster"); deleteError != nil {
+		return nil, deleteError
 	}
 	return &response, nil
 }
