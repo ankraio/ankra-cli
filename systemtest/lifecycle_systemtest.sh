@@ -19,6 +19,11 @@
 #   5. add a node group, then delete it
 #   6. upgrade Kubernetes (k3s or kubeadm) to a newer version
 #   7. resize the default node group to a bigger instance plan
+#   7b. (opt-in, ANKRA_SYSTEMTEST_AUTOSCALING=1) node-group autoscaling end to
+#      end: enable min 1 / max 2, the Cluster Autoscaler is Ready and
+#      registers every worker, pending pods grow the group to 2, it shrinks
+#      back to 1 once they are gone, disable - see "Opt-in: node-group
+#      autoscaling" below; the AWS lane runs it too
 #   8. deprovision and confirm the cluster record is removed (deleted_at)
 #
 #    `aws` (self-managed k3s/kubeadm on EC2) is opt-in and runs its own,
@@ -30,7 +35,8 @@
 #    bastion_nat by default, the cheapest for CI), waits for online + Ready,
 #    checks access-info and the node list, stops and starts the cluster,
 #    upgrades Kubernetes to the newest listed version (the create pins the
-#    second-newest so there is a step to take), then
+#    second-newest so there is a step to take), runs the opt-in autoscaling
+#    step when ANKRA_SYSTEMTEST_AUTOSCALING=1, then
 #    deprovisions - and afterwards asserts with the AWS CLI that nothing tagged
 #    ankra.cloud/cluster-id=<id> remains: instances, security groups, key
 #    pairs, IAM roles/instance profiles AND the created network itself (VPC,
@@ -103,6 +109,9 @@
 #   # Cloud-managed only (DOKS + UKS):
 #   ANKRA_SYSTEMTEST_PROVIDERS="" ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="doks uks" \
 #     ./systemtest/lifecycle_systemtest.sh
+#   # Hetzner with the opt-in node-group autoscaling step (needs jq):
+#   ANKRA_SYSTEMTEST_AUTOSCALING=1 ANKRA_SYSTEMTEST_PROVIDERS=hetzner \
+#     ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="" ./systemtest/lifecycle_systemtest.sh
 #
 # See systemtest/README.md for the full list of configuration variables.
 
@@ -303,6 +312,36 @@ K8S_UPGRADE_TARGET="${K8S_UPGRADE_TARGET:-}"
 # etcd topology for kubeadm clusters (stacked | external). k3s ignores it.
 ETCD_TOPOLOGY="${ETCD_TOPOLOGY:-stacked}"
 
+# Opt-in node-group autoscaling step (every Ankra-managed lane, AWS
+# included; cloud-managed lanes have provider-native autoscalers and do not
+# run it). 1 runs it just before the deprovision: enable autoscaling min 1 /
+# max 2 on AUTOSCALING_NODE_GROUP, wait for the Cluster Autoscaler, assert it
+# registers every worker, grow the group with pods that need a second node,
+# shrink it again once they are gone, disable. Off by default because it
+# adds roughly 25-50 minutes and one extra worker for ~15-25 of them to every
+# lane it runs on, so the scheduled cost must not change silently. Needs jq.
+ANKRA_SYSTEMTEST_AUTOSCALING="${ANKRA_SYSTEMTEST_AUTOSCALING:-0}"
+AUTOSCALING_NODE_GROUP="${AUTOSCALING_NODE_GROUP:-default}"
+# Timeouts (seconds), sized from the cluster-autoscaler platform profile
+# (ankraio/cluster alembic/platform_profiles/cluster-autoscaler.json):
+# max-node-provision-time 15m, scale-down-delay-after-add 10m,
+# scale-down-unneeded-time 10m.
+#  - CA_READY: enabling installs the autoscaler stack (a Helm release).
+#  - IDENTITY_GRACE: how long the autoscaler may still report registered
+#    workers as unregistered once every worker is Ready.
+#  - SCALE_UP: 15m provision cap + 5m for the autoscaler to see the pending
+#    pod and the scheduler to bind it once the node is Ready.
+#  - SCALE_DOWN: the node must be unneeded for 10m (and 10m past the
+#    scale-up, which has mostly elapsed by then), then drained and its
+#    server deleted: ~15m in practice, so 30m bounds it at twice that.
+AUTOSCALING_CA_READY_TIMEOUT="${AUTOSCALING_CA_READY_TIMEOUT:-900}"
+AUTOSCALING_IDENTITY_GRACE="${AUTOSCALING_IDENTITY_GRACE:-300}"
+AUTOSCALING_SCALE_UP_TIMEOUT="${AUTOSCALING_SCALE_UP_TIMEOUT:-1200}"
+AUTOSCALING_SCALE_DOWN_TIMEOUT="${AUTOSCALING_SCALE_DOWN_TIMEOUT:-1800}"
+# CPU request (millicores) of each of the two load pods. Empty = sized from
+# the group's worker: 90% of the CPU it has not already promised to pods.
+AUTOSCALING_LOAD_CPU_MILLICORES="${AUTOSCALING_LOAD_CPU_MILLICORES:-}"
+
 # ---------------------------------------------------------------------------
 # Internal state
 # ---------------------------------------------------------------------------
@@ -373,6 +412,32 @@ ank() {
   else
     "$ANKRA_BIN" "$@" 2>&1 | grep -vE "ANKRA_API_TOKEN env var is set|To use the env var instead|Using login token"
   fi
+}
+
+# Run the CLI keeping only stdout, with the CLI's own exit status: for the
+# -o json reads a step parses. ank() merges stderr into the stream (a hint
+# there would corrupt the document) and pipes it through grep, whose status
+# - 1 when every line is filtered or there are none - pipefail would report
+# in place of the CLI's.
+ank_out() {
+  if [ -n "${ANK_CONFIG:-}" ]; then
+    "$ANKRA_BIN" --config "$ANK_CONFIG" "$@" 2>/dev/null
+  else
+    "$ANKRA_BIN" "$@" 2>/dev/null
+  fi
+}
+
+# Like ank() - stderr merged, login preamble filtered - but returning the
+# CLI's own exit status, so a refused write is a failure the caller sees.
+ank_rc() {
+  local out rc
+  if [ -n "${ANK_CONFIG:-}" ]; then
+    out="$("$ANKRA_BIN" --config "$ANK_CONFIG" "$@" 2>&1)"; rc=$?
+  else
+    out="$("$ANKRA_BIN" "$@" 2>&1)"; rc=$?
+  fi
+  printf '%s\n' "$out" | grep -vE "ANKRA_API_TOKEN env var is set|To use the env var instead|Using login token" || true
+  return "$rc"
 }
 
 die() {
@@ -1103,6 +1168,12 @@ run_aws_provider() {
     fail "$label k8s upgrade (submit)"
   fi
 
+  # 6c. Node-group autoscaling end to end (opt-in: ANKRA_SYSTEMTEST_AUTOSCALING=1;
+  # records a SKIP otherwise). The leak check after the deprovision (step 8)
+  # is the proof that no EC2 instance the autoscaler created outlived the
+  # cluster.
+  run_autoscaling_step "$name" "$id" "$label"
+
   # 7. Deprovision -> removed (with a bounded force fallback on stall)
   wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy; deprovisioning anyway)"
   log "deprovisioning $name ..."
@@ -1206,6 +1277,559 @@ managed_env() {
 }
 
 # ---------------------------------------------------------------------------
+# Opt-in: node-group autoscaling end to end (ANKRA_SYSTEMTEST_AUTOSCALING=1)
+# ---------------------------------------------------------------------------
+#
+# Nothing else exercises node-group autoscaling end to end, which is how
+# three production defects shipped unseen (fixed in ankraio/cluster#3557,
+# plus #3555 for AWS scale-to-zero): AWS served the Cluster Autoscaler a
+# target size of zero and refused every scale-down; the autoscaler saw every
+# worker as an unregistered instance on every provider ("N unregistered nodes
+# present", "Nodegroup is nil for ..."); and a worker whose Kubernetes join
+# was held let each scale-up spawn another billed server. The step drives the
+# CLI verbs a customer uses and asserts each of those:
+#
+#   1. enable autoscaling min 1 / max 2 on the group, from exactly 1 worker
+#   2. the cluster-autoscaler Deployment in the ankra namespace is Ready
+#   3. the autoscaler's newest main loop reports no registered worker as
+#      unregistered (checked at 1 worker, and again at 2)
+#   4. two pods that cannot share a node grow the group to 2 workers and
+#      both schedule; the group never goes past max_count
+#   5. with the pods gone the group shrinks back to 1, never below it
+#   6. autoscaling is disabled and the group is left at 1 worker
+#
+# Any failure after the enable runs as_cleanup: remove the load, disable
+# autoscaling, scale the group back to 1 by hand. What that cannot fix, the
+# lane's deprovision removes with every other server (the EXIT/INT/TERM trap
+# deprovisions on an abort mid-step too), and on AWS the leak check after it
+# proves no instance the autoscaler created outlived the cluster.
+
+AS_LOAD_NAME="systest-ca-load"   # the load's stack, manifest and Deployment
+AS_LOAD_NAMESPACE="default"
+AS_CA_NAMESPACE="ankra"
+AS_CA_NAME="cluster-autoscaler"  # fullnameOverride of the platform's CA release
+AS_NODE_GROUP_LABEL="ankra.cloud/node-group"
+AS_LOG_WINDOW=60                 # seconds of CA log per read: ~6 loops at the 10s scan interval
+
+# jq definitions for the step's reads of `ankra cluster get ... -o json`:
+#   cpu_m               a CPU quantity ("2", "1.5", "250m") in millicores
+#   labelled            whether any node carries the ankra.cloud/node-group label
+#   group_nodes($g)     the group's nodes as {name, ready, provider_id, cpu_m}:
+#                       matched by that label, which every Ankra worker
+#                       carries - or, when no node carries it, every node
+#                       without a control-plane role
+#   node_requests($n)   "<millicores requested on node $n> <listing truncated>"
+#                       over its non-terminated pods (containers only; pod
+#                       overhead and init containers are left out)
+# shellcheck disable=SC2016 # a jq program: its $names are jq's, not the shell's
+AS_JQ_LIB='
+def cpu_m: if . == null then 0
+  elif type == "number" then . * 1000
+  elif endswith("m") then (.[0:-1] | tonumber)
+  else tonumber * 1000 end;
+def control_plane: (.metadata.labels // {}) | has("node-role.kubernetes.io/control-plane") or has("node-role.kubernetes.io/master");
+def labelled: [.resource_responses[0].items[]? | select(.metadata.labels["ankra.cloud/node-group"] != null)] | length > 0;
+def group_nodes($g):
+  labelled as $labelled
+  | .resource_responses[0].items[]?
+  | select(if $labelled then .metadata.labels["ankra.cloud/node-group"] == $g else (control_plane | not) end)
+  | {name: .metadata.name,
+     ready: ([.status.conditions[]? | select(.type == "Ready") | .status] | first == "True"),
+     provider_id: (.spec.providerID // ""),
+     cpu_m: (.status.allocatable.cpu | cpu_m | floor)};
+def node_requests($n):
+  .resource_responses[0] as $r
+  | [$r.items[]?
+     | select(.spec.nodeName == $n)
+     | select((.status.phase // "") as $p | $p != "Succeeded" and $p != "Failed")
+     | [.spec.containers[]? | (.resources.requests.cpu // null) | cpu_m] | add // 0]
+  | "\(add // 0 | floor) \(($r.total_count // ($r.items | length)) > ($r.items | length))";
+'
+
+as_nodes_json() { ank_out cluster get nodes --cluster "$1" -o json; }
+
+# The group's platform worker count ("count" in node-group list: its worker
+# records, i.e. what is billed), or empty when unreadable.
+as_group_count() {
+  ank_out cluster node-group list "$1" -o json \
+    | jq -r --arg g "$2" '[.node_groups[]? | select(.name == $g) | .count] | first // empty' 2>/dev/null
+}
+
+# "<count> <ready> <nodes>": the platform's worker count, and the group's
+# Kubernetes nodes Ready and in total. "?" where a read failed - and for the
+# nodes when the listing came back empty, since a self-managed cluster
+# always has its control plane: an empty answer is a failed read, not a
+# group scaled to zero.
+as_group_state() {
+  local id="$1" group="$2" count ready="" total=""
+  count="$(as_group_count "$id" "$group")"
+  read -r ready total <<<"$(as_nodes_json "$id" | jq -r --arg g "$group" "$AS_JQ_LIB
+    if ([.resource_responses[0].items[]?] | length) == 0 then \"? ?\"
+    else \"\([group_nodes(\$g) | select(.ready)] | length) \([group_nodes(\$g)] | length)\" end" 2>/dev/null)"
+  printf '%s %s %s\n' "${count:-?}" "${ready:-?}" "${total:-?}"
+}
+
+as_group_names() {
+  ank_out cluster node-group list "$1" -o json | jq -r '[.node_groups[]?.name] | join(", ")' 2>/dev/null
+}
+
+# Wait until the group's worker count, Ready nodes and nodes all equal want.
+as_wait_group() {
+  local id="$1" group="$2" want="$3" timeout="$4" deadline count ready total
+  deadline=$(( $(date +%s) + timeout ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    read -r count ready total <<<"$(as_group_state "$id" "$group")"
+    log "  $group count=$count nodes ready=$ready/$total (want $want)"
+    if [ "$count" = "$want" ] && [ "$ready" = "$want" ] && [ "$total" = "$want" ]; then return 0; fi
+    sleep "$POLL_INTERVAL"
+  done
+  return 1
+}
+
+# Load pods in a phase ("" = any phase), or empty when unreadable.
+as_load_pods() {
+  ank_out cluster get pods -n "$AS_LOAD_NAMESPACE" --name "$AS_LOAD_NAME" --cluster "$1" -o json \
+    | jq -r --arg p "$AS_LOAD_NAME-" --arg phase "$2" \
+        '[.pods[]? | select(.name | startswith($p)) | select($phase == "" or .phase == $phase)] | length' 2>/dev/null
+}
+
+# The newest Running autoscaler pod, or empty.
+as_ca_pod() {
+  ank_out cluster get pods -n "$AS_CA_NAMESPACE" --name "$AS_CA_NAME" --cluster "$1" -o json \
+    | jq -r '[.pods[]? | select(.phase == "Running")] | sort_by(.start_time // "") | last | .name // empty' 2>/dev/null
+}
+
+# A write the step depends on: daytwo()'s wait-for-idle and 409 retry, but
+# returning the CLI's own exit status - daytwo() reports success for any
+# answer that is not a 409. Unlike daytwo(), the whole write shares one
+# budget of 2 x IDLE_TIMEOUT: every retry waits for the cluster to go idle
+# first, so per-attempt waits alone could spend 8 x IDLE_TIMEOUT inside a
+# single write on a cluster that never settles.
+as_write() {
+  local desc="$1" name="$2"; shift 2
+  local attempt out rc=1 remaining
+  local budget=$(( 2 * IDLE_TIMEOUT ))
+  local deadline=$(( $(date +%s) + budget ))
+  for attempt in 1 2 3 4 5 6 7 8; do
+    remaining=$(( deadline - $(date +%s) ))
+    if [ "$remaining" -le 0 ]; then
+      log "  $desc gave up: $name stayed busy past the write's ${budget}s budget"
+      break
+    fi
+    if [ "$remaining" -gt "$IDLE_TIMEOUT" ]; then remaining="$IDLE_TIMEOUT"; fi
+    wait_idle "$name" "$remaining" || log "  ($name still busy; attempting $desc anyway)"
+    out="$(ank_rc "$@")"; rc=$?
+    if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qiE "operations in progress|409|not in a state"; then
+      log "  $desc rejected (ops in progress), retry $attempt"
+      sleep 20
+      continue
+    fi
+    break
+  done
+  printf '%s\n' "$out" | tail -n 4
+  return "$rc"
+}
+
+# Poll the group's autoscaling settings until they read as wanted:
+# "true <min> <max>" when enabled, "false" when disabled. The write is
+# asynchronous, so the platform's own read is the confirmation.
+as_wait_settings() {
+  local id="$1" group="$2" want="$3" deadline got
+  deadline=$(( $(date +%s) + DAYTWO_TIMEOUT ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    got="$(ank_out cluster node-group autoscaling get "$id" "$group" -o json \
+      | jq -r 'if .enabled then "true \(.min_count) \(.max_count)" else "false" end' 2>/dev/null)"
+    if [ "$got" = "$want" ]; then return 0; fi
+    log "  $group autoscaling=${got:-unreadable} (want $want)"
+    sleep "$POLL_INTERVAL"
+  done
+  return 1
+}
+
+as_wait_ca_ready() {
+  local id="$1" deadline state ready want
+  deadline=$(( $(date +%s) + AUTOSCALING_CA_READY_TIMEOUT ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    state="$(ank_out cluster get deployments -n "$AS_CA_NAMESPACE" --cluster "$id" -o json \
+      | jq -r --arg d "$AS_CA_NAME" '[.resource_responses[0].items[]? | select(.metadata.name == $d)] | first
+          | if . == null then "absent" else "\(.status.readyReplicas // 0)/\(.spec.replicas // 1)" end' 2>/dev/null)"
+    log "  $AS_CA_NAMESPACE/$AS_CA_NAME ready=${state:-unreadable}"
+    case "$state" in
+      [0-9]*/[0-9]*)
+        ready="${state%%/*}"; want="${state#*/}"
+        if [ "$want" -gt 0 ] && [ "$ready" -ge "$want" ]; then return 0; fi
+        ;;
+    esac
+    sleep "$POLL_INTERVAL"
+  done
+  return 1
+}
+
+# Step 3. The autoscaler's newest complete main loop - the lines between the
+# last two "Starting main loop" markers (klog v4, the chart default) - must
+# not report a registered worker as unregistered. It logs "<N> unregistered
+# nodes present" only when N > 0. Tolerated, and named rather than failed:
+# nodes of the group with no spec.providerID, which the platform serves
+# under a fallback instance id the autoscaler cannot match to a node (the
+# documented fallback of cluster#3557). Polled for AUTOSCALING_IDENTITY_GRACE,
+# since a node that has just joined can read as unregistered until the next
+# snapshot. A log the CLI cannot read skips this assertion only.
+as_assert_ca_identity() {
+  local id="$1" group="$2" tag="$3"
+  local deadline pod logs="" rc loop unregistered nil_count noid="" noid_count=0 state evidence
+  deadline=$(( $(date +%s) + AUTOSCALING_IDENTITY_GRACE ))
+  while :; do
+    pod="$(as_ca_pod "$id")"
+    if [ -z "$pod" ]; then
+      state="nopod"; evidence="no Running $AS_CA_NAME pod in $AS_CA_NAMESPACE"
+    else
+      logs="$(ank_rc cluster logs "$pod" -n "$AS_CA_NAMESPACE" --all-containers --since "$AS_LOG_WINDOW" --follow=false --cluster "$id")"; rc=$?
+      if [ "$rc" -ne 0 ]; then
+        skip "$tag: autoscaler registers every worker NOT ASSERTED - the CLI could not read the $AS_CA_NAME log (ankra cluster logs exit $rc: $(printf '%s\n' "$logs" | tail -n 1))"
+        return 0
+      fi
+      noid="$(as_nodes_json "$id" | jq -r --arg g "$group" "$AS_JQ_LIB [group_nodes(\$g) | select(.provider_id == \"\") | .name] | join(\" \")" 2>/dev/null)"
+      noid_count="$(printf '%s\n' "$noid" | wc -w | tr -d ' ')"
+      if loop="$(printf '%s\n' "$logs" | awk '/Starting main loop/ { prev = cur; cur = ""; n++; next } { cur = cur $0 "\n" } END { if (n < 2) exit 1; printf "%s", prev }')"; then
+        unregistered="$(printf '%s\n' "$loop" | grep -oE '[0-9]+ unregistered nodes present' | tail -n 1 | awk '{print $1}')"
+        unregistered="${unregistered:-0}"
+        if [ "$unregistered" -le "$noid_count" ]; then
+          if [ "$unregistered" -gt 0 ]; then
+            pass "$tag: autoscaler registers every worker ($unregistered unregistered = the nodes with no spec.providerID, the documented fallback: $noid)"
+          else
+            pass "$tag: autoscaler registers every worker (newest loop: none unregistered)"
+          fi
+          return 0
+        fi
+        nil_count="$(printf '%s\n' "$loop" | grep -c 'Nodegroup is nil')"
+        state="unregistered"
+        evidence="newest loop: $unregistered unregistered nodes present, $nil_count 'Nodegroup is nil' lines; nodes without a providerID: ${noid:-none}"
+      else
+        state="noloop"; evidence="no complete main loop in the last ${AS_LOG_WINDOW}s of $pod"
+      fi
+    fi
+    log "  $tag: $evidence"
+    if [ "$(date +%s)" -ge "$deadline" ]; then break; fi
+    sleep "$POLL_INTERVAL"
+  done
+
+  case "$state" in
+    unregistered)
+      fail "$tag: autoscaler still reports registered workers as unregistered ${AUTOSCALING_IDENTITY_GRACE}s after every worker was Ready ($evidence)"
+      printf '%s\n' "$logs" | grep -E 'unregistered nodes present|Nodegroup is nil' | tail -n 10 | sed 's/^/    /'
+      ;;
+    noloop)
+      # No loop markers (log verbosity below 4?): fall back to the newest
+      # count anywhere in the window. Only a count past the tolerance is
+      # evidence; its absence proves nothing without a loop to bound it.
+      unregistered="$(printf '%s\n' "$logs" | grep -oE '[0-9]+ unregistered nodes present' | tail -n 1 | awk '{print $1}')"
+      if [ -n "$unregistered" ] && [ "$unregistered" -gt "$noid_count" ]; then
+        fail "$tag: autoscaler reports $unregistered unregistered nodes with ${noid_count} node(s) lacking a providerID (${noid:-none})"
+      else
+        skip "$tag: autoscaler registers every worker NOT ASSERTED - $evidence (log verbosity below 4?)"
+      fi
+      ;;
+    *)
+      fail "$tag: autoscaler identity ($evidence)"
+      ;;
+  esac
+  return 0
+}
+
+# CPU request (millicores) for each of the two load pods: 90% of what the
+# group's worker has not already promised to its pods. One pod then fits
+# beside what the worker runs; the second cannot (two of them need 180% of
+# that), so it stays Pending until the autoscaler adds a node - where it
+# fits, a fresh node carrying only DaemonSet pods, which the worker already
+# counts in its requests. Required pod anti-affinity keeps one pod per node
+# on top, so even a mis-sized request leaves exactly one pod Pending, not
+# two (two would need a third node, past max 2). Logs go to stderr: stdout
+# is the value.
+as_load_cpu() {
+  local id="$1" group="$2" node alloc used truncated pods_json free cpu
+  if [ -n "$AUTOSCALING_LOAD_CPU_MILLICORES" ]; then
+    log "  load sizing: AUTOSCALING_LOAD_CPU_MILLICORES=${AUTOSCALING_LOAD_CPU_MILLICORES}m per pod" >&2
+    printf '%s\n' "$AUTOSCALING_LOAD_CPU_MILLICORES"
+    return 0
+  fi
+  read -r node alloc <<<"$(as_nodes_json "$id" | jq -r --arg g "$group" "$AS_JQ_LIB [group_nodes(\$g) | select(.ready)] | first | \"\(.name) \(.cpu_m)\"" 2>/dev/null)"
+  case "$alloc" in ''|*[!0-9]*) log "  load sizing: no Ready node of $group to size against" >&2; return 1 ;; esac
+  if ! pods_json="$(ank_out cluster get resources Pod -A --cluster "$id" -o json)"; then
+    log "  load sizing: could not list the cluster's pods" >&2; return 1
+  fi
+  read -r used truncated <<<"$(printf '%s' "$pods_json" | jq -r --arg n "$node" "$AS_JQ_LIB node_requests(\$n)" 2>/dev/null)"
+  case "$used" in ''|*[!0-9]*) log "  load sizing: could not read the CPU requested on $node" >&2; return 1 ;; esac
+  if [ "$truncated" = "true" ]; then
+    cpu=$(( alloc / 10 ))
+    log "  load sizing: the pod listing is truncated, so $node's free CPU is unknown: ${cpu}m per pod (10% of ${alloc}m); anti-affinity keeps the second pod off the first one's node" >&2
+  else
+    free=$(( alloc - used )); cpu=$(( free * 9 / 10 ))
+    log "  load sizing: $node allocatable ${alloc}m, requested ${used}m, free ${free}m -> ${cpu}m per pod" >&2
+  fi
+  if [ "$cpu" -lt 50 ]; then
+    log "  load sizing: ${cpu}m leaves no room for a load pod on $node" >&2; return 1
+  fi
+  printf '%s\n' "$cpu"
+}
+
+# The ImportCluster document the load is staged from: one stack holding one
+# Deployment of two pause pods, each requesting $cpu millicores, pinned to
+# the group's nodes (by its label, or off the control plane when no node
+# carries it) and kept one per node by required anti-affinity.
+as_load_import() {
+  local cluster_name="$1" group="$2" cpu="$3" labelled="$4" node_terms
+  if [ "$labelled" = "true" ]; then
+    node_terms="                              - key: $AS_NODE_GROUP_LABEL
+                                operator: In
+                                values: [\"$group\"]"
+  else
+    node_terms="                              - key: node-role.kubernetes.io/control-plane
+                                operator: DoesNotExist
+                              - key: node-role.kubernetes.io/master
+                                operator: DoesNotExist"
+  fi
+  cat <<EOF
+apiVersion: v1
+kind: ImportCluster
+metadata:
+  name: $cluster_name
+spec:
+  stacks:
+    - name: $AS_LOAD_NAME
+      manifests:
+        - name: $AS_LOAD_NAME
+          namespace: $AS_LOAD_NAMESPACE
+          parents: []
+          manifest: |
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: $AS_LOAD_NAME
+              namespace: $AS_LOAD_NAMESPACE
+              labels:
+                app.kubernetes.io/name: $AS_LOAD_NAME
+                app.kubernetes.io/part-of: ankra-systemtest
+            spec:
+              replicas: 2
+              selector:
+                matchLabels:
+                  app.kubernetes.io/name: $AS_LOAD_NAME
+              template:
+                metadata:
+                  labels:
+                    app.kubernetes.io/name: $AS_LOAD_NAME
+                spec:
+                  terminationGracePeriodSeconds: 0
+                  affinity:
+                    nodeAffinity:
+                      requiredDuringSchedulingIgnoredDuringExecution:
+                        nodeSelectorTerms:
+                          - matchExpressions:
+$node_terms
+                    podAntiAffinity:
+                      requiredDuringSchedulingIgnoredDuringExecution:
+                        - labelSelector:
+                            matchLabels:
+                              app.kubernetes.io/name: $AS_LOAD_NAME
+                          topologyKey: kubernetes.io/hostname
+                  containers:
+                    - name: pause
+                      image: registry.k8s.io/pause:3.10
+                      resources:
+                        requests:
+                          cpu: ${cpu}m
+                          memory: 16Mi
+EOF
+}
+
+# Remove the load: the stack (which removes its Deployment), then the
+# Deployment directly in case the stack delete did not take. Idempotent:
+# a stack or Deployment that is already gone is not an error here.
+as_delete_load() {
+  local name="$1" id="$2"
+  as_write "load stack delete" "$name" cluster stacks delete "$AS_LOAD_NAME" --yes --cluster "$id" \
+    || log "  (deleting stack $AS_LOAD_NAME did not succeed; deleting the Deployment directly)"
+  ank_rc cluster delete deployment "$AS_LOAD_NAME" -n "$AS_LOAD_NAMESPACE" --yes --cluster "$id" >/dev/null || true
+}
+
+as_diagnostics() {
+  local id="$1" pod
+  log "  diagnostics: node groups"
+  ank cluster node-group list "$id" | sed 's/^/    /'
+  log "  diagnostics: load pods"
+  ank cluster get pods -n "$AS_LOAD_NAMESPACE" --name "$AS_LOAD_NAME" --cluster "$id" | sed 's/^/    /'
+  pod="$(as_ca_pod "$id")"
+  if [ -n "$pod" ]; then
+    log "  diagnostics: newest scaling and node-identity lines of $pod"
+    ank cluster logs "$pod" -n "$AS_CA_NAMESPACE" --all-containers --tail 400 --follow=false --cluster "$id" \
+      | grep -iE 'scale.?up|scale.?down|unregistered|nodegroup is nil|unneeded|increase|delete|error|fail' \
+      | tail -n 25 | sed 's/^/    /'
+  fi
+}
+
+# Step 4: stage and deploy the load, then wait for the group to reach 2
+# Ready workers with both load pods Running. The worker count never passing
+# max 2 is asserted on every poll (the held-join defect let each scale-up
+# spawn another billed server).
+as_scale_up() {
+  local name="$1" id="$2" group="$3" tag="$4"
+  local cpu file labelled start deadline count="?" ready="?" total="?" running="?" pending="?" max_seen=1 value
+  if ! cpu="$(as_load_cpu "$id" "$group")"; then
+    fail "$tag load sizing (see the load sizing line above)"; return 1
+  fi
+  labelled="$(as_nodes_json "$id" | jq -r "$AS_JQ_LIB labelled" 2>/dev/null)"
+  file="$WORKDIR/autoscaling-load.$id.yaml"
+  as_load_import "$name" "$group" "$cpu" "$labelled" > "$file"
+  log "  load: $AS_LOAD_NAMESPACE/$AS_LOAD_NAME, 2 pods x ${cpu}m CPU, one per node (stack $AS_LOAD_NAME, from $file)"
+  if ! as_write "load draft" "$name" cluster draft -f "$file"; then
+    fail "$tag load (ankra cluster draft refused the $AS_LOAD_NAME stack)"; return 1
+  fi
+  if ! as_write "load deploy" "$name" cluster stacks deploy-draft "$AS_LOAD_NAME" --cluster "$id"; then
+    fail "$tag load (ankra cluster stacks deploy-draft refused the $AS_LOAD_NAME stack)"; return 1
+  fi
+  start=$(date +%s); deadline=$(( start + AUTOSCALING_SCALE_UP_TIMEOUT ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    read -r count ready total <<<"$(as_group_state "$id" "$group")"
+    running="$(as_load_pods "$id" Running)"; pending="$(as_load_pods "$id" Pending)"
+    log "  $group count=$count nodes ready=$ready/$total load running=${running:-?} pending=${pending:-?} (want 2, 2/2, 2)"
+    for value in "$count" "$total"; do
+      case "$value" in ''|*[!0-9]*) ;; *) if [ "$value" -gt "$max_seen" ]; then max_seen="$value"; fi ;; esac
+    done
+    if [ "$max_seen" -gt 2 ]; then
+      fail "$tag max_count did not bind: $group reached $max_seen workers/nodes with max 2"
+      as_diagnostics "$id"
+      return 1
+    fi
+    if [ "$count" = 2 ] && [ "$ready" = 2 ] && [ "$total" = 2 ] && [ "$running" = 2 ]; then
+      pass "$tag scale-up 1->2 under pending pods, both scheduled ($(( $(date +%s) - start ))s)"
+      return 0
+    fi
+    sleep "$POLL_INTERVAL"
+  done
+  fail "$tag scale-up did not finish in ${AUTOSCALING_SCALE_UP_TIMEOUT}s (count=$count nodes ready=$ready/$total load running=${running:-?} pending=${pending:-?})"
+  as_diagnostics "$id"
+  return 1
+}
+
+# Step 5: remove the load and wait for the autoscaler to shrink the group
+# back to 1 - asserting on every poll that it never goes below min 1.
+as_scale_down() {
+  local name="$1" id="$2" group="$3" tag="$4"
+  local start deadline count="?" ready="?" total="?" pods="?" reissued=0
+  as_delete_load "$name" "$id"
+  start=$(date +%s); deadline=$(( start + AUTOSCALING_SCALE_DOWN_TIMEOUT ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    read -r count ready total <<<"$(as_group_state "$id" "$group")"
+    pods="$(as_load_pods "$id" "")"
+    log "  $group count=$count nodes ready=$ready/$total load pods=${pods:-?} (want 1, 1/1, 0)"
+    if [ "$count" = 0 ] || [ "$total" = 0 ]; then
+      fail "$tag min_count did not bind: $group reached count=$count nodes=$total with min 1"
+      as_diagnostics "$id"
+      return 1
+    fi
+    if [ "${pods:-?}" != 0 ] && [ "$reissued" = 0 ] && [ $(( $(date +%s) - start )) -ge 300 ]; then
+      log "  load pods still present after 300s; deleting the Deployment directly"
+      ank_rc cluster delete deployment "$AS_LOAD_NAME" -n "$AS_LOAD_NAMESPACE" --yes --cluster "$id" >/dev/null || true
+      reissued=1
+    fi
+    if [ "$count" = 1 ] && [ "$ready" = 1 ] && [ "$total" = 1 ] && [ "$pods" = 0 ]; then
+      pass "$tag scale-down 2->1 after the load left ($(( $(date +%s) - start ))s)"
+      return 0
+    fi
+    sleep "$POLL_INTERVAL"
+  done
+  fail "$tag scale-down did not finish in ${AUTOSCALING_SCALE_DOWN_TIMEOUT}s (count=$count nodes ready=$ready/$total load pods=${pods:-?})"
+  as_diagnostics "$id"
+  return 1
+}
+
+# Undo whatever the step left: the load, autoscaling, a second worker.
+as_cleanup() {
+  local name="$1" id="$2" group="$3" tag="$4" count
+  log "  $tag cleanup: removing the load, disabling autoscaling, returning $group to 1 worker"
+  as_delete_load "$name" "$id"
+  as_write "autoscaling disable (cleanup)" "$name" cluster node-group autoscaling set "$id" "$group" --enabled=false \
+    || log "  (cleanup: disabling autoscaling on $group was refused)"
+  count="$(as_group_count "$id" "$group")"
+  if [ "$count" = 1 ]; then return 0; fi
+  as_write "scale $group to 1 (cleanup)" "$name" cluster node-group scale "$id" "$group" 1 \
+    || log "  (cleanup: scaling $group to 1 was refused)"
+  if as_wait_group "$id" "$group" 1 "$DAYTWO_TIMEOUT"; then
+    log "  cleanup: $group is back at 1 worker"
+  else
+    fail "$tag cleanup could not return $group to 1 worker (count/ready/nodes: $(as_group_state "$id" "$group")); the deprovision removes it with the cluster"
+  fi
+}
+
+# The opt-in step itself, called by each Ankra-managed lane just before its
+# deprovision. Records a SKIP when not opted in, so a run's results say that
+# autoscaling was not exercised.
+run_autoscaling_step() {
+  local name="$1" id="$2" label="$3"
+  local tag="$label autoscaling" group="$AUTOSCALING_NODE_GROUP" count
+  if [ "$ANKRA_SYSTEMTEST_AUTOSCALING" != "1" ]; then
+    skip "$tag (opt-in: ANKRA_SYSTEMTEST_AUTOSCALING=1)"
+    return 0
+  fi
+  log "autoscaling step on $name: node group $group, min 1 / max 2"
+
+  # Baseline: exactly one Ready worker, so max 2 leaves room for exactly one
+  # scale-up and the end state can be compared with the start.
+  if ! as_wait_group "$id" "$group" 1 "$DAYTWO_TIMEOUT"; then
+    fail "$tag baseline ($group is not at exactly 1 Ready worker; count/ready/nodes: $(as_group_state "$id" "$group"); node groups: $(as_group_names "$id"); set AUTOSCALING_NODE_GROUP to pick another)"
+    return 0
+  fi
+
+  # 1. Enable.
+  if ! as_write "autoscaling enable" "$name" cluster node-group autoscaling set "$id" "$group" --enabled=true --min 1 --max 2; then
+    fail "$tag enable (the write was refused)"
+    as_cleanup "$name" "$id" "$group" "$tag"; return 0
+  fi
+  if ! as_wait_settings "$id" "$group" "true 1 2"; then
+    fail "$tag enable (the settings did not read back as enabled, min 1, max 2)"
+    as_cleanup "$name" "$id" "$group" "$tag"; return 0
+  fi
+  pass "$tag enabled on $group (min 1, max 2)"
+
+  # 2. The autoscaler the first enable installs is Ready.
+  if ! as_wait_ca_ready "$id"; then
+    fail "$tag $AS_CA_NAMESPACE/$AS_CA_NAME not Ready within ${AUTOSCALING_CA_READY_TIMEOUT}s"
+    as_cleanup "$name" "$id" "$group" "$tag"; return 0
+  fi
+  pass "$tag $AS_CA_NAMESPACE/$AS_CA_NAME Ready"
+
+  # 3. It registers the worker it has.
+  as_assert_ca_identity "$id" "$group" "$tag at 1 worker"
+
+  # 4. Scale-up under pending pods, and the new worker is registered too.
+  if ! as_scale_up "$name" "$id" "$group" "$tag"; then
+    as_cleanup "$name" "$id" "$group" "$tag"; return 0
+  fi
+  as_assert_ca_identity "$id" "$group" "$tag at 2 workers"
+
+  # 5. Scale-down once the load is gone.
+  if ! as_scale_down "$name" "$id" "$group" "$tag"; then
+    as_cleanup "$name" "$id" "$group" "$tag"; return 0
+  fi
+
+  # 6. Disable, and nothing extra is left running.
+  if ! as_write "autoscaling disable" "$name" cluster node-group autoscaling set "$id" "$group" --enabled=false \
+     || ! as_wait_settings "$id" "$group" "false"; then
+    fail "$tag disable"
+    as_cleanup "$name" "$id" "$group" "$tag"; return 0
+  fi
+  pass "$tag disabled on $group"
+  count="$(as_group_count "$id" "$group")"
+  if [ "$count" = 1 ]; then
+    pass "$tag left $group at 1 worker (no extra billed server)"
+  else
+    fail "$tag left $group at count=${count:-unreadable}, want 1"
+    as_cleanup "$name" "$id" "$group" "$tag"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Full lifecycle for one provider
 # ---------------------------------------------------------------------------
 
@@ -1259,6 +1883,11 @@ run_provider() {
   if daytwo "resize" "$name" node-group upgrade "$id" default "$plan" \
      && wait_until_ng_plan "$name" "$id" default "$plan" "$DAYTWO_TIMEOUT"; then
     pass "$label instance resize default -> $plan"; else fail "$label instance resize"; fi
+
+  # 7b. Node-group autoscaling end to end (opt-in: ANKRA_SYSTEMTEST_AUTOSCALING=1;
+  # records a SKIP otherwise). Last before the deprovision, so a failure in it
+  # cannot leave a second worker under the steps above.
+  run_autoscaling_step "$name" "$id" "$label"
 
   # 8. Deprovision -> removed (with a bounded force-deprovision fallback on stall)
   # Let running reconciles (e.g. the resize's server replacement) settle first:
@@ -1635,6 +2264,25 @@ preflight() {
       *) die "unknown distribution in ANKRA_SYSTEMTEST_DISTRIBUTIONS: $d (want k3s or kubeadm)" ;;
     esac
   done
+  case "$ANKRA_SYSTEMTEST_AUTOSCALING" in
+    0) ;;
+    1)
+      # The workflow's plan-only pass runs before the runner installs jq, so
+      # only a run that will execute lanes requires it.
+      if [ "$ANKRA_SYSTEMTEST_PLAN_ONLY" != "1" ]; then
+        command -v jq >/dev/null 2>&1 || die "ANKRA_SYSTEMTEST_AUTOSCALING=1 needs jq (the autoscaling step parses the CLI's -o json output)"
+      fi
+      case "$AUTOSCALING_LOAD_CPU_MILLICORES" in
+        *[!0-9]*) die "AUTOSCALING_LOAD_CPU_MILLICORES=$AUTOSCALING_LOAD_CPU_MILLICORES (want whole millicores, e.g. 1500)" ;;
+      esac
+      if [ -z "$ANKRA_SYSTEMTEST_PROVIDERS" ]; then
+        log "WARNING: ANKRA_SYSTEMTEST_AUTOSCALING=1 but no Ankra-managed provider is selected; the autoscaling step runs on Ankra-managed lanes only"
+      else
+        log "autoscaling step ON (node group $AUTOSCALING_NODE_GROUP, min 1 / max 2): adds roughly 25-50 minutes and one extra worker for ~15-25 of them per Ankra-managed lane"
+      fi
+      ;;
+    *) die "ANKRA_SYSTEMTEST_AUTOSCALING=$ANKRA_SYSTEMTEST_AUTOSCALING (want 0 or 1)" ;;
+  esac
 
   plan_lanes
   log "$(lane_headline)"

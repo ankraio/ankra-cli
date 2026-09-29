@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- **The lifecycle systemtest can prove node-group autoscaling end to end.**
+  `ANKRA_SYSTEMTEST_AUTOSCALING=1` (or `autoscaling: 1` on a manual dispatch
+  of the systemtest workflow) runs an opt-in step on every Ankra-managed lane,
+  AWS included: enable autoscaling min 1 / max 2 on the default group, wait
+  for the Cluster Autoscaler, assert it registers every worker, grow the
+  group with pods that need a second node, wait for it to shrink back once
+  they are gone, disable. Nothing tested this before, which is how the
+  autoscaler defects fixed in ankraio/cluster#3557 shipped. Off by default
+  and never on the schedule: it adds ~25-50 minutes and one extra worker per
+  lane.
+
 ### Changed
 
 - **`pipeline rerun --failed-only` says what it re-runs.** The platform now
