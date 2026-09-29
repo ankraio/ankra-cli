@@ -13,10 +13,11 @@ import (
 )
 
 type fakePodTerminal struct {
-	frames     chan client.PodTerminalFrame
-	closeError error
-	inputLock  sync.Mutex
-	inputs     []string
+	frames      chan client.PodTerminalFrame
+	closeError  error
+	inputLock   sync.Mutex
+	inputs      []string
+	stdinClosed bool
 }
 
 func newFakePodTerminal(closeError error, frames ...client.PodTerminalFrame) *fakePodTerminal {
@@ -34,6 +35,17 @@ func (f *fakePodTerminal) SendInput(data []byte) error {
 	defer f.inputLock.Unlock()
 	f.inputs = append(f.inputs, string(data))
 	return nil
+}
+func (f *fakePodTerminal) CloseStdin() error {
+	f.inputLock.Lock()
+	defer f.inputLock.Unlock()
+	f.stdinClosed = true
+	return nil
+}
+func (f *fakePodTerminal) isStdinClosed() bool {
+	f.inputLock.Lock()
+	defer f.inputLock.Unlock()
+	return f.stdinClosed
 }
 func (f *fakePodTerminal) Resize(int, int) error { return nil }
 func (f *fakePodTerminal) Ping() error           { return nil }

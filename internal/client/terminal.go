@@ -24,16 +24,25 @@ type PodTerminalRequest struct {
 	Shell         string
 	Cols          int
 	Rows          int
+	// Command, when set, runs that argv once instead of the shell
+	// (`ankra cluster exec`). Each element is its own argument in the
+	// container; nothing is re-parsed by a shell.
+	Command []string
+	// Stdin forwards input to a Command; without it the command's stdin is
+	// closed from the start.
+	Stdin bool
 }
 
 // PodTerminalFrame is one message from the platform's terminal relay. Type
-// is one of connecting, connected, stdout, stderr, pong, error or end; Data
-// carries the base64 payload of a stdout/stderr frame and Message the text
-// of an error frame.
+// is one of connecting, connected, stdout, stderr, pong, error, exit or end;
+// Data carries the base64 payload of a stdout/stderr frame, Message the text
+// of an error frame and Code the exit code of a one-shot command's exit
+// frame.
 type PodTerminalFrame struct {
 	Type    string `json:"type"`
 	Data    string `json:"data,omitempty"`
 	Message string `json:"message,omitempty"`
+	Code    *int   `json:"code,omitempty"`
 }
 
 // Payload decodes the bytes a stdout or stderr frame carries; every other
@@ -51,6 +60,7 @@ func (frame PodTerminalFrame) Payload() ([]byte, error) {
 type PodTerminal interface {
 	Frames() <-chan PodTerminalFrame
 	SendInput(data []byte) error
+	CloseStdin() error
 	Resize(cols int, rows int) error
 	Ping() error
 	Close() error
@@ -87,6 +97,7 @@ const (
 	podTerminalCloseClusterUnavailable     = 4002
 	podTerminalCloseNoAgent                = 4003
 	podTerminalCloseSandbox                = 4004
+	podTerminalCloseAgentTooOld            = 4005
 	podTerminalClosePermissionDenied       = 4403
 )
 
@@ -126,6 +137,13 @@ func (c *Client) OpenPodTerminal(ctx context.Context, clusterID string, request 
 	}
 	if request.Rows > 0 {
 		query.Set("rows", strconv.Itoa(request.Rows))
+	}
+	if len(request.Command) > 0 {
+		for _, argument := range request.Command {
+			query.Add("command", argument)
+		}
+		query.Set("tty", "false")
+		query.Set("stdin", strconv.FormatBool(request.Stdin))
 	}
 	endpoint.RawQuery = query.Encode()
 
@@ -239,6 +257,8 @@ func (session *podTerminalConnection) settle(ctx context.Context, readError erro
 		session.closeError = &ClusterUnavailableError{ErrorCode: "NO_AGENT", Detail: session.lastErrorMessage}
 	case closeStatus == podTerminalCloseSandbox:
 		session.closeError = &ClusterUnavailableError{ErrorCode: "SANDBOX_MODE", Detail: session.lastErrorMessage}
+	case closeStatus == podTerminalCloseAgentTooOld:
+		session.closeError = &ClusterUnavailableError{ErrorCode: "AGENT_UPGRADE_REQUIRED", Detail: session.lastErrorMessage}
 	default:
 		session.closeError = &PodTerminalClosedError{Code: int(closeStatus), Reason: reason, Message: session.lastErrorMessage}
 	}
@@ -262,6 +282,11 @@ func (session *podTerminalConnection) writeFrame(frame map[string]any) error {
 
 func (session *podTerminalConnection) SendInput(data []byte) error {
 	return session.writeFrame(map[string]any{"type": "stdin", "data": base64.StdEncoding.EncodeToString(data)})
+}
+
+// CloseStdin tells a one-shot command its input has ended.
+func (session *podTerminalConnection) CloseStdin() error {
+	return session.writeFrame(map[string]any{"type": "stdin_close"})
 }
 
 func (session *podTerminalConnection) Resize(cols int, rows int) error {

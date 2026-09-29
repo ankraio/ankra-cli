@@ -39,6 +39,84 @@ func encodeTerminalData(text string) string {
 	return base64.StdEncoding.EncodeToString([]byte(text))
 }
 
+func TestOpenPodTerminalOneShotCommandCarriesTheArgvAndReadsTheExitCode(t *testing.T) {
+	queries := make(chan url.Values, 1)
+	server := newTerminalRelay(t, func(ctx context.Context, connection *websocket.Conn, request *http.Request) {
+		queries <- request.URL.Query()
+		for {
+			_, payload, readError := connection.Read(ctx)
+			if readError != nil {
+				return
+			}
+			var frame map[string]any
+			if unmarshalError := json.Unmarshal(payload, &frame); unmarshalError != nil {
+				return
+			}
+			if frame["type"] == "stdin_close" {
+				relayFrame(ctx, connection, map[string]any{"type": "exit", "code": 42})
+				relayFrame(ctx, connection, map[string]any{"type": "end"})
+				_ = connection.Close(websocket.StatusNormalClosure, "")
+				return
+			}
+		}
+	})
+	apiClient := New("secret-token", server.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	argv := []string{"psql", "-Atc", `select count(*) from "users"`}
+	session, openError := apiClient.OpenPodTerminal(ctx, "cluster-1", PodTerminalRequest{
+		Namespace: "default", PodName: "web-1", ContainerName: "app", Command: argv, Stdin: true,
+	})
+	if openError != nil {
+		t.Fatalf("open: %v", openError)
+	}
+	defer func() { _ = session.Close() }()
+
+	query := <-queries
+	if got := query["command"]; len(got) != len(argv) || got[0] != argv[0] || got[2] != argv[2] {
+		t.Fatalf("command parameters = %q, want %q", got, argv)
+	}
+	if query.Get("tty") != "false" || query.Get("stdin") != "true" {
+		t.Fatalf("tty/stdin = %q/%q", query.Get("tty"), query.Get("stdin"))
+	}
+
+	if closeError := session.CloseStdin(); closeError != nil {
+		t.Fatal(closeError)
+	}
+	exitFrame := nextFrame(t, session)
+	if exitFrame.Type != "exit" || exitFrame.Code == nil || *exitFrame.Code != 42 {
+		t.Fatalf("exit frame = %+v", exitFrame)
+	}
+	if endFrame := nextFrame(t, session); endFrame.Type != "end" {
+		t.Fatalf("end frame = %+v", endFrame)
+	}
+}
+
+func TestOpenPodTerminalShellSendsNoCommandParameters(t *testing.T) {
+	queries := make(chan url.Values, 1)
+	server := newTerminalRelay(t, func(ctx context.Context, connection *websocket.Conn, request *http.Request) {
+		queries <- request.URL.Query()
+		_ = connection.Close(websocket.StatusNormalClosure, "")
+	})
+	apiClient := New("secret-token", server.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	session, openError := apiClient.OpenPodTerminal(ctx, "cluster-1", PodTerminalRequest{
+		Namespace: "default", PodName: "web-1", ContainerName: "app", Shell: "/bin/sh",
+	})
+	if openError != nil {
+		t.Fatalf("open: %v", openError)
+	}
+	defer func() { _ = session.Close() }()
+	query := <-queries
+	for _, name := range []string{"command", "tty", "stdin"} {
+		if query.Has(name) {
+			t.Fatalf("the interactive shell must not send %q: %v", name, query)
+		}
+	}
+}
+
 func nextFrame(t *testing.T, session PodTerminal) PodTerminalFrame {
 	t.Helper()
 	select {
@@ -190,6 +268,16 @@ func TestOpenPodTerminalMapsTheRelaysRefusals(t *testing.T) {
 			check: func(t *testing.T, closeError error) {
 				var unavailable *ClusterUnavailableError
 				if !errors.As(closeError, &unavailable) || unavailable.ErrorCode != "NO_AGENT" {
+					t.Fatalf("got %v", closeError)
+				}
+			},
+		},
+		{
+			name: "4005 is an agent too old for a one-shot command", code: 4005, message: "needs agent 2.1.1166 or newer",
+			check: func(t *testing.T, closeError error) {
+				var unavailable *ClusterUnavailableError
+				if !errors.As(closeError, &unavailable) || unavailable.ErrorCode != "AGENT_UPGRADE_REQUIRED" ||
+					unavailable.Detail != "needs agent 2.1.1166 or newer" {
 					t.Fatalf("got %v", closeError)
 				}
 			},
