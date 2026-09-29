@@ -14,9 +14,9 @@ import (
 
 // VaultPrefixUsage is what one prefix in the bucket holds.
 type VaultPrefixUsage struct {
-	Prefix      string `json:"prefix"`
-	ObjectCount int    `json:"object_count"`
-	TotalBytes  int64  `json:"total_bytes"`
+	Prefix      string `json:"prefix" yaml:"prefix"`
+	ObjectCount int    `json:"object_count" yaml:"object_count"`
+	TotalBytes  int64  `json:"total_bytes" yaml:"total_bytes"`
 }
 
 // VaultRestorePointContents is one restore point's footprint.
@@ -24,51 +24,51 @@ type VaultPrefixUsage struct {
 // DeclaredObjectPrefix is where the platform records the objects; LocatedPrefixes
 // is where they are. A delete sweeps the first.
 type VaultRestorePointContents struct {
-	RestorePointID    string     `json:"restore_point_id"`
-	Status            string     `json:"status"`
-	StackNames        []string   `json:"stack_names"`
-	SourceClusterID   string     `json:"source_cluster_id,omitempty"`
-	SourceClusterName string     `json:"source_cluster_name,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
-	RowDeletedAt      *time.Time `json:"row_deleted_at,omitempty"`
+	RestorePointID    string     `json:"restore_point_id" yaml:"restore_point_id"`
+	Status            string     `json:"status" yaml:"status"`
+	StackNames        []string   `json:"stack_names" yaml:"stack_names"`
+	SourceClusterID   string     `json:"source_cluster_id,omitempty" yaml:"source_cluster_id,omitempty"`
+	SourceClusterName string     `json:"source_cluster_name,omitempty" yaml:"source_cluster_name,omitempty"`
+	CreatedAt         time.Time  `json:"created_at" yaml:"created_at"`
+	RowDeletedAt      *time.Time `json:"row_deleted_at,omitempty" yaml:"row_deleted_at,omitempty"`
 
-	DeclaredObjectPrefix string           `json:"declared_object_prefix"`
-	DeclaredPrefixUsage  VaultPrefixUsage `json:"declared_prefix_usage"`
+	DeclaredObjectPrefix string           `json:"declared_object_prefix" yaml:"declared_object_prefix"`
+	DeclaredPrefixUsage  VaultPrefixUsage `json:"declared_prefix_usage" yaml:"declared_prefix_usage"`
 
-	LocatedPrefixes []VaultPrefixUsage `json:"located_prefixes"`
-	ObjectCount     int                `json:"object_count"`
-	TotalBytes      int64              `json:"total_bytes"`
+	LocatedPrefixes []VaultPrefixUsage `json:"located_prefixes" yaml:"located_prefixes"`
+	ObjectCount     int                `json:"object_count" yaml:"object_count"`
+	TotalBytes      int64              `json:"total_bytes" yaml:"total_bytes"`
 
-	SharedRepositories []string `json:"shared_repositories,omitempty"`
-	RecordedTotalBytes int64    `json:"recorded_total_bytes"`
-	Notes              []string `json:"notes,omitempty"`
+	SharedRepositories []string `json:"shared_repositories,omitempty" yaml:"shared_repositories,omitempty"`
+	RecordedTotalBytes int64    `json:"recorded_total_bytes" yaml:"recorded_total_bytes"`
+	Notes              []string `json:"notes,omitempty" yaml:"notes,omitempty"`
 }
 
 // VaultSharedRepository is one uploader repository. Its bytes belong to every
 // backup of the cluster and namespace, never to one restore point.
 type VaultSharedRepository struct {
 	VaultPrefixUsage
-	ClusterID                 string   `json:"cluster_id"`
-	Namespace                 string   `json:"namespace,omitempty"`
-	ReferencedByRestorePoints []string `json:"referenced_by_restore_points"`
-	Unreferenced              bool     `json:"unreferenced"`
-	Note                      string   `json:"note,omitempty"`
+	ClusterID                 string   `json:"cluster_id" yaml:"cluster_id"`
+	Namespace                 string   `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	ReferencedByRestorePoints []string `json:"referenced_by_restore_points" yaml:"referenced_by_restore_points"`
+	Unreferenced              bool     `json:"unreferenced" yaml:"unreferenced"`
+	Note                      string   `json:"note,omitempty" yaml:"note,omitempty"`
 }
 
 // VaultOrphanGroup is objects no row accounts for.
 type VaultOrphanGroup struct {
 	VaultPrefixUsage
-	Kind           string     `json:"kind"`
-	RestorePointID string     `json:"restore_point_id,omitempty"`
-	ClusterID      string     `json:"cluster_id,omitempty"`
-	RowDeletedAt   *time.Time `json:"row_deleted_at,omitempty"`
-	Reason         string     `json:"reason"`
+	Kind           string     `json:"kind" yaml:"kind"`
+	RestorePointID string     `json:"restore_point_id,omitempty" yaml:"restore_point_id,omitempty"`
+	ClusterID      string     `json:"cluster_id,omitempty" yaml:"cluster_id,omitempty"`
+	RowDeletedAt   *time.Time `json:"row_deleted_at,omitempty" yaml:"row_deleted_at,omitempty"`
+	Reason         string     `json:"reason" yaml:"reason"`
 }
 
 // VaultObject is one object key.
 type VaultObject struct {
-	Key       string `json:"key"`
-	SizeBytes int64  `json:"size_bytes"`
+	Key       string `json:"key" yaml:"key"`
+	SizeBytes int64  `json:"size_bytes" yaml:"size_bytes"`
 }
 
 // BackupVaultContents is the whole listing.
@@ -76,29 +76,29 @@ type VaultObject struct {
 // Complete=false means the listing stopped short, so the totals are a floor
 // and the orphan list is withheld rather than guessed at.
 type BackupVaultContents struct {
-	VaultID   string `json:"vault_id"`
-	VaultName string `json:"vault_name"`
-	Bucket    string `json:"bucket"`
-	Endpoint  string `json:"endpoint"`
+	VaultID   string `json:"vault_id" yaml:"vault_id"`
+	VaultName string `json:"vault_name" yaml:"vault_name"`
+	Bucket    string `json:"bucket" yaml:"bucket"`
+	Endpoint  string `json:"endpoint" yaml:"endpoint"`
 
-	ScannedPrefix string `json:"scanned_prefix,omitempty"`
-	Complete      bool   `json:"complete"`
+	ScannedPrefix string `json:"scanned_prefix,omitempty" yaml:"scanned_prefix,omitempty"`
+	Complete      bool   `json:"complete" yaml:"complete"`
 
 	// OrphansDetermined says whether Orphans is a finding or was simply not
 	// computed. A narrowed read walks its scope completely and still cannot
 	// support "nothing accounts for this", so this is its own field.
-	OrphansDetermined bool `json:"orphans_determined"`
+	OrphansDetermined bool `json:"orphans_determined" yaml:"orphans_determined"`
 
-	ObjectCount int   `json:"object_count"`
-	TotalBytes  int64 `json:"total_bytes"`
+	ObjectCount int   `json:"object_count" yaml:"object_count"`
+	TotalBytes  int64 `json:"total_bytes" yaml:"total_bytes"`
 
-	RestorePoints      []VaultRestorePointContents `json:"restore_points"`
-	SharedRepositories []VaultSharedRepository     `json:"shared_repositories"`
-	Orphans            []VaultOrphanGroup          `json:"orphans"`
-	Other              []VaultPrefixUsage          `json:"other"`
+	RestorePoints      []VaultRestorePointContents `json:"restore_points" yaml:"restore_points"`
+	SharedRepositories []VaultSharedRepository     `json:"shared_repositories" yaml:"shared_repositories"`
+	Orphans            []VaultOrphanGroup          `json:"orphans" yaml:"orphans"`
+	Other              []VaultPrefixUsage          `json:"other" yaml:"other"`
 
-	Objects  []VaultObject `json:"objects,omitempty"`
-	Warnings []string      `json:"warnings,omitempty"`
+	Objects  []VaultObject `json:"objects,omitempty" yaml:"objects,omitempty"`
+	Warnings []string      `json:"warnings,omitempty" yaml:"warnings,omitempty"`
 }
 
 // BackupVaultContentsRequest narrows the listing.

@@ -140,3 +140,35 @@ func TestPowerSchedules_BackendDetailSurfaces(t *testing.T) {
 		t.Fatalf("expected the backend detail to surface, got %v", err)
 	}
 }
+
+func TestGetPowerScheduleNodeLocalStorage_DecodesTheFinding(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/v1/org/clusters/imported/cluster-123/power-schedules/node-local-storage" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"state":"present","pvc_count":2,"pvc_names":["apps/cache","db/pg"],"warning":"w","consent_required":true}`))
+	}
+	testClient := newTestClient(t, handler)
+	result, err := testClient.GetPowerScheduleNodeLocalStorage("cluster-123")
+	if err != nil {
+		t.Fatalf("GetPowerScheduleNodeLocalStorage: %v", err)
+	}
+	if result.State != "present" || result.PVCCount == nil || *result.PVCCount != 2 ||
+		strings.Join(result.PVCNames, ",") != "apps/cache,db/pg" || !result.ConsentRequired {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestPowerScheduleRequest_SendsTheAcknowledgementOnlyWhenGiven(t *testing.T) {
+	withoutAcknowledgement, _ := json.Marshal(PowerScheduleRequest{Action: "stop", StopMode: "scale_to_zero"})
+	if strings.Contains(string(withoutAcknowledgement), "accept_node_local_data_loss") {
+		t.Fatalf("an unset acknowledgement must be omitted: %s", withoutAcknowledgement)
+	}
+	withAcknowledgement, _ := json.Marshal(PowerScheduleRequest{Action: "stop", StopMode: "scale_to_zero", AcceptNodeLocalDataLoss: true})
+	if !strings.Contains(string(withAcknowledgement), `"accept_node_local_data_loss":true`) {
+		t.Fatalf("the acknowledgement must be sent: %s", withAcknowledgement)
+	}
+}

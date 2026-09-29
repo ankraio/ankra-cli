@@ -4,6 +4,7 @@ package cmd
 // (go/internal/pipelineapi/definition.go).
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -31,46 +32,126 @@ synthetic push and a synthetic pull request, without writing anything.
 Defaults to %s when no file is given; with neither that file nor a
 --application/--repository definition already stored, there is nothing to
 validate. Passing a file validates its content directly, which is what a
-'is my pipeline.yaml correct before I commit it' check wants.`, defaultPipelineDefinitionPath),
+'is my pipeline.yaml correct before I commit it' check wants. --spec-file is
+the flag spelling of that argument, matching 'pipeline run --spec-file'.
+
+--ref reads the definition from a git reference in the current checkout
+instead of the working tree, so a candidate on a branch can be checked
+before it is merged:
+
+  ankra pipeline validate --ref origin/my-branch --application my-app
+
+The reference is resolved locally, so a branch someone else pushed needs a
+'git fetch' first, and the path is read from the repository root.`, defaultPipelineDefinitionPath),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
 			if selectorError != nil {
 				return selectorError
 			}
-			filePath := defaultPipelineDefinitionPath
-			if len(arguments) == 1 {
-				filePath = arguments[0]
+			filePath, pathError := pipelineValidateFilePath(command, arguments)
+			if pathError != nil {
+				return pathError
 			}
-			return runPipelineValidate(command, selector, filePath)
+			gitReference, _ := command.Flags().GetString("ref")
+			return runPipelineValidate(command, selector, filePath, strings.TrimSpace(gitReference))
 		},
 	}
 	registerPipelineSelectorFlags(validateCommand)
+	validateCommand.Flags().String("spec-file", "",
+		"Validate this definition file, the same as passing it as the argument")
+	validateCommand.Flags().String("ref", "",
+		"Read the definition from this git reference in the current checkout (for example origin/my-branch) instead of the working tree")
 	registerStructuredOutputFlags(validateCommand)
 	return validateCommand
 }
 
-func runPipelineValidate(command *cobra.Command, selector client.PipelineSelector, filePath string) error {
+// pipelineValidateFilePath answers which definition file `validate` reads.
+// --spec-file is the flag spelling of the positional argument, so a caller
+// that already writes `pipeline run --spec-file <file>` does not have to
+// learn a second shape for the same thing; naming the file both ways is a
+// usage error rather than a silent preference for one of them.
+func pipelineValidateFilePath(command *cobra.Command, arguments []string) (string, error) {
+	specFile, _ := command.Flags().GetString("spec-file")
+	specFile = strings.TrimSpace(specFile)
+	switch {
+	case len(arguments) == 1 && specFile != "":
+		return "", withExitCode(exitUsage,
+			fmt.Errorf("pass the definition either as the argument or as --spec-file, not both"))
+	case specFile != "":
+		return specFile, nil
+	case len(arguments) == 1:
+		return arguments[0], nil
+	}
+	return defaultPipelineDefinitionPath, nil
+}
+
+// readPipelineDefinitionAtReference reads the definition as it stands on a
+// git reference rather than in the working tree. That is what checking a
+// candidate needs: until now the only way to find out whether a change was
+// valid was to merge it to the default branch and run it (PLA-863). The
+// reference is resolved in the local repository, so a colleague's branch
+// reads as `origin/<branch>` once it has been fetched, and the path is
+// resolved from the repository root so it does not depend on which
+// subdirectory the command was typed in.
+func readPipelineDefinitionAtReference(
+	requestContext context.Context,
+	gitReference string,
+	filePath string,
+) (string, error) {
+	repositoryRoot, rootError := executeGit(requestContext, ".", "rev-parse", "--show-toplevel")
+	if rootError != nil {
+		return "", withExitCode(exitUsage, fmt.Errorf(
+			"--ref reads the definition from a git repository and the working directory is not inside one"))
+	}
+	contents, showError := executeGit(requestContext, strings.TrimSpace(repositoryRoot),
+		"show", gitReference+":"+filePath)
+	if showError != nil {
+		return "", withExitCode(exitNotFound, fmt.Errorf("reading %s at %s: %w", filePath, gitReference, showError))
+	}
+	if strings.TrimSpace(contents) == "" {
+		return "", withExitCode(exitNotFound, fmt.Errorf("%s is empty at %s", filePath, gitReference))
+	}
+	return contents, nil
+}
+
+func runPipelineValidate(
+	command *cobra.Command,
+	selector client.PipelineSelector,
+	filePath string,
+	gitReference string,
+) error {
 	format, formatError := structuredFormatFromFlags(command)
 	if formatError != nil {
 		return formatError
 	}
 	var specYAML string
-	contents, readError := readApplicationFile(filePath)
-	switch {
-	case readError == nil:
-		specYAML = string(contents)
-	case filePath == defaultPipelineDefinitionPath && errors.Is(readError, fs.ErrNotExist):
-		// The default file is optional, and only its absence is optional:
-		// falling back validates whatever is already stored server-side,
-		// which is the honest answer for a repository that generated its
-		// pipeline rather than committing one. Any other read failure - a
-		// permission denial, an unreadable directory, a transient fault -
-		// is reported, because validating the stored definition and printing
-		// "ok" would answer a question the caller did not ask about a file
-		// this command could not read.
-	default:
-		return readError
+	if gitReference != "" {
+		// A named reference is never optional: falling back to the stored
+		// definition would answer "ok" about something the caller did not
+		// ask about.
+		contents, referenceError := readPipelineDefinitionAtReference(command.Context(), gitReference, filePath)
+		if referenceError != nil {
+			return referenceError
+		}
+		specYAML = contents
+	} else {
+		contents, readError := readApplicationFile(filePath)
+		switch {
+		case readError == nil:
+			specYAML = string(contents)
+		case filePath == defaultPipelineDefinitionPath && errors.Is(readError, fs.ErrNotExist):
+			// The default file is optional, and only its absence is optional:
+			// falling back validates whatever is already stored server-side,
+			// which is the honest answer for a repository that generated its
+			// pipeline rather than committing one. Any other read failure - a
+			// permission denial, an unreadable directory, a transient fault -
+			// is reported, because validating the stored definition and printing
+			// "ok" would answer a question the caller did not ask about a file
+			// this command could not read.
+		default:
+			return readError
+		}
 	}
 
 	validation, validateError := apiClient.ValidatePipelineDefinition(command.Context(), selector, specYAML)

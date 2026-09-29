@@ -56,32 +56,32 @@ func (m *cloudDeprovisionDispatchMock) DeprovisionCluster(_ context.Context, _ s
 	return &client.DeprovisionClusterResult{}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionHetznerCluster(clusterID string, _ bool) (*client.DeprovisionHetznerClusterResponse, error) {
+func (m *cloudDeprovisionDispatchMock) DeprovisionHetznerCluster(clusterID string, _ client.DeprovisionOptions) (*client.DeprovisionHetznerClusterResponse, error) {
 	m.calledProvider = "hetzner"
 	return &client.DeprovisionHetznerClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionOvhCluster(clusterID string, _ bool) (*client.DeprovisionOvhClusterResponse, error) {
+func (m *cloudDeprovisionDispatchMock) DeprovisionOvhCluster(clusterID string, _ client.DeprovisionOptions) (*client.DeprovisionOvhClusterResponse, error) {
 	m.calledProvider = "ovh"
 	return &client.DeprovisionOvhClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionUpcloudCluster(clusterID string, _ bool) (*client.DeprovisionUpcloudClusterResponse, error) {
+func (m *cloudDeprovisionDispatchMock) DeprovisionUpcloudCluster(clusterID string, _ client.DeprovisionOptions) (*client.DeprovisionUpcloudClusterResponse, error) {
 	m.calledProvider = "upcloud"
 	return &client.DeprovisionUpcloudClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionDigitaloceanCluster(clusterID string, _ bool) (*client.DeprovisionDigitaloceanClusterResponse, error) {
+func (m *cloudDeprovisionDispatchMock) DeprovisionDigitaloceanCluster(clusterID string, _ client.DeprovisionOptions) (*client.DeprovisionDigitaloceanClusterResponse, error) {
 	m.calledProvider = "digitalocean"
 	return &client.DeprovisionDigitaloceanClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionScalewayCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m *cloudDeprovisionDispatchMock) DeprovisionScalewayCluster(clusterID string, _ client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	m.calledProvider = "scaleway"
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionAwsCluster(clusterID string, force bool) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m *cloudDeprovisionDispatchMock) DeprovisionAwsCluster(clusterID string, _ client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	m.calledProvider = "aws"
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }

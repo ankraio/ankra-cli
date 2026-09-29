@@ -62,6 +62,12 @@ var clusterAgentStatusCmd = &cobra.Command{
 			fmt.Printf("  Status:     %s\n", text.FgRed.Sprint("not connected"))
 		}
 
+		if agent.DisableAutoUpgrade {
+			fmt.Printf("  Auto-upgrade: %s\n", text.FgYellow.Sprint("disabled (the fleet rollout skips this agent)"))
+		} else {
+			fmt.Printf("  Auto-upgrade: %s\n", text.FgGreen.Sprint("enabled"))
+		}
+
 		if agent.UpgradeAvailable {
 			fmt.Printf("\n  Upgrade Available: %s\n", text.FgYellow.Sprint("Yes"))
 			if agent.LatestAgentVersion != nil {

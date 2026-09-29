@@ -7,7 +7,6 @@ import (
 
 	"ankra/internal/client"
 
-	"github.com/dustin/go-humanize"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 )
@@ -78,7 +77,7 @@ func printBackupVaultContents(contents *client.BackupVaultContents, orphansOnly 
 	if contents.ScannedPrefix != "" {
 		fmt.Printf("  Prefix:   %s\n", contents.ScannedPrefix)
 	}
-	fmt.Printf("  Objects:  %d (%s)\n", contents.ObjectCount, humanize.Bytes(uint64(contents.TotalBytes)))
+	fmt.Printf("  Objects:  %d (%s)\n", contents.ObjectCount, formatByteSize(int64(contents.TotalBytes)))
 	// The totals above are the headline number a reader takes away, so a
 	// partial listing has to qualify them right here rather than rely on a
 	// warning further down. Keying this off Complete instead of off Warnings
@@ -122,7 +121,7 @@ func printVaultRestorePoints(restorePoints []client.VaultRestorePointContents) {
 			restorePoint.Status,
 			strings.Join(restorePoint.StackNames, ","),
 			restorePoint.ObjectCount,
-			humanize.Bytes(uint64(restorePoint.TotalBytes)),
+			formatByteSize(int64(restorePoint.TotalBytes)),
 			locatedSummary(restorePoint),
 		})
 	}
@@ -168,7 +167,7 @@ func printVaultRepositories(repositories []client.VaultSharedRepository) {
 		}
 		writer.AppendRow(table.Row{
 			repository.Prefix, repository.Namespace, repository.ObjectCount,
-			humanize.Bytes(uint64(repository.TotalBytes)), referencedBy,
+			formatByteSize(int64(repository.TotalBytes)), referencedBy,
 		})
 	}
 	writer.Render()
@@ -186,7 +185,7 @@ func printVaultOther(other []client.VaultPrefixUsage) {
 	fmt.Println("\nOther contents (not restore points):")
 	for _, usage := range other {
 		fmt.Printf("  %-56s %5d objects  %s\n", usage.Prefix, usage.ObjectCount,
-			humanize.Bytes(uint64(usage.TotalBytes)))
+			formatByteSize(int64(usage.TotalBytes)))
 	}
 }
 
@@ -203,7 +202,7 @@ func printVaultOrphans(orphans []client.VaultOrphanGroup, determined bool) {
 	for _, orphan := range orphans {
 		fmt.Printf("\n  %s\n", orphan.Prefix)
 		fmt.Printf("    kind:    %s\n", orphan.Kind)
-		fmt.Printf("    holds:   %d objects, %s\n", orphan.ObjectCount, humanize.Bytes(uint64(orphan.TotalBytes)))
+		fmt.Printf("    holds:   %d objects, %s\n", orphan.ObjectCount, formatByteSize(int64(orphan.TotalBytes)))
 		if orphan.RestorePointID != "" {
 			fmt.Printf("    from:    restore point %s\n", orphan.RestorePointID)
 		}
@@ -221,7 +220,7 @@ func printVaultObjects(objects []client.VaultObject) {
 		return
 	}
 	for _, object := range objects {
-		fmt.Printf("  %12s  %s\n", humanize.Bytes(uint64(object.SizeBytes)), object.Key)
+		fmt.Printf("  %12s  %s\n", formatByteSize(int64(object.SizeBytes)), object.Key)
 	}
 }
 

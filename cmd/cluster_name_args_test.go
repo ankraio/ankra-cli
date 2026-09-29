@@ -378,7 +378,7 @@ func (m *scalewayDeprovisionConfirmMock) ListClusters(page int, pageSize int) (*
 	}, nil
 }
 
-func (m *scalewayDeprovisionConfirmMock) DeprovisionScalewayCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m *scalewayDeprovisionConfirmMock) DeprovisionScalewayCluster(clusterID string, _ client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	m.deprovisioned = clusterID
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }

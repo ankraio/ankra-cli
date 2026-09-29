@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"ankra/internal/client"
+	"ankra/internal/hiddenunicode"
 )
 
 var chatActionsCmd = &cobra.Command{
@@ -153,27 +154,44 @@ func chatActionConflictError(conflict *client.ActionConflictError, actionID stri
 // renderActionProposal prints an `action_proposal` frame. Agent-mode writes
 // halt on this frame, so it must always be shown - a dropped proposal looks
 // like the assistant silently ignored the request.
+//
+// Every field is server-authored and this card is the last thing an operator
+// reads before approving a write, so invisible Unicode is removed first and
+// the removal is reported inside the card (ankra-4r75g.9). A description that
+// hides characters can read as one action and describe another; the operator
+// has to be told before they answer the prompt, not after.
 func renderActionProposal(proposal *client.ChatActionProposal) {
+	toolName, toolRemoved := hiddenunicode.Strip(proposal.ToolName)
+	description, descriptionRemoved := hiddenunicode.Strip(proposal.Description)
+	riskLevel, riskRemoved := hiddenunicode.Strip(proposal.RiskLevel)
+	actionID, actionRemoved := hiddenunicode.Strip(proposal.ActionID)
+	parameters, parametersRemoved := hiddenunicode.Strip(formatProposalParameters(proposal.Parameters))
+	removed := toolRemoved + descriptionRemoved + riskRemoved + actionRemoved + parametersRemoved
+
 	fmt.Println()
 	fmt.Println("── Action awaiting confirmation ──────────────────────────────")
-	fmt.Printf("  Tool:        %s\n", proposal.ToolName)
-	if proposal.Description != "" {
-		fmt.Printf("  Description: %s\n", proposal.Description)
+	fmt.Printf("  Tool:        %s\n", toolName)
+	if description != "" {
+		fmt.Printf("  Description: %s\n", description)
 	}
-	fmt.Printf("  Risk:        %s", proposal.RiskLevel)
+	fmt.Printf("  Risk:        %s", riskLevel)
 	if proposal.Reversible {
 		fmt.Print(" (reversible)")
 	} else {
 		fmt.Print(" (NOT reversible)")
 	}
 	fmt.Println()
-	if parameters := formatProposalParameters(proposal.Parameters); parameters != "" {
+	if parameters != "" {
 		fmt.Printf("  Parameters:  %s\n", parameters)
 	}
 	if proposal.ExpiresInSeconds > 0 {
 		fmt.Printf("  Expires in:  %ds\n", proposal.ExpiresInSeconds)
 	}
-	fmt.Printf("  Action ID:   %s\n", proposal.ActionID)
+	fmt.Printf("  Action ID:   %s\n", actionID)
+	if removed > 0 {
+		fmt.Printf("  ⚠ WARNING:   %s\n", hiddenunicode.Notice(removed))
+		fmt.Println("               Do not approve this unless you know why it hid them.")
+	}
 	fmt.Println("──────────────────────────────────────────────────────────────")
 }
 

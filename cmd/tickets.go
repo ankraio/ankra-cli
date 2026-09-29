@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"ankra/internal/client"
+	"ankra/internal/hiddenunicode"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -158,7 +159,13 @@ hands it back to its agent; to answer a choice the agent offered, use
 		if err != nil {
 			return err
 		}
-		event, err := apiClient.CommentOnTicket(ticket.ID, strings.TrimSpace(body))
+		// An AI agent reads this comment, so it does not carry invisible
+		// runes to it (ankra-4r75g.9).
+		comment, commentHidden := hiddenunicode.Strip(strings.TrimSpace(body))
+		if commentHidden > 0 {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", hiddenunicode.Notice(commentHidden))
+		}
+		event, err := apiClient.CommentOnTicket(ticket.ID, comment)
 		if err != nil {
 			return err
 		}

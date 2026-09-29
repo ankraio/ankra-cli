@@ -18,6 +18,8 @@ type costMock struct {
 	clusterCost *client.ClusterCost
 	settings    *client.CostSettings
 	updates     []client.CostSettings
+	ledger      *client.CloudLedger
+	ledgerError error
 }
 
 func (m *costMock) GetFleetCloudCost() (*client.FleetCloudCost, error) {
@@ -26,6 +28,13 @@ func (m *costMock) GetFleetCloudCost() (*client.FleetCloudCost, error) {
 
 func (m *costMock) GetCloudSavings() (*client.CloudSavings, error) {
 	return m.savings, nil
+}
+
+func (m *costMock) GetCloudLedger() (*client.CloudLedger, error) {
+	if m.ledgerError != nil {
+		return nil, m.ledgerError
+	}
+	return m.ledger, nil
 }
 
 func (m *costMock) GetClusterCost(string) (*client.ClusterCost, error) {
@@ -43,7 +52,7 @@ func (m *costMock) UpdateCostSettings(settings client.CostSettings) (*client.Cos
 }
 
 func costCommandTree() []*cobra.Command {
-	return []*cobra.Command{costSummaryCmd, costSavingsCmd, costClusterCmd, costSettingsGetCmd, costSettingsSetCmd}
+	return []*cobra.Command{costSummaryCmd, costSavingsCmd, costLedgerCmd, costClusterCmd, costSettingsGetCmd, costSettingsSetCmd}
 }
 
 func runCostCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
@@ -182,7 +191,7 @@ func TestCostSavingsRendersRecommendationsUnanalysedClustersAndWaste(t *testing.
 	for _, expected := range []string{
 		"Cloud savings (EUR): €1166.57/mo across 3 recommendations",
 		"3 of 5 clusters analysed (2 not analysed: only the 8 biggest are) · 1 unpriced · 1 stale · 1 unreadable · generated 2026-09-18T06:00:00Z",
-		"Recommendations (one lever per cluster):",
+		"Recommendations (a cluster can carry several; the total counts each cluster once, at its best lever):",
 		"prod-eu", "Right-size idle capacity", "€438.00", "22%", "€2000.00",
 		"data-platform", "Reduce unallocated run rate (35% unclaimed)", "€600.00", "35%",
 		"staging-1", "staging", "Off-hours schedule (weeknights and weekends)", "€128.57", "54%",
@@ -320,7 +329,7 @@ func TestCostSavingsWithPricedClustersButNoLeverNamesTheMinimum(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"Cloud savings (GBP): £0.00/mo across 0 recommendations",
-		"2 of 2 clusters analysed · 0 unpriced · 0 stale",
+		"2 of 2 clusters analysed (limit 8) · 0 unpriced · 0 stale",
 		"No recommendation clears the £5.00/mo minimum on the analysed clusters.",
 		"Waste: no open findings.",
 	} {
@@ -328,7 +337,7 @@ func TestCostSavingsWithPricedClustersButNoLeverNamesTheMinimum(t *testing.T) {
 			t.Fatalf("output lacks %q:\n%s", expected, output)
 		}
 	}
-	if strings.Contains(output, "Recommendations (one lever per cluster):") {
+	if strings.Contains(output, "Recommendations (a cluster can carry several; the total counts each cluster once, at its best lever):") {
 		t.Fatalf("an empty recommendation list must not render a table:\n%s", output)
 	}
 }

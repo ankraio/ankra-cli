@@ -130,6 +130,20 @@ ankra cluster agent status
 A failed platform execution explains more deploy failures than pod logs do — start there. See
 `ankra-troubleshooting`.
 
+## Agent upgrades
+
+```bash
+ankra cluster agent status                       # version, check-in, whether auto-upgrade is on
+ankra cluster agent auto-upgrade disable         # fence this agent off from the fleet rollout (a freeze window)
+ankra cluster agent auto-upgrade enable          # put it back in
+ankra cluster agent upgrade                      # apply the latest release now, whichever way the switch sits
+```
+
+The fleet rollout upgrades every online agent that has not opted out, as soon as the cluster has
+no write execution running; it knows nothing about your freeze windows, so disable it ahead of
+one and enable it after. The MCP twins are `get_cluster_agent_status`, `set_cluster_agent_auto_upgrade`
+and `upgrade_cluster_agent`.
+
 ## Migrating a Docker deployment
 
 ```bash
@@ -201,7 +215,7 @@ flagged request anyway. Attach the evidence (operations output, logs) rather tha
 
 ```bash
 ankra cost summary                       # fleet rollup: projected month end, month to date, run rate, by provider, costliest clusters
-ankra cost savings                       # one lever per cluster (right-size idle, reduce unallocated, off-hours schedule) with its monthly saving; unpriced and stale clusters; waste summary
+ankra cost savings                       # savings levers per cluster (right-size idle, reduce unallocated, off-hours schedule) with their monthly saving, the total counting each cluster once at its best; unpriced and stale clusters; waste summary
 ankra cost cluster prod-eu               # one cluster: breakdown by component, namespace allocation, daily trend
 ankra cost settings get                  # display currency, effective discount, network egress estimate
 ankra cost settings set --currency eur --discount 12.5   # admins only; only the flags you pass change

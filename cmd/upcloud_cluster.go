@@ -113,10 +113,15 @@ var upcloudDeprovisionCmd = &cobra.Command{
 		}
 		yes, _ := cmd.Flags().GetBool("yes")
 		force, _ := cmd.Flags().GetBool("force")
+		acceptsVolumeDataLoss, volumeError := acknowledgeVolumeDataLoss(cmd, cloudClusterKindUpcloud, clusterID,
+			clusterTarget(args[0], clusterID))
+		if volumeError != nil {
+			return volumeError
+		}
 
 		warning := "This deletes all its servers, networks and SSH keys!"
 		if force {
-			warning = "This deletes all its servers, networks, SSH keys, CSI storage volumes and load balancers!"
+			warning = "This deletes all its servers, networks, SSH keys and load balancers!"
 		}
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
 			fmt.Sprintf("Deprovision UpCloud cluster %s? %s [y/N]: ", clusterTarget(args[0], clusterID), warning),
@@ -124,7 +129,8 @@ var upcloudDeprovisionCmd = &cobra.Command{
 			return err
 		}
 
-		result, err := apiClient.DeprovisionUpcloudCluster(clusterID, force)
+		result, err := apiClient.DeprovisionUpcloudCluster(clusterID,
+			client.DeprovisionOptions{Force: force, AcceptVolumeDataLoss: acceptsVolumeDataLoss})
 		if err != nil {
 			return fmt.Errorf("deprovisioning cluster: %w", err)
 		}
@@ -153,8 +159,8 @@ var upcloudStopCmd = &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop an UpCloud cluster",
 	Long: "Stop an UpCloud cluster's compute while keeping its configuration so it can be started again later.\n\n" +
-		"--force also deletes the cluster's CSI storage volumes and load balancers, which otherwise keep billing " +
-		"while the cluster is stopped - the persisted data is lost.",
+		"--force also deletes the cluster's load balancers. The CSI storage volumes are kept, forced or not, and keep " +
+		"billing while the cluster is stopped; deprovision the cluster to delete them.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
@@ -653,12 +659,13 @@ func init() {
 	_ = upcloudCreateCmd.MarkFlagRequired("zone")
 
 	upcloudStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	upcloudStartCmd.Flags().String("restore-state", "", restoreStateFlagUsage)
+	registerThreeStateFlag(upcloudStartCmd, "restore-state", restoreStateFlagUsage)
 
 	upcloudDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
-	upcloudDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's CSI storage volumes and load balancers, and tolerate unreachable infrastructure")
-	upcloudStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's CSI storage volumes and load balancers (destroys persisted data; they otherwise keep billing while stopped)")
-	upcloudStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
+	upcloudDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's load balancers, and tolerate unreachable infrastructure. The CSI storage volumes are deleted forced or not, and only with --accept-volume-data-loss or a yes at the prompt")
+	registerAcceptVolumeDataLossFlag(upcloudDeprovisionCmd)
+	upcloudStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's load balancers. The cluster's CSI storage volumes are kept and keep billing while stopped: only a deprovision deletes them")
+	registerThreeStateFlag(upcloudStopCmd, "preserve-state", preserveStateFlagUsage)
 	upcloudStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	upcloudNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 

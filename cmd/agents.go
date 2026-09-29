@@ -7,6 +7,8 @@ import (
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
+
+	"ankra/internal/hiddenunicode"
 )
 
 var agentsCmd = &cobra.Command{
@@ -177,11 +179,25 @@ func transcriptEventSummary(payload map[string]interface{}) string {
 }
 
 // truncateCell caps a table/summary cell without breaking the layout.
+// truncateCell fits a value into a table cell. Agent outcome summaries and
+// agent run text are AI-authored, so invisible Unicode is removed here: this
+// is the one place every table cell passes through (ankra-4r75g.9). A cell
+// cannot carry the count the way the chat lanes and the approval card do -
+// a per-cell notice would wreck the table - so this removal is silent by
+// design; the surfaces where the operator acts on the text report it.
+//
+// The cut is by rune, not by byte: the old slice could split a multi-byte
+// character and emit invalid UTF-8 for any non-ASCII name.
 func truncateCell(value string, maxLength int) string {
-	if len(value) <= maxLength {
-		return value
+	cleaned, _ := hiddenunicode.Strip(value)
+	if maxLength <= 0 {
+		return ""
 	}
-	return value[:maxLength-1] + "…"
+	runes := []rune(cleaned)
+	if len(runes) <= maxLength {
+		return cleaned
+	}
+	return string(runes[:maxLength-1]) + "…"
 }
 
 func init() {

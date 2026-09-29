@@ -145,7 +145,7 @@ func printStackDraftDeployResult(out io.Writer, result *client.StackWriteResult)
 	}
 	printWarnings(out, result.Warnings)
 	if result.OperationID != nil && *result.OperationID != "" {
-		_, _ = fmt.Fprintf(out, "\nFollow it with 'ankra cluster operations get %s'.\n", *result.OperationID)
+		_, _ = fmt.Fprintf(out, "\nFollow it with 'ankra cluster operations list %s'.\n", *result.OperationID)
 	}
 	return nil
 }

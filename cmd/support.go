@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"ankra/internal/client"
+	"ankra/internal/hiddenunicode"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -65,6 +66,16 @@ var supportCreateCmd = &cobra.Command{
 
 		ctx, cancel := context.WithTimeout(cmd.Context(), supportRequestTimeout)
 		defer cancel()
+
+		// The platform's AI reviews this ticket, and the text often comes
+		// from a log or an error the operator pasted in, so it travels
+		// without invisible runes (ankra-4r75g.9).
+		subject, subjectHidden := hiddenunicode.Strip(subject)
+		description, descriptionHidden := hiddenunicode.Strip(description)
+		if subjectHidden+descriptionHidden > 0 {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s\n",
+				hiddenunicode.Notice(subjectHidden+descriptionHidden))
+		}
 
 		review, err := apiClient.ReviewSupportTicket(ctx, client.ReviewSupportTicketRequest{
 			Subject:     subject,

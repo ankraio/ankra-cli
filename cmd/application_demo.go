@@ -176,8 +176,53 @@ func newApplicationDemoConfigCommand() *cobra.Command {
 	configCommand.AddCommand(
 		newApplicationDemoConfigGetCommand(),
 		newApplicationDemoConfigSetCommand(),
+		newApplicationDemoConfigRotatePasswordCommand(),
 	)
 	return configCommand
+}
+
+// newApplicationDemoConfigRotatePasswordCommand mints a new password for an
+// application's protected demos. The answer is the only place the plaintext
+// is ever shown; Ankra stores its hash and nothing else.
+func newApplicationDemoConfigRotatePasswordCommand() *cobra.Command {
+	rotateCommand := &cobra.Command{
+		Use:   "rotate-password <application-id>",
+		Short: "Mint a new password for the application's protected demos (shown once)",
+		Long: `Mint a new shared password for every demo of the application that launches
+behind Ankra's edge password guard. The password is printed exactly once: Ankra
+keeps only its bcrypt hash and never shows it again. Running demos keep the
+previous password until their next redeploy (a pull request push redeploys its
+preview). Turn protection on first with 'demo config set --protected'.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			applicationID, resolveError := resolveApplicationArgument(command, arguments)
+			if resolveError != nil {
+				return resolveError
+			}
+			payload, rotateError := apiClient.RotateApplicationDemoProtection(command.Context(), applicationID)
+			if rotateError != nil {
+				return rotateError
+			}
+			// The same once-only notice the set path prints: a piped or
+			// structured answer must never be the only place the password
+			// appears without a word that it will not be shown again.
+			password, readError := demoRotatedPassword(payload)
+			switch {
+			case readError != nil:
+				command.PrintErrln("The rotation's answer could not be read; a password may have been minted. Inspect the JSON output below before retrying.")
+			case password == "":
+				command.PrintErrln("The rotation answered no password; nothing was shown. Check the JSON output and retry.")
+			default:
+				command.PrintErrf("Demo password rotated (shown once, store it now): preview / %s\n", password)
+			}
+			return renderApplicationPayload(command, payload)
+		},
+	}
+	registerStructuredOutputFlags(rotateCommand)
+	return rotateCommand
 }
 
 func newApplicationDemoConfigGetCommand() *cobra.Command {
@@ -213,6 +258,10 @@ type demoConfigDocument struct {
 	Database           bool             `json:"database"`
 	MigrateCommand     *string          `json:"migrate_command,omitempty"`
 	DatabaseExtensions *[]string        `json:"database_extensions,omitempty"`
+	// Protected is written only when --protected was given: turning it on
+	// mints the shared demo password, which the answer carries exactly once
+	// as generated_password.
+	Protected *bool `json:"protected,omitempty"`
 }
 
 func newApplicationDemoConfigSetCommand() *cobra.Command {
@@ -223,7 +272,8 @@ func newApplicationDemoConfigSetCommand() *cobra.Command {
 current configuration first and applies only the flags you set: --env
 entries override by name, everything else is carried forward.`,
 		Example: `  ankra application demo config set <app-id> --database=true --env DATABASE_URL='${{ ankra.demo_database.url }}'
-  ankra application demo config set <app-id> --migrate-command 'pnpm run db:migrate' --database-extension vector`,
+  ankra application demo config set <app-id> --migrate-command 'pnpm run db:migrate' --database-extension vector
+  ankra application demo config set <app-id> --protected=true   # prints the minted password once`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -287,6 +337,10 @@ entries override by name, everything else is carried forward.`,
 				extensions, _ := command.Flags().GetStringArray("database-extension")
 				document.DatabaseExtensions = &extensions
 			}
+			if command.Flags().Changed("protected") {
+				protected, _ := command.Flags().GetBool("protected")
+				document.Protected = &protected
+			}
 
 			body, marshalError := json.Marshal(document)
 			if marshalError != nil {
@@ -296,9 +350,30 @@ entries override by name, everything else is carried forward.`,
 			if updateError != nil {
 				return updateError
 			}
+			if command.Flags().Changed("protected") && document.Protected != nil && !*document.Protected {
+				command.PrintErrln("Demo protection is off: the shared password is cleared and new launches answer without a login. Running demos keep their guard until their next redeploy.")
+			}
+			if command.Flags().Changed("protected") && document.Protected != nil && *document.Protected {
+				// The one time this password is visible anywhere. It goes to
+				// stderr so a piped JSON answer stays a JSON answer. No
+				// password in the answer means protection was already on
+				// (nothing was minted), which is said rather than left silent.
+				generated, readError := demoGeneratedPassword(payload)
+				switch {
+				case readError != nil:
+					// Never assert a state that was not observed: an unreadable
+					// answer may still carry a password the user must see.
+					command.PrintErrln("The answer could not be read; a password may have been minted. Inspect the JSON output below.")
+				case generated == "":
+					command.PrintErrln("Protection was already on, so no new password was minted; run 'demo config rotate-password' to get one.")
+				default:
+					command.PrintErrf("Demo password minted (shown once, store it now): preview / %s\n", generated)
+				}
+			}
 			return renderApplicationPayload(command, payload)
 		},
 	}
+	setCommand.Flags().Bool("protected", false, "Put every demo behind Ankra's edge password guard (--protected=false turns it off); turning it on prints the minted password once")
 	setCommand.Flags().StringArray("env", nil, "Set an env entry as NAME=VALUE (repeatable; overrides by name)")
 	setCommand.Flags().StringArray("remove-env", nil, "Remove an env entry by name (repeatable)")
 	setCommand.Flags().Bool("database", false, "Provision the throwaway per-demo Postgres")
@@ -645,4 +720,31 @@ func newApplicationDemoStopCommand() *cobra.Command {
 	}
 	registerStructuredOutputFlags(stopCommand)
 	return stopCommand
+}
+
+// demoGeneratedPassword reads the once-only generated_password a demo-config
+// answer carries after protection was turned on; empty otherwise (protection
+// was already on, or the answer was not a configuration echo).
+func demoGeneratedPassword(payload json.RawMessage) (string, error) {
+	var answer struct {
+		GeneratedPassword string `json:"generated_password"`
+	}
+	if unmarshalError := json.Unmarshal(payload, &answer); unmarshalError != nil {
+		return "", unmarshalError
+	}
+	return answer.GeneratedPassword, nil
+}
+
+// demoRotatedPassword reads the once-only password a rotation answers. The
+// rotate route answers {username, password, rotated_at, detail}, a different
+// shape from the configuration echo's generated_password on purpose: one is
+// a credential receipt, the other a configuration with a receipt attached.
+func demoRotatedPassword(payload json.RawMessage) (string, error) {
+	var answer struct {
+		Password string `json:"password"`
+	}
+	if unmarshalError := json.Unmarshal(payload, &answer); unmarshalError != nil {
+		return "", unmarshalError
+	}
+	return answer.Password, nil
 }

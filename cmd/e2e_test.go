@@ -81,6 +81,12 @@ func (m baseMock) DeprovisionCluster(ctx context.Context, clusterID string) (*cl
 	return nil, errors.New("not implemented")
 }
 
+// GetDeprovisionVolumes answers a cluster without persistent volumes, so a
+// deprovision test that is not about volumes needs no acknowledgement.
+func (m baseMock) GetDeprovisionVolumes(kind, clusterID string) (*client.DeprovisionVolumes, error) {
+	return &client.DeprovisionVolumes{ClusterID: clusterID, State: "none"}, nil
+}
+
 func (m baseMock) RollToClusterResourceVersion(ctx context.Context, clusterID, versionID string) (*client.RollToClusterResourceVersionResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -202,6 +208,14 @@ func (m baseMock) SetStackProfileCurrentVersion(requestContext context.Context, 
 }
 
 func (m baseMock) DiffStackProfileVersions(requestContext context.Context, profileID string, fromVersion int, toVersion int) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeprecateStackProfileVersion(requestContext context.Context, profileID string, version int, deprecateRequest client.DeprecateStackProfileVersionRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UndeprecateStackProfileVersion(requestContext context.Context, profileID string, version int) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -492,6 +506,9 @@ func (m baseMock) GetApplicationDemoConfig(requestContext context.Context, appli
 func (m baseMock) UpdateApplicationDemoConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
+func (m baseMock) RotateApplicationDemoProtection(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return json.RawMessage(`{"username":"preview","password":"minted-once","rotated_at":"2026-09-23T10:00:00Z","detail":"shown once"}`), nil
+}
 
 func (m baseMock) FixApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
@@ -546,6 +563,10 @@ func (m baseMock) UpdatePowerSchedule(clusterID, scheduleID string, request clie
 }
 
 func (m baseMock) DeletePowerSchedule(clusterID, scheduleID string) (*client.DeletePowerScheduleResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPowerScheduleNodeLocalStorage(clusterID string) (*client.PowerScheduleNodeLocalStorage, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -706,6 +727,38 @@ func (m baseMock) GetExecutionResult(executionID string) (client.ExecutionResult
 
 func (m baseMock) EnrichExecutionDetailWithDrift(detail *client.ExecutionDetail) error {
 	return nil
+}
+
+func (m baseMock) ListDecisions(filter client.DecisionListFilter) (*client.DecisionProposalList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetDecision(decisionID string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetDecisionActivity(decisionID string) (*client.DecisionActivity, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ApproveDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetAsideDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) HoldDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReleaseDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ExecuteDecision(decisionID string, options client.DecisionExecuteOptions) (*client.DecisionProposal, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) ListExecutionSteps(executionID string) ([]client.ExecutionStep, error) {
@@ -1536,6 +1589,10 @@ func (m baseMock) GenerateAgentToken(ctx context.Context, clusterID string) (*cl
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) SetClusterAgentAutoUpgrade(context.Context, string, bool) (*client.AgentSettingsResult, error) {
+	return &client.AgentSettingsResult{Success: true, Message: "Cluster agent settings updated successfully"}, nil
+}
+
 func (m baseMock) UpgradeClusterAgent(ctx context.Context, clusterID string) (*client.UpgradeAgentResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1553,7 +1610,7 @@ func (m baseMock) CreateHetznerCluster(req client.CreateHetznerClusterRequest) (
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionHetznerCluster(clusterID string, force bool) (*client.DeprovisionHetznerClusterResponse, error) {
+func (m baseMock) DeprovisionHetznerCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionHetznerClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1705,7 +1762,7 @@ func (m baseMock) CreateOvhCluster(req client.CreateOvhClusterRequest) (*client.
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionOvhCluster(clusterID string, force bool) (*client.DeprovisionOvhClusterResponse, error) {
+func (m baseMock) DeprovisionOvhCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionOvhClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1937,7 +1994,7 @@ func (m baseMock) CreateUpcloudCluster(req client.CreateUpcloudClusterRequest) (
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionUpcloudCluster(clusterID string, force bool) (*client.DeprovisionUpcloudClusterResponse, error) {
+func (m baseMock) DeprovisionUpcloudCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionUpcloudClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2041,7 +2098,7 @@ func (m baseMock) CreateDigitaloceanCluster(req client.CreateDigitaloceanCluster
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionDigitaloceanCluster(clusterID string, force bool) (*client.DeprovisionDigitaloceanClusterResponse, error) {
+func (m baseMock) DeprovisionDigitaloceanCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionDigitaloceanClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2197,7 +2254,7 @@ func (m baseMock) PreflightScalewayCluster(request client.CreateScalewayClusterR
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionScalewayCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m baseMock) DeprovisionScalewayCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2317,7 +2374,7 @@ func (m baseMock) PreflightAwsCluster(request client.CreateAwsClusterRequest) (*
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionAwsCluster(clusterID string, force bool) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m baseMock) DeprovisionAwsCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -4535,7 +4592,47 @@ func (m baseMock) GetFleetCloudCost() (*client.FleetCloudCost, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetFleetCostTrend(days int) (*client.FleetCostTrend, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetNamespaceCostHistory(clusterID string, days int, granularity string) (*client.NamespaceCostHistory, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetObjectCost(kind string, pathSegments ...string) (*client.ObjectCostProjection, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetCostEvents(days int) (*client.CostEvents, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetCostReconciliation(month string) (*client.CostReconciliation, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetCloudSavings() (*client.CloudSavings, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetCloudLedger() (*client.CloudLedger, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetCostAutopilot() (*client.CostAutopilotPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateCostAutopilot(update client.CostAutopilotPolicyUpdate) (*client.CostAutopilotPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetCostAutopilotOverride(clusterID string, request client.CostAutopilotOverrideRequest) (*client.CostAutopilotCluster, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ClearCostAutopilotOverride(clusterID string) (*client.CostAutopilotCluster, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -4549,4 +4646,20 @@ func (m baseMock) GetCostSettings() (*client.CostSettings, error) {
 
 func (m baseMock) UpdateCostSettings(settings client.CostSettings) (*client.CostSettings, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListCostBudgets() (*client.CostBudgets, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateCostBudget(write client.CostBudgetWrite) (*client.CostBudget, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateCostBudget(budgetID string, write client.CostBudgetWrite) (*client.CostBudget, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteCostBudget(budgetID string) error {
+	return errors.New("not implemented")
 }

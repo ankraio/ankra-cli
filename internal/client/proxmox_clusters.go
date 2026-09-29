@@ -97,7 +97,7 @@ func (c *Client) CreateProxmoxCluster(request CreateProxmoxClusterRequest) (*Cre
 // and may leak, which is the only way a cluster whose host or jumphost is gone
 // can leave "deprovisioning" (ankra-4tret).
 func (c *Client) DeprovisionProxmoxCluster(clusterID string, force bool) (*ProviderDeprovisionClusterResponse, error) {
-	return c.deprovisionProviderCluster(proxmoxKind, clusterID, force)
+	return c.deprovisionProviderCluster(proxmoxKind, clusterID, DeprovisionOptions{Force: force})
 }
 
 func (c *Client) StopProxmoxCluster(clusterID string, options StopClusterOptions) (*ProviderStopClusterResponse, error) {

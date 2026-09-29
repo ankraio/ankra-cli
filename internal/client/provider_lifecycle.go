@@ -85,6 +85,86 @@ func (options StopClusterOptions) query() string {
 	return "?" + values.Encode()
 }
 
+// DeprovisionOptions are the query options of a self-managed cluster
+// deprovision. Force skips the agent's dependency chain and tolerates
+// infrastructure that can no longer be reached. AcceptVolumeDataLoss is the
+// caller's acknowledgement that the cluster's persistent volumes, and the data
+// on them, are deleted with it (accept_volume_data_loss); the platform keeps
+// the volumes without it, and refuses (409) once it requires it.
+type DeprovisionOptions struct {
+	Force                bool
+	AcceptVolumeDataLoss bool
+}
+
+func (options DeprovisionOptions) query() string {
+	values := url.Values{}
+	if options.Force {
+		values.Set("force", "true")
+	}
+	if options.AcceptVolumeDataLoss {
+		values.Set("accept_volume_data_loss", "true")
+	}
+	if len(values) == 0 {
+		return ""
+	}
+	return "?" + values.Encode()
+}
+
+// DeprovisionVolume is one cloud volume a cluster deprovision removes or
+// keeps. The members other than VolumeID are nil when the platform does not
+// know them.
+type DeprovisionVolume struct {
+	VolumeID         string  `json:"volume_id"`
+	PersistentVolume *string `json:"persistent_volume"`
+	Claim            *string `json:"claim"`
+	StorageClass     *string `json:"storage_class"`
+	Capacity         *string `json:"capacity"`
+}
+
+// Label names the volume the way a person recognises it: its claim, else its
+// PersistentVolume, else the provider's volume ID, with the size when known.
+func (volume DeprovisionVolume) Label() string {
+	label := volume.VolumeID
+	switch {
+	case volume.Claim != nil && *volume.Claim != "":
+		label = *volume.Claim
+	case volume.PersistentVolume != nil && *volume.PersistentVolume != "":
+		label = *volume.PersistentVolume
+	}
+	if volume.Capacity != nil && *volume.Capacity != "" {
+		label += " (" + *volume.Capacity + ")"
+	}
+	return label
+}
+
+// DeprovisionVolumes is what deprovisioning a self-managed cluster does to
+// its persistent volumes. State is "present" (Volumes lists what the
+// deprovision deletes), "none" (it deletes none: the cluster has none, or its
+// retention_policy keeps them, listed in KeptVolumes) or "unknown" (the
+// platform could not read the inventory). ConsentRequired is true when the
+// deprovision needs AcceptVolumeDataLoss.
+type DeprovisionVolumes struct {
+	ClusterID       string              `json:"cluster_id"`
+	State           string              `json:"state"`
+	VolumeCount     *int                `json:"volume_count"`
+	Volumes         []DeprovisionVolume `json:"volumes"`
+	KeptVolumes     []DeprovisionVolume `json:"kept_volumes"`
+	RetentionPolicy *string             `json:"retention_policy"`
+	Warning         string              `json:"warning"`
+	ConsentRequired bool                `json:"consent_required"`
+}
+
+// GetDeprovisionVolumes reads what deprovisioning the cluster does to its
+// persistent volumes, before the deprovision asks for the consent.
+// GET /api/v1/clusters/{kind}/{cluster_id}/deprovision-volumes
+func (c *Client) GetDeprovisionVolumes(kind, clusterID string) (*DeprovisionVolumes, error) {
+	var result DeprovisionVolumes
+	if err := c.getJSON(c.providerClusterURL(kind, clusterID, "deprovision-volumes"), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (options StartClusterOptions) query() string {
 	values := url.Values{}
 	if options.Scope != "" {
@@ -161,11 +241,8 @@ func (c *Client) createProviderCluster(kind string, request interface{}, result 
 	return nil
 }
 
-func (c *Client) deprovisionProviderCluster(kind, clusterID string, force bool) (*ProviderDeprovisionClusterResponse, error) {
-	endpoint := c.providerClusterURL(kind, clusterID, "")
-	if force {
-		endpoint += "?force=true"
-	}
+func (c *Client) deprovisionProviderCluster(kind, clusterID string, options DeprovisionOptions) (*ProviderDeprovisionClusterResponse, error) {
+	endpoint := c.providerClusterURL(kind, clusterID, "") + options.query()
 	httpRequest, requestError := http.NewRequest(http.MethodDelete, endpoint, nil)
 	if requestError != nil {
 		return nil, fmt.Errorf("create request: %w", requestError)

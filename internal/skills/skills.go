@@ -198,3 +198,36 @@ func parseFrontmatter(content string) (name, description string) {
 	}
 	return name, description
 }
+
+// InstalledNames lists the skills a target currently holds: the skill
+// directories (or, for a packaged client, the .zip bundles) under its skills
+// directory. A directory that does not exist holds nothing. It is what the
+// upgrade refresh reinstalls, so a skill the person uninstalled stays
+// uninstalled and one they never took is not added.
+func InstalledNames(target Target) ([]string, error) {
+	entries, err := os.ReadDir(target.SkillsDirectory)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if target.Client.Packaged {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".zip") {
+				names = append(names, strings.TrimSuffix(entry.Name(), ".zip"))
+			}
+			continue
+		}
+		if !entry.IsDir() {
+			continue
+		}
+		if _, statErr := os.Stat(filepath.Join(target.SkillsDirectory, entry.Name(), "SKILL.md")); statErr != nil {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	sort.Strings(names)
+	return names, nil
+}

@@ -387,7 +387,14 @@ outcomes are very different:
 This is a teardown, not a power-off:
 
   - all cloud resources are released (servers, networks, SSH keys);
-  - every stack resource on the cluster is uninstalled.
+  - every stack resource on the cluster is uninstalled;
+  - on hetzner, ovh, upcloud, digitalocean, scaleway and aws the cluster's
+    persistent volumes (the cloud volumes its CSI driver provisioned) are
+    deleted with it, and the data on them. The command names them first and
+    deletes them only when you accept that: answer the prompt on a terminal,
+    or pass --accept-volume-data-loss (--yes does not imply it). A cluster
+    whose retention_policy is retain (aws, scaleway) keeps its volumes, which
+    keep billing in your cloud account.
 
 To power a cluster off and back on while keeping its state, use the provider's
 stop/start commands (for example "ankra hetzner cluster stop" and
@@ -424,6 +431,15 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			}
 		}
 
+		// The persistent volumes go with the cluster only when the operator
+		// accepts it: named here, asked for or refused before anything else.
+		acceptsVolumeDataLoss, volumeError := acknowledgeVolumeDataLoss(cmd, cloudClusterKind(clusterKind),
+			clusterID, fmt.Sprintf("%q", clusterName))
+		if volumeError != nil {
+			return volumeError
+		}
+		deprovisionOptions := client.DeprovisionOptions{Force: force, AcceptVolumeDataLoss: acceptsVolumeDataLoss}
+
 		// A cloud deprovision deletes the cluster itself, not just what it
 		// runs on, and no later "cluster provision" can undo that. Saying so
 		// here is the only warning an operator sees before typing y.
@@ -447,7 +463,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 
 		switch cloudClusterKind(clusterKind) {
 		case cloudClusterKindHetzner:
-			result, err := apiClient.DeprovisionHetznerCluster(clusterID, force)
+			result, err := apiClient.DeprovisionHetznerCluster(clusterID, deprovisionOptions)
 			if err != nil {
 				return fmt.Errorf("deprovisioning Hetzner cluster: %w", err)
 			}
@@ -461,7 +477,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			}
 			return nil
 		case cloudClusterKindOvh:
-			result, err := apiClient.DeprovisionOvhCluster(clusterID, force)
+			result, err := apiClient.DeprovisionOvhCluster(clusterID, deprovisionOptions)
 			if err != nil {
 				return fmt.Errorf("deprovisioning OVH cluster: %w", err)
 			}
@@ -472,7 +488,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 			return nil
 		case cloudClusterKindUpcloud:
-			result, err := apiClient.DeprovisionUpcloudCluster(clusterID, force)
+			result, err := apiClient.DeprovisionUpcloudCluster(clusterID, deprovisionOptions)
 			if err != nil {
 				return fmt.Errorf("deprovisioning UpCloud cluster: %w", err)
 			}
@@ -486,7 +502,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			}
 			return nil
 		case cloudClusterKindDigitalocean:
-			result, err := apiClient.DeprovisionDigitaloceanCluster(clusterID, force)
+			result, err := apiClient.DeprovisionDigitaloceanCluster(clusterID, deprovisionOptions)
 			if err != nil {
 				return fmt.Errorf("deprovisioning DigitalOcean cluster: %w", err)
 			}
@@ -500,7 +516,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			}
 			return nil
 		case cloudClusterKindScaleway:
-			result, deprovisionError := apiClient.DeprovisionScalewayCluster(clusterID)
+			result, deprovisionError := apiClient.DeprovisionScalewayCluster(clusterID, deprovisionOptions)
 			if deprovisionError != nil {
 				return fmt.Errorf("deprovisioning Scaleway cluster: %w", deprovisionError)
 			}
@@ -514,7 +530,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			}
 			return nil
 		case cloudClusterKindAws:
-			result, deprovisionError := apiClient.DeprovisionAwsCluster(clusterID, force)
+			result, deprovisionError := apiClient.DeprovisionAwsCluster(clusterID, deprovisionOptions)
 			if deprovisionError != nil {
 				return fmt.Errorf("deprovisioning AWS cluster: %w", deprovisionError)
 			}
@@ -647,8 +663,9 @@ func init() {
 	// so existing scripts don't break on an unknown flag; see DEPRECATIONS.md.
 	_ = clusterDeprovisionCmd.Flags().MarkDeprecated("auto-delete",
 		"the backend does not support it; deprovision never deletes the cluster record (use 'ankra delete cluster' afterwards)")
-	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state; on UpCloud, Hetzner, OVH, DigitalOcean and AWS also deletes leftover CSI storage volumes and load balancers; on Proxmox finishes the teardown when the host or jumphost is unreachable, leaving the VMs behind")
-	clusterDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state; on UpCloud, Hetzner, OVH, DigitalOcean and AWS also deletes leftover load balancers (the persistent volumes are deleted forced or not, and only with --accept-volume-data-loss or a yes at the prompt); on Proxmox finishes the teardown when the host or jumphost is unreachable, leaving the VMs behind")
+	clusterDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt (not the persistent volume acknowledgement)")
+	registerAcceptVolumeDataLossFlag(clusterDeprovisionCmd)
 
 	clusterRollToCmd.Flags().String("version", "", "Resource version ID to roll to (required)")
 	_ = clusterRollToCmd.MarkFlagRequired("version")

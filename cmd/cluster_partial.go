@@ -230,20 +230,64 @@ func parseOutputFormat(s string) (outputFormat, error) {
 // encodeStructured writes value as indented JSON or YAML for the structured -o
 // formats. It is a no-op for outputDefault, so callers gate on the format being
 // non-default before falling back to their human-readable rendering.
+//
+// Hidden Unicode is stripped on the way out and the count reported in the
+// document, because this is the seam every machine-readable payload passes
+// through; see cmd/output_hidden.go for what that changes and why.
 func encodeStructured(out io.Writer, format outputFormat, value interface{}) error {
+	_, err := encodeStructuredCounting(out, format, value)
+	return err
+}
+
+// encodeStructuredCounting is encodeStructured plus what the strip found.
+//
+// The hidden-character notice is written here, so every structured path emits
+// it exactly once: most callers reach this function directly rather than
+// through renderStructured. errOut names where the notice goes; callers that
+// hold a *cobra.Command pass its ErrOrStderr so the command's own redirection
+// is honoured, and the rest default to os.Stderr.
+func encodeStructuredCounting(out io.Writer, format outputFormat, value interface{}, errOut ...io.Writer) (stripStats, error) {
+	switch format {
+	case outputJSON, outputYAML:
+	default:
+		return stripStats{}, nil
+	}
+	cleaned, stats, err := sanitizeStructured(format, value)
+	if err != nil {
+		return stripStats{}, err
+	}
+	if stats.removed > 0 {
+		// Only a payload that was hiding something takes the generic path,
+		// so untouched output stays byte-identical to before.
+		value = cleaned
+	}
+	var encodeErr error
 	switch format {
 	case outputJSON:
 		encoder := json.NewEncoder(out)
 		encoder.SetIndent("", "  ")
-		return encoder.Encode(value)
+		encodeErr = encoder.Encode(value)
 	case outputYAML:
 		encoder := yaml.NewEncoder(out)
 		encoder.SetIndent(2)
-		defer func() { _ = encoder.Close() }()
-		return encoder.Encode(value)
+		encodeErr = encoder.Encode(value)
+		_ = encoder.Close()
 	default:
-		return nil
+		return stripStats{}, nil
 	}
+	if notice := structuredHiddenNotice(stats); notice != "" {
+		_, _ = fmt.Fprintln(structuredErrWriter(errOut), notice)
+	}
+	return stats, encodeErr
+}
+
+// structuredErrWriter resolves where the notice goes: the writer a caller
+// supplied, or os.Stderr for the call sites that hold no command.
+func structuredErrWriter(errOut []io.Writer) io.Writer {
+	if len(errOut) > 0 && errOut[0] != nil {
+		return errOut[0]
+	}
+	return os.Stderr
 }
 
 // dryRunEnvelope is the structured shape emitted by --dry-run -o json|yaml so

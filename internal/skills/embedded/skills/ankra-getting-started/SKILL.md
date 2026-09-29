@@ -184,8 +184,8 @@ See `ankra-stack-profiles`.
 ## 7. The first application
 
 ```bash
-ankra application add .                              # from the repo checkout
-ankra application get <id>                           # review the setup PR Ankra opened
+ankra application add .                              # from the repo checkout; lands on Ankra Pipelines (.ankra/pipeline.yaml)
+ankra application get <id>                           # review the setup PR Ankra opened; pipeline_source: ankra_pipeline
 ankra application env-secrets list <id>
 printf '%s' "$DATABASE_URL" | ankra application env-secrets set <id> DATABASE_URL
 ankra application env-secrets apply <id>
@@ -201,7 +201,10 @@ ankra cluster logs -l app=<name> -n app --follow=false --tail 100
 ```
 
 If it does not come up, switch to `ankra-troubleshooting` rather than changing things. See
-`ankra-applications` for registries, auto-deploy, PR demos and reaching more clusters.
+`ankra-applications` for registries, auto-deploy, PR demos and reaching more clusters. CI for a
+repository that is *not* an application (a library, docs, platform code) is Ankra Pipelines too:
+`ankra pipeline repositories connect` plus a committed `.ankra/pipeline.yaml` — `ankra-cicd`. Never
+write a `.github/workflows` CI file for a repository Ankra can reach.
 
 ## 8. Access and hardening
 
@@ -220,7 +223,7 @@ more than one person has access.
 
 | Next | Skill |
 |------|-------|
-| Continuous delivery on push | `ankra-cicd`, `ankra-applications` |
+| Continuous delivery on push, CI for any repository | `ankra-ship`, `ankra-cicd` |
 | Secrets in Git | `ankra-sops-secrets` |
 | Wiring an app to LiteLLM, Harbor, a database | `ankra-app-integrations` |
 | The same stack on many clusters | `ankra-stack-profiles` |

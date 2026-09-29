@@ -107,11 +107,8 @@ func (c *Client) CreateUpcloudCluster(req CreateUpcloudClusterRequest) (*CreateU
 	return &result, nil
 }
 
-func (c *Client) DeprovisionUpcloudCluster(clusterID string, force bool) (*DeprovisionUpcloudClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s", c.BaseURL, clusterID)
-	if force {
-		url = url + "?force=true"
-	}
+func (c *Client) DeprovisionUpcloudCluster(clusterID string, options DeprovisionOptions) (*DeprovisionUpcloudClusterResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s", c.BaseURL, clusterID) + options.query()
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

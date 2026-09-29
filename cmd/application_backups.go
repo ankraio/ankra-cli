@@ -135,7 +135,13 @@ func newApplicationProtectCommand() *cobra.Command {
 	protectCommand := &cobra.Command{
 		Use:   "protect <application-id>",
 		Short: "Turn scheduled backups on for one of an application's deployments",
-		Long: `Turn scheduled backups on for one of an application's deployments.
+		Long: `Protecting a deployment writes its whole backup policy: the vault, the
+schedule, the retention and which volumes are carried. Running it again
+replaces the policy that is there, so restate --schedule, --retention and
+--include-pvc when they must survive; anything omitted takes the default,
+not the previous value.
+
+Turn scheduled backups on for one of an application's deployments.
 
 The deployment is named by the cluster it runs on; Ankra resolves which stack
 that is. Without --vault the organisation's single verified backup vault is
@@ -170,10 +176,27 @@ behalf.`,
 				return vaultError
 			}
 			backupNow, _ := command.Flags().GetBool("backup-now")
+			retentionRaw, _ := command.Flags().GetString("retention")
+			retention, retentionError := parseRetention(retentionRaw)
+			if retentionError != nil {
+				return retentionError
+			}
+			selection, selectionError := buildSelection(command)
+			if selectionError != nil {
+				return selectionError
+			}
+			// Output flags are checked before the write: with --backup-now the
+			// write dispatches a capture, and a mistyped -o must fail before
+			// that, not after.
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
 			protection, protectError := apiClient.ProtectApplicationDeployment(applicationID,
 				target.deployment.DeploymentID, client.ProtectApplicationDeploymentRequest{
 					VaultID:   vaultID,
 					Schedule:  strings.TrimSpace(mustFlagString(command, "schedule")),
+					Retention: retention,
+					Selection: selection,
 					BackupNow: backupNow,
 				})
 			if protectError != nil {
@@ -184,6 +207,7 @@ behalf.`,
 			}
 			_, _ = fmt.Fprintf(command.OutOrStdout(), "Deployment on %s:\n", target.deployment.ClusterName)
 			printBackupPolicy(command.OutOrStdout(), protection)
+			printProtectFollowUp(command.OutOrStdout(), protection, false)
 			return nil
 		},
 	}
@@ -192,8 +216,12 @@ behalf.`,
 		"Backup vault the restore points are written to (name or id; the organisation's only ready vault when omitted, refused when it has several)")
 	protectCommand.Flags().String("schedule", "",
 		"hourly, daily, weekly, or a five-field cron expression (daily when omitted)")
+	protectCommand.Flags().String("retention", "",
+		"Restore points to keep, as key=value pairs: "+strings.Join(retentionKeys, ", ")+
+			" (for example daily=7,weekly=4,monthly=6); the platform default when omitted")
 	protectCommand.Flags().Bool("backup-now", false,
 		"Take the first restore point immediately instead of waiting for the schedule")
+	registerSelectionFlags(protectCommand)
 	registerStructuredOutputFlags(protectCommand)
 	return protectCommand
 }

@@ -293,7 +293,12 @@ var managedNodePoolUpdateCmd = &cobra.Command{
 	Short: "Update a managed cluster node pool",
 	Long: `Update the node count or autoscaling settings of a managed cluster node
 pool. Pass at least one of --count, --autoscaling, --autoscaling-min, or
---autoscaling-max; unspecified settings are left unchanged.`,
+--autoscaling-max; unspecified settings are left unchanged.
+
+Pass --externally-managed on its own to hand the pool's node count to
+something outside Ankra, such as a cluster autoscaler you run yourself. While
+it is set, Ankra refuses to scale, update, replace or delete the pool;
+--externally-managed=false hands it back.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		provider, err := parseManagedProviderFlag(cmd)
@@ -324,8 +329,15 @@ pool. Pass at least one of --count, --autoscaling, --autoscaling-min, or
 			maxCount, _ := cmd.Flags().GetInt("autoscaling-max")
 			request.AutoscalingMax = &maxCount
 		}
+		if cmd.Flags().Changed("externally-managed") {
+			if request != (client.UpdateManagedNodePoolRequest{}) {
+				return withExitCode(exitUsage, errors.New("--externally-managed must be passed on its own"))
+			}
+			isExternallyManaged, _ := cmd.Flags().GetBool("externally-managed")
+			request.ExternallyManaged = &isExternallyManaged
+		}
 		if request == (client.UpdateManagedNodePoolRequest{}) {
-			return withExitCode(exitUsage, errors.New("pass at least one of --count, --autoscaling, --autoscaling-min, --autoscaling-max"))
+			return withExitCode(exitUsage, errors.New("pass at least one of --count, --autoscaling, --autoscaling-min, --autoscaling-max, --externally-managed"))
 		}
 
 		result, err := apiClient.UpdateManagedNodePool(provider, clusterID, nodePoolName, request)
@@ -342,6 +354,13 @@ pool. Pass at least one of --count, --autoscaling, --autoscaling-min, or
 		fmt.Printf("Node pool %q updated on cluster %s\n", result.NodePoolName, result.ClusterID)
 		if result.Count != nil {
 			fmt.Printf("  Count: %d\n", *result.Count)
+		}
+		if result.ExternallyManaged != nil {
+			if *result.ExternallyManaged {
+				fmt.Println("  Externally managed: yes (Ankra will refuse to change this pool)")
+			} else {
+				fmt.Println("  Externally managed: no")
+			}
 		}
 		if result.AutoscalingEnabled != nil {
 			if *result.AutoscalingEnabled {
@@ -822,6 +841,7 @@ func init() {
 	managedNodePoolUpdateCmd.Flags().Bool("autoscaling", false, "Enable (true) or disable (false) autoscaling")
 	managedNodePoolUpdateCmd.Flags().Int("autoscaling-min", 0, "Minimum node count while autoscaling")
 	managedNodePoolUpdateCmd.Flags().Int("autoscaling-max", 0, "Maximum node count while autoscaling")
+	managedNodePoolUpdateCmd.Flags().Bool("externally-managed", false, "Hand the pool's node count to something outside Ankra (true) or take it back (false); pass on its own")
 	_ = managedNodePoolUpdateCmd.MarkFlagRequired("provider")
 
 	managedStopCmd.Flags().String("provider", "", managedProviderFlagHelp)

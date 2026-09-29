@@ -6,7 +6,10 @@ import (
 	neturl "net/url"
 )
 
-const costBasePath = "/api/v1/org/cloud-cost"
+// Each cost route is written out as a whole /api/v1 literal rather than
+// composed from a shared prefix: TestClusterRoutesAreRegistered checks the
+// literals it can see against the cluster route census, and a prefix plus a
+// suffix hides the full path from it.
 
 // FleetProviderCost is one provider's slice of the organisation-wide cost
 // rollup. Amounts are integer cents in the organisation's display currency.
@@ -117,17 +120,36 @@ type ClusterCost struct {
 // CostSettings is the organisation's pricing configuration: the display
 // currency (usd, eur or gbp), the effective discount in percent applied on
 // top of list prices, and whether a network egress estimate is included.
+//
+// AnalysedClusterLimit is how many of the costliest priced clusters the
+// savings model analyses: the limit in effect (the organisation's own, or the
+// platform default of 8). It is nil when the platform predates the setting,
+// which is unknown, not 8. It is read only: UpdateCostSettings never sends it
+// back, so restating the other settings cannot turn the default into an
+// organisation's own limit. AnalysedClusterLimitChange is how an update
+// changes it, and is never serialised.
 type CostSettings struct {
-	EffectiveDiscountPct         float64 `json:"effective_discount_pct" yaml:"effective_discount_pct"`
-	Currency                     string  `json:"currency" yaml:"currency"`
-	IncludeNetworkEgressEstimate bool    `json:"include_network_egress_estimate" yaml:"include_network_egress_estimate"`
+	EffectiveDiscountPct         float64                     `json:"effective_discount_pct" yaml:"effective_discount_pct"`
+	Currency                     string                      `json:"currency" yaml:"currency"`
+	IncludeNetworkEgressEstimate bool                        `json:"include_network_egress_estimate" yaml:"include_network_egress_estimate"`
+	AnalysedClusterLimit         *int                        `json:"analysed_cluster_limit,omitempty" yaml:"analysed_cluster_limit,omitempty"`
+	AnalysedClusterLimitChange   *AnalysedClusterLimitChange `json:"-" yaml:"-"`
+}
+
+// AnalysedClusterLimitChange is what a settings update does to the
+// analysed-cluster limit: set it to Limit (1 to 50), or return it to the
+// platform default when Default is true (sent as null). An update without a
+// change does not send the field at all, which keeps the stored limit.
+type AnalysedClusterLimitChange struct {
+	Limit   int
+	Default bool
 }
 
 // GetFleetCloudCost returns the organisation-wide cost rollup.
 // GET /api/v1/org/cloud-cost/summary
 func (c *Client) GetFleetCloudCost() (*FleetCloudCost, error) {
 	var result FleetCloudCost
-	if err := c.sendJSON(http.MethodGet, c.BaseURL+costBasePath+"/summary", nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/summary", nil, &result); err != nil {
 		return nil, err
 	}
 	if result.ByProvider == nil {
@@ -161,7 +183,7 @@ func (c *Client) GetClusterCost(clusterID string) (*ClusterCost, error) {
 // GET /api/v1/org/cloud-cost/settings
 func (c *Client) GetCostSettings() (*CostSettings, error) {
 	var result CostSettings
-	if err := c.sendJSON(http.MethodGet, c.BaseURL+costBasePath+"/settings", nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/settings", nil, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -169,10 +191,26 @@ func (c *Client) GetCostSettings() (*CostSettings, error) {
 
 // UpdateCostSettings replaces the organisation's pricing configuration. The
 // route is organisation-admin only and guarded by the CSRF double-submit.
+// analysed_cluster_limit is three-state on the route, so it is sent only for
+// an AnalysedClusterLimitChange: omitted keeps the stored limit, null returns
+// it to the default, a number sets it. The read-only AnalysedClusterLimit is
+// never sent.
 // PUT /api/v1/org/cloud-cost/settings
 func (c *Client) UpdateCostSettings(settings CostSettings) (*CostSettings, error) {
+	body := map[string]any{
+		"effective_discount_pct":          settings.EffectiveDiscountPct,
+		"currency":                        settings.Currency,
+		"include_network_egress_estimate": settings.IncludeNetworkEgressEstimate,
+	}
+	if change := settings.AnalysedClusterLimitChange; change != nil {
+		if change.Default {
+			body["analysed_cluster_limit"] = nil
+		} else {
+			body["analysed_cluster_limit"] = change.Limit
+		}
+	}
 	var result CostSettings
-	if err := c.putCSRFJSON(c.BaseURL+costBasePath+"/settings", settings, &result, "update cost settings"); err != nil {
+	if err := c.putCSRFJSON(c.BaseURL+"/api/v1/org/cloud-cost/settings", body, &result, "update cost settings"); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -260,19 +298,26 @@ type CloudSavingsWaste struct {
 }
 
 // CloudSavingsThresholds echoes the model's constants, so a reading can be
-// explained without hard-coding them again.
+// explained without hard-coding them again. AnalysedClusterLimit is the
+// organisation's limit in effect. AnalysisBudgetSeconds (how long one read may
+// spend on per-cluster breakdowns) and SnapshotStaleAfterHours (how old a
+// latest snapshot may be before metering counts as stopped) are nil on a
+// platform that predates them, and stay absent in structured output.
 type CloudSavingsThresholds struct {
 	MinimumSavingsCents         int64   `json:"minimum_savings_cents" yaml:"minimum_savings_cents"`
 	MinimumOffHoursMonthlyCents int64   `json:"minimum_off_hours_monthly_cents" yaml:"minimum_off_hours_monthly_cents"`
 	UnallocatedShareThreshold   float64 `json:"unallocated_share_threshold" yaml:"unallocated_share_threshold"`
 	OffHoursShare               float64 `json:"off_hours_share" yaml:"off_hours_share"`
 	AnalysedClusterLimit        int     `json:"analysed_cluster_limit" yaml:"analysed_cluster_limit"`
+	AnalysisBudgetSeconds       *int    `json:"analysis_budget_seconds,omitempty" yaml:"analysis_budget_seconds,omitempty"`
+	SnapshotStaleAfterHours     *int    `json:"snapshot_stale_after_hours,omitempty" yaml:"snapshot_stale_after_hours,omitempty"`
 }
 
 // CloudSavings is GET /org/cloud-cost/savings: the organisation's savings
 // model in the display currency. TotalMonthlySavingsCents counts each
 // cluster once, at its best lever. Only the biggest priced clusters are
-// analysed; the unanalysed, unpriced, stale and unreadable ones are named
+// analysed (up to the organisation's limit, within the analysis time
+// budget); the unanalysed, unpriced, stale and unreadable ones are named
 // so an unknown never reads as nothing to save.
 type CloudSavings struct {
 	Currency                 string                       `json:"currency" yaml:"currency"`
@@ -283,21 +328,25 @@ type CloudSavings struct {
 	Namespaces               []CloudSavingsNamespace      `json:"namespaces" yaml:"namespaces"`
 	AnalysedClusterCount     int                          `json:"analysed_cluster_count" yaml:"analysed_cluster_count"`
 	UnanalysedClusterCount   int                          `json:"unanalysed_cluster_count" yaml:"unanalysed_cluster_count"`
-	PricedClusterCount       int                          `json:"priced_cluster_count" yaml:"priced_cluster_count"`
-	UnpricedClusterCount     int                          `json:"unpriced_cluster_count" yaml:"unpriced_cluster_count"`
-	UnpricedClusters         []CloudSavingsCluster        `json:"unpriced_clusters" yaml:"unpriced_clusters"`
-	StaleClusterCount        int                          `json:"stale_cluster_count" yaml:"stale_cluster_count"`
-	StaleClusters            []CloudSavingsCluster        `json:"stale_clusters" yaml:"stale_clusters"`
-	UnreadableClusters       []CloudSavingsCluster        `json:"unreadable_clusters" yaml:"unreadable_clusters"`
-	Waste                    CloudSavingsWaste            `json:"waste" yaml:"waste"`
-	Thresholds               CloudSavingsThresholds       `json:"thresholds" yaml:"thresholds"`
+	// AnalysisBudgetExhausted is true when the analysis time budget, not the
+	// analysed-cluster limit, left some priced clusters unanalysed; nil on a
+	// platform that predates it.
+	AnalysisBudgetExhausted *bool                  `json:"analysis_budget_exhausted,omitempty" yaml:"analysis_budget_exhausted,omitempty"`
+	PricedClusterCount      int                    `json:"priced_cluster_count" yaml:"priced_cluster_count"`
+	UnpricedClusterCount    int                    `json:"unpriced_cluster_count" yaml:"unpriced_cluster_count"`
+	UnpricedClusters        []CloudSavingsCluster  `json:"unpriced_clusters" yaml:"unpriced_clusters"`
+	StaleClusterCount       int                    `json:"stale_cluster_count" yaml:"stale_cluster_count"`
+	StaleClusters           []CloudSavingsCluster  `json:"stale_clusters" yaml:"stale_clusters"`
+	UnreadableClusters      []CloudSavingsCluster  `json:"unreadable_clusters" yaml:"unreadable_clusters"`
+	Waste                   CloudSavingsWaste      `json:"waste" yaml:"waste"`
+	Thresholds              CloudSavingsThresholds `json:"thresholds" yaml:"thresholds"`
 }
 
 // GetCloudSavings returns the organisation's savings model.
 // GET /api/v1/org/cloud-cost/savings
 func (c *Client) GetCloudSavings() (*CloudSavings, error) {
 	var result CloudSavings
-	if err := c.sendJSON(http.MethodGet, c.BaseURL+costBasePath+"/savings", nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/savings", nil, &result); err != nil {
 		return nil, err
 	}
 	if result.Recommendations == nil {
@@ -317,6 +366,103 @@ func (c *Client) GetCloudSavings() (*CloudSavings, error) {
 	}
 	if result.UnreadableClusters == nil {
 		result.UnreadableClusters = []CloudSavingsCluster{}
+	}
+	return &result, nil
+}
+
+// CloudLedgerCounts is how many ledger rows sit in each measurement state.
+// Unmeasured covers both unmeasured states (coverage moved, no snapshots).
+// The counts cover the whole ledger, not only the rows returned.
+type CloudLedgerCounts struct {
+	Pending    int `json:"pending" yaml:"pending"`
+	Measured   int `json:"measured" yaml:"measured"`
+	Unmeasured int `json:"unmeasured" yaml:"unmeasured"`
+	Reverted   int `json:"reverted" yaml:"reverted"`
+}
+
+// CloudLedgerVerificationDay is one judged day of a right-size's seven-day
+// usage verification. State is clear, breach or unknown; a nil share is a
+// resource no node reported that day.
+type CloudLedgerVerificationDay struct {
+	Day            int      `json:"day" yaml:"day"`
+	From           string   `json:"from" yaml:"from"`
+	To             string   `json:"to" yaml:"to"`
+	State          string   `json:"state" yaml:"state"`
+	CPUP95Share    *float64 `json:"cpu_p95_share" yaml:"cpu_p95_share"`
+	MemoryP95Share *float64 `json:"memory_p95_share" yaml:"memory_p95_share"`
+	HottestNode    string   `json:"hottest_node,omitempty" yaml:"hottest_node,omitempty"`
+	Nodes          int      `json:"nodes" yaml:"nodes"`
+	Reporting      int      `json:"reporting" yaml:"reporting"`
+	Reason         string   `json:"reason,omitempty" yaml:"reason,omitempty"`
+}
+
+// CloudLedgerRow is one cost decision that was approved, is running or has
+// run: what it was expected to save and what was measured seven days after
+// it ran. Every money figure is monthly, in the response currency, and nil
+// when it is not known: nil is unknown, never zero. A negative measured
+// figure is a real measurement (the run rate rose).
+//
+// MeasurementStatus is not_applicable, pending (inside the verification
+// window), measured, unmeasured_coverage_moved, unmeasured_no_snapshots or
+// reverted; MeasurementReason is the platform's sentence for an unmeasured
+// or reverted row. Days is how many whole days of the window have passed.
+//
+// VerificationStatus and VerificationDays are a right-size's usage
+// verification (verifying, passed, failed, unverified_no_metrics, or
+// not_applicable for every other lever). Platforms that predate it do not
+// send them, and they stay absent in structured output rather than reading
+// as an empty verification.
+type CloudLedgerRow struct {
+	DecisionID           string                        `json:"decision_id" yaml:"decision_id"`
+	ClusterID            *string                       `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName          *string                       `json:"cluster_name" yaml:"cluster_name"`
+	Lever                string                        `json:"lever" yaml:"lever"`
+	Summary              string                        `json:"summary" yaml:"summary"`
+	Status               string                        `json:"status" yaml:"status"`
+	ExpectedMonthlyCents *int64                        `json:"expected_monthly_cents" yaml:"expected_monthly_cents"`
+	BaselineMonthlyCents *int64                        `json:"baseline_monthly_cents" yaml:"baseline_monthly_cents"`
+	MeasuredMonthlyCents *int64                        `json:"measured_monthly_cents" yaml:"measured_monthly_cents"`
+	MeasurementStatus    string                        `json:"measurement_status" yaml:"measurement_status"`
+	MeasurementReason    *string                       `json:"measurement_reason" yaml:"measurement_reason"`
+	Days                 *int                          `json:"days" yaml:"days"`
+	DecidedAt            *string                       `json:"decided_at" yaml:"decided_at"`
+	ExecutedAt           *string                       `json:"executed_at" yaml:"executed_at"`
+	VerifyUntil          *string                       `json:"verify_until" yaml:"verify_until"`
+	MeasuredAt           *string                       `json:"measured_at" yaml:"measured_at"`
+	VerificationStatus   *string                       `json:"verification_status,omitempty" yaml:"verification_status,omitempty"`
+	VerificationDays     *[]CloudLedgerVerificationDay `json:"verification_days,omitempty" yaml:"verification_days,omitempty"`
+}
+
+// CloudLedger is GET /org/cloud-cost/ledger: the measured outcomes of the
+// organisation's cost decisions, newest first. MeasuredTotalCents sums the
+// measured rows over the whole ledger (never an expectation);
+// MeasuredThisMonthCents is the same sum over the rows measured in Month
+// (the current UTC calendar month, YYYY-MM); RunningTotalCents sums the
+// expectations of the changes approved, running or still verifying. The
+// totals and counts cover every row even when Truncated says the row list
+// stopped at the newest ones.
+type CloudLedger struct {
+	Currency               string            `json:"currency" yaml:"currency"`
+	GeneratedAt            string            `json:"generated_at" yaml:"generated_at"`
+	MeasuredTotalCents     int64             `json:"measured_total_cents" yaml:"measured_total_cents"`
+	Month                  string            `json:"month" yaml:"month"`
+	MeasuredThisMonthCents int64             `json:"measured_this_month_cents" yaml:"measured_this_month_cents"`
+	RunningTotalCents      int64             `json:"running_total_cents" yaml:"running_total_cents"`
+	Counts                 CloudLedgerCounts `json:"counts" yaml:"counts"`
+	Rows                   []CloudLedgerRow  `json:"rows" yaml:"rows"`
+	Truncated              bool              `json:"truncated" yaml:"truncated"`
+}
+
+// GetCloudLedger returns the measured outcomes of the organisation's cost
+// decisions.
+// GET /api/v1/org/cloud-cost/ledger
+func (c *Client) GetCloudLedger() (*CloudLedger, error) {
+	var result CloudLedger
+	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/ledger", nil, &result); err != nil {
+		return nil, err
+	}
+	if result.Rows == nil {
+		result.Rows = []CloudLedgerRow{}
 	}
 	return &result, nil
 }

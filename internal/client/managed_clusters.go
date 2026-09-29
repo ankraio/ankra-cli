@@ -142,6 +142,7 @@ type UpdateManagedNodePoolRequest struct {
 	AutoscalingEnabled *bool `json:"autoscaling_enabled,omitempty"`
 	AutoscalingMin     *int  `json:"autoscaling_min,omitempty"`
 	AutoscalingMax     *int  `json:"autoscaling_max,omitempty"`
+	ExternallyManaged  *bool `json:"externally_managed,omitempty"`
 }
 
 // UpdateManagedNodePoolResponse mirrors the backend's
@@ -153,6 +154,7 @@ type UpdateManagedNodePoolResponse struct {
 	AutoscalingEnabled *bool  `json:"autoscaling_enabled"`
 	AutoscalingMin     *int   `json:"autoscaling_min"`
 	AutoscalingMax     *int   `json:"autoscaling_max"`
+	ExternallyManaged  *bool  `json:"externally_managed"`
 }
 
 // ManagedClusterLifecycleResponse is the status payload the stop and start

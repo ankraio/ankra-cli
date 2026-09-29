@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"ankra/internal/client"
+	"ankra/internal/hiddenunicode"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -148,6 +149,14 @@ func runChatMessage(scope chatScope, conversationID string, query string, intera
 		}
 		conversationID = generated
 	}
+	// The platform's AI reads this text, so what we send carries no invisible
+	// runes: a payload pasted in from a ticket or a log would otherwise reach
+	// the model intact while the operator saw an ordinary question
+	// (ankra-4r75g.9).
+	query, queryHidden := hiddenunicode.Strip(query)
+	if queryHidden > 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "%s\n", hiddenunicode.Notice(queryHidden))
+	}
 	req := client.ChatRequest{Query: query, InteractionMode: interactionMode}
 	events, onSessions, _, err := openChatTurn(scope, conversationID, req, interactionMode, os.Stderr)
 	if err != nil {
@@ -230,6 +239,12 @@ func runInteractiveChat(stdin io.Reader, scope chatScope, conversationID string,
 		input = strings.TrimSpace(input)
 		if input == "" {
 			continue
+		}
+		// Same reason as the one-shot lane: the model reads this, so a
+		// pasted payload does not travel invisibly (ankra-4r75g.9).
+		if cleaned, removed := hiddenunicode.Strip(input); removed > 0 {
+			input = cleaned
+			_, _ = fmt.Fprintf(os.Stderr, "%s\n", hiddenunicode.Notice(removed))
 		}
 
 		switch strings.ToLower(input) {
@@ -364,8 +379,17 @@ var chatShowCmd = &cobra.Command{
 			return nil
 		}
 
+		// The title is derived from a question and every message body is
+		// either a person's or the model's, so a replayed conversation is
+		// the same untrusted text `ankra chat` strips live (ankra-4r75g.9).
+		hiddenRemoved := 0
+		clean := func(value string) string {
+			cleaned, removed := hiddenunicode.Strip(value)
+			hiddenRemoved += removed
+			return cleaned
+		}
 		if conv.Title != nil {
-			fmt.Printf("Conversation: %s\n", *conv.Title)
+			fmt.Printf("Conversation: %s\n", clean(*conv.Title))
 		} else {
 			fmt.Printf("Conversation: %s\n", conv.ID)
 		}
@@ -374,10 +398,13 @@ var chatShowCmd = &cobra.Command{
 
 		for _, msg := range conv.Messages {
 			if msg.Role == "user" {
-				fmt.Printf("%s: %s\n\n", text.FgCyan.Sprint("You"), msg.Content)
+				fmt.Printf("%s: %s\n\n", text.FgCyan.Sprint("You"), clean(msg.Content))
 			} else {
-				fmt.Printf("%s: %s\n\n", text.FgGreen.Sprint("Assistant"), msg.Content)
+				fmt.Printf("%s: %s\n\n", text.FgGreen.Sprint("Assistant"), clean(msg.Content))
 			}
+		}
+		if hiddenRemoved > 0 {
+			_, _ = fmt.Fprintf(os.Stderr, "%s\n", hiddenunicode.Notice(hiddenRemoved))
 		}
 		return nil
 	},
@@ -451,19 +478,30 @@ var chatHealthCmd = &cobra.Command{
 			healthColor = text.FgRed
 		}
 
-		fmt.Printf("  Status: %s\n", healthColor.Sprint(report.Status))
+		// The summary, the issue titles, the suggested actions and the
+		// insights are all AI-written, and a suggested action is advice an
+		// operator may run. Strip before colouring - our own ANSI codes must
+		// not pass through the stripper (ankra-4r75g.9).
+		hiddenRemoved := 0
+		clean := func(value string) string {
+			cleaned, removed := hiddenunicode.Strip(value)
+			hiddenRemoved += removed
+			return cleaned
+		}
+
+		fmt.Printf("  Status: %s\n", healthColor.Sprint(clean(report.Status)))
 		fmt.Printf("  Score:  %d/100\n", report.Score)
 		fmt.Printf("  Last Updated: %s\n", formatTimeAgo(report.EvaluatedAt))
-		if health.Summary != "" {
-			fmt.Printf("  Summary: %s\n", health.Summary)
+		if summary := clean(health.Summary); summary != "" {
+			fmt.Printf("  Summary: %s\n", summary)
 		}
 
 		if len(report.Issues) > 0 {
 			fmt.Println("\n  Issues:")
 			for _, issue := range report.Issues {
-				fmt.Printf("    - [%s] %s\n", issue.Severity, text.FgYellow.Sprint(issue.Title))
+				fmt.Printf("    - [%s] %s\n", clean(issue.Severity), text.FgYellow.Sprint(clean(issue.Title)))
 				for _, action := range issue.SuggestedActions {
-					fmt.Printf("        · %s\n", action)
+					fmt.Printf("        · %s\n", clean(action))
 				}
 			}
 		}
@@ -471,11 +509,14 @@ var chatHealthCmd = &cobra.Command{
 		if len(health.AIInsights) > 0 {
 			fmt.Println("\n  AI Insights:")
 			for _, insight := range health.AIInsights {
-				fmt.Printf("    - [%s] %s\n", insight.Severity, insight.Title)
-				if insight.RootCauseAnalysis != "" {
-					fmt.Printf("        Root cause: %s\n", insight.RootCauseAnalysis)
+				fmt.Printf("    - [%s] %s\n", clean(insight.Severity), clean(insight.Title))
+				if analysis := clean(insight.RootCauseAnalysis); analysis != "" {
+					fmt.Printf("        Root cause: %s\n", analysis)
 				}
 			}
+		}
+		if hiddenRemoved > 0 {
+			_, _ = fmt.Fprintf(os.Stderr, "\n%s\n", hiddenunicode.Notice(hiddenRemoved))
 		}
 		return nil
 	},

@@ -90,9 +90,9 @@ var scalewayStartCmd = &cobra.Command{
 
 func init() {
 	scalewayStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	scalewayStartCmd.Flags().String("restore-state", "", restoreStateFlagUsage)
-	scalewayStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged volumes and load balancers even when retention_policy is retain (destroys persisted data)")
-	scalewayStopCmd.Flags().String("preserve-state", "", preserveStateFlagUsage)
+	registerThreeStateFlag(scalewayStartCmd, "restore-state", restoreStateFlagUsage)
+	scalewayStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged load balancers even when retention_policy is retain. The cluster's volumes are kept: only a deprovision deletes them")
+	registerThreeStateFlag(scalewayStopCmd, "preserve-state", preserveStateFlagUsage)
 	scalewayStopCmd.Flags().String("mode", "", stopModeFlagUsage)
 	registerScalewayCreateFlags(scalewayCreateCmd, scalewayPreflightCmd)
 	registerScalewayCatalogFlags(false, scalewayLocationsCmd)
@@ -107,6 +107,7 @@ func init() {
 	scalewayCmd.AddCommand(scalewayPreflightCmd)
 	scalewayCmd.AddCommand(scalewayDeprovisionCmd)
 	scalewayDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	registerAcceptVolumeDataLossFlag(scalewayDeprovisionCmd)
 	scalewayCmd.AddCommand(scalewayStopCmd)
 	scalewayCmd.AddCommand(scalewayStartCmd)
 	scalewayCmd.AddCommand(scalewayWorkersCmd)
@@ -273,7 +274,10 @@ var scalewayDeprovisionCmd = &cobra.Command{
 	Short: "Deprovision a Scaleway cluster and release its cloud resources",
 	Long: `Permanently delete a Scaleway cluster and the provider resources Ankra
 created for it. Volumes and load balancers follow the cluster's
-retention_policy: 'retain' keeps them, 'delete' sweeps the tagged orphans.`,
+retention_policy: 'retain' keeps them, 'delete' sweeps them. A 'delete'
+cluster's persistent volumes are named first and deleted only when you
+accept that: answer the prompt on a terminal, or pass
+--accept-volume-data-loss (--yes does not imply it).`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
@@ -287,13 +291,19 @@ retention_policy: 'retain' keeps them, 'delete' sweeps the tagged orphans.`,
 		// silently, so a permanent delete would run with nothing typed that
 		// looks dangerous.
 		scalewayDeprovisionYes, _ := cmd.Flags().GetBool("yes")
+		acceptsVolumeDataLoss, volumeError := acknowledgeVolumeDataLoss(cmd, cloudClusterKindScaleway, clusterID,
+			clusterTarget(args[0], clusterID))
+		if volumeError != nil {
+			return volumeError
+		}
 		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
 			fmt.Sprintf("Deprovision Scaleway cluster %s? This permanently deletes its cloud resources and the cluster record! [y/N]: ",
 				clusterTarget(args[0], clusterID)),
 			scalewayDeprovisionYes); confirmError != nil {
 			return confirmError
 		}
-		result, deprovisionError := apiClient.DeprovisionScalewayCluster(clusterID)
+		result, deprovisionError := apiClient.DeprovisionScalewayCluster(clusterID,
+			client.DeprovisionOptions{AcceptVolumeDataLoss: acceptsVolumeDataLoss})
 		if deprovisionError != nil {
 			return fmt.Errorf("deprovisioning Scaleway cluster: %w", deprovisionError)
 		}

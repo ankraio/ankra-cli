@@ -298,7 +298,7 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 		}
 		if !pipelineStepHasLogStream(step) {
 			if !follow || !pipelineStepIsWaitingToStart(step) {
-				return pipelineStepNoLogStreamError(step, runID)
+				return pipelineStepNoLogStreamError(selector, step, runID)
 			}
 			startedStep, unspentWait, waitError := waitForPipelineStepToStart(command, selector,
 				runID, step, remainingWait)
@@ -439,7 +439,7 @@ func waitForPipelineStepToStart(command *cobra.Command, selector client.Pipeline
 	deadline := time.Now().Add(remainingWait)
 	for {
 		if !time.Now().Before(deadline) {
-			return client.PipelineStep{}, 0, pipelineStepNoLogStreamError(step, runID)
+			return client.PipelineStep{}, 0, pipelineStepNoLogStreamError(selector, step, runID)
 		}
 		// One line per distinct reason, not one per poll: a step blocked for
 		// twenty minutes must not print two hundred and forty identical
@@ -470,7 +470,7 @@ func waitForPipelineStepToStart(command *cobra.Command, selector client.Pipeline
 		// know, or one that lost its execution without concluding - is the
 		// not-started answer rather than more polling.
 		if !pipelineStepIsWaitingToStart(step) {
-			return client.PipelineStep{}, 0, pipelineStepNoLogStreamError(step, runID)
+			return client.PipelineStep{}, 0, pipelineStepNoLogStreamError(selector, step, runID)
 		}
 		// Checked after the step, so a run whose last step concluded in the
 		// same poll is read from that step rather than from the run.
@@ -563,15 +563,15 @@ func pipelineStepConcludedWhileWaitingLine(step client.PipelineStep) string {
 // lanes has started - it may be building right now - and no amount of waiting
 // produces a live stream for it, because that lane never opens one; its log
 // arrives whole, from the archive, when the step concludes.
-func pipelineStepNoLogStreamError(step client.PipelineStep, runID string) error {
+func pipelineStepNoLogStreamError(selector client.PipelineSelector, step client.PipelineStep, runID string) error {
 	if pipelineStepRunsWithoutLiveStream(step) {
 		return fmt.Errorf("step %q %s - its log is archived, and this command prints it once the "+
 			"step concludes; check 'ankra pipeline get %s' for its progress, or re-run with "+
 			"--follow to wait for the archived log",
-			step.StepKey, pipelineStepExecutorPhrase(step), runID)
+			step.StepKey, pipelineStepExecutorPhrase(step), runID+pipelineSelectorArguments(selector))
 	}
 	return fmt.Errorf("step %q has not started, so it has no log stream yet - "+
-		"check 'ankra pipeline get %s' for its status", step.StepKey, runID)
+		"check 'ankra pipeline get %s' for its status", step.StepKey, runID+pipelineSelectorArguments(selector))
 }
 
 // pipelineStepRunsWithoutLiveStream reports whether the step was placed on a

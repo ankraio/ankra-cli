@@ -168,7 +168,7 @@ func TestDeprovisionHetznerCluster_Success(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	result, err := testClient.DeprovisionHetznerCluster("cluster-123", false)
+	result, err := testClient.DeprovisionHetznerCluster("cluster-123", DeprovisionOptions{})
 	if err != nil {
 		t.Fatalf("DeprovisionHetznerCluster: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestDeprovisionHetznerCluster_Force(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	if _, err := testClient.DeprovisionHetznerCluster("cluster-123", true); err != nil {
+	if _, err := testClient.DeprovisionHetznerCluster("cluster-123", DeprovisionOptions{Force: true}); err != nil {
 		t.Fatalf("DeprovisionHetznerCluster(force): %v", err)
 	}
 }
@@ -202,7 +202,7 @@ func TestDeprovisionHetznerCluster_Error(t *testing.T) {
 		jsonResponse(t, w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
 	testClient := newTestClient(t, handler)
-	_, err := testClient.DeprovisionHetznerCluster("cluster-123", false)
+	_, err := testClient.DeprovisionHetznerCluster("cluster-123", DeprovisionOptions{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -548,4 +548,55 @@ func TestDeleteHetznerNodeGroup(t *testing.T) {
 			t.Fatal("expected error, got nil")
 		}
 	})
+}
+
+// TestDeprovisionHetznerCluster_AcceptsVolumeDataLoss pins the query the
+// volume acknowledgement rides on (ankra-pzrgy), alone and with force.
+func TestDeprovisionHetznerCluster_AcceptsVolumeDataLoss(t *testing.T) {
+	var gotQuery string
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		jsonResponse(t, w, http.StatusOK, DeprovisionHetznerClusterResponse{Success: true, ClusterID: "cluster-123"})
+	}
+	testClient := newTestClient(t, handler)
+	if _, err := testClient.DeprovisionHetznerCluster("cluster-123", DeprovisionOptions{AcceptVolumeDataLoss: true}); err != nil {
+		t.Fatalf("DeprovisionHetznerCluster: %v", err)
+	}
+	if gotQuery != "accept_volume_data_loss=true" {
+		t.Errorf("query = %q, want accept_volume_data_loss=true", gotQuery)
+	}
+	if _, err := testClient.DeprovisionHetznerCluster("cluster-123",
+		DeprovisionOptions{Force: true, AcceptVolumeDataLoss: true}); err != nil {
+		t.Fatalf("DeprovisionHetznerCluster: %v", err)
+	}
+	if gotQuery != "accept_volume_data_loss=true&force=true" {
+		t.Errorf("query = %q, want accept_volume_data_loss=true&force=true", gotQuery)
+	}
+}
+
+// TestGetDeprovisionVolumesDecodesTheFinding pins the read a deprovision
+// names the volumes from (ankra-pzrgy).
+func TestGetDeprovisionVolumesDecodesTheFinding(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/clusters/hetzner/cluster-123/deprovision-volumes" {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"cluster_id":"cluster-123","state":"present","volume_count":1,` +
+			`"volumes":[{"volume_id":"1234567","persistent_volume":"pvc-1","claim":"payments/data-postgres-0",` +
+			`"storage_class":"hcloud-volumes","capacity":"20Gi"}],"kept_volumes":[],"retention_policy":null,` +
+			`"warning":"w","consent_required":true}`))
+	}
+	testClient := newTestClient(t, handler)
+	volumes, err := testClient.GetDeprovisionVolumes("hetzner", "cluster-123")
+	if err != nil {
+		t.Fatalf("GetDeprovisionVolumes: %v", err)
+	}
+	if volumes.State != "present" || !volumes.ConsentRequired || len(volumes.Volumes) != 1 ||
+		volumes.Volumes[0].Label() != "payments/data-postgres-0 (20Gi)" || volumes.RetentionPolicy != nil {
+		t.Errorf("volumes = %+v", volumes)
+	}
+	unnamed := DeprovisionVolume{VolumeID: "vol-0abc"}
+	if unnamed.Label() != "vol-0abc" {
+		t.Errorf("label = %q, want the volume ID", unnamed.Label())
+	}
 }

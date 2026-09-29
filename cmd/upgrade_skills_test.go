@@ -227,6 +227,34 @@ func TestRefreshInstalledSkillsRunsTheNewBinary(t *testing.T) {
 	}
 }
 
+// installSkillDirsFor lays one skill down in each client's personal skills
+// directory under home, so the refresh has something to reinstall.
+func installSkillDirsFor(t *testing.T, home string, clients ...skills.Client) {
+	t.Helper()
+	for _, client := range clients {
+		target, err := skills.ResolveTarget(client, skills.ScopePersonal, home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir := filepath.Join(target.SkillsDirectory, "ankra-cli")
+		if client.Packaged {
+			if err := os.MkdirAll(target.SkillsDirectory, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(target.SkillsDirectory, "ankra-cli.zip"), []byte("zip"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: ankra-cli\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // TestRefreshInstalledSkillsReplaysRecordedOptions pins the fix for the
 // upgrade refresh overwriting a person's choices: an install made with
 // --no-rules, --no-workflows or --with-hooks is refreshed with exactly those
@@ -244,6 +272,7 @@ func TestRefreshInstalledSkillsReplaysRecordedOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	// codex has no record: it was installed by a release that wrote none.
+	installSkillDirsFor(t, home, claudeCode, cursor, codex)
 
 	groups, err := skillsRefreshGroupsFor(home, []skills.Client{claudeCode, cursor, codex})
 	if err != nil {
@@ -263,8 +292,8 @@ func TestRefreshInstalledSkillsReplaysRecordedOptions(t *testing.T) {
 	var out bytes.Buffer
 	refreshInstalledSkills(&out, "/usr/local/bin/ankra", groups)
 	want := []string{
-		"skills install --force --no-rules --no-workflows --with-hooks --client claude-code --client cursor",
-		"skills install --force --client codex",
+		"skills install ankra-cli --force --no-rules --no-workflows --with-hooks --client claude-code --client cursor",
+		"skills install ankra-cli --force --client codex",
 	}
 	if strings.Join(runs, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("replayed commands:\nwant %q\n got %q", want, runs)
@@ -280,6 +309,7 @@ func TestRefreshInstalledSkillsReplaysRecordedOptions(t *testing.T) {
 func TestSkillsRefreshGroupsDefaultWithoutARecord(t *testing.T) {
 	home := t.TempDir()
 	clients := []skills.Client{clientNamed(t, "claude-code"), clientNamed(t, "windsurf")}
+	installSkillDirsFor(t, home, clients...)
 	groups, err := skillsRefreshGroupsFor(home, clients)
 	if err != nil {
 		t.Fatal(err)
@@ -287,7 +317,7 @@ func TestSkillsRefreshGroupsDefaultWithoutARecord(t *testing.T) {
 	if len(groups) != 1 || groups[0].Options != skills.DefaultInstallOptions() || len(groups[0].Clients) != 2 {
 		t.Fatalf("want one defaults group with both clients, got %+v", groups)
 	}
-	want := "skills install --force --client claude-code --client windsurf"
+	want := "skills install ankra-cli --force --client claude-code --client windsurf"
 	if got := strings.Join(skillsRefreshArguments(groups[0]), " "); got != want {
 		t.Fatalf("arguments: want %q, got %q", want, got)
 	}
@@ -404,5 +434,38 @@ func TestRefreshInstalledSkillsWithNothingDetectedSaysSo(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "were found") {
 		t.Fatalf("the message must not assert that nothing is installed, got %q", out.String())
+	}
+}
+
+// TestSkillsRefreshReinstallsOnlyWhatIsInstalled pins the fix for the refresh
+// putting back skills a person had uninstalled: a client holding two skills
+// is refreshed with exactly those two, and a client holding none is left
+// alone.
+func TestSkillsRefreshReinstallsOnlyWhatIsInstalled(t *testing.T) {
+	home := t.TempDir()
+	claudeCode := clientNamed(t, "claude-code")
+	codex := clientNamed(t, "codex")
+	target, err := skills.ResolveTarget(claudeCode, skills.ScopePersonal, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"ankra-cli", "ankra-gitops"} {
+		if err := os.MkdirAll(filepath.Join(target.SkillsDirectory, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(target.SkillsDirectory, name, "SKILL.md"), []byte("---\nname: "+name+"\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	groups, err := skillsRefreshGroupsFor(home, []skills.Client{claudeCode, codex})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 1 || len(groups[0].Clients) != 1 || groups[0].Clients[0].ID != claudeCode.ID {
+		t.Fatalf("only the client holding skills is refreshed, got %+v", groups)
+	}
+	want := "skills install ankra-cli ankra-gitops --force --client claude-code"
+	if got := strings.Join(skillsRefreshArguments(groups[0]), " "); got != want {
+		t.Fatalf("arguments: want %q, got %q", want, got)
 	}
 }

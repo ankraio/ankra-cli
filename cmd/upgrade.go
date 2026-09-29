@@ -158,6 +158,9 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 				"  brew update && brew upgrade ankra",
 			executablePath)
 	}
+	if writableError := ensureInstallPathWritable(executablePath); writableError != nil {
+		return writableError
+	}
 
 	action := "Upgrade"
 	switch {
@@ -358,6 +361,10 @@ func skillsInstalledClientsForUpgrade() ([]skills.Client, []skillsRefreshGroup, 
 type skillsRefreshGroup struct {
 	Options skills.InstallOptions
 	Clients []skills.Client
+	// Names are the skills the group's clients hold, which is what the
+	// refresh reinstalls; empty means every skill, the shape a hand-built
+	// group takes.
+	Names []string
 }
 
 // skillsRefreshGroupsFor reads the options `skills install` recorded for each
@@ -374,16 +381,30 @@ func skillsRefreshGroupsFor(root string, clients []skills.Client) ([]skillsRefre
 		if err != nil {
 			return nil, fmt.Errorf("read the recorded install options for %s: %w", client.DisplayName, err)
 		}
+		// Only the skills the client holds are refreshed: `skills install`
+		// with no names installs every skill, which put back the ones a
+		// person had uninstalled on every upgrade.
+		target, targetError := skills.ResolveTarget(client, skills.ScopePersonal, root)
+		if targetError != nil {
+			return nil, fmt.Errorf("resolve the personal install for %s: %w", client.DisplayName, targetError)
+		}
+		names, namesError := skills.InstalledNames(target)
+		if namesError != nil {
+			return nil, fmt.Errorf("list the skills installed for %s: %w", client.DisplayName, namesError)
+		}
+		if len(names) == 0 {
+			continue
+		}
 		placed := false
 		for index := range groups {
-			if groups[index].Options == options {
+			if groups[index].Options == options && strings.Join(groups[index].Names, ",") == strings.Join(names, ",") {
 				groups[index].Clients = append(groups[index].Clients, client)
 				placed = true
 				break
 			}
 		}
 		if !placed {
-			groups = append(groups, skillsRefreshGroup{Options: options, Clients: []skills.Client{client}})
+			groups = append(groups, skillsRefreshGroup{Options: options, Clients: []skills.Client{client}, Names: names})
 		}
 	}
 	return groups, nil
@@ -397,7 +418,9 @@ func skillsRefreshGroupsFor(root string, clients []skills.Client) ([]skillsRefre
 // per assistant that carries an install, so nothing is installed anywhere
 // new.
 func skillsRefreshArguments(group skillsRefreshGroup) []string {
-	arguments := []string{"skills", "install", "--force"}
+	arguments := []string{"skills", "install"}
+	arguments = append(arguments, group.Names...)
+	arguments = append(arguments, "--force")
 	if !group.Options.Rules {
 		arguments = append(arguments, "--no-rules")
 	}
@@ -650,6 +673,31 @@ func currentExecutablePath() (string, error) {
 		return executable, nil
 	}
 	return resolved, nil
+}
+
+// ensureInstallPathWritable answers the one failure the upgrade could always
+// have known up front: the running binary sits in a directory this user
+// cannot write, typically a root-owned /usr/local/bin. replaceExecutable
+// stages the replacement in that directory and renames it over the binary, so
+// the probe here is the same os.CreateTemp it will do, and the refusal is the
+// same one, only minutes earlier. Without it the release lookup, both
+// prompts, the download and the checksum all run first and the permission
+// error arrives last, which is how "I upgraded the CLI" ends with the old
+// version still installed.
+func ensureInstallPathWritable(executablePath string) error {
+	destinationDir := filepath.Dir(executablePath)
+
+	probe, createError := os.CreateTemp(destinationDir, ".ankra-upgrade-probe-*")
+	if createError != nil {
+		if os.IsPermission(createError) {
+			return permissionDeniedError(destinationDir, executablePath)
+		}
+		return fmt.Errorf("stage new binary in %s: %w", destinationDir, createError)
+	}
+	probePath := probe.Name()
+	_ = probe.Close()
+	_ = os.Remove(probePath)
+	return nil
 }
 
 // replaceExecutable atomically swaps the running binary for the freshly

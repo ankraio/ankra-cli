@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"strconv"
 	"strings"
 
 	"ankra/internal/client"
@@ -20,7 +22,7 @@ const costTopNamespaceRows = 15
 
 var costCmd = &cobra.Command{
 	Use:   "cost",
-	Short: "Read cloud cost: the fleet rollup, a cluster's estimate, the savings model and the pricing settings",
+	Short: "Read cloud cost: the fleet rollup, a cluster's estimate, the savings model, the measured ledger and the pricing settings",
 	Long: `Read the organisation's cloud cost - the same figures the portal shows under
 Cost - for reporting and automation.
 
@@ -32,8 +34,9 @@ read adds the component breakdown, the namespace allocation and the daily
 trend. The savings model reads the biggest priced clusters and proposes one
 lever per cluster (right-size idle capacity, reduce unallocated run rate, or
 an off-hours schedule for non-production) with the monthly saving each is
-worth. Pricing settings (display currency, effective discount, network
-egress estimate) apply to every figure.
+worth. The ledger follows each approved cost change through to the saving
+measured seven days after it ran. Pricing settings (display currency,
+effective discount, network egress estimate) apply to every figure.
 
 Pass -o json (or yaml) for the full API document.`,
 }
@@ -59,15 +62,17 @@ var costSummaryCmd = &cobra.Command{
 
 var costSavingsCmd = &cobra.Command{
 	Use:   "savings",
-	Short: "Savings recommendations: one lever per cluster with its monthly saving, plus the clusters the model could not price",
+	Short: "Savings recommendations per cluster with their monthly saving, plus the clusters the model could not price",
 	Long: `Read the organisation's savings model - the same recommendations the portal
 shows under Cost.
 
-The model analyses the biggest priced clusters and proposes at most one lever
-per cluster: right-size idle capacity, reduce run rate no namespace claims,
+The model analyses the biggest priced clusters (up to the organisation's
+analysed-cluster limit, see 'ankra cost settings', and within the platform's
+analysis time budget) and proposes the levers that apply to each: right-size idle capacity, reduce run rate no namespace claims,
 or an off-hours schedule (weeknights and weekends) for a known non-production
-cluster with no enabled power schedule. The total counts each cluster once at
-its best lever. Clusters the model could not analyse are listed rather than
+cluster with no enabled power schedule. A cluster can carry several. The total
+counts each cluster once, at its best lever, so it is smaller than the sum of
+the rows when a cluster has more than one. Clusters the model could not analyse are listed rather than
 treated as having nothing to save: unpriced (never had a cost snapshot),
 stale (metering stopped over a day ago) and unreadable on this pass. The
 waste summary counts the open cloud-waste findings.
@@ -79,7 +84,7 @@ Every figure is a list-price estimate in the organisation's display currency.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		savings, err := apiClient.GetCloudSavings()
 		if err != nil {
-			return fmt.Errorf("reading cloud savings: %w", err)
+			return cloudSavingsReadError(err)
 		}
 		if rendered, err := renderStructured(cmd, savings); rendered || err != nil {
 			return err
@@ -114,7 +119,7 @@ var costClusterCmd = &cobra.Command{
 
 var costSettingsCmd = &cobra.Command{
 	Use:   "settings",
-	Short: "Pricing settings: display currency, effective discount and the network egress estimate",
+	Short: "Pricing settings: display currency, effective discount, the network egress estimate and the analysed-cluster limit",
 }
 
 var costSettingsGetCmd = &cobra.Command{
@@ -139,17 +144,34 @@ var costSettingsSetCmd = &cobra.Command{
 	Short: "Change the pricing settings (organisation admins only)",
 	Long: `Change one or more pricing settings. Only the flags you pass change; the
 other settings keep their current values. The route is organisation-admin
-only and every fleet and cluster figure re-prices on the next read.`,
+only and every fleet and cluster figure re-prices on the next read.
+
+--analysed-cluster-limit sets how many of the costliest priced clusters the
+savings model analyses (1 to 50); --analysed-cluster-limit default returns it
+to the platform default of 8. Without the flag the limit is not sent, so it
+keeps its stored value.`,
 	Args: cobra.NoArgs,
 	Example: `  ankra cost settings set --currency eur
   ankra cost settings set --discount 12.5
-  ankra cost settings set --include-egress=false`,
+  ankra cost settings set --include-egress=false
+  ankra cost settings set --analysed-cluster-limit 20
+  ankra cost settings set --analysed-cluster-limit default`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		currencyChanged := cmd.Flags().Changed("currency")
 		discountChanged := cmd.Flags().Changed("discount")
 		egressChanged := cmd.Flags().Changed("include-egress")
-		if !currencyChanged && !discountChanged && !egressChanged {
-			return withExitCode(exitUsage, errors.New("pass at least one of --currency, --discount or --include-egress"))
+		limitChanged := cmd.Flags().Changed("analysed-cluster-limit")
+		if !currencyChanged && !discountChanged && !egressChanged && !limitChanged {
+			return withExitCode(exitUsage, errors.New("pass at least one of --currency, --discount, --include-egress or --analysed-cluster-limit"))
+		}
+		var limitChange *client.AnalysedClusterLimitChange
+		if limitChanged {
+			raw, _ := cmd.Flags().GetString("analysed-cluster-limit")
+			change, parseError := parseAnalysedClusterLimit(raw)
+			if parseError != nil {
+				return parseError
+			}
+			limitChange = change
 		}
 		current, err := apiClient.GetCostSettings()
 		if err != nil {
@@ -171,6 +193,10 @@ only and every fleet and cluster figure re-prices on the next read.`,
 			includeEgress, _ := cmd.Flags().GetBool("include-egress")
 			update.IncludeNetworkEgressEstimate = includeEgress
 		}
+		// The limit read back is the one in effect; restating it would turn
+		// the default into the organisation's own. Only the flag changes it.
+		update.AnalysedClusterLimit = nil
+		update.AnalysedClusterLimitChange = limitChange
 		saved, err := apiClient.UpdateCostSettings(update)
 		if err != nil {
 			return fmt.Errorf("updating cost settings: %w", err)
@@ -185,9 +211,26 @@ only and every fleet and cluster figure re-prices on the next read.`,
 	},
 }
 
-// formatCostCents renders integer cents in the display currency.
+// formatCostCents renders integer cents in the display currency. The sign
+// goes before the symbol ("-$42.00", not "$-42.00"): a measured saving can be
+// negative when the run rate rose, and it must read as a negative amount.
+// Integer arithmetic keeps large figures exact.
 func formatCostCents(cents int64, currency string) string {
-	return fmt.Sprintf("%s%.2f", currencySymbol(currency), float64(cents)/100)
+	sign := ""
+	if cents < 0 {
+		sign = "-"
+		cents = -cents
+	}
+	return fmt.Sprintf("%s%s%d.%02d", sign, currencySymbol(currency), cents/100, cents%100)
+}
+
+// formatOptionalCostCents is formatCostCents for a figure the platform may
+// not know. Absent is not zero: an unknown renders as "—", never "0.00".
+func formatOptionalCostCents(cents *int64, currency string) string {
+	if cents == nil {
+		return "—"
+	}
+	return formatCostCents(*cents, currency)
 }
 
 func costProviderLabel(provider string) string {
@@ -206,6 +249,8 @@ func costProviderLabel(provider string) string {
 		return "UpCloud"
 	case "scaleway":
 		return "Scaleway"
+	case "digitalocean":
+		return "DigitalOcean"
 	case "":
 		return "unknown provider"
 	default:
@@ -483,7 +528,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 		}
 		_, _ = fmt.Fprintln(out, "Estimates appear once a cluster on AWS, Google Cloud, Azure, Hetzner, OVHcloud, UpCloud or Scaleway has reported pricing in the last day; AWS, Google Cloud and Azure clusters need a connected cloud credential.")
 		renderCloudSavingsClusters(out, "Unpriced clusters (no cost snapshot yet):", savings.UnpricedClusters, true)
-		renderCloudSavingsClusters(out, "Stale clusters (metering stopped over a day ago):", savings.StaleClusters, true)
+		renderCloudSavingsClusters(out, cloudSavingsStaleHeading(savings.Thresholds), savings.StaleClusters, true)
 		renderCloudSavingsWaste(out, savings.Waste, currency)
 		return
 	}
@@ -491,9 +536,20 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 		formatCostCents(savings.TotalMonthlySavingsCents, currency),
 		pluralCount(len(savings.Recommendations), "recommendation"))
 	_, _ = fmt.Fprintf(out, "  %d of %s analysed", savings.AnalysedClusterCount, pluralClusters(savings.PricedClusterCount))
-	if savings.UnanalysedClusterCount > 0 {
+	budgetExhausted := savings.AnalysisBudgetExhausted != nil && *savings.AnalysisBudgetExhausted
+	switch {
+	case savings.UnanalysedClusterCount > 0 && budgetExhausted:
+		budget := "the analysis time budget"
+		if seconds := savings.Thresholds.AnalysisBudgetSeconds; seconds != nil && *seconds > 0 {
+			budget = fmt.Sprintf("the %ds analysis time budget", *seconds)
+		}
+		_, _ = fmt.Fprintf(out, " (%d not analysed: %s ran out before every one of the %d biggest was read)",
+			savings.UnanalysedClusterCount, budget, savings.Thresholds.AnalysedClusterLimit)
+	case savings.UnanalysedClusterCount > 0:
 		_, _ = fmt.Fprintf(out, " (%d not analysed: only the %d biggest are)", savings.UnanalysedClusterCount,
 			savings.Thresholds.AnalysedClusterLimit)
+	case savings.Thresholds.AnalysedClusterLimit > 0:
+		_, _ = fmt.Fprintf(out, " (limit %d)", savings.Thresholds.AnalysedClusterLimit)
 	}
 	_, _ = fmt.Fprintf(out, " · %d unpriced · %d stale", savings.UnpricedClusterCount, savings.StaleClusterCount)
 	if len(savings.UnreadableClusters) > 0 {
@@ -509,7 +565,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 			formatCostCents(savings.Thresholds.MinimumSavingsCents, currency))
 	} else {
 		_, _ = fmt.Fprintln(out)
-		_, _ = fmt.Fprintln(out, "Recommendations (one lever per cluster):")
+		_, _ = fmt.Fprintln(out, "Recommendations (a cluster can carry several; the total counts each cluster once, at its best lever):")
 		writer := newCostTable(out)
 		writer.AppendHeader(table.Row{"#", "Cluster", "Environment", "Lever", "Savings/mo", "Share", "Run rate/mo", "Cluster ID"})
 		for index, recommendation := range savings.Recommendations {
@@ -533,7 +589,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 	}
 
 	renderCloudSavingsClusters(out, "Unpriced clusters (no cost snapshot yet):", savings.UnpricedClusters, true)
-	renderCloudSavingsClusters(out, "Stale clusters (metering stopped over a day ago):", savings.StaleClusters, true)
+	renderCloudSavingsClusters(out, cloudSavingsStaleHeading(savings.Thresholds), savings.StaleClusters, true)
 	renderCloudSavingsClusters(out, "Unreadable clusters (breakdown could not be read on this pass):", savings.UnreadableClusters, false)
 	renderCloudSavingsWaste(out, savings.Waste, currency)
 }
@@ -546,12 +602,49 @@ func renderCostSettings(out io.Writer, settings *client.CostSettings) {
 	_, _ = fmt.Fprintf(out, "Display currency: %s\n", strings.ToUpper(settings.Currency))
 	_, _ = fmt.Fprintf(out, "Effective discount: %g%%\n", settings.EffectiveDiscountPct)
 	_, _ = fmt.Fprintf(out, "Network egress estimate: %s\n", egress)
+	if settings.AnalysedClusterLimit == nil {
+		_, _ = fmt.Fprintln(out, "Analysed-cluster limit: unknown (this platform does not report it)")
+	} else {
+		_, _ = fmt.Fprintf(out, "Analysed-cluster limit: %d (the savings model analyses the %d costliest priced clusters)\n",
+			*settings.AnalysedClusterLimit, *settings.AnalysedClusterLimit)
+	}
+}
+
+// analysedClusterLimitMaximum is the most clusters the savings model may be
+// told to analyse (the settings route's bound).
+const analysedClusterLimitMaximum = 50
+
+// parseAnalysedClusterLimit reads --analysed-cluster-limit: a whole number
+// from 1 to 50 sets the limit, and "default" returns it to the platform's
+// default.
+func parseAnalysedClusterLimit(raw string) (*client.AnalysedClusterLimitChange, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "default" {
+		return &client.AnalysedClusterLimitChange{Default: true}, nil
+	}
+	limit, parseError := strconv.Atoi(value)
+	if parseError != nil || limit < 1 || limit > analysedClusterLimitMaximum {
+		return nil, withExitCode(exitUsage, fmt.Errorf(
+			"--analysed-cluster-limit must be a whole number from 1 to %d, or default for the platform's default (got %q)",
+			analysedClusterLimitMaximum, raw))
+	}
+	return &client.AnalysedClusterLimitChange{Limit: limit}, nil
+}
+
+// cloudSavingsStaleHeading names the stale clusters by the platform's own
+// staleness window when it reports one.
+func cloudSavingsStaleHeading(thresholds client.CloudSavingsThresholds) string {
+	if thresholds.SnapshotStaleAfterHours != nil && *thresholds.SnapshotStaleAfterHours > 0 {
+		return fmt.Sprintf("Stale clusters (no cost snapshot in the last %d hours, so metering has stopped):", *thresholds.SnapshotStaleAfterHours)
+	}
+	return "Stale clusters (metering stopped over a day ago):"
 }
 
 func init() {
 	costSettingsSetCmd.Flags().String("currency", "", "Display currency: usd, eur or gbp")
 	costSettingsSetCmd.Flags().Float64("discount", 0, "Effective discount in percent (0-100), applied on top of list prices; 10 means 10%")
 	costSettingsSetCmd.Flags().Bool("include-egress", false, "Include an estimated network egress charge (pass --include-egress=false to drop it)")
+	costSettingsSetCmd.Flags().String("analysed-cluster-limit", "", "How many of the costliest priced clusters the savings model analyses (1-50), or default for the platform's 8")
 	registerStructuredOutputFlags(costSummaryCmd, costSavingsCmd, costClusterCmd, costSettingsGetCmd, costSettingsSetCmd)
 	costSettingsCmd.AddCommand(costSettingsGetCmd)
 	costSettingsCmd.AddCommand(costSettingsSetCmd)
@@ -560,4 +653,20 @@ func init() {
 	costCmd.AddCommand(costClusterCmd)
 	costCmd.AddCommand(costSettingsCmd)
 	rootCmd.AddCommand(costCmd)
+}
+
+// cloudSavingsReadError maps the one 404 this route can answer with: a
+// platform that predates the savings model serves no /api/v1/org/cloud-cost/
+// savings at all, and "request failed: status 404" reads as an auth or
+// token problem. The status alone decides, for the reason
+// aiRemediationPolicyReadError gives.
+func cloudSavingsReadError(readError error) error {
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(readError, &unexpected) && unexpected.StatusCode == http.StatusNotFound {
+		return withExitCode(exitError, errors.New(
+			"this platform does not serve the savings model to API tokens: "+
+				"GET /api/v1/org/cloud-cost/savings is not registered, so this platform predates it. "+
+				"The recommendations are readable in the portal under Cost"))
+	}
+	return fmt.Errorf("reading cloud savings: %w", readError)
 }

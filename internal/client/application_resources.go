@@ -350,6 +350,12 @@ func (client *Client) UpdateApplicationDemoConfig(requestContext context.Context
 	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/demo-config"), nil, configuration)
 }
 
+// RotateApplicationDemoProtection mints a new password for the
+// application's protected demos; the answer carries it exactly once.
+func (client *Client) RotateApplicationDemoProtection(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/demo-config/protection/rotate"), nil, nil)
+}
+
 func (client *Client) FixApplicationDemo(requestContext context.Context, applicationID string, workspaceID string) (json.RawMessage, error) {
 	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/demos/"+workspaceID+"/fix"), nil, nil)
 }
