@@ -4,6 +4,22 @@
 
 ### Added
 
+- **`ankra cluster exec` runs one command in a pod and exits with its exit
+  code.** `ankra cluster exec <pod> -n <ns> [-c <container>] -- <command>
+  [args...]` passes the command to the container exactly as given (no shell
+  re-parses it, so a `psql -c 'select ...'` needs no second layer of
+  quoting), streams its stdout and stderr, and exits with the command's own
+  exit code so scripts and CI can branch on it. `--stdin` forwards your input
+  and closes it when it ends; `-o json` prints one
+  `{exit_code, stdout, stderr}` document instead of streaming. It goes through
+  the same platform relay as `ankra cluster terminal`: no kubeconfig, gated on
+  `kubernetes.exec`, and recorded in the audit log as an `open_pod_terminal`
+  event carrying the command. Until now the only way was to pipe a script into
+  an interactive `terminal`, because `--shell` names a single binary and
+  cannot carry arguments. Needs a cluster agent recent enough to run one-off
+  commands; an older one is refused with the version it needs and nothing is
+  run.
+
 - **The lifecycle systemtest can prove node-group autoscaling end to end.**
   `ANKRA_SYSTEMTEST_AUTOSCALING=1` (or `autoscaling: 1` on a manual dispatch
   of the systemtest workflow) runs an opt-in step on every Ankra-managed lane,

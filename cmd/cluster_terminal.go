@@ -37,7 +37,11 @@ replays it. Needs kubernetes.exec on the cluster.
 
 With one container the shell opens there; a pod with several needs
 --container. Input that is not a terminal (a pipe) is forwarded as typed
-and should end with exit, since the remote shell cannot see the pipe close.`,
+and should end with exit, since the remote shell cannot see the pipe close.
+
+To run one command non-interactively and get its exit code, use
+"ankra cluster exec <pod> -n <namespace> -- <command> [args...]" instead;
+--shell names a shell binary and cannot carry arguments.`,
 	Example: `  ankra cluster terminal api-6d8f9c7b5-x2kq9 -n payments
   ankra cluster terminal api-6d8f9c7b5-x2kq9 -n payments -c sidecar --shell /bin/bash`,
 	Args: cobra.ExactArgs(1),
