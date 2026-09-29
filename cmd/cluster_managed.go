@@ -14,7 +14,7 @@ import (
 var managedCmd = &cobra.Command{
 	Use:   "managed",
 	Short: "Manage cloud-managed Kubernetes clusters",
-	Long:  "Create, delete, stop and start, scale node pools, and upgrade cloud-managed Kubernetes clusters on DOKS, UpCloud UKS, GKE, OVH MKS, AKS, EKS, and Scaleway Kapsule.",
+	Long:  "Create, delete, stop and start, scale node pools, and upgrade cloud-managed Kubernetes clusters on DOKS, UpCloud UKS, GKE, OVH MKS, AKS, EKS, Scaleway Kapsule, and Ankra Cloud Kubernetes.",
 }
 
 var managedCreateCmd = &cobra.Command{
@@ -36,7 +36,6 @@ var managedCreateCmd = &cobra.Command{
 		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
 		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
 		gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
-		privateNetworkID, _ := cmd.Flags().GetString("private-network-id")
 
 		autoscaling, autoscalingError := parseManagedAutoscalingFlags(cmd)
 		if autoscalingError != nil {
@@ -66,13 +65,8 @@ var managedCreateCmd = &cobra.Command{
 			},
 			Aks: aksOptions,
 		}
-		if provider == client.ManagedK8sProviderKapsule {
-			if privateNetworkID == "" {
-				return withExitCode(exitUsage, errors.New("--private-network-id is required with --provider kapsule"))
-			}
-			request.Kapsule = &client.KapsuleClusterOptions{PrivateNetworkID: privateNetworkID}
-		} else if privateNetworkID != "" {
-			return withExitCode(exitUsage, fmt.Errorf("--private-network-id is only supported with --provider kapsule, not %q", provider))
+		if networkError := applyManagedNetworkOptionFlags(cmd, provider, &request); networkError != nil {
+			return networkError
 		}
 		if kubeVersion != "" {
 			request.KubernetesVersion = &kubeVersion
@@ -491,7 +485,7 @@ var managedUpgradeCmd = &cobra.Command{
 	},
 }
 
-const managedProviderFlagHelp = "Managed Kubernetes provider (doks, uks, gke, ovh_mks, aks, eks, kapsule)"
+const managedProviderFlagHelp = "Managed Kubernetes provider (doks, uks, gke, ovh_mks, aks, eks, kapsule, ankracloud_k8s)"
 
 var managedDiscoverCmd = &cobra.Command{
 	Use:   "discover",
@@ -604,9 +598,65 @@ func parseManagedProviderFlag(cmd *cobra.Command) (client.ManagedK8sProvider, er
 		return client.ManagedK8sProviderEks, nil
 	case "kapsule":
 		return client.ManagedK8sProviderKapsule, nil
+	case "ankracloud_k8s", "ankracloud-k8s", "ankra-cloud-k8s":
+		return client.ManagedK8sProviderAnkraCloudK8s, nil
 	default:
-		return "", fmt.Errorf("invalid provider %q: must be one of doks, uks, gke, ovh_mks, aks, eks, kapsule", providerValue)
+		return "", fmt.Errorf("invalid provider %q: must be one of doks, uks, gke, ovh_mks, aks, eks, kapsule, ankracloud_k8s", providerValue)
 	}
+}
+
+// ankraCloudK8sOnlyFlags are the create flags that only Ankra Cloud
+// Kubernetes reads.
+var ankraCloudK8sOnlyFlags = []string{"network-cidr", "public-ipv4"}
+
+// applyManagedNetworkOptionFlags reads the provider-specific network flags
+// into the create request: Kapsule requires --private-network-id, Ankra Cloud
+// Kubernetes takes it optionally with --network-cidr and --public-ipv4, and
+// every other provider refuses all three.
+func applyManagedNetworkOptionFlags(cmd *cobra.Command, provider client.ManagedK8sProvider, request *client.CreateManagedClusterRequest) error {
+	privateNetworkID, _ := cmd.Flags().GetString("private-network-id")
+	if provider != client.ManagedK8sProviderAnkraCloudK8s {
+		for _, flagName := range ankraCloudK8sOnlyFlags {
+			if cmd.Flags().Changed(flagName) {
+				return withExitCode(exitUsage, fmt.Errorf("--%s is only supported with --provider ankracloud_k8s, not %q", flagName, provider))
+			}
+		}
+	}
+	switch provider {
+	case client.ManagedK8sProviderKapsule:
+		if privateNetworkID == "" {
+			return withExitCode(exitUsage, errors.New("--private-network-id is required with --provider kapsule"))
+		}
+		request.Kapsule = &client.KapsuleClusterOptions{PrivateNetworkID: privateNetworkID}
+	case client.ManagedK8sProviderAnkraCloudK8s:
+		networkCIDR, _ := cmd.Flags().GetString("network-cidr")
+		if privateNetworkID != "" && networkCIDR != "" {
+			return withExitCode(exitUsage, errors.New("--network-cidr sizes the network Ankra creates; omit it with --private-network-id"))
+		}
+		options := client.AnkraCloudK8sClusterOptions{}
+		isSet := false
+		if privateNetworkID != "" {
+			options.PrivateNetworkID = &privateNetworkID
+			isSet = true
+		}
+		if networkCIDR != "" {
+			options.NetworkCIDR = &networkCIDR
+			isSet = true
+		}
+		if cmd.Flags().Changed("public-ipv4") {
+			publicIPv4, _ := cmd.Flags().GetBool("public-ipv4")
+			options.PublicIPv4 = &publicIPv4
+			isSet = true
+		}
+		if isSet {
+			request.AnkraCloudK8s = &options
+		}
+	default:
+		if privateNetworkID != "" {
+			return withExitCode(exitUsage, fmt.Errorf("--private-network-id is only supported with --provider kapsule or ankracloud_k8s, not %q", provider))
+		}
+	}
+	return nil
 }
 
 // parseManagedAutoscalingFlags reads the shared --autoscaling trio on
@@ -787,7 +837,9 @@ func init() {
 	managedCreateCmd.Flags().String("gitops-credential-name", "", "GitOps credential name (optional)")
 	managedCreateCmd.Flags().String("gitops-repository", "", "GitOps repository URL (optional)")
 	managedCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch (optional)")
-	managedCreateCmd.Flags().String("private-network-id", "", "Scaleway private network ID (required with --provider kapsule)")
+	managedCreateCmd.Flags().String("private-network-id", "", "Private network ID: required with --provider kapsule; optional with --provider ankracloud_k8s (default: Ankra creates ankra-<name>)")
+	managedCreateCmd.Flags().String("network-cidr", "", "Ankra Cloud Kubernetes: CIDR of the network Ankra creates (server default 10.100.0.0/24)")
+	managedCreateCmd.Flags().Bool("public-ipv4", true, "Ankra Cloud Kubernetes: give the API endpoint a public IPv4 address")
 	managedCreateCmd.Flags().Bool("autoscaling", false, "Enable autoscaling for the initial node pool")
 	managedCreateCmd.Flags().Int("autoscaling-min", 0, "Minimum node count while autoscaling (requires --autoscaling)")
 	managedCreateCmd.Flags().Int("autoscaling-max", 0, "Maximum node count while autoscaling (requires --autoscaling)")

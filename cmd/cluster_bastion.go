@@ -74,6 +74,15 @@ func scalewayBastionOps() bastionOps {
 	}
 }
 
+func ankraCloudBastionOps() bastionOps {
+	return bastionOps{
+		provider: "ankracloud",
+		resize:   apiClient.UpdateAnkraCloudBastionInstanceType,
+		health:   apiClient.GetAnkraCloudBastionHealth,
+		diagnose: apiClient.DiagnoseAnkraCloudBastion,
+	}
+}
+
 // AWS builds a real EC2 bastion with the SSH job lane behind it, so it
 // carries diagnose; there is no Update<Provider>BastionInstanceType client
 // method for it yet, so resize stays off (the instance type is a create-time
@@ -396,6 +405,7 @@ func init() {
 	ovhCmd.AddCommand(newBastionCmd(ovhBastionOps, "OVH", true, true))
 	upcloudCmd.AddCommand(newBastionCmd(upcloudBastionOps, "UpCloud", true, true))
 	digitaloceanCmd.AddCommand(newBastionCmd(digitaloceanBastionOps, "DigitalOcean", true, true))
+	ankraCloudCmd.AddCommand(newBastionCmd(ankraCloudBastionOps, "Ankra Cloud", true, true))
 	// The remaining three carry the bastion routes but not the resize client
 	// method, and Scaleway's managed Public Gateway has no diagnose job lane
 	// at all - its health verdict answers diagnose_supported=false.

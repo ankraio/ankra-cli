@@ -15,7 +15,9 @@ a provider with no managed offering, or node-level control the managed API does 
 Providers, exactly as `--provider` spells them:
 
 `doks` (DigitalOcean) · `uks` (UpCloud) · `gke` (Google) · `ovh_mks` (OVHcloud) · `aks` (Azure) ·
-`eks` (AWS) · `kapsule` (Scaleway)
+`eks` (AWS) · `kapsule` (Scaleway) · `ankracloud_k8s` (Ankra Cloud Kubernetes, behind the
+`ankra_cloud_provider` feature flag; takes the same credential as `ankra credentials ankracloud
+create`, and optionally `--private-network-id`, `--network-cidr` and `--public-ipv4=false`)
 
 **Every `ankra cluster managed` subcommand takes `--provider`.**
 

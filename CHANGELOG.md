@@ -1,5 +1,27 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **Ankra Cloud clusters, self-managed and managed.** `ankra cluster
+  ankracloud` (alias `ankra-cloud`) creates kubeadm (default) or k3s
+  (`--distribution k3s`) clusters on Ankra Cloud servers, with `preflight`,
+  `deprovision`, `stop`, `start`, `workers`, `k8s-version`, `nodes`,
+  `bastion` and `control-plane`, and the catalogs the create flags need:
+  `zones`, `plans`, `templates`, `networks` and `pricing`. Servers are sized
+  by plan (`--bastion-plan`, `--control-plane-plan`, `--worker-plan`), and the
+  shared verbs (`cluster scale`, `upgrade`, `node-group`, `ssh-keys`,
+  `deprovision`) now recognise Ankra Cloud clusters. Ankra Cloud Kubernetes,
+  where the Ankra team runs the control plane, is `ankra cluster managed ...
+  --provider ankracloud_k8s`, with optional `--private-network-id`,
+  `--network-cidr` and `--public-ipv4=false`. Both take one credential from
+  `ankra credentials ankracloud create`, which reads the API token from
+  `--token-stdin`, `ANKRA_CLOUD_API_TOKEN` or a masked prompt, never a flag.
+  The provider is behind the `ankra_cloud_provider` feature flag; until it is
+  on for your organisation the commands answer not found.
+
+
 ## v0.20.0 — 2026-09-29
 
 The headline is `ankra cluster exec <pod> -n <namespace> -- <command>

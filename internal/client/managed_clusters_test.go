@@ -364,3 +364,61 @@ func TestImportManagedCluster_SendsBodyAndDecodesResponse(t *testing.T) {
 		t.Error("empty description must be omitted from the body")
 	}
 }
+
+func TestCreateManagedCluster_SendsAnkraCloudK8sOptions(t *testing.T) {
+	var receivedBody map[string]any
+	testClient := newTestClient(t, func(responseWriter http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/v1/clusters/managed/ankracloud_k8s" {
+			t.Errorf("path = %s, want /api/v1/clusters/managed/ankracloud_k8s", request.URL.Path)
+		}
+		receivedBody = decodeAnkraCloudBody(t, request)
+		jsonResponse(t, responseWriter, http.StatusOK, CreateManagedClusterResponse{ClusterID: "cluster-1", Name: "demo"})
+	})
+
+	networkCIDR := "10.50.0.0/24"
+	if _, createError := testClient.CreateManagedCluster(ManagedK8sProviderAnkraCloudK8s, CreateManagedClusterRequest{
+		Name:          "demo",
+		CredentialID:  "credential-1",
+		Location:      "fi-hel1",
+		AnkraCloudK8s: &AnkraCloudK8sClusterOptions{NetworkCIDR: &networkCIDR, PublicIPv4: boolPtr(false)},
+	}); createError != nil {
+		t.Fatalf("CreateManagedCluster: %v", createError)
+	}
+	options, _ := receivedBody["ankracloud_k8s"].(map[string]any)
+	if options == nil || options["network_cidr"] != "10.50.0.0/24" || options["public_ipv4"] != false {
+		t.Errorf("ankracloud_k8s body = %v, want network_cidr and public_ipv4 false", receivedBody["ankracloud_k8s"])
+	}
+	if _, present := options["private_network_id"]; present {
+		t.Errorf("ankracloud_k8s carries private_network_id, want it omitted")
+	}
+}
+
+func TestDeprovisionManagedCluster_DeletesProviderClusterExplicitly(t *testing.T) {
+	testCases := []struct {
+		provider       ManagedK8sProvider
+		expectedMethod string
+		expectedPath   string
+	}{
+		{ManagedK8sProviderAnkraCloudK8s, http.MethodPost, "/api/v1/clusters/managed/ankracloud_k8s/cluster-1/delete-provider-cluster"},
+		{ManagedK8sProviderKapsule, http.MethodPost, "/api/v1/clusters/managed/kapsule/cluster-1/delete-provider-cluster"},
+		{ManagedK8sProviderDoks, http.MethodDelete, "/api/v1/clusters/managed/doks/cluster-1"},
+	}
+	for _, testCase := range testCases {
+		t.Run(string(testCase.provider), func(t *testing.T) {
+			var receivedMethod, receivedPath, receivedQuery string
+			testClient := newTestClient(t, func(responseWriter http.ResponseWriter, request *http.Request) {
+				receivedMethod, receivedPath, receivedQuery = request.Method, request.URL.Path, request.URL.RawQuery
+				jsonResponse(t, responseWriter, http.StatusOK, DeprovisionManagedClusterResponse{})
+			})
+			if _, deprovisionError := testClient.DeprovisionManagedCluster(testCase.provider, "cluster-1", true); deprovisionError != nil {
+				t.Fatalf("DeprovisionManagedCluster: %v", deprovisionError)
+			}
+			if receivedMethod != testCase.expectedMethod || receivedPath != testCase.expectedPath {
+				t.Errorf("request = %s %s, want %s %s", receivedMethod, receivedPath, testCase.expectedMethod, testCase.expectedPath)
+			}
+			if receivedQuery != "force=true" {
+				t.Errorf("query = %q, want force=true", receivedQuery)
+			}
+		})
+	}
+}
