@@ -72,10 +72,16 @@ analysis time budget) and proposes the levers that apply to each: right-size idl
 or an off-hours schedule (weeknights and weekends) for a known non-production
 cluster with no enabled power schedule. A cluster can carry several. The total
 counts each cluster once, at its best lever, so it is smaller than the sum of
-the rows when a cluster has more than one. Clusters the model could not analyse are listed rather than
-treated as having nothing to save: unpriced (never had a cost snapshot),
-stale (metering stopped over a day ago) and unreadable on this pass. The
-waste summary counts the open cloud-waste findings.
+the rows when a cluster has more than one. Each row's Basis says what its
+saving rests on: measured (observed usage planned a right-size step), billed
+(an off-hours stop on billed compute) or estimate (capacity less requests,
+with no usage measured). The total counts only measured and billed levers;
+what the estimates add is shown beside it and never counted. Clusters the
+model could not analyse are listed rather than treated as having nothing to
+save: unpriced (never had a cost snapshot), stale (metering stopped over a
+day ago), unreadable on this pass, and offline (the agent has not checked
+in, so nothing is recommended for them). The waste summary counts the open
+cloud-waste findings.
 
 Every figure is a list-price estimate in the organisation's display currency.`,
 	Args: cobra.NoArgs,
@@ -515,8 +521,26 @@ func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, curr
 	}
 }
 
+// cloudSavingsBasis is what a recommendation's saving rests on, as the
+// Basis column says it: the platform's confidence, "estimate" for an
+// estimated one, and "unknown" when a confidence-reporting platform sent
+// none, which is never read as measured.
+func cloudSavingsBasis(recommendation client.CloudSavingsRecommendation) string {
+	if recommendation.Confidence == nil || *recommendation.Confidence == "" {
+		return "unknown"
+	}
+	if *recommendation.Confidence == "estimated" {
+		return "estimate"
+	}
+	return *recommendation.Confidence
+}
+
 func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 	currency := savings.Currency
+	// A platform that reports confidence counts only measured and billed levers
+	// in the total and says what the estimates add apart from it (ankra-tp6xp);
+	// an older one counts every lever, and its output is left as it was.
+	reportsConfidence := savings.EstimatedMonthlySavingsCents != nil
 	if savings.PricedClusterCount == 0 && len(savings.Recommendations) == 0 {
 		// A stale cluster was priced before its metering stalled, so "yet" would
 		// misname it; the two absences read differently.
@@ -532,9 +556,14 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 		renderCloudSavingsWaste(out, savings.Waste, currency)
 		return
 	}
-	_, _ = fmt.Fprintf(out, "Cloud savings (%s): %s/mo across %s\n", strings.ToUpper(currency),
+	_, _ = fmt.Fprintf(out, "Cloud savings (%s): %s/mo across %s", strings.ToUpper(currency),
 		formatCostCents(savings.TotalMonthlySavingsCents, currency),
 		pluralCount(len(savings.Recommendations), "recommendation"))
+	if reportsConfidence && *savings.EstimatedMonthlySavingsCents > 0 {
+		_, _ = fmt.Fprintf(out, ", plus %s/mo estimated (not counted: no usage measured)",
+			formatCostCents(*savings.EstimatedMonthlySavingsCents, currency))
+	}
+	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintf(out, "  %d of %s analysed", savings.AnalysedClusterCount, pluralClusters(savings.PricedClusterCount))
 	budgetExhausted := savings.AnalysisBudgetExhausted != nil && *savings.AnalysisBudgetExhausted
 	switch {
@@ -565,24 +594,34 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 			formatCostCents(savings.Thresholds.MinimumSavingsCents, currency))
 	} else {
 		_, _ = fmt.Fprintln(out)
-		_, _ = fmt.Fprintln(out, "Recommendations (a cluster can carry several; the total counts each cluster once, at its best lever):")
 		writer := newCostTable(out)
-		writer.AppendHeader(table.Row{"#", "Cluster", "Environment", "Lever", "Savings/mo", "Share", "Run rate/mo", "Cluster ID"})
+		if reportsConfidence {
+			_, _ = fmt.Fprintln(out, "Recommendations (a cluster can carry several; the total counts each cluster once, at its best measured or billed lever, and never an estimate):")
+			writer.AppendHeader(table.Row{"#", "Cluster", "Environment", "Lever", "Savings/mo", "Basis", "Share", "Run rate/mo", "Cluster ID"})
+		} else {
+			_, _ = fmt.Fprintln(out, "Recommendations (a cluster can carry several; the total counts each cluster once, at its best lever):")
+			writer.AppendHeader(table.Row{"#", "Cluster", "Environment", "Lever", "Savings/mo", "Share", "Run rate/mo", "Cluster ID"})
+		}
 		for index, recommendation := range savings.Recommendations {
 			environment := "-"
 			if recommendation.Environment != nil && *recommendation.Environment != "" {
 				environment = *recommendation.Environment
 			}
-			writer.AppendRow(table.Row{
+			row := table.Row{
 				index + 1,
 				recommendation.ClusterName,
 				environment,
 				costSavingsLever(recommendation),
 				formatCostCents(recommendation.MonthlySavingsCents, currency),
+			}
+			if reportsConfidence {
+				row = append(row, cloudSavingsBasis(recommendation))
+			}
+			writer.AppendRow(append(row,
 				fmt.Sprintf("%d%%", recommendation.SharePercent),
 				formatCostCents(recommendation.MonthlyCostCents, currency),
 				recommendation.ClusterID,
-			})
+			))
 		}
 		writer.Render()
 		renderCloudSavingsOffHoursHint(out, savings.Recommendations)
@@ -591,6 +630,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 	renderCloudSavingsClusters(out, "Unpriced clusters (no cost snapshot yet):", savings.UnpricedClusters, true)
 	renderCloudSavingsClusters(out, cloudSavingsStaleHeading(savings.Thresholds), savings.StaleClusters, true)
 	renderCloudSavingsClusters(out, "Unreadable clusters (breakdown could not be read on this pass):", savings.UnreadableClusters, false)
+	renderCloudSavingsClusters(out, "Offline clusters (agent not checked in; nothing is recommended for them until it is):", savings.OfflineClusters, false)
 	renderCloudSavingsWaste(out, savings.Waste, currency)
 }
 

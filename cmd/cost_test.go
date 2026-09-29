@@ -456,3 +456,92 @@ func TestCostSettingsSetRefusesNoFlagsAndOutOfRangeDiscount(t *testing.T) {
 		t.Fatalf("no update must be sent on a refused invocation, got %d", len(mock.updates))
 	}
 }
+
+// confidenceSavingsFixture is the savings model as a confidence-reporting
+// platform serves it (ankra-tp6xp): the right-size was measured, the
+// unallocated shrink is only an estimate and so is not in the total, the
+// off-hours stop is billed, and one priced cluster is offline.
+func confidenceSavingsFixture() *client.CloudSavings {
+	savings := cloudSavingsFixture()
+	measured, estimated, billed := "measured", "estimated", "billed"
+	savings.Recommendations[0].Confidence = &measured
+	savings.Recommendations[1].Confidence = &estimated
+	savings.Recommendations[2].Confidence = &billed
+	savings.TotalMonthlySavingsCents = 43800 + 12857
+	estimate := int64(60000)
+	savings.EstimatedMonthlySavingsCents = &estimate
+	savings.OfflineClusters = []client.CloudSavingsCluster{{ClusterID: "99999999-9999-4999-8999-999999999999", ClusterName: "edge-fr"}}
+	return savings
+}
+
+func TestCostSavingsSaysWhatEachSavingRestsOnAndCountsOnlyMeasuredOrBilled(t *testing.T) {
+	output, executeError := runCostCommand(t, &costMock{savings: confidenceSavingsFixture()}, "cost", "savings")
+	if executeError != nil {
+		t.Fatalf("cost savings failed: %v", executeError)
+	}
+	for _, expected := range []string{
+		"Cloud savings (EUR): €566.57/mo across 3 recommendations, plus €600.00/mo estimated (not counted: no usage measured)",
+		"Recommendations (a cluster can carry several; the total counts each cluster once, at its best measured or billed lever, and never an estimate):",
+		"BASIS", "measured", "estimate", "billed",
+		"Offline clusters (agent not checked in; nothing is recommended for them until it is):", "edge-fr",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output lacks %q:\n%s", expected, output)
+		}
+	}
+}
+
+func TestCostSavingsFromAnOlderPlatformIsUnchanged(t *testing.T) {
+	output, executeError := runCostCommand(t, &costMock{savings: cloudSavingsFixture()}, "cost", "savings")
+	if executeError != nil {
+		t.Fatalf("cost savings failed: %v", executeError)
+	}
+	// No confidence was reported, so no row is called measured or estimated and
+	// no estimate is invented next to a total that still counts every lever.
+	for _, absent := range []string{"BASIS", "estimated", "Offline clusters"} {
+		if strings.Contains(output, absent) {
+			t.Fatalf("an older platform's output gained %q:\n%s", absent, output)
+		}
+	}
+}
+
+func TestCostSavingsBasisReadsAMissingConfidenceAsUnknownNeverMeasured(t *testing.T) {
+	savings := confidenceSavingsFixture()
+	savings.Recommendations[0].Confidence = nil
+	output, executeError := runCostCommand(t, &costMock{savings: savings}, "cost", "savings")
+	if executeError != nil {
+		t.Fatalf("cost savings failed: %v", executeError)
+	}
+	// The only measured lever lost its confidence: its row reads unknown.
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "prod-eu") && (!strings.Contains(line, "unknown") || strings.Contains(line, "measured")) {
+			t.Fatalf("a row with no confidence must read unknown, never measured: %q", line)
+		}
+	}
+}
+
+func TestCostSavingsStructuredOutputCarriesConfidenceOnlyWhenThePlatformSentIt(t *testing.T) {
+	newer, newerError := runCostCommand(t, &costMock{savings: confidenceSavingsFixture()}, "cost", "savings", "-o", "json")
+	if newerError != nil {
+		t.Fatalf("cost savings -o json failed: %v", newerError)
+	}
+	var decoded map[string]any
+	if unmarshalError := json.Unmarshal([]byte(newer), &decoded); unmarshalError != nil {
+		t.Fatalf("output is not JSON: %v\n%s", unmarshalError, newer)
+	}
+	if decoded["estimated_monthly_savings_cents"] != float64(60000) || len(decoded["offline_clusters"].([]any)) != 1 {
+		t.Fatalf("structured document lacks the confidence members: %+v", decoded)
+	}
+	if decoded["recommendations"].([]any)[1].(map[string]any)["confidence"] != "estimated" {
+		t.Fatalf("a recommendation's confidence is missing: %+v", decoded["recommendations"])
+	}
+	older, olderError := runCostCommand(t, &costMock{savings: cloudSavingsFixture()}, "cost", "savings", "-o", "json")
+	if olderError != nil {
+		t.Fatalf("cost savings -o json failed: %v", olderError)
+	}
+	for _, absent := range []string{"estimated_monthly_savings_cents", "offline_clusters", "\"confidence\""} {
+		if strings.Contains(older, absent) {
+			t.Fatalf("an older platform's document gained %q:\n%s", absent, older)
+		}
+	}
+}

@@ -89,6 +89,40 @@ func TestGetCloudSavings_AbsentListsDecodeAsEmpty(t *testing.T) {
 	}
 }
 
+// TestGetCloudSavings_DecodesConfidenceAndLeavesItAbsentOnAnOlderPlatform
+// pins ankra-tp6xp's members: a confidence-reporting platform's confidence,
+// estimate and offline clusters decode, and an older platform's response
+// leaves them nil rather than zero, so no row reads as measured and no
+// estimate reads as none.
+func TestGetCloudSavings_DecodesConfidenceAndLeavesItAbsentOnAnOlderPlatform(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"currency":"eur","total_monthly_savings_cents":12857,"estimated_monthly_savings_cents":60000,` +
+			`"recommendations":[{"id":"reduce_unallocated:c2","kind":"reduce_unallocated","cluster_id":"c2","cluster_name":"data",` +
+			`"monthly_savings_cents":60000,"confidence":"estimated","evidence":{}}],` +
+			`"offline_clusters":[{"cluster_id":"c9","cluster_name":"edge-fr"}],"waste":{"available":true}}`))
+	}
+	result, err := newTestClient(t, handler).GetCloudSavings()
+	if err != nil {
+		t.Fatalf("GetCloudSavings: %v", err)
+	}
+	if result.EstimatedMonthlySavingsCents == nil || *result.EstimatedMonthlySavingsCents != 60000 ||
+		result.Recommendations[0].Confidence == nil || *result.Recommendations[0].Confidence != "estimated" ||
+		len(result.OfflineClusters) != 1 || result.OfflineClusters[0].ClusterName != "edge-fr" {
+		t.Fatalf("confidence members did not decode: %+v", result)
+	}
+	older := func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"currency":"eur","total_monthly_savings_cents":43800,"recommendations":[{"id":"x","kind":"right_size_idle",` +
+			`"cluster_id":"c1","cluster_name":"prod","monthly_savings_cents":43800,"evidence":{}}],"waste":{"available":true}}`))
+	}
+	legacy, legacyError := newTestClient(t, older).GetCloudSavings()
+	if legacyError != nil {
+		t.Fatalf("GetCloudSavings: %v", legacyError)
+	}
+	if legacy.EstimatedMonthlySavingsCents != nil || legacy.Recommendations[0].Confidence != nil || legacy.OfflineClusters != nil {
+		t.Fatalf("an older platform's response must leave the confidence members absent: %+v", legacy)
+	}
+}
+
 func TestGetClusterCost_Success(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/org/clusters/cluster-123/cost" {
