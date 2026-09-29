@@ -386,6 +386,20 @@ func TestClusterDebugCreateAttachRefusesACommandLineBeforeCreatingThePod(t *test
 	}
 }
 
+func TestClusterDebugCreateWithoutAttachIgnoresTheShell(t *testing.T) {
+	mock := &debugPodMock{createResponse: createdDebugPod()}
+	setMockClient(t, mock)
+	resetDebugCreateFlags(t)
+	writeSelectedClusterJSON(t)
+
+	if _, err := executeCommand("cluster", "debug", "create", "-n", "payments", "--shell", "/bin/bash -l"); err != nil {
+		t.Fatalf("--shell only means something with --attach, so it should not refuse the create: %v", err)
+	}
+	if mock.createRequest == nil {
+		t.Error("the debug pod was not created")
+	}
+}
+
 func TestClusterDebugCreateAttachRefusesStructuredOutput(t *testing.T) {
 	mock := &terminalMock{terminal: helloTerminal(), createResponse: createdDebugPod()}
 	setMockClient(t, mock)

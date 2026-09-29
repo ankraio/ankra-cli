@@ -121,8 +121,10 @@ Examples:
 		if ttl < debugPodMinimumTTL || ttl > debugPodMaximumTTL {
 			return withExitCode(exitUsage, fmt.Errorf("--ttl must be between %s and %s", debugPodMinimumTTL, debugPodMaximumTTL))
 		}
-		if shellError := validatePodTerminalShell(shell); shellError != nil {
-			return shellError
+		if attach {
+			if shellError := validatePodTerminalShell(shell); shellError != nil {
+				return shellError
+			}
 		}
 
 		cluster, err := resolveActiveCluster(cmd)
