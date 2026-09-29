@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -47,6 +48,9 @@ and should end with exit, since the remote shell cannot see the pipe close.`,
 		shell, _ := cmd.Flags().GetString("shell")
 		if namespace == "" {
 			return withExitCode(exitUsage, errors.New("--namespace (-n) is required"))
+		}
+		if shellError := validatePodTerminalShell(shell); shellError != nil {
+			return shellError
 		}
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
@@ -121,6 +125,20 @@ func terminalContainerNames(pod map[string]interface{}) []string {
 		}
 	}
 	return names
+}
+
+// validatePodTerminalShell refuses a --shell that is a command line. The
+// value reaches the container runtime as one argument, the whole string
+// being the program it looks up, so "/bin/sh -c 'psql ...'" could only fail
+// there: after the session was recorded, with a "no such file or directory"
+// that does not say why.
+func validatePodTerminalShell(shell string) error {
+	if strings.IndexFunc(shell, unicode.IsSpace) < 0 {
+		return nil
+	}
+	return withExitCode(exitUsage, fmt.Errorf(
+		"--shell takes the path of one executable (such as /bin/bash), not a command line: the container runtime would look for a program named %q. To run commands, pipe them into the session and end with exit",
+		shell))
 }
 
 // runPodTerminal bridges the local terminal and the platform relay until the
@@ -246,6 +264,6 @@ func keepTerminalAlive(ctx context.Context, session client.PodTerminal, sizeDesc
 func init() {
 	clusterTerminalCmd.Flags().StringP("namespace", "n", "", "Namespace of the pod (required)")
 	clusterTerminalCmd.Flags().StringP("container", "c", "", "Container to open the shell in (default: the pod's only container)")
-	clusterTerminalCmd.Flags().String("shell", podTerminalDefaultShell, "Shell to start in the container")
+	clusterTerminalCmd.Flags().String("shell", podTerminalDefaultShell, "Path of the shell to start in the container (one executable, not a command line)")
 	clusterCmd.AddCommand(clusterTerminalCmd)
 }

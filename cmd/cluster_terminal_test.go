@@ -245,6 +245,38 @@ func TestClusterTerminalRequiresANamespace(t *testing.T) {
 	}
 }
 
+func TestClusterTerminalRefusesACommandLineAsTheShell(t *testing.T) {
+	mock := &terminalMock{terminal: helloTerminal(), podItems: []any{podWithContainers("postgres")}}
+	setMockClient(t, mock)
+	resetTerminalFlags(t)
+	writeSelectedClusterJSON(t)
+
+	_, err := executeCommand("cluster", "terminal", "cnpg-cluster-1", "-n", "cnpg-database", "-c", "postgres",
+		"--shell", `/bin/sh -c 'psql -U postgres -d appdb -Atc "select count(*) from users"'`)
+	if err == nil || exitCodeFor(err) != exitUsage {
+		t.Fatalf("expected a usage error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "one executable") || !strings.Contains(err.Error(), "pipe them into the session") {
+		t.Errorf("the refusal should say what --shell takes and how to run commands: %v", err)
+	}
+	if mock.openRequest != nil {
+		t.Error("a terminal was opened (and recorded) despite the refusal")
+	}
+}
+
+func TestValidatePodTerminalShell(t *testing.T) {
+	for _, shell := range []string{"/bin/sh", "/bin/bash", "/busybox/sh", ""} {
+		if err := validatePodTerminalShell(shell); err != nil {
+			t.Errorf("%q is one executable and should pass: %v", shell, err)
+		}
+	}
+	for _, shell := range []string{"/bin/bash -l", "/bin/sh\t-c", "bash\n", " /bin/sh"} {
+		if err := validatePodTerminalShell(shell); err == nil || exitCodeFor(err) != exitUsage {
+			t.Errorf("%q is not one executable and should be a usage error, got %v", shell, err)
+		}
+	}
+}
+
 func TestClusterTerminalSurfacesThePermissionRefusal(t *testing.T) {
 	terminal := newFakePodTerminal(&client.PermissionDeniedError{Permission: "kubernetes.exec"},
 		client.PodTerminalFrame{Type: "error", Message: "Permission denied"})
@@ -322,6 +354,21 @@ func TestClusterDebugCreateAttachWaitsForARunningPod(t *testing.T) {
 	}
 	if !strings.Contains(output, "ankra cluster terminal debug-api-7f3a -n payments -c debug") {
 		t.Errorf("the hint to attach later is missing:\n%s", output)
+	}
+}
+
+func TestClusterDebugCreateAttachRefusesACommandLineBeforeCreatingThePod(t *testing.T) {
+	mock := &debugPodMock{createResponse: createdDebugPod()}
+	setMockClient(t, mock)
+	resetDebugCreateFlags(t)
+	writeSelectedClusterJSON(t)
+
+	_, err := executeCommand("cluster", "debug", "create", "-n", "payments", "--attach", "--shell", "/bin/bash -l")
+	if err == nil || exitCodeFor(err) != exitUsage {
+		t.Fatalf("expected a usage error, got %v", err)
+	}
+	if mock.createRequest != nil {
+		t.Error("a debug pod was created for a terminal that could never open")
 	}
 }
 
