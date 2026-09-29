@@ -468,7 +468,8 @@ the Cancelled line): who stopped a run, why and when. 'cancelled_by' is the acto
 in the same form 'requested_by' uses - "user:<id>" for a cancel pressed in
 the portal, the CLI or the API, "github:<login>" for the Cancel action on a
 pull request's check run, "concurrency:<run id>" for a supersession - and
-'cancel_reason' is one of "user_requested", "source_control", "superseded".
+'cancel_reason' is one of "user_requested", "source_control", "superseded",
+"pull_request_closed" (the run's pull request merged or closed; no actor).
 All three are null for a run nobody cancelled and for one cancelled before
 Ankra recorded this, which is "not recorded", never "the platform did it".
 

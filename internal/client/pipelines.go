@@ -107,7 +107,8 @@ type PipelineRun struct {
 	// vocabulary RequestedBy uses - "user:<id>" for the cancel route,
 	// "github:<login>" for the Cancel action on a check run,
 	// "concurrency:<run id>" for a supersession - and CancelReason one of
-	// "user_requested", "source_control", "superseded".
+	// "user_requested", "source_control", "superseded", "pull_request_closed"
+	// (the run's pull request merged or closed, which names no actor).
 	//
 	// All three are null for a run that was not cancelled, for one cancelled
 	// before the platform recorded any of this, AND against a server too old
