@@ -226,7 +226,9 @@ otherwise, `5` not concluded by `--timeout`, `3` no run matched. `status` is the
 `timed_out`, `skipped`, `infra_error`). A failed run names its error class: `step_failed` is your
 build, `image_gate_blocked` is a finding, `registry_push_failed`, `build_runtime_confined` and
 `platform_build_infra` are placement or Ankra. `rerun` skips publish (`when.events` is push/manual)
-— push a commit to publish. Logs attach once a step has an execution; a concluded step replays for
+— push a commit to publish. `--failed-only` also re-runs the checkout and every step the failed ones
+build on (the new run's workspace starts empty), and is refused when a step that failed could not
+run in a re-run. Logs attach once a step has an execution; a concluded step replays for
 24 h and from the archived artifact after that.
 
 ### 3f. Already on GitHub Actions? Convert in one call

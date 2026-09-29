@@ -1044,8 +1044,13 @@ func newPipelineRerunCommand() *cobra.Command {
 
 The new run is a fresh run, not a retry of the old one: the old run's outcome
 stays the record of what happened, and 'rerun_of_run_id' ties the two together.
---failed-only restricts the new run to the steps that did not succeed and
-whatever depended on them.`,
+--failed-only restricts the new run to the steps that did not succeed,
+whatever depended on them, and the steps they build on. The new run starts
+from an empty workspace, so the checkout and every upstream step whose output
+a repeated step reads run again with it; steps that succeeded and that nothing
+repeated needs (a publish after the failure, say) do not. A failed-only re-run
+that could not run a step that failed - a push-only stage, which a re-run's
+trigger filters out - is refused with the reason rather than passing without it.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -1064,7 +1069,7 @@ whatever depended on them.`,
 // registerPipelineRerunFlags is shared by `pipeline rerun` and
 // `application pipeline rerun`.
 func registerPipelineRerunFlags(command *cobra.Command) {
-	command.Flags().Bool("failed-only", false, "Re-run only the steps that did not succeed, and whatever depends on them")
+	command.Flags().Bool("failed-only", false, "Re-run only the steps that did not succeed, whatever depends on them, and the steps they build on (checkout included)")
 	command.Flags().Bool("wait", false, "Wait for the new run to conclude before returning")
 	registerPipelineWaitTimeoutFlag(command)
 }
