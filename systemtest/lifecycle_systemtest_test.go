@@ -253,3 +253,39 @@ func TestLanePlan(t *testing.T) {
 		})
 	}
 }
+
+// Since ankra-cli#383 a deprovision off a terminal refuses to delete a
+// cluster's persistent volumes, or volumes Ankra cannot list, without
+// --accept-volume-data-loss. A lane deprovision or abort cleanup without it
+// leaves the cluster running and billing (run 36561535646 left an UpCloud
+// cluster behind), so every self-managed deprovision the script issues must
+// carry the consent.
+func TestEveryDeprovisionAcceptsVolumeDataLoss(t *testing.T) {
+	script, err := os.ReadFile("lifecycle_systemtest.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	consentDefined := false
+	deprovisions := 0
+	for number, line := range strings.Split(string(script), "\n") {
+		code := strings.TrimSpace(line)
+		if strings.HasPrefix(code, "#") {
+			continue
+		}
+		if strings.HasPrefix(code, "DEPROVISION_CONSENT=(") {
+			consentDefined = strings.Contains(code, "--accept-volume-data-loss")
+		}
+		if strings.Contains(code, "cluster deprovision ") {
+			deprovisions++
+			if !strings.Contains(code, `"${DEPROVISION_CONSENT[@]}"`) {
+				t.Errorf("line %d deprovisions without the volume-data-loss consent: %s", number+1, code)
+			}
+		}
+	}
+	if !consentDefined {
+		t.Error("DEPROVISION_CONSENT is not defined with --accept-volume-data-loss")
+	}
+	if deprovisions == 0 {
+		t.Error("found no cluster deprovision calls; the check no longer matches the script")
+	}
+}
