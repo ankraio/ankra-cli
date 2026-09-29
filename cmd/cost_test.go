@@ -545,3 +545,25 @@ func TestCostSavingsStructuredOutputCarriesConfidenceOnlyWhenThePlatformSentIt(t
 		}
 	}
 }
+
+func TestCostSavingsReadsConfidenceWithoutTheEstimateFigureAndMapsUnknownValues(t *testing.T) {
+	savings := confidenceSavingsFixture()
+	savings.EstimatedMonthlySavingsCents = nil
+	projected := "projected"
+	savings.Recommendations[2].Confidence = &projected
+	output, executeError := runCostCommand(t, &costMock{savings: savings}, "cost", "savings")
+	if executeError != nil {
+		t.Fatalf("cost savings failed: %v", executeError)
+	}
+	// Per-recommendation confidence alone marks a confidence-reporting
+	// platform; with no estimate figure sent, none is invented.
+	if !strings.Contains(output, "BASIS") || strings.Contains(output, "estimated (not counted") {
+		t.Fatalf("confidence without the estimate figure must still show the Basis column and no estimate line:\n%s", output)
+	}
+	for _, line := range strings.Split(output, "\n") {
+		isTableRow := strings.Contains(line, "│")
+		if isTableRow && strings.Contains(line, "staging-1") && (!strings.Contains(line, "unknown") || strings.Contains(line, "projected")) {
+			t.Fatalf("a confidence the CLI does not know must read unknown: %q", line)
+		}
+	}
+}

@@ -522,17 +522,37 @@ func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, curr
 }
 
 // cloudSavingsBasis is what a recommendation's saving rests on, as the
-// Basis column says it: the platform's confidence, "estimate" for an
-// estimated one, and "unknown" when a confidence-reporting platform sent
-// none, which is never read as measured.
+// Basis column says it: measured, billed or estimate for the three values
+// the platform defines, and "unknown" for none or for any other value, so a
+// confidence this CLI does not know never reads as a basis the total counts.
 func cloudSavingsBasis(recommendation client.CloudSavingsRecommendation) string {
-	if recommendation.Confidence == nil || *recommendation.Confidence == "" {
+	if recommendation.Confidence == nil {
 		return "unknown"
 	}
-	if *recommendation.Confidence == "estimated" {
+	switch *recommendation.Confidence {
+	case "measured", "billed":
+		return *recommendation.Confidence
+	case "estimated":
 		return "estimate"
+	default:
+		return "unknown"
 	}
-	return *recommendation.Confidence
+}
+
+// savingsReportsConfidence says whether the platform reports what each
+// saving rests on: it sent the estimate figure or a confidence on any
+// recommendation. Either is enough, so a platform that omits one of them
+// is not read as an older one whose total counts every lever.
+func savingsReportsConfidence(savings *client.CloudSavings) bool {
+	if savings.EstimatedMonthlySavingsCents != nil {
+		return true
+	}
+	for _, recommendation := range savings.Recommendations {
+		if recommendation.Confidence != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
@@ -540,7 +560,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 	// A platform that reports confidence counts only measured and billed levers
 	// in the total and says what the estimates add apart from it (ankra-tp6xp);
 	// an older one counts every lever, and its output is left as it was.
-	reportsConfidence := savings.EstimatedMonthlySavingsCents != nil
+	reportsConfidence := savingsReportsConfidence(savings)
 	if savings.PricedClusterCount == 0 && len(savings.Recommendations) == 0 {
 		// A stale cluster was priced before its metering stalled, so "yet" would
 		// misname it; the two absences read differently.
@@ -559,7 +579,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 	_, _ = fmt.Fprintf(out, "Cloud savings (%s): %s/mo across %s", strings.ToUpper(currency),
 		formatCostCents(savings.TotalMonthlySavingsCents, currency),
 		pluralCount(len(savings.Recommendations), "recommendation"))
-	if reportsConfidence && *savings.EstimatedMonthlySavingsCents > 0 {
+	if savings.EstimatedMonthlySavingsCents != nil && *savings.EstimatedMonthlySavingsCents > 0 {
 		_, _ = fmt.Fprintf(out, ", plus %s/mo estimated (not counted: no usage measured)",
 			formatCostCents(*savings.EstimatedMonthlySavingsCents, currency))
 	}
