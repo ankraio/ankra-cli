@@ -95,6 +95,8 @@ func TestEscapeMDXCodeSpansFlags(t *testing.T) {
 		"--from-file <path> replaces":               "`--from-file` &lt;path&gt; replaces",
 		"pre-existing well-known names":             "pre-existing well-known names",
 		"exclusive with --set*.":                    "exclusive with `--set*`.",
+		"pass --output=json.":                       "pass `--output=json`.",
+		"try --image=nginx:1.27:":                   "try `--image=nginx:1.27`:",
 	}
 	for in, want := range cases {
 		if got := escapeMDX(in); got != want {

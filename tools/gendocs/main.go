@@ -102,10 +102,11 @@ var mdxProse = strings.NewReplacer(
 )
 
 // flagToken matches a long flag named in prose, with an =value or a directly
-// following single-quoted argument ("--set 'spec.replicas=3'"). Mintlify's
+// following single-quoted argument ("--set 'spec.replicas=3'"); a value
+// never ends in sentence punctuation. Mintlify's
 // typographer turns an unfenced "--" into an em dash, so "--wait" rendered as
 // "—wait" until these were code-spanned (ankra-ta04t).
-var flagToken = regexp.MustCompile(`(^|[\s(\[/,;:"'])(--[A-Za-z][A-Za-z0-9-]*(?:=[^\s,;)'"]*| '[^'\n]*'|\*)?)`)
+var flagToken = regexp.MustCompile(`(^|[\s(\[/,;:"'])(--[A-Za-z][A-Za-z0-9-]*(?:=(?:[^\s,;)'"]*[^\s,;)'".:])?| '[^'\n]*'|\*)?)`)
 
 // escapeMDX makes arbitrary help text safe inside MDX prose: angle brackets
 // and curly braces are JSX syntax to Mintlify, and flag names become code
