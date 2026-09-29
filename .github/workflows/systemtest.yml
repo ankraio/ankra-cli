@@ -2,18 +2,33 @@
 # CLI (systemtest/lifecycle_systemtest.sh) and tears them down again.
 #
 # Configuration is repository secrets/variables named SYSTEMTEST_*; none are
-# defaulted. Without SYSTEMTEST_ANKRA_API_TOKEN the job skips with a notice.
+# defaulted. Each selected provider is a LANE, and each lane is gated on its
+# own settings: a lane whose settings are missing is skipped with a line
+# naming them, the rest still run, and the job summary says
+# "N of M provider lanes skipped: missing X". A scheduled run in which every
+# lane is skipped FAILS - it tested nothing - while a manual dispatch that
+# selected only unconfigured lanes passes with a warning.
 #
-#   Secrets (always):   SYSTEMTEST_ANKRA_API_TOKEN, SYSTEMTEST_SSH_KEY_CREDENTIAL_ID,
-#                       SYSTEMTEST_HETZNER_CREDENTIAL_ID, SYSTEMTEST_OVH_CREDENTIAL_ID,
-#                       SYSTEMTEST_UPCLOUD_CREDENTIAL_ID, SYSTEMTEST_DIGITALOCEAN_CREDENTIAL_ID,
-#                       SYSTEMTEST_GKE_CREDENTIAL_ID, SYSTEMTEST_AKS_CREDENTIAL_ID,
-#                       SYSTEMTEST_EKS_CREDENTIAL_ID
-#   Variables (always): SYSTEMTEST_ANKRA_BASE_URL, SYSTEMTEST_ANKRA_ORG,
-#                       SYSTEMTEST_GITOPS_CREDENTIAL_NAME, SYSTEMTEST_GITOPS_REPOSITORY
+#   Every lane:          secret SYSTEMTEST_ANKRA_API_TOKEN
+#                        (variables SYSTEMTEST_ANKRA_BASE_URL + SYSTEMTEST_ANKRA_ORG pick
+#                        the platform and org the credential ids below live in)
+#   hetzner              secrets SYSTEMTEST_SSH_KEY_CREDENTIAL_ID + SYSTEMTEST_HETZNER_CREDENTIAL_ID
+#   ovh                  secrets SYSTEMTEST_SSH_KEY_CREDENTIAL_ID + SYSTEMTEST_OVH_CREDENTIAL_ID
+#   upcloud              secrets SYSTEMTEST_SSH_KEY_CREDENTIAL_ID + SYSTEMTEST_UPCLOUD_CREDENTIAL_ID
+#   digitalocean         secrets SYSTEMTEST_SSH_KEY_CREDENTIAL_ID + SYSTEMTEST_DIGITALOCEAN_CREDENTIAL_ID
+#   aws (opt-in)         see below
+#   doks / uks / ovh_mks secret SYSTEMTEST_DIGITALOCEAN / _UPCLOUD / _OVH_CREDENTIAL_ID
+#                        (the same credential as the Ankra-managed provider)
+#   gke / aks / eks      secret SYSTEMTEST_GKE / _AKS / _EKS_CREDENTIAL_ID
+#   Optional:            variables SYSTEMTEST_GITOPS_CREDENTIAL_NAME + SYSTEMTEST_GITOPS_REPOSITORY
+#                        (without them the GitOps commit step is skipped)
+#
+# The credential ids are identifiers of credentials stored in that org
+# (`ankra credentials list --org <org>`), not the cloud keys themselves.
 #
 # The AWS lane (self-managed k3s on EC2 in a network Ankra creates) is
-# OPT-IN: it joins the scheduled matrix only when its secrets exist, and a
+# OPT-IN: it joins the scheduled matrix only when its secrets exist (so it is
+# never counted as a skipped lane there), and a
 # manual dispatch has to name "aws" in `providers` explicitly. It needs only
 # credentials - no pre-made VPC: it preflights, creates a 1 control plane +
 # 1 worker cluster in a VPC the platform builds (egress bastion_nat, the
@@ -89,6 +104,12 @@ jobs:
       ANKRA_SYSTEMTEST_PROVIDERS: ${{ github.event.inputs.providers || 'hetzner ovh upcloud digitalocean' }}
       ANKRA_SYSTEMTEST_MANAGED_PROVIDERS: ${{ github.event.inputs.managed_providers || 'doks uks gke ovh_mks aks eks' }}
       ANKRA_SYSTEMTEST_PARALLEL: ${{ github.event.inputs.parallel || '1' }}
+      # Skip lines and the job summary name the repository secret/variable
+      # (SYSTEMTEST_HETZNER_CREDENTIAL_ID), not the variable it is mapped to.
+      ANKRA_SYSTEMTEST_CONFIG_PREFIX: SYSTEMTEST_
+      # A schedule on which no lane can run has tested nothing: fail it. A
+      # dispatch names its own lanes, and its summary says what was skipped.
+      ANKRA_SYSTEMTEST_FAIL_IF_ALL_SKIPPED: ${{ github.event_name == 'schedule' && '1' || '0' }}
       ANKRA_API_TOKEN: ${{ secrets.SYSTEMTEST_ANKRA_API_TOKEN }}
       ANKRA_BASE_URL: ${{ vars.SYSTEMTEST_ANKRA_BASE_URL }}
       ANKRA_ORG: ${{ vars.SYSTEMTEST_ANKRA_ORG }}
@@ -120,27 +141,33 @@ jobs:
       GITOPS_REPOSITORY: ${{ vars.SYSTEMTEST_GITOPS_REPOSITORY }}
       TMPDIR: ${{ github.workspace }}/systemtest-artifacts
     steps:
-      # Every SYSTEMTEST_* value above is a repository secret or variable, and a
-      # repository without them cannot run this suite at all: the preflight in
-      # lifecycle_systemtest.sh dies on the first empty credential seconds in.
-      # On a schedule that reads as a broken build every Monday, Wednesday and
-      # Friday, which is what the 30 consecutive red runs since 2026-06-22
-      # actually were - nobody had created the secrets. Skip with a notice
-      # instead, the way the cluster repo's nightly skips its live-model eval
-      # tier when ANTHROPIC_API_KEY is absent.
-      #
-      # Only the API token is gated on. A repository that has the token but is
-      # missing a provider credential IS misconfigured, and the preflight has
-      # to keep failing loudly for it.
-      - name: Check systemtest configuration
-        id: configuration
+      # Lane gating: every provider lane needs its own settings (header
+      # comment). The guard used to test only SYSTEMTEST_ANKRA_API_TOKEN, so
+      # a repository with the token but no provider credential ids started
+      # the run and died in the script's preflight 35 s in ("FATAL:
+      # HETZNER_CREDENTIAL_ID required for hetzner", every scheduled run from
+      # 2026-09-14), and one without the token went green having tested
+      # nothing (every "successful" run before that). Now the script plans
+      # the lanes first, skips the unconfigured ones by name, and the plan -
+      # not a single token check - decides whether anything runs.
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      # TMPDIR (set job-wide above) lives inside the workspace so the test's
+      # temp files survive for the log upload, but checkout starts from a
+      # clean workspace. It must exist before anything invokes Go: setup-go
+      # runs `go env`, and Go refuses to start with a missing TMPDIR.
+      - name: Create TMPDIR
+        run: mkdir -p "$TMPDIR"
+
+      # Plan only: no binary, no cost gate, nothing provisioned. Writes the
+      # lane table to the job summary and runnable_lanes to the step outputs;
+      # exits non-zero on a schedule when no lane can run.
+      - name: Plan provider lanes
+        id: plan
+        env:
+          PROVIDERS_INPUT: ${{ github.event.inputs.providers }}
         run: |
-          if [ -n "$ANKRA_API_TOKEN" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::SYSTEMTEST_ANKRA_API_TOKEN is not configured in this repository, so the cloud lifecycle system test is skipped. Each run provisions real billable cloud infrastructure, so these credentials are deliberately not defaulted."
-          fi
           # The AWS lane is opt-in: it needs an Ankra aws credential (or a
           # role to register one from), the region, and the account's own
           # keys for the leak check that proves the created network is
@@ -150,31 +177,20 @@ jobs:
           if { [ -n "$AWS_CREDENTIAL_ID" ] || { [ -n "$AWS_ROLE_ARN" ] && [ -n "$AWS_EXTERNAL_ID" ]; }; } \
              && [ -n "$AWS_REGION" ] && [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
             echo "aws_configured=true" >> "$GITHUB_OUTPUT"
+            if [ -z "$PROVIDERS_INPUT" ]; then export ANKRA_SYSTEMTEST_PROVIDERS="$ANKRA_SYSTEMTEST_PROVIDERS aws"; fi
           else
             echo "aws_configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::The SYSTEMTEST_AWS_* secrets/variables are not (fully) configured (need a credential or role, SYSTEMTEST_AWS_REGION and the SYSTEMTEST_AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY leak-check keys), so the opt-in AWS lane is not added to this run."
           fi
-
-      - name: Checkout code
-        if: steps.configuration.outputs.configured == 'true'
-        uses: actions/checkout@v6
-
-      # TMPDIR (set job-wide above) lives inside the workspace so the test's
-      # temp files survive for the log upload, but checkout starts from a
-      # clean workspace. It must exist before anything invokes Go: setup-go
-      # runs `go env`, and Go refuses to start with a missing TMPDIR.
-      - name: Create TMPDIR
-        if: steps.configuration.outputs.configured == 'true'
-        run: mkdir -p "$TMPDIR"
+          ANKRA_SYSTEMTEST_PLAN_ONLY=1 ./systemtest/lifecycle_systemtest.sh
 
       - name: Set up Go
-        if: steps.configuration.outputs.configured == 'true'
+        if: fromJSON(steps.plan.outputs.runnable_lanes || '0') > 0
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
       - name: Build ankra binary
-        if: steps.configuration.outputs.configured == 'true'
+        if: fromJSON(steps.plan.outputs.runnable_lanes || '0') > 0
         run: go build -o bin/ankra .
 
       # The AWS lane's leak check (and the VPC diff in adopted mode) needs the
@@ -182,7 +198,7 @@ jobs:
       # runner may not). Only install what is missing, and only when the lane
       # can actually run.
       - name: Ensure the AWS CLI and jq are available
-        if: steps.configuration.outputs.configured == 'true' && steps.configuration.outputs.aws_configured == 'true'
+        if: fromJSON(steps.plan.outputs.runnable_lanes || '0') > 0 && steps.plan.outputs.aws_configured == 'true'
         run: |
           if ! command -v jq >/dev/null 2>&1; then
             sudo apt-get update -qq && sudo apt-get install -y -qq jq
@@ -195,21 +211,15 @@ jobs:
           aws --version
 
       - name: Run lifecycle system test
-        if: steps.configuration.outputs.configured == 'true'
+        if: fromJSON(steps.plan.outputs.runnable_lanes || '0') > 0
         # The dispatch input reaches the script through the environment, never
         # through ${{ }} expansion inside `run`, so a crafted providers value
         # cannot become shell with the SYSTEMTEST_* secrets in scope.
         env:
           PROVIDERS_INPUT: ${{ github.event.inputs.providers }}
-          AWS_CONFIGURED: ${{ steps.configuration.outputs.aws_configured }}
+          AWS_CONFIGURED: ${{ steps.plan.outputs.aws_configured }}
         run: |
-          # "none" lets a dispatch skip a whole family (an empty input would
-          # fall back to the default matrix instead).
-          if [ "$ANKRA_SYSTEMTEST_PROVIDERS" = "none" ]; then export ANKRA_SYSTEMTEST_PROVIDERS=""; fi
-          if [ "$ANKRA_SYSTEMTEST_MANAGED_PROVIDERS" = "none" ]; then export ANKRA_SYSTEMTEST_MANAGED_PROVIDERS=""; fi
-          # Opt-in AWS lane: on the scheduled/default matrix (no explicit
-          # providers input) add aws when its secrets exist. A dispatch that
-          # names providers gets exactly what it named.
+          # The same opt-in as the plan step, so both see the same lanes.
           if [ -z "$PROVIDERS_INPUT" ] && [ "$AWS_CONFIGURED" = "true" ]; then
             export ANKRA_SYSTEMTEST_PROVIDERS="$ANKRA_SYSTEMTEST_PROVIDERS aws"
           fi
@@ -218,7 +228,7 @@ jobs:
       # Debug aid only — an org storage-quota block on artifact uploads
       # must not redden a run whose cloud lifecycle actually passed.
       - name: Upload run logs
-        if: always() && steps.configuration.outputs.configured == 'true'
+        if: always() && fromJSON(steps.plan.outputs.runnable_lanes || '0') > 0
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
