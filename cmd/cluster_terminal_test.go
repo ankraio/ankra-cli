@@ -264,6 +264,20 @@ func TestClusterTerminalRefusesACommandLineAsTheShell(t *testing.T) {
 	}
 }
 
+func TestClusterTerminalEmptyShellOpensTheDefaultShell(t *testing.T) {
+	mock := &terminalMock{terminal: helloTerminal(), podItems: []any{podWithContainers("app")}}
+	setMockClient(t, mock)
+	resetTerminalFlags(t)
+	writeSelectedClusterJSON(t)
+
+	if _, err := executeCommand("cluster", "terminal", "web-1", "-n", "default", "--shell", ""); err != nil {
+		t.Fatalf("an empty --shell should fall back to the default, got %v", err)
+	}
+	if mock.openRequest == nil || mock.openRequest.Shell != podTerminalDefaultShell {
+		t.Fatalf("an empty --shell should open %s, got %+v", podTerminalDefaultShell, mock.openRequest)
+	}
+}
+
 func TestValidatePodTerminalShell(t *testing.T) {
 	for _, shell := range []string{"/bin/sh", "/bin/bash", "/busybox/sh", ""} {
 		if err := validatePodTerminalShell(shell); err != nil {
