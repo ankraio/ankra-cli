@@ -88,8 +88,9 @@
 #
 # Usage:
 #   export ANKRA_SYSTEMTEST_CONFIRM=yes        # required (acknowledges real cost)
-#   export SSH_KEY_CREDENTIAL_ID=...           # required for Ankra-managed providers
-#   export HETZNER_CREDENTIAL_ID=...           # required per selected provider
+#   export SSH_KEY_CREDENTIAL_ID=...           # needed by every Ankra-managed provider lane
+#   export HETZNER_CREDENTIAL_ID=...           # one per selected provider; a lane whose
+#                                              # settings are missing is SKIPPED, named
 #   export GITOPS_REPOSITORY=org/repo          # optional (GitOps commit step)
 #   # AWS lane (only when "aws" is in ANKRA_SYSTEMTEST_PROVIDERS):
 #   export AWS_CREDENTIAL_ID=...               # an Ankra aws credential (role scope self_managed, or keys)
@@ -99,6 +100,7 @@
 #   #   optional: AWS_EGRESS_MODE=nat_gateway, AWS_AVAILABILITY_ZONES=a,b,c (3 zones only when asked),
 #   #   or AWS_VPC_ID=vpc-... AWS_NODE_SUBNET_IDS=subnet-a,subnet-b AWS_BASTION_SUBNET_ID=subnet-c to adopt a VPC
 #   ./systemtest/lifecycle_systemtest.sh                 # default matrix, in parallel
+#   ANKRA_SYSTEMTEST_PLAN_ONLY=1 ./systemtest/lifecycle_systemtest.sh  # which lanes would run, and why not
 #   ANKRA_SYSTEMTEST_PARALLEL=0 ./systemtest/lifecycle_systemtest.sh   # sequential
 #   ANKRA_SYSTEMTEST_PROVIDERS="upcloud" ./systemtest/lifecycle_systemtest.sh
 #   # DigitalOcean, both distributions:
@@ -148,6 +150,25 @@ RUN_ID="${RUN_ID:-$(date +%y%m%d%H%M%S)}"
 # (0). Each parallel worker gets an isolated copy of the ankra CLI config so that
 # per-worker `cluster select` writes never clobber a sibling worker's selection.
 ANKRA_SYSTEMTEST_PARALLEL="${ANKRA_SYSTEMTEST_PARALLEL:-1}"
+
+# Provider lanes. Every selected provider (Ankra-managed or cloud-managed) is a
+# lane, and a lane whose configuration is missing - its credential id, the SSH
+# key the Ankra-managed family needs, the API token - is SKIPPED with a line
+# naming what it lacks, instead of killing the whole run in preflight. A lane
+# whose configuration is present but wrong (an unknown provider, a partial AWS
+# VPC set) still fails loudly.
+#
+# ANKRA_SYSTEMTEST_FAIL_IF_ALL_SKIPPED=1 (default) exits 2 when every
+# selected lane was skipped: a run that can test nothing is not a pass.
+# ANKRA_SYSTEMTEST_PLAN_ONLY=1 stops after the lane plan - no binary, no cost
+# gate, nothing provisioned - and, under GitHub Actions, writes the plan to the
+# job summary and runnable_lanes/skipped_lanes/requested_lanes step outputs.
+# ANKRA_SYSTEMTEST_CONFIG_PREFIX is prepended to every setting a skip line
+# names, so CI can name its repository secrets (SYSTEMTEST_HETZNER_CREDENTIAL_ID)
+# rather than the environment variable the workflow maps them to.
+ANKRA_SYSTEMTEST_FAIL_IF_ALL_SKIPPED="${ANKRA_SYSTEMTEST_FAIL_IF_ALL_SKIPPED:-1}"
+ANKRA_SYSTEMTEST_PLAN_ONLY="${ANKRA_SYSTEMTEST_PLAN_ONLY:-0}"
+ANKRA_SYSTEMTEST_CONFIG_PREFIX="${ANKRA_SYSTEMTEST_CONFIG_PREFIX:-}"
 
 # Base ankra CLI config (holds the login token + selected org). Parallel workers
 # copy this so they share auth but isolate the per-cluster selection.
@@ -265,6 +286,16 @@ EKS_NODE_POOL_SIZE="${EKS_NODE_POOL_SIZE:-t3.medium}"
 # MANAGED_UPGRADE_K8S_VERSION_DOKS=1.32.5-do.0). When the upgrade target is
 # unset the managed upgrade step is skipped (recorded as SKIP, not FAIL).
 
+# Every cluster this test creates is disposable, volumes included. Since
+# ankra-cli#383 a deprovision run off a terminal refuses to delete a
+# cluster's persistent volumes - or volumes Ankra cannot list - without
+# --accept-volume-data-loss (--yes does not imply it, and the platform
+# refuses too), so each self-managed deprovision below, the abort cleanup's
+# included, passes it; without it the lane waits out its deprovision
+# timeouts and leaves the cluster running. `cluster managed delete` has no
+# such acknowledgement.
+DEPROVISION_CONSENT=(--yes --accept-volume-data-loss)
+
 # Timeouts / polling (seconds).
 ONLINE_TIMEOUT="${ONLINE_TIMEOUT:-1500}"     # cluster create -> online
 ADDONS_TIMEOUT="${ADDONS_TIMEOUT:-900}"      # addons -> up
@@ -326,6 +357,15 @@ WORKDIR=""
 CREATED_FILE=""
 CREATED_CREDENTIALS_FILE=""
 WORKER_PIDS=()
+
+# Lane plan (filled by plan_lanes). Newline-separated strings rather than
+# arrays: an empty array under `set -u` is an error on the stock macOS bash.
+NL=$'\n'
+LANES_REQUESTED=0
+LANES_SKIPPED=0
+LANES_MISSING=""        # every skipped lane's missing settings, each once
+LANE_SKIP_RESULTS=""    # "SKIP  <lane> lane (missing ...)" result lines
+LANE_TABLE=""           # markdown rows for the GitHub job summary
 
 # ---------------------------------------------------------------------------
 # Output helpers
@@ -442,8 +482,8 @@ cleanup() {
         ank cluster managed delete "$id" --provider "$managed_provider" --yes >/dev/null 2>&1 || true
         ank cluster managed delete "$id" --provider "$managed_provider" --force --yes >/dev/null 2>&1 || true
       else
-        ank cluster deprovision "$id" --yes >/dev/null 2>&1 || true
-        ank cluster deprovision "$id" --force --yes >/dev/null 2>&1 || true
+        ank cluster deprovision "$id" "${DEPROVISION_CONSENT[@]}" >/dev/null 2>&1 || true
+        ank cluster deprovision "$id" --force "${DEPROVISION_CONSENT[@]}" >/dev/null 2>&1 || true
       fi
     fi
   done
@@ -752,6 +792,20 @@ aws_cli_available() {
     aws_cli_reason="aws CLI has no usable credentials (set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or a profile)"; return 1
   fi
   return 0
+}
+
+# Whether the AWS CLI has any credential source configured at all: the keys,
+# a profile, or a shared config/credentials file. Presence only - a lane
+# with no source is skipped in the lane plan (nothing is built, so there is
+# nothing to prove), while a source that is present but does not work is
+# aws_cli_available's finding and stays fatal. An ambient instance role
+# alone is not detected: point AWS_PROFILE or AWS_CONFIG_FILE at it.
+aws_cli_credentials_configured() {
+  if [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then return 0; fi
+  if [ -n "${AWS_PROFILE:-}" ]; then return 0; fi
+  if [ -f "${AWS_SHARED_CREDENTIALS_FILE:-$HOME/.aws/credentials}" ]; then return 0; fi
+  if [ -f "${AWS_CONFIG_FILE:-$HOME/.aws/config}" ]; then return 0; fi
+  return 1
 }
 
 awscli() { aws --region "$AWS_REGION" --output json "$@"; }
@@ -1123,12 +1177,12 @@ run_aws_provider() {
   # 7. Deprovision -> removed (with a bounded force fallback on stall)
   wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy; deprovisioning anyway)"
   log "deprovisioning $name ..."
-  ank cluster deprovision "$id" --yes | tail -2
+  ank cluster deprovision "$id" "${DEPROVISION_CONSENT[@]}" | tail -2
   if wait_for_removed "$name" "$DEPROVISION_TIMEOUT"; then
     pass "$label deprovision -> deleted_at"
   else
     log "  $name deprovision stalled after ${DEPROVISION_TIMEOUT}s; attempting bounded force-deprovision fallback"
-    ank cluster deprovision "$id" --force --yes | tail -2 || true
+    ank cluster deprovision "$id" --force "${DEPROVISION_CONSENT[@]}" | tail -2 || true
     if wait_for_removed "$name" "$DEPROVISION_FORCE_TIMEOUT"; then
       pass "$label deprovision -> deleted_at (after force fallback)"
     else
@@ -1842,12 +1896,12 @@ run_provider() {
   # credential is already deleted.
   wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy; deprovisioning anyway)"
   log "deprovisioning $name ..."
-  ank cluster deprovision "$id" --yes | tail -2
+  ank cluster deprovision "$id" "${DEPROVISION_CONSENT[@]}" | tail -2
   if wait_for_removed "$name" "$DEPROVISION_TIMEOUT"; then
     pass "$label deprovision -> deleted_at"
   else
     log "  $name deprovision stalled after ${DEPROVISION_TIMEOUT}s; attempting bounded force-deprovision fallback"
-    ank cluster deprovision "$id" --force --yes | tail -2 || true
+    ank cluster deprovision "$id" --force "${DEPROVISION_CONSENT[@]}" | tail -2 || true
     if wait_for_removed "$name" "$DEPROVISION_FORCE_TIMEOUT"; then
       pass "$label deprovision -> deleted_at (after force fallback)"
     else
@@ -1998,69 +2052,212 @@ WARNING
   fi
 }
 
+# ---------------------------------------------------------------------------
+# Provider lanes: what each selected provider needs, and which can run
+# ---------------------------------------------------------------------------
+
+# Print, one per line, the settings a lane is missing; no output means the
+# lane is configured. Presence only: whether a present value works is the
+# run's question, and a present-but-wrong value keeps failing loudly there.
+#
+#   every lane      ANKRA_API_TOKEN (or a saved login in $BASE_CONFIG)
+#   hetzner, ovh,   SSH_KEY_CREDENTIAL_ID + <PROVIDER>_CREDENTIAL_ID
+#   upcloud,
+#   digitalocean
+#   aws             SSH_KEY_CREDENTIAL_ID + AWS_CREDENTIAL_ID (or AWS_ROLE_ARN +
+#                   AWS_EXTERNAL_ID) + an AWS CLI credential source for the
+#                   leak check (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, or
+#                   see aws_cli_credentials_configured)
+#   doks, uks,      DOKS/UKS/OVH_MKS_CREDENTIAL_ID, which default to
+#   ovh_mks         DIGITALOCEAN/UPCLOUD/OVH_CREDENTIAL_ID - the name a skip
+#                   reports, since that is the one CI maps
+#   gke, aks, eks   GKE/AKS/EKS_CREDENTIAL_ID
+lane_missing_config() {
+  local family="$1" provider="$2" p="$ANKRA_SYSTEMTEST_CONFIG_PREFIX"
+  if [ -z "${ANKRA_API_TOKEN:-}" ] && [ ! -f "$BASE_CONFIG" ]; then
+    echo "${p}ANKRA_API_TOKEN"
+  fi
+  if [ "$family" = "managed" ]; then
+    case "$provider" in
+      doks)    [ -n "$DOKS_CREDENTIAL_ID" ] || echo "${p}DIGITALOCEAN_CREDENTIAL_ID" ;;
+      uks)     [ -n "$UKS_CREDENTIAL_ID" ] || echo "${p}UPCLOUD_CREDENTIAL_ID" ;;
+      ovh_mks) [ -n "$OVH_MKS_CREDENTIAL_ID" ] || echo "${p}OVH_CREDENTIAL_ID" ;;
+      *)       [ -n "$(managed_credential_id "$provider")" ] || echo "${p}$(managed_provider_upper "$provider")_CREDENTIAL_ID" ;;
+    esac
+    return 0
+  fi
+  [ -n "$SSH_KEY_CREDENTIAL_ID" ] || echo "${p}SSH_KEY_CREDENTIAL_ID"
+  case "$provider" in
+    hetzner)      [ -n "$HETZNER_CREDENTIAL_ID" ] || echo "${p}HETZNER_CREDENTIAL_ID" ;;
+    ovh)          [ -n "$OVH_CREDENTIAL_ID" ] || echo "${p}OVH_CREDENTIAL_ID" ;;
+    upcloud)      [ -n "$UPCLOUD_CREDENTIAL_ID" ] || echo "${p}UPCLOUD_CREDENTIAL_ID" ;;
+    digitalocean) [ -n "$DIGITALOCEAN_CREDENTIAL_ID" ] || echo "${p}DIGITALOCEAN_CREDENTIAL_ID" ;;
+    aws)
+      if [ -z "$AWS_CREDENTIAL_ID" ] && { [ -z "$AWS_ROLE_ARN" ] || [ -z "$AWS_EXTERNAL_ID" ]; }; then
+        echo "${p}AWS_CREDENTIAL_ID (or ${p}AWS_ROLE_ARN + ${p}AWS_EXTERNAL_ID)"
+      fi
+      if ! aws_cli_credentials_configured; then
+        [ -n "${AWS_ACCESS_KEY_ID:-}" ] || echo "${p}AWS_ACCESS_KEY_ID"
+        [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] || echo "${p}AWS_SECRET_ACCESS_KEY"
+      fi
+      ;;
+  esac
+  return 0
+}
+
+# Join newline-separated text into one ", "-separated line.
+join_lines() {
+  local line out="" saved_ifs="$IFS"
+  IFS="$NL"
+  for line in $1; do
+    [ -n "$line" ] && out="${out:+$out, }$line"
+  done
+  IFS="$saved_ifs"
+  printf '%s' "$out"
+}
+
+# Plan one lane: 0 when it can run; otherwise record the skip (log line,
+# result line, summary row, the settings it lacks) and return 1.
+plan_lane() {
+  local family="$1" provider="$2" lane="$2" family_label="Ankra-managed" missing reason item saved_ifs
+  if [ "$family" = "managed" ]; then lane="managed/$provider"; family_label="cloud-managed"; fi
+  LANES_REQUESTED=$((LANES_REQUESTED + 1))
+  missing="$(lane_missing_config "$family" "$provider")"
+  if [ -z "$missing" ]; then
+    LANE_TABLE="${LANE_TABLE}| \`$lane\` | $family_label | runs | |$NL"
+    return 0
+  fi
+  LANES_SKIPPED=$((LANES_SKIPPED + 1))
+  saved_ifs="$IFS"; IFS="$NL"
+  for item in $missing; do
+    case "$NL$LANES_MISSING" in
+      *"$NL$item$NL"*) ;;
+      *) LANES_MISSING="$LANES_MISSING$item$NL" ;;
+    esac
+  done
+  IFS="$saved_ifs"
+  reason="$(join_lines "$missing")"
+  log "SKIP: $lane lane: missing $reason"
+  LANE_SKIP_RESULTS="${LANE_SKIP_RESULTS}SKIP  $lane lane (missing $reason)$NL"
+  LANE_TABLE="${LANE_TABLE}| \`$lane\` | $family_label | **skipped** | $reason |$NL"
+  return 1
+}
+
+# Narrow both provider lists to the lanes that can run.
+plan_lanes() {
+  local provider runnable="" runnable_managed=""
+  for provider in $ANKRA_SYSTEMTEST_PROVIDERS; do
+    if plan_lane ankra "$provider"; then runnable="${runnable:+$runnable }$provider"; fi
+  done
+  for provider in $ANKRA_SYSTEMTEST_MANAGED_PROVIDERS; do
+    if plan_lane managed "$provider"; then runnable_managed="${runnable_managed:+$runnable_managed }$provider"; fi
+  done
+  ANKRA_SYSTEMTEST_PROVIDERS="$runnable"
+  ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="$runnable_managed"
+}
+
+# "N of M provider lanes skipped: missing X, Y" - the line CI puts in the job
+# summary, so a partially configured repository cannot pass unremarked.
+lane_headline() {
+  if [ "$LANES_SKIPPED" -eq 0 ]; then
+    printf 'All %s provider lanes configured' "$LANES_REQUESTED"
+  else
+    printf '%s of %s provider lanes skipped: missing %s' \
+      "$LANES_SKIPPED" "$LANES_REQUESTED" "$(join_lines "$LANES_MISSING")"
+  fi
+}
+
+# Under GitHub Actions: an annotation, the step outputs the workflow gates
+# its later steps on, and the lane table in the job summary.
+report_lane_plan() {
+  local headline runnable=$((LANES_REQUESTED - LANES_SKIPPED))
+  headline="$(lane_headline)"
+  if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "$LANES_SKIPPED" -gt 0 ]; then
+    if [ "$runnable" -eq 0 ] && [ "$ANKRA_SYSTEMTEST_FAIL_IF_ALL_SKIPPED" = "1" ]; then
+      echo "::error title=No lifecycle lane can run::$headline"
+    else
+      echo "::warning title=Lifecycle lanes skipped::$headline"
+    fi
+  fi
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    {
+      echo "requested_lanes=$LANES_REQUESTED"
+      echo "skipped_lanes=$LANES_SKIPPED"
+      echo "runnable_lanes=$runnable"
+    } >> "$GITHUB_OUTPUT"
+  fi
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    {
+      echo "### Lifecycle system test: provider lanes"
+      echo
+      echo "**$headline**"
+      echo
+      if [ "$runnable" -eq 0 ]; then
+        echo "No lane can run, so nothing is provisioned or tested."
+        echo
+      fi
+      echo "| Lane | Family | Status | Missing |"
+      echo "|---|---|---|---|"
+      printf '%s' "$LANE_TABLE"
+      if [ "$LANES_SKIPPED" -gt 0 ]; then
+        echo
+        echo "A skipped lane joins the next run once its settings exist (repository secrets/variables; see the header of \`.github/workflows/systemtest.yml\`)."
+      fi
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
+}
+
+# AWS settings that are present but contradict each other: a mistake, so it
+# stays fatal rather than turning into a skip.
+aws_check_settings() {
+  # The network is created by default; a VPC is adopted only when all
+  # three of its variables are set, and a partial set is a mistake
+  # rather than a created-network run with stray subnets.
+  if aws_adopts_vpc; then
+    [ -n "$AWS_NODE_SUBNET_IDS" ] || die "AWS_NODE_SUBNET_IDS required with AWS_VPC_ID (adopting a VPC)"
+    [ -n "$AWS_BASTION_SUBNET_ID" ] || die "AWS_BASTION_SUBNET_ID required with AWS_VPC_ID (adopting a VPC)"
+    case "$AWS_EGRESS_MODE" in
+      ""|existing|bastion_nat) ;;
+      *) die "AWS_EGRESS_MODE=$AWS_EGRESS_MODE is not valid for an adopted VPC (want existing or bastion_nat)" ;;
+    esac
+  else
+    if [ -n "$AWS_NODE_SUBNET_IDS" ] || [ -n "$AWS_BASTION_SUBNET_ID" ]; then
+      die "AWS_NODE_SUBNET_IDS/AWS_BASTION_SUBNET_ID only apply with AWS_VPC_ID (set all three to adopt a VPC, or none to let Ankra create the network)"
+    fi
+    case "$AWS_EGRESS_MODE" in
+      ""|nat_gateway|bastion_nat) ;;
+      *) die "AWS_EGRESS_MODE=$AWS_EGRESS_MODE is not valid for a created network (want nat_gateway or bastion_nat)" ;;
+    esac
+  fi
+}
+
 preflight() {
-  command -v "$ANKRA_BIN" >/dev/null 2>&1 || [ -x "$ANKRA_BIN" ] || die "ankra binary not found ($ANKRA_BIN)"
-  log "using ankra: $ANKRA_BIN ($($ANKRA_BIN --version 2>/dev/null | head -1))"
-  confirm_cost
+  # "none" is how the workflow's dispatch inputs spell an empty family (an
+  # empty input falls back to the default matrix instead).
+  if [ "$ANKRA_SYSTEMTEST_PROVIDERS" = "none" ]; then ANKRA_SYSTEMTEST_PROVIDERS=""; fi
+  if [ "$ANKRA_SYSTEMTEST_MANAGED_PROVIDERS" = "none" ]; then ANKRA_SYSTEMTEST_MANAGED_PROVIDERS=""; fi
+  if [ "$ANKRA_SYSTEMTEST_PLAN_ONLY" != "1" ]; then
+    command -v "$ANKRA_BIN" >/dev/null 2>&1 || [ -x "$ANKRA_BIN" ] || die "ankra binary not found ($ANKRA_BIN)"
+    log "using ankra: $ANKRA_BIN ($($ANKRA_BIN --version 2>/dev/null | head -1))"
+    confirm_cost
+  fi
   if [ -z "$ANKRA_SYSTEMTEST_PROVIDERS" ] && [ -z "$ANKRA_SYSTEMTEST_MANAGED_PROVIDERS" ]; then
     die "nothing selected: both ANKRA_SYSTEMTEST_PROVIDERS and ANKRA_SYSTEMTEST_MANAGED_PROVIDERS are empty"
   fi
-  if [ -n "$ANKRA_SYSTEMTEST_PROVIDERS" ]; then
-    [ -n "$SSH_KEY_CREDENTIAL_ID" ] || die "SSH_KEY_CREDENTIAL_ID is required for Ankra-managed providers"
-  fi
-  if [ -z "$GITOPS_CREDENTIAL_NAME" ] || [ -z "$GITOPS_REPOSITORY" ]; then
-    log "WARNING: GITOPS_CREDENTIAL_NAME/GITOPS_REPOSITORY not set -> the GitOps commit step is skipped (stacks still install)"
-  fi
-  local p
+  # A name nobody recognises is a typo in the request, not a missing setting.
+  local p m d
   for p in $ANKRA_SYSTEMTEST_PROVIDERS; do
     case "$p" in
-      hetzner) [ -n "$HETZNER_CREDENTIAL_ID" ] || die "HETZNER_CREDENTIAL_ID required for hetzner" ;;
-      ovh)     [ -n "$OVH_CREDENTIAL_ID" ] || die "OVH_CREDENTIAL_ID required for ovh" ;;
-      upcloud) [ -n "$UPCLOUD_CREDENTIAL_ID" ] || die "UPCLOUD_CREDENTIAL_ID required for upcloud" ;;
-      digitalocean) [ -n "$DIGITALOCEAN_CREDENTIAL_ID" ] || die "DIGITALOCEAN_CREDENTIAL_ID required for digitalocean" ;;
-      aws)
-        if [ -z "$AWS_CREDENTIAL_ID" ] && { [ -z "$AWS_ROLE_ARN" ] || [ -z "$AWS_EXTERNAL_ID" ]; }; then
-          die "AWS_CREDENTIAL_ID (or AWS_ROLE_ARN + AWS_EXTERNAL_ID to register one) required for aws"
-        fi
-        [ -n "$AWS_REGION" ] || die "AWS_REGION required for aws"
-        # The network is created by default; a VPC is adopted only when all
-        # three of its variables are set, and a partial set is a mistake
-        # rather than a created-network run with stray subnets.
-        if aws_adopts_vpc; then
-          [ -n "$AWS_NODE_SUBNET_IDS" ] || die "AWS_NODE_SUBNET_IDS required with AWS_VPC_ID (adopting a VPC)"
-          [ -n "$AWS_BASTION_SUBNET_ID" ] || die "AWS_BASTION_SUBNET_ID required with AWS_VPC_ID (adopting a VPC)"
-          case "$AWS_EGRESS_MODE" in
-            ""|existing|bastion_nat) ;;
-            *) die "AWS_EGRESS_MODE=$AWS_EGRESS_MODE is not valid for an adopted VPC (want existing or bastion_nat)" ;;
-          esac
-        else
-          if [ -n "$AWS_NODE_SUBNET_IDS" ] || [ -n "$AWS_BASTION_SUBNET_ID" ]; then
-            die "AWS_NODE_SUBNET_IDS/AWS_BASTION_SUBNET_ID only apply with AWS_VPC_ID (set all three to adopt a VPC, or none to let Ankra create the network)"
-          fi
-          case "$AWS_EGRESS_MODE" in
-            ""|nat_gateway|bastion_nat) ;;
-            *) die "AWS_EGRESS_MODE=$AWS_EGRESS_MODE is not valid for a created network (want nat_gateway or bastion_nat)" ;;
-          esac
-        fi
-        # The leak check is the lane's proof that the network Ankra created
-        # is gone (or, for an adopted VPC, that it came back untouched), so
-        # the AWS CLI and the account's own credentials are not optional.
-        if ! aws_cli_available; then
-          die "aws: $aws_cli_reason -> set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY (the account's own keys) so the leak check can run; the lane proves nothing without it"
-        fi
-        ;;
-      *) die "unknown provider in ANKRA_SYSTEMTEST_PROVIDERS: $p" ;;
+      hetzner|ovh|upcloud|digitalocean|aws) ;;
+      *) die "unknown provider in ANKRA_SYSTEMTEST_PROVIDERS: $p (want hetzner, ovh, upcloud, digitalocean or aws)" ;;
     esac
   done
-  local m
   for m in $ANKRA_SYSTEMTEST_MANAGED_PROVIDERS; do
     case "$m" in
-      doks|uks|gke|ovh_mks|aks|eks)
-        [ -n "$(managed_credential_id "$m")" ] || die "$(managed_provider_upper "$m")_CREDENTIAL_ID required for managed provider $m" ;;
+      doks|uks|gke|ovh_mks|aks|eks) ;;
       *) die "unknown provider in ANKRA_SYSTEMTEST_MANAGED_PROVIDERS: $m (want doks, uks, gke, ovh_mks, aks or eks)" ;;
     esac
   done
-  local d
   for d in $ANKRA_SYSTEMTEST_DISTRIBUTIONS; do
     case "$d" in
       k3s|kubeadm) ;;
@@ -2070,7 +2267,11 @@ preflight() {
   case "$ANKRA_SYSTEMTEST_AUTOSCALING" in
     0) ;;
     1)
-      command -v jq >/dev/null 2>&1 || die "ANKRA_SYSTEMTEST_AUTOSCALING=1 needs jq (the autoscaling step parses the CLI's -o json output)"
+      # The workflow's plan-only pass runs before the runner installs jq, so
+      # only a run that will execute lanes requires it.
+      if [ "$ANKRA_SYSTEMTEST_PLAN_ONLY" != "1" ]; then
+        command -v jq >/dev/null 2>&1 || die "ANKRA_SYSTEMTEST_AUTOSCALING=1 needs jq (the autoscaling step parses the CLI's -o json output)"
+      fi
       case "$AUTOSCALING_LOAD_CPU_MILLICORES" in
         *[!0-9]*) die "AUTOSCALING_LOAD_CPU_MILLICORES=$AUTOSCALING_LOAD_CPU_MILLICORES (want whole millicores, e.g. 1500)" ;;
       esac
@@ -2081,6 +2282,40 @@ preflight() {
       fi
       ;;
     *) die "ANKRA_SYSTEMTEST_AUTOSCALING=$ANKRA_SYSTEMTEST_AUTOSCALING (want 0 or 1)" ;;
+  esac
+
+  plan_lanes
+  log "$(lane_headline)"
+  if [ "$ANKRA_SYSTEMTEST_PLAN_ONLY" = "1" ]; then report_lane_plan; fi
+  if [ -z "$ANKRA_SYSTEMTEST_PROVIDERS" ] && [ -z "$ANKRA_SYSTEMTEST_MANAGED_PROVIDERS" ]; then
+    if [ "$ANKRA_SYSTEMTEST_FAIL_IF_ALL_SKIPPED" = "1" ]; then
+      die "no provider lane can run: all $LANES_REQUESTED selected lanes are missing configuration (see the SKIP lines above), so nothing would be tested"
+    fi
+    log "no provider lane can run, so nothing is tested (ANKRA_SYSTEMTEST_FAIL_IF_ALL_SKIPPED=$ANKRA_SYSTEMTEST_FAIL_IF_ALL_SKIPPED)"
+    exit 0
+  fi
+
+  case " $ANKRA_SYSTEMTEST_PROVIDERS " in
+    *" aws "*) aws_check_settings ;;
+  esac
+  if [ "$ANKRA_SYSTEMTEST_PLAN_ONLY" = "1" ]; then
+    log "lane plan only (ANKRA_SYSTEMTEST_PLAN_ONLY=1): runnable: ${ANKRA_SYSTEMTEST_PROVIDERS:-none} / managed: ${ANKRA_SYSTEMTEST_MANAGED_PROVIDERS:-none}"
+    exit 0
+  fi
+
+  if [ -z "$GITOPS_CREDENTIAL_NAME" ] || [ -z "$GITOPS_REPOSITORY" ]; then
+    log "WARNING: GITOPS_CREDENTIAL_NAME/GITOPS_REPOSITORY not set -> the GitOps commit step is skipped (stacks still install)"
+  fi
+  case " $ANKRA_SYSTEMTEST_PROVIDERS " in
+    *" aws "*)
+      # The leak check is the lane's proof that the network Ankra created
+      # is gone (or, for an adopted VPC, that it came back untouched), so
+      # once the lane has a credential source, one that does not work is
+      # fatal rather than a SKIP that proves nothing.
+      if ! aws_cli_available; then
+        die "aws: $aws_cli_reason -> set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY (the account's own keys) so the leak check can run; the lane proves nothing without it"
+      fi
+      ;;
   esac
 }
 
@@ -2167,9 +2402,17 @@ main() {
     done
   fi
 
-  # Aggregate results from every worker's file (works for both modes).
+  # Aggregate results from every worker's file (works for both modes),
+  # after the lanes the plan skipped for missing configuration.
   local -a all_results=()
-  local total_failures=0 total_skips=0 line slug
+  local total_failures=0 total_skips=0 line slug saved_ifs="$IFS"
+  IFS="$NL"
+  for line in $LANE_SKIP_RESULTS; do
+    [ -z "$line" ] && continue
+    all_results+=("$line")
+    total_skips=$((total_skips + 1))
+  done
+  IFS="$saved_ifs"
   for t in "${targets[@]}"; do
     slug="${t%%:*}-${t#*:}"
     [ -f "$WORKDIR/results.$slug" ] || continue
@@ -2183,10 +2426,23 @@ main() {
     done < "$WORKDIR/results.$slug"
   done
 
+  local summary
+  summary="$(( ${#all_results[@]} - total_failures - total_skips )) passed, $total_failures failed, $total_skips skipped"
   section "RESULTS"
   if [ "${#all_results[@]}" -gt 0 ]; then printf '%s\n' "${all_results[@]}"; fi
   section "SUMMARY"
-  log "$(( ${#all_results[@]} - total_failures - total_skips )) passed, $total_failures failed, $total_skips skipped"
+  log "$summary ($(lane_headline))"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    {
+      echo "### Lifecycle system test: results"
+      echo
+      echo "**$summary** ($(lane_headline))"
+      echo
+      echo '```'
+      if [ "${#all_results[@]}" -gt 0 ]; then printf '%s\n' "${all_results[@]}"; fi
+      echo '```'
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
   [ "$total_failures" -eq 0 ]
 }
 

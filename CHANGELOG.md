@@ -15,6 +15,26 @@
   and never on the schedule: it adds ~25-50 minutes and one extra worker per
   lane.
 
+### Changed
+
+- **`pipeline rerun --failed-only` says what it re-runs.** The platform now
+  plans a failed-only re-run with the checkout and every upstream step the
+  repeated steps read, because the new run starts from an empty workspace
+  (ankra-jbi6w.2: a re-run once ran a step against no source and passed). The
+  help text and flag description say so, and that a failed-only re-run that
+  could not run a failed step is refused with the reason.
+
+### Fixed
+
+- **The CLI reference on docs.ankra.ai shows examples as code.** Help
+  text indents its examples, JSON and YAML snippets and aligned tables, which
+  MDX does not treat as code, so `ankra cluster manifests upgrade` and every
+  other page with examples in its description rendered them as prose: a
+  `# comment` became a heading, `--set` turned into an em dash and quotes
+  turned curly. The generator now fences those blocks, keeps indented lists
+  and paragraphs as prose, and code-styles every flag named in descriptions
+  and flag tables.
+
 ## v0.19.0 — 2026-09-28
 
 The headline is consent before a teardown deletes data. `ankra cluster

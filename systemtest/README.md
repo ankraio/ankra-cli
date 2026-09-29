@@ -142,9 +142,12 @@ The leak check and the VPC diff use the AWS CLI with the *account's* own
 credentials (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, a profile, or an
 ambient role - read-only EC2/IAM/tagging permissions suffice), not Ankra's.
 They are **required**: the leak check is the lane's proof that the network
-Ankra created is gone, so the preflight refuses to run the lane without the
-CLI, `jq` and usable credentials rather than recording a `SKIP` that proves
-nothing. The Ankra credential is either an existing one (`AWS_CREDENTIAL_ID`)
+Ankra created is gone. With no AWS CLI credential source configured at all
+(no keys, no `AWS_PROFILE`, no shared config/credentials file) the lane is
+skipped before anything is built, like any lane missing its settings; with
+a source configured, the preflight refuses to run unless the CLI, `jq` and
+those credentials actually work, rather than recording a `SKIP` for the leak
+check that proves nothing. The Ankra credential is either an existing one (`AWS_CREDENTIAL_ID`)
 or registered for the run with `ankra credentials aws create-role` from
 `AWS_ROLE_ARN` + `AWS_EXTERNAL_ID` (scope `AWS_CREDENTIAL_SCOPE`, default
 `self_managed`) and deleted at the end.
@@ -184,12 +187,22 @@ it is "as real as possible". It tolerates the real behaviours of the platform:
 
 ## Configuration (environment variables)
 
+Every selected provider is a **lane**, and each lane needs its own settings
+below. A lane whose settings are missing is **skipped** - the run logs
+`SKIP: <lane> lane: missing <settings>` and records it in the results - and
+the other lanes still run. The run fails only when *no* selected lane can run
+(`ANKRA_SYSTEMTEST_FAIL_IF_ALL_SKIPPED`), and a setting that is present but
+wrong (an unknown provider or distribution, a contradictory AWS network set)
+still fails loudly. `ANKRA_SYSTEMTEST_PLAN_ONLY=1` prints the lane plan and
+stops, without the binary, the cost gate or any platform call.
+
 Required:
 
 | Variable | Meaning |
 |---|---|
 | `ANKRA_SYSTEMTEST_CONFIRM` | must be `yes` to acknowledge that real, billable infrastructure will be provisioned; the script refuses to run otherwise |
-| `SSH_KEY_CREDENTIAL_ID` | SSH-key credential ID (required when any Ankra-managed provider is selected) |
+| `ANKRA_API_TOKEN` (or a saved login in `ANKRA_CONFIG_FILE`) | every lane |
+| `SSH_KEY_CREDENTIAL_ID` | SSH-key credential ID (every Ankra-managed lane, `aws` included) |
 | `HETZNER_CREDENTIAL_ID` / `OVH_CREDENTIAL_ID` / `UPCLOUD_CREDENTIAL_ID` / `DIGITALOCEAN_CREDENTIAL_ID` | provider API credential ID (per selected Ankra-managed provider) |
 | `GKE_CREDENTIAL_ID` / `AKS_CREDENTIAL_ID` / `EKS_CREDENTIAL_ID` | cloud credential ID (per selected hyperscaler managed provider) |
 | `AWS_CREDENTIAL_ID`, or `AWS_ROLE_ARN` + `AWS_EXTERNAL_ID` | (aws only) an Ankra aws credential id - a role onboarded with scope `self_managed`, or keys - or the role to register one from for the run |
@@ -215,6 +228,9 @@ Common optional (defaults in parentheses):
 | `ANKRA_SYSTEMTEST_MANAGED_PROVIDERS` | `doks uks gke ovh_mks aks eks` (set to `""` to skip the cloud-managed family) |
 | `ANKRA_SYSTEMTEST_DISTRIBUTIONS` | `k3s` (Ankra-managed only; set `"k3s kubeadm"` to matrix-test both) |
 | `ANKRA_SYSTEMTEST_PARALLEL` | `1` (run selected targets concurrently; set `0` for one-at-a-time) |
+| `ANKRA_SYSTEMTEST_PLAN_ONLY` | `0` (`1`: print which lanes would run and what each skipped lane is missing, then stop; under GitHub Actions also writes the job summary and the `requested_lanes`/`skipped_lanes`/`runnable_lanes` step outputs) |
+| `ANKRA_SYSTEMTEST_FAIL_IF_ALL_SKIPPED` | `1` (exit 2 when every selected lane is skipped; `0` exits 0 with the skip lines) |
+| `ANKRA_SYSTEMTEST_CONFIG_PREFIX` | empty (prepended to every setting a skip line names; CI sets `SYSTEMTEST_` so the lines name its repository secrets) |
 | `ANKRA_CONFIG_FILE` | `~/.ankra.yaml` (base config parallel workers copy for auth/org) |
 | `ANKRA_BIN` | `../bin/ankra` then `ankra` on PATH |
 | `GITOPS_BRANCH` | `master` |
@@ -345,17 +361,34 @@ every run, and is a change to the workflow, not a setting. With
 inside the job's 240-minute timeout.
 
 None of them are defaulted, because a run provisions real, billable
-infrastructure and the target org must be a deliberate choice. A repository
-without `SYSTEMTEST_ANKRA_API_TOKEN` therefore skips the job with a notice
-rather than failing: an unconfigured repository is not a broken build. If the
-token is present but a provider credential is missing, the preflight still
-fails loudly — that repository *is* misconfigured.
+infrastructure and the target org must be a deliberate choice. The credential
+ids are identifiers of credentials stored in the `SYSTEMTEST_ANKRA_ORG` org
+(`ankra credentials list --org <org>`), not cloud keys.
+
+The job plans the lanes first (`ANKRA_SYSTEMTEST_PLAN_ONLY=1`, before Go is
+even set up). Each lane is gated on its own settings, so a repository that
+has some provider credentials and not others runs the configured lanes and
+skips the rest; the job summary shows a lane table headed
+**"N of M provider lanes skipped: missing X, Y"** and the run carries a
+warning annotation, so a partially configured repository never passes
+unremarked. A **scheduled** run in which every lane is skipped - no token, or
+no provider credential at all - **fails**: it tested nothing. A manual
+dispatch that selects only unconfigured lanes passes with the warning and
+the summary instead.
+
+Until 2026-09 the guard tested only `SYSTEMTEST_ANKRA_API_TOKEN`: a
+repository without it went green having tested nothing (every "successful"
+scheduled run up to 2026-09-11), and one with the token but no provider
+credential died in the preflight on the first provider
+(`FATAL: HETZNER_CREDENTIAL_ID required for hetzner`, every scheduled run
+from 2026-09-14).
 
 ## Output
 
 The script prints a per-step `PASS`/`FAIL`/`SKIP` (tagged with the target in
-parallel mode), ends with a results list and a summary line, and exits non-zero
-if any step failed. Per-target logs are also saved under the run's work
+parallel mode), ends with a results list and a summary line - skipped lanes
+included, with what they were missing - and exits non-zero if any step failed.
+Under GitHub Actions the results also go to the job summary. Per-target logs are also saved under the run's work
 directory.
 
 ## Cost & safety

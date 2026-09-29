@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -100,10 +101,17 @@ var mdxProse = strings.NewReplacer(
 	"}", "&#125;",
 )
 
+// flagToken matches a long flag named in prose, with an =value or a directly
+// following quoted argument ("--set 'spec.replicas=3'"); a value never ends
+// in sentence punctuation. Mintlify's typographer turns an unfenced "--" into an em dash, so "--wait" rendered as
+// "—wait" until these were code-spanned (ankra-ta04t).
+var flagToken = regexp.MustCompile(`(^|[\s(\[/,;:"'])(--[A-Za-z][A-Za-z0-9-]*(?:=[^\s,;)'"]*[^\s,;)'".:=]| '[^'\n]*'| "[^"\n]*"|\*)?)`)
+
 // escapeMDX makes arbitrary help text safe inside MDX prose: angle brackets
-// and curly braces are JSX syntax to Mintlify. Backtick code spans are left
-// untouched — MDX renders character references inside them literally, so
-// escaping there would corrupt placeholders like `--cluster <id>`.
+// and curly braces are JSX syntax to Mintlify, and flag names become code
+// spans. Existing backtick code spans are left untouched — MDX renders
+// character references inside them literally, so escaping there would
+// corrupt placeholders like `--cluster <id>`.
 func escapeMDX(s string) string {
 	parts := strings.Split(s, "`")
 	for i, part := range parts {
@@ -113,9 +121,206 @@ func escapeMDX(s string) string {
 		if i%2 == 1 && i < len(parts)-1 {
 			continue
 		}
-		parts[i] = mdxProse.Replace(part)
+		part = flagToken.ReplaceAllString(part, "$1\x00$2\x00")
+		part = mdxProse.Replace(part)
+		parts[i] = restoreCodeSpans(part)
 	}
 	return strings.Join(parts, "`")
+}
+
+// restoreCodeSpans turns the NUL-delimited spans marked before escaping into
+// backtick code spans, undoing the entity escaping inside them: MDX renders
+// references in a code span literally.
+func restoreCodeSpans(s string) string {
+	segs := strings.Split(s, "\x00")
+	for i := 1; i < len(segs); i += 2 {
+		segs[i] = "`" + unescapeProse.Replace(segs[i]) + "`"
+	}
+	return strings.Join(segs, "")
+}
+
+var unescapeProse = strings.NewReplacer(
+	"&lt;", "<",
+	"&gt;", ">",
+	"&#123;", "{",
+	"&#125;", "}",
+)
+
+// renderHelpText converts cobra Long text to MDX. Help text indents its
+// examples, snippets and aligned tables by two spaces, which reads well in a
+// terminal but is nothing in MDX (indented code blocks are disabled): an
+// example's "# comment" became a heading and its "--flags" em dashes. So
+// every indented group is classified: code and aligned tables are fenced
+// verbatim, lists and hanging-indent paragraphs are dedented into prose.
+func renderHelpText(s string) string {
+	lines := strings.Split(strings.ReplaceAll(s, "\t", "    "), "\n")
+
+	// A chunk keeps its lines as written; they are dedented on output, so
+	// groups merged across a blank line share one indent and keep their
+	// relative nesting.
+	type chunk struct {
+		lang  string // fence language; "" means markdown prose
+		lines []string
+	}
+	var chunks []chunk
+	emit := func(lang string, ls []string) {
+		// Code groups separated only by blank lines share one fence.
+		if n := len(chunks); n > 0 && lang != "" && chunks[n-1].lang == lang {
+			chunks[n-1].lines = append(append(chunks[n-1].lines, ""), ls...)
+			return
+		}
+		chunks = append(chunks, chunk{lang, ls})
+	}
+
+	for i := 0; i < len(lines); {
+		if !isIndented(lines[i]) {
+			j := i
+			for j < len(lines) && !isIndented(lines[j]) {
+				j++
+			}
+			prose := trimBlankLines(lines[i:j])
+			if len(prose) > 0 {
+				chunks = append(chunks, chunk{"", prose})
+			}
+			i = j
+			continue
+		}
+		j := i
+		for j < len(lines) && isIndented(lines[j]) {
+			j++
+		}
+		group := lines[i:j]
+		if n := len(chunks); n > 0 && chunks[n-1].lang != "" &&
+			indentOf(group) > indentOf(chunks[n-1].lines) {
+			// Nested deeper than the fence just above it: a continuation
+			// of that snippet across a blank line, whatever it looks like
+			// on its own.
+			chunks[n-1].lines = append(append(chunks[n-1].lines, ""), group...)
+		} else {
+			emit(classifyIndented(dedent(group)), group)
+		}
+		i = j
+	}
+
+	var b strings.Builder
+	for i, c := range chunks {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		if c.lang == "" {
+			b.WriteString(escapeMDX(strings.Join(dedent(c.lines), "\n")))
+		} else {
+			fmt.Fprintf(&b, "```%s\n%s\n```", c.lang, strings.Join(dedent(c.lines), "\n"))
+		}
+	}
+	return b.String()
+}
+
+func isIndented(line string) bool {
+	return strings.TrimSpace(line) != "" && (line[0] == ' ' || line[0] == '\t')
+}
+
+func trimBlankLines(ls []string) []string {
+	for len(ls) > 0 && strings.TrimSpace(ls[0]) == "" {
+		ls = ls[1:]
+	}
+	for len(ls) > 0 && strings.TrimSpace(ls[len(ls)-1]) == "" {
+		ls = ls[:len(ls)-1]
+	}
+	return ls
+}
+
+// indentOf is the smallest indent among the non-blank lines.
+func indentOf(ls []string) int {
+	indent := -1
+	for _, l := range ls {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		if n := len(l) - len(strings.TrimLeft(l, " ")); indent < 0 || n < indent {
+			indent = n
+		}
+	}
+	return indent
+}
+
+func dedent(ls []string) []string {
+	indent := indentOf(ls)
+	out := make([]string, len(ls))
+	for i, l := range ls {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		out[i] = strings.TrimRight(l[indent:], " ")
+	}
+	return out
+}
+
+var (
+	// commandLine is a shell line an example would start with.
+	commandLine = regexp.MustCompile(`^(ankra\b|ankra-module-|#|\$ |cat |echo |kubectl |helm |curl |export |[A-Z][A-Z0-9_]*=\S*\s)`)
+	// flagRow opens a flag table ("--option k=v   what it does").
+	flagRow = regexp.MustCompile(`^--?[A-Za-z]`)
+	// yamlBlock opens a YAML mapping ("users:") or sequence ("- name: x");
+	// keys are lowercase, so a prose lead-in like "Examples:" is not one.
+	yamlBlock = regexp.MustCompile(`^(- )?[a-z_][\w.-]*:( \S|$)`)
+	// yamlLine is any line of a YAML snippet: a key, a sequence item, or a
+	// line nested under one.
+	yamlLine = regexp.MustCompile(`^(\s+\S|(- )?[A-Za-z_][\w.-]*:( |$)|- \S)`)
+	listItem = regexp.MustCompile(`^(-|\*|\d+\.)\s`)
+	// aligned spots a column layout: two or more spaces after text.
+	aligned = regexp.MustCompile(`\S {2,}\S`)
+)
+
+// classifyIndented names the fence language for a dedented group, or ""
+// when it is a list or a hanging-indent paragraph that reads as prose.
+func classifyIndented(ls []string) string {
+	first := ls[0]
+	switch {
+	case strings.HasPrefix(first, "{") || strings.HasPrefix(first, "["):
+		return "json"
+	}
+	switch {
+	case isYAML(ls):
+		return "yaml"
+	case listItem.MatchString(first):
+		// Checked before commands: a bullet whose words happen to start
+		// with "export" or "cat" is still prose.
+		return ""
+	case commandLine.MatchString(first):
+		return "bash"
+	}
+	if flagRow.MatchString(first) {
+		return "text"
+	}
+	for _, l := range ls {
+		if aligned.MatchString(l) {
+			return "text"
+		}
+	}
+	return ""
+}
+
+// isYAML reports a YAML snippet: a block opener ("users:", "- name: x"), or
+// two or more lines that are all keys, items or nested under them
+// ("apiVersion: v1" / "kind: Pod").
+func isYAML(ls []string) bool {
+	first := ls[0]
+	if !yamlBlock.MatchString(first) {
+		return false
+	}
+	if strings.HasPrefix(first, "- ") || strings.HasSuffix(first, ":") {
+		return true
+	}
+	if len(ls) < 2 {
+		return false
+	}
+	for _, l := range ls {
+		if !yamlLine.MatchString(l) {
+			return false
+		}
+	}
+	return true
 }
 
 // escapeTableCell additionally escapes pipes so flag usage strings cannot
@@ -159,7 +364,7 @@ func renderCommand(b *strings.Builder, c *cobra.Command) {
 	short := strings.TrimSpace(c.Short)
 	switch {
 	case long != "":
-		fmt.Fprintf(b, "%s\n\n", escapeMDX(long))
+		fmt.Fprintf(b, "%s\n\n", renderHelpText(long))
 	case short != "":
 		fmt.Fprintf(b, "%s\n\n", escapeMDX(short))
 	}

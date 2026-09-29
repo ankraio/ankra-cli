@@ -232,16 +232,23 @@ type CloudSavingsEvidence struct {
 // right_size_idle, reduce_unallocated or off_hours_schedule; ID is stable
 // across reads (kind and cluster).
 type CloudSavingsRecommendation struct {
-	ID                  string               `json:"id" yaml:"id"`
-	Kind                string               `json:"kind" yaml:"kind"`
-	ClusterID           string               `json:"cluster_id" yaml:"cluster_id"`
-	ClusterName         string               `json:"cluster_name" yaml:"cluster_name"`
-	Provider            string               `json:"provider" yaml:"provider"`
-	Environment         *string              `json:"environment" yaml:"environment"`
-	MonthlySavingsCents int64                `json:"monthly_savings_cents" yaml:"monthly_savings_cents"`
-	MonthlyCostCents    int64                `json:"monthly_cost_cents" yaml:"monthly_cost_cents"`
-	SharePercent        int                  `json:"share_percent" yaml:"share_percent"`
-	Evidence            CloudSavingsEvidence `json:"evidence" yaml:"evidence"`
+	ID                  string  `json:"id" yaml:"id"`
+	Kind                string  `json:"kind" yaml:"kind"`
+	ClusterID           string  `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName         string  `json:"cluster_name" yaml:"cluster_name"`
+	Provider            string  `json:"provider" yaml:"provider"`
+	Environment         *string `json:"environment" yaml:"environment"`
+	MonthlySavingsCents int64   `json:"monthly_savings_cents" yaml:"monthly_savings_cents"`
+	MonthlyCostCents    int64   `json:"monthly_cost_cents" yaml:"monthly_cost_cents"`
+	SharePercent        int     `json:"share_percent" yaml:"share_percent"`
+	// Confidence says what MonthlySavingsCents rests on: measured (usage the
+	// metrics store read planned a right-size step), billed (an off-hours stop
+	// on billed compute) or estimated (capacity less requests, or the whole run
+	// rate, with no usage measured). Only measured and billed savings count in
+	// the total. Nil on a platform that predates it, and absent in structured
+	// output then.
+	Confidence *string              `json:"confidence,omitempty" yaml:"confidence,omitempty"`
+	Evidence   CloudSavingsEvidence `json:"evidence" yaml:"evidence"`
 }
 
 // CloudSavingsComponent is one billed component of a cluster's run rate.
@@ -315,31 +322,41 @@ type CloudSavingsThresholds struct {
 
 // CloudSavings is GET /org/cloud-cost/savings: the organisation's savings
 // model in the display currency. TotalMonthlySavingsCents counts each
-// cluster once, at its best lever. Only the biggest priced clusters are
+// cluster once, at its best lever; on a platform that reports confidence,
+// only at its best measured or billed lever, with EstimatedMonthlySavingsCents
+// carrying what the estimates add above it. Only the biggest priced clusters are
 // analysed (up to the organisation's limit, within the analysis time
 // budget); the unanalysed, unpriced, stale and unreadable ones are named
 // so an unknown never reads as nothing to save.
 type CloudSavings struct {
-	Currency                 string                       `json:"currency" yaml:"currency"`
-	GeneratedAt              string                       `json:"generated_at" yaml:"generated_at"`
-	TotalMonthlySavingsCents int64                        `json:"total_monthly_savings_cents" yaml:"total_monthly_savings_cents"`
-	Recommendations          []CloudSavingsRecommendation `json:"recommendations" yaml:"recommendations"`
-	Breakdowns               []CloudSavingsBreakdown      `json:"breakdowns" yaml:"breakdowns"`
-	Namespaces               []CloudSavingsNamespace      `json:"namespaces" yaml:"namespaces"`
-	AnalysedClusterCount     int                          `json:"analysed_cluster_count" yaml:"analysed_cluster_count"`
-	UnanalysedClusterCount   int                          `json:"unanalysed_cluster_count" yaml:"unanalysed_cluster_count"`
+	Currency                 string `json:"currency" yaml:"currency"`
+	GeneratedAt              string `json:"generated_at" yaml:"generated_at"`
+	TotalMonthlySavingsCents int64  `json:"total_monthly_savings_cents" yaml:"total_monthly_savings_cents"`
+	// EstimatedMonthlySavingsCents is what the estimated levers add above the
+	// total, each cluster once, and never part of it. Nil on a platform that
+	// predates confidence, whose total still counts every lever.
+	EstimatedMonthlySavingsCents *int64                       `json:"estimated_monthly_savings_cents,omitempty" yaml:"estimated_monthly_savings_cents,omitempty"`
+	Recommendations              []CloudSavingsRecommendation `json:"recommendations" yaml:"recommendations"`
+	Breakdowns                   []CloudSavingsBreakdown      `json:"breakdowns" yaml:"breakdowns"`
+	Namespaces                   []CloudSavingsNamespace      `json:"namespaces" yaml:"namespaces"`
+	AnalysedClusterCount         int                          `json:"analysed_cluster_count" yaml:"analysed_cluster_count"`
+	UnanalysedClusterCount       int                          `json:"unanalysed_cluster_count" yaml:"unanalysed_cluster_count"`
 	// AnalysisBudgetExhausted is true when the analysis time budget, not the
 	// analysed-cluster limit, left some priced clusters unanalysed; nil on a
 	// platform that predates it.
-	AnalysisBudgetExhausted *bool                  `json:"analysis_budget_exhausted,omitempty" yaml:"analysis_budget_exhausted,omitempty"`
-	PricedClusterCount      int                    `json:"priced_cluster_count" yaml:"priced_cluster_count"`
-	UnpricedClusterCount    int                    `json:"unpriced_cluster_count" yaml:"unpriced_cluster_count"`
-	UnpricedClusters        []CloudSavingsCluster  `json:"unpriced_clusters" yaml:"unpriced_clusters"`
-	StaleClusterCount       int                    `json:"stale_cluster_count" yaml:"stale_cluster_count"`
-	StaleClusters           []CloudSavingsCluster  `json:"stale_clusters" yaml:"stale_clusters"`
-	UnreadableClusters      []CloudSavingsCluster  `json:"unreadable_clusters" yaml:"unreadable_clusters"`
-	Waste                   CloudSavingsWaste      `json:"waste" yaml:"waste"`
-	Thresholds              CloudSavingsThresholds `json:"thresholds" yaml:"thresholds"`
+	AnalysisBudgetExhausted *bool                 `json:"analysis_budget_exhausted,omitempty" yaml:"analysis_budget_exhausted,omitempty"`
+	PricedClusterCount      int                   `json:"priced_cluster_count" yaml:"priced_cluster_count"`
+	UnpricedClusterCount    int                   `json:"unpriced_cluster_count" yaml:"unpriced_cluster_count"`
+	UnpricedClusters        []CloudSavingsCluster `json:"unpriced_clusters" yaml:"unpriced_clusters"`
+	StaleClusterCount       int                   `json:"stale_cluster_count" yaml:"stale_cluster_count"`
+	StaleClusters           []CloudSavingsCluster `json:"stale_clusters" yaml:"stale_clusters"`
+	UnreadableClusters      []CloudSavingsCluster `json:"unreadable_clusters" yaml:"unreadable_clusters"`
+	// OfflineClusters are priced clusters whose agent has not checked in: what
+	// was last read of them is stale, so the model offers them nothing, which
+	// is unknown rather than nothing to save. Absent on an older platform.
+	OfflineClusters []CloudSavingsCluster  `json:"offline_clusters,omitempty" yaml:"offline_clusters,omitempty"`
+	Waste           CloudSavingsWaste      `json:"waste" yaml:"waste"`
+	Thresholds      CloudSavingsThresholds `json:"thresholds" yaml:"thresholds"`
 }
 
 // GetCloudSavings returns the organisation's savings model.
