@@ -277,6 +277,16 @@ EKS_NODE_POOL_SIZE="${EKS_NODE_POOL_SIZE:-t3.medium}"
 # MANAGED_UPGRADE_K8S_VERSION_DOKS=1.32.5-do.0). When the upgrade target is
 # unset the managed upgrade step is skipped (recorded as SKIP, not FAIL).
 
+# Every cluster this test creates is disposable, volumes included. Since
+# ankra-cli#383 a deprovision run off a terminal refuses to delete a
+# cluster's persistent volumes - or volumes Ankra cannot list - without
+# --accept-volume-data-loss (--yes does not imply it, and the platform
+# refuses too), so each self-managed deprovision below, the abort cleanup's
+# included, passes it; without it the lane waits out its deprovision
+# timeouts and leaves the cluster running. `cluster managed delete` has no
+# such acknowledgement.
+DEPROVISION_CONSENT=(--yes --accept-volume-data-loss)
+
 # Timeouts / polling (seconds).
 ONLINE_TIMEOUT="${ONLINE_TIMEOUT:-1500}"     # cluster create -> online
 ADDONS_TIMEOUT="${ADDONS_TIMEOUT:-900}"      # addons -> up
@@ -407,8 +417,8 @@ cleanup() {
         ank cluster managed delete "$id" --provider "$managed_provider" --yes >/dev/null 2>&1 || true
         ank cluster managed delete "$id" --provider "$managed_provider" --force --yes >/dev/null 2>&1 || true
       else
-        ank cluster deprovision "$id" --yes >/dev/null 2>&1 || true
-        ank cluster deprovision "$id" --force --yes >/dev/null 2>&1 || true
+        ank cluster deprovision "$id" "${DEPROVISION_CONSENT[@]}" >/dev/null 2>&1 || true
+        ank cluster deprovision "$id" --force "${DEPROVISION_CONSENT[@]}" >/dev/null 2>&1 || true
       fi
     fi
   done
@@ -1096,12 +1106,12 @@ run_aws_provider() {
   # 7. Deprovision -> removed (with a bounded force fallback on stall)
   wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy; deprovisioning anyway)"
   log "deprovisioning $name ..."
-  ank cluster deprovision "$id" --yes | tail -2
+  ank cluster deprovision "$id" "${DEPROVISION_CONSENT[@]}" | tail -2
   if wait_for_removed "$name" "$DEPROVISION_TIMEOUT"; then
     pass "$label deprovision -> deleted_at"
   else
     log "  $name deprovision stalled after ${DEPROVISION_TIMEOUT}s; attempting bounded force-deprovision fallback"
-    ank cluster deprovision "$id" --force --yes | tail -2 || true
+    ank cluster deprovision "$id" --force "${DEPROVISION_CONSENT[@]}" | tail -2 || true
     if wait_for_removed "$name" "$DEPROVISION_FORCE_TIMEOUT"; then
       pass "$label deprovision -> deleted_at (after force fallback)"
     else
@@ -1257,12 +1267,12 @@ run_provider() {
   # credential is already deleted.
   wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy; deprovisioning anyway)"
   log "deprovisioning $name ..."
-  ank cluster deprovision "$id" --yes | tail -2
+  ank cluster deprovision "$id" "${DEPROVISION_CONSENT[@]}" | tail -2
   if wait_for_removed "$name" "$DEPROVISION_TIMEOUT"; then
     pass "$label deprovision -> deleted_at"
   else
     log "  $name deprovision stalled after ${DEPROVISION_TIMEOUT}s; attempting bounded force-deprovision fallback"
-    ank cluster deprovision "$id" --force --yes | tail -2 || true
+    ank cluster deprovision "$id" --force "${DEPROVISION_CONSENT[@]}" | tail -2 || true
     if wait_for_removed "$name" "$DEPROVISION_FORCE_TIMEOUT"; then
       pass "$label deprovision -> deleted_at (after force fallback)"
     else
