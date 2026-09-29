@@ -57,6 +57,16 @@ func TestRenderHelpTextFencesVerbatim(t *testing.T) {
 		t.Fatalf("aligned table not fenced as text:\n%s", got)
 	}
 
+	got = renderHelpText("Kubeconfig:\n\n  users:\n  - name: ankra")
+	if !strings.Contains(got, "```yaml\nusers:\n- name: ankra\n```") {
+		t.Fatalf("yaml mapping not fenced:\n%s", got)
+	}
+
+	got = renderHelpText("Parents:\n\n  - name: infisical-ns\n    kind: manifest")
+	if !strings.Contains(got, "```yaml\n- name: infisical-ns\n  kind: manifest\n```") {
+		t.Fatalf("yaml sequence not fenced:\n%s", got)
+	}
+
 	got = renderHelpText("Options:\n\n  --option source=compose   which source to read\n  --option host=ssh://h    remote daemon")
 	if !strings.Contains(got, "```text\n--option source=compose   which source to read\n") {
 		t.Fatalf("flag table not fenced as text:\n%s", got)
@@ -68,6 +78,9 @@ func TestRenderHelpTextKeepsListsAndParagraphsAsProse(t *testing.T) {
 		"  - all cloud resources are released;\n" +
 		"  - volumes are deleted unless you\n" +
 		"    pass --accept-volume-data-loss.\n\n" +
+		"Then:\n\n" +
+		"  Examples:\n" +
+		"    see the pipeline guide.\n\n" +
 		"Two modes:\n\n" +
 		"  Cluster mode (default): fetch the manifest,\n" +
 		"    decrypt it, and print to stdout."
@@ -97,6 +110,7 @@ func TestEscapeMDXCodeSpansFlags(t *testing.T) {
 		"exclusive with --set*.":                    "exclusive with `--set*`.",
 		"pass --output=json.":                       "pass `--output=json`.",
 		"try --image=nginx:1.27:":                   "try `--image=nginx:1.27`:",
+		"an empty --tag= clears it":                 "an empty `--tag`= clears it",
 	}
 	for in, want := range cases {
 		if got := escapeMDX(in); got != want {

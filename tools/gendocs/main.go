@@ -106,7 +106,7 @@ var mdxProse = strings.NewReplacer(
 // never ends in sentence punctuation. Mintlify's
 // typographer turns an unfenced "--" into an em dash, so "--wait" rendered as
 // "—wait" until these were code-spanned (ankra-ta04t).
-var flagToken = regexp.MustCompile(`(^|[\s(\[/,;:"'])(--[A-Za-z][A-Za-z0-9-]*(?:=(?:[^\s,;)'"]*[^\s,;)'".:])?| '[^'\n]*'|\*)?)`)
+var flagToken = regexp.MustCompile(`(^|[\s(\[/,;:"'])(--[A-Za-z][A-Za-z0-9-]*(?:=[^\s,;)'"]*[^\s,;)'".:=]| '[^'\n]*'|\*)?)`)
 
 // escapeMDX makes arbitrary help text safe inside MDX prose: angle brackets
 // and curly braces are JSX syntax to Mintlify, and flag names become code
@@ -238,8 +238,10 @@ var (
 	// commandLine is a shell line an example would start with.
 	commandLine = regexp.MustCompile(`^(ankra\b|ankra-module-|#|\$ |cat |echo |kubectl |helm |curl |export |[A-Z][A-Z0-9_]*=\S*\s)`)
 	// flagRow opens a flag table ("--option k=v   what it does").
-	flagRow   = regexp.MustCompile(`^--?[A-Za-z]`)
-	yamlBlock = regexp.MustCompile(`^[A-Za-z_][\w.-]*:$`)
+	flagRow = regexp.MustCompile(`^--?[A-Za-z]`)
+	// yamlBlock opens a YAML mapping ("users:") or sequence ("- name: x");
+	// keys are lowercase, so a prose lead-in like "Examples:" is not one.
+	yamlBlock = regexp.MustCompile(`^(- )?[a-z_][\w.-]*:( \S|$)`)
 	listItem  = regexp.MustCompile(`^(-|\*|\d+\.)\s`)
 	// aligned spots a column layout: two or more spaces after text.
 	aligned = regexp.MustCompile(`\S {2,}\S`)
@@ -252,15 +254,17 @@ func classifyIndented(ls []string) string {
 	switch {
 	case strings.HasPrefix(first, "{") || strings.HasPrefix(first, "["):
 		return "json"
-	case yamlBlock.MatchString(first):
-		return "yaml"
-	case listItem.MatchString(first):
-		return ""
 	}
 	for _, l := range ls {
 		if commandLine.MatchString(strings.TrimSpace(l)) {
 			return "bash"
 		}
+	}
+	switch {
+	case yamlBlock.MatchString(first) && (strings.HasPrefix(first, "- ") || strings.HasSuffix(first, ":")):
+		return "yaml"
+	case listItem.MatchString(first):
+		return ""
 	}
 	if flagRow.MatchString(first) {
 		return "text"
