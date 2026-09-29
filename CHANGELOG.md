@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+
+- **The CLI reference on docs.ankra.ai shows examples as code.** Help
+  text indents its examples, JSON and YAML snippets and aligned tables, which
+  MDX does not treat as code, so `ankra cluster manifests upgrade` and every
+  other page with examples in its description rendered them as prose: a
+  `# comment` became a heading, `--set` turned into an em dash and quotes
+  turned curly. The generator now fences those blocks, keeps indented lists
+  and paragraphs as prose, and code-styles every flag named in descriptions
+  and flag tables.
+
 ## v0.19.0 — 2026-09-28
 
 The headline is consent before a teardown deletes data. `ankra cluster
