@@ -909,7 +909,9 @@ func (c *Client) GetPipelineRun(ctx context.Context, selector PipelineSelector,
 
 // RerunPipelineRun opens a new run from a run that already happened (POST
 // …/pipeline-runs/{run_id}/rerun). failedOnly restricts the new run to the
-// steps that did not succeed and whatever depends on them.
+// steps that did not succeed, whatever depends on them, and the upstream
+// steps they consume, the checkout included; the platform refuses one that
+// could not run a step that failed.
 func (c *Client) RerunPipelineRun(ctx context.Context, selector PipelineSelector,
 	runID string, failedOnly bool) (*CreatePipelineRunResult, error) {
 	base, selectorError := selector.basePath()
