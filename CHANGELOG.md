@@ -1,6 +1,6 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.20.0-rc0 — 2026-09-29
 
 ### Added
 
@@ -19,6 +19,21 @@
   cannot carry arguments. Needs a cluster agent recent enough to run one-off
   commands; an older one is refused with the version it needs and nothing is
   run.
+
+- **`ankra pipeline get` names who cancelled a run, why and when.** A
+  cancelled run used to read `⊘ cancelled` with no actor. The detail now
+  prints a `Cancelled` line under Status with the person, the reason (a
+  manual cancel, a newer run superseding it, or its pull request merging or
+  closing) and the time, and `-o json` carries `cancelled_by`,
+  `cancel_reason` and `cancelled_at`. A superseded run keeps its own
+  `Superseded` line instead.
+
+- **`ankra cost savings` says what each saving rests on.** On a platform that
+  reports it, the table gains a Basis column (measured, billed or estimate),
+  the headline total counts only measured and billed savings and states what
+  the estimates would add separately, and clusters whose agent stopped
+  checking in are listed as offered nothing rather than silently left out.
+  Against an older platform the output is unchanged.
 
 - **The lifecycle systemtest can prove node-group autoscaling end to end.**
   `ANKRA_SYSTEMTEST_AUTOSCALING=1` (or `autoscaling: 1` on a manual dispatch
