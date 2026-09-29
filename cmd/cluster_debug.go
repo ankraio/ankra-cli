@@ -121,6 +121,11 @@ Examples:
 		if ttl < debugPodMinimumTTL || ttl > debugPodMaximumTTL {
 			return withExitCode(exitUsage, fmt.Errorf("--ttl must be between %s and %s", debugPodMinimumTTL, debugPodMaximumTTL))
 		}
+		if attach {
+			if shellError := validatePodTerminalShell(shell); shellError != nil {
+				return shellError
+			}
+		}
 
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
@@ -283,7 +288,7 @@ func init() {
 	clusterDebugCreateCmd.Flags().Bool("no-env", false, "Do not mirror the target's environment variables")
 	clusterDebugCreateCmd.Flags().Duration("ttl", debugPodDefaultTTL, "How long the pod lives before the kubelet ends it (1m-8h)")
 	clusterDebugCreateCmd.Flags().BoolP("attach", "a", false, "Open a shell in the debug pod as soon as it runs (see \"cluster terminal\")")
-	clusterDebugCreateCmd.Flags().String("shell", podTerminalDefaultShell, "Shell to start with --attach")
+	clusterDebugCreateCmd.Flags().String("shell", podTerminalDefaultShell, "Path of the shell to start with --attach (one executable, not a command line)")
 
 	clusterDebugListCmd.Flags().StringP("namespace", "n", "", "Only list debug pods in this namespace")
 

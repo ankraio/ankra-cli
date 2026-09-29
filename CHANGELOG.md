@@ -26,6 +26,14 @@
 
 ### Fixed
 
+- **`cluster terminal --shell` says it takes one executable.** The value
+  reaches the container runtime as a single program name, so a command line
+  such as `--shell "/bin/sh -c 'psql ...'"` opened (and recorded) a session
+  and then failed with an OCI `stat /bin/sh -c ...: no such file or
+  directory`. `cluster terminal` and `cluster debug create --attach` now
+  refuse a `--shell` containing whitespace with a usage error (exit 2) that
+  says so, before anything is opened or created; to run commands, pipe them
+  into the session and end with `exit`.
 - **The CLI reference on docs.ankra.ai shows examples as code.** Help
   text indents its examples, JSON and YAML snippets and aligned tables, which
   MDX does not treat as code, so `ankra cluster manifests upgrade` and every
