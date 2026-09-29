@@ -213,12 +213,19 @@ jobs:
           aws --version
 
       # The opt-in autoscaling step parses the CLI's -o json output with jq
-      # (ubuntu-latest ships it; a self-hosted runner may not).
+      # (ubuntu-latest ships it; a self-hosted runner may not). Only a
+      # Debian-family runner can install it here; anything else fails with
+      # a clear message instead of a confusing apt-get error.
       - name: Ensure jq is available for the autoscaling step
         if: steps.configuration.outputs.configured == 'true' && env.ANKRA_SYSTEMTEST_AUTOSCALING == '1'
         run: |
           if ! command -v jq >/dev/null 2>&1; then
-            sudo apt-get update -qq && sudo apt-get install -y -qq jq
+            if command -v apt-get >/dev/null 2>&1; then
+              sudo apt-get update -qq && sudo apt-get install -y -qq jq
+            else
+              echo "::error::jq is required by the autoscaling step and this runner has neither jq nor apt-get; install jq in the runner image"
+              exit 1
+            fi
           fi
           jq --version
 

@@ -1347,12 +1347,23 @@ as_ca_pod() {
 
 # A write the step depends on: daytwo()'s wait-for-idle and 409 retry, but
 # returning the CLI's own exit status - daytwo() reports success for any
-# answer that is not a 409.
+# answer that is not a 409. Unlike daytwo(), the whole write shares one
+# budget of 2 x IDLE_TIMEOUT: every retry waits for the cluster to go idle
+# first, so per-attempt waits alone could spend 8 x IDLE_TIMEOUT inside a
+# single write on a cluster that never settles.
 as_write() {
   local desc="$1" name="$2"; shift 2
-  local attempt out rc=1
+  local attempt out rc=1 remaining
+  local budget=$(( 2 * IDLE_TIMEOUT ))
+  local deadline=$(( $(date +%s) + budget ))
   for attempt in 1 2 3 4 5 6 7 8; do
-    wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy; attempting $desc anyway)"
+    remaining=$(( deadline - $(date +%s) ))
+    if [ "$remaining" -le 0 ]; then
+      log "  $desc gave up: $name stayed busy past the write's ${budget}s budget"
+      break
+    fi
+    if [ "$remaining" -gt "$IDLE_TIMEOUT" ]; then remaining="$IDLE_TIMEOUT"; fi
+    wait_idle "$name" "$remaining" || log "  ($name still busy; attempting $desc anyway)"
     out="$(ank_rc "$@")"; rc=$?
     if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qiE "operations in progress|409|not in a state"; then
       log "  $desc rejected (ops in progress), retry $attempt"
