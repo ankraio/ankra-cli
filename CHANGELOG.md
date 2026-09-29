@@ -1,5 +1,23 @@
 # Ankra CLI Changelog
 
+## v0.20.0 — 2026-09-29
+
+The headline is `ankra cluster exec <pod> -n <namespace> -- <command>
+[args...]`: one command run in a pod through the platform, passed to the
+container exactly as given (no shell re-parse), with its stdout and stderr
+streamed and its own exit code returned so scripts and CI can branch on it.
+`--stdin` forwards input and closes it at end-of-file, `-o json` returns one
+`{exit_code, stdout, stderr}` document, and every run is gated on
+`kubernetes.exec` and recorded in the audit log like a terminal session. It
+needs a cluster agent at 2.1.1166 or newer; an older one is refused and
+nothing runs. Beside it, `cluster terminal --shell` now refuses a command line
+with a usage error instead of failing inside the container runtime, `pipeline
+get` names who cancelled a run, why and when, `cost savings` says whether each
+saving is measured, billed or estimated and counts only the first two in its
+total, `pipeline rerun --failed-only` explains what it re-runs, and the CLI
+reference on docs.ankra.ai renders examples as code. Nothing changed since
+v0.20.0-rc0; its entries below are the detail.
+
 ## v0.20.0-rc0 — 2026-09-29
 
 ### Added
