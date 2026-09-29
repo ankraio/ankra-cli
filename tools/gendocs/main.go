@@ -102,11 +102,10 @@ var mdxProse = strings.NewReplacer(
 )
 
 // flagToken matches a long flag named in prose, with an =value or a directly
-// following single-quoted argument ("--set 'spec.replicas=3'"); a value
-// never ends in sentence punctuation. Mintlify's
-// typographer turns an unfenced "--" into an em dash, so "--wait" rendered as
+// following quoted argument ("--set 'spec.replicas=3'"); a value never ends
+// in sentence punctuation. Mintlify's typographer turns an unfenced "--" into an em dash, so "--wait" rendered as
 // "—wait" until these were code-spanned (ankra-ta04t).
-var flagToken = regexp.MustCompile(`(^|[\s(\[/,;:"'])(--[A-Za-z][A-Za-z0-9-]*(?:=[^\s,;)'"]*[^\s,;)'".:=]| '[^'\n]*'|\*)?)`)
+var flagToken = regexp.MustCompile(`(^|[\s(\[/,;:"'])(--[A-Za-z][A-Za-z0-9-]*(?:=[^\s,;)'"]*[^\s,;)'".:=]| '[^'\n]*'| "[^"\n]*"|\*)?)`)
 
 // escapeMDX makes arbitrary help text safe inside MDX prose: angle brackets
 // and curly braces are JSX syntax to Mintlify, and flag names become code
@@ -156,6 +155,9 @@ var unescapeProse = strings.NewReplacer(
 func renderHelpText(s string) string {
 	lines := strings.Split(strings.ReplaceAll(s, "\t", "    "), "\n")
 
+	// A chunk keeps its lines as written; they are dedented on output, so
+	// groups merged across a blank line share one indent and keep their
+	// relative nesting.
 	type chunk struct {
 		lang  string // fence language; "" means markdown prose
 		lines []string
@@ -187,8 +189,16 @@ func renderHelpText(s string) string {
 		for j < len(lines) && isIndented(lines[j]) {
 			j++
 		}
-		group := dedent(lines[i:j])
-		emit(classifyIndented(group), group)
+		group := lines[i:j]
+		if n := len(chunks); n > 0 && chunks[n-1].lang != "" &&
+			indentOf(group) > indentOf(chunks[n-1].lines) {
+			// Nested deeper than the fence just above it: a continuation
+			// of that snippet across a blank line, whatever it looks like
+			// on its own.
+			chunks[n-1].lines = append(append(chunks[n-1].lines, ""), group...)
+		} else {
+			emit(classifyIndented(dedent(group)), group)
+		}
 		i = j
 	}
 
@@ -198,9 +208,9 @@ func renderHelpText(s string) string {
 			b.WriteString("\n\n")
 		}
 		if c.lang == "" {
-			b.WriteString(escapeMDX(strings.Join(c.lines, "\n")))
+			b.WriteString(escapeMDX(strings.Join(dedent(c.lines), "\n")))
 		} else {
-			fmt.Fprintf(&b, "```%s\n%s\n```", c.lang, strings.Join(c.lines, "\n"))
+			fmt.Fprintf(&b, "```%s\n%s\n```", c.lang, strings.Join(dedent(c.lines), "\n"))
 		}
 	}
 	return b.String()
@@ -220,15 +230,27 @@ func trimBlankLines(ls []string) []string {
 	return ls
 }
 
-func dedent(ls []string) []string {
+// indentOf is the smallest indent among the non-blank lines.
+func indentOf(ls []string) int {
 	indent := -1
 	for _, l := range ls {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
 		if n := len(l) - len(strings.TrimLeft(l, " ")); indent < 0 || n < indent {
 			indent = n
 		}
 	}
+	return indent
+}
+
+func dedent(ls []string) []string {
+	indent := indentOf(ls)
 	out := make([]string, len(ls))
 	for i, l := range ls {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
 		out[i] = strings.TrimRight(l[indent:], " ")
 	}
 	return out
@@ -242,7 +264,10 @@ var (
 	// yamlBlock opens a YAML mapping ("users:") or sequence ("- name: x");
 	// keys are lowercase, so a prose lead-in like "Examples:" is not one.
 	yamlBlock = regexp.MustCompile(`^(- )?[a-z_][\w.-]*:( \S|$)`)
-	listItem  = regexp.MustCompile(`^(-|\*|\d+\.)\s`)
+	// yamlLine is any line of a YAML snippet: a key, a sequence item, or a
+	// line nested under one.
+	yamlLine = regexp.MustCompile(`^(\s+\S|(- )?[A-Za-z_][\w.-]*:( |$)|- \S)`)
+	listItem = regexp.MustCompile(`^(-|\*|\d+\.)\s`)
 	// aligned spots a column layout: two or more spaces after text.
 	aligned = regexp.MustCompile(`\S {2,}\S`)
 )
@@ -255,16 +280,15 @@ func classifyIndented(ls []string) string {
 	case strings.HasPrefix(first, "{") || strings.HasPrefix(first, "["):
 		return "json"
 	}
-	for _, l := range ls {
-		if commandLine.MatchString(strings.TrimSpace(l)) {
-			return "bash"
-		}
-	}
 	switch {
-	case yamlBlock.MatchString(first) && (strings.HasPrefix(first, "- ") || strings.HasSuffix(first, ":")):
+	case isYAML(ls):
 		return "yaml"
 	case listItem.MatchString(first):
+		// Checked before commands: a bullet whose words happen to start
+		// with "export" or "cat" is still prose.
 		return ""
+	case commandLine.MatchString(first):
+		return "bash"
 	}
 	if flagRow.MatchString(first) {
 		return "text"
@@ -275,6 +299,28 @@ func classifyIndented(ls []string) string {
 		}
 	}
 	return ""
+}
+
+// isYAML reports a YAML snippet: a block opener ("users:", "- name: x"), or
+// two or more lines that are all keys, items or nested under them
+// ("apiVersion: v1" / "kind: Pod").
+func isYAML(ls []string) bool {
+	first := ls[0]
+	if !yamlBlock.MatchString(first) {
+		return false
+	}
+	if strings.HasPrefix(first, "- ") || strings.HasSuffix(first, ":") {
+		return true
+	}
+	if len(ls) < 2 {
+		return false
+	}
+	for _, l := range ls {
+		if !yamlLine.MatchString(l) {
+			return false
+		}
+	}
+	return true
 }
 
 // escapeTableCell additionally escapes pipes so flag usage strings cannot

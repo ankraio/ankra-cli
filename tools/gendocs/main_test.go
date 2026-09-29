@@ -67,6 +67,17 @@ func TestRenderHelpTextFencesVerbatim(t *testing.T) {
 		t.Fatalf("yaml sequence not fenced:\n%s", got)
 	}
 
+	got = renderHelpText("A manifest:\n\n  apiVersion: apps/v1\n  kind: Deployment\n  metadata:\n    name: web")
+	if !strings.Contains(got, "```yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n```") {
+		t.Fatalf("inline-value yaml not fenced:\n%s", got)
+	}
+
+	// Groups merged across a blank line keep their relative indentation.
+	got = renderHelpText("Values:\n\n  spec:\n    replicas: 2\n\n    template: {}")
+	if !strings.Contains(got, "```yaml\nspec:\n  replicas: 2\n\n  template: {}\n```") {
+		t.Fatalf("merged group lost its nesting:\n%s", got)
+	}
+
 	got = renderHelpText("Options:\n\n  --option source=compose   which source to read\n  --option host=ssh://h    remote daemon")
 	if !strings.Contains(got, "```text\n--option source=compose   which source to read\n") {
 		t.Fatalf("flag table not fenced as text:\n%s", got)
@@ -79,6 +90,8 @@ func TestRenderHelpTextKeepsListsAndParagraphsAsProse(t *testing.T) {
 		"  - volumes are deleted unless you\n" +
 		"    pass --accept-volume-data-loss.\n\n" +
 		"Then:\n\n" +
+		"  - export the kubeconfig before deleting\n" +
+		"  - cat nothing into it\n\n" +
 		"  Examples:\n" +
 		"    see the pipeline guide.\n\n" +
 		"Two modes:\n\n" +
@@ -111,6 +124,7 @@ func TestEscapeMDXCodeSpansFlags(t *testing.T) {
 		"pass --output=json.":                       "pass `--output=json`.",
 		"try --image=nginx:1.27:":                   "try `--image=nginx:1.27`:",
 		"an empty --tag= clears it":                 "an empty `--tag`= clears it",
+		`e.g. --note "before the upgrade" here`:     "e.g. `--note \"before the upgrade\"` here",
 	}
 	for in, want := range cases {
 		if got := escapeMDX(in); got != want {
