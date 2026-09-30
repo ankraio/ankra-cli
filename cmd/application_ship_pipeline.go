@@ -25,9 +25,14 @@ import (
 // application, or nothing was pushed since. A var so the tests can shorten it.
 var shipPipelineRunAppearGrace = time.Minute
 
-// shipPipelineRunProbeLimit is how many runs of the head commit one poll
-// reads: enough to step past the pull request runs of the same commit.
-const shipPipelineRunProbeLimit = 5
+// shipPipelineRunProbeLimit is how many runs of the head commit one page
+// reads, and shipPipelineRunMaxPages how many pages one poll walks looking
+// past pull request runs of the same commit. A poll that walks them all
+// without an answer has not proved there is no run, so it never dispatches.
+const (
+	shipPipelineRunProbeLimit = 20
+	shipPipelineRunMaxPages   = 5
+)
 
 // shipPipelineTriggerPullRequest is the trigger of a run built for a pull
 // request (cluster enginekit/pipelinerun.TriggerPullRequest). A pull request
@@ -75,14 +80,10 @@ func waitForPipelineBuild(
 	announcedWaiting := false
 	announcedState := ""
 	for {
-		page, listError := apiClient.ListPipelineRuns(waitContext, selector, client.ListPipelineRunsOptions{
-			HeadSHA: headSHA,
-			Limit:   shipPipelineRunProbeLimit,
-		})
+		run, listedAll, listError := findShipPipelineRun(waitContext, selector, headSHA)
 		if listError != nil {
 			return "", shipReadError(waitContext, "reading the pipeline runs", listError)
 		}
-		run := newestShipPipelineRun(page)
 		if run == nil {
 			if !announcedWaiting {
 				_, _ = fmt.Fprintf(progress,
@@ -90,7 +91,7 @@ func waitForPipelineBuild(
 					shortShipSHA(headSHA), applicationID)
 				announcedWaiting = true
 			}
-			if !dispatched && !time.Now().Before(appearDeadline) {
+			if !dispatched && listedAll && !time.Now().Before(appearDeadline) {
 				dispatchedRun, dispatchError := apiClient.CreatePipelineRun(waitContext, selector, client.CreatePipelineRunRequest{
 					Ref:     trackedBranch,
 					HeadSHA: headSHA,
@@ -136,6 +137,30 @@ func waitForPipelineBuild(
 			return "", tickError
 		}
 	}
+}
+
+// findShipPipelineRun answers the newest run of the head commit that was not
+// built for a pull request, walking the newest-first listing a page at a
+// time. listedAll reports whether the walk reached the end of the listing,
+// which is what "there is no such run" needs: a walk cut short by the page
+// bound has only seen pull request runs so far.
+func findShipPipelineRun(waitContext context.Context, selector client.PipelineSelector,
+	headSHA string) (*client.PipelineRun, bool, error) {
+	options := client.ListPipelineRunsOptions{HeadSHA: headSHA, Limit: shipPipelineRunProbeLimit}
+	for pageNumber := 0; pageNumber < shipPipelineRunMaxPages; pageNumber++ {
+		page, listError := apiClient.ListPipelineRuns(waitContext, selector, options)
+		if listError != nil {
+			return nil, false, listError
+		}
+		if run := newestShipPipelineRun(page); run != nil {
+			return run, true, nil
+		}
+		if page == nil || page.NextCursor == nil || *page.NextCursor == "" {
+			return nil, true, nil
+		}
+		options.Cursor = *page.NextCursor
+	}
+	return nil, false, nil
 }
 
 // newestShipPipelineRun picks the run ship follows from a newest-first page:

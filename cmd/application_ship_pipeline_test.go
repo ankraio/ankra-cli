@@ -22,7 +22,10 @@ const shipTestHeadSHA = "9f4a1c2e8b7d6053f1a2b3c4d5e6f708192a3b4c"
 type shipPipelineMock struct {
 	*applicationShipMock
 
-	runPages      [][]client.PipelineRun
+	runPages [][]client.PipelineRun
+	// cursorPages, when set, answers by cursor instead of by call: the page
+	// for "" first, then the page each NextCursor names.
+	cursorPages   map[string]client.PipelineRunList
 	listCalls     int
 	listOptions   []client.ListPipelineRunsOptions
 	runDetails    map[string][]*client.PipelineRunDetail
@@ -38,6 +41,10 @@ func (mock *shipPipelineMock) ListPipelineRuns(_ context.Context, selector clien
 	}
 	mock.listCalls++
 	mock.listOptions = append(mock.listOptions, options)
+	if mock.cursorPages != nil {
+		page := mock.cursorPages[options.Cursor]
+		return &page, nil
+	}
 	if len(mock.runPages) == 0 {
 		return &client.PipelineRunList{}, nil
 	}
@@ -300,5 +307,55 @@ func TestApplicationShipStopsOnAClosedSetupPullRequest(t *testing.T) {
 	}
 	if mockClient.workflowRunsCalls != 0 {
 		t.Errorf("workflow reads = %d, want none", mockClient.workflowRunsCalls)
+	}
+}
+
+// Several pull request runs of the head commit must not hide the run that
+// publishes, nor make ship dispatch a second one (review of #402).
+func TestApplicationShipPagesPastPullRequestRuns(t *testing.T) {
+	fastShipPolling(t)
+	shortPipelineGrace(t, 0)
+	mockClient := newShipPipelineMock("ankra_pipeline")
+	pullRequests := []client.PipelineRun{}
+	for number := int64(10); number < 30; number++ {
+		pullRequests = append(pullRequests, shipPipelineRun("run-pr", number, "pull_request"))
+	}
+	push := shipPipelineRun("run-push", 4, "push")
+	next := "cursor-2"
+	mockClient.cursorPages = map[string]client.PipelineRunList{
+		"":         {Runs: pullRequests, NextCursor: &next},
+		"cursor-2": {Runs: []client.PipelineRun{push}},
+	}
+	mockClient.runDetails["run-push"] = []*client.PipelineRunDetail{shipRunDetail(push, "concluded", "success")}
+
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, progress)
+	}
+	if len(mockClient.dispatches) != 0 {
+		t.Errorf("a run exists past the pull request runs; dispatches = %+v", mockClient.dispatches)
+	}
+	if mockClient.detailCalls["run-push"] == 0 {
+		t.Error("the push run on the second page was never followed")
+	}
+}
+
+func TestApplicationShipDoesNotDispatchWhenTheListingWasNotExhausted(t *testing.T) {
+	fastShipPolling(t)
+	shortPipelineGrace(t, 0)
+	mockClient := newShipPipelineMock("ankra_pipeline")
+	next := "again"
+	// Every page is pull request runs with another page behind it: the walk
+	// stops at its bound without having proved there is no run.
+	mockClient.cursorPages = map[string]client.PipelineRunList{
+		"":      {Runs: []client.PipelineRun{shipPipelineRun("run-pr", 3, "pull_request")}, NextCursor: &next},
+		"again": {Runs: []client.PipelineRun{shipPipelineRun("run-pr", 3, "pull_request")}, NextCursor: &next},
+	}
+	_, _, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production", "--timeout", "50ms")
+	if executeError == nil {
+		t.Fatal("ship must keep waiting (and time out here) rather than succeed")
+	}
+	if len(mockClient.dispatches) != 0 {
+		t.Errorf("an unexhausted listing is not proof of no run; dispatches = %+v", mockClient.dispatches)
 	}
 }
