@@ -34,11 +34,11 @@ type CreateOvhClusterRequest struct {
 	SubnetCIDR            string  `json:"subnet_cidr"`
 	DHCPStart             string  `json:"dhcp_start"`
 	DHCPEnd               string  `json:"dhcp_end"`
-	GatewayFlavorID       string  `json:"gateway_flavor_id"`
+	GatewayFlavorID       string  `json:"gateway_flavor_id,omitempty"`
 	ControlPlaneCount     int     `json:"control_plane_count"`
-	ControlPlaneFlavorID  string  `json:"control_plane_flavor_id"`
+	ControlPlaneFlavorID  string  `json:"control_plane_flavor_id,omitempty"`
 	WorkerCount           int     `json:"worker_count"`
-	WorkerFlavorID        string  `json:"worker_flavor_id"`
+	WorkerFlavorID        string  `json:"worker_flavor_id,omitempty"`
 	Distribution          string  `json:"distribution"`
 	KubernetesVersion     *string `json:"kubernetes_version,omitempty"`
 	EtcdTopology          string  `json:"etcd_topology,omitempty"`

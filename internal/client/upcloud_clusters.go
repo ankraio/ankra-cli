@@ -22,11 +22,11 @@ type CreateUpcloudClusterRequest struct {
 	Zones                 []string `json:"zones,omitempty"`
 	NetworkMode           string   `json:"network_mode,omitempty"`
 	NetworkIPRange        string   `json:"network_ip_range,omitempty"`
-	BastionPlan           string   `json:"bastion_plan"`
+	BastionPlan           string   `json:"bastion_plan,omitempty"`
 	ControlPlaneCount     int      `json:"control_plane_count"`
-	ControlPlanePlan      string   `json:"control_plane_plan"`
+	ControlPlanePlan      string   `json:"control_plane_plan,omitempty"`
 	WorkerCount           int      `json:"worker_count"`
-	WorkerPlan            string   `json:"worker_plan"`
+	WorkerPlan            string   `json:"worker_plan,omitempty"`
 	Distribution          string   `json:"distribution"`
 	CNI                   string   `json:"cni,omitempty"`
 	KubernetesVersion     *string  `json:"kubernetes_version,omitempty"`

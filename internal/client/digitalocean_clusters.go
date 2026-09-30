@@ -15,12 +15,12 @@ type CreateDigitaloceanClusterRequest struct {
 	CredentialID          string  `json:"credential_id"`
 	SSHKeyCredentialID    string  `json:"ssh_key_credential_id"`
 	Region                string  `json:"region"`
-	NetworkIPRange        string  `json:"network_ip_range"`
-	BastionSize           string  `json:"bastion_size"`
+	NetworkIPRange        string  `json:"network_ip_range,omitempty"`
+	BastionSize           string  `json:"bastion_size,omitempty"`
 	ControlPlaneCount     int     `json:"control_plane_count"`
-	ControlPlaneSize      string  `json:"control_plane_size"`
+	ControlPlaneSize      string  `json:"control_plane_size,omitempty"`
 	WorkerCount           int     `json:"worker_count"`
-	WorkerSize            string  `json:"worker_size"`
+	WorkerSize            string  `json:"worker_size,omitempty"`
 	Distribution          string  `json:"distribution"`
 	KubernetesVersion     *string `json:"kubernetes_version,omitempty"`
 	EtcdTopology          string  `json:"etcd_topology,omitempty"`

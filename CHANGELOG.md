@@ -50,6 +50,24 @@
   Interactive chat has no structured output, and without `-o` the one-shot
   answer prints as before.
 
+### Changed
+
+- **Cluster creates take the platform's machine defaults.** `ankra cluster
+  {hetzner,ovh,upcloud,digitalocean,proxmox} create` no longer fill in their
+  own server types, flavors, plans and sizes when you leave the flags out;
+  the platform's defaults apply, so a cluster created from the CLI gets the
+  same machines as one created in the portal. The CLI's own values had
+  drifted: OVH now gets a c3-4 gateway and b3-16 control plane and workers
+  (was b2-7 and b2-15), UpCloud a STARTER-1xCPU-1GB bastion and
+  PREMIUM-2xCPU-4GB nodes (was 1xCPU-2GB and 2xCPU-4GB), and Hetzner a type
+  the location can actually provision instead of the retired cx23/cx33,
+  which the platform refuses. A DigitalOcean create without
+  `--network-ip-range` now gets a range derived from the cluster instead of
+  the same 10.0.0.0/16 every time. Each flag's help names the default, and a
+  value you pass is sent as before. The deprecated `cluster ovh node-group
+  add` and `cluster upcloud node-group add` default to b3-16 and
+  PREMIUM-2xCPU-4GB, the workers' defaults.
+
 ### Fixed
 
 - **`ankra cluster gitops status` shows when GitOps is paused on a merge
