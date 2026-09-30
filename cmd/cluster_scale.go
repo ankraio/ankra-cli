@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type workerScaleFunc func(clusterID string, workerCount int) (*client.ScaleWorkersResult, error)
+type workerScaleFunc func(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error)
 
 // scaleFunctionForKind maps a cluster's kind (as returned by the backend) to
 // the provider-specific worker scaling call. Only the cloud-managed kinds
@@ -50,8 +50,11 @@ HPE Morpheus) is detected automatically from the cluster, so you do not need to
 remember which provider it runs on. To scale a named node group instead, use
 'ankra cluster node-group scale'.
 
-Example:
-  ankra cluster scale 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 3`,
+A scale-down picks the workers to remove. ` + guardedDrainHelp + `
+
+Examples:
+  ankra cluster scale 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 3
+  ankra cluster scale 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 2 --force-drain`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
@@ -75,7 +78,7 @@ Example:
 				clusterID, cluster.Kind)
 		}
 
-		result, scaleError := scale(clusterID, workerCount)
+		result, scaleError := scale(clusterID, workerCount, drainOptionsFromFlags(cmd))
 		if scaleError != nil {
 			return fmt.Errorf("scaling workers: %w", scaleError)
 		}
@@ -102,5 +105,6 @@ Example:
 
 func init() {
 	registerStructuredOutputFlags(clusterScaleCmd)
+	registerForceDrainFlag(clusterScaleCmd, forceDrainScaleUsage)
 	clusterCmd.AddCommand(clusterScaleCmd)
 }

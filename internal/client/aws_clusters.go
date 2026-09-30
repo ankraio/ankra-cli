@@ -328,8 +328,8 @@ func (c *Client) GetAwsWorkerCount(clusterID string) (*WorkerCountResult, error)
 	return c.getProviderWorkerCount(awsKind, clusterID)
 }
 
-func (c *Client) ScaleAwsWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
-	return c.scaleProviderWorkers(awsKind, clusterID, workerCount)
+func (c *Client) ScaleAwsWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
+	return c.scaleProviderWorkers(awsKind, clusterID, workerCount, drainOptions)
 }
 
 func (c *Client) GetAwsK8sVersion(clusterID string) (*K8sVersionInfo, error) {
@@ -348,12 +348,12 @@ func (c *Client) AddAwsNodeGroup(ctx context.Context, clusterID string, request 
 	return c.addProviderNodeGroup(ctx, awsKind, clusterID, request, wait)
 }
 
-func (c *Client) ScaleAwsNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*ScaleNodeGroupResult, bool, error) {
-	return c.scaleProviderNodeGroup(ctx, awsKind, clusterID, groupName, count, wait)
+func (c *Client) ScaleAwsNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
+	return c.scaleProviderNodeGroup(ctx, awsKind, clusterID, groupName, count, drainOptions, wait)
 }
 
-func (c *Client) UpdateAwsNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	return c.updateProviderNodeGroupInstanceType(ctx, awsKind, clusterID, groupName, instanceType, wait)
+func (c *Client) UpdateAwsNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	return c.updateProviderNodeGroupInstanceType(ctx, awsKind, clusterID, groupName, instanceType, drainOptions, wait)
 }
 
 func (c *Client) UpdateAwsNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
@@ -374,8 +374,8 @@ func (c *Client) UpdateAwsNodeGroupTaints(ctx context.Context, clusterID, groupN
 	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
-func (c *Client) DeleteAwsNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
-	return c.deleteProviderNodeGroup(ctx, awsKind, clusterID, groupName, wait)
+func (c *Client) DeleteAwsNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
+	return c.deleteProviderNodeGroup(ctx, awsKind, clusterID, groupName, drainOptions, wait)
 }
 
 func (c *Client) GetAwsNodeGroupAutoscaling(clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {

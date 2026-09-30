@@ -200,8 +200,8 @@ func (c *Client) GetAnkraCloudWorkerCount(clusterID string) (*WorkerCountResult,
 	return c.getProviderWorkerCount(ankraCloudKind, clusterID)
 }
 
-func (c *Client) ScaleAnkraCloudWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
-	return c.scaleProviderWorkers(ankraCloudKind, clusterID, workerCount)
+func (c *Client) ScaleAnkraCloudWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
+	return c.scaleProviderWorkers(ankraCloudKind, clusterID, workerCount, drainOptions)
 }
 
 func (c *Client) GetAnkraCloudK8sVersion(clusterID string) (*K8sVersionInfo, error) {
@@ -220,12 +220,12 @@ func (c *Client) AddAnkraCloudNodeGroup(ctx context.Context, clusterID string, r
 	return c.addProviderNodeGroup(ctx, ankraCloudKind, clusterID, request, wait)
 }
 
-func (c *Client) ScaleAnkraCloudNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*ScaleNodeGroupResult, bool, error) {
-	return c.scaleProviderNodeGroup(ctx, ankraCloudKind, clusterID, groupName, count, wait)
+func (c *Client) ScaleAnkraCloudNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
+	return c.scaleProviderNodeGroup(ctx, ankraCloudKind, clusterID, groupName, count, drainOptions, wait)
 }
 
-func (c *Client) UpdateAnkraCloudNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	return c.updateProviderNodeGroupInstanceType(ctx, ankraCloudKind, clusterID, groupName, instanceType, wait)
+func (c *Client) UpdateAnkraCloudNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	return c.updateProviderNodeGroupInstanceType(ctx, ankraCloudKind, clusterID, groupName, instanceType, drainOptions, wait)
 }
 
 func (c *Client) UpdateAnkraCloudNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
@@ -246,8 +246,8 @@ func (c *Client) UpdateAnkraCloudNodeGroupTaints(ctx context.Context, clusterID,
 	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
-func (c *Client) DeleteAnkraCloudNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
-	return c.deleteProviderNodeGroup(ctx, ankraCloudKind, clusterID, groupName, wait)
+func (c *Client) DeleteAnkraCloudNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
+	return c.deleteProviderNodeGroup(ctx, ankraCloudKind, clusterID, groupName, drainOptions, wait)
 }
 
 func (c *Client) GetAnkraCloudNodeGroupAutoscaling(clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {

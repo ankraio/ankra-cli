@@ -104,7 +104,7 @@ func TestScaleMorpheusWorkers_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, scaleError := testClient.ScaleMorpheusWorkers("cluster-123", 4)
+	result, scaleError := testClient.ScaleMorpheusWorkers("cluster-123", 4, DrainOptions{})
 	if scaleError != nil {
 		t.Fatalf("ScaleMorpheusWorkers: %v", scaleError)
 	}

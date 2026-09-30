@@ -218,7 +218,7 @@ func TestAnkraCloudDayTwoCallsUseTheAnkraCloudPrefix(t *testing.T) {
 			return callError
 		}, http.MethodGet, "/api/v1/clusters/ankracloud/cluster-1/worker-count"},
 		{"scale workers", func(testClient *Client) error {
-			_, callError := testClient.ScaleAnkraCloudWorkers("cluster-1", 4)
+			_, callError := testClient.ScaleAnkraCloudWorkers("cluster-1", 4, DrainOptions{})
 			return callError
 		}, http.MethodPost, "/api/v1/clusters/ankracloud/cluster-1/scale-workers"},
 		{"k8s version", func(testClient *Client) error {
@@ -238,11 +238,11 @@ func TestAnkraCloudDayTwoCallsUseTheAnkraCloudPrefix(t *testing.T) {
 			return callError
 		}, http.MethodPost, "/api/v1/clusters/ankracloud/cluster-1/node-groups"},
 		{"scale node group", func(testClient *Client) error {
-			_, _, callError := testClient.ScaleAnkraCloudNodeGroup(requestContext, "cluster-1", "gpu", 2, false)
+			_, _, callError := testClient.ScaleAnkraCloudNodeGroup(requestContext, "cluster-1", "gpu", 2, DrainOptions{}, false)
 			return callError
 		}, http.MethodPut, "/api/v1/clusters/ankracloud/cluster-1/node-groups/gpu/scale"},
 		{"node group plan", func(testClient *Client) error {
-			_, _, callError := testClient.UpdateAnkraCloudNodeGroupInstanceType(requestContext, "cluster-1", "gpu", "g-2", false)
+			_, _, callError := testClient.UpdateAnkraCloudNodeGroupInstanceType(requestContext, "cluster-1", "gpu", "g-2", DrainOptions{}, false)
 			return callError
 		}, http.MethodPut, "/api/v1/clusters/ankracloud/cluster-1/node-groups/gpu/instance-type"},
 		{"node group labels", func(testClient *Client) error {
@@ -254,7 +254,7 @@ func TestAnkraCloudDayTwoCallsUseTheAnkraCloudPrefix(t *testing.T) {
 			return callError
 		}, http.MethodPut, "/api/v1/clusters/ankracloud/cluster-1/node-groups/gpu/taints"},
 		{"delete node group", func(testClient *Client) error {
-			_, _, callError := testClient.DeleteAnkraCloudNodeGroup(requestContext, "cluster-1", "gpu", false)
+			_, _, callError := testClient.DeleteAnkraCloudNodeGroup(requestContext, "cluster-1", "gpu", DrainOptions{}, false)
 			return callError
 		}, http.MethodDelete, "/api/v1/clusters/ankracloud/cluster-1/node-groups/gpu"},
 		{"autoscaling", func(testClient *Client) error {

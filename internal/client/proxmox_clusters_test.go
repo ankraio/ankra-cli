@@ -130,7 +130,7 @@ func TestScaleProxmoxWorkers_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, scaleError := testClient.ScaleProxmoxWorkers("cluster-123", 5)
+	result, scaleError := testClient.ScaleProxmoxWorkers("cluster-123", 5, DrainOptions{})
 	if scaleError != nil {
 		t.Fatalf("ScaleProxmoxWorkers: %v", scaleError)
 	}

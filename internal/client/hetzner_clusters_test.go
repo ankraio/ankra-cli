@@ -223,7 +223,7 @@ func TestScaleHetznerWorkers_Success(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	result, err := testClient.ScaleHetznerWorkers("cluster-123", 4)
+	result, err := testClient.ScaleHetznerWorkers("cluster-123", 4, DrainOptions{})
 	if err != nil {
 		t.Fatalf("ScaleHetznerWorkers: %v", err)
 	}
@@ -443,7 +443,7 @@ func TestScaleHetznerNodeGroup(t *testing.T) {
 			jsonResponse(t, w, http.StatusOK, expectedResponse)
 		}
 		testClient := newTestClient(t, handler)
-		result, _, err := testClient.ScaleHetznerNodeGroup(context.Background(), clusterID, groupName, 4, true)
+		result, _, err := testClient.ScaleHetznerNodeGroup(context.Background(), clusterID, groupName, 4, DrainOptions{}, true)
 		if err != nil {
 			t.Fatalf("ScaleHetznerNodeGroup: %v", err)
 		}
@@ -459,7 +459,7 @@ func TestScaleHetznerNodeGroup(t *testing.T) {
 			jsonResponse(t, w, http.StatusConflict, map[string]string{"error": "scale in progress"})
 		}
 		testClient := newTestClient(t, handler)
-		_, _, err := testClient.ScaleHetznerNodeGroup(context.Background(), clusterID, groupName, 4, true)
+		_, _, err := testClient.ScaleHetznerNodeGroup(context.Background(), clusterID, groupName, 4, DrainOptions{}, true)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -485,7 +485,7 @@ func TestUpdateHetznerNodeGroupInstanceType(t *testing.T) {
 			jsonResponse(t, w, http.StatusOK, expectedResponse)
 		}
 		testClient := newTestClient(t, handler)
-		result, _, err := testClient.UpdateHetznerNodeGroupInstanceType(context.Background(), clusterID, groupName, "cx31", true)
+		result, _, err := testClient.UpdateHetznerNodeGroupInstanceType(context.Background(), clusterID, groupName, "cx31", DrainOptions{}, true)
 		if err != nil {
 			t.Fatalf("UpdateHetznerNodeGroupInstanceType: %v", err)
 		}
@@ -501,7 +501,7 @@ func TestUpdateHetznerNodeGroupInstanceType(t *testing.T) {
 			jsonResponse(t, w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid type"})
 		}
 		testClient := newTestClient(t, handler)
-		_, _, err := testClient.UpdateHetznerNodeGroupInstanceType(context.Background(), clusterID, groupName, "cx99", true)
+		_, _, err := testClient.UpdateHetznerNodeGroupInstanceType(context.Background(), clusterID, groupName, "cx99", DrainOptions{}, true)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -527,7 +527,7 @@ func TestDeleteHetznerNodeGroup(t *testing.T) {
 			jsonResponse(t, w, http.StatusOK, expectedResponse)
 		}
 		testClient := newTestClient(t, handler)
-		result, _, err := testClient.DeleteHetznerNodeGroup(context.Background(), clusterID, groupName, true)
+		result, _, err := testClient.DeleteHetznerNodeGroup(context.Background(), clusterID, groupName, DrainOptions{}, true)
 		if err != nil {
 			t.Fatalf("DeleteHetznerNodeGroup: %v", err)
 		}
@@ -543,7 +543,7 @@ func TestDeleteHetznerNodeGroup(t *testing.T) {
 			jsonResponse(t, w, http.StatusNotFound, map[string]string{"error": "group not found"})
 		}
 		testClient := newTestClient(t, handler)
-		_, _, err := testClient.DeleteHetznerNodeGroup(context.Background(), clusterID, groupName, true)
+		_, _, err := testClient.DeleteHetznerNodeGroup(context.Background(), clusterID, groupName, DrainOptions{}, true)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}

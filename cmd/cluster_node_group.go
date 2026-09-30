@@ -16,9 +16,9 @@ import (
 type (
 	nodeGroupListFunc           func(clusterID string) (*client.NodeGroupListResult, error)
 	nodeGroupAddFunc            func(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error)
-	nodeGroupScaleFunc          func(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error)
-	nodeGroupUpgradeFunc        func(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error)
-	nodeGroupDeleteFunc         func(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error)
+	nodeGroupScaleFunc          func(ctx context.Context, clusterID, groupName string, count int, drainOptions client.DrainOptions, wait bool) (*client.ScaleNodeGroupResult, bool, error)
+	nodeGroupUpgradeFunc        func(ctx context.Context, clusterID, groupName, instanceType string, drainOptions client.DrainOptions, wait bool) (*client.UpdateNodeGroupResult, bool, error)
+	nodeGroupDeleteFunc         func(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error)
 	nodeGroupAutoscalingGetFunc func(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error)
 	nodeGroupAutoscalingSetFunc func(ctx context.Context, clusterID, groupName string, req client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error)
 	nodeGroupLabelsFunc         func(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error)
@@ -437,7 +437,14 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 var clusterNodeGroupScaleCmd = &cobra.Command{
 	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
-	Args:  cobra.ExactArgs(3),
+	Long: `Scale a node group up or down to <count> nodes.
+
+A scale-down picks the nodes to remove. ` + guardedDrainHelp + `
+
+Examples:
+  ankra cluster node-group scale <cluster_id> workers 2
+  ankra cluster node-group scale <cluster_id> workers 2 --force-drain`,
+	Args: cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -459,7 +466,7 @@ var clusterNodeGroupScaleCmd = &cobra.Command{
 		}
 		defer cancelRequestContext()
 
-		result, submitted, scaleError := nodeGroupScaleForKind(kind)(requestContext, clusterID, groupName, count, wait)
+		result, submitted, scaleError := nodeGroupScaleForKind(kind)(requestContext, clusterID, groupName, count, drainOptionsFromFlags(cmd), wait)
 		if scaleError != nil {
 			return asyncWriteError("scaling node group", wait, scaleError)
 		}
@@ -485,7 +492,17 @@ var clusterNodeGroupScaleCmd = &cobra.Command{
 var clusterNodeGroupUpgradeCmd = &cobra.Command{
 	Use:   "upgrade <cluster_id|name> <group_name> <instance_type>",
 	Short: "Upgrade instance type for a node group (cannot be reversed)",
-	Args:  cobra.ExactArgs(3),
+	Long: `Change the instance type of every node in a node group. This cannot be reversed.
+
+The resize power-cycles each node, and each is drained first, honouring its
+pods' PodDisruptionBudgets. --force-drain bypasses those budgets for that
+drain, so a node is resized even if its pods' disruption budget refuses the
+eviction. It applies to this request only.
+
+Examples:
+  ankra cluster node-group upgrade <cluster_id> workers <instance_type>
+  ankra cluster node-group upgrade <cluster_id> workers <instance_type> --force-drain`,
+	Args: cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -504,7 +521,7 @@ var clusterNodeGroupUpgradeCmd = &cobra.Command{
 		}
 		defer cancelRequestContext()
 
-		result, submitted, upgradeError := nodeGroupUpgradeForKind(kind)(requestContext, clusterID, groupName, instanceType, wait)
+		result, submitted, upgradeError := nodeGroupUpgradeForKind(kind)(requestContext, clusterID, groupName, instanceType, drainOptionsFromFlags(cmd), wait)
 		if upgradeError != nil {
 			return asyncWriteError("upgrading node group", wait, upgradeError)
 		}
@@ -530,7 +547,14 @@ var clusterNodeGroupUpgradeCmd = &cobra.Command{
 var clusterNodeGroupDeleteCmd = &cobra.Command{
 	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
-	Args:  cobra.ExactArgs(2),
+	Long: `Delete a node group and every node in it.
+
+` + guardedDrainHelp + `
+
+Examples:
+  ankra cluster node-group delete <cluster_id> gpu-workers
+  ankra cluster node-group delete <cluster_id> gpu-workers --force-drain --yes`,
+	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -538,14 +562,19 @@ var clusterNodeGroupDeleteCmd = &cobra.Command{
 		}
 		groupName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
+		drainOptions := drainOptionsFromFlags(cmd)
 		kind, kindError := resolveNodeGroupClusterKind(clusterID)
 		if kindError != nil {
 			return kindError
 		}
 
+		consequence := "This deletes all its nodes!"
+		if drainOptions.ForceDrain {
+			consequence = "This deletes all its nodes, without honouring their PodDisruptionBudgets!"
+		}
 		if err := confirmPrompt(
 			cmd.InOrStdin(), cmd.OutOrStdout(),
-			fmt.Sprintf("Delete node group %q from cluster %s? This deletes all its nodes! [y/N]: ", groupName, clusterTarget(args[0], clusterID)),
+			fmt.Sprintf("Delete node group %q from cluster %s? %s [y/N]: ", groupName, clusterTarget(args[0], clusterID), consequence),
 			yes,
 		); err != nil {
 			return err
@@ -557,7 +586,7 @@ var clusterNodeGroupDeleteCmd = &cobra.Command{
 		}
 		defer cancelRequestContext()
 
-		result, submitted, deleteError := nodeGroupDeleteForKind(kind)(requestContext, clusterID, groupName, wait)
+		result, submitted, deleteError := nodeGroupDeleteForKind(kind)(requestContext, clusterID, groupName, drainOptions, wait)
 		if deleteError != nil {
 			return asyncWriteError("deleting node group", wait, deleteError)
 		}
@@ -841,6 +870,10 @@ func init() {
 	registerAsyncWriteFlags(clusterNodeGroupTaintsCmd)
 
 	clusterNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+
+	registerForceDrainFlag(clusterNodeGroupScaleCmd, forceDrainScaleUsage)
+	registerForceDrainFlag(clusterNodeGroupUpgradeCmd, forceDrainResizeUsage)
+	registerForceDrainFlag(clusterNodeGroupDeleteCmd, forceDrainDeleteUsage)
 
 	registerStructuredOutputFlags(
 		clusterNodeGroupListCmd,

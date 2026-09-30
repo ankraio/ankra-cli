@@ -232,6 +232,21 @@ ankra cluster node-group upgrade <cluster_id> <group>   # instance type change, 
 ankra cluster node-group delete <cluster_id> <group>
 ```
 
+Removing workers (`cluster scale` or `node-group scale` down, `node-group delete`) drains each
+node through its pods' PodDisruptionBudgets first. A node whose drain is refused (a budget allows
+no eviction, or the node is dead) is **kept in service, not removed**, and a notice on the cluster
+says why, so a command that "succeeded" can leave the group at its old size. Fix the cause (more
+replicas, a looser budget) and re-run. `--force-drain` on `cluster scale`, `node-group scale`,
+`node-group delete` and `node-group upgrade` bypasses PodDisruptionBudgets for that one request:
+the node is removed (for `upgrade`, power-cycled into the new type) even if its pods' disruption
+budget refuses the drain. Use it only for a node the user has decided to lose, and say so before
+running it; never add it just to make a stuck scale-down go through.
+
+```bash
+ankra cluster node-group scale <cluster_id> <group> 2 --force-drain
+ankra cluster node-group delete <cluster_id> <group> --force-drain --yes
+```
+
 Upgrades roll one node at a time, control plane first: each node is cordoned, drained respecting
 PodDisruptionBudgets, upgraded, and gated on being Ready at the target version. An etcd snapshot is
 taken before the control plane upgrade. A drain blocked by a PDB aborts the rollout. Downgrades and

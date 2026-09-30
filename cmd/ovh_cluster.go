@@ -201,7 +201,7 @@ var ovhScaleCmd = &cobra.Command{
 			return fmt.Errorf("invalid worker count: %w", err)
 		}
 
-		result, err := apiClient.ScaleOvhWorkers(clusterID, workerCount)
+		result, err := apiClient.ScaleOvhWorkers(clusterID, workerCount, client.DrainOptions{})
 		if err != nil {
 			return fmt.Errorf("scaling workers: %w", err)
 		}
@@ -788,7 +788,7 @@ var ovhNodeGroupScaleCmd = &cobra.Command{
 		}
 		defer cancelRequestContext()
 
-		result, submitted, err := apiClient.ScaleOvhNodeGroup(requestContext, clusterID, groupName, count, wait)
+		result, submitted, err := apiClient.ScaleOvhNodeGroup(requestContext, clusterID, groupName, count, client.DrainOptions{}, wait)
 		if err != nil {
 			return asyncWriteError("scaling node group", wait, err)
 		}
@@ -829,7 +829,7 @@ var ovhNodeGroupUpgradeCmd = &cobra.Command{
 		}
 		defer cancelRequestContext()
 
-		result, submitted, err := apiClient.UpdateOvhNodeGroupInstanceType(requestContext, clusterID, groupName, instanceType, wait)
+		result, submitted, err := apiClient.UpdateOvhNodeGroupInstanceType(requestContext, clusterID, groupName, instanceType, client.DrainOptions{}, wait)
 		if err != nil {
 			return asyncWriteError("upgrading node group", wait, err)
 		}
@@ -876,7 +876,7 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 		}
 		defer cancelRequestContext()
 
-		result, submitted, err := apiClient.DeleteOvhNodeGroup(requestContext, clusterID, groupName, wait)
+		result, submitted, err := apiClient.DeleteOvhNodeGroup(requestContext, clusterID, groupName, client.DrainOptions{}, wait)
 		if err != nil {
 			return asyncWriteError("deleting node group", wait, err)
 		}

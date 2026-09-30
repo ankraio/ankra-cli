@@ -30,7 +30,7 @@ type upcloudNodeGroupDeleteMock struct {
 	gotGroupName string
 }
 
-func (m *upcloudNodeGroupDeleteMock) DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+func (m *upcloudNodeGroupDeleteMock) DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
 	m.called = true
 	m.gotClusterID = clusterID
 	m.gotGroupName = groupName

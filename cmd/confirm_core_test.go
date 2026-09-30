@@ -294,7 +294,7 @@ func (m *nodeGroupDeleteMock) GetClusterByID(clusterID string) (client.ClusterLi
 	return client.ClusterListItem{}, errors.New("not found")
 }
 
-func (m *nodeGroupDeleteMock) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+func (m *nodeGroupDeleteMock) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
 	m.deleteCalls++
 	return &client.DeleteNodeGroupResult{GroupName: groupName, Deleted: 1}, false, nil
 }

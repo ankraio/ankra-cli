@@ -235,9 +235,9 @@ func (c *Client) AddOvhNodeGroup(ctx context.Context, clusterID string, req AddN
 	return c.doAddNodeGroup(ctx, url, payload, wait)
 }
 
-func (c *Client) ScaleOvhNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*ScaleNodeGroupResult, bool, error) {
+func (c *Client) ScaleOvhNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/scale", c.BaseURL, clusterID, groupName)
-	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count})
+	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
@@ -258,9 +258,9 @@ func (c *Client) UpdateOvhNodeGroupAutoscaling(ctx context.Context, clusterID, g
 	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, wait)
 }
 
-func (c *Client) UpdateOvhNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
+func (c *Client) UpdateOvhNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
-	payload, err := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
+	payload, err := json.Marshal(UpdateNodeGroupInstanceTypeRequest{InstanceType: instanceType, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
@@ -285,14 +285,14 @@ func (c *Client) UpdateOvhNodeGroupTaints(ctx context.Context, clusterID, groupN
 	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
-func (c *Client) DeleteOvhNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
+func (c *Client) DeleteOvhNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
-	return c.doDeleteNodeGroup(ctx, url, wait)
+	return c.doDeleteNodeGroup(ctx, url, drainOptions, wait)
 }
 
-func (c *Client) ScaleOvhWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
+func (c *Client) ScaleOvhWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/scale-workers", c.BaseURL, clusterID)
-	return c.doScaleWorkers(url, workerCount)
+	return c.doScaleWorkers(url, workerCount, drainOptions)
 }
 
 func (c *Client) StopOvhCluster(clusterID string, options StopClusterOptions) (*StopOvhClusterResponse, error) {

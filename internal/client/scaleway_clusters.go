@@ -173,8 +173,8 @@ func (c *Client) GetScalewayWorkerCount(clusterID string) (*WorkerCountResult, e
 	return c.getProviderWorkerCount(scalewayKind, clusterID)
 }
 
-func (c *Client) ScaleScalewayWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
-	return c.scaleProviderWorkers(scalewayKind, clusterID, workerCount)
+func (c *Client) ScaleScalewayWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
+	return c.scaleProviderWorkers(scalewayKind, clusterID, workerCount, drainOptions)
 }
 
 func (c *Client) GetScalewayK8sVersion(clusterID string) (*K8sVersionInfo, error) {
@@ -193,12 +193,12 @@ func (c *Client) AddScalewayNodeGroup(ctx context.Context, clusterID string, req
 	return c.addProviderNodeGroup(ctx, scalewayKind, clusterID, request, wait)
 }
 
-func (c *Client) ScaleScalewayNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*ScaleNodeGroupResult, bool, error) {
-	return c.scaleProviderNodeGroup(ctx, scalewayKind, clusterID, groupName, count, wait)
+func (c *Client) ScaleScalewayNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
+	return c.scaleProviderNodeGroup(ctx, scalewayKind, clusterID, groupName, count, drainOptions, wait)
 }
 
-func (c *Client) UpdateScalewayNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	return c.updateProviderNodeGroupInstanceType(ctx, scalewayKind, clusterID, groupName, instanceType, wait)
+func (c *Client) UpdateScalewayNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	return c.updateProviderNodeGroupInstanceType(ctx, scalewayKind, clusterID, groupName, instanceType, drainOptions, wait)
 }
 
 func (c *Client) UpdateScalewayNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
@@ -219,8 +219,8 @@ func (c *Client) UpdateScalewayNodeGroupTaints(ctx context.Context, clusterID, g
 	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
-func (c *Client) DeleteScalewayNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
-	return c.deleteProviderNodeGroup(ctx, scalewayKind, clusterID, groupName, wait)
+func (c *Client) DeleteScalewayNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
+	return c.deleteProviderNodeGroup(ctx, scalewayKind, clusterID, groupName, drainOptions, wait)
 }
 
 func (c *Client) GetScalewayNodeGroupAutoscaling(clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {

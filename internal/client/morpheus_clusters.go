@@ -98,8 +98,8 @@ func (c *Client) GetMorpheusWorkerCount(clusterID string) (*WorkerCountResult, e
 	return c.getProviderWorkerCount(morpheusKind, clusterID)
 }
 
-func (c *Client) ScaleMorpheusWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
-	return c.scaleProviderWorkers(morpheusKind, clusterID, workerCount)
+func (c *Client) ScaleMorpheusWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
+	return c.scaleProviderWorkers(morpheusKind, clusterID, workerCount, drainOptions)
 }
 
 func (c *Client) GetMorpheusK8sVersion(clusterID string) (*K8sVersionInfo, error) {
@@ -118,12 +118,12 @@ func (c *Client) AddMorpheusNodeGroup(ctx context.Context, clusterID string, req
 	return c.addProviderNodeGroup(ctx, morpheusKind, clusterID, request, wait)
 }
 
-func (c *Client) ScaleMorpheusNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*ScaleNodeGroupResult, bool, error) {
-	return c.scaleProviderNodeGroup(ctx, morpheusKind, clusterID, groupName, count, wait)
+func (c *Client) ScaleMorpheusNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
+	return c.scaleProviderNodeGroup(ctx, morpheusKind, clusterID, groupName, count, drainOptions, wait)
 }
 
-func (c *Client) UpdateMorpheusNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	return c.updateProviderNodeGroupInstanceType(ctx, morpheusKind, clusterID, groupName, instanceType, wait)
+func (c *Client) UpdateMorpheusNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	return c.updateProviderNodeGroupInstanceType(ctx, morpheusKind, clusterID, groupName, instanceType, drainOptions, wait)
 }
 
 func (c *Client) UpdateMorpheusNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
@@ -144,8 +144,8 @@ func (c *Client) UpdateMorpheusNodeGroupTaints(ctx context.Context, clusterID, g
 	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
-func (c *Client) DeleteMorpheusNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
-	return c.deleteProviderNodeGroup(ctx, morpheusKind, clusterID, groupName, wait)
+func (c *Client) DeleteMorpheusNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
+	return c.deleteProviderNodeGroup(ctx, morpheusKind, clusterID, groupName, drainOptions, wait)
 }
 
 func (c *Client) GetMorpheusNodeGroupAutoscaling(clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {

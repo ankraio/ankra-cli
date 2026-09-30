@@ -307,7 +307,7 @@ func TestScaleOvhWorkers_Success(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	result, err := testClient.ScaleOvhWorkers("cluster-123", 5)
+	result, err := testClient.ScaleOvhWorkers("cluster-123", 5, DrainOptions{})
 	if err != nil {
 		t.Fatalf("ScaleOvhWorkers: %v", err)
 	}
@@ -511,7 +511,7 @@ func TestScaleOvhNodeGroup_Success(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	result, _, err := testClient.ScaleOvhNodeGroup(context.Background(), clusterID, groupName, 5, true)
+	result, _, err := testClient.ScaleOvhNodeGroup(context.Background(), clusterID, groupName, 5, DrainOptions{}, true)
 	if err != nil {
 		t.Fatalf("ScaleOvhNodeGroup: %v", err)
 	}
@@ -527,7 +527,7 @@ func TestScaleOvhNodeGroup_Error(t *testing.T) {
 		jsonResponse(t, w, http.StatusUnprocessableEntity, map[string]string{"error": "cannot scale"})
 	}
 	testClient := newTestClient(t, handler)
-	_, _, err := testClient.ScaleOvhNodeGroup(context.Background(), clusterID, groupName, 5, true)
+	_, _, err := testClient.ScaleOvhNodeGroup(context.Background(), clusterID, groupName, 5, DrainOptions{}, true)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -548,7 +548,7 @@ func TestUpdateOvhNodeGroupInstanceType_Success(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	result, _, err := testClient.UpdateOvhNodeGroupInstanceType(context.Background(), clusterID, groupName, "b2-15", true)
+	result, _, err := testClient.UpdateOvhNodeGroupInstanceType(context.Background(), clusterID, groupName, "b2-15", DrainOptions{}, true)
 	if err != nil {
 		t.Fatalf("UpdateOvhNodeGroupInstanceType: %v", err)
 	}
@@ -564,7 +564,7 @@ func TestUpdateOvhNodeGroupInstanceType_Error(t *testing.T) {
 		jsonResponse(t, w, http.StatusBadRequest, map[string]string{"error": "invalid type"})
 	}
 	testClient := newTestClient(t, handler)
-	_, _, err := testClient.UpdateOvhNodeGroupInstanceType(context.Background(), clusterID, groupName, "unknown", true)
+	_, _, err := testClient.UpdateOvhNodeGroupInstanceType(context.Background(), clusterID, groupName, "unknown", DrainOptions{}, true)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -585,7 +585,7 @@ func TestDeleteOvhNodeGroup_Success(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	}
 	testClient := newTestClient(t, handler)
-	result, _, err := testClient.DeleteOvhNodeGroup(context.Background(), clusterID, groupName, true)
+	result, _, err := testClient.DeleteOvhNodeGroup(context.Background(), clusterID, groupName, DrainOptions{}, true)
 	if err != nil {
 		t.Fatalf("DeleteOvhNodeGroup: %v", err)
 	}
@@ -601,7 +601,7 @@ func TestDeleteOvhNodeGroup_Error(t *testing.T) {
 		jsonResponse(t, w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
 	testClient := newTestClient(t, handler)
-	_, _, err := testClient.DeleteOvhNodeGroup(context.Background(), clusterID, groupName, true)
+	_, _, err := testClient.DeleteOvhNodeGroup(context.Background(), clusterID, groupName, DrainOptions{}, true)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

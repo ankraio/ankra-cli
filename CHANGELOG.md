@@ -21,6 +21,21 @@
   The provider is behind the `ankra_cloud_provider` feature flag; until it is
   on for your organisation the commands answer not found.
 
+- **`--force-drain` removes a worker whose drain is refused.** The platform
+  now drains every node a scale-down or node-group delete removes through its
+  pods' PodDisruptionBudgets, and keeps a node whose drain is refused (a
+  budget allows no eviction, or the node is dead) instead of removing it; its
+  notice tells you to re-run with `force_drain=true`, which the CLI could not
+  send. `ankra cluster scale`, `cluster node-group scale`, `node-group delete`
+  and `node-group upgrade` now take `--force-drain` (off by default), which
+  bypasses PodDisruptionBudgets for that one request: the node is removed (or,
+  for `upgrade`, resized) even if its pods' disruption budget refuses the
+  drain, so use it only for a node you have decided to lose. A forced
+  `node-group delete` says so in its confirmation prompt. Without the flag the
+  requests are unchanged. The deprecated per-provider spellings
+  (`cluster hetzner node-group ...` and the like) do not take it; use the
+  generic commands.
+
 
 ## v0.20.0 — 2026-09-29
 
