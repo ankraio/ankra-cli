@@ -25,11 +25,11 @@ func resolveSSHKeysClusterKind(clusterID string) (string, error) {
 		return "", fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
 	}
 	switch cluster.Kind {
-	case "hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "aws", "proxmox", "morpheus":
+	case "hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "ankracloud", "aws", "proxmox", "morpheus":
 		return cluster.Kind, nil
 	default:
 		return "", fmt.Errorf(
-			"cluster %q (kind %q) does not support SSH key management; only Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS, Proxmox VE, and HPE Morpheus clusters can use this command",
+			"cluster %q (kind %q) does not support SSH key management; only Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE, and HPE Morpheus clusters can use this command",
 			clusterID, cluster.Kind)
 	}
 }
@@ -46,6 +46,8 @@ func sshKeysGetForKind(kind string) sshKeysGetFunc {
 		return apiClient.GetDigitaloceanClusterSSHKeys
 	case "scaleway":
 		return apiClient.GetScalewayClusterSSHKeys
+	case "ankracloud":
+		return apiClient.GetAnkraCloudClusterSSHKeys
 	case "aws":
 		return apiClient.GetAwsClusterSSHKeys
 	case "proxmox":
@@ -68,6 +70,8 @@ func sshKeysSetForKind(kind string) sshKeysSetFunc {
 		return apiClient.UpdateDigitaloceanClusterSSHKeys
 	case "scaleway":
 		return apiClient.UpdateScalewayClusterSSHKeys
+	case "ankracloud":
+		return apiClient.UpdateAnkraCloudClusterSSHKeys
 	case "aws":
 		return apiClient.UpdateAwsClusterSSHKeys
 	case "proxmox":
@@ -90,6 +94,8 @@ func sshKeysResyncForKind(kind string) sshKeysResyncFunc {
 		return apiClient.ResyncDigitaloceanClusterSSHKeys
 	case "scaleway":
 		return apiClient.ResyncScalewayClusterSSHKeys
+	case "ankracloud":
+		return apiClient.ResyncAnkraCloudClusterSSHKeys
 	case "aws":
 		return apiClient.ResyncAwsClusterSSHKeys
 	case "proxmox":
@@ -107,7 +113,7 @@ var clusterSSHKeysCmd = &cobra.Command{
 	Long: `Get, set, and re-sync the SSH key credentials authorised to access a cloud
 cluster's nodes.
 
-The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS, Proxmox VE, or
+The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE, or
 HPE Morpheus) is detected automatically from the cluster.`,
 }
 

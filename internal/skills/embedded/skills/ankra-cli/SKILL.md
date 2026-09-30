@@ -44,7 +44,7 @@ never rely on the selection — pass both explicitly.
 | Your own code, deployed | `ankra application ...` | `ankra-applications` |
 | Shipping code end to end, in-cluster CI | `ankra application ship`, `ankra pipeline ...`, `ankra org ci-settings`, `ankra cluster agent ci` | `ankra-ship` |
 | Reusable parameterised stacks | `ankra stack-profiles ...` | `ankra-stack-profiles` |
-| Cloud clusters Ankra provisions | `ankra cluster hetzner\|ovh\|upcloud\|digitalocean\|scaleway\|aws\|proxmox\|morpheus ...` | `ankra-cloud-clusters` |
+| Cloud clusters Ankra provisions | `ankra cluster hetzner\|ovh\|upcloud\|digitalocean\|scaleway\|ankracloud\|aws\|proxmox\|morpheus ...` | `ankra-cloud-clusters` |
 | Provider-managed Kubernetes | `ankra cluster managed ...` | `ankra-managed-kubernetes` |
 | Helm chart sources | `ankra helm registries\|credentials ...`, `ankra charts` | `ankra-helm-registries` |
 | Secrets in Git | `ankra cluster encrypt\|decrypt\|sops-config` | `ankra-sops-secrets` |

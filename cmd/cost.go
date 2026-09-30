@@ -255,6 +255,8 @@ func costProviderLabel(provider string) string {
 		return "UpCloud"
 	case "scaleway":
 		return "Scaleway"
+	case "ankracloud", "ankracloud_k8s":
+		return "Ankra Cloud"
 	case "digitalocean":
 		return "DigitalOcean"
 	case "":

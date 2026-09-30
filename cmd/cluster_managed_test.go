@@ -96,6 +96,8 @@ func TestParseManagedProviderFlag_AcceptsAllProviders(t *testing.T) {
 		{input: "eks", want: client.ManagedK8sProviderEks},
 		{input: "kapsule", want: client.ManagedK8sProviderKapsule},
 		{input: "KAPSULE", want: client.ManagedK8sProviderKapsule},
+		{input: "ankracloud_k8s", want: client.ManagedK8sProviderAnkraCloudK8s},
+		{input: "ankra-cloud-k8s", want: client.ManagedK8sProviderAnkraCloudK8s},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.input, func(t *testing.T) {
@@ -595,5 +597,89 @@ func TestManagedNodePoolAdd_AksSpot(t *testing.T) {
 		"--provider", "aks", "--name", "batch", "--size", "Standard_E4s_v5", "--spot-max-price", "0.05")
 	if err == nil || !strings.Contains(err.Error(), "requires --spot") {
 		t.Fatalf("expected --spot-max-price to require --spot, got %v", err)
+	}
+}
+
+func TestManagedCreate_AnkraCloudK8sSendsNetworkOptions(t *testing.T) {
+	mock := &managedClusterMock{}
+	resetConfirmFlag(t, managedCreateCmd)
+	output, runError := runWithInput(t, mock, "",
+		managedCreateArgs("--provider", "ankracloud_k8s", "--network-cidr", "10.50.0.0/24", "--public-ipv4=false")...)
+	if runError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", runError, output)
+	}
+	if mock.createProvider != client.ManagedK8sProviderAnkraCloudK8s {
+		t.Errorf("provider = %q, want ankracloud_k8s", mock.createProvider)
+	}
+	options := mock.createRequests[0].AnkraCloudK8s
+	if options == nil || options.NetworkCIDR == nil || *options.NetworkCIDR != "10.50.0.0/24" {
+		t.Fatalf("ankracloud_k8s options = %+v, want network_cidr 10.50.0.0/24", options)
+	}
+	if options.PublicIPv4 == nil || *options.PublicIPv4 {
+		t.Errorf("public_ipv4 = %v, want an explicit false", options.PublicIPv4)
+	}
+	if options.PrivateNetworkID != nil {
+		t.Errorf("private_network_id = %v, want nil", *options.PrivateNetworkID)
+	}
+}
+
+func TestManagedCreate_AnkraCloudK8sAdoptsPrivateNetwork(t *testing.T) {
+	mock := &managedClusterMock{}
+	resetConfirmFlag(t, managedCreateCmd)
+	output, runError := runWithInput(t, mock, "",
+		managedCreateArgs("--provider", "ankracloud_k8s", "--private-network-id", "network-1")...)
+	if runError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", runError, output)
+	}
+	options := mock.createRequests[0].AnkraCloudK8s
+	if options == nil || options.PrivateNetworkID == nil || *options.PrivateNetworkID != "network-1" {
+		t.Fatalf("ankracloud_k8s options = %+v, want private network network-1", options)
+	}
+	if options.PublicIPv4 != nil {
+		t.Errorf("public_ipv4 = %v, want it omitted so the server default applies", *options.PublicIPv4)
+	}
+}
+
+func TestManagedCreate_AnkraCloudK8sWithoutOptionsSendsNoBlock(t *testing.T) {
+	mock := &managedClusterMock{}
+	resetConfirmFlag(t, managedCreateCmd)
+	if _, runError := runWithInput(t, mock, "", managedCreateArgs("--provider", "ankracloud_k8s")...); runError != nil {
+		t.Fatalf("execute failed: %v", runError)
+	}
+	if mock.createRequests[0].AnkraCloudK8s != nil {
+		t.Errorf("ankracloud_k8s options = %+v, want nil", mock.createRequests[0].AnkraCloudK8s)
+	}
+}
+
+func TestManagedCreate_AnkraCloudK8sRefusesNetworkAndCIDRTogether(t *testing.T) {
+	mock := &managedClusterMock{}
+	resetConfirmFlag(t, managedCreateCmd)
+	_, runError := runWithInput(t, mock, "",
+		managedCreateArgs("--provider", "ankracloud_k8s", "--private-network-id", "network-1", "--network-cidr", "10.50.0.0/24")...)
+	if exitCodeFor(runError) != exitUsage {
+		t.Fatalf("error = %v, want a usage error", runError)
+	}
+	if len(mock.createRequests) != 0 {
+		t.Errorf("expected no API call, got %d", len(mock.createRequests))
+	}
+}
+
+func TestManagedCreate_AnkraCloudK8sFlagsRejectedForOtherProviders(t *testing.T) {
+	for _, flagArguments := range [][]string{{"--network-cidr", "10.50.0.0/24"}, {"--public-ipv4=false"}} {
+		t.Run(flagArguments[0], func(t *testing.T) {
+			mock := &managedClusterMock{}
+			resetConfirmFlag(t, managedCreateCmd)
+			_, runError := runWithInput(t, mock, "",
+				managedCreateArgs(append([]string{"--provider", "doks"}, flagArguments...)...)...)
+			if exitCodeFor(runError) != exitUsage {
+				t.Fatalf("error = %v, want a usage error", runError)
+			}
+			if !strings.Contains(runError.Error(), "ankracloud_k8s") {
+				t.Errorf("error should name ankracloud_k8s, got: %v", runError)
+			}
+			if len(mock.createRequests) != 0 {
+				t.Errorf("expected no API call, got %d", len(mock.createRequests))
+			}
+		})
 	}
 }

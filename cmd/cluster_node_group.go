@@ -34,11 +34,11 @@ func resolveNodeGroupClusterKind(clusterID string) (string, error) {
 		return "", fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
 	}
 	switch cluster.Kind {
-	case "hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "aws", "proxmox", "morpheus":
+	case "hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "ankracloud", "aws", "proxmox", "morpheus":
 		return cluster.Kind, nil
 	default:
 		return "", fmt.Errorf(
-			"cluster %q (kind %q) does not support node groups. Only Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS, Proxmox VE, and HPE Morpheus clusters can use this command",
+			"cluster %q (kind %q) does not support node groups. Only Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE, and HPE Morpheus clusters can use this command",
 			clusterID, cluster.Kind)
 	}
 }
@@ -55,6 +55,8 @@ func nodeGroupListForKind(kind string) nodeGroupListFunc {
 		return apiClient.ListDigitaloceanNodeGroups
 	case "scaleway":
 		return apiClient.ListScalewayNodeGroups
+	case "ankracloud":
+		return apiClient.ListAnkraCloudNodeGroups
 	case "aws":
 		return apiClient.ListAwsNodeGroups
 	case "proxmox":
@@ -77,6 +79,8 @@ func nodeGroupAddForKind(kind string) nodeGroupAddFunc {
 		return apiClient.AddDigitaloceanNodeGroup
 	case "scaleway":
 		return apiClient.AddScalewayNodeGroup
+	case "ankracloud":
+		return apiClient.AddAnkraCloudNodeGroup
 	case "aws":
 		return apiClient.AddAwsNodeGroup
 	case "proxmox":
@@ -99,6 +103,8 @@ func nodeGroupScaleForKind(kind string) nodeGroupScaleFunc {
 		return apiClient.ScaleDigitaloceanNodeGroup
 	case "scaleway":
 		return apiClient.ScaleScalewayNodeGroup
+	case "ankracloud":
+		return apiClient.ScaleAnkraCloudNodeGroup
 	case "aws":
 		return apiClient.ScaleAwsNodeGroup
 	case "proxmox":
@@ -121,6 +127,8 @@ func nodeGroupUpgradeForKind(kind string) nodeGroupUpgradeFunc {
 		return apiClient.UpdateDigitaloceanNodeGroupInstanceType
 	case "scaleway":
 		return apiClient.UpdateScalewayNodeGroupInstanceType
+	case "ankracloud":
+		return apiClient.UpdateAnkraCloudNodeGroupInstanceType
 	case "aws":
 		return apiClient.UpdateAwsNodeGroupInstanceType
 	case "proxmox":
@@ -143,6 +151,8 @@ func nodeGroupDeleteForKind(kind string) nodeGroupDeleteFunc {
 		return apiClient.DeleteDigitaloceanNodeGroup
 	case "scaleway":
 		return apiClient.DeleteScalewayNodeGroup
+	case "ankracloud":
+		return apiClient.DeleteAnkraCloudNodeGroup
 	case "aws":
 		return apiClient.DeleteAwsNodeGroup
 	case "proxmox":
@@ -165,6 +175,8 @@ func nodeGroupAutoscalingGetForKind(kind string) nodeGroupAutoscalingGetFunc {
 		return apiClient.GetDigitaloceanNodeGroupAutoscaling
 	case "scaleway":
 		return apiClient.GetScalewayNodeGroupAutoscaling
+	case "ankracloud":
+		return apiClient.GetAnkraCloudNodeGroupAutoscaling
 	case "aws":
 		return apiClient.GetAwsNodeGroupAutoscaling
 	case "proxmox":
@@ -187,6 +199,8 @@ func nodeGroupAutoscalingSetForKind(kind string) nodeGroupAutoscalingSetFunc {
 		return apiClient.UpdateDigitaloceanNodeGroupAutoscaling
 	case "scaleway":
 		return apiClient.UpdateScalewayNodeGroupAutoscaling
+	case "ankracloud":
+		return apiClient.UpdateAnkraCloudNodeGroupAutoscaling
 	case "aws":
 		return apiClient.UpdateAwsNodeGroupAutoscaling
 	case "proxmox":
@@ -209,6 +223,8 @@ func nodeGroupLabelsForKind(kind string) nodeGroupLabelsFunc {
 		return apiClient.UpdateDigitaloceanNodeGroupLabels
 	case "scaleway":
 		return apiClient.UpdateScalewayNodeGroupLabels
+	case "ankracloud":
+		return apiClient.UpdateAnkraCloudNodeGroupLabels
 	case "aws":
 		return apiClient.UpdateAwsNodeGroupLabels
 	case "proxmox":
@@ -231,6 +247,8 @@ func nodeGroupTaintsForKind(kind string) nodeGroupTaintsFunc {
 		return apiClient.UpdateDigitaloceanNodeGroupTaints
 	case "scaleway":
 		return apiClient.UpdateScalewayNodeGroupTaints
+	case "ankracloud":
+		return apiClient.UpdateAnkraCloudNodeGroupTaints
 	case "aws":
 		return apiClient.UpdateAwsNodeGroupTaints
 	case "proxmox":
@@ -246,7 +264,7 @@ var clusterNodeGroupCmd = &cobra.Command{
 	Short: "Manage node groups for a cloud cluster",
 	Long: `List, add, scale, upgrade, and delete node groups on a cloud cluster.
 
-The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS, Proxmox VE, or
+The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE, or
 HPE Morpheus) is detected automatically from the cluster.`,
 }
 

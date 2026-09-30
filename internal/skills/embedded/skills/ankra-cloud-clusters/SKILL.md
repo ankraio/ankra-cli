@@ -23,6 +23,13 @@ credential is the organisation's existing AWS credential - an assumable role con
 with `create-keys`; `ankra credentials aws list` shows the ids. A role onboarded with scope `cost`
 cannot build clusters. The SSH key credential comes from any provider's `ssh-key create`.
 
+`ankracloud` (alias `ankra-cloud`, behind the `ankra_cloud_provider` feature flag) builds kubeadm
+(default) or k3s (`--distribution k3s`) on Ankra Cloud servers. Servers are sized by **plan**, not
+instance type: `--bastion-plan`, `--control-plane-plan`, `--worker-plan`, `--etcd-plan`. Browse
+with `ankra cluster ankracloud zones|plans|templates|networks|pricing --credential-id <id>`
+(`plans --cluster <id>` for day-2 resizes). The credential is an Ankra Cloud API token:
+`ankra credentials ankracloud create --name <n> --token-stdin` (or `ANKRA_CLOUD_API_TOKEN`).
+
 For a control plane the *provider* runs — DOKS, UKS, GKE, OVH MKS, AKS, EKS, Kapsule — use
 `ankra cluster managed ...` and the `ankra-managed-kubernetes` skill instead. Rule of thumb: this
 skill when you want cluster-admin over the control plane, node-level control, or a provider with no

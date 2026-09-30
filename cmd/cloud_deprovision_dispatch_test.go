@@ -171,3 +171,8 @@ func TestProxmoxDeprovisionForwardsForce(t *testing.T) {
 		}
 	}
 }
+
+func (m *cloudDeprovisionDispatchMock) DeprovisionAnkraCloudCluster(clusterID string, _ client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
+	m.calledProvider = "ankracloud"
+	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
+}

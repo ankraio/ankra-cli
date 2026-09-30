@@ -36,6 +36,7 @@ var forceDrainProviders = []forceDrainProvider{
 	{"aws", (*Client).ScaleAwsWorkers, (*Client).ScaleAwsNodeGroup, (*Client).UpdateAwsNodeGroupInstanceType, (*Client).DeleteAwsNodeGroup},
 	{"proxmox", (*Client).ScaleProxmoxWorkers, (*Client).ScaleProxmoxNodeGroup, (*Client).UpdateProxmoxNodeGroupInstanceType, (*Client).DeleteProxmoxNodeGroup},
 	{"morpheus", (*Client).ScaleMorpheusWorkers, (*Client).ScaleMorpheusNodeGroup, (*Client).UpdateMorpheusNodeGroupInstanceType, (*Client).DeleteMorpheusNodeGroup},
+	{"ankracloud", (*Client).ScaleAnkraCloudWorkers, (*Client).ScaleAnkraCloudNodeGroup, (*Client).UpdateAnkraCloudNodeGroupInstanceType, (*Client).DeleteAnkraCloudNodeGroup},
 }
 
 // recordedRequest is what the fake platform saw of one request.

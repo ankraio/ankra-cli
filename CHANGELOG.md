@@ -4,6 +4,23 @@
 
 ### Added
 
+- **Ankra Cloud clusters, self-managed and managed.** `ankra cluster
+  ankracloud` (alias `ankra-cloud`) creates kubeadm (default) or k3s
+  (`--distribution k3s`) clusters on Ankra Cloud servers, with `preflight`,
+  `deprovision`, `stop`, `start`, `workers`, `k8s-version`, `nodes`,
+  `bastion` and `control-plane`, and the catalogs the create flags need:
+  `zones`, `plans`, `templates`, `networks` and `pricing`. Servers are sized
+  by plan (`--bastion-plan`, `--control-plane-plan`, `--worker-plan`), and the
+  shared verbs (`cluster scale`, `upgrade`, `node-group`, `ssh-keys`,
+  `deprovision`) now recognise Ankra Cloud clusters. Ankra Cloud Kubernetes,
+  where the Ankra team runs the control plane, is `ankra cluster managed ...
+  --provider ankracloud_k8s`, with optional `--private-network-id`,
+  `--network-cidr` and `--public-ipv4=false`. Both take one credential from
+  `ankra credentials ankracloud create`, which reads the API token from
+  `--token-stdin`, `ANKRA_CLOUD_API_TOKEN` or a masked prompt, never a flag.
+  The provider is behind the `ankra_cloud_provider` feature flag; until it is
+  on for your organisation the commands answer not found.
+
 - **`--force-drain` removes a worker whose drain is refused.** The platform
   now drains every node a scale-down or node-group delete removes through its
   pods' PodDisruptionBudgets, and keeps a node whose drain is refused (a
@@ -18,6 +35,29 @@
   requests are unchanged. The deprecated per-provider spellings
   (`cluster hetzner node-group ...` and the like) do not take it; use the
   generic commands.
+
+
+## v0.20.0 — 2026-09-29
+
+The headline is `ankra cluster exec <pod> -n <namespace> -- <command>
+[args...]`: one command run in a pod through the platform, passed to the
+container exactly as given (no shell re-parse), with its stdout and stderr
+streamed and its own exit code returned so scripts and CI can branch on it.
+`--stdin` forwards input and closes it at end-of-file, `-o json` returns one
+`{exit_code, stdout, stderr}` document, and every run is gated on
+`kubernetes.exec` and recorded in the audit log like a terminal session. It
+needs a cluster agent at 2.1.1166 or newer; an older one is refused and
+nothing runs. Beside it, `cluster terminal --shell` now refuses a command line
+with a usage error instead of failing inside the container runtime, `pipeline
+get` names who cancelled a run, why and when, `cost savings` says whether each
+saving is measured, billed or estimated and counts only the first two in its
+total, `pipeline rerun --failed-only` explains what it re-runs, and the CLI
+reference on docs.ankra.ai renders examples as code. Nothing changed since
+v0.20.0-rc0; its entries below are the detail.
+
+## v0.20.0-rc0 — 2026-09-29
+
+### Added
 
 - **`ankra cluster exec` runs one command in a pod and exits with its exit
   code.** `ankra cluster exec <pod> -n <ns> [-c <container>] -- <command>
@@ -34,6 +74,21 @@
   cannot carry arguments. Needs a cluster agent recent enough to run one-off
   commands; an older one is refused with the version it needs and nothing is
   run.
+
+- **`ankra pipeline get` names who cancelled a run, why and when.** A
+  cancelled run used to read `⊘ cancelled` with no actor. The detail now
+  prints a `Cancelled` line under Status with the person, the reason (a
+  manual cancel, a newer run superseding it, or its pull request merging or
+  closing) and the time, and `-o json` carries `cancelled_by`,
+  `cancel_reason` and `cancelled_at`. A superseded run keeps its own
+  `Superseded` line instead.
+
+- **`ankra cost savings` says what each saving rests on.** On a platform that
+  reports it, the table gains a Basis column (measured, billed or estimate),
+  the headline total counts only measured and billed savings and states what
+  the estimates would add separately, and clusters whose agent stopped
+  checking in are listed as offered nothing rather than silently left out.
+  Against an older platform the output is unchanged.
 
 - **The lifecycle systemtest can prove node-group autoscaling end to end.**
   `ANKRA_SYSTEMTEST_AUTOSCALING=1` (or `autoscaling: 1` on a manual dispatch

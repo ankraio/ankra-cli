@@ -72,6 +72,16 @@ func scalewayNodesOps() clusterNodesOps {
 	}
 }
 
+func ankraCloudNodesOps() clusterNodesOps {
+	return clusterNodesOps{
+		provider:     "ankracloud",
+		list:         apiClient.ListAnkraCloudClusterNodes,
+		get:          apiClient.GetAnkraCloudClusterNode,
+		restart:      apiClient.RestartAnkraCloudClusterNode,
+		cloudInitLog: apiClient.AnkraCloudNodeCloudInitLog,
+	}
+}
+
 func awsNodesOps() clusterNodesOps {
 	return clusterNodesOps{
 		provider:     "aws",
@@ -405,6 +415,7 @@ func init() {
 	digitaloceanCmd.AddCommand(newNodesCmd(digitaloceanNodesOps, "DigitalOcean", true, true))
 	scalewayCmd.AddCommand(newNodesCmd(scalewayNodesOps, "Scaleway", true, true))
 	awsCmd.AddCommand(newNodesCmd(awsNodesOps, "AWS", true, true))
+	ankraCloudCmd.AddCommand(newNodesCmd(ankraCloudNodesOps, "Ankra Cloud", true, true))
 	proxmoxCmd.AddCommand(newNodesCmd(proxmoxNodesOps, "Proxmox VE", true, false))
 	morpheusCmd.AddCommand(newNodesCmd(morpheusNodesOps, "HPE Morpheus", false, false))
 }
