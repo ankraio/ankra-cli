@@ -109,6 +109,20 @@
   is transferred; the conversation id is still accepted so scripts keep
   running.
 
+- **`ankra application ship` follows the build that actually builds the
+  application.** Ship waited for a GitHub Actions workflow run on the tracked
+  branch whatever built the application, so for an application on Ankra
+  Pipelines - the default for new applications - it printed "Waiting for a
+  workflow run" until `--timeout` ran out, or picked up an unrelated
+  workflow. It now reads the application's build source: on Ankra Pipelines
+  it follows the pipeline run for the tracked branch's head commit and moves
+  on once the run's publish steps succeed (and starts a run itself when none
+  has appeared after a minute, which is the case when nothing was pushed
+  since the application was registered); an application whose own workflow
+  publishes the image no longer waits for the setup pull request to merge;
+  a setup pull request closed without merging, or an application nothing
+  builds, now stops ship with what to do instead of a wait that cannot end.
+
 
 ## v0.20.0 — 2026-09-29
 
