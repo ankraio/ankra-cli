@@ -52,11 +52,11 @@ type CreateHetznerClusterRequest struct {
 	Location               string                   `json:"location"`
 	NetworkIPRange         string                   `json:"network_ip_range"`
 	SubnetRange            string                   `json:"subnet_range"`
-	BastionServerType      string                   `json:"bastion_server_type"`
+	BastionServerType      string                   `json:"bastion_server_type,omitempty"`
 	ControlPlaneCount      int                      `json:"control_plane_count"`
-	ControlPlaneServerType string                   `json:"control_plane_server_type"`
+	ControlPlaneServerType string                   `json:"control_plane_server_type,omitempty"`
 	WorkerCount            int                      `json:"worker_count"`
-	WorkerServerType       string                   `json:"worker_server_type"`
+	WorkerServerType       string                   `json:"worker_server_type,omitempty"`
 	Distribution           string                   `json:"distribution"`
 	KubernetesVersion      *string                  `json:"kubernetes_version,omitempty"`
 	EtcdTopology           string                   `json:"etcd_topology,omitempty"`

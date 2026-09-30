@@ -19,11 +19,11 @@ type CreateProxmoxClusterRequest struct {
 	Bridge                   string   `json:"bridge"`
 	Storage                  string   `json:"storage,omitempty"`
 	Template                 string   `json:"template,omitempty"`
-	BastionInstanceType      string   `json:"bastion_instance_type"`
+	BastionInstanceType      string   `json:"bastion_instance_type,omitempty"`
 	ControlPlaneCount        int      `json:"control_plane_count"`
-	ControlPlaneInstanceType string   `json:"control_plane_instance_type"`
+	ControlPlaneInstanceType string   `json:"control_plane_instance_type,omitempty"`
 	WorkerCount              int      `json:"worker_count"`
-	WorkerInstanceType       string   `json:"worker_instance_type"`
+	WorkerInstanceType       string   `json:"worker_instance_type,omitempty"`
 	Distribution             string   `json:"distribution"`
 	KubernetesVersion        *string  `json:"kubernetes_version,omitempty"`
 	EtcdTopology             string   `json:"etcd_topology,omitempty"`

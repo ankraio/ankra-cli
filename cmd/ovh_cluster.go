@@ -949,6 +949,15 @@ func parseTaintsFlag(raw string) ([]client.NodeTaint, error) {
 	return taints, nil
 }
 
+// ovhDefaultNodeGroupFlavor is the flavor `cluster ovh node-group add` uses
+// when --instance-type is not given. The node-group API has no default of its
+// own (instance_type is required there), so this follows the worker flavor the
+// create API defaults to - cluster go/internal/providerapi/lifecycle.go,
+// decodeCreateOvhClusterRequest, worker_flavor_id "b3-16" - so a group added
+// without a flavor matches the workers a default create gets (ankra-u70wp).
+// TestCreateDefaultsFollowTheAPI pins it.
+const ovhDefaultNodeGroupFlavor = "b3-16"
+
 func init() {
 	ovhCreateCmd.Flags().String("name", "", "Cluster name (required)")
 	ovhCreateCmd.Flags().String("credential-id", "", "OVH API credential ID (required)")
@@ -959,16 +968,16 @@ func init() {
 	ovhCreateCmd.Flags().String("subnet-cidr", "10.0.1.0/24", "Subnet CIDR")
 	ovhCreateCmd.Flags().String("dhcp-start", "10.0.1.100", "DHCP range start")
 	ovhCreateCmd.Flags().String("dhcp-end", "10.0.1.200", "DHCP range end")
-	ovhCreateCmd.Flags().String("gateway-flavor-id", "b2-7", "Gateway instance flavor")
+	ovhCreateCmd.Flags().String("gateway-flavor-id", "", "Gateway instance flavor (server default: c3-4)")
 	ovhCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
-	ovhCreateCmd.Flags().String("control-plane-flavor-id", "b2-15", "Control plane instance flavor")
+	ovhCreateCmd.Flags().String("control-plane-flavor-id", "", "Control plane instance flavor (server default: b3-16)")
 	ovhCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
-	ovhCreateCmd.Flags().String("worker-flavor-id", "b2-15", "Worker instance flavor")
+	ovhCreateCmd.Flags().String("worker-flavor-id", "", "Worker instance flavor (server default: b3-16)")
 	ovhCreateCmd.Flags().String("distribution", "kubeadm", "Kubernetes distribution: kubeadm (default, vanilla upstream Kubernetes with Cilium) or k3s")
 	ovhCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster kubeadm-versions` or `ankra cluster k3s-versions`)")
 	ovhCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control planes) or external (dedicated VMs)")
 	ovhCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
-	ovhCreateCmd.Flags().String("etcd-flavor-id", "b2-15", "Instance flavor for dedicated etcd nodes when --etcd-topology=external")
+	ovhCreateCmd.Flags().String("etcd-flavor-id", "", "Instance flavor for dedicated etcd nodes when --etcd-topology=external (server default: b3-16)")
 	ovhCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the OpenStack CCM and Cinder CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
 	ovhCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
 	registerIncludeDNSFlag(ovhCreateCmd)
@@ -990,7 +999,7 @@ func init() {
 	ovhSSHKeysCmd.AddCommand(ovhSSHKeysSetCmd)
 
 	ovhNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
-	ovhNodeGroupAddCmd.Flags().String("instance-type", "b2-15", "Instance flavor for nodes")
+	ovhNodeGroupAddCmd.Flags().String("instance-type", ovhDefaultNodeGroupFlavor, "Instance flavor for nodes")
 	ovhNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
 	ovhNodeGroupAddCmd.Flags().String("labels", "", "Comma-separated key=value labels to apply to the node group")
 	ovhNodeGroupAddCmd.Flags().String("taints", "", "Comma-separated key=value:Effect taints to apply to the node group")
