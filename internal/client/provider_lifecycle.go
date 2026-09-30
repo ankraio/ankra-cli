@@ -88,7 +88,9 @@ func (options StopClusterOptions) query() string {
 // DrainOptions says how a worker-removing write drains the nodes it takes
 // down: a worker scale-down, a node-group scale-down, a node-group delete,
 // and a node-group instance-type change (which drains each node before it
-// power-cycles it).
+// power-cycles it). A control-plane instance-type change carries it too: its
+// rolling resize of a running cluster drains each controller before resizing
+// it, while a stopped cluster's offline resize drains nothing and ignores it.
 //
 // By default the platform drains each node through the eviction API,
 // honouring its pods' PodDisruptionBudgets, and a node whose drain is

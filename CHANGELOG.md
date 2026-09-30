@@ -50,6 +50,18 @@
   Interactive chat has no structured output, and without `-o` the one-shot
   answer prints as before.
 
+- **`--force-drain` on the control plane's rolling resize.** `ankra cluster
+  <provider> control-plane set-instance-type` now takes `--force-drain` (off
+  by default), on every provider that has the command. On a running cluster
+  the resize rolls one controller at a time and drains each first, honouring
+  its pods' PodDisruptionBudgets; `--force-drain` bypasses them for that
+  drain, so pods whose budget refuses eviction are evicted anyway. It applies
+  to that one request and only matters for the live rolling resize: a stopped
+  cluster's offline resize drains nothing and ignores it, and it changes
+  nothing for a running cluster with fewer than three controllers (which the
+  rolling resize refuses before draining) or one already on that type.
+  Without the flag the request is unchanged.
+
 ### Changed
 
 - **Cluster creates take the platform's machine defaults.** `ankra cluster
