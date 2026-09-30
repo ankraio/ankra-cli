@@ -272,6 +272,10 @@ var clientRegistry = []Client{
 		ID:          "openclaw",
 		Aliases:     []string{"claw"},
 		DisplayName: "OpenClaw",
+		// OpenClaw discovers a skill only as <dir>/SKILL.md under a skills
+		// root; ~/.openclaw/skills is its managed root. `ankra openclaw
+		// skill` writes its per-cluster skill into the same root with the
+		// same layout (ankra-<cluster>/SKILL.md).
 		Personal: Layout{
 			Skills:       ".openclaw/skills",
 			Instructions: ".openclaw/AGENTS.md",

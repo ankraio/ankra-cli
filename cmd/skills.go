@@ -573,7 +573,44 @@ func skillsDirectoryHasAnkraSkills(target skills.Target) bool {
 		}
 		return false
 	}
-	return len(installedSkillsIn(target)) > 0
+	names, err := skills.InstalledNames(target)
+	if err != nil {
+		return false
+	}
+	return len(bundledSkillsAmong(names)) > 0
+}
+
+// bundledAnkraSkillNames is the set of skill names this binary carries. A
+// client's skills directory also holds skills Ankra did not install there,
+// such as the per-cluster ankra-<cluster>/SKILL.md `ankra openclaw skill`
+// writes into ~/.openclaw/skills, so "holds a SKILL.md" is not "carries an
+// Ankra install".
+func bundledAnkraSkillNames() map[string]bool {
+	set := map[string]bool{}
+	fsys, err := skills.EmbeddedFS()
+	if err != nil {
+		return set
+	}
+	names, err := skills.Names(fsys)
+	if err != nil {
+		return set
+	}
+	for _, name := range names {
+		set[name] = true
+	}
+	return set
+}
+
+// bundledSkillsAmong keeps the names that are bundled Ankra skills, in order.
+func bundledSkillsAmong(names []string) []string {
+	bundled := bundledAnkraSkillNames()
+	kept := make([]string, 0, len(names))
+	for _, name := range names {
+		if bundled[name] {
+			kept = append(kept, name)
+		}
+	}
+	return kept
 }
 
 // skillsInstalledClients returns the assistants that carry an Ankra skills

@@ -13,31 +13,25 @@ import (
 )
 
 // openclawCmd is the parent for OpenClaw integration helpers. OpenClaw
-// is an external CLI/IDE assistant that can ingest "skills" (markdown
-// files) to learn how to operate against an Ankra-managed cluster.
-// The CLI plays two roles:
-//
-//  1. Generate a SKILL.md file for the currently-selected cluster,
-//     containing the agent kind/version, registered tools, and a list
-//     of org/personal AI Agents the user owns. OpenClaw can drop this
-//     into its `~/.openclaw/skills/` directory.
-//  2. (Future) Open a deep-link in the portal so OpenClaw can hand off
-//     a session to Ankra's AI Agents UI for approvals.
+// is an external assistant that loads "skills": a directory holding a
+// SKILL.md, discovered under ~/.openclaw/skills (among other roots). The CLI
+// generates one such skill for the currently-selected cluster.
 var openclawCmd = &cobra.Command{
 	Use:   "openclaw",
 	Short: "Integrate Ankra with the OpenClaw assistant",
-	Long: `Generate SKILL.md files describing your Ankra environment so
-OpenClaw can run informed local automations, and hand off complex
-workflows to the Ankra AI Agents UI.`,
+	Long: `Generate an OpenClaw skill (a SKILL.md) describing the selected
+Ankra cluster so OpenClaw can run informed local automations.`,
 }
 
 var openclawSkillCmd = &cobra.Command{
 	Use:   "skill",
-	Short: "Generate a SKILL.md for the selected cluster",
-	Long: `Generate a SKILL.md file describing the selected cluster's
-agent, addons, and AI Agents. The default output path is
-$HOME/.openclaw/skills/ankra-<cluster>.md but can be overridden via
---output.`,
+	Short: "Generate an OpenClaw skill for the selected cluster",
+	Long: `Generate a SKILL.md describing the selected cluster's agent,
+addons, and AI Agents.
+
+OpenClaw only loads a skill from a SKILL.md inside its own directory, so the
+default output is $HOME/.openclaw/skills/ankra-<cluster>/SKILL.md (the
+directory is created). --output writes to any other path instead.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
@@ -45,8 +39,14 @@ $HOME/.openclaw/skills/ankra-<cluster>.md but can be overridden via
 		}
 		out, _ := cmd.Flags().GetString("output")
 		if out == "" {
-			home, _ := os.UserHomeDir()
-			out = filepath.Join(home, ".openclaw", "skills", fmt.Sprintf("ankra-%s.md", sanitiseSkillName(cluster.Name)))
+			home, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				return fmt.Errorf("determine the home directory (pass --output instead): %w", homeErr)
+			}
+			out, err = defaultOpenclawSkillPath(home, cluster.Name)
+			if err != nil {
+				return err
+			}
 		}
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 			return fmt.Errorf("creating output directory: %w", err)
@@ -54,7 +54,7 @@ $HOME/.openclaw/skills/ankra-<cluster>.md but can be overridden via
 		// The cluster name is server-authored and lands in a file an AI
 		// assistant loads as instructions, so invisible runes are removed and
 		// the value is flattened to one line: a newline would let it forge
-		// frontmatter fields around itself. sanitiseSkillName above only ever
+		// frontmatter fields around itself. sanitiseSkillName only ever
 		// covered the filename (ankra-4r75g.9).
 		clusterName, nameHidden := hiddenunicode.Line(cluster.Name)
 		body := buildSkillMarkdown(clusterName, cluster.ID, baseURL)
@@ -65,26 +65,54 @@ $HOME/.openclaw/skills/ankra-<cluster>.md but can be overridden via
 			_, _ = fmt.Fprintf(os.Stderr, "%s\n", hiddenunicode.Notice(nameHidden))
 		}
 		fmt.Printf("Wrote OpenClaw skill for cluster '%s' to %s\n", clusterName, out)
-		fmt.Println("Reload OpenClaw or restart your editor to pick it up.")
+		fmt.Println("Start a new OpenClaw session (or restart the gateway) to pick it up.")
 		return nil
 	},
 }
 
+// openclawHandoffCmd is deprecated: it used to print
+// /organisation/ai-agents?openclaw=<id>, a route that does not exist, with a
+// parameter nothing in the portal reads, and the generated skill promised the
+// link opened the conversation pre-loaded (ankra-0iixk). No conversation can
+// be handed over, so it now prints the AI Agents page and says so.
 var openclawHandoffCmd = &cobra.Command{
-	Use:   "handoff <conversation-id>",
-	Short: "Hand off an OpenClaw conversation to the Ankra portal",
-	Args:  cobra.ExactArgs(1),
+	Use:   "handoff [conversation-id]",
+	Short: "Print the Ankra AI Agents page URL (deprecated)",
+	Long: `Print the URL of the Ankra AI Agents page.
+
+No OpenClaw conversation is transferred: the portal has no way to import one,
+and the conversation-id argument is accepted only so existing scripts keep
+running. This command will be removed in v0.22.0.`,
+	Deprecated: "it only prints the AI Agents page URL (no conversation is transferred) and will be removed in v0.22.0",
+	Args:       cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		convID := args[0]
-		cluster, _ := resolveActiveCluster(cmd)
-		clusterPart := ""
-		if cluster.ID != "" {
-			clusterPart = fmt.Sprintf("&clusterId=%s", cluster.ID)
-		}
-		url := fmt.Sprintf("%s/organisation/ai-agents?openclaw=%s%s", strings.TrimRight(baseURL, "/"), convID, clusterPart)
-		fmt.Printf("Open this URL in your browser to continue in the Ankra AI Agents UI:\n  %s\n", url)
+		url := strings.TrimRight(baseURL, "/") + "/organisation/ai/agents"
+		fmt.Printf("Ankra AI Agents: %s\n", url)
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "No conversation is transferred; start or continue the work in the Ankra UI.")
 		return nil
 	},
+}
+
+// defaultOpenclawSkillPath is where `ankra openclaw skill` writes when no
+// --output is given: <home>/.openclaw/skills/ankra-<cluster>/SKILL.md.
+// OpenClaw discovers skills only as SKILL.md files inside a directory, so a
+// flat ankra-<cluster>.md there was never loaded (ankra-0iixk).
+//
+// The directory shares ~/.openclaw/skills with `ankra skills install
+// --client openclaw`, so a cluster whose skill name equals a bundled Ankra
+// skill (a cluster named "cli" or "terraform") is refused rather than
+// overwriting that skill.
+func defaultOpenclawSkillPath(home, clusterName string) (string, error) {
+	directory := "ankra-" + sanitiseSkillName(clusterName)
+	if sanitiseSkillName(clusterName) == "" {
+		return "", withExitCode(exitUsage, fmt.Errorf("cluster name %q has no characters usable in a skill directory name; pass --output", clusterName))
+	}
+	if bundledAnkraSkillNames()[directory] {
+		return "", withExitCode(exitUsage, fmt.Errorf(
+			"the default skill directory %s would overwrite the bundled Ankra skill of the same name; pass --output",
+			filepath.Join(home, ".openclaw", "skills", directory)))
+	}
+	return filepath.Join(home, ".openclaw", "skills", directory, "SKILL.md"), nil
 }
 
 func sanitiseSkillName(name string) string {
@@ -132,20 +160,15 @@ below with full audit, approval flow, and sandboxed execution.
 - For scheduled / recurring work, register an Ankra AI Agent rather
   than wiring a local cron.
 
-## Hand-off
-
-To hand off a conversation to the Ankra UI:
-
-    ankra openclaw handoff <conversation-id>
-
-This opens the AI Agents tab with the conversation pre-loaded.
+To look at runs or approve proposed actions in the browser, open the
+Ankra AI Agents page: %s/organisation/ai/agents
 
 ## Useful endpoints (token auth)
 
 - `+"`GET  %s/api/v1/org/ai-agent-runs`"+` -- list runs
 - `+"`GET  %s/api/v1/org/ai-agent-runs/{run_id}/transcript`"+` -- read a run
 - `+"`POST %s/api/v1/org/ai-agent-runs/{run_id}/cancel`"+` -- cancel a run
-- `+"`GET  %s/api/v1/org/runs/{run_id}/stream`"+` -- SSE event stream
+- `+"`GET  %s/api/v1/org/runs/{run_id}/stream`"+` -- SSE event stream of a data run (backup, restore, clone)
 
 ## Cluster metadata
 
@@ -161,6 +184,7 @@ This opens the AI Agents tab with the conversation pre-loaded.
 		base,
 		base,
 		base,
+		base,
 		clusterID,
 		clusterName,
 		base,
@@ -169,9 +193,11 @@ This opens the AI Agents tab with the conversation pre-loaded.
 }
 
 func init() {
-	openclawSkillCmd.Flags().StringP("output", "o", "", "Path to write SKILL.md to (default ~/.openclaw/skills/ankra-<cluster>.md)")
+	openclawSkillCmd.Flags().StringP("output", "o", "", "Path to write SKILL.md to (default ~/.openclaw/skills/ankra-<cluster>/SKILL.md)")
 	openclawSkillCmd.Flags().String("cluster", "", "Target cluster name or ID (defaults to the selected cluster)")
-	openclawHandoffCmd.Flags().String("cluster", "", "Target cluster name or ID (defaults to the selected cluster)")
+	// Kept, unused, so scripts passing --cluster to the deprecated handoff
+	// do not start failing before its removal.
+	openclawHandoffCmd.Flags().String("cluster", "", "Ignored; kept for compatibility")
 	openclawCmd.AddCommand(openclawSkillCmd)
 	openclawCmd.AddCommand(openclawHandoffCmd)
 	rootCmd.AddCommand(openclawCmd)
