@@ -107,6 +107,112 @@ func TestClusterGitopsStatusShowsPendingCommitAndError(t *testing.T) {
 	}
 }
 
+func intPtrCmd(value int) *int {
+	return &value
+}
+
+// A sync that found the same resource changed in Git and on the cluster
+// applies nothing until the conflicts are resolved; PLA-887's customer read
+// "synced" at their unapplied commit and escalated (ankra-b3utc).
+func TestClusterGitopsStatusShowsOpenConflictPause(t *testing.T) {
+	status := syncedGitopsStatus()
+	status.SyncStatus = strPtrCmd("conflict")
+	status.OpenConflictCount = intPtrCmd(3)
+	status.OpenConflictKeys = []string{"stack:web/addon:redis", "stack:web/manifest:ingress"}
+	mock := &gitopsStatusMock{status: status}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+
+	for _, fragment := range []string{
+		"Sync Status: conflict",
+		"Open Conflicts: 3",
+		"    - stack:web/addon:redis",
+		"    - stack:web/manifest:ingress",
+		"    ... and 1 more",
+		"Warning: GitOps sync is paused on these merge conflicts",
+	} {
+		if !strings.Contains(stdoutOutput, fragment) {
+			t.Errorf("expected output to contain %q, got: %s", fragment, stdoutOutput)
+		}
+	}
+	if strings.Contains(stdoutOutput, "Note:") {
+		t.Errorf("expected the open-conflict warning, not the decided note, got: %s", stdoutOutput)
+	}
+}
+
+func TestClusterGitopsStatusNotesADecidedConflict(t *testing.T) {
+	status := syncedGitopsStatus()
+	status.SyncStatus = strPtrCmd("conflict")
+	status.OpenConflictCount = intPtrCmd(0)
+	status.OpenConflictKeys = []string{}
+	mock := &gitopsStatusMock{status: status}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+
+	if !strings.Contains(stdoutOutput, "Note: the last sync stopped on a merge conflict and applied nothing") {
+		t.Errorf("expected the decided-conflict note, got: %s", stdoutOutput)
+	}
+	if strings.Contains(stdoutOutput, "Open Conflicts") || strings.Contains(stdoutOutput, "Warning:") {
+		t.Errorf("expected no open-conflict lines, got: %s", stdoutOutput)
+	}
+}
+
+func TestClusterGitopsStatusWithoutConflictReportPrintsNoConflictLines(t *testing.T) {
+	// An unreported count is unknown, not zero: neither the open-conflict
+	// lines nor the "no conflict awaits a decision" note may print, even
+	// beside a conflict status.
+	for _, syncStatus := range []string{"synced", "conflict"} {
+		status := syncedGitopsStatus()
+		status.SyncStatus = strPtrCmd(syncStatus)
+		mock := &gitopsStatusMock{status: status}
+		setMockClient(t, mock)
+
+		stdoutOutput := captureStdout(t, func() {
+			_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+		})
+
+		for _, absent := range []string{"Open Conflicts", "Note:", "Warning:"} {
+			if strings.Contains(stdoutOutput, absent) {
+				t.Errorf("sync_status %s: expected output without %q, got: %s", syncStatus, absent, stdoutOutput)
+			}
+		}
+	}
+}
+
+func TestClusterGitopsStatusJSONOutputCarriesOpenConflicts(t *testing.T) {
+	status := syncedGitopsStatus()
+	status.SyncStatus = strPtrCmd("conflict")
+	status.OpenConflictCount = intPtrCmd(1)
+	status.OpenConflictKeys = []string{"stack:web/manifest:ingress"}
+	mock := &gitopsStatusMock{status: status}
+	setMockClient(t, mock)
+	// -o persists on the shared command between executions; reset it so the
+	// human-output tests after this one do not render JSON.
+	t.Cleanup(func() { _ = clusterGitopsStatusCmd.Flags().Set("output", "") })
+
+	output, err := executeCommand("cluster", "gitops", "status", "my-cluster", "-o", "json")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	var decoded map[string]interface{}
+	if unmarshalErr := json.Unmarshal([]byte(output), &decoded); unmarshalErr != nil {
+		t.Fatalf("expected parseable JSON on stdout, got %v: %s", unmarshalErr, output)
+	}
+	if decoded["open_conflict_count"] != float64(1) {
+		t.Errorf("open_conflict_count = %v, want 1", decoded["open_conflict_count"])
+	}
+	keys, ok := decoded["open_conflict_keys"].([]interface{})
+	if !ok || len(keys) != 1 || keys[0] != "stack:web/manifest:ingress" {
+		t.Errorf("open_conflict_keys = %v, want [stack:web/manifest:ingress]", decoded["open_conflict_keys"])
+	}
+}
+
 func TestClusterGitopsStatusNotConfigured(t *testing.T) {
 	mock := &gitopsStatusMock{status: &client.ClusterGitopsStatus{
 		SyncStatus: strPtrCmd("not_configured"),
