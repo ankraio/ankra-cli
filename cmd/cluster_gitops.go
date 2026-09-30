@@ -20,8 +20,8 @@ var clusterGitopsStatusCmd = &cobra.Command{
 	Use:   "status [cluster_name]",
 	Short: "Show which GitOps repository a cluster syncs from",
 	Long: `Show the GitOps sync status of a cluster: the repository, branch, and
-credential it syncs from, the last synced commit, and any pending commit or
-sync error.
+credential it syncs from, the last synced commit, any pending commit or
+sync error, and any open merge conflicts pausing the sync.
 
 If no cluster name is provided, uses the currently selected cluster.`,
 	Args: cobra.MaximumNArgs(1),
@@ -123,6 +123,7 @@ func printClusterGitopsStatus(clusterName string, status *client.ClusterGitopsSt
 	if status.SyncProgressMessage != nil && *status.SyncProgressMessage != "" {
 		fmt.Printf("  Progress: %s\n", *status.SyncProgressMessage)
 	}
+	printGitopsConflictPause(status)
 	if status.LastCommitSHA != nil {
 		fmt.Printf("  Last Synced Commit: %s\n", *status.LastCommitSHA)
 	}
@@ -141,6 +142,32 @@ func printClusterGitopsStatus(clusterName string, status *client.ClusterGitopsSt
 	}
 	if status.Error != nil {
 		fmt.Printf("  Error: %s\n", gitopsErrorSummary(status.Error))
+	}
+}
+
+// gitopsConflictSyncStatus is the sync_status the platform reports while
+// GitOps sync is paused on a merge conflict.
+const gitopsConflictSyncStatus = "conflict"
+
+// printGitopsConflictPause renders the merge-conflict pause: the open
+// conflicts by key when any await a decision, or a note when the last sync
+// stopped on a conflict that has since been decided. A platform that does not
+// report open_conflict_count prints nothing rather than claiming zero.
+func printGitopsConflictPause(status *client.ClusterGitopsStatus) {
+	if status.OpenConflictCount != nil && *status.OpenConflictCount > 0 {
+		openConflictCount := *status.OpenConflictCount
+		fmt.Printf("  Open Conflicts: %d\n", openConflictCount)
+		for _, conflictKey := range status.OpenConflictKeys {
+			fmt.Printf("    - %s\n", conflictKey)
+		}
+		if unlisted := openConflictCount - len(status.OpenConflictKeys); unlisted > 0 && len(status.OpenConflictKeys) > 0 {
+			fmt.Printf("    ... and %d more\n", unlisted)
+		}
+		fmt.Println("  Warning: GitOps sync is paused on these merge conflicts; nothing from Git, including commits pushed since, is applied until each is resolved in the portal (cluster > GitOps)")
+		return
+	}
+	if status.SyncStatus != nil && *status.SyncStatus == gitopsConflictSyncStatus {
+		fmt.Println("  Note: the last sync stopped on a merge conflict and applied nothing; no conflict awaits a decision now, so the next sync re-evaluates both sides")
 	}
 }
 

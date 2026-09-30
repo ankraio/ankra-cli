@@ -36,6 +36,19 @@
   (`cluster hetzner node-group ...` and the like) do not take it; use the
   generic commands.
 
+### Fixed
+
+- **`ankra cluster gitops status` shows when GitOps is paused on a merge
+  conflict.** When a sync found the same resource changed in Git and on the
+  cluster, it applied nothing and waited for a decision, but the status still
+  read `synced` at the commit you had just pushed. The platform now reports
+  `Sync Status: conflict`, and the command lists the open conflicts by
+  resource key (`Open Conflicts: N`) with a warning that nothing from Git,
+  including commits pushed since, is applied until each is resolved. Resolve
+  them on the cluster's GitOps page in the portal. `-o json|yaml` carries
+  `open_conflict_count` and `open_conflict_keys`. Older platforms that do not
+  report them print no conflict lines.
+
 
 ## v0.20.0 — 2026-09-29
 
