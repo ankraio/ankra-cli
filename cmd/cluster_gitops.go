@@ -152,9 +152,14 @@ const gitopsConflictSyncStatus = "conflict"
 // printGitopsConflictPause renders the merge-conflict pause: the open
 // conflicts by key when any await a decision, or a note when the last sync
 // stopped on a conflict that has since been decided. A platform that does not
-// report open_conflict_count prints nothing rather than claiming zero.
+// report open_conflict_count prints nothing rather than claiming zero: both
+// the open-conflict lines and the "no conflict awaits a decision" note need a
+// reported count.
 func printGitopsConflictPause(status *client.ClusterGitopsStatus) {
-	if status.OpenConflictCount != nil && *status.OpenConflictCount > 0 {
+	if status.OpenConflictCount == nil {
+		return
+	}
+	if *status.OpenConflictCount > 0 {
 		openConflictCount := *status.OpenConflictCount
 		fmt.Printf("  Open Conflicts: %d\n", openConflictCount)
 		for _, conflictKey := range status.OpenConflictKeys {

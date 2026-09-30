@@ -164,16 +164,23 @@ func TestClusterGitopsStatusNotesADecidedConflict(t *testing.T) {
 }
 
 func TestClusterGitopsStatusWithoutConflictReportPrintsNoConflictLines(t *testing.T) {
-	mock := &gitopsStatusMock{status: syncedGitopsStatus()}
-	setMockClient(t, mock)
+	// An unreported count is unknown, not zero: neither the open-conflict
+	// lines nor the "no conflict awaits a decision" note may print, even
+	// beside a conflict status.
+	for _, syncStatus := range []string{"synced", "conflict"} {
+		status := syncedGitopsStatus()
+		status.SyncStatus = strPtrCmd(syncStatus)
+		mock := &gitopsStatusMock{status: status}
+		setMockClient(t, mock)
 
-	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
-	})
+		stdoutOutput := captureStdout(t, func() {
+			_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+		})
 
-	for _, absent := range []string{"Open Conflicts", "Note:"} {
-		if strings.Contains(stdoutOutput, absent) {
-			t.Errorf("expected output without %q, got: %s", absent, stdoutOutput)
+		for _, absent := range []string{"Open Conflicts", "Note:", "Warning:"} {
+			if strings.Contains(stdoutOutput, absent) {
+				t.Errorf("sync_status %s: expected output without %q, got: %s", syncStatus, absent, stdoutOutput)
+			}
 		}
 	}
 }
