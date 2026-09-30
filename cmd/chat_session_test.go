@@ -123,7 +123,7 @@ func (m *chatSessionMock) StreamChat(clusterID *string, _ client.ChatRequest) (<
 func resetChatFlags(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
-		for _, name := range []string{"conversation", "mode", "cluster"} {
+		for _, name := range []string{"conversation", "mode", "cluster", "output"} {
 			_ = chatCmd.Flags().Set(name, "")
 		}
 	})

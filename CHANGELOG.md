@@ -36,6 +36,18 @@
   (`cluster hetzner node-group ...` and the like) do not take it; use the
   generic commands.
 
+- **`ankra chat "<question>"` takes `-o json` and `-o yaml`.** A CI job that
+  asks the AI one question can now parse the answer instead of scraping a
+  streamed transcript. The document is printed once, when the turn ends, and
+  carries the answer text, the conversation id (and whether `--conversation`
+  can continue it), the safety mode the platform ran the turn in, the cluster
+  it was scoped to, the tools the model ran with how each ended, and any
+  write it proposed that is waiting for `ankra chat actions confirm`. Status
+  lines and notices stay on stderr, so stdout is only the document. A turn
+  that fails still prints it, with `error` set, and exits non-zero.
+  Interactive chat has no structured output, and without `-o` the one-shot
+  answer prints as before.
+
 
 ## v0.20.0 — 2026-09-29
 

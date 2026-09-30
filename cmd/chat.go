@@ -65,7 +65,23 @@ If no message is provided, enters interactive chat mode.
 
 Use --cluster to provide cluster context for better answers; without it the
 persisted 'ankra cluster select' applies, and with neither the chat reads
-across the whole organisation.`,
+across the whole organisation.
+
+A one-shot question takes -o json (or -o yaml) for scripts and CI jobs: the
+answer is printed once, when the turn ends, as one document carrying the
+answer text, the conversation id, the safety mode the turn ran in, the
+cluster it was scoped to, the tools the model ran and any write left
+awaiting confirmation. A turn that fails still prints the document, with its
+"error" member set, and exits non-zero. Interactive mode has no structured
+output.`,
+	Example: `  # Ask once, scoped to a cluster
+  ankra chat --cluster prod "why is the payments pod restarting?"
+
+  # The same, parsed in a CI job
+  ankra chat --cluster prod --mode ask -o json "summarise failing pods" | jq -r .answer
+
+  # Continue the conversation a previous answer named
+  ankra chat --conversation <id> "and the one before that?"`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterName, _ := cmd.Flags().GetString("cluster")
@@ -74,6 +90,13 @@ across the whole organisation.`,
 		interactionMode, modeError := normalizeChatMode(mode)
 		if modeError != nil {
 			return modeError
+		}
+		format, formatError := structuredFormatFromFlags(cmd)
+		if formatError != nil {
+			return formatError
+		}
+		if format != outputDefault && len(args) == 0 {
+			return withExitCode(exitUsage, errors.New("-o/--output needs a one-shot question: ankra chat -o json \"<question>\""))
 		}
 		if conversationID != "" {
 			if err := validateConversationID(conversationID); err != nil {
@@ -89,13 +112,18 @@ across the whole organisation.`,
 				return fmt.Errorf("finding cluster %s: %w", clusterName, err)
 			}
 			scope.clusterID = &cluster.ID
+			scope.clusterName = cluster.Name
 		} else if selected, err := loadSelectedCluster(); err == nil {
 			scope.clusterID = &selected.ID
 			scope.fromSelection = true
 			scope.selectedName = selected.Name
+			scope.clusterName = selected.Name
 		}
 
 		if len(args) > 0 {
+			if format != outputDefault {
+				return runChatMessageStructured(cmd, scope, conversationID, args[0], interactionMode)
+			}
 			return runChatMessage(scope, conversationID, args[0], interactionMode)
 		}
 		return runInteractiveChat(cmd.InOrStdin(), scope, conversationID, interactionMode)
@@ -129,39 +157,50 @@ func staleSelectionNotice(scope chatScope) string {
 // scope the turn actually ran in so callers keep it for the next turn. The
 // sessions lane reports the stale cluster as ErrClusterNotFound; the
 // deprecated per-cluster stream answers a bare 404, so both shapes count.
+// The session is nil when the turn runs on the deprecated stream.
 func openChatTurn(scope chatScope, conversationID string, req client.ChatRequest,
-	interactionMode string, errOut io.Writer) (<-chan client.ChatStreamEvent, bool, chatScope, error) {
-	events, onSessions, err := startChatTurn(conversationID, scope.clusterID, req, interactionMode)
+	interactionMode string, errOut io.Writer) (<-chan client.ChatStreamEvent, *client.ChatSession, chatScope, error) {
+	events, session, err := startChatTurn(conversationID, scope.clusterID, req, interactionMode)
 	if err != nil && scope.fromSelection && isNotFoundResponse(err) {
 		_, _ = fmt.Fprintln(errOut, staleSelectionNotice(scope))
 		scope = chatScope{}
-		events, onSessions, err = startChatTurn(conversationID, nil, req, interactionMode)
+		events, session, err = startChatTurn(conversationID, nil, req, interactionMode)
 	}
-	return events, onSessions, scope, err
+	return events, session, scope, err
 }
 
-func runChatMessage(scope chatScope, conversationID string, query string, interactionMode string) error {
+// prepareOneShot resolves the conversation a one-shot question runs in
+// (minting one when none was given) and strips the question. The platform's
+// AI reads this text, so what we send carries no invisible runes: a payload
+// pasted in from a ticket or a log would otherwise reach the model intact
+// while the operator saw an ordinary question (ankra-4r75g.9).
+func prepareOneShot(conversationID, query string) (string, bool, string, error) {
 	startedConversation := conversationID == ""
 	if startedConversation {
 		generated, err := newChatUUID()
 		if err != nil {
-			return err
+			return "", false, "", err
 		}
 		conversationID = generated
 	}
-	// The platform's AI reads this text, so what we send carries no invisible
-	// runes: a payload pasted in from a ticket or a log would otherwise reach
-	// the model intact while the operator saw an ordinary question
-	// (ankra-4r75g.9).
 	query, queryHidden := hiddenunicode.Strip(query)
 	if queryHidden > 0 {
 		_, _ = fmt.Fprintf(os.Stderr, "%s\n", hiddenunicode.Notice(queryHidden))
 	}
+	return conversationID, startedConversation, query, nil
+}
+
+func runChatMessage(scope chatScope, conversationID string, query string, interactionMode string) error {
+	conversationID, startedConversation, query, err := prepareOneShot(conversationID, query)
+	if err != nil {
+		return err
+	}
 	req := client.ChatRequest{Query: query, InteractionMode: interactionMode}
-	events, onSessions, _, err := openChatTurn(scope, conversationID, req, interactionMode, os.Stderr)
+	events, session, _, err := openChatTurn(scope, conversationID, req, interactionMode, os.Stderr)
 	if err != nil {
 		return fmt.Errorf("chat: %w", err)
 	}
+	onSessions := session != nil
 
 	fmt.Print("\n")
 	outcome := renderChatTurn(events, os.Stdout, os.Stderr, false)
@@ -270,11 +309,12 @@ func runInteractiveChat(stdin io.Reader, scope chatScope, conversationID string,
 			InteractionMode:     interactionMode,
 		}
 
-		events, onSessions, nextScope, err := openChatTurn(scope, conversationID, req, interactionMode, os.Stderr)
+		events, session, nextScope, err := openChatTurn(scope, conversationID, req, interactionMode, os.Stderr)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
 		}
+		onSessions := session != nil
 		scope = nextScope
 		if !onSessions && !legacyNoticed {
 			legacyNoticed = true
@@ -535,7 +575,7 @@ func init() {
 	chatHealthCmd.Flags().Bool("ai", true, "Include AI analysis")
 	chatHealthCmd.Flags().String("cluster", "", "Target cluster name or ID (defaults to the selected cluster)")
 
-	registerStructuredOutputFlags(chatHistoryCmd, chatShowCmd, chatHealthCmd)
+	registerStructuredOutputFlags(chatCmd, chatHistoryCmd, chatShowCmd, chatHealthCmd)
 
 	chatCmd.AddCommand(chatHistoryCmd)
 	chatCmd.AddCommand(chatShowCmd)
