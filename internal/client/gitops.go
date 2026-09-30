@@ -30,6 +30,14 @@ type ClusterGitopsStatus struct {
 	ClusterName    *string                `json:"cluster_name" yaml:"cluster_name"`
 	ClusterShortID *string                `json:"cluster_short_id" yaml:"cluster_short_id"`
 	GitRepo        *ClusterGitopsRepo     `json:"git_repo" yaml:"git_repo"`
+	// OpenConflictCount is the number of GitOps merge conflicts awaiting a
+	// decision. While it is above zero the platform applies nothing from Git,
+	// and sync_status reads "conflict". Nil when the platform does not report
+	// it (older platforms), which is not the same as zero.
+	OpenConflictCount *int `json:"open_conflict_count" yaml:"open_conflict_count"`
+	// OpenConflictKeys names those conflicts' resource keys. The platform caps
+	// the list; OpenConflictCount is always the full total.
+	OpenConflictKeys []string `json:"open_conflict_keys" yaml:"open_conflict_keys"`
 }
 
 // ClusterGitopsRepo mirrors the git_repo member of the GitOps status payload.
