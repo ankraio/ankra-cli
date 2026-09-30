@@ -107,7 +107,11 @@ func defaultOpenclawSkillPath(home, clusterName string) (string, error) {
 	if sanitiseSkillName(clusterName) == "" {
 		return "", withExitCode(exitUsage, fmt.Errorf("cluster name %q has no characters usable in a skill directory name; pass --output", clusterName))
 	}
-	if bundledAnkraSkillNames()[directory] {
+	bundled, err := bundledAnkraSkillNames()
+	if err != nil {
+		return "", err
+	}
+	if bundled[directory] {
 		return "", withExitCode(exitUsage, fmt.Errorf(
 			"the default skill directory %s would overwrite the bundled Ankra skill of the same name; pass --output",
 			filepath.Join(home, ".openclaw", "skills", directory)))

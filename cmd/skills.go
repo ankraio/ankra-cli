@@ -586,40 +586,49 @@ func skillsDirectoryHasAnkraSkills(target skills.Target) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return len(bundledSkillsAmong(names)) > 0, nil
+	bundled, err := bundledSkillsAmong(names)
+	if err != nil {
+		return false, err
+	}
+	return len(bundled) > 0, nil
 }
 
 // bundledAnkraSkillNames is the set of skill names this binary carries. A
 // client's skills directory also holds skills Ankra did not install there,
 // such as the per-cluster ankra-<cluster>/SKILL.md `ankra openclaw skill`
 // writes into ~/.openclaw/skills, so "holds a SKILL.md" is not "carries an
-// Ankra install".
-func bundledAnkraSkillNames() map[string]bool {
-	set := map[string]bool{}
+// Ankra install". The embedded copy cannot normally fail to read, but if it
+// does the error is returned: an empty set would read as "nothing is an
+// Ankra skill" and hide every install.
+func bundledAnkraSkillNames() (map[string]bool, error) {
 	fsys, err := skills.EmbeddedFS()
 	if err != nil {
-		return set
+		return nil, fmt.Errorf("read the bundled skills: %w", err)
 	}
 	names, err := skills.Names(fsys)
 	if err != nil {
-		return set
+		return nil, fmt.Errorf("list the bundled skills: %w", err)
 	}
+	set := make(map[string]bool, len(names))
 	for _, name := range names {
 		set[name] = true
 	}
-	return set
+	return set, nil
 }
 
 // bundledSkillsAmong keeps the names that are bundled Ankra skills, in order.
-func bundledSkillsAmong(names []string) []string {
-	bundled := bundledAnkraSkillNames()
+func bundledSkillsAmong(names []string) ([]string, error) {
+	bundled, err := bundledAnkraSkillNames()
+	if err != nil {
+		return nil, err
+	}
 	kept := make([]string, 0, len(names))
 	for _, name := range names {
 		if bundled[name] {
 			kept = append(kept, name)
 		}
 	}
-	return kept
+	return kept, nil
 }
 
 // skillsInstalledClients returns the assistants that carry an Ankra skills
