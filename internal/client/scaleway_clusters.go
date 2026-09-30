@@ -239,8 +239,8 @@ func (c *Client) ChangeScalewayControlPlaneCount(clusterID string, count int) (*
 	return c.changeControlPlaneCount(scalewayKind, clusterID, count)
 }
 
-func (c *Client) ChangeScalewayControlPlaneInstanceType(clusterID, instanceType string) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType(scalewayKind, clusterID, instanceType)
+func (c *Client) ChangeScalewayControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType(scalewayKind, clusterID, instanceType, drainOptions)
 }
 
 func (c *Client) ListScalewayClusterNodes(clusterID string) (*NodeListResult, error) {

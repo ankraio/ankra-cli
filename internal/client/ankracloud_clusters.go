@@ -266,8 +266,8 @@ func (c *Client) ChangeAnkraCloudControlPlaneCount(clusterID string, count int) 
 	return c.changeControlPlaneCount(ankraCloudKind, clusterID, count)
 }
 
-func (c *Client) ChangeAnkraCloudControlPlaneInstanceType(clusterID, instanceType string) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType(ankraCloudKind, clusterID, instanceType)
+func (c *Client) ChangeAnkraCloudControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType(ankraCloudKind, clusterID, instanceType, drainOptions)
 }
 
 func (c *Client) ListAnkraCloudClusterNodes(clusterID string) (*NodeListResult, error) {

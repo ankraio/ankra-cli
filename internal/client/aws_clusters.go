@@ -394,8 +394,8 @@ func (c *Client) ChangeAwsControlPlaneCount(clusterID string, count int) (*Chang
 	return c.changeControlPlaneCount(awsKind, clusterID, count)
 }
 
-func (c *Client) ChangeAwsControlPlaneInstanceType(clusterID, instanceType string) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType(awsKind, clusterID, instanceType)
+func (c *Client) ChangeAwsControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType(awsKind, clusterID, instanceType, drainOptions)
 }
 
 func (c *Client) ListAwsClusterNodes(clusterID string) (*NodeListResult, error) {

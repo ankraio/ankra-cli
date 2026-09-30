@@ -274,7 +274,7 @@ func TestAnkraCloudDayTwoCallsUseTheAnkraCloudPrefix(t *testing.T) {
 			return callError
 		}, http.MethodPut, "/api/v1/clusters/ankracloud/cluster-1/control-plane"},
 		{"control plane plan", func(testClient *Client) error {
-			_, callError := testClient.ChangeAnkraCloudControlPlaneInstanceType("cluster-1", "s-8")
+			_, callError := testClient.ChangeAnkraCloudControlPlaneInstanceType("cluster-1", "s-8", DrainOptions{})
 			return callError
 		}, http.MethodPut, "/api/v1/clusters/ankracloud/cluster-1/control-plane/instance-type"},
 		{"nodes", func(testClient *Client) error {

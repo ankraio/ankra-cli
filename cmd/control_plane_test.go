@@ -16,7 +16,7 @@ func stubControlPlaneOps(info *client.ControlPlaneInfo, changed *client.ChangeCo
 			get: func(string) (*client.ControlPlaneInfo, error) {
 				return info, nil
 			},
-			setInstanceType: func(string, string) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+			setInstanceType: func(string, string, client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 				return changed, nil
 			},
 		}
