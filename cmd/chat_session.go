@@ -38,6 +38,9 @@ type chatScope struct {
 	clusterID     *string
 	fromSelection bool
 	selectedName  string
+	// clusterName is the cluster's name however it was chosen (--cluster or
+	// the selection), for output that names the scope.
+	clusterName string
 }
 
 // chatTurnOutcome is what one rendered turn leaves behind.
@@ -48,6 +51,75 @@ type chatTurnOutcome struct {
 	// hiddenRemoved counts the invisible runes stripped from this turn's
 	// printed text, reported once when the turn ends.
 	hiddenRemoved int
+	// toolCalls are the tools the turn ran, in the order they started, as
+	// their tool_start and tool_result frames described them.
+	toolCalls []chatToolCall
+}
+
+// chatToolCall is one tool the model ran during a turn, folded from its
+// tool_start and tool_result frames. Success is nil while no tool_result
+// said how the call ended (a turn that ended mid-call, or a result frame
+// without a boolean). The tool's output itself is left out: it is model
+// input, can run to the platform's tool-result cap, and the answer is what a
+// caller parses.
+type chatToolCall struct {
+	ToolName        string  `json:"tool_name" yaml:"tool_name"`
+	ToolCallID      string  `json:"tool_call_id,omitempty" yaml:"tool_call_id,omitempty"`
+	Success         *bool   `json:"success" yaml:"success"`
+	Error           string  `json:"error,omitempty" yaml:"error,omitempty"`
+	ErrorClass      string  `json:"error_class,omitempty" yaml:"error_class,omitempty"`
+	ErrorCode       string  `json:"error_code,omitempty" yaml:"error_code,omitempty"`
+	ExecutionTimeMS float64 `json:"execution_time_ms,omitempty" yaml:"execution_time_ms,omitempty"`
+}
+
+// recordToolFrame folds a tool_start or tool_result frame into the turn's
+// tool calls: a frame for a call already seen updates it, anything else
+// starts a new entry. A call is the same one when the tool_call_id matches;
+// a result that carries no id settles the newest unsettled call of the same
+// tool that has no id either, so an id-less start and its result stay one
+// entry. Frames without a tool name are skipped, the same frames the text
+// renderer skips.
+func (outcome *chatTurnOutcome) recordToolFrame(data any, isResult bool) {
+	frame, ok := data.(map[string]any)
+	if !ok {
+		return
+	}
+	toolName, _ := frame["tool_name"].(string)
+	if toolName == "" {
+		return
+	}
+	toolCallID, _ := frame["tool_call_id"].(string)
+	var call *chatToolCall
+	if toolCallID != "" {
+		for index := range outcome.toolCalls {
+			if outcome.toolCalls[index].ToolCallID == toolCallID {
+				call = &outcome.toolCalls[index]
+				break
+			}
+		}
+	} else if isResult {
+		for index := len(outcome.toolCalls) - 1; index >= 0; index-- {
+			candidate := &outcome.toolCalls[index]
+			if candidate.ToolCallID == "" && candidate.ToolName == toolName && candidate.Success == nil {
+				call = candidate
+				break
+			}
+		}
+	}
+	if call == nil {
+		outcome.toolCalls = append(outcome.toolCalls, chatToolCall{ToolName: toolName, ToolCallID: toolCallID})
+		call = &outcome.toolCalls[len(outcome.toolCalls)-1]
+	}
+	if !isResult {
+		return
+	}
+	if success, hasSuccess := frame["success"].(bool); hasSuccess {
+		call.Success = &success
+	}
+	call.Error, _ = frame["error"].(string)
+	call.ErrorClass, _ = frame["error_class"].(string)
+	call.ErrorCode, _ = frame["error_code"].(string)
+	call.ExecutionTimeMS, _ = frame["execution_time_ms"].(float64)
 }
 
 // newChatUUID mints a random v4 UUID for conversation ids and idempotency
@@ -89,13 +161,15 @@ func validateConversationID(conversationID string) error {
 
 // startChatTurn opens one turn and returns its event stream. The sessions
 // lane is tried first; a backend that does not serve it gets the deprecated
-// stream with the same request. The returned bool reports the sessions lane
-// (so callers know the conversation id is the server's too).
+// stream with the same request. The returned session is non-nil on the
+// sessions lane (so callers know the conversation id is the server's too, and
+// can read the safety mode the server resolved) and nil on the deprecated
+// stream.
 func startChatTurn(conversationID string, clusterID *string, req client.ChatRequest,
-	interactionMode string) (<-chan client.ChatStreamEvent, bool, error) {
+	interactionMode string) (<-chan client.ChatStreamEvent, *client.ChatSession, error) {
 	idempotencyKey, keyErr := newChatUUID()
 	if keyErr != nil {
-		return nil, false, keyErr
+		return nil, nil, keyErr
 	}
 	session, err := apiClient.CreateChatSession(client.CreateChatSessionRequest{
 		ConversationID: conversationID,
@@ -105,10 +179,10 @@ func startChatTurn(conversationID string, clusterID *string, req client.ChatRequ
 	})
 	if errors.Is(err, client.ErrChatSessionsUnavailable) {
 		events, legacyErr := apiClient.StreamChat(clusterID, req)
-		return events, false, legacyErr
+		return events, nil, legacyErr
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, nil, err
 	}
 	// The transcript is server-owned on this lane: send the conversation
 	// id, never the history.
@@ -120,9 +194,9 @@ func startChatTurn(conversationID string, clusterID *string, req client.ChatRequ
 		// instead of leaving it pending until it expires. Best-effort - the
 		// submit error is the one to report.
 		_ = apiClient.CancelChatSession(session.ID)
-		return nil, true, err
+		return nil, session, err
 	}
-	return tailChatSession(session.ID, submitted.LastSeq), true, nil
+	return tailChatSession(session.ID, submitted.LastSeq), session, nil
 }
 
 // retryableTailError reports whether a failed tail open is worth re-opening:
@@ -297,10 +371,12 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 				}
 			}
 		case "tool_start":
+			outcome.recordToolFrame(event.Data, false)
 			if line := chatToolStartText(event.Data); line != "" {
 				printLine(line)
 			}
 		case "tool_result":
+			outcome.recordToolFrame(event.Data, true)
 			if line := chatToolResultText(event.Data); line != "" {
 				printLine(line)
 			}

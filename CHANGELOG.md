@@ -36,6 +36,20 @@
   (`cluster hetzner node-group ...` and the like) do not take it; use the
   generic commands.
 
+- **`ankra chat "<question>"` takes `-o json` and `-o yaml`.** A CI job that
+  asks the AI one question can now parse the answer instead of scraping a
+  streamed transcript. The document is printed once, when the turn ends, and
+  carries the answer text, the conversation id (and whether `--conversation`
+  can continue it), the safety mode the platform ran the turn in, the cluster
+  it was scoped to, the tools the model ran with how each ended, and any
+  write it proposed that is waiting for `ankra chat actions confirm`. Status
+  lines and notices stay on stderr, so stdout is only the document. A turn
+  that starts and then fails still prints it, with `error` set, and exits
+  non-zero; a question the platform refuses to start (a rejected token, an
+  unknown cluster) prints nothing on stdout and exits with that error's code.
+  Interactive chat has no structured output, and without `-o` the one-shot
+  answer prints as before.
+
 - **`--force-drain` on the control plane's rolling resize.** `ankra cluster
   <provider> control-plane set-instance-type` now takes `--force-drain` (off
   by default), on every provider that has the command. On a running cluster
