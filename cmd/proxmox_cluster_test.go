@@ -72,12 +72,14 @@ func TestProxmoxCreate_MapsFlagsToRequest(t *testing.T) {
 	if request.WorkerCount != 2 || request.WorkerInstanceType != "px-large" {
 		t.Errorf("worker fields = %d/%q, want 2/px-large", request.WorkerCount, request.WorkerInstanceType)
 	}
-	if request.ControlPlaneCount != 1 || request.ControlPlaneInstanceType != "px-medium" {
-		t.Errorf("control plane defaults = %d/%q, want 1/px-medium",
+	// Unset instance types stay off the wire so the API's defaults apply
+	// (px-small bastion, px-medium control plane; ankra-u70wp).
+	if request.ControlPlaneCount != 1 || request.ControlPlaneInstanceType != "" {
+		t.Errorf("control plane defaults = %d/%q, want 1 and no type (the API default applies)",
 			request.ControlPlaneCount, request.ControlPlaneInstanceType)
 	}
-	if request.BastionInstanceType != "px-small" {
-		t.Errorf("bastion instance type = %q, want px-small", request.BastionInstanceType)
+	if request.BastionInstanceType != "" {
+		t.Errorf("bastion instance type = %q, want empty (the API default applies)", request.BastionInstanceType)
 	}
 	if request.Distribution != "kubeadm" {
 		t.Errorf("distribution = %q, want kubeadm", request.Distribution)

@@ -627,6 +627,14 @@ var upcloudNodeGroupDeleteCmd = &cobra.Command{
 	},
 }
 
+// upcloudDefaultNodeGroupPlan is the plan `cluster upcloud node-group add`
+// uses when --instance-type is not given. The node-group API has no default of
+// its own (instance_type is required there), so this follows the worker plan
+// the create API defaults to - cluster go/internal/providerapi/lifecycle.go,
+// decodeCreateUpcloudClusterRequest, worker_plan "PREMIUM-2xCPU-4GB"
+// (ankra-u70wp). TestCreateDefaultsFollowTheAPI pins it.
+const upcloudDefaultNodeGroupPlan = "PREMIUM-2xCPU-4GB"
+
 func init() {
 	upcloudCreateCmd.Flags().String("name", "", "Cluster name (required)")
 	upcloudCreateCmd.Flags().String("credential-id", "", "UpCloud API credential ID (required)")
@@ -635,16 +643,16 @@ func init() {
 	upcloudCreateCmd.Flags().StringSlice("zones", nil, "Zone pool for a multi-zone cluster (e.g. fi-hel1,fi-hel2,se-sto1). Must include --zone. Needs at least 3 zones and --control-plane-count=3 so the control plane survives the loss of any one zone; each extra zone gets its own private network and NAT gateway, and the nodes are joined by a platform-managed WireGuard mesh. kubeadm only. Omitted keeps the cluster in --zone")
 	upcloudCreateCmd.Flags().String("network-mode", "", "Network mode: private_network or wireguard_mesh. Derived when omitted (wireguard_mesh for a multi-zone pool). Pass wireguard_mesh on a single-zone kubeadm cluster to make it mesh-capable so zones can be added later with 'ankra cluster upcloud zones'; a mesh cannot be retrofitted")
 	upcloudCreateCmd.Flags().String("network-ip-range", "", "Private network IP range (optional). Left unset, Ankra picks a range that is free in your UpCloud account; pass one only to pin it (a range overlapping an existing network in the zone is refused)")
-	upcloudCreateCmd.Flags().String("bastion-plan", "1xCPU-2GB", "Bastion plan")
+	upcloudCreateCmd.Flags().String("bastion-plan", "", "Bastion plan (server default: STARTER-1xCPU-1GB)")
 	upcloudCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
-	upcloudCreateCmd.Flags().String("control-plane-plan", "2xCPU-4GB", "Control plane plan")
+	upcloudCreateCmd.Flags().String("control-plane-plan", "", "Control plane plan (server default: PREMIUM-2xCPU-4GB)")
 	upcloudCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
-	upcloudCreateCmd.Flags().String("worker-plan", "2xCPU-4GB", "Worker plan")
+	upcloudCreateCmd.Flags().String("worker-plan", "", "Worker plan (server default: PREMIUM-2xCPU-4GB)")
 	upcloudCreateCmd.Flags().String("distribution", "kubeadm", "Kubernetes distribution: kubeadm (default, vanilla upstream Kubernetes with Cilium) or k3s")
 	upcloudCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster kubeadm-versions` or `ankra cluster k3s-versions`)")
 	upcloudCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control planes) or external (dedicated VMs)")
 	upcloudCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
-	upcloudCreateCmd.Flags().String("etcd-plan", "2xCPU-4GB", "Plan for dedicated etcd nodes when --etcd-topology=external")
+	upcloudCreateCmd.Flags().String("etcd-plan", "", "Plan for dedicated etcd nodes when --etcd-topology=external (server default: PREMIUM-2xCPU-4GB)")
 	upcloudCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the UpCloud CCM and CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
 	upcloudCreateCmd.Flags().String("cni", "", "CNI plugin: flannel, calico, or cilium (optional; the platform default is used when omitted)")
 	upcloudCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
@@ -674,7 +682,7 @@ func init() {
 	upcloudZonesCmd.Flags().StringSlice("zones", nil, "The desired zone pool, primary zone first (required). Every current zone must still be listed; new zones are added in the given order")
 	_ = upcloudZonesCmd.MarkFlagRequired("zones")
 	registerAsyncWriteFlags(upcloudZonesCmd)
-	upcloudNodeGroupAddCmd.Flags().String("instance-type", "2xCPU-4GB", "Server plan for nodes")
+	upcloudNodeGroupAddCmd.Flags().String("instance-type", upcloudDefaultNodeGroupPlan, "Server plan for nodes")
 	upcloudNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
 	_ = upcloudNodeGroupAddCmd.MarkFlagRequired("name")
 	registerAsyncWriteFlags(upcloudNodeGroupAddCmd)
