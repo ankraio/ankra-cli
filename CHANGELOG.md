@@ -82,6 +82,11 @@
 
 ### Fixed
 
+- **The OpenClaw cluster skill links a page that exists.** The skill
+  `ankra openclaw skill` writes listed the cluster's portal address as
+  `/organisation/clusters/cluster/imported/<id>`, where the portal has no
+  page. It now links the cluster's overview.
+
 - **`ankra cluster gitops status` shows when GitOps is paused on a merge
   conflict.** When a sync found the same resource changed in Git and on the
   cluster, it applied nothing and waited for a decision, but the status still

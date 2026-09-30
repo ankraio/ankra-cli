@@ -178,7 +178,7 @@ Ankra AI Agents page: %s/organisation/ai/agents
 
 - Cluster ID: %s
 - Cluster name: %s
-- Portal: %s/organisation/clusters/cluster/imported/%s
+- Portal: %s/organisation/clusters/cluster/imported/%s/overview
 `,
 		sanitiseSkillName(clusterName),
 		clusterName,

@@ -141,6 +141,17 @@ func TestOpenclawSkillPromisesNoHandoff(t *testing.T) {
 	}
 }
 
+// TestOpenclawSkillLinksTheClusterOverview pins the skill's cluster portal
+// link to the overview page: the portal has no page at the bare
+// /organisation/clusters/cluster/imported/<id> path (ankra-3dd8y).
+func TestOpenclawSkillLinksTheClusterOverview(t *testing.T) {
+	body := buildSkillMarkdown("prod", "c-1", "https://platform.ankra.app")
+	expected := "- Portal: https://platform.ankra.app/organisation/clusters/cluster/imported/c-1/overview\n"
+	if !strings.Contains(body, expected) {
+		t.Fatalf("the skill should link the cluster overview page, want %q in:\n%s", expected, body)
+	}
+}
+
 // TestOpenclawHandoffIsDeprecatedAndHonest pins the handoff command: it is
 // deprecated, prints only the AI Agents page that exists, and still accepts
 // the conversation id so existing scripts keep running.
