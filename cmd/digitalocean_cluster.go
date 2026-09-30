@@ -260,7 +260,7 @@ var digitaloceanScaleCmd = &cobra.Command{
 			return fmt.Errorf("invalid worker count: %w", err)
 		}
 
-		result, err := apiClient.ScaleDigitaloceanWorkers(clusterID, workerCount)
+		result, err := apiClient.ScaleDigitaloceanWorkers(clusterID, workerCount, client.DrainOptions{})
 		if err != nil {
 			return fmt.Errorf("scaling workers: %w", err)
 		}
@@ -457,7 +457,7 @@ var digitaloceanNodeGroupScaleCmd = &cobra.Command{
 		}
 		defer cancelRequestContext()
 
-		result, submitted, err := apiClient.ScaleDigitaloceanNodeGroup(requestContext, clusterID, groupName, count, wait)
+		result, submitted, err := apiClient.ScaleDigitaloceanNodeGroup(requestContext, clusterID, groupName, count, client.DrainOptions{}, wait)
 		if err != nil {
 			return asyncWriteError("scaling node group", wait, err)
 		}
@@ -498,7 +498,7 @@ var digitaloceanNodeGroupUpgradeCmd = &cobra.Command{
 		}
 		defer cancelRequestContext()
 
-		result, submitted, err := apiClient.UpdateDigitaloceanNodeGroupInstanceType(requestContext, clusterID, groupName, size, wait)
+		result, submitted, err := apiClient.UpdateDigitaloceanNodeGroupInstanceType(requestContext, clusterID, groupName, size, client.DrainOptions{}, wait)
 		if err != nil {
 			return asyncWriteError("upgrading node group", wait, err)
 		}
@@ -545,7 +545,7 @@ var digitaloceanNodeGroupDeleteCmd = &cobra.Command{
 		}
 		defer cancelRequestContext()
 
-		result, submitted, err := apiClient.DeleteDigitaloceanNodeGroup(requestContext, clusterID, groupName, wait)
+		result, submitted, err := apiClient.DeleteDigitaloceanNodeGroup(requestContext, clusterID, groupName, client.DrainOptions{}, wait)
 		if err != nil {
 			return asyncWriteError("deleting node group", wait, err)
 		}

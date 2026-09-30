@@ -177,9 +177,9 @@ func (c *Client) AddUpcloudNodeGroup(ctx context.Context, clusterID string, req 
 	return c.doAddNodeGroup(ctx, url, payload, wait)
 }
 
-func (c *Client) ScaleUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*ScaleNodeGroupResult, bool, error) {
+func (c *Client) ScaleUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/scale", c.BaseURL, clusterID, groupName)
-	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count})
+	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
@@ -200,9 +200,9 @@ func (c *Client) UpdateUpcloudNodeGroupAutoscaling(ctx context.Context, clusterI
 	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, wait)
 }
 
-func (c *Client) UpdateUpcloudNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
+func (c *Client) UpdateUpcloudNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
-	payload, err := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
+	payload, err := json.Marshal(UpdateNodeGroupInstanceTypeRequest{InstanceType: instanceType, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
@@ -227,14 +227,14 @@ func (c *Client) UpdateUpcloudNodeGroupTaints(ctx context.Context, clusterID, gr
 	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
-func (c *Client) DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
+func (c *Client) DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
-	return c.doDeleteNodeGroup(ctx, url, wait)
+	return c.doDeleteNodeGroup(ctx, url, drainOptions, wait)
 }
 
-func (c *Client) ScaleUpcloudWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
+func (c *Client) ScaleUpcloudWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
 	scaleURL := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/scale-workers", c.BaseURL, clusterID)
-	return c.doScaleWorkers(scaleURL, workerCount)
+	return c.doScaleWorkers(scaleURL, workerCount, drainOptions)
 }
 
 func (c *Client) StopUpcloudCluster(clusterID string, options StopClusterOptions) (*StopUpcloudClusterResponse, error) {

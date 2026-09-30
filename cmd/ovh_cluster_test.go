@@ -432,7 +432,7 @@ type ovhNodeGroupDeleteMock struct {
 	called bool
 }
 
-func (m *ovhNodeGroupDeleteMock) DeleteOvhNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+func (m *ovhNodeGroupDeleteMock) DeleteOvhNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
 	m.called = true
 	return &client.DeleteNodeGroupResult{GroupName: groupName, Deleted: 1}, false, nil
 }

@@ -1626,7 +1626,7 @@ func (m baseMock) GetHetznerWorkerCount(clusterID string) (*client.WorkerCountRe
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleHetznerWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+func (m baseMock) ScaleHetznerWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1670,15 +1670,15 @@ func (m baseMock) AddHetznerNodeGroup(ctx context.Context, clusterID string, req
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleHetznerNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+func (m baseMock) ScaleHetznerNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions client.DrainOptions, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateHetznerNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+func (m baseMock) UpdateHetznerNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions client.DrainOptions, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+func (m baseMock) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
@@ -1818,7 +1818,7 @@ func (m baseMock) GetOvhWorkerCount(clusterID string) (*client.WorkerCountResult
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleOvhWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+func (m baseMock) ScaleOvhWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1918,11 +1918,11 @@ func (m baseMock) AddOvhNodeGroup(ctx context.Context, clusterID string, req cli
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleOvhNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+func (m baseMock) ScaleOvhNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions client.DrainOptions, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateOvhNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+func (m baseMock) UpdateOvhNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions client.DrainOptions, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
@@ -1934,7 +1934,7 @@ func (m baseMock) UpdateOvhNodeGroupTaints(ctx context.Context, clusterID, group
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) DeleteOvhNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+func (m baseMock) DeleteOvhNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
@@ -2010,7 +2010,7 @@ func (m baseMock) GetUpcloudWorkerCount(clusterID string) (*client.WorkerCountRe
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleUpcloudWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+func (m baseMock) ScaleUpcloudWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2030,15 +2030,15 @@ func (m baseMock) AddUpcloudNodeGroup(ctx context.Context, clusterID string, req
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+func (m baseMock) ScaleUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions client.DrainOptions, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateUpcloudNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+func (m baseMock) UpdateUpcloudNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions client.DrainOptions, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+func (m baseMock) DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
@@ -2114,7 +2114,7 @@ func (m baseMock) GetDigitaloceanWorkerCount(clusterID string) (*client.WorkerCo
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleDigitaloceanWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+func (m baseMock) ScaleDigitaloceanWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2134,7 +2134,7 @@ func (m baseMock) AddDigitaloceanNodeGroup(ctx context.Context, clusterID string
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleDigitaloceanNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+func (m baseMock) ScaleDigitaloceanNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions client.DrainOptions, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
@@ -2146,11 +2146,11 @@ func (m baseMock) UpdateDigitaloceanNodeGroupAutoscaling(ctx context.Context, cl
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateDigitaloceanNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+func (m baseMock) UpdateDigitaloceanNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions client.DrainOptions, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) DeleteDigitaloceanNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+func (m baseMock) DeleteDigitaloceanNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
@@ -2262,7 +2262,7 @@ func (m baseMock) GetScalewayWorkerCount(clusterID string) (*client.WorkerCountR
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleScalewayWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+func (m baseMock) ScaleScalewayWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2282,11 +2282,11 @@ func (m baseMock) AddScalewayNodeGroup(ctx context.Context, clusterID string, re
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleScalewayNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+func (m baseMock) ScaleScalewayNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions client.DrainOptions, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateScalewayNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+func (m baseMock) UpdateScalewayNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions client.DrainOptions, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
@@ -2298,7 +2298,7 @@ func (m baseMock) UpdateScalewayNodeGroupTaints(ctx context.Context, clusterID, 
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) DeleteScalewayNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+func (m baseMock) DeleteScalewayNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
@@ -2390,7 +2390,7 @@ func (m baseMock) GetAwsWorkerCount(clusterID string) (*client.WorkerCountResult
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleAwsWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+func (m baseMock) ScaleAwsWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2410,11 +2410,11 @@ func (m baseMock) AddAwsNodeGroup(ctx context.Context, clusterID string, request
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleAwsNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+func (m baseMock) ScaleAwsNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions client.DrainOptions, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateAwsNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+func (m baseMock) UpdateAwsNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions client.DrainOptions, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
@@ -2426,7 +2426,7 @@ func (m baseMock) UpdateAwsNodeGroupTaints(ctx context.Context, clusterID, group
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) DeleteAwsNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+func (m baseMock) DeleteAwsNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
@@ -2558,7 +2558,7 @@ func (m baseMock) GetProxmoxWorkerCount(clusterID string) (*client.WorkerCountRe
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleProxmoxWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+func (m baseMock) ScaleProxmoxWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2578,15 +2578,15 @@ func (m baseMock) AddProxmoxNodeGroup(ctx context.Context, clusterID string, req
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleProxmoxNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+func (m baseMock) ScaleProxmoxNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions client.DrainOptions, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateProxmoxNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+func (m baseMock) UpdateProxmoxNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions client.DrainOptions, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) DeleteProxmoxNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+func (m baseMock) DeleteProxmoxNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
@@ -2702,7 +2702,7 @@ func (m baseMock) GetMorpheusWorkerCount(clusterID string) (*client.WorkerCountR
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleMorpheusWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
+func (m baseMock) ScaleMorpheusWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2722,15 +2722,15 @@ func (m baseMock) AddMorpheusNodeGroup(ctx context.Context, clusterID string, re
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) ScaleMorpheusNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
+func (m baseMock) ScaleMorpheusNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions client.DrainOptions, wait bool) (*client.ScaleNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateMorpheusNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
+func (m baseMock) UpdateMorpheusNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions client.DrainOptions, wait bool) (*client.UpdateNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
-func (m baseMock) DeleteMorpheusNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
+func (m baseMock) DeleteMorpheusNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 

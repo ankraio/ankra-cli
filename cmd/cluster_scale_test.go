@@ -8,8 +8,9 @@ import (
 )
 
 type workerScaleCall struct {
-	ClusterID   string
-	WorkerCount int
+	ClusterID    string
+	WorkerCount  int
+	DrainOptions client.DrainOptions
 }
 
 type clusterScaleMock struct {
@@ -33,38 +34,38 @@ func (m *clusterScaleMock) scaleResult() *client.ScaleWorkersResult {
 	return &client.ScaleWorkersResult{PreviousCount: 1, NewCount: 3}
 }
 
-func (m *clusterScaleMock) ScaleHetznerWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
-	m.hetznerCalls = append(m.hetznerCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount})
+func (m *clusterScaleMock) ScaleHetznerWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
+	m.hetznerCalls = append(m.hetznerCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount, DrainOptions: drainOptions})
 	return m.scaleResult(), nil
 }
 
-func (m *clusterScaleMock) ScaleOvhWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
-	m.ovhCalls = append(m.ovhCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount})
+func (m *clusterScaleMock) ScaleOvhWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
+	m.ovhCalls = append(m.ovhCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount, DrainOptions: drainOptions})
 	return m.scaleResult(), nil
 }
 
-func (m *clusterScaleMock) ScaleUpcloudWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
-	m.upcloudCalls = append(m.upcloudCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount})
+func (m *clusterScaleMock) ScaleUpcloudWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
+	m.upcloudCalls = append(m.upcloudCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount, DrainOptions: drainOptions})
 	return m.scaleResult(), nil
 }
 
-func (m *clusterScaleMock) ScaleProxmoxWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
-	m.proxmoxCalls = append(m.proxmoxCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount})
+func (m *clusterScaleMock) ScaleProxmoxWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
+	m.proxmoxCalls = append(m.proxmoxCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount, DrainOptions: drainOptions})
 	return m.scaleResult(), nil
 }
 
-func (m *clusterScaleMock) ScaleMorpheusWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
-	m.morpheusCalls = append(m.morpheusCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount})
+func (m *clusterScaleMock) ScaleMorpheusWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
+	m.morpheusCalls = append(m.morpheusCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount, DrainOptions: drainOptions})
 	return m.scaleResult(), nil
 }
 
-func (m *clusterScaleMock) ScaleScalewayWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
-	m.scalewayCalls = append(m.scalewayCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount})
+func (m *clusterScaleMock) ScaleScalewayWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
+	m.scalewayCalls = append(m.scalewayCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount, DrainOptions: drainOptions})
 	return m.scaleResult(), nil
 }
 
-func (m *clusterScaleMock) ScaleAwsWorkers(clusterID string, workerCount int) (*client.ScaleWorkersResult, error) {
-	m.awsCalls = append(m.awsCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount})
+func (m *clusterScaleMock) ScaleAwsWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error) {
+	m.awsCalls = append(m.awsCalls, workerScaleCall{ClusterID: clusterID, WorkerCount: workerCount, DrainOptions: drainOptions})
 	return m.scaleResult(), nil
 }
 

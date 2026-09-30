@@ -85,6 +85,36 @@ func (options StopClusterOptions) query() string {
 	return "?" + values.Encode()
 }
 
+// DrainOptions says how a worker-removing write drains the nodes it takes
+// down: a worker scale-down, a node-group scale-down, a node-group delete,
+// and a node-group instance-type change (which drains each node before it
+// power-cycles it).
+//
+// By default the platform drains each node through the eviction API,
+// honouring its pods' PodDisruptionBudgets, and a node whose drain is
+// refused is withdrawn: it stays in service and the group keeps its size.
+// ForceDrain is a person's per-request decision to take the node down
+// anyway (force_drain): the drain no longer honours PodDisruptionBudgets, so
+// a node is removed even when its pods' budget refuses the eviction. It is
+// never sticky: a later request drains the guarded way again unless it asks
+// too.
+//
+// The zero value asks for nothing, and the request then carries no
+// force_drain at all, so it is byte-identical to one sent to a platform
+// that predates the field.
+type DrainOptions struct {
+	ForceDrain bool
+}
+
+// query is the node-group delete's force_drain query string ("" or
+// "?force_drain=true"); the delete has no body to carry it in.
+func (options DrainOptions) query() string {
+	if !options.ForceDrain {
+		return ""
+	}
+	return "?" + url.Values{"force_drain": []string{"true"}}.Encode()
+}
+
 // DeprovisionOptions are the query options of a self-managed cluster
 // deprovision. Force skips the agent's dependency chain and tolerates
 // infrastructure that can no longer be reached. AcceptVolumeDataLoss is the
@@ -336,8 +366,8 @@ func (c *Client) getProviderWorkerCount(kind, clusterID string) (*WorkerCountRes
 	return &result, nil
 }
 
-func (c *Client) scaleProviderWorkers(kind, clusterID string, workerCount int) (*ScaleWorkersResult, error) {
-	return c.doScaleWorkers(c.providerClusterURL(kind, clusterID, "scale-workers"), workerCount)
+func (c *Client) scaleProviderWorkers(kind, clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
+	return c.doScaleWorkers(c.providerClusterURL(kind, clusterID, "scale-workers"), workerCount, drainOptions)
 }
 
 func (c *Client) getProviderK8sVersion(kind, clusterID string) (*K8sVersionInfo, error) {
@@ -368,8 +398,8 @@ func (c *Client) addProviderNodeGroup(ctx context.Context, kind, clusterID strin
 	return c.doAddNodeGroup(ctx, c.providerClusterURL(kind, clusterID, "node-groups"), payload, wait)
 }
 
-func (c *Client) scaleProviderNodeGroup(ctx context.Context, kind, clusterID, groupName string, count int, wait bool) (*ScaleNodeGroupResult, bool, error) {
-	payload, marshalError := json.Marshal(ScaleNodeGroupRequest{Count: count})
+func (c *Client) scaleProviderNodeGroup(ctx context.Context, kind, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
+	payload, marshalError := json.Marshal(ScaleNodeGroupRequest{Count: count, ForceDrain: drainOptions.ForceDrain})
 	if marshalError != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)
 	}
@@ -377,8 +407,8 @@ func (c *Client) scaleProviderNodeGroup(ctx context.Context, kind, clusterID, gr
 	return c.doScaleNodeGroup(ctx, endpoint, payload, wait)
 }
 
-func (c *Client) updateProviderNodeGroupInstanceType(ctx context.Context, kind, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	payload, marshalError := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
+func (c *Client) updateProviderNodeGroupInstanceType(ctx context.Context, kind, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	payload, marshalError := json.Marshal(UpdateNodeGroupInstanceTypeRequest{InstanceType: instanceType, ForceDrain: drainOptions.ForceDrain})
 	if marshalError != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)
 	}
@@ -386,9 +416,9 @@ func (c *Client) updateProviderNodeGroupInstanceType(ctx context.Context, kind, 
 	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
-func (c *Client) deleteProviderNodeGroup(ctx context.Context, kind, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
+func (c *Client) deleteProviderNodeGroup(ctx context.Context, kind, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
 	endpoint := c.providerClusterURL(kind, clusterID, "node-groups") + "/" + url.PathEscape(groupName)
-	return c.doDeleteNodeGroup(ctx, endpoint, wait)
+	return c.doDeleteNodeGroup(ctx, endpoint, drainOptions, wait)
 }
 
 func (c *Client) getProviderNodeGroupAutoscaling(kind, clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {

@@ -147,7 +147,7 @@ func TestScaleDigitaloceanWorkers_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, err := testClient.ScaleDigitaloceanWorkers("cluster-123", 6)
+	result, err := testClient.ScaleDigitaloceanWorkers("cluster-123", 6, DrainOptions{})
 	if err != nil {
 		t.Fatalf("ScaleDigitaloceanWorkers: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestScaleDigitaloceanNodeGroup_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, _, err := testClient.ScaleDigitaloceanNodeGroup(context.Background(), clusterID, groupName, 4, true)
+	result, _, err := testClient.ScaleDigitaloceanNodeGroup(context.Background(), clusterID, groupName, 4, DrainOptions{}, true)
 	if err != nil {
 		t.Fatalf("ScaleDigitaloceanNodeGroup: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestScaleDigitaloceanNodeGroup_Error(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusBadRequest, map[string]string{"error": "scale failed"})
 	})
-	_, _, err := testClient.ScaleDigitaloceanNodeGroup(context.Background(), clusterID, groupName, 4, true)
+	_, _, err := testClient.ScaleDigitaloceanNodeGroup(context.Background(), clusterID, groupName, 4, DrainOptions{}, true)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -389,7 +389,7 @@ func TestUpdateDigitaloceanNodeGroupInstanceType_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, _, err := testClient.UpdateDigitaloceanNodeGroupInstanceType(context.Background(), clusterID, groupName, instanceType, true)
+	result, _, err := testClient.UpdateDigitaloceanNodeGroupInstanceType(context.Background(), clusterID, groupName, instanceType, DrainOptions{}, true)
 	if err != nil {
 		t.Fatalf("UpdateDigitaloceanNodeGroupInstanceType: %v", err)
 	}
@@ -408,7 +408,7 @@ func TestUpdateDigitaloceanNodeGroupInstanceType_Error(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})
-	_, _, err := testClient.UpdateDigitaloceanNodeGroupInstanceType(context.Background(), clusterID, groupName, "4xCPU-8GB", true)
+	_, _, err := testClient.UpdateDigitaloceanNodeGroupInstanceType(context.Background(), clusterID, groupName, "4xCPU-8GB", DrainOptions{}, true)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -428,7 +428,7 @@ func TestDeleteDigitaloceanNodeGroup_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, _, err := testClient.DeleteDigitaloceanNodeGroup(context.Background(), clusterID, groupName, true)
+	result, _, err := testClient.DeleteDigitaloceanNodeGroup(context.Background(), clusterID, groupName, DrainOptions{}, true)
 	if err != nil {
 		t.Fatalf("DeleteDigitaloceanNodeGroup: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestDeleteDigitaloceanNodeGroup_Error(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 	})
-	_, _, err := testClient.DeleteDigitaloceanNodeGroup(context.Background(), clusterID, groupName, true)
+	_, _, err := testClient.DeleteDigitaloceanNodeGroup(context.Background(), clusterID, groupName, DrainOptions{}, true)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

@@ -112,8 +112,8 @@ func (c *Client) GetProxmoxWorkerCount(clusterID string) (*WorkerCountResult, er
 	return c.getProviderWorkerCount(proxmoxKind, clusterID)
 }
 
-func (c *Client) ScaleProxmoxWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
-	return c.scaleProviderWorkers(proxmoxKind, clusterID, workerCount)
+func (c *Client) ScaleProxmoxWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
+	return c.scaleProviderWorkers(proxmoxKind, clusterID, workerCount, drainOptions)
 }
 
 func (c *Client) GetProxmoxK8sVersion(clusterID string) (*K8sVersionInfo, error) {
@@ -132,12 +132,12 @@ func (c *Client) AddProxmoxNodeGroup(ctx context.Context, clusterID string, requ
 	return c.addProviderNodeGroup(ctx, proxmoxKind, clusterID, request, wait)
 }
 
-func (c *Client) ScaleProxmoxNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*ScaleNodeGroupResult, bool, error) {
-	return c.scaleProviderNodeGroup(ctx, proxmoxKind, clusterID, groupName, count, wait)
+func (c *Client) ScaleProxmoxNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
+	return c.scaleProviderNodeGroup(ctx, proxmoxKind, clusterID, groupName, count, drainOptions, wait)
 }
 
-func (c *Client) UpdateProxmoxNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	return c.updateProviderNodeGroupInstanceType(ctx, proxmoxKind, clusterID, groupName, instanceType, wait)
+func (c *Client) UpdateProxmoxNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	return c.updateProviderNodeGroupInstanceType(ctx, proxmoxKind, clusterID, groupName, instanceType, drainOptions, wait)
 }
 
 func (c *Client) UpdateProxmoxNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
@@ -158,8 +158,8 @@ func (c *Client) UpdateProxmoxNodeGroupTaints(ctx context.Context, clusterID, gr
 	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
-func (c *Client) DeleteProxmoxNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
-	return c.deleteProviderNodeGroup(ctx, proxmoxKind, clusterID, groupName, wait)
+func (c *Client) DeleteProxmoxNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
+	return c.deleteProviderNodeGroup(ctx, proxmoxKind, clusterID, groupName, drainOptions, wait)
 }
 
 func (c *Client) GetProxmoxNodeGroupAutoscaling(clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {

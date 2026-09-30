@@ -90,6 +90,10 @@ type WorkerCountResult struct {
 
 type ScaleWorkersRequest struct {
 	WorkerCount int `json:"worker_count"`
+	// ForceDrain removes the workers a scale-down takes away without
+	// honouring their pods' PodDisruptionBudgets (see DrainOptions).
+	// Omitted when false.
+	ForceDrain bool `json:"force_drain,omitempty"`
 }
 
 type ScaleWorkersResult struct {
@@ -210,9 +214,9 @@ func (c *Client) UpgradeHetznerK8sVersion(clusterID, targetVersion string, force
 	return c.doUpgradeK8sVersion(url, targetVersion, force)
 }
 
-func (c *Client) ScaleHetznerWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
+func (c *Client) ScaleHetznerWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/scale-workers", c.BaseURL, clusterID)
-	return c.doScaleWorkers(url, workerCount)
+	return c.doScaleWorkers(url, workerCount, drainOptions)
 }
 
 type NodeGroupInfo struct {
@@ -274,6 +278,10 @@ type AddNodeGroupResult struct {
 
 type ScaleNodeGroupRequest struct {
 	Count int `json:"count"`
+	// ForceDrain removes the nodes a scale-down takes away without
+	// honouring their pods' PodDisruptionBudgets (see DrainOptions).
+	// Omitted when false.
+	ForceDrain bool `json:"force_drain,omitempty"`
 }
 
 type ScaleNodeGroupResult struct {
@@ -284,6 +292,17 @@ type ScaleNodeGroupResult struct {
 
 type UpdateInstanceTypeRequest struct {
 	InstanceType string `json:"instance_type"`
+}
+
+// UpdateNodeGroupInstanceTypeRequest is the PUT .../node-groups/{group}/
+// instance-type body. It is UpdateInstanceTypeRequest (the bastion resize's
+// body) plus force_drain, which only the node-group resize reads: a resize
+// power-cycles every node in the group and drains each one first.
+type UpdateNodeGroupInstanceTypeRequest struct {
+	InstanceType string `json:"instance_type"`
+	// ForceDrain drains each node before its resize without honouring its
+	// pods' PodDisruptionBudgets (see DrainOptions). Omitted when false.
+	ForceDrain bool `json:"force_drain,omitempty"`
 }
 
 type UpdateLabelsRequest struct {
@@ -338,18 +357,18 @@ func (c *Client) AddHetznerNodeGroup(ctx context.Context, clusterID string, req 
 	return c.doAddNodeGroup(ctx, url, payload, wait)
 }
 
-func (c *Client) ScaleHetznerNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*ScaleNodeGroupResult, bool, error) {
+func (c *Client) ScaleHetznerNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/scale", c.BaseURL, clusterID, groupName)
-	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count})
+	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
 	return c.doScaleNodeGroup(ctx, url, payload, wait)
 }
 
-func (c *Client) UpdateHetznerNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
+func (c *Client) UpdateHetznerNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
-	payload, err := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
+	payload, err := json.Marshal(UpdateNodeGroupInstanceTypeRequest{InstanceType: instanceType, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
@@ -374,9 +393,9 @@ func (c *Client) UpdateHetznerNodeGroupTaints(ctx context.Context, clusterID, gr
 	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
-func (c *Client) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
+func (c *Client) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
-	return c.doDeleteNodeGroup(ctx, url, wait)
+	return c.doDeleteNodeGroup(ctx, url, drainOptions, wait)
 }
 
 func (c *Client) GetHetznerNodeGroupAutoscaling(clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {
@@ -449,9 +468,11 @@ func (c *Client) doUpdateNodeGroup(ctx context.Context, url string, payload []by
 	return &result, false, nil
 }
 
-func (c *Client) doDeleteNodeGroup(ctx context.Context, url string, wait bool) (*DeleteNodeGroupResult, bool, error) {
+// doDeleteNodeGroup deletes the node group at url. The delete has no body,
+// so a forced drain rides on the force_drain query flag.
+func (c *Client) doDeleteNodeGroup(ctx context.Context, url string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
 	var result DeleteNodeGroupResult
-	submitted, err := c.doJSONWriteRequest(ctx, http.MethodDelete, url, nil, wait, &result)
+	submitted, err := c.doJSONWriteRequest(ctx, http.MethodDelete, url+drainOptions.query(), nil, wait, &result)
 	if err != nil {
 		return nil, false, err
 	}
@@ -461,8 +482,8 @@ func (c *Client) doDeleteNodeGroup(ctx context.Context, url string, wait bool) (
 	return &result, false, nil
 }
 
-func (c *Client) doScaleWorkers(url string, workerCount int) (*ScaleWorkersResult, error) {
-	payload, err := json.Marshal(ScaleWorkersRequest{WorkerCount: workerCount})
+func (c *Client) doScaleWorkers(url string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
+	payload, err := json.Marshal(ScaleWorkersRequest{WorkerCount: workerCount, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}

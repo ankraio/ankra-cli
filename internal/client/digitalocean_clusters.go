@@ -170,9 +170,9 @@ func (c *Client) AddDigitaloceanNodeGroup(ctx context.Context, clusterID string,
 	return c.doAddNodeGroup(ctx, url, payload, wait)
 }
 
-func (c *Client) ScaleDigitaloceanNodeGroup(ctx context.Context, clusterID, groupName string, count int, wait bool) (*ScaleNodeGroupResult, bool, error) {
+func (c *Client) ScaleDigitaloceanNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/scale", c.BaseURL, clusterID, groupName)
-	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count})
+	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
@@ -193,9 +193,9 @@ func (c *Client) UpdateDigitaloceanNodeGroupAutoscaling(ctx context.Context, clu
 	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, wait)
 }
 
-func (c *Client) UpdateDigitaloceanNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, wait bool) (*UpdateNodeGroupResult, bool, error) {
+func (c *Client) UpdateDigitaloceanNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
-	payload, err := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
+	payload, err := json.Marshal(UpdateNodeGroupInstanceTypeRequest{InstanceType: instanceType, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
@@ -220,14 +220,14 @@ func (c *Client) UpdateDigitaloceanNodeGroupTaints(ctx context.Context, clusterI
 	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
-func (c *Client) DeleteDigitaloceanNodeGroup(ctx context.Context, clusterID, groupName string, wait bool) (*DeleteNodeGroupResult, bool, error) {
+func (c *Client) DeleteDigitaloceanNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
-	return c.doDeleteNodeGroup(ctx, url, wait)
+	return c.doDeleteNodeGroup(ctx, url, drainOptions, wait)
 }
 
-func (c *Client) ScaleDigitaloceanWorkers(clusterID string, workerCount int) (*ScaleWorkersResult, error) {
+func (c *Client) ScaleDigitaloceanWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
 	scaleURL := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/scale-workers", c.BaseURL, clusterID)
-	return c.doScaleWorkers(scaleURL, workerCount)
+	return c.doScaleWorkers(scaleURL, workerCount, drainOptions)
 }
 
 func (c *Client) StopDigitaloceanCluster(clusterID string, options StopClusterOptions) (*StopDigitaloceanClusterResponse, error) {

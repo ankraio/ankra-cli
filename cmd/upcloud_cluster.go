@@ -267,7 +267,7 @@ var upcloudScaleCmd = &cobra.Command{
 			return fmt.Errorf("invalid worker count: %w", err)
 		}
 
-		result, err := apiClient.ScaleUpcloudWorkers(clusterID, workerCount)
+		result, err := apiClient.ScaleUpcloudWorkers(clusterID, workerCount, client.DrainOptions{})
 		if err != nil {
 			return fmt.Errorf("scaling workers: %w", err)
 		}
@@ -516,7 +516,7 @@ var upcloudNodeGroupScaleCmd = &cobra.Command{
 		}
 		defer cancelRequestContext()
 
-		result, submitted, err := apiClient.ScaleUpcloudNodeGroup(requestContext, clusterID, groupName, count, wait)
+		result, submitted, err := apiClient.ScaleUpcloudNodeGroup(requestContext, clusterID, groupName, count, client.DrainOptions{}, wait)
 		if err != nil {
 			return asyncWriteError("scaling node group", wait, err)
 		}
@@ -557,7 +557,7 @@ var upcloudNodeGroupUpgradeCmd = &cobra.Command{
 		}
 		defer cancelRequestContext()
 
-		result, submitted, err := apiClient.UpdateUpcloudNodeGroupInstanceType(requestContext, clusterID, groupName, plan, wait)
+		result, submitted, err := apiClient.UpdateUpcloudNodeGroupInstanceType(requestContext, clusterID, groupName, plan, client.DrainOptions{}, wait)
 		if err != nil {
 			return asyncWriteError("upgrading node group", wait, err)
 		}
@@ -604,7 +604,7 @@ var upcloudNodeGroupDeleteCmd = &cobra.Command{
 		}
 		defer cancelRequestContext()
 
-		result, submitted, err := apiClient.DeleteUpcloudNodeGroup(requestContext, clusterID, groupName, wait)
+		result, submitted, err := apiClient.DeleteUpcloudNodeGroup(requestContext, clusterID, groupName, client.DrainOptions{}, wait)
 		if err != nil {
 			return asyncWriteError("deleting node group", wait, err)
 		}
