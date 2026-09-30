@@ -66,6 +66,30 @@ type shipApplicationView struct {
 	AppRepoBranch       string  `json:"app_repo_branch"`
 	PullRequestURL      *string `json:"pull_request_url"`
 	PullRequestMergedAt *string `json:"pull_request_merged_at"`
+	PullRequestClosedAt *string `json:"pull_request_closed_at"`
+	// PipelineSource is what builds the application, as the platform decided
+	// it (cluster enginekit/pipelinesource): ankra_pipeline, own_ci,
+	// generated_workflow or none. Null is undecided, and so is a platform
+	// older than the field.
+	PipelineSource *string `json:"pipeline_source"`
+}
+
+// The pipeline_source values ship steers by (cluster
+// enginekit/pipelinesource; the set is frozen there).
+const (
+	shipSourceAnkraPipeline     = "ankra_pipeline"
+	shipSourceOwnCI             = "own_ci"
+	shipSourceGeneratedWorkflow = "generated_workflow"
+	shipSourceNone              = "none"
+)
+
+// pipelineSource answers the application's decided build source, or "" while
+// it is undecided.
+func (application shipApplicationView) pipelineSource() string {
+	if application.PipelineSource == nil {
+		return ""
+	}
+	return strings.TrimSpace(*application.PipelineSource)
 }
 
 func newApplicationShipCommand() *cobra.Command {
@@ -76,10 +100,21 @@ func newApplicationShipCommand() *cobra.Command {
 
 Ship composes the existing application lanes: it registers the repository as
 an application when the organisation does not have it yet (with exactly the
-'application add' flags), waits for the setup analysis, walks you through the
-setup pull request merge gate, waits for a green image build of the tracked
-branch, deploys to the target cluster, and follows the installation until the
-workload is running - then prints the published URL when one exists.
+'application add' flags), waits for the setup analysis, waits for a green
+image build of the tracked branch, deploys to the target cluster, and follows
+the installation until the workload is running - then prints the published
+URL when one exists.
+
+The build it waits for is the one that actually builds the application:
+  - Ankra Pipelines (the default for new applications): the pipeline run for
+    the tracked branch's head commit, until its publish steps succeed. When no
+    run for that commit appears within a minute - nothing has been pushed
+    since the application was registered - ship dispatches one.
+  - The repository's own GitHub Actions workflow: its latest run on the
+    tracked branch.
+  - The workflow Ankra generated: its latest run on the tracked branch, once
+    you have merged the setup pull request that adds it. Only this lane waits
+    on the merge.
 
 Every wait step says what it is waiting on and where to look. Re-running ship
 is safe at any point: it re-reads where the flow actually is and continues
@@ -196,21 +231,32 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 	}
 
 	var buildReference string
-	if useAnkraBuild {
-		var buildError error
+	var buildError error
+	switch source := application.pipelineSource(); {
+	case useAnkraBuild:
 		buildReference, buildError = runShipPlatformBuild(waitContext, command, progress, application.ID, trackedBranch)
-		if buildError != nil {
-			return buildError
+	case source == shipSourceAnkraPipeline:
+		// Ankra Pipelines plans runs from the stored definition, so nothing
+		// here waits on the setup pull request (cluster
+		// enginekit/appworkflow.SetupPullRequestAwaitsMerge).
+		buildReference, buildError = waitForPipelineBuild(waitContext, progress, application.ID, trackedBranch)
+	case source == shipSourceNone:
+		buildError = fmt.Errorf(
+			"nothing builds application %s (its build source is 'none'), so there is no image to wait for - "+
+				"re-run with --ankra-build to build on Ankra's builders, or add a pipeline with 'ankra application pipeline'",
+			application.Name)
+	default:
+		// own_ci does not wait on the setup pull request either: the
+		// repository's own workflow already publishes the image.
+		if source != shipSourceOwnCI {
+			buildError = waitForSetupPullRequestMerge(waitContext, progress, application.ID, application)
 		}
-	} else {
-		if mergeError := waitForSetupPullRequestMerge(waitContext, progress, application.ID, application); mergeError != nil {
-			return mergeError
+		if buildError == nil {
+			buildReference, buildError = waitForWorkflowSuccess(waitContext, progress, application.ID, trackedBranch)
 		}
-		var workflowError error
-		buildReference, workflowError = waitForWorkflowSuccess(waitContext, progress, application.ID, trackedBranch)
-		if workflowError != nil {
-			return workflowError
-		}
+	}
+	if buildError != nil {
+		return buildError
 	}
 
 	namespace := namespaceFlag
@@ -588,6 +634,9 @@ func waitForSetupPullRequestMerge(
 	if application.PullRequestMergedAt != nil && *application.PullRequestMergedAt != "" {
 		return nil
 	}
+	if closed := setupPullRequestClosedError(application); closed != nil {
+		return closed
+	}
 	_, _ = fmt.Fprintf(progress,
 		"Waiting for the setup pull request to be merged:\n  %s\nMerge it to let the repository's CI build the first image (or re-run with --ankra-build to build on Ankra's builders instead).\n",
 		*application.PullRequestURL)
@@ -608,7 +657,27 @@ func waitForSetupPullRequestMerge(
 			_, _ = fmt.Fprintln(progress, "Setup pull request merged.")
 			return nil
 		}
+		if closed := setupPullRequestClosedError(current); closed != nil {
+			return closed
+		}
 	}
+}
+
+// setupPullRequestClosedError is the gate's answer for a setup pull request
+// closed without merging: on this lane the workflow that builds the image
+// lives in that pull request, so nothing will build until it is reopened and
+// merged, and waiting would only run out the --timeout.
+func setupPullRequestClosedError(application shipApplicationView) error {
+	if application.PullRequestClosedAt == nil || *application.PullRequestClosedAt == "" {
+		return nil
+	}
+	pullRequestURL := ""
+	if application.PullRequestURL != nil {
+		pullRequestURL = *application.PullRequestURL
+	}
+	return fmt.Errorf(
+		"the setup pull request was closed without merging (%s), and it carries the workflow that builds the image - "+
+			"reopen and merge it, or re-run with --ankra-build to build on Ankra's builders", pullRequestURL)
 }
 
 // shipWorkflowRun and shipWorkflowRunsPage are the slice of the
@@ -719,6 +788,28 @@ type shipBranchListing struct {
 	Error *string `json:"error"`
 }
 
+// shipTrackedBranchHead reads the commit the tracked branch points at, from
+// the repository host through the platform.
+func shipTrackedBranchHead(waitContext context.Context, applicationID string, trackedBranch string) (string, error) {
+	branchesPayload, branchesError := apiClient.GetApplicationBranches(waitContext, applicationID)
+	if branchesError != nil {
+		return "", shipReadError(waitContext, "reading the repository branches", branchesError)
+	}
+	var branches shipBranchListing
+	if unmarshalError := json.Unmarshal(branchesPayload, &branches); unmarshalError != nil {
+		return "", fmt.Errorf("reading the repository branches: %w", unmarshalError)
+	}
+	if branches.Error != nil && *branches.Error != "" {
+		return "", fmt.Errorf("reading the repository branches: %s", *branches.Error)
+	}
+	for _, branch := range branches.Branches {
+		if strings.EqualFold(branch.Name, trackedBranch) && branch.HeadSHA != "" {
+			return branch.HeadSHA, nil
+		}
+	}
+	return "", fmt.Errorf("branch %q was not found in the repository, so there is no commit to build", trackedBranch)
+}
+
 // runShipPlatformBuild builds the tracked branch's head commit on Ankra's
 // builders and follows the build to a pushed image, reusing the build lane's
 // own polling. The routes answer 404 for organisations without the
@@ -731,26 +822,9 @@ func runShipPlatformBuild(
 	applicationID string,
 	trackedBranch string,
 ) (string, error) {
-	branchesPayload, branchesError := apiClient.GetApplicationBranches(waitContext, applicationID)
-	if branchesError != nil {
-		return "", fmt.Errorf("reading the repository branches: %w", branchesError)
-	}
-	var branches shipBranchListing
-	if unmarshalError := json.Unmarshal(branchesPayload, &branches); unmarshalError != nil {
-		return "", fmt.Errorf("reading the repository branches: %w", unmarshalError)
-	}
-	if branches.Error != nil && *branches.Error != "" {
-		return "", fmt.Errorf("reading the repository branches: %s", *branches.Error)
-	}
-	headSHA := ""
-	for _, branch := range branches.Branches {
-		if strings.EqualFold(branch.Name, trackedBranch) {
-			headSHA = branch.HeadSHA
-			break
-		}
-	}
-	if headSHA == "" {
-		return "", fmt.Errorf("branch %q was not found in the repository, so there is no commit to build", trackedBranch)
+	headSHA, headError := shipTrackedBranchHead(waitContext, applicationID, trackedBranch)
+	if headError != nil {
+		return "", headError
 	}
 
 	startPayload, startError := apiClient.StartApplicationPlatformBuild(waitContext, applicationID,
