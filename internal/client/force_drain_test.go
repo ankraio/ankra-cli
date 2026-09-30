@@ -155,6 +155,58 @@ func assertNoForceDrainQuery(t *testing.T, recorded *recordedRequest) {
 	}
 }
 
+// controlPlaneResizeProviders is every provider's control-plane instance-type
+// change, bound as a method expression so each exported method is exercised
+// and not only the shared request behind it (ankra-6w1gt).
+var controlPlaneResizeProviders = []struct {
+	kind         string
+	changeMethod func(*Client, string, string, DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error)
+}{
+	{"hetzner", (*Client).ChangeHetznerControlPlaneInstanceType},
+	{"ovh", (*Client).ChangeOvhControlPlaneInstanceType},
+	{"upcloud", (*Client).ChangeUpcloudControlPlaneInstanceType},
+	{"digitalocean", (*Client).ChangeDigitaloceanControlPlaneInstanceType},
+	{"scaleway", (*Client).ChangeScalewayControlPlaneInstanceType},
+	{"aws", (*Client).ChangeAwsControlPlaneInstanceType},
+	{"proxmox", (*Client).ChangeProxmoxControlPlaneInstanceType},
+	{"morpheus", (*Client).ChangeMorpheusControlPlaneInstanceType},
+	{"ankracloud", (*Client).ChangeAnkraCloudControlPlaneInstanceType},
+}
+
+// TestControlPlaneInstanceTypeCarriesForceDrainOnlyWhenAsked pins the
+// control-plane resize body for every provider: unset, it is only
+// instance_type, byte-identical to the body before force_drain existed; set,
+// it carries force_drain as a JSON true (the platform refuses a non-bool with
+// a 422), and never as a query flag.
+func TestControlPlaneInstanceTypeCarriesForceDrainOnlyWhenAsked(t *testing.T) {
+	const clusterID = "cluster-123"
+
+	drainCases := []struct {
+		name         string
+		drainOptions DrainOptions
+		wantBody     string
+	}{
+		{name: "unset", drainOptions: DrainOptions{}, wantBody: `{"instance_type":"large"}`},
+		{name: "force", drainOptions: DrainOptions{ForceDrain: true}, wantBody: `{"instance_type":"large","force_drain":true}`},
+	}
+
+	for _, provider := range controlPlaneResizeProviders {
+		for _, drainCase := range drainCases {
+			t.Run(provider.kind+"/"+drainCase.name, func(t *testing.T) {
+				testClient, recorded := recordingClient(t, ChangeControlPlaneInstanceTypeResult{
+					PreviousInstanceType: "small", NewInstanceType: "large", Updated: 3, Mode: ControlPlaneChangeModeRolling,
+				})
+				if _, changeError := provider.changeMethod(testClient, clusterID, "large", drainCase.drainOptions); changeError != nil {
+					t.Fatalf("change control plane instance type: %v", changeError)
+				}
+				assertRecordedRequest(t, recorded, http.MethodPut,
+					"/api/v1/clusters/"+provider.kind+"/"+clusterID+"/control-plane/instance-type", drainCase.wantBody)
+				assertNoForceDrainQuery(t, recorded)
+			})
+		}
+	}
+}
+
 // TestBastionResizeBodyCarriesNoForceDrain pins that the bastion resize,
 // whose route reads no force_drain, keeps its own body shape: the node-group
 // resize got a separate request type rather than a field on this one.
