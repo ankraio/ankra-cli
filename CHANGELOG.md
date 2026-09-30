@@ -44,7 +44,9 @@
   it was scoped to, the tools the model ran with how each ended, and any
   write it proposed that is waiting for `ankra chat actions confirm`. Status
   lines and notices stay on stderr, so stdout is only the document. A turn
-  that fails still prints it, with `error` set, and exits non-zero.
+  that starts and then fails still prints it, with `error` set, and exits
+  non-zero; a question the platform refuses to start (a rejected token, an
+  unknown cluster) prints nothing on stdout and exits with that error's code.
   Interactive chat has no structured output, and without `-o` the one-shot
   answer prints as before.
 

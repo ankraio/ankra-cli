@@ -45,14 +45,17 @@ type chatOneShotResult struct {
 // JSON or YAML document on stdout. Nothing else reaches stdout: notices (a
 // stale selection, stripped hidden runes, an error frame) go to stderr.
 func runChatMessageStructured(cmd *cobra.Command, scope chatScope, conversationID string, query string, interactionMode string) error {
-	conversationID, startedConversation, query, err := prepareOneShot(conversationID, query)
+	errOut := cmd.ErrOrStderr()
+	conversationID, startedConversation, query, err := prepareOneShot(conversationID, query, errOut)
 	if err != nil {
 		return err
 	}
-	errOut := cmd.ErrOrStderr()
 	req := client.ChatRequest{Query: query, InteractionMode: interactionMode}
 	events, session, scope, err := openChatTurn(scope, conversationID, req, interactionMode, errOut)
 	if err != nil {
+		// No turn exists to describe, so no document: the error (and its exit
+		// code - 6 for a rejected token, 3 for an unknown cluster) is the
+		// answer, on stderr like every other failure.
 		return fmt.Errorf("chat: %w", err)
 	}
 

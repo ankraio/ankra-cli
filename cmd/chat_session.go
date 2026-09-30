@@ -73,9 +73,12 @@ type chatToolCall struct {
 }
 
 // recordToolFrame folds a tool_start or tool_result frame into the turn's
-// tool calls: a frame for a call already seen (same tool_call_id) updates
-// it, anything else starts a new entry. Frames without a tool name are
-// skipped, the same frames the text renderer skips.
+// tool calls: a frame for a call already seen updates it, anything else
+// starts a new entry. A call is the same one when the tool_call_id matches;
+// a result that carries no id settles the newest unsettled call of the same
+// tool that has no id either, so an id-less start and its result stay one
+// entry. Frames without a tool name are skipped, the same frames the text
+// renderer skips.
 func (outcome *chatTurnOutcome) recordToolFrame(data any, isResult bool) {
 	frame, ok := data.(map[string]any)
 	if !ok {
@@ -91,6 +94,14 @@ func (outcome *chatTurnOutcome) recordToolFrame(data any, isResult bool) {
 		for index := range outcome.toolCalls {
 			if outcome.toolCalls[index].ToolCallID == toolCallID {
 				call = &outcome.toolCalls[index]
+				break
+			}
+		}
+	} else if isResult {
+		for index := len(outcome.toolCalls) - 1; index >= 0; index-- {
+			candidate := &outcome.toolCalls[index]
+			if candidate.ToolCallID == "" && candidate.ToolName == toolName && candidate.Success == nil {
+				call = candidate
 				break
 			}
 		}

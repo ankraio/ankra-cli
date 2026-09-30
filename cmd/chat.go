@@ -71,9 +71,11 @@ A one-shot question takes -o json (or -o yaml) for scripts and CI jobs: the
 answer is printed once, when the turn ends, as one document carrying the
 answer text, the conversation id, the safety mode the turn ran in, the
 cluster it was scoped to, the tools the model ran and any write left
-awaiting confirmation. A turn that fails still prints the document, with its
-"error" member set, and exits non-zero. Interactive mode has no structured
-output.`,
+awaiting confirmation. A turn that starts and then fails still prints the
+document, with its "error" member set, and exits non-zero; a question the
+platform refuses to start (a rejected token, an unknown cluster) prints
+nothing on stdout and exits with that error's code. Interactive mode has no
+structured output.`,
 	Example: `  # Ask once, scoped to a cluster
   ankra chat --cluster prod "why is the payments pod restarting?"
 
@@ -174,7 +176,7 @@ func openChatTurn(scope chatScope, conversationID string, req client.ChatRequest
 // AI reads this text, so what we send carries no invisible runes: a payload
 // pasted in from a ticket or a log would otherwise reach the model intact
 // while the operator saw an ordinary question (ankra-4r75g.9).
-func prepareOneShot(conversationID, query string) (string, bool, string, error) {
+func prepareOneShot(conversationID, query string, errOut io.Writer) (string, bool, string, error) {
 	startedConversation := conversationID == ""
 	if startedConversation {
 		generated, err := newChatUUID()
@@ -185,13 +187,13 @@ func prepareOneShot(conversationID, query string) (string, bool, string, error) 
 	}
 	query, queryHidden := hiddenunicode.Strip(query)
 	if queryHidden > 0 {
-		_, _ = fmt.Fprintf(os.Stderr, "%s\n", hiddenunicode.Notice(queryHidden))
+		_, _ = fmt.Fprintf(errOut, "%s\n", hiddenunicode.Notice(queryHidden))
 	}
 	return conversationID, startedConversation, query, nil
 }
 
 func runChatMessage(scope chatScope, conversationID string, query string, interactionMode string) error {
-	conversationID, startedConversation, query, err := prepareOneShot(conversationID, query)
+	conversationID, startedConversation, query, err := prepareOneShot(conversationID, query, os.Stderr)
 	if err != nil {
 		return err
 	}

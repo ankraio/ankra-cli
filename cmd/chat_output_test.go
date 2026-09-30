@@ -264,3 +264,50 @@ func TestChat_RejectsAnUnknownOutputFormat(t *testing.T) {
 		t.Error("no session may be opened for a rejected invocation")
 	}
 }
+
+func TestChatOneShotJSON_FoldsAnIdlessToolStartAndResult(t *testing.T) {
+	mock := &chatSessionMock{tails: [][]client.ChatStreamEvent{{
+		{Type: "tool_start", Data: map[string]any{"tool_name": "get_nodes"}, Sequence: 2},
+		{Type: "tool_result", Data: map[string]any{"tool_name": "get_nodes", "success": true}, Sequence: 3},
+		{Type: "tool_start", Data: map[string]any{"tool_name": "get_nodes"}, Sequence: 4},
+		{Type: "tool_result", Data: map[string]any{"tool_name": "get_nodes", "success": false, "error": "timed out"}, Sequence: 5},
+		contentFrame(6, "ok"),
+		endFrame(),
+	}}}
+	stdout, _, err := runChatStructured(t, mock, "chat", "-o", "json", "hello")
+	if err != nil {
+		t.Fatalf("chat failed: %v", err)
+	}
+	toolCalls, _ := decodeChatResult(t, stdout)["tool_calls"].([]any)
+	if len(toolCalls) != 2 {
+		t.Fatalf("tool_calls = %v, want the two calls, each start folded with its result", toolCalls)
+	}
+	first, _ := toolCalls[0].(map[string]any)
+	second, _ := toolCalls[1].(map[string]any)
+	if first["success"] != true || second["success"] != false || second["error"] != "timed out" {
+		t.Errorf("tool_calls = %v, want the first succeeded and the second failed", toolCalls)
+	}
+}
+
+func TestChatOneShotJSON_RefusedTurnPrintsNoDocument(t *testing.T) {
+	mock := &chatSessionMock{createErrors: []error{client.ErrUnauthorized}}
+	stdout, _, err := runChatStructured(t, mock, "chat", "-o", "json", "hello")
+	if err == nil || exitCodeFor(err) != exitAuth {
+		t.Fatalf("err = %v (exit %d), want the auth failure's exit code", err, exitCodeFor(err))
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want nothing when no turn started", stdout)
+	}
+}
+
+func TestChatOneShotJSON_HiddenRuneNoticeUsesTheCommandsErrorStream(t *testing.T) {
+	mock := &chatSessionMock{tails: [][]client.ChatStreamEvent{{contentFrame(2, "ok"), endFrame()}}}
+	stdout, stderr, err := runChatStructured(t, mock, "chat", "-o", "json", "hel\u200blo")
+	if err != nil {
+		t.Fatalf("chat failed: %v", err)
+	}
+	decodeChatResult(t, stdout)
+	if !strings.Contains(stderr, "invisible character") {
+		t.Errorf("stderr = %q, want the stripped-runes notice on the command's error stream", stderr)
+	}
+}
