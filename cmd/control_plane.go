@@ -14,7 +14,7 @@ type controlPlaneOps struct {
 	provider        string
 	get             func(clusterID string) (*client.ControlPlaneInfo, error)
 	setCount        func(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error)
-	setInstanceType func(clusterID, instanceType string) (*client.ChangeControlPlaneInstanceTypeResult, error)
+	setInstanceType func(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error)
 }
 
 func hetznerControlPlaneOps() controlPlaneOps {
@@ -170,9 +170,11 @@ func runControlPlaneSetCount(cmd *cobra.Command, opsFn func() controlPlaneOps, c
 	return nil
 }
 
+// runControlPlaneSetInstanceType sends the instance-type change with the
+// command's --force-drain; a command without the flag sends none.
 func runControlPlaneSetInstanceType(cmd *cobra.Command, opsFn func() controlPlaneOps, clusterID, instanceType string) error {
 	ops := opsFn()
-	res, err := ops.setInstanceType(clusterID, instanceType)
+	res, err := ops.setInstanceType(clusterID, instanceType, drainOptionsFromFlags(cmd))
 	if err != nil {
 		return err
 	}
@@ -214,7 +216,8 @@ func runControlPlaneSetInstanceType(cmd *cobra.Command, opsFn func() controlPlan
 // against the provider's catalog, so the provider is the first thing to reject
 // it - and on the offline lane the provider only sees it at the next start,
 // with the cluster already stopped. Naming the catalog command is the one
-// chance to check a name before that point.
+// chance to check a name before that point. It then explains --force-drain,
+// which only the rolling lane reads.
 //
 // catalogCommand is the provider's own listing command, without the leading
 // "ankra cluster", and empty for the providers that have none.
@@ -225,6 +228,7 @@ The instance type is stored as given; it is not checked against %s's catalog.
 A name that does not exist is rejected by %s itself, which on a stopped
 cluster is at the next start - after this command has already reported
 success.`, provider, provider, provider)
+	long += "\n\n" + controlPlaneForceDrainHelp
 	if catalogCommand != "" {
 		long += fmt.Sprintf("\n\nList the instance types that do exist with:\n  ankra cluster %s", catalogCommand)
 	}
@@ -296,6 +300,7 @@ Run "control-plane get" to see which of the two is available right now.`,
 		},
 	}
 
+	registerForceDrainFlag(setInstanceTypeCmd, forceDrainControlPlaneResizeUsage)
 	registerStructuredOutputFlags(getCmd, setCountCmd, setInstanceTypeCmd)
 	cmd.AddCommand(getCmd, setCountCmd, setInstanceTypeCmd)
 	return cmd

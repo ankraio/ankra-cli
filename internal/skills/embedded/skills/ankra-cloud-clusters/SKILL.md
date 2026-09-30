@@ -266,6 +266,14 @@ ankra cluster ovh access-info <cluster_id>            # bastion/control-plane IP
 ankra cluster power-schedules ...                     # scheduled stop/start
 ```
 
+`control-plane set-instance-type` on a running cluster with three controllers is a rolling resize:
+each controller is drained, honouring its pods' PodDisruptionBudgets, and resized one at a time.
+`--force-drain` bypasses PodDisruptionBudgets for that drain, so pods whose budget refuses eviction
+are evicted anyway. It applies to that one request and only matters for the live rolling resize: a
+stopped cluster's offline resize drains nothing and ignores it, and so does a running cluster with
+fewer than three controllers (the rolling resize refuses it) or one already on that type. Same rule
+as for workers: say so before using it, never add it by reflex.
+
 ## 5. Teardown — three different things
 
 Do not confuse these; the words are similar and the outcomes are not.

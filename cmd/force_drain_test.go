@@ -178,3 +178,141 @@ func TestForceDrainFlagIsOffByDefaultAndNamesPodDisruptionBudgets(t *testing.T) 
 		}
 	}
 }
+
+// controlPlaneResizeCall is one control-plane instance-type change the
+// command made: which provider's client method it reached, and with what.
+type controlPlaneResizeCall struct {
+	provider     string
+	drainOptions client.DrainOptions
+}
+
+// forceDrainControlPlaneMock records every provider's control-plane
+// instance-type change, so a command routed to the wrong provider's method is
+// caught as well as a flag that never reaches the call.
+type forceDrainControlPlaneMock struct {
+	baseMock
+	calls []controlPlaneResizeCall
+}
+
+func (m *forceDrainControlPlaneMock) record(provider, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	m.calls = append(m.calls, controlPlaneResizeCall{provider: provider, drainOptions: drainOptions})
+	return &client.ChangeControlPlaneInstanceTypeResult{
+		PreviousInstanceType: "small", NewInstanceType: instanceType, Updated: 3, Mode: client.ControlPlaneChangeModeRolling,
+	}, nil
+}
+
+func (m *forceDrainControlPlaneMock) ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("hetzner", instanceType, drainOptions)
+}
+
+func (m *forceDrainControlPlaneMock) ChangeOvhControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("ovh", instanceType, drainOptions)
+}
+
+func (m *forceDrainControlPlaneMock) ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("upcloud", instanceType, drainOptions)
+}
+
+func (m *forceDrainControlPlaneMock) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("digitalocean", instanceType, drainOptions)
+}
+
+func (m *forceDrainControlPlaneMock) ChangeScalewayControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("scaleway", instanceType, drainOptions)
+}
+
+func (m *forceDrainControlPlaneMock) ChangeAnkraCloudControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("ankracloud", instanceType, drainOptions)
+}
+
+func (m *forceDrainControlPlaneMock) ChangeAwsControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("aws", instanceType, drainOptions)
+}
+
+func (m *forceDrainControlPlaneMock) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("proxmox", instanceType, drainOptions)
+}
+
+func (m *forceDrainControlPlaneMock) ChangeMorpheusControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("morpheus", instanceType, drainOptions)
+}
+
+// controlPlaneProviderCommands are the provider command names that carry a
+// control-plane group; the recorded provider must match the command's.
+var controlPlaneProviderCommands = []string{
+	"hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "ankracloud", "aws", "proxmox", "morpheus",
+}
+
+// findSetInstanceTypeCommand returns provider's `control-plane
+// set-instance-type` from the command tree. The command is built per provider
+// by newControlPlaneCmd, so there is no package variable to name it by.
+func findSetInstanceTypeCommand(t *testing.T, provider string) *cobra.Command {
+	t.Helper()
+	command, _, findError := rootCmd.Find([]string{"cluster", provider, "control-plane", "set-instance-type"})
+	if findError != nil || command.Name() != "set-instance-type" {
+		t.Fatalf("cluster %s control-plane set-instance-type not found: %v", provider, findError)
+	}
+	return command
+}
+
+// TestControlPlaneSetInstanceTypePassesForceDrainThrough pins, for every
+// provider, that `control-plane set-instance-type` reaches that provider's
+// client method and sends --force-drain only when given (ankra-6w1gt).
+func TestControlPlaneSetInstanceTypePassesForceDrainThrough(t *testing.T) {
+	for _, provider := range controlPlaneProviderCommands {
+		for _, isForced := range []bool{false, true} {
+			arguments := []string{"cluster", provider, "control-plane", "set-instance-type", testClusterID, "large"}
+			name := provider + "/unset"
+			if isForced {
+				arguments = append(arguments, "--force-drain")
+				name = provider + "/force-drain"
+			}
+			t.Run(name, func(t *testing.T) {
+				mock := &forceDrainControlPlaneMock{}
+				command := findSetInstanceTypeCommand(t, provider)
+				var runError error
+				captureStdout(t, func() {
+					_, runError = runConfirmCommand(t, mock, "", []*cobra.Command{command}, arguments...)
+				})
+				if runError != nil {
+					t.Fatalf("execute failed: %v", runError)
+				}
+				if len(mock.calls) != 1 {
+					t.Fatalf("calls = %d, want 1", len(mock.calls))
+				}
+				if mock.calls[0].provider != provider {
+					t.Errorf("provider = %s, want %s", mock.calls[0].provider, provider)
+				}
+				if got := mock.calls[0].drainOptions.ForceDrain; got != isForced {
+					t.Errorf("ForceDrain = %v, want %v", got, isForced)
+				}
+			})
+		}
+	}
+}
+
+// TestControlPlaneForceDrainHelpNamesTheRollingLaneOnly pins the flag on every
+// provider's set-instance-type: off by default, and help that says it bypasses
+// PodDisruptionBudgets for the rolling resize and does nothing on a stopped
+// cluster's offline resize, so nobody passes it expecting it to matter there.
+func TestControlPlaneForceDrainHelpNamesTheRollingLaneOnly(t *testing.T) {
+	for _, provider := range controlPlaneProviderCommands {
+		command := findSetInstanceTypeCommand(t, provider)
+		flag := command.Flags().Lookup(forceDrainFlag)
+		if flag == nil {
+			t.Errorf("%s has no --%s flag", command.CommandPath(), forceDrainFlag)
+			continue
+		}
+		if flag.DefValue != "false" {
+			t.Errorf("%s --%s default = %s, want false", command.CommandPath(), forceDrainFlag, flag.DefValue)
+		}
+		for _, phrase := range []string{"Bypass PodDisruptionBudgets", "rolling resize", "no effect on a stopped cluster's offline resize"} {
+			if !strings.Contains(flag.Usage, phrase) {
+				t.Errorf("%s --%s usage does not say %q: %q", command.CommandPath(), forceDrainFlag, phrase, flag.Usage)
+			}
+		}
+		if !strings.Contains(command.Long, "--force-drain") || !strings.Contains(command.Long, "offline resize drains nothing") {
+			t.Errorf("%s long help does not explain --force-drain and the offline lane", command.CommandPath())
+		}
+	}
+}

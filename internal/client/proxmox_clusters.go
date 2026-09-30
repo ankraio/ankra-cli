@@ -178,8 +178,8 @@ func (c *Client) ChangeProxmoxControlPlaneCount(clusterID string, count int) (*C
 	return c.changeControlPlaneCount(proxmoxKind, clusterID, count)
 }
 
-func (c *Client) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType(proxmoxKind, clusterID, instanceType)
+func (c *Client) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType(proxmoxKind, clusterID, instanceType, drainOptions)
 }
 
 func (c *Client) ListProxmoxClusterNodes(clusterID string) (*NodeListResult, error) {

@@ -51,8 +51,15 @@ type ChangeControlPlaneCountResult struct {
 	NewCount      int `json:"new_count"`
 }
 
+// ChangeControlPlaneInstanceTypeRequest is the PUT .../control-plane/
+// instance-type body.
 type ChangeControlPlaneInstanceTypeRequest struct {
 	InstanceType string `json:"instance_type"`
+	// ForceDrain drains each controller before its resize without honouring
+	// its pods' PodDisruptionBudgets (see DrainOptions). Only the rolling
+	// resize of a running cluster reads it; a stopped cluster's offline resize
+	// drains nothing and ignores it. Omitted when false.
+	ForceDrain bool `json:"force_drain,omitempty"`
 }
 
 // ChangeControlPlaneInstanceTypeResult reports what the change did.
@@ -100,20 +107,20 @@ func (c *Client) ChangeDigitaloceanControlPlaneCount(clusterID string, count int
 	return c.changeControlPlaneCount("digitalocean", clusterID, count)
 }
 
-func (c *Client) ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType("hetzner", clusterID, instanceType)
+func (c *Client) ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType("hetzner", clusterID, instanceType, drainOptions)
 }
 
-func (c *Client) ChangeOvhControlPlaneInstanceType(clusterID, instanceType string) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType("ovh", clusterID, instanceType)
+func (c *Client) ChangeOvhControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType("ovh", clusterID, instanceType, drainOptions)
 }
 
-func (c *Client) ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType("upcloud", clusterID, instanceType)
+func (c *Client) ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType("upcloud", clusterID, instanceType, drainOptions)
 }
 
-func (c *Client) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceType string) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType("digitalocean", clusterID, instanceType)
+func (c *Client) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType("digitalocean", clusterID, instanceType, drainOptions)
 }
 
 func (c *Client) getControlPlane(provider, clusterID string) (*ControlPlaneInfo, error) {
@@ -138,9 +145,12 @@ func (c *Client) changeControlPlaneCount(provider, clusterID string, count int) 
 	return &result, nil
 }
 
-func (c *Client) changeControlPlaneInstanceType(provider, clusterID, instanceType string) (*ChangeControlPlaneInstanceTypeResult, error) {
+// changeControlPlaneInstanceType is the one request behind every provider's
+// Change*ControlPlaneInstanceType. drainOptions rides in the body as
+// force_drain; the zero value leaves the body as it was before the field.
+func (c *Client) changeControlPlaneInstanceType(provider, clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/control-plane/instance-type", c.BaseURL, provider, clusterID)
-	payload, err := json.Marshal(ChangeControlPlaneInstanceTypeRequest{InstanceType: instanceType})
+	payload, err := json.Marshal(ChangeControlPlaneInstanceTypeRequest{InstanceType: instanceType, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
