@@ -469,3 +469,22 @@ func TestSkillsRefreshReinstallsOnlyWhatIsInstalled(t *testing.T) {
 		t.Fatalf("arguments: want %q, got %q", want, got)
 	}
 }
+
+// TestSkillsInstalledClientsReportsAnUnreadableSkillsDirectory pins that a
+// skills directory that cannot be listed is an error, not "no Ankra skills
+// installed", so the upgrade refresh never silently skips a client whose
+// install it could not see.
+func TestSkillsInstalledClientsReportsAnUnreadableSkillsDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root lists a mode 000 directory")
+	}
+	home := t.TempDir()
+	target := writeInstalledSkill(t, home, clientNamed(t, "claude-code"), false)
+	if err := os.Chmod(target.SkillsDirectory, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(target.SkillsDirectory, 0o755) })
+	if _, err := skillsInstalledClients(home); err == nil {
+		t.Fatal("an unreadable skills directory must be an error, not \"not installed\"")
+	}
+}

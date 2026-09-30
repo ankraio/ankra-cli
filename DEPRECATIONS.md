@@ -16,6 +16,12 @@ version; running one prints a warning pointing at the replacement.
 
 ## Upcoming removals
 
+### v0.22.0
+
+| Deprecated | Deprecated in | Replacement | Notes |
+|---|---|---|---|
+| `ankra openclaw handoff [conversation-id]` | v0.21.0 | Open `<portal>/organisation/ai/agents` | It printed `/organisation/ai-agents?openclaw=<id>`, a page that does not exist with a parameter nothing reads, so no conversation was ever handed over. It now prints the AI Agents page URL and warns; the argument and `--cluster` are accepted and ignored. |
+
 ### v0.15.0
 
 | Deprecated | Deprecated in | Replacement | Notes |

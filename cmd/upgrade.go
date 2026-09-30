@@ -392,6 +392,13 @@ func skillsRefreshGroupsFor(root string, clients []skills.Client) ([]skillsRefre
 		if namesError != nil {
 			return nil, fmt.Errorf("list the skills installed for %s: %w", client.DisplayName, namesError)
 		}
+		// A skills directory can hold skills Ankra does not ship, such as
+		// the ankra-<cluster> skill `ankra openclaw skill` writes; naming one
+		// would make `skills install` fail with "unknown skill".
+		names, namesError = bundledSkillsAmong(names)
+		if namesError != nil {
+			return nil, namesError
+		}
 		if len(names) == 0 {
 			continue
 		}

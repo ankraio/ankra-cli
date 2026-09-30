@@ -96,11 +96,15 @@ selects; pass --project <DIR> to see the repository-scoped locations instead.`,
 			if targetError != nil {
 				continue
 			}
+			installed, installedError := skillsDirectoryHasAnkraSkills(target)
+			if installedError != nil {
+				return fmt.Errorf("read the %s skills directory: %w", client.DisplayName, installedError)
+			}
 			entries = append(entries, clientListEntry{
 				ID:          client.ID,
 				DisplayName: client.DisplayName,
 				Detected:    detected[client.ID],
-				Installed:   skillsDirectoryHasAnkraSkills(target),
+				Installed:   installed,
 				Scope:       scope,
 				Directory:   skills.DisplayPath(target.SkillsDirectory),
 				Delivery:    clientDelivery(client),
@@ -559,21 +563,72 @@ func installedSkillsIn(target skills.Target) []skills.Skill {
 }
 
 // skillsDirectoryHasAnkraSkills reports whether a target already carries an
-// Ankra install, for the [installed] marker in 'skills clients'.
-func skillsDirectoryHasAnkraSkills(target skills.Target) bool {
+// Ankra install, for the [installed] marker in 'skills clients'. A missing
+// directory holds nothing; a directory that cannot be read is an error, not
+// "nothing installed", so callers never skip or misreport on a failed read.
+func skillsDirectoryHasAnkraSkills(target skills.Target) (bool, error) {
 	if target.Client.Packaged {
 		entries, err := os.ReadDir(target.SkillsDirectory)
 		if err != nil {
-			return false
+			if os.IsNotExist(err) {
+				return false, nil
+			}
+			return false, err
 		}
 		for _, entry := range entries {
 			if strings.HasPrefix(entry.Name(), "ankra-") && strings.HasSuffix(entry.Name(), ".zip") {
-				return true
+				return true, nil
 			}
 		}
-		return false
+		return false, nil
 	}
-	return len(installedSkillsIn(target)) > 0
+	names, err := skills.InstalledNames(target)
+	if err != nil {
+		return false, err
+	}
+	bundled, err := bundledSkillsAmong(names)
+	if err != nil {
+		return false, err
+	}
+	return len(bundled) > 0, nil
+}
+
+// bundledAnkraSkillNames is the set of skill names this binary carries. A
+// client's skills directory also holds skills Ankra did not install there,
+// such as the per-cluster ankra-<cluster>/SKILL.md `ankra openclaw skill`
+// writes into ~/.openclaw/skills, so "holds a SKILL.md" is not "carries an
+// Ankra install". The embedded copy cannot normally fail to read, but if it
+// does the error is returned: an empty set would read as "nothing is an
+// Ankra skill" and hide every install.
+func bundledAnkraSkillNames() (map[string]bool, error) {
+	fsys, err := skills.EmbeddedFS()
+	if err != nil {
+		return nil, fmt.Errorf("read the bundled skills: %w", err)
+	}
+	names, err := skills.Names(fsys)
+	if err != nil {
+		return nil, fmt.Errorf("list the bundled skills: %w", err)
+	}
+	set := make(map[string]bool, len(names))
+	for _, name := range names {
+		set[name] = true
+	}
+	return set, nil
+}
+
+// bundledSkillsAmong keeps the names that are bundled Ankra skills, in order.
+func bundledSkillsAmong(names []string) ([]string, error) {
+	bundled, err := bundledAnkraSkillNames()
+	if err != nil {
+		return nil, err
+	}
+	kept := make([]string, 0, len(names))
+	for _, name := range names {
+		if bundled[name] {
+			kept = append(kept, name)
+		}
+	}
+	return kept, nil
 }
 
 // skillsInstalledClients returns the assistants that carry an Ankra skills
@@ -600,7 +655,7 @@ func skillsInstalledClients(home string) ([]skills.Client, error) {
 		}
 		carries, carriesError := targetCarriesAnkraInstall(target)
 		if carriesError != nil {
-			return nil, fmt.Errorf("read the %s instructions file: %w", client.DisplayName, carriesError)
+			return nil, fmt.Errorf("check the %s install: %w", client.DisplayName, carriesError)
 		}
 		if carries {
 			installed = append(installed, client)
@@ -610,7 +665,11 @@ func skillsInstalledClients(home string) ([]skills.Client, error) {
 }
 
 func targetCarriesAnkraInstall(target skills.Target) (bool, error) {
-	if !skillsDirectoryHasAnkraSkills(target) {
+	hasSkills, err := skillsDirectoryHasAnkraSkills(target)
+	if err != nil {
+		return false, fmt.Errorf("read the skills directory: %w", err)
+	}
+	if !hasSkills {
 		return false, nil
 	}
 	if target.Client.Packaged || target.Client.LoadsSkillsNatively || target.InstructionsPath == "" {
@@ -725,7 +784,11 @@ func skillsUninstallTargets(cmd *cobra.Command) ([]skills.Target, error) {
 	}
 	withInstall := make([]skills.Target, 0, len(targets))
 	for _, target := range targets {
-		if skillsDirectoryHasAnkraSkills(target) {
+		hasSkills, hasSkillsError := skillsDirectoryHasAnkraSkills(target)
+		if hasSkillsError != nil {
+			return nil, fmt.Errorf("read the %s skills directory: %w", target.Client.DisplayName, hasSkillsError)
+		}
+		if hasSkills {
 			withInstall = append(withInstall, target)
 		}
 	}

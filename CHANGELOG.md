@@ -78,6 +78,36 @@
   them on the cluster's GitOps page in the portal. `-o json|yaml` carries
   `open_conflict_count` and `open_conflict_keys`. Older platforms that do not
   report them print no conflict lines.
+- **`ankra openclaw skill` writes a skill OpenClaw actually loads.** OpenClaw
+  only discovers a skill as a `SKILL.md` inside its own directory, so the
+  default `~/.openclaw/skills/ankra-<cluster>.md` was never picked up. The
+  default is now `~/.openclaw/skills/ankra-<cluster>/SKILL.md`, the same
+  layout `ankra skills install --client openclaw` uses; `--output` still
+  writes anywhere else. A cluster whose skill would take the name of a
+  bundled Ankra skill (a cluster named `cli` becomes `ankra-cli`) is refused
+  with a pointer to `--output` instead of overwriting that skill, and the
+  per-cluster skill is no longer mistaken for an `ankra skills` install by
+  `ankra upgrade`'s skills refresh. You can delete a stale
+  `~/.openclaw/skills/ankra-<cluster>.md` left by earlier releases.
+- **The generated OpenClaw skill no longer promises a portal handoff.** It
+  told the agent that `ankra openclaw handoff` opens the conversation
+  pre-loaded in the Ankra UI, but the portal has no such import and the
+  printed page did not exist. The skill now links the AI Agents page.
+- **The `ankra-terraform` agent skill describes the provider that is
+  released.** It described a provider-level token and credential and token
+  resources the Registry's `ankraio/ankra` 0.1.6 does not have (0.1.6 has
+  an empty provider block and only `ankra_cluster`, and cannot create a
+  cluster against the current API). The skill now describes 0.1.6 as it is
+  and steers agents to `ankra cluster apply -f` or GitOps for cluster
+  definitions until a fixed provider release exists. Refresh installed
+  skills with `ankra skills install --force`.
+
+### Deprecated
+
+- **`ankra openclaw handoff`** is deprecated and will be removed in v0.22.0.
+  It now prints the Ankra AI Agents page URL and says that no conversation
+  is transferred; the conversation id is still accepted so scripts keep
+  running.
 
 
 ## v0.20.0 — 2026-09-29
