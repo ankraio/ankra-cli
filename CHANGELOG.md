@@ -1,5 +1,48 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`ankra application ship` builds the first image of a new Ankra Pipelines
+  application without a push.** When nothing had been pushed since the
+  application was registered, ship dispatched a manual run, the generated
+  pipeline skipped its publish step on it, and ship stopped and asked you to
+  push a commit. Ship now asks the platform to run the tracked branch's push
+  for its current head - the run a push would have started - so the image is
+  published and deployed, and `ankra application add . && ankra application
+  ship .` reaches a running URL on its own. Starting that run needs the
+  `applications.deploy` permission. On a platform that cannot run a branch's
+  push on request yet, ship still stops with the push-a-commit advice and
+  names `--ankra-build` as the other way.
+- **`ankra cluster addons list` no longer prints a plain `ok` over stale
+  advisory data.** The platform says when the security advisory feed behind
+  the listing has not been read in the last day, and the CLI dropped that.
+  An addon judged clean from a stale feed now reads `ok (stale)`, the table
+  ends with a line saying when the feed was last read and that `ok` only
+  means no advisory was known then, and `cluster addons list <name>` adds an
+  `Advisory data` line. `-o json|yaml` keeps its shape and prints the same
+  note on stderr.
+- **`ankra cluster addons list <name>` on a cluster with no addons exits 3.**
+  It printed the human `No addons found for the active cluster.` to stdout
+  and exited 0, even under `-o json`. It now says the addon was not found
+  and exits 3 with nothing on stdout, as it does on a cluster whose addons
+  do not include that name.
+- **`ankra registry robots create` works with a token that may create robots
+  but not read them.** With `--permission` or `--expires-in-days` the CLI
+  checks that the platform offers them by reading the robot listing, which
+  needs `credentials.read`, so a token holding only `credentials.write` was
+  refused with exit 7 naming a permission the create itself does not need.
+  Without `credentials.read` the check is now skipped and the create's
+  answer is checked instead: if the platform ignored the permissions or the
+  expiry, the robot is deleted again and its secret is never shown. The
+  help now says what a create needs, including that permissions past
+  `repository:pull` and `repository:push` also need `credentials.reveal`.
+- **`ankra targets register` no longer talks about an API token when it
+  refuses a plain `http://` `--release-url`.** No token is sent to a release
+  URL; the refusal now says the agent and its checksums would be downloaded
+  over a connection that can be altered in transit, and how to proceed.
+
 ## v0.21.1 — 2026-10-01
 
 ### Added
@@ -82,17 +125,6 @@
   where it printed one `Registry: <host>/<project>` line and `Scope`.
   `-o json` gains fields (`kind`, `managed`, `projects`, `permissions`,
   `application`, `expires_at`) and loses none.
-- **`ankra application ship` builds the first image of a new Ankra Pipelines
-  application without a push.** When nothing had been pushed since the
-  application was registered, ship dispatched a manual run, the generated
-  pipeline skipped its publish step on it, and ship stopped and asked you to
-  push a commit. Ship now asks the platform to run the tracked branch's push
-  for its current head - the run a push would have started - so the image is
-  published and deployed, and `ankra application add . && ankra application
-  ship .` reaches a running URL on its own. Starting that run needs the
-  `applications.deploy` permission. On a platform that cannot run a branch's
-  push on request yet, ship still stops with the push-a-commit advice and
-  names `--ankra-build` as the other way.
 
 ### Fixed
 

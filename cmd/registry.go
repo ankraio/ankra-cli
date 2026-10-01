@@ -88,7 +88,15 @@ days; without it the robot never expires. The secret is printed exactly once, wi
 a docker login command that reads it from stdin - copy it now, it is not stored
 anywhere you can read it back from. The secret is never put on a command line,
 where the shell history and 'ps' would keep it. Rotate it with 'ankra registry robots rotate' if it
-is lost or leaked.`,
+is lost or leaked.
+
+Creating a robot needs the credentials.write permission. A --permission list
+that reaches past repository:pull and repository:push (deleting artifacts,
+moving tags, and the like) also needs credentials.reveal. With --permission or
+--expires-in-days the CLI first checks that the platform offers them by
+reading the robot listing; a token without credentials.read skips that check,
+and if the platform turns out to have ignored them the robot is deleted again
+before its secret is shown.`,
 		Example: `  ankra registry robots create jenkins --description "Jenkins on the office server"
   ankra registry robots create edge-cluster --scope pull
   ankra registry robots create contractor --scope pull --expires-in-days 30
@@ -125,8 +133,19 @@ is lost or leaked.`,
 				return withExitCode(exitUsage, fmt.Errorf("--expires-in-days must be 1 to %d days, or 0 (the default) "+
 					"for a robot that never expires; got %d", registryRobotMaximumExpiryDays, expiresInDays))
 			}
+			supportChecked := true
 			if len(permissions) > 0 || expiresInDays > 0 {
-				if supportError := requireRegistryRobotPermissionSupport(command, permissions); supportError != nil {
+				supportError := requireRegistryRobotPermissionSupport(command, permissions)
+				switch {
+				case supportError == nil:
+				case exitCodeFor(supportError) == exitForbidden:
+					// The support check reads the robot listing, which needs
+					// credentials.read; a token that may only create
+					// (credentials.write) is not refused for it. The platform
+					// validates the permissions itself, and the answer to the
+					// create is checked below instead.
+					supportChecked = false
+				default:
 					return supportError
 				}
 			}
@@ -140,6 +159,11 @@ is lost or leaked.`,
 			})
 			if createError != nil {
 				return createError
+			}
+			if !supportChecked {
+				if ignored := registryRobotIgnoredFlags(created, permissions, expiresInDays); ignored != "" {
+					return revokeUnhonouredRegistryRobot(command, created, ignored)
+				}
 			}
 			return renderRegistryRobotSecret(command, created, "Robot account created.")
 		},
@@ -183,6 +207,34 @@ func requireRegistryRobotPermissionSupport(command *cobra.Command, permissions [
 		}
 	}
 	return nil
+}
+
+// registryRobotIgnoredFlags names the flags a create answer shows the
+// platform ignored: a platform that predates robot permissions mints a push
+// robot that never expires and answers with no permissions and no expiry.
+func registryRobotIgnoredFlags(created *client.RegistryRobotWithSecret, permissions []string, expiresInDays int) string {
+	var ignored []string
+	if len(permissions) > 0 && len(created.Permissions) == 0 {
+		ignored = append(ignored, "--permission")
+	}
+	if expiresInDays > 0 && created.ExpiresAt == nil {
+		ignored = append(ignored, "--expires-in-days")
+	}
+	return strings.Join(ignored, " and ")
+}
+
+// revokeUnhonouredRegistryRobot deletes a robot the platform minted without
+// the permissions or expiry that were asked for, and never shows its secret:
+// a robot broader or longer-lived than requested must not reach anyone.
+func revokeUnhonouredRegistryRobot(command *cobra.Command, created *client.RegistryRobotWithSecret, ignored string) error {
+	refusal := fmt.Sprintf("this platform does not support robot permissions or an expiry yet: it ignored %s "+
+		"and created robot %q with scope %q and no expiry", ignored, created.Name, created.Scope)
+	if deleteError := apiClient.DeleteRegistryRobot(command.Context(), created.Name); deleteError != nil {
+		return fmt.Errorf("%s, and deleting it again failed (%v): delete it with 'ankra registry robots delete %s'; "+
+			"its secret was not shown", refusal, deleteError, created.Name)
+	}
+	return fmt.Errorf("%s, so it was deleted again and its secret was not shown; "+
+		"create the robot with --scope push or --scope pull", refusal)
 }
 
 // registryRobotPermissionFlags normalises what --permission collected: each

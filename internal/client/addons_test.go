@@ -31,6 +31,52 @@ func TestListClusterAddons(t *testing.T) {
 	}
 }
 
+// TestListClusterAddonListingKeepsTheAdvisoryFeedState pins the envelope
+// the platform sends beside the addons (ankra-0bm15): a stale feed on any
+// page marks the listing stale, and the checked-at time is the oldest read
+// any page reports, in the platform's own timestamp format.
+func TestListClusterAddonListingKeepsTheAdvisoryFeedState(t *testing.T) {
+	pages := map[string]string{
+		"1": `{"result":[{"name":"traefik","chart_name":"traefik","security_advisory_status":"checked","security_advisories":[]}],` +
+			`"pagination":{"page":1,"page_size":1,"total_pages":2,"total_count":2},` +
+			`"security_advisories_checked_at":"2026-09-30T08:15:00.123456+00:00","security_advisories_stale":false}`,
+		"2": `{"result":[{"name":"kyverno","chart_name":"kyverno","security_advisory_status":"checked","security_advisories":[]}],` +
+			`"pagination":{"page":2,"page_size":1,"total_pages":2,"total_count":2},` +
+			`"security_advisories_checked_at":"2026-09-29T06:00:00+00:00","security_advisories_stale":true}`,
+	}
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(pages[r.URL.Query().Get("page")]))
+	})
+	listing, err := testClient.ListClusterAddonListing("cluster-id")
+	if err != nil {
+		t.Fatalf("ListClusterAddonListing() error = %v", err)
+	}
+	if len(listing.Addons) != 2 || !listing.SecurityAdvisoriesStale {
+		t.Fatalf("listing = %+v, want both addons and a stale feed", listing)
+	}
+	want := time.Date(2026, 9, 29, 6, 0, 0, 0, time.UTC)
+	if listing.SecurityAdvisoriesCheckedAt == nil || !listing.SecurityAdvisoriesCheckedAt.Equal(want) {
+		t.Fatalf("checked at = %v, want the oldest read %v", listing.SecurityAdvisoriesCheckedAt, want)
+	}
+}
+
+// TestListClusterAddonListingFromAnOlderPlatform: a platform that sends no
+// feed state is not stale, so the listing reads exactly as before.
+func TestListClusterAddonListingFromAnOlderPlatform(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"result":[{"name":"traefik"}],"pagination":{"page":1,"page_size":100,"total_pages":1,"total_count":1}}`))
+	})
+	listing, err := testClient.ListClusterAddonListing("cluster-id")
+	if err != nil {
+		t.Fatalf("ListClusterAddonListing() error = %v", err)
+	}
+	if listing.SecurityAdvisoriesStale || listing.SecurityAdvisoriesCheckedAt != nil || len(listing.Addons) != 1 {
+		t.Fatalf("listing = %+v, want one addon and no feed state", listing)
+	}
+}
+
 func TestListAvailableAddons(t *testing.T) {
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, "/addons/available") {

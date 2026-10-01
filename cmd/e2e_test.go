@@ -526,8 +526,8 @@ func (m baseMock) UpdateApplicationImageRegistry(requestContext context.Context,
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error) {
-	return nil, errors.New("not implemented")
+func (m baseMock) ListClusterAddonListing(clusterID string) (client.ClusterAddonListing, error) {
+	return client.ClusterAddonListing{}, errors.New("not implemented")
 }
 
 func (m baseMock) ListAvailableAddons(clusterID string) ([]client.AvailableAddon, error) {
@@ -3601,11 +3601,17 @@ func writeSelectedClusterJSON(t *testing.T) {
 
 type clusterAddonsListMock struct {
 	baseMock
-	addons []client.ClusterAddonListItem
+	addons         []client.ClusterAddonListItem
+	advisoryStale  bool
+	advisoryReadAt *time.Time
 }
 
-func (m *clusterAddonsListMock) ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error) {
-	return m.addons, nil
+func (m *clusterAddonsListMock) ListClusterAddonListing(clusterID string) (client.ClusterAddonListing, error) {
+	return client.ClusterAddonListing{
+		Addons:                      m.addons,
+		SecurityAdvisoriesStale:     m.advisoryStale,
+		SecurityAdvisoriesCheckedAt: m.advisoryReadAt,
+	}, nil
 }
 
 func TestClusterAddonsListCommand(t *testing.T) {
@@ -3710,9 +3716,9 @@ func (m *clusterFlagOverrideMock) GetCluster(name string) (client.ClusterListIte
 	return client.ClusterListItem{}, errors.New("cluster not found")
 }
 
-func (m *clusterFlagOverrideMock) ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error) {
+func (m *clusterFlagOverrideMock) ListClusterAddonListing(clusterID string) (client.ClusterAddonListing, error) {
 	m.requestedClusterID = clusterID
-	return []client.ClusterAddonListItem{}, nil
+	return client.ClusterAddonListing{Addons: []client.ClusterAddonListItem{}}, nil
 }
 
 func TestClusterFlagOverridesSelectedCluster(t *testing.T) {
