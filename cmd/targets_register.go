@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	defaultHostAgentReleaseURL     = "https://github.com/ankraio/agent/releases"
+	defaultHostAgentReleaseURL     = "https://github.com/ankraio/ankra-host-agent/releases"
 	envHostAgentReleaseURL         = "ANKRA_HOST_AGENT_RELEASE_URL"
 	hostAgentChecksumsAsset        = "SHA256SUMS"
 	hostAgentUnitName              = "ankra-host-agent.service"
