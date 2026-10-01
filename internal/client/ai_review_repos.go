@@ -77,9 +77,18 @@ type scmBindingRepositoriesBody struct {
 	Repositories *[]SCMBindingRepository `json:"repositories"`
 }
 
-func scmBindingURL(baseURL string, provider string, bindingExternalID string, suffix string) string {
-	return fmt.Sprintf("%s/api/v1/org/ai-gateway/scm-bindings/%s/%s/%s", baseURL,
-		neturl.PathEscape(provider), neturl.PathEscape(bindingExternalID), suffix)
+// The paths are written out in full rather than composed from a shared
+// prefix: the route-census test (cluster_routes_test.go) checks every
+// /api/v1 literal against the cluster router, and a trailing %s segment
+// would hide which route is called.
+func scmRepoOverridesURL(baseURL string, provider string, bindingExternalID string) string {
+	return fmt.Sprintf("%s/api/v1/org/ai-gateway/scm-bindings/%s/%s/repo-overrides", baseURL,
+		neturl.PathEscape(provider), neturl.PathEscape(bindingExternalID))
+}
+
+func scmBindingReposURL(baseURL string, provider string, bindingExternalID string) string {
+	return fmt.Sprintf("%s/api/v1/org/ai-gateway/scm-bindings/%s/%s/repos", baseURL,
+		neturl.PathEscape(provider), neturl.PathEscape(bindingExternalID))
 }
 
 // ListSCMBindings lists the organisation's source-control bindings with
@@ -102,7 +111,7 @@ func (c *Client) PutSCMRepositoryRule(ctx context.Context, provider string, bind
 	rule SCMRepositoryRuleWrite) (*SCMRepositoryRule, error) {
 	var stored SCMRepositoryRule
 	if putError := c.sendJSONContext(ctx, http.MethodPut,
-		scmBindingURL(c.BaseURL, provider, bindingExternalID, "repo-overrides"), rule, &stored); putError != nil {
+		scmRepoOverridesURL(c.BaseURL, provider, bindingExternalID), rule, &stored); putError != nil {
 		return nil, putError
 	}
 	return &stored, nil
@@ -116,7 +125,7 @@ func (c *Client) DeleteSCMRepositoryRule(ctx context.Context, provider string, b
 	query.Set("repo_full_name", repoFullName)
 	var deleted SCMRepositoryRuleDeleted
 	if deleteError := c.sendJSONContext(ctx, http.MethodDelete,
-		scmBindingURL(c.BaseURL, provider, bindingExternalID, "repo-overrides")+"?"+query.Encode(),
+		scmRepoOverridesURL(c.BaseURL, provider, bindingExternalID)+"?"+query.Encode(),
 		nil, &deleted); deleteError != nil {
 		return nil, deleteError
 	}
@@ -129,7 +138,7 @@ func (c *Client) ListSCMBindingRepositories(ctx context.Context, provider string
 	bindingExternalID string) ([]SCMBindingRepository, error) {
 	var body scmBindingRepositoriesBody
 	if listError := c.sendJSONContext(ctx, http.MethodGet,
-		scmBindingURL(c.BaseURL, provider, bindingExternalID, "repos"), nil, &body); listError != nil {
+		scmBindingReposURL(c.BaseURL, provider, bindingExternalID), nil, &body); listError != nil {
 		return nil, listError
 	}
 	if body.Repositories == nil {
