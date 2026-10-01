@@ -3619,6 +3619,66 @@ func TestClusterAddonsListCommand(t *testing.T) {
 	}
 }
 
+// TestClusterAddonsListShowsSecurityUpdates pins the Security column and the
+// detail section: the addon the platform judged affected names its advisory
+// and the chart version that fixes it, a judged clean addon reads ok, and an
+// addon the platform could not judge reads unknown rather than ok.
+func TestClusterAddonsListShowsSecurityUpdates(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	fixedVersion := "1.20.3"
+	upgradeChartVersion := "v1.20.3"
+	mock := &clusterAddonsListMock{
+		addons: []client.ClusterAddonListItem{
+			{
+				Name: "cert-manager", ChartName: "cert-manager", ChartVersion: "1.20.0",
+				RegistryURL: "https://charts.jetstack.io", Namespace: "cert-manager", ThroughAnkra: true,
+				SecurityAdvisoryStatus: client.SecurityAdvisoryStatusChecked,
+				SecurityAdvisories: []client.AddonSecurityAdvisory{{
+					AdvisoryID:          "GHSA-8rvj-mm4h-c258",
+					Severity:            "high",
+					Summary:             "Direct ACME Challenge resources can bypass Issuer DNS01 solver policy",
+					URL:                 "https://github.com/cert-manager/cert-manager/security/advisories/GHSA-8rvj-mm4h-c258",
+					AffectedVersion:     "1.20.0",
+					FixedVersion:        &fixedVersion,
+					UpgradeChartVersion: &upgradeChartVersion,
+				}},
+				SecurityUpgradeChartVersion: &upgradeChartVersion,
+			},
+			{
+				Name: "traefik", ChartName: "traefik", ChartVersion: "39.0.7",
+				RegistryURL: "https://traefik.github.io/charts", Namespace: "traefik", ThroughAnkra: true,
+				SecurityAdvisoryStatus: client.SecurityAdvisoryStatusChecked,
+			},
+			{
+				Name: "kyverno", ChartName: "kyverno", ChartVersion: "3.8.2",
+				RegistryURL: "https://kyverno.github.io/kyverno", Namespace: "kyverno", ThroughAnkra: true,
+				SecurityAdvisoryStatus: client.SecurityAdvisoryStatusUnknown,
+			},
+		},
+	}
+	setMockClient(t, mock)
+
+	listing := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "addons", "list")
+	})
+	for _, expected := range []string{"SECURITY", "update: GHSA-8rvj-mm4h-c258 (high) -> v1.20.3", " ok ", "unknown",
+		"1 addon has a security update available"} {
+		if !strings.Contains(listing, expected) {
+			t.Errorf("listing is missing %q:\n%s", expected, listing)
+		}
+	}
+
+	details := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "addons", "list", "cert-manager")
+	})
+	for _, expected := range []string{"Security update available:", "GHSA-8rvj-mm4h-c258 (high)", "Fixed in:  1.20.3",
+		"ankra cluster addons upgrade cert-manager --chart-version v1.20.3"} {
+		if !strings.Contains(details, expected) {
+			t.Errorf("details are missing %q:\n%s", expected, details)
+		}
+	}
+}
+
 type clusterFlagOverrideMock struct {
 	baseMock
 	requestedClusterID string
