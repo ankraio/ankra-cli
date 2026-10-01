@@ -491,8 +491,9 @@ func TestApplicationShipFollowsTheBranchWhenItsPushRequestIsRefused(t *testing.T
 	if executeError != nil {
 		t.Fatalf("ship must follow the branch's new head, got %v\nprogress: %s", executeError, progress)
 	}
-	if !strings.Contains(progress, `Branch "main" moved to commit a1b2c3d`) {
-		t.Errorf("progress must say ship moved to the new head:\n%s", progress)
+	if !strings.Contains(progress, `branch "main" has moved to commit a1b2c3d`) ||
+		!strings.Contains(progress, "not the current head of the tracked branch") {
+		t.Errorf("progress must say ship moved to the new head, and why the dispatch failed:\n%s", progress)
 	}
 	if mockClient.deployCalls != 1 {
 		t.Errorf("deploy calls = %d, want 1", mockClient.deployCalls)

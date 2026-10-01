@@ -121,11 +121,15 @@ func waitForPipelineBuild(
 					// The branch can move between reading its head and
 					// asking for its push, which the platform refuses
 					// because a push names the current head. Follow the
-					// branch then, exactly as for a superseded run.
+					// branch then, exactly as for a superseded run. The
+					// refusal is not matched by status or text, so it is
+					// printed: a different failure that coincided with a
+					// push stays visible, and recurs on the new head.
 					currentHead, headError := shipTrackedBranchHead(waitContext, applicationID, trackedBranch)
 					if headError == nil && currentHead != "" && !strings.EqualFold(currentHead, headSHA) {
-						_, _ = fmt.Fprintf(progress, "Branch %q moved to commit %s, so ship follows that commit.\n",
-							trackedBranch, shortShipSHA(currentHead))
+						_, _ = fmt.Fprintf(progress,
+							"Starting the push run of commit %s failed (%v), and branch %q has moved to commit %s, so ship follows that commit.\n",
+							shortShipSHA(headSHA), dispatchError, trackedBranch, shortShipSHA(currentHead))
 						headSHA = currentHead
 						appearDeadline = time.Now().Add(shipPipelineRunAppearGrace)
 						announcedWaiting = false
