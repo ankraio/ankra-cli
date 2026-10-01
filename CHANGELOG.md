@@ -129,13 +129,14 @@
   pre-loaded in the Ankra UI, but the portal has no such import and the
   printed page did not exist. The skill now links the AI Agents page.
 - **The `ankra-terraform` agent skill describes the provider that is
-  released.** It described a provider-level token and credential and token
-  resources the Registry's `ankraio/ankra` 0.1.6 does not have (0.1.6 has
-  an empty provider block and only `ankra_cluster`, and cannot create a
-  cluster against the current API). The skill now describes 0.1.6 as it is
-  and steers agents to `ankra cluster apply -f` or GitOps for cluster
-  definitions until a fixed provider release exists. Refresh installed
-  skills with `ankra skills install --force`.
+  released.** It described credential and token resources that
+  `ankraio/ankra` never had. The skill now describes provider 0.2.1: the
+  provider `token`, the Hetzner, DigitalOcean, OVHcloud, UpCloud and
+  Scaleway cluster resources, `ankra_cluster` Stacks with `parents` and
+  `registry_url`, import, readiness waits, the GitOps repoint limit, and the
+  upgrade from 0.1.x without replacing clusters (0.1.6 cannot create a
+  cluster against the current API). Refresh installed skills with
+  `ankra skills install --force`.
 
 - **`ankra application ship` follows the build that actually builds the
   application.** Ship waited for a GitHub Actions workflow run on the tracked
