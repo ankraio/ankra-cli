@@ -70,7 +70,15 @@ type chatToolCall struct {
 	ErrorClass      string  `json:"error_class,omitempty" yaml:"error_class,omitempty"`
 	ErrorCode       string  `json:"error_code,omitempty" yaml:"error_code,omitempty"`
 	ExecutionTimeMS float64 `json:"execution_time_ms,omitempty" yaml:"execution_time_ms,omitempty"`
+	// Status is the result frame's status when it reported one, notably
+	// "pending_confirmation" for a write the model proposed: that call has
+	// NOT run (Success stays null) and waits in pending_actions.
+	Status string `json:"status,omitempty" yaml:"status,omitempty"`
 }
+
+// chatToolStatusPendingConfirmation is the tool_result status of a write the
+// model proposed and nobody has confirmed yet.
+const chatToolStatusPendingConfirmation = "pending_confirmation"
 
 // recordToolFrame folds a tool_start or tool_result frame into the turn's
 // tool calls: a frame for a call already seen updates it, anything else
@@ -113,7 +121,12 @@ func (outcome *chatTurnOutcome) recordToolFrame(data any, isResult bool) {
 	if !isResult {
 		return
 	}
-	if success, hasSuccess := frame["success"].(bool); hasSuccess {
+	call.Status, _ = frame["status"].(string)
+	if call.Status == chatToolStatusPendingConfirmation {
+		// The platform answers a proposed write with success true and this
+		// status; the write has not run, so it has not succeeded.
+		call.Success = nil
+	} else if success, hasSuccess := frame["success"].(bool); hasSuccess {
 		call.Success = &success
 	}
 	call.Error, _ = frame["error"].(string)
@@ -254,7 +267,10 @@ func tailChatSession(sessionID string, since int64) <-chan client.ChatStreamEven
 					reconnects = 0
 				}
 				out <- event
-				if event.Type == "end" {
+				// A turn parked on the user (a write awaiting confirmation,
+				// a question) is over, but the session is not, so no "end"
+				// follows: stop here rather than resume forever.
+				if event.Type == "end" || client.ChatTurnParked(event) {
 					return
 				}
 			}
@@ -383,7 +399,13 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 		case "action_proposal":
 			proposal, decodeError := decodeActionProposal(event.Data)
 			if decodeError != nil {
-				_, _ = fmt.Fprintf(out, "\nAn action is awaiting confirmation but could not be read: %v\n", decodeError)
+				// Structured output discards out, so the notice goes where
+				// the reader still sees it.
+				notice := out
+				if collectProposals {
+					notice = errOut
+				}
+				_, _ = fmt.Fprintf(notice, "\nAn action is awaiting confirmation but could not be read: %v\n", decodeError)
 				continue
 			}
 			if collectProposals {
@@ -405,9 +427,18 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 			if collectProposals {
 				_, _ = fmt.Fprintf(errOut, "\nError: %s\n", message)
 			}
-		case "done", "complete", "end":
-			// The turn's text is complete; the session_complete/end frames
-			// that follow carry no more content.
+		case "session_complete", "end":
+			// A turn the user or the platform stopped sends no error frame,
+			// only its status, so without this a cancelled turn would read
+			// as a successful one with a partial answer.
+			if message := chatStoppedTurnMessage(event.Data); message != "" && outcome.errorMessage == "" {
+				outcome.errorMessage = message
+				if collectProposals {
+					_, _ = fmt.Fprintf(errOut, "\nError: %s\n", message)
+				}
+			}
+		case "done", "complete":
+			// The turn's text is complete.
 		default:
 			// Triage, thinking, budgets, tool telemetry and other metadata.
 		}
@@ -473,4 +504,22 @@ func chatToolResultText(data any) string {
 		line += ": " + errorText
 	}
 	return line
+}
+
+// chatStoppedTurnMessage answers the failure a session_complete or end
+// frame's status reports, or "" for a turn that completed or parked on the
+// user. A failed turn has already sent its error frame, which wins; the
+// fallback only matters if that frame was lost.
+func chatStoppedTurnMessage(data any) string {
+	frame, _ := data.(map[string]any)
+	status, _ := frame["status"].(string)
+	switch status {
+	case "cancelled":
+		return "the turn was cancelled before it finished"
+	case "expired":
+		return "the session expired before the turn finished"
+	case "failed":
+		return "the turn failed"
+	}
+	return ""
 }

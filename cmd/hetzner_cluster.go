@@ -689,9 +689,13 @@ func init() {
 	_ = hetznerServerTypesCmd.MarkFlagRequired("credential-id")
 
 	nodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
-	nodeGroupAddCmd.Flags().String("instance-type", "cx33", "Server type for nodes")
+	// No default: the old cx33 is retired and refused, and Hetzner has no one
+	// type every location can provision.
+	nodeGroupAddCmd.Flags().String("instance-type", "",
+		"Server type for nodes (required; list them with 'ankra cluster hetzner server-types --location <loc>')")
 	nodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
 	_ = nodeGroupAddCmd.MarkFlagRequired("name")
+	_ = nodeGroupAddCmd.MarkFlagRequired("instance-type")
 	registerAsyncWriteFlags(nodeGroupAddCmd)
 	registerAsyncWriteFlags(nodeGroupScaleCmd)
 	registerAsyncWriteFlags(nodeGroupUpgradeCmd)

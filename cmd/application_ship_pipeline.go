@@ -53,13 +53,17 @@ const shipPipelineStepKindPublish = "publish"
 // then rather than waiting for the steps after publishing (a verify, an
 // approval gate) - the same moment the platform's deploy can use the image.
 // A run without publish steps is ready when it concludes successfully. A run
-// that concludes any other way before publishing fails ship, except one
-// superseded by a newer run of the same commit, which ship then follows.
+// whose publish step was skipped never pushes an image, however it ends - the
+// generated pipeline publishes only on push, so a run ship dispatched itself
+// skips it - and fails ship rather than deploying an image that was never
+// built. A run that concludes any other way before publishing fails ship,
+// except a superseded one: ship then follows the run that replaced it, and
+// when the replacement is for a newer push it moves to the branch's new head.
 //
 // Every poll re-reads the newest run for the commit rather than holding on to
-// one id, so a run that a later push or dispatch superseded is left for the
-// one that replaced it. A re-run of ship finds the run an earlier ship
-// dispatched the same way, instead of dispatching another.
+// one id, so a run that a later dispatch superseded is left for the one that
+// replaced it. A re-run of ship finds the run an earlier ship dispatched the
+// same way, instead of dispatching another.
 func waitForPipelineBuild(
 	waitContext context.Context,
 	progress io.Writer,
@@ -127,10 +131,43 @@ func waitForPipelineBuild(
 				_, _ = fmt.Fprintf(progress, "Ankra Pipelines built the image: run #%d (%s).\n", detail.RunNumber, detail.ID)
 				return detail.ID, nil
 			}
-			if detail.Status == pipelineRunStatusConcluded && !pipelineRunIsSuperseded(detail.PipelineRun) {
+			if detail.Status == pipelineRunStatusConcluded && pipelineRunIsSuperseded(detail.PipelineRun) {
+				// A newer push cancels the older commit's run. Its replacement
+				// is a run of the new head, which the listing for this commit
+				// never returns, so follow the branch rather than wait on a
+				// run that is over.
+				currentHead, headError := shipTrackedBranchHead(waitContext, applicationID, trackedBranch)
+				if headError != nil {
+					return "", headError
+				}
+				if currentHead != "" && !strings.EqualFold(currentHead, headSHA) {
+					_, _ = fmt.Fprintf(progress,
+						"Pipeline run #%d was superseded %s: branch %q moved to commit %s, so ship follows that commit.\n",
+						detail.RunNumber, pipelineRunSupersessionPhrase(detail.PipelineRun), trackedBranch,
+						shortShipSHA(currentHead))
+					headSHA = currentHead
+					appearDeadline = time.Now().Add(shipPipelineRunAppearGrace)
+					dispatched = false
+					announcedWaiting = false
+					announcedState = ""
+				}
+			} else if detail.Status == pipelineRunStatusConcluded &&
+				pipelineOptionalString(detail.Outcome) != pipelineOutcomeSuccess {
 				return "", fmt.Errorf("%w - see why with 'ankra application pipeline logs %s %s', "+
 					"or re-run it with 'ankra application pipeline rerun %s %s'",
 					pipelineRunConclusionError(detail.PipelineRun), applicationID, detail.ID, applicationID, detail.ID)
+			} else if skipped := shipPipelineSkippedPublish(detail); skipped != nil {
+				reason := "its publish step was skipped"
+				if skipped.ErrorMessage != nil && strings.TrimSpace(*skipped.ErrorMessage) != "" {
+					reason = strings.TrimSpace(*skipped.ErrorMessage)
+				}
+				return "", fmt.Errorf("pipeline run #%d does not publish the image (%s) - push a commit to %q "+
+					"so the platform starts a run that publishes, then run ship again; "+
+					"follow the run with 'ankra application pipeline get %s %s'",
+					detail.RunNumber, reason, trackedBranch, applicationID, detail.ID)
+			} else if detail.Status == pipelineRunStatusConcluded {
+				return "", fmt.Errorf("pipeline run #%d concluded without publishing the image - see why with "+
+					"'ankra application pipeline logs %s %s'", detail.RunNumber, applicationID, detail.ID)
 			}
 		}
 		if tickError := shipWaitTick(waitContext, shipPollInterval, "waiting for the pipeline to build the image"); tickError != nil {
@@ -178,13 +215,44 @@ func newestShipPipelineRun(page *client.PipelineRunList) *client.PipelineRun {
 }
 
 // shipPipelineImagePublished reports whether the run has pushed its image:
-// it concluded successfully, or every publish step's latest attempt
-// succeeded while the run is still going. Only the latest attempt of a step
-// counts, so a publish that failed once and succeeded on retry is published.
+// every publish step's latest attempt succeeded, whether or not the run is
+// still going, or - for a run with no publish step at all - the run concluded
+// successfully. A run whose publish was skipped also concludes successfully
+// when everything else passed, so the run's outcome alone is never taken as a
+// published image while it has publish steps. Only the latest attempt of a
+// step counts, so a publish that failed once and succeeded on retry is
+// published.
 func shipPipelineImagePublished(detail *client.PipelineRunDetail) bool {
-	if detail.Status == pipelineRunStatusConcluded && pipelineOptionalString(detail.Outcome) == pipelineOutcomeSuccess {
-		return true
+	latestAttempts := shipPipelinePublishAttempts(detail)
+	if len(latestAttempts) == 0 {
+		return detail.Status == pipelineRunStatusConcluded &&
+			pipelineOptionalString(detail.Outcome) == pipelineOutcomeSuccess
 	}
+	for _, step := range latestAttempts {
+		if pipelineOptionalString(step.Outcome) != pipelineOutcomeSuccess {
+			return false
+		}
+	}
+	return true
+}
+
+// shipPipelineSkippedPublish answers a publish step whose latest attempt was
+// skipped, or nil. The planner skips a stage whose event, branch or path
+// filter does not match before the run starts, so such a run never pushes an
+// image however long ship waits.
+func shipPipelineSkippedPublish(detail *client.PipelineRunDetail) *client.PipelineStep {
+	for _, step := range shipPipelinePublishAttempts(detail) {
+		if pipelineOptionalString(step.Outcome) == pipelineOutcomeSkipped {
+			skipped := step
+			return &skipped
+		}
+	}
+	return nil
+}
+
+// shipPipelinePublishAttempts answers the latest attempt of every publish
+// step in the run, keyed by stage, step key and matrix leg.
+func shipPipelinePublishAttempts(detail *client.PipelineRunDetail) map[string]client.PipelineStep {
 	latestAttempts := map[string]client.PipelineStep{}
 	for _, step := range detail.Steps {
 		if step.Kind != shipPipelineStepKindPublish {
@@ -195,15 +263,7 @@ func shipPipelineImagePublished(detail *client.PipelineRunDetail) bool {
 			latestAttempts[key] = step
 		}
 	}
-	if len(latestAttempts) == 0 {
-		return false
-	}
-	for _, step := range latestAttempts {
-		if pipelineOptionalString(step.Outcome) != pipelineOutcomeSuccess {
-			return false
-		}
-	}
-	return true
+	return latestAttempts
 }
 
 // shortShipSHA abbreviates a commit for progress lines.

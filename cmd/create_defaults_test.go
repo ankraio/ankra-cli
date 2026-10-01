@@ -84,6 +84,16 @@ func TestCreateDefaultsFollowTheAPI(t *testing.T) {
 				command.CommandPath(), got, want)
 		}
 	}
+	// Hetzner has no single worker type every location provisions, and the
+	// old cx33 default is retired, so the Hetzner command asks for one.
+	hetznerType := nodeGroupAddCmd.Flags().Lookup("instance-type")
+	if hetznerType.DefValue != "" {
+		t.Errorf("%s --instance-type defaults to %q, a type the platform may refuse; require it instead",
+			nodeGroupAddCmd.CommandPath(), hetznerType.DefValue)
+	}
+	if required := hetznerType.Annotations[cobra.BashCompOneRequiredFlag]; len(required) == 0 || required[0] != "true" {
+		t.Errorf("%s --instance-type must be required", nodeGroupAddCmd.CommandPath())
+	}
 }
 
 // wireKeys marshals a captured request the way the client sends it and

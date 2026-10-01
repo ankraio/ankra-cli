@@ -6,6 +6,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +26,13 @@ type shipPipelineMock struct {
 	runPages [][]client.PipelineRun
 	// cursorPages, when set, answers by cursor instead of by call: the page
 	// for "" first, then the page each NextCursor names.
-	cursorPages   map[string]client.PipelineRunList
+	cursorPages map[string]client.PipelineRunList
+	// runsByHead, when set, answers by the listing's head_sha filter.
+	runsByHead map[string][]client.PipelineRun
+	// branchesPayloads, when set, scripts the branch reads in order
+	// (repeating the last) instead of the base mock's single payload.
+	branchesPayloads [][]byte
+	branchesCalls    int
 	listCalls     int
 	listOptions   []client.ListPipelineRunsOptions
 	runDetails    map[string][]*client.PipelineRunDetail
@@ -45,6 +52,9 @@ func (mock *shipPipelineMock) ListPipelineRuns(_ context.Context, selector clien
 		page := mock.cursorPages[options.Cursor]
 		return &page, nil
 	}
+	if mock.runsByHead != nil {
+		return &client.PipelineRunList{Runs: mock.runsByHead[options.HeadSHA]}, nil
+	}
 	if len(mock.runPages) == 0 {
 		return &client.PipelineRunList{}, nil
 	}
@@ -53,6 +63,15 @@ func (mock *shipPipelineMock) ListPipelineRuns(_ context.Context, selector clien
 		index = len(mock.runPages) - 1
 	}
 	return &client.PipelineRunList{Runs: mock.runPages[index]}, nil
+}
+
+func (mock *shipPipelineMock) GetApplicationBranches(requestContext context.Context,
+	applicationID string) (json.RawMessage, error) {
+	if len(mock.branchesPayloads) == 0 {
+		return mock.applicationShipMock.GetApplicationBranches(requestContext, applicationID)
+	}
+	mock.branchesCalls++
+	return json.RawMessage(scriptedPayload(mock.branchesPayloads, mock.branchesCalls)), nil
 }
 
 func (mock *shipPipelineMock) GetPipelineRun(_ context.Context, _ client.PipelineSelector,
@@ -262,6 +281,82 @@ func TestShipPipelineImagePublishedCountsTheLatestAttempt(t *testing.T) {
 	noPublish := shipRunDetail(run, "running", "", shipStep("build", 1, "success"))
 	if shipPipelineImagePublished(noPublish) {
 		t.Error("a run without publish steps is ready only once it concludes successfully")
+	}
+	skipped := shipRunDetail(run, "concluded", "success", shipStep("build", 1, "success"), shipStep("publish", 1, "skipped"))
+	if shipPipelineImagePublished(skipped) {
+		t.Error("a run whose publish was skipped concludes successfully but has pushed no image")
+	}
+}
+
+// The generated pipeline publishes only on push, so a run ship dispatched
+// itself (trigger manual) skips publish and still concludes successfully.
+// Ship must not take that as a built image and deploy.
+func TestApplicationShipRefusesARunThatSkippedPublish(t *testing.T) {
+	fastShipPolling(t)
+	shortPipelineGrace(t, 0)
+	mockClient := newShipPipelineMock("ankra_pipeline")
+	manual := shipPipelineRun("run-manual", 1, "manual")
+	mockClient.dispatchedRun = &client.CreatePipelineRunResult{PipelineRunID: "run-manual", RunNumber: 1}
+	mockClient.runPages = [][]client.PipelineRun{{}, {manual}}
+	skippedPublish := shipStep("publish", 1, "skipped")
+	reason := `Stage "publish" runs only on push, and this run was triggered by manual.`
+	skippedPublish.ErrorMessage = &reason
+	mockClient.runDetails["run-manual"] = []*client.PipelineRunDetail{
+		shipRunDetail(manual, "concluded", "success", shipStep("build", 1, "success"), skippedPublish),
+	}
+
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError == nil {
+		t.Fatalf("a run that skipped publish must fail ship\nprogress: %s", progress)
+	}
+	if !strings.Contains(executeError.Error(), "does not publish the image") ||
+		!strings.Contains(executeError.Error(), "runs only on push") {
+		t.Errorf("the error must say the run publishes nothing, and why: %v", executeError)
+	}
+	if mockClient.deployCalls != 0 {
+		t.Errorf("nothing may deploy without an image; calls = %d", mockClient.deployCalls)
+	}
+}
+
+// A push during the wait cancels the older commit's run as superseded, and
+// the replacing run belongs to the new head. Ship must follow the branch to
+// it instead of polling the superseded run until --timeout.
+func TestApplicationShipFollowsTheBranchWhenAPushSupersedesItsRun(t *testing.T) {
+	fastShipPolling(t)
+	shortPipelineGrace(t, time.Hour)
+	const newHead = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+	mockClient := newShipPipelineMock("ankra_pipeline")
+	mockClient.branchesPayloads = [][]byte{
+		[]byte(`{"branches":[{"name":"main","head_sha":"` + shipTestHeadSHA + `"}],"configured_branch":"main"}`),
+		[]byte(`{"branches":[{"name":"main","head_sha":"` + newHead + `"}],"configured_branch":"main"}`),
+	}
+	first := shipPipelineRun("run-first", 4, "push")
+	second := shipPipelineRun("run-second", 5, "push")
+	second.HeadSHA = newHead
+	superseded := shipRunDetail(first, "concluded", "cancelled")
+	errorClass := pipelineErrorClassSuperseded
+	superseded.ErrorClass = &errorClass
+	mockClient.runsByHead = map[string][]client.PipelineRun{
+		shipTestHeadSHA: {first},
+		newHead:         {second},
+	}
+	mockClient.runDetails["run-first"] = []*client.PipelineRunDetail{superseded}
+	mockClient.runDetails["run-second"] = []*client.PipelineRunDetail{
+		shipRunDetail(second, "concluded", "success", shipStep("publish", 1, "success")),
+	}
+
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError != nil {
+		t.Fatalf("ship must follow the new head's run, got %v\nprogress: %s", executeError, progress)
+	}
+	if mockClient.detailCalls["run-second"] == 0 {
+		t.Error("the new head's run was never read")
+	}
+	if !strings.Contains(progress, "moved to commit a1b2c3d") {
+		t.Errorf("progress must say ship moved to the new head:\n%s", progress)
+	}
+	if mockClient.deployCalls != 1 {
+		t.Errorf("deploy calls = %d, want 1", mockClient.deployCalls)
 	}
 }
 

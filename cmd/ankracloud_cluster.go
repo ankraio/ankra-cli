@@ -240,6 +240,11 @@ Examples:
     --bastion-plan <plan> --control-plane-plan <plan> --worker-plan <plan>
   ankra cluster ankracloud create --name edge --distribution k3s ...`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Refuse a bad -o before the create: rejected after it, the error
+		// reads as a failed create and a retry builds a second cluster.
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
 		request, requestError := ankraCloudCreateRequestFromFlags(cmd)
 		if requestError != nil {
 			return requestError
@@ -314,6 +319,10 @@ and deleted only when you accept that: answer the prompt on a terminal, or
 pass --accept-volume-data-loss (--yes does not imply it).`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Refuse a bad -o before anything is deleted, not after.
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
 			return resolveError
@@ -624,7 +633,7 @@ func registerAnkraCloudCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("zone", "", "Ankra Cloud zone (required; see 'ankracloud zones')")
 		command.Flags().String("template", "", "Server template (server default: debian-13; see 'ankracloud templates')")
 		command.Flags().String("private-network-id", "", "Adopt an existing private network instead of creating one")
-		command.Flags().String("network-ip-range", "", "RFC 1918 CIDR (/16 to /29) for the created private network (server default: a derived /20)")
+		command.Flags().String("network-ip-range", "", "RFC 1918 CIDR (/16 to /29) for the created private network (server default: a /24 derived from the cluster)")
 		command.Flags().String("bastion-plan", "", "Bastion server plan (required)")
 		command.Flags().StringSlice("bastion-allowed-ips", nil, "CIDRs allowed to reach the bastion over SSH (default: anywhere)")
 		command.Flags().Int("control-plane-count", 0, "Control plane node count (server default: 1)")

@@ -26,8 +26,8 @@ Ankra cluster so OpenClaw can run informed local automations.`,
 var openclawSkillCmd = &cobra.Command{
 	Use:   "skill",
 	Short: "Generate an OpenClaw skill for the selected cluster",
-	Long: `Generate a SKILL.md describing the selected cluster's agent,
-addons, and AI Agents.
+	Long: `Generate a SKILL.md for the selected cluster: its name, ID and portal page,
+when to hand work to Ankra's AI Agents, and the AI Agents run endpoints.
 
 OpenClaw only loads a skill from a SKILL.md inside its own directory, so the
 default output is $HOME/.openclaw/skills/ankra-<cluster>/SKILL.md (the

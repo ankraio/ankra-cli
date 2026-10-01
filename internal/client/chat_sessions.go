@@ -137,8 +137,9 @@ func classifyChatSessionError(err error) error {
 }
 
 // StreamChatSessionEvents tails the session's event log from the given
-// sequence number (exclusive) until the terminal "end" frame or the
-// connection drops; the channel closes either way. Every durable frame is
+// sequence number (exclusive) until the terminal "end" frame, a turn that
+// parked on the user (ChatTurnParked), or the connection drops; the channel
+// closes either way. Every durable frame is
 // delivered as a ChatStreamEvent whose Type is the SSE event name, Data the
 // decoded JSON payload, and Sequence the frame's id; id-less live-plane
 // mirrors are skipped. Heartbeat comments reset the same idle watchdog the
@@ -203,7 +204,7 @@ func (c *Client) StreamChatSessionEvents(sessionID string, since int64) (<-chan 
 			if line == "" {
 				if event, ok := frame.event(); ok {
 					events <- event
-					if event.Type == "end" {
+					if event.Type == "end" || ChatTurnParked(event) {
 						return
 					}
 				}
@@ -278,4 +279,28 @@ func (frame *sseFrame) event() (ChatStreamEvent, bool) {
 	}
 	event.Done = name == "end"
 	return event, true
+}
+
+// chatParkedSessionStatuses are the session_complete statuses that end a turn
+// without ending the session: the turn proposed a write awaiting
+// confirmation, or asked a question (awaiting_user), or parked on a wait_for
+// condition (waiting). The platform sends "end" only for a terminal session
+// (completed, failed, cancelled, expired), so a client that waited for "end"
+// after one of these would wait - heartbeats keeping the connection alive -
+// until the session expired.
+var chatParkedSessionStatuses = map[string]bool{
+	"awaiting_user": true,
+	"waiting":       true,
+}
+
+// ChatTurnParked reports whether the frame is the session_complete of a turn
+// that parked on the user rather than ending the session: the turn is over,
+// and no "end" follows.
+func ChatTurnParked(event ChatStreamEvent) bool {
+	if event.Type != "session_complete" {
+		return false
+	}
+	data, _ := event.Data.(map[string]any)
+	status, _ := data["status"].(string)
+	return chatParkedSessionStatuses[status]
 }

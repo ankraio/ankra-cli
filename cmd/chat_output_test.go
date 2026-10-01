@@ -6,6 +6,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -309,5 +310,88 @@ func TestChatOneShotJSON_HiddenRuneNoticeUsesTheCommandsErrorStream(t *testing.T
 	decodeChatResult(t, stdout)
 	if !strings.Contains(stderr, "invisible character") {
 		t.Errorf("stderr = %q, want the stripped-runes notice on the command's error stream", stderr)
+	}
+}
+
+// A turn that proposes a write parks the session as awaiting_user: the
+// platform sends session_complete with that status and never "end", because
+// the session is not over. The one-shot must end the turn there and print
+// the document, not wait for an "end" that never comes.
+func parkedProposalTail() []client.ChatStreamEvent {
+	return []client.ChatStreamEvent{
+		contentFrame(2, "I can restart it."),
+		{Type: "tool_start", Data: map[string]any{"tool_name": "restart_deployment", "tool_call_id": "toolu_w"}, Sequence: 3},
+		{Type: "tool_result", Data: map[string]any{"tool_name": "restart_deployment", "tool_call_id": "toolu_w",
+			"success": true, "status": "pending_confirmation"}, Sequence: 4},
+		{Type: "action_proposal", Data: map[string]any{"action_id": "act-9", "tool_name": "restart_deployment",
+			"description": "Restart payments", "risk_level": "medium", "reversible": true,
+			"parameters": map[string]any{"namespace": "shop", "name": "payments"}}, Sequence: 5},
+		{Type: "session_complete", Data: map[string]any{"status": "awaiting_user"}, Sequence: 6},
+	}
+}
+
+func TestChatOneShotJSON_AParkedTurnEndsWithoutAnEndFrame(t *testing.T) {
+	mock := &chatSessionMock{tails: [][]client.ChatStreamEvent{parkedProposalTail()}}
+	stdout, stderr, err := runChatStructured(t, mock, "chat", "--mode", "agent", "-o", "json", "restart payments")
+	if err != nil {
+		t.Fatalf("chat failed: %v\nstderr: %s", err, stderr)
+	}
+	if len(mock.tailSince) != 1 {
+		t.Errorf("tails opened = %v, want one: a parked turn is over and must not be resumed", mock.tailSince)
+	}
+	document := decodeChatResult(t, stdout)
+	toolCalls, _ := document["tool_calls"].([]any)
+	if len(toolCalls) != 1 {
+		t.Fatalf("tool_calls = %v, want the proposed write", document["tool_calls"])
+	}
+	call, _ := toolCalls[0].(map[string]any)
+	if call["success"] != nil || call["status"] != "pending_confirmation" {
+		t.Errorf("tool call = %v, want success null and status pending_confirmation: the write has not run", call)
+	}
+	actions, _ := document["pending_actions"].([]any)
+	if len(actions) != 1 {
+		t.Fatalf("pending_actions = %v, want the proposal", document["pending_actions"])
+	}
+	action, _ := actions[0].(map[string]any)
+	parameters, _ := action["parameters"].(map[string]any)
+	if action["action_id"] != "act-9" || parameters["name"] != "payments" {
+		t.Errorf("pending action = %v, want act-9 with its parameters", action)
+	}
+}
+
+func TestChatOneShotYAML_PendingActionsUseTheSameKeysAsJSON(t *testing.T) {
+	mock := &chatSessionMock{tails: [][]client.ChatStreamEvent{parkedProposalTail()}}
+	stdout, stderr, err := runChatStructured(t, mock, "chat", "--mode", "agent", "-o", "yaml", "restart payments")
+	if err != nil {
+		t.Fatalf("chat failed: %v\nstderr: %s", err, stderr)
+	}
+	var document map[string]any
+	if err := yaml.Unmarshal([]byte(stdout), &document); err != nil {
+		t.Fatalf("stdout is not YAML: %v\n%s", err, stdout)
+	}
+	actions, _ := document["pending_actions"].([]any)
+	if len(actions) != 1 {
+		t.Fatalf("pending_actions = %v\n%s", document["pending_actions"], stdout)
+	}
+	action, _ := actions[0].(map[string]any)
+	parameters, _ := action["parameters"].(map[string]any)
+	if action["action_id"] != "act-9" || action["risk_level"] != "medium" || parameters["namespace"] != "shop" {
+		t.Errorf("pending action = %v, want action_id/risk_level keys and parameters as a map\n%s", action, stdout)
+	}
+}
+
+func TestChatOneShotJSON_ACancelledTurnExitsNonZero(t *testing.T) {
+	mock := &chatSessionMock{tails: [][]client.ChatStreamEvent{{
+		contentFrame(2, "Looking at"),
+		{Type: "session_complete", Data: map[string]any{"status": "cancelled"}, Sequence: 3},
+		{Type: "end", Data: map[string]any{"status": "cancelled"}, Done: true},
+	}}}
+	stdout, _, err := runChatStructured(t, mock, "chat", "-o", "json", "hello")
+	if err == nil || !strings.Contains(err.Error(), "cancelled") {
+		t.Fatalf("err = %v, want a cancelled turn to exit non-zero", err)
+	}
+	document := decodeChatResult(t, stdout)
+	if document["answer"] != "Looking at" || !strings.Contains(fmt.Sprint(document["error"]), "cancelled") {
+		t.Errorf("document = %v, want the partial answer and the cancellation as its error", document)
 	}
 }

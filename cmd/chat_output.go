@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -35,10 +36,58 @@ type chatOneShotResult struct {
 	ToolCalls []chatToolCall `json:"tool_calls" yaml:"tool_calls"`
 	// PendingActions are writes the model proposed that have NOT run: each
 	// waits for `ankra chat actions confirm|reject <action_id>`.
-	PendingActions []*client.ChatActionProposal `json:"pending_actions" yaml:"pending_actions"`
+	PendingActions []chatPendingAction `json:"pending_actions" yaml:"pending_actions"`
 	// Error is the turn's failure, if it failed; the command then exits
 	// non-zero after printing the document.
 	Error string `json:"error,omitempty" yaml:"error,omitempty"`
+}
+
+// chatPendingAction is one proposed write in the document. It mirrors
+// client.ChatActionProposal with yaml tags, so -o yaml carries the same keys
+// as -o json, and with the parameters decoded, so YAML prints them as a map
+// rather than as the raw JSON bytes.
+type chatPendingAction struct {
+	ActionID         string  `json:"action_id" yaml:"action_id"`
+	ToolName         string  `json:"tool_name" yaml:"tool_name"`
+	Description      string  `json:"description" yaml:"description"`
+	Parameters       any     `json:"parameters,omitempty" yaml:"parameters,omitempty"`
+	RiskLevel        string  `json:"risk_level" yaml:"risk_level"`
+	Reversible       bool    `json:"reversible" yaml:"reversible"`
+	CreatedAt        string  `json:"created_at" yaml:"created_at"`
+	ExpiresInSeconds int     `json:"expires_in_seconds" yaml:"expires_in_seconds"`
+	PlanID           *string `json:"plan_id,omitempty" yaml:"plan_id,omitempty"`
+}
+
+func newChatPendingActions(proposals []*client.ChatActionProposal) []chatPendingAction {
+	if proposals == nil {
+		return nil
+	}
+	actions := make([]chatPendingAction, 0, len(proposals))
+	for _, proposal := range proposals {
+		if proposal == nil {
+			continue
+		}
+		action := chatPendingAction{
+			ActionID:         proposal.ActionID,
+			ToolName:         proposal.ToolName,
+			Description:      proposal.Description,
+			RiskLevel:        proposal.RiskLevel,
+			Reversible:       proposal.Reversible,
+			CreatedAt:        proposal.CreatedAt,
+			ExpiresInSeconds: proposal.ExpiresInSeconds,
+			PlanID:           proposal.PlanID,
+		}
+		if len(proposal.Parameters) > 0 {
+			var parameters any
+			if json.Unmarshal(proposal.Parameters, &parameters) == nil {
+				action.Parameters = parameters
+			} else {
+				action.Parameters = string(proposal.Parameters)
+			}
+		}
+		actions = append(actions, action)
+	}
+	return actions
 }
 
 // runChatMessageStructured runs one question and prints its outcome as one
@@ -88,7 +137,7 @@ func newChatOneShotResult(conversationID string, session *client.ChatSession, sc
 		ClusterID:      scope.clusterID,
 		Answer:         outcome.response,
 		ToolCalls:      outcome.toolCalls,
-		PendingActions: outcome.proposals,
+		PendingActions: newChatPendingActions(outcome.proposals),
 		Error:          outcome.errorMessage,
 	}
 	if scope.clusterID != nil {
@@ -106,7 +155,7 @@ func newChatOneShotResult(conversationID string, session *client.ChatSession, sc
 		result.ToolCalls = []chatToolCall{}
 	}
 	if result.PendingActions == nil {
-		result.PendingActions = []*client.ChatActionProposal{}
+		result.PendingActions = []chatPendingAction{}
 	}
 	return result
 }
