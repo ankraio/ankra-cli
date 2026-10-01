@@ -96,6 +96,9 @@ func checkSecretValues(response *client.GetResourcesResponse, items []interface{
 		return nil
 	}
 	target := namespace + "/" + name
+	if len(items) == 0 {
+		return withExitCode(exitNotFound, fmt.Errorf("secret %q not found in namespace %s", name, namespace))
+	}
 	switch marker {
 	case client.SecretValuesRevealed:
 		return nil
@@ -112,9 +115,6 @@ func checkSecretValues(response *client.GetResourcesResponse, items []interface{
 				"Try again when the cluster is connected", target)
 	case client.SecretValuesWithheld:
 		return fmt.Errorf("not revealed: the platform withheld the values of Secret %s", target)
-	}
-	if len(items) == 0 {
-		return withExitCode(exitNotFound, fmt.Errorf("secret %q not found in namespace %s", name, namespace))
 	}
 	// No marker on a found Secret. A platform that predates the value
 	// policy returned values as they are, but an absent answer is not a
