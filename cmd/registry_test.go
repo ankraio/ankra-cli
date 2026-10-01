@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +25,62 @@ type registryRobotsMock struct {
 	list *client.RegistryRobotList
 	// warning rides the create and rotate answers when set.
 	warning string
+	// projects is what the projects listing answers; projectsError what the
+	// project routes fail with instead.
+	projects       *client.RegistryProjectList
+	projectsError  error
+	createdProject string
+	deletedProject string
+}
+
+// registryProjectsFixture is an organisation with its own project and one
+// extra project.
+func registryProjectsFixture() *client.RegistryProjectList {
+	return &client.RegistryProjectList{
+		Projects: []client.RegistryProject{
+			{Name: "default", Project: "org-abc", Host: "artifact.ankra.cloud", IsDefault: true,
+				RepositoryCount: 12, RobotCount: 3, CreatedAt: "2026-07-22T17:16:00.000Z"},
+			{Name: "staging", Project: "org-abc-staging", Host: "artifact.ankra.cloud", RepositoryCount: 1, RobotCount: 1},
+		},
+		TotalCount: 2, ExtraProjectLimit: 5,
+	}
+}
+
+func (mock *registryRobotsMock) ListRegistryProjects(context.Context) (*client.RegistryProjectList, error) {
+	if mock.projectsError != nil {
+		return nil, mock.projectsError
+	}
+	if mock.projects != nil {
+		return mock.projects, nil
+	}
+	return registryProjectsFixture(), nil
+}
+
+func (mock *registryRobotsMock) CreateRegistryProject(_ context.Context, projectName string) (*client.RegistryProject, error) {
+	if mock.projectsError != nil {
+		return nil, mock.projectsError
+	}
+	mock.createdProject = projectName
+	return &client.RegistryProject{Name: projectName, Project: "org-abc-" + projectName, Host: "artifact.ankra.cloud"}, nil
+}
+
+func (mock *registryRobotsMock) DeleteRegistryProject(_ context.Context, projectName string) error {
+	if mock.projectsError != nil {
+		return mock.projectsError
+	}
+	mock.deletedProject = projectName
+	return nil
+}
+
+// unservedRouteError is what the client answers for a route the platform
+// does not register: a 404 that carries no detail of the backend's own.
+func unservedRouteError(t *testing.T) error {
+	t.Helper()
+	_, routeError := unservedRouteClient(t).ListRegistryProjects(context.Background())
+	if routeError == nil {
+		t.Fatal("an unregistered route must answer an error")
+	}
+	return routeError
 }
 
 // registryRobotFleetFixture is a listing as a platform that manages robots
@@ -570,6 +628,142 @@ func TestRegistryRobotsCreateRefusesPermissionsAndExpiryOnAnOlderPlatform(t *tes
 		if runError == nil || !strings.Contains(runError.Error(), "does not support robot permissions or an expiry yet") ||
 			mock.createRequest != nil {
 			t.Fatalf("%v against an older platform: error=%v request=%+v", arguments, runError, mock.createRequest)
+		}
+	}
+}
+
+func unservedRouteClient(t *testing.T) *client.Client {
+	t.Helper()
+	server := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(server.Close)
+	return &client.Client{BaseURL: server.URL, Token: "test-token", HTTP: server.Client()}
+}
+
+func TestRegistryProjectsCommandsRegistered(t *testing.T) {
+	registryCommand := newRegistryCommand()
+	var projects []string
+	for _, subcommand := range registryCommand.Commands() {
+		if subcommand.Name() != "projects" {
+			continue
+		}
+		for _, projectSubcommand := range subcommand.Commands() {
+			projects = append(projects, projectSubcommand.Name())
+		}
+	}
+	if strings.Join(projects, ",") != "create,delete,list" {
+		t.Fatalf("registry projects subcommands = %v", projects)
+	}
+}
+
+// The listing shows where to push for each project and how much of the limit
+// is used; -o json answers the platform's own shape.
+func TestRegistryProjectsList(t *testing.T) {
+	output, runError := runRegistryCommand(t, &registryRobotsMock{}, "", "projects", "list")
+	if runError != nil {
+		t.Fatalf("list: %v", runError)
+	}
+	for _, expected := range []string{"default", "artifact.ankra.cloud/org-abc", "staging", "artifact.ankra.cloud/org-abc-staging",
+		"1 of 5 extra projects used."} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("listing lacks %q:\n%s", expected, output)
+		}
+	}
+	output, runError = runRegistryCommand(t, &registryRobotsMock{}, "", "projects", "list", "-o", "json")
+	var decoded client.RegistryProjectList
+	if runError != nil || json.Unmarshal([]byte(output), &decoded) != nil || len(decoded.Projects) != 2 ||
+		!decoded.Projects[0].IsDefault || decoded.ExtraProjectLimit != 5 {
+		t.Fatalf("list -o json: error=%v\n%s", runError, output)
+	}
+}
+
+func TestRegistryProjectsCreateAndDelete(t *testing.T) {
+	mock := &registryRobotsMock{}
+	output, runError := runRegistryCommand(t, mock, "", "projects", "create", " edge ")
+	if runError != nil || mock.createdProject != "edge" ||
+		!strings.Contains(output, "artifact.ankra.cloud/org-abc-edge") || !strings.Contains(output, "--project edge") {
+		t.Fatalf("create: error=%v created=%q\n%s", runError, mock.createdProject, output)
+	}
+
+	_, declinedError := runRegistryCommand(t, mock, "n\n", "projects", "delete", "staging")
+	if exitCodeFor(declinedError) != exitCancelled || mock.deletedProject != "" {
+		t.Fatalf("a declined prompt must cancel without calling the API: error=%v deleted=%q", declinedError, mock.deletedProject)
+	}
+	stdout, stderr, runError := runRegistryCommandSplit(t, mock, "y\n", "projects", "delete", "staging", "-o", "json")
+	var decoded map[string]any
+	if runError != nil || mock.deletedProject != "staging" || json.Unmarshal([]byte(stdout), &decoded) != nil ||
+		decoded["deleted"] != true || !strings.Contains(stderr, `Delete registry project "staging"?`) {
+		t.Fatalf("delete -o json: error=%v deleted=%q\nstdout=%s\nstderr=%s", runError, mock.deletedProject, stdout, stderr)
+	}
+
+	refused := &registryRobotsMock{projectsError: errors.New("Robot accounts are still bound to this project; revoke them first")}
+	if _, refusedError := runRegistryCommand(t, refused, "", "projects", "delete", "staging", "--yes"); refusedError == nil ||
+		!strings.Contains(refusedError.Error(), "still bound") {
+		t.Fatalf("a refused delete must relay the platform's sentence, got %v", refusedError)
+	}
+}
+
+// A platform that does not register the projects route says so in words,
+// instead of surfacing a bare 404.
+func TestRegistryProjectsOnAPlatformThatPredatesThem(t *testing.T) {
+	mock := &registryRobotsMock{projectsError: unservedRouteError(t)}
+	for _, arguments := range [][]string{
+		{"projects", "list"},
+		{"projects", "create", "edge"},
+		{"projects", "delete", "edge", "--yes"},
+		{"robots", "create", "edge-ci", "--project", "edge"},
+	} {
+		_, runError := runRegistryCommand(t, mock, "", arguments...)
+		if runError == nil || !strings.Contains(runError.Error(), "does not serve registry projects yet") {
+			t.Errorf("%v against a platform without the route = %v", arguments, runError)
+		}
+	}
+	if mock.createRequest != nil {
+		t.Fatalf("a robot was created on a platform that would have ignored --project: %+v", mock.createRequest)
+	}
+}
+
+// --project binds the robot to one of the organisation's projects: the
+// request carries the name, "default" is the organisation's own project and
+// is not sent, and a name the organisation does not have is refused before
+// any robot exists.
+func TestRegistryRobotsCreateOnAProject(t *testing.T) {
+	mock := &registryRobotsMock{}
+	if _, runError := runRegistryCommand(t, mock, "", "robots", "create", "staging-ci", "--project", " Staging "); runError != nil {
+		t.Fatalf("create --project: %v", runError)
+	}
+	encoded, _ := json.Marshal(mock.createRequest)
+	if string(encoded) != `{"name":"staging-ci","scope":"push","project":"staging"}` {
+		t.Fatalf("wire body = %s", encoded)
+	}
+
+	mock = &registryRobotsMock{projectsError: errors.New("the projects route must not be asked for the default project")}
+	if _, runError := runRegistryCommand(t, mock, "", "robots", "create", "main-ci", "--project", "default"); runError != nil {
+		t.Fatalf("create --project default: %v", runError)
+	}
+	encoded, _ = json.Marshal(mock.createRequest)
+	if string(encoded) != `{"name":"main-ci","scope":"push"}` {
+		t.Fatalf("the default project must not be sent, got %s", encoded)
+	}
+
+	mock = &registryRobotsMock{}
+	_, missingError := runRegistryCommand(t, mock, "", "robots", "create", "nowhere", "--project", "production")
+	if exitCodeFor(missingError) != exitUsage || !strings.Contains(missingError.Error(), "default, staging") ||
+		!strings.Contains(missingError.Error(), "ankra registry projects create production") || mock.createRequest != nil {
+		t.Fatalf("a project the organisation does not have: error=%v request=%+v", missingError, mock.createRequest)
+	}
+}
+
+// A robot on an extra project is shown by the name the member addresses the
+// project by, with the registry's own name beside it.
+func TestRegistryRobotProjectsSummaryNamesAnExtraProject(t *testing.T) {
+	cases := map[string]client.RegistryRobot{
+		"staging (org-abc-staging)": {ProjectName: "staging", Project: "org-abc-staging", Projects: []string{"org-abc-staging"}},
+		"org-abc":                   {ProjectName: "default", Project: "org-abc", Projects: []string{"org-abc"}},
+		"commerce-images":           {Project: "commerce-images", Projects: []string{"commerce-images"}},
+	}
+	for want, robot := range cases {
+		if got := registryRobotProjectsSummary(robot); got != want {
+			t.Errorf("projects summary of %+v = %q, want %q", robot, got, want)
 		}
 	}
 }

@@ -4664,6 +4664,18 @@ func (m baseMock) DeleteRegistryRobot(requestContext context.Context, robotName 
 	return errors.New("not implemented")
 }
 
+func (m baseMock) ListRegistryProjects(requestContext context.Context) (*client.RegistryProjectList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateRegistryProject(requestContext context.Context, projectName string) (*client.RegistryProject, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteRegistryProject(requestContext context.Context, projectName string) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) EnsureApplicationRegistryRobot(requestContext context.Context, applicationID string, robotRequest client.EnsureApplicationRegistryRobotRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }

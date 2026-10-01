@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -33,10 +35,158 @@ one push robot per application - and these commands cover the robot accounts
 you need on top of that: a login for CI you run outside Ankra, a laptop
 pushing an image by hand, or a cluster Ankra does not manage pulling from the
 project. 'ankra registry robots list' shows both: yours, and the ones Ankra
-manages.`,
+manages.
+
+A robot account is bound to one registry project. 'ankra registry projects'
+creates extra projects beside the organisation's own, so a robot can be given
+access to only what is kept in one of them.`,
 	}
 	registryCommand.AddCommand(newRegistryRobotsCommand())
+	registryCommand.AddCommand(newRegistryProjectsCommand())
 	return registryCommand
+}
+
+func newRegistryProjectsCommand() *cobra.Command {
+	projectsCommand := &cobra.Command{
+		Use:     "projects",
+		Aliases: []string{"project"},
+		Short:   "Create, list and delete the organisation's registry projects",
+		Long: `Create, list and delete the organisation's registry projects.
+
+Every organisation has one project on the Ankra registry, named default here,
+and everything it publishes lands there. A robot account is bound to one
+project, so a robot on the default project reaches all of it. An extra project
+is how you give a login less: push what should be kept apart into the extra
+project and bind a robot to it with 'ankra registry robots create <name>
+--project <project>'.
+
+An extra project is private and has the same scan policy, retention policy and
+storage quota as the default one. Deleting one never deletes anything else on
+the way: a project that still holds repositories, or that robot accounts are
+still bound to, is refused.`,
+	}
+	projectsCommand.AddCommand(newRegistryProjectsListCommand())
+	projectsCommand.AddCommand(newRegistryProjectsCreateCommand())
+	projectsCommand.AddCommand(newRegistryProjectsDeleteCommand())
+	return projectsCommand
+}
+
+func newRegistryProjectsListCommand() *cobra.Command {
+	listCommand := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List the organisation's registry projects",
+		Long: `List the organisation's registry projects: its own (default) first, then the
+extra ones, each with the path images are pushed under, how many repositories
+it holds and how many of your robot accounts are bound to it.`,
+		Example: "  ankra registry projects list\n  ankra registry projects list -o json",
+		Args:    cobra.NoArgs,
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			list, listError := apiClient.ListRegistryProjects(command.Context())
+			if listError != nil {
+				return registryProjectsRouteError(listError)
+			}
+			if rendered, renderError := renderStructured(command, list); rendered || renderError != nil {
+				return renderError
+			}
+			out := command.OutOrStdout()
+			projectTable := table.NewWriter()
+			projectTable.SetOutputMirror(out)
+			projectTable.SetStyle(table.StyleRounded)
+			projectTable.AppendHeader(table.Row{"Name", "Push to", "Repositories", "Robots", "Created"})
+			for _, project := range list.Projects {
+				created := project.CreatedAt
+				if created == "" {
+					created = "-"
+				}
+				projectTable.AppendRow(table.Row{project.Name, project.Host + "/" + project.Project,
+					project.RepositoryCount, project.RobotCount, created})
+			}
+			projectTable.Render()
+			if list.ExtraProjectLimit > 0 {
+				_, _ = fmt.Fprintf(out, "%d of %d extra projects used.\n", max(len(list.Projects)-1, 0), list.ExtraProjectLimit)
+			}
+			return nil
+		},
+	}
+	registerStructuredOutputFlags(listCommand)
+	return listCommand
+}
+
+func newRegistryProjectsCreateCommand() *cobra.Command {
+	createCommand := &cobra.Command{
+		Use:   "create <name>",
+		Short: "Create an extra registry project",
+		Long: `Create an extra registry project for the organisation.
+
+The name is 2 to 30 lower-case letters, digits and hyphens; 'default' is the
+organisation's own project and is reserved. The project is private and has the
+same scan policy, retention policy and storage quota as the default one. Bind
+a robot account to it with 'ankra registry robots create <name> --project
+<project>'.`,
+		Example: "  ankra registry projects create staging\n  ankra registry robots create staging-ci --project staging",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			created, createError := apiClient.CreateRegistryProject(command.Context(), strings.TrimSpace(arguments[0]))
+			if createError != nil {
+				return registryProjectsRouteError(createError)
+			}
+			if rendered, renderError := renderStructured(command, created); rendered || renderError != nil {
+				return renderError
+			}
+			out := command.OutOrStdout()
+			_, _ = fmt.Fprintf(out, "Registry project %q created.\n", created.Name)
+			_, _ = fmt.Fprintf(out, "  Push to: %s/%s\n", created.Host, created.Project)
+			_, _ = fmt.Fprintf(out, "Bind a robot account to it with 'ankra registry robots create <name> --project %s'.\n", created.Name)
+			return nil
+		},
+	}
+	registerStructuredOutputFlags(createCommand)
+	return createCommand
+}
+
+func newRegistryProjectsDeleteCommand() *cobra.Command {
+	deleteCommand := &cobra.Command{
+		Use:     "delete <name>",
+		Aliases: []string{"rm"},
+		Short:   "Delete an extra registry project",
+		Long: `Delete an extra registry project.
+
+Nothing else is deleted on the way. A project that still holds repositories is
+refused until they are deleted from the registry, and one that robot accounts
+are still bound to is refused until they are revoked. The organisation's own
+project (default) cannot be deleted.`,
+		Example: "  ankra registry projects delete staging --yes",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			projectName := strings.TrimSpace(arguments[0])
+			yes, _ := command.Flags().GetBool("yes")
+			if confirmError := confirmPrompt(command.InOrStdin(), command.ErrOrStderr(),
+				fmt.Sprintf("Delete registry project %q? [y/N]: ", projectName), yes); confirmError != nil {
+				return confirmError
+			}
+			if deleteError := apiClient.DeleteRegistryProject(command.Context(), projectName); deleteError != nil {
+				return registryProjectsRouteError(deleteError)
+			}
+			if rendered, renderError := renderStructured(command, map[string]any{"name": projectName, "deleted": true}); rendered || renderError != nil {
+				return renderError
+			}
+			_, _ = fmt.Fprintf(command.OutOrStdout(), "Registry project %q deleted.\n", projectName)
+			return nil
+		},
+	}
+	deleteCommand.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
+	registerStructuredOutputFlags(deleteCommand)
+	return deleteCommand
 }
 
 func newRegistryRobotsCommand() *cobra.Command {
@@ -84,7 +234,10 @@ what it needs with --permission, repeated or comma-separated, instead of a
 scope; 'ankra registry robots permissions' lists what can be granted. Whatever
 it holds, the robot reaches the organisation's project and no other.
 --expires-in-days makes the registry stop honouring the robot after that many
-days; without it the robot never expires. The secret is printed exactly once, with
+days; without it the robot never expires. --project binds the robot to one of
+the organisation's extra registry projects instead of its own ('ankra registry
+projects list' shows them); it then reaches that project and nothing else. The
+secret is printed exactly once, with
 a docker login command that reads it from stdin - copy it now, it is not stored
 anywhere you can read it back from. The secret is never put on a command line,
 where the shell history and 'ps' would keep it. Rotate it with 'ankra registry robots rotate' if it
@@ -93,6 +246,7 @@ is lost or leaked.`,
   ankra registry robots create edge-cluster --scope pull
   ankra registry robots create contractor --scope pull --expires-in-days 30
   ankra registry robots create cleanup --permission repository:pull,artifact:list,artifact:delete
+  ankra registry robots create staging-ci --project staging
   ankra registry robots create jenkins -o json | jq -r .secret`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
@@ -125,6 +279,16 @@ is lost or leaked.`,
 					return supportError
 				}
 			}
+			projectName, _ := command.Flags().GetString("project")
+			projectName = strings.ToLower(strings.TrimSpace(projectName))
+			if projectName == client.RegistryDefaultProjectName {
+				projectName = ""
+			}
+			if projectName != "" {
+				if projectError := requireRegistryProject(command, projectName); projectError != nil {
+					return projectError
+				}
+			}
 			description, _ := command.Flags().GetString("description")
 			created, createError := apiClient.CreateRegistryRobot(command.Context(), client.CreateRegistryRobotRequest{
 				Name:          strings.TrimSpace(arguments[0]),
@@ -132,6 +296,7 @@ is lost or leaked.`,
 				Permissions:   permissions,
 				Description:   description,
 				ExpiresInDays: expiresInDays,
+				Project:       projectName,
 			})
 			if createError != nil {
 				return createError
@@ -143,9 +308,46 @@ is lost or leaked.`,
 	createCommand.Flags().StringSlice("permission", nil, "A permission to grant instead of a preset scope, written resource:action; "+
 		"repeat the flag or separate with commas ('ankra registry robots permissions' lists them)")
 	createCommand.Flags().Int("expires-in-days", 0, "Days until the registry stops honouring the robot (default: it never expires)")
+	createCommand.Flags().String("project", "", "The registry project to bind the robot to (default: the organisation's own; "+
+		"'ankra registry projects list' shows the others)")
 	createCommand.Flags().String("description", "", "What this robot is for (shown in the listing)")
 	registerStructuredOutputFlags(createCommand)
 	return createCommand
+}
+
+// registryProjectsRouteError turns the answer of a platform that does not
+// serve registry projects - a 404 that names nothing, from a route that is
+// not registered - into a sentence saying so. Every other error passes
+// through unchanged, a 404 that names a project included.
+func registryProjectsRouteError(routeError error) error {
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(routeError, &unexpected) && unexpected.StatusCode == http.StatusNotFound && unexpected.Detail == "" {
+		return withExitCode(exitError, errors.New("this platform does not serve registry projects yet: "+
+			"/api/v1/org/registry-projects is not registered, so every robot account is bound to the organisation's own project"))
+	}
+	return routeError
+}
+
+// requireRegistryProject refuses a robot create that names a project unless
+// the organisation has it. A platform that predates registry projects
+// ignores the field and would mint the robot on the organisation's own
+// project - a login reaching more than was asked for - so the platform is
+// asked first, and a name it does not list is refused here with the ones it
+// does.
+func requireRegistryProject(command *cobra.Command, projectName string) error {
+	list, listError := apiClient.ListRegistryProjects(command.Context())
+	if listError != nil {
+		return registryProjectsRouteError(listError)
+	}
+	var projectNames []string
+	for _, project := range list.Projects {
+		if project.Name == projectName {
+			return nil
+		}
+		projectNames = append(projectNames, project.Name)
+	}
+	return withExitCode(exitUsage, fmt.Errorf("--project %q is not one of this organisation's registry projects (%s); "+
+		"create it with 'ankra registry projects create %s'", projectName, strings.Join(projectNames, ", "), projectName))
 }
 
 // requireRegistryRobotPermissionSupport refuses a create that states its own
@@ -229,8 +431,13 @@ func registryRobotAccessSummary(robot client.RegistryRobot) string {
 }
 
 // registryRobotProjectsSummary names the projects a robot reaches, falling
-// back to the single project a platform that predates the list states.
+// back to the single project a platform that predates the list states. An
+// extra project is named the way a member addresses it, since that is what
+// --project and 'registry projects' take.
 func registryRobotProjectsSummary(robot client.RegistryRobot) string {
+	if robot.ProjectName != "" && robot.ProjectName != client.RegistryDefaultProjectName && robot.Project != "" {
+		return robot.ProjectName + " (" + robot.Project + ")"
+	}
 	if len(robot.Projects) > 0 {
 		return strings.Join(robot.Projects, ", ")
 	}

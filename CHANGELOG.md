@@ -4,6 +4,21 @@
 
 ### Added
 
+- **`ankra registry projects` and `robots create --project`: a robot account
+  that reaches only part of what you publish.** Everything an organisation
+  pushes lands in one registry project, and a robot is bound to a project,
+  so every robot could reach all of it. `ankra registry projects create
+  <name>` makes an extra project (up to five, private, same scan and
+  retention policy as your own), `projects list` shows each project with
+  the path to push to, how many repositories it holds and how many of your
+  robots are bound to it, and `robots create <name> --project <project>`
+  binds the new robot to that one project. `projects delete` asks first and
+  never deletes anything else on the way: a project that still holds
+  repositories, or has robots bound to it, is refused. A project the
+  organisation does not have is refused before any robot exists, and a
+  platform that predates registry projects is named as such instead of
+  answering a bare 404.
+
 - **`ankra registry robots list` shows the robots Ankra manages, not only
   the ones you created.** The listing answered only robot accounts a member
   had made, so the logins doing most of the work on an organisation's
