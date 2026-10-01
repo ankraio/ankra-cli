@@ -4,6 +4,19 @@
 
 ### Added
 
+- **`ankra org ai-review repos list|set|unset` turns the AI code review on or
+  off for one repository without the portal.** `set my-org/my-repo --review`
+  writes the repository's rule; `--mentions`, `--previews`, `--model`,
+  `--review-drafts` and `--max-reviews-per-pr` set the rest. Only the
+  switches you pass change: the others keep the repository's current rule,
+  or the connection's settings when it has none, so turning the review on
+  never switches @mention replies or previews off by accident. `unset`
+  removes the rule so the repository follows the connection again (exit 3
+  when it had none), and `list` shows each connection's settings and rules,
+  with `--reachable` adding the repositories a GitHub App installation can
+  see. The connection is found from the repository's owner or an existing
+  rule; `--binding <provider>/<id>` picks it when that is ambiguous. `set`
+  and `unset` need organisation admin.
 - **`ankra cluster get secrets <name> -n <namespace> --reveal` reads one
   Secret's values.** Since the platform's Secret value policy, every Secret
   value comes back as a `sha256:` digest, so `cluster get secrets <name> -o

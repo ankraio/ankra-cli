@@ -904,6 +904,25 @@ func (m baseMock) DeleteRelatedRepository(ctx context.Context, relatedRepository
 	return errors.New("not implemented")
 }
 
+func (m baseMock) ListSCMBindings(ctx context.Context) ([]client.SCMBinding, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PutSCMRepositoryRule(ctx context.Context, provider string, bindingExternalID string,
+	rule client.SCMRepositoryRuleWrite) (*client.SCMRepositoryRule, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteSCMRepositoryRule(ctx context.Context, provider string, bindingExternalID string,
+	repoFullName string) (*client.SCMRepositoryRuleDeleted, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSCMBindingRepositories(ctx context.Context, provider string,
+	bindingExternalID string) ([]client.SCMBindingRepository, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetOrganisationCISettings(ctx context.Context) (*client.OrganisationCISettings, error) {
 	return nil, errors.New("not implemented")
 }

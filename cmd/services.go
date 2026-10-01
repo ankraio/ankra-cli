@@ -446,6 +446,13 @@ type APIClient interface {
 	CreateRelatedRepository(ctx context.Context, installationID string, repoFullName string,
 		relatedRepoFullName string) (*client.RelatedRepository, error)
 	DeleteRelatedRepository(ctx context.Context, relatedRepositoryID string) error
+	ListSCMBindings(ctx context.Context) ([]client.SCMBinding, error)
+	PutSCMRepositoryRule(ctx context.Context, provider string, bindingExternalID string,
+		rule client.SCMRepositoryRuleWrite) (*client.SCMRepositoryRule, error)
+	DeleteSCMRepositoryRule(ctx context.Context, provider string, bindingExternalID string,
+		repoFullName string) (*client.SCMRepositoryRuleDeleted, error)
+	ListSCMBindingRepositories(ctx context.Context, provider string,
+		bindingExternalID string) ([]client.SCMBindingRepository, error)
 
 	ListCharts(page, pageSize int, onlySubscribed bool) (*client.ListChartsResponse, error)
 	SearchCharts(query string) ([]client.ChartItem, error)
