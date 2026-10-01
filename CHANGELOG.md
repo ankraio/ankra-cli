@@ -42,6 +42,52 @@
   `-o json` gains fields (`kind`, `managed`, `projects`, `permissions`,
   `application`, `expires_at`) and loses none.
 
+### Fixed
+
+- **`ankra targets register` says what to do when there is no agent release
+  to install.** It answered `download SHA256SUMS: unexpected status 404`
+  when the release it looks for does not exist, which is what every host saw
+  until the first `ankra-host-agent` release was published. It now says
+  which release was missing and where it looked: with the default
+  `--agent-version latest`, that no release is published at the release URL
+  and to name an existing tag with `--agent-version` or point
+  `--release-url` at a mirror; with a pinned tag, that the tag does not
+  exist; and when the release lacks this host's architecture, that too.
+  These exit 3 (not found). Nothing is installed in any of them, as before.
+- **`ankra targets register` checks `--label` the way the agent does, before
+  installing anything.** A label the host agent refuses (a key with a space,
+  a key ending in `.` or `-`, a value over 63 characters, more than 32
+  labels) passed the CLI, which then installed
+  `/usr/local/bin/ankra-host-agent` before the agent's own register refused
+  it. Those are now usage errors (exit 2) up front, and the agent receives
+  exactly the `key=value` pairs the CLI validated.
+- **Running `ankra targets register` again on a registered host moves the
+  service onto the new binary.** It ran `systemctl enable --now`, which
+  leaves an already running service on the old binary and the old identity.
+  It now enables the unit and restarts it.
+- **`ankra targets register` writes its files without following a planted
+  symlink.** The binary and unit were first written to a fixed
+  `<path>.ankra-new`, which a symlink placed there in advance would have
+  redirected while running as root. Each install now creates a new file with
+  a random name beside the destination and renames it into place.
+- **`ankra targets register` refuses a plain `http://` `--release-url`**
+  (or `$ANKRA_HOST_AGENT_RELEASE_URL`) unless it is a loopback address or
+  `ANKRA_ALLOW_INSECURE_HTTP=1` is set, the same rule `--base-url` follows.
+  The `SHA256SUMS` check proves nothing when the sums and the binary come
+  over the same unauthenticated connection.
+- **`ankra targets list --environment <typo>` names the missing
+  environment.** The platform answers an unknown environment with a 404, so
+  the CLI printed `listing host targets: Environment not found` and the hint
+  it meant to give never appeared. `targets list`, `targets get --environment`
+  and `deployments list --environment` now say the environment does not exist
+  and that `ankra targets join-token create --environment <env>` creates it
+  (exit 3).
+- **Listings cut at the platform's row cap say so.** `ankra targets list -o
+  json` now carries `truncated` and `ankra deployments get -o json` carries
+  `targets_truncated`, which the CLI dropped; the table output says on stderr
+  when it shows only the first rows, and `targets get <name>` says the
+  listing was cut when a name is not among the rows it got.
+
 ## v0.21.0 — 2026-10-01
 
 ### Added

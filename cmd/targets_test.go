@@ -206,25 +206,63 @@ func TestTargetsListRendersTableAndJSON(t *testing.T) {
 	}
 }
 
-func TestTargetsListEmptySaysWhetherTheEnvironmentExists(t *testing.T) {
+func TestTargetsListNamesAnEnvironmentThatDoesNotExist(t *testing.T) {
 	newDeployPlatform(t, map[string]deployPlatformAnswer{
-		"GET /api/v1/org/host-targets": {body: `{"host_targets":[]}`},
-		"GET /api/v1/org/environments": {body: `{"environments":[{"id":"e1","name":"production"}]}`},
+		"GET /api/v1/org/host-targets": {status: http.StatusNotFound, body: `{"detail":"Environment not found"}`},
+		"GET /api/v1/org/deployments":  {status: http.StatusNotFound, body: `{"detail":"Environment not found"}`},
 	})
-	stdout, _, executeError := runDeployCommand(t, newTargetsCommand(), "", "list", "--environment", "prodution")
-	if executeError != nil {
-		t.Fatalf("targets list failed: %v", executeError)
+	commands := [][]string{
+		{"targets", "list", "--environment", "prodution"},
+		{"targets", "get", "web-1", "--environment", "prodution"},
+		{"deployments", "list", "--environment", "prodution"},
 	}
-	if !strings.Contains(stdout, `Environment "prodution" does not exist`) {
-		t.Fatalf("a typo should be named:\n%s", stdout)
+	for _, arguments := range commands {
+		root := &cobra.Command{Use: "ankra"}
+		root.AddCommand(newTargetsCommand(), newDeploymentsCommand())
+		_, _, executeError := runDeployCommand(t, root, "", arguments...)
+		if exitCodeFor(executeError) != exitNotFound ||
+			!strings.Contains(executeError.Error(), `environment "prodution" does not exist`) ||
+			!strings.Contains(executeError.Error(), "ankra targets join-token create --environment prodution") {
+			t.Fatalf("%v: an unknown environment should exit %d and say how to create it, got %v", arguments, exitNotFound, executeError)
+		}
 	}
-	stdout, _, _ = runDeployCommand(t, newTargetsCommand(), "", "list", "--environment", "production")
-	if !strings.Contains(stdout, `No host targets in environment "production"`) {
-		t.Fatalf("an empty environment should say so:\n%s", stdout)
+}
+
+func TestTargetsListEmptyAndTruncated(t *testing.T) {
+	platform := newDeployPlatform(t, map[string]deployPlatformAnswer{
+		"GET /api/v1/org/host-targets": {body: `{"host_targets":[],"truncated":false}`},
+	})
+	stdout, _, executeError := runDeployCommand(t, newTargetsCommand(), "", "list", "--environment", "production")
+	if executeError != nil || !strings.Contains(stdout, `No host targets in environment "production"`) {
+		t.Fatalf("an empty environment should say so: %v\n%s", executeError, stdout)
 	}
 	stdout, _, _ = runDeployCommand(t, newTargetsCommand(), "", "list", "-o", "json")
-	if strings.TrimSpace(stdout) != "{\n  \"host_targets\": []\n}" {
+	if strings.TrimSpace(stdout) != "{\n  \"host_targets\": [],\n  \"truncated\": false\n}" {
 		t.Fatalf("empty JSON must be an empty list, got %s", stdout)
+	}
+	if calls := platform.callsTo("GET /api/v1/org/environments"); len(calls) != 0 {
+		t.Fatalf("an empty listing needs no environments lookup, got %d", len(calls))
+	}
+
+	newDeployPlatform(t, map[string]deployPlatformAnswer{
+		"GET /api/v1/org/host-targets": {body: `{"host_targets":[{"id":"` + testHostTargetWebID +
+			`","name":"web-1","environment":"production","status":"online"}],"truncated":true}`},
+	})
+	stdout, stderr, executeError := runDeployCommand(t, newTargetsCommand(), "", "list")
+	if executeError != nil || !strings.Contains(stdout, "web-1") ||
+		!strings.Contains(stderr, "Showing the first 1 host targets") {
+		t.Fatalf("a truncated listing must say so on stderr: %v\nstdout:\n%s\nstderr:\n%s", executeError, stdout, stderr)
+	}
+	stdout, _, _ = runDeployCommand(t, newTargetsCommand(), "", "list", "-o", "json")
+	var document struct {
+		Truncated bool `json:"truncated"`
+	}
+	if decodeError := json.Unmarshal([]byte(stdout), &document); decodeError != nil || !document.Truncated {
+		t.Fatalf("-o json must carry truncated: %s (%v)", stdout, decodeError)
+	}
+	_, _, executeError = runDeployCommand(t, newTargetsCommand(), "", "get", "web-9")
+	if exitCodeFor(executeError) != exitNotFound || !strings.Contains(executeError.Error(), "row cap") {
+		t.Fatalf("a name missing from a truncated listing must say the listing was cut, got %v", executeError)
 	}
 }
 
@@ -427,6 +465,26 @@ func TestDeploymentsGetShowsEveryTarget(t *testing.T) {
 	}
 	if decodeError := json.Unmarshal([]byte(stdout), &document); decodeError != nil || len(document.Targets) != 2 {
 		t.Fatalf("JSON = %s (%v)", stdout, decodeError)
+	}
+}
+
+func TestDeploymentsGetSaysWhenTheTargetsAreTruncated(t *testing.T) {
+	newDeployPlatform(t, map[string]deployPlatformAnswer{
+		"GET /api/v1/org/deployments/" + testDeploymentID: {body: `{"id":"` + testDeploymentID + `","environment":"production",
+			"release_name":"ai-portal","artifact_repository":"harbor.example/p/repo","artifact_digest":"sha256:abc","state":"running",
+			"target_count":1500,"succeeded_count":0,"failed_count":0,"targets_truncated":true,
+			"targets":[{"id":"j1","host_target_id":"t1","host_target_name":"web-1","status":"queued","attempt":1}]}`},
+	})
+	_, stderr, executeError := runDeployCommand(t, newDeploymentsCommand(), "", "get", testDeploymentID)
+	if executeError != nil || !strings.Contains(stderr, "Showing the first 1 of 1500 host targets") {
+		t.Fatalf("truncated targets must be said on stderr: %v\n%s", executeError, stderr)
+	}
+	stdout, _, executeError := runDeployCommand(t, newDeploymentsCommand(), "", "get", testDeploymentID, "-o", "json")
+	var document struct {
+		TargetsTruncated bool `json:"targets_truncated"`
+	}
+	if executeError != nil || json.Unmarshal([]byte(stdout), &document) != nil || !document.TargetsTruncated {
+		t.Fatalf("-o json must carry targets_truncated: %s (%v)", stdout, executeError)
 	}
 }
 
