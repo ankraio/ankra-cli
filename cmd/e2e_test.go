@@ -3198,6 +3198,34 @@ func (m baseMock) DisconnectPipelineRepository(ctx context.Context, repositoryID
 	return errors.New("not implemented")
 }
 
+func (m baseMock) ListEnvironments(ctx context.Context) (*client.EnvironmentList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateHostJoinToken(ctx context.Context, environmentName string, request client.CreateHostJoinTokenRequest) (*client.HostJoinToken, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListHostTargets(ctx context.Context, environmentName string) (*client.HostTargetList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetHostTarget(ctx context.Context, hostTargetID string) (*client.HostTarget, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevokeHostTarget(ctx context.Context, hostTargetID string) (*client.HostTarget, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListDeployments(ctx context.Context, options client.ListDeploymentsOptions) (*client.DeploymentList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetDeployment(ctx context.Context, deploymentID string) (*client.Deployment, error) {
+	return nil, errors.New("not implemented")
+}
+
 type clusterListMock struct {
 	baseMock
 	clusters []client.ClusterListItem

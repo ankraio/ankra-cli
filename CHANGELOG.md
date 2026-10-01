@@ -4,6 +4,24 @@
 
 ### Added
 
+- **Host deploy targets: `ankra targets` and `ankra deployments`.** A machine
+  outside Kubernetes can now receive releases from a `kind: deploy` pipeline
+  stage. An admin mints a single-use join token with `ankra targets
+  join-token create --environment <env> [--ttl 1h]`; the token is printed
+  once and, without `-o`, is the only thing on stdout, so it pipes straight
+  into `ankra targets register --environment <env> --name <name>
+  --token-stdin [--label k=v]` run as root on the host. Register downloads
+  `ankra-host-agent` and its systemd unit for the host's architecture,
+  refuses them unless their SHA-256 matches the release's `SHA256SUMS`,
+  hands the join token to `ankra-host-agent register` on stdin, then installs
+  and starts `ankra-host-agent.service`; `--no-install` prints those steps
+  and changes nothing. `ankra targets list [--environment]`, `targets get
+  <name|id>` and `targets revoke <name|id>` (asks first; `--yes` skips the
+  question) manage the hosts, and `ankra deployments list [--environment]
+  [--repository <id>]` and `deployments get <id>` show each release and how
+  every host fared. All take `-o json`. Until your platform serves host
+  deploy targets the commands say so and exit 1.
+
 - **Ankra Cloud clusters, self-managed and managed.** `ankra cluster
   ankracloud` (alias `ankra-cloud`) creates kubeadm (default) or k3s
   (`--distribution k3s`) clusters on Ankra Cloud servers, with `preflight`,

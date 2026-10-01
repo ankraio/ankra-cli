@@ -149,6 +149,7 @@ per command family:
 | [ankra config](https://docs.ankra.ai/reference/cli/config) | Manage Ankra CLI settings |
 | [ankra credentials](https://docs.ankra.ai/reference/cli/credentials) | Manage credentials (platform, provider API, SSH keys) |
 | [ankra delete](https://docs.ankra.ai/reference/cli/delete) | Delete a resource |
+| [ankra deployments](https://docs.ankra.ai/reference/cli/deployments) | List and inspect releases deployed to host deploy targets, with how every host fared (`deployments list --environment`, `deployments get <id>`) |
 | [ankra helm](https://docs.ankra.ai/reference/cli/helm) | Manage Helm registries and credentials |
 | [ankra login](https://docs.ankra.ai/reference/cli/login) | Authenticate with the Ankra platform |
 | [ankra logout](https://docs.ankra.ai/reference/cli/logout) | Revoke the login token and remove saved credentials |
@@ -161,6 +162,7 @@ per command family:
 | [ankra migrate](https://docs.ankra.ai/reference/cli/migrate) | Convert a docker-compose file, Dockerfile, or running containers into Ankra cluster and stack definitions, and export their databases for a restore into the cluster; extensible with `ankra-module-<name>` executables |
 | [ankra stack-profiles](https://docs.ankra.ai/reference/cli/stack-profiles) | Manage reusable stack profiles |
 | [ankra support](https://docs.ankra.ai/reference/cli/support) | Create and track Ankra support requests |
+| [ankra targets](https://docs.ankra.ai/reference/cli/targets) | Host deploy targets: mint single-use join tokens, register a machine as root on the host (downloads and checksum-verifies `ankra-host-agent`, then installs its systemd service), and list, get or revoke targets |
 | [ankra tokens](https://docs.ankra.ai/reference/cli/tokens) | Manage API tokens |
 | [ankra cost](https://docs.ankra.ai/reference/cli/cost) | Read cloud cost: fleet rollup, cluster estimates and pricing settings |
 | [ankra upgrade](https://docs.ankra.ai/reference/cli/upgrade) | Upgrade the Ankra CLI to the latest release |

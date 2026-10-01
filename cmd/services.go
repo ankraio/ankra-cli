@@ -924,4 +924,12 @@ type APIClient interface {
 	GetPipelineRepository(ctx context.Context, repositoryID string) (*client.PipelineRepository, error)
 	ConnectPipelineRepository(ctx context.Context, request client.ConnectPipelineRepositoryRequest) (*client.ConnectPipelineRepositoryResult, error)
 	DisconnectPipelineRepository(ctx context.Context, repositoryID string) error
+
+	ListEnvironments(ctx context.Context) (*client.EnvironmentList, error)
+	CreateHostJoinToken(ctx context.Context, environmentName string, request client.CreateHostJoinTokenRequest) (*client.HostJoinToken, error)
+	ListHostTargets(ctx context.Context, environmentName string) (*client.HostTargetList, error)
+	GetHostTarget(ctx context.Context, hostTargetID string) (*client.HostTarget, error)
+	RevokeHostTarget(ctx context.Context, hostTargetID string) (*client.HostTarget, error)
+	ListDeployments(ctx context.Context, options client.ListDeploymentsOptions) (*client.DeploymentList, error)
+	GetDeployment(ctx context.Context, deploymentID string) (*client.Deployment, error)
 }
