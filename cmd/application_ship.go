@@ -109,7 +109,10 @@ The build it waits for is the one that actually builds the application:
   - Ankra Pipelines (the default for new applications): the pipeline run for
     the tracked branch's head commit, until its publish steps succeed. When no
     run for that commit appears within a minute - nothing has been pushed
-    since the application was registered - ship dispatches one.
+    since the application was registered - ship dispatches one. A run whose
+    publish step is skipped (the generated pipeline publishes only on a push,
+    so a dispatched run skips it) stops ship and asks for a push, and a push
+    during the wait moves ship on to the new head commit.
   - The repository's own GitHub Actions workflow: its latest run on the
     tracked branch.
   - The workflow Ankra generated: its latest run on the tracked branch, once

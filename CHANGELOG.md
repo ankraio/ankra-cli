@@ -42,13 +42,16 @@
   carries the answer text, the conversation id (and whether `--conversation`
   can continue it), the safety mode the platform ran the turn in, the cluster
   it was scoped to, the tools the model ran with how each ended, and any
-  write it proposed that is waiting for `ankra chat actions confirm`. Status
+  write it proposed that is waiting for `ankra chat actions confirm`. A
+  proposed write is listed in `tool_calls` with `status:
+  pending_confirmation` and `success: null`, because it has not run. Status
   lines and notices stay on stderr, so stdout is only the document. A turn
-  that starts and then fails still prints it, with `error` set, and exits
-  non-zero; a question the platform refuses to start (a rejected token, an
-  unknown cluster) prints nothing on stdout and exits with that error's code.
-  Interactive chat has no structured output, and without `-o` the one-shot
-  answer prints as before.
+  that starts and then fails, or is cancelled or expires before it finishes,
+  still prints it, with `error` set, and exits non-zero; a question the
+  platform refuses to start (a rejected token, an unknown cluster) prints
+  nothing on stdout and exits with that error's code. `-o yaml` uses the same
+  keys as `-o json`. Interactive chat has no structured output, and without
+  `-o` the one-shot answer prints as before.
 
 - **`--force-drain` on the control plane's rolling resize.** `ankra cluster
   <provider> control-plane set-instance-type` now takes `--force-drain` (off
@@ -78,7 +81,18 @@
   the same 10.0.0.0/16 every time. Each flag's help names the default, and a
   value you pass is sent as before. The deprecated `cluster ovh node-group
   add` and `cluster upcloud node-group add` default to b3-16 and
-  PREMIUM-2xCPU-4GB, the workers' defaults.
+  PREMIUM-2xCPU-4GB, the workers' defaults, and the deprecated `cluster
+  hetzner node-group add` now requires `--instance-type` instead of
+  defaulting to the retired cx33.
+
+- **`ankra cluster managed delete --provider kapsule` deletes the Kapsule
+  cluster.** The platform treats a plain delete of a Kapsule cluster as a
+  disconnect, so the command removed the cluster from Ankra and left it,
+  with its load balancers and volumes, running in your Scaleway project. It
+  now asks the platform to delete the cluster at Scaleway as well, which
+  removes the cluster, its load balancers and its volumes, as the
+  confirmation prompt says. Ankra Cloud Kubernetes (`--provider
+  ankracloud_k8s`) deletes the same way.
 
 ### Fixed
 
@@ -97,6 +111,7 @@
   them on the cluster's GitOps page in the portal. `-o json|yaml` carries
   `open_conflict_count` and `open_conflict_keys`. Older platforms that do not
   report them print no conflict lines.
+
 - **`ankra openclaw skill` writes a skill OpenClaw actually loads.** OpenClaw
   only discovers a skill as a `SKILL.md` inside its own directory, so the
   default `~/.openclaw/skills/ankra-<cluster>.md` was never picked up. The
@@ -108,6 +123,7 @@
   per-cluster skill is no longer mistaken for an `ankra skills` install by
   `ankra upgrade`'s skills refresh. You can delete a stale
   `~/.openclaw/skills/ankra-<cluster>.md` left by earlier releases.
+
 - **The generated OpenClaw skill no longer promises a portal handoff.** It
   told the agent that `ankra openclaw handoff` opens the conversation
   pre-loaded in the Ankra UI, but the portal has no such import and the
@@ -122,13 +138,6 @@
   cluster against the current API). Refresh installed skills with
   `ankra skills install --force`.
 
-### Deprecated
-
-- **`ankra openclaw handoff`** is deprecated and will be removed in v0.22.0.
-  It now prints the Ankra AI Agents page URL and says that no conversation
-  is transferred; the conversation id is still accepted so scripts keep
-  running.
-
 - **`ankra application ship` follows the build that actually builds the
   application.** Ship waited for a GitHub Actions workflow run on the tracked
   branch whatever built the application, so for an application on Ankra
@@ -136,12 +145,31 @@
   workflow run" until `--timeout` ran out, or picked up an unrelated
   workflow. It now reads the application's build source: on Ankra Pipelines
   it follows the pipeline run for the tracked branch's head commit and moves
-  on once the run's publish steps succeed (and starts a run itself when none
-  has appeared after a minute, which is the case when nothing was pushed
-  since the application was registered); an application whose own workflow
-  publishes the image no longer waits for the setup pull request to merge;
-  a setup pull request closed without merging, or an application nothing
-  builds, now stops ship with what to do instead of a wait that cannot end.
+  on once the run's publish steps succeed. When nothing has started a run
+  after a minute (nothing was pushed since the application was registered),
+  it starts one; a run whose publish step is skipped - the generated
+  pipeline publishes only on a push, so a run started by hand skips it -
+  stops ship with the reason and asks you to push a commit, instead of
+  deploying an image that was never built. A push to the branch during the
+  wait supersedes the run, and ship moves on to the new head commit instead
+  of waiting out `--timeout`. An application whose own workflow publishes
+  the image no longer waits for the setup pull request to merge; a setup
+  pull request closed without merging, or an application nothing builds,
+  now stops ship with what to do instead of a wait that cannot end.
+
+- **`ankra chat` no longer hangs after the AI proposes a write.** A turn
+  that ends on a write awaiting confirmation, or on a question for you, does
+  not end the conversation, and the platform sends no end-of-stream for it;
+  the one-shot `ankra chat "<question>"` waited on the open stream until the
+  session expired. It now prints the proposal (or the question) and exits.
+
+### Deprecated
+
+- **`ankra openclaw handoff`** is deprecated and will be removed in v0.22.0.
+  It now prints the Ankra AI Agents page URL and says that no conversation
+  is transferred; the conversation id is still accepted so scripts keep
+  running.
+
 
 
 ## v0.20.0 — 2026-09-29

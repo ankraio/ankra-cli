@@ -212,6 +212,26 @@ func TestAnkraCloudCreateStructuredOutput(t *testing.T) {
 	}
 }
 
+// A bad -o used to be rejected after the create or deprovision had already
+// gone out, so the error read as a failed write while the write happened.
+func TestAnkraCloudRefusesABadOutputFormatBeforeWriting(t *testing.T) {
+	mock := &ankraCloudClusterMock{}
+	_, createError := runAnkraCloudCommand(t, mock, append([]string{"create", "-o", "jsno"}, ankraCloudRequiredCreateArguments...)...)
+	if exitCodeFor(createError) != exitUsage {
+		t.Errorf("create -o jsno: error = %v, want a usage error", createError)
+	}
+	if len(mock.createRequests) != 0 {
+		t.Errorf("create calls = %d, want 0: the format must be refused before the create", len(mock.createRequests))
+	}
+	_, deprovisionError := runAnkraCloudCommand(t, mock, "deprovision", testClusterID, "--yes", "-o", "jsno")
+	if exitCodeFor(deprovisionError) != exitUsage {
+		t.Errorf("deprovision -o jsno: error = %v, want a usage error", deprovisionError)
+	}
+	if mock.deprovisionedID != "" {
+		t.Errorf("deprovisioned %q: the format must be refused before anything is deleted", mock.deprovisionedID)
+	}
+}
+
 func TestAnkraCloudPreflightPassesAndFails(t *testing.T) {
 	passing := &ankraCloudClusterMock{preflightResult: client.AnkraCloudPreflightResult{
 		CanProceed: true,

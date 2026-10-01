@@ -256,3 +256,39 @@ func TestRegenerateChatTitle_PostsAndClassifies(t *testing.T) {
 		t.Fatalf("route 404 = %v, want ErrChatSessionsUnavailable", err)
 	}
 }
+
+func TestStreamChatSessionEvents_AParkedTurnClosesTheStream(t *testing.T) {
+	release := make(chan struct{})
+	handler := func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "id: 2\nevent: content\ndata: \"Proposed.\"\n\n")
+		_, _ = fmt.Fprint(w, "id: 3\nevent: session_complete\ndata: {\"status\":\"awaiting_user\"}\n\n")
+		w.(http.Flusher).Flush()
+		// The platform keeps the connection open with heartbeats and never
+		// sends "end" for a parked session.
+		<-release
+	}
+	testClient := newTestClient(t, handler)
+	t.Cleanup(func() { close(release) })
+	events, err := testClient.StreamChatSessionEvents("sess-1", 1)
+	if err != nil {
+		t.Fatalf("StreamChatSessionEvents: %v", err)
+	}
+	var received []ChatStreamEvent
+	timeout := time.After(5 * time.Second)
+	for done := false; !done; {
+		select {
+		case event, open := <-events:
+			if !open {
+				done = true
+				continue
+			}
+			received = append(received, event)
+		case <-timeout:
+			t.Fatalf("the stream stayed open after a parked turn; received %+v", received)
+		}
+	}
+	if len(received) != 2 || !ChatTurnParked(received[1]) {
+		t.Fatalf("events = %+v, want the content and the parked session_complete", received)
+	}
+}

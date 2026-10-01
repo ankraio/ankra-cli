@@ -109,6 +109,10 @@ var managedDeleteCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		// Refuse a bad -o before anything is deleted, not after.
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
 
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {

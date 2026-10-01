@@ -29,7 +29,7 @@ const (
 // retain.
 //
 // The network is either adopted (private_network_id) or created from
-// network_ip_range (an RFC 1918 /16../29; server default a derived /20); the
+// network_ip_range (an RFC 1918 /16../29; server default a /24 derived from the cluster); the
 // server refuses both together. bastion_plan and control_plane_plan are
 // required; worker_plan is required while worker_count is above zero and no
 // node_groups are sent, and etcd_plan for an external etcd topology.
