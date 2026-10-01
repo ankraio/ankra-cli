@@ -122,8 +122,8 @@ is lost or leaked.`,
 			}
 			expiresInDays, _ := command.Flags().GetInt("expires-in-days")
 			if expiresInDays < 0 || expiresInDays > registryRobotMaximumExpiryDays {
-				return withExitCode(exitUsage, fmt.Errorf("--expires-in-days must be 1 to %d days, got %d; "+
-					"leave it out for a robot that never expires", registryRobotMaximumExpiryDays, expiresInDays))
+				return withExitCode(exitUsage, fmt.Errorf("--expires-in-days must be 1 to %d days, or 0 (the default) "+
+					"for a robot that never expires; got %d", registryRobotMaximumExpiryDays, expiresInDays))
 			}
 			if len(permissions) > 0 || expiresInDays > 0 {
 				if supportError := requireRegistryRobotPermissionSupport(command, permissions); supportError != nil {

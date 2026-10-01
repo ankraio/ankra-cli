@@ -601,7 +601,8 @@ func hostAgentReleaseNotFound(release hostAgentRelease, assetName string, downlo
 			release.ReleaseURL, statusError.assetURL, release.ReleaseURL, envHostAgentReleaseURL))
 	}
 	return withExitCode(exitNotFound, fmt.Errorf(
-		"ankra-host-agent release %s was not found at %s (%s answered 404). Nothing was installed. "+
+		"ankra-host-agent release %s was not found at %s (%s answered 404): the tag does not exist there, "+
+			"or its release has no %s. Nothing was installed. "+
 			"Check the tag against the releases listed at %s, or omit --agent-version to install the latest release",
-		release.Version, release.ReleaseURL, statusError.assetURL, release.ReleaseURL))
+		release.Version, release.ReleaseURL, statusError.assetURL, hostAgentChecksumsAsset, release.ReleaseURL))
 }
