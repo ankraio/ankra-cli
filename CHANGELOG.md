@@ -1,5 +1,47 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra registry robots list` shows the robots Ankra manages, not only
+  the ones you created.** The listing answered only robot accounts a member
+  had made, so the logins doing most of the work on an organisation's
+  registry project - the `ci` and `pull` robots and one push robot per
+  application - were missing from the one command that should answer "which
+  logins reach my images". They are listed now, after your own, with a
+  `Kind` column (`user`, `organisation`, `application`), what each may do,
+  the project it is bound to and when it expires; an application's robot on
+  a registry you run yourself shows that registry's project. `--kind
+  user|managed|organisation|application` narrows the listing, and
+  `robots get ci` (or `pull`, or `app-<application id>`) reads one. Managed
+  robots are read-only here: Ankra rotates them and hands the new secret to
+  the builds and clusters that use it, so `robots rotate` and `robots
+  delete` refuse them and say why. Requires a platform that lists managed
+  robots; an older one keeps answering only your own.
+- **Robot accounts with exactly the permissions they need, and an expiry.**
+  A robot was push-and-pull or pull, which fits a build and a cluster and
+  nothing else. `robots create <name> --permission
+  repository:pull,artifact:list,artifact:delete` grants a cleanup job only
+  what it needs (repeat `--permission` or separate with commas; `ankra
+  registry robots permissions` lists what can be granted), and
+  `--expires-in-days 30` makes the registry stop honouring the robot after
+  that long. `--scope` and `--permission` are alternatives, refused together
+  before any request. Whatever a robot holds, it stays bound to the
+  organisation's own project and reaches nothing else on the registry.
+  Rotating never extends a robot: an expired one is refused, since a new
+  secret would not log in either. A platform that predates both would
+  ignore them and mint a push-and-pull robot that never expires, so the
+  CLI asks the platform first and refuses before any robot exists.
+
+### Changed
+
+- **`ankra registry robots get` prints `Registry` and `Project` on separate
+  lines**, with `Kind`, `Access`, `Permissions` and `Expires` beside them,
+  where it printed one `Registry: <host>/<project>` line and `Scope`.
+  `-o json` gains fields (`kind`, `managed`, `projects`, `permissions`,
+  `application`, `expires_at`) and loses none.
+
 ## v0.21.0 — 2026-10-01
 
 ### Added
