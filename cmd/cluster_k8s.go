@@ -416,7 +416,7 @@ var kindConfigs = []kindConfig{
 		commandName: "secrets", kind: "Secret", group: "", version: "v1",
 		short:      "List secrets, or read one Secret (values are digests unless --reveal)",
 		revealable: true,
-		headers: table.Row{"Name", "Namespace", "Type", "Data", "Age"},
+		headers:    table.Row{"Name", "Namespace", "Type", "Data", "Age"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			dataCount := 0
 			if data, ok := obj["data"]; ok {
