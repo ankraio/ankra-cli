@@ -3672,7 +3672,7 @@ func TestClusterAddonsListShowsSecurityUpdates(t *testing.T) {
 		_, _ = executeCommand("cluster", "addons", "list", "cert-manager")
 	})
 	for _, expected := range []string{"Security update available:", "GHSA-8rvj-mm4h-c258 (high)", "Fixed in:  1.20.3",
-		"ankra cluster addons upgrade cert-manager --chart-version v1.20.3"} {
+		"ankra cluster addons upgrade cert-manager --chart-version v1.20.3 --cluster test-cluster"} {
 		if !strings.Contains(details, expected) {
 			t.Errorf("details are missing %q:\n%s", expected, details)
 		}

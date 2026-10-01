@@ -453,6 +453,17 @@ func TestRegistryRobotsCreateWithPermissionsAndExpiry(t *testing.T) {
 	if exitCodeFor(negativeError) != exitUsage || mock.createRequest != nil {
 		t.Fatalf("a negative expiry: error=%v request=%+v", negativeError, mock.createRequest)
 	}
+	_, longError := runRegistryCommand(t, mock, "", "robots", "create", "cleanup", "--expires-in-days", "3651")
+	if exitCodeFor(longError) != exitUsage || !strings.Contains(longError.Error(), "1 to 3650 days") || mock.createRequest != nil {
+		t.Fatalf("an expiry past the platform's ceiling: error=%v request=%+v", longError, mock.createRequest)
+	}
+	for _, empty := range []string{"", ",", " , "} {
+		_, emptyError := runRegistryCommand(t, mock, "", "robots", "create", "cleanup", "--permission", empty)
+		if exitCodeFor(emptyError) != exitUsage || !strings.Contains(emptyError.Error(), "names no permission") ||
+			mock.createRequest != nil {
+			t.Fatalf("--permission %q must not fall back to a push robot: error=%v request=%+v", empty, emptyError, mock.createRequest)
+		}
+	}
 
 	mock = &registryRobotsMock{}
 	if _, plainError := runRegistryCommand(t, mock, "", "robots", "create", "jenkins"); plainError != nil {

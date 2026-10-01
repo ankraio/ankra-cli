@@ -107,7 +107,7 @@ var clusterAddonsListCmd = &cobra.Command{
 			}
 			fmt.Printf("  Created:         %s\n", formatOptionalTimeAgo(found.CreatedAt))
 			fmt.Printf("  Updated:         %s\n", formatOptionalTimeAgo(found.UpdatedAt))
-			printAddonSecurityDetails(*found)
+			printAddonSecurityDetails(*found, cluster.Name)
 			return nil
 		}
 

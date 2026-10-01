@@ -12,10 +12,12 @@
   which is not the same as clean - and `-` for a chart with no advisory
   source. `ankra cluster addons list <name>` lists each advisory with its
   summary, link and fixed release, and prints the `ankra cluster addons
-  upgrade` command that applies the fix; Ankra never runs it for you. `-o
-  json|yaml` carries the same fields (`security_advisories`,
-  `security_advisory_status`, `security_upgrade_chart_version`). Requires a
-  platform that reports addon advisories; an older one shows `-`.
+  upgrade` command that applies the fix, naming the cluster so it upgrades
+  the one you listed; Ankra never runs it for you. `-o json|yaml` carries
+  the same fields (`security_advisories`, `security_advisory_status`,
+  `security_upgrade_chart_version`). Requires a platform that reports addon
+  advisories, which is rolling out: until it reaches yours the column shows
+  `-`.
 - **`ankra registry robots list` shows the robots Ankra manages, not only
   the ones you created.** The listing answered only robot accounts a member
   had made, so the logins doing most of the work on an organisation's
@@ -87,6 +89,12 @@
   `ANKRA_ALLOW_INSECURE_HTTP=1` is set, the same rule `--base-url` follows.
   The `SHA256SUMS` check proves nothing when the sums and the binary come
   over the same unauthenticated connection.
+- **`ankra registry robots create` refuses an empty `--permission` and an
+  expiry past 3650 days before asking the platform.** `--permission ""`
+  (an unset shell variable, say) fell back to a push-and-pull robot that
+  never expires, the opposite of a narrow grant; it is now a usage error.
+  `--expires-in-days` above 3650 was refused by the platform with exit 1;
+  the CLI now refuses it itself with exit 2, as it does a negative value.
 - **`ankra targets list --environment <typo>` names the missing
   environment.** The platform answers an unknown environment with a 404, so
   the CLI printed `listing host targets: Environment not found` and the hint

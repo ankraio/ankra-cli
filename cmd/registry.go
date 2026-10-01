@@ -103,6 +103,10 @@ is lost or leaked.`,
 			scope = strings.ToLower(strings.TrimSpace(scope))
 			rawPermissions, _ := command.Flags().GetStringSlice("permission")
 			permissions := registryRobotPermissionFlags(rawPermissions)
+			if command.Flags().Changed("permission") && len(permissions) == 0 {
+				return withExitCode(exitUsage, fmt.Errorf("--permission names no permission; "+
+					"give one or more resource:action values ('ankra registry robots permissions' lists them), or leave it out for --scope"))
+			}
 			switch {
 			case len(permissions) > 0 && command.Flags().Changed("scope"):
 				return withExitCode(exitUsage, fmt.Errorf("--scope and --permission are alternatives: "+
@@ -117,8 +121,9 @@ is lost or leaked.`,
 					client.RegistryRobotScopePush, client.RegistryRobotScopePull, scope))
 			}
 			expiresInDays, _ := command.Flags().GetInt("expires-in-days")
-			if expiresInDays < 0 {
-				return withExitCode(exitUsage, fmt.Errorf("--expires-in-days must be a positive number of days, got %d", expiresInDays))
+			if expiresInDays < 0 || expiresInDays > registryRobotMaximumExpiryDays {
+				return withExitCode(exitUsage, fmt.Errorf("--expires-in-days must be 1 to %d days, got %d; "+
+					"leave it out for a robot that never expires", registryRobotMaximumExpiryDays, expiresInDays))
 			}
 			if len(permissions) > 0 || expiresInDays > 0 {
 				if supportError := requireRegistryRobotPermissionSupport(command, permissions); supportError != nil {
@@ -147,6 +152,10 @@ is lost or leaked.`,
 	registerStructuredOutputFlags(createCommand)
 	return createCommand
 }
+
+// registryRobotMaximumExpiryDays is the platform's ceiling on a robot's
+// expiry; it refuses anything longer.
+const registryRobotMaximumExpiryDays = 3650
 
 // requireRegistryRobotPermissionSupport refuses a create that states its own
 // permissions or an expiry unless the platform can honour them. A platform
