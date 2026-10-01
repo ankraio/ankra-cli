@@ -4,6 +4,20 @@
 
 ### Added
 
+- **`ankra cluster get secrets <name> -n <namespace> --reveal` reads one
+  Secret's values.** Since the platform's Secret value policy, every Secret
+  value comes back as a `sha256:` digest, so `cluster get secrets <name> -o
+  yaml` stopped showing values without saying why. Without `--reveal` the
+  CLI now says on stderr that the values are digests and how to read them.
+  `--reveal` asks for the plaintext values of that one Secret: it needs `-n`,
+  is refused on a listing (no name, `-A` or `-l`) with exit code 2, and needs
+  the `kubernetes.secrets_reveal` permission on the cluster (the operator,
+  admin and owner roles). Without the permission it prints nothing on stdout
+  and exits 7 with a message naming the permission; when the platform cannot
+  hand out live values (the cluster is unreachable) it exits 1; a missing
+  Secret exits 3. Every reveal is recorded in the organisation's audit log.
+  `cluster describe secret` now shows a digest as withheld instead of as a
+  19-byte value.
 - **`ankra registry robots list` shows the robots Ankra manages, not only
   the ones you created.** The listing answered only robot accounts a member
   had made, so the logins doing most of the work on an organisation's
