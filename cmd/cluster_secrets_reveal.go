@@ -87,10 +87,10 @@ func secretValuesMarker(response *client.GetResourcesResponse) string {
 // stderr note when structured output is about to print digests. With
 // --reveal anything but "revealed" is an error, so a script that asked for
 // values never receives digests on stdout as if they were values.
-func checkSecretValues(response *client.GetResourcesResponse, itemCount int, namespace, name, outputFormat string, reveal bool) error {
+func checkSecretValues(response *client.GetResourcesResponse, items []interface{}, namespace, name, outputFormat string, reveal bool) error {
 	marker := secretValuesMarker(response)
 	if !reveal {
-		if marker == client.SecretValuesWithheld && outputFormat != "table" {
+		if marker == client.SecretValuesWithheld && len(items) > 0 && outputFormat != "table" {
 			fmt.Fprintln(os.Stderr, secretDigestNote)
 		}
 		return nil
@@ -113,12 +113,42 @@ func checkSecretValues(response *client.GetResourcesResponse, itemCount int, nam
 	case client.SecretValuesWithheld:
 		return fmt.Errorf("not revealed: the platform withheld the values of Secret %s", target)
 	}
-	if itemCount == 0 {
+	if len(items) == 0 {
 		return withExitCode(exitNotFound, fmt.Errorf("secret %q not found in namespace %s", name, namespace))
 	}
-	// No marker on a found Secret: a platform that predates the value
-	// policy, which returned values as they are.
+	// No marker on a found Secret. A platform that predates the value
+	// policy returned values as they are, but an absent answer is not a
+	// confirmed reveal: digests without a marker are refused, and anything
+	// else is printed with a note saying the platform did not confirm it.
+	if itemsCarrySecretDigests(items) {
+		return fmt.Errorf("not revealed: the platform returned digests for Secret %s without saying why", target)
+	}
+	fmt.Fprintln(os.Stderr, "Note: the platform did not confirm the reveal (it may predate the Secret value policy); "+
+		"printing the values it returned.")
 	return nil
+}
+
+// itemsCarrySecretDigests reports whether any data or stringData value of
+// the returned objects has the platform's digest shape.
+func itemsCarrySecretDigests(items []interface{}) bool {
+	for _, item := range items {
+		object, isObject := item.(map[string]interface{})
+		if !isObject {
+			continue
+		}
+		for _, field := range []string{"data", "stringData"} {
+			values, isMap := object[field].(map[string]interface{})
+			if !isMap {
+				continue
+			}
+			for _, value := range values {
+				if rendered, isString := value.(string); isString && isSecretValueDigest(rendered) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // isSecretValueDigest reports whether a value has the exact shape of the

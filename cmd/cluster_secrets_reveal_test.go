@@ -233,3 +233,29 @@ func TestDescribeRendersDigestAsWithheld(t *testing.T) {
 		t.Errorf("value rendered as %v", data["plain"])
 	}
 }
+
+func TestClusterGetSecretRevealWithoutMarkerRefusesDigests(t *testing.T) {
+	fake := &revealTestServer{marker: "", data: map[string]interface{}{"password": "sha256:b073aefd7c92"}}
+	server := fake.start(t)
+
+	stdout, _, err := runClusterGetSecrets(t, server, "db-credentials", "-n", "default", "--reveal")
+	if err == nil {
+		t.Fatal("digests without a marker must not be presented as a reveal")
+	}
+	if stdout != "" {
+		t.Errorf("nothing may be printed:\n%s", stdout)
+	}
+}
+
+func TestClusterGetSecretRevealWithoutMarkerNotesUnconfirmedValues(t *testing.T) {
+	fake := &revealTestServer{marker: "", data: map[string]interface{}{"password": "aHVudGVyMg=="}}
+	server := fake.start(t)
+
+	stdout, stderr, err := runClusterGetSecrets(t, server, "db-credentials", "-n", "default", "--reveal")
+	if err != nil {
+		t.Fatalf("a pre-policy platform's values are printed: %v", err)
+	}
+	if !strings.Contains(stdout, "aHVudGVyMg==") || !strings.Contains(stderr, "did not confirm the reveal") {
+		t.Errorf("expected the values with an unconfirmed note, stdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+}

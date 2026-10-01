@@ -613,7 +613,7 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 	if len(response.ResourceResponses) > 0 {
 		items = response.ResourceResponses[0].Items
 	}
-	if err := checkSecretValues(response, len(items), namespace, nameFilter, outputFormat, query.revealSecretValues); err != nil {
+	if err := checkSecretValues(response, items, namespace, nameFilter, outputFormat, query.revealSecretValues); err != nil {
 		return err
 	}
 	if query.postFilter != nil {
