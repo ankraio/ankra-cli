@@ -122,7 +122,7 @@ func newRegistryProjectsCreateCommand() *cobra.Command {
 		Short: "Create an extra registry project",
 		Long: `Create an extra registry project for the organisation.
 
-The name is 2 to 30 lower-case letters, digits and hyphens; 'default' is the
+The name is 2 to 30 lower-case letters, digits and single hyphens; 'default' is the
 organisation's own project and is reserved. The project is private and has the
 same scan policy, retention policy and storage quota as the default one. Bind
 a robot account to it with 'ankra registry robots create <name> --project
