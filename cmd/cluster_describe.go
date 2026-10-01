@@ -129,8 +129,13 @@ const minimumRedactableSecretLength = 4
 // the tool it replaces. `describe secret X -o json` would otherwise print
 // the full base64 payload to stdout, and from there into shell history and
 // CI logs. Reading a Secret's contents deliberately remains the job of
-// `cluster get secrets <name> -o yaml`, which is an explicit request for
-// them rather than a debugging verb.
+// `cluster get secrets <name> -n <namespace> --reveal`, which is an explicit,
+// permission-gated and audited request for them rather than a debugging verb.
+//
+// Since the platform's Secret value policy (cluster ankra-z0p76) the values
+// usually arrive as sha256 digests already. A digest's length says nothing
+// about the value's, so a digest is rendered as withheld rather than as a
+// byte count.
 //
 // Clearing data and stringData is not sufficient on its own: a Secret
 // created with `kubectl apply` carries the whole original manifest in the
@@ -154,6 +159,10 @@ func redactSecretData(kind string, object map[string]interface{}) {
 		redacted := make(map[string]interface{}, len(values))
 		for key, value := range values {
 			rendered := fmt.Sprintf("%v", value)
+			if isSecretValueDigest(rendered) {
+				redacted[key] = "<redacted: value withheld by the platform>"
+				continue
+			}
 			if len(rendered) >= minimumRedactableSecretLength {
 				secretValues = append(secretValues, rendered)
 			}
