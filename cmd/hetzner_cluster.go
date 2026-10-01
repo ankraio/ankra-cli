@@ -95,9 +95,15 @@ var hetznerCreateCmd = &cobra.Command{
 			return nil
 		}
 
-		fmt.Printf("Hetzner cluster '%s' created successfully!\n", result.Name)
-		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "Hetzner cluster '%s' created successfully!\n", result.Name)
+		fmt.Fprintf(out, "  Cluster ID: %s\n", result.ClusterID)
+		if result.ServerTypes != nil {
+			if summary := result.ServerTypes.Summary(); summary != "" {
+				fmt.Fprintf(out, "  Server types: %s\n", summary)
+			}
+		}
+		fmt.Fprintf(out, "\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
 			strings.TrimRight(baseURL, "/"), result.ClusterID)
 		return nil
 	},
@@ -661,7 +667,7 @@ func init() {
 	hetznerCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
 	hetznerCreateCmd.Flags().String("worker-server-type", "", "Worker server type (server default: the cheapest x86 type the location can provision with at least 2 vCPU and 4 GB)")
 	hetznerCreateCmd.Flags().String("distribution", "kubeadm", "Kubernetes distribution: kubeadm (default, vanilla upstream Kubernetes with Cilium) or k3s")
-	hetznerCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster kubeadm-versions` or `ankra cluster k3s-versions`)")
+	hetznerCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version for the chosen --distribution (optional): a plain tag such as v1.36.4 for kubeadm (see `ankra cluster kubeadm-versions`), a k3s build such as v1.35.7+k3s1 for k3s (see `ankra cluster k3s-versions`)")
 	hetznerCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control planes) or external (dedicated VMs)")
 	hetznerCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
 	hetznerCreateCmd.Flags().String("etcd-server-type", "", "Server type for dedicated etcd nodes when --etcd-topology=external (server default: the cheapest x86 type the location can provision with at least 4 vCPU and 8 GB)")
