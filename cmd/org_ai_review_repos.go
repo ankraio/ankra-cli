@@ -182,6 +182,12 @@ var orgAIReviewReposUnsetCmd = &cobra.Command{
 		if resolveError != nil {
 			return resolveError
 		}
+		// The listing already carries the connection's rules, so a
+		// repository without one fails fast instead of being prompted for
+		// a removal that has nothing to remove.
+		if !bindingHasRule(binding, repository) {
+			return errNoSCMRepositoryRule(repository, binding)
+		}
 		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Remove the AI review rule for %s on %s? [y/N]: ", repository, describeSCMBinding(binding)),
 			skipConfirmation); confirmError != nil {
@@ -192,9 +198,7 @@ var orgAIReviewReposUnsetCmd = &cobra.Command{
 			return fmt.Errorf("removing the AI review rule for %s: %w", repository, deleteError)
 		}
 		if !deleted.Removed {
-			return withExitCode(exitNotFound, fmt.Errorf(
-				"%s has no AI review rule on %s; it already follows the connection's settings",
-				repository, describeSCMBinding(binding)))
+			return errNoSCMRepositoryRule(repository, binding)
 		}
 		if rendered, renderError := renderStructured(cmd, deleted); rendered || renderError != nil {
 			return renderError
@@ -209,6 +213,22 @@ var orgAIReviewReposUnsetCmd = &cobra.Command{
 type scmBindingListing struct {
 	Bindings              []client.SCMBinding                      `json:"bindings" yaml:"bindings"`
 	ReachableRepositories map[string][]client.SCMBindingRepository `json:"reachable_repositories,omitempty" yaml:"reachable_repositories,omitempty"`
+}
+
+func bindingHasRule(binding client.SCMBinding, repository string) bool {
+	normalized := normaliseRepositoryPath(repository)
+	for _, rule := range binding.RepoOverrides {
+		if normaliseRepositoryPath(rule.RepoFullName) == normalized {
+			return true
+		}
+	}
+	return false
+}
+
+func errNoSCMRepositoryRule(repository string, binding client.SCMBinding) error {
+	return withExitCode(exitNotFound, fmt.Errorf(
+		"%s has no AI review rule on %s; it already follows the connection's settings",
+		repository, describeSCMBinding(binding)))
 }
 
 func scmBindingKey(binding client.SCMBinding) string {

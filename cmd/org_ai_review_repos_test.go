@@ -158,8 +158,8 @@ func TestOrgAIReviewReposUnsetNotFoundWhenNoRule(t *testing.T) {
 	if exitCodeFor(err) != exitNotFound {
 		t.Fatalf("exit code = %d, want not found: %v", exitCodeFor(err), err)
 	}
-	if len(fake.deleteRepos) != 1 || fake.deleteRepos[0] != "my-org/web" {
-		t.Errorf("DELETE must carry repo_full_name, got %v", fake.deleteRepos)
+	if len(fake.deleteRepos) != 0 {
+		t.Errorf("a repository with no rule in the listing must fail before any DELETE, got %v", fake.deleteRepos)
 	}
 }
 
@@ -173,6 +173,9 @@ func TestOrgAIReviewReposUnsetRemovesTheRule(t *testing.T) {
 	}
 	if fake.deletePaths[0] != "/api/v1/org/ai-gateway/scm-bindings/github/111/repo-overrides" {
 		t.Errorf("DELETE went to %s", fake.deletePaths[0])
+	}
+	if len(fake.deleteRepos) != 1 || fake.deleteRepos[0] != "my-org/api" {
+		t.Errorf("DELETE must carry repo_full_name, got %v", fake.deleteRepos)
 	}
 	if !strings.Contains(output, "Removed the AI review rule for my-org/api") {
 		t.Errorf("unexpected output: %s", output)
