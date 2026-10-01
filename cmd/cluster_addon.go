@@ -107,6 +107,7 @@ var clusterAddonsListCmd = &cobra.Command{
 			}
 			fmt.Printf("  Created:         %s\n", formatOptionalTimeAgo(found.CreatedAt))
 			fmt.Printf("  Updated:         %s\n", formatOptionalTimeAgo(found.UpdatedAt))
+			printAddonSecurityDetails(*found)
 			return nil
 		}
 
@@ -114,7 +115,7 @@ var clusterAddonsListCmd = &cobra.Command{
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
 		t.AppendHeader(table.Row{
-			"Name", "Chart", "Version", "Namespace", "Health", "Ankra?", "Created At", "Updated At", "State",
+			"Name", "Chart", "Version", "Namespace", "Health", "Ankra?", "Created At", "Updated At", "State", "Security",
 		})
 		t.SetColumnConfigs([]table.ColumnConfig{
 			{Number: 1, WidthMin: 20},
@@ -126,6 +127,7 @@ var clusterAddonsListCmd = &cobra.Command{
 			{Number: 7, WidthMin: 15},
 			{Number: 8, WidthMin: 15},
 			{Number: 9, WidthMin: 10},
+			{Number: 10, WidthMin: 8},
 		})
 
 		for _, a := range addons {
@@ -147,9 +149,18 @@ var clusterAddonsListCmd = &cobra.Command{
 				formatOptionalTimeAgo(a.CreatedAt),
 				formatOptionalTimeAgo(a.UpdatedAt),
 				state,
+				addonSecuritySummary(a),
 			})
 		}
 		t.Render()
+		if affected := countAddonsWithSecurityUpdates(addons); affected > 0 {
+			noun := "addons have"
+			if affected == 1 {
+				noun = "addon has"
+			}
+			fmt.Printf("\n%d %s a security update available. Run `ankra cluster addons list <name>` for the advisory and the fixed version.\n",
+				affected, noun)
+		}
 		return nil
 	},
 }

@@ -198,6 +198,10 @@ type kindConfig struct {
 	registerFlags     func(command *cobra.Command)
 	fieldSelectorsFor func(command *cobra.Command, namespace string, allNamespaces bool) ([]client.FieldSelector, error)
 	postFilter        func(items []interface{}, command *cobra.Command) []interface{}
+	// revealable adds --reveal, which asks the platform for one named
+	// Secret's plaintext values instead of their digests. Only secrets
+	// sets it.
+	revealable bool
 }
 
 var kindConfigs = []kindConfig{
@@ -410,8 +414,9 @@ var kindConfigs = []kindConfig{
 	},
 	{
 		commandName: "secrets", kind: "Secret", group: "", version: "v1",
-		short:   "List secrets in the cluster",
-		headers: table.Row{"Name", "Namespace", "Type", "Data", "Age"},
+		short:      "List secrets, or read one Secret (values are digests unless --reveal)",
+		revealable: true,
+		headers:    table.Row{"Name", "Namespace", "Type", "Data", "Age"},
 		formatRow: func(obj map[string]interface{}) table.Row {
 			dataCount := 0
 			if data, ok := obj["data"]; ok {
@@ -569,6 +574,10 @@ func renderSingleResource(item interface{}, outputFormat string) error {
 type resourceQuery struct {
 	fieldSelectors []client.FieldSelector
 	postFilter     func([]interface{}) []interface{}
+	// revealSecretValues asks for one named Secret's plaintext values
+	// (--reveal). Callers validate that the read is a named, namespaced one
+	// before setting it.
+	revealSecretValues bool
 }
 
 func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, outputFormat string, cfg kindConfig, query resourceQuery) error {
@@ -593,7 +602,8 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 	}
 
 	response, err := apiClient.GetResources(clusterID, client.GetResourcesRequest{
-		ResourceRequests: []client.ResourceRequestItem{reqItem},
+		ResourceRequests:   []client.ResourceRequestItem{reqItem},
+		RevealSecretValues: query.revealSecretValues,
 	})
 	if err != nil {
 		return err
@@ -602,6 +612,9 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 	var items []interface{}
 	if len(response.ResourceResponses) > 0 {
 		items = response.ResourceResponses[0].Items
+	}
+	if err := checkSecretValues(response, items, namespace, nameFilter, outputFormat, query.revealSecretValues); err != nil {
+		return err
 	}
 	if query.postFilter != nil {
 		items = query.postFilter(items)
@@ -693,6 +706,15 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 			}
 
 			query := resourceQuery{}
+			if cfg.revealable {
+				reveal, _ := cmd.Flags().GetBool("reveal")
+				if reveal {
+					if err := validateSecretReveal(args, namespace, allNamespaces, labelSelector); err != nil {
+						return err
+					}
+					query.revealSecretValues = true
+				}
+			}
 			if cfg.fieldSelectorsFor != nil {
 				var selectorError error
 				// The resolved namespace is handed over rather than re-read,
@@ -722,6 +744,10 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 	// wording of one it inherits.
 	if cfg.registerFlags != nil {
 		cfg.registerFlags(cmd)
+	}
+	if cfg.revealable {
+		cmd.Flags().Bool("reveal", false, "Print the plaintext values of the one named Secret instead of sha256 digests (needs -n and the kubernetes.secrets_reveal permission; every reveal is audited)")
+		cmd.Long = secretsLongHelp
 	}
 
 	return cmd

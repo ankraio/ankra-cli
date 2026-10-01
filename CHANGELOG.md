@@ -4,6 +4,45 @@
 
 ### Added
 
+- **`ankra org ai-review repos list|set|unset` turns the AI code review on or
+  off for one repository without the portal.** `set my-org/my-repo --review`
+  writes the repository's rule; `--mentions`, `--previews`, `--model`,
+  `--review-drafts` and `--max-reviews-per-pr` set the rest. Only the
+  switches you pass change: the others keep the repository's current rule,
+  or the connection's settings when it has none, so turning the review on
+  never switches @mention replies or previews off by accident. `unset`
+  removes the rule so the repository follows the connection again (exit 3
+  when it had none), and `list` shows each connection's settings and rules,
+  with `--reachable` adding the repositories a GitHub App installation can
+  see. The connection is found from the repository's owner or an existing
+  rule; `--binding <provider>/<id>` picks it when that is ambiguous. `set`
+  and `unset` need organisation admin.
+- **`ankra cluster get secrets <name> -n <namespace> --reveal` reads one
+  Secret's values.** Since the platform's Secret value policy, every Secret
+  value comes back as a `sha256:` digest, so `cluster get secrets <name> -o
+  yaml` stopped showing values without saying why. Without `--reveal` the
+  CLI now says on stderr that the values are digests and how to read them.
+  `--reveal` asks for the plaintext values of that one Secret: it needs `-n`,
+  is refused on a listing (no name, `-A` or `-l`) with exit code 2, and needs
+  the `kubernetes.secrets_reveal` permission on the cluster (the operator,
+  admin and owner roles). Without the permission it prints nothing on stdout
+  and exits 7 with a message naming the permission; when the platform cannot
+  hand out live values (the cluster is unreachable) it exits 1; a missing
+  Secret exits 3. Every reveal is recorded in the organisation's audit log.
+  `cluster describe secret` now shows a digest as withheld instead of as a
+  19-byte value.
+- **`ankra cluster addons list` says when an addon needs a security
+  update.** A new `Security` column names the worst published advisory
+  covering the addon's version and the chart version that fixes it
+  (`update: GHSA-8rvj-mm4h-c258 (high) -> v1.20.3`), `ok` for an addon the
+  platform checked and found clean, `unknown` when it could not check it -
+  which is not the same as clean - and `-` for a chart with no advisory
+  source. `ankra cluster addons list <name>` lists each advisory with its
+  summary, link and fixed release, and prints the `ankra cluster addons
+  upgrade` command that applies the fix; Ankra never runs it for you. `-o
+  json|yaml` carries the same fields (`security_advisories`,
+  `security_advisory_status`, `security_upgrade_chart_version`). Requires a
+  platform that reports addon advisories; an older one shows `-`.
 - **`ankra registry robots list` shows the robots Ankra manages, not only
   the ones you created.** The listing answered only robot accounts a member
   had made, so the logins doing most of the work on an organisation's
