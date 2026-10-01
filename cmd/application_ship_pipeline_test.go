@@ -182,11 +182,12 @@ func TestApplicationShipDispatchesARunWhenNothingStartsOne(t *testing.T) {
 	fastShipPolling(t)
 	shortPipelineGrace(t, 0)
 	mockClient := newShipPipelineMock("ankra_pipeline")
-	manual := shipPipelineRun("run-manual", 1, "api")
-	mockClient.dispatchedRun = &client.CreatePipelineRunResult{PipelineRunID: "run-manual", RunNumber: 1}
-	mockClient.runPages = [][]client.PipelineRun{{}, {manual}}
-	mockClient.runDetails["run-manual"] = []*client.PipelineRunDetail{
-		shipRunDetail(manual, "concluded", "success"),
+	pushed := shipPipelineRun("run-push", 1, "push")
+	mockClient.dispatchedRun = &client.CreatePipelineRunResult{PipelineRunID: "run-push", RunNumber: 1}
+	mockClient.runPages = [][]client.PipelineRun{{}, {pushed}}
+	mockClient.runDetails["run-push"] = []*client.PipelineRunDetail{
+		shipRunDetail(pushed, "running", "", shipStep("build", 1, "success"), shipStep("publish", 1, "")),
+		shipRunDetail(pushed, "running", "", shipStep("build", 1, "success"), shipStep("publish", 1, "success")),
 	}
 
 	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
@@ -199,8 +200,13 @@ func TestApplicationShipDispatchesARunWhenNothingStartsOne(t *testing.T) {
 	if mockClient.dispatches[0].HeadSHA != shipTestHeadSHA || mockClient.dispatches[0].Ref != "main" {
 		t.Errorf("dispatch = %+v, want the tracked branch's head commit", mockClient.dispatches[0])
 	}
-	if !strings.Contains(progress, "ship dispatched run #1") {
-		t.Errorf("progress must say ship dispatched the run:\n%s", progress)
+	// A manual run of the generated pipeline skips publish, so ship asks for
+	// the branch's push (ankra-z3h6u).
+	if mockClient.dispatches[0].Event != client.PipelineDispatchEventPush {
+		t.Errorf("dispatch event = %q, want the branch's push", mockClient.dispatches[0].Event)
+	}
+	if !strings.Contains(progress, `ship started run #1 as the push of branch "main"`) {
+		t.Errorf("progress must say ship started the branch's push run:\n%s", progress)
 	}
 	if mockClient.deployCalls != 1 {
 		t.Errorf("deploy calls = %d, want 1", mockClient.deployCalls)
@@ -312,6 +318,13 @@ func TestApplicationShipRefusesARunThatSkippedPublish(t *testing.T) {
 	if !strings.Contains(executeError.Error(), "does not publish the image") ||
 		!strings.Contains(executeError.Error(), "runs only on push") {
 		t.Errorf("the error must say the run publishes nothing, and why: %v", executeError)
+	}
+	// The platform recorded ship's push request as a manual run: it predates
+	// running a push on request, and the error says that rather than
+	// blaming the pipeline.
+	if !strings.Contains(executeError.Error(), "cannot yet run the branch's push on request") ||
+		!strings.Contains(executeError.Error(), "--ankra-build") {
+		t.Errorf("the error must say this platform cannot run the push and what to do instead: %v", executeError)
 	}
 	if mockClient.deployCalls != 0 {
 		t.Errorf("nothing may deploy without an image; calls = %d", mockClient.deployCalls)
@@ -453,4 +466,49 @@ func TestApplicationShipDoesNotDispatchWhenTheListingWasNotExhausted(t *testing.
 	if len(mockClient.dispatches) != 0 {
 		t.Errorf("an unexhausted listing is not proof of no run; dispatches = %+v", mockClient.dispatches)
 	}
+}
+
+// The branch moved between ship reading its head and asking for its push, so
+// the platform refused a push of a commit that is no longer the head. Ship
+// follows the branch to the new head instead of failing.
+func TestApplicationShipFollowsTheBranchWhenItsPushRequestIsRefused(t *testing.T) {
+	fastShipPolling(t)
+	shortPipelineGrace(t, 0)
+	const newHead = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+	mockClient := &shipPushRefusingMock{shipPipelineMock: newShipPipelineMock("ankra_pipeline")}
+	mockClient.branchesPayloads = [][]byte{
+		[]byte(`{"branches":[{"name":"main","head_sha":"` + shipTestHeadSHA + `"}],"configured_branch":"main"}`),
+		[]byte(`{"branches":[{"name":"main","head_sha":"` + newHead + `"}],"configured_branch":"main"}`),
+	}
+	pushed := shipPipelineRun("run-new", 7, "push")
+	pushed.HeadSHA = newHead
+	mockClient.runsByHead = map[string][]client.PipelineRun{newHead: {pushed}}
+	mockClient.runDetails["run-new"] = []*client.PipelineRunDetail{
+		shipRunDetail(pushed, "concluded", "success", shipStep("publish", 1, "success")),
+	}
+
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError != nil {
+		t.Fatalf("ship must follow the branch's new head, got %v\nprogress: %s", executeError, progress)
+	}
+	if !strings.Contains(progress, `branch "main" has moved to commit a1b2c3d`) ||
+		!strings.Contains(progress, "not the current head of the tracked branch") {
+		t.Errorf("progress must say ship moved to the new head, and why the dispatch failed:\n%s", progress)
+	}
+	if mockClient.deployCalls != 1 {
+		t.Errorf("deploy calls = %d, want 1", mockClient.deployCalls)
+	}
+}
+
+// shipPushRefusingMock refuses every dispatch the way the platform refuses a
+// push of a commit that is no longer the branch's head.
+type shipPushRefusingMock struct {
+	*shipPipelineMock
+}
+
+func (mock *shipPushRefusingMock) CreatePipelineRun(_ context.Context, _ client.PipelineSelector,
+	request client.CreatePipelineRunRequest) (*client.CreatePipelineRunResult, error) {
+	mock.dispatches = append(mock.dispatches, request)
+	return nil, client.NewUnexpectedResponseError(422,
+		"The commit is not the current head of the tracked branch, so it cannot be run as the branch's push")
 }

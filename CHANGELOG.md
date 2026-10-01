@@ -82,6 +82,17 @@
   where it printed one `Registry: <host>/<project>` line and `Scope`.
   `-o json` gains fields (`kind`, `managed`, `projects`, `permissions`,
   `application`, `expires_at`) and loses none.
+- **`ankra application ship` builds the first image of a new Ankra Pipelines
+  application without a push.** When nothing had been pushed since the
+  application was registered, ship dispatched a manual run, the generated
+  pipeline skipped its publish step on it, and ship stopped and asked you to
+  push a commit. Ship now asks the platform to run the tracked branch's push
+  for its current head - the run a push would have started - so the image is
+  published and deployed, and `ankra application add . && ankra application
+  ship .` reaches a running URL on its own. Starting that run needs the
+  `applications.deploy` permission. On a platform that cannot run a branch's
+  push on request yet, ship still stops with the push-a-commit advice and
+  names `--ankra-build` as the other way.
 
 ### Fixed
 

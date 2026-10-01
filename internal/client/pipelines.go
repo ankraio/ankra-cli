@@ -219,13 +219,27 @@ type ListPipelineRunsOptions struct {
 // dispatch. HeadSHA is mandatory - the server refuses ErrHeadSHARequired
 // without it, because resolving a ref to a commit is the trigger lane's job,
 // not the dispatch route's.
+//
+// Event names the event the run stands for: empty is a manual dispatch, and
+// PipelineDispatchEventPush asks for the run the tracked branch's push would
+// have started for its current head - recorded and planned as that push, so
+// stages filtered to push events (the generated pipeline's publish) run. The
+// platform accepts it only for the tracked branch at its exact current head,
+// with no inputs or spec, from a caller holding applications.deploy. A
+// platform from before the field ignores it and records a manual run.
 type CreatePipelineRunRequest struct {
 	Ref      string            `json:"ref,omitempty"`
 	HeadSHA  string            `json:"head_sha"`
 	Inputs   map[string]string `json:"inputs,omitempty"`
 	Reason   string            `json:"reason,omitempty"`
 	SpecYAML string            `json:"spec_yaml,omitempty"`
+	Event    string            `json:"event,omitempty"`
 }
+
+// PipelineDispatchEventPush is the CreatePipelineRunRequest.Event that runs
+// the tracked branch's push for its current head (cluster
+// pipelineapi createRunEventPush).
+const PipelineDispatchEventPush = "push"
 
 // CreatePipelineRunResult is the 202 body a dispatch or a re-run answers.
 type CreatePipelineRunResult struct {

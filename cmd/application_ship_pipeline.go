@@ -41,6 +41,11 @@ const (
 // ship waits for.
 const shipPipelineTriggerPullRequest = "pull_request"
 
+// shipPipelineTriggerPush is the trigger of a push run (cluster
+// enginekit/pipelinerun.TriggerPush), which is what ship's own dispatch is
+// recorded as on a platform that runs a branch's push on request.
+const shipPipelineTriggerPush = "push"
+
 // shipPipelineStepKindPublish is the step kind that pushes the image
 // (cluster enginekit/pipelinerun.StepKinds).
 const shipPipelineStepKindPublish = "publish"
@@ -53,10 +58,16 @@ const shipPipelineStepKindPublish = "publish"
 // then rather than waiting for the steps after publishing (a verify, an
 // approval gate) - the same moment the platform's deploy can use the image.
 // A run without publish steps is ready when it concludes successfully. A run
-// whose publish step was skipped never pushes an image, however it ends - the
-// generated pipeline publishes only on push, so a run ship dispatched itself
-// skips it - and fails ship rather than deploying an image that was never
-// built. A run that concludes any other way before publishing fails ship,
+// whose publish step was skipped never pushes an image, however it ends, and
+// fails ship rather than deploying an image that was never built.
+//
+// When nothing starts a run for the head commit - the application was
+// registered after the branch's last push, so no push event will ever come -
+// ship asks the platform for the branch's push itself (ankra-z3h6u): the run
+// the push webhook would have started, which publishes the image and makes it
+// the application's deployment candidate. A platform from before that
+// records a manual run instead, whose publish the generated pipeline skips,
+// and ship then says to push a commit. A run that concludes any other way before publishing fails ship,
 // except a superseded one: ship then follows the run that replaced it, and
 // when the replacement is for a newer push it moves to the branch's new head.
 //
@@ -96,18 +107,41 @@ func waitForPipelineBuild(
 				announcedWaiting = true
 			}
 			if !dispatched && listedAll && !time.Now().Before(appearDeadline) {
+				// The run asked for is the branch's push, not a manual run:
+				// the generated pipeline publishes only on a push, and the
+				// image's deployment candidate follows push runs alone, so a
+				// manual run would build an image nothing deploys (ankra-z3h6u).
 				dispatchedRun, dispatchError := apiClient.CreatePipelineRun(waitContext, selector, client.CreatePipelineRunRequest{
 					Ref:     trackedBranch,
 					HeadSHA: headSHA,
 					Reason:  "ankra application ship: no run was started for the branch head",
+					Event:   client.PipelineDispatchEventPush,
 				})
 				if dispatchError != nil {
+					// The branch can move between reading its head and
+					// asking for its push, which the platform refuses
+					// because a push names the current head. Follow the
+					// branch then, exactly as for a superseded run. The
+					// refusal is not matched by status or text, so it is
+					// printed: a different failure that coincided with a
+					// push stays visible, and recurs on the new head.
+					currentHead, headError := shipTrackedBranchHead(waitContext, applicationID, trackedBranch)
+					if headError == nil && currentHead != "" && !strings.EqualFold(currentHead, headSHA) {
+						_, _ = fmt.Fprintf(progress,
+							"Starting the push run of commit %s failed (%v), and branch %q has moved to commit %s, so ship follows that commit.\n",
+							shortShipSHA(headSHA), dispatchError, trackedBranch, shortShipSHA(currentHead))
+						headSHA = currentHead
+						appearDeadline = time.Now().Add(shipPipelineRunAppearGrace)
+						announcedWaiting = false
+						announcedState = ""
+						continue
+					}
 					return "", shipReadError(waitContext, "starting a pipeline run", dispatchError)
 				}
 				dispatched = true
 				_, _ = fmt.Fprintf(progress,
-					"Nothing started a run for commit %s, so ship dispatched run #%d.\n",
-					shortShipSHA(headSHA), dispatchedRun.RunNumber)
+					"Nothing started a run for commit %s, so ship started run #%d as the push of branch %q.\n",
+					shortShipSHA(headSHA), dispatchedRun.RunNumber, trackedBranch)
 			}
 		} else {
 			detail, readError := apiClient.GetPipelineRun(waitContext, selector, run.ID)
@@ -160,6 +194,16 @@ func waitForPipelineBuild(
 				reason := "its publish step was skipped"
 				if skipped.ErrorMessage != nil && strings.TrimSpace(*skipped.ErrorMessage) != "" {
 					reason = strings.TrimSpace(*skipped.ErrorMessage)
+				}
+				if dispatched && detail.Trigger != shipPipelineTriggerPush {
+					// Ship asked for the branch's push and the platform
+					// recorded something else: it predates running a push
+					// on request, and its manual run cannot publish.
+					return "", fmt.Errorf("pipeline run #%d does not publish the image (%s): this platform "+
+						"cannot yet run the branch's push on request, so push a commit to %q - the platform "+
+						"then starts a run that publishes - and run ship again, or re-run ship with --ankra-build; "+
+						"follow the run with 'ankra application pipeline get %s %s'",
+						detail.RunNumber, reason, trackedBranch, applicationID, detail.ID)
 				}
 				return "", fmt.Errorf("pipeline run #%d does not publish the image (%s) - push a commit to %q "+
 					"so the platform starts a run that publishes, then run ship again; "+
