@@ -4,6 +4,18 @@
 
 ### Added
 
+- **`ankra cluster addons list` says when an addon needs a security
+  update.** A new `Security` column names the worst published advisory
+  covering the addon's version and the chart version that fixes it
+  (`update: GHSA-8rvj-mm4h-c258 (high) -> v1.20.3`), `ok` for an addon the
+  platform checked and found clean, `unknown` when it could not check it -
+  which is not the same as clean - and `-` for a chart with no advisory
+  source. `ankra cluster addons list <name>` lists each advisory with its
+  summary, link and fixed release, and prints the `ankra cluster addons
+  upgrade` command that applies the fix; Ankra never runs it for you. `-o
+  json|yaml` carries the same fields (`security_advisories`,
+  `security_advisory_status`, `security_upgrade_chart_version`). Requires a
+  platform that reports addon advisories; an older one shows `-`.
 - **`ankra registry robots list` shows the robots Ankra manages, not only
   the ones you created.** The listing answered only robot accounts a member
   had made, so the logins doing most of the work on an organisation's
