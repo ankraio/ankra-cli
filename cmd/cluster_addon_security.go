@@ -49,9 +49,11 @@ func countAddonsWithSecurityUpdates(addons []client.ClusterAddonListItem) int {
 
 // printAddonSecurityDetails prints the security section of a single addon's
 // details: each advisory with its severity, summary, link and fixed
-// release, and the upgrade command that applies the fix. Ankra never runs
-// that upgrade for the owner.
-func printAddonSecurityDetails(addon client.ClusterAddonListItem) {
+// release, and the upgrade command that applies the fix. The command names
+// clusterName, so pasting it upgrades the cluster that was listed even when
+// it was reached with --cluster rather than 'cluster select'. Ankra never
+// runs that upgrade for the owner.
+func printAddonSecurityDetails(addon client.ClusterAddonListItem, clusterName string) {
 	switch {
 	case len(addon.SecurityAdvisories) > 0:
 		fmt.Println()
@@ -72,8 +74,8 @@ func printAddonSecurityDetails(addon client.ClusterAddonListItem) {
 			}
 		}
 		if addon.SecurityUpgradeChartVersion != nil && *addon.SecurityUpgradeChartVersion != "" {
-			fmt.Printf("\n  To upgrade: ankra cluster addons upgrade %s --chart-version %s\n",
-				addon.Name, *addon.SecurityUpgradeChartVersion)
+			fmt.Printf("\n  To upgrade: ankra cluster addons upgrade %s --chart-version %s --cluster %s\n",
+				addon.Name, *addon.SecurityUpgradeChartVersion, clusterName)
 		}
 	case addon.SecurityAdvisoryStatus == client.SecurityAdvisoryStatusChecked:
 		fmt.Println("  Security:        no published advisory with a fix covers this version")

@@ -39,10 +39,12 @@
   which is not the same as clean - and `-` for a chart with no advisory
   source. `ankra cluster addons list <name>` lists each advisory with its
   summary, link and fixed release, and prints the `ankra cluster addons
-  upgrade` command that applies the fix; Ankra never runs it for you. `-o
-  json|yaml` carries the same fields (`security_advisories`,
-  `security_advisory_status`, `security_upgrade_chart_version`). Requires a
-  platform that reports addon advisories; an older one shows `-`.
+  upgrade` command that applies the fix, naming the cluster so it upgrades
+  the one you listed; Ankra never runs it for you. `-o json|yaml` carries
+  the same fields (`security_advisories`, `security_advisory_status`,
+  `security_upgrade_chart_version`). Requires a platform that reports addon
+  advisories, which is rolling out: until it reaches yours the column shows
+  `-`.
 - **`ankra registry robots list` shows the robots Ankra manages, not only
   the ones you created.** The listing answered only robot accounts a member
   had made, so the logins doing most of the work on an organisation's
@@ -80,6 +82,58 @@
   where it printed one `Registry: <host>/<project>` line and `Scope`.
   `-o json` gains fields (`kind`, `managed`, `projects`, `permissions`,
   `application`, `expires_at`) and loses none.
+
+### Fixed
+
+- **`ankra targets register` says what to do when there is no agent release
+  to install.** It answered `download SHA256SUMS: unexpected status 404`
+  when the release it looks for does not exist, which is what every host saw
+  until the first `ankra-host-agent` release was published. It now says
+  which release was missing and where it looked: with the default
+  `--agent-version latest`, that no release is published at the release URL
+  and to name an existing tag with `--agent-version` or point
+  `--release-url` at a mirror; with a pinned tag, that the tag does not
+  exist; and when the release lacks this host's architecture, that too.
+  These exit 3 (not found). Nothing is installed in any of them, as before.
+- **`ankra targets register` checks `--label` the way the agent does, before
+  installing anything.** A label the host agent refuses (a key with a space,
+  a key ending in `.` or `-`, a value over 63 characters, more than 32
+  labels) passed the CLI, which then installed
+  `/usr/local/bin/ankra-host-agent` before the agent's own register refused
+  it. Those are now usage errors (exit 2) up front, and the agent receives
+  exactly the `key=value` pairs the CLI validated.
+- **Running `ankra targets register` again on a registered host moves the
+  service onto the new binary.** It ran `systemctl enable --now`, which
+  leaves an already running service on the old binary and the old identity.
+  It now enables the unit and restarts it.
+- **`ankra targets register` writes its files without following a planted
+  symlink.** The binary and unit were first written to a fixed
+  `<path>.ankra-new`, which a symlink placed there in advance would have
+  redirected while running as root. Each install now creates a new file with
+  a random name beside the destination and renames it into place.
+- **`ankra targets register` refuses a plain `http://` `--release-url`**
+  (or `$ANKRA_HOST_AGENT_RELEASE_URL`) unless it is a loopback address or
+  `ANKRA_ALLOW_INSECURE_HTTP=1` is set, the same rule `--base-url` follows.
+  The `SHA256SUMS` check proves nothing when the sums and the binary come
+  over the same unauthenticated connection.
+- **`ankra registry robots create` refuses an empty `--permission` and an
+  expiry past 3650 days before asking the platform.** `--permission ""`
+  (an unset shell variable, say) fell back to a push-and-pull robot that
+  never expires, the opposite of a narrow grant; it is now a usage error.
+  `--expires-in-days` above 3650 was refused by the platform with exit 1;
+  the CLI now refuses it itself with exit 2, as it does a negative value.
+- **`ankra targets list --environment <typo>` names the missing
+  environment.** The platform answers an unknown environment with a 404, so
+  the CLI printed `listing host targets: Environment not found` and the hint
+  it meant to give never appeared. `targets list`, `targets get --environment`
+  and `deployments list --environment` now say the environment does not exist
+  and that `ankra targets join-token create --environment <env>` creates it
+  (exit 3).
+- **Listings cut at the platform's row cap say so.** `ankra targets list -o
+  json` now carries `truncated` and `ankra deployments get -o json` carries
+  `targets_truncated`, which the CLI dropped; the table output says on stderr
+  when it shows only the first rows, and `targets get <name>` says the
+  listing was cut when a name is not among the rows it got.
 
 ## v0.21.0 — 2026-10-01
 

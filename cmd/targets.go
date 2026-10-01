@@ -29,6 +29,11 @@ const maximumJoinTokenLifetime = 24 * time.Hour
 // not serve, as opposed to a handler's own not-found sentence.
 const routeAbsentDetail = "Not Found"
 
+// environmentNotFoundDetail is the platform's 404 detail for an environment
+// filter that names no environment: it answers that rather than an empty
+// list.
+const environmentNotFoundDetail = "Environment not found"
+
 // deployLaneError wraps an error from the deploy targets API for the
 // terminal. A platform that predates host deploy targets answers the router's
 // bare 404; that is not "the target does not exist", so it is said plainly and
@@ -43,6 +48,20 @@ func deployLaneError(operation string, apiError error) error {
 				"and try again once the platform has them", operation))
 	}
 	return fmt.Errorf("%s: %w", operation, apiError)
+}
+
+// deployLaneEnvironmentError is deployLaneError for a request filtered by
+// environmentName: the platform's 404 for an environment nobody created is
+// said with how to create it, and exits with the not-found code.
+func deployLaneEnvironmentError(operation string, environmentName string, apiError error) error {
+	var unexpected *client.UnexpectedResponseError
+	if environmentName != "" && errors.As(apiError, &unexpected) && unexpected.StatusCode == http.StatusNotFound &&
+		unexpected.Detail == environmentNotFoundDetail {
+		return withExitCode(exitNotFound, fmt.Errorf(
+			"%s: environment %q does not exist. A join token creates it: 'ankra targets join-token create --environment %s'",
+			operation, environmentName, environmentName))
+	}
+	return deployLaneError(operation, apiError)
 }
 
 // validateEnvironmentName refuses a name the platform would refuse, before
@@ -160,7 +179,7 @@ func newTargetsListCommand() *cobra.Command {
 			}
 			listing, listError := apiClient.ListHostTargets(command.Context(), environmentName)
 			if listError != nil {
-				return deployLaneError("listing host targets", listError)
+				return deployLaneEnvironmentError("listing host targets", environmentName, listError)
 			}
 			if listing.HostTargets == nil {
 				listing.HostTargets = []client.HostTarget{}
@@ -169,10 +188,15 @@ func newTargetsListCommand() *cobra.Command {
 				return renderError
 			}
 			if len(listing.HostTargets) == 0 {
-				_, _ = fmt.Fprintln(command.OutOrStdout(), emptyHostTargetsMessage(command, environmentName))
+				_, _ = fmt.Fprintln(command.OutOrStdout(), emptyHostTargetsMessage(environmentName))
 				return nil
 			}
 			writeHostTargetTable(command.OutOrStdout(), listing.HostTargets)
+			if listing.Truncated {
+				_, _ = fmt.Fprintf(command.ErrOrStderr(),
+					"Showing the first %d host targets: the platform stops a listing at its row cap. "+
+						"Narrow it with --environment.\n", len(listing.HostTargets))
+			}
 			return nil
 		},
 	}
@@ -181,28 +205,14 @@ func newTargetsListCommand() *cobra.Command {
 	return command
 }
 
-// emptyHostTargetsMessage says why a listing is empty. When an environment
-// was named, the environments listing tells a typo from an environment that
-// simply has no hosts yet.
-func emptyHostTargetsMessage(command *cobra.Command, environmentName string) string {
+// emptyHostTargetsMessage says why a listing is empty. An environment
+// filter naming no environment never gets here: the platform answers it
+// with a 404 (deployLaneEnvironmentError).
+func emptyHostTargetsMessage(environmentName string) string {
 	registerHint := "Register a host with 'ankra targets join-token create --environment <env>' " +
 		"and 'ankra targets register' on the host."
 	if environmentName == "" {
 		return "No host targets found. " + registerHint
-	}
-	environments, listError := apiClient.ListEnvironments(command.Context())
-	if listError == nil {
-		exists := false
-		for _, environment := range environments.Environments {
-			if environment.Name == environmentName {
-				exists = true
-				break
-			}
-		}
-		if !exists {
-			return fmt.Sprintf("Environment %q does not exist. A join token creates it: "+
-				"'ankra targets join-token create --environment %s'.", environmentName, environmentName)
-		}
 	}
 	return fmt.Sprintf("No host targets in environment %q. %s", environmentName, registerHint)
 }
@@ -265,7 +275,7 @@ func resolveHostTarget(command *cobra.Command, reference string, environmentName
 	}
 	listing, listError := apiClient.ListHostTargets(command.Context(), environmentName)
 	if listError != nil {
-		return "", deployLaneError("looking up host target "+reference, listError)
+		return "", deployLaneEnvironmentError("looking up host target "+reference, environmentName, listError)
 	}
 	var active, revoked []client.HostTarget
 	for _, target := range listing.HostTargets {
@@ -289,6 +299,11 @@ func resolveHostTarget(command *cobra.Command, reference string, environmentName
 		scope := ""
 		if environmentName != "" {
 			scope = " in environment " + environmentName
+		}
+		if listing.Truncated {
+			return "", withExitCode(exitNotFound, fmt.Errorf(
+				"no host target named %q%s among the first %d the platform listed (the listing stopped at its row cap) - "+
+					"pass the target's id, or --environment to narrow the lookup", reference, scope, len(listing.HostTargets)))
 		}
 		return "", withExitCode(exitNotFound, fmt.Errorf(
 			"no host target named %q%s - run 'ankra targets list' to see the registered targets", reference, scope))
