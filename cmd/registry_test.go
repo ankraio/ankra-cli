@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"ankra/internal/client"
 )
@@ -17,6 +18,49 @@ type registryRobotsMock struct {
 	rotated       string
 	deleted       string
 	fail          error
+	// list, when set, is what the listing answers instead of the one
+	// member's robot of the fixture.
+	list *client.RegistryRobotList
+	// warning rides the create and rotate answers when set.
+	warning string
+}
+
+// registryRobotFleetFixture is a listing as a platform that manages robots
+// answers it: two of the member's own, the organisation's two, and an
+// application's.
+func registryRobotFleetFixture() *client.RegistryRobotList {
+	expiresAt := "2026-01-01T00:00:00Z"
+	return &client.RegistryRobotList{
+		Robots: []client.RegistryRobot{
+			{Name: "jenkins", Kind: "user", RobotName: "robot$org-abc+user-jenkins", Host: "artifact.ankra.cloud",
+				Project: "org-abc", Projects: []string{"org-abc"}, Scope: "push",
+				Permissions: []string{"repository:pull", "repository:push"}, Description: "Jenkins",
+				CredentialName: "ankra-harbor-robot-jenkins", CreatedAt: "2026-09-14T12:00:00Z"},
+			{Name: "cleanup", Kind: "user", RobotName: "robot$org-abc+user-cleanup", Host: "artifact.ankra.cloud",
+				Project: "org-abc", Projects: []string{"org-abc"}, Scope: "custom",
+				Permissions:    []string{"repository:pull", "artifact:delete"},
+				CredentialName: "ankra-harbor-robot-cleanup", CreatedAt: "2025-10-01T00:00:00Z", ExpiresAt: &expiresAt},
+			{Name: "ci", Kind: "organisation", Managed: true, RobotName: "robot$org-abc+ci", Host: "artifact.ankra.cloud",
+				Project: "org-abc", Projects: []string{"org-abc"}, Scope: "push",
+				Permissions:    []string{"repository:pull", "repository:push"},
+				Description:    "Managed by Ankra: the push and pull login the organisation's builds publish with.",
+				CredentialName: "ankra-harbor-ci", CreatedAt: "2026-07-22T17:16:00Z"},
+			{Name: "pull", Kind: "organisation", Managed: true, RobotName: "robot$org-abc+pull", Host: "artifact.ankra.cloud",
+				Project: "org-abc", Projects: []string{"org-abc"}, Scope: "pull", Permissions: []string{"repository:pull"},
+				CredentialName: "ankra-harbor-pull", CreatedAt: "2026-07-22T17:16:00Z"},
+			{Name: "app-23298741", Kind: "application", Managed: true, RobotName: "robot$commerce-images+app-23298741",
+				Host: "artifact.customer.test", Project: "commerce-images", Projects: []string{"commerce-images"},
+				Scope: "push", Permissions: []string{"repository:pull", "repository:push"},
+				Application:    &client.RegistryRobotApplication{ID: "23298741", Name: "commerce"},
+				CredentialName: "ankra-harbor-app-23298741", CreatedAt: "2026-08-25T09:17:40Z"},
+		},
+		TotalCount: 5,
+		Registry:   &client.RegistryRobotRegistry{Host: "artifact.ankra.cloud", Project: "org-abc"},
+		AvailablePermissions: []client.RegistryRobotPermission{
+			{Permission: "repository:pull", Label: "Pull", Description: "Pull images and charts from the project."},
+			{Permission: "artifact:delete", Label: "Delete artifacts", Description: "Delete artifacts, which a cleanup job needs."},
+		},
+	}
 }
 
 func registryRobotFixture() client.RegistryRobot {
@@ -33,21 +77,33 @@ func (mock *registryRobotsMock) CreateRegistryRobot(_ context.Context, request c
 		return nil, mock.fail
 	}
 	return &client.RegistryRobotWithSecret{RegistryRobot: registryRobotFixture(), Secret: "s3cret",
-		DockerLogin: "docker login artifact.ankra.cloud -u 'robot$org-abc+user-jenkins' -p 's3cret'"}, nil
+		DockerLogin: "docker login artifact.ankra.cloud -u 'robot$org-abc+user-jenkins' -p 's3cret'",
+		Warning:     mock.warning}, nil
 }
 
 func (mock *registryRobotsMock) ListRegistryRobots(context.Context) (*client.RegistryRobotList, error) {
+	if mock.list != nil {
+		return mock.list, nil
+	}
 	return &client.RegistryRobotList{Robots: []client.RegistryRobot{registryRobotFixture()}, TotalCount: 1}, nil
 }
 
 func (mock *registryRobotsMock) GetRegistryRobot(_ context.Context, robotName string) (*client.RegistryRobot, error) {
+	if mock.list != nil {
+		for _, robot := range mock.list.Robots {
+			if robot.Name == robotName {
+				return &robot, nil
+			}
+		}
+	}
 	robot := registryRobotFixture()
 	return &robot, nil
 }
 
 func (mock *registryRobotsMock) RotateRegistryRobotSecret(_ context.Context, robotName string) (*client.RegistryRobotWithSecret, error) {
 	mock.rotated = robotName
-	return &client.RegistryRobotWithSecret{RegistryRobot: registryRobotFixture(), Secret: "r0tated", DockerLogin: "docker login ..."}, nil
+	return &client.RegistryRobotWithSecret{RegistryRobot: registryRobotFixture(), Secret: "r0tated",
+		DockerLogin: "docker login ...", Warning: mock.warning}, nil
 }
 
 func (mock *registryRobotsMock) DeleteRegistryRobot(_ context.Context, robotName string) error {
@@ -90,7 +146,7 @@ func TestRegistryRobotsCommandsRegistered(t *testing.T) {
 			robots = append(robots, robotSubcommand.Name())
 		}
 	}
-	for _, expected := range []string{"create", "list", "get", "rotate", "delete"} {
+	for _, expected := range []string{"create", "list", "permissions", "get", "rotate", "delete"} {
 		found := false
 		for _, name := range robots {
 			if name == expected {
@@ -280,5 +336,240 @@ func TestRegistryRobotsCreateRelaysTheBackendRefusal(t *testing.T) {
 	_, runError := runRegistryCommand(t, mock, "", "robots", "create", "jenkins")
 	if runError == nil || !strings.Contains(runError.Error(), "already exists") {
 		t.Fatalf("error = %v", runError)
+	}
+}
+
+// The listing shows the robots Ankra manages beside the member's own: every
+// login that reaches the organisation's images, each with its kind, what it
+// may do, the project it is bound to and when it expires. A managed robot on
+// a registry the organisation runs itself shows that registry's project.
+func TestRegistryRobotsListShowsManagedRobotsBesideTheMembersOwn(t *testing.T) {
+	output, runError := runRegistryCommand(t, &registryRobotsMock{list: registryRobotFleetFixture()}, "", "robots", "list")
+	if runError != nil {
+		t.Fatalf("list: %v", runError)
+	}
+	for _, expected := range []string{
+		"Registry project: artifact.ankra.cloud/org-abc",
+		"robot$org-abc+ci", "robot$org-abc+pull", "robot$commerce-images+app-23298741",
+		"organisation", "application", "commerce-images",
+		"push and pull", "repository:pull, artifact:delete",
+		"never", "2026-01-01T00:00:00Z (expired)",
+		"managed by Ankra",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("listing lacks %q:\n%s", expected, output)
+		}
+	}
+}
+
+// --kind narrows the listing, in the table and in the structured answer
+// alike, and a value outside the vocabulary is a usage error before any
+// request.
+func TestRegistryRobotsListKindFilter(t *testing.T) {
+	cases := map[string][]string{
+		"all":          {"jenkins", "cleanup", "ci", "pull", "app-23298741"},
+		"user":         {"jenkins", "cleanup"},
+		"managed":      {"ci", "pull", "app-23298741"},
+		"organisation": {"ci", "pull"},
+		"application":  {"app-23298741"},
+	}
+	for kind, wantNames := range cases {
+		output, runError := runRegistryCommand(t, &registryRobotsMock{list: registryRobotFleetFixture()}, "",
+			"robots", "list", "--kind", kind, "-o", "json")
+		if runError != nil {
+			t.Fatalf("list --kind %s: %v", kind, runError)
+		}
+		var decoded client.RegistryRobotList
+		if unmarshalError := json.Unmarshal([]byte(output), &decoded); unmarshalError != nil {
+			t.Fatalf("list --kind %s is not JSON: %v\n%s", kind, unmarshalError, output)
+		}
+		gotNames := []string{}
+		for _, robot := range decoded.Robots {
+			gotNames = append(gotNames, robot.Name)
+		}
+		if strings.Join(gotNames, ",") != strings.Join(wantNames, ",") || decoded.TotalCount != len(wantNames) {
+			t.Errorf("--kind %s listed %v (total %d), want %v", kind, gotNames, decoded.TotalCount, wantNames)
+		}
+	}
+
+	output, runError := runRegistryCommand(t, &registryRobotsMock{list: registryRobotFleetFixture()}, "", "robots", "list", "--kind", "user")
+	if runError != nil || strings.Contains(output, "robot$org-abc+ci") || strings.Contains(output, "managed by Ankra") {
+		t.Fatalf("--kind user must list no managed robot and no managed footer: error=%v\n%s", runError, output)
+	}
+
+	_, usageError := runRegistryCommand(t, &registryRobotsMock{}, "", "robots", "list", "--kind", "system")
+	if exitCodeFor(usageError) != exitUsage || !strings.Contains(usageError.Error(), "--kind must be") {
+		t.Fatalf("an unknown kind = %v, want a usage error", usageError)
+	}
+}
+
+// A platform that predates managed robots lists only the member's own, with
+// no kind: they read as the member's, and filter as such.
+func TestRegistryRobotsListReadsAnOlderPlatformsRobotsAsTheMembersOwn(t *testing.T) {
+	output, runError := runRegistryCommand(t, &registryRobotsMock{}, "", "robots", "list", "--kind", "user")
+	if runError != nil || !strings.Contains(output, "jenkins") || !strings.Contains(output, "user") ||
+		strings.Contains(output, "Registry project:") {
+		t.Fatalf("list against an older platform: error=%v\n%s", runError, output)
+	}
+	output, runError = runRegistryCommand(t, &registryRobotsMock{}, "", "robots", "list", "--kind", "managed")
+	if runError != nil || !strings.Contains(output, "No managed robot accounts.") {
+		t.Fatalf("list --kind managed against an older platform: error=%v\n%s", runError, output)
+	}
+}
+
+// --permission states the robot's own grants instead of a preset: the request
+// carries them and no scope, repeats and commas both work, and stating a
+// scope beside them is refused locally.
+func TestRegistryRobotsCreateWithPermissionsAndExpiry(t *testing.T) {
+	mock := &registryRobotsMock{list: registryRobotFleetFixture()}
+	_, runError := runRegistryCommand(t, mock, "", "robots", "create", "cleanup",
+		"--permission", "repository:pull, Artifact:Delete", "--permission", "repository:pull",
+		"--expires-in-days", "90")
+	if runError != nil {
+		t.Fatalf("create with permissions: %v", runError)
+	}
+	if mock.createRequest == nil || mock.createRequest.Scope != "" || mock.createRequest.ExpiresInDays != 90 ||
+		strings.Join(mock.createRequest.Permissions, ",") != "repository:pull,artifact:delete" {
+		t.Fatalf("request = %+v", mock.createRequest)
+	}
+	encoded, _ := json.Marshal(mock.createRequest)
+	if string(encoded) != `{"name":"cleanup","permissions":["repository:pull","artifact:delete"],"expires_in_days":90}` {
+		t.Fatalf("wire body = %s", encoded)
+	}
+
+	mock = &registryRobotsMock{list: registryRobotFleetFixture()}
+	_, unknownError := runRegistryCommand(t, mock, "", "robots", "create", "cleanup", "--permission", "member:create")
+	if exitCodeFor(unknownError) != exitUsage || !strings.Contains(unknownError.Error(), "choose from: repository:pull, artifact:delete") ||
+		mock.createRequest != nil {
+		t.Fatalf("a permission the platform does not offer: error=%v request=%+v", unknownError, mock.createRequest)
+	}
+
+	mock = &registryRobotsMock{}
+	_, bothError := runRegistryCommand(t, mock, "", "robots", "create", "cleanup", "--scope", "pull", "--permission", "artifact:delete")
+	if exitCodeFor(bothError) != exitUsage || !strings.Contains(bothError.Error(), "alternatives") || mock.createRequest != nil {
+		t.Fatalf("a scope beside permissions: error=%v request=%+v", bothError, mock.createRequest)
+	}
+	_, negativeError := runRegistryCommand(t, mock, "", "robots", "create", "cleanup", "--expires-in-days", "-3")
+	if exitCodeFor(negativeError) != exitUsage || mock.createRequest != nil {
+		t.Fatalf("a negative expiry: error=%v request=%+v", negativeError, mock.createRequest)
+	}
+
+	mock = &registryRobotsMock{}
+	if _, plainError := runRegistryCommand(t, mock, "", "robots", "create", "jenkins"); plainError != nil {
+		t.Fatalf("plain create: %v", plainError)
+	}
+	encoded, _ = json.Marshal(mock.createRequest)
+	if string(encoded) != `{"name":"jenkins","scope":"push"}` {
+		t.Fatalf("a plain create must keep the wire body an older platform accepts, got %s", encoded)
+	}
+}
+
+// 'permissions' lists what --permission accepts, from the platform's own
+// catalogue, and says so plainly when the platform has none to offer.
+func TestRegistryRobotsPermissionsListsTheCatalogue(t *testing.T) {
+	output, runError := runRegistryCommand(t, &registryRobotsMock{list: registryRobotFleetFixture()}, "", "robots", "permissions")
+	if runError != nil || !strings.Contains(output, "artifact:delete") || !strings.Contains(output, "which a cleanup job needs") {
+		t.Fatalf("permissions: error=%v\n%s", runError, output)
+	}
+	output, runError = runRegistryCommand(t, &registryRobotsMock{list: registryRobotFleetFixture()}, "", "robots", "permissions", "-o", "json")
+	var decoded struct {
+		Permissions []client.RegistryRobotPermission `json:"permissions"`
+	}
+	if runError != nil || json.Unmarshal([]byte(output), &decoded) != nil || len(decoded.Permissions) != 2 {
+		t.Fatalf("permissions -o json: error=%v\n%s", runError, output)
+	}
+	output, runError = runRegistryCommand(t, &registryRobotsMock{}, "", "robots", "permissions")
+	if runError != nil || !strings.Contains(output, "two presets only") {
+		t.Fatalf("permissions against an older platform: error=%v\n%s", runError, output)
+	}
+	output, runError = runRegistryCommand(t, &registryRobotsMock{}, "", "robots", "permissions", "-o", "json")
+	if runError != nil || strings.TrimSpace(output) == "" || !strings.Contains(output, `"permissions": []`) {
+		t.Fatalf("permissions -o json against an older platform must answer an empty list, not null: error=%v\n%s", runError, output)
+	}
+}
+
+// 'get' reads a managed robot by the name the listing gives it and says whose
+// it is.
+func TestRegistryRobotsGetShowsAManagedRobot(t *testing.T) {
+	output, runError := runRegistryCommand(t, &registryRobotsMock{list: registryRobotFleetFixture()}, "", "robots", "get", "app-23298741")
+	if runError != nil {
+		t.Fatalf("get: %v", runError)
+	}
+	for _, expected := range []string{"application (managed by Ankra)", "commerce (23298741)", "artifact.customer.test",
+		"commerce-images", "push and pull", "Expires:     never"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("get lacks %q:\n%s", expected, output)
+		}
+	}
+}
+
+// A secret the platform could not store is the only copy: the warning reaches
+// the person on stderr and never pollutes the structured stdout.
+func TestRegistryRobotsRotateRelaysTheOnlyCopyWarning(t *testing.T) {
+	const warning = "The registry accepted the new secret, but the platform could not store it"
+	stdout, stderr, runError := runRegistryCommandSplit(t, &registryRobotsMock{warning: warning}, "", "robots", "rotate", "jenkins", "--yes")
+	if runError != nil || !strings.Contains(stderr, "Warning: "+warning) || strings.Contains(stdout, "Warning:") {
+		t.Fatalf("rotate: error=%v\nstdout=%s\nstderr=%s", runError, stdout, stderr)
+	}
+	stdout, _, runError = runRegistryCommandSplit(t, &registryRobotsMock{warning: warning}, "", "robots", "rotate", "jenkins", "--yes", "-o", "json")
+	var decoded map[string]any
+	if runError != nil || json.Unmarshal([]byte(stdout), &decoded) != nil || decoded["warning"] != warning {
+		t.Fatalf("rotate -o json: error=%v\nstdout=%s", runError, stdout)
+	}
+}
+
+func TestRegistryRobotSummaries(t *testing.T) {
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	future, past, unreadable := "2026-12-30T12:00:00Z", "2026-10-01T12:00:00Z", "soon"
+	expiryCases := []struct {
+		expiresAt *string
+		want      string
+	}{
+		{nil, "never"},
+		{&future, "2026-12-30T12:00:00Z"},
+		{&past, "2026-10-01T12:00:00Z (expired)"},
+		{&unreadable, "soon"},
+	}
+	for _, testCase := range expiryCases {
+		if got := registryRobotExpirySummary(client.RegistryRobot{ExpiresAt: testCase.expiresAt}, now); got != testCase.want {
+			t.Errorf("expiry summary = %q, want %q", got, testCase.want)
+		}
+	}
+	accessCases := map[string]client.RegistryRobot{
+		"push and pull":   {Scope: "push"},
+		"pull":            {Scope: "pull"},
+		"scan:read":       {Scope: "custom", Permissions: []string{"scan:read"}},
+		"custom":          {Scope: "custom"},
+		"-":               {},
+		"repository:list": {Permissions: []string{"repository:list"}},
+	}
+	for want, robot := range accessCases {
+		if got := registryRobotAccessSummary(robot); got != want {
+			t.Errorf("access summary of %+v = %q, want %q", robot, got, want)
+		}
+	}
+	if got := registryRobotProjectsSummary(client.RegistryRobot{Project: "org-abc"}); got != "org-abc" {
+		t.Errorf("projects summary of an older platform's robot = %q", got)
+	}
+	if got := registryRobotProjectsSummary(client.RegistryRobot{}); got != "-" {
+		t.Errorf("projects summary of a robot with no recorded project = %q", got)
+	}
+}
+
+// A platform that predates permissions and expiry ignores the fields it does
+// not know and would mint a push-and-pull robot that never expires. The
+// create is refused before any robot exists rather than handing out a login
+// broader than the one asked for.
+func TestRegistryRobotsCreateRefusesPermissionsAndExpiryOnAnOlderPlatform(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"robots", "create", "cleanup", "--permission", "repository:pull"},
+		{"robots", "create", "contractor", "--scope", "pull", "--expires-in-days", "30"},
+	} {
+		mock := &registryRobotsMock{}
+		_, runError := runRegistryCommand(t, mock, "", arguments...)
+		if runError == nil || !strings.Contains(runError.Error(), "does not support robot permissions or an expiry yet") ||
+			mock.createRequest != nil {
+			t.Fatalf("%v against an older platform: error=%v request=%+v", arguments, runError, mock.createRequest)
+		}
 	}
 }

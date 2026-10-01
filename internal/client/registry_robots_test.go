@@ -101,3 +101,72 @@ func TestRegistryRobotsRelayRefusals(t *testing.T) {
 		t.Fatalf("error = %v", createError)
 	}
 }
+
+// The listing a current platform answers decodes in full - managed robots,
+// their application, grants, expiry, the registry and the catalogue - and the
+// one an older platform answers decodes to robots that read as the member's
+// own.
+func TestRegistryRobotsListDecodesManagedRobotsAndAnOlderPlatform(t *testing.T) {
+	current := `{"robots":[
+		{"name":"cleanup","kind":"user","managed":false,"robot_name":"robot$org-abc+user-cleanup","host":"artifact.ankra.cloud",
+		 "project":"org-abc","projects":["org-abc"],"scope":"custom","permissions":["repository:pull","artifact:delete"],
+		 "description":"","credential_name":"ankra-harbor-robot-cleanup","application":null,
+		 "created_at":"2026-09-30T12:00:00Z","rotated_at":null,"expires_at":"2026-12-29T12:00:00Z"},
+		{"name":"app-1","kind":"application","managed":true,"robot_name":"robot$org-abc+app-1","host":"artifact.ankra.cloud",
+		 "project":"org-abc","projects":["org-abc"],"scope":"push","permissions":["repository:pull","repository:push"],
+		 "description":"Managed by Ankra","credential_name":"ankra-harbor-app-1","application":{"id":"1","name":"shipfortune"},
+		 "created_at":"2026-08-25T09:00:00Z","rotated_at":null,"expires_at":null}],
+		"total_count":2,"registry":{"host":"artifact.ankra.cloud","project":"org-abc"},
+		"available_permissions":[{"permission":"repository:pull","label":"Pull","description":"Pull images and charts from the project."}]}`
+	older := `{"robots":[{"name":"jenkins","robot_name":"robot$org-abc+user-jenkins","host":"artifact.ankra.cloud",
+		"project":"org-abc","scope":"push","description":"","credential_name":"ankra-harbor-robot-jenkins",
+		"created_at":"2026-09-14T12:00:00Z","rotated_at":null}],"total_count":1}`
+	body := current
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(body))
+	})
+
+	list, listError := client.ListRegistryRobots(context.Background())
+	if listError != nil || len(list.Robots) != 2 || list.Registry == nil || list.Registry.Project != "org-abc" ||
+		len(list.AvailablePermissions) != 1 {
+		t.Fatalf("current listing: %+v %v", list, listError)
+	}
+	cleanup, application := list.Robots[0], list.Robots[1]
+	if cleanup.Managed || cleanup.KindOrUser() != RegistryRobotKindUser || cleanup.Scope != RegistryRobotScopeCustom ||
+		len(cleanup.Permissions) != 2 || cleanup.ExpiresAt == nil || *cleanup.ExpiresAt != "2026-12-29T12:00:00Z" {
+		t.Fatalf("member's robot = %+v", cleanup)
+	}
+	if !application.Managed || application.KindOrUser() != RegistryRobotKindApplication ||
+		application.Application == nil || application.Application.Name != "shipfortune" || application.ExpiresAt != nil {
+		t.Fatalf("application robot = %+v", application)
+	}
+
+	body = older
+	list, listError = client.ListRegistryRobots(context.Background())
+	if listError != nil || len(list.Robots) != 1 || list.Registry != nil || list.AvailablePermissions != nil {
+		t.Fatalf("older listing: %+v %v", list, listError)
+	}
+	if robot := list.Robots[0]; robot.Managed || robot.KindOrUser() != RegistryRobotKindUser || robot.Kind != "" {
+		t.Fatalf("an older platform's robot = %+v", robot)
+	}
+}
+
+// The refusals this lane added - a robot Ankra manages, an expired robot -
+// reach the user as the platform wrote them.
+func TestRegistryRobotsRelayTheManagedRefusal(t *testing.T) {
+	const detail = "This robot is managed by Ankra and cannot be rotated or revoked here"
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(writer).Encode(map[string]string{"detail": detail})
+	})
+	if _, rotateError := client.RotateRegistryRobotSecret(context.Background(), "ci"); rotateError == nil ||
+		!strings.Contains(rotateError.Error(), detail) {
+		t.Fatalf("rotate error = %v", rotateError)
+	}
+	if deleteError := client.DeleteRegistryRobot(context.Background(), "ci"); deleteError == nil ||
+		!strings.Contains(deleteError.Error(), detail) {
+		t.Fatalf("delete error = %v", deleteError)
+	}
+}
