@@ -602,7 +602,7 @@ func TestRegistryRobotsCreateRefusesPermissionsAndExpiryOnAnOlderPlatform(t *tes
 // listing (ankra-0bm15): the create goes ahead and its answer is checked.
 func TestRegistryRobotsCreateWithAWriteOnlyToken(t *testing.T) {
 	readDenied := &client.PermissionDeniedError{Permission: "credentials.read"}
-	expiresAt := "2026-12-31T00:00:00Z"
+	expiresAt := time.Now().Add(90 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	honoured := &client.RegistryRobotWithSecret{RegistryRobot: registryRobotFixture(), Secret: "s3cret", DockerLogin: "docker login ..."}
 	honoured.Name = "cleanup"
 	honoured.Scope = "custom"
@@ -625,7 +625,7 @@ func TestRegistryRobotsCreateWithAWriteOnlyToken(t *testing.T) {
 	output, runError = runRegistryCommand(t, mock, "", "robots", "create", "cleanup",
 		"--permission", "repository:pull,artifact:delete", "--expires-in-days", "90")
 	if runError == nil || mock.deleted != "cleanup" || strings.Contains(output, "s3cret") ||
-		!strings.Contains(runError.Error(), "ignored --permission and --expires-in-days") ||
+		!strings.Contains(runError.Error(), "did not honour --permission and --expires-in-days") ||
 		!strings.Contains(runError.Error(), "deleted again") {
 		t.Fatalf("an ignored create: error=%v deleted=%q\n%s", runError, mock.deleted, output)
 	}
@@ -635,6 +635,29 @@ func TestRegistryRobotsCreateWithAWriteOnlyToken(t *testing.T) {
 	if runError == nil || strings.Contains(output, "s3cret") ||
 		!strings.Contains(runError.Error(), "delete it with 'ankra registry robots delete cleanup'") {
 		t.Fatalf("an ignored create whose delete failed: error=%v\n%s", runError, output)
+	}
+
+	// An answer broader or longer-lived than asked is not honoured either;
+	// the repository:pull the platform adds to a push grant is not extra.
+	tooLate := time.Now().Add(400 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	broader := &client.RegistryRobotWithSecret{RegistryRobot: registryRobotFixture(), Secret: "s3cret"}
+	broader.Name = "cleanup"
+	broader.Permissions = []string{"repository:pull", "repository:push", "artifact:delete"}
+	broader.ExpiresAt = &tooLate
+	mock = &registryRobotsMock{listFail: readDenied, created: broader}
+	_, runError = runRegistryCommand(t, mock, "", "robots", "create", "cleanup",
+		"--permission", "repository:pull,artifact:delete", "--expires-in-days", "90")
+	if runError == nil || mock.deleted != "cleanup" ||
+		!strings.Contains(runError.Error(), "did not honour --permission and --expires-in-days") {
+		t.Fatalf("a broader, longer-lived answer: error=%v deleted=%q", runError, mock.deleted)
+	}
+	pushed := &client.RegistryRobotWithSecret{RegistryRobot: registryRobotFixture(), Secret: "s3cret"}
+	pushed.Name = "builder"
+	pushed.Permissions = []string{"repository:pull", "repository:push"}
+	mock = &registryRobotsMock{listFail: readDenied, created: pushed}
+	if _, pushError := runRegistryCommand(t, mock, "", "robots", "create", "builder", "--permission", "repository:push"); pushError != nil ||
+		mock.deleted != "" {
+		t.Fatalf("push with the pull the platform adds: error=%v deleted=%q", pushError, mock.deleted)
 	}
 
 	// Any other listing failure still stops the create before it is sent.

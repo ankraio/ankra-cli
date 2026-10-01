@@ -34,8 +34,9 @@
   needs `credentials.read`, so a token holding only `credentials.write` was
   refused with exit 7 naming a permission the create itself does not need.
   Without `credentials.read` the check is now skipped and the create's
-  answer is checked instead: if the platform ignored the permissions or the
-  expiry, the robot is deleted again and its secret is never shown. The
+  answer is checked instead: a robot that comes back with permissions
+  beyond those asked for, or no expiry or a later one, is deleted again and
+  its secret is never shown. The
   help now says what a create needs, including that permissions past
   `repository:pull` and `repository:push` also need `credentials.reveal`.
 - **`ankra targets register` no longer talks about an API token when it
