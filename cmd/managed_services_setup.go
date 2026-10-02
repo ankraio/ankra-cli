@@ -216,11 +216,15 @@ refused rather than deployed.
 pipeline that approves separately.
 
 The name becomes the service's namespace on the cluster: lower-case letters,
-digits and single hyphens, at most 36 characters for Ankra's engines. Every
-setup needs at least one consumer (--consumer, from 'ankra services consumers
-bind'). The region and data boundary default to the cluster's placement
-policy. Parameters (--param) default to the package's defaults; 'ankra
-services packages get <package>' lists them with their bounds.
+digits and single hyphens, starting with a letter. Ankra's engines also need
+it to be at most 36 characters and not a system namespace (default, kube-*,
+ankra*, cert-manager, ...); the platform refuses any other name when the
+review is prepared, before anything is stored.
+
+Every setup needs at least one consumer (--consumer, from 'ankra services
+consumers bind'). The region and data boundary default to the cluster's
+placement policy. Parameters (--param) default to the package's defaults;
+'ankra services packages get <package>' lists them with their bounds.
 
 Confirming starts the deployment; it is not proof that the service is ready.
 Follow it with 'ankra services get <name>'.`,
@@ -253,7 +257,7 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 	ctx := command.Context()
 	serviceName := strings.TrimSpace(arguments[0])
 	if len(serviceName) > 63 || !serviceNamePattern.MatchString(serviceName) {
-		return withExitCode(exitUsage, fmt.Errorf("service name %q: use lower-case letters, digits and single hyphens, "+
+		return withExitCode(exitUsage, fmt.Errorf("service name %q: use at most 63 lower-case letters, digits and single hyphens, "+
 			"starting with a letter (it becomes the service's namespace)", serviceName))
 	}
 	mode, _ := command.Flags().GetString("mode")

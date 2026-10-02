@@ -31,8 +31,14 @@ var serviceRetirementPollInterval = 5 * time.Second
 const serviceDataLossFlag = "acknowledge-data-loss"
 
 // requireServiceDataLossAcknowledgement refuses a retirement prepare or
-// confirm that did not acknowledge, in words, that the data is deleted.
+// confirm that did not acknowledge, in words, that the data is deleted. It
+// also refuses a --wait that could never wait, before anything is prepared.
 func requireServiceDataLossAcknowledgement(command *cobra.Command) error {
+	if wait, _ := command.Flags().GetBool("wait"); wait {
+		if timeout, _ := command.Flags().GetDuration("timeout"); timeout <= 0 {
+			return withExitCode(exitUsage, fmt.Errorf("--timeout must be positive, got %s", timeout))
+		}
+	}
 	acknowledged, _ := command.Flags().GetBool(serviceDataLossFlag)
 	if acknowledged {
 		return nil

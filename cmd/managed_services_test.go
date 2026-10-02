@@ -637,6 +637,10 @@ func TestServicesRetirementRequiresTheAcknowledgement(t *testing.T) {
 			t.Fatalf("%v: expected a usage refusal naming --acknowledge-data-loss, got %v", arguments, runError)
 		}
 	}
+	_, _, runError := runServicesCommand(t, platform, "", "delete", "orders-db", "--acknowledge-data-loss", "--yes", "--wait", "--timeout", "0s")
+	if runError == nil || exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "--timeout") {
+		t.Fatalf("a --wait that cannot wait must be a usage error, got %v", runError)
+	}
 	if prepares := platform.requests(http.MethodPost, "/retirements"); len(prepares) != 0 {
 		t.Errorf("an unacknowledged retirement was prepared")
 	}
