@@ -1062,7 +1062,7 @@ func TestServicesConsumersBindNotesASkippedDuplicateCheck(t *testing.T) {
 	if binds := platform.requests(http.MethodPost, "/service-admission/consumers"); len(binds) != 1 {
 		t.Fatalf("the bind must still be sent, got %d", len(binds))
 	}
-	if !strings.Contains(stderr, "whether this namespace is already bound was not checked") {
+	if !strings.Contains(stderr, "is already bound was not checked") {
 		t.Errorf("a skipped duplicate check must be said on stderr:\n%s", stderr)
 	}
 }
@@ -1108,5 +1108,37 @@ func TestServicesSetupChecksRequiredSecretInputs(t *testing.T) {
 	prepares := platform.requests(http.MethodPost, "/reviews")
 	if len(prepares) != 1 || !strings.Contains(prepares[0].body, `"secret_references":{"admin_password":"9e000000-0000-4000-8000-000000000017"}`) {
 		t.Fatalf("unexpected prepare %+v", prepares)
+	}
+}
+
+// A change to a binding whose current settings cannot be read is refused
+// unless both settings are named, since one left out would be reset.
+func TestServicesConsumersBindRefusesABlindChange(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.consumersUnreadable = true
+	_, _, runError := runServicesCommand(t, platform, "", "consumers", "bind",
+		"--application", fakeServiceApplication, "--cluster", fakeServiceClusterID, "--namespace", "orders", "--revision", "4", "--local-only")
+	if runError == nil || !strings.Contains(runError.Error(), "pass both --allow-planned") {
+		t.Fatalf("expected a refusal asking for both settings, got %v", runError)
+	}
+	if binds := platform.requests(http.MethodPost, "/service-admission/consumers"); len(binds) != 0 {
+		t.Fatal("a blind change was sent")
+	}
+	if _, _, runError = runServicesCommand(t, platform, "", "consumers", "bind",
+		"--application", fakeServiceApplication, "--cluster", fakeServiceClusterID, "--namespace", "orders", "--revision", "4",
+		"--local-only", "--allow-planned=false"); runError != nil {
+		t.Fatalf("a change naming both settings must go through: %v", runError)
+	}
+}
+
+// --cluster holds for a service named by id as it does for a name.
+func TestServicesGetByIDHonoursCluster(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	_, _, runError := runServicesCommand(t, platform, "", "get", fakeServiceInstanceID, "--cluster", "c1a2b3c4-0000-4000-8000-0000000000bb")
+	if runError == nil || exitCodeFor(runError) != exitNotFound || !strings.Contains(runError.Error(), "runs on cluster "+fakeServiceClusterID) {
+		t.Fatalf("a service on another cluster must not be returned, got %v", runError)
+	}
+	if _, _, runError = runServicesCommand(t, platform, "", "get", fakeServiceInstanceID, "--cluster", fakeServiceClusterID); runError != nil {
+		t.Fatalf("the matching cluster must resolve: %v", runError)
 	}
 }

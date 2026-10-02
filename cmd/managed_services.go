@@ -153,18 +153,6 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 		return nil, withExitCode(exitUsage, errors.New("a service name or id is required"))
 	}
 	ctx := command.Context()
-	// An id-shaped reference is read as an id first. Service names may look
-	// like ids too (lower-case words joined by hyphens), so a not-found falls
-	// through to the name search rather than ending here.
-	if looksLikeUUID(reference) {
-		instance, getError := apiClient.GetServiceInstance(ctx, reference)
-		if getError == nil {
-			return instance, nil
-		}
-		if !isServiceNotFound(getError) {
-			return nil, getError
-		}
-	}
 	clusterID := ""
 	if clusterReference, _ := command.Flags().GetString("cluster"); strings.TrimSpace(clusterReference) != "" {
 		resolvedID, resolveError := resolveClusterID(strings.TrimSpace(clusterReference))
@@ -172,6 +160,24 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 			return nil, resolveError
 		}
 		clusterID = resolvedID
+	}
+	// An id-shaped reference is read as an id first. Service names may look
+	// like ids too (lower-case words joined by hyphens), so a not-found falls
+	// through to the name search rather than ending here. --cluster holds for
+	// an id as it does for a name: a service on another cluster is not the
+	// one asked for.
+	if looksLikeUUID(reference) {
+		instance, getError := apiClient.GetServiceInstance(ctx, reference)
+		if getError == nil {
+			if clusterID != "" && instance.ClusterID != clusterID {
+				return nil, withExitCode(exitNotFound, fmt.Errorf("service %s runs on cluster %s, not on the cluster --cluster names (%s)",
+					reference, instance.ClusterID, clusterID))
+			}
+			return instance, nil
+		}
+		if !isServiceNotFound(getError) {
+			return nil, getError
+		}
 	}
 	instances, listError := listAllServiceInstances(ctx)
 	if listError != nil {

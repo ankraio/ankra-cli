@@ -467,13 +467,13 @@ func printServiceConsumer(out io.Writer, names *serviceNames, consumer client.Se
 }
 
 // findServiceConsumerBinding returns the application's stored binding of
-// the namespace on the cluster, if it has one. A binding exists once per
-// application, cluster and namespace, and the platform answers a create of
-// an existing one with a bare "configuration changed" conflict, so bind looks
-// first and names the binding instead. A listing that cannot be read is not
-// a refusal - the bind goes ahead and the platform decides - but it is said
-// on stderr, so a conflict that follows is not a mystery.
-func findServiceConsumerBinding(command *cobra.Command, applicationID string, clusterID string, namespace string) *client.ServiceConsumerBinding {
+// the namespace on the cluster, if it has one, and whether the bindings
+// could be read at all: an unreadable listing is "not known", never "not
+// bound". A binding exists once per application, cluster and namespace, and
+// the platform answers a create of an existing one with a bare
+// "configuration changed" conflict, so bind looks first and names the
+// binding instead. The failure is said on stderr.
+func findServiceConsumerBinding(command *cobra.Command, applicationID string, clusterID string, namespace string) (*client.ServiceConsumerBinding, bool) {
 	ctx := command.Context()
 	bindings, listError := collectServicePages(func(after string) ([]client.ServiceConsumerBinding, *string, error) {
 		page, pageError := apiClient.ListServiceConsumers(ctx, applicationID, client.ServicePageOptions{Limit: servicePageLimit, After: after})
@@ -483,16 +483,15 @@ func findServiceConsumerBinding(command *cobra.Command, applicationID string, cl
 		return page.Items, page.NextCursor, nil
 	})
 	if listError != nil {
-		_, _ = fmt.Fprintf(command.ErrOrStderr(), "Note: the application's existing bindings could not be read (%v), "+
-			"so whether this namespace is already bound was not checked; binding anyway.\n", listError)
-		return nil
+		_, _ = fmt.Fprintf(command.ErrOrStderr(), "Note: the application's existing bindings could not be read (%v).\n", listError)
+		return nil, false
 	}
 	for index := range bindings {
 		if bindings[index].ClusterID == clusterID && bindings[index].Namespace == namespace {
-			return &bindings[index]
+			return &bindings[index], true
 		}
 	}
-	return nil
+	return nil, true
 }
 
 func newServicesConsumersBindCommand() *cobra.Command {
@@ -537,7 +536,17 @@ deploys nothing and delivers no credentials.`,
 			if clusterError != nil {
 				return clusterError
 			}
-			existing := findServiceConsumerBinding(command, applicationID, clusterID, namespace)
+			existing, bindingsRead := findServiceConsumerBinding(command, applicationID, clusterID, namespace)
+			bothSettingsGiven := command.Flags().Changed("allow-planned") && command.Flags().Changed("local-only")
+			if revision > 0 && !bindingsRead && !bothSettingsGiven {
+				// A change replaces both settings; with the current ones
+				// unknown, one left unnamed would be reset, not kept.
+				return fmt.Errorf("the binding's current settings could not be read, so a change could reset one you did not name: " +
+					"pass both --allow-planned=<true|false> and --local-only=<true|false>")
+			}
+			if revision == 0 && !bindingsRead {
+				_, _ = fmt.Fprintln(command.ErrOrStderr(), "Whether this namespace is already bound was not checked; binding anyway.")
+			}
 			if revision == 0 && existing != nil {
 				return withExitCode(exitUsage, fmt.Errorf("namespace %s on that cluster is already bound for this application as consumer %s "+
 					"(revision %d): pass --consumer %s to setup as it is, or --revision %d to change the binding",
