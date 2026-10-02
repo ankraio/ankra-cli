@@ -33,12 +33,12 @@ type shipPipelineMock struct {
 	// (repeating the last) instead of the base mock's single payload.
 	branchesPayloads [][]byte
 	branchesCalls    int
-	listCalls     int
-	listOptions   []client.ListPipelineRunsOptions
-	runDetails    map[string][]*client.PipelineRunDetail
-	detailCalls   map[string]int
-	dispatches    []client.CreatePipelineRunRequest
-	dispatchedRun *client.CreatePipelineRunResult
+	listCalls        int
+	listOptions      []client.ListPipelineRunsOptions
+	runDetails       map[string][]*client.PipelineRunDetail
+	detailCalls      map[string]int
+	dispatches       []client.CreatePipelineRunRequest
+	dispatchedRun    *client.CreatePipelineRunResult
 }
 
 func (mock *shipPipelineMock) ListPipelineRuns(_ context.Context, selector client.PipelineSelector,

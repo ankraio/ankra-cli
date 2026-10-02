@@ -31,7 +31,7 @@ type APIClient interface {
 	CreateClusterAccessGrant(ctx context.Context, clusterID string, request client.CreateClusterAccessGrantRequest) (*client.CreateClusterAccessGrantResponse, error)
 	DeleteClusterAccessGrant(ctx context.Context, clusterID string, grantID string) (*client.DeleteClusterAccessGrantResponse, error)
 
-	ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error)
+	ListClusterAddonListing(clusterID string) (client.ClusterAddonListing, error)
 	ListAvailableAddons(clusterID string) ([]client.AvailableAddon, error)
 	GetAddonSettings(clusterID, addonName string) (*client.GetAddonSettingsResponse, error)
 	UpdateAddonSettings(ctx context.Context, clusterID, addonName string, settings client.AddonSettings) (*client.UpdateAddonSettingsResult, error)

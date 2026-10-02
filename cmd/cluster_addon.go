@@ -48,11 +48,13 @@ var clusterAddonsListCmd = &cobra.Command{
 			return err
 		}
 
-		addons, err := apiClient.ListClusterAddons(cluster.ID)
+		listing, err := apiClient.ListClusterAddonListing(cluster.ID)
 		if err != nil {
 			return fmt.Errorf("listing addons: %w", err)
 		}
+		addons := listing.Addons
 		sortAddons(addons)
+		feed := newAddonAdvisoryFeed(listing)
 		if len(args) == 0 {
 			if addons == nil {
 				addons = []client.ClusterAddonListItem{}
@@ -60,12 +62,18 @@ var clusterAddonsListCmd = &cobra.Command{
 			if handled, err := renderStructured(cmd, addons); err != nil {
 				return err
 			} else if handled {
+				// The JSON/YAML shape is the addon array, so the feed
+				// state that qualifies its "checked" answers goes to
+				// stderr rather than into stdout.
+				if feed.qualifies(addons) {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), feed.note())
+				}
 				return nil
 			}
-		}
-		if len(addons) == 0 {
-			fmt.Println("No addons found for the active cluster.")
-			return nil
+			if len(addons) == 0 {
+				fmt.Println("No addons found for the active cluster.")
+				return nil
+			}
 		}
 
 		if len(args) == 1 {
@@ -107,7 +115,7 @@ var clusterAddonsListCmd = &cobra.Command{
 			}
 			fmt.Printf("  Created:         %s\n", formatOptionalTimeAgo(found.CreatedAt))
 			fmt.Printf("  Updated:         %s\n", formatOptionalTimeAgo(found.UpdatedAt))
-			printAddonSecurityDetails(*found, cluster.Name)
+			printAddonSecurityDetails(*found, cluster.Name, feed)
 			return nil
 		}
 
@@ -149,7 +157,7 @@ var clusterAddonsListCmd = &cobra.Command{
 				formatOptionalTimeAgo(a.CreatedAt),
 				formatOptionalTimeAgo(a.UpdatedAt),
 				state,
-				addonSecuritySummary(a),
+				addonSecuritySummary(a, feed),
 			})
 		}
 		t.Render()
@@ -160,6 +168,9 @@ var clusterAddonsListCmd = &cobra.Command{
 			}
 			fmt.Printf("\n%d %s a security update available. Run `ankra cluster addons list <name>` for the advisory and the fixed version.\n",
 				affected, noun)
+		}
+		if feed.qualifies(addons) {
+			fmt.Printf("\n%s\n", feed.note())
 		}
 		return nil
 	},

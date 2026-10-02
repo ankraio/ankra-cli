@@ -69,9 +69,30 @@ type AddonSecurityAdvisory struct {
 	UpgradeChartVersion *string    `json:"upgrade_chart_version" yaml:"upgrade_chart_version"`
 }
 
+// ListClusterAddonsResponse is one page of the addon listing.
+// SecurityAdvisoriesStale says an advisory feed behind the page's advisory
+// answers has not been read successfully in the last day, or ever, and
+// SecurityAdvisoriesCheckedAt is the oldest successful read (null when one
+// never happened). Older platforms send neither, which reads as not stale.
 type ListClusterAddonsResponse struct {
-	Result     []ClusterAddonListItem `json:"result"`
-	Pagination Pagination             `json:"pagination"`
+	Result                      []ClusterAddonListItem `json:"result"`
+	Pagination                  Pagination             `json:"pagination"`
+	SecurityAdvisoriesCheckedAt *time.Time             `json:"security_advisories_checked_at"`
+	SecurityAdvisoriesStale     bool                   `json:"security_advisories_stale"`
+}
+
+// ClusterAddonListing is the whole addon listing of a cluster with the
+// advisory feed state the platform reported alongside it: an "ok" judged
+// from a stale feed only means no advisory was known when the feed was
+// last read.
+type ClusterAddonListing struct {
+	Addons []ClusterAddonListItem
+	// SecurityAdvisoriesStale is true when any page reported a stale feed.
+	SecurityAdvisoriesStale bool
+	// SecurityAdvisoriesCheckedAt is the oldest successful feed read any
+	// page reported; nil when none did, or when a stale page reported none
+	// (a feed never read successfully).
+	SecurityAdvisoriesCheckedAt *time.Time
 }
 
 type AddonSettings struct {
@@ -158,20 +179,46 @@ type ListAvailableAddonsResponse struct {
 // ListClusterAddons pages through the full addon listing (the backend
 // serves 25 per page by default and clamps page_size at 100).
 func (c *Client) ListClusterAddons(clusterID string) ([]ClusterAddonListItem, error) {
-	var addons []ClusterAddonListItem
+	listing, err := c.ListClusterAddonListing(clusterID)
+	if err != nil {
+		return nil, err
+	}
+	return listing.Addons, nil
+}
+
+// ListClusterAddonListing pages through the full addon listing like
+// ListClusterAddons and keeps the advisory feed state each page reports.
+func (c *Client) ListClusterAddonListing(clusterID string) (ClusterAddonListing, error) {
+	var listing ClusterAddonListing
+	// A stale page with no read time was judged from a feed never read
+	// successfully, which outranks any read time another page reports.
+	neverRead := false
 	for page := 1; ; page++ {
 		url := fmt.Sprintf("%s/api/v1/clusters/%s/addons?page=%d&page_size=100",
 			c.BaseURL, neturl.PathEscape(clusterID), page)
 		var resp ListClusterAddonsResponse
 		if err := c.getJSON(url, &resp); err != nil {
-			return nil, fmt.Errorf("failed to get cluster addons: %w", err)
+			return ClusterAddonListing{}, fmt.Errorf("failed to get cluster addons: %w", err)
 		}
-		addons = append(addons, resp.Result...)
+		listing.Addons = append(listing.Addons, resp.Result...)
+		if resp.SecurityAdvisoriesStale {
+			listing.SecurityAdvisoriesStale = true
+			if resp.SecurityAdvisoriesCheckedAt == nil {
+				neverRead = true
+			}
+		}
+		if checkedAt := resp.SecurityAdvisoriesCheckedAt; checkedAt != nil &&
+			(listing.SecurityAdvisoriesCheckedAt == nil || checkedAt.Before(*listing.SecurityAdvisoriesCheckedAt)) {
+			listing.SecurityAdvisoriesCheckedAt = checkedAt
+		}
 		if page >= resp.Pagination.TotalPages || len(resp.Result) == 0 {
 			break
 		}
 	}
-	return addons, nil
+	if neverRead {
+		listing.SecurityAdvisoriesCheckedAt = nil
+	}
+	return listing, nil
 }
 
 func (c *Client) ListAvailableAddons(clusterID string) ([]AvailableAddon, error) {

@@ -438,6 +438,15 @@ func resolveHostAgentRelease(command *cobra.Command, host hostAgentHost, agentVe
 		releaseURL = defaultHostAgentReleaseURL
 	}
 	normalizedReleaseURL, normalizeError := client.NormalizeBaseURL(releaseURL, os.Getenv(envAllowInsecureHTTP) == "1")
+	if errors.Is(normalizeError, client.ErrBaseURLPlaintext) {
+		// NormalizeBaseURL's own wording is about the API token, which is
+		// never sent to a release URL: what plain http would cost here is
+		// an agent binary and unit fetched over a connection anyone on the
+		// path can rewrite (the checksums come from the same place).
+		return hostAgentRelease{}, withExitCode(exitUsage, fmt.Errorf(
+			"--release-url: refusing to download the agent over plaintext http:// from %s, where the binary and its checksums could be altered in transit: "+
+				"use https:// (http:// is accepted for a loopback address), or set %s=1 for a trusted test mirror only", releaseURL, envAllowInsecureHTTP))
+	}
 	if normalizeError != nil {
 		return hostAgentRelease{}, withExitCode(exitUsage, fmt.Errorf("--release-url: %w", normalizeError))
 	}

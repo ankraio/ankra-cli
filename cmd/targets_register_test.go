@@ -350,7 +350,7 @@ func TestTargetsRegisterRefusesBadInvocations(t *testing.T) {
 			arguments: append(registerArguments(release.url), manyLabels(31)...), want: "at most 32 labels"},
 		{name: "plain http release URL", operatingSystem: "linux", stdin: testJoinTokenSecret,
 			arguments: append(registerArguments(release.url), "--release-url", "http://mirror.example.test/releases"),
-			want:      "--release-url"},
+			want:      "--release-url: refusing to download the agent over plaintext http://"},
 		{name: "bad name", operatingSystem: "linux", stdin: testJoinTokenSecret,
 			arguments: []string{"register", "--environment", "production", "--name", "-web", "--token-stdin"},
 			want:      "not a valid host target name"},
@@ -361,6 +361,11 @@ func TestTargetsRegisterRefusesBadInvocations(t *testing.T) {
 			_, _, executeError := runDeployCommand(t, newTargetsCommand(), testCase.stdin, testCase.arguments...)
 			if exitCodeFor(executeError) != exitUsage || !strings.Contains(executeError.Error(), testCase.want) {
 				t.Fatalf("got %v (exit %d), want a usage error containing %q", executeError, exitCodeFor(executeError), testCase.want)
+			}
+			// No API token is ever sent to a release URL, so no refusal may
+			// claim one would be (ankra-0bm15).
+			if strings.Contains(executeError.Error(), "API token") {
+				t.Fatalf("refusal mentions an API token: %v", executeError)
 			}
 			assertNothingInstalled(t, host, binaryPath, unitPath)
 		})
