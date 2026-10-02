@@ -168,7 +168,13 @@ It is deliberately a thin wrapper over the exact CLI commands a customer runs, s
 it is "as real as possible". It tolerates the real behaviours of the platform:
 
 - transient provisioning timeouts (slow bastion/server boot) → it retries the
-  reconcile instead of failing
+  reconcile instead of failing. Before each retry it reads the newest failed
+  reconcile's steps (`ankra cluster operations steps <id> -o json`, needs `jq`):
+  when a step was refused outright - a provider 4xx such as UpCloud's 422
+  "Cluster network is required.", or a validation error - the wait fails on
+  the first attempt instead. The test runs against production, so every retry
+  of a refused step is one more production ERROR; 5xx, timeouts and agent
+  offline still retry (`systemtest/reconcile_failure.sh`)
 - the platform serialises writes (HTTP 409 while a reconcile runs, or a managed
   cluster reporting "not in a state that allows ...") → it waits and retries the
   day-2 operation
