@@ -168,10 +168,19 @@ type PipelineStep struct {
 	Outputs         json.RawMessage `json:"outputs"`
 	ErrorClass      *string         `json:"error_class"`
 	ErrorMessage    *string         `json:"error_message"`
-	StartedAt       *string         `json:"started_at"`
-	FinishedAt      *string         `json:"finished_at"`
-	CreatedAt       string          `json:"created_at"`
-	UpdatedAt       string          `json:"updated_at"`
+	// DeferredCount is how many times the agent gave this attempt back unrun
+	// because the node its run's workspace is pinned to was full, and Ankra
+	// returned it to the queue. Nil on platforms older than the field.
+	DeferredCount *int `json:"deferred_count,omitempty"`
+	// DispatchedAt is when Ankra handed the step to the cluster's agent, and
+	// StartedAt when the agent began it; the time between the two is the
+	// step waiting for a free CI slot. DispatchedAt is nil for a step never
+	// handed to an agent, and on platforms older than the field.
+	DispatchedAt *string `json:"dispatched_at,omitempty"`
+	StartedAt    *string `json:"started_at"`
+	FinishedAt   *string `json:"finished_at"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
 }
 
 // PipelineRunList is the GET …/pipeline-runs body.
@@ -193,8 +202,9 @@ type PipelineRunDetail struct {
 	ApproveDefinitionID *string `json:"approve_definition_id"`
 	// QueueReason and QueueReasonMessage say why a QUEUED run has not started
 	// (ankra-a0yh3): one of "planning", "waiting_on_concurrency_group",
-	// "waiting_on_run_cap", "waiting_on_step_cap", "waiting_on_ci_workers" or
-	// "waiting_on_capacity", and the sentence to show a person. Both are
+	// "waiting_on_run_cap", "waiting_on_step_cap", "waiting_on_ci_workers",
+	// "waiting_on_ci_slots" or "waiting_on_capacity", and the sentence to show
+	// a person. Both are
 	// empty for a run that is running or concluded, where the question does
 	// not apply, and on servers older than the fields.
 	QueueReason        string `json:"queue_reason"`

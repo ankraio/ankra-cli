@@ -28,6 +28,9 @@ var orgCISettingsCmd = &cobra.Command{
   ankra org ci-settings set --cluster build-cluster
   ankra org ci-settings set --build-fallback platform_builders
 
+'get' also shows the pipeline cluster's capacity: how many of its CI slots
+are in use, and how many of this organisation's runs and steps are waiting.
+
 The two that decide whether a run can start at all:
 
   --cluster           The cluster pipeline steps execute on. Without one,
@@ -52,7 +55,7 @@ change another organisation you administer.`,
 
 var orgCISettingsGetCmd = &cobra.Command{
 	Use:   "get",
-	Short: "Show the organisation's pipeline settings",
+	Short: "Show the organisation's pipeline settings and capacity",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
@@ -62,12 +65,88 @@ var orgCISettingsGetCmd = &cobra.Command{
 		if requestError != nil {
 			return fmt.Errorf("get organisation CI settings: %w", requestError)
 		}
-		if rendered, renderError := renderStructured(cmd, settings); rendered || renderError != nil {
+		capacity := readOrganisationCICapacity(ctx, cmd)
+		view := organisationCISettingsView{OrganisationCISettings: *settings, Capacity: capacity}
+		if rendered, renderError := renderStructured(cmd, view); rendered || renderError != nil {
 			return renderError
 		}
 		renderOrganisationCISettings(cmd, settings)
+		renderOrganisationCICapacity(cmd, capacity)
 		return nil
 	},
+}
+
+// organisationCISettingsView is what `get` prints under -o json|yaml: every
+// settings field at the top level, exactly as before the capacity read
+// existed, and the capacity under its own key. The key is left out when the
+// platform does not report capacity, so a script reads "absent" rather than a
+// block of zeros that would say the cluster is idle.
+type organisationCISettingsView struct {
+	client.OrganisationCISettings `yaml:",inline"`
+	Capacity                      *client.OrganisationCICapacity `json:"capacity,omitempty" yaml:"capacity,omitempty"`
+}
+
+// readOrganisationCICapacity reads the capacity block for `get`. The settings
+// are the command's answer and the capacity is context for them, so a
+// capacity read that fails costs the block, not the command: a platform that
+// predates the endpoint leaves it out silently, and any other failure says so
+// on stderr - where -o json stays parseable - rather than printing nothing,
+// which would read as "nothing is queued".
+func readOrganisationCICapacity(ctx context.Context, cmd *cobra.Command) *client.OrganisationCICapacity {
+	capacity, capacityError := apiClient.GetOrganisationCICapacity(ctx)
+	if capacityError == nil {
+		return capacity
+	}
+	if !errors.Is(capacityError, client.ErrCICapacityUnavailable) {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Pipeline capacity could not be read: %v\n", capacityError)
+	}
+	return nil
+}
+
+// renderOrganisationCICapacity prints how full the pipeline cluster is and how
+// much of this organisation's work waits behind it. A slot is one pipeline
+// step the cluster's agent watches at a time, not a node, so the block says
+// so: an administrator whose steps wait on slots raises the agent's workers,
+// and one whose steps sit Pending on the cluster adds nodes.
+func renderOrganisationCICapacity(cmd *cobra.Command, capacity *client.OrganisationCICapacity) {
+	if capacity == nil {
+		return
+	}
+	out := cmd.OutOrStdout()
+	_, _ = fmt.Fprintln(out, "\nCapacity:")
+	clusterName := ""
+	if capacity.ClusterName != nil {
+		clusterName = *capacity.ClusterName
+	}
+	if capacity.ClusterID == nil || clusterName == "" {
+		_, _ = fmt.Fprintln(out, "  CI slots:                (no pipeline cluster - nothing to run steps on)")
+	} else {
+		_, _ = fmt.Fprintf(out, "  CI slots:                %d of %d in use on %s\n",
+			capacity.StepsInFlightOnCluster, capacity.CIWorkerCount, clusterName)
+		_, _ = fmt.Fprintf(out, "  Live resize:             %s\n", liveResizeLabel(capacity.IsLiveResizeSupported))
+	}
+	_, _ = fmt.Fprintf(out, "  Runs in flight:          %d of %d\n",
+		capacity.OrganisationRunsInFlight, capacity.MaxParallelRuns)
+	_, _ = fmt.Fprintf(out, "  Runs queued:             %d\n", capacity.OrganisationRunsQueued)
+	_, _ = fmt.Fprintf(out, "  Steps pending:           %d\n", capacity.OrganisationStepsPending)
+	_, _ = fmt.Fprintf(out, "  Steps waiting on a slot: %d\n", capacity.OrganisationStepsWaitingOnSlots)
+	_, _ = fmt.Fprintln(out,
+		"\nA CI slot is one pipeline step the cluster's agent watches at a time, not a node;\n"+
+			"nodes come from the cluster's node group autoscaler.")
+	if capacity.OrganisationStepsWaitingOnSlots > 0 && clusterName != "" {
+		_, _ = fmt.Fprintf(out,
+			"Every slot is taken, so steps wait for one to free. To run more steps at once:\n"+
+				"  ankra cluster agent ci set --workers N --cluster %s\n", clusterName)
+	}
+}
+
+// liveResizeLabel says whether a worker-count change reaches the agent
+// without restarting it.
+func liveResizeLabel(isLiveResizeSupported bool) string {
+	if isLiveResizeSupported {
+		return "supported (a new worker count applies without an agent restart)"
+	}
+	return "not supported (a new worker count re-renders the agent's release)"
 }
 
 var orgCISettingsSetCmd = &cobra.Command{

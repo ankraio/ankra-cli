@@ -51,12 +51,19 @@ const (
 // release still reports false with a non-zero CIWorkerCount stored.
 // AgentVersion is empty for a cluster whose agent has never checked in, and
 // UpdatedAt is nil until the settings are written for the first time.
+//
+// AppliesLive is set on a write the agent takes live: a new worker count
+// for an agent whose running CI pool reads it off its job pull, which the
+// platform stores without re-rendering the agent's release, so the agent is
+// not restarted. Nil means the platform did not say - an older platform, or
+// a read - and the apply state's own sentence stands.
 type AgentCISettings struct {
 	CIWorkerCount         int     `json:"ci_worker_count" yaml:"ci_worker_count"`
 	CIStorageClass        string  `json:"ci_storage_class" yaml:"ci_storage_class"`
 	AgentVersion          string  `json:"agent_version" yaml:"agent_version"`
 	SupportsPipelineSteps bool    `json:"supports_pipeline_steps" yaml:"supports_pipeline_steps"`
 	ApplyState            string  `json:"apply_state" yaml:"apply_state"`
+	AppliesLive           *bool   `json:"applies_live,omitempty" yaml:"applies_live,omitempty"`
 	UpdatedAt             *string `json:"updated_at" yaml:"updated_at"`
 }
 

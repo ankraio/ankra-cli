@@ -36,14 +36,25 @@ const (
 		"the setting is stored and takes effect with the next agent upgrade."
 	agentCIAgentOfflineSentence = "The agent on this cluster is offline; " +
 		"the setting is stored and applies when it reconnects and is upgraded."
+	// agentCIAppliedLiveSentence is the applied state for a write the agent
+	// takes live: the platform stored the count and did not re-render the
+	// release, so saying "re-rendering" would tell an operator to expect an
+	// agent restart - and cancelled long steps - that never happens.
+	agentCIAppliedLiveSentence = "Applied live, no agent restart: the agent runs %d pipeline-step " +
+		"workers from its next job pull."
 )
 
 // agentCIApplyStateSentence renders one apply state. An apply state this
 // build does not know is a newer platform's, not a broken response, so it is
-// reported as itself rather than swallowed.
+// reported as itself rather than swallowed. An applied write the platform
+// marks applies_live reached the agent without a re-render; a platform that
+// does not say keeps the re-render sentence, which is what it did.
 func agentCIApplyStateSentence(settings *client.AgentCISettings) string {
 	switch settings.ApplyState {
 	case client.AgentCIApplyStateApplied:
+		if settings.AppliesLive != nil && *settings.AppliesLive {
+			return fmt.Sprintf(agentCIAppliedLiveSentence, settings.CIWorkerCount)
+		}
 		return fmt.Sprintf(agentCIAppliedSentence, settings.CIWorkerCount)
 	case client.AgentCIApplyStatePendingUpgrade:
 		return agentCIPendingUpgradeSentence
@@ -64,6 +75,12 @@ func newClusterAgentCICommand() *cobra.Command {
 		Long: `The cluster agent runs Ankra Pipelines steps itself, and these settings
 size that: how many steps it runs at once, and the storage class its step
 workspaces are carved from.
+
+The worker count is the agent's CI slots: each slot is one pipeline step the
+agent watches at a time, not a node. The nodes those steps run on come from
+the cluster's node group autoscaler ('ankra cluster node-group autoscaling
+get'), so a cluster whose steps wait for a slot needs more workers, and one
+whose step pods sit Pending needs more nodes.
 
 Both are stored on the platform, so every install or upgrade command Ankra
 generates for this cluster carries them - unlike a hand-run
@@ -138,11 +155,17 @@ its agent and everything else it does. --storage-class is only sent when you
 pass it, so setting the worker count alone keeps the storage class already
 stored; pass an empty value to fall back to the cluster's default class.
 
+--workers is the agent's CI slots: how many pipeline steps it watches at
+once. A slot is not a node; the nodes steps run on come from the cluster's
+node group autoscaler. Agents that support live resize accept up to 128
+workers, older agents up to 32.
+
 The write always stores the values. Whether they reach the agent now depends
-on the agent: an online agent new enough to accept chart values re-renders
-its release immediately, an older one picks them up at its next upgrade, and
-an offline one when it reconnects. The command says which of the three
-happened.`,
+on the agent: an agent that supports live resize takes a new worker count on
+its next job pull without restarting, an online agent new enough to accept
+chart values re-renders its release immediately, an older one picks them up
+at its next upgrade, and an offline one when it reconnects. The command says
+which happened.`,
 		Example: `  ankra cluster agent ci set --workers 2
   ankra cluster agent ci set --workers 4 --storage-class proxmox-csi
   ankra cluster agent ci set --workers 0 --cluster edge-01`,
@@ -151,7 +174,9 @@ happened.`,
 			return runClusterAgentCISet(command)
 		},
 	}
-	setCommand.Flags().Int("workers", 0, "Number of pipeline steps the agent runs at once (0 disables the scheduler)")
+	setCommand.Flags().Int("workers", 0,
+		"CI slots: pipeline steps the agent watches at once, not nodes (nodes come from the node group "+
+			"autoscaler); up to 128 on agents that support live resize, 32 otherwise; 0 disables the scheduler")
 	setCommand.Flags().String("storage-class", "",
 		"Storage class for pipeline step workspaces; pass empty to use the cluster default (omit the flag to keep the stored value)")
 	_ = setCommand.MarkFlagRequired("workers")

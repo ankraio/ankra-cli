@@ -670,8 +670,71 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, sele
 		})
 	}
 	writer.Render()
+	printPipelineStepQueueing(out, detail)
 	printPipelinePlatformBuilderSteps(out, detail)
 	printPipelineSupersededAttempts(out, detail, selector)
+}
+
+// printPipelineStepQueueing says how long each step waited for a CI slot on
+// its cluster, and which steps were handed back to the queue, under the table.
+//
+// A step's clock starts when the agent picks it up, not when Ankra hands it
+// over: the time between dispatched_at and started_at is the step waiting
+// for one of the agent's CI slots, and it is the number that says whether a
+// slow pipeline needs more workers. A step handed over and not yet picked up
+// is waiting right now, which is said as such rather than left blank.
+//
+// A step the agent gave back unrun - the node its run's workspace is pinned
+// to was full - reads pending again, which alone looks like nothing ever
+// tried it; its deferral count says it did.
+//
+// Nothing is printed when no step carries either fact, which is every run on
+// a platform older than the fields.
+func printPipelineStepQueueing(out io.Writer, detail client.PipelineRunDetail) {
+	lines := []string{}
+	for _, step := range detail.Steps {
+		if wait, isMeasured := pipelineStepQueueWait(step); isMeasured {
+			lines = append(lines, fmt.Sprintf("  %s: waited %s for a CI slot", step.StepKey, wait))
+		} else if step.DispatchedAt != nil && step.StartedAt == nil && step.Status == pipelineStepStatusRunning {
+			lines = append(lines, fmt.Sprintf("  %s: waiting for a CI slot since %s", step.StepKey,
+				formatTimeAgo(*step.DispatchedAt)))
+		}
+		if step.DeferredCount != nil && *step.DeferredCount > 0 {
+			lines = append(lines, fmt.Sprintf("  %s: returned to the queue %s (its node was full)",
+				step.StepKey, pluralTimes(*step.DeferredCount)))
+		}
+	}
+	if len(lines) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(out, "\nQueueing:")
+	for _, line := range lines {
+		_, _ = fmt.Fprintln(out, line)
+	}
+}
+
+// pipelineStepQueueWait is the time between Ankra handing a step to the agent
+// and the agent starting it. It is unmeasured unless both timestamps are
+// present and parse, and a start before the hand-off - clocks that disagree -
+// is unmeasured rather than a negative wait.
+func pipelineStepQueueWait(step client.PipelineStep) (time.Duration, bool) {
+	if step.DispatchedAt == nil || step.StartedAt == nil {
+		return 0, false
+	}
+	dispatchedAt, dispatchedError := time.Parse(time.RFC3339, *step.DispatchedAt)
+	startedAt, startedError := time.Parse(time.RFC3339, *step.StartedAt)
+	if dispatchedError != nil || startedError != nil || startedAt.Before(dispatchedAt) {
+		return 0, false
+	}
+	return startedAt.Sub(dispatchedAt).Round(time.Second), true
+}
+
+// pluralTimes renders a count of occurrences: "once", "2 times".
+func pluralTimes(count int) string {
+	if count == 1 {
+		return "once"
+	}
+	return fmt.Sprintf("%d times", count)
 }
 
 // renderPipelineStepExecutor is the lane the platform placed a step on, in

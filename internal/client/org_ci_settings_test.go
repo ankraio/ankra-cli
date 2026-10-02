@@ -252,3 +252,81 @@ func TestOrganisationCISettingsRelaysBothRefusalShapes(t *testing.T) {
 		})
 	}
 }
+
+// The capacity record as the platform serves it, every field included, read
+// from its own path: a struct that dropped a field would still decode, so the
+// whole record is asserted.
+func TestGetOrganisationCICapacityDecodesEveryField(t *testing.T) {
+	const platformShape = `{
+		"cluster_id": "858f9fb3-b2d1-4568-86e4-600de3944130",
+		"cluster_name": "build-01",
+		"ci_worker_count": 32,
+		"is_live_resize_supported": true,
+		"steps_in_flight_on_cluster": 27,
+		"organisation_runs_queued": 3,
+		"organisation_runs_in_flight": 9,
+		"organisation_steps_pending": 12,
+		"organisation_steps_waiting_on_slots": 4,
+		"max_parallel_runs": 16,
+		"max_parallel_steps": 6
+	}`
+	var seenMethod, seenPath string
+	testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		seenMethod, seenPath = request.Method, request.URL.Path
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte(platformShape))
+	})
+
+	capacity, getError := testClient.GetOrganisationCICapacity(context.Background())
+	if getError != nil {
+		t.Fatalf("GetOrganisationCICapacity error = %v", getError)
+	}
+	if seenMethod != http.MethodGet || seenPath != "/api/v1/org/ci-settings/capacity" {
+		t.Errorf("request = %s %s", seenMethod, seenPath)
+	}
+	clusterID := "858f9fb3-b2d1-4568-86e4-600de3944130"
+	clusterName := "build-01"
+	expected := OrganisationCICapacity{
+		ClusterID:                       &clusterID,
+		ClusterName:                     &clusterName,
+		CIWorkerCount:                   32,
+		IsLiveResizeSupported:           true,
+		StepsInFlightOnCluster:          27,
+		OrganisationRunsQueued:          3,
+		OrganisationRunsInFlight:        9,
+		OrganisationStepsPending:        12,
+		OrganisationStepsWaitingOnSlots: 4,
+		MaxParallelRuns:                 16,
+		MaxParallelSteps:                6,
+	}
+	if capacity.ClusterID == nil || *capacity.ClusterID != clusterID ||
+		capacity.ClusterName == nil || *capacity.ClusterName != clusterName {
+		t.Errorf("cluster = %v %v", capacity.ClusterID, capacity.ClusterName)
+	}
+	capacity.ClusterID, capacity.ClusterName = expected.ClusterID, expected.ClusterName
+	if *capacity != expected {
+		t.Errorf("capacity = %+v, want %+v", *capacity, expected)
+	}
+}
+
+// A platform that predates the capacity read answers the router's 404. That is
+// "nothing to show", which the caller must be able to tell apart from a read
+// that failed.
+func TestGetOrganisationCICapacityOnAnOlderPlatformIsUnavailableNotAFailure(t *testing.T) {
+	testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		http.NotFound(writer, request)
+	})
+	if _, getError := testClient.GetOrganisationCICapacity(context.Background()); !errors.Is(getError,
+		ErrCICapacityUnavailable) {
+		t.Fatalf("error = %v, want ErrCICapacityUnavailable", getError)
+	}
+
+	failing := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		jsonResponse(t, writer, http.StatusInternalServerError, map[string]string{"detail": "Internal Server Error"})
+	})
+	_, failure := failing.GetOrganisationCICapacity(context.Background())
+	if failure == nil || errors.Is(failure, ErrCICapacityUnavailable) {
+		t.Fatalf("a failed read is a failure, not an older platform: %v", failure)
+	}
+}

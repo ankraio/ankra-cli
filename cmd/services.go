@@ -212,6 +212,7 @@ type APIClient interface {
 	GetOrganisationCISettings(ctx context.Context) (*client.OrganisationCISettings, error)
 	UpdateOrganisationCISettings(ctx context.Context,
 		changes map[string]any) (*client.OrganisationCISettings, error)
+	GetOrganisationCICapacity(ctx context.Context) (*client.OrganisationCICapacity, error)
 
 	MCPCatalog(ctx context.Context) (*client.MCPCatalogResult, error)
 	ListMCPServers(ctx context.Context) ([]client.MCPServerListItem, error)

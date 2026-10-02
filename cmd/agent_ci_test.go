@@ -316,3 +316,75 @@ func TestAgentCIApplyStateSentenceHandlesUnknownAndAbsentStates(t *testing.T) {
 		t.Errorf("an unknown apply state should be reported as itself, got %q", sentence)
 	}
 }
+
+// A worker count the agent takes live is stored without re-rendering its
+// release, so "re-rendering" would promise an agent restart - and cancelled
+// long steps - that never happens. A platform that says nothing about it
+// (older, or a write that did re-render) keeps today's sentence.
+func TestClusterAgentCISetSaysWhenTheChangeAppliedLive(t *testing.T) {
+	isLive, isNotLive := true, false
+	cases := []struct {
+		name         string
+		appliesLive  *bool
+		wantSentence string
+		notSentence  string
+	}{
+		{
+			name:         "applied live",
+			appliesLive:  &isLive,
+			wantSentence: "Applied live, no agent restart: the agent runs 64 pipeline-step workers from its next job pull.",
+			notSentence:  "re-rendering",
+		},
+		{
+			name:         "re-rendered",
+			appliesLive:  &isNotLive,
+			wantSentence: "The agent is re-rendering its release with 64 pipeline-step workers",
+			notSentence:  "Applied live",
+		},
+		{
+			name:         "older platform",
+			wantSentence: "The agent is re-rendering its release with 64 pipeline-step workers",
+			notSentence:  "Applied live",
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			mock := &agentCIMock{settings: &client.AgentCISettings{
+				CIWorkerCount:         64,
+				AgentVersion:          "2.1.1300",
+				SupportsPipelineSteps: true,
+				ApplyState:            client.AgentCIApplyStateApplied,
+				AppliesLive:           testCase.appliesLive,
+			}}
+			output, runError := runAgentCICommand(t, mock, "cluster", "agent", "ci", "set", "--workers", "64")
+			if runError != nil {
+				t.Fatalf("expected success, got %v", runError)
+			}
+			if !strings.Contains(output, testCase.wantSentence) {
+				t.Errorf("output missing %q:\n%s", testCase.wantSentence, output)
+			}
+			if strings.Contains(output, testCase.notSentence) {
+				t.Errorf("output must not say %q:\n%s", testCase.notSentence, output)
+			}
+		})
+	}
+}
+
+// --workers is slots, not nodes, and its ceiling depends on the agent; the
+// help says both, because the mistake it prevents is raising workers to get
+// nodes.
+func TestClusterAgentCISetWorkersHelpExplainsSlotsAndTheCeiling(t *testing.T) {
+	for _, command := range agentCICommands(t) {
+		if command.Name() != "set" {
+			continue
+		}
+		usage := command.Flags().Lookup("workers").Usage
+		for _, expected := range []string{"not nodes", "node group autoscaler", "128", "32"} {
+			if !strings.Contains(usage, expected) {
+				t.Errorf("--workers help %q is missing %q", usage, expected)
+			}
+		}
+		return
+	}
+	t.Fatal("the 'cluster agent ci set' command is not registered")
+}
