@@ -61,6 +61,29 @@ func TestListClusterAddonListingKeepsTheAdvisoryFeedState(t *testing.T) {
 	}
 }
 
+// TestListClusterAddonListingNeverReadOutranksAReadTime: a stale page with
+// no read time means a feed never read successfully, so the listing does not
+// borrow another page's read time.
+func TestListClusterAddonListingNeverReadOutranksAReadTime(t *testing.T) {
+	pages := map[string]string{
+		"1": `{"result":[{"name":"traefik"}],"pagination":{"page":1,"page_size":1,"total_pages":2,"total_count":2},` +
+			`"security_advisories_checked_at":"2026-09-30T08:15:00+00:00","security_advisories_stale":true}`,
+		"2": `{"result":[{"name":"kyverno"}],"pagination":{"page":2,"page_size":1,"total_pages":2,"total_count":2},` +
+			`"security_advisories_checked_at":null,"security_advisories_stale":true}`,
+	}
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(pages[r.URL.Query().Get("page")]))
+	})
+	listing, err := testClient.ListClusterAddonListing("cluster-id")
+	if err != nil {
+		t.Fatalf("ListClusterAddonListing() error = %v", err)
+	}
+	if !listing.SecurityAdvisoriesStale || listing.SecurityAdvisoriesCheckedAt != nil {
+		t.Fatalf("listing = %+v, want stale with no read time", listing)
+	}
+}
+
 // TestListClusterAddonListingFromAnOlderPlatform: a platform that sends no
 // feed state is not stale, so the listing reads exactly as before.
 func TestListClusterAddonListingFromAnOlderPlatform(t *testing.T) {

@@ -90,7 +90,8 @@ type ClusterAddonListing struct {
 	// SecurityAdvisoriesStale is true when any page reported a stale feed.
 	SecurityAdvisoriesStale bool
 	// SecurityAdvisoriesCheckedAt is the oldest successful feed read any
-	// page reported; nil when none did.
+	// page reported; nil when none did, or when a stale page reported none
+	// (a feed never read successfully).
 	SecurityAdvisoriesCheckedAt *time.Time
 }
 
@@ -189,6 +190,9 @@ func (c *Client) ListClusterAddons(clusterID string) ([]ClusterAddonListItem, er
 // ListClusterAddons and keeps the advisory feed state each page reports.
 func (c *Client) ListClusterAddonListing(clusterID string) (ClusterAddonListing, error) {
 	var listing ClusterAddonListing
+	// A stale page with no read time was judged from a feed never read
+	// successfully, which outranks any read time another page reports.
+	neverRead := false
 	for page := 1; ; page++ {
 		url := fmt.Sprintf("%s/api/v1/clusters/%s/addons?page=%d&page_size=100",
 			c.BaseURL, neturl.PathEscape(clusterID), page)
@@ -199,6 +203,9 @@ func (c *Client) ListClusterAddonListing(clusterID string) (ClusterAddonListing,
 		listing.Addons = append(listing.Addons, resp.Result...)
 		if resp.SecurityAdvisoriesStale {
 			listing.SecurityAdvisoriesStale = true
+			if resp.SecurityAdvisoriesCheckedAt == nil {
+				neverRead = true
+			}
 		}
 		if checkedAt := resp.SecurityAdvisoriesCheckedAt; checkedAt != nil &&
 			(listing.SecurityAdvisoriesCheckedAt == nil || checkedAt.Before(*listing.SecurityAdvisoriesCheckedAt)) {
@@ -207,6 +214,9 @@ func (c *Client) ListClusterAddonListing(clusterID string) (ClusterAddonListing,
 		if page >= resp.Pagination.TotalPages || len(resp.Result) == 0 {
 			break
 		}
+	}
+	if neverRead {
+		listing.SecurityAdvisoriesCheckedAt = nil
 	}
 	return listing, nil
 }
