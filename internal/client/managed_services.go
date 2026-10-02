@@ -608,6 +608,21 @@ func (c *Client) BindServiceConsumer(ctx context.Context, request ServiceConsume
 	return &consumer, nil
 }
 
+// UnbindServiceConsumer removes a consumer binding at the revision the
+// caller last read. The platform keeps (409) a binding a service that has
+// not been released was planned with, and refuses a stale revision (409).
+// A binding whose application or cluster has since been removed can still
+// be removed, although it may no longer be readable by id.
+func (c *Client) UnbindServiceConsumer(ctx context.Context, consumerID string, expectedRevision int64) error {
+	if expectedRevision < 1 {
+		return errors.New("removing a consumer binding needs its current revision (1 or higher)")
+	}
+	query := url.Values{}
+	query.Set("expected_revision", strconv.FormatInt(expectedRevision, 10))
+	address := c.servicesURL("/api/v1/org/service-admission/consumers/%s", query, consumerID)
+	return c.sendJSONContext(ctx, http.MethodDelete, address, nil, nil)
+}
+
 // PrepareServiceReview stores an actor-bound setup plan with a digest and a
 // ten-minute expiry. Nothing is deployed; it is not idempotent, since every
 // call stores another review against the caller's open quota.

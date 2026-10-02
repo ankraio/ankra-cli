@@ -74,7 +74,15 @@ type fakeServicesPlatform struct {
 	consumersUnreadable bool
 	// packageSecrets are the secret inputs the package contract declares.
 	packageSecrets []any
+	// unbindInUse makes a binding removal answer that a service still uses it.
+	unbindInUse bool
 }
+
+// fakeServiceOrphanConsumerID is a binding whose application was removed:
+// it no longer reads by id, but can still be removed at its revision.
+const fakeServiceOrphanConsumerID = "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1cd0"
+
+var fakeServiceBindingRevisions = map[string]string{fakeServiceConsumerID: "4", fakeServiceOrphanConsumerID: "2"}
 
 func newFakeServicesPlatform(t *testing.T) *fakeServicesPlatform {
 	t.Helper()
@@ -285,6 +293,25 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 			map[string]any{"id": fakeServiceConsumerID, "application_id": fakeServiceApplication, "cluster_id": fakeServiceClusterID,
 				"namespace": "orders", "allow_planned": true, "local_only": false, "revision": 4, "updated_at": "2026-10-01T00:00:00Z"},
 		}})
+	case request.Method == http.MethodGet && path == admission+"/consumers/"+fakeServiceConsumerID:
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": fakeServiceConsumerID, "application_id": fakeServiceApplication,
+			"organisation_id": fakeServiceOrganisation, "cluster_id": fakeServiceClusterID, "namespace": "orders",
+			"region": "eu-north-1", "data_boundary": "eu", "policy_revision": 3, "binding_revision": 4,
+			"binding_kind": "installation", "installation_id": "f0000000-0000-4000-8000-000000000011", "local_only": false})
+	case request.Method == http.MethodGet && strings.HasPrefix(path, admission+"/consumers/"):
+		fakeServiceJSON(t, writer, http.StatusNotFound, map[string]any{"detail": "Service admission resource not found"})
+	case request.Method == http.MethodDelete && strings.HasPrefix(path, admission+"/consumers/"):
+		current, known := fakeServiceBindingRevisions[strings.TrimPrefix(path, admission+"/consumers/")]
+		switch {
+		case !known:
+			fakeServiceJSON(t, writer, http.StatusNotFound, map[string]any{"detail": "Service admission resource not found"})
+		case platform.unbindInUse:
+			fakeServiceJSON(t, writer, http.StatusConflict, map[string]any{"detail": "A service still uses this binding; retire the service before removing it"})
+		case request.URL.Query().Get("expected_revision") != current:
+			fakeServiceJSON(t, writer, http.StatusConflict, map[string]any{"detail": "Service configuration changed; refresh and review again"})
+		default:
+			writer.WriteHeader(http.StatusNoContent)
+		}
 	case request.Method == http.MethodPost && path == admission+"/consumers":
 		var body client.ServiceConsumerRequest
 		_ = json.Unmarshal(bodyBytes, &body)
@@ -398,7 +425,7 @@ func TestServicesCommandsRegistered(t *testing.T) {
 		"":            {"list", "get", "setup", "delete", "packages", "policy", "consumers", "reviews", "retirements"},
 		"packages":    {"list", "get"},
 		"policy":      {"get", "set"},
-		"consumers":   {"list", "get", "bind"},
+		"consumers":   {"list", "get", "bind", "unbind"},
 		"reviews":     {"list", "get", "confirm"},
 		"retirements": {"list", "get", "confirm"},
 	}
@@ -1140,5 +1167,90 @@ func TestServicesGetByIDHonoursCluster(t *testing.T) {
 	}
 	if _, _, runError = runServicesCommand(t, platform, "", "get", fakeServiceInstanceID, "--cluster", fakeServiceClusterID); runError != nil {
 		t.Fatalf("the matching cluster must resolve: %v", runError)
+	}
+}
+
+// unbind reads the binding's current revision, asks first, and removes the
+// binding at that revision; a decline removes nothing.
+func TestServicesConsumersUnbindRemovesAtTheCurrentRevision(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	_, _, runError := runServicesCommand(t, platform, "n\n", "consumers", "unbind", fakeServiceConsumerID)
+	if !errors.Is(runError, errCancelled) {
+		t.Fatalf("expected a declined unbind to cancel, got %v", runError)
+	}
+	if deletes := platform.requests(http.MethodDelete, "/consumers/"+fakeServiceConsumerID); len(deletes) != 0 {
+		t.Fatal("a declined unbind removed the binding")
+	}
+
+	stdout, stderr, runError := runServicesCommand(t, platform, "y\n", "consumers", "unbind", fakeServiceConsumerID)
+	if runError != nil {
+		t.Fatal(runError)
+	}
+	deletes := platform.requests(http.MethodDelete, "/consumers/"+fakeServiceConsumerID)
+	if len(deletes) != 1 || deletes[0].query != "expected_revision=4" {
+		t.Fatalf("expected one removal at the read revision 4, got %+v", deletes)
+	}
+	if !strings.Contains(stderr, "namespace orders") || !strings.Contains(stderr, "revision 4") {
+		t.Errorf("the prompt must say what is removed and at which revision:\n%s", stderr)
+	}
+	if !strings.Contains(stdout, "Consumer binding "+fakeServiceConsumerID+" removed.") {
+		t.Errorf("unexpected output:\n%s", stdout)
+	}
+
+	stdout, _, runError = runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceConsumerID, "--yes", "-o", "json")
+	if runError != nil {
+		t.Fatal(runError)
+	}
+	var removed map[string]any
+	if decodeError := json.Unmarshal([]byte(stdout), &removed); decodeError != nil || removed["removed"] != true || removed["revision"] != float64(4) {
+		t.Fatalf("-o json must be the removal record: %v %s", decodeError, stdout)
+	}
+}
+
+// A binding whose application was removed no longer reads by id: without
+// --revision the command says how to find it; with --revision it is removed.
+func TestServicesConsumersUnbindAnOrphanedBinding(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	_, _, runError := runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceOrphanConsumerID, "--yes")
+	if runError == nil || !strings.Contains(runError.Error(), "--revision") ||
+		!strings.Contains(runError.Error(), "ankra services consumers list --application") {
+		t.Fatalf("an unreadable binding must point at --revision and the listing, got %v", runError)
+	}
+	if deletes := platform.requests(http.MethodDelete, "/consumers/"); len(deletes) != 0 {
+		t.Fatal("a binding was removed at a guessed revision")
+	}
+	if _, _, runError = runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceOrphanConsumerID, "--revision", "2", "--yes"); runError != nil {
+		t.Fatalf("an orphaned binding must be removable at its revision: %v", runError)
+	}
+	deletes := platform.requests(http.MethodDelete, "/consumers/"+fakeServiceOrphanConsumerID)
+	if len(deletes) != 1 || deletes[0].query != "expected_revision=2" {
+		t.Fatalf("unexpected removals %+v", deletes)
+	}
+}
+
+// The platform's refusals reach the user verbatim with the way forward: a
+// binding a service uses names that service; a stale revision says how to
+// read the current one.
+func TestServicesConsumersUnbindRelaysRefusals(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.unbindInUse = true
+	_, _, runError := runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceConsumerID, "--yes")
+	if runError == nil || !strings.Contains(runError.Error(), "A service still uses this binding; retire the service before removing it") ||
+		!strings.Contains(runError.Error(), "orders-db ("+fakeServiceInstanceID+")") ||
+		!strings.Contains(runError.Error(), "ankra services delete") {
+		t.Fatalf("expected the in-use refusal verbatim, naming the service, got %v", runError)
+	}
+
+	platform = newFakeServicesPlatform(t)
+	_, _, runError = runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceConsumerID, "--revision", "3", "--yes")
+	if runError == nil || !strings.Contains(runError.Error(), "Service configuration changed") ||
+		!strings.Contains(runError.Error(), "without --revision") {
+		t.Fatalf("expected the stale-revision refusal with how to read the current one, got %v", runError)
+	}
+	for _, arguments := range [][]string{{"not-an-id"}, {fakeServiceConsumerID, "--revision", "0"}} {
+		_, _, runError = runServicesCommand(t, platform, "", append([]string{"consumers", "unbind"}, append(arguments, "--yes")...)...)
+		if runError == nil || exitCodeFor(runError) != exitUsage {
+			t.Errorf("%v: expected a usage refusal, got %v", arguments, runError)
+		}
 	}
 }

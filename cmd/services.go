@@ -950,6 +950,7 @@ type APIClient interface {
 	ListServiceConsumers(ctx context.Context, applicationID string, options client.ServicePageOptions) (*client.ServiceConsumerPage, error)
 	GetServiceConsumer(ctx context.Context, consumerID string) (*client.ServiceConsumer, error)
 	BindServiceConsumer(ctx context.Context, request client.ServiceConsumerRequest) (*client.ServiceConsumer, error)
+	UnbindServiceConsumer(ctx context.Context, consumerID string, expectedRevision int64) error
 	PrepareServiceReview(ctx context.Context, request client.ServiceReviewRequest) (*client.ServiceReview, error)
 	ListServiceReviews(ctx context.Context, options client.ServicePageOptions) (*client.ServiceReviewPage, error)
 	GetServiceReview(ctx context.Context, reviewID string) (*client.ServiceReviewSummary, error)

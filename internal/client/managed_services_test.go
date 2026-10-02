@@ -239,3 +239,25 @@ func TestServiceInstanceHasNoPlaceForCredentialValues(t *testing.T) {
 		t.Fatalf("the Secret reference itself must survive: %+v", instance.Connection)
 	}
 }
+
+// Unbinding carries the revision as the expected_revision query on DELETE,
+// accepts the platform's bodyless 204, and refuses a revision below 1
+// without a request.
+func TestUnbindServiceConsumerLane(t *testing.T) {
+	var calls []recordedServiceCall
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		bodyBytes, _ := io.ReadAll(request.Body)
+		calls = append(calls, recordedServiceCall{request.Method, request.URL.Path, request.URL.RawQuery, string(bodyBytes)})
+		writer.WriteHeader(http.StatusNoContent)
+	})
+	if err := client.UnbindServiceConsumer(context.Background(), "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11", 3); err != nil {
+		t.Fatalf("unbind: %v", err)
+	}
+	if err := client.UnbindServiceConsumer(context.Background(), "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11", 0); err == nil {
+		t.Error("an unbind without a revision must be refused")
+	}
+	want := []recordedServiceCall{{http.MethodDelete, "/api/v1/org/service-admission/consumers/5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11", "expected_revision=3", ""}}
+	if len(calls) != 1 || calls[0] != want[0] {
+		t.Fatalf("got %+v, want %+v", calls, want)
+	}
+}

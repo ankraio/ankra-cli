@@ -353,18 +353,20 @@ func newServicesConsumersCommand() *cobra.Command {
 	consumersCommand := &cobra.Command{
 		Use:     "consumers",
 		Aliases: []string{"consumer"},
-		Short:   "Bind and list the application namespaces that may consume a service",
-		Long: `Bind and list consumers: the application namespaces a service is set up for.
+		Short:   "Bind, list and unbind the application namespaces that may consume a service",
+		Long: `Bind, list and unbind consumers: the application namespaces a service is set up for.
 
 A consumer is one application's namespace on one cluster, with a stable id.
 Setup takes one or more consumer ids (--consumer), and the plan records each
 with the cluster policy it was resolved against. A binding normally resolves
 to the application's installation on that cluster; --allow-planned binds a
-namespace the application is not installed in yet.`,
+namespace the application is not installed in yet. A binding a service still
+uses cannot be unbound until that service is retired.`,
 	}
 	consumersCommand.AddCommand(newServicesConsumersListCommand())
 	consumersCommand.AddCommand(newServicesConsumersGetCommand())
 	consumersCommand.AddCommand(newServicesConsumersBindCommand())
+	consumersCommand.AddCommand(newServicesConsumersUnbindCommand())
 	return consumersCommand
 }
 
@@ -589,4 +591,122 @@ deploys nothing and delivers no credentials.`,
 	_ = bindCommand.MarkFlagRequired("application")
 	registerStructuredOutputFlags(bindCommand)
 	return bindCommand
+}
+
+// serviceBindingInUseDetail is the platform's refusal (409) to remove a
+// binding a service that has not been released was planned with.
+const serviceBindingInUseDetail = "A service still uses this binding"
+
+func newServicesConsumersUnbindCommand() *cobra.Command {
+	unbindCommand := &cobra.Command{
+		Use:     "unbind <consumer-id>",
+		Aliases: []string{"remove", "rm"},
+		Short:   "Remove a consumer binding",
+		Long: `Remove a consumer binding: the application namespace stops being a consumer
+services can be set up for. Nothing is deployed or removed on any cluster.
+
+A binding a service still uses - one that has not been retired - is kept; retire
+the service first ('ankra services delete'). A setup review still pending that
+names the binding can no longer be confirmed.
+
+The platform removes a binding only at the revision you last read. Without
+--revision the current one is read from the binding. A binding whose
+application or cluster has since been removed can still be unbound, but it can
+no longer be read by id: pass --revision with the revision 'ankra services
+consumers list --application <application>' shows. Asks first; --yes skips the
+question.`,
+		Example: "  ankra services consumers unbind 5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11\n" +
+			"  ankra services consumers unbind 5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11 --revision 3 --yes",
+		Args: cobra.ExactArgs(1),
+		RunE: runServicesConsumersUnbind,
+	}
+	unbindCommand.Flags().Int64("revision", 0, "The binding's current revision (default: read from the binding)")
+	unbindCommand.Flags().BoolP("yes", "y", false, "Remove without asking")
+	registerStructuredOutputFlags(unbindCommand)
+	return unbindCommand
+}
+
+func runServicesConsumersUnbind(command *cobra.Command, arguments []string) error {
+	if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+		return formatError
+	}
+	ctx := command.Context()
+	consumerID := strings.TrimSpace(arguments[0])
+	if !looksLikeUUID(consumerID) {
+		return withExitCode(exitUsage, fmt.Errorf("%q is not a consumer id: 'ankra services consumers list --application <application>' lists them", consumerID))
+	}
+	revision, _ := command.Flags().GetInt64("revision")
+	if revision < 0 || (command.Flags().Changed("revision") && revision == 0) {
+		return withExitCode(exitUsage, errors.New("--revision must be the binding's current revision (1 or higher)"))
+	}
+
+	// The binding is read to show what is removed and, without --revision,
+	// for the revision to remove it at. A binding whose application or
+	// cluster is gone no longer reads by id, yet can still be removed.
+	consumer, getError := apiClient.GetServiceConsumer(ctx, consumerID)
+	if getError != nil && revision == 0 {
+		if isServiceNotFound(getError) {
+			return fmt.Errorf("consumer binding %s could not be read (%w): it may not exist, or its application or cluster "+
+				"was removed - such a binding can still be unbound with --revision <n>, using the revision "+
+				"'ankra services consumers list --application <application>' shows", consumerID, getError)
+		}
+		return getError
+	}
+	description := consumerID
+	if consumer != nil {
+		if revision == 0 {
+			revision = consumer.BindingRevision
+		}
+		names := newServiceNames(command)
+		description = fmt.Sprintf("%s (application %s, namespace %s on cluster %s)",
+			consumerID, consumer.ApplicationID, consumer.Namespace, names.cluster(consumer.ClusterID))
+	}
+
+	yes, _ := command.Flags().GetBool("yes")
+	if confirmError := confirmPrompt(command.InOrStdin(), command.ErrOrStderr(),
+		fmt.Sprintf("Remove consumer binding %s at revision %d? [y/N]: ", description, revision), yes); confirmError != nil {
+		return confirmError
+	}
+	if unbindError := apiClient.UnbindServiceConsumer(ctx, consumerID, revision); unbindError != nil {
+		return serviceUnbindError(command, consumerID, revision, unbindError)
+	}
+	if rendered, renderError := renderStructured(command, map[string]any{"id": consumerID, "revision": revision, "removed": true}); rendered || renderError != nil {
+		return renderError
+	}
+	_, _ = fmt.Fprintf(command.OutOrStdout(), "Consumer binding %s removed.\n", consumerID)
+	return nil
+}
+
+// serviceUnbindError relays the platform's refusal verbatim and adds the way
+// forward: for a binding a service still uses, which services use it; for a
+// stale revision, how to read the current one.
+func serviceUnbindError(command *cobra.Command, consumerID string, revision int64, unbindError error) error {
+	var unexpected *client.UnexpectedResponseError
+	if !errors.As(unbindError, &unexpected) || unexpected.StatusCode != http.StatusConflict {
+		return unbindError
+	}
+	if !strings.Contains(unexpected.Detail, serviceBindingInUseDetail) {
+		return fmt.Errorf("%w - the binding is no longer at revision %d; run the command again without --revision to read the current one",
+			unbindError, revision)
+	}
+	hint := "retire the service with 'ankra services delete <service> --acknowledge-data-loss' first"
+	if instances, listError := listAllServiceInstances(command.Context()); listError == nil {
+		var users []string
+		for _, instance := range instances {
+			if instance.ReleasedAt != nil {
+				continue
+			}
+			for _, consumer := range instance.Consumers {
+				if consumer.ID == consumerID {
+					users = append(users, fmt.Sprintf("%s (%s)", instance.Name, instance.ID))
+					break
+				}
+			}
+		}
+		if len(users) > 0 {
+			hint = fmt.Sprintf("it is used by %s; retire it with 'ankra services delete <service> --acknowledge-data-loss' first",
+				strings.Join(users, ", "))
+		}
+	}
+	return fmt.Errorf("%w - %s", unbindError, hint)
 }

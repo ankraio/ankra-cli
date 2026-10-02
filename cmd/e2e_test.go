@@ -4973,6 +4973,10 @@ func (m baseMock) BindServiceConsumer(context.Context, client.ServiceConsumerReq
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) UnbindServiceConsumer(context.Context, string, int64) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) PrepareServiceReview(context.Context, client.ServiceReviewRequest) (*client.ServiceReview, error) {
 	return nil, errors.New("not implemented")
 }
