@@ -244,11 +244,13 @@ func newServiceNames(command *cobra.Command) *serviceNames {
 func (names *serviceNames) cluster(clusterID string) string {
 	if !names.clustersLoaded {
 		names.clustersLoaded = true
-		const pageSize = 100
-		for page := 1; page <= 20; page++ {
+		const pageSize, maxPages = 100, 20
+		readAll, failed := false, false
+		for page := 1; page <= maxPages; page++ {
 			response, listError := apiClient.ListClusters(page, pageSize)
 			if listError != nil || response == nil {
 				names.lookupFailed("cluster", listError)
+				failed = true
 				break
 			}
 			for _, cluster := range response.Result {
@@ -257,8 +259,14 @@ func (names *serviceNames) cluster(clusterID string) string {
 			// A full page means there may be more even when the total is
 			// not reported; a short one is the end.
 			if len(response.Result) < pageSize || (response.Pagination.TotalPages > 0 && response.Pagination.TotalPages <= page) {
+				readAll = true
 				break
 			}
+		}
+		// Stopping at the page cap is a lookup that did not finish: say so,
+		// so an id shown for want of a name is not read as a cluster gone.
+		if !readAll && !failed {
+			_, _ = fmt.Fprintf(names.notes, "Note: only the first %d clusters were read for names; others are shown by id.\n", maxPages*pageSize)
 		}
 	}
 	if name := names.clusters[clusterID]; name != "" {

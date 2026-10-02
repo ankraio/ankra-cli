@@ -1254,3 +1254,46 @@ func TestServicesConsumersUnbindRelaysRefusals(t *testing.T) {
 		}
 	}
 }
+
+// endlessClusterPages answers every cluster page full, as an organisation
+// with more clusters than the name lookup reads would.
+type endlessClusterPages struct{ baseMock }
+
+func (m *endlessClusterPages) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
+	clusters := make([]client.ClusterListItem, pageSize)
+	for index := range clusters {
+		clusters[index] = client.ClusterListItem{ID: fmt.Sprintf("cluster-%d-%d", page, index), Name: fmt.Sprintf("name-%d-%d", page, index)}
+	}
+	return &client.ClusterListResponse{Result: clusters}, nil
+}
+
+// A cluster lookup that stops at its page cap says so on stderr, so an id
+// shown for want of a name is not read as a cluster that is gone; a lookup
+// that read every cluster says nothing.
+func TestServiceNamesSaysWhenTheClusterLookupStopsAtItsCap(t *testing.T) {
+	previousClient := apiClient
+	t.Cleanup(func() { apiClient = previousClient })
+
+	apiClient = &endlessClusterPages{}
+	command := &cobra.Command{}
+	command.SetContext(context.Background())
+	var notes bytes.Buffer
+	command.SetErr(&notes)
+	names := newServiceNames(command)
+	if shown := names.cluster("beyond-the-cap"); shown != "beyond-the-cap" {
+		t.Fatalf("an unread cluster shown as %q, expected its id", shown)
+	}
+	if shown := names.cluster("cluster-3-7"); shown != "name-3-7" {
+		t.Fatalf("a read cluster shown as %q", shown)
+	}
+	if !strings.Contains(notes.String(), "only the first 2000 clusters were read for names") || strings.Count(notes.String(), "Note:") != 1 {
+		t.Fatalf("notes %q", notes.String())
+	}
+
+	apiClient = &clusterListMock{clusters: []client.ClusterListItem{{ID: "only", Name: "the-only-one"}}}
+	notes.Reset()
+	complete := newServiceNames(command)
+	if shown := complete.cluster("only"); shown != "the-only-one" || notes.Len() != 0 {
+		t.Fatalf("a complete lookup: %q, notes %q", shown, notes.String())
+	}
+}
