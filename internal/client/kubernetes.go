@@ -108,7 +108,32 @@ type ResourceRequestItem struct {
 type GetResourcesRequest struct {
 	ResourceRequests []ResourceRequestItem `json:"resource_requests"`
 	SkipCache        bool                  `json:"skip_cache"`
+	// RevealSecretValues asks the platform for the plaintext values of a
+	// Secret read by name instead of their sha256 digests. The platform
+	// honours it only for a named Secret read whose caller holds
+	// kubernetes.secrets_reveal on the cluster, audits every reveal, and
+	// never reveals on a listing. Omitted when false, so every other read
+	// sends the bytes it always has.
+	RevealSecretValues bool `json:"reveal_secret_values,omitempty"`
 }
+
+// The values of a response item's secret_values marker: what the platform
+// did with the values of the Secrets in that item. Empty on items that
+// carry no Secret, and on platforms that predate the marker.
+const (
+	// SecretValuesWithheld: values are sha256 digests because no reveal was
+	// asked for, or the item is a listing, which never reveals.
+	SecretValuesWithheld = "withheld"
+	// SecretValuesPermissionRequired: a reveal was asked for and the caller
+	// does not hold kubernetes.secrets_reveal on the cluster.
+	SecretValuesPermissionRequired = "permission_required"
+	// SecretValuesRevealed: the values are plaintext and the reveal is audited.
+	SecretValuesRevealed = "revealed"
+	// SecretValuesUnavailable: a reveal was allowed but no live value could
+	// be handed out (cluster unreachable so the read came from the synced
+	// cache, or the permission check or audit write failed).
+	SecretValuesUnavailable = "unavailable"
+)
 
 // ResourceCacheMetadata is present only when the platform answered from its
 // Kubernetes cache instead of the live cluster. Reads that are only correct
@@ -133,6 +158,9 @@ type ResourceResponseItem struct {
 	Version       string                 `json:"version"`
 	TotalCount    *int                   `json:"total_count"`
 	CacheMetadata *ResourceCacheMetadata `json:"cache_metadata"`
+	// SecretValues is the platform's secret_values marker for this item:
+	// one of the SecretValues* constants, or empty.
+	SecretValues string `json:"secret_values,omitempty"`
 }
 
 type GetResourcesResponse struct {

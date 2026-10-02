@@ -241,7 +241,16 @@ secret is printed exactly once, with
 a docker login command that reads it from stdin - copy it now, it is not stored
 anywhere you can read it back from. The secret is never put on a command line,
 where the shell history and 'ps' would keep it. Rotate it with 'ankra registry robots rotate' if it
-is lost or leaked.`,
+is lost or leaked.
+
+Creating a robot needs the credentials.write permission. A --permission list
+that reaches past repository:pull and repository:push (deleting artifacts,
+moving tags, and the like) also needs credentials.reveal. With --permission or
+--expires-in-days the CLI first checks that the platform offers them by
+reading the robot listing, and with --project that the organisation has the
+project; a token without credentials.read skips those checks, and if the
+robot then comes back broader, longer-lived or on another project than asked
+it is deleted again before its secret is shown.`,
 		Example: `  ankra registry robots create jenkins --description "Jenkins on the office server"
   ankra registry robots create edge-cluster --scope pull
   ankra registry robots create contractor --scope pull --expires-in-days 30
@@ -257,6 +266,10 @@ is lost or leaked.`,
 			scope = strings.ToLower(strings.TrimSpace(scope))
 			rawPermissions, _ := command.Flags().GetStringSlice("permission")
 			permissions := registryRobotPermissionFlags(rawPermissions)
+			if command.Flags().Changed("permission") && len(permissions) == 0 {
+				return withExitCode(exitUsage, fmt.Errorf("--permission names no permission; "+
+					"give one or more resource:action values ('ankra registry robots permissions' lists them), or leave it out for --scope"))
+			}
 			switch {
 			case len(permissions) > 0 && command.Flags().Changed("scope"):
 				return withExitCode(exitUsage, fmt.Errorf("--scope and --permission are alternatives: "+
@@ -271,11 +284,23 @@ is lost or leaked.`,
 					client.RegistryRobotScopePush, client.RegistryRobotScopePull, scope))
 			}
 			expiresInDays, _ := command.Flags().GetInt("expires-in-days")
-			if expiresInDays < 0 {
-				return withExitCode(exitUsage, fmt.Errorf("--expires-in-days must be a positive number of days, got %d", expiresInDays))
+			if expiresInDays < 0 || expiresInDays > registryRobotMaximumExpiryDays {
+				return withExitCode(exitUsage, fmt.Errorf("--expires-in-days must be 1 to %d days, or 0 (the default) "+
+					"for a robot that never expires; got %d", registryRobotMaximumExpiryDays, expiresInDays))
 			}
+			supportChecked := true
 			if len(permissions) > 0 || expiresInDays > 0 {
-				if supportError := requireRegistryRobotPermissionSupport(command, permissions); supportError != nil {
+				supportError := requireRegistryRobotPermissionSupport(command, permissions)
+				switch {
+				case supportError == nil:
+				case exitCodeFor(supportError) == exitForbidden:
+					// The support check reads the robot listing, which needs
+					// credentials.read; a token that may only create
+					// (credentials.write) is not refused for it. The platform
+					// validates the permissions itself, and the answer to the
+					// create is checked below instead.
+					supportChecked = false
+				default:
 					return supportError
 				}
 			}
@@ -284,8 +309,18 @@ is lost or leaked.`,
 			if projectName == client.RegistryDefaultProjectName {
 				projectName = ""
 			}
+			projectChecked := true
 			if projectName != "" {
-				if projectError := requireRegistryProject(command, projectName); projectError != nil {
+				projectError := requireRegistryProject(command, projectName)
+				switch {
+				case projectError == nil:
+				case exitCodeFor(projectError) == exitForbidden:
+					// The project check reads the project listing, which
+					// needs credentials.read, like the support check above:
+					// a create-only token goes ahead and the answer is
+					// checked below instead.
+					projectChecked = false
+				default:
 					return projectError
 				}
 			}
@@ -300,6 +335,21 @@ is lost or leaked.`,
 			})
 			if createError != nil {
 				return createError
+			}
+			var ignored []string
+			if !supportChecked {
+				if ignoredFlags := registryRobotIgnoredFlags(created, permissions, expiresInDays, time.Now()); ignoredFlags != "" {
+					ignored = append(ignored, ignoredFlags)
+				}
+			}
+			if !projectChecked && created.ProjectName != projectName {
+				// A platform without registry projects ignores --project and
+				// binds the robot to the organisation's own project, which
+				// reaches more than was asked for.
+				ignored = append(ignored, "--project")
+			}
+			if len(ignored) > 0 {
+				return revokeUnhonouredRegistryRobot(command, created, strings.Join(ignored, " and "))
 			}
 			return renderRegistryRobotSecret(command, created, "Robot account created.")
 		},
@@ -350,6 +400,10 @@ func requireRegistryProject(command *cobra.Command, projectName string) error {
 		"create it with 'ankra registry projects create %s'", projectName, strings.Join(projectNames, ", "), projectName))
 }
 
+// registryRobotMaximumExpiryDays is the platform's ceiling on a robot's
+// expiry; it refuses anything longer.
+const registryRobotMaximumExpiryDays = 3650
+
 // requireRegistryRobotPermissionSupport refuses a create that states its own
 // permissions or an expiry unless the platform can honour them. A platform
 // that predates both ignores the fields it does not know and would mint a
@@ -376,6 +430,85 @@ func requireRegistryRobotPermissionSupport(command *cobra.Command, permissions [
 		}
 	}
 	return nil
+}
+
+// registryRobotIgnoredFlags names the flags a create answer shows the
+// platform did not honour. A platform that predates robot permissions mints
+// a push robot that never expires and answers with no permissions and no
+// expiry; any answer broader or longer-lived than asked counts the same.
+func registryRobotIgnoredFlags(created *client.RegistryRobotWithSecret, permissions []string, expiresInDays int, now time.Time) string {
+	var ignored []string
+	if len(permissions) > 0 && !registryRobotPermissionsWithin(created.Permissions, permissions) {
+		ignored = append(ignored, "--permission")
+	}
+	if expiresInDays > 0 && !registryRobotExpiryWithin(created.ExpiresAt, expiresInDays, now) {
+		ignored = append(ignored, "--expires-in-days")
+	}
+	return strings.Join(ignored, " and ")
+}
+
+// registryRobotPermissionsWithin reports whether the robot holds grants and
+// none beyond the requested ones. The platform adds repository:pull to a
+// selection holding repository:push, so that one is not counted as extra.
+func registryRobotPermissionsWithin(granted []string, requested []string) bool {
+	if len(granted) == 0 {
+		return false
+	}
+	for _, grant := range granted {
+		grant = strings.ToLower(strings.TrimSpace(grant))
+		if slices.Contains(requested, grant) {
+			continue
+		}
+		if grant == registryRobotPermissionPull && slices.Contains(requested, registryRobotPermissionPush) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// registryRobotExpiryWithin reports whether the robot expires no later than
+// the requested number of days from now, with a day's slack for the
+// platform rounding to a whole day.
+func registryRobotExpiryWithin(expiresAt *string, expiresInDays int, now time.Time) bool {
+	if expiresAt == nil {
+		return false
+	}
+	expiry, parseError := time.Parse(time.RFC3339, strings.TrimSpace(*expiresAt))
+	if parseError != nil {
+		return false
+	}
+	return !expiry.After(now.Add(time.Duration(expiresInDays+1) * 24 * time.Hour))
+}
+
+// The two grants the presets are made of (cluster organisation
+// registry_robot_permissions.go).
+const (
+	registryRobotPermissionPull = "repository:pull"
+	registryRobotPermissionPush = "repository:push"
+)
+
+// revokeUnhonouredRegistryRobot deletes a robot the platform minted without
+// the permissions or expiry that were asked for, and never shows its secret:
+// a robot broader or longer-lived than requested must not reach anyone.
+func revokeUnhonouredRegistryRobot(command *cobra.Command, created *client.RegistryRobotWithSecret, ignored string) error {
+	refusal := fmt.Sprintf("the platform did not honour %s: robot %q came back with scope %q, permissions [%s], expiry %s and project %q",
+		ignored, created.Name, created.Scope, strings.Join(created.Permissions, ", "), registryRobotExpiryText(created.ExpiresAt),
+		created.ProjectName)
+	if deleteError := apiClient.DeleteRegistryRobot(command.Context(), created.Name); deleteError != nil {
+		return fmt.Errorf("%s, and deleting it again failed (%v): delete it with 'ankra registry robots delete %s'; "+
+			"its secret was not shown", refusal, deleteError, created.Name)
+	}
+	return fmt.Errorf("%s, so it was deleted again and its secret was not shown. A platform without robot "+
+		"permissions, an expiry or registry projects ignores them: create the robot with --scope push or --scope pull, "+
+		"on the organisation's own project, there", refusal)
+}
+
+func registryRobotExpiryText(expiresAt *string) string {
+	if expiresAt == nil || strings.TrimSpace(*expiresAt) == "" {
+		return "never"
+	}
+	return *expiresAt
 }
 
 // registryRobotPermissionFlags normalises what --permission collected: each

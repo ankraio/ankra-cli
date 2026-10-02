@@ -187,3 +187,35 @@ func TestHetznerNodeGroupDelete_YesProceeds(t *testing.T) {
 		t.Errorf("got cluster=%q group=%q, want %q/workers", mock.gotClusterID, mock.gotGroupName, testClusterID)
 	}
 }
+
+// A create that leaves server types to the platform prints what each role
+// got, so the user is not left assuming a documented default (ankra-ovs1z).
+func TestHetznerCreatePrintsResolvedServerTypes(t *testing.T) {
+	resetConfirmFlag(t, hetznerCreateCmd)
+	mock := &hetznerCreateServerTypesMock{}
+	out, err := runWithInput(t, mock, "", "cluster", "hetzner", "create",
+		"--name", "types-test",
+		"--credential-id", "cred-1",
+		"--ssh-key-credential-id", "ssh-1",
+		"--location", "fsn1")
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out)
+	}
+	if mock.gotRequest.BastionServerType != "" || mock.gotRequest.WorkerServerType != "" {
+		t.Errorf("omitted server types must be sent empty for the platform to pick, got %+v", mock.gotRequest)
+	}
+	if !strings.Contains(out, "Server types: bastion cx23, control plane cpx32, worker cx23") {
+		t.Errorf("output must name the resolved server types, got:\n%s", out)
+	}
+}
+
+type hetznerCreateServerTypesMock struct {
+	baseMock
+	gotRequest client.CreateHetznerClusterRequest
+}
+
+func (m *hetznerCreateServerTypesMock) CreateHetznerCluster(req client.CreateHetznerClusterRequest) (*client.CreateHetznerClusterResponse, error) {
+	m.gotRequest = req
+	return &client.CreateHetznerClusterResponse{ClusterID: "hz-cluster-123", Name: req.Name,
+		ServerTypes: &client.HetznerRoleServerTypes{Bastion: "cx23", ControlPlane: "cpx32", Worker: "cx23"}}, nil
+}

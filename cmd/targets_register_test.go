@@ -160,8 +160,8 @@ func TestTargetsRegisterInstallsVerifiesRegistersAndStarts(t *testing.T) {
 	}
 
 	invocations := host.recorded()
-	if len(invocations) != 3 {
-		t.Fatalf("register, daemon-reload and enable expected, got %+v", invocations)
+	if len(invocations) != 4 {
+		t.Fatalf("register, daemon-reload, enable and restart expected, got %+v", invocations)
 	}
 	agentRegister := invocations[0]
 	wantArguments := "register --environment production --name web-1 --label role=web --label zone=a --token-stdin"
@@ -180,8 +180,9 @@ func TestTargetsRegisterInstallsVerifiesRegistersAndStarts(t *testing.T) {
 		}
 	}
 	if strings.Join(invocations[1].arguments, " ") != "daemon-reload" ||
-		strings.Join(invocations[2].arguments, " ") != "enable --now ankra-host-agent.service" ||
-		invocations[1].path != "systemctl" {
+		strings.Join(invocations[2].arguments, " ") != "enable ankra-host-agent.service" ||
+		strings.Join(invocations[3].arguments, " ") != "restart ankra-host-agent.service" ||
+		invocations[1].path != "systemctl" || invocations[3].path != "systemctl" {
 		t.Fatalf("systemctl calls = %+v", invocations[1:])
 	}
 	if strings.Contains(stdout+stderr, testJoinTokenSecret) {
@@ -208,7 +209,7 @@ func TestTargetsRegisterJSONKeepsStdoutParseable(t *testing.T) {
 	if decodeError := json.Unmarshal([]byte(stdout), &document); decodeError != nil {
 		t.Fatalf("stdout is not JSON: %v\n%s", decodeError, stdout)
 	}
-	if document.DryRun || document.BinarySHA256 != sha256Hex(fakeHostAgentBinary) || document.Labels["role"] != "web" || len(document.Steps) != 8 {
+	if document.DryRun || document.BinarySHA256 != sha256Hex(fakeHostAgentBinary) || document.Labels["role"] != "web" || len(document.Steps) != 9 {
 		t.Fatalf("document = %+v", document)
 	}
 }
@@ -289,7 +290,8 @@ func TestTargetsRegisterNoInstallOnlyPrintsThePlan(t *testing.T) {
 		"download " + release.url + "/latest/download/ankra-host-agent.service",
 		release.url + "/latest/download/SHA256SUMS",
 		"register --environment production --name web-1 --label role=web --label zone=a --token-stdin (join token on stdin)",
-		"systemctl enable --now ankra-host-agent.service",
+		"systemctl enable ankra-host-agent.service",
+		"systemctl restart ankra-host-agent.service",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("plan misses %q:\n%s", want, stdout)
@@ -337,6 +339,18 @@ func TestTargetsRegisterRefusesBadInvocations(t *testing.T) {
 			arguments: registerArguments(release.url), want: "runs on Linux only"},
 		{name: "bad label", operatingSystem: "linux", stdin: testJoinTokenSecret,
 			arguments: append(registerArguments(release.url), "--label", "novalue"), want: "must be key=value"},
+		{name: "label key with a space", operatingSystem: "linux", stdin: testJoinTokenSecret,
+			arguments: append(registerArguments(release.url), "--label", "tier =web"), want: "must be key=value"},
+		{name: "label key ending in a dot", operatingSystem: "linux", stdin: testJoinTokenSecret,
+			arguments: append(registerArguments(release.url), "--label", "tier.=web"), want: "must be key=value"},
+		{name: "label value too long", operatingSystem: "linux", stdin: testJoinTokenSecret,
+			arguments: append(registerArguments(release.url), "--label", "tier="+strings.Repeat("v", 64)),
+			want:      "longer than 63 characters"},
+		{name: "too many labels", operatingSystem: "linux", stdin: testJoinTokenSecret,
+			arguments: append(registerArguments(release.url), manyLabels(31)...), want: "at most 32 labels"},
+		{name: "plain http release URL", operatingSystem: "linux", stdin: testJoinTokenSecret,
+			arguments: append(registerArguments(release.url), "--release-url", "http://mirror.example.test/releases"),
+			want:      "--release-url: refusing to download the agent over plaintext http://"},
 		{name: "bad name", operatingSystem: "linux", stdin: testJoinTokenSecret,
 			arguments: []string{"register", "--environment", "production", "--name", "-web", "--token-stdin"},
 			want:      "not a valid host target name"},
@@ -347,6 +361,11 @@ func TestTargetsRegisterRefusesBadInvocations(t *testing.T) {
 			_, _, executeError := runDeployCommand(t, newTargetsCommand(), testCase.stdin, testCase.arguments...)
 			if exitCodeFor(executeError) != exitUsage || !strings.Contains(executeError.Error(), testCase.want) {
 				t.Fatalf("got %v (exit %d), want a usage error containing %q", executeError, exitCodeFor(executeError), testCase.want)
+			}
+			// No API token is ever sent to a release URL, so no refusal may
+			// claim one would be (ankra-0bm15).
+			if strings.Contains(executeError.Error(), "API token") {
+				t.Fatalf("refusal mentions an API token: %v", executeError)
 			}
 			assertNothingInstalled(t, host, binaryPath, unitPath)
 		})
@@ -362,5 +381,119 @@ func assertNothingInstalled(t *testing.T, host *fakeHost, binaryPath string, uni
 	}
 	if invocations := host.recorded(); len(invocations) != 0 {
 		t.Fatalf("no process may run, got %+v", invocations)
+	}
+}
+
+func manyLabels(count int) []string {
+	arguments := make([]string, 0, 2*count)
+	for index := 0; index < count; index++ {
+		arguments = append(arguments, "--label", fmt.Sprintf("key-%d=value", index))
+	}
+	return arguments
+}
+
+func TestTargetsRegisterForwardsTheValidatedLabels(t *testing.T) {
+	release := newFakeAgentRelease(t, honestChecksums())
+	host, _, _ := useFakeHost(t, 0, "linux")
+	arguments := append(registerArguments(release.url), "--label", "topology.example.com/rack=r1", "--label", "empty=")
+	if _, stderr, executeError := runDeployCommand(t, newTargetsCommand(), testJoinTokenSecret, arguments...); executeError != nil {
+		t.Fatalf("register failed: %v\n%s", executeError, stderr)
+	}
+	want := "register --environment production --name web-1 --label empty= --label role=web " +
+		"--label topology.example.com/rack=r1 --label zone=a --token-stdin"
+	if got := strings.Join(host.recorded()[0].arguments, " "); got != want {
+		t.Fatalf("agent arguments = %s, want %s", got, want)
+	}
+}
+
+func TestTargetsRegisterExplainsAMissingRelease(t *testing.T) {
+	cases := []struct {
+		name      string
+		assets    map[string]string
+		extra     []string
+		want      []string
+		downloads int
+	}{
+		{name: "no release published", assets: map[string]string{},
+			want: []string{"no published ankra-host-agent release was found at", "--agent-version <tag>",
+				"Nothing was installed", "/latest/download/SHA256SUMS answered 404"}},
+		{name: "pinned tag missing", assets: map[string]string{}, extra: []string{"--agent-version", "2.1.5"},
+			want: []string{"ankra-host-agent release v2.1.5 was not found at", "/download/v2.1.5/SHA256SUMS answered 404",
+				"omit --agent-version"}},
+		{name: "release without this architecture", assets: map[string]string{
+			"/latest/download/SHA256SUMS": honestChecksums(),
+		}, want: []string{"ankra-host-agent release latest has no ankra-host-agent-linux-amd64", "Nothing was installed"}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			release := newFakeAgentRelease(t, honestChecksums())
+			release.assets = testCase.assets
+			host, binaryPath, unitPath := useFakeHost(t, 0, "linux")
+			_, _, executeError := runDeployCommand(t, newTargetsCommand(), testJoinTokenSecret,
+				append(registerArguments(release.url), testCase.extra...)...)
+			if exitCodeFor(executeError) != exitNotFound {
+				t.Fatalf("a missing release should exit %d, got %v (exit %d)", exitNotFound, executeError, exitCodeFor(executeError))
+			}
+			for _, want := range testCase.want {
+				if !strings.Contains(executeError.Error(), want) {
+					t.Fatalf("error misses %q: %v", want, executeError)
+				}
+			}
+			assertNothingInstalled(t, host, binaryPath, unitPath)
+		})
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(server.Close)
+	useFakeHost(t, 0, "linux")
+	_, _, executeError := runDeployCommand(t, newTargetsCommand(), testJoinTokenSecret, registerArguments(server.URL)...)
+	if executeError == nil || exitCodeFor(executeError) == exitNotFound || !strings.Contains(executeError.Error(), "unexpected status 502") {
+		t.Fatalf("a server error is not a missing release, got %v (exit %d)", executeError, exitCodeFor(executeError))
+	}
+}
+
+func TestTargetsRegisterAgainRestartsAndNeverFollowsAPlantedSymlink(t *testing.T) {
+	release := newFakeAgentRelease(t, honestChecksums())
+	host, binaryPath, _ := useFakeHost(t, 0, "linux")
+	if directoryError := os.MkdirAll(filepath.Dir(binaryPath), 0o755); directoryError != nil {
+		t.Fatal(directoryError)
+	}
+	victim := filepath.Join(t.TempDir(), "victim")
+	if writeError := os.WriteFile(victim, []byte("untouched"), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	if symlinkError := os.Symlink(victim, binaryPath+".ankra-new"); symlinkError != nil {
+		t.Fatal(symlinkError)
+	}
+	if writeError := os.WriteFile(binaryPath, []byte("old agent"), 0o755); writeError != nil {
+		t.Fatal(writeError)
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
+		if _, stderr, executeError := runDeployCommand(t, newTargetsCommand(), testJoinTokenSecret, registerArguments(release.url)...); executeError != nil {
+			t.Fatalf("register attempt %d failed: %v\n%s", attempt, executeError, stderr)
+		}
+	}
+	if content, _ := os.ReadFile(victim); string(content) != "untouched" {
+		t.Fatalf("the install followed a symlink and overwrote %s: %q", victim, content)
+	}
+	if content, _ := os.ReadFile(binaryPath); string(content) != fakeHostAgentBinary {
+		t.Fatalf("the binary was not replaced: %q", content)
+	}
+	entries, _ := os.ReadDir(filepath.Dir(binaryPath))
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), ".ankra-new-") {
+			t.Fatalf("a temporary install file was left behind: %s", entry.Name())
+		}
+	}
+	restarts := 0
+	for _, invocation := range host.recorded() {
+		if invocation.path == "systemctl" && strings.Join(invocation.arguments, " ") == "restart ankra-host-agent.service" {
+			restarts++
+		}
+	}
+	if restarts != 2 {
+		t.Fatalf("every register must restart the service onto the new binary, got %d restarts", restarts)
 	}
 }

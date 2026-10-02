@@ -60,7 +60,7 @@ func newDeploymentsListCommand() *cobra.Command {
 				Limit:        limit,
 			})
 			if listError != nil {
-				return deployLaneError("listing deployments", listError)
+				return deployLaneEnvironmentError("listing deployments", environmentName, listError)
 			}
 			if page.Deployments == nil {
 				page.Deployments = []client.Deployment{}
@@ -133,6 +133,11 @@ func newDeploymentsGetCommand() *cobra.Command {
 				return renderError
 			}
 			printDeployment(command.OutOrStdout(), deployment)
+			if deployment.TargetsTruncated {
+				_, _ = fmt.Fprintf(command.ErrOrStderr(),
+					"Showing the first %d of %d host targets: the platform stops the per-target listing at its row cap.\n",
+					len(deployment.Targets), deployment.TargetCount)
+			}
 			return nil
 		},
 	}

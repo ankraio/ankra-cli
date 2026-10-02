@@ -14,16 +14,22 @@ const (
 )
 
 var (
-	errBaseURLEmpty      = errors.New("base URL is empty")
-	errBaseURLNoScheme   = errors.New("base URL must include a scheme (https://...)")
-	errBaseURLBadScheme  = errors.New("base URL scheme must be http or https")
-	errBaseURLNoHost     = errors.New("base URL must include a host")
-	errBaseURLNotAbs     = errors.New("base URL must be absolute (https://host)")
-	errBaseURLBadQuery   = errors.New("base URL must not contain a query string")
-	errBaseURLHasFrag    = errors.New("base URL must not contain a fragment")
-	errBaseURLUserinfo   = errors.New("base URL must not embed userinfo credentials")
-	errBaseURLPlaintext  = errors.New("refusing to send API token over plaintext http://; set ANKRA_ALLOW_INSECURE_HTTP=1 for loopback dev only or use https://")
+	errBaseURLEmpty     = errors.New("base URL is empty")
+	errBaseURLNoScheme  = errors.New("base URL must include a scheme (https://...)")
+	errBaseURLBadScheme = errors.New("base URL scheme must be http or https")
+	errBaseURLNoHost    = errors.New("base URL must include a host")
+	errBaseURLNotAbs    = errors.New("base URL must be absolute (https://host)")
+	errBaseURLBadQuery  = errors.New("base URL must not contain a query string")
+	errBaseURLHasFrag   = errors.New("base URL must not contain a fragment")
+	errBaseURLUserinfo  = errors.New("base URL must not embed userinfo credentials")
+	errBaseURLPlaintext = errors.New("refusing to send API token over plaintext http://; set ANKRA_ALLOW_INSECURE_HTTP=1 for loopback dev only or use https://")
 )
+
+// ErrBaseURLPlaintext is the error NormalizeBaseURL returns for a plain
+// http:// URL to a non-loopback host. Its message is about the API token;
+// callers normalizing a URL that never carries the token (a download
+// mirror, say) match it with errors.Is and word their own refusal.
+var ErrBaseURLPlaintext = errBaseURLPlaintext
 
 // NormalizeBaseURL validates and normalizes an API base URL.
 //

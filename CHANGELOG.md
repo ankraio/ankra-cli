@@ -17,8 +17,98 @@
   repositories, or has robots bound to it, is refused. A project the
   organisation does not have is refused before any robot exists, and a
   platform that predates registry projects is named as such instead of
-  answering a bare 404.
+  answering a bare 404. A token that may create robots but not read the
+  project listing is not refused for it: the create goes ahead, and a robot
+  that comes back bound to any other project is deleted again before its
+  secret is shown.
 
+### Fixed
+
+- **`ankra application ship` builds the first image of a new Ankra Pipelines
+  application without a push.** When nothing had been pushed since the
+  application was registered, ship dispatched a manual run, the generated
+  pipeline skipped its publish step on it, and ship stopped and asked you to
+  push a commit. Ship now asks the platform to run the tracked branch's push
+  for its current head - the run a push would have started - so the image is
+  published and deployed, and `ankra application add . && ankra application
+  ship .` reaches a running URL on its own. Starting that run needs the
+  `applications.deploy` permission. On a platform that cannot run a branch's
+  push on request yet, ship still stops with the push-a-commit advice and
+  names `--ankra-build` as the other way.
+- **`ankra cluster addons list` no longer prints a plain `ok` over stale
+  advisory data.** The platform says when the security advisory feed behind
+  the listing has not been read in the last day, and the CLI dropped that.
+  An addon judged clean from a stale feed now reads `ok (stale)`, the table
+  ends with a line saying when the feed was last read and that `ok` only
+  means no advisory was known then, and `cluster addons list <name>` adds an
+  `Advisory data` line. `-o json|yaml` keeps its shape and prints the same
+  note on stderr.
+- **`ankra cluster addons list <name>` on a cluster with no addons exits 3.**
+  It printed the human `No addons found for the active cluster.` to stdout
+  and exited 0, even under `-o json`. It now says the addon was not found
+  and exits 3 with nothing on stdout, as it does on a cluster whose addons
+  do not include that name.
+- **`ankra registry robots create` works with a token that may create robots
+  but not read them.** With `--permission` or `--expires-in-days` the CLI
+  checks that the platform offers them by reading the robot listing, which
+  needs `credentials.read`, so a token holding only `credentials.write` was
+  refused with exit 7 naming a permission the create itself does not need.
+  Without `credentials.read` the check is now skipped and the create's
+  answer is checked instead: a robot that comes back with permissions
+  beyond those asked for, or no expiry or a later one, is deleted again and
+  its secret is never shown. The
+  help now says what a create needs, including that permissions past
+  `repository:pull` and `repository:push` also need `credentials.reveal`.
+- **`ankra targets register` no longer talks about an API token when it
+  refuses a plain `http://` `--release-url`.** No token is sent to a release
+  URL; the refusal now says the agent and its checksums would be downloaded
+  over a connection that can be altered in transit, and how to proceed.
+
+## v0.21.1 — 2026-10-01
+
+### Added
+
+- **`ankra org ai-review repos list|set|unset` turns the AI code review on or
+  off for one repository without the portal.** `set my-org/my-repo --review`
+  writes the repository's rule; `--mentions`, `--previews`, `--model`,
+  `--review-drafts` and `--max-reviews-per-pr` set the rest. Only the
+  switches you pass change: the others keep the repository's current rule,
+  or the connection's settings when it has none, so turning the review on
+  never switches @mention replies or previews off by accident. `unset`
+  removes the rule so the repository follows the connection again (exit 3
+  when it had none), and `list` shows each connection's settings and rules,
+  with `--reachable` adding the repositories a GitHub App installation can
+  see. The connection is found from the repository's owner or an existing
+  rule; `--binding <provider>/<id>` picks it when that is ambiguous. `set`
+  and `unset` need organisation admin.
+- **`ankra cluster get secrets <name> -n <namespace> --reveal` reads one
+  Secret's values.** Since the platform's Secret value policy, every Secret
+  value comes back as a `sha256:` digest, so `cluster get secrets <name> -o
+  yaml` stopped showing values without saying why. Without `--reveal` the
+  CLI now says on stderr that the values are digests and how to read them.
+  `--reveal` asks for the plaintext values of that one Secret: it needs `-n`,
+  is refused on a listing (no name, `-A` or `-l`) with exit code 2, and needs
+  the `kubernetes.secrets_reveal` permission on the cluster (the operator,
+  admin and owner roles). Without the permission it prints nothing on stdout
+  and exits 7 with a message naming the permission; when the platform cannot
+  hand out live values (the cluster is unreachable) it exits 1; a missing
+  Secret exits 3. Every reveal is recorded in the organisation's audit log.
+  `cluster describe secret` now shows a digest as withheld instead of as a
+  19-byte value.
+- **`ankra cluster addons list` says when an addon needs a security
+  update.** A new `Security` column names the worst published advisory
+  covering the addon's version and the chart version that fixes it
+  (`update: GHSA-8rvj-mm4h-c258 (high) -> v1.20.3`), `ok` for an addon the
+  platform checked and found clean, `unknown` when it could not check it -
+  which is not the same as clean - and `-` for a chart with no advisory
+  source. `ankra cluster addons list <name>` lists each advisory with its
+  summary, link and fixed release, and prints the `ankra cluster addons
+  upgrade` command that applies the fix, naming the cluster so it upgrades
+  the one you listed; Ankra never runs it for you. `-o json|yaml` carries
+  the same fields (`security_advisories`, `security_advisory_status`,
+  `security_upgrade_chart_version`). Requires a platform that reports addon
+  advisories, which is rolling out: until it reaches yours the column shows
+  `-`.
 - **`ankra registry robots list` shows the robots Ankra manages, not only
   the ones you created.** The listing answered only robot accounts a member
   had made, so the logins doing most of the work on an organisation's
@@ -56,6 +146,58 @@
   where it printed one `Registry: <host>/<project>` line and `Scope`.
   `-o json` gains fields (`kind`, `managed`, `projects`, `permissions`,
   `application`, `expires_at`) and loses none.
+
+### Fixed
+
+- **`ankra targets register` says what to do when there is no agent release
+  to install.** It answered `download SHA256SUMS: unexpected status 404`
+  when the release it looks for does not exist, which is what every host saw
+  until the first `ankra-host-agent` release was published. It now says
+  which release was missing and where it looked: with the default
+  `--agent-version latest`, that no release is published at the release URL
+  and to name an existing tag with `--agent-version` or point
+  `--release-url` at a mirror; with a pinned tag, that the tag does not
+  exist; and when the release lacks this host's architecture, that too.
+  These exit 3 (not found). Nothing is installed in any of them, as before.
+- **`ankra targets register` checks `--label` the way the agent does, before
+  installing anything.** A label the host agent refuses (a key with a space,
+  a key ending in `.` or `-`, a value over 63 characters, more than 32
+  labels) passed the CLI, which then installed
+  `/usr/local/bin/ankra-host-agent` before the agent's own register refused
+  it. Those are now usage errors (exit 2) up front, and the agent receives
+  exactly the `key=value` pairs the CLI validated.
+- **Running `ankra targets register` again on a registered host moves the
+  service onto the new binary.** It ran `systemctl enable --now`, which
+  leaves an already running service on the old binary and the old identity.
+  It now enables the unit and restarts it.
+- **`ankra targets register` writes its files without following a planted
+  symlink.** The binary and unit were first written to a fixed
+  `<path>.ankra-new`, which a symlink placed there in advance would have
+  redirected while running as root. Each install now creates a new file with
+  a random name beside the destination and renames it into place.
+- **`ankra targets register` refuses a plain `http://` `--release-url`**
+  (or `$ANKRA_HOST_AGENT_RELEASE_URL`) unless it is a loopback address or
+  `ANKRA_ALLOW_INSECURE_HTTP=1` is set, the same rule `--base-url` follows.
+  The `SHA256SUMS` check proves nothing when the sums and the binary come
+  over the same unauthenticated connection.
+- **`ankra registry robots create` refuses an empty `--permission` and an
+  expiry past 3650 days before asking the platform.** `--permission ""`
+  (an unset shell variable, say) fell back to a push-and-pull robot that
+  never expires, the opposite of a narrow grant; it is now a usage error.
+  `--expires-in-days` above 3650 was refused by the platform with exit 1;
+  the CLI now refuses it itself with exit 2, as it does a negative value.
+- **`ankra targets list --environment <typo>` names the missing
+  environment.** The platform answers an unknown environment with a 404, so
+  the CLI printed `listing host targets: Environment not found` and the hint
+  it meant to give never appeared. `targets list`, `targets get --environment`
+  and `deployments list --environment` now say the environment does not exist
+  and that `ankra targets join-token create --environment <env>` creates it
+  (exit 3).
+- **Listings cut at the platform's row cap say so.** `ankra targets list -o
+  json` now carries `truncated` and `ankra deployments get -o json` carries
+  `targets_truncated`, which the CLI dropped; the table output says on stderr
+  when it shows only the first rows, and `targets get <name>` says the
+  listing was cut when a name is not among the rows it got.
 
 ## v0.21.0 — 2026-10-01
 
