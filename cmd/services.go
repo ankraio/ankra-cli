@@ -474,7 +474,7 @@ type APIClient interface {
 	UninstallHelmRelease(clusterID, releaseName, namespace string) (*client.UninstallHelmReleaseResponse, error)
 	DeleteResource(clusterID string, req client.DeleteResourceRequest) (*client.ResourceMutationResponse, error)
 	PatchResource(clusterID string, req client.PatchResourceRequest) (*client.ResourceMutationResponse, error)
-	GetHelmReleaseDetail(clusterID, namespace, releaseName string) (*client.HelmReleaseDetail, error)
+	GetHelmReleaseDetail(clusterID, namespace, releaseName string, revealValues bool) (*client.HelmReleaseDetail, error)
 	GetHelmReleaseHistory(clusterID, namespace, releaseName string, limit int) (*client.HelmReleaseHistory, error)
 	RollbackHelmRelease(clusterID, namespace, releaseName string, req client.RollbackHelmReleaseRequest) (*client.HelmReleaseMutationResult, error)
 	UpgradeHelmRelease(clusterID, namespace, releaseName string, req client.UpgradeHelmReleaseRequest) (*client.HelmReleaseMutationResult, error)

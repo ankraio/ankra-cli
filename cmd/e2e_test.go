@@ -1524,7 +1524,7 @@ func (m baseMock) PatchResource(clusterID string, req client.PatchResourceReques
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) GetHelmReleaseDetail(clusterID, namespace, releaseName string) (*client.HelmReleaseDetail, error) {
+func (m baseMock) GetHelmReleaseDetail(clusterID, namespace, releaseName string, revealValues bool) (*client.HelmReleaseDetail, error) {
 	return nil, errors.New("not implemented")
 }
 

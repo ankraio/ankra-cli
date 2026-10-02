@@ -617,7 +617,20 @@ type HelmReleaseDetail struct {
 	ManifestResources []map[string]interface{} `json:"manifest_resources"`
 	Hooks             []map[string]interface{} `json:"hooks"`
 	Notes             *string                  `json:"notes"`
+	// SecretValues says what the platform did with the release's
+	// credential-shaped values: "withheld" ([REDACTED:...] placeholders),
+	// "permission_required", "revealed" or "unavailable". Empty when the
+	// release carried none.
+	SecretValues string `json:"secret_values,omitempty"`
 }
+
+// Values of HelmReleaseDetail.SecretValues.
+const (
+	HelmValuesWithheld           = "withheld"
+	HelmValuesPermissionRequired = "permission_required"
+	HelmValuesRevealed           = "revealed"
+	HelmValuesUnavailable        = "unavailable"
+)
 
 type HelmReleaseHistoryEntry struct {
 	Revision    int     `json:"revision"`
@@ -666,9 +679,17 @@ func (c *Client) helmReleaseURL(clusterID, namespace, releaseName string) string
 		c.BaseURL, url.PathEscape(clusterID), url.PathEscape(namespace), url.PathEscape(releaseName))
 }
 
-func (c *Client) GetHelmReleaseDetail(clusterID, namespace, releaseName string) (*HelmReleaseDetail, error) {
+// GetHelmReleaseDetail reads one release. With revealValues the platform
+// returns its credential-shaped values in plaintext - only to a holder of
+// kubernetes.secrets_reveal, and each such read is audited; otherwise they
+// come back as [REDACTED:...] placeholders and SecretValues says why.
+func (c *Client) GetHelmReleaseDetail(clusterID, namespace, releaseName string, revealValues bool) (*HelmReleaseDetail, error) {
+	endpoint := c.helmReleaseURL(clusterID, namespace, releaseName)
+	if revealValues {
+		endpoint += "?reveal_values=true"
+	}
 	var detail HelmReleaseDetail
-	if err := c.doKubernetesRelay(http.MethodGet, c.helmReleaseURL(clusterID, namespace, releaseName), nil, &detail); err != nil {
+	if err := c.doKubernetesRelay(http.MethodGet, endpoint, nil, &detail); err != nil {
 		return nil, err
 	}
 	return &detail, nil
