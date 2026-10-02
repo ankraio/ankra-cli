@@ -153,6 +153,9 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 		return nil, withExitCode(exitUsage, errors.New("a service name or id is required"))
 	}
 	ctx := command.Context()
+	// An id-shaped reference is read as an id first. Service names may look
+	// like ids too (lower-case words joined by hyphens), so a not-found falls
+	// through to the name search rather than ending here.
 	if looksLikeUUID(reference) {
 		instance, getError := apiClient.GetServiceInstance(ctx, reference)
 		if getError == nil {
@@ -193,6 +196,13 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 	case 1:
 		return &matches[0], nil
 	case 0:
+		// A reference shaped like an id was read as one first (and answered
+		// not found); it is also a valid service name, which is why the
+		// inventory was searched too, so the answer names both.
+		if looksLikeUUID(reference) {
+			return nil, withExitCode(exitNotFound, fmt.Errorf(
+				"no service with the id or name %q - run 'ankra services list' to see the organisation's services", reference))
+		}
 		return nil, withExitCode(exitNotFound, fmt.Errorf(
 			"no service named %q - run 'ankra services list' to see the organisation's services", reference))
 	default:

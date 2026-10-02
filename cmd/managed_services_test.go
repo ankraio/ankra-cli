@@ -1050,3 +1050,16 @@ func TestServicesConsumersBindNotesASkippedDuplicateCheck(t *testing.T) {
 		t.Errorf("a skipped duplicate check must be said on stderr:\n%s", stderr)
 	}
 }
+
+// An id-shaped reference the platform does not know is searched as a name
+// too (service names may look like ids), and the answer names both.
+func TestServicesGetUnknownIDSaysIDOrName(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	_, _, runError := runServicesCommand(t, platform, "", "get", "abcdef12-0000-4000-8000-000000000099")
+	if runError == nil || exitCodeFor(runError) != exitNotFound || !strings.Contains(runError.Error(), "no service with the id or name") {
+		t.Fatalf("expected a not-found naming id or name, got %v", runError)
+	}
+	if reads := platform.requests(http.MethodGet, "/instances/abcdef12-0000-4000-8000-000000000099"); len(reads) != 1 {
+		t.Errorf("the id must be read as an id first, got %d reads", len(reads))
+	}
+}
