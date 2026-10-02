@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -174,7 +176,8 @@ func parseServiceAssignments(flagName string, entries []string) (map[string]stri
 // mode the package does not offer and parameters it does not declare or
 // that fall outside its bounds. The platform refuses the same; saying so
 // here names the bounds instead of answering a bare 422.
-func checkServiceSetupAgainstContract(detail client.ServicePackageDetail, mode string, parameters map[string]int64) error {
+func checkServiceSetupAgainstContract(detail client.ServicePackageDetail, mode string, parameters map[string]int64,
+	secretReferences map[string]string) error {
 	if _, offered := detail.Contract.Profiles[mode]; !offered {
 		return withExitCode(exitUsage, fmt.Errorf("package %s %s does not run in %s mode (it offers: %s)",
 			detail.Name, detail.Version, mode, strings.Join(servicePackageModes(detail.Contract), ", ")))
@@ -192,6 +195,21 @@ func checkServiceSetupAgainstContract(detail client.ServicePackageDetail, mode s
 		if value := parameters[name]; value < parameter.Minimum || value > parameter.Maximum {
 			return withExitCode(exitUsage, fmt.Errorf("--param %s=%d is outside %d-%d %s",
 				name, value, parameter.Minimum, parameter.Maximum, parameter.Unit))
+		}
+	}
+	secrets := map[string]client.ServicePackageSecret{}
+	for _, secret := range detail.Contract.Secrets {
+		secrets[secret.Name] = secret
+	}
+	for _, name := range serviceSortedKeys(secretReferences) {
+		secret, declared := secrets[name]
+		if !declared {
+			return withExitCode(exitUsage, fmt.Errorf("package %s %s has no secret input %q ('ankra services packages get %s' lists them)",
+				detail.Name, detail.Version, name, detail.ID))
+		}
+		if len(secret.Modes) > 0 && !slices.Contains(secret.Modes, mode) {
+			return withExitCode(exitUsage, fmt.Errorf("secret input %q of package %s %s is not used in %s mode (only: %s)",
+				name, detail.Name, detail.Version, mode, strings.Join(secret.Modes, ", ")))
 		}
 	}
 	return nil
@@ -312,7 +330,7 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 	if detailError != nil {
 		return detailError
 	}
-	if contractError := checkServiceSetupAgainstContract(*detail, mode, parameters); contractError != nil {
+	if contractError := checkServiceSetupAgainstContract(*detail, mode, parameters, secretReferences); contractError != nil {
 		return contractError
 	}
 
@@ -380,13 +398,26 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 	}
 	confirmed, confirmError := apiClient.ConfirmServiceReview(ctx, review.ID, review.Digest)
 	if confirmError != nil {
-		return confirmError
+		return serviceReviewConfirmError(confirmError, serviceName)
 	}
 	if rendered, renderError := renderStructured(command, confirmed); rendered || renderError != nil {
 		return renderError
 	}
 	printServiceSetupReceipt(command.OutOrStdout(), serviceName, clusterName, *confirmed)
 	return nil
+}
+
+// serviceReviewConfirmError adds the way forward to a confirmation the
+// platform refused as a conflict: the ten-minute window ended, or something
+// the plan was resolved from (policy, binding, package, name) changed since.
+// Either way the review can no longer be confirmed and a new one is needed.
+func serviceReviewConfirmError(confirmError error, serviceName string) error {
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(confirmError, &unexpected) && unexpected.StatusCode == http.StatusConflict {
+		return fmt.Errorf("%w - nothing was set up: the review expired or what it was resolved from changed since it was prepared; "+
+			"run 'ankra services setup %s ...' again to review the current plan", confirmError, serviceName)
+	}
+	return confirmError
 }
 
 func printServiceSetupReceipt(out io.Writer, serviceName string, clusterName string, confirmed client.ServiceReview) {
@@ -556,7 +587,7 @@ review that already expired needs a new 'ankra services setup'.`,
 			}
 			confirmed, confirmError := apiClient.ConfirmServiceReview(ctx, review.ID, review.Digest)
 			if confirmError != nil {
-				return confirmError
+				return serviceReviewConfirmError(confirmError, review.Name)
 			}
 			if rendered, renderError := renderStructured(command, confirmed); rendered || renderError != nil {
 				return renderError

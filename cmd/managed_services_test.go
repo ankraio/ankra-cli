@@ -67,6 +67,9 @@ type fakeServicesPlatform struct {
 	retirementReads  int
 	// settledOutcome is the outcome a settled retirement carries.
 	settledOutcome string
+	// reviewChanged makes every setup confirmation answer the platform's
+	// conflict, as for a review that expired or whose inputs changed.
+	reviewChanged bool
 }
 
 func newFakeServicesPlatform(t *testing.T) *fakeServicesPlatform {
@@ -261,11 +264,26 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 	case request.Method == http.MethodPost && path == admission+"/reviews/"+fakeServiceReviewID+"/confirm":
 		var body struct{ Digest string }
 		_ = json.Unmarshal(bodyBytes, &body)
-		if body.Digest != fakeServiceReviewDigest {
+		if body.Digest != fakeServiceReviewDigest || platform.reviewChanged {
 			fakeServiceJSON(t, writer, http.StatusConflict, map[string]any{"detail": "Service review has changed"})
 			return
 		}
 		fakeServiceJSON(t, writer, http.StatusOK, fakeServiceReview(true))
+	case request.Method == http.MethodGet && path == admission+"/consumers":
+		if request.URL.Query().Get("application_id") != fakeServiceApplication {
+			t.Errorf("consumer listing for an unexpected application: %s", request.URL.RawQuery)
+		}
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"next_cursor": nil, "items": []any{
+			map[string]any{"id": fakeServiceConsumerID, "application_id": fakeServiceApplication, "cluster_id": fakeServiceClusterID,
+				"namespace": "orders", "allow_planned": false, "local_only": false, "revision": 4, "updated_at": "2026-10-01T00:00:00Z"},
+		}})
+	case request.Method == http.MethodPost && path == admission+"/consumers":
+		var body client.ServiceConsumerRequest
+		_ = json.Unmarshal(bodyBytes, &body)
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c99",
+			"application_id": body.ApplicationID, "organisation_id": fakeServiceOrganisation, "cluster_id": body.ClusterID,
+			"namespace": body.Namespace, "region": "eu-north-1", "data_boundary": "eu", "policy_revision": 3, "binding_revision": 1,
+			"binding_kind": "planned", "installation_id": nil, "local_only": body.LocalOnly})
 	case request.Method == http.MethodGet && path == admission+"/instances":
 		// The first page is empty but carries a cursor: rows the caller may
 		// not read used the scan budget. Stopping there would miss the
@@ -525,6 +543,8 @@ func TestServicesSetupRefusesBeforePreparing(t *testing.T) {
 		{"mode not offered", []string{"--package", "postgresql", "--consumer", fakeServiceConsumerID, "--mode", "existing"}, true, exitUsage, "does not run in existing mode"},
 		{"hosted", []string{"--package", "postgresql", "--consumer", fakeServiceConsumerID, "--mode", "hosted"}, true, exitUsage, "hosted"},
 		{"secret value", []string{"--package", "postgresql", "--consumer", fakeServiceConsumerID, "--secret-reference", "password=s3cret"}, true, exitUsage, "not a value"},
+		{"undeclared secret input", []string{"--package", "postgresql", "--consumer", fakeServiceConsumerID,
+			"--secret-reference", "password=9e000000-0000-4000-8000-000000000017"}, true, exitUsage, "no secret input"},
 		{"unknown package", []string{"--package", "mysql", "--consumer", fakeServiceConsumerID}, true, exitNotFound, "no service package"},
 		{"no policy", []string{"--package", "postgresql", "--consumer", fakeServiceConsumerID}, false, exitError, "policy set"},
 	}
@@ -912,4 +932,56 @@ func (twins *twinInstancesClient) ListServiceInstances(_ context.Context, _ clie
 	encoded, _ := json.Marshal(map[string]any{"items": twins.items, "next_cursor": nil})
 	var page client.ServiceInstancePage
 	return &page, json.Unmarshal(encoded, &page)
+}
+
+// A confirmation the platform refuses as a conflict (the review expired, or
+// what it was resolved from changed) says that nothing was set up and how to
+// review the current plan.
+func TestServicesSetupExplainsAConfirmConflict(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.reviewChanged = true
+	_, _, runError := runServicesCommand(t, platform, "",
+		"setup", "orders-db", "--package", "postgresql", "--cluster", fakeServiceClusterID, "--consumer", fakeServiceConsumerID, "--yes")
+	if runError == nil || !strings.Contains(runError.Error(), "Service review has changed") ||
+		!strings.Contains(runError.Error(), "nothing was set up") || !strings.Contains(runError.Error(), "ankra services setup orders-db") {
+		t.Fatalf("expected the platform's conflict with the way forward, got %v", runError)
+	}
+	_, _, runError = runServicesCommand(t, platform, "", "reviews", "confirm", fakeServiceReviewID, "--yes")
+	if runError == nil || !strings.Contains(runError.Error(), "nothing was set up") {
+		t.Fatalf("reviews confirm must explain the conflict too, got %v", runError)
+	}
+}
+
+// bind names an existing binding of the same namespace instead of letting
+// the platform answer a bare conflict, and creates a new one otherwise.
+func TestServicesConsumersBindNamesAnExistingBinding(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	_, _, runError := runServicesCommand(t, platform, "", "consumers", "bind",
+		"--application", fakeServiceApplication, "--cluster", fakeServiceClusterID, "--namespace", "orders")
+	if runError == nil || exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), fakeServiceConsumerID) ||
+		!strings.Contains(runError.Error(), "--revision 4") {
+		t.Fatalf("expected a refusal naming the existing binding and its revision, got %v", runError)
+	}
+	if binds := platform.requests(http.MethodPost, "/service-admission/consumers"); len(binds) != 0 {
+		t.Fatal("an existing binding was bound again")
+	}
+
+	stdout, _, runError := runServicesCommand(t, platform, "", "consumers", "bind",
+		"--application", fakeServiceApplication, "--cluster", fakeServiceClusterID, "--namespace", "billing", "--allow-planned")
+	if runError != nil {
+		t.Fatal(runError)
+	}
+	binds := platform.requests(http.MethodPost, "/service-admission/consumers")
+	if len(binds) != 1 || binds[0].body != `{"application_id":"`+fakeServiceApplication+`","cluster_id":"`+fakeServiceClusterID+
+		`","namespace":"billing","allow_planned":true,"local_only":false,"expected_revision":0}` {
+		t.Fatalf("unexpected bind requests %+v", binds)
+	}
+	if !strings.Contains(stdout, "--consumer 5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c99") {
+		t.Errorf("bind must print the consumer id setup takes:\n%s", stdout)
+	}
+
+	if _, _, runError = runServicesCommand(t, platform, "", "consumers", "bind",
+		"--application", fakeServiceApplication, "--cluster", fakeServiceClusterID, "--namespace", "orders", "--revision", "4", "--local-only"); runError != nil {
+		t.Fatalf("changing an existing binding with its revision must go through: %v", runError)
+	}
 }

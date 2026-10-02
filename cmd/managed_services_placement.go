@@ -466,6 +466,31 @@ func printServiceConsumer(out io.Writer, names *serviceNames, consumer client.Se
 	_, _ = fmt.Fprintf(out, "  Revisions:    binding %d, cluster policy %d\n", consumer.BindingRevision, consumer.PolicyRevision)
 }
 
+// findServiceConsumerBinding returns the application's stored binding of
+// the namespace on the cluster, if it has one. A binding exists once per
+// application, cluster and namespace, and the platform answers a create of
+// an existing one with a bare "configuration changed" conflict, so bind looks
+// first and names the binding instead. A listing that cannot be read is not
+// a refusal: the bind goes ahead and the platform decides.
+func findServiceConsumerBinding(ctx context.Context, applicationID string, clusterID string, namespace string) *client.ServiceConsumerBinding {
+	bindings, listError := collectServicePages(func(after string) ([]client.ServiceConsumerBinding, *string, error) {
+		page, pageError := apiClient.ListServiceConsumers(ctx, applicationID, client.ServicePageOptions{Limit: servicePageLimit, After: after})
+		if pageError != nil {
+			return nil, nil, pageError
+		}
+		return page.Items, page.NextCursor, nil
+	})
+	if listError != nil {
+		return nil
+	}
+	for index := range bindings {
+		if bindings[index].ClusterID == clusterID && bindings[index].Namespace == namespace {
+			return &bindings[index]
+		}
+	}
+	return nil
+}
+
 func newServicesConsumersBindCommand() *cobra.Command {
 	bindCommand := &cobra.Command{
 		Use:   "bind",
@@ -506,6 +531,13 @@ deploys nothing and delivers no credentials.`,
 			clusterID, _, clusterError := resolveClusterForCmd(strings.TrimSpace(clusterFlag))
 			if clusterError != nil {
 				return clusterError
+			}
+			if revision == 0 {
+				if existing := findServiceConsumerBinding(command.Context(), applicationID, clusterID, namespace); existing != nil {
+					return withExitCode(exitUsage, fmt.Errorf("namespace %s on that cluster is already bound for this application as consumer %s "+
+						"(revision %d): pass --consumer %s to setup as it is, or --revision %d to change the binding",
+						namespace, existing.ID, existing.Revision, existing.ID, existing.Revision))
+				}
 			}
 			consumer, bindError := apiClient.BindServiceConsumer(command.Context(), client.ServiceConsumerRequest{
 				ApplicationID: applicationID, ClusterID: clusterID, Namespace: namespace,
