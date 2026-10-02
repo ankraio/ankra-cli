@@ -525,6 +525,13 @@ func reportWithheldHelmValues(stderr io.Writer, secretValues string, revealReque
 			"the release's credential values were not revealed: you need the kubernetes.secrets_reveal permission on this cluster"))
 	case client.HelmValuesUnavailable:
 		return errors.New("the release's credential values could not be revealed; try again")
+	case client.HelmValuesWithheld:
+	default:
+		// A marker this CLI does not know: say so rather than guess what it
+		// means for the values that were printed.
+		_, _ = fmt.Fprintf(stderr, "Note: the platform reported the release's credential values as %q, which this "+
+			"version of the CLI does not recognise; check for a newer ankra release.\n", secretValues)
+		return nil
 	}
 	if revealRequested {
 		return errors.New("the release's credential values were not revealed; try again")
