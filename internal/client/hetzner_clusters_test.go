@@ -600,3 +600,34 @@ func TestGetDeprovisionVolumesDecodesTheFinding(t *testing.T) {
 		t.Errorf("label = %q, want the volume ID", unnamed.Label())
 	}
 }
+
+// The platform names the server type each role got, including the ones it
+// picked from the location's live availability (ankra-ovs1z).
+func TestCreateHetznerClusterDecodesServerTypes(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(t, w, http.StatusCreated, map[string]any{
+			"cluster_id": "cluster-123", "name": "test-cluster",
+			"server_types": map[string]any{"bastion": "cx23", "control_plane": "cpx32", "worker": "cx23"},
+		})
+	}
+	testClient := newTestClient(t, handler)
+	result, err := testClient.CreateHetznerCluster(CreateHetznerClusterRequest{Name: "test-cluster", Location: "fsn1"})
+	if err != nil {
+		t.Fatalf("CreateHetznerCluster: %v", err)
+	}
+	if result.ServerTypes == nil {
+		t.Fatal("server_types was not decoded")
+	}
+	if summary := result.ServerTypes.Summary(); summary != "bastion cx23, control plane cpx32, worker cx23" {
+		t.Errorf("Summary() = %q", summary)
+	}
+}
+
+func TestHetznerRoleServerTypesSummarySkipsEmptyRoles(t *testing.T) {
+	if summary := (HetznerRoleServerTypes{}).Summary(); summary != "" {
+		t.Errorf("empty Summary() = %q, want empty", summary)
+	}
+	if summary := (HetznerRoleServerTypes{Bastion: "cpx22", Etcd: "cpx32"}).Summary(); summary != "bastion cpx22, etcd cpx32" {
+		t.Errorf("Summary() = %q", summary)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 type HetznerLocation struct {
@@ -74,6 +75,39 @@ type CreateHetznerClusterRequest struct {
 type CreateHetznerClusterResponse struct {
 	ClusterID string `json:"cluster_id"`
 	Name      string `json:"name"`
+	// ServerTypes names the server type each provisioned role got,
+	// including the ones the platform picked from the location's live
+	// availability for roles the request left empty. Absent from older
+	// platform versions.
+	ServerTypes *HetznerRoleServerTypes `json:"server_types,omitempty"`
+}
+
+// HetznerRoleServerTypes is the server type per cluster role of a Hetzner
+// create. Worker is empty when the cluster was created with node groups,
+// and Etcd is empty unless the etcd topology is external.
+type HetznerRoleServerTypes struct {
+	Bastion      string `json:"bastion,omitempty"`
+	ControlPlane string `json:"control_plane,omitempty"`
+	Worker       string `json:"worker,omitempty"`
+	Etcd         string `json:"etcd,omitempty"`
+}
+
+// Summary renders the roles that carry a type in the order bastion,
+// control plane, etcd, worker: "bastion cx23, control plane cpx32, worker
+// cx23". Empty when none do.
+func (serverTypes HetznerRoleServerTypes) Summary() string {
+	parts := []string{}
+	for _, role := range []struct{ label, serverType string }{
+		{"bastion", serverTypes.Bastion},
+		{"control plane", serverTypes.ControlPlane},
+		{"etcd", serverTypes.Etcd},
+		{"worker", serverTypes.Worker},
+	} {
+		if role.serverType != "" {
+			parts = append(parts, role.label+" "+role.serverType)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 type DeprovisionHetznerClusterResponse struct {
