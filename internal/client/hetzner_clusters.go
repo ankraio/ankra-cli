@@ -84,7 +84,7 @@ type CreateHetznerClusterResponse struct {
 
 // HetznerRoleServerTypes is the server type per cluster role of a Hetzner
 // create. Worker is empty when the cluster was created with node groups,
-// Etcd unless the etcd topology is external.
+// and Etcd is empty unless the etcd topology is external.
 type HetznerRoleServerTypes struct {
 	Bastion      string `json:"bastion,omitempty"`
 	ControlPlane string `json:"control_plane,omitempty"`
@@ -92,8 +92,9 @@ type HetznerRoleServerTypes struct {
 	Etcd         string `json:"etcd,omitempty"`
 }
 
-// Summary renders the roles that carry a type, in provisioning order:
-// "bastion cx23, control plane cpx32, worker cx23". Empty when none do.
+// Summary renders the roles that carry a type in the order bastion,
+// control plane, etcd, worker: "bastion cx23, control plane cpx32, worker
+// cx23". Empty when none do.
 func (serverTypes HetznerRoleServerTypes) Summary() string {
 	parts := []string{}
 	for _, role := range []struct{ label, serverType string }{

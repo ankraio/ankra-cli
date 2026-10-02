@@ -96,14 +96,14 @@ var hetznerCreateCmd = &cobra.Command{
 		}
 
 		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "Hetzner cluster '%s' created successfully!\n", result.Name)
-		fmt.Fprintf(out, "  Cluster ID: %s\n", result.ClusterID)
+		_, _ = fmt.Fprintf(out, "Hetzner cluster '%s' created successfully!\n", result.Name)
+		_, _ = fmt.Fprintf(out, "  Cluster ID: %s\n", result.ClusterID)
 		if result.ServerTypes != nil {
 			if summary := result.ServerTypes.Summary(); summary != "" {
-				fmt.Fprintf(out, "  Server types: %s\n", summary)
+				_, _ = fmt.Fprintf(out, "  Server types: %s\n", summary)
 			}
 		}
-		fmt.Fprintf(out, "\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
+		_, _ = fmt.Fprintf(out, "\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
 			strings.TrimRight(baseURL, "/"), result.ClusterID)
 		return nil
 	},
