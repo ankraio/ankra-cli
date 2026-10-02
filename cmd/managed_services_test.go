@@ -985,3 +985,39 @@ func TestServicesConsumersBindNamesAnExistingBinding(t *testing.T) {
 		t.Fatalf("changing an existing binding with its revision must go through: %v", runError)
 	}
 }
+
+// --wait waits only on a running retirement: one that is not running is
+// reported at once, and one still running when the budget ends exits with
+// the wait code.
+func TestServicesRetirementWaitStopsOnStatesItCannotWaitOut(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.retirementStates = []string{"expired"}
+	_, _, runError := runServicesCommand(t, platform, "", "delete", "orders-db", "--acknowledge-data-loss", "--yes", "--wait")
+	if runError == nil || exitCodeFor(runError) != exitError || !strings.Contains(runError.Error(), "not running") {
+		t.Fatalf("a retirement that is not running must be reported at once, got %v", runError)
+	}
+	if platform.retirementReads != 1 {
+		t.Errorf("expected one read, got %d", platform.retirementReads)
+	}
+
+	platform = newFakeServicesPlatform(t)
+	platform.retirementStates = []string{"in_progress"}
+	_, _, runError = runServicesCommand(t, platform, "", "delete", "orders-db", "--acknowledge-data-loss", "--yes", "--wait", "--timeout", "30ms")
+	if runError == nil || exitCodeFor(runError) != exitWaitTimeout || !strings.Contains(runError.Error(), "still in_progress") {
+		t.Fatalf("a retirement still running at the deadline must exit with the wait code, got %v", runError)
+	}
+}
+
+// retirements confirm confirms only a review the platform says is pending.
+func TestServicesRetirementsConfirmOnlyConfirmsAPendingReview(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.retirementStates = []string{"withdrawn"}
+	_, _, runError := runServicesCommand(t, platform, "", "retirements", "confirm", "orders-db", fakeServiceRetirementID,
+		"--acknowledge-data-loss", "--yes")
+	if runError == nil || !strings.Contains(runError.Error(), "only a pending retirement review can be confirmed") {
+		t.Fatalf("expected a refusal for a state that is not pending, got %v", runError)
+	}
+	if confirms := platform.requests(http.MethodPost, "/confirm"); len(confirms) != 0 {
+		t.Fatal("a retirement that is not pending was confirmed")
+	}
+}

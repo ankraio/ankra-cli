@@ -232,18 +232,28 @@ func waitForServiceRetirement(command *cobra.Command, instanceID string, retirem
 			_, _ = fmt.Fprintf(progress, "Retirement %s: %s\n", retirementID, state)
 			lastState = state
 		}
-		if retirement.State == "settled" {
+		switch retirement.State {
+		case "settled":
 			return retirement, nil
+		case "in_progress":
+		default:
+			// Only a running retirement is worth waiting on. Anything else
+			// (an unconfirmed review, or a state this CLI does not know)
+			// will not settle by waiting, so say what it is now.
+			return retirement, fmt.Errorf("retirement %s is %s, not running; there is nothing to wait for", retirementID, state)
 		}
-		if time.Now().Add(serviceRetirementPollInterval).After(deadline) {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
 			return retirement, withExitCode(exitWaitTimeout, fmt.Errorf(
 				"retirement %s is still %s after %s; follow it with 'ankra services retirements get %s %s'",
 				retirementID, state, timeout, instanceID, retirementID))
 		}
+		// The last sleep is cut to what is left of the budget, so the final
+		// read happens at the deadline rather than being skipped.
 		select {
 		case <-ctx.Done():
 			return retirement, ctx.Err()
-		case <-time.After(serviceRetirementPollInterval):
+		case <-time.After(min(serviceRetirementPollInterval, remaining)):
 		}
 	}
 }
@@ -584,6 +594,10 @@ Without --digest the digest of the review shown is the one confirmed.`,
 				printServiceRetirementProgress(human, *retirement)
 				_, _ = fmt.Fprintf(human, "\nRetirement %s was already confirmed; nothing more to do.\n", retirement.ID)
 				return nil
+			case "pending":
+			default:
+				// Only a review known to be pending is ever confirmed.
+				return fmt.Errorf("retirement %s is %s; only a pending retirement review can be confirmed", retirement.ID, retirement.State)
 			}
 			digest, _ := command.Flags().GetString("digest")
 			if digest = strings.TrimSpace(digest); digest != "" && digest != retirement.Digest {

@@ -233,7 +233,9 @@ func (names *serviceNames) cluster(clusterID string) string {
 			for _, cluster := range response.Result {
 				names.clusters[cluster.ID] = cluster.Name
 			}
-			if response.Pagination.TotalPages <= page || len(response.Result) == 0 {
+			// A full page means there may be more even when the total is
+			// not reported; a short one is the end.
+			if len(response.Result) < pageSize || (response.Pagination.TotalPages > 0 && response.Pagination.TotalPages <= page) {
 				break
 			}
 		}
