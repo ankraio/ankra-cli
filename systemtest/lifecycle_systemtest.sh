@@ -67,7 +67,10 @@
 # Cloud-managed providers have no distribution axis.
 #
 # It tolerates the two real-world behaviours observed on UpCloud and the others:
-#   - transient provisioning timeouts (slow bastion/server boot) -> reconcile retry
+#   - transient provisioning timeouts (slow bastion/server boot) -> reconcile retry;
+#     a step the provider refused (a 4xx such as a 422 validation error) is not
+#     retried: the wait fails on the first attempt, because this test runs
+#     against production and every retry of that step is a production ERROR
 #   - the platform serialises writes (HTTP 409 while a reconcile runs) -> wait + retry
 #
 # On any failure (or Ctrl-C) it attempts to deprovision every cluster it created
@@ -531,13 +534,12 @@ ready_nodes() { select_cluster "$1"; ank cluster get nodes | grep -cE "Ready"; }
 # Count of running cluster operations.
 running_ops() { select_cluster "$1"; ank cluster operations list | grep -cE "running"; }
 
-# Has any recent reconcile failed (transient timeout) that a retry could clear?
-has_failed_reconcile() {
-  select_cluster "$1"
-  ank cluster operations list | grep -iE "Reconcile" | grep -qiE "failed|timed out"
-}
-
-nudge_reconcile() { select_cluster "$1"; ank cluster reconcile >/dev/null 2>&1 || true; }
+# Whether a failed reconcile is retried (nudge_reconcile) or fails the wait at
+# once because the step was refused outright (a provider 4xx, a validation
+# error): retry_failed_reconcile and its classifier live in
+# reconcile_failure.sh so the Go tests can drive them without a platform.
+# shellcheck source=systemtest/reconcile_failure.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/reconcile_failure.sh"
 
 # Count addons in state "up"; also report whether traefik+cert-manager are up.
 addons_up_count() {
@@ -563,7 +565,8 @@ node_group_present() {
 # Wait helpers
 # ---------------------------------------------------------------------------
 
-# Wait until cluster reaches a state, nudging reconcile when ops fail transiently.
+# Wait until cluster reaches a state, nudging reconcile when ops fail
+# transiently; a reconcile refused outright (provider 4xx) fails it at once.
 wait_for_online() {
   local name="$1" timeout="$2" deadline state
   deadline=$(( $(date +%s) + timeout ))
@@ -574,10 +577,7 @@ wait_for_online() {
       "") log "  ($name not yet in list)";;
       *) log "  $name state=$state";;
     esac
-    if has_failed_reconcile "$name"; then
-      log "  $name has a failed reconcile (likely transient) -> retrying"
-      nudge_reconcile "$name"
-    fi
+    retry_failed_reconcile "$name" "has a failed reconcile (likely transient)" || return 1
     sleep "$POLL_INTERVAL"
   done
   return 1
@@ -603,10 +603,7 @@ wait_for_nodes() {
     got="$(ready_nodes "$name")"
     log "  $name ready nodes=$got (want $want)"
     [ "$got" = "$want" ] && return 0
-    if has_failed_reconcile "$name"; then
-      log "  $name failed reconcile during node wait -> retrying"
-      nudge_reconcile "$name"
-    fi
+    retry_failed_reconcile "$name" "failed reconcile during node wait" || return 1
     sleep "$POLL_INTERVAL"
   done
   return 1
@@ -646,10 +643,7 @@ wait_for_removed() {
   while [ "$(date +%s)" -lt "$deadline" ]; do
     if ! cluster_in_list "$name"; then return 0; fi
     log "  $name still present (state=$(cluster_state "$name"))"
-    if has_failed_reconcile "$name"; then
-      log "  $name has a failed teardown reconcile -> retrying"
-      nudge_reconcile "$name"
-    fi
+    retry_failed_reconcile "$name" "has a failed teardown reconcile" || return 1
     sleep "$POLL_INTERVAL"
   done
   return 1

@@ -4,6 +4,28 @@
 
 ### Added
 
+- **`ankra services`: set up, inspect and retire managed services from the
+  CLI.** PostgreSQL, Valkey, OpenSearch, VictoriaMetrics, VictoriaLogs and
+  the rest of the service catalogue could only be set up in the portal or
+  with raw REST calls. `ankra services packages list|get` browses the
+  catalogue, `policy get|set` declares where a cluster is, and `consumers
+  bind|list|get` names the application namespace a service is for.
+  `ankra services setup <name> --package postgresql --consumer <id>`
+  prepares the platform's review, shows the plan, and confirms it by its
+  digest only after a yes at the prompt or `--yes`; `--review-only` stops
+  after the review and prints the command that confirms it. `list` and `get`
+  show each service's deployment state, health, readiness (for PostgreSQL,
+  the canary that logs in with the generated credentials) and connection:
+  the endpoints and the Secret holding the credentials, by name and keys
+  only, never a credential value. `delete <name> --acknowledge-data-loss`
+  prepares the retirement review, shows everything it removes - the stack,
+  the namespace and any objects in it the service did not create, every
+  volume claim with the reclaim policy that decides its data - and what it
+  keeps, and confirms it the same way. A retirement review whose answer was
+  lost is resumed instead of prepared again, and `--wait` follows the
+  retirement until it settles, naming any volume that still holds data.
+  `reviews` and `retirements` list, read and confirm your own open reviews.
+  Every command honours `--org` and `-o json|yaml`.
 - **`ankra org ci-settings get` shows how full your pipeline cluster is.**
   A new Capacity block says how many of the cluster's CI slots are in use,
   whether its agent takes a new worker count without restarting, and how

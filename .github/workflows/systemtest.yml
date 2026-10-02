@@ -228,18 +228,21 @@ jobs:
           fi
           aws --version
 
-      # The opt-in autoscaling step parses the CLI's -o json output with jq
-      # (ubuntu-latest ships it; a self-hosted runner may not). Only a
-      # Debian-family runner can install it here; anything else fails with
-      # a clear message instead of a confusing apt-get error.
-      - name: Ensure jq is available for the autoscaling step
-        if: fromJSON(steps.plan.outputs.runnable_lanes || '0') > 0 && env.ANKRA_SYSTEMTEST_AUTOSCALING == '1'
+      # Every lane parses the CLI's -o json output with jq: the wait loops
+      # read a failed reconcile's steps to tell a refused step (provider 4xx,
+      # never retried) from a transient one, and the opt-in autoscaling step
+      # reads node groups and pods (ubuntu-latest ships jq; a self-hosted
+      # runner may not). Only a Debian-family runner can install it here;
+      # anything else fails with a clear message instead of a confusing
+      # apt-get error.
+      - name: Ensure jq is available
+        if: fromJSON(steps.plan.outputs.runnable_lanes || '0') > 0
         run: |
           if ! command -v jq >/dev/null 2>&1; then
             if command -v apt-get >/dev/null 2>&1; then
               sudo apt-get update -qq && sudo apt-get install -y -qq jq
             else
-              echo "::error::jq is required by the autoscaling step and this runner has neither jq nor apt-get; install jq in the runner image"
+              echo "::error::jq is required by the lifecycle system test and this runner has neither jq nor apt-get; install jq in the runner image"
               exit 1
             fi
           fi
