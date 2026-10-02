@@ -4944,3 +4944,71 @@ func (m baseMock) UpdateCostBudget(budgetID string, write client.CostBudgetWrite
 func (m baseMock) DeleteCostBudget(budgetID string) error {
 	return errors.New("not implemented")
 }
+
+func (m baseMock) ListServicePackages(context.Context, client.ServicePageOptions) (*client.ServicePackagePage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetServicePackage(context.Context, string) (*client.ServicePackageDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetServiceClusterPolicy(context.Context, string) (*client.ServiceClusterPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetServiceClusterPolicy(context.Context, string, client.ServiceClusterPolicyRequest) (*client.ServiceClusterPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListServiceConsumers(context.Context, string, client.ServicePageOptions) (*client.ServiceConsumerPage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetServiceConsumer(context.Context, string) (*client.ServiceConsumer, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) BindServiceConsumer(context.Context, client.ServiceConsumerRequest) (*client.ServiceConsumer, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PrepareServiceReview(context.Context, client.ServiceReviewRequest) (*client.ServiceReview, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListServiceReviews(context.Context, client.ServicePageOptions) (*client.ServiceReviewPage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetServiceReview(context.Context, string) (*client.ServiceReviewSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ConfirmServiceReview(context.Context, string, string) (*client.ServiceReview, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListServiceInstances(context.Context, client.ServicePageOptions) (*client.ServiceInstancePage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetServiceInstance(context.Context, string) (*client.ServiceInstance, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PrepareServiceRetirement(context.Context, string, client.ServiceRetirementRequest) (*client.ServiceRetirement, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListServiceRetirements(context.Context, string, client.ServiceRetirementListOptions) (*client.ServiceRetirementPage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetServiceRetirement(context.Context, string, string) (*client.ServiceRetirement, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ConfirmServiceRetirement(context.Context, string, string, string) (*client.ServiceRetirement, error) {
+	return nil, errors.New("not implemented")
+}
