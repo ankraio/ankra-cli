@@ -942,4 +942,23 @@ type APIClient interface {
 	RevokeHostTarget(ctx context.Context, hostTargetID string) (*client.HostTarget, error)
 	ListDeployments(ctx context.Context, options client.ListDeploymentsOptions) (*client.DeploymentList, error)
 	GetDeployment(ctx context.Context, deploymentID string) (*client.Deployment, error)
+
+	ListServicePackages(ctx context.Context, options client.ServicePageOptions) (*client.ServicePackagePage, error)
+	GetServicePackage(ctx context.Context, versionID string) (*client.ServicePackageDetail, error)
+	GetServiceClusterPolicy(ctx context.Context, clusterID string) (*client.ServiceClusterPolicy, error)
+	SetServiceClusterPolicy(ctx context.Context, clusterID string, request client.ServiceClusterPolicyRequest) (*client.ServiceClusterPolicy, error)
+	ListServiceConsumers(ctx context.Context, applicationID string, options client.ServicePageOptions) (*client.ServiceConsumerPage, error)
+	GetServiceConsumer(ctx context.Context, consumerID string) (*client.ServiceConsumer, error)
+	BindServiceConsumer(ctx context.Context, request client.ServiceConsumerRequest) (*client.ServiceConsumer, error)
+	UnbindServiceConsumer(ctx context.Context, consumerID string, expectedRevision int64) error
+	PrepareServiceReview(ctx context.Context, request client.ServiceReviewRequest) (*client.ServiceReview, error)
+	ListServiceReviews(ctx context.Context, options client.ServicePageOptions) (*client.ServiceReviewPage, error)
+	GetServiceReview(ctx context.Context, reviewID string) (*client.ServiceReviewSummary, error)
+	ConfirmServiceReview(ctx context.Context, reviewID string, digest string) (*client.ServiceReview, error)
+	ListServiceInstances(ctx context.Context, options client.ServicePageOptions) (*client.ServiceInstancePage, error)
+	GetServiceInstance(ctx context.Context, instanceID string) (*client.ServiceInstance, error)
+	PrepareServiceRetirement(ctx context.Context, instanceID string, request client.ServiceRetirementRequest) (*client.ServiceRetirement, error)
+	ListServiceRetirements(ctx context.Context, instanceID string, options client.ServiceRetirementListOptions) (*client.ServiceRetirementPage, error)
+	GetServiceRetirement(ctx context.Context, instanceID string, retirementID string) (*client.ServiceRetirement, error)
+	ConfirmServiceRetirement(ctx context.Context, instanceID string, retirementID string, digest string) (*client.ServiceRetirement, error)
 }
