@@ -520,24 +520,38 @@ func reportWithheldHelmValues(stderr io.Writer, secretValues string, revealReque
 	switch secretValues {
 	case "", client.HelmValuesRevealed:
 		return nil
-	case client.HelmValuesPermissionRequired:
-		return withExitCode(exitForbidden, errors.New(
-			"the release's credential values were not revealed: you need the kubernetes.secrets_reveal permission on this cluster"))
-	case client.HelmValuesUnavailable:
-		return errors.New("the release's credential values could not be revealed; try again")
 	case client.HelmValuesWithheld:
+		if revealRequested {
+			return errors.New("the release's credential values were not revealed; try again")
+		}
+		_, _ = fmt.Fprintln(stderr, "Note: credential values in this release are shown as [REDACTED:...] placeholders. "+
+			"Run with --reveal to see them (needs kubernetes.secrets_reveal; the reveal is audited). "+
+			"'cluster helm upgrade --values' refuses a file that still holds a placeholder.")
+		return nil
+	case client.HelmValuesPermissionRequired:
+		if revealRequested {
+			return withExitCode(exitForbidden, errors.New(
+				"the release's credential values were not revealed: you need the kubernetes.secrets_reveal permission on this cluster"))
+		}
+		_, _ = fmt.Fprintln(stderr, "Note: credential values in this release are shown as [REDACTED:...] placeholders; "+
+			"revealing them needs the kubernetes.secrets_reveal permission on this cluster.")
+		return nil
+	case client.HelmValuesUnavailable:
+		if revealRequested {
+			return errors.New("the release's credential values could not be revealed; try again")
+		}
+		_, _ = fmt.Fprintln(stderr, "Note: credential values in this release are shown as [REDACTED:...] placeholders.")
+		return nil
 	default:
-		// A marker this CLI does not know: say so rather than guess what it
-		// means for the values that were printed.
+		// A marker this CLI does not know. With --reveal the caller asked for
+		// plaintext and may be redirecting into a values file, so anything
+		// short of "revealed" is an error; without it, say so and go on.
+		if revealRequested {
+			return fmt.Errorf("the platform reported the release's credential values as %q, which this version "+
+				"of the CLI does not recognise, so they may not be revealed; check for a newer ankra release", secretValues)
+		}
 		_, _ = fmt.Fprintf(stderr, "Note: the platform reported the release's credential values as %q, which this "+
 			"version of the CLI does not recognise; check for a newer ankra release.\n", secretValues)
 		return nil
 	}
-	if revealRequested {
-		return errors.New("the release's credential values were not revealed; try again")
-	}
-	_, _ = fmt.Fprintln(stderr, "Note: credential values in this release are shown as [REDACTED:...] placeholders. "+
-		"Run with --reveal to see them (needs kubernetes.secrets_reveal; the reveal is audited). "+
-		"'cluster helm upgrade --values' refuses a file that still holds a placeholder.")
-	return nil
 }
