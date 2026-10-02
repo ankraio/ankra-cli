@@ -1,6 +1,18 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.21.2 — 2026-10-02
+
+### Added
+
+- **`ankra cluster hetzner create` says which server type each role got.**
+  The platform now picks a server type the location has in stock for every
+  role you leave without one, so the type is no longer a fixed default. The
+  create prints what it picked, for example `Server types: bastion cx23,
+  control plane cpx32, worker cx23`, and `-o json` carries it as
+  `server_types`. Older platforms send nothing and the line is left out.
+  `--kubernetes-version` help now says which tag shape each distribution
+  takes: a plain tag such as `v1.36.4` for kubeadm, a k3s build such as
+  `v1.35.7+k3s1` for k3s.
 
 ### Fixed
 
