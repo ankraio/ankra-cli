@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -122,6 +123,64 @@ func (c *Client) UpdateOrganisationCISettings(ctx context.Context,
 	return decodeOrganisationCISettings(body)
 }
 
+// OrganisationCICapacity is the organisation's pipeline capacity
+// (GET /api/v1/org/ci-settings/capacity): the CI slots of its pipeline
+// cluster, the steps occupying them, and the organisation's own queued and
+// pending work.
+//
+// A CI slot is one pipeline step the cluster's agent watches at a time, not a
+// node: the nodes those steps land on come from the cluster's node group
+// autoscaler. StepsInFlightOnCluster counts every step occupying a slot on
+// the cluster; the Organisation* counts are this organisation's own.
+//
+// ClusterID and ClusterName are nil when no pipeline cluster is chosen;
+// ClusterName alone is nil when the chosen cluster has been deleted. The
+// cluster's numbers are zero then.
+type OrganisationCICapacity struct {
+	ClusterID                       *string `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName                     *string `json:"cluster_name" yaml:"cluster_name"`
+	CIWorkerCount                   int     `json:"ci_worker_count" yaml:"ci_worker_count"`
+	IsLiveResizeSupported           bool    `json:"is_live_resize_supported" yaml:"is_live_resize_supported"`
+	StepsInFlightOnCluster          int     `json:"steps_in_flight_on_cluster" yaml:"steps_in_flight_on_cluster"`
+	OrganisationRunsQueued          int     `json:"organisation_runs_queued" yaml:"organisation_runs_queued"`
+	OrganisationRunsInFlight        int     `json:"organisation_runs_in_flight" yaml:"organisation_runs_in_flight"`
+	OrganisationStepsPending        int     `json:"organisation_steps_pending" yaml:"organisation_steps_pending"`
+	OrganisationStepsWaitingOnSlots int     `json:"organisation_steps_waiting_on_slots" yaml:"organisation_steps_waiting_on_slots"`
+	MaxParallelRuns                 int     `json:"max_parallel_runs" yaml:"max_parallel_runs"`
+	MaxParallelSteps                int     `json:"max_parallel_steps" yaml:"max_parallel_steps"`
+}
+
+// ErrCICapacityUnavailable is a platform that does not serve the capacity
+// read: it predates the endpoint and answers 404. It is "nothing to show",
+// not a failure, so a caller leaves the capacity out rather than failing a
+// command whose settings it did read.
+var ErrCICapacityUnavailable = errors.New("the platform does not report pipeline capacity")
+
+// GetOrganisationCICapacity reads the organisation's pipeline capacity.
+// Readable by any organisation member. A platform that predates the endpoint
+// answers ErrCICapacityUnavailable.
+func (c *Client) GetOrganisationCICapacity(ctx context.Context) (*OrganisationCICapacity, error) {
+	body, requestError := c.doCISettingsRequestAt(ctx, http.MethodGet, ciCapacityPath, nil)
+	if requestError != nil {
+		var unexpected *UnexpectedResponseError
+		if errors.As(requestError, &unexpected) && unexpected.StatusCode == http.StatusNotFound {
+			return nil, ErrCICapacityUnavailable
+		}
+		return nil, requestError
+	}
+	var capacity OrganisationCICapacity
+	if unmarshalError := json.Unmarshal(body, &capacity); unmarshalError != nil {
+		return nil, fmt.Errorf("parse response: %w", unmarshalError)
+	}
+	return &capacity, nil
+}
+
+// The two paths of the organisation CI settings surface.
+const (
+	ciSettingsPath = "/api/v1/org/ci-settings"
+	ciCapacityPath = "/api/v1/org/ci-settings/capacity"
+)
+
 func decodeOrganisationCISettings(body []byte) (*OrganisationCISettings, error) {
 	var settings OrganisationCISettings
 	if unmarshalError := json.Unmarshal(body, &settings); unmarshalError != nil {
@@ -131,12 +190,18 @@ func decodeOrganisationCISettings(body []byte) (*OrganisationCISettings, error) 
 }
 
 func (c *Client) doCISettingsRequest(ctx context.Context, method string, body []byte) ([]byte, error) {
+	return c.doCISettingsRequestAt(ctx, method, ciSettingsPath, body)
+}
+
+// doCISettingsRequestAt sends one request to a path of the CI settings
+// surface and maps the refusals both of its routes write.
+func (c *Client) doCISettingsRequestAt(ctx context.Context, method string, path string,
+	body []byte) ([]byte, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)
 	}
-	request, requestError := http.NewRequestWithContext(ctx, method,
-		c.BaseURL+"/api/v1/org/ci-settings", bodyReader)
+	request, requestError := http.NewRequestWithContext(ctx, method, c.BaseURL+path, bodyReader)
 	if requestError != nil {
 		return nil, fmt.Errorf("create request: %w", requestError)
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -23,6 +24,23 @@ type orgCISettingsMock struct {
 	settings   client.OrganisationCISettings
 	updateSeen []map[string]any
 	clusters   []client.ClusterListItem
+
+	// capacity is what the capacity read answers; nil with no
+	// capacityError is a platform that predates the endpoint.
+	capacity      *client.OrganisationCICapacity
+	capacityError error
+}
+
+func (m *orgCISettingsMock) GetOrganisationCICapacity(
+	ctx context.Context) (*client.OrganisationCICapacity, error) {
+	if m.capacityError != nil {
+		return nil, m.capacityError
+	}
+	if m.capacity == nil {
+		return nil, client.ErrCICapacityUnavailable
+	}
+	capacity := *m.capacity
+	return &capacity, nil
 }
 
 func (m *orgCISettingsMock) GetOrganisationCISettings(
@@ -538,5 +556,159 @@ func TestRunOrgCISettingsSet_ClearsTheEgressListWithAnEmptyValue(t *testing.T) {
 	}
 	if len(cidrs) != 0 {
 		t.Errorf("an empty value clears the list, got %v", cidrs)
+	}
+}
+
+func busyCICapacity() *client.OrganisationCICapacity {
+	clusterID := "4b1f0f8e-9c1a-4c2f-9e6f-2a1d8b3c4d5e"
+	clusterName := "build-01"
+	return &client.OrganisationCICapacity{
+		ClusterID:                       &clusterID,
+		ClusterName:                     &clusterName,
+		CIWorkerCount:                   32,
+		IsLiveResizeSupported:           true,
+		StepsInFlightOnCluster:          32,
+		OrganisationRunsQueued:          3,
+		OrganisationRunsInFlight:        9,
+		OrganisationStepsPending:        12,
+		OrganisationStepsWaitingOnSlots: 4,
+		MaxParallelRuns:                 16,
+		MaxParallelSteps:                6,
+	}
+}
+
+// The capacity block answers the question a slow pipeline raises: are the
+// cluster's slots full, and how much of this organisation's work waits behind
+// them. A full cluster names the command that adds slots, and the block says a
+// slot is not a node, because the two are fixed in different places.
+func TestRunOrgCISettingsGet_ShowsTheCapacityOfAFullCluster(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings(), capacity: busyCICapacity()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, expected := range []string{
+		"Capacity:",
+		"CI slots:                32 of 32 in use on build-01",
+		"Live resize:             supported",
+		"Runs in flight:          9 of 16",
+		"Runs queued:             3",
+		"Steps pending:           12",
+		"Steps waiting on a slot: 4",
+		"not a node",
+		"ankra cluster agent ci set --workers N --cluster build-01",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("output missing %q:\n%s", expected, output)
+		}
+	}
+}
+
+// With no pipeline cluster there are no slots to report, and the block says so
+// rather than printing "0 of 0 in use".
+func TestRunOrgCISettingsGet_CapacityWithoutAPipelineClusterNamesNoSlots(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings(), capacity: &client.OrganisationCICapacity{
+		OrganisationRunsQueued: 1, MaxParallelRuns: 16, MaxParallelSteps: 6,
+	}}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "(no pipeline cluster") || strings.Contains(output, "0 of 0 in use") {
+		t.Errorf("no pipeline cluster must be said as such, got %s", output)
+	}
+	if strings.Contains(output, "--workers N") {
+		t.Errorf("with nothing waiting on a slot there is nothing to raise, got %s", output)
+	}
+}
+
+// A platform that predates the capacity read answers 404: the settings print
+// exactly as before, with no capacity block, no warning and no error.
+func TestRunOrgCISettingsGet_OlderPlatformOmitsTheCapacity(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("an older platform is not an error: %v\noutput: %s", executeError, output)
+	}
+	if strings.Contains(output, "Capacity") {
+		t.Errorf("an older platform has no capacity block or warning, got %s", output)
+	}
+
+	jsonOutput, jsonError := runOrgCISettings(t, mock, "org", "ci-settings", "get", "-o", "json")
+	if jsonError != nil {
+		t.Fatalf("execute failed: %v", jsonError)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(jsonOutput), &decoded); decodeError != nil {
+		t.Fatalf("-o json must stay parseable: %v\n%s", decodeError, jsonOutput)
+	}
+	if _, hasCapacity := decoded["capacity"]; hasCapacity {
+		t.Errorf("an older platform's capacity is absent, not zero: %s", jsonOutput)
+	}
+	if decoded["ci_build_fallback"] != client.CIBuildFallbackPlatformBuilders {
+		t.Errorf("the settings stay at the top level: %s", jsonOutput)
+	}
+}
+
+// -o json keeps every settings field where scripts already read it and adds
+// the capacity under its own key.
+func TestRunOrgCISettingsGet_JSONCarriesTheCapacityUnderItsOwnKey(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings(), capacity: busyCICapacity()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	var decoded struct {
+		BuildFallback   string                         `json:"ci_build_fallback"`
+		MaxParallelRuns int                            `json:"ci_max_parallel_runs"`
+		Capacity        *client.OrganisationCICapacity `json:"capacity"`
+	}
+	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+		t.Fatalf("-o json must stay parseable: %v\n%s", decodeError, output)
+	}
+	if decoded.BuildFallback != client.CIBuildFallbackPlatformBuilders || decoded.MaxParallelRuns != 4 {
+		t.Errorf("settings moved off the top level: %s", output)
+	}
+	if decoded.Capacity == nil || decoded.Capacity.CIWorkerCount != 32 ||
+		decoded.Capacity.OrganisationStepsWaitingOnSlots != 4 || !decoded.Capacity.IsLiveResizeSupported {
+		t.Errorf("capacity = %+v, want the platform's record", decoded.Capacity)
+	}
+
+	yamlOutput, yamlError := runOrgCISettings(t, mock, "org", "ci-settings", "get", "-o", "yaml")
+	if yamlError != nil {
+		t.Fatalf("execute failed: %v", yamlError)
+	}
+	if !strings.Contains(yamlOutput, "\nci_build_fallback: platform_builders\n") ||
+		!strings.Contains(yamlOutput, "\ncapacity:\n") ||
+		!strings.Contains(yamlOutput, "  organisation_steps_waiting_on_slots: 4\n") {
+		t.Errorf("-o yaml keeps the settings inline and nests the capacity:\n%s", yamlOutput)
+	}
+}
+
+// A capacity read that fails costs the block, not the command: the settings
+// still print, and the failure is said on stderr so -o json stays parseable
+// and "no block" is never read as "nothing is queued".
+func TestRunOrgCISettingsGet_ACapacityFailureIsReportedOnStderr(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings(), capacityError: errors.New("status 500")}
+	setMockClient(t, mock)
+	resetOrgCISettingsFlags(t)
+	standardOutput := new(bytes.Buffer)
+	standardError := new(bytes.Buffer)
+	rootCmd.SetOut(standardOutput)
+	rootCmd.SetErr(standardError)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+	})
+	rootCmd.SetArgs([]string{"org", "ci-settings", "get", "-o", "json"})
+	if executeError := rootCmd.Execute(); executeError != nil {
+		t.Fatalf("the settings were read, so the command succeeds: %v", executeError)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal(standardOutput.Bytes(), &decoded); decodeError != nil {
+		t.Fatalf("stdout must stay parseable: %v\n%s", decodeError, standardOutput.String())
+	}
+	if !strings.Contains(standardError.String(), "Pipeline capacity could not be read: status 500") {
+		t.Errorf("stderr = %q, want the failure named", standardError.String())
 	}
 }

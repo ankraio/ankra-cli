@@ -1,5 +1,36 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra org ci-settings get` shows how full your pipeline cluster is.**
+  A new Capacity block says how many of the cluster's CI slots are in use,
+  whether its agent takes a new worker count without restarting, and how
+  many of your organisation's runs and steps are in flight, queued, pending
+  and waiting for a free slot. When every slot is taken it prints the
+  `ankra cluster agent ci set --workers N` command that adds more. `-o json`
+  carries the same record under a `capacity` key, with every settings field
+  still at the top level. Platforms that do not report capacity leave the
+  block and the key out, with no error.
+- **`ankra pipeline get` says how long each step waited for a CI slot.** A
+  Queueing section lists the wait between Ankra handing a step to the agent
+  and the agent starting it, steps still waiting for a slot, and steps
+  returned to the queue because the node their run's workspace is pinned to
+  was full. `-o json` carries `dispatched_at` and `deferred_count` on each
+  step when the platform sends them.
+
+### Changed
+
+- **`ankra cluster agent ci set` no longer claims a restart that did not
+  happen.** When the platform reports that a new worker count reached the
+  agent live, the command says "Applied live, no agent restart" instead of
+  that the agent is re-rendering its release; platforms that do not report
+  it keep the previous sentence. `--workers` help now says a worker is a CI
+  slot (one pipeline step the agent watches at once), not a node, that
+  nodes come from the node group autoscaler, and that agents supporting
+  live resize accept up to 128 workers, older agents 32.
+
 ## v0.21.2 — 2026-10-02
 
 ### Added

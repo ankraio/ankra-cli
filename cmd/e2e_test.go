@@ -932,6 +932,12 @@ func (m baseMock) UpdateOrganisationCISettings(ctx context.Context,
 	return nil, errors.New("not implemented")
 }
 
+// GetOrganisationCICapacity answers as a platform that predates the capacity
+// read, so a test that does not stub it sees the settings alone.
+func (m baseMock) GetOrganisationCICapacity(ctx context.Context) (*client.OrganisationCICapacity, error) {
+	return nil, client.ErrCICapacityUnavailable
+}
+
 func (m baseMock) MCPCatalog(ctx context.Context) (*client.MCPCatalogResult, error) {
 	return nil, errors.New("not implemented")
 }
