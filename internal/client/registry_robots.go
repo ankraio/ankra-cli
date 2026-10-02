@@ -29,6 +29,11 @@ type RegistryRobot struct {
 	RobotName string `json:"robot_name" yaml:"robot_name"`
 	Host      string `json:"host" yaml:"host"`
 	Project   string `json:"project" yaml:"project"`
+	// ProjectName is what the project the robot is bound to is addressed
+	// by: default, the name of an extra project, or empty for a project on a
+	// registry the organisation runs itself. Absent from a platform that
+	// predates registry projects.
+	ProjectName string `json:"project_name" yaml:"project_name"`
 	// Projects is every registry project the login reaches.
 	Projects []string `json:"projects" yaml:"projects"`
 	// Scope is push, pull, or custom when the permissions are neither preset.
@@ -106,6 +111,9 @@ type CreateRegistryRobotRequest struct {
 	Permissions   []string `json:"permissions,omitempty"`
 	Description   string   `json:"description,omitempty"`
 	ExpiresInDays int      `json:"expires_in_days,omitempty"`
+	// Project names the registry project the robot is bound to; empty is the
+	// organisation's own.
+	Project string `json:"project,omitempty"`
 }
 
 // The robot scope vocabulary, mirroring the platform's.

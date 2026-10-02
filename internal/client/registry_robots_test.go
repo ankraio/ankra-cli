@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -168,5 +169,77 @@ func TestRegistryRobotsRelayTheManagedRefusal(t *testing.T) {
 	if deleteError := client.DeleteRegistryRobot(context.Background(), "ci"); deleteError == nil ||
 		!strings.Contains(deleteError.Error(), detail) {
 		t.Fatalf("delete error = %v", deleteError)
+	}
+}
+
+// Lane parity for registry projects: each method hits the exact route and
+// body the platform serves, and a route the platform does not register
+// answers an error that carries no backend detail, which is how callers tell
+// "this platform predates projects" from "no such project".
+func TestRegistryProjectsLaneParity(t *testing.T) {
+	type call struct {
+		method string
+		path   string
+		body   string
+	}
+	var calls []call
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		bodyBytes, _ := io.ReadAll(request.Body)
+		calls = append(calls, call{request.Method, request.URL.Path, string(bodyBytes)})
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/org/registry-projects":
+			jsonResponse(t, writer, http.StatusOK, map[string]any{
+				"projects": []any{
+					map[string]any{"name": "default", "project": "org-abc", "host": "artifact.ankra.cloud", "is_default": true,
+						"repository_count": 12, "robot_count": 3, "created_at": "2026-07-22T17:16:00.000Z"},
+					map[string]any{"name": "staging", "project": "org-abc-staging", "host": "artifact.ankra.cloud", "is_default": false,
+						"repository_count": 0, "robot_count": 1, "created_at": ""},
+				},
+				"total_count": 2, "extra_project_limit": 5,
+			})
+		case request.Method == http.MethodPost && request.URL.Path == "/api/v1/org/registry-projects":
+			jsonResponse(t, writer, http.StatusCreated, map[string]any{"name": "edge", "project": "org-abc-edge", "host": "artifact.ankra.cloud"})
+		case request.Method == http.MethodDelete && request.URL.Path == "/api/v1/org/registry-projects/edge":
+			jsonResponse(t, writer, http.StatusOK, map[string]any{"success": true})
+		case request.Method == http.MethodDelete && request.URL.Path == "/api/v1/org/registry-projects/busy":
+			jsonResponse(t, writer, http.StatusConflict, map[string]any{"detail": "Robot accounts are still bound to this project; revoke them first"})
+		default:
+			http.NotFound(writer, request)
+		}
+	})
+
+	list, listError := client.ListRegistryProjects(context.Background())
+	if listError != nil || len(list.Projects) != 2 || !list.Projects[0].IsDefault || list.Projects[0].RepositoryCount != 12 ||
+		list.Projects[1].Name != "staging" || list.ExtraProjectLimit != 5 {
+		t.Fatalf("list: %+v %v", list, listError)
+	}
+	created, createError := client.CreateRegistryProject(context.Background(), "edge")
+	if createError != nil || created.Project != "org-abc-edge" {
+		t.Fatalf("create: %+v %v", created, createError)
+	}
+	if deleteError := client.DeleteRegistryProject(context.Background(), "edge"); deleteError != nil {
+		t.Fatalf("delete: %v", deleteError)
+	}
+	if busyError := client.DeleteRegistryProject(context.Background(), "busy"); busyError == nil || !strings.Contains(busyError.Error(), "still bound") {
+		t.Fatalf("a refused delete must relay the platform's sentence, got %v", busyError)
+	}
+
+	expected := []call{
+		{http.MethodGet, "/api/v1/org/registry-projects", ""},
+		{http.MethodPost, "/api/v1/org/registry-projects", `{"name":"edge"}`},
+		{http.MethodDelete, "/api/v1/org/registry-projects/edge", ""},
+		{http.MethodDelete, "/api/v1/org/registry-projects/busy", ""},
+	}
+	for index, expectedCall := range expected {
+		if index >= len(calls) || calls[index] != expectedCall {
+			t.Fatalf("call %d = %+v, want %+v", index, calls, expectedCall)
+		}
+	}
+
+	unserved := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) { http.NotFound(writer, request) })
+	_, unservedError := unserved.ListRegistryProjects(context.Background())
+	var unexpected *UnexpectedResponseError
+	if !errors.As(unservedError, &unexpected) || unexpected.StatusCode != http.StatusNotFound || unexpected.Detail != "" {
+		t.Fatalf("an unregistered route = %v, want a 404 with no backend detail", unservedError)
 	}
 }

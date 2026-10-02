@@ -335,6 +335,9 @@ type APIClient interface {
 	GetRegistryRobot(requestContext context.Context, robotName string) (*client.RegistryRobot, error)
 	RotateRegistryRobotSecret(requestContext context.Context, robotName string) (*client.RegistryRobotWithSecret, error)
 	DeleteRegistryRobot(requestContext context.Context, robotName string) error
+	ListRegistryProjects(requestContext context.Context) (*client.RegistryProjectList, error)
+	CreateRegistryProject(requestContext context.Context, projectName string) (*client.RegistryProject, error)
+	DeleteRegistryProject(requestContext context.Context, projectName string) error
 	GetApplicationRepositoryCredential(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest client.SetApplicationRepositoryCredentialRequest) (json.RawMessage, error)
 	GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
