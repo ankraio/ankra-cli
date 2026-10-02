@@ -257,16 +257,18 @@ func newServicesPolicyGetCommand() *cobra.Command {
 }
 
 // servicePolicyRequiredDetail is the platform's answer (409) for a cluster
-// that has no placement policy yet, on a policy read and on anything that
-// needs one.
+// that has no placement policy yet: "Configure the cluster data policy
+// before connecting services".
 const servicePolicyRequiredDetail = "Configure the cluster data policy before connecting services"
 
-// isServicePolicyMissing reports the platform's refusal for a cluster
-// without a placement policy.
-func isServicePolicyMissing(lookupError error) bool {
+// isServicePolicyMissing reports, for an error from the policy read (GET
+// .../cluster-policies/{id}), that the cluster has no placement policy. On
+// that route a 409 has exactly one cause - the read answers a missing policy
+// with 409 and every other refusal with 403 or 404 - so the status decides,
+// not the wording of the platform's sentence. Use it only on that read.
+func isServicePolicyMissing(policyReadError error) bool {
 	var unexpected *client.UnexpectedResponseError
-	return errors.As(lookupError, &unexpected) && unexpected.StatusCode == http.StatusConflict &&
-		strings.Contains(unexpected.Detail, servicePolicyRequiredDetail)
+	return errors.As(policyReadError, &unexpected) && unexpected.StatusCode == http.StatusConflict
 }
 
 func printServiceClusterPolicy(out io.Writer, clusterName string, policy client.ServiceClusterPolicy) {
