@@ -35,6 +35,38 @@ type ClusterAddonListItem struct {
 	State              *string    `json:"state,omitempty"`
 	ThroughAnkra       bool       `json:"through_ankra"`
 	LatestChartVersion *string    `json:"latest_chart_version"`
+	// SecurityAdvisories lists the published upstream security advisories
+	// covering this addon's version that have a fix available, most severe
+	// first. Read it with SecurityAdvisoryStatus: an empty list is a clean
+	// answer only when the status is "checked"; "unknown" means the platform
+	// could not judge the addon and "not_tracked" that its chart has no
+	// advisory source. Older platforms send none of these fields.
+	SecurityAdvisories     []AddonSecurityAdvisory `json:"security_advisories" yaml:"security_advisories"`
+	SecurityAdvisoryStatus string                  `json:"security_advisory_status" yaml:"security_advisory_status"`
+	// SecurityUpgradeChartVersion is the nearest chart version that fixes
+	// every listed advisory.
+	SecurityUpgradeChartVersion *string `json:"security_upgrade_chart_version" yaml:"security_upgrade_chart_version"`
+}
+
+// Security advisory statuses the platform reports per addon.
+const (
+	SecurityAdvisoryStatusChecked    = "checked"
+	SecurityAdvisoryStatusUnknown    = "unknown"
+	SecurityAdvisoryStatusNotTracked = "not_tracked"
+)
+
+// AddonSecurityAdvisory is one published advisory covering an installed
+// addon's version.
+type AddonSecurityAdvisory struct {
+	AdvisoryID          string     `json:"advisory_id" yaml:"advisory_id"`
+	Aliases             []string   `json:"aliases" yaml:"aliases"`
+	Severity            string     `json:"severity" yaml:"severity"`
+	Summary             string     `json:"summary" yaml:"summary"`
+	URL                 string     `json:"url" yaml:"url"`
+	PublishedAt         *time.Time `json:"published_at" yaml:"published_at"`
+	AffectedVersion     string     `json:"affected_version" yaml:"affected_version"`
+	FixedVersion        *string    `json:"fixed_version" yaml:"fixed_version"`
+	UpgradeChartVersion *string    `json:"upgrade_chart_version" yaml:"upgrade_chart_version"`
 }
 
 type ListClusterAddonsResponse struct {

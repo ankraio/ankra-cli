@@ -23,9 +23,11 @@ type Environment struct {
 	UpdatedAt string `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
 }
 
-// EnvironmentList is the GET /environments answer.
+// EnvironmentList is the GET /environments answer. Truncated says the
+// listing stopped at the platform's row cap and more environments exist.
 type EnvironmentList struct {
 	Environments []Environment `json:"environments" yaml:"environments"`
+	Truncated    bool          `json:"truncated" yaml:"truncated"`
 }
 
 // CreateHostJoinTokenRequest is the POST .../host-join-tokens body.
@@ -82,9 +84,11 @@ func (target HostTarget) IsRevoked() bool {
 	return target.RevokedAt != nil && *target.RevokedAt != ""
 }
 
-// HostTargetList is the GET /host-targets answer.
+// HostTargetList is the GET /host-targets answer. Truncated says the
+// listing stopped at the platform's row cap and more targets exist.
 type HostTargetList struct {
 	HostTargets []HostTarget `json:"host_targets" yaml:"host_targets"`
+	Truncated   bool         `json:"truncated" yaml:"truncated"`
 }
 
 // DeploymentTarget is one host's job within a deployment; its id is the job
@@ -110,7 +114,8 @@ type DeploymentTarget struct {
 
 // Deployment is one release of a published artefact digest to the active
 // host targets of an environment. Targets is filled by GET
-// /deployments/{deployment_id} only.
+// /deployments/{deployment_id} only, and TargetsTruncated says that list
+// stopped at the platform's row cap.
 type Deployment struct {
 	ID                 string             `json:"id" yaml:"id"`
 	Environment        string             `json:"environment" yaml:"environment"`
@@ -138,6 +143,7 @@ type Deployment struct {
 	CreatedAt          string             `json:"created_at,omitempty" yaml:"created_at,omitempty"`
 	UpdatedAt          string             `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
 	Targets            []DeploymentTarget `json:"targets,omitempty" yaml:"targets,omitempty"`
+	TargetsTruncated   bool               `json:"targets_truncated,omitempty" yaml:"targets_truncated,omitempty"`
 }
 
 // DeploymentList is one page of GET /deployments, newest first.

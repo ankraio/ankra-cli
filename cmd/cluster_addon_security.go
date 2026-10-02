@@ -1,0 +1,85 @@
+package cmd
+
+import (
+	"fmt"
+	"strings"
+
+	"ankra/internal/client"
+)
+
+// addonSecuritySummary is the Security column of `cluster addons list`:
+// the worst advisory and the chart version that fixes it, "unknown" when
+// the platform could not judge the addon (an empty list then is not a
+// clean answer), "ok" for a judged addon with nothing to fix, and "-" when
+// no advisory source is tracked for the chart or the platform predates
+// the field.
+func addonSecuritySummary(addon client.ClusterAddonListItem) string {
+	if len(addon.SecurityAdvisories) > 0 {
+		worst := addon.SecurityAdvisories[0]
+		summary := fmt.Sprintf("update: %s (%s)", worst.AdvisoryID, worst.Severity)
+		if more := len(addon.SecurityAdvisories) - 1; more > 0 {
+			summary += fmt.Sprintf(" +%d", more)
+		}
+		if addon.SecurityUpgradeChartVersion != nil && *addon.SecurityUpgradeChartVersion != "" {
+			summary += " -> " + *addon.SecurityUpgradeChartVersion
+		}
+		return summary
+	}
+	switch addon.SecurityAdvisoryStatus {
+	case client.SecurityAdvisoryStatusChecked:
+		return "ok"
+	case client.SecurityAdvisoryStatusUnknown:
+		return "unknown"
+	default:
+		return "-"
+	}
+}
+
+// countAddonsWithSecurityUpdates counts the addons with at least one
+// advisory.
+func countAddonsWithSecurityUpdates(addons []client.ClusterAddonListItem) int {
+	count := 0
+	for _, addon := range addons {
+		if len(addon.SecurityAdvisories) > 0 {
+			count++
+		}
+	}
+	return count
+}
+
+// printAddonSecurityDetails prints the security section of a single addon's
+// details: each advisory with its severity, summary, link and fixed
+// release, and the upgrade command that applies the fix. The command names
+// clusterName, so pasting it upgrades the cluster that was listed even when
+// it was reached with --cluster rather than 'cluster select'. Ankra never
+// runs that upgrade for the owner.
+func printAddonSecurityDetails(addon client.ClusterAddonListItem, clusterName string) {
+	switch {
+	case len(addon.SecurityAdvisories) > 0:
+		fmt.Println()
+		fmt.Println("Security update available:")
+		for _, advisory := range addon.SecurityAdvisories {
+			fmt.Printf("  %s (%s)\n", advisory.AdvisoryID, advisory.Severity)
+			if summary := strings.TrimSpace(advisory.Summary); summary != "" {
+				fmt.Printf("    %s\n", summary)
+			}
+			if advisory.AffectedVersion != "" {
+				fmt.Printf("    Running:   %s\n", advisory.AffectedVersion)
+			}
+			if advisory.FixedVersion != nil && *advisory.FixedVersion != "" {
+				fmt.Printf("    Fixed in:  %s\n", *advisory.FixedVersion)
+			}
+			if advisory.URL != "" {
+				fmt.Printf("    Details:   %s\n", advisory.URL)
+			}
+		}
+		if addon.SecurityUpgradeChartVersion != nil && *addon.SecurityUpgradeChartVersion != "" {
+			fmt.Printf("\n  To upgrade: ankra cluster addons upgrade %s --chart-version %s --cluster %s\n",
+				addon.Name, *addon.SecurityUpgradeChartVersion, clusterName)
+		}
+	case addon.SecurityAdvisoryStatus == client.SecurityAdvisoryStatusChecked:
+		fmt.Println("  Security:        no published advisory with a fix covers this version")
+	case addon.SecurityAdvisoryStatus == client.SecurityAdvisoryStatusUnknown:
+		fmt.Println("  Security:        not checked - the platform could not read this addon's version or advisory data")
+	}
+}

@@ -17,12 +17,14 @@ import (
 
 var orgAIReviewCmd = &cobra.Command{
 	Use:   "ai-review",
-	Short: "Configure what the organisation's AI code review may read",
+	Short: "Configure the organisation's AI code review: per-repository rules and related repositories",
 	Long: `Configure the organisation's AI code review.
 
-Switching review on for a connection stays in the portal's Source control & AI
-review settings, and the model a review runs on is chosen with
-'ankra ai lanes set pr_review <model>'.`,
+'repos' turns the review on or off for one repository (and sets its model,
+draft reviews and review cap); 'related-repos' states which other repositories
+a review may read. A connection's own settings stay in the portal's Source
+control & AI review settings, and the organisation-wide review model is chosen
+with 'ankra ai lanes set pr_review <model>'.`,
 }
 
 var orgAIReviewRelatedReposCmd = &cobra.Command{
