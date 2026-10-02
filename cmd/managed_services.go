@@ -208,17 +208,21 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 
 // serviceNames turns the ids a service record carries into names for human
 // output. Every lookup is best effort: a name that cannot be read is shown
-// as its id, never as an error.
+// as its id, never as an error. A lookup that failed says so once on stderr,
+// so an id shown for want of a name is not mistaken for a resource that is
+// gone.
 type serviceNames struct {
 	ctx            context.Context
+	notes          io.Writer
 	clusters       map[string]string
 	packages       map[string]string
 	clustersLoaded bool
 	packagesLoaded bool
 }
 
-func newServiceNames(ctx context.Context) *serviceNames {
-	return &serviceNames{ctx: ctx, clusters: map[string]string{}, packages: map[string]string{}}
+func newServiceNames(command *cobra.Command) *serviceNames {
+	return &serviceNames{ctx: command.Context(), notes: command.ErrOrStderr(),
+		clusters: map[string]string{}, packages: map[string]string{}}
 }
 
 func (names *serviceNames) cluster(clusterID string) string {
@@ -228,6 +232,7 @@ func (names *serviceNames) cluster(clusterID string) string {
 		for page := 1; page <= 20; page++ {
 			response, listError := apiClient.ListClusters(page, pageSize)
 			if listError != nil || response == nil {
+				names.lookupFailed("cluster", listError)
 				break
 			}
 			for _, cluster := range response.Result {
@@ -246,6 +251,14 @@ func (names *serviceNames) cluster(clusterID string) string {
 	return clusterID
 }
 
+func (names *serviceNames) lookupFailed(kind string, lookupError error) {
+	reason := "no answer"
+	if lookupError != nil {
+		reason = lookupError.Error()
+	}
+	_, _ = fmt.Fprintf(names.notes, "Note: %s names could not be read (%s); %ss are shown by id.\n", kind, reason, kind)
+}
+
 func (names *serviceNames) clusterWithID(clusterID string) string {
 	if name := names.cluster(clusterID); name != clusterID {
 		return fmt.Sprintf("%s (%s)", name, clusterID)
@@ -256,10 +269,12 @@ func (names *serviceNames) clusterWithID(clusterID string) string {
 func (names *serviceNames) packageVersion(versionID string) string {
 	if !names.packagesLoaded {
 		names.packagesLoaded = true
-		if packages, listError := listAllServicePackages(names.ctx); listError == nil {
-			for _, servicePackage := range packages {
-				names.packages[servicePackage.ID] = servicePackage.Name + " " + servicePackage.Version
-			}
+		packages, listError := listAllServicePackages(names.ctx)
+		if listError != nil {
+			names.lookupFailed("package", listError)
+		}
+		for _, servicePackage := range packages {
+			names.packages[servicePackage.ID] = servicePackage.Name + " " + servicePackage.Version
 		}
 	}
 	if name := names.packages[versionID]; name != "" {
@@ -338,7 +353,7 @@ Retired services keep their record; --include-released lists them too.`,
 			if len(shown) == 0 {
 				_, _ = fmt.Fprintln(out, "No managed services. Set one up with 'ankra services setup'; 'ankra services --help' walks through it.")
 			} else {
-				names := newServiceNames(command.Context())
+				names := newServiceNames(command)
 				instanceTable := table.NewWriter()
 				instanceTable.SetOutputMirror(out)
 				instanceTable.SetStyle(table.StyleRounded)
@@ -388,7 +403,7 @@ A name that runs on more than one cluster needs --cluster.`,
 			if rendered, renderError := renderStructured(command, instance); rendered || renderError != nil {
 				return renderError
 			}
-			printServiceInstance(command.OutOrStdout(), newServiceNames(command.Context()), *instance)
+			printServiceInstance(command.OutOrStdout(), newServiceNames(command), *instance)
 			return nil
 		},
 	}

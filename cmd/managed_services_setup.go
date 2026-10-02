@@ -374,7 +374,7 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 		return prepareError
 	}
 
-	names := newServiceNames(ctx)
+	names := newServiceNames(command)
 	human := serviceHumanWriter(command)
 	printServiceReviewPlan(human, names, detail.Name+" "+detail.Version, *review)
 	confirmHint := fmt.Sprintf("ankra services reviews confirm %s --digest %s", review.ID, review.Digest)
@@ -491,7 +491,7 @@ func newServicesReviewsListCommand() *cobra.Command {
 				_, _ = fmt.Fprintln(out, "No setup reviews.")
 				return nil
 			}
-			names := newServiceNames(command.Context())
+			names := newServiceNames(command)
 			reviewTable := table.NewWriter()
 			reviewTable.SetOutputMirror(out)
 			reviewTable.SetStyle(table.StyleRounded)
@@ -526,7 +526,7 @@ func newServicesReviewsGetCommand() *cobra.Command {
 			if rendered, renderError := renderStructured(command, review); rendered || renderError != nil {
 				return renderError
 			}
-			printServiceReviewSummary(command.OutOrStdout(), newServiceNames(command.Context()), *review)
+			printServiceReviewSummary(command.OutOrStdout(), newServiceNames(command), *review)
 			return nil
 		},
 	}
@@ -559,7 +559,7 @@ review that already expired needs a new 'ankra services setup'.`,
 			if getError != nil {
 				return getError
 			}
-			names := newServiceNames(ctx)
+			names := newServiceNames(command)
 			human := serviceHumanWriter(command)
 			printServiceReviewSummary(human, names, *review)
 			switch review.State {

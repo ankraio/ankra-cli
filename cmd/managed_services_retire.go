@@ -410,7 +410,7 @@ func runServicesDelete(command *cobra.Command, arguments []string) error {
 // reviewAndConfirmServiceRetirement shows a pending retirement review and
 // confirms it after a yes (or --yes), or stops there with --review-only.
 func reviewAndConfirmServiceRetirement(command *cobra.Command, human io.Writer, instanceID string, retirement client.ServiceRetirement) error {
-	names := newServiceNames(command.Context())
+	names := newServiceNames(command)
 	printServiceRetirementPlan(human, names, retirement)
 	confirmHint := fmt.Sprintf("ankra services retirements confirm %s %s --digest %s --%s",
 		instanceID, retirement.ID, retirement.Digest, serviceDataLossFlag)
@@ -541,7 +541,7 @@ func newServicesRetirementsGetCommand() *cobra.Command {
 				return renderError
 			}
 			out := command.OutOrStdout()
-			printServiceRetirementPlan(out, newServiceNames(command.Context()), *retirement)
+			printServiceRetirementPlan(out, newServiceNames(command), *retirement)
 			printServiceRetirementProgress(out, *retirement)
 			return nil
 		},
@@ -583,14 +583,14 @@ Without --digest the digest of the review shown is the one confirmed.`,
 			human := serviceHumanWriter(command)
 			switch retirement.State {
 			case "expired":
-				printServiceRetirementPlan(human, newServiceNames(command.Context()), *retirement)
+				printServiceRetirementPlan(human, newServiceNames(command), *retirement)
 				return fmt.Errorf("retirement %s expired at %s and can no longer be confirmed: prepare a new one with "+
 					"'ankra services delete %s --%s'", retirement.ID, retirement.ExpiresAt, instance.ID, serviceDataLossFlag)
 			case "in_progress", "settled":
 				if rendered, renderError := renderStructured(command, retirement); rendered || renderError != nil {
 					return renderError
 				}
-				printServiceRetirementPlan(human, newServiceNames(command.Context()), *retirement)
+				printServiceRetirementPlan(human, newServiceNames(command), *retirement)
 				printServiceRetirementProgress(human, *retirement)
 				_, _ = fmt.Fprintf(human, "\nRetirement %s was already confirmed; nothing more to do.\n", retirement.ID)
 				return nil

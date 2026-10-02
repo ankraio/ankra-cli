@@ -70,6 +70,8 @@ type fakeServicesPlatform struct {
 	// reviewChanged makes every setup confirmation answer the platform's
 	// conflict, as for a review that expired or whose inputs changed.
 	reviewChanged bool
+	// consumersUnreadable makes the consumer listing answer a refusal.
+	consumersUnreadable bool
 }
 
 func newFakeServicesPlatform(t *testing.T) *fakeServicesPlatform {
@@ -270,6 +272,10 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		}
 		fakeServiceJSON(t, writer, http.StatusOK, fakeServiceReview(true))
 	case request.Method == http.MethodGet && path == admission+"/consumers":
+		if platform.consumersUnreadable {
+			fakeServiceJSON(t, writer, http.StatusForbidden, map[string]any{"detail": "Insufficient permission"})
+			return
+		}
 		if request.URL.Query().Get("application_id") != fakeServiceApplication {
 			t.Errorf("consumer listing for an unexpected application: %s", request.URL.RawQuery)
 		}
@@ -613,6 +619,11 @@ func TestServicesGetShowsConnectionButNeverSecretValues(t *testing.T) {
 	}
 	if strings.Contains(stdout+stderr, fakeServiceSecretValue) {
 		t.Fatalf("a credential value reached the output:\n%s%s", stdout, stderr)
+	}
+	// The fake serves no cluster listing: the ids shown for want of names
+	// are said to be that, once, on stderr.
+	if strings.Count(stderr, "Note: cluster names could not be read") != 1 {
+		t.Errorf("a failed cluster name lookup must be noted once on stderr:\n%s", stderr)
 	}
 	if pages := platform.requests(http.MethodGet, "/service-admission/instances"); len(pages) != 2 {
 		t.Errorf("the name lookup must follow next_cursor past the empty first page, read %d pages", len(pages))
@@ -1019,5 +1030,23 @@ func TestServicesRetirementsConfirmOnlyConfirmsAPendingReview(t *testing.T) {
 	}
 	if confirms := platform.requests(http.MethodPost, "/confirm"); len(confirms) != 0 {
 		t.Fatal("a retirement that is not pending was confirmed")
+	}
+}
+
+// A binding listing that cannot be read does not block the bind, but says
+// that the duplicate check was skipped.
+func TestServicesConsumersBindNotesASkippedDuplicateCheck(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.consumersUnreadable = true
+	_, stderr, runError := runServicesCommand(t, platform, "", "consumers", "bind",
+		"--application", fakeServiceApplication, "--cluster", fakeServiceClusterID, "--namespace", "orders")
+	if runError != nil {
+		t.Fatal(runError)
+	}
+	if binds := platform.requests(http.MethodPost, "/service-admission/consumers"); len(binds) != 1 {
+		t.Fatalf("the bind must still be sent, got %d", len(binds))
+	}
+	if !strings.Contains(stderr, "whether this namespace is already bound was not checked") {
+		t.Errorf("a skipped duplicate check must be said on stderr:\n%s", stderr)
 	}
 }

@@ -404,7 +404,7 @@ clusters you cannot read are not listed.`,
 				_, _ = fmt.Fprintln(out, "No consumer bindings for this application. Bind one with 'ankra services consumers bind'.")
 				return nil
 			}
-			names := newServiceNames(command.Context())
+			names := newServiceNames(command)
 			bindingTable := table.NewWriter()
 			bindingTable.SetOutputMirror(out)
 			bindingTable.SetStyle(table.StyleRounded)
@@ -443,7 +443,7 @@ application installation it binds (none for a planned binding).`,
 			if rendered, renderError := renderStructured(command, consumer); rendered || renderError != nil {
 				return renderError
 			}
-			printServiceConsumer(command.OutOrStdout(), newServiceNames(command.Context()), *consumer)
+			printServiceConsumer(command.OutOrStdout(), newServiceNames(command), *consumer)
 			return nil
 		},
 	}
@@ -471,8 +471,10 @@ func printServiceConsumer(out io.Writer, names *serviceNames, consumer client.Se
 // application, cluster and namespace, and the platform answers a create of
 // an existing one with a bare "configuration changed" conflict, so bind looks
 // first and names the binding instead. A listing that cannot be read is not
-// a refusal: the bind goes ahead and the platform decides.
-func findServiceConsumerBinding(ctx context.Context, applicationID string, clusterID string, namespace string) *client.ServiceConsumerBinding {
+// a refusal - the bind goes ahead and the platform decides - but it is said
+// on stderr, so a conflict that follows is not a mystery.
+func findServiceConsumerBinding(command *cobra.Command, applicationID string, clusterID string, namespace string) *client.ServiceConsumerBinding {
+	ctx := command.Context()
 	bindings, listError := collectServicePages(func(after string) ([]client.ServiceConsumerBinding, *string, error) {
 		page, pageError := apiClient.ListServiceConsumers(ctx, applicationID, client.ServicePageOptions{Limit: servicePageLimit, After: after})
 		if pageError != nil {
@@ -481,6 +483,8 @@ func findServiceConsumerBinding(ctx context.Context, applicationID string, clust
 		return page.Items, page.NextCursor, nil
 	})
 	if listError != nil {
+		_, _ = fmt.Fprintf(command.ErrOrStderr(), "Note: the application's existing bindings could not be read (%v), "+
+			"so whether this namespace is already bound was not checked; binding anyway.\n", listError)
 		return nil
 	}
 	for index := range bindings {
@@ -533,7 +537,7 @@ deploys nothing and delivers no credentials.`,
 				return clusterError
 			}
 			if revision == 0 {
-				if existing := findServiceConsumerBinding(command.Context(), applicationID, clusterID, namespace); existing != nil {
+				if existing := findServiceConsumerBinding(command, applicationID, clusterID, namespace); existing != nil {
 					return withExitCode(exitUsage, fmt.Errorf("namespace %s on that cluster is already bound for this application as consumer %s "+
 						"(revision %d): pass --consumer %s to setup as it is, or --revision %d to change the binding",
 						namespace, existing.ID, existing.Revision, existing.ID, existing.Revision))
@@ -550,7 +554,7 @@ deploys nothing and delivers no credentials.`,
 				return renderError
 			}
 			out := command.OutOrStdout()
-			printServiceConsumer(out, newServiceNames(command.Context()), *consumer)
+			printServiceConsumer(out, newServiceNames(command), *consumer)
 			_, _ = fmt.Fprintf(out, "Set a service up for it with 'ankra services setup <name> --package <package> --consumer %s'.\n", consumer.ID)
 			return nil
 		},
