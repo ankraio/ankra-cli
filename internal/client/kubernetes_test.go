@@ -545,7 +545,7 @@ func TestGetHelmReleaseDetail(t *testing.T) {
 				UserValues: map[string]interface{}{"replicas": float64(2)},
 			})
 		})
-		got, err := testClient.GetHelmReleaseDetail("cluster-id", "traefik-ns", "traefik")
+		got, err := testClient.GetHelmReleaseDetail("cluster-id", "traefik-ns", "traefik", false)
 		if err != nil {
 			t.Fatalf("GetHelmReleaseDetail() error = %v", err)
 		}
@@ -559,7 +559,7 @@ func TestGetHelmReleaseDetail(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"detail":"release traefik not found in namespace traefik-ns"}`))
 		})
-		_, err := testClient.GetHelmReleaseDetail("cluster-id", "traefik-ns", "traefik")
+		_, err := testClient.GetHelmReleaseDetail("cluster-id", "traefik-ns", "traefik", false)
 		var unexpected *UnexpectedResponseError
 		if !errors.As(err, &unexpected) || unexpected.StatusCode != http.StatusNotFound {
 			t.Fatalf("expected a 404 UnexpectedResponseError, got %v", err)
@@ -574,7 +574,7 @@ func TestGetHelmReleaseDetail(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte(`{"error_code":"CLUSTER_OFFLINE","detail":"offline"}`))
 		})
-		_, err := testClient.GetHelmReleaseDetail("cluster-id", "traefik-ns", "traefik")
+		_, err := testClient.GetHelmReleaseDetail("cluster-id", "traefik-ns", "traefik", false)
 		var unavailable *ClusterUnavailableError
 		if !errors.As(err, &unavailable) || unavailable.ErrorCode != "CLUSTER_OFFLINE" {
 			t.Fatalf("expected ClusterUnavailableError, got %v", err)

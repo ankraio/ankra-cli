@@ -68,20 +68,31 @@ type helmReleaseOpsMock struct {
 	gotNS       string
 	historyCall int
 	historyMax  int
+	// secretValues is the marker a plain read answers with; revealAnswer,
+	// when set, is the one a --reveal read answers with.
+	secretValues string
+	revealAnswer string
+	gotReveal    bool
 }
 
 func (m *helmReleaseOpsMock) GetCluster(name string) (client.ClusterListItem, error) {
 	return client.ClusterListItem{ID: "cluster-abc", Name: name}, nil
 }
 
-func (m *helmReleaseOpsMock) GetHelmReleaseDetail(clusterID, namespace, releaseName string) (*client.HelmReleaseDetail, error) {
+func (m *helmReleaseOpsMock) GetHelmReleaseDetail(clusterID, namespace, releaseName string, revealValues bool) (*client.HelmReleaseDetail, error) {
 	m.gotRelease, m.gotNS = releaseName, namespace
+	m.gotReveal = revealValues
 	chart := "traefik-30.0.0"
 	notes := "Traefik is up.\n"
+	secretValues := m.secretValues
+	if revealValues && m.revealAnswer != "" {
+		secretValues = m.revealAnswer
+	}
 	return &client.HelmReleaseDetail{
-		Metadata:   client.HelmReleaseMetadata{Name: releaseName, Namespace: namespace, Revision: 4, Status: "deployed", Chart: &chart},
-		UserValues: map[string]interface{}{"deployment": map[string]interface{}{"replicas": 2}},
-		Notes:      &notes,
+		Metadata:     client.HelmReleaseMetadata{Name: releaseName, Namespace: namespace, Revision: 4, Status: "deployed", Chart: &chart},
+		UserValues:   map[string]interface{}{"deployment": map[string]interface{}{"replicas": 2}},
+		Notes:        &notes,
+		SecretValues: secretValues,
 	}, nil
 }
 
@@ -285,5 +296,46 @@ func TestHelmHistory_UnsupportedOutputExitsUsage(t *testing.T) {
 	}
 	if mock.historyCall != 0 {
 		t.Error("an unsupported output format must be rejected before any API call")
+	}
+}
+
+func TestHelmGet_WithheldValuesAreExplainedOnStderr(t *testing.T) {
+	mock := &helmReleaseOpsMock{secretValues: client.HelmValuesWithheld}
+	resetConfirmFlag(t, clusterHelmGetCmd, clusterCmd)
+	out, err := runWithInput(t, mock, "", "cluster", "helm", "get", "traefik", "-n", "traefik", "--cluster", "prod-cluster", "-o", "values")
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out)
+	}
+	if mock.gotReveal {
+		t.Error("a plain get must not ask for the values in plaintext")
+	}
+	if !strings.Contains(out, "--reveal") || !strings.Contains(out, "[REDACTED:...]") {
+		t.Errorf("a withheld release should say how to reveal, got: %s", out)
+	}
+}
+
+func TestHelmGet_RevealSendsTheFlagAndPrintsNoNote(t *testing.T) {
+	mock := &helmReleaseOpsMock{secretValues: client.HelmValuesWithheld, revealAnswer: client.HelmValuesRevealed}
+	resetConfirmFlag(t, clusterHelmGetCmd, clusterCmd)
+	t.Cleanup(func() { _ = clusterHelmGetCmd.Flags().Set("reveal", "false") })
+	out, err := runWithInput(t, mock, "", "cluster", "helm", "get", "traefik", "-n", "traefik", "--cluster", "prod-cluster", "-o", "values", "--reveal")
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out)
+	}
+	if !mock.gotReveal || strings.Contains(out, "placeholders") {
+		t.Errorf("--reveal should ask for plaintext and print no note: reveal=%v out=%s", mock.gotReveal, out)
+	}
+}
+
+func TestHelmGet_RevealWithoutThePermissionExitsForbidden(t *testing.T) {
+	mock := &helmReleaseOpsMock{secretValues: client.HelmValuesWithheld, revealAnswer: client.HelmValuesPermissionRequired}
+	resetConfirmFlag(t, clusterHelmGetCmd, clusterCmd)
+	t.Cleanup(func() { _ = clusterHelmGetCmd.Flags().Set("reveal", "false") })
+	out, err := runWithInput(t, mock, "", "cluster", "helm", "get", "traefik", "-n", "traefik", "--cluster", "prod-cluster", "-o", "values", "--reveal")
+	if got := exitCodeFor(err); got != exitForbidden {
+		t.Fatalf("a refused reveal should exit %d, got %d (err=%v)", exitForbidden, got, err)
+	}
+	if strings.Contains(out, "replicas") {
+		t.Errorf("a refused reveal must not print the withheld values as if they were the real ones: %s", out)
 	}
 }

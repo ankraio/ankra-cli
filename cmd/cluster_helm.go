@@ -139,14 +139,23 @@ deployed, the values it was installed with and the chart's notes.
 '-o values' prints only the values the release was installed with, as YAML:
 edit that file and hand it back to 'cluster helm upgrade --values'.
 
+Passwords, tokens and keys in a release's values, the Secrets it renders and
+its notes are shown as [REDACTED:...] placeholders. '--reveal' asks for them in
+plaintext: that needs the kubernetes.secrets_reveal permission on the cluster,
+and each reveal is written to the audit log. An upgrade whose values file still
+holds a placeholder is refused, so reveal before you edit a release that has
+credentials.
+
 Examples:
   ankra cluster helm get traefik -n traefik
-  ankra cluster helm get traefik -n traefik -o values > traefik-values.yaml`,
+  ankra cluster helm get traefik -n traefik -o values > traefik-values.yaml
+  ankra cluster helm get postgres -n data -o values --reveal > postgres-values.yaml`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		releaseName := args[0]
 		namespace, _ := cmd.Flags().GetString("namespace")
 		outputFormat, _ := cmd.Flags().GetString("output")
+		revealValues, _ := cmd.Flags().GetBool("reveal")
 		if namespace == "" {
 			return withExitCode(exitUsage, errors.New("--namespace (-n) is required for helm get"))
 		}
@@ -160,8 +169,11 @@ Examples:
 		if err != nil {
 			return err
 		}
-		detail, err := apiClient.GetHelmReleaseDetail(cluster.ID, namespace, releaseName)
+		detail, err := apiClient.GetHelmReleaseDetail(cluster.ID, namespace, releaseName, revealValues)
 		if err != nil {
+			return err
+		}
+		if err := reportWithheldHelmValues(cmd.ErrOrStderr(), detail.SecretValues, revealValues); err != nil {
 			return err
 		}
 
@@ -468,6 +480,7 @@ func init() {
 
 	clusterHelmGetCmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace (required)")
 	clusterHelmGetCmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml, values")
+	clusterHelmGetCmd.Flags().Bool("reveal", false, "Show credential values in plaintext (needs kubernetes.secrets_reveal; audited)")
 
 	clusterHelmHistoryCmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace (required)")
 	clusterHelmHistoryCmd.Flags().Int("limit", 25, "Number of revisions to show (1-200)")
@@ -496,4 +509,28 @@ func init() {
 	clusterHelmCmd.AddCommand(clusterHelmUninstallCmd)
 
 	clusterCmd.AddCommand(clusterHelmCmd)
+}
+
+// reportWithheldHelmValues tells the reader, on stderr, that a release's
+// credential values are placeholders. A --reveal the platform did not honour
+// is an error rather than a note: the caller asked for the values, and output
+// redirected into a values file would otherwise hold placeholders that the
+// next upgrade refuses.
+func reportWithheldHelmValues(stderr io.Writer, secretValues string, revealRequested bool) error {
+	switch secretValues {
+	case "", client.HelmValuesRevealed:
+		return nil
+	case client.HelmValuesPermissionRequired:
+		return withExitCode(exitForbidden, errors.New(
+			"the release's credential values were not revealed: you need the kubernetes.secrets_reveal permission on this cluster"))
+	case client.HelmValuesUnavailable:
+		return errors.New("the release's credential values could not be revealed; try again")
+	}
+	if revealRequested {
+		return errors.New("the release's credential values were not revealed; try again")
+	}
+	_, _ = fmt.Fprintln(stderr, "Note: credential values in this release are shown as [REDACTED:...] placeholders. "+
+		"Run with --reveal to see them (needs kubernetes.secrets_reveal; the reveal is audited). "+
+		"'cluster helm upgrade --values' refuses a file that still holds a placeholder.")
+	return nil
 }
