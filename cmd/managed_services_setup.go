@@ -207,9 +207,17 @@ func checkServiceSetupAgainstContract(detail client.ServicePackageDetail, mode s
 			return withExitCode(exitUsage, fmt.Errorf("package %s %s has no secret input %q ('ankra services packages get %s' lists them)",
 				detail.Name, detail.Version, name, detail.ID))
 		}
-		if len(secret.Modes) > 0 && !slices.Contains(secret.Modes, mode) {
+		if !slices.Contains(secret.Modes, mode) {
 			return withExitCode(exitUsage, fmt.Errorf("secret input %q of package %s %s is not used in %s mode (only: %s)",
 				name, detail.Name, detail.Version, mode, strings.Join(secret.Modes, ", ")))
+		}
+	}
+	// Every secret input the mode uses is required: the platform resolves a
+	// grant for each and refuses the plan without one.
+	for _, secret := range detail.Contract.Secrets {
+		if _, supplied := secretReferences[secret.Name]; !supplied && slices.Contains(secret.Modes, mode) {
+			return withExitCode(exitUsage, fmt.Errorf("package %s %s needs the secret input %q in %s mode: "+
+				"pass --secret-reference %s=<credential grant id>", detail.Name, detail.Version, secret.Name, mode, secret.Name))
 		}
 	}
 	return nil

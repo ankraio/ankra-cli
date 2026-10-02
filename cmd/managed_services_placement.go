@@ -506,7 +506,8 @@ The cluster needs a placement policy first ('ankra services policy set'). The
 application must be installed in that namespace unless --allow-planned is
 given. A binding is created once per application, cluster and namespace;
 changing an existing one needs --revision with its current revision
-('ankra services consumers list --application <app>' shows it). Binding
+('ankra services consumers list --application <app>' shows it); a setting
+not given on the command line keeps the binding's current value. Binding
 deploys nothing and delivers no credentials.`,
 		Example: "  ankra services consumers bind --application orders --cluster prod --namespace orders\n" +
 			"  ankra services consumers bind --application orders --cluster prod --namespace orders --allow-planned",
@@ -536,11 +537,20 @@ deploys nothing and delivers no credentials.`,
 			if clusterError != nil {
 				return clusterError
 			}
-			if revision == 0 {
-				if existing := findServiceConsumerBinding(command, applicationID, clusterID, namespace); existing != nil {
-					return withExitCode(exitUsage, fmt.Errorf("namespace %s on that cluster is already bound for this application as consumer %s "+
-						"(revision %d): pass --consumer %s to setup as it is, or --revision %d to change the binding",
-						namespace, existing.ID, existing.Revision, existing.ID, existing.Revision))
+			existing := findServiceConsumerBinding(command, applicationID, clusterID, namespace)
+			if revision == 0 && existing != nil {
+				return withExitCode(exitUsage, fmt.Errorf("namespace %s on that cluster is already bound for this application as consumer %s "+
+					"(revision %d): pass --consumer %s to setup as it is, or --revision %d to change the binding",
+					namespace, existing.ID, existing.Revision, existing.ID, existing.Revision))
+			}
+			// A change replaces both settings, so one the command line did not
+			// name keeps the binding's current value instead of resetting it.
+			if revision > 0 && existing != nil {
+				if !command.Flags().Changed("allow-planned") {
+					allowPlanned = existing.AllowPlanned
+				}
+				if !command.Flags().Changed("local-only") {
+					localOnly = existing.LocalOnly
 				}
 			}
 			consumer, bindError := apiClient.BindServiceConsumer(command.Context(), client.ServiceConsumerRequest{

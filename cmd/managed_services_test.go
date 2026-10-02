@@ -72,6 +72,8 @@ type fakeServicesPlatform struct {
 	reviewChanged bool
 	// consumersUnreadable makes the consumer listing answer a refusal.
 	consumersUnreadable bool
+	// packageSecrets are the secret inputs the package contract declares.
+	packageSecrets []any
 }
 
 func newFakeServicesPlatform(t *testing.T) *fakeServicesPlatform {
@@ -243,7 +245,7 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 					map[string]any{"name": "instances", "minimum": 1, "maximum": 3, "default": 1, "unit": "instances"},
 					map[string]any{"name": "storage_gib", "minimum": 1, "maximum": 1000, "default": 10, "unit": "gib"},
 				},
-				"secrets": []any{}, "outputs": []any{map[string]any{"name": "DATABASE_ENDPOINT", "kind": "endpoint"}},
+				"secrets": platform.declaredSecrets(), "outputs": []any{map[string]any{"name": "DATABASE_ENDPOINT", "kind": "endpoint"}},
 				"lifecycle": map[string]any{"verify": "stack-profile-verify", "upgrade": "stack-profile-upgrade",
 					"recovery": "stack-profile-recovery", "delete": "stack-profile-delete"}}})
 	case path == admission+"/cluster-policies/"+fakeServiceClusterID:
@@ -281,7 +283,7 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		}
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"next_cursor": nil, "items": []any{
 			map[string]any{"id": fakeServiceConsumerID, "application_id": fakeServiceApplication, "cluster_id": fakeServiceClusterID,
-				"namespace": "orders", "allow_planned": false, "local_only": false, "revision": 4, "updated_at": "2026-10-01T00:00:00Z"},
+				"namespace": "orders", "allow_planned": true, "local_only": false, "revision": 4, "updated_at": "2026-10-01T00:00:00Z"},
 		}})
 	case request.Method == http.MethodPost && path == admission+"/consumers":
 		var body client.ServiceConsumerRequest
@@ -339,6 +341,13 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		// unknown route answers a bare 404 like an unregistered route.
 		writer.WriteHeader(http.StatusNotFound)
 	}
+}
+
+func (platform *fakeServicesPlatform) declaredSecrets() []any {
+	if platform.packageSecrets == nil {
+		return []any{}
+	}
+	return platform.packageSecrets
 }
 
 func (platform *fakeServicesPlatform) serveRetirementPage(writer http.ResponseWriter, request *http.Request) {
@@ -995,6 +1004,13 @@ func TestServicesConsumersBindNamesAnExistingBinding(t *testing.T) {
 		"--application", fakeServiceApplication, "--cluster", fakeServiceClusterID, "--namespace", "orders", "--revision", "4", "--local-only"); runError != nil {
 		t.Fatalf("changing an existing binding with its revision must go through: %v", runError)
 	}
+	// The change names only --local-only: the binding's allow_planned (true)
+	// is kept rather than reset to the flag's default.
+	binds = platform.requests(http.MethodPost, "/service-admission/consumers")
+	if len(binds) != 2 || binds[1].body != `{"application_id":"`+fakeServiceApplication+`","cluster_id":"`+fakeServiceClusterID+
+		`","namespace":"orders","allow_planned":true,"local_only":true,"expected_revision":4}` {
+		t.Fatalf("a change must keep settings it does not name, got %+v", binds)
+	}
 }
 
 // --wait waits only on a running retirement: one that is not running is
@@ -1061,5 +1077,36 @@ func TestServicesGetUnknownIDSaysIDOrName(t *testing.T) {
 	}
 	if reads := platform.requests(http.MethodGet, "/instances/abcdef12-0000-4000-8000-000000000099"); len(reads) != 1 {
 		t.Errorf("the id must be read as an id first, got %d reads", len(reads))
+	}
+}
+
+// Every secret input the chosen mode uses must be supplied, and only those.
+func TestServicesSetupChecksRequiredSecretInputs(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.packageSecrets = []any{
+		map[string]any{"name": "admin_password", "modes": []any{"customer"}},
+		map[string]any{"name": "hosted_token", "modes": []any{"hosted"}},
+	}
+	base := []string{"setup", "orders-db", "--package", "postgresql", "--cluster", fakeServiceClusterID, "--consumer", fakeServiceConsumerID, "--yes"}
+	_, _, runError := runServicesCommand(t, platform, "", base...)
+	if runError == nil || exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "--secret-reference admin_password=") {
+		t.Fatalf("a missing required secret input must be refused naming it, got %v", runError)
+	}
+	_, _, runError = runServicesCommand(t, platform, "", append(base,
+		"--secret-reference", "admin_password=9e000000-0000-4000-8000-000000000017",
+		"--secret-reference", "hosted_token=9e000000-0000-4000-8000-000000000018")...)
+	if runError == nil || !strings.Contains(runError.Error(), "not used in customer mode") {
+		t.Fatalf("a secret input the mode does not use must be refused, got %v", runError)
+	}
+	if prepares := platform.requests(http.MethodPost, "/reviews"); len(prepares) != 0 {
+		t.Fatal("a refused setup stored a review")
+	}
+	if _, _, runError = runServicesCommand(t, platform, "", append(base,
+		"--secret-reference", "admin_password=9e000000-0000-4000-8000-000000000017")...); runError != nil {
+		t.Fatalf("a setup that supplies the mode's secret inputs must go through: %v", runError)
+	}
+	prepares := platform.requests(http.MethodPost, "/reviews")
+	if len(prepares) != 1 || !strings.Contains(prepares[0].body, `"secret_references":{"admin_password":"9e000000-0000-4000-8000-000000000017"}`) {
+		t.Fatalf("unexpected prepare %+v", prepares)
 	}
 }
