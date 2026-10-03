@@ -121,7 +121,27 @@ func printServiceReviewPlan(out io.Writer, names *serviceNames, packageLabel str
 			_, _ = fmt.Fprintf(out, "  Expires:        %s\n", plan.ExpiresAt)
 		}
 	}
+	if review.Capacity != nil {
+		_, _ = fmt.Fprintf(out, "  Capacity:       %s\n", formatServiceCapacity(*review.Capacity))
+	}
 	_, _ = fmt.Fprintf(out, "  Digest:         %s\n", review.Digest)
+}
+
+// formatServiceCapacity renders the capacity verdict as its state and the
+// platform's reason. An unknown verdict is the one to read before
+// confirming: the install may still hit the cluster's quota.
+func formatServiceCapacity(capacity client.ServiceCapacity) string {
+	state := capacity.State
+	if state == "" {
+		state = "not reported"
+	}
+	if capacity.State == "unknown" {
+		state += " (the install may still hit the cluster's quota)"
+	}
+	if capacity.Reason == "" {
+		return state
+	}
+	return state + " - " + capacity.Reason
 }
 
 // printServiceReviewSummary shows a stored review as the history read

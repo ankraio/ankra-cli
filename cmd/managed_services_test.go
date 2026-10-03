@@ -154,6 +154,8 @@ func fakeServiceReview(confirmed bool) map[string]any {
 	review := map[string]any{
 		"id": fakeServiceReviewID, "package_version_id": fakeServicePackageID, "digest": fakeServiceReviewDigest,
 		"created_at": "2026-10-02T09:00:00Z", "execution_id": nil, "confirmed_at": nil,
+		"capacity": map[string]any{"state": "unknown", "reason": "The playground's quota could not be read; the service may not fit.",
+			"plan_id": "trial", "quota": nil, "committed": nil, "transient": nil, "required": nil},
 		"plan": map[string]any{
 			"schema_version": 2, "name": "orders-db", "mode": "customer", "region": "eu-north-1", "data_boundary": "eu",
 			"service_cluster_id": fakeServiceClusterID, "cluster_id": fakeServiceClusterID,
@@ -562,6 +564,9 @@ func TestServicesSetupStructuredOutputStaysParseable(t *testing.T) {
 	}
 	if confirmed.ExecutionID == nil || confirmed.Digest != fakeServiceReviewDigest || confirmed.Plan["name"] != "orders-db" {
 		t.Errorf("unexpected confirmed review: %+v", confirmed)
+	}
+	if confirmed.Capacity == nil || confirmed.Capacity.State != "unknown" {
+		t.Errorf("-o json must carry the capacity verdict, got %+v", confirmed.Capacity)
 	}
 	if !strings.Contains(stderr, "Setup review "+fakeServiceReviewID) {
 		t.Errorf("the plan must still be shown, on stderr:\n%s", stderr)
@@ -1295,5 +1300,37 @@ func TestServiceNamesSaysWhenTheClusterLookupStopsAtItsCap(t *testing.T) {
 	complete := newServiceNames(command)
 	if shown := complete.cluster("only"); shown != "the-only-one" || notes.Len() != 0 {
 		t.Fatalf("a complete lookup: %q, notes %q", shown, notes.String())
+	}
+}
+
+// The review summary shows the capacity verdict for every state the
+// platform answers a prepare with, and says nothing when the platform sends
+// none (ankra-t5jf5.34.7.10.1).
+func TestServicesSetupShowsTheCapacityVerdict(t *testing.T) {
+	review := client.ServiceReview{ID: fakeServiceReviewID, Digest: fakeServiceReviewDigest,
+		Plan: fakeServiceReview(false)["plan"].(map[string]any)}
+	for _, testCase := range []struct {
+		capacity *client.ServiceCapacity
+		want     string
+	}{
+		{&client.ServiceCapacity{State: "fits", Reason: "The service fits the playground's 3 CPU quota."},
+			"Capacity:       fits - The service fits the playground's 3 CPU quota."},
+		{&client.ServiceCapacity{State: "unknown", Reason: "The quota could not be read."},
+			"Capacity:       unknown (the install may still hit the cluster's quota) - The quota could not be read."},
+		{&client.ServiceCapacity{State: "unchecked", Reason: "The platform sets no quota for this cluster."},
+			"Capacity:       unchecked - The platform sets no quota for this cluster."},
+	} {
+		review.Capacity = testCase.capacity
+		var out bytes.Buffer
+		printServiceReviewPlan(&out, &serviceNames{clustersLoaded: true, clusters: map[string]string{}}, "postgresql 1.1.0", review)
+		if !strings.Contains(out.String(), testCase.want) {
+			t.Errorf("%s: summary lacks %q:\n%s", testCase.capacity.State, testCase.want, out.String())
+		}
+	}
+	review.Capacity = nil
+	var out bytes.Buffer
+	printServiceReviewPlan(&out, &serviceNames{clustersLoaded: true, clusters: map[string]string{}}, "postgresql 1.1.0", review)
+	if strings.Contains(out.String(), "Capacity:") {
+		t.Errorf("a platform that sends no verdict must not be shown one:\n%s", out.String())
 	}
 }
