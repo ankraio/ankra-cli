@@ -225,6 +225,35 @@ type ServiceReview struct {
 	CreatedAt        string         `json:"created_at" yaml:"created_at"`
 	ExecutionID      *string        `json:"execution_id" yaml:"execution_id"`
 	ConfirmedAt      *string        `json:"confirmed_at" yaml:"confirmed_at"`
+	// Capacity is whether the service cluster can admit the service, as the
+	// prepare or confirm assessed it. Nil on a platform that predates the
+	// assessment, and on a confirm that answered an existing receipt.
+	Capacity *ServiceCapacity `json:"capacity" yaml:"capacity"`
+}
+
+// ServiceCapacity is the platform's capacity verdict for a setup: "fits",
+// "short" (the review is refused, with this reason), "unknown" (the estimate
+// could not be completed, so the install may still hit the cluster's quota)
+// or "unchecked" (the platform sets no quota for this cluster). Only
+// playgrounds are checked. The figures are null when the decision did not
+// reach them.
+type ServiceCapacity struct {
+	State     string                    `json:"state" yaml:"state"`
+	Reason    string                    `json:"reason" yaml:"reason"`
+	PlanID    string                    `json:"plan_id" yaml:"plan_id"`
+	Quota     *ServiceCapacityResources `json:"quota" yaml:"quota"`
+	Committed *ServiceCapacityResources `json:"committed" yaml:"committed"`
+	Transient *ServiceCapacityResources `json:"transient" yaml:"transient"`
+	Required  *ServiceCapacityResources `json:"required" yaml:"required"`
+}
+
+// ServiceCapacityResources are the CPU and memory figures a capacity verdict
+// was made from.
+type ServiceCapacityResources struct {
+	LimitsCPUMillicores   int64 `json:"limits_cpu_millicores" yaml:"limits_cpu_millicores"`
+	LimitsMemoryMiB       int64 `json:"limits_memory_mib" yaml:"limits_memory_mib"`
+	RequestsCPUMillicores int64 `json:"requests_cpu_millicores" yaml:"requests_cpu_millicores"`
+	RequestsMemoryMiB     int64 `json:"requests_memory_mib" yaml:"requests_memory_mib"`
 }
 
 // ServiceDestination is a requested consumer destination: reviewed intent,

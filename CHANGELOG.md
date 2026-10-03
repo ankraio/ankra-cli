@@ -1,5 +1,18 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Changed
+
+- **`ankra services setup` shows whether the cluster has room for the
+  service.** The review summary has a Capacity line with the platform's
+  verdict and its reason: fits; unknown, when the estimate could not be
+  completed and the install may still hit the cluster's quota; or
+  unchecked, when the platform sets no quota for the cluster. A short
+  verdict already refused the setup with the shortfall. `-o json` and
+  `-o yaml` carry the verdict under `capacity`. A platform that sends none
+  shows no line.
+
 ## v0.22.0 — 2026-10-03
 
 ### Added
