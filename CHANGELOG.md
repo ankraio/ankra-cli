@@ -1,6 +1,6 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.22.0 — 2026-10-03
 
 ### Added
 
@@ -41,6 +41,34 @@
   returned to the queue because the node their run's workspace is pinned to
   was full. `-o json` carries `dispatched_at` and `deferred_count` on each
   step when the platform sends them.
+- **`ankra registry projects` and `robots create --project`: a robot account
+  that reaches only part of what you publish.** Everything an organisation
+  pushes lands in one registry project, and a robot is bound to a project,
+  so every robot could reach all of it. `ankra registry projects create
+  <name>` makes an extra project (up to five, private, same scan and
+  retention policy as your own), `projects list` shows each project with
+  the path to push to, how many repositories it holds and how many of your
+  robots are bound to it, and `robots create <name> --project <project>`
+  binds the new robot to that one project. `projects delete` asks first and
+  never deletes anything else on the way: a project that still holds
+  repositories, or has robots bound to it, is refused. A project the
+  organisation does not have is refused before any robot exists, and a
+  platform that predates registry projects is named as such instead of
+  answering a bare 404. A token that may create robots but not read the
+  project listing is not refused for it: the create goes ahead, and a robot
+  that comes back bound to any other project is deleted again before its
+  secret is shown.
+- **`ankra cluster helm get --reveal` reads a release's credential values.**
+  The platform now shows passwords, tokens and keys in a Helm release's
+  values, the Secrets it renders and its notes as `[REDACTED:...]`
+  placeholders, so `helm get -o values > file` followed by `cluster helm
+  upgrade --values file` would hand the placeholders back, and the platform
+  refuses that upgrade. `--reveal` asks for them in plaintext: it needs the
+  `kubernetes.secrets_reveal` permission on the cluster, and every reveal is
+  written to the audit log. Without `--reveal`, a release with withheld
+  values prints a note on stderr and the document on stdout, so a redirect
+  still captures only the document. A `--reveal` the platform refuses exits 7
+  without printing the placeholders, and one it cannot answer exits 1.
 
 ### Changed
 
@@ -66,26 +94,6 @@
   `--kubernetes-version` help now says which tag shape each distribution
   takes: a plain tag such as `v1.36.4` for kubeadm, a k3s build such as
   `v1.35.7+k3s1` for k3s.
-
-### Added
-
-- **`ankra registry projects` and `robots create --project`: a robot account
-  that reaches only part of what you publish.** Everything an organisation
-  pushes lands in one registry project, and a robot is bound to a project,
-  so every robot could reach all of it. `ankra registry projects create
-  <name>` makes an extra project (up to five, private, same scan and
-  retention policy as your own), `projects list` shows each project with
-  the path to push to, how many repositories it holds and how many of your
-  robots are bound to it, and `robots create <name> --project <project>`
-  binds the new robot to that one project. `projects delete` asks first and
-  never deletes anything else on the way: a project that still holds
-  repositories, or has robots bound to it, is refused. A project the
-  organisation does not have is refused before any robot exists, and a
-  platform that predates registry projects is named as such instead of
-  answering a bare 404. A token that may create robots but not read the
-  project listing is not refused for it: the create goes ahead, and a robot
-  that comes back bound to any other project is deleted again before its
-  secret is shown.
 
 ### Fixed
 
