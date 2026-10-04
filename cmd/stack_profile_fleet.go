@@ -445,6 +445,9 @@ add-on deploys run in the background. Watch them with
 				failed++
 			case submitted:
 				outcome.Status = "submitted"
+				if response != nil && response.OperationID != "" {
+					outcome.Message = "follow it with '" + followOperationCommand(response.OperationID) + "'"
+				}
 			case response != nil && len(response.Errors) > 0:
 				outcome.Status = "failed"
 				outcome.Message = describeImportErrors(response.Errors)

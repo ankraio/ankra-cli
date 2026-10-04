@@ -58,6 +58,9 @@ type asyncSubmittedResult struct {
 	Submitted bool   `json:"submitted" yaml:"submitted"`
 	Operation string `json:"operation" yaml:"operation"`
 	Hint      string `json:"hint" yaml:"hint"`
+	// OperationID names the execution recording the write's outcome, when
+	// the platform answered one.
+	OperationID string `json:"operation_id,omitempty" yaml:"operation_id,omitempty"`
 }
 
 func newAsyncSubmittedResult(operationLabel string) asyncSubmittedResult {
@@ -66,4 +69,21 @@ func newAsyncSubmittedResult(operationLabel string) asyncSubmittedResult {
 		Operation: operationLabel,
 		Hint:      "re-run with --wait to block until completion and see the full result",
 	}
+}
+
+// newAsyncSubmittedOperationResult is newAsyncSubmittedResult for a write
+// whose outcome the platform records on an operation: the hint names the
+// command that reads it.
+func newAsyncSubmittedOperationResult(operationLabel string, operationID string) asyncSubmittedResult {
+	result := newAsyncSubmittedResult(operationLabel)
+	if operationID != "" {
+		result.OperationID = operationID
+		result.Hint = "follow it with '" + followOperationCommand(operationID) + "'; it records whether the platform applied or refused the write"
+	}
+	return result
+}
+
+// followOperationCommand is the command that reads one operation.
+func followOperationCommand(operationID string) string {
+	return "ankra cluster operations list " + operationID
 }

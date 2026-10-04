@@ -84,12 +84,23 @@ var clusterOperationsCmd = &cobra.Command{
 var clusterOperationsListCmd = &cobra.Command{
 	Use:     "list [execution ID]",
 	Aliases: []string{"ls"},
-	Short:   "List executions for the active cluster; optionally, provide an ID for details",
+	Short:   "List executions for the active cluster, or show one by ID (no cluster needed)",
 	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cluster, err := resolveActiveCluster(cmd)
-		if err != nil {
-			return err
+		executionID := ""
+		if len(args) > 0 {
+			executionID = strings.TrimSpace(args[0])
+		}
+		// One execution is read by its id alone, so it needs no cluster: an
+		// organisation-level operation, such as a background cluster apply
+		// that refused to create the cluster, has none to select.
+		clusterID := ""
+		if executionID == "" {
+			cluster, err := resolveActiveCluster(cmd)
+			if err != nil {
+				return err
+			}
+			clusterID = cluster.ID
 		}
 
 		statusFlag, _ := cmd.Flags().GetStringSlice("status")
@@ -126,7 +137,7 @@ var clusterOperationsListCmd = &cobra.Command{
 		noCollapse, _ := cmd.Flags().GetBool("no-collapse")
 		query := executionsQuery{
 			options: client.ListExecutionsOptions{
-				ClusterID:                 cluster.ID,
+				ClusterID:                 clusterID,
 				StatusList:                statusList,
 				IncludeInternalExecutions: includeInternal,
 				AttentionState:            attentionState,
@@ -135,11 +146,6 @@ var clusterOperationsListCmd = &cobra.Command{
 			},
 			nameFilter: strings.TrimSpace(nameFilter),
 			limit:      limit,
-		}
-
-		executionID := ""
-		if len(args) > 0 {
-			executionID = strings.TrimSpace(args[0])
 		}
 
 		if format != outputDefault {
