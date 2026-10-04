@@ -114,10 +114,18 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	if submitted {
-		if rendered, err := renderStructured(cmd, newAsyncSubmittedResult("Cluster apply")); rendered || err != nil {
+		operationID := ""
+		if importResponse != nil {
+			operationID = importResponse.OperationID
+		}
+		if rendered, err := renderStructured(cmd, newAsyncSubmittedOperationResult("Cluster apply", operationID)); rendered || err != nil {
 			return err
 		}
 		printAsyncWriteSubmitted("Cluster apply")
+		if operationID != "" {
+			fmt.Printf("Follow it with: %s\n", followOperationCommand(operationID))
+			fmt.Println("The operation records whether the platform applied the definition or refused it, and why.")
+		}
 		fmt.Println("For a new cluster, the agent install command is only shown when you use --wait.")
 		return nil
 	}

@@ -4,6 +4,20 @@
 
 ### Changed
 
+- **`ankra cluster apply` says how to find out what happened to a submitted
+  apply.** Without `--wait` the platform used to accept the definition and
+  record nothing, so a definition it then refused (a validation error, a
+  name already taken, a repoint without its acknowledgement) read exactly
+  like one it applied. It now records each background apply on an operation,
+  and the CLI prints `Follow it with: ankra cluster operations list <id>`;
+  the operation fails with the platform's reason when the apply is refused.
+  `-o json` and `-o yaml` carry it as `operation_id`, and a fleet rollout
+  names it for each submitted target. A platform that sends no operation id
+  keeps the old `--wait` guidance.
+- **`ankra cluster operations list <id>` no longer needs a selected
+  cluster.** One operation is read by its id alone, so an organisation-level
+  operation, or a background apply that refused to create its cluster, can be
+  read without `--cluster` or `ankra cluster select`.
 - **`ankra services setup` shows whether the cluster has room for the
   service.** The review summary has a Capacity line with the platform's
   verdict and its reason: fits; unknown, when the estimate could not be

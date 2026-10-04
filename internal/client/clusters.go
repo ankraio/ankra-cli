@@ -457,6 +457,10 @@ type ImportResponse struct {
 	Errors          []ImportResponseResourceError `json:"errors,omitempty"`
 	GitPushDeferred bool                          `json:"git_push_deferred,omitempty"`
 	GitPushMessage  string                        `json:"git_push_message,omitempty"`
+	// OperationID is set only on an apply the platform accepted without
+	// waiting (wait=false): the execution that records whether it was
+	// applied or refused.
+	OperationID string `json:"operation_id,omitempty"`
 }
 
 // TriggerReconcileResult mirrors the platform's reconcile response (openapi
@@ -514,7 +518,7 @@ func (c *Client) ApplyCluster(ctx context.Context, clusterReq CreateImportCluste
 
 	endpoint := c.BaseURL + "/api/v1/clusters/import"
 	var importResponse ImportResponse
-	submitted, err := c.doJSONWriteRequest(ctx, http.MethodPost, endpoint, payload, wait, &importResponse)
+	accepted, err := c.doJSONWriteRequestAccepted(ctx, http.MethodPost, endpoint, payload, wait, &importResponse)
 	if err != nil {
 		var deferred *gitPushDeferredError
 		if errors.As(err, &deferred) {
@@ -525,8 +529,11 @@ func (c *Client) ApplyCluster(ctx context.Context, clusterReq CreateImportCluste
 		}
 		return nil, false, err
 	}
-	if submitted {
-		return nil, true, nil
+	if accepted != nil {
+		if accepted.OperationID == "" {
+			return nil, true, nil
+		}
+		return &ImportResponse{OperationID: accepted.OperationID}, true, nil
 	}
 	if len(importResponse.Errors) > 0 {
 		return nil, false, fmt.Errorf("import failed: %v", importResponse.Errors)

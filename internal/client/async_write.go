@@ -11,8 +11,22 @@ import (
 	"strings"
 )
 
+// AsyncWriteAcceptedResponse is a write the platform accepted without
+// waiting for it. OperationID, when the platform answers one, names the
+// execution that records the write's outcome
+// (ankra cluster operations list <id>); a route that records none, or an
+// older platform, leaves it empty.
 type AsyncWriteAcceptedResponse struct {
-	Status string `json:"status"`
+	Status      string `json:"status"`
+	OperationID string `json:"operation_id,omitempty"`
+}
+
+// parseAsyncWriteAccepted reads a 202 body. The body is informational: a
+// body that does not decode still means the write was accepted.
+func parseAsyncWriteAccepted(responseBody []byte) *AsyncWriteAcceptedResponse {
+	accepted := &AsyncWriteAcceptedResponse{Status: "accepted"}
+	_ = json.Unmarshal(responseBody, accepted)
+	return accepted
 }
 
 func appendWaitQuery(endpoint string, wait bool) string {
@@ -68,32 +82,32 @@ func parseAsyncWriteResponse(
 	responseBody []byte,
 	wait bool,
 	target interface{},
-) (submitted bool, err error) {
+) (accepted *AsyncWriteAcceptedResponse, err error) {
 	if response.StatusCode == http.StatusAccepted {
-		return true, nil
+		return parseAsyncWriteAccepted(responseBody), nil
 	}
 	if denied := PermissionDeniedFromResponse(response.StatusCode, responseBody); denied != nil {
-		return false, denied
+		return nil, denied
 	}
 	if deferral := gitPushDeferralFromResponse(response.StatusCode, responseBody); deferral != nil {
-		return false, &gitPushDeferredError{deferral: *deferral}
+		return nil, &gitPushDeferredError{deferral: *deferral}
 	}
 	if wait {
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			return false, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("request failed: status %d: %s", response.StatusCode, redactedBodyForError(responseBody, 500)))
+			return nil, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("request failed: status %d: %s", response.StatusCode, redactedBodyForError(responseBody, 500)))
 		}
 		if target == nil {
-			return false, nil
+			return nil, nil
 		}
 		if err := decodeJSON(responseBody, target); err != nil {
-			return false, err
+			return nil, err
 		}
-		return false, nil
+		return nil, nil
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return false, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("request failed: status %d: %s", response.StatusCode, redactedBodyForError(responseBody, 500)))
+		return nil, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("request failed: status %d: %s", response.StatusCode, redactedBodyForError(responseBody, 500)))
 	}
-	return false, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("unexpected status %d for async submit", response.StatusCode))
+	return nil, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("unexpected status %d for async submit", response.StatusCode))
 }
 
 func decodeJSON(responseBody []byte, target interface{}) error {
@@ -111,6 +125,21 @@ func (c *Client) doJSONWriteRequest(
 	wait bool,
 	target interface{},
 ) (submitted bool, err error) {
+	accepted, err := c.doJSONWriteRequestAccepted(ctx, method, endpoint, payload, wait, target)
+	return accepted != nil, err
+}
+
+// doJSONWriteRequestAccepted is doJSONWriteRequest for a caller that reads
+// the accepted answer: non-nil when the platform accepted the write without
+// waiting for it.
+func (c *Client) doJSONWriteRequestAccepted(
+	ctx context.Context,
+	method string,
+	endpoint string,
+	payload []byte,
+	wait bool,
+	target interface{},
+) (accepted *AsyncWriteAcceptedResponse, err error) {
 	requestURL := appendWaitQuery(endpoint, wait)
 	var bodyReader io.Reader
 	if payload != nil {
@@ -118,7 +147,7 @@ func (c *Client) doJSONWriteRequest(
 	}
 	request, err := http.NewRequestWithContext(ctx, method, requestURL, bodyReader)
 	if err != nil {
-		return false, fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	if payload != nil {
 		request.Header.Set("Content-Type", "application/json")
@@ -128,13 +157,13 @@ func (c *Client) doJSONWriteRequest(
 	httpClient := c.httpClientForAsyncWrite(wait)
 	response, err := httpClient.Do(request)
 	if err != nil {
-		return false, fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer closeBody(response)
 
 	responseBody, err := readResponseBody(response)
 	if err != nil {
-		return false, fmt.Errorf("read response: %w", err)
+		return nil, fmt.Errorf("read response: %w", err)
 	}
 	return parseAsyncWriteResponse(response, responseBody, wait, target)
 }
