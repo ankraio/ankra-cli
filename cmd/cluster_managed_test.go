@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -681,5 +682,82 @@ func TestManagedCreate_AnkraCloudK8sFlagsRejectedForOtherProviders(t *testing.T)
 				t.Errorf("expected no API call, got %d", len(mock.createRequests))
 			}
 		})
+	}
+}
+
+func TestManagedCreate_AnkraCloudK8sDevClusterSendsOneNodeOfOnePool(t *testing.T) {
+	mock := &managedClusterMock{}
+	resetConfirmFlag(t, managedCreateCmd)
+	output, runError := runWithInput(t, mock, "",
+		managedCreateArgs("--provider", "ankracloud_k8s", "--dev-cluster")...)
+	if runError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", runError, output)
+	}
+	request := mock.createRequests[0]
+	if request.AnkraCloudK8s == nil || !request.AnkraCloudK8s.DevCluster {
+		t.Fatalf("ankracloud_k8s options = %+v, want dev_cluster true", request.AnkraCloudK8s)
+	}
+	if len(request.NodePools) != 1 || request.NodePools[0].Count != 1 || request.NodePools[0].Name != "dev" {
+		t.Fatalf("node pools = %+v, want one pool named dev with one node", request.NodePools)
+	}
+}
+
+func TestManagedCreate_DevClusterRefusesWhatOneServerCannotBe(t *testing.T) {
+	for name, extra := range map[string][]string{
+		"three nodes":   {"--node-pool-count", "3"},
+		"a range":       {"--network-cidr", "10.50.0.0/24"},
+		"autoscaling":   {"--autoscaling", "--autoscaling-min", "1", "--autoscaling-max", "2"},
+		"another cloud": nil,
+	} {
+		mock := &managedClusterMock{}
+		resetConfirmFlag(t, managedCreateCmd)
+		provider := "ankracloud_k8s"
+		if name == "another cloud" {
+			provider = "doks"
+		}
+		arguments := append([]string{"--provider", provider, "--dev-cluster"}, extra...)
+		if _, runError := runWithInput(t, mock, "", managedCreateArgs(arguments...)...); runError == nil {
+			t.Errorf("%s: --dev-cluster was accepted", name)
+		}
+		if len(mock.createRequests) != 0 {
+			t.Errorf("%s: a refused dev cluster reached the API", name)
+		}
+	}
+}
+
+func TestManagedCreate_CredentialIsOptionalOnlyForAnkraCloud(t *testing.T) {
+	withoutCredential := func(arguments []string) []string {
+		kept := []string{}
+		for index := 0; index < len(arguments); index++ {
+			if arguments[index] == "--credential-id" {
+				index++
+				continue
+			}
+			kept = append(kept, arguments[index])
+		}
+		return kept
+	}
+	mock := &managedClusterMock{}
+	resetConfirmFlag(t, managedCreateCmd)
+	output, runError := runWithInput(t, mock, "", withoutCredential(managedCreateArgs("--provider", "ankracloud_k8s", "--dev-cluster"))...)
+	if runError != nil {
+		t.Fatalf("Ankra Cloud without a credential failed: %v\noutput: %s", runError, output)
+	}
+	if mock.createRequests[0].CredentialID != "" {
+		t.Fatalf("credential = %q, want it omitted so the built-in credential applies", mock.createRequests[0].CredentialID)
+	}
+	encoded, _ := json.Marshal(mock.createRequests[0])
+	if strings.Contains(string(encoded), "credential_id") {
+		t.Fatalf("an empty credential_id was sent: %s", encoded)
+	}
+
+	other := &managedClusterMock{}
+	resetConfirmFlag(t, managedCreateCmd)
+	if _, runError := runWithInput(t, other, "", withoutCredential(managedCreateArgs("--provider", "doks"))...); runError == nil ||
+		!strings.Contains(runError.Error(), "--credential-id is required") {
+		t.Fatalf("DigitalOcean without a credential = %v", runError)
+	}
+	if len(other.createRequests) != 0 {
+		t.Fatal("a create without a credential reached the API")
 	}
 }

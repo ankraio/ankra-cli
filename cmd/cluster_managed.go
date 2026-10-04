@@ -28,6 +28,9 @@ var managedCreateCmd = &cobra.Command{
 
 		name, _ := cmd.Flags().GetString("name")
 		credentialID, _ := cmd.Flags().GetString("credential-id")
+		if credentialID == "" && provider != client.ManagedK8sProviderAnkraCloudK8s {
+			return withExitCode(exitUsage, fmt.Errorf("--credential-id is required with --provider %s", provider))
+		}
 		location, _ := cmd.Flags().GetString("location")
 		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
 		nodePoolName, _ := cmd.Flags().GetString("node-pool-name")
@@ -611,7 +614,34 @@ func parseManagedProviderFlag(cmd *cobra.Command) (client.ManagedK8sProvider, er
 
 // ankraCloudK8sOnlyFlags are the create flags that only Ankra Cloud
 // Kubernetes reads.
-var ankraCloudK8sOnlyFlags = []string{"network-cidr", "public-ipv4"}
+var ankraCloudK8sOnlyFlags = []string{"network-cidr", "public-ipv4", "dev-cluster"}
+
+// devClusterPoolName is the one node pool an Ankra Cloud dev cluster has.
+const devClusterPoolName = "dev"
+
+// applyDevClusterFlags shapes the request for an Ankra Cloud dev cluster:
+// one node pool of exactly one node (named dev unless --node-pool-name says
+// otherwise), no autoscaling and no network range, since the one server is
+// the whole cluster and joins no network Ankra creates.
+func applyDevClusterFlags(cmd *cobra.Command, request *client.CreateManagedClusterRequest) error {
+	if cmd.Flags().Changed("node-pool-count") {
+		if count, _ := cmd.Flags().GetInt("node-pool-count"); count != 1 {
+			return withExitCode(exitUsage, fmt.Errorf("--dev-cluster is one server: --node-pool-count must be 1, not %d", count))
+		}
+	}
+	if cmd.Flags().Changed("network-cidr") {
+		return withExitCode(exitUsage, errors.New("--dev-cluster creates no network: omit --network-cidr"))
+	}
+	if cmd.Flags().Changed("autoscaling") {
+		return withExitCode(exitUsage, errors.New("--dev-cluster is one server and cannot autoscale: omit --autoscaling"))
+	}
+	pool := &request.NodePools[0]
+	pool.Count = 1
+	if !cmd.Flags().Changed("node-pool-name") {
+		pool.Name = devClusterPoolName
+	}
+	return nil
+}
 
 // applyManagedNetworkOptionFlags reads the provider-specific network flags
 // into the create request: Kapsule requires --private-network-id, Ankra Cloud
@@ -650,6 +680,13 @@ func applyManagedNetworkOptionFlags(cmd *cobra.Command, provider client.ManagedK
 		if cmd.Flags().Changed("public-ipv4") {
 			publicIPv4, _ := cmd.Flags().GetBool("public-ipv4")
 			options.PublicIPv4 = &publicIPv4
+			isSet = true
+		}
+		if devCluster, _ := cmd.Flags().GetBool("dev-cluster"); devCluster {
+			if devClusterError := applyDevClusterFlags(cmd, request); devClusterError != nil {
+				return devClusterError
+			}
+			options.DevCluster = true
 			isSet = true
 		}
 		if isSet {
@@ -832,7 +869,7 @@ func managedLifecycleError(action string, apiError error) error {
 func init() {
 	managedCreateCmd.Flags().String("provider", "", managedProviderFlagHelp)
 	managedCreateCmd.Flags().String("name", "", "Cluster name")
-	managedCreateCmd.Flags().String("credential-id", "", "Cloud credential ID")
+	managedCreateCmd.Flags().String("credential-id", "", "Cloud credential ID (optional with --provider ankracloud_k8s: Ankra uses the organisation's built-in Ankra Cloud credential)")
 	managedCreateCmd.Flags().String("location", "", "Region or zone for the cluster")
 	managedCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional)")
 	managedCreateCmd.Flags().String("node-pool-name", "workers", "Initial node pool name")
@@ -844,6 +881,7 @@ func init() {
 	managedCreateCmd.Flags().String("private-network-id", "", "Private network ID: required with --provider kapsule; optional with --provider ankracloud_k8s (default: Ankra creates ankra-<name>)")
 	managedCreateCmd.Flags().String("network-cidr", "", "Ankra Cloud Kubernetes: CIDR of the network Ankra creates (server default 10.100.0.0/24)")
 	managedCreateCmd.Flags().Bool("public-ipv4", true, "Ankra Cloud Kubernetes: give the API endpoint a public IPv4 address")
+	managedCreateCmd.Flags().Bool("dev-cluster", false, "Ankra Cloud Kubernetes: create a dev cluster, one server that is control plane, node, load balancer and gateway, sized by --node-pool-size (development only, no control-plane fee)")
 	managedCreateCmd.Flags().Bool("autoscaling", false, "Enable autoscaling for the initial node pool")
 	managedCreateCmd.Flags().Int("autoscaling-min", 0, "Minimum node count while autoscaling (requires --autoscaling)")
 	managedCreateCmd.Flags().Int("autoscaling-max", 0, "Maximum node count while autoscaling (requires --autoscaling)")
@@ -858,7 +896,6 @@ func init() {
 	managedCreateCmd.Flags().Int("os-disk-size-gb", 0, "AKS: OS disk size in GB for the initial pool (at least 30)")
 	_ = managedCreateCmd.MarkFlagRequired("provider")
 	_ = managedCreateCmd.MarkFlagRequired("name")
-	_ = managedCreateCmd.MarkFlagRequired("credential-id")
 	_ = managedCreateCmd.MarkFlagRequired("location")
 	_ = managedCreateCmd.MarkFlagRequired("node-pool-size")
 
