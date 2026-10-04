@@ -12,6 +12,13 @@
   verdict already refused the setup with the shortfall. `-o json` and
   `-o yaml` carry the verdict under `capacity`. A platform that sends none
   shows no line.
+- **The `ankra-cicd` skill knows which component a build belongs to.** It
+  documents `build.component`, which attributes a `kind: build` stage to an
+  application component when its name does not, and where each build
+  publishes: a component's image to `<application>/<component>`, its release
+  bundle to `<application>/<component>-bundle`, and a bundle of no component
+  under its stage name. A troubleshooting row covers a build refused because
+  it belongs to no component.
 
 ## v0.22.0 — 2026-10-03
 

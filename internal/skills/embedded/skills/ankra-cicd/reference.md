@@ -356,9 +356,16 @@ runtime_class, arch}` · `network: none|egress-https|services` · `shm_size` · 
 · `allow_failure` · `continue_on_error` · `retry {max_attempts ≤ 5, backoff: fixed|exponential,
 on: [failure, timeout, infra_error]}`.
 
-Kind blocks: `build {dockerfile, context, target, platforms, build_args, provenance, sbom,
-cache_to}` · `scan {scanners, fail_on}` · `gate {approval_roles, require_stages}` · `preview`,
+Kind blocks: `build {component, dockerfile, context, target, platforms, build_args, provenance,
+sbom, cache_to, bundle {path, manifest}}` · `scan {scanners, fail_on}` · `gate {approval_roles, require_stages}` · `preview`,
 `verify`, `agent`, `approval`, `webhook`, `external` (validate, not yet executed).
+
+Build attribution (application-bound repositories): `build.component: <name>` names the component
+a build stage belongs to; without it a `build-<component>` stage name does, and a single-component
+application's one component takes every build stage. Push targets: an image goes to
+`<application>/<component>`, a `build.bundle` of a component to `<application>/<component>-bundle`,
+a bundle of no component to `<repository>/<stage suffix>`. An image must belong to a component.
+In a bare repository `build.component` has no effect (every stage is `<repository>/<stage suffix>`).
 
 Secret sources: `app_env_secret` (one key of the linked application's env-secret, or all) ·
 `org_variable` (organisation or cluster variable) · `registry` · `credential`.

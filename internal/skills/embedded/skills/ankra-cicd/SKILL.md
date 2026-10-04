@@ -171,6 +171,14 @@ Facts that decide whether the first run works:
 - **Schedules** name the stage subset they run (`stages:`), so a nightly runs the expensive suite
   without `if:` on every stage. `when.events` decides what runs on `push` vs `pull_request` vs
   `rerun` (a `publish` that says `events: [push]` does not publish on a rerun).
+- **Which component a build belongs to** (application-bound repositories). A `kind: build`
+  stage belongs to the component its `build.component` names, else the one its `build-<component>`
+  name carries, else a single-component application's one component. Declare `build.component`
+  when one component builds twice - a release bundle (`build.bundle`, named `build-portal`) and an
+  image (`build-portal-image` with `component: portal`). An image publishes to
+  `<application>/<component>`, a component's bundle to `<application>/<component>-bundle`, a bundle
+  of no component to `<repository>/<stage suffix>`; an image of no component is refused. Never
+  rename stages to dodge attribution - declare the component.
 - **Outputs.** `key=value` lines appended to `$ANKRA_OUTPUT` in one stage become
   `${{ needs.<stage>.outputs.<key> }}` downstream. Expression roots: `ankra.*` (`ref`, `sha`,
   `repository.*`, `run.number`), `matrix.*`, `inputs.*`, `secrets.*`, `vars.*`, `needs.*`;
@@ -185,7 +193,10 @@ ankra pipeline validate --application <application-id>                         #
 ```
 
 It parses, validates and plans a synthetic push and a synthetic pull request: you see every planned
-step, every skip and its reason, and the network tier per step, without writing anything.
+step, every skip and its reason, and the network tier per step, without writing anything. For an
+application-bound repository it also reports, as `pipeline_build_component:`, a build stage that
+belongs to no component, a `build.component` the application does not record, and two build stages
+that would publish to the same repository.
 
 ## 4. Converting an existing workflow by hand (bare repositories)
 
@@ -325,6 +336,7 @@ with SOPS (`ankra-sops-secrets`).
 | No **`Ankra pipeline`** check on the PR, only a comment | the GitHub App installation lacks `checks:write`, or the repository is not in the installation | grant it on the installation / add the repository; the run still happened — `ankra pipeline list --repository <repository-id>` |
 | Branch protection stalls on `build`, `test`, `ci / lint`… | required checks still name the old per-job workflow checks | require `Ankra pipeline` only |
 | `ankra pipeline validate` → "exactly one of --application / --repository" or "nothing to validate" | a bare repository has no application to detect | pass `--repository <repository-id>` from `ankra pipeline repositories list` |
+| Build step `step_refused` / `platform_build_unavailable`: "could not attribute build stage … records the components …" or "declares build.component … which is not a component" | the stage belongs to no component the application records | add `build.component: <name>` to the stage's `build:` block (or name it `build-<component>`); check `ankra application get` for the component names |
 | `pipeline_source: generated_workflow` on `ankra application get` | legacy lane | `ankra application pipeline convert <application-id>` |
 | Two builds per commit | a workflow still runs beside the pipeline | delete/disable the workflow; for an application `pipeline convert` switched the generated one off — check for one the repository wrote itself |
 | `Stage "x" has kind "deploy", which has no executor on this build yet` | an unexecuted kind | it is skipped, not failed; do not make the check required; deploy through the application lanes |
