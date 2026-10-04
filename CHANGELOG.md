@@ -1,6 +1,6 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.23.0 — 2026-10-04
 
 ### Changed
 
