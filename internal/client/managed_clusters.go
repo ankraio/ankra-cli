@@ -90,16 +90,20 @@ type KapsuleClusterOptions struct {
 // create options: adopt an existing private network, or size the ankra-<name>
 // network the platform creates (server default 10.100.0.0/24), and whether
 // the API endpoint takes a public IPv4 address (server default true).
+// DevCluster asks for a dev cluster instead: one Ankra Cloud server that is
+// the control plane, the only node, the load balancer and its own gateway,
+// sized by the single one-node pool.
 type AnkraCloudK8sClusterOptions struct {
 	PrivateNetworkID *string `json:"private_network_id,omitempty"`
 	NetworkCIDR      *string `json:"network_cidr,omitempty"`
 	PublicIPv4       *bool   `json:"public_ipv4,omitempty"`
+	DevCluster       bool    `json:"dev_cluster,omitempty"`
 }
 
 type CreateManagedClusterRequest struct {
 	Name                 string                          `json:"name"`
 	Description          *string                         `json:"description,omitempty"`
-	CredentialID         string                          `json:"credential_id"`
+	CredentialID         string                          `json:"credential_id,omitempty"`
 	Location             string                          `json:"location"`
 	KubernetesVersion    *string                         `json:"kubernetes_version,omitempty"`
 	NodePools            []ManagedClusterNodePoolRequest `json:"node_pools"`
