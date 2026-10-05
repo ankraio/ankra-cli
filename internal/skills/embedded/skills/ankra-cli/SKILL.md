@@ -144,6 +144,20 @@ no write execution running; it knows nothing about your freeze windows, so disab
 one and enable it after. The MCP twins are `get_cluster_agent_status`, `set_cluster_agent_auto_upgrade`
 and `upgrade_cluster_agent`.
 
+## Hosted logs
+
+```bash
+ankra cluster logs-ship status                   # on/off, platform availability, whether the agent follows it
+ankra cluster logs-ship enable --yes             # opt in: ship every running container's log lines to Ankra (kept 7 days)
+ankra cluster logs-ship disable                  # opt out; no confirmation needed
+```
+
+Shipping logs to Ankra's hosted log store is opt-in per cluster and off by default; turning it on
+needs `clusters.write` and sends customer log content out of the cluster, so confirm with the user
+before passing `--yes`. `status` names an agent too old to follow the switch (fix with
+`ankra cluster agent upgrade`) and a platform where hosted logging is not live yet (the switch is
+stored, nothing ships until it is).
+
 ## Migrating a Docker deployment
 
 ```bash

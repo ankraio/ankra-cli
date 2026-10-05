@@ -1,5 +1,24 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra cluster logs-ship status|enable|disable` turns shipping a cluster's
+  logs to Ankra on and off.** Ankra's hosted log store is opt-in per cluster
+  and off by default: no log content leaves a cluster until someone with
+  `clusters.write` turns it on. `enable` says what that means before it asks
+  (the log lines of every running container are sent to Ankra's hosted log
+  store, kept for 7 days and readable by the organisation's members) and
+  needs `--yes` when there is no terminal to ask on; `disable` stops it
+  without asking. `status` shows the switch, whether hosted logging is
+  available on the platform yet, whether the cluster's agent is new enough
+  to follow it (with the upgrade command when it is not) and when it last
+  changed. On a platform where Ankra has not turned hosted logging on yet,
+  the switch is stored and nothing ships until it does. A missing
+  `clusters.write` exits 7 and a cluster outside the organisation exits 3;
+  `-o json` returns the platform's answer.
+
 ## v0.23.0 — 2026-10-04
 
 ### Changed
