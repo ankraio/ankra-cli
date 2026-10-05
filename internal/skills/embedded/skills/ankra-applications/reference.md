@@ -45,6 +45,25 @@ ankra application registry set <application-id> \
 
 ### Monorepo components
 
+Ankra infers the components, but a repository can declare them in `.ankra/ankra.yaml`, and the
+declaration wins over every inferred signal:
+
+```yaml
+components:
+  - name: api
+    subdir: ""
+    dockerfile: deploy/docker/Dockerfile
+    container_port: 8080
+  - name: web
+    subdir: web
+    container_port: 3000
+```
+
+Names are lower-case letters and digits joined by hyphens or periods (they name the image repository
+and the `build-<name>` stage). Paths are relative to the repository root. Inference never shrinks a
+recorded monorepo; only a declaration removes a component. Full schema:
+https://docs.ankra.ai/reference/application-descriptor
+
 ```bash
 ankra application registry set <application-id> \
   --url oci://artifact.example.com/commerce \

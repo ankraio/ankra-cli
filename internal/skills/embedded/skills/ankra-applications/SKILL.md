@@ -103,6 +103,15 @@ ankra application retry <application-id>             # re-run a failed setup
 Things worth checking before merging: the base image and its tag, the exposed port, the health
 probe paths, resource requests, and that nothing secret was baked into the image.
 
+The PR also carries `.ankra/ankra.yaml`, the application descriptor: `metadata`, the `options` that
+are the deploy form's contract (edit them in Git and re-run setup to change the form), and an
+optional `components:` block. When analysis reads a monorepo wrong (an API at the root built from
+`deploy/docker/Dockerfile` beside a `web/` app reads as one app), declare the components there
+(`name`, `subdir`, `dockerfile`, `container_port`) and reconcile: a declaration outranks the existing
+workflows, the AI proposal and structural detection, and is the only way to remove a component. A
+block Ankra cannot honour is refused whole, reported as the `read_declared_components` setup task,
+and the recorded components are kept. Schema: https://docs.ankra.ai/reference/application-descriptor
+
 ## 3. Supply configuration and secrets
 
 The generated manifests declare which environment values they need. Fill them in — a missing one
