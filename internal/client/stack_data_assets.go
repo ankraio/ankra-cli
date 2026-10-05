@@ -22,6 +22,19 @@ const (
 	CustomResourceScanUnavailable = "unavailable"
 )
 
+// The attribution outcomes: why an asset is, or is not, the stack's. Member
+// means one of the stack's members owns it (named in Member); exclusive
+// namespace means no member declares it but nothing else on the cluster uses
+// its namespace and nothing on it points elsewhere; unattributed means the
+// namespace sweep found it but no member owns it - another stack's database
+// in a shared namespace, an orphan claim - and it is never captured or
+// restored as this stack's.
+const (
+	StackDataAttributionMember             = "member"
+	StackDataAttributionExclusiveNamespace = "exclusive_namespace"
+	StackDataAttributionUnattributed       = "unattributed"
+)
+
 // StackDataAssetOwner is the workload or custom resource an asset hangs off,
 // when one could be attributed.
 type StackDataAssetOwner struct {
@@ -52,13 +65,21 @@ type StackDataAsset struct {
 	Member                     *StackDataAssetMember `json:"member,omitempty" yaml:"member,omitempty"`
 	HelmRelease                string                `json:"helm_release,omitempty" yaml:"helm_release,omitempty"`
 	Status                     string                `json:"status,omitempty" yaml:"status,omitempty"`
+	Attribution                string                `json:"attribution" yaml:"attribution"`
 }
 
 // StackDataInventory is the full answer for one stack.
+//
+// Assets are the data the stack's members own, and the only data a capture,
+// protection, clone or restore of the stack acts on. UnattributedAssets are
+// what the sweep of the stack's namespaces found that no member owns; they
+// are reported so they can be seen, and are never captured or restored as
+// this stack's. TotalRequestedBytes counts Assets alone.
 type StackDataInventory struct {
 	StackName           string           `json:"stack_name" yaml:"stack_name"`
 	Namespaces          []string         `json:"namespaces" yaml:"namespaces"`
 	Assets              []StackDataAsset `json:"assets" yaml:"assets"`
+	UnattributedAssets  []StackDataAsset `json:"unattributed_assets" yaml:"unattributed_assets"`
 	TotalRequestedBytes int64            `json:"total_requested_bytes" yaml:"total_requested_bytes"`
 	CustomResourceScan  string           `json:"custom_resource_scan" yaml:"custom_resource_scan"`
 }

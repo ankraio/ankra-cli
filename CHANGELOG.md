@@ -1,5 +1,21 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Changed
+
+- **`ankra cluster stacks data list` shows data in the stack's namespaces
+  that the stack does not own.** The platform now lists as a stack's assets
+  only what one of its members owns, so another stack's database in a shared
+  namespace (or an orphan claim) is no longer counted as this stack's and is
+  never captured or restored with it. The CLI used to print only the owned
+  assets, so that data silently disappeared from the list; it now appears
+  under a separate "Not owned by this stack (unattributed)" section with its
+  kind, namespace, name, size and Helm release. Each owned asset also says
+  why it is the stack's: the member that owns it, or a namespace only this
+  stack uses. `-o json` and `-o yaml` carry `attribution` per asset and the
+  `unattributed_assets` list.
+
 ## v0.23.0 — 2026-10-04
 
 ### Changed
