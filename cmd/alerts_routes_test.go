@@ -649,3 +649,55 @@ func TestAlertsRoutesAcceptsAKindListWithStrayCommas(t *testing.T) {
 		t.Fatalf("stray commas must be dropped, not sent: %+v", mock.createRequest.Kinds)
 	}
 }
+
+func TestAlertsRoutesCreateSendsTheApplicationAndReferenceScope(t *testing.T) {
+	mock := &notificationRoutesMock{}
+	_, _, runError := runAlertsCommand(t, mock, "",
+		"alerts", "routes", "create",
+		"--destination-id", "3d0f6a2e-0000-4000-8000-000000000001",
+		"--kinds", "pipeline_run_failed,image_gate_blocked",
+		"--application", "89789fcd-8879-4cf2-891a-01d24826ef64",
+		"--reference-pattern", "main")
+	if runError != nil {
+		t.Fatalf("alerts routes create failed: %v", runError)
+	}
+	request := mock.createRequest
+	if request == nil {
+		t.Fatal("expected the create call to reach the client")
+	}
+	if request.ApplicationID == nil || *request.ApplicationID != "89789fcd-8879-4cf2-891a-01d24826ef64" {
+		t.Errorf("application_id = %v, want the application id", request.ApplicationID)
+	}
+	if request.ReferencePattern == nil || *request.ReferencePattern != "main" {
+		t.Errorf("reference_pattern = %v, want main", request.ReferencePattern)
+	}
+}
+
+func TestAlertsRoutesUpdateWithOnlyAReferencePatternIsNotEmpty(t *testing.T) {
+	mock := &notificationRoutesMock{routes: sampleNotificationRoutes()}
+	_, _, runError := runAlertsCommand(t, mock, "",
+		"alerts", "routes", "update", "7c1e0d5a-0000-4000-8000-000000000001",
+		"--reference-pattern", "release/*")
+	if runError != nil {
+		t.Fatalf("an update carrying only a reference pattern must be sent: %v", runError)
+	}
+	if mock.updateRequest == nil || mock.updateRequest.ReferencePattern == nil ||
+		*mock.updateRequest.ReferencePattern != "release/*" {
+		t.Fatalf("reference_pattern was not sent: %+v", mock.updateRequest)
+	}
+}
+
+func TestAlertsRoutesPreviewSendsTheApplicationAndReference(t *testing.T) {
+	mock := &notificationRoutesMock{preview: &client.NotificationRoutePreview{Routable: true}}
+	_, _, runError := runAlertsCommand(t, mock, "",
+		"alerts", "routes", "preview", "--kind", "pipeline_run_failed", "--severity", "warning",
+		"--application", "89789fcd-8879-4cf2-891a-01d24826ef64", "--reference", "pull/55")
+	if runError != nil {
+		t.Fatalf("alerts routes preview failed: %v", runError)
+	}
+	request := mock.previewRequest
+	if request == nil || request.ApplicationID == nil || request.Reference == nil ||
+		*request.Reference != "pull/55" {
+		t.Fatalf("preview must carry the application and reference, got %+v", request)
+	}
+}
