@@ -64,6 +64,9 @@ ankra alerts routes create --destination-id <id> --severity critical
 ankra alerts routes create --destination-id <id> --kinds execution_failed,gitops_sync_failed
 ankra alerts routes create --destination-id <id> --cluster-id <cluster-id> --severity warning
 ankra alerts routes create --destination-id <id> --kind agent_offline --mode exclude --stop-on-match
+# one application's default-branch CI failures, pull requests left out
+ankra alerts routes create --destination-id <id> --kinds pipeline_run_failed,image_gate_blocked \
+  --application <name-or-id> --reference-pattern main
 
 ankra alerts routes list
 ankra alerts routes update <route-id> ...
@@ -82,7 +85,18 @@ Filters and mechanics:
 - **`--priority`** orders evaluation (lowest first, default 100), and **`--stop-on-match`** stops
   lower-priority routes once this one matches. Together they express "critical goes to on-call and
   *only* on-call".
-- `--source-id` scopes to one emitting source; `--cluster-id` to one cluster.
+- `--source-id` scopes to one emitting source; `--cluster-id` to one cluster. Pipeline
+  notifications belong to the organisation, not a cluster, so a `--cluster-id` route never matches
+  them - scope those with the next two flags.
+- `--application <name-or-id>` scopes to one application's notifications (pipeline runs, image
+  gates, previews, approval requests).
+- `--reference-pattern` scopes to the branches, tags or pull requests a glob matches: `main` (or
+  `refs/heads/main`) is pushes to main and never a pull request targeting main; `pull/*` is every
+  pull request; `release/*` one path segment, `release/**` any depth; `refs/tags/v*` tags.
+- **Repeats are delivered.** A failing reference announces every new failing run; a condition that
+  stays broken is reminded about (critical after 1h, 4h, 12h, then daily; warning after 4h, then
+  daily; info never); a card that resolves and comes back is announced again. The built-in Slack
+  card marks repeats "Still firing" or "Reopened", and templates can read `{{delivery_reason}}`.
 
 ## Preview and test routing
 
@@ -92,6 +106,7 @@ Filters and mechanics:
 ankra alerts routes preview --kind alert_trigger_fired --severity critical
 ankra alerts routes preview --kind alert_trigger_fired --severity critical --alert-id <alert-id>
 ankra alerts routes preview --kind gitops_sync_failed --severity warning --cluster-id <id> -o json
+ankra alerts routes preview --kind pipeline_run_failed --severity warning --application <app> --reference refs/heads/main
 ankra alerts routes test <route-id>          # queue a real sample through the route
 ```
 

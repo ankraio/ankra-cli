@@ -79,7 +79,15 @@ agent_offline, security_new_severe_cves, and the other platform
 notification kinds; severities are critical, warning, and info.
 
   ankra alerts routes create --destination-id <destination-id> --severity critical
-  ankra alerts routes create --destination-id <destination-id> --kind gitops_sync_failed --mode exclude --stop-on-match`,
+  ankra alerts routes create --destination-id <destination-id> --kind gitops_sync_failed --mode exclude --stop-on-match
+  ankra alerts routes create --destination-id <destination-id> --kinds pipeline_run_failed,image_gate_blocked \
+    --application cadence --reference-pattern main
+
+--application limits a route to one application's notifications (pipeline
+runs, image gates, previews); --reference-pattern to the branches, tags or
+pull requests a glob matches. "main" matches pushes to main and never a pull
+request targeting main; "pull/*" matches every pull request; "release/*" one
+path segment and "release/**" any depth; "refs/tags/v*" tags.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if validationError := validateRouteFilterFlags(cmd); validationError != nil {
@@ -87,18 +95,24 @@ notification kinds; severities are critical, warning, and info.
 		}
 		kinds, kindsNegated := routeKindFilterFlags(cmd)
 		request := client.CreateNotificationRouteRequest{
-			DestinationID: mustFlagString(cmd, "destination-id"),
-			Kind:          changedStringFlag(cmd, "kind"),
-			Kinds:         kinds,
-			KindsNegated:  kindsNegated,
-			Severity:      changedStringFlag(cmd, "severity"),
-			ClusterID:     changedStringFlag(cmd, "cluster-id"),
-			SourceID:      changedStringFlag(cmd, "source-id"),
-			Priority:      changedIntFlag(cmd, "priority"),
-			StopOnMatch:   changedBoolFlag(cmd, "stop-on-match"),
-			Mode:          changedStringFlag(cmd, "mode"),
-			Enabled:       enabledFromFlags(cmd),
+			DestinationID:    mustFlagString(cmd, "destination-id"),
+			Kind:             changedStringFlag(cmd, "kind"),
+			Kinds:            kinds,
+			KindsNegated:     kindsNegated,
+			Severity:         changedStringFlag(cmd, "severity"),
+			ClusterID:        changedStringFlag(cmd, "cluster-id"),
+			SourceID:         changedStringFlag(cmd, "source-id"),
+			ReferencePattern: changedStringFlag(cmd, "reference-pattern"),
+			Priority:         changedIntFlag(cmd, "priority"),
+			StopOnMatch:      changedBoolFlag(cmd, "stop-on-match"),
+			Mode:             changedStringFlag(cmd, "mode"),
+			Enabled:          enabledFromFlags(cmd),
 		}
+		applicationID, applicationError := routeApplicationFlag(cmd)
+		if applicationError != nil {
+			return applicationError
+		}
+		request.ApplicationID = applicationID
 		route, createError := apiClient.CreateNotificationRoute(request)
 		if createError != nil {
 			return fmt.Errorf("creating notification route: %w", createError)
@@ -128,18 +142,24 @@ rest keep their current values.
 		}
 		kinds, kindsNegated := routeKindFilterFlags(cmd)
 		request := client.UpdateNotificationRouteRequest{
-			DestinationID: changedStringFlag(cmd, "destination-id"),
-			Kind:          changedStringFlag(cmd, "kind"),
-			Kinds:         kinds,
-			KindsNegated:  kindsNegated,
-			Severity:      changedStringFlag(cmd, "severity"),
-			ClusterID:     changedStringFlag(cmd, "cluster-id"),
-			SourceID:      changedStringFlag(cmd, "source-id"),
-			Priority:      changedIntFlag(cmd, "priority"),
-			StopOnMatch:   changedBoolFlag(cmd, "stop-on-match"),
-			Mode:          changedStringFlag(cmd, "mode"),
-			Enabled:       enabledFromFlags(cmd),
+			DestinationID:    changedStringFlag(cmd, "destination-id"),
+			Kind:             changedStringFlag(cmd, "kind"),
+			Kinds:            kinds,
+			KindsNegated:     kindsNegated,
+			Severity:         changedStringFlag(cmd, "severity"),
+			ClusterID:        changedStringFlag(cmd, "cluster-id"),
+			SourceID:         changedStringFlag(cmd, "source-id"),
+			ReferencePattern: changedStringFlag(cmd, "reference-pattern"),
+			Priority:         changedIntFlag(cmd, "priority"),
+			StopOnMatch:      changedBoolFlag(cmd, "stop-on-match"),
+			Mode:             changedStringFlag(cmd, "mode"),
+			Enabled:          enabledFromFlags(cmd),
 		}
+		applicationID, applicationError := routeApplicationFlag(cmd)
+		if applicationError != nil {
+			return applicationError
+		}
+		request.ApplicationID = applicationID
 		if isEmptyRouteUpdate(request) {
 			return withExitCode(exitUsage, errors.New("nothing to update: pass at least one flag"))
 		}
@@ -210,18 +230,26 @@ without the alert id the preview cannot tell you which rule that affects.
 
   ankra alerts routes preview --kind alert_trigger_fired --severity critical
   ankra alerts routes preview --kind alert_trigger_fired --severity critical --alert-id <alert-id>
-  ankra alerts routes preview --kind gitops_sync_failed --severity warning --cluster-id <cluster-id> -o json`,
+  ankra alerts routes preview --kind gitops_sync_failed --severity warning --cluster-id <cluster-id> -o json
+  ankra alerts routes preview --kind pipeline_run_failed --severity warning --application cadence --reference refs/heads/main
+  ankra alerts routes preview --kind pipeline_run_failed --severity warning --application cadence --reference pull/55`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if validationError := validatePreviewFlags(cmd); validationError != nil {
 			return validationError
 		}
+		applicationID, applicationError := routeApplicationFlag(cmd)
+		if applicationError != nil {
+			return applicationError
+		}
 		preview, previewError := apiClient.PreviewNotificationRoutes(client.PreviewNotificationRoutesRequest{
-			Kind:      mustFlagString(cmd, "kind"),
-			Severity:  mustFlagString(cmd, "severity"),
-			ClusterID: changedStringFlag(cmd, "cluster-id"),
-			SourceID:  changedStringFlag(cmd, "source-id"),
-			AlertID:   changedStringFlag(cmd, "alert-id"),
+			Kind:          mustFlagString(cmd, "kind"),
+			Severity:      mustFlagString(cmd, "severity"),
+			ClusterID:     changedStringFlag(cmd, "cluster-id"),
+			SourceID:      changedStringFlag(cmd, "source-id"),
+			AlertID:       changedStringFlag(cmd, "alert-id"),
+			ApplicationID: applicationID,
+			Reference:     changedStringFlag(cmd, "reference"),
 		})
 		if previewError != nil {
 			return fmt.Errorf("previewing notification routes: %w", previewError)
@@ -380,8 +408,23 @@ func splitCommaList(value string) []string {
 func isEmptyRouteUpdate(request client.UpdateNotificationRouteRequest) bool {
 	return request.DestinationID == nil && request.Kind == nil && request.Kinds == nil &&
 		request.KindsNegated == nil && request.Severity == nil && request.ClusterID == nil &&
-		request.SourceID == nil && request.Priority == nil && request.StopOnMatch == nil &&
+		request.SourceID == nil && request.ApplicationID == nil && request.ReferencePattern == nil &&
+		request.Priority == nil && request.StopOnMatch == nil &&
 		request.Mode == nil && request.Enabled == nil
+}
+
+// routeApplicationFlag resolves --application, which takes an application
+// name or id like every other per-application command, to the id the API
+// stores. nil when the flag was not passed.
+func routeApplicationFlag(cmd *cobra.Command) (*string, error) {
+	if !cmd.Flags().Changed("application") {
+		return nil, nil
+	}
+	applicationID, resolveError := resolveApplicationID(cmd.Context(), apiClient, mustFlagString(cmd, "application"))
+	if resolveError != nil {
+		return nil, resolveError
+	}
+	return &applicationID, nil
 }
 
 // renderRouteKindFilter renders a route's kind filter for humans: the list,
@@ -414,6 +457,8 @@ func printNotificationRoute(out io.Writer, route *client.NotificationRoute) {
 	_, _ = fmt.Fprintf(out, "Severity:      %s\n", valueOrAny(route.Severity))
 	_, _ = fmt.Fprintf(out, "Cluster:       %s\n", valueOrAny(route.ClusterID))
 	_, _ = fmt.Fprintf(out, "Source:        %s\n", valueOrAny(route.SourceID))
+	_, _ = fmt.Fprintf(out, "Application:   %s\n", valueOrAny(route.ApplicationID))
+	_, _ = fmt.Fprintf(out, "References:    %s\n", valueOrAny(route.ReferencePattern))
 	_, _ = fmt.Fprintf(out, "Mode:          %s\n", route.Mode)
 	_, _ = fmt.Fprintf(out, "Stop on match: %t\n", route.StopOnMatch)
 	_, _ = fmt.Fprintf(out, "Enabled:       %t\n", route.Enabled)
@@ -430,6 +475,8 @@ func registerRouteFilterFlags(cmd *cobra.Command) {
 	cmd.Flags().String("severity", "", "Only notifications of this severity: critical, warning, or info")
 	cmd.Flags().String("cluster-id", "", "Only notifications about this cluster (id)")
 	cmd.Flags().String("source-id", "", "Only notifications from this source id")
+	cmd.Flags().String("application", "", "Only notifications about this application (name or id)")
+	cmd.Flags().String("reference-pattern", "", "Only notifications about a branch, tag or pull request matching this glob (main, release/*, pull/*)")
 	cmd.Flags().Int("priority", 0, "Evaluation order, lowest first (default 100)")
 	cmd.Flags().Bool("stop-on-match", false, "Stop evaluating lower-priority routes once this one matches")
 	cmd.Flags().String("mode", "", "include delivers matches, exclude withholds them (default include)")
@@ -454,6 +501,8 @@ func init() {
 	alertsRoutesPreviewCmd.Flags().String("cluster-id", "", "Resolve as a notification about this cluster")
 	alertsRoutesPreviewCmd.Flags().String("source-id", "", "Resolve as a notification from this source id")
 	alertsRoutesPreviewCmd.Flags().String("alert-id", "", "Resolve as a firing of this alert, including its own destinations")
+	alertsRoutesPreviewCmd.Flags().String("application", "", "Resolve as a notification about this application (name or id)")
+	alertsRoutesPreviewCmd.Flags().String("reference", "", "Resolve as a notification about this reference (refs/heads/<branch>, pull/<number>)")
 	_ = alertsRoutesPreviewCmd.MarkFlagRequired("kind")
 
 	registerStructuredOutputFlags(

@@ -144,7 +144,8 @@ type TeamsChannelList struct {
 
 // NotificationRoute mirrors one routing rule under
 // /api/v1/org/notifications/routes: a notification matching every non-null
-// filter (kind, severity, cluster_id, source_id) is delivered to (mode
+// filter (kind, severity, cluster_id, source_id, application_id,
+// reference_pattern) is delivered to (mode
 // "include") or withheld from (mode "exclude") the destination. Routes are
 // evaluated in ascending priority; StopOnMatch ends the walk at this rule.
 type NotificationRoute struct {
@@ -156,13 +157,18 @@ type NotificationRoute struct {
 	Severity       *string  `json:"severity" yaml:"severity"`
 	ClusterID      *string  `json:"cluster_id" yaml:"cluster_id"`
 	SourceID       *string  `json:"source_id" yaml:"source_id"`
-	DestinationID  string   `json:"destination_id" yaml:"destination_id"`
-	Priority       int      `json:"priority" yaml:"priority"`
-	StopOnMatch    bool     `json:"stop_on_match" yaml:"stop_on_match"`
-	Mode           string   `json:"mode" yaml:"mode"`
-	Enabled        bool     `json:"enabled" yaml:"enabled"`
-	CreatedAt      string   `json:"created_at" yaml:"created_at"`
-	UpdatedAt      string   `json:"updated_at" yaml:"updated_at"`
+	// ApplicationID limits the route to one application's notifications,
+	// and ReferencePattern to the branches, tags or pull requests a glob
+	// matches ("main", "release/*", "pull/*").
+	ApplicationID    *string `json:"application_id" yaml:"application_id"`
+	ReferencePattern *string `json:"reference_pattern" yaml:"reference_pattern"`
+	DestinationID    string  `json:"destination_id" yaml:"destination_id"`
+	Priority         int     `json:"priority" yaml:"priority"`
+	StopOnMatch      bool    `json:"stop_on_match" yaml:"stop_on_match"`
+	Mode             string  `json:"mode" yaml:"mode"`
+	Enabled          bool    `json:"enabled" yaml:"enabled"`
+	CreatedAt        string  `json:"created_at" yaml:"created_at"`
+	UpdatedAt        string  `json:"updated_at" yaml:"updated_at"`
 }
 
 // NotificationRouteList is the GET /api/v1/org/notifications/routes body.
@@ -174,34 +180,38 @@ type NotificationRouteList struct {
 // required; the backend defaults priority to 100, stop_on_match to false,
 // mode to "include", and enabled to true for omitted members.
 type CreateNotificationRouteRequest struct {
-	DestinationID string   `json:"destination_id"`
-	Kind          *string  `json:"kind,omitempty"`
-	Kinds         []string `json:"kinds,omitempty"`
-	KindsNegated  *bool    `json:"kinds_negated,omitempty"`
-	Severity      *string  `json:"severity,omitempty"`
-	ClusterID     *string  `json:"cluster_id,omitempty"`
-	SourceID      *string  `json:"source_id,omitempty"`
-	Priority      *int     `json:"priority,omitempty"`
-	StopOnMatch   *bool    `json:"stop_on_match,omitempty"`
-	Mode          *string  `json:"mode,omitempty"`
-	Enabled       *bool    `json:"enabled,omitempty"`
+	DestinationID    string   `json:"destination_id"`
+	Kind             *string  `json:"kind,omitempty"`
+	Kinds            []string `json:"kinds,omitempty"`
+	KindsNegated     *bool    `json:"kinds_negated,omitempty"`
+	Severity         *string  `json:"severity,omitempty"`
+	ClusterID        *string  `json:"cluster_id,omitempty"`
+	SourceID         *string  `json:"source_id,omitempty"`
+	ApplicationID    *string  `json:"application_id,omitempty"`
+	ReferencePattern *string  `json:"reference_pattern,omitempty"`
+	Priority         *int     `json:"priority,omitempty"`
+	StopOnMatch      *bool    `json:"stop_on_match,omitempty"`
+	Mode             *string  `json:"mode,omitempty"`
+	Enabled          *bool    `json:"enabled,omitempty"`
 }
 
 // UpdateNotificationRouteRequest is the PATCH body. The backend applies
 // only the members present in the JSON document, so a nil member is left
 // out of the wire body entirely rather than sent as null.
 type UpdateNotificationRouteRequest struct {
-	DestinationID *string  `json:"destination_id,omitempty"`
-	Kind          *string  `json:"kind,omitempty"`
-	Kinds         []string `json:"kinds,omitempty"`
-	KindsNegated  *bool    `json:"kinds_negated,omitempty"`
-	Severity      *string  `json:"severity,omitempty"`
-	ClusterID     *string  `json:"cluster_id,omitempty"`
-	SourceID      *string  `json:"source_id,omitempty"`
-	Priority      *int     `json:"priority,omitempty"`
-	StopOnMatch   *bool    `json:"stop_on_match,omitempty"`
-	Mode          *string  `json:"mode,omitempty"`
-	Enabled       *bool    `json:"enabled,omitempty"`
+	DestinationID    *string  `json:"destination_id,omitempty"`
+	Kind             *string  `json:"kind,omitempty"`
+	Kinds            []string `json:"kinds,omitempty"`
+	KindsNegated     *bool    `json:"kinds_negated,omitempty"`
+	Severity         *string  `json:"severity,omitempty"`
+	ClusterID        *string  `json:"cluster_id,omitempty"`
+	SourceID         *string  `json:"source_id,omitempty"`
+	ApplicationID    *string  `json:"application_id,omitempty"`
+	ReferencePattern *string  `json:"reference_pattern,omitempty"`
+	Priority         *int     `json:"priority,omitempty"`
+	StopOnMatch      *bool    `json:"stop_on_match,omitempty"`
+	Mode             *string  `json:"mode,omitempty"`
+	Enabled          *bool    `json:"enabled,omitempty"`
 }
 
 // PreviewNotificationRoutesRequest is the POST .../routes/preview body: the
@@ -214,6 +224,11 @@ type PreviewNotificationRoutesRequest struct {
 	ClusterID *string `json:"cluster_id,omitempty"`
 	SourceID  *string `json:"source_id,omitempty"`
 	AlertID   *string `json:"alert_id,omitempty"`
+	// ApplicationID and Reference describe what the hypothetical
+	// notification is about, for routes scoped by application or reference
+	// pattern. Reference is concrete: refs/heads/<branch>, pull/<number>.
+	ApplicationID *string `json:"application_id,omitempty"`
+	Reference     *string `json:"reference,omitempty"`
 }
 
 // NotificationRoutePreviewDelivery is one destination the notification
@@ -246,6 +261,8 @@ type NotificationRoutePreview struct {
 	ClusterID           *string                              `json:"cluster_id" yaml:"cluster_id"`
 	SourceID            *string                              `json:"source_id" yaml:"source_id"`
 	AlertID             *string                              `json:"alert_id" yaml:"alert_id"`
+	ApplicationID       *string                              `json:"application_id" yaml:"application_id"`
+	Reference           *string                              `json:"reference" yaml:"reference"`
 	Routable            bool                                 `json:"routable" yaml:"routable"`
 	RoutableReason      string                               `json:"routable_reason" yaml:"routable_reason"`
 	Deliveries          []NotificationRoutePreviewDelivery   `json:"deliveries" yaml:"deliveries"`
