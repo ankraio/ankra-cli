@@ -122,7 +122,8 @@ Example:
 		if inventory.CustomResourceScan == client.CustomResourceScanUnavailable {
 			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
 				"The live database-operator read did not run, so any database this stack runs may be missing "+
-					"from this list. Check the cluster's agent with 'ankra cluster info'.")
+					"from this list, or listed as not owned by this stack because its ownership could not be read. "+
+					"Check the cluster's agent with 'ankra cluster info'.")
 		}
 		out := cmd.OutOrStdout()
 		if len(inventory.Assets) == 0 {

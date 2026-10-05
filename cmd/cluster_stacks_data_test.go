@@ -164,6 +164,12 @@ func TestStackDataListWarnsWhenTheLiveScanDidNotRun(t *testing.T) {
 	if !strings.Contains(output, "live database-operator read did not run") {
 		t.Fatalf("an unavailable scan must be said out loud, got:\n%s", output)
 	}
+	// Without the live read a database's ownership cannot be proven, so the
+	// platform lists it as unattributed: the warning has to say an
+	// unattributed database may still be this stack's.
+	if !strings.Contains(output, "listed as not owned by this stack") {
+		t.Fatalf("an unavailable scan must say unattributed data may be this stack's, got:\n%s", output)
+	}
 }
 
 func TestStackDataListEmptySaysSo(t *testing.T) {
