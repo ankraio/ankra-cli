@@ -68,6 +68,11 @@ var managedCreateCmd = &cobra.Command{
 			},
 			Aks: aksOptions,
 		}
+		if devCluster, _ := cmd.Flags().GetBool("dev-cluster"); devCluster && provider == client.ManagedK8sProviderAnkraCloudK8s {
+			if devClusterError := applyDevClusterFlags(cmd, &request); devClusterError != nil {
+				return devClusterError
+			}
+		}
 		if networkError := applyManagedNetworkOptionFlags(cmd, provider, &request); networkError != nil {
 			return networkError
 		}
@@ -686,9 +691,6 @@ func applyManagedNetworkOptionFlags(cmd *cobra.Command, provider client.ManagedK
 			isSet = true
 		}
 		if devCluster, _ := cmd.Flags().GetBool("dev-cluster"); devCluster {
-			if devClusterError := applyDevClusterFlags(cmd, request); devClusterError != nil {
-				return devClusterError
-			}
 			options.DevCluster = true
 			isSet = true
 		}
