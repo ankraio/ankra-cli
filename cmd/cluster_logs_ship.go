@@ -158,9 +158,6 @@ func runClusterLogsShipStatus(command *cobra.Command) error {
 	if getError != nil {
 		return hostedLogsError(getError, cluster, false)
 	}
-	if state == nil {
-		return fmt.Errorf("the platform returned no hosted log shipping state for cluster '%s'", cluster.Name)
-	}
 	if format != outputDefault {
 		return encodeStructured(command.OutOrStdout(), format, state)
 	}
@@ -194,9 +191,6 @@ func runClusterLogsShipSwitch(command *cobra.Command, enabled bool) error {
 	state, setError := apiClient.SetClusterHostedLogShipping(ctx, cluster.ID, enabled)
 	if setError != nil {
 		return hostedLogsError(setError, cluster, true)
-	}
-	if state == nil {
-		return fmt.Errorf("the platform returned no hosted log shipping state for cluster '%s'", cluster.Name)
 	}
 	if format != outputDefault {
 		return encodeStructured(command.OutOrStdout(), format, state)
