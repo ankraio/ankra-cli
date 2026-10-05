@@ -632,6 +632,9 @@ func applyDevClusterFlags(cmd *cobra.Command, request *client.CreateManagedClust
 	if cmd.Flags().Changed("network-cidr") {
 		return withExitCode(exitUsage, errors.New("--dev-cluster creates no network: omit --network-cidr"))
 	}
+	if cmd.Flags().Changed("private-network-id") {
+		return withExitCode(exitUsage, errors.New("--dev-cluster joins no private network: omit --private-network-id"))
+	}
 	if cmd.Flags().Changed("autoscaling") {
 		return withExitCode(exitUsage, errors.New("--dev-cluster is one server and cannot autoscale: omit --autoscaling"))
 	}

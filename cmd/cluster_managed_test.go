@@ -706,6 +706,7 @@ func TestManagedCreate_DevClusterRefusesWhatOneServerCannotBe(t *testing.T) {
 	for name, extra := range map[string][]string{
 		"three nodes":   {"--node-pool-count", "3"},
 		"a range":       {"--network-cidr", "10.50.0.0/24"},
+		"a network":     {"--private-network-id", "01a10994-0000-7000-8000-000000000000"},
 		"autoscaling":   {"--autoscaling", "--autoscaling-min", "1", "--autoscaling-max", "2"},
 		"another cloud": nil,
 	} {
