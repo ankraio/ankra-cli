@@ -44,6 +44,9 @@ type hostedLogsServer struct {
 	// and refusalBody.
 	refusalStatus int
 	refusalBody   string
+	// ignoreWrites, when set, answers a PUT with the state it already had,
+	// as a platform whose stored state disagrees with the request would.
+	ignoreWrites bool
 }
 
 func newHostedLogsServer(t *testing.T) *hostedLogsServer {
@@ -98,8 +101,10 @@ func newHostedLogsServer(t *testing.T) *hostedLogsServer {
 				_, _ = writer.Write([]byte(`{"detail":"shipping_enabled must be a boolean"}`))
 				return
 			}
-			changedAt := hostedLogsTestChangedAt
-			state.ShippingEnabled, state.ChangedAt = enabled, &changedAt
+			if !recorder.ignoreWrites {
+				changedAt := hostedLogsTestChangedAt
+				state.ShippingEnabled, state.ChangedAt = enabled, &changedAt
+			}
 		default:
 			writer.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -505,6 +510,15 @@ func TestClusterLogsShipRefusals(t *testing.T) {
 			forbidMessage: "not found in this organisation",
 		},
 		{
+			name:          "a 404 with no detail is unknown, not a guess",
+			arguments:     []string{"status"},
+			status:        http.StatusNotFound,
+			body:          ``,
+			wantExit:      exitError,
+			wantMessage:   "the platform answered 404 without saying why",
+			forbidMessage: "does not offer hosted log shipping yet (the route answered 404)",
+		},
+		{
 			name:        "any other refusal keeps the platform's detail",
 			arguments:   []string{"enable", "--yes"},
 			status:      http.StatusUnprocessableEntity,
@@ -548,5 +562,28 @@ func TestClusterLogsShipVerbsTakeNoArguments(t *testing.T) {
 		if requests := recorder.seen(); len(requests) != 0 {
 			t.Fatalf("%s: a usage error still reached the platform: %+v", verb, requests)
 		}
+	}
+}
+
+func TestLogsShipWriteThatDidNotTakeEffectExitsNonZero(t *testing.T) {
+	for _, arguments := range [][]string{{"enable", "--yes"}, {"enable", "--yes", "-o", "json"}} {
+		t.Run(strings.Join(arguments, " "), func(t *testing.T) {
+			recorder := newHostedLogsServer(t)
+			recorder.ignoreWrites = true
+
+			stdout, _, runError := runLogsShip(t, "", arguments...)
+			if runError == nil {
+				t.Fatalf("a write the platform did not store must not succeed:\n%s", stdout)
+			}
+			if code := exitCodeFor(runError); code != exitError {
+				t.Errorf("exit code = %d, want %d (%v)", code, exitError, runError)
+			}
+			if !strings.Contains(runError.Error(), "stored hosted log shipping as disabled") {
+				t.Errorf("error = %q, want it to name the stored state", runError.Error())
+			}
+			if !strings.Contains(stdout, "shipping_enabled") && !strings.Contains(stdout, "Shipping:") {
+				t.Errorf("the stored state was not printed:\n%s", stdout)
+			}
+		})
 	}
 }

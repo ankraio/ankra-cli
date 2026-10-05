@@ -192,8 +192,16 @@ func runClusterLogsShipSwitch(command *cobra.Command, enabled bool) error {
 	if setError != nil {
 		return hostedLogsError(setError, cluster, true)
 	}
+	// The route answers the state it stored. One that disagrees with the
+	// request is a change that did not take effect, so it is reported AND
+	// exits non-zero: a script running `enable --yes` must not read it as
+	// the switch having moved.
+	disagreement := hostedLogsDisagreement(cluster, enabled, state.ShippingEnabled)
 	if format != outputDefault {
-		return encodeStructured(command.OutOrStdout(), format, state)
+		if encodeError := encodeStructured(command.OutOrStdout(), format, state); encodeError != nil {
+			return encodeError
+		}
+		return disagreement
 	}
 
 	out := command.OutOrStdout()
@@ -204,11 +212,8 @@ func runClusterLogsShipSwitch(command *cobra.Command, enabled bool) error {
 	}
 	printHostedLogsState(out, state)
 	switch {
-	case state.ShippingEnabled != enabled:
-		// The route answers the state it stored; one that disagrees with
-		// the request is reported, not papered over.
-		_, _ = fmt.Fprintln(out, "\nThe platform reports a different state than the one requested; "+
-			"run 'ankra cluster logs-ship status' to check it.")
+	case disagreement != nil:
+		return disagreement
 	case !state.Available || !state.AgentSupportsSwitch:
 		// printHostedLogsState has already said why nothing changes yet.
 	case enabled:
@@ -248,12 +253,26 @@ func confirmHostedLogShipping(command *cobra.Command, cluster client.ClusterList
 	return nil
 }
 
+// hostedLogsDisagreement is the error for a write whose stored state is not
+// the one requested, or nil when they agree.
+func hostedLogsDisagreement(cluster client.ClusterListItem, requested bool, stored bool) error {
+	if requested == stored {
+		return nil
+	}
+	return withExitCode(exitError, fmt.Errorf(
+		"the platform stored hosted log shipping as %s for cluster '%s', not %s as requested; "+
+			"run 'ankra cluster logs-ship status' to check it",
+		hostedLogsShippingLabel(stored), cluster.Name, hostedLogsShippingLabel(requested)))
+}
+
 // hostedLogsError maps a refusal from the switch routes onto what the user
 // can act on. A 403 on the write is a missing clusters.write and exits 7; a
-// 404 the platform answered is a cluster outside the selected organisation
-// and exits 3; the router's own 404 is a platform that predates the switch,
-// which is not "the cluster does not exist" and so exits 1. Anything else
-// keeps the platform's detail.
+// 404 carrying the platform's own detail is a cluster outside the selected
+// organisation and exits 3; the router's own 404 (detail "Not Found") is a
+// platform that predates the switch, which is not "the cluster does not
+// exist" and so exits 1. A 404 with no detail at all says neither, so it is
+// reported as unknown rather than guessed at. Anything else keeps the
+// platform's detail.
 func hostedLogsError(apiError error, cluster client.ClusterListItem, writing bool) error {
 	operation := fmt.Sprintf("reading hosted log shipping for cluster '%s'", cluster.Name)
 	if writing {
@@ -272,7 +291,13 @@ func hostedLogsError(apiError error, cluster client.ClusterListItem, writing boo
 		return withExitCode(exitForbidden, fmt.Errorf("%s: %w", operation, apiError))
 	}
 	if hasStatus && unexpected.StatusCode == http.StatusNotFound {
-		if unexpected.Detail == "" || unexpected.Detail == routeAbsentDetail {
+		if unexpected.Detail == "" {
+			return withExitCode(exitError, fmt.Errorf(
+				"%s: the platform answered 404 without saying why, so it is not known whether the cluster is "+
+					"outside this organisation or the platform does not offer hosted log shipping yet. "+
+					"Check the selected organisation with 'ankra org current' and try again", operation))
+		}
+		if unexpected.Detail == routeAbsentDetail {
 			return withExitCode(exitError, fmt.Errorf(
 				"%s: this Ankra platform does not offer hosted log shipping yet (the route answered 404). "+
 					"Check the selected organisation with 'ankra org current' and try again once the platform has it",
