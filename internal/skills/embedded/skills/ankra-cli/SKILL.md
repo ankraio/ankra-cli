@@ -154,9 +154,10 @@ ankra cluster logs-ship disable                  # opt out; no confirmation need
 
 Shipping logs to Ankra's hosted log store is opt-in per cluster and off by default; turning it on
 needs `clusters.write` and sends customer log content out of the cluster, so confirm with the user
-before passing `--yes`. `status` names an agent too old to follow the switch (fix with
-`ankra cluster agent upgrade`) and a platform where hosted logging is not live yet (the switch is
-stored, nothing ships until it is).
+before passing `--yes`. `status` names an agent that does not follow the switch yet (too old: fix
+with `ankra cluster agent upgrade`; or opted out locally with `logs_ship.enabled: false` in its Helm
+values) and a platform where hosted logging is not live yet (the switch is stored, nothing ships
+until it is).
 
 ## Migrating a Docker deployment
 

@@ -43,8 +43,9 @@ func hostedLogsEnableExplanation(clusterName string) string {
 const (
 	hostedLogsUnavailableSentence = "Ankra has not turned hosted logging on for this platform yet: " +
 		"the switch is stored, but nothing ships until it does."
-	hostedLogsAgentTooOldSentence = "This cluster's agent is too old to follow the switch. " +
-		"Upgrade the agent with 'ankra cluster agent upgrade' so it does."
+	hostedLogsAgentTooOldSentence = "This cluster's agent does not follow the switch yet: it is too old, " +
+		"or log shipping is turned off in its own Helm values (logs_ship.enabled). " +
+		"Upgrade the agent with 'ankra cluster agent upgrade', or check that value."
 )
 
 func newClusterLogsShipCommand() *cobra.Command {
@@ -273,6 +274,10 @@ func hostedLogsDisagreement(cluster client.ClusterListItem, requested bool, stor
 // exist" and so exits 1. A 404 with no detail at all says neither, so it is
 // reported as unknown rather than guessed at. Anything else keeps the
 // platform's detail.
+// hostedLogsClusterNotFoundDetail is the platform's own answer for a cluster
+// outside the selected organisation; only this detail is read as "not found".
+const hostedLogsClusterNotFoundDetail = "Cluster not found"
+
 func hostedLogsError(apiError error, cluster client.ClusterListItem, writing bool) error {
 	operation := fmt.Sprintf("reading hosted log shipping for cluster '%s'", cluster.Name)
 	if writing {
@@ -296,6 +301,9 @@ func hostedLogsError(apiError error, cluster client.ClusterListItem, writing boo
 				"%s: the platform answered 404 without saying why, so it is not known whether the cluster is "+
 					"outside this organisation or the platform does not offer hosted log shipping yet. "+
 					"Check the selected organisation with 'ankra org current' and try again", operation))
+		}
+		if unexpected.Detail != hostedLogsClusterNotFoundDetail && unexpected.Detail != routeAbsentDetail {
+			return withExitCode(exitError, fmt.Errorf("%s: %w", operation, apiError))
 		}
 		if unexpected.Detail == routeAbsentDetail {
 			return withExitCode(exitError, fmt.Errorf(
@@ -348,7 +356,7 @@ func hostedLogsAgentLabel(supportsSwitch bool) string {
 	if supportsSwitch {
 		return "follows the switch"
 	}
-	return "too old to follow the switch (upgrade the agent)"
+	return "does not follow the switch yet (upgrade it, or check logs_ship.enabled)"
 }
 
 func hostedLogsChangedLabel(changedAt *string) string {
