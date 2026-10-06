@@ -133,6 +133,8 @@ func TestClusterGitopsStatusShowsOpenConflictPause(t *testing.T) {
 		"    - stack:web/manifest:ingress",
 		"    ... and 1 more",
 		"Warning: GitOps sync is paused on these merge conflicts",
+		"'ankra cluster gitops conflicts list'",
+		"'ankra cluster gitops conflicts resolve'",
 	} {
 		if !strings.Contains(stdoutOutput, fragment) {
 			t.Errorf("expected output to contain %q, got: %s", fragment, stdoutOutput)
