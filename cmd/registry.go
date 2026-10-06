@@ -78,16 +78,36 @@ func newRegistryProjectsListCommand() *cobra.Command {
 		Short:   "List the organisation's registry projects",
 		Long: `List the organisation's registry projects: its own (default) first, then the
 extra ones, each with the path images are pushed under, how many repositories
-it holds and how many of your robot accounts are bound to it.`,
-		Example: "  ankra registry projects list\n  ankra registry projects list -o json",
-		Args:    cobra.NoArgs,
+it holds and how many of your robot accounts are bound to it.
+
+With --registry and --admin-credential it lists the projects of a Harbor your
+organisation runs itself instead, as that credential sees them - the names to
+bind a robot to with 'ankra registry robots create <name> --registry ...
+--project <project>'. That listing acts as the admin credential, so it needs
+credentials.reveal.`,
+		Example: "  ankra registry projects list\n  ankra registry projects list -o json\n" +
+			"  ankra registry projects list --registry smartoptics-harbor --admin-credential smartoptics-harbor-robot-admin",
+		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			list, listError := apiClient.ListRegistryProjects(command.Context())
-			if listError != nil {
-				return registryProjectsRouteError(listError)
+			registryName, adminCredentialName, flagError := integratedRegistryFlags(command)
+			if flagError != nil {
+				return flagError
+			}
+			var list *client.RegistryProjectList
+			var listError error
+			if registryName != "" {
+				list, listError = listIntegratedRegistryProjects(command, registryName, adminCredentialName)
+				if listError != nil {
+					return listError
+				}
+			} else {
+				list, listError = apiClient.ListRegistryProjects(command.Context())
+				if listError != nil {
+					return registryProjectsRouteError(listError)
+				}
 			}
 			if rendered, renderError := renderStructured(command, list); rendered || renderError != nil {
 				return renderError
@@ -112,8 +132,53 @@ it holds and how many of your robot accounts are bound to it.`,
 			return nil
 		},
 	}
+	registerIntegratedRegistryFlags(listCommand)
 	registerStructuredOutputFlags(listCommand)
 	return listCommand
+}
+
+// registerIntegratedRegistryFlags adds --registry and --admin-credential,
+// which point a command at a Harbor the organisation runs itself.
+func registerIntegratedRegistryFlags(command *cobra.Command) {
+	command.Flags().String("registry", "", "An integrated OCI registry entry - a Harbor your organisation runs - "+
+		"instead of the Ankra registry ('ankra helm registries list' shows them)")
+	command.Flags().String("admin-credential", "", "With --registry: the organisation's registry credential that may "+
+		"manage robot accounts on that registry")
+}
+
+// integratedRegistryFlags reads --registry and --admin-credential, which
+// only make sense together.
+func integratedRegistryFlags(command *cobra.Command) (string, string, error) {
+	registryName, _ := command.Flags().GetString("registry")
+	registryName = strings.TrimSpace(registryName)
+	adminCredentialName, _ := command.Flags().GetString("admin-credential")
+	adminCredentialName = strings.TrimSpace(adminCredentialName)
+	switch {
+	case registryName != "" && adminCredentialName == "":
+		return "", "", withExitCode(exitUsage, fmt.Errorf("--registry needs --admin-credential: the organisation's registry "+
+			"credential that may manage robot accounts on that registry"))
+	case registryName == "" && adminCredentialName != "":
+		return "", "", withExitCode(exitUsage, fmt.Errorf("--admin-credential is only used with --registry, "+
+			"for a registry your organisation runs itself"))
+	}
+	return registryName, adminCredentialName, nil
+}
+
+// listIntegratedRegistryProjects lists an integrated registry's projects. A
+// platform that predates the listing ignores the query and answers the
+// Ankra registry's projects, which that registry does not have, so an answer
+// that does not name the registry asked about is refused.
+func listIntegratedRegistryProjects(command *cobra.Command, registryName string,
+	adminCredentialName string) (*client.RegistryProjectList, error) {
+	list, listError := apiClient.ListIntegratedRegistryProjects(command.Context(), registryName, adminCredentialName)
+	if listError != nil {
+		return nil, registryProjectsRouteError(listError)
+	}
+	if list.Registry != registryName {
+		return nil, withExitCode(exitError, fmt.Errorf("this platform does not list the projects of an integrated "+
+			"registry yet: it answered the Ankra registry's projects instead of %q's", registryName))
+	}
+	return list, nil
 }
 
 func newRegistryProjectsCreateCommand() *cobra.Command {
@@ -243,9 +308,11 @@ name the OCI registry entry it is integrated as ('ankra helm registries list'
 shows them) and, with --admin-credential, a registry credential of the organisation
 that may manage robot accounts there (project administrator on the project).
 Ankra acts on that registry only with that credential, never its own; a robot
-login Ankra manages cannot be used. --project is then that registry's project,
-defaulting to the one the registry entry's URL names. Rotate, delete, get and
-list work the same afterwards.
+login Ankra manages cannot be used. --project is required there: the one
+project of that registry the robot is bound to, such as collectorcharts, and
+the only one it reaches ('ankra registry projects list --registry ...
+--admin-credential ...' shows them). Rotate, delete, get and list work the
+same afterwards.
 
 The secret is printed exactly once, with
 a docker login command that reads it from stdin - copy it now, it is not stored
@@ -318,20 +385,17 @@ it is deleted again before its secret is shown.`,
 					return supportError
 				}
 			}
-			registryName, _ := command.Flags().GetString("registry")
-			registryName = strings.TrimSpace(registryName)
-			adminCredentialName, _ := command.Flags().GetString("admin-credential")
-			adminCredentialName = strings.TrimSpace(adminCredentialName)
-			switch {
-			case registryName != "" && adminCredentialName == "":
-				return withExitCode(exitUsage, fmt.Errorf("--registry needs --admin-credential: the organisation's registry "+
-					"credential that may manage robot accounts on that registry"))
-			case registryName == "" && adminCredentialName != "":
-				return withExitCode(exitUsage, fmt.Errorf("--admin-credential is only used with --registry, "+
-					"for a robot on a registry your organisation runs itself"))
+			registryName, adminCredentialName, flagError := integratedRegistryFlags(command)
+			if flagError != nil {
+				return flagError
 			}
 			projectName, _ := command.Flags().GetString("project")
 			projectName = strings.ToLower(strings.TrimSpace(projectName))
+			if registryName != "" && projectName == "" {
+				return withExitCode(exitUsage, fmt.Errorf("--registry needs --project: the one project of that registry "+
+					"the robot is bound to ('ankra registry projects list --registry %s --admin-credential %s' shows them)",
+					registryName, adminCredentialName))
+			}
 			if projectName == client.RegistryDefaultProjectName && registryName == "" {
 				projectName = ""
 			}
@@ -394,10 +458,7 @@ it is deleted again before its secret is shown.`,
 	createCommand.Flags().Int("expires-in-days", 0, "Days until the registry stops honouring the robot (default: it never expires)")
 	createCommand.Flags().String("project", "", "The registry project to bind the robot to (default: the organisation's own; "+
 		"'ankra registry projects list' shows the others)")
-	createCommand.Flags().String("registry", "", "An integrated OCI registry entry - a Harbor your organisation runs - "+
-		"to create the robot on instead of the Ankra registry ('ankra helm registries list' shows them)")
-	createCommand.Flags().String("admin-credential", "", "With --registry: the organisation's registry credential that may "+
-		"manage robot accounts on that registry")
+	registerIntegratedRegistryFlags(createCommand)
 	createCommand.Flags().String("description", "", "What this robot is for (shown in the listing)")
 	registerStructuredOutputFlags(createCommand)
 	return createCommand

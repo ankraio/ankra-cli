@@ -4779,6 +4779,11 @@ func (m baseMock) ListRegistryProjects(requestContext context.Context) (*client.
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListIntegratedRegistryProjects(requestContext context.Context, registryName string,
+	adminCredentialName string) (*client.RegistryProjectList, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateRegistryProject(requestContext context.Context, projectName string) (*client.RegistryProject, error) {
 	return nil, errors.New("not implemented")
 }

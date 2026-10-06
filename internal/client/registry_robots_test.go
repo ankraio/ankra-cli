@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -241,5 +242,27 @@ func TestRegistryProjectsLaneParity(t *testing.T) {
 	var unexpected *UnexpectedResponseError
 	if !errors.As(unservedError, &unexpected) || unexpected.StatusCode != http.StatusNotFound || unexpected.Detail != "" {
 		t.Fatalf("an unregistered route = %v, want a 404 with no backend detail", unservedError)
+	}
+}
+
+// An integrated registry's projects are asked for on the same route, with the
+// registry and the admin credential as query parameters.
+func TestListIntegratedRegistryProjects(t *testing.T) {
+	var query url.Values
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		query = request.URL.Query()
+		if request.Method != http.MethodGet || request.URL.Path != "/api/v1/org/registry-projects" {
+			http.NotFound(writer, request)
+			return
+		}
+		jsonResponse(t, writer, http.StatusOK, map[string]any{"registry": "smartoptics-harbor", "total_count": 1,
+			"projects": []map[string]any{{"name": "collectorcharts", "project": "collectorcharts", "host": "artifact.smartoptics.dev"}}})
+	})
+	list, listError := client.ListIntegratedRegistryProjects(context.Background(), "smartoptics-harbor", "so admin")
+	if listError != nil || list.Registry != "smartoptics-harbor" || len(list.Projects) != 1 || list.Projects[0].Name != "collectorcharts" {
+		t.Fatalf("list: %+v %v", list, listError)
+	}
+	if query.Get("registry") != "smartoptics-harbor" || query.Get("admin_credential_name") != "so admin" {
+		t.Fatalf("query = %v", query)
 	}
 }
