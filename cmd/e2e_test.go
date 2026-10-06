@@ -61,6 +61,18 @@ func (m baseMock) GetClusterGitopsStatus(clusterID string) (*client.ClusterGitop
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListClusterGitopsConflicts(context.Context, string) (*client.GitopsConflictList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResolveClusterGitopsConflict(context.Context, string, string, string) (*client.GitopsConflictResolution, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResolveAllClusterGitopsConflicts(context.Context, string, string) (*client.GitopsConflictResolution, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) DeleteCluster(ctx context.Context, name string) error {
 	return errors.New("not implemented")
 }

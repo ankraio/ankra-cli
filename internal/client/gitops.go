@@ -1,7 +1,9 @@
 package client
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	neturl "net/url"
 )
 
@@ -65,4 +67,120 @@ func (c *Client) GetClusterGitopsStatus(clusterID string) (*ClusterGitopsStatus,
 		return nil, err
 	}
 	return &status, nil
+}
+
+// GitOps merge conflicts: GET /api/v1/org/clusters/{cluster_id}/gitops/conflicts
+// and the two resolve routes beside it, the bearer twins of the routes the
+// portal's GitOps panel uses. A conflict is a resource changed both in the
+// GitOps repository and on the platform since the two last agreed; GitOps sync
+// applies nothing from Git while any conflict is undecided.
+
+// Resolution choices the resolve routes accept: keep Git's version (the
+// platform's record is overwritten with it) or keep the cluster's version
+// (it is pushed back to the repository).
+const (
+	GitopsConflictKeepGit     = "git"
+	GitopsConflictKeepCluster = "cluster"
+)
+
+// GitopsConflict is one open conflict.
+type GitopsConflict struct {
+	// ResourceKey identifies the resource (for example
+	// "stack:web/addon:nginx") and is what the resolve route takes.
+	ResourceKey  string  `json:"resource_key" yaml:"resource_key"`
+	StackName    *string `json:"stack_name" yaml:"stack_name"`
+	ResourceKind string  `json:"resource_kind" yaml:"resource_kind"`
+	ResourceName *string `json:"resource_name" yaml:"resource_name"`
+	// GitChangeType and DBChangeType say how the repository and the
+	// platform each changed the resource ("added", "modified", "removed").
+	GitChangeType        string  `json:"git_change_type" yaml:"git_change_type"`
+	DBChangeType         string  `json:"db_change_type" yaml:"db_change_type"`
+	LastAppliedCommitSHA *string `json:"last_applied_commit_sha" yaml:"last_applied_commit_sha"`
+	DetectedAt           *string `json:"detected_at" yaml:"detected_at"`
+	// ResolutionChoice is the decision already recorded ("git" or
+	// "cluster") that the next sync applies; nil while undecided.
+	ResolutionChoice *string `json:"resolution_choice" yaml:"resolution_choice"`
+	ResolvedAt       *string `json:"resolved_at" yaml:"resolved_at"`
+}
+
+// GitopsConflictList is the list route's answer.
+type GitopsConflictList struct {
+	Conflicts []GitopsConflict `json:"conflicts" yaml:"conflicts"`
+	Total     int              `json:"total" yaml:"total"`
+}
+
+// GitopsConflictResolution is both resolve routes' answer. ClearedCount is
+// how many conflicts the choice was recorded on; SyncTriggered says whether
+// the sync that applies it was started, and when it was not the next
+// periodic reconcile applies it instead.
+type GitopsConflictResolution struct {
+	ClearedCount  int    `json:"cleared_count" yaml:"cleared_count"`
+	SyncTriggered bool   `json:"sync_triggered" yaml:"sync_triggered"`
+	Message       string `json:"message" yaml:"message"`
+}
+
+// gitopsConflictResolveBody is the body of both resolve routes. Resolution
+// is always sent: the routes read a missing one as "clear the conflicts
+// undecided and re-check", which is not a decision and not what any CLI
+// verb asks for.
+type gitopsConflictResolveBody struct {
+	ResourceKey string `json:"resource_key,omitempty"`
+	Resolution  string `json:"resolution"`
+}
+
+func clusterGitopsConflictsURL(baseURL string, clusterID string) string {
+	return fmt.Sprintf("%s/api/v1/org/clusters/%s/gitops/conflicts", baseURL, neturl.PathEscape(clusterID))
+}
+
+// validateGitopsConflictKeep refuses anything but the two resolution
+// choices before a request is sent, so no caller can reach the routes'
+// undecided clear by passing an empty or misspelled side.
+func validateGitopsConflictKeep(keep string) error {
+	if keep != GitopsConflictKeepGit && keep != GitopsConflictKeepCluster {
+		return fmt.Errorf("resolution must be %q or %q, got %q", GitopsConflictKeepGit, GitopsConflictKeepCluster, keep)
+	}
+	return nil
+}
+
+// ListClusterGitopsConflicts lists a cluster's open GitOps conflicts.
+func (c *Client) ListClusterGitopsConflicts(ctx context.Context, clusterID string) (*GitopsConflictList, error) {
+	var conflicts GitopsConflictList
+	if getError := c.sendJSONContext(ctx, http.MethodGet,
+		clusterGitopsConflictsURL(c.BaseURL, clusterID), nil, &conflicts); getError != nil {
+		return nil, getError
+	}
+	return &conflicts, nil
+}
+
+// ResolveClusterGitopsConflict records keep ("git" or "cluster") on one open
+// conflict. The platform gates it on clusters.write for the cluster.
+func (c *Client) ResolveClusterGitopsConflict(ctx context.Context, clusterID string, resourceKey string, keep string) (*GitopsConflictResolution, error) {
+	if validationError := validateGitopsConflictKeep(keep); validationError != nil {
+		return nil, validationError
+	}
+	if resourceKey == "" {
+		return nil, fmt.Errorf("a resource key is required")
+	}
+	var resolution GitopsConflictResolution
+	if postError := c.sendJSONContext(ctx, http.MethodPost,
+		clusterGitopsConflictsURL(c.BaseURL, clusterID)+"/resolve-resource",
+		gitopsConflictResolveBody{ResourceKey: resourceKey, Resolution: keep}, &resolution); postError != nil {
+		return nil, postError
+	}
+	return &resolution, nil
+}
+
+// ResolveAllClusterGitopsConflicts records keep ("git" or "cluster") on
+// every conflict open on the cluster when the platform receives the request.
+func (c *Client) ResolveAllClusterGitopsConflicts(ctx context.Context, clusterID string, keep string) (*GitopsConflictResolution, error) {
+	if validationError := validateGitopsConflictKeep(keep); validationError != nil {
+		return nil, validationError
+	}
+	var resolution GitopsConflictResolution
+	if postError := c.sendJSONContext(ctx, http.MethodPost,
+		clusterGitopsConflictsURL(c.BaseURL, clusterID)+"/resolve",
+		gitopsConflictResolveBody{Resolution: keep}, &resolution); postError != nil {
+		return nil, postError
+	}
+	return &resolution, nil
 }

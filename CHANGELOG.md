@@ -4,6 +4,25 @@
 
 ### Added
 
+- **`ankra cluster gitops conflicts list|resolve` ends a GitOps merge-conflict
+  pause from the CLI.** When a resource changes both in a cluster's GitOps
+  repository and on the platform, GitOps sync applies nothing from Git, not
+  even commits pushed since, until someone decides which side wins.
+  `ankra cluster gitops status` showed the pause, but only the portal could
+  end it. `list` shows each open conflict's resource key, how Git and the
+  cluster each changed it, and any decision already waiting for the next
+  sync. `resolve <resource-key>` (or `--all`) records the decision, and the
+  side is never assumed: `--keep git` keeps the repository's version and
+  overwrites the platform's, while `--keep cluster` keeps the platform's
+  version and pushes it back over the change in Git. Before it asks,
+  `resolve` lists what it is about to resolve and says what the chosen side
+  discards. It needs `--yes` when there is no terminal to ask on, and the
+  sync it triggers applies the decision. A missing `clusters.write` exits 7,
+  a key that is no longer open exits 3, and `-o json` returns the platform's
+  answer. `ankra cluster gitops status` now names these commands in its
+  pause warning. It needs a platform that serves the conflict routes to API
+  tokens; an older platform is reported as such and points to the portal.
+
 - **`ankra cluster logs-ship status|enable|disable` turns shipping a cluster's
   logs to Ankra on and off.** Ankra's hosted log store is opt-in per cluster
   and off by default: no log content leaves a cluster until someone with
