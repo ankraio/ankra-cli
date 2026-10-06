@@ -26,10 +26,15 @@ type CloudflareCredential struct {
 	AccountID      string `json:"account_id,omitempty"`
 	AccountName    string `json:"account_name,omitempty"`
 	TokenID        string `json:"token_id,omitempty"`
+	TokenKind      string `json:"token_kind,omitempty"`
 	VerifiedAt     string `json:"verified_at,omitempty"`
 	TokenExpiresAt string `json:"token_expires_at,omitempty"`
 	IsExpired      bool   `json:"is_expired"`
 	State          string `json:"state"`
+	// NeedsReconnect is true when the platform no longer holds the token;
+	// Detail then names the command that repairs it.
+	NeedsReconnect bool   `json:"needs_reconnect,omitempty"`
+	Detail         string `json:"detail,omitempty"`
 	CreatedAt      string `json:"created_at"`
 }
 

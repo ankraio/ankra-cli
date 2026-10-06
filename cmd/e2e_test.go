@@ -1158,7 +1158,7 @@ func (m baseMock) ListClusterCustomDNSZones(clusterID string) ([]client.CustomDN
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) AddClusterCustomDNSZone(clusterID string, zone string, credentialName string) (*client.CustomDNSZone, error) {
+func (m baseMock) AddClusterCustomDNSZone(clusterID string, zone string, credentialName string, provider string) (*client.CustomDNSZone, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1170,7 +1170,7 @@ func (m baseMock) ListOrganisationCustomDNSZones() ([]client.OrganisationCustomD
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) AddOrganisationCustomDNSZone(zone string, credentialName string) (*client.OrganisationCustomDNSZone, error) {
+func (m baseMock) AddOrganisationCustomDNSZone(zone string, credentialName string, provider string) (*client.OrganisationCustomDNSZone, error) {
 	return nil, errors.New("not implemented")
 }
 
