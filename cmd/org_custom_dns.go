@@ -13,13 +13,15 @@ var orgCustomDNSCmd = &cobra.Command{
 	Aliases: []string{"custom-dns"},
 	Short:   "Zones every cluster in the organisation serves with your own credential",
 	Long: `Declare, list, and withdraw the DNS zones every cluster in the organisation
-serves with the organisation's own external-dns webhook credential -
-alongside the generated domain Ankra serves itself.
+serves with one of the organisation's own DNS credentials - an external-dns
+webhook credential or a Cloudflare credential - alongside the generated domain
+Ankra serves itself.
 
 A zone declared here behaves like the generated domain: every cluster in the
 organisation, the ones that exist and the ones created later, gets its own
 external-dns for it, rendered and reconciled by Ankra with a DNS credential
-you supply ('ankra org dns credentials'). Each cluster's controller is pinned
+you supply ('ankra org dns credentials', or 'ankra org cloudflare connect' for
+a Cloudflare zone). Each cluster's controller is pinned
 to exactly the zone with its own record ownership, so it can never fight
 Ankra's controller, another cluster's, or records you publish yourself.
 
@@ -51,9 +53,10 @@ var orgCustomDNSListCmd = &cobra.Command{
 		zoneTable := table.NewWriter()
 		zoneTable.SetOutputMirror(os.Stdout)
 		zoneTable.SetStyle(table.StyleRounded)
-		zoneTable.AppendHeader(table.Row{"Zone", "Credential"})
+		zoneTable.AppendHeader(table.Row{"Zone", "Credential", "Provider", "Policy"})
 		for _, zone := range zones {
-			zoneTable.AppendRow(table.Row{zone.Zone, zone.CredentialName})
+			zoneTable.AppendRow(table.Row{zone.Zone, zone.CredentialName,
+				customDNSProviderLabel(zone.Provider), customDNSProviderLabel(zone.Policy)})
 		}
 		zoneTable.Render()
 		return nil
@@ -61,8 +64,9 @@ var orgCustomDNSListCmd = &cobra.Command{
 }
 
 var (
-	orgCustomDNSZone       string
-	orgCustomDNSCredential string
+	orgCustomDNSZone                 string
+	orgCustomDNSCredential           string
+	orgCustomDNSCloudflareCredential string
 )
 
 var orgCustomDNSAddCmd = &cobra.Command{
@@ -73,12 +77,25 @@ credential that can publish into it. Ankra renders an external-dns for the
 zone on each cluster on the next reconciler pass, and on every cluster
 created afterwards without further declaration.
 
-Refused when the zone is not a domain name, when the organisation has no DNS
-credential of that name, or when the zone overlaps the domain Ankra already
-serves for the organisation - that would put a second controller on names
-Ankra's own external-dns publishes.`,
+Use --cloudflare-credential for a zone hosted at Cloudflare: the zone is
+published by external-dns's native Cloudflare provider through that
+organisation Cloudflare credential, checked with Cloudflare before anything is
+stored, and every cluster's controller runs upsert-only - it never changes or
+deletes a record someone else made.
+
+Refused when the zone is not a domain name, when the organisation has no
+credential of that name (or, with --cloudflare-credential, no Cloudflare
+credential of that name), when a Cloudflare token cannot reach the zone or may
+not edit its DNS, or when the zone overlaps the domain Ankra already serves
+for the organisation - that would put a second controller on names Ankra's own
+external-dns publishes.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		declaration, addError := apiClient.AddOrganisationCustomDNSZone(orgCustomDNSZone, orgCustomDNSCredential)
+		credentialName, provider, flagError := resolveCustomDNSCredentialFlags(
+			orgCustomDNSCredential, orgCustomDNSCloudflareCredential)
+		if flagError != nil {
+			return flagError
+		}
+		declaration, addError := apiClient.AddOrganisationCustomDNSZone(orgCustomDNSZone, credentialName, provider)
 		if addError != nil {
 			return fmt.Errorf("declaring the organisation custom dns zone: %w", addError)
 		}
@@ -87,6 +104,10 @@ Ankra's own external-dns publishes.`,
 		}
 		fmt.Printf("Zone %s declared for every cluster in the organisation with credential %s.\n",
 			declaration.Zone, declaration.CredentialName)
+		if summary := customDNSPublishingSummary(declaration.Provider, declaration.Policy,
+			declaration.CloudflareZone, declaration.DNSEditAccess); summary != "" {
+			fmt.Println(summary)
+		}
 		fmt.Println("Ankra renders its external-dns on each cluster on the next reconciler pass (within ~2 minutes), and on every cluster created from now on.")
 		return nil
 	},
@@ -115,9 +136,10 @@ are yours and are left untouched.`,
 
 func init() {
 	orgCustomDNSAddCmd.Flags().StringVar(&orgCustomDNSZone, "zone", "", "Zone to declare for every cluster, e.g. example.com (required)")
-	orgCustomDNSAddCmd.Flags().StringVar(&orgCustomDNSCredential, "credential", "", "Name of the organisation DNS credential that publishes into the zone (required)")
+	orgCustomDNSAddCmd.Flags().StringVar(&orgCustomDNSCredential, "credential", "", "Name of the organisation credential that publishes into the zone, of whichever kind (this or --cloudflare-credential is required)")
+	orgCustomDNSAddCmd.Flags().StringVar(&orgCustomDNSCloudflareCredential, "cloudflare-credential", "", "Name of the organisation Cloudflare credential that publishes into the zone with the native Cloudflare provider")
 	_ = orgCustomDNSAddCmd.MarkFlagRequired("zone")
-	_ = orgCustomDNSAddCmd.MarkFlagRequired("credential")
+	orgCustomDNSAddCmd.MarkFlagsMutuallyExclusive("credential", "cloudflare-credential")
 
 	orgCustomDNSRemoveCmd.Flags().StringVar(&orgCustomDNSZone, "zone", "", "Zone to withdraw (required)")
 	_ = orgCustomDNSRemoveCmd.MarkFlagRequired("zone")

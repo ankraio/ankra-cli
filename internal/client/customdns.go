@@ -20,12 +20,30 @@ type CustomDNSZone struct {
 	Zone           string `json:"zone"`
 	CredentialName string `json:"credential_name"`
 	Source         string `json:"source,omitempty"`
+	// Provider is how the zone is published: "cloudflare" (external-dns's
+	// native Cloudflare provider), "webhook" or "avura". Empty when the
+	// platform predates the field or the credential no longer exists.
+	Provider string `json:"provider,omitempty"`
+	// Policy is the external-dns policy the zone's controller runs:
+	// "upsert-only" for a Cloudflare zone, which never deletes a record, and
+	// "sync" otherwise.
+	Policy string `json:"policy,omitempty"`
+	// CloudflareZone and DNSEditAccess are reported by a declaration on a
+	// Cloudflare credential: the Cloudflare zone the records land in, and
+	// whether Cloudflare confirmed DNS edit ("granted") or did not say
+	// ("unknown").
+	CloudflareZone string `json:"cloudflare_zone,omitempty"`
+	DNSEditAccess  string `json:"dns_edit_access,omitempty"`
 }
 
 // OrganisationCustomDNSZone is one organisation-wide declaration.
 type OrganisationCustomDNSZone struct {
 	Zone           string `json:"zone"`
 	CredentialName string `json:"credential_name"`
+	Provider       string `json:"provider,omitempty"`
+	Policy         string `json:"policy,omitempty"`
+	CloudflareZone string `json:"cloudflare_zone,omitempty"`
+	DNSEditAccess  string `json:"dns_edit_access,omitempty"`
 }
 
 type listCustomDNSZonesResponse struct {
@@ -77,20 +95,30 @@ func (c *Client) ListClusterCustomDNSZones(clusterID string) ([]CustomDNSZone, e
 // platform refuses a zone that is not a domain name, a credential the
 // organisation does not have, and a zone overlapping the delegated zone it
 // already serves; those come back as the response detail.
+//
+// provider, when non-empty, names the kind of credential credentialName must
+// be ("cloudflare", "webhook" or "avura"); the platform refuses a mismatch.
+// Empty accepts whichever kind the name resolves to.
 func (c *Client) AddClusterCustomDNSZone(clusterID string, zone string,
-	credentialName string) (*CustomDNSZone, error) {
+	credentialName string, provider string) (*CustomDNSZone, error) {
 	requestURL := fmt.Sprintf("%s/api/v1/clusters/%s/custom-dns-zones",
 		c.BaseURL, url.PathEscape(clusterID))
-	payload := map[string]string{"zone": zone, "credential_name": credentialName}
-	var response struct {
-		Success        bool   `json:"success"`
-		Zone           string `json:"zone"`
-		CredentialName string `json:"credential_name"`
-	}
+	payload := customDNSZonePayload(zone, credentialName, provider)
+	var response CustomDNSZone
 	if err := c.postCSRFJSON(requestURL, payload, &response, "declare custom dns zone"); err != nil {
 		return nil, err
 	}
-	return &CustomDNSZone{Zone: response.Zone, CredentialName: response.CredentialName}, nil
+	return &response, nil
+}
+
+// customDNSZonePayload builds a declare body, sending provider only when the
+// caller named one so an older platform sees exactly the body it knows.
+func customDNSZonePayload(zone string, credentialName string, provider string) map[string]string {
+	payload := map[string]string{"zone": zone, "credential_name": credentialName}
+	if provider != "" {
+		payload["provider"] = provider
+	}
+	return payload
 }
 
 // RemoveClusterCustomDNSZone withdraws a declared zone. The platform tears
@@ -129,18 +157,15 @@ func (c *Client) ListOrganisationCustomDNSZones() ([]OrganisationCustomDNSZone, 
 // name, a credential the organisation does not have, and a zone overlapping
 // the domain it already serves for the organisation; those come back as the
 // response detail.
-func (c *Client) AddOrganisationCustomDNSZone(zone string, credentialName string) (*OrganisationCustomDNSZone, error) {
+func (c *Client) AddOrganisationCustomDNSZone(zone string, credentialName string,
+	provider string) (*OrganisationCustomDNSZone, error) {
 	requestURL := c.BaseURL + "/api/v1/org/custom-dns-zones"
-	payload := map[string]string{"zone": zone, "credential_name": credentialName}
-	var response struct {
-		Success        bool   `json:"success"`
-		Zone           string `json:"zone"`
-		CredentialName string `json:"credential_name"`
-	}
+	payload := customDNSZonePayload(zone, credentialName, provider)
+	var response OrganisationCustomDNSZone
 	if err := c.postCSRFJSON(requestURL, payload, &response, "declare organisation custom dns zone"); err != nil {
 		return nil, err
 	}
-	return &OrganisationCustomDNSZone{Zone: response.Zone, CredentialName: response.CredentialName}, nil
+	return &response, nil
 }
 
 // RemoveOrganisationCustomDNSZone withdraws an organisation-wide zone. The

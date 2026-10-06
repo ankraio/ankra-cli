@@ -4,6 +4,21 @@
 
 ### Added
 
+- **`ankra cluster custom-dns-zones add --cloudflare-credential <name>` (and
+  the same flag on `ankra org custom-dns-zones add`) serves a Cloudflare zone
+  from your clusters.** It binds the zone to an organisation Cloudflare
+  credential (`ankra org cloudflare connect`), so the hosts of your Ingresses
+  in that zone are published by Ankra through Cloudflare's own provider. The
+  platform checks with Cloudflare that the token reaches the zone with DNS
+  edit before storing anything, and refuses a credential that is not a
+  Cloudflare one. The zone's controller never changes or deletes a record
+  someone else made, so hand-made records in the zone are left alone; the add
+  output says so, and `custom-dns-zones list` now shows each zone's provider
+  and policy. `--credential` keeps working for every kind of credential.
+- **`ankra org cloudflare credentials` shows a credential that lost its token
+  as `needs-reconnect`**, with the `ankra org cloudflare connect <name>`
+  command that repairs it, instead of listing it as healthy.
+
 - **`ankra cluster logs-ship status|enable|disable` turns shipping a cluster's
   logs to Ankra on and off.** Ankra's hosted log store is opt-in per cluster
   and off by default: no log content leaves a cluster until someone with

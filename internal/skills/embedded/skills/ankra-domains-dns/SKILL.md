@@ -99,6 +99,22 @@ ankra cluster custom-dns-zones add --zone example.com --credential <name>   # on
 ankra cluster custom-dns-zones list
 ```
 
+For a zone hosted at **Cloudflare**, connect a scoped API token (user or account-owned, with
+Zone:Read and DNS:Edit on the zone) and bind the zone to it with `--cloudflare-credential`:
+
+```bash
+ankra org cloudflare connect <name> --token-stdin
+ankra cluster custom-dns-zones add <cluster> --zone example.com --cloudflare-credential <name>
+```
+
+Ankra checks with Cloudflare that the token reaches the zone with DNS edit before storing the
+binding, and the zone's external-dns runs **upsert-only**: it creates and updates only records it
+owns and never changes or deletes a record someone else made, so hand-made records in the zone are
+safe (records of a withdrawn host are left for you to remove). Proxy a host through Cloudflare with
+the `external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"` Ingress annotation. A credential
+listed as `needs-reconnect` has lost its token: run `ankra org cloudflare connect <name>` again
+under the same name.
+
 Ankra renders and reconciles a **separate** external-dns for each declared zone, pinned to exactly
 that zone with its own record ownership, so it can never fight Ankra's own controller, another
 cluster's, or records you publish yourself.

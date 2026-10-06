@@ -679,9 +679,20 @@ func renderCloudflareCredentials(out io.Writer, credentials []client.CloudflareC
 		if credential.IsExpired {
 			status = "expired"
 		}
+		if credential.NeedsReconnect {
+			status = "needs-reconnect"
+		}
 		t.AppendRow(table.Row{credential.Name, account, credential.TokenID, expires, status})
 	}
 	t.Render()
+	// A credential whose token the platform no longer holds lists like any
+	// other row; the remedy is printed under the table so it is not lost in
+	// a column.
+	for _, credential := range credentials {
+		if credential.NeedsReconnect && credential.Detail != "" {
+			_, _ = fmt.Fprintln(out, credential.Detail)
+		}
+	}
 	return nil
 }
 
