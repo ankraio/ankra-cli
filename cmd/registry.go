@@ -236,8 +236,18 @@ it holds, the robot reaches the organisation's project and no other.
 --expires-in-days makes the registry stop honouring the robot after that many
 days; without it the robot never expires. --project binds the robot to one of
 the organisation's extra registry projects instead of its own ('ankra registry
-projects list' shows them); it then reaches that project and nothing else. The
-secret is printed exactly once, with
+projects list' shows them); it then reaches that project and nothing else.
+
+--registry creates the robot on a Harbor your organisation runs itself instead:
+name the OCI registry entry it is integrated as ('ankra helm registries list'
+shows them) and, with --admin-credential, a registry credential of the organisation
+that may manage robot accounts there (project administrator on the project).
+Ankra acts on that registry only with that credential, never its own; a robot
+login Ankra manages cannot be used. --project is then that registry's project,
+defaulting to the one the registry entry's URL names. Rotate, delete, get and
+list work the same afterwards.
+
+The secret is printed exactly once, with
 a docker login command that reads it from stdin - copy it now, it is not stored
 anywhere you can read it back from. The secret is never put on a command line,
 where the shell history and 'ps' would keep it. Rotate it with 'ankra registry robots rotate' if it
@@ -245,7 +255,9 @@ is lost or leaked.
 
 Creating a robot needs the credentials.write permission. A --permission list
 that reaches past repository:pull and repository:push (deleting artifacts,
-moving tags, and the like) also needs credentials.reveal. With --permission or
+moving tags, and the like) also needs credentials.reveal, and so does a robot on
+an integrated registry (--registry), which is minted by acting as the admin
+credential. With --permission or
 --expires-in-days the CLI first checks that the platform offers them by
 reading the robot listing, and with --project that the organisation has the
 project; a token without credentials.read skips those checks, and if the
@@ -256,6 +268,8 @@ it is deleted again before its secret is shown.`,
   ankra registry robots create contractor --scope pull --expires-in-days 30
   ankra registry robots create cleanup --permission repository:pull,artifact:list,artifact:delete
   ankra registry robots create staging-ci --project staging
+  ankra registry robots create jenkins --registry smartoptics-harbor \
+    --admin-credential smartoptics-harbor-robot-admin --project smart-hub-images
   ankra registry robots create jenkins -o json | jq -r .secret`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
@@ -304,13 +318,25 @@ it is deleted again before its secret is shown.`,
 					return supportError
 				}
 			}
+			registryName, _ := command.Flags().GetString("registry")
+			registryName = strings.TrimSpace(registryName)
+			adminCredentialName, _ := command.Flags().GetString("admin-credential")
+			adminCredentialName = strings.TrimSpace(adminCredentialName)
+			switch {
+			case registryName != "" && adminCredentialName == "":
+				return withExitCode(exitUsage, fmt.Errorf("--registry needs --admin-credential: the organisation's registry "+
+					"credential that may manage robot accounts on that registry"))
+			case registryName == "" && adminCredentialName != "":
+				return withExitCode(exitUsage, fmt.Errorf("--admin-credential is only used with --registry, "+
+					"for a robot on a registry your organisation runs itself"))
+			}
 			projectName, _ := command.Flags().GetString("project")
 			projectName = strings.ToLower(strings.TrimSpace(projectName))
-			if projectName == client.RegistryDefaultProjectName {
+			if projectName == client.RegistryDefaultProjectName && registryName == "" {
 				projectName = ""
 			}
 			projectChecked := true
-			if projectName != "" {
+			if projectName != "" && registryName == "" {
 				projectError := requireRegistryProject(command, projectName)
 				switch {
 				case projectError == nil:
@@ -326,12 +352,14 @@ it is deleted again before its secret is shown.`,
 			}
 			description, _ := command.Flags().GetString("description")
 			created, createError := apiClient.CreateRegistryRobot(command.Context(), client.CreateRegistryRobotRequest{
-				Name:          strings.TrimSpace(arguments[0]),
-				Scope:         scope,
-				Permissions:   permissions,
-				Description:   description,
-				ExpiresInDays: expiresInDays,
-				Project:       projectName,
+				Name:                strings.TrimSpace(arguments[0]),
+				Scope:               scope,
+				Permissions:         permissions,
+				Description:         description,
+				ExpiresInDays:       expiresInDays,
+				Project:             projectName,
+				Registry:            registryName,
+				AdminCredentialName: adminCredentialName,
 			})
 			if createError != nil {
 				return createError
@@ -348,6 +376,12 @@ it is deleted again before its secret is shown.`,
 				// reaches more than was asked for.
 				ignored = append(ignored, "--project")
 			}
+			if registryName != "" && created.Registry != registryName {
+				// A platform without integrated-registry robots ignores
+				// --registry and mints the robot on the Ankra registry instead:
+				// a login for somewhere other than asked.
+				ignored = append(ignored, "--registry")
+			}
 			if len(ignored) > 0 {
 				return revokeUnhonouredRegistryRobot(command, created, strings.Join(ignored, " and "))
 			}
@@ -360,6 +394,10 @@ it is deleted again before its secret is shown.`,
 	createCommand.Flags().Int("expires-in-days", 0, "Days until the registry stops honouring the robot (default: it never expires)")
 	createCommand.Flags().String("project", "", "The registry project to bind the robot to (default: the organisation's own; "+
 		"'ankra registry projects list' shows the others)")
+	createCommand.Flags().String("registry", "", "An integrated OCI registry entry - a Harbor your organisation runs - "+
+		"to create the robot on instead of the Ankra registry ('ankra helm registries list' shows them)")
+	createCommand.Flags().String("admin-credential", "", "With --registry: the organisation's registry credential that may "+
+		"manage robot accounts on that registry")
 	createCommand.Flags().String("description", "", "What this robot is for (shown in the listing)")
 	registerStructuredOutputFlags(createCommand)
 	return createCommand
@@ -495,9 +533,17 @@ func revokeUnhonouredRegistryRobot(command *cobra.Command, created *client.Regis
 	refusal := fmt.Sprintf("the platform did not honour %s: robot %q came back with scope %q, permissions [%s], expiry %s and project %q",
 		ignored, created.Name, created.Scope, strings.Join(created.Permissions, ", "), registryRobotExpiryText(created.ExpiresAt),
 		created.ProjectName)
+	if created.Registry != "" || strings.Contains(ignored, "--registry") {
+		refusal += fmt.Sprintf(" on %s", created.Host)
+	}
 	if deleteError := apiClient.DeleteRegistryRobot(command.Context(), created.Name); deleteError != nil {
 		return fmt.Errorf("%s, and deleting it again failed (%v): delete it with 'ankra registry robots delete %s'; "+
 			"its secret was not shown", refusal, deleteError, created.Name)
+	}
+	if strings.Contains(ignored, "--registry") {
+		return fmt.Errorf("%s, so it was deleted again and its secret was not shown. This platform does not create robots "+
+			"on an integrated registry yet: create the robot in that registry itself and store it with "+
+			"'ankra helm credentials create'", refusal)
 	}
 	return fmt.Errorf("%s, so it was deleted again and its secret was not shown. A platform without robot "+
 		"permissions, an expiry or registry projects ignores them: create the robot with --scope push or --scope pull, "+
@@ -904,7 +950,11 @@ func printRegistryRobot(command *cobra.Command, title *string, robot *client.Reg
 		_, _ = fmt.Fprintf(out, "  Application: %s (%s)\n", robot.Application.Name, robot.Application.ID)
 	}
 	_, _ = fmt.Fprintf(out, "  Login:       %s\n", robot.RobotName)
-	_, _ = fmt.Fprintf(out, "  Registry:    %s\n", robot.Host)
+	if robot.Registry != "" {
+		_, _ = fmt.Fprintf(out, "  Registry:    %s (integrated as %s, managed with %s)\n", robot.Host, robot.Registry, robot.AdminCredentialName)
+	} else {
+		_, _ = fmt.Fprintf(out, "  Registry:    %s\n", robot.Host)
+	}
 	_, _ = fmt.Fprintf(out, "  Project:     %s\n", registryRobotProjectsSummary(*robot))
 	_, _ = fmt.Fprintf(out, "  Access:      %s\n", registryRobotAccessSummary(*robot))
 	if len(robot.Permissions) > 0 {
