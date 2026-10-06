@@ -162,3 +162,15 @@ func TestCloudflareCredentialsListShowsNeedsReconnectAndTheCommand(t *testing.T)
 		t.Fatalf("output = %q", rendered)
 	}
 }
+
+// A platform that names the provider but not the policy must not render
+// "policy ." - the clause is left out instead.
+func TestThePublishingSummaryOmitsAnUnreportedPolicy(t *testing.T) {
+	summary := customDNSPublishingSummary("webhook", "", "", "")
+	if strings.Contains(summary, "policy") || !strings.Contains(summary, "webhook provider") {
+		t.Fatalf("summary = %q", summary)
+	}
+	if customDNSPublishingSummary("", "", "", "") != "" {
+		t.Fatal("no provider must render no summary")
+	}
+}

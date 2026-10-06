@@ -38,7 +38,10 @@ func customDNSPublishingSummary(provider string, policy string, cloudflareZone s
 	if provider == "" {
 		return ""
 	}
-	summary := fmt.Sprintf("Published with the %s provider, policy %s.", provider, policy)
+	summary := fmt.Sprintf("Published with the %s provider.", provider)
+	if policy != "" {
+		summary = fmt.Sprintf("Published with the %s provider, policy %s.", provider, policy)
+	}
 	if policy == "upsert-only" {
 		summary += " Ankra creates and updates only the records it owns and never changes or deletes a record someone else made."
 	}
