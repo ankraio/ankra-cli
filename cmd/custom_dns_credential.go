@@ -47,7 +47,7 @@ func customDNSPublishingSummary(provider string, policy string, cloudflareZone s
 	}
 	if cloudflareZone != "" {
 		summary += fmt.Sprintf(" Records land in the Cloudflare zone %s", cloudflareZone)
-		if dnsEditAccess == "unknown" {
+		if dnsEditAccess != "granted" {
 			summary += " (Cloudflare did not report the token's DNS edit permission; if nothing is published, check the token has DNS:Edit on it)."
 		} else {
 			summary += "."

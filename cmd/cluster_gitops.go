@@ -12,8 +12,9 @@ import (
 // `ankra cluster gitops`.
 var clusterGitopsCmd = &cobra.Command{
 	Use:   "gitops",
-	Short: "Inspect the GitOps repository wiring of a cluster",
-	Long:  `Commands for inspecting which GitOps repository a cluster syncs from.`,
+	Short: "Inspect a cluster's GitOps wiring and resolve its merge conflicts",
+	Long: `Commands for inspecting which GitOps repository a cluster syncs from, and for
+listing and resolving the merge conflicts that pause its sync.`,
 }
 
 var clusterGitopsStatusCmd = &cobra.Command{
@@ -168,7 +169,8 @@ func printGitopsConflictPause(status *client.ClusterGitopsStatus) {
 		if unlisted := openConflictCount - len(status.OpenConflictKeys); unlisted > 0 && len(status.OpenConflictKeys) > 0 {
 			fmt.Printf("    ... and %d more\n", unlisted)
 		}
-		fmt.Println("  Warning: GitOps sync is paused on these merge conflicts; nothing from Git, including commits pushed since, is applied until each is resolved in the portal (cluster > GitOps)")
+		fmt.Println("  Warning: GitOps sync is paused on these merge conflicts; nothing from Git, including commits pushed since, is applied until each is resolved")
+		fmt.Println("  See them with 'ankra cluster gitops conflicts list' and resolve them with 'ankra cluster gitops conflicts resolve' (or in the portal, cluster > GitOps)")
 		return
 	}
 	if status.SyncStatus != nil && *status.SyncStatus == gitopsConflictSyncStatus {

@@ -16,6 +16,9 @@ type APIClient interface {
 	GetCluster(name string) (client.ClusterListItem, error)
 	GetClusterByID(clusterID string) (client.ClusterListItem, error)
 	GetClusterGitopsStatus(clusterID string) (*client.ClusterGitopsStatus, error)
+	ListClusterGitopsConflicts(ctx context.Context, clusterID string) (*client.GitopsConflictList, error)
+	ResolveClusterGitopsConflict(ctx context.Context, clusterID string, resourceKey string, keep string) (*client.GitopsConflictResolution, error)
+	ResolveAllClusterGitopsConflicts(ctx context.Context, clusterID string, keep string) (*client.GitopsConflictResolution, error)
 	DeleteCluster(ctx context.Context, name string) error
 	TriggerReconcile(ctx context.Context, clusterID string) (*client.TriggerReconcileResult, error)
 	ProvisionCluster(ctx context.Context, clusterID string) (*client.ProvisionClusterResult, error)
