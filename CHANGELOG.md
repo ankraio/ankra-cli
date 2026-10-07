@@ -1,5 +1,34 @@
 # Ankra CLI Changelog
 
+## v0.25.0 — 2026-10-07
+
+### Added
+
+- **`ankra registry robots create <name> --registry <entry> --admin-credential
+  <credential> --project <project>` creates a robot account on a Harbor your
+  organisation runs itself, not only on the Ankra registry.** Name the OCI
+  registry entry the Harbor is connected as (`ankra helm registries list`),
+  a registry credential of yours that may manage robot accounts there, and the
+  one project of that registry the robot is bound to; it reaches that project
+  and no other. Ankra acts on the registry only with your credential, never
+  its own. `ankra registry projects list --registry <entry> --admin-credential
+  <credential>` lists the projects that registry actually holds, so the
+  project is picked from what is there. `rotate`, `get` and `delete` work the
+  same afterwards, and `get` names the registry and the credential the robot
+  is managed with. A platform that does not create robots on a connected
+  registry yet would mint the robot on the Ankra registry instead, so an
+  answer that does not name the asked registry is deleted again before its
+  secret is shown.
+- **`ankra application registry set --project-public` creates the declared
+  project public when the registry does not have it yet.** With
+  `--admin-credential`, the platform now checks that the declared project
+  exists before accepting the declaration: a missing project is created with
+  that credential, private unless this flag is given, and a credential that
+  may not create it refuses the declaration naming the project and host
+  instead of letting every later build fail at the push. The command says on
+  stderr when the project was created, and when it was not checked because
+  no `--admin-credential` was named.
+
 ## v0.24.0 — 2026-10-07
 
 ### Added
