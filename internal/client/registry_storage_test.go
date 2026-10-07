@@ -184,3 +184,17 @@ func TestSubmitLimitRequestRegistryStorage(t *testing.T) {
 		t.Fatalf("body = %v", body)
 	}
 }
+
+// An empty success body is an error: decoded, it would be a zero value
+// (no usage status, a policy keeping nothing) that reads like an answer.
+func TestRegistryStorageEmptyBodyIsAnError(t *testing.T) {
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+	})
+	if storage, getError := client.GetRegistryStorage(context.Background()); getError == nil {
+		t.Fatalf("an empty body must be an error, got %+v", storage)
+	}
+	if retention, getError := client.GetRegistryRetention(context.Background()); getError == nil {
+		t.Fatalf("an empty body must be an error, got %+v", retention)
+	}
+}

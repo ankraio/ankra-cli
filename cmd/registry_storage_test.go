@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -24,6 +25,10 @@ type registryStorageMock struct {
 	submittedValue int64
 	submittedWhy   string
 	submitError    error
+	// storageError fails the usage read; limitRequestsError the
+	// limit-request read.
+	storageError       error
+	limitRequestsError error
 }
 
 func gib(n int64) int64 { return n * bytesPerGiB }
@@ -58,6 +63,9 @@ func registryRetentionFixture() *client.RegistryRetention {
 }
 
 func (mock *registryStorageMock) GetRegistryStorage(context.Context) (*client.RegistryStorage, error) {
+	if mock.storageError != nil {
+		return nil, mock.storageError
+	}
 	if mock.storage == nil {
 		return registryStorageFixture(int64Pointer(gib(20)), client.RegistryStorageUsageComplete), nil
 	}
@@ -86,6 +94,9 @@ func (mock *registryStorageMock) RunRegistryRetention(context.Context) (*client.
 }
 
 func (mock *registryStorageMock) ListLimitRequests() (*client.LimitRequestList, error) {
+	if mock.limitRequestsError != nil {
+		return nil, mock.limitRequestsError
+	}
 	if mock.limitRequests == nil {
 		return &client.LimitRequestList{}, nil
 	}
@@ -132,11 +143,11 @@ func TestRegistryStorageShowStates(t *testing.T) {
 			[]string{"(84%)", "84% full", "ankra registry storage retention set", "ankra registry storage request --size"},
 			nil},
 		{"full", registryStorageFixture(int64Pointer(gib(52)+gib(1)/2), client.RegistryStorageUsageComplete),
-			[]string{"52.5 GiB of 50 GiB (105%)", "every image push is refused", "Ask for more"}, nil},
+			[]string{"52.5 GiB of 50 GiB (105%)", "Registry project default (org-1) is full: every image push to it is refused", "Ask for more"}, nil},
 		{"unknown", registryStorageFixture(nil, client.RegistryStorageUsageUnknown),
 			[]string{"Used:   unknown", "does not mean empty"}, []string{"0 B", "Free space"}},
 		{"partial", registryStorageFixture(int64Pointer(gib(41)), client.RegistryStorageUsagePartial),
-			[]string{"at least 41 GiB of 50 GiB (82%)", "lower bound"}, nil},
+			[]string{"41 GiB of 50 GiB (82%)", "Total:  at least 41 GiB across all projects", "lower bound"}, nil},
 		{"not provisioned", registryStorageFixture(int64Pointer(0), client.RegistryStorageUsageNotProvisioned),
 			[]string{"no registry project"}, []string{"Free space"}},
 	}
@@ -172,7 +183,71 @@ func TestRegistryStorageShowOrganisationLimitAndProjects(t *testing.T) {
 	}
 	mustContain(t, output, "200 GiB per registry project, set for this organisation by Ankra (Approved storage request, since 2026-10-01 08:00 UTC)",
 		"staging", "unknown", "95%", "Storage request: pending, 400 GiB per project (asked 2026-10-05 10:00 UTC)",
-		"The registry is 95% full")
+		"Registry project default (org-1) is 95% full")
+	mustNotContain(t, output, "Storage request: unknown")
+}
+
+// The limit applies to each project, so fullness is each project's usage
+// over its own limit. The organisation total is shown as a number only:
+// two projects at 60% of 50 GiB are 60 GiB in total, which against the
+// per-project limit would read as 120% and claim pushes are refused.
+func TestRegistryStorageFullnessIsPerProject(t *testing.T) {
+	storage := registryStorageFixture(int64Pointer(gib(60)), client.RegistryStorageUsageComplete)
+	storage.Projects = []client.RegistryStorageProject{
+		{Name: "default", Project: "org-1", LimitBytes: int64Pointer(gib(50)), UsedBytes: int64Pointer(gib(30)), Status: "ok"},
+		{Name: "staging", Project: "org-1-staging", LimitBytes: int64Pointer(gib(50)), UsedBytes: int64Pointer(gib(30)), Status: "ok"},
+	}
+	output, runError := runRegistryCommand(t, &registryStorageMock{storage: storage}, "", "storage")
+	if runError != nil {
+		t.Fatalf("storage: %v", runError)
+	}
+	mustContain(t, output, "default (org-1)", "staging (org-1-staging)  30 GiB of 50 GiB (60%)",
+		"Total:  60 GiB across all projects")
+	if strings.Count(output, "30 GiB of 50 GiB (60%)") != 2 {
+		t.Fatalf("each project carries its own fill:\n%s", output)
+	}
+	mustNotContain(t, output, "120%", "is full", "Free space")
+
+	storage.UsedBytes = int64Pointer(gib(62))
+	storage.Projects[0].UsedBytes = int64Pointer(gib(20))
+	storage.Projects[1].UsedBytes = int64Pointer(gib(42))
+	output, _ = runRegistryCommand(t, &registryStorageMock{storage: storage}, "", "storage")
+	mustContain(t, output, "Registry project staging (org-1-staging) is 84% full")
+	mustNotContain(t, output, "124%", "is full:")
+}
+
+// A failed limit-request read says the request state is unknown instead of
+// looking like no request was made.
+func TestRegistryStorageShowSaysWhenTheRequestStateIsUnknown(t *testing.T) {
+	mock := &registryStorageMock{limitRequestsError: errors.New("permission denied")}
+	output, runError := runRegistryCommand(t, mock, "", "storage")
+	if runError != nil {
+		t.Fatalf("storage: %v", runError)
+	}
+	mustContain(t, output, "Storage request: unknown - the limit requests could not be read (permission denied)")
+}
+
+// A nil answer is an error, never a panic.
+func TestRegistryStorageRepositoriesNilAnswer(t *testing.T) {
+	_, runError := runRegistryCommand(t, &registryStorageMock{}, "", "storage", "repositories")
+	if runError == nil || !strings.Contains(runError.Error(), "answered nothing") {
+		t.Fatalf("a nil repositories answer must be an error: %v", runError)
+	}
+}
+
+// When today's limit cannot be read the pre-check is skipped out loud and
+// the platform, which enforces the same rule, decides.
+func TestRegistryStorageRequestWhenTheLimitCannotBeRead(t *testing.T) {
+	mock := &registryStorageMock{storageError: errors.New("bad gateway")}
+	stdout, stderr, runError := runRegistryCommandSplit(t, mock, "", "storage", "request", "--size", "60", "--reason", "x", "-o", "json")
+	if runError != nil || mock.submittedValue != 60 {
+		t.Fatalf("the request must go through to the platform: %v", runError)
+	}
+	mustContain(t, stderr, "Could not read today's storage limit (bad gateway); submitting anyway")
+	var decoded client.LimitRequest
+	if json.Unmarshal([]byte(stdout), &decoded) != nil {
+		t.Fatalf("stdout must stay JSON:\n%s", stdout)
+	}
 }
 
 func TestRegistryStorageShowJSONIsTheAPIAnswer(t *testing.T) {

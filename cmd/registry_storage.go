@@ -98,82 +98,127 @@ func runRegistryStorageShow(command *cobra.Command, _ []string) error {
 	if getError != nil {
 		return registryStorageRouteError(getError)
 	}
+	if storage == nil {
+		return errors.New("reading registry storage: the platform answered nothing")
+	}
 	if rendered, renderError := renderStructured(command, storage); rendered || renderError != nil {
 		return renderError
 	}
-	renderRegistryStorage(command.OutOrStdout(), storage, latestRegistryStorageRequest())
+	request, requestError := latestRegistryStorageRequest()
+	renderRegistryStorage(command.OutOrStdout(), storage, request, requestError)
 	return nil
 }
 
 // latestRegistryStorageRequest reads the organisation's latest storage
-// request, so the usage view can say one is waiting. It is a courtesy: a
-// token that may not read limit requests, or a platform that fails to,
-// simply shows none.
-func latestRegistryStorageRequest() *client.LimitRequest {
+// request, so the usage view can say one is waiting. A failed read is
+// answered as an error, so the view says the state is unknown rather than
+// showing no request.
+func latestRegistryStorageRequest() (*client.LimitRequest, error) {
 	list, listError := apiClient.ListLimitRequests()
-	if listError != nil || list == nil {
-		return nil
+	if listError != nil {
+		return nil, listError
+	}
+	if list == nil {
+		return nil, errors.New("the platform answered nothing")
 	}
 	for index := range list.Requests {
 		if list.Requests[index].LimitKind == client.RegistryStorageLimitKind {
-			return &list.Requests[index]
+			return &list.Requests[index], nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
-func renderRegistryStorage(out io.Writer, storage *client.RegistryStorage, request *client.LimitRequest) {
+// registryStorageProjectUsage is one project's fill, measured against the
+// limit that applies to it: the registry enforces the limit per project, so
+// fullness is only ever a project's own usage over its own limit.
+type registryStorageProjectUsage struct {
+	label   string
+	used    *int64
+	limit   int64
+	percent int
+	// measured: used is known and there is a limit to measure it against.
+	measured bool
+}
+
+func registryStorageProjectUsages(storage *client.RegistryStorage) []registryStorageProjectUsage {
+	usages := make([]registryStorageProjectUsage, 0, len(storage.Projects))
+	for _, project := range storage.Projects {
+		usage := registryStorageProjectUsage{label: project.Name, limit: storage.LimitBytes}
+		if project.Project != "" && project.Project != project.Name {
+			usage.label += " (" + project.Project + ")"
+		}
+		if project.LimitBytes != nil {
+			usage.limit = *project.LimitBytes
+		}
+		if project.Status != "unknown" && project.UsedBytes != nil {
+			usage.used = project.UsedBytes
+			usage.percent, usage.measured = registryStoragePercent(*project.UsedBytes, usage.limit)
+		}
+		usages = append(usages, usage)
+	}
+	return usages
+}
+
+func renderRegistryStorage(out io.Writer, storage *client.RegistryStorage, request *client.LimitRequest, requestError error) {
 	_, _ = fmt.Fprintln(out, "Registry storage")
+	_, _ = fmt.Fprintf(out, "  Limit:  %s\n", registryStorageLimitLine(storage))
+	partial := storage.UsageStatus == client.RegistryStorageUsagePartial
 	switch storage.UsageStatus {
 	case client.RegistryStorageUsageNotProvisioned:
 		_, _ = fmt.Fprintln(out, "  Used:   nothing yet - the organisation has no registry project. It is created with the first build that publishes an image.")
 	case client.RegistryStorageUsageUnknown:
 		_, _ = fmt.Fprintln(out, "  Used:   unknown - the registry could not be read just now (this does not mean empty). Try again in a minute.")
 	default:
-		_, _ = fmt.Fprintf(out, "  Used:   %s\n", registryStorageUsageLine(storage.UsedBytes, storage.LimitBytes,
-			storage.UsageStatus == client.RegistryStorageUsagePartial))
-	}
-	_, _ = fmt.Fprintf(out, "  Limit:  %s\n", registryStorageLimitLine(storage))
-	if storage.UsageStatus == client.RegistryStorageUsagePartial {
-		_, _ = fmt.Fprintln(out, "  Some of the registry could not be read, so the usage is a lower bound: at least this much is used.")
-	}
-
-	if len(storage.Projects) > 1 || (len(storage.Projects) == 1 && storage.Projects[0].Name != client.RegistryDefaultProjectName) {
-		_, _ = fmt.Fprintln(out)
-		projectTable := table.NewWriter()
-		projectTable.SetOutputMirror(out)
-		projectTable.SetStyle(table.StyleRounded)
-		projectTable.AppendHeader(table.Row{"Project", "Registry project", "Used", "Limit", "Full"})
-		for _, project := range storage.Projects {
-			limit := storage.LimitBytes
-			if project.LimitBytes != nil {
-				limit = *project.LimitBytes
+		usages := registryStorageProjectUsages(storage)
+		if len(usages) == 0 {
+			// A platform that lists no projects: the total is the one
+			// project's usage, measured against the per-project limit.
+			_, _ = fmt.Fprintf(out, "  Used:   %s\n", registryStorageUsageLine(storage.UsedBytes, storage.LimitBytes, partial))
+		} else {
+			width := 0
+			for _, usage := range usages {
+				width = max(width, len(usage.label))
 			}
-			used, full := "unknown", "-"
-			if project.Status != "unknown" && project.UsedBytes != nil {
-				used = formatBytesGiB(*project.UsedBytes)
-				if percent, ok := registryStoragePercent(*project.UsedBytes, limit); ok {
-					full = fmt.Sprintf("%d%% %s", percent, registryStorageBar(percent, 10))
+			_, _ = fmt.Fprintln(out, "  Used, per registry project:")
+			for _, usage := range usages {
+				line := "unknown - could not be read just now (this does not mean empty)"
+				if usage.used != nil {
+					line = registryStorageUsageLine(usage.used, usage.limit, false)
 				}
+				_, _ = fmt.Fprintf(out, "    %-*s  %s\n", width, usage.label, line)
 			}
-			projectTable.AppendRow(table.Row{project.Name, project.Project, used, formatRegistryLimit(limit), full})
+			if storage.UsedBytes != nil {
+				total := formatBytesGiB(*storage.UsedBytes)
+				if partial {
+					total = "at least " + total
+				}
+				_, _ = fmt.Fprintf(out, "  Total:  %s across all projects (the limit applies to each project, not to the total)\n", total)
+			}
 		}
-		projectTable.Render()
-		_, _ = fmt.Fprintln(out, "The limit applies to each registry project on its own.")
+		if partial {
+			_, _ = fmt.Fprintln(out, "  Some of the registry could not be read, so the total is a lower bound: at least this much is used.")
+		}
 	}
 
-	if request != nil {
+	switch {
+	case requestError != nil:
+		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintf(out, "Storage request: unknown - the limit requests could not be read (%v).\n", requestError)
+	case request != nil:
 		_, _ = fmt.Fprintln(out)
 		_, _ = fmt.Fprintf(out, "Storage request: %s, %d GiB per project%s.\n", request.Status, request.RequestedValue,
 			optionalSuffix(" (asked "+registryShortTime(request.RequestedAt)+")", request.RequestedAt))
 	}
 
-	if fullest, ok := registryStorageFullestPercent(storage); ok && fullest >= registryStorageWarnPercent {
+	if fullest, ok := registryStorageFullest(storage); ok && fullest.percent >= registryStorageWarnPercent {
 		_, _ = fmt.Fprintln(out)
-		if fullest >= 100 {
-			_, _ = fmt.Fprintln(out, "The registry is full: every image push is refused until space is freed or the limit is raised.")
+		if fullest.percent >= 100 {
+			_, _ = fmt.Fprintf(out, "Registry project %s is full: every image push to it is refused until space is freed or the limit is raised.\n",
+				fullest.label)
 		} else {
-			_, _ = fmt.Fprintf(out, "The registry is %d%% full. At 100%% every image push is refused.\n", fullest)
+			_, _ = fmt.Fprintf(out, "Registry project %s is %d%% full. At 100%% every image push to it is refused.\n",
+				fullest.label, fullest.percent)
 		}
 		_, _ = fmt.Fprintln(out, "  Free space:   ankra registry storage repositories   (what takes the space)")
 		_, _ = fmt.Fprintln(out, "                ankra registry storage retention set --keep-days <n> --keep-latest <n>")
@@ -236,25 +281,31 @@ func registryStoragePercent(used int64, limit int64) (int, bool) {
 	return int(used * 100 / limit), true
 }
 
-// registryStorageFullestPercent is the fill of the fullest project, or of
-// the organisation total when no project carries its own figure.
-func registryStorageFullestPercent(storage *client.RegistryStorage) (int, bool) {
-	fullest, found := 0, false
-	if storage.UsedBytes != nil && storage.UsageStatus != client.RegistryStorageUsageUnknown {
-		if percent, ok := registryStoragePercent(*storage.UsedBytes, storage.LimitBytes); ok {
-			fullest, found = percent, true
-		}
+// registryStorageFullest is the fullest project, each measured against its
+// own limit. The organisation total is never measured against the
+// per-project limit when projects are listed: two projects at 60% each
+// would read as 120% and claim pushes are refused when none is. Only a
+// platform that lists no projects - where the total is the one project's -
+// falls back to the total.
+func registryStorageFullest(storage *client.RegistryStorage) (registryStorageProjectUsage, bool) {
+	if storage.UsageStatus == client.RegistryStorageUsageUnknown ||
+		storage.UsageStatus == client.RegistryStorageUsageNotProvisioned {
+		return registryStorageProjectUsage{}, false
 	}
-	for _, project := range storage.Projects {
-		if project.UsedBytes == nil || project.Status == "unknown" {
-			continue
+	usages := registryStorageProjectUsages(storage)
+	if len(usages) == 0 {
+		if storage.UsedBytes == nil {
+			return registryStorageProjectUsage{}, false
 		}
-		limit := storage.LimitBytes
-		if project.LimitBytes != nil {
-			limit = *project.LimitBytes
-		}
-		if percent, ok := registryStoragePercent(*project.UsedBytes, limit); ok && (!found || percent > fullest) {
-			fullest, found = percent, true
+		percent, ok := registryStoragePercent(*storage.UsedBytes, storage.LimitBytes)
+		return registryStorageProjectUsage{label: client.RegistryDefaultProjectName, used: storage.UsedBytes,
+			limit: storage.LimitBytes, percent: percent, measured: ok}, ok
+	}
+	var fullest registryStorageProjectUsage
+	found := false
+	for _, usage := range usages {
+		if usage.measured && (!found || usage.percent > fullest.percent) {
+			fullest, found = usage, true
 		}
 	}
 	return fullest, found
@@ -329,6 +380,9 @@ reads every image in the registry and can take a while.`,
 			repositories, listError := apiClient.ListRegistryStorageRepositories(command.Context())
 			if listError != nil {
 				return registryStorageRouteError(listError)
+			}
+			if repositories == nil {
+				return errors.New("reading the registry repositories: the platform answered nothing")
 			}
 			// The view is a copy, so --limit trims what is shown without
 			// touching the answer it was read from.
@@ -1035,14 +1089,23 @@ func submitRegistryStorageRequest(command *cobra.Command, sizeGiB int64, reason 
 		return nil, withExitCode(exitUsage, errors.New("say why the organisation needs more storage (--reason for "+
 			"'registry storage request', --justification for 'org limits request')"))
 	}
-	if storage, getError := apiClient.GetRegistryStorage(command.Context()); getError == nil && storage != nil {
-		switch {
-		case storage.LimitBytes == client.RegistryStorageNoLimit:
-			return nil, withExitCode(exitUsage, errors.New("the organisation's registry storage has no limit: there is nothing to raise"))
-		case storage.LimitBytes > 0 && sizeGiB*bytesPerGiB <= storage.LimitBytes:
-			return nil, withExitCode(exitUsage, fmt.Errorf("the requested size must be more than today's limit of %s per project",
-				formatBytesGiB(storage.LimitBytes)))
-		}
+	// Today's limit is read first so a request at or below it is refused
+	// here with the limit named. The platform enforces the same rule, so
+	// when the read fails the check is skipped - said on stderr, never
+	// silently - and the platform decides.
+	storage, getError := apiClient.GetRegistryStorage(command.Context())
+	switch {
+	case getError != nil:
+		_, _ = fmt.Fprintf(command.ErrOrStderr(), "Could not read today's storage limit (%v); submitting anyway - "+
+			"the platform refuses a size that is not above it.\n", registryStorageRouteError(getError))
+	case storage == nil:
+		_, _ = fmt.Fprintln(command.ErrOrStderr(), "Could not read today's storage limit (the platform answered nothing); "+
+			"submitting anyway - the platform refuses a size that is not above it.")
+	case storage.LimitBytes == client.RegistryStorageNoLimit:
+		return nil, withExitCode(exitUsage, errors.New("the organisation's registry storage has no limit: there is nothing to raise"))
+	case storage.LimitBytes > 0 && sizeGiB*bytesPerGiB <= storage.LimitBytes:
+		return nil, withExitCode(exitUsage, fmt.Errorf("the requested size must be more than today's limit of %s per project",
+			formatBytesGiB(storage.LimitBytes)))
 	}
 	request, submitError := apiClient.SubmitLimitRequest(client.RegistryStorageLimitKind, sizeGiB, strings.TrimSpace(reason))
 	if submitError != nil {

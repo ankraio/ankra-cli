@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -261,8 +262,11 @@ func (c *Client) registryStorageRequest(ctx context.Context, method string, path
 	if requestError != nil {
 		return requestError
 	}
-	if len(responseBody) == 0 {
-		return nil
+	// Every success answer on this lane carries a document. An empty one
+	// would decode as a zero value - a usage status of "", a policy keeping
+	// nothing - that reads like a real answer, so it is an error instead.
+	if len(bytes.TrimSpace(responseBody)) == 0 {
+		return fmt.Errorf("%s: the platform answered %s %s with an empty body", registryStorageRequestFailedOperation, method, path)
 	}
 	if unmarshalError := json.Unmarshal(responseBody, target); unmarshalError != nil {
 		return fmt.Errorf("parse response: %w", unmarshalError)
