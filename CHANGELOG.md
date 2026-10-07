@@ -1,5 +1,21 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Changed
+
+- **`ankra registry storage retention set`, `rule add` and `rule remove` no
+  longer overwrite a change someone else made at the same time.** Each one
+  reads the retention, applies its own change, and writes it back carrying
+  the version it read. If the retention changed in between, the platform
+  refuses the write, and the command reads it again and applies the same
+  change to what is stored now, once. A rule added in the portal while you
+  remove another from the CLI is no longer lost. If it changes yet again, the
+  command stops with the platform's message and exit code 1, with nothing
+  written. `-o json` output of the retention now includes its `version`.
+  Against a platform that does not report a version yet, writes go through
+  as before.
+
 ## v0.24.0 — 2026-10-07
 
 ### Added

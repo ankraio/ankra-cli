@@ -677,6 +677,68 @@ func renderRetentionUpdate(command *cobra.Command, result *client.RegistryRetent
 	return nil
 }
 
+// retentionDelta computes one retention change from a fresh read: the
+// write to send and the headline that reports it. It validates and asks for
+// confirmation as it goes, so a re-applied change is judged against what is
+// stored now.
+type retentionDelta func(retention *client.RegistryRetention) (client.RegistryRetentionUpdate, string, error)
+
+// writeRetentionDelta reads the retention, applies the change and writes
+// it, carrying the read's version so the platform refuses the write if
+// someone changed the retention in between. On that refusal the change is
+// re-applied to a fresh read once; a second refusal fails with the
+// platform's own words. A platform that answers no version gets no check,
+// and its writes go through as before.
+func writeRetentionDelta(command *cobra.Command, delta retentionDelta) error {
+	for attempt := 0; ; attempt++ {
+		retention, getError := apiClient.GetRegistryRetention(command.Context())
+		if getError != nil {
+			return registryStorageRouteError(getError)
+		}
+		if retention == nil {
+			return errors.New("reading the retention policy: the platform answered nothing")
+		}
+		update, headline, deltaError := delta(retention)
+		if deltaError != nil {
+			return deltaError
+		}
+		update.ExpectedVersion = retention.Version
+		result, updateError := apiClient.UpdateRegistryRetention(command.Context(), update)
+		if updateError == nil {
+			if result == nil {
+				return errors.New("updating the retention policy: the platform answered nothing")
+			}
+			return renderRetentionUpdate(command, result, headline)
+		}
+		if attempt == 0 && retention.Version != "" && client.IsRegistryRetentionChanged(updateError) {
+			_, _ = fmt.Fprintln(command.ErrOrStderr(),
+				"The retention changed since it was read; applying your change to the current retention again.")
+			continue
+		}
+		return registryStorageRouteError(updateError)
+	}
+}
+
+// retentionConfirmations remembers which tightenings were already agreed
+// to, so re-applying a change after a concurrent edit asks again only when
+// the comparison it asked about has changed.
+type retentionConfirmations struct {
+	agreed []string
+}
+
+func (confirmations *retentionConfirmations) confirm(command *cobra.Command, what string,
+	current, next client.RegistryRetentionPolicy, runsDailyAt string) error {
+	key := fmt.Sprintf("%s|%+v|%+v", what, current, next)
+	if slices.Contains(confirmations.agreed, key) {
+		return nil
+	}
+	if confirmError := confirmRetentionTightening(command, what, current, next, runsDailyAt); confirmError != nil {
+		return confirmError
+	}
+	confirmations.agreed = append(confirmations.agreed, key)
+	return nil
+}
+
 func newRegistryRetentionSetCommand() *cobra.Command {
 	setCommand := &cobra.Command{
 		Use:   "set",
@@ -690,7 +752,11 @@ of each repository (at least 1). A flag not passed keeps its current value.
 --reset goes back to the platform default. Rules are not touched.
 
 A change that keeps fewer images asks first, because what it no longer keeps
-is deleted at the next retention run; --yes skips the prompt.`,
+is deleted at the next retention run; --yes skips the prompt.
+
+The change is made to the retention as it is stored when it is written: if
+someone else changes it between the read and the write, the platform refuses
+the write and the change is applied again to the new retention, once.`,
 		Example: `  ankra registry storage retention set --keep-days 14
   ankra registry storage retention set --keep-days 7 --keep-latest 2 --yes
   ankra registry storage retention set --reset`,
@@ -707,38 +773,33 @@ is deleted at the next retention run; --yes skips the prompt.`,
 			if !reset && !daysChanged && !latestChanged {
 				return withExitCode(exitUsage, errors.New("nothing to set: pass --keep-days, --keep-latest, or --reset"))
 			}
-			retention, getError := apiClient.GetRegistryRetention(command.Context())
-			if getError != nil {
-				return registryStorageRouteError(getError)
-			}
-			update := client.RegistryRetentionUpdate{DefaultSet: true}
-			next := retention.PlatformDefault
-			if !reset {
-				next = retention.Default
-				if daysChanged {
-					next.KeepDays, _ = command.Flags().GetInt("keep-days")
+			keepDays, _ := command.Flags().GetInt("keep-days")
+			keepLatest, _ := command.Flags().GetInt("keep-latest")
+			confirmations := &retentionConfirmations{}
+			return writeRetentionDelta(command, func(retention *client.RegistryRetention) (client.RegistryRetentionUpdate, string, error) {
+				update := client.RegistryRetentionUpdate{DefaultSet: true}
+				next := retention.PlatformDefault
+				headline := "Retention policy reset to the platform default."
+				if !reset {
+					headline = "Retention policy updated."
+					next = retention.Default
+					if daysChanged {
+						next.KeepDays = keepDays
+					}
+					if latestChanged {
+						next.KeepLatest = keepLatest
+					}
+					if validationError := validateRetentionPolicy(next); validationError != nil {
+						return update, "", validationError
+					}
+					update.Default = &next
 				}
-				if latestChanged {
-					next.KeepLatest, _ = command.Flags().GetInt("keep-latest")
+				if confirmError := confirmations.confirm(command, "in every repository without a rule",
+					retention.Default, next, retention.RunsDailyAt); confirmError != nil {
+					return update, "", confirmError
 				}
-				if validationError := validateRetentionPolicy(next); validationError != nil {
-					return validationError
-				}
-				update.Default = &next
-			}
-			if confirmError := confirmRetentionTightening(command, "in every repository without a rule",
-				retention.Default, next, retention.RunsDailyAt); confirmError != nil {
-				return confirmError
-			}
-			result, updateError := apiClient.UpdateRegistryRetention(command.Context(), update)
-			if updateError != nil {
-				return registryStorageRouteError(updateError)
-			}
-			headline := "Retention policy updated."
-			if reset {
-				headline = "Retention policy reset to the platform default."
-			}
-			return renderRetentionUpdate(command, result, headline)
+				return update, headline, nil
+			})
 		},
 	}
 	setCommand.Flags().Int("keep-days", 0, "Keep every image pushed in this many days (0 turns it off)")
@@ -789,7 +850,11 @@ func newRegistryRetentionRuleListCommand() *cobra.Command {
 			if rules == nil {
 				rules = []client.RegistryRetentionRule{}
 			}
-			if rendered, renderError := renderStructured(command, map[string]any{"rules": rules}); rendered || renderError != nil {
+			listing := map[string]any{"rules": rules}
+			if retention.Version != "" {
+				listing["version"] = retention.Version
+			}
+			if rendered, renderError := renderStructured(command, listing); rendered || renderError != nil {
 				return renderError
 			}
 			out := command.OutOrStdout()
@@ -870,62 +935,61 @@ it.`,
 			if patternError != nil {
 				return patternError
 			}
-			retention, getError := apiClient.GetRegistryRetention(command.Context())
-			if getError != nil {
-				return registryStorageRouteError(getError)
-			}
-			inputs := retentionRuleInputs(retention.Rules)
-			existing := slices.IndexFunc(inputs, func(rule client.RegistryRetentionRuleInput) bool {
-				return rule.RepositoryPattern == pattern
-			})
-			current := retention.Default
-			if existing >= 0 {
-				current = client.RegistryRetentionPolicy{KeepDays: inputs[existing].KeepDays, KeepLatest: inputs[existing].KeepLatest}
-			} else if len(inputs) >= registryRetentionMaxRules {
-				return withExitCode(exitUsage, fmt.Errorf("the organisation already has %d rules, the most it may hold: remove one first",
-					registryRetentionMaxRules))
-			}
-			next := current
-			if command.Flags().Changed("keep-days") {
-				next.KeepDays, _ = command.Flags().GetInt("keep-days")
-			}
-			if command.Flags().Changed("keep-latest") {
-				next.KeepLatest, _ = command.Flags().GetInt("keep-latest")
-			}
-			if validationError := validateRetentionPolicy(next); validationError != nil {
-				return validationError
-			}
-			rule := client.RegistryRetentionRuleInput{RepositoryPattern: pattern, KeepDays: next.KeepDays, KeepLatest: next.KeepLatest}
-			if existing >= 0 {
-				rule.ApplicationID = inputs[existing].ApplicationID
-			}
-			if command.Flags().Changed("application") {
-				applicationID, _ := command.Flags().GetString("application")
-				applicationID = strings.TrimSpace(applicationID)
-				rule.ApplicationID = nil
-				if applicationID != "" {
-					rule.ApplicationID = &applicationID
+			daysChanged, latestChanged := command.Flags().Changed("keep-days"), command.Flags().Changed("keep-latest")
+			keepDays, _ := command.Flags().GetInt("keep-days")
+			keepLatest, _ := command.Flags().GetInt("keep-latest")
+			applicationChanged := command.Flags().Changed("application")
+			applicationID, _ := command.Flags().GetString("application")
+			applicationID = strings.TrimSpace(applicationID)
+			confirmations := &retentionConfirmations{}
+			return writeRetentionDelta(command, func(retention *client.RegistryRetention) (client.RegistryRetentionUpdate, string, error) {
+				update := client.RegistryRetentionUpdate{RulesSet: true}
+				inputs := retentionRuleInputs(retention.Rules)
+				existing := slices.IndexFunc(inputs, func(rule client.RegistryRetentionRuleInput) bool {
+					return rule.RepositoryPattern == pattern
+				})
+				current := retention.Default
+				if existing >= 0 {
+					current = client.RegistryRetentionPolicy{KeepDays: inputs[existing].KeepDays, KeepLatest: inputs[existing].KeepLatest}
+				} else if len(inputs) >= registryRetentionMaxRules {
+					return update, "", withExitCode(exitUsage, fmt.Errorf("the organisation already has %d rules, the most it may hold: remove one first",
+						registryRetentionMaxRules))
 				}
-			}
-			if existing >= 0 {
-				inputs[existing] = rule
-			} else {
-				inputs = append(inputs, rule)
-			}
-			if confirmError := confirmRetentionTightening(command, "in the repositories matching "+pattern,
-				current, next, retention.RunsDailyAt); confirmError != nil {
-				return confirmError
-			}
-			result, updateError := apiClient.UpdateRegistryRetention(command.Context(),
-				client.RegistryRetentionUpdate{RulesSet: true, Rules: inputs})
-			if updateError != nil {
-				return registryStorageRouteError(updateError)
-			}
-			headline := fmt.Sprintf("Rule for %s added.", pattern)
-			if existing >= 0 {
-				headline = fmt.Sprintf("Rule for %s updated.", pattern)
-			}
-			return renderRetentionUpdate(command, result, headline)
+				next := current
+				if daysChanged {
+					next.KeepDays = keepDays
+				}
+				if latestChanged {
+					next.KeepLatest = keepLatest
+				}
+				if validationError := validateRetentionPolicy(next); validationError != nil {
+					return update, "", validationError
+				}
+				rule := client.RegistryRetentionRuleInput{RepositoryPattern: pattern, KeepDays: next.KeepDays, KeepLatest: next.KeepLatest}
+				if existing >= 0 {
+					rule.ApplicationID = inputs[existing].ApplicationID
+				}
+				if applicationChanged {
+					rule.ApplicationID = nil
+					if applicationID != "" {
+						application := applicationID
+						rule.ApplicationID = &application
+					}
+				}
+				headline := fmt.Sprintf("Rule for %s added.", pattern)
+				if existing >= 0 {
+					inputs[existing] = rule
+					headline = fmt.Sprintf("Rule for %s updated.", pattern)
+				} else {
+					inputs = append(inputs, rule)
+				}
+				if confirmError := confirmations.confirm(command, "in the repositories matching "+pattern,
+					current, next, retention.RunsDailyAt); confirmError != nil {
+					return update, "", confirmError
+				}
+				update.Rules = inputs
+				return update, headline, nil
+			})
 		},
 	}
 	addCommand.Flags().Int("keep-days", 0, "Keep every image pushed in this many days (0 turns it off)")
@@ -951,37 +1015,32 @@ did, it asks first; --yes skips the prompt.`,
 				return formatError
 			}
 			pattern := strings.ToLower(strings.TrimSpace(arguments[0]))
-			retention, getError := apiClient.GetRegistryRetention(command.Context())
-			if getError != nil {
-				return registryStorageRouteError(getError)
-			}
-			inputs := retentionRuleInputs(retention.Rules)
-			existing := slices.IndexFunc(inputs, func(rule client.RegistryRetentionRuleInput) bool {
-				return rule.RepositoryPattern == pattern
+			confirmations := &retentionConfirmations{}
+			return writeRetentionDelta(command, func(retention *client.RegistryRetention) (client.RegistryRetentionUpdate, string, error) {
+				update := client.RegistryRetentionUpdate{RulesSet: true}
+				inputs := retentionRuleInputs(retention.Rules)
+				existing := slices.IndexFunc(inputs, func(rule client.RegistryRetentionRuleInput) bool {
+					return rule.RepositoryPattern == pattern
+				})
+				if existing < 0 {
+					var patterns []string
+					for _, rule := range inputs {
+						patterns = append(patterns, rule.RepositoryPattern)
+					}
+					known := "there are no rules"
+					if len(patterns) > 0 {
+						known = "the rules are: " + strings.Join(patterns, ", ")
+					}
+					return update, "", withExitCode(exitNotFound, fmt.Errorf("no retention rule for %q; %s", pattern, known))
+				}
+				removed := client.RegistryRetentionPolicy{KeepDays: inputs[existing].KeepDays, KeepLatest: inputs[existing].KeepLatest}
+				if confirmError := confirmations.confirm(command, "in the repositories matching "+pattern,
+					removed, retention.Default, retention.RunsDailyAt); confirmError != nil {
+					return update, "", confirmError
+				}
+				update.Rules = slices.Delete(inputs, existing, existing+1)
+				return update, fmt.Sprintf("Rule for %s removed.", pattern), nil
 			})
-			if existing < 0 {
-				var patterns []string
-				for _, rule := range inputs {
-					patterns = append(patterns, rule.RepositoryPattern)
-				}
-				known := "there are no rules"
-				if len(patterns) > 0 {
-					known = "the rules are: " + strings.Join(patterns, ", ")
-				}
-				return withExitCode(exitNotFound, fmt.Errorf("no retention rule for %q; %s", pattern, known))
-			}
-			removed := client.RegistryRetentionPolicy{KeepDays: inputs[existing].KeepDays, KeepLatest: inputs[existing].KeepLatest}
-			if confirmError := confirmRetentionTightening(command, "in the repositories matching "+pattern,
-				removed, retention.Default, retention.RunsDailyAt); confirmError != nil {
-				return confirmError
-			}
-			inputs = slices.Delete(inputs, existing, existing+1)
-			result, updateError := apiClient.UpdateRegistryRetention(command.Context(),
-				client.RegistryRetentionUpdate{RulesSet: true, Rules: inputs})
-			if updateError != nil {
-				return registryStorageRouteError(updateError)
-			}
-			return renderRetentionUpdate(command, result, fmt.Sprintf("Rule for %s removed.", pattern))
 		},
 	}
 	removeCommand.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt when the organisation policy keeps fewer images")
