@@ -4,6 +4,25 @@
 
 ### Added
 
+- **`ankra registry storage` shows how full the organisation's registry is,
+  and what to do about it before builds stop publishing.** Every registry
+  project has a storage limit (50 GiB by default), and a full one refuses
+  every image push. The command shows the usage against the limit with a
+  percentage and a bar, per project, and says plainly when the usage is
+  unknown or only partly read rather than showing zero; from 80% it points at
+  the ways out. `registry storage repositories` lists what takes the space,
+  largest first, marking the CI build images that usually dominate.
+  `registry storage retention` shows the image retention policy in plain
+  words; `retention set --keep-days <n> --keep-latest <n>` (or `--reset`)
+  changes it, `retention rule add|remove|list` gives matching repositories
+  their own policy (for example a shorter one for `ankra-ci/**`; one rule per
+  pattern, no braces), and
+  `retention run` cleans up now instead of at the daily run. A change that
+  keeps fewer images asks first (`--yes` skips it). `registry storage request
+  --size <GiB> --reason "..."` asks Ankra for a bigger limit; `ankra org
+  limits request --kind registry-storage --gb <n>` does the same, and `org
+  limits list` (now with `-o json`) shows the request in GiB. Every command
+  takes `-o json`.
 - **`ankra cluster custom-dns-zones add --cloudflare-credential <name>` (and
   the same flag on `ankra org custom-dns-zones add`) serves a Cloudflare zone
   from your clusters.** It binds the zone to an organisation Cloudflare

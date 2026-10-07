@@ -206,6 +206,14 @@ func (c *Client) DeleteRegistryRobot(ctx context.Context, robotName string) erro
 
 func (c *Client) doRegistryRobotRequest(ctx context.Context, method string, path string, body []byte,
 	successStatuses ...int) ([]byte, error) {
+	return c.doRegistryRequest(ctx, "registry robot request failed", method, path, body, successStatuses...)
+}
+
+// doRegistryRequest sends one bearer request on the organisation registry
+// lanes (robots, projects, storage) and answers the body of a success
+// status. operation names the lane in an error that carries no detail.
+func (c *Client) doRegistryRequest(ctx context.Context, operation string, method string, path string, body []byte,
+	successStatuses ...int) ([]byte, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)
@@ -242,7 +250,8 @@ func (c *Client) doRegistryRobotRequest(ctx context.Context, method string, path
 			return nil, denied
 		}
 		return nil, &PermissionDeniedError{Detail: ciSettingsRefusalDetail(responseBody)}
-	case http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity, http.StatusServiceUnavailable:
+	case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity,
+		http.StatusServiceUnavailable:
 		// Every refusal this lane writes names the reason - an unknown robot,
 		// a taken name, a robot Ankra manages, an expired robot, an
 		// organisation with no registry project yet, a platform without the
@@ -251,6 +260,6 @@ func (c *Client) doRegistryRobotRequest(ctx context.Context, method string, path
 			return nil, newBackendDetailError(response.StatusCode, detail)
 		}
 	}
-	return nil, newUnexpectedResponseError("registry robot request failed",
+	return nil, newUnexpectedResponseError(operation,
 		response.StatusCode, redactedBodyForError(responseBody, 500))
 }

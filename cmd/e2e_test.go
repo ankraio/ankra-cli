@@ -4787,6 +4787,26 @@ func (m baseMock) DeleteRegistryProject(requestContext context.Context, projectN
 	return errors.New("not implemented")
 }
 
+func (m baseMock) GetRegistryStorage(requestContext context.Context) (*client.RegistryStorage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListRegistryStorageRepositories(requestContext context.Context) (*client.RegistryStorageRepositories, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetRegistryRetention(requestContext context.Context) (*client.RegistryRetention, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateRegistryRetention(requestContext context.Context, update client.RegistryRetentionUpdate) (*client.RegistryRetentionUpdateResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RunRegistryRetention(requestContext context.Context) (*client.RegistryRetentionRun, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) EnsureApplicationRegistryRobot(requestContext context.Context, applicationID string, robotRequest client.EnsureApplicationRegistryRobotRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }

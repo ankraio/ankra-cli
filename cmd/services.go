@@ -342,6 +342,11 @@ type APIClient interface {
 	ListRegistryProjects(requestContext context.Context) (*client.RegistryProjectList, error)
 	CreateRegistryProject(requestContext context.Context, projectName string) (*client.RegistryProject, error)
 	DeleteRegistryProject(requestContext context.Context, projectName string) error
+	GetRegistryStorage(requestContext context.Context) (*client.RegistryStorage, error)
+	ListRegistryStorageRepositories(requestContext context.Context) (*client.RegistryStorageRepositories, error)
+	GetRegistryRetention(requestContext context.Context) (*client.RegistryRetention, error)
+	UpdateRegistryRetention(requestContext context.Context, update client.RegistryRetentionUpdate) (*client.RegistryRetentionUpdateResult, error)
+	RunRegistryRetention(requestContext context.Context) (*client.RegistryRetentionRun, error)
 	GetApplicationRepositoryCredential(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest client.SetApplicationRepositoryCredentialRequest) (json.RawMessage, error)
 	GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
