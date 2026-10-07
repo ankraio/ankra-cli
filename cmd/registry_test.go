@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,11 @@ type registryRobotsMock struct {
 	created *client.RegistryRobotWithSecret
 	// deleteFail, when set, is what a delete answers.
 	deleteFail error
+	// integratedProjects is what an integrated registry's project listing
+	// answers; integratedListedWith records the registry and credential it
+	// was asked with.
+	integratedProjects   *client.RegistryProjectList
+	integratedListedWith []string
 }
 
 // registryProjectsFixture is an organisation with its own project and one
@@ -60,6 +66,18 @@ func (mock *registryRobotsMock) ListRegistryProjects(context.Context) (*client.R
 		return mock.projects, nil
 	}
 	return registryProjectsFixture(), nil
+}
+
+func (mock *registryRobotsMock) ListIntegratedRegistryProjects(_ context.Context, registryName string,
+	adminCredentialName string) (*client.RegistryProjectList, error) {
+	mock.integratedListedWith = []string{registryName, adminCredentialName}
+	if mock.integratedProjects != nil {
+		return mock.integratedProjects, nil
+	}
+	return &client.RegistryProjectList{Registry: registryName, TotalCount: 2, Projects: []client.RegistryProject{
+		{Name: "collectorcharts", Project: "collectorcharts", Host: "artifact.smartoptics.dev", RepositoryCount: 4, RobotCount: 1},
+		{Name: "smart-hub-images", Project: "smart-hub-images", Host: "artifact.smartoptics.dev", RepositoryCount: 9},
+	}}, nil
 }
 
 func (mock *registryRobotsMock) CreateRegistryProject(_ context.Context, projectName string) (*client.RegistryProject, error) {
@@ -899,5 +917,104 @@ func TestRegistryRobotsCreateOnAProjectWithAWriteOnlyToken(t *testing.T) {
 		!strings.Contains(runError.Error(), "did not honour --project") ||
 		!strings.Contains(runError.Error(), `project "default"`) {
 		t.Fatalf("a create bound to another project: error=%v deleted=%q\n%s", runError, mock.deleted, output)
+	}
+}
+
+// --registry creates the robot on a Harbor the organisation runs itself, with
+// the admin credential named beside it; the Ankra registry's project listing
+// is never consulted for that registry's project, and "default" is sent as a
+// project name like any other there. A platform that predates integrated
+// registries ignores the fields and mints on the Ankra registry instead, so
+// an answer without the registry is deleted again before its secret is shown.
+func TestRegistryRobotsCreateOnAnIntegratedRegistry(t *testing.T) {
+	integrated := func(registry string) *client.RegistryRobotWithSecret {
+		robot := &client.RegistryRobotWithSecret{RegistryRobot: registryRobotFixture(), Secret: "s3cret", DockerLogin: "docker login ..."}
+		robot.Registry = registry
+		robot.Host = "artifact.smartoptics.dev"
+		robot.Project = "smart-hub-images"
+		robot.ProjectName = ""
+		return robot
+	}
+	mock := &registryRobotsMock{projectsError: errors.New("the Ankra registry's projects must not be asked about an integrated registry"),
+		created: integrated("smartoptics-harbor")}
+	output, runError := runRegistryCommand(t, mock, "", "robots", "create", "jenkins", "--registry", " smartoptics-harbor ",
+		"--admin-credential", "smartoptics-harbor-robot-admin", "--project", "Smart-Hub-Images")
+	if runError != nil || mock.deleted != "" || !strings.Contains(output, "s3cret") {
+		t.Fatalf("create --registry: error=%v deleted=%q\n%s", runError, mock.deleted, output)
+	}
+	encoded, _ := json.Marshal(mock.createRequest)
+	if string(encoded) != `{"name":"jenkins","scope":"push","project":"smart-hub-images","registry":"smartoptics-harbor",`+
+		`"admin_credential_name":"smartoptics-harbor-robot-admin"}` {
+		t.Fatalf("wire body = %s", encoded)
+	}
+
+	mock = &registryRobotsMock{created: integrated("smartoptics-harbor")}
+	if _, runError := runRegistryCommand(t, mock, "", "robots", "create", "jenkins", "--registry", "smartoptics-harbor",
+		"--admin-credential", "admin", "--project", "default"); runError != nil || mock.createRequest.Project != "default" {
+		t.Fatalf("a project named default on an integrated registry: error=%v request=%+v", runError, mock.createRequest)
+	}
+
+	mock = &registryRobotsMock{created: integrated("")}
+	output, runError = runRegistryCommand(t, mock, "", "robots", "create", "jenkins", "--registry", "smartoptics-harbor",
+		"--admin-credential", "admin", "--project", "collectorcharts")
+	if runError == nil || mock.deleted != "jenkins" || strings.Contains(output, "s3cret") ||
+		!strings.Contains(runError.Error(), "did not honour --registry") ||
+		!strings.Contains(runError.Error(), "ankra helm credentials create") {
+		t.Fatalf("a platform that ignored --registry: error=%v deleted=%q\n%s", runError, mock.deleted, output)
+	}
+
+	for _, arguments := range [][]string{
+		{"robots", "create", "jenkins", "--registry", "smartoptics-harbor"},
+		{"robots", "create", "jenkins", "--admin-credential", "smartoptics-harbor-robot-admin"},
+		{"robots", "create", "jenkins", "--registry", "smartoptics-harbor", "--admin-credential", "admin"},
+	} {
+		mock = &registryRobotsMock{}
+		_, usageError := runRegistryCommand(t, mock, "", arguments...)
+		if exitCodeFor(usageError) != exitUsage || mock.createRequest != nil {
+			t.Fatalf("%v: error=%v request=%+v", arguments, usageError, mock.createRequest)
+		}
+	}
+}
+
+// A robot on an integrated registry names that registry and the credential
+// it is managed with.
+func TestPrintRegistryRobotNamesAnIntegratedRegistry(t *testing.T) {
+	robot := registryRobotFixture()
+	robot.Host = "artifact.smartoptics.dev"
+	robot.Registry = "smartoptics-harbor"
+	robot.AdminCredentialName = "smartoptics-harbor-robot-admin"
+	command := newRegistryCommand()
+	var stdout bytes.Buffer
+	command.SetOut(&stdout)
+	printRegistryRobot(command, nil, &robot)
+	if !strings.Contains(stdout.String(),
+		"Registry:    artifact.smartoptics.dev (integrated as smartoptics-harbor, managed with smartoptics-harbor-robot-admin)") {
+		t.Fatalf("output:\n%s", stdout.String())
+	}
+}
+
+// With --registry the projects listed are the integrated registry's own, the
+// ones a robot there is bound to by name - not the Ankra registry's. A
+// platform that answers the Ankra registry's projects instead is refused.
+func TestRegistryProjectsListOnAnIntegratedRegistry(t *testing.T) {
+	mock := &registryRobotsMock{projectsError: errors.New("the Ankra registry's projects must not be listed")}
+	output, runError := runRegistryCommand(t, mock, "", "projects", "list", "--registry", "smartoptics-harbor",
+		"--admin-credential", "smartoptics-harbor-robot-admin")
+	if runError != nil || !strings.Contains(output, "artifact.smartoptics.dev/collectorcharts") ||
+		strings.Contains(output, "extra projects used") ||
+		!slices.Equal(mock.integratedListedWith, []string{"smartoptics-harbor", "smartoptics-harbor-robot-admin"}) {
+		t.Fatalf("list --registry: error=%v asked=%v\n%s", runError, mock.integratedListedWith, output)
+	}
+
+	mock = &registryRobotsMock{integratedProjects: registryProjectsFixture()}
+	_, olderError := runRegistryCommand(t, mock, "", "projects", "list", "--registry", "smartoptics-harbor",
+		"--admin-credential", "admin")
+	if olderError == nil || !strings.Contains(olderError.Error(), "does not list the projects of an integrated registry") {
+		t.Fatalf("an older platform answering the Ankra registry's projects: %v", olderError)
+	}
+
+	mock = &registryRobotsMock{}
+	if _, usageError := runRegistryCommand(t, mock, "", "projects", "list", "--registry", "smartoptics-harbor"); exitCodeFor(usageError) != exitUsage {
+		t.Fatalf("--registry without --admin-credential: %v", usageError)
 	}
 }

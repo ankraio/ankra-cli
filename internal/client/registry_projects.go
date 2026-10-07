@@ -34,6 +34,9 @@ type RegistryProjectList struct {
 	Projects          []RegistryProject `json:"projects" yaml:"projects"`
 	TotalCount        int               `json:"total_count" yaml:"total_count"`
 	ExtraProjectLimit int               `json:"extra_project_limit" yaml:"extra_project_limit"`
+	// Registry is the integrated registry entry the projects are on; empty
+	// for the Ankra registry.
+	Registry string `json:"registry,omitempty" yaml:"registry,omitempty"`
 }
 
 // RegistryDefaultProjectName is the name the organisation's own project
@@ -45,6 +48,24 @@ const registryProjectsAPIPath = "/api/v1/org/registry-projects"
 // ListRegistryProjects lists the organisation's registry projects.
 func (c *Client) ListRegistryProjects(ctx context.Context) (*RegistryProjectList, error) {
 	body, requestError := c.doRegistryRobotRequest(ctx, http.MethodGet, registryProjectsAPIPath, nil, http.StatusOK)
+	if requestError != nil {
+		return nil, requestError
+	}
+	var list RegistryProjectList
+	if unmarshalError := json.Unmarshal(body, &list); unmarshalError != nil {
+		return nil, fmt.Errorf("parse response: %w", unmarshalError)
+	}
+	return &list, nil
+}
+
+// ListIntegratedRegistryProjects lists the projects of a registry the
+// organisation runs itself and has integrated as an OCI registry entry, as
+// the named admin credential sees them.
+func (c *Client) ListIntegratedRegistryProjects(ctx context.Context, registryName string,
+	adminCredentialName string) (*RegistryProjectList, error) {
+	query := url.Values{"registry": {registryName}, "admin_credential_name": {adminCredentialName}}
+	body, requestError := c.doRegistryRobotRequest(ctx, http.MethodGet, registryProjectsAPIPath+"?"+query.Encode(),
+		nil, http.StatusOK)
 	if requestError != nil {
 		return nil, requestError
 	}

@@ -49,6 +49,12 @@ type RegistryRobot struct {
 	// ExpiresAt is when the registry stops honouring the robot; nil for one
 	// that never expires.
 	ExpiresAt *string `json:"expires_at" yaml:"expires_at"`
+	// Registry is the integrated registry entry - a Harbor the organisation
+	// runs itself - the robot lives on; empty on the Ankra registry.
+	Registry string `json:"registry,omitempty" yaml:"registry,omitempty"`
+	// AdminCredentialName is the organisation's credential the robot is
+	// managed with on an integrated registry; empty on the Ankra registry.
+	AdminCredentialName string `json:"admin_credential_name,omitempty" yaml:"admin_credential_name,omitempty"`
 }
 
 // KindOrUser is the robot's kind, read as a member's own when the platform
@@ -112,8 +118,14 @@ type CreateRegistryRobotRequest struct {
 	Description   string   `json:"description,omitempty"`
 	ExpiresInDays int      `json:"expires_in_days,omitempty"`
 	// Project names the registry project the robot is bound to; empty is the
-	// organisation's own.
+	// organisation's own. With Registry it is that registry's project and is
+	// required: the platform binds the robot to exactly the project named.
 	Project string `json:"project,omitempty"`
+	// Registry names an integrated OCI registry entry to mint the robot on
+	// instead of the Ankra registry, with AdminCredentialName - the
+	// organisation's credential that may manage robots there.
+	Registry            string `json:"registry,omitempty"`
+	AdminCredentialName string `json:"admin_credential_name,omitempty"`
 }
 
 // The robot scope vocabulary, mirroring the platform's.
