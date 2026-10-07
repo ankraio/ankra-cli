@@ -39,10 +39,15 @@ manages.
 
 A robot account is bound to one registry project. 'ankra registry projects'
 creates extra projects beside the organisation's own, so a robot can be given
-access to only what is kept in one of them.`,
+access to only what is kept in one of them.
+
+Every project has a storage limit; a full one refuses every push. 'ankra
+registry storage' shows how full it is, what fills it, the image retention
+policy that frees it, and asks Ankra for more.`,
 	}
 	registryCommand.AddCommand(newRegistryRobotsCommand())
 	registryCommand.AddCommand(newRegistryProjectsCommand())
+	registryCommand.AddCommand(newRegistryStorageCommand())
 	return registryCommand
 }
 
