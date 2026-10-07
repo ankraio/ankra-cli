@@ -84,7 +84,7 @@ func registryStorageRouteError(routeError error) error {
 	var unexpected *client.UnexpectedResponseError
 	if errors.As(routeError, &unexpected) && unexpected.StatusCode == http.StatusNotFound && unexpected.Detail == "" {
 		return withExitCode(exitError, errors.New("this platform does not serve registry storage yet: "+
-			"/api/v1/org/registry-storage is not registered"))
+			"its registry storage routes are not registered"))
 	}
 	return routeError
 }
