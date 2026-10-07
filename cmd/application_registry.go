@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -83,7 +84,14 @@ credential with project administrator rights as --admin-credential to have
 Ankra mint, rotate and revoke a push robot for the application there and
 store it in the repository's Actions secrets; without one it leaves the
 secrets to you unless you ask it to write the declared credential with
---manage-actions-secrets.`,
+--manage-actions-secrets.
+
+With --admin-credential Ankra also checks that the project exists before it
+accepts the declaration. A project the registry does not have is created with
+that credential - private, or public with --project-public - when the
+credential may create projects; otherwise the declaration is refused with the
+project and host named, instead of being accepted for every later build to
+fail against. Without --admin-credential the project is not checked.`,
 		Example: `  ankra application registry set 23298741-6a5a-401a-a681-66f31fbdebe1 \
     --url oci://artifact.example.com/commerce --credential example-harbor
 
@@ -93,7 +101,12 @@ secrets to you unless you ask it to write the declared credential with
 
   ankra application registry set <application-id> \
     --url oci://artifact.example.com/commerce --credential example-harbor-pull \
-    --admin-credential example-harbor-admin`,
+    --admin-credential example-harbor-admin
+
+  # Create the project on the registry if it is missing, and make it public
+  ankra application registry set <application-id> \
+    --url oci://artifact.example.com/collector --credential example-harbor-pull \
+    --admin-credential example-harbor-admin --project-public`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -113,7 +126,12 @@ secrets to you unless you ask it to write the declared credential with
 			manageActionsSecrets, _ := command.Flags().GetBool("manage-actions-secrets")
 			adminCredentialName, _ := command.Flags().GetString("admin-credential")
 			flatRepositories, _ := command.Flags().GetBool("flat-repositories")
+			projectPublic, _ := command.Flags().GetBool("project-public")
 			componentRepositoryFlags, _ := command.Flags().GetStringArray("component-repository")
+			if projectPublic && strings.TrimSpace(adminCredentialName) == "" {
+				return withExitCode(exitUsage, errors.New("--project-public needs --admin-credential: "+
+					"the project is created with that credential, and only then is its visibility Ankra's to set"))
+			}
 			componentRepositories, componentRepositoriesError := parseComponentRepositories(componentRepositoryFlags)
 			if componentRepositoriesError != nil {
 				return componentRepositoriesError
@@ -130,6 +148,7 @@ secrets to you unless you ask it to write the declared credential with
 				AdminCredentialName:   strings.TrimSpace(adminCredentialName),
 				FlatRepositories:      flatRepositories,
 				ComponentRepositories: componentRepositories,
+				ProjectPublic:         projectPublic,
 			}
 			applicationID, resolveError := resolveApplicationArgument(command, arguments)
 			if resolveError != nil {
@@ -146,6 +165,15 @@ secrets to you unless you ask it to write the declared credential with
 					"Warning: no --credential was named, so Ankra cannot read image tags from this registry. "+
 						"Builds will keep reporting as never published.")
 			}
+			if declaration.AdminCredentialName == "" {
+				_, _ = fmt.Fprintln(command.ErrOrStderr(),
+					"Note: no --admin-credential was named, so Ankra did not check that the project exists on the registry. "+
+						"A build pushing to a project the registry does not have fails at the push.")
+			}
+			if registryProjectWasCreated(payload) {
+				_, _ = fmt.Fprintln(command.ErrOrStderr(),
+					"Created the project on the registry with the admin credential; it did not exist before.")
+			}
 			return renderApplicationPayload(command, payload)
 		},
 	}
@@ -161,6 +189,8 @@ secrets to you unless you ask it to write the declared credential with
 		"Registry credential with project administrator rights, for Ankra to mint the application's robot")
 	setCommand.Flags().Bool("flat-repositories", false,
 		"Publish monorepo components as <project>/<component> instead of <project>/<app>/<component>")
+	setCommand.Flags().Bool("project-public", false,
+		"With --admin-credential: create the project public when the registry does not have it yet (default: private)")
 	setCommand.Flags().StringArray("component-repository", nil,
 		"Repository inside the project for one component, as <component>=<repository> (repeatable)")
 	registerStructuredOutputFlags(setCommand)
@@ -225,4 +255,13 @@ func parseComponentRepositories(flags []string) (map[string]string, error) {
 		repositories[componentName] = repository
 	}
 	return repositories, nil
+}
+
+// registryProjectWasCreated reads whether the platform created the declared
+// project on this call, off the answer it rendered.
+func registryProjectWasCreated(payload json.RawMessage) bool {
+	var answer struct {
+		ProjectCreated bool `json:"project_created"`
+	}
+	return json.Unmarshal(payload, &answer) == nil && answer.ProjectCreated
 }
