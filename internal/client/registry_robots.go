@@ -118,8 +118,8 @@ type CreateRegistryRobotRequest struct {
 	Description   string   `json:"description,omitempty"`
 	ExpiresInDays int      `json:"expires_in_days,omitempty"`
 	// Project names the registry project the robot is bound to; empty is the
-	// organisation's own. With Registry it is that registry's project, empty
-	// being the one the registry entry's URL names.
+	// organisation's own. With Registry it is that registry's project and is
+	// required: the platform binds the robot to exactly the project named.
 	Project string `json:"project,omitempty"`
 	// Registry names an integrated OCI registry entry to mint the robot on
 	// instead of the Ankra registry, with AdminCredentialName - the
