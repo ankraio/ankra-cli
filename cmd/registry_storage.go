@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -380,7 +381,7 @@ func renderRegistryStorageRepositories(out io.Writer, repositories *client.Regis
 	repositoryTable.SetOutputMirror(out)
 	repositoryTable.SetStyle(table.StyleRounded)
 	repositoryTable.AppendHeader(table.Row{"Repository", "Project", "Size", "Images", "Last push", "Retention"})
-	hasCI, hasTruncated := false, false
+	hasCI, hasTruncated, hasUnreadable := false, false, false
 	for _, repository := range repositories.Repositories {
 		name := repository.Name
 		if strings.HasPrefix(repository.Name, registryCIRepositoryPrefix) {
@@ -388,7 +389,11 @@ func renderRegistryStorageRepositories(out io.Writer, repositories *client.Regis
 			hasCI = true
 		}
 		size := formatBytesGiB(repository.SizeBytes)
-		if repository.Truncated {
+		switch {
+		case repository.Unreadable:
+			size = "unknown"
+			hasUnreadable = true
+		case repository.Truncated:
 			size = ">= " + size
 			hasTruncated = true
 		}
@@ -409,6 +414,9 @@ func renderRegistryStorageRepositories(out io.Writer, repositories *client.Regis
 	}
 	if repositories.Status == client.RegistryStorageUsagePartial {
 		_, _ = fmt.Fprintln(out, "Some of the registry could not be read, so this list may be incomplete.")
+	}
+	if hasUnreadable {
+		_, _ = fmt.Fprintln(out, "unknown marks a repository whose images could not be read just now: its size is not known (this does not mean empty).")
 	}
 	if hasTruncated {
 		_, _ = fmt.Fprintln(out, ">= marks a repository with too many images to read in full: its size is a lower bound.")
@@ -438,8 +446,9 @@ repositories its pattern matches - for example a shorter one for CI images:
 
   ankra registry storage retention rule add 'ankra-ci/**' --keep-days 7 --keep-latest 2
 
-Patterns use * within one path segment, ** across segments and {a,b} for
-alternatives, in lower case.`,
+Patterns are lower-case letters, digits and . _ / - with * matching within
+one path segment and ** across segments; braces and commas are not accepted,
+so write one rule per pattern.`,
 		Example: "  ankra registry storage retention\n  ankra registry storage retention -o json",
 		Args:    cobra.NoArgs,
 		RunE:    runRegistryRetentionShow,
@@ -692,9 +701,14 @@ func newRegistryRetentionRuleCommand() *cobra.Command {
 		Aliases: []string{"rules"},
 		Short:   "Add, remove and list retention rules for matching repositories",
 		Long: `Add, remove and list retention rules. A rule replaces the organisation policy
-for the repositories its pattern matches. Patterns use * within one path
-segment, ** across segments and {a,b} for alternatives, in lower case; '**'
-alone is the organisation policy itself ('retention set').`,
+for the repositories its pattern matches. Patterns are lower-case letters,
+digits and . _ / - with * matching within one path segment and ** across
+segments; braces and commas are not accepted, so write one rule per pattern.
+'**' alone is the organisation policy itself ('retention set').
+
+A rule needs an organisation policy that keeps something: when the policy in
+force keeps nothing, the platform refuses rules until one is set with
+'ankra registry storage retention set'.`,
 	}
 	ruleCommand.AddCommand(newRegistryRetentionRuleListCommand())
 	ruleCommand.AddCommand(newRegistryRetentionRuleAddCommand())
@@ -755,14 +769,24 @@ func retentionRuleInputs(rules []client.RegistryRetentionRule) []client.Registry
 	return inputs
 }
 
+// retentionPatternCharacters is everything a rule pattern may hold: the
+// platform refuses braces and commas, so one rule covers one pattern.
+var retentionPatternCharacters = regexp.MustCompile(`^[a-z0-9._/*-]+$`)
+
 func normaliseRetentionPattern(raw string) (string, error) {
 	pattern := strings.ToLower(strings.TrimSpace(raw))
-	switch pattern {
-	case "":
+	switch {
+	case pattern == "":
 		return "", withExitCode(exitUsage, errors.New("the repository pattern is empty"))
-	case "**":
+	case pattern == "**":
 		return "", withExitCode(exitUsage, errors.New("'**' matches every repository, which is the organisation policy: "+
 			"change it with 'ankra registry storage retention set'"))
+	case strings.ContainsAny(pattern, "{},"):
+		return "", withExitCode(exitUsage, fmt.Errorf("pattern %q uses braces or commas, which rules do not accept: "+
+			"add one rule per pattern instead", pattern))
+	case !retentionPatternCharacters.MatchString(pattern):
+		return "", withExitCode(exitUsage, fmt.Errorf("pattern %q may hold only lower-case letters, digits, . _ / - and * "+
+			"(* within a path segment, ** across segments)", pattern))
 	}
 	return pattern, nil
 }

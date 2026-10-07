@@ -81,6 +81,9 @@ type RegistryStorageRepository struct {
 	LastPushedAt  string `json:"last_pushed_at" yaml:"last_pushed_at"`
 	// Truncated reports that SizeBytes is a lower bound.
 	Truncated bool `json:"truncated" yaml:"truncated"`
+	// Unreadable reports that the repository's images could not be read:
+	// its size is unknown, never 0, and the list's status is partial.
+	Unreadable bool `json:"unreadable" yaml:"unreadable"`
 	// RetentionRuleID is the rule governing the repository; nil when the
 	// organisation's default policy does.
 	RetentionRuleID *string `json:"retention_rule_id" yaml:"retention_rule_id"`

@@ -45,7 +45,9 @@ func TestRegistryStorageLaneParity(t *testing.T) {
 			jsonResponse(t, writer, http.StatusOK, map[string]any{
 				"status": "complete", "sizes_are_approximate": true,
 				"repositories": []any{map[string]any{"name": "ankra-ci/api", "project": "default", "artifact_count": 42,
-					"size_bytes": 123, "last_pushed_at": "", "truncated": true, "retention_rule_id": "r1"}},
+					"size_bytes": 123, "last_pushed_at": "", "truncated": true, "unreadable": false, "retention_rule_id": "r1"},
+					map[string]any{"name": "web/site", "project": "default", "artifact_count": 3, "size_bytes": 0,
+						"last_pushed_at": "", "truncated": false, "unreadable": true, "retention_rule_id": nil}},
 			})
 		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/org/registry-storage/retention":
 			jsonResponse(t, writer, http.StatusOK, retention)
@@ -74,7 +76,8 @@ func TestRegistryStorageLaneParity(t *testing.T) {
 	}
 
 	repositories, listError := client.ListRegistryStorageRepositories(ctx)
-	if listError != nil || len(repositories.Repositories) != 1 || !repositories.Repositories[0].Truncated ||
+	if listError != nil || len(repositories.Repositories) != 2 || !repositories.Repositories[0].Truncated ||
+		repositories.Repositories[0].Unreadable || !repositories.Repositories[1].Unreadable ||
 		repositories.Repositories[0].RetentionRuleID == nil || *repositories.Repositories[0].RetentionRuleID != "r1" ||
 		!repositories.SizesAreApproximate {
 		t.Fatalf("repositories: %+v %v", repositories, listError)

@@ -15,7 +15,8 @@
   `registry storage retention` shows the image retention policy in plain
   words; `retention set --keep-days <n> --keep-latest <n>` (or `--reset`)
   changes it, `retention rule add|remove|list` gives matching repositories
-  their own policy (for example a shorter one for `ankra-ci/**`), and
+  their own policy (for example a shorter one for `ankra-ci/**`; one rule per
+  pattern, no braces), and
   `retention run` cleans up now instead of at the daily run. A change that
   keeps fewer images asks first (`--yes` skips it). `registry storage request
   --size <GiB> --reason "..."` asks Ankra for a bigger limit; `ankra org

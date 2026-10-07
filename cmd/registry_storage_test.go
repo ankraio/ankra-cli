@@ -226,6 +226,19 @@ func TestRegistryStorageRepositoriesTable(t *testing.T) {
 		t.Fatalf("stdout = %s (%v)", stdout, unmarshalError)
 	}
 
+	unreadable := &registryStorageMock{repositories: &client.RegistryStorageRepositories{
+		Status: "partial",
+		Repositories: []client.RegistryStorageRepository{
+			{Name: "web/site", Project: "default", ArtifactCount: 3, SizeBytes: 0, Unreadable: true},
+		},
+	}}
+	output, runError = runRegistryCommand(t, unreadable, "", "storage", "repositories")
+	if runError != nil {
+		t.Fatalf("repositories (unreadable): %v", runError)
+	}
+	mustContain(t, output, "unknown", "could not be read just now", "may be incomplete")
+	mustNotContain(t, output, "0 B")
+
 	unknown := &registryStorageMock{repositories: &client.RegistryStorageRepositories{Status: "unknown"}}
 	output, _ = runRegistryCommand(t, unknown, "", "storage", "repositories")
 	mustContain(t, output, "could not be read")
@@ -355,11 +368,31 @@ func TestRegistryRetentionRuleAddUpdatesAndConfirms(t *testing.T) {
 	}
 	mustContain(t, output, "Rule for web/* updated.")
 
-	for _, pattern := range []string{"**", " "} {
+	for _, pattern := range []string{"**", " ", "{web,api}/*", "web/*,api/*", "web/[a-z]", "web site/*"} {
 		if _, runError := runRegistryCommand(t, mock, "", "storage", "retention", "rule", "add", pattern, "--keep-days", "3"); exitCodeFor(runError) != exitUsage {
 			t.Fatalf("pattern %q must be refused: %v", pattern, runError)
 		}
 	}
+}
+
+// The platform refuses rules while the policy in force keeps nothing; its
+// sentence reaches the user as it is.
+func TestRegistryRetentionRuleAddRelaysThePlatformRefusal(t *testing.T) {
+	refusal := "Set a project-wide policy (default) before adding repository rules: the platform default keeps nothing here"
+	mock := &registryStorageRefusingMock{refusal: client.NewUnexpectedResponseError(422, refusal)}
+	_, runError := runRegistryCommand(t, mock, "", "storage", "retention", "rule", "add", "ankra-ci/**", "--yes")
+	if runError == nil || runError.Error() != refusal {
+		t.Fatalf("the platform's refusal must be printed as it is, got %v", runError)
+	}
+}
+
+type registryStorageRefusingMock struct {
+	registryStorageMock
+	refusal error
+}
+
+func (mock *registryStorageRefusingMock) UpdateRegistryRetention(context.Context, client.RegistryRetentionUpdate) (*client.RegistryRetentionUpdateResult, error) {
+	return nil, mock.refusal
 }
 
 func TestRegistryRetentionRuleRemove(t *testing.T) {
