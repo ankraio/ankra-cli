@@ -89,6 +89,10 @@ type ApplicationImageRegistry struct {
 	// ComponentRepositories names a component's repository inside the project
 	// outright, keyed by component name.
 	ComponentRepositories map[string]string `json:"component_repositories,omitempty"`
+	// ProjectPublic asks for the project to be public when Ankra creates it:
+	// a declared project the registry does not have yet is created with the
+	// admin credential. An existing project is left as it is.
+	ProjectPublic bool `json:"project_public,omitempty"`
 }
 
 // SetApplicationRepositoryCredentialRequest mirrors the repository-credential
