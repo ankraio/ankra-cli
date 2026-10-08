@@ -366,7 +366,7 @@ func TestValidatePipelineDefinitionEmptySpecValidatesStored(t *testing.T) {
 		capturedBody = string(body)
 		_, _ = fmt.Fprint(w, `{"severity":"ok","violations":[],"events":[]}`)
 	})
-	validation, err := testClient.ValidatePipelineDefinition(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "")
+	validation, err := testClient.ValidatePipelineDefinition(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "", nil)
 	if err != nil {
 		t.Fatalf("ValidatePipelineDefinition error = %v", err)
 	}
@@ -375,6 +375,27 @@ func TestValidatePipelineDefinitionEmptySpecValidatesStored(t *testing.T) {
 	}
 	if !strings.Contains(capturedBody, `"spec_yaml":""`) {
 		t.Errorf("body = %q, want an explicit empty spec_yaml", capturedBody)
+	}
+	if strings.Contains(capturedBody, "changed_files") {
+		t.Errorf("body = %q, want no changed_files when none were named", capturedBody)
+	}
+}
+
+// TestValidatePipelineDefinitionSendsTheDryRunDiff pins --changed-file's wire
+// half: the named paths travel as changed_files.
+func TestValidatePipelineDefinitionSendsTheDryRunDiff(t *testing.T) {
+	var capturedBody string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		capturedBody = string(body)
+		_, _ = fmt.Fprint(w, `{"severity":"ok","violations":[],"events":[]}`)
+	})
+	if _, err := testClient.ValidatePipelineDefinition(context.Background(), PipelineSelector{RepositoryID: "repo-1"},
+		"", []string{"frontend/app.ts", ".ankra/pipeline.yaml"}); err != nil {
+		t.Fatalf("ValidatePipelineDefinition error = %v", err)
+	}
+	if !strings.Contains(capturedBody, `"changed_files":["frontend/app.ts",".ankra/pipeline.yaml"]`) {
+		t.Errorf("body = %q, want the changed files", capturedBody)
 	}
 }
 
@@ -390,7 +411,7 @@ func TestValidatePipelineDefinitionKeepsEachStepsNetworkTier(t *testing.T) {
 			"skipped":[],"diagnostics":[]}]}`)
 	})
 	validation, err := testClient.ValidatePipelineDefinition(context.Background(),
-		PipelineSelector{RepositoryID: "repo-1"}, "")
+		PipelineSelector{RepositoryID: "repo-1"}, "", nil)
 	if err != nil {
 		t.Fatalf("ValidatePipelineDefinition error = %v", err)
 	}
@@ -412,7 +433,7 @@ func TestValidatePipelineDefinitionOlderPlatformSendsNoNetworkTier(t *testing.T)
 			"run_condition":"on_success","timeout_seconds":1800}],"skipped":[],"diagnostics":[]}]}`)
 	})
 	validation, err := testClient.ValidatePipelineDefinition(context.Background(),
-		PipelineSelector{RepositoryID: "repo-1"}, "")
+		PipelineSelector{RepositoryID: "repo-1"}, "", nil)
 	if err != nil {
 		t.Fatalf("ValidatePipelineDefinition error = %v", err)
 	}

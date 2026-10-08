@@ -108,8 +108,17 @@ func collectServicePages[T any](fetch func(after string) ([]T, *string, error)) 
 }
 
 func listAllServiceInstances(ctx context.Context) ([]client.ServiceInstance, error) {
+	return listServiceInstances(ctx, client.ServiceInstanceListOptions{})
+}
+
+// listServiceInstances walks the inventory with the platform's own filters
+// carried on every page: a filter that only reached the first page would
+// let the rest of the walk answer the whole organisation.
+func listServiceInstances(ctx context.Context, filter client.ServiceInstanceListOptions) ([]client.ServiceInstance, error) {
 	return collectServicePages(func(after string) ([]client.ServiceInstance, *string, error) {
-		page, listError := apiClient.ListServiceInstances(ctx, client.ServicePageOptions{Limit: servicePageLimit, After: after})
+		options := filter
+		options.ServicePageOptions = client.ServicePageOptions{Limit: servicePageLimit, After: after}
+		page, listError := apiClient.ListServiceInstances(ctx, options)
 		if listError != nil {
 			return nil, nil, listError
 		}
@@ -307,6 +316,47 @@ func (names *serviceNames) packageVersion(versionID string) string {
 	return versionID
 }
 
+// serviceClusterName is the name of the cluster a service runs on: the one
+// the instance read carries, or the cluster listing's when it carries none.
+func serviceClusterName(names *serviceNames, instance client.ServiceInstance) string {
+	if instance.ClusterName != "" {
+		return instance.ClusterName
+	}
+	return names.cluster(instance.ClusterID)
+}
+
+// serviceServes reports whether a service's reviewed plan names a consumer
+// of the application, the platform's own test for its application filter.
+func serviceServes(instance client.ServiceInstance, applicationID string) bool {
+	for _, consumer := range instance.Consumers {
+		if consumer.ApplicationID == applicationID {
+			return true
+		}
+	}
+	return false
+}
+
+// serviceUsedBy names what of one application a service serves: each of
+// the application's consumers in the reviewed plan, by the environment
+// deployed in its namespace, or by the namespace while none is.
+func serviceUsedBy(instance client.ServiceInstance, applicationID string) string {
+	var usedBy []string
+	for _, consumer := range instance.Consumers {
+		if consumer.ApplicationID != applicationID {
+			continue
+		}
+		if consumer.Environment != nil && consumer.Environment.Name != "" {
+			usedBy = append(usedBy, consumer.Environment.Name)
+			continue
+		}
+		usedBy = append(usedBy, "namespace "+consumer.Namespace)
+	}
+	if len(usedBy) == 0 {
+		return "-"
+	}
+	return strings.Join(usedBy, ", ")
+}
+
 // serviceHealthSummary is the one-line health of an instance.
 func serviceHealthSummary(instance client.ServiceInstance) string {
 	if instance.Health == nil {
@@ -337,8 +387,14 @@ degraded, unknown). Readiness says whether a consumer can use the service:
 for PostgreSQL a canary logs in with the generated credentials (ready,
 verifying, degraded, stale); engines without a canary read unverified.
 
+--application keeps the services an application uses: those whose reviewed
+plan names one of the application's namespaces as a consumer. The
+application is given by name or id, and a Used by column says which of its
+environments each service serves (or the namespace, where the application is
+not deployed yet).
+
 Retired services keep their record; --include-released lists them too.`,
-		Example: "  ankra services list\n  ankra services list --cluster prod\n  ankra services list -o json",
+		Example: "  ankra services list\n  ankra services list --cluster prod\n  ankra services list --application storefront\n  ankra services list -o json",
 		Args:    cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -352,8 +408,23 @@ Retired services keep their record; --include-released lists them too.`,
 				}
 				clusterID = resolvedID
 			}
+			// Both filters travel to the platform, which applies them on
+			// every page. Both are also checked below, so a platform that
+			// ignores a filter still lists only what was asked for.
+			filter := client.ServiceInstanceListOptions{ClusterID: clusterID}
+			applicationReference, _ := command.Flags().GetString("application")
+			applicationReference = strings.TrimSpace(applicationReference)
+			if command.Flags().Changed("application") {
+				// The platform filters by id; a name is resolved the way
+				// every per-application command resolves its argument.
+				applicationID, resolveError := resolveApplicationID(command.Context(), apiClient, applicationReference)
+				if resolveError != nil {
+					return resolveError
+				}
+				filter.ApplicationID = applicationID
+			}
 			includeReleased, _ := command.Flags().GetBool("include-released")
-			instances, listError := listAllServiceInstances(command.Context())
+			instances, listError := listServiceInstances(command.Context(), filter)
 			if listError != nil {
 				return listError
 			}
@@ -361,6 +432,9 @@ Retired services keep their record; --include-released lists them too.`,
 			hiddenReleased := 0
 			for _, instance := range instances {
 				if clusterID != "" && instance.ClusterID != clusterID {
+					continue
+				}
+				if filter.ApplicationID != "" && !serviceServes(instance, filter.ApplicationID) {
 					continue
 				}
 				if instance.ReleasedAt != nil && !includeReleased {
@@ -374,18 +448,29 @@ Retired services keep their record; --include-released lists them too.`,
 				return renderError
 			}
 			out := command.OutOrStdout()
-			if len(shown) == 0 {
+			switch {
+			case len(shown) == 0 && filter.ApplicationID != "":
+				_, _ = fmt.Fprintf(out, "No managed services serve application %s. Add one from the application's Overview in the portal, or with 'ankra services setup'.\n", applicationReference)
+			case len(shown) == 0:
 				_, _ = fmt.Fprintln(out, "No managed services. Set one up with 'ankra services setup'; 'ankra services --help' walks through it.")
-			} else {
+			default:
 				names := newServiceNames(command)
 				instanceTable := table.NewWriter()
 				instanceTable.SetOutputMirror(out)
 				instanceTable.SetStyle(table.StyleRounded)
-				instanceTable.AppendHeader(table.Row{"Name", "Cluster", "Package", "Deployment", "Health", "Readiness", "ID"})
+				header := table.Row{"Name", "Cluster", "Package", "Deployment", "Health", "Readiness"}
+				if filter.ApplicationID != "" {
+					header = append(header, "Used by")
+				}
+				instanceTable.AppendHeader(append(header, "ID"))
 				for _, instance := range shown {
-					instanceTable.AppendRow(table.Row{instance.Name, names.cluster(instance.ClusterID),
+					row := table.Row{instance.Name, serviceClusterName(names, instance),
 						names.packageVersion(instance.PackageVersionID), instance.DeploymentState,
-						serviceHealthSummary(instance), instance.Readiness, instance.ID})
+						serviceHealthSummary(instance), instance.Readiness}
+					if filter.ApplicationID != "" {
+						row = append(row, serviceUsedBy(instance, filter.ApplicationID))
+					}
+					instanceTable.AppendRow(append(row, instance.ID))
 				}
 				instanceTable.Render()
 			}
@@ -396,6 +481,7 @@ Retired services keep their record; --include-released lists them too.`,
 		},
 	}
 	listCommand.Flags().String("cluster", "", "Only services on this cluster (name or id)")
+	listCommand.Flags().String("application", "", "Only services this application uses (name or id)")
 	listCommand.Flags().Bool("include-released", false, "Also list retired services")
 	registerStructuredOutputFlags(listCommand)
 	return listCommand

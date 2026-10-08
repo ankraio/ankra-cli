@@ -47,6 +47,32 @@ func (options ServicePageOptions) query() url.Values {
 	return values
 }
 
+// ServiceInstanceListOptions pages the instance inventory and narrows it
+// with the platform's own filters (cluster#4053): ApplicationID keeps the
+// instances whose reviewed plan names a consumer of that application,
+// ClusterID the instances running on that cluster, State the instances in
+// one lifecycle state. An empty filter is not sent.
+type ServiceInstanceListOptions struct {
+	ServicePageOptions
+	ApplicationID string
+	ClusterID     string
+	State         string
+}
+
+func (options ServiceInstanceListOptions) query() url.Values {
+	values := options.ServicePageOptions.query()
+	if options.ApplicationID != "" {
+		values.Set("application_id", options.ApplicationID)
+	}
+	if options.ClusterID != "" {
+		values.Set("cluster_id", options.ClusterID)
+	}
+	if options.State != "" {
+		values.Set("state", options.State)
+	}
+	return values
+}
+
 // ServicePackageSummary is one immutable package version in the catalogue.
 // Being listed is not being deployable: setup re-checks access and the
 // pinned profile when a review is prepared.
@@ -300,6 +326,23 @@ type ServiceInstanceConsumer struct {
 	ApplicationID string `json:"application_id" yaml:"application_id"`
 	ClusterID     string `json:"cluster_id" yaml:"cluster_id"`
 	Namespace     string `json:"namespace" yaml:"namespace"`
+	// Display names and the application environment, as the instance reads
+	// answer them (cluster#4053). A retirement plan's consumers carry none
+	// of them, so they are left out where the platform sent none rather
+	// than shown empty; the ids stay the identity.
+	ApplicationName *string                     `json:"application_name,omitempty" yaml:"application_name,omitempty"`
+	ClusterName     string                      `json:"cluster_name,omitempty" yaml:"cluster_name,omitempty"`
+	Environment     *ServiceConsumerEnvironment `json:"environment,omitempty" yaml:"environment,omitempty"`
+}
+
+// ServiceConsumerEnvironment is the application environment whose
+// deployment runs in a consumer's namespace. An instance consumer has none
+// while the application is not deployed there yet (a planned binding), or
+// when its deployment there is not assigned to an environment.
+type ServiceConsumerEnvironment struct {
+	ID   string `json:"id" yaml:"id"`
+	Name string `json:"name" yaml:"name"`
+	Role string `json:"role" yaml:"role"`
 }
 
 // ServiceReadinessCheck is the canary evidence behind an instance's
@@ -358,9 +401,12 @@ type ServiceInstanceRetirement struct {
 // DeploymentState is recorded operation progress; Health and Readiness are
 // the observed state, each with its own evidence.
 type ServiceInstance struct {
-	ID                    string                     `json:"id" yaml:"id"`
-	PackageVersionID      string                     `json:"package_version_id" yaml:"package_version_id"`
-	ClusterID             string                     `json:"cluster_id" yaml:"cluster_id"`
+	ID               string `json:"id" yaml:"id"`
+	PackageVersionID string `json:"package_version_id" yaml:"package_version_id"`
+	ClusterID        string `json:"cluster_id" yaml:"cluster_id"`
+	// ClusterName is the service cluster's name as it reads now, for
+	// display (cluster#4053); ClusterID is the identity.
+	ClusterName           string                     `json:"cluster_name,omitempty" yaml:"cluster_name,omitempty"`
 	AdmissionOperationID  string                     `json:"admission_operation_id" yaml:"admission_operation_id"`
 	Name                  string                     `json:"name" yaml:"name"`
 	Region                string                     `json:"region" yaml:"region"`
@@ -709,7 +755,7 @@ func (c *Client) ConfirmServiceReview(ctx context.Context, reviewID string, dige
 }
 
 // ListServiceInstances reads one page of the organisation's service inventory.
-func (c *Client) ListServiceInstances(ctx context.Context, options ServicePageOptions) (*ServiceInstancePage, error) {
+func (c *Client) ListServiceInstances(ctx context.Context, options ServiceInstanceListOptions) (*ServiceInstancePage, error) {
 	var page ServiceInstancePage
 	address := c.servicesURL("/api/v1/org/service-admission/instances", options.query())
 	if requestError := c.sendJSONContext(ctx, http.MethodGet, address, nil, &page); requestError != nil {

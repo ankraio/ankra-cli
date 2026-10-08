@@ -103,9 +103,10 @@ type pipelineLaneMock struct {
 	definitionError  error
 	putSpecYAML      string
 
-	validateSpecYAML string
-	validateResult   *client.PipelineValidation
-	validateError    error
+	validateSpecYAML     string
+	validateChangedFiles []string
+	validateResult       *client.PipelineValidation
+	validateError        error
 
 	getApprovalDefinitionID string
 	getApprovalResult       *client.PipelineDefinitionApproval
@@ -316,9 +317,10 @@ func (mock *pipelineLaneMock) ApprovePipelineDefinition(ctx context.Context, def
 	return mock.approveResult, nil
 }
 
-func (mock *pipelineLaneMock) ValidatePipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineValidation, error) {
+func (mock *pipelineLaneMock) ValidatePipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string, changedFiles []string) (*client.PipelineValidation, error) {
 	mock.lastSelector = selector
 	mock.validateSpecYAML = specYAML
+	mock.validateChangedFiles = changedFiles
 	if mock.validateError != nil {
 		return nil, mock.validateError
 	}
@@ -2165,5 +2167,62 @@ func TestPipelineValidateRefusesTheDefinitionNamedTwice(t *testing.T) {
 	}
 	if exitCodeFor(executeError) != exitUsage {
 		t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitUsage)
+	}
+}
+
+// TestPipelineValidatePrintsAPerEventPlanTable pins the stage-by-event table
+// (ankra-alhkef.6): every stage against every event probed, run or skipped
+// with the planner's reason, and "-" under an event that starts no run.
+func TestPipelineValidatePrintsAPerEventPlanTable(t *testing.T) {
+	noTagRun := "no trigger matches"
+	mockClient := &pipelineLaneMock{validateResult: &client.PipelineValidation{
+		Severity: "ok",
+		Events: []client.PipelineEventPlan{
+			{Event: "push", Run: true, Steps: []client.PipelinePlannedStep{
+				{StepKey: "frontend", Stage: "frontend", Kind: "run"},
+				{StepKey: "backend", Stage: "backend", Kind: "run"},
+			}},
+			{Event: "pull_request", Run: true,
+				Steps: []client.PipelinePlannedStep{{StepKey: "backend", Stage: "backend", Kind: "run"}},
+				Skipped: []client.PipelineSkippedStage{{Stage: "frontend", StepKey: "frontend", Reason: "path_filter"},
+					{Stage: "docs", StepKey: "docs"}}},
+			{Event: "tag", Run: false, Reason: &noTagRun},
+		},
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
+		"--application", testApplicationID, "--changed-file", "backend/main.go", "--changed-file", " ")
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	for _, wanted := range []string{"STAGE", "PUSH", "PULL_REQUEST", "TAG", "skip: path_filter"} {
+		if !strings.Contains(output, wanted) {
+			t.Errorf("output = %q, want the table to show %q", output, wanted)
+		}
+	}
+	if len(mockClient.validateChangedFiles) != 1 || mockClient.validateChangedFiles[0] != "backend/main.go" {
+		t.Errorf("changed files = %v, want the one non-blank --changed-file", mockClient.validateChangedFiles)
+	}
+}
+
+func TestPipelineValidateSendsNoDiffWithoutChangedFile(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: &client.PipelineValidation{Severity: "ok", Events: []client.PipelineEventPlan{}}}
+	if _, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
+		"--application", testApplicationID); executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if mockClient.validateChangedFiles != nil {
+		t.Errorf("changed files = %#v, want nil so the platform plans with no change list", mockClient.validateChangedFiles)
+	}
+}
+
+func TestSkipCellNeverLeavesADanglingLabel(t *testing.T) {
+	if cell := skipCell("path_filter"); cell != "skip: path_filter" {
+		t.Errorf("skipCell(path_filter) = %q", cell)
+	}
+	if cell := skipCell(" "); cell != "skip" {
+		t.Errorf("a skip with no reason renders as %q, want plain skip", cell)
+	}
+	if cell := skipCell("path\nfilter"); cell != "skip: path filter" {
+		t.Errorf("a reason with a line break renders as %q, want it on one line", cell)
 	}
 }

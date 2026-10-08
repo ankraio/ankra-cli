@@ -20,6 +20,45 @@
   10.00/month") and the limit as "150 GiB (50 GiB included, 100 GiB
   bought)". Both commands take `-o json`. A platform without paid storage
   shows no add-on and says so on `buy`.
+- **`ankra cluster agent ci set --node-group <name>` runs every pipeline pod of
+  the cluster on that node group, tainted or not.** Step pods, their cache and
+  artifact helpers, and image builds all select the group's nodes and tolerate
+  every taint it carries, so CI can live on a dedicated pool without editing
+  any pipeline's `runs_on` and without a Kyverno mutation. `--node-selector
+  key=value` and `--toleration key[=value]:Effect` (both repeatable) add to it,
+  or stand alone on a cluster without Ankra node groups; `--placement
+  preferred` lets pods run elsewhere when the group has no room, and
+  `--clear-placement` removes it. The change applies to the next step
+  dispatched with no agent restart, and `--workers` is no longer required when
+  only the placement or the storage class changes. `ankra cluster agent ci get`
+  prints the placement and how many Ready nodes it admits.
+- **`ankra cluster node-group add --labels k=v,... --taints k=v:Effect,...`
+  creates a node group labelled and tainted from its first node.** A dedicated
+  CI pool no longer has to be added open and tainted afterwards, which left a
+  window where ordinary workloads could land on it.
+- **`ankra org usage` shows what the organisation used of Ankra**, per meter
+  and period: worker vCPU-hours, playground time, managed service time and
+  storage, hosted logs and metrics accepted, and AI requests and tokens. The
+  window defaults to this month so far; `--period last-month`, or `--from`
+  and `--to` for any stretch of up to 93 days, pick another, and
+  `--granularity day` splits it by day. `--group-by cluster|application|instance`
+  splits each meter by what used it. Grouped by application, a service that
+  serves several applications is counted under each of them (marked shared),
+  so those lines do not add up to the organisation's total, and the output
+  says so. A period nobody measured reads `not measured`, never 0, and is
+  `null` in `-o json`; a partly measured one reads as a lower bound (`>=`).
+  The price column reads `included (pilot)` where Ankra publishes no rate and
+  charges nothing, the EUR amount where a published rate applies, or why no
+  rate applies. `-o table` (the default), `json` or `yaml`. Needs the
+  `billing.read` permission and a platform that serves the usage read; on
+  one that does not, the command says so and exits 1.
+- **`ankra services list --application <name-or-id>` lists the managed
+  services an application uses**: those whose reviewed plan names one of the
+  application's namespaces as a consumer. A Used by column says which of its
+  environments each service serves, or the namespace where the application
+  is not deployed yet. When none serve it, the output says so and how to add
+  one. `--cluster` is now also filtered by the platform, and the Cluster
+  column takes the cluster's name from the service itself.
 
 ## v0.26.0 — 2026-10-08
 

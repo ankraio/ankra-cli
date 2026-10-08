@@ -35,6 +35,15 @@ validate. Passing a file validates its content directly, which is what a
 'is my pipeline.yaml correct before I commit it' check wants. --spec-file is
 the flag spelling of that argument, matching 'pipeline run --spec-file'.
 
+After the per-event detail, a table shows every stage against every event
+probed (push, pull_request, and tag when the pipeline declares on.tag):
+"run", or "skip" with the planner's reason. Path filters - flat when.paths or
+an event block's when.pull_request.paths / when.push.paths - cannot decide
+without a diff, so they pass with a diagnostic; --changed-file (repeatable)
+names a dry-run diff so they decide for real:
+
+  ankra pipeline validate --repository <id> --changed-file frontend/app.ts
+
 --ref reads the definition from a git reference in the current checkout
 instead of the working tree, so a candidate on a branch can be checked
 before it is merged:
@@ -54,7 +63,9 @@ The reference is resolved locally, so a branch someone else pushed needs a
 				return pathError
 			}
 			gitReference, _ := command.Flags().GetString("ref")
-			return runPipelineValidate(command, selector, filePath, strings.TrimSpace(gitReference))
+			changedFiles, _ := command.Flags().GetStringArray("changed-file")
+			return runPipelineValidate(command, selector, filePath, strings.TrimSpace(gitReference),
+				pipelineValidateChangedFiles(changedFiles))
 		},
 	}
 	registerPipelineSelectorFlags(validateCommand)
@@ -62,8 +73,23 @@ The reference is resolved locally, so a branch someone else pushed needs a
 		"Validate this definition file, the same as passing it as the argument")
 	validateCommand.Flags().String("ref", "",
 		"Read the definition from this git reference in the current checkout (for example origin/my-branch) instead of the working tree")
+	validateCommand.Flags().StringArray("changed-file", nil,
+		"Plan as if this repository-relative path changed (repeatable), so path filters decide instead of passing")
 	registerStructuredOutputFlags(validateCommand)
 	return validateCommand
+}
+
+// pipelineValidateChangedFiles answers the dry-run diff --changed-file names:
+// nil when the flag was not given, so the platform plans with no change list
+// rather than an empty one, which would exclude every path-filtered stage.
+func pipelineValidateChangedFiles(values []string) []string {
+	var changedFiles []string
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			changedFiles = append(changedFiles, trimmed)
+		}
+	}
+	return changedFiles
 }
 
 // pipelineValidateFilePath answers which definition file `validate` reads.
@@ -120,6 +146,7 @@ func runPipelineValidate(
 	selector client.PipelineSelector,
 	filePath string,
 	gitReference string,
+	changedFiles []string,
 ) error {
 	format, formatError := structuredFormatFromFlags(command)
 	if formatError != nil {
@@ -154,7 +181,7 @@ func runPipelineValidate(
 		}
 	}
 
-	validation, validateError := apiClient.ValidatePipelineDefinition(command.Context(), selector, specYAML)
+	validation, validateError := apiClient.ValidatePipelineDefinition(command.Context(), selector, specYAML, changedFiles)
 	if validateError != nil {
 		return validateError
 	}
@@ -198,6 +225,75 @@ func printPipelineValidation(command *cobra.Command, validation *client.Pipeline
 			_, _ = fmt.Fprintf(out, "    diagnostic: %s\n", diagnostic)
 		}
 	}
+	printPipelineEventTable(out, validation.Events)
+}
+
+// skipCell renders a skipped stage's table cell, naming the reason when the
+// platform gave one. The reason is folded onto one line so a reason carrying
+// a line break cannot break the table.
+func skipCell(reason string) string {
+	folded := strings.Join(strings.Fields(reason), " ")
+	if folded == "" {
+		return "skip"
+	}
+	return "skip: " + folded
+}
+
+// printPipelineEventTable renders the per-event plan as one row per stage and
+// one column per event probed: "run", "skip: <reason>", "-" for an event
+// that would start no run at all, or "not listed" for a stage the event's plan
+// does not name either way - absence is reported, never read as a skip. It
+// answers "which of my stages run on a pull request and which on a push" at a
+// glance, which the per-event detail above spreads over many lines. Stages
+// are listed in the order the events first name them.
+func printPipelineEventTable(out io.Writer, events []client.PipelineEventPlan) {
+	var stages []string
+	isListed := map[string]bool{}
+	cells := make([]map[string]string, len(events))
+	header := table.Row{"STAGE"}
+	for eventIndex, event := range events {
+		header = append(header, strings.ToUpper(event.Event))
+		cells[eventIndex] = map[string]string{}
+		for _, step := range event.Steps {
+			if !isListed[step.Stage] {
+				isListed[step.Stage] = true
+				stages = append(stages, step.Stage)
+			}
+			cells[eventIndex][step.Stage] = "run"
+		}
+		for _, skipped := range event.Skipped {
+			if !isListed[skipped.Stage] {
+				isListed[skipped.Stage] = true
+				stages = append(stages, skipped.Stage)
+			}
+			if _, isRun := cells[eventIndex][skipped.Stage]; !isRun {
+				cells[eventIndex][skipped.Stage] = skipCell(skipped.Reason)
+			}
+		}
+	}
+	if len(stages) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(out)
+	writer := table.NewWriter()
+	writer.SetOutputMirror(out)
+	writer.SetStyle(table.StyleRounded)
+	writer.AppendHeader(header)
+	for _, stage := range stages {
+		row := table.Row{stage}
+		for eventIndex, event := range events {
+			cell, isPlanned := cells[eventIndex][stage]
+			switch {
+			case !event.Run:
+				cell = "-"
+			case !isPlanned:
+				cell = "not listed"
+			}
+			row = append(row, cell)
+		}
+		writer.AppendRow(row)
+	}
+	writer.Render()
 }
 
 // plannedStepLine describes one node of a dry-run DAG. The resolved egress
