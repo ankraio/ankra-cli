@@ -635,16 +635,18 @@ func usagePriceLabel(line client.UsageLine) string {
 
 // usageAmount shows minor units as a currency amount: euro cents as €x.xx,
 // any other currency with its code after the amount.
+// A negative amount (a credit) keeps its sign in front, whatever its size:
+// -5 cents reads -€0.05, not €0.05.
 func usageAmount(amountMinor int64, currency *string) string {
-	whole, cents := amountMinor/100, amountMinor%100
-	if cents < 0 {
-		cents = -cents
+	sign := ""
+	if amountMinor < 0 {
+		sign, amountMinor = "-", -amountMinor
 	}
-	amount := fmt.Sprintf("%s.%02d", usageThousands(whole), cents)
+	amount := fmt.Sprintf("%s.%02d", usageThousands(amountMinor/100), amountMinor%100)
 	if currency == nil || *currency == "" || *currency == "EUR" {
-		return "€" + amount
+		return sign + "€" + amount
 	}
-	return amount + " " + *currency
+	return sign + amount + " " + *currency
 }
 
 // usagePriceBasisReason says in a few words why a line is unpriced.

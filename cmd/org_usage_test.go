@@ -665,6 +665,8 @@ func TestUsagePriceLabel(t *testing.T) {
 		{client.UsageLine{PriceState: "priced", PriceBasis: "plan_rate", AmountMinor: int64Pointer(123_456), Currency: stringPointer("EUR")}, "€1,234.56"},
 		{client.UsageLine{PriceState: "priced", PriceBasis: "price_of_record", AmountMinor: int64Pointer(5), Currency: stringPointer("EUR")}, "€0.05"},
 		{client.UsageLine{PriceState: "priced", PriceBasis: "price_of_record", AmountMinor: int64Pointer(250), Currency: stringPointer("USD")}, "2.50 USD"},
+		{client.UsageLine{PriceState: "priced", PriceBasis: "plan_rate", AmountMinor: int64Pointer(-5), Currency: stringPointer("EUR")}, "-€0.05"},
+		{client.UsageLine{PriceState: "priced", PriceBasis: "plan_rate", AmountMinor: int64Pointer(-123_456), Currency: stringPointer("EUR")}, "-€1,234.56"},
 		{client.UsageLine{PriceState: "priced", PriceBasis: "plan_rate"}, "priced, amount not reported"},
 		{client.UsageLine{PriceState: "unpriced", PriceBasis: "no_rate"}, "no rate published"},
 		{client.UsageLine{PriceState: "unpriced", PriceBasis: "flat_fee"}, "covered by the plan's flat fee"},

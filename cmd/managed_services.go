@@ -325,6 +325,17 @@ func serviceClusterName(names *serviceNames, instance client.ServiceInstance) st
 	return names.cluster(instance.ClusterID)
 }
 
+// serviceServes reports whether a service's reviewed plan names a consumer
+// of the application, the platform's own test for its application filter.
+func serviceServes(instance client.ServiceInstance, applicationID string) bool {
+	for _, consumer := range instance.Consumers {
+		if consumer.ApplicationID == applicationID {
+			return true
+		}
+	}
+	return false
+}
+
 // serviceUsedBy names what of one application a service serves: each of
 // the application's consumers in the reviewed plan, by the environment
 // deployed in its namespace, or by the namespace while none is.
@@ -398,8 +409,8 @@ Retired services keep their record; --include-released lists them too.`,
 				clusterID = resolvedID
 			}
 			// Both filters travel to the platform, which applies them on
-			// every page; the cluster is also checked below, so a platform
-			// that ignores the filter still lists only that cluster.
+			// every page. Both are also checked below, so a platform that
+			// ignores a filter still lists only what was asked for.
 			filter := client.ServiceInstanceListOptions{ClusterID: clusterID}
 			applicationReference, _ := command.Flags().GetString("application")
 			applicationReference = strings.TrimSpace(applicationReference)
@@ -421,6 +432,9 @@ Retired services keep their record; --include-released lists them too.`,
 			hiddenReleased := 0
 			for _, instance := range instances {
 				if clusterID != "" && instance.ClusterID != clusterID {
+					continue
+				}
+				if filter.ApplicationID != "" && !serviceServes(instance, filter.ApplicationID) {
 					continue
 				}
 				if instance.ReleasedAt != nil && !includeReleased {

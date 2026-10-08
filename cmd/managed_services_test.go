@@ -77,6 +77,9 @@ type fakeServicesPlatform struct {
 	packageSecrets []any
 	// unbindInUse makes a binding removal answer that a service still uses it.
 	unbindInUse bool
+	// ignoreInstanceFilters answers the instance inventory unfiltered, as a
+	// platform from before cluster#4053 that ignores the filter keys would.
+	ignoreInstanceFilters bool
 }
 
 // fakeServiceOrphanConsumerID is a binding whose application was removed:
@@ -336,8 +339,9 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		// fakeServiceApplication and runs on fakeServiceClusterID.
 		items := []any{fakeServiceInstance()}
 		query := request.URL.Query()
-		if (query.Has("application_id") && query.Get("application_id") != fakeServiceApplication) ||
-			(query.Has("cluster_id") && query.Get("cluster_id") != fakeServiceClusterID) {
+		if !platform.ignoreInstanceFilters &&
+			((query.Has("application_id") && query.Get("application_id") != fakeServiceApplication) ||
+				(query.Has("cluster_id") && query.Get("cluster_id") != fakeServiceClusterID)) {
 			items = []any{}
 		}
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"items": items, "next_cursor": nil})
@@ -794,6 +798,26 @@ func TestServicesListByApplicationSaysWhenNoneServeIt(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout) != "[]" {
 		t.Errorf("-o json of an empty listing is [], got %q", stdout)
+	}
+}
+
+// A platform that ignores the application filter answers every service;
+// the command keeps only those whose plan serves the application, rather
+// than listing the whole organisation as if it did.
+func TestServicesListByApplicationChecksTheFilterItself(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.ignoreInstanceFilters = true
+	const otherApplication = "0a000000-0000-4000-8000-0000000000ff"
+	stdout, _, runError := runServicesCommand(t, platform, "", "list", "--application", otherApplication)
+	if runError != nil {
+		t.Fatalf("services list --application: %v", runError)
+	}
+	if strings.Contains(stdout, "orders-db") || !strings.Contains(stdout, "No managed services serve application "+otherApplication) {
+		t.Errorf("a service that does not serve the application must not be listed:\n%s", stdout)
+	}
+	stdout, _, runError = runServicesCommand(t, platform, "", "list", "--application", fakeServiceApplication)
+	if runError != nil || !strings.Contains(stdout, "orders-db") {
+		t.Errorf("the service that serves the application stays listed: %v\n%s", runError, stdout)
 	}
 }
 
