@@ -536,6 +536,8 @@ func registerPipelineGetFlags(command *cobra.Command) {
 		"Select the run with this trigger: push, pull_request, tag, schedule, manual, api, agent, or rerun")
 	command.Flags().Bool("latest", false,
 		"Take the newest matching run when several match (on its own: the pipeline's newest run)")
+	command.Flags().String("step", "",
+		"Also print the per-cache table of the step with this key: each cache's outcome, reason, size and save")
 }
 
 // runPipelineGet shows one run: named by runID, or - when runID is empty -
@@ -603,6 +605,11 @@ func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, ru
 		}
 	} else {
 		printPipelineRunDetail(command.OutOrStdout(), *detail, selector)
+		if stepKey, _ := command.Flags().GetString("step"); strings.TrimSpace(stepKey) != "" {
+			if stepError := printPipelineStepCaches(command.OutOrStdout(), *detail, strings.TrimSpace(stepKey)); stepError != nil {
+				return stepError
+			}
+		}
 	}
 	if isExitCodeRequested {
 		return pipelineRunExitCodeError(detail.PipelineRun)
@@ -653,7 +660,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, sele
 	writer := table.NewWriter()
 	writer.SetOutputMirror(out)
 	writer.SetStyle(table.StyleRounded)
-	writer.AppendHeader(table.Row{"STEP", "ATTEMPT", "STAGE", "KIND", "EXECUTOR", "STATUS", "EXIT", "RAN ON"})
+	writer.AppendHeader(table.Row{"STEP", "ATTEMPT", "STAGE", "KIND", "EXECUTOR", "STATUS", "EXIT", "RAN ON", "CACHE"})
 	for _, step := range detail.Steps {
 		exitCode := "-"
 		if step.ExitCode != nil {
@@ -668,12 +675,92 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, sele
 			renderPipelineState(step.Status, step.Outcome),
 			exitCode,
 			renderPipelineStepNode(step),
+			renderPipelineStepCacheResult(step),
 		})
 	}
 	writer.Render()
 	printPipelineStepQueueing(out, detail)
 	printPipelinePlatformBuilderSteps(out, detail)
 	printPipelineSupersededAttempts(out, detail, selector)
+}
+
+// renderPipelineStepCacheResult is the step's cache_result: hit, partial,
+// restore_failed, miss or disabled. A step that recorded no cache answer at
+// all - unknown with no per-cache report, which is every step without caches
+// - reads "-" rather than a word that looks like a finding.
+func renderPipelineStepCacheResult(step client.PipelineStep) string {
+	cacheResult := strings.TrimSpace(step.CacheResult)
+	if cacheResult == "" || (cacheResult == "unknown" && len(step.Caches) == 0) {
+		return "-"
+	}
+	return cacheResult
+}
+
+// printPipelineStepCaches prints the per-cache table of the step a --step key
+// names: each cache's outcome, why a restore did not land, how long it took
+// and how large it was, and whether the step's archive was saved. Its latest
+// attempt is the one shown.
+func printPipelineStepCaches(out io.Writer, detail client.PipelineRunDetail, stepKey string) error {
+	var selected *client.PipelineStep
+	for index := range detail.Steps {
+		step := &detail.Steps[index]
+		if step.StepKey != stepKey {
+			continue
+		}
+		if selected == nil || step.Attempt > selected.Attempt {
+			selected = step
+		}
+	}
+	if selected == nil {
+		return withExitCode(exitUsage, fmt.Errorf("run #%d has no step %q", detail.RunNumber, stepKey))
+	}
+	_, _ = fmt.Fprintf(out, "\nCaches of %s (attempt %d): %s\n", selected.StepKey, selected.Attempt,
+		renderPipelineStepCacheResult(*selected))
+	if len(selected.Caches) == 0 {
+		_, _ = fmt.Fprintln(out, "  No per-cache report was recorded for this step.")
+		return nil
+	}
+	writer := table.NewWriter()
+	writer.SetOutputMirror(out)
+	writer.SetStyle(table.StyleRounded)
+	writer.AppendHeader(table.Row{"PATH", "OUTCOME", "REASON", "RESTORED", "TOOK", "SAVED", "DETAIL"})
+	for _, cache := range selected.Caches {
+		reason := cache.Reason
+		if reason == "" {
+			reason = "-"
+		}
+		restored := "-"
+		if cache.Bytes > 0 {
+			restored = formatPipelineCacheBytes(cache.Bytes)
+		}
+		took := "-"
+		if cache.DurationMilliseconds > 0 {
+			took = (time.Duration(cache.DurationMilliseconds) * time.Millisecond).String()
+		}
+		saved := "no"
+		if cache.Saved {
+			saved = "yes (" + formatPipelineCacheBytes(cache.SavedBytes) + ")"
+		}
+		writer.AppendRow(table.Row{cache.Path, cache.Outcome, reason, restored, took, saved, cache.Error})
+	}
+	writer.Render()
+	return nil
+}
+
+// formatPipelineCacheBytes states a size in the largest binary unit that
+// keeps it at or above one.
+func formatPipelineCacheBytes(sizeBytes int64) string {
+	units := []string{"B", "KiB", "MiB", "GiB", "TiB"}
+	size := float64(sizeBytes)
+	unitIndex := 0
+	for size >= 1024 && unitIndex < len(units)-1 {
+		size /= 1024
+		unitIndex++
+	}
+	if unitIndex == 0 {
+		return fmt.Sprintf("%d B", sizeBytes)
+	}
+	return fmt.Sprintf("%.1f %s", size, units[unitIndex])
 }
 
 // renderPipelineStepNode is the node a step's pod ran on, as the agent
