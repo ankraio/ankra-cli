@@ -349,6 +349,8 @@ type APIClient interface {
 	GetRegistryRetention(requestContext context.Context) (*client.RegistryRetention, error)
 	UpdateRegistryRetention(requestContext context.Context, update client.RegistryRetentionUpdate) (*client.RegistryRetentionUpdateResult, error)
 	RunRegistryRetention(requestContext context.Context) (*client.RegistryRetentionRun, error)
+	GetRegistryStorageAddon(requestContext context.Context) (*client.RegistryStorageAddon, error)
+	UpdateRegistryStorageAddon(requestContext context.Context, blocks int, expectedVersion string) (*client.RegistryStorageAddonUpdateResult, error)
 	GetApplicationRepositoryCredential(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest client.SetApplicationRepositoryCredentialRequest) (json.RawMessage, error)
 	GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)

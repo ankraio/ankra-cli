@@ -55,6 +55,7 @@ project.
   ankra registry storage retention            the image retention policy
   ankra registry storage retention set ...    keep fewer or more images
   ankra registry storage retention run        clean up now instead of at the daily run
+  ankra registry storage buy --blocks <n>     buy more storage, billed monthly
   ankra registry storage request ...          ask Ankra for a bigger limit`,
 		Example: "  ankra registry storage\n  ankra registry storage -o json",
 		Args:    cobra.NoArgs,
@@ -75,6 +76,7 @@ project.
 	storageCommand.AddCommand(newRegistryStorageRepositoriesCommand())
 	storageCommand.AddCommand(newRegistryRetentionCommand())
 	storageCommand.AddCommand(newRegistryStorageRequestCommand())
+	storageCommand.AddCommand(newRegistryStorageBuyCommand())
 	return storageCommand
 }
 
@@ -101,11 +103,12 @@ func runRegistryStorageShow(command *cobra.Command, _ []string) error {
 	if storage == nil {
 		return errors.New("reading registry storage: the platform answered nothing")
 	}
-	if rendered, renderError := renderStructured(command, storage); rendered || renderError != nil {
+	addon, addonError := readRegistryStorageAddonForShow(command)
+	if rendered, renderError := renderStructured(command, registryStorageView{RegistryStorage: *storage, Addon: addon}); rendered || renderError != nil {
 		return renderError
 	}
 	request, requestError := latestRegistryStorageRequest()
-	renderRegistryStorage(command.OutOrStdout(), storage, request, requestError)
+	renderRegistryStorage(command.OutOrStdout(), storage, request, requestError, addon, addonError)
 	return nil
 }
 
@@ -160,9 +163,11 @@ func registryStorageProjectUsages(storage *client.RegistryStorage) []registrySto
 	return usages
 }
 
-func renderRegistryStorage(out io.Writer, storage *client.RegistryStorage, request *client.LimitRequest, requestError error) {
+func renderRegistryStorage(out io.Writer, storage *client.RegistryStorage, request *client.LimitRequest, requestError error,
+	addon *client.RegistryStorageAddon, addonError error) {
 	_, _ = fmt.Fprintln(out, "Registry storage")
 	_, _ = fmt.Fprintf(out, "  Limit:  %s\n", registryStorageLimitLine(storage))
+	renderRegistryStorageAddonLines(out, addon, addonError)
 	partial := storage.UsageStatus == client.RegistryStorageUsagePartial
 	switch storage.UsageStatus {
 	case client.RegistryStorageUsageNotProvisioned:
@@ -222,6 +227,10 @@ func renderRegistryStorage(out io.Writer, storage *client.RegistryStorage, reque
 		}
 		_, _ = fmt.Fprintln(out, "  Free space:   ankra registry storage repositories   (what takes the space)")
 		_, _ = fmt.Fprintln(out, "                ankra registry storage retention set --keep-days <n> --keep-latest <n>")
+		if addon != nil && addon.Available && (addon.MaxBlocks == 0 || addon.Blocks < addon.MaxBlocks) {
+			_, _ = fmt.Fprintf(out, "  Buy more:     ankra registry storage buy --blocks %d   (%d GiB more for %s/month)\n",
+				addon.Blocks+1, addon.BlockGiB, formatRegistryMoney(addon.PriceCentsPerBlockMonth, addon.Currency))
+		}
 		_, _ = fmt.Fprintln(out, "  Ask for more: ankra registry storage request --size <GiB> --reason \"...\"")
 	}
 }
@@ -251,6 +260,9 @@ func registryStorageUsageLine(used *int64, limit int64, lowerBound bool) string 
 }
 
 func registryStorageLimitLine(storage *client.RegistryStorage) string {
+	if withAddon := registryStorageLimitWithAddonLine(storage); withAddon != "" {
+		return withAddon
+	}
 	limit := formatRegistryLimit(storage.LimitBytes) + " per registry project"
 	if storage.LimitBytes == client.RegistryStorageNoLimit {
 		limit = "no limit"
@@ -270,6 +282,28 @@ func registryStorageLimitLine(storage *client.RegistryStorage) string {
 		text += " (" + strings.Join(details, ", ") + ")"
 	}
 	return text
+}
+
+// registryStorageLimitWithAddonLine is the limit line when paid storage
+// raises it: "150 GiB per registry project (50 GiB included, 100 GiB
+// bought)". It answers "" when nothing is bought, so the plain line
+// stands.
+func registryStorageLimitWithAddonLine(storage *client.RegistryStorage) string {
+	if storage.BaseLimitBytes == nil || *storage.BaseLimitBytes < 0 || storage.LimitBytes <= *storage.BaseLimitBytes {
+		return ""
+	}
+	base, bought := *storage.BaseLimitBytes, storage.LimitBytes-*storage.BaseLimitBytes
+	included := formatBytesGiB(base) + " included"
+	if storage.Source == "organisation" {
+		included = formatBytesGiB(base) + " set for this organisation by Ankra"
+		if storage.Reason != nil && strings.TrimSpace(*storage.Reason) != "" {
+			included += ": " + strings.TrimSpace(*storage.Reason)
+		}
+		included += ";"
+	} else {
+		included += ","
+	}
+	return fmt.Sprintf("%s per registry project (%s %s bought)", formatRegistryLimit(storage.LimitBytes), included, formatBytesGiB(bought))
 }
 
 // registryStoragePercent is used as a whole percentage of the limit; false

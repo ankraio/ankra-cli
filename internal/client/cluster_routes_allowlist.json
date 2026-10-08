@@ -13,5 +13,6 @@
   "/api/v1/clusters/%s/%s/ssh-keys/resync  (internal/client/cluster_ssh_keys.go)",
   "/api/v1/clusters/%s/kubernetes/%s  (internal/client/kubernetes.go)",
   "/api/v1/org/manifest-addons  (internal/client/manifest_addons.go)",
+  "/api/v1/org/registry-storage/addon  (internal/client/registry_storage.go)",
   "/api/v1/org/security  (internal/client/security.go)"
 ]

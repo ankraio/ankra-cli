@@ -4812,6 +4812,14 @@ func (m baseMock) RunRegistryRetention(requestContext context.Context) (*client.
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetRegistryStorageAddon(requestContext context.Context) (*client.RegistryStorageAddon, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateRegistryStorageAddon(requestContext context.Context, blocks int, expectedVersion string) (*client.RegistryStorageAddonUpdateResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) EnsureApplicationRegistryRobot(requestContext context.Context, applicationID string, robotRequest client.EnsureApplicationRegistryRobotRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }

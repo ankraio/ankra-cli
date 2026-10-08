@@ -50,6 +50,55 @@ type RegistryStorage struct {
 	// unknown, or not_provisioned (no registry project yet).
 	UsageStatus string                   `json:"usage_status" yaml:"usage_status"`
 	Projects    []RegistryStorageProject `json:"projects" yaml:"projects"`
+	// AddonBlocks is how many paid storage blocks the organisation holds,
+	// and BaseLimitBytes the limit without them (LimitBytes is base plus
+	// blocks). Both are absent from a platform without paid storage.
+	AddonBlocks    *int   `json:"addon_blocks,omitempty" yaml:"addon_blocks,omitempty"`
+	BaseLimitBytes *int64 `json:"base_limit_bytes,omitempty" yaml:"base_limit_bytes,omitempty"`
+}
+
+// RegistryStorageAddon is the organisation's paid registry storage: blocks
+// of BlockGiB bought self-serve at PriceCentsPerBlockMonth each, on top of
+// the base limit.
+type RegistryStorageAddon struct {
+	// Available is false when paid storage is paused, the base limit is
+	// unlimited, or the organisation has no billing account;
+	// UnavailableReason says which.
+	Available               bool    `json:"available" yaml:"available"`
+	UnavailableReason       *string `json:"unavailable_reason" yaml:"unavailable_reason"`
+	BlockGiB                int64   `json:"block_gib" yaml:"block_gib"`
+	PriceCentsPerBlockMonth int64   `json:"price_cents_per_block_month" yaml:"price_cents_per_block_month"`
+	Currency                string  `json:"currency" yaml:"currency"`
+	MaxBlocks               int     `json:"max_blocks" yaml:"max_blocks"`
+	Blocks                  int     `json:"blocks" yaml:"blocks"`
+	BaseLimitBytes          int64   `json:"base_limit_bytes" yaml:"base_limit_bytes"`
+	EffectiveLimitBytes     int64   `json:"effective_limit_bytes" yaml:"effective_limit_bytes"`
+	MonthlyCents            int64   `json:"monthly_cents" yaml:"monthly_cents"`
+	// BillingReady is false, with BillingBlocker saying why in a sentence,
+	// when billing would refuse a purchase (an overdue invoice, no payment
+	// method or billing account).
+	BillingReady   bool    `json:"billing_ready" yaml:"billing_ready"`
+	BillingBlocker *string `json:"billing_blocker" yaml:"billing_blocker"`
+	UpdatedBy      *string `json:"updated_by" yaml:"updated_by"`
+	UpdatedAt      *string `json:"updated_at" yaml:"updated_at"`
+	// Version is opaque: it is sent back as the expected version of a
+	// change, never parsed.
+	Version string `json:"version,omitempty" yaml:"version,omitempty"`
+}
+
+// RegistryStorageAddonUpdateResult is the answer to changing the blocks
+// held. A false HarborApplied is not a failure: the new limit is saved and
+// applied to the registry automatically within about five minutes.
+type RegistryStorageAddonUpdateResult struct {
+	Addon            RegistryStorageAddon `json:"addon" yaml:"addon"`
+	Storage          RegistryStorage      `json:"storage" yaml:"storage"`
+	HarborApplied    bool                 `json:"harbor_applied" yaml:"harbor_applied"`
+	HarborApplyError *string              `json:"harbor_apply_error" yaml:"harbor_apply_error"`
+}
+
+type registryStorageAddonUpdateBody struct {
+	Blocks          int    `json:"blocks"`
+	ExpectedVersion string `json:"expected_version,omitempty"`
 }
 
 // RegistryStorageProject is one registry project's usage.
@@ -230,6 +279,40 @@ const (
 )
 
 const registryStorageRequestFailedOperation = "registry storage request failed"
+
+// registryStorageAddonAPIPath is written out in full, so the route census
+// check sees it.
+const registryStorageAddonAPIPath = "/api/v1/org/registry-storage/addon"
+
+// GetRegistryStorageAddon reads the organisation's paid storage. A platform
+// without paid storage answers 404 with no detail.
+func (c *Client) GetRegistryStorageAddon(ctx context.Context) (*RegistryStorageAddon, error) {
+	var addon RegistryStorageAddon
+	if requestError := c.registryStorageRequest(ctx, http.MethodGet, registryStorageAddonAPIPath, nil, &addon,
+		http.StatusOK); requestError != nil {
+		return nil, requestError
+	}
+	return &addon, nil
+}
+
+// UpdateRegistryStorageAddon sets how many paid storage blocks the
+// organisation holds. expectedVersion, when not empty, is the Version the
+// change was computed from: the platform refuses it (409) if the add-on
+// changed since. The platform refuses a purchase billing would not accept
+// (402) and a count above the self-serve maximum or below what the registry
+// already holds (422), each with a sentence saying so.
+func (c *Client) UpdateRegistryStorageAddon(ctx context.Context, blocks int, expectedVersion string) (*RegistryStorageAddonUpdateResult, error) {
+	encoded, marshalError := json.Marshal(registryStorageAddonUpdateBody{Blocks: blocks, ExpectedVersion: expectedVersion})
+	if marshalError != nil {
+		return nil, fmt.Errorf("encode request: %w", marshalError)
+	}
+	var result RegistryStorageAddonUpdateResult
+	if requestError := c.registryStorageRequest(ctx, http.MethodPut, registryStorageAddonAPIPath, encoded, &result,
+		http.StatusOK); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
 
 // GetRegistryStorage reads the organisation's storage limit and usage.
 func (c *Client) GetRegistryStorage(ctx context.Context) (*RegistryStorage, error) {
