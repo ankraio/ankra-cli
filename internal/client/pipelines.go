@@ -42,6 +42,22 @@ import (
 	"strings"
 )
 
+// PipelineStepCache is one cache archive of a step: its outcome (hit,
+// restored, miss or failed), why (Reason, from an agent advertising
+// ci_cache_outcomes_v2, empty from an older one), how long its restore took,
+// how many bytes it downloaded, and whether the step's archive was saved.
+type PipelineStepCache struct {
+	Path                 string `json:"path"`
+	Key                  string `json:"key"`
+	Outcome              string `json:"outcome"`
+	Reason               string `json:"reason"`
+	Error                string `json:"error"`
+	Bytes                int64  `json:"bytes"`
+	DurationMilliseconds int64  `json:"duration_ms"`
+	Saved                bool   `json:"saved"`
+	SavedBytes           int64  `json:"saved_bytes"`
+}
+
 // PipelineSelector addresses one pipeline: either the repository directly, or
 // the application it is linked to. Exactly one of the two must be set; the
 // CLI's flag parsing enforces that before a selector ever reaches the client.
@@ -165,9 +181,13 @@ type PipelineStep struct {
 	ExecutionStepID *string         `json:"execution_step_id"`
 	NodeName        string          `json:"node_name"`
 	CacheResult     string          `json:"cache_result"`
-	Outputs         json.RawMessage `json:"outputs"`
-	ErrorClass      *string         `json:"error_class"`
-	ErrorMessage    *string         `json:"error_message"`
+	// Caches is what the agent reported about each of the step's cache
+	// archives. Nil when no report was recorded - a step with no archives,
+	// an older agent or platform - which is "not reported", never "missed".
+	Caches       []PipelineStepCache `json:"caches,omitempty"`
+	Outputs      json.RawMessage     `json:"outputs"`
+	ErrorClass   *string             `json:"error_class"`
+	ErrorMessage *string             `json:"error_message"`
 	// DeferredCount is how many times the agent gave this attempt back unrun
 	// because the node its run's workspace is pinned to was full, and Ankra
 	// returned it to the queue. Nil on platforms older than the field.
