@@ -211,7 +211,12 @@ ankra pipeline get <run-id> --application shop --watch -o json | jq -c 'select(.
 (`approved`|`unapproved`|`changed_on_head`|null), `definition_source` (`head_file`|`stored`|
 `default`), per step `status` (`blocked`|`pending`|`running`|`concluded`), `outcome`, `error_class`,
 `executor` (`in_cluster`|`platform_builders`|`platform`), `cache_result` (`hit`|`miss`|`restore`|
-`disabled`), `outputs`. The `run_id` field is the umbrella run across lifecycles — correlate it with
+`disabled`), `outputs`, and the in-cluster start of each step from its pod (`pod_created_at`,
+`pod_scheduled_at`, `workspace_attached_at`, `image_pull_started_at`, `image_pulled_at`,
+`container_started_at`; null from an agent older than 2.1.1213, and no `image_pull_started_at` when
+the node already had the image). The human view turns them into a Queueing line such as
+`test: Pending 5m9s in the cluster before it ran (scheduling 4m30s, volumes 8s, image pull 19s)`.
+The `run_id` field is the umbrella run across lifecycles — correlate it with
 `ankra cluster operations list`; address pipeline commands by the run's own id.
 
 `ankra application ship -o json`: `application_id`, `application_name`, `repository`, `branch`,
@@ -232,6 +237,12 @@ per organisation), `--max-parallel-steps` (default 8, ≤ 256, per organisation)
 Per cluster: `ankra cluster agent ci set --workers N --storage-class <sc> --cluster <cluster>`;
 `--workers 0` disables the scheduler. Stored on the platform and re-rendered into the agent's own
 release; an agent older than 2.1.1108 cannot take the values and 2.1.1115+ is the CI-lane floor.
+`--node-group <group>` (or `--node-selector k=v`, `--toleration k[=v]:Effect`, `--placement
+required|preferred`, `--clear-placement`) puts every pipeline pod on chosen nodes, and
+`--run-reservation off|shadow|on` (default `off`) makes each run reserve the room its later steps
+need on its node first; `shadow` sizes and records the reservation without holding anything, so
+start there. `on` needs `Reservation support: advertised` on `ankra cluster agent ci get` and can
+add or hold a node. Both apply to the next dispatched step with no agent restart.
 
 ## Lanes that are API-only today
 

@@ -91,7 +91,11 @@ renders away again.
 
 The placement says which nodes every pipeline pod runs on - step pods, their
 cache and artifact helpers, and image builds - so CI can live on a dedicated,
-tainted node group without editing any pipeline's runs_on.`,
+tainted node group without editing any pipeline's runs_on.
+
+The run reservation decides whether a run first reserves the room its later
+steps need on its node, so another run's pods cannot take it between two
+steps: off (the default), shadow (sized and recorded, nothing held) or on.`,
 	}
 	ciCommand.AddCommand(newClusterAgentCIGetCommand(), newClusterAgentCISetCommand())
 	return ciCommand
@@ -105,7 +109,8 @@ func newClusterAgentCIGetCommand() *cobra.Command {
 that has to honour them, whether that agent currently advertises it can run
 pipeline steps, and how the last write was applied. The placement block names
 the node group, node selector, tolerations and mode, and how many Ready nodes
-it admits right now.
+it admits right now. The run reservation mode is shown with whether the
+agent advertises it; a platform that predates the setting shows neither.
 
 An agent that has not yet re-rendered its release reports pipeline steps as
 not advertised even with a non-zero worker count stored: the capability is
@@ -147,7 +152,7 @@ func runClusterAgentCIGet(command *cobra.Command) error {
 	}
 	out := command.OutOrStdout()
 	_, _ = fmt.Fprintf(out, "Agent CI settings for cluster '%s':\n\n", cluster.Name)
-	printAgentCISettings(out, settings)
+	printAgentCISettings(out, settings, false)
 	return nil
 }
 
@@ -187,13 +192,24 @@ no room, and still carries the tolerations. The placement is replaced whole by
 any placement flag, applies to the next step dispatched with no agent restart,
 and is never held to the organisation's runs_on allow-lists. --clear-placement
 removes it. --workers is optional when only the storage class or the placement
-changes.`,
+changes.
+
+--run-reservation off|shadow|on decides whether each run first reserves, on
+its node, the room its later steps will need, held by one placeholder pod per
+run, so another run's pods cannot take that room between two steps. off (every
+cluster's default) reserves nothing. shadow sizes each run's reservation and
+records it beside what its steps requested, and holds nothing: use it to check
+the estimate first. on holds it, which can add a node or keep one up while a
+run is between steps; it needs an agent that advertises run reservation, and
+until the agent does, on behaves as shadow. Like the placement it applies to
+the next step dispatched, with no agent restart, and off is the way back.`,
 		Example: `  ankra cluster agent ci set --workers 2
   ankra cluster agent ci set --workers 4 --storage-class proxmox-csi
   ankra cluster agent ci set --workers 0 --cluster edge-01
   ankra cluster agent ci set --node-group pipelines
   ankra cluster agent ci set --node-selector pool=ci --toleration dedicated=ci:NoSchedule --placement preferred
-  ankra cluster agent ci set --clear-placement`,
+  ankra cluster agent ci set --clear-placement
+  ankra cluster agent ci set --run-reservation shadow --cluster ci-01`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runClusterAgentCISet(command)
@@ -214,6 +230,9 @@ changes.`,
 	setCommand.Flags().String("placement", "",
 		"Placement mode: required (default) keeps pipeline pods on the selected nodes, preferred favours them")
 	setCommand.Flags().Bool("clear-placement", false, "Remove the cluster's CI placement")
+	setCommand.Flags().String("run-reservation", "",
+		"Run reservation: off (default) reserves nothing, shadow sizes and records each run's reservation "+
+			"without holding it, on holds a run's room on its node between its steps")
 	registerStructuredOutputFlags(setCommand)
 	return setCommand
 }
@@ -306,6 +325,24 @@ func parseAgentCIToleration(text string) (client.AgentCIPlacementToleration, err
 	return toleration, nil
 }
 
+// agentCIRunReservationFromFlag reads --run-reservation, nil when it is not
+// named. The value is checked here, before anything is sent, because the
+// vocabulary is closed and a misspelling should not cost a round trip; the
+// platform validates it again.
+func agentCIRunReservationFromFlag(command *cobra.Command) (*string, error) {
+	if !command.Flags().Changed("run-reservation") {
+		return nil, nil
+	}
+	mode := strings.ToLower(strings.TrimSpace(mustFlagString(command, "run-reservation")))
+	for _, known := range client.AgentCIRunReservationModes {
+		if mode == known {
+			return &mode, nil
+		}
+	}
+	return nil, withExitCode(exitUsage, fmt.Errorf("--run-reservation must be %s, got %q",
+		strings.Join(client.AgentCIRunReservationModes, ", "), mustFlagString(command, "run-reservation")))
+}
+
 func runClusterAgentCISet(command *cobra.Command) error {
 	format, formatError := structuredFormatFromFlags(command)
 	if formatError != nil {
@@ -323,16 +360,21 @@ func runClusterAgentCISet(command *cobra.Command) error {
 	if placementError != nil {
 		return placementError
 	}
-	update := client.AgentCISettingsUpdate{
-		CIWorkerCount:  changedIntFlag(command, "workers"),
-		CIStorageClass: changedStringFlag(command, "storage-class"),
-		CIPlacement:    placement,
-		ClearPlacement: isClearingPlacement,
+	runReservation, runReservationError := agentCIRunReservationFromFlag(command)
+	if runReservationError != nil {
+		return runReservationError
 	}
-	if update.CIWorkerCount == nil && update.CIStorageClass == nil && placement == nil && !isClearingPlacement {
+	update := client.AgentCISettingsUpdate{
+		CIWorkerCount:    changedIntFlag(command, "workers"),
+		CIStorageClass:   changedStringFlag(command, "storage-class"),
+		CIPlacement:      placement,
+		ClearPlacement:   isClearingPlacement,
+		CIRunReservation: runReservation,
+	}
+	if !update.NamesChartSetting() && placement == nil && !isClearingPlacement && runReservation == nil {
 		return withExitCode(exitUsage, fmt.Errorf(`required flag(s) "workers" not set: pass --workers, `+
-			`--storage-class, or a placement flag (--node-group, --node-selector, --toleration, --placement, `+
-			`--clear-placement)`))
+			`--storage-class, --run-reservation, or a placement flag (--node-group, --node-selector, `+
+			`--toleration, --placement, --clear-placement)`))
 	}
 
 	settings, updateError := apiClient.UpdateAgentCISettings(command.Context(), cluster.ID, update)
@@ -342,16 +384,46 @@ func runClusterAgentCISet(command *cobra.Command) error {
 	if settings == nil {
 		return fmt.Errorf("the platform returned no agent CI settings for cluster %q", cluster.Name)
 	}
+	// A platform older than the run reservation ignores the member it does
+	// not know when another setting is named, stores the rest and answers
+	// without ci_run_reservation. Saying "updated" and exiting 0 would tell
+	// the caller a mode is in force that the platform never stored.
+	unstoredError := agentCIRunReservationNotStored(update, settings)
 	if format != outputDefault {
-		return encodeStructured(command.OutOrStdout(), format, settings)
+		if encodeError := encodeStructured(command.OutOrStdout(), format, settings); encodeError != nil {
+			return encodeError
+		}
+		return unstoredError
 	}
 	out := command.OutOrStdout()
 	_, _ = fmt.Fprintf(out, "Agent CI settings updated for cluster '%s'.\n\n", cluster.Name)
-	printAgentCISettings(out, settings)
-	return nil
+	printAgentCISettings(out, settings, !update.NamesChartSetting())
+	return unstoredError
 }
 
-func printAgentCISettings(out io.Writer, settings *client.AgentCISettings) {
+// agentCIRunReservationNotStored is the error for a write that named a run
+// reservation the platform's answer does not carry: the platform predates the
+// setting, so whatever else the write named is stored and the mode is not.
+func agentCIRunReservationNotStored(update client.AgentCISettingsUpdate, settings *client.AgentCISettings) error {
+	if update.CIRunReservation == nil || settings.CIRunReservation != nil {
+		return nil
+	}
+	return fmt.Errorf("the platform did not store --run-reservation %s: it predates the run reservation "+
+		"setting; the other settings shown were stored", *update.CIRunReservation)
+}
+
+// agentCIPayloadOnlySentence reports a write that named only settings the
+// platform carries on each step's payload (the placement, the run
+// reservation). Nothing was published to the agent, so the apply state, which
+// describes the agent's release, would say "re-rendering" for a release
+// nobody touched.
+const agentCIPayloadOnlySentence = "Stored; it applies to the next pipeline step dispatched, " +
+	"with no agent restart."
+
+// printAgentCISettings renders the settings block. isPayloadOnlyWrite is a
+// set that named neither the worker count nor the storage class, whose
+// outcome is agentCIPayloadOnlySentence rather than the apply state.
+func printAgentCISettings(out io.Writer, settings *client.AgentCISettings, isPayloadOnlyWrite bool) {
 	_, _ = fmt.Fprintf(out, "  Pipeline-step workers: %d\n", settings.CIWorkerCount)
 	_, _ = fmt.Fprintf(out, "  Storage class:         %s\n", agentCIStorageClassLabel(settings.CIStorageClass))
 	_, _ = fmt.Fprintf(out, "  Agent version:         %s\n", agentCIVersionLabel(settings.AgentVersion))
@@ -361,10 +433,45 @@ func printAgentCISettings(out io.Writer, settings *client.AgentCISettings) {
 	} else {
 		_, _ = fmt.Fprintln(out, "  Last changed:          never")
 	}
+	printAgentCIRunReservation(out, settings)
 	printAgentCIPlacement(out, settings)
-	if sentence := agentCIApplyStateSentence(settings); sentence != "" {
+	if isPayloadOnlyWrite {
+		_, _ = fmt.Fprintf(out, "\n%s\n", agentCIPayloadOnlySentence)
+	} else if sentence := agentCIApplyStateSentence(settings); sentence != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", sentence)
 	}
+	if note := agentCIRunReservationNote(settings); note != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", note)
+	}
+}
+
+// printAgentCIRunReservation renders the mode and whether the agent can honour
+// it. A platform that predates the setting sends neither, and the lines are
+// left out rather than printed as "off": nobody chose off there.
+func printAgentCIRunReservation(out io.Writer, settings *client.AgentCISettings) {
+	if settings.CIRunReservation == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "  Run reservation:       %s\n", *settings.CIRunReservation)
+	if settings.SupportsRunReservation != nil {
+		_, _ = fmt.Fprintf(out, "  Reservation support:   %s\n",
+			agentCICapabilityLabel(*settings.SupportsRunReservation))
+	}
+}
+
+// agentCIRunReservationNote says what a mode means when the agent cannot do
+// what it asks: "on" with an agent that does not advertise run reservation
+// holds nothing, and an operator reading "on" would otherwise believe every
+// run is reserved.
+func agentCIRunReservationNote(settings *client.AgentCISettings) string {
+	if settings.CIRunReservation == nil || *settings.CIRunReservation != client.AgentCIRunReservationOn {
+		return ""
+	}
+	if settings.SupportsRunReservation == nil || *settings.SupportsRunReservation {
+		return ""
+	}
+	return "Run reservation is on, but this cluster's agent does not advertise it: its runs are sized " +
+		"and recorded as under shadow, and nothing is held until the agent is upgraded."
 }
 
 // printAgentCIPlacement renders the placement block. A cluster with none

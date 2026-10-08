@@ -55,6 +55,23 @@ func TestAgentCISettingsLaneParity(t *testing.T) {
 		},
 	}
 
+	runReservation := AgentCIRunReservationOn
+	lanes = append(lanes, struct {
+		name       string
+		wantMethod string
+		wantBody   map[string]any
+		call       func(testClient *Client) error
+	}{
+		name:       "set sends only the run reservation when it alone is named",
+		wantMethod: http.MethodPut,
+		wantBody:   map[string]any{"ci_run_reservation": "on"},
+		call: func(testClient *Client) error {
+			_, updateError := testClient.UpdateAgentCISettings(context.Background(), "cluster-1",
+				AgentCISettingsUpdate{CIRunReservation: &runReservation})
+			return updateError
+		},
+	})
+
 	for _, lane := range lanes {
 		t.Run(lane.name, func(t *testing.T) {
 			var seenMethod, seenPath string
@@ -144,6 +161,43 @@ func TestGetAgentCISettingsDecodesTheResponse(t *testing.T) {
 	}
 	if settings.UpdatedAt == nil || *settings.UpdatedAt != updatedAt {
 		t.Errorf("updated_at = %v", settings.UpdatedAt)
+	}
+}
+
+// ci_run_reservation and supports_run_reservation decode when the platform
+// sends them, and stay nil when it predates them: "not reported" is never
+// read as "off" or "not supported".
+func TestGetAgentCISettingsDecodesTheRunReservation(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		body          string
+		wantMode      *string
+		wantSupported *bool
+	}{
+		"current platform": {
+			body:          `{"ci_worker_count":2,"ci_run_reservation":"shadow","supports_run_reservation":true}`,
+			wantMode:      strPtr(AgentCIRunReservationShadow),
+			wantSupported: boolPtr(true),
+		},
+		"older platform": {body: `{"ci_worker_count":2}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = writer.Write([]byte(testCase.body))
+			})
+			settings, getError := testClient.GetAgentCISettings(context.Background(), "cluster-1")
+			if getError != nil {
+				t.Fatalf("GetAgentCISettings error = %v", getError)
+			}
+			if (settings.CIRunReservation == nil) != (testCase.wantMode == nil) ||
+				(settings.CIRunReservation != nil && *settings.CIRunReservation != *testCase.wantMode) {
+				t.Errorf("ci_run_reservation = %v, want %v", settings.CIRunReservation, testCase.wantMode)
+			}
+			if (settings.SupportsRunReservation == nil) != (testCase.wantSupported == nil) ||
+				(settings.SupportsRunReservation != nil && *settings.SupportsRunReservation != *testCase.wantSupported) {
+				t.Errorf("supports_run_reservation = %v, want %v", settings.SupportsRunReservation, testCase.wantSupported)
+			}
+		})
 	}
 }
 
