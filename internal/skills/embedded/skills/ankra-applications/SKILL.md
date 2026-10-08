@@ -141,7 +141,12 @@ ankra application deploy <application-id> --cluster <cluster-id> --mode high_ava
 ankra application deployments <application-id>        # where it is running
 ankra application installations <application-id>      # installation intents and their state
 ankra application jobs <application-id>               # the platform jobs behind those intents
+ankra application remove <application-id> --cluster <cluster>  # take it off ONE cluster; it stays elsewhere
 ```
+
+`remove` uninstalls the deployment on that cluster (and the data in its database and volumes) and
+keeps the application and its other deployments; `delete` removes the application everywhere.
+Confirm with the person before either.
 
 `--mode quick` is the single-replica default; `--mode high_availability` asks for the resilient
 shape. `--set key=value` binds the deploy inputs the chart declares.

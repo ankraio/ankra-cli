@@ -435,6 +435,10 @@ func (m baseMock) GetApplicationInstallations(requestContext context.Context, ap
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) RemoveApplicationDeployment(requestContext context.Context, applicationID string, removeRequest client.RemoveApplicationDeploymentRequest) (*client.RemoveApplicationDeploymentResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetApplicationChartVersions(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
