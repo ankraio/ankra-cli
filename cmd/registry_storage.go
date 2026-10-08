@@ -104,7 +104,11 @@ func runRegistryStorageShow(command *cobra.Command, _ []string) error {
 		return errors.New("reading registry storage: the platform answered nothing")
 	}
 	addon, addonError := readRegistryStorageAddonForShow(command)
-	if rendered, renderError := renderStructured(command, registryStorageView{RegistryStorage: *storage, Addon: addon}); rendered || renderError != nil {
+	view := registryStorageView{RegistryStorage: *storage, Addon: addon}
+	if addonError != nil {
+		view.AddonError = addonError.Error()
+	}
+	if rendered, renderError := renderStructured(command, view); rendered || renderError != nil {
 		return renderError
 	}
 	request, requestError := latestRegistryStorageRequest()

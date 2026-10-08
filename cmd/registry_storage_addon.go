@@ -24,6 +24,10 @@ import (
 type registryStorageView struct {
 	client.RegistryStorage `yaml:",inline"`
 	Addon                  *client.RegistryStorageAddon `json:"addon,omitempty" yaml:"addon,omitempty"`
+	// AddonError is set when the paid storage could not be read, so a
+	// script can tell "no paid storage on this platform" (both empty) from
+	// "paid storage unknown" (this set).
+	AddonError string `json:"addon_error,omitempty" yaml:"addon_error,omitempty"`
 }
 
 // registryStorageAddonUnserved reports a platform without paid storage: the
@@ -53,12 +57,12 @@ func readRegistryStorageAddonForShow(command *cobra.Command) (*client.RegistrySt
 // formatRegistryMoney writes cents in a currency as "EUR 10.00".
 func formatRegistryMoney(cents int64, currency string) string {
 	code := strings.ToUpper(strings.TrimSpace(currency))
-	if code == "" {
-		code = "EUR"
-	}
 	sign := ""
 	if cents < 0 {
 		sign, cents = "-", -cents
+	}
+	if code == "" {
+		return fmt.Sprintf("%s%d.%02d (currency not stated)", sign, cents/100, cents%100)
 	}
 	return fmt.Sprintf("%s %s%d.%02d", code, sign, cents/100, cents%100)
 }
@@ -83,7 +87,7 @@ func renderRegistryStorageAddonLines(out io.Writer, addon *client.RegistryStorag
 		if addon.UnavailableReason != nil && strings.TrimSpace(*addon.UnavailableReason) != "" {
 			reason = strings.TrimSpace(*addon.UnavailableReason)
 		}
-		_, _ = fmt.Fprintf(out, "  Add-on: buying more is not available - %s\n", reason)
+		_, _ = fmt.Fprintf(out, "  Buying more: not available - %s\n", reason)
 	}
 	if addon.BillingBlocker != nil && strings.TrimSpace(*addon.BillingBlocker) != "" {
 		_, _ = fmt.Fprintf(out, "  Billing: %s\n", strings.TrimSpace(*addon.BillingBlocker))
@@ -141,6 +145,11 @@ with 'ankra registry storage request'.`,
 	return buyCommand
 }
 
+// registryStorageAddonBlocksCeiling bounds --blocks before any limit or
+// price arithmetic, so a platform that reports no maximum (0) cannot turn a
+// mistyped number into an overflowed limit on the confirmation.
+const registryStorageAddonBlocksCeiling = 100000
+
 func registryStorageAddonRouteError(routeError error) error {
 	if registryStorageAddonUnserved(routeError) {
 		return withExitCode(exitError, errors.New("paid registry storage is not available on this platform yet; "+
@@ -159,6 +168,10 @@ func runRegistryStorageBuy(command *cobra.Command, _ []string) error {
 	blocks, _ := command.Flags().GetInt("blocks")
 	if blocks < 0 {
 		return withExitCode(exitUsage, fmt.Errorf("--blocks must be 0 or more, got %d", blocks))
+	}
+	if blocks > registryStorageAddonBlocksCeiling {
+		return withExitCode(exitUsage, fmt.Errorf("--blocks %d is far more than paid storage offers; for more than the self-serve maximum, "+
+			"ask Ankra: ankra registry storage request --size <GiB> --reason \"...\"", blocks))
 	}
 	yes, _ := command.Flags().GetBool("yes")
 	var confirmed []string
@@ -241,6 +254,9 @@ func renderRegistryStorageAddonUpdate(command *cobra.Command, result *client.Reg
 		_, _ = fmt.Fprintln(out, "The registry has the new limit now.")
 	} else {
 		_, _ = fmt.Fprintln(out, "The registry gets the new limit automatically within about 5 minutes.")
+		if result.HarborApplyError != nil && strings.TrimSpace(*result.HarborApplyError) != "" {
+			_, _ = fmt.Fprintf(command.ErrOrStderr(), "Applying it straight away did not work: %s\n", strings.TrimSpace(*result.HarborApplyError))
+		}
 	}
 	return nil
 }

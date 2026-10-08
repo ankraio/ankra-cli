@@ -115,7 +115,7 @@ func TestRegistryStorageShowsTheAddon(t *testing.T) {
 	unavailable.addon.UnavailableReason = &reason
 	unavailable.addon.BillingBlocker = &blocker
 	output, _ = runRegistryCommand(t, unavailable, "", "storage")
-	mustContain(t, output, "buying more is not available - Paid storage is paused for now.",
+	mustContain(t, output, "Buying more: not available - Paid storage is paused for now.",
 		"Billing: Your account is restricted for an overdue invoice.")
 	mustNotContain(t, output, "Buy more in")
 }
@@ -287,5 +287,66 @@ func TestRegistryStorageBuyRefusals(t *testing.T) {
 	_, _, runError = runRegistryCommandSplit(t, &registryStorageMock{}, "", "storage", "buy", "--blocks", "1", "--yes")
 	if runError == nil || !strings.Contains(runError.Error(), "not available on this platform yet") {
 		t.Fatalf("a platform without paid storage says so: %v", runError)
+	}
+}
+
+// A paid-storage read that failed is unknown, not absent: -o json says so
+// in addon_error instead of printing the same answer as a platform without
+// paid storage.
+func TestRegistryStorageShowJSONReportsAFailedAddonRead(t *testing.T) {
+	mock := newRegistryStorageAddonMock(2)
+	mock.storage = addonStorageFixture(2)
+	mock.getError = client.NewUnexpectedResponseError(503, "registry storage request failed: status 503")
+	stdout, _, runError := runRegistryCommandSplit(t, mock, "", "storage", "-o", "json")
+	var decoded map[string]any
+	if runError != nil || json.Unmarshal([]byte(stdout), &decoded) != nil {
+		t.Fatalf("storage -o json: %v\n%s", runError, stdout)
+	}
+	if _, present := decoded["addon"]; present {
+		t.Fatalf("a failed read has no addon: %s", stdout)
+	}
+	if message, _ := decoded["addon_error"].(string); !strings.Contains(message, "503") {
+		t.Fatalf("addon_error must carry the failure: %s", stdout)
+	}
+}
+
+// When the new limit was saved but not applied straight away, the reason
+// the platform gave is shown, on stderr so -o json stays clean.
+type registryStorageAddonApplyLaterMock struct{ *registryStorageAddonMock }
+
+func (mock registryStorageAddonApplyLaterMock) UpdateRegistryStorageAddon(ctx context.Context, blocks int, expectedVersion string) (*client.RegistryStorageAddonUpdateResult, error) {
+	result, updateError := mock.registryStorageAddonMock.UpdateRegistryStorageAddon(ctx, blocks, expectedVersion)
+	if result != nil {
+		reason := "harbor answered 502"
+		result.HarborApplied, result.HarborApplyError = false, &reason
+	}
+	return result, updateError
+}
+
+func TestRegistryStorageBuyShowsWhyTheLimitWasNotAppliedYet(t *testing.T) {
+	mock := registryStorageAddonApplyLaterMock{newRegistryStorageAddonMock(0)}
+	stdout, stderr, runError := runRegistryCommandSplit(t, mock, "", "storage", "buy", "--blocks", "1", "--yes")
+	if runError != nil {
+		t.Fatalf("buy: %v", runError)
+	}
+	mustContain(t, stdout, "The registry gets the new limit automatically within about 5 minutes.")
+	mustContain(t, stderr, "Applying it straight away did not work: harbor answered 502")
+}
+
+func TestFormatRegistryMoneyNeverInventsACurrency(t *testing.T) {
+	if got := formatRegistryMoney(1000, "eur"); got != "EUR 10.00" {
+		t.Fatalf("eur: %q", got)
+	}
+	if got := formatRegistryMoney(1000, ""); got != "10.00 (currency not stated)" {
+		t.Fatalf("no currency: %q", got)
+	}
+}
+
+func TestRegistryStorageBuyRefusesAnAbsurdBlockCountBeforeReading(t *testing.T) {
+	mock := newRegistryStorageAddonMock(0)
+	mock.addon.MaxBlocks = 0
+	_, _, runError := runRegistryCommandSplit(t, mock, "", "storage", "buy", "--blocks", "999999999", "--yes")
+	if exitCodeFor(runError) != exitUsage || mock.addonGets != 0 || len(mock.writes) != 0 {
+		t.Fatalf("want a usage error with no read or write: %v gets=%d writes=%v", runError, mock.addonGets, mock.writes)
 	}
 }
