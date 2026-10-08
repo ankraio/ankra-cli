@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 )
@@ -124,6 +125,22 @@ type RegistryRetention struct {
 	RecentlyPulledDays int    `json:"recently_pulled_days" yaml:"recently_pulled_days"`
 	RunsDailyAt        string `json:"runs_daily_at" yaml:"runs_daily_at"`
 	SpaceFreedAt       string `json:"space_freed_at" yaml:"space_freed_at"`
+	// Version identifies the stored policy and rule list. It is opaque:
+	// it is only ever sent back as RegistryRetentionUpdate.ExpectedVersion,
+	// never parsed. Empty from a platform that predates it.
+	Version string `json:"version,omitempty" yaml:"version,omitempty"`
+}
+
+// RegistryRetentionChangedStatus is the status a retention write answers
+// when ExpectedVersion no longer matches what is stored: someone changed the
+// retention since it was read, and nothing was written.
+const RegistryRetentionChangedStatus = http.StatusConflict
+
+// IsRegistryRetentionChanged reports whether a retention write was refused
+// because the retention changed since it was read.
+func IsRegistryRetentionChanged(err error) bool {
+	var unexpected *UnexpectedResponseError
+	return errors.As(err, &unexpected) && unexpected.StatusCode == RegistryRetentionChangedStatus
 }
 
 // RegistryRetentionRuleInput is one rule as it is written.
@@ -139,11 +156,16 @@ type RegistryRetentionRuleInput struct {
 // DefaultSet with a nil Default sends null: back to the platform default.
 // RulesSet sends the whole rule list, replacing the stored one; an empty
 // list removes every rule.
+//
+// ExpectedVersion, when set, is the Version the change was computed from:
+// the platform refuses the write (409) if the retention has changed since.
+// Empty sends no check.
 type RegistryRetentionUpdate struct {
-	DefaultSet bool
-	Default    *RegistryRetentionPolicy
-	RulesSet   bool
-	Rules      []RegistryRetentionRuleInput
+	DefaultSet      bool
+	Default         *RegistryRetentionPolicy
+	RulesSet        bool
+	Rules           []RegistryRetentionRuleInput
+	ExpectedVersion string
 }
 
 // MarshalJSON sends only the parts that were set.
@@ -158,6 +180,9 @@ func (update RegistryRetentionUpdate) MarshalJSON() ([]byte, error) {
 			rules = []RegistryRetentionRuleInput{}
 		}
 		body["rules"] = rules
+	}
+	if update.ExpectedVersion != "" {
+		body["expected_version"] = update.ExpectedVersion
 	}
 	return json.Marshal(body)
 }
