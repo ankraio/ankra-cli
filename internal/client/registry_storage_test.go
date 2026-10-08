@@ -258,3 +258,53 @@ func TestRegistryRetentionRuleSlotsDecode(t *testing.T) {
 		t.Fatalf("without slots: %+v %v", retention, getError)
 	}
 }
+
+// The paid storage lane: GET and PUT on the add-on route, the expected
+// version sent only when known, and the platform's refusal sentences
+// relayed verbatim (402 included).
+func TestRegistryStorageAddonLane(t *testing.T) {
+	var bodies []string
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/v1/org/registry-storage/addon" {
+			t.Errorf("unexpected path %s", request.URL.Path)
+		}
+		addon := map[string]any{"available": true, "unavailable_reason": nil, "block_gib": 50,
+			"price_cents_per_block_month": 500, "currency": "eur", "max_blocks": 20, "blocks": 2,
+			"base_limit_bytes": 53687091200, "effective_limit_bytes": 161061273600, "monthly_cents": 1000,
+			"billing_ready": true, "billing_blocker": nil, "updated_by": nil, "updated_at": nil, "version": "a7"}
+		switch request.Method {
+		case http.MethodGet:
+			jsonResponse(t, writer, http.StatusOK, addon)
+		case http.MethodPut:
+			raw, _ := io.ReadAll(request.Body)
+			bodies = append(bodies, string(raw))
+			if len(bodies) == 3 {
+				jsonResponse(t, writer, http.StatusPaymentRequired, map[string]any{"detail": "Billing is not set up for this organisation."})
+				return
+			}
+			jsonResponse(t, writer, http.StatusOK, map[string]any{"addon": addon, "storage": map[string]any{"limit_bytes": 161061273600,
+				"addon_blocks": 2, "base_limit_bytes": 53687091200}, "harbor_applied": false, "harbor_apply_error": "registry unreachable"})
+		}
+	})
+	addon, getError := client.GetRegistryStorageAddon(context.Background())
+	if getError != nil || addon.Blocks != 2 || addon.MonthlyCents != 1000 || addon.Version != "a7" || addon.EffectiveLimitBytes != 150*1073741824 {
+		t.Fatalf("get: %+v %v", addon, getError)
+	}
+	result, updateError := client.UpdateRegistryStorageAddon(context.Background(), 2, "a7")
+	if updateError != nil || result.HarborApplied || result.Storage.AddonBlocks == nil || *result.Storage.AddonBlocks != 2 ||
+		result.Storage.BaseLimitBytes == nil || *result.Storage.BaseLimitBytes != 50*1073741824 {
+		t.Fatalf("update: %+v %v", result, updateError)
+	}
+	if _, updateError := client.UpdateRegistryStorageAddon(context.Background(), 0, ""); updateError != nil {
+		t.Fatalf("update without a version: %v", updateError)
+	}
+	_, updateError = client.UpdateRegistryStorageAddon(context.Background(), 3, "a7")
+	var unexpected *UnexpectedResponseError
+	if !errors.As(updateError, &unexpected) || unexpected.StatusCode != http.StatusPaymentRequired ||
+		updateError.Error() != "Billing is not set up for this organisation." {
+		t.Fatalf("a 402 carries the platform's sentence: %v", updateError)
+	}
+	if bodies[0] != `{"blocks":2,"expected_version":"a7"}` || bodies[1] != `{"blocks":0}` {
+		t.Fatalf("bodies = %v", bodies)
+	}
+}

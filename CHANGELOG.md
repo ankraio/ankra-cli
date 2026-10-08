@@ -4,6 +4,22 @@
 
 ### Added
 
+- **`ankra registry storage buy --blocks <n>` buys more registry storage
+  yourself, billed monthly.** Storage comes in blocks (50 GiB for EUR 5 a
+  month each) on top of the storage your organisation includes. Each block
+  raises the limit of every registry project and is billed for the days it
+  is held. `--blocks` is the number to hold, and 0 stops paying for extra
+  storage. The command shows the limit and the monthly price before and
+  after, and asks first (`--yes` skips the prompt; declining exits 4). If
+  someone else changes the add-on at the same moment, it asks again only
+  when the limit or price it showed has changed. Refusals from billing or
+  from the platform (for example, keeping fewer blocks than the registry
+  already holds) are printed as the platform words them. For more than the
+  self-serve maximum, `ankra registry storage request` still asks Ankra.
+  `ankra registry storage` now shows the add-on ("Add-on: 2 x 50 GiB, EUR
+  10.00/month") and the limit as "150 GiB (50 GiB included, 100 GiB
+  bought)". Both commands take `-o json`. A platform without paid storage
+  shows no add-on and says so on `buy`.
 - **`ankra cluster agent ci set --node-group <name>` runs every pipeline pod of
   the cluster on that node group, tainted or not.** Step pods, their cache and
   artifact helpers, and image builds all select the group's nodes and tolerate
