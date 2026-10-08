@@ -54,6 +54,7 @@ var clusterAddonsListCmd = &cobra.Command{
 		}
 		addons := listing.Addons
 		sortAddons(addons)
+		annotateAddonPortalURLs(cluster, addons)
 		feed := newAddonAdvisoryFeed(listing)
 		if len(args) == 0 {
 			if addons == nil {
@@ -115,6 +116,9 @@ var clusterAddonsListCmd = &cobra.Command{
 			}
 			fmt.Printf("  Created:         %s\n", formatOptionalTimeAgo(found.CreatedAt))
 			fmt.Printf("  Updated:         %s\n", formatOptionalTimeAgo(found.UpdatedAt))
+			if found.PortalURL != "" {
+				fmt.Printf("  Portal:          %s\n", found.PortalURL)
+			}
 			printAddonSecurityDetails(*found, cluster.Name, feed)
 			return nil
 		}

@@ -62,6 +62,7 @@ var clusterListCmd = &cobra.Command{
 			clusters = []client.ClusterListItem{}
 		}
 		sortClusters(clusters)
+		annotateClusterPortalURLs(clusters)
 		if rendered, err := renderStructured(cmd, clusters); rendered || err != nil {
 			return err
 		}
@@ -148,6 +149,9 @@ If no name is provided, shows details for the currently selected cluster.`,
 		if err != nil {
 			return fmt.Errorf("fetching cluster details for %s: %w", name, err)
 		}
+		if cluster.PortalURL == "" {
+			cluster.PortalURL = portalClusterURL(cluster)
+		}
 		if rendered, err := renderStructured(cmd, cluster); rendered || err != nil {
 			return err
 		}
@@ -160,6 +164,9 @@ If no name is provided, shows details for the currently selected cluster.`,
 		fmt.Printf("  Control Planes: %d\n", cluster.ControlPlanes)
 		fmt.Printf("  Nodes: %d\n", cluster.Nodes)
 		fmt.Printf("  Kind: %s\n", cluster.Kind)
+		if cluster.PortalURL != "" {
+			fmt.Printf("  Portal: %s\n", cluster.PortalURL)
+		}
 		if network := cluster.Network; network != nil {
 			fmt.Printf("  Network (%s):\n", network.Provider)
 			if network.VPCID != "" {

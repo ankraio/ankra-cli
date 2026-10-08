@@ -36,6 +36,9 @@ type ClusterListItem struct {
 	DeletedAt         *string         `json:"deleted_at"`
 	Kind              string          `json:"kind"`
 	Network           *ClusterNetwork `json:"network,omitempty"`
+	// PortalURL is the resource's page in the portal. The CLI fills it in
+	// for display when the platform sent none.
+	PortalURL string `json:"portal_url,omitempty" yaml:"portal_url,omitempty"`
 }
 
 // ClusterNetwork mirrors the backend's optional provider network identifiers

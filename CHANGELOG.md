@@ -4,6 +4,16 @@
 
 ### Added
 
+- **`ankra cluster list`, `cluster info`, `cluster stacks list`, `cluster
+  manifests list` and `cluster addons list` now carry a `portal_url`.** With
+  `-o json` or `-o yaml` every cluster, stack, manifest and add-on has the
+  address of its page in the Ankra portal, and the single-resource views print
+  it on a `Portal:` line, so a script or an assistant can hand a teammate a
+  link instead of guessing one from the API paths. A manifest or add-on inside
+  a stack links straight to that member in the stack editor; `cluster addons
+  list` links the add-on's own page. A manifest that belongs to no stack has no
+  page and gets no `portal_url`. The link carries the owning organisation, so a
+  member whose active organisation is a different one is offered the switch.
 - **`ankra cluster agent ci set --node-group <name>` runs every pipeline pod of
   the cluster on that node group, tainted or not.** Step pods, their cache and
   artifact helpers, and image builds all select the group's nodes and tolerate
