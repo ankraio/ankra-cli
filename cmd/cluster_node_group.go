@@ -511,6 +511,12 @@ pods' PodDisruptionBudgets. --force-drain bypasses those budgets for that
 drain, so a node is resized even if its pods' disruption budget refuses the
 eviction. It applies to this request only.
 
+On UpCloud a plan is changed in place only within its plan family (STARTER,
+DEV, PREMIUM, GPU, or the unprefixed general-purpose plans such as 4xCPU-8GB).
+A new plan from another family replaces each node instead - drained, deleted
+and re-provisioned with the new plan - and the command says so. A control
+plane cannot be replaced that way, so a cross-family change there is refused.
+
 Examples:
   ankra cluster node-group upgrade <cluster_id> workers <instance_type>
   ankra cluster node-group upgrade <cluster_id> workers <instance_type> --force-drain`,
@@ -552,6 +558,9 @@ Examples:
 			return nil
 		}
 		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		if result.Notice != "" {
+			fmt.Printf("Note: %s\n", result.Notice)
+		}
 		return nil
 	},
 }

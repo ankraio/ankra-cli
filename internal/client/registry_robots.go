@@ -262,7 +262,7 @@ func (c *Client) doRegistryRequest(ctx context.Context, operation string, method
 			return nil, denied
 		}
 		return nil, &PermissionDeniedError{Detail: ciSettingsRefusalDetail(responseBody)}
-	case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity,
+	case http.StatusBadRequest, http.StatusPaymentRequired, http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity,
 		http.StatusServiceUnavailable:
 		// Every refusal this lane writes names the reason - an unknown robot,
 		// a taken name, a robot Ankra manages, an expired robot, an
