@@ -69,10 +69,13 @@ stages:
     network: "services"                 # protected: the tier that reaches a sidecar
     env:
       ANKRA_CLOUD_TEST_DATABASE_URL: "postgres://postgres:test@postgres:5432/ankra_cloud_test?sslmode=disable"
+      GOCACHE: "/workspace/.ankra-go/cache"      # the root filesystem is read-only
+      GOMODCACHE: "/workspace/.ankra-go/mod"
     cache:                              # protected
-      - key: "go-${{ hashFiles('api/go.sum') }}"
-        paths: ["/root/.cache/go-build", "/root/go/pkg/mod"]
+      - key: "go-${{ hashFiles('api/go.sum') }}"   # hashFiles reads the stage's working_directory (the root here)
+        paths: [".ankra-go/cache", ".ankra-go/mod"]   # workspace-relative, where GOCACHE/GOMODCACHE point
         restore_keys: ["go-"]
+        fallback: none                  # no shared volume on an agent without cache archives
     test_results:
       - format: "go-test"
         path: "api/test-results.json"
@@ -382,7 +385,7 @@ string|boolean|number|choice, default, enum, required, description}]}` · `webho
 
 Stage (common): `name` · `kind` · `image` · `run` · `with` · `needs` · `if` · `when {branches,
 paths, events}` · `matrix {<axis>: [...], include, exclude}` (max 64 legs) · `services` · `env` ·
-`secrets` · `cache [{key, paths, size, restore_keys}]` · `artifacts [{name, paths,
+`secrets` · `cache [{key, paths, size, restore_keys, fallback}]` · `artifacts [{name, paths,
 retention_days}]` · `test_results [{format: junit|go-test|pytest|playwright, path}]` · `outputs`
 · `timeout` · `resources {cpu, memory, gpu}` · `runs_on {cluster, node_selector, tolerations,
 runtime_class, arch}` · `network: none|egress-https|services` · `shm_size` · `working_directory`

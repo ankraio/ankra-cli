@@ -134,7 +134,7 @@ stages:
     network: services                # none | egress-https | services — required to reach a sidecar
     env: { DATABASE_URL: "postgres://postgres:test@postgres:5432/app?sslmode=disable" }
     secrets: [database_url]          # must be declared above, else a fatal violation
-    cache: [{ key: "go-${{ hashFiles('go.sum') }}", paths: ["/root/.cache/go-build"], restore_keys: ["go-"] }]
+    cache: [{ key: "go-${{ hashFiles('go.sum') }}", paths: [".ankra-go/cache"], restore_keys: ["go-"], fallback: none }]  # workspace-relative; set GOCACHE=/workspace/.ankra-go/cache in env
     artifacts: [{ name: "coverage", paths: ["coverage.out"], retention_days: 7 }]
     test_results: [{ format: "go-test", path: "test-results.json" }]   # junit | go-test | pytest | playwright
     matrix: { go: ["1.25", "1.26"] }  # cross product of axes (+ include/exclude), GitHub Actions semantics, max 64 legs

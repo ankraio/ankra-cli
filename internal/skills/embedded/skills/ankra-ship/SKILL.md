@@ -264,11 +264,15 @@ stages:
     image: "golang:${{ matrix.go }}"
     network: services
     services: [postgres]
-    env: { DATABASE_URL: "postgres://postgres:test@postgres:5432/shop?sslmode=disable" }
+    env:
+      DATABASE_URL: "postgres://postgres:test@postgres:5432/shop?sslmode=disable"
+      GOMODCACHE: "/workspace/.ankra-go/mod"     # the root filesystem is read-only: keep caches on the workspace
+      GOCACHE: "/workspace/.ankra-go/cache"
     cache:
-      - key: "go-${{ hashFiles('go.sum') }}"
-        paths: ["/root/go/pkg/mod"]
+      - key: "go-${{ hashFiles('go.mod', 'go.sum') }}"
+        paths: [".ankra-go/mod", ".ankra-go/cache"]  # relative to the workspace root
         restore_keys: ["go-"]
+        fallback: none
     run: |
       go test ./... -json > test-results.json
     test_results: [{ format: go-test, path: "test-results.json" }]
@@ -279,9 +283,18 @@ stages:
 A generated `test` stage follows the committed lockfile (`uv sync --locked && uv run pytest`,
 `pnpm install --frozen-lockfile`, `go test ./...`). `test_results` formats are `junit`, `go-test`,
 `pytest`, `playwright` — declared and carried, not yet ingested; the exit code is what fails the
-run. A matrix fans out per axis value (GitHub Actions semantics, at most 64 legs). Caches are keyed
-per repository, cluster and trust scope; a missing StorageClass degrades to `disabled`, never a
-failed step. Every step's output is archived as a `step_log` artifact, and `key=value` lines
+run. A matrix fans out per axis value (GitHub Actions semantics, at most 64 legs).
+
+Caches: `hashFiles` is evaluated after checkout in the stage's `working_directory`; the exact key
+restores first, then each `restore_keys` prefix in order. A default-branch run reads and saves only
+its own scope; a branch or PR run reads its own scope then the default branch's and saves only its
+own; fork and tag runs get none. A save happens only after the step passes (a `hashFiles` key once,
+a static key every time). 14 days unused, 10 GiB per repository, 4 GiB per path. On an agent
+without cache archives a cache is a shared 5Gi volume per path - `fallback: none` makes it an
+empty directory instead, which never wedges overlapping runs. The generated `test` stage declares
+its package caches (pnpm/Yarn/npm, Go, pip/uv/Poetry/Pipenv, cargo) this way under
+`/workspace/.ankra-*`, keyed on the lock file, with `fallback: none`; a committed file is never
+rewritten, so copy the block into an older one. A cache path outside the workspace is refused. Every step's output is archived as a `step_log` artifact, and `key=value` lines
 appended to `$ANKRA_OUTPUT` become `${{ needs.test.outputs.<name> }}` downstream.
 
 ## 5. Build
