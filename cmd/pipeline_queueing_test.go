@@ -103,6 +103,7 @@ func TestPipelineRunDetailPrintsTheInClusterPendingWait(t *testing.T) {
 			{StepKey: "lost", Status: "concluded", Outcome: strPipelinePtr("cancelled"), PodCreatedAt: &podCreatedAt},
 			{StepKey: "unseen", Status: "concluded", Outcome: strPipelinePtr("success"),
 				PodCreatedAt: &podCreatedAt, FinishedAt: &stuckFinishedAt},
+			{StepKey: "verdictless", Status: "concluded", PodCreatedAt: &podCreatedAt, FinishedAt: &stuckFinishedAt},
 			{StepKey: "old", Status: "concluded"},
 			{StepKey: "live", Status: "running", PodCreatedAt: &podCreatedAt},
 		},
@@ -129,6 +130,9 @@ func TestPipelineRunDetailPrintsTheInClusterPendingWait(t *testing.T) {
 	// observe is not a container that never started.
 	if strings.Contains(rendered, "unseen:") {
 		t.Errorf("a successful step is not called a pod that never started:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "verdictless:") {
+		t.Errorf("a step with no outcome is not called a pod that never started:\n%s", rendered)
 	}
 }
 

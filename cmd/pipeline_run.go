@@ -840,7 +840,8 @@ func pipelineStepQueueWait(step client.PipelineStep) (time.Duration, bool) {
 // container never ran: the agent reads it off its pod polls, and a pod that
 // started and went between two polls leaves no start behind. So a step that
 // succeeded says nothing about it (its container plainly ran), a step still
-// in flight says nothing (it may yet start), and only a concluded step that
+// in flight says nothing (it may yet start), a step with no outcome says
+// nothing (no verdict is not a failure), and only a concluded step that
 // did not succeed - the one stuck Pending until it timed out or was
 // cancelled - says its container was never seen to start, with the least
 // time it sat Pending when the step's end is known. Nothing is said for a
@@ -853,8 +854,8 @@ func pipelineStepPodPendingLine(step client.PipelineStep) (string, bool) {
 	}
 	containerStartedAt, isStartKnown := parsePipelineStepTime(step.ContainerStartedAt)
 	if !isStartKnown {
-		if step.Status != pipelineStepStatusConcluded ||
-			(step.Outcome != nil && *step.Outcome == pipelineOutcomeSuccess) {
+		if step.Status != pipelineStepStatusConcluded || step.Outcome == nil ||
+			*step.Outcome == pipelineOutcomeSuccess {
 			return "", false
 		}
 		if finishedAt, isFinishedKnown := parsePipelineStepTime(step.FinishedAt); isFinishedKnown &&
