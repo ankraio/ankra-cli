@@ -7,6 +7,7 @@ package cmd
 // platform that predates the setting is never read as "off".
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -95,7 +96,17 @@ func TestClusterAgentCISetFailsWhenThePlatformDidNotStoreTheRunReservation(t *te
 			if format != "" {
 				arguments = append(arguments, "-o", format)
 			}
-			output, runError := runAgentCICommand(t, mock, arguments...)
+			// stdout and stderr apart: the error is cobra's to print on
+			// stderr, and stdout must stay one parseable document.
+			writeSelectedClusterJSON(t)
+			setMockClient(t, mock)
+			t.Cleanup(func() { resetTreeFlags(t, agentCICommands(t)...) })
+			var stdout, stderr bytes.Buffer
+			rootCmd.SetOut(&stdout)
+			rootCmd.SetErr(&stderr)
+			rootCmd.SetArgs(arguments)
+			runError := rootCmd.Execute()
+			output := stdout.String()
 			if runError == nil || exitCodeFor(runError) != exitError {
 				t.Fatalf("error = %v, want a runtime error", runError)
 			}
