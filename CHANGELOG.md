@@ -1,9 +1,19 @@
 # Ankra CLI Changelog
 
-## v0.27.0 — 2026-10-08
+## Unreleased
 
 ### Added
 
+- **`ankra pipeline get` says how long each step's pod sat Pending in the
+  cluster, and where the time went.** The Queueing section adds a line such
+  as "test: Pending 5m9s in the cluster before it ran (scheduling 4m30s,
+  volumes 8s, image pull 19s)", or says a pod never started its container.
+  That wait comes after the CI slot wait and was invisible before: the step
+  read as running. `-o json` carries `pod_created_at`, `pod_scheduled_at`,
+  `workspace_attached_at`, `image_pull_started_at`, `image_pulled_at` and
+  `container_started_at` on each step when the platform sends them. They need
+  a platform and a cluster agent that report them; older ones print nothing
+  new.
 - **`ankra cluster list`, `cluster info`, `cluster stacks list`, `cluster
   manifests list` and `cluster addons list` now carry a `portal_url`.** With
   `-o json` or `-o yaml` every cluster, stack, manifest and add-on has the
@@ -14,6 +24,11 @@
   list` links the add-on's own page. A manifest that belongs to no stack has no
   page and gets no `portal_url`. The link carries the owning organisation, so a
   member whose active organisation is a different one is offered the switch.
+
+## v0.27.0 — 2026-10-08
+
+### Added
+
 - **`ankra registry storage buy --blocks <n>` buys more registry storage
   yourself, billed monthly.** Storage comes in blocks (50 GiB for EUR 5 a
   month each) on top of the storage your organisation includes. Each block

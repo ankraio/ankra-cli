@@ -797,6 +797,9 @@ func printPipelineStepQueueing(out io.Writer, detail client.PipelineRunDetail) {
 			lines = append(lines, fmt.Sprintf("  %s: waiting for a CI slot since %s", step.StepKey,
 				formatTimeAgo(*step.DispatchedAt)))
 		}
+		if line, isObserved := pipelineStepPodPendingLine(step); isObserved {
+			lines = append(lines, line)
+		}
 		if step.DeferredCount != nil && *step.DeferredCount > 0 {
 			lines = append(lines, fmt.Sprintf("  %s: returned to the queue %s (its node was full)",
 				step.StepKey, pluralTimes(*step.DeferredCount)))
@@ -825,6 +828,69 @@ func pipelineStepQueueWait(step client.PipelineStep) (time.Duration, bool) {
 		return 0, false
 	}
 	return startedAt.Sub(dispatchedAt).Round(time.Second), true
+}
+
+// pipelineStepPodPendingLine says how long a step's pod sat Pending in the
+// cluster before the step's own container ran, and where that time went: the
+// scheduler placing it, its workspace volume attaching, its image pulling.
+// It is the wait the CI slot line cannot show - the agent has already picked
+// the step up - and on a busy cluster it is the larger of the two.
+//
+// A pod whose container never started says so. Nothing is said for a step
+// whose agent reported no pod at all, which is every step on an agent or a
+// platform older than the fields.
+func pipelineStepPodPendingLine(step client.PipelineStep) (string, bool) {
+	createdAt, isCreatedKnown := parsePipelineStepTime(step.PodCreatedAt)
+	if !isCreatedKnown {
+		return "", false
+	}
+	containerStartedAt, isStartKnown := parsePipelineStepTime(step.ContainerStartedAt)
+	if !isStartKnown {
+		return fmt.Sprintf("  %s: its pod never started its container", step.StepKey), true
+	}
+	phases := []string{}
+	scheduledAt, isScheduledKnown := parsePipelineStepTime(step.PodScheduledAt)
+	if isScheduledKnown {
+		phases = append(phases, "scheduling "+nonNegativeDuration(scheduledAt.Sub(createdAt)).String())
+	}
+	if attachedAt, isAttachedKnown := parsePipelineStepTime(step.WorkspaceAttachedAt); isAttachedKnown && isScheduledKnown {
+		phases = append(phases, "volumes "+nonNegativeDuration(attachedAt.Sub(scheduledAt)).String())
+	}
+	if pulledAt, isPulledKnown := parsePipelineStepTime(step.ImagePulledAt); isPulledKnown {
+		if pullStartedAt, isPullStartKnown := parsePipelineStepTime(step.ImagePullStartedAt); isPullStartKnown {
+			phases = append(phases, "image pull "+nonNegativeDuration(pulledAt.Sub(pullStartedAt)).String())
+		} else {
+			phases = append(phases, "image already on the node")
+		}
+	}
+	line := fmt.Sprintf("  %s: Pending %s in the cluster before it ran", step.StepKey,
+		nonNegativeDuration(containerStartedAt.Sub(createdAt)))
+	if len(phases) > 0 {
+		line += " (" + strings.Join(phases, ", ") + ")"
+	}
+	return line, true
+}
+
+// parsePipelineStepTime reads one of a step's optional timestamps, with or
+// without fractional seconds.
+func parsePipelineStepTime(value *string) (time.Time, bool) {
+	if value == nil {
+		return time.Time{}, false
+	}
+	parsed, parseError := time.Parse(time.RFC3339Nano, *value)
+	if parseError != nil {
+		return time.Time{}, false
+	}
+	return parsed, true
+}
+
+// nonNegativeDuration rounds a span to the second, reading two clocks that
+// disagree by a moment as no wait rather than a negative one.
+func nonNegativeDuration(span time.Duration) time.Duration {
+	if span < 0 {
+		return 0
+	}
+	return span.Round(time.Second)
 }
 
 // pluralTimes renders a count of occurrences: "once", "2 times".
