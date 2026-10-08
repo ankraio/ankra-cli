@@ -653,7 +653,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, sele
 	writer := table.NewWriter()
 	writer.SetOutputMirror(out)
 	writer.SetStyle(table.StyleRounded)
-	writer.AppendHeader(table.Row{"STEP", "ATTEMPT", "STAGE", "KIND", "EXECUTOR", "STATUS", "EXIT"})
+	writer.AppendHeader(table.Row{"STEP", "ATTEMPT", "STAGE", "KIND", "EXECUTOR", "STATUS", "EXIT", "RAN ON"})
 	for _, step := range detail.Steps {
 		exitCode := "-"
 		if step.ExitCode != nil {
@@ -667,12 +667,23 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, sele
 			renderPipelineStepExecutor(step),
 			renderPipelineState(step.Status, step.Outcome),
 			exitCode,
+			renderPipelineStepNode(step),
 		})
 	}
 	writer.Render()
 	printPipelineStepQueueing(out, detail)
 	printPipelinePlatformBuilderSteps(out, detail)
 	printPipelineSupersededAttempts(out, detail, selector)
+}
+
+// renderPipelineStepNode is the node a step's pod ran on, as the agent
+// reported it. A step that never reached a node, and every step on a platform
+// that predates recording it, reads "-" rather than a blank cell.
+func renderPipelineStepNode(step client.PipelineStep) string {
+	if nodeName := strings.TrimSpace(step.NodeName); nodeName != "" {
+		return nodeName
+	}
+	return "-"
 }
 
 // printPipelineStepQueueing says how long each step waited for a CI slot on
