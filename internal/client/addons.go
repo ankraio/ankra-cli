@@ -46,6 +46,8 @@ type ClusterAddonListItem struct {
 	// SecurityUpgradeChartVersion is the nearest chart version that fixes
 	// every listed advisory.
 	SecurityUpgradeChartVersion *string `json:"security_upgrade_chart_version" yaml:"security_upgrade_chart_version"`
+	// PortalURL is the add-on's own page on its cluster.
+	PortalURL string `json:"portal_url,omitempty" yaml:"portal_url,omitempty"`
 }
 
 // Security advisory statuses the platform reports per addon.

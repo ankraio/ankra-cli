@@ -131,6 +131,7 @@ var clusterManifestsListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing manifests: %w", err)
 		}
+		annotateManifestPortalURLs(cluster, manifests)
 		if len(args) == 0 {
 			if manifests == nil {
 				manifests = []client.ClusterManifestListItem{}
@@ -180,6 +181,9 @@ var clusterManifestsListCmd = &cobra.Command{
 			}
 			fmt.Printf("  Stack:       %s\n", stackName)
 			fmt.Printf("  Created:     %s\n", formatOptionalTimeAgo(found.CreatedAt))
+			if found.PortalURL != "" {
+				fmt.Printf("  Portal:      %s\n", found.PortalURL)
+			}
 
 			if found.ManifestBase64 != "" {
 				fmt.Println("\n  Manifest Content:")

@@ -34,6 +34,7 @@ var clusterStacksListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing stacks: %w", err)
 		}
+		annotateStackPortalURLs(cluster, stacks)
 		if len(args) == 0 {
 			if stacks == nil {
 				stacks = []client.ClusterStackListItem{}
@@ -71,6 +72,9 @@ var clusterStacksListCmd = &cobra.Command{
 			fmt.Printf("  Manifests:    %d\n", len(found.Manifests))
 			fmt.Printf("  Addons:       %d\n", len(found.Addons))
 			fmt.Printf("  Applications: %d\n", len(found.Applications))
+			if found.PortalURL != "" {
+				fmt.Printf("  Portal:       %s\n", found.PortalURL)
+			}
 
 			if len(found.Manifests) > 0 {
 				fmt.Println("\n  Manifests:")

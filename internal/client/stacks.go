@@ -23,6 +23,9 @@ type ClusterStackListItem struct {
 	DeployWave        *int   `json:"deploy_wave,omitempty"`
 	State             string `json:"state"`
 	DeletePermanently bool   `json:"delete_permanently"`
+	// PortalURL is the resource's page in the portal. The CLI fills it in
+	// for display when the platform sent none.
+	PortalURL string `json:"portal_url,omitempty" yaml:"portal_url,omitempty"`
 }
 
 type StackManifest struct {
@@ -32,6 +35,8 @@ type StackManifest struct {
 	Parents           []Parent `json:"parents"`
 	DeletePermanently bool     `json:"delete_permanently"`
 	State             string   `json:"state"`
+	// PortalURL opens the stack editor on this manifest.
+	PortalURL string `json:"portal_url,omitempty" yaml:"portal_url,omitempty"`
 }
 
 type StackAddon struct {
@@ -45,6 +50,8 @@ type StackAddon struct {
 	State             string           `json:"state"`
 	ChartIcon         *string          `json:"chart_icon"`
 	DeletePermanently bool             `json:"delete_permanently"`
+	// PortalURL opens the stack editor on this add-on.
+	PortalURL string `json:"portal_url,omitempty" yaml:"portal_url,omitempty"`
 }
 
 type StackAddonConfig struct {

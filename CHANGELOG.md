@@ -4,6 +4,16 @@
 
 ### Added
 
+- **`ankra cluster list`, `cluster info`, `cluster stacks list`, `cluster
+  manifests list` and `cluster addons list` now carry a `portal_url`.** With
+  `-o json` or `-o yaml` every cluster, stack, manifest and add-on has the
+  address of its page in the Ankra portal, and the single-resource views print
+  it on a `Portal:` line, so a script or an assistant can hand a teammate a
+  link instead of guessing one from the API paths. A manifest or add-on inside
+  a stack links straight to that member in the stack editor; `cluster addons
+  list` links the add-on's own page. A manifest that belongs to no stack has no
+  page and gets no `portal_url`. The link carries the owning organisation, so a
+  member whose active organisation is a different one is offered the switch.
 - **`ankra registry storage buy --blocks <n>` buys more registry storage
   yourself, billed monthly.** Storage comes in blocks (50 GiB for EUR 5 a
   month each) on top of the storage your organisation includes. Each block

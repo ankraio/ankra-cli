@@ -19,6 +19,9 @@ type ClusterManifestListItem struct {
 	DeletePermanently bool       `json:"delete_permanently"`
 	CreatedAt         *time.Time `json:"created_at"`
 	StackName         *string    `json:"stack_name"`
+	// PortalURL opens the manifest in its stack's editor; empty for a
+	// manifest outside any stack.
+	PortalURL string `json:"portal_url,omitempty" yaml:"portal_url,omitempty"`
 }
 
 // ListClusterManifestsResponse mirrors ListClusterManifestsResult: the
