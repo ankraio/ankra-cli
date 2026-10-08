@@ -350,6 +350,10 @@ type UpdateTaintsRequest struct {
 type UpdateNodeGroupResult struct {
 	GroupName string `json:"group_name"`
 	Updated   int    `json:"updated"`
+	// Notice is set by an instance-type change that is not the in-place
+	// resize the caller asked for: an UpCloud plan in another family than
+	// the nodes' current one replaces each node instead.
+	Notice string `json:"notice,omitempty"`
 }
 
 type DeleteNodeGroupResult struct {
