@@ -72,6 +72,30 @@ type AgentCISettings struct {
 	// PlacementAdmittingNodes is how many Ready nodes the placement admits,
 	// nil when there is no placement or the platform could not count them.
 	PlacementAdmittingNodes *int `json:"placement_admitting_nodes,omitempty" yaml:"placement_admitting_nodes,omitempty"`
+	// CIRunReservation is the cluster's run reservation mode (off, shadow or
+	// on): whether the platform sizes one placeholder pod per run that holds
+	// the room the run's later steps need on its node. SupportsRunReservation
+	// says whether the cluster's agent advertises the capability; without it
+	// "on" reserves nothing and the cluster's steps run exactly as under
+	// "shadow". Both are nil on a platform older than the setting, which is
+	// "not reported", never "off".
+	CIRunReservation       *string `json:"ci_run_reservation,omitempty" yaml:"ci_run_reservation,omitempty"`
+	SupportsRunReservation *bool   `json:"supports_run_reservation,omitempty" yaml:"supports_run_reservation,omitempty"`
+}
+
+// The run reservation modes. off computes nothing (every cluster's default),
+// shadow computes and records each run's reservation without holding any
+// capacity, and on asks the cluster's agent to hold it.
+const (
+	AgentCIRunReservationOff    = "off"
+	AgentCIRunReservationShadow = "shadow"
+	AgentCIRunReservationOn     = "on"
+)
+
+// AgentCIRunReservationModes lists the modes in the order help text and
+// refusals name them.
+var AgentCIRunReservationModes = []string{
+	AgentCIRunReservationOff, AgentCIRunReservationShadow, AgentCIRunReservationOn,
 }
 
 // The placement modes: required pins every pipeline pod to the selected
@@ -114,11 +138,25 @@ type AgentCIPlacementToleration struct {
 //
 // The placement is written whole: CIPlacement replaces the stored one, and
 // ClearPlacement sends null, which removes it. Neither leaves it untouched.
+//
+// CIRunReservation is sent only when named. Like the placement it rides the
+// next step's payload rather than the agent's release, so a write naming
+// nothing else re-renders nothing.
 type AgentCISettingsUpdate struct {
-	CIWorkerCount  *int
-	CIStorageClass *string
-	CIPlacement    *AgentCIPlacement
-	ClearPlacement bool
+	CIWorkerCount    *int
+	CIStorageClass   *string
+	CIPlacement      *AgentCIPlacement
+	ClearPlacement   bool
+	CIRunReservation *string
+}
+
+// NamesChartSetting reports whether the write names a setting rendered into
+// the agent's release (the worker count or the storage class). A write that
+// names only the placement or the run reservation publishes nothing to the
+// agent, and the apply state the platform answers it with describes the
+// release as it already was.
+func (update AgentCISettingsUpdate) NamesChartSetting() bool {
+	return update.CIWorkerCount != nil || update.CIStorageClass != nil
 }
 
 // MarshalJSON renders the partial body: only the named members, and
@@ -136,6 +174,9 @@ func (update AgentCISettingsUpdate) MarshalJSON() ([]byte, error) {
 		body["ci_placement"] = nil
 	} else if update.CIPlacement != nil {
 		body["ci_placement"] = update.CIPlacement
+	}
+	if update.CIRunReservation != nil {
+		body["ci_run_reservation"] = *update.CIRunReservation
 	}
 	return json.Marshal(body)
 }
