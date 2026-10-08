@@ -1,5 +1,20 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra pipeline get` says how long each step's pod sat Pending in the
+  cluster, and where the time went.** The Queueing section adds a line such
+  as "test: Pending 5m9s in the cluster before it ran (scheduling 4m30s,
+  volumes 8s, image pull 19s)", or says a pod never started its container.
+  That wait comes after the CI slot wait and was invisible before: the step
+  read as running. `-o json` carries `pod_created_at`, `pod_scheduled_at`,
+  `workspace_attached_at`, `image_pull_started_at`, `image_pulled_at` and
+  `container_started_at` on each step when the platform sends them. They need
+  a platform and a cluster agent that report them; older ones print nothing
+  new.
+
 ## v0.26.0 — 2026-10-08
 
 ### Added

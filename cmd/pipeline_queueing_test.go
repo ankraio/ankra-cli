@@ -75,3 +75,43 @@ func TestPipelineStepQueueWaitIsUnmeasuredWhenTheClocksDisagree(t *testing.T) {
 		t.Fatalf("a start before the hand-off is unmeasured, got %s", wait)
 	}
 }
+
+// The agent reports when a step's pod was created, placed, had its workspace
+// attached, pulled its image and started the step: `ankra pipeline get` says
+// how long the step sat Pending in the cluster and where that time went
+// (ankra-q573dh.1).
+func TestPipelineRunDetailPrintsTheInClusterPendingWait(t *testing.T) {
+	podCreatedAt := "2026-10-08T09:00:03Z"
+	scheduledAt := "2026-10-08T09:04:33Z"
+	attachedAt := "2026-10-08T09:04:41Z"
+	pullStartedAt := "2026-10-08T09:04:51.25Z"
+	pulledAt := "2026-10-08T09:05:10.5Z"
+	containerStartedAt := "2026-10-08T09:05:12Z"
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, client.PipelineRunDetail{
+		PipelineRun: client.PipelineRun{RunNumber: 9, ID: "run-9", Status: "concluded"},
+		Steps: []client.PipelineStep{
+			{StepKey: "test", Status: "concluded", PodCreatedAt: &podCreatedAt, PodScheduledAt: &scheduledAt,
+				WorkspaceAttachedAt: &attachedAt, ImagePullStartedAt: &pullStartedAt, ImagePulledAt: &pulledAt,
+				ContainerStartedAt: &containerStartedAt},
+			{StepKey: "cached", Status: "concluded", PodCreatedAt: &podCreatedAt, ImagePulledAt: &pulledAt,
+				ContainerStartedAt: &containerStartedAt},
+			{StepKey: "stuck", Status: "concluded", PodCreatedAt: &podCreatedAt, PodScheduledAt: &scheduledAt},
+			{StepKey: "old", Status: "concluded"},
+		},
+	}, client.PipelineSelector{})
+	rendered := output.String()
+	for _, expected := range []string{
+		"Queueing:",
+		"  test: Pending 5m9s in the cluster before it ran (scheduling 4m30s, volumes 8s, image pull 19s)",
+		"  cached: Pending 5m9s in the cluster before it ran (image already on the node)",
+		"  stuck: its pod never started its container",
+	} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("output missing %q:\n%s", expected, rendered)
+		}
+	}
+	if strings.Contains(rendered, "old:") {
+		t.Errorf("a step whose agent reported no pod says nothing about one:\n%s", rendered)
+	}
+}
