@@ -726,6 +726,80 @@ func TestManagedCreate_DevClusterRefusesWhatOneServerCannotBe(t *testing.T) {
 	}
 }
 
+func TestManagedCreate_AnkraCloudK8sSendsControlPlane(t *testing.T) {
+	for _, controlPlane := range []string{"development", "production"} {
+		t.Run(controlPlane, func(t *testing.T) {
+			mock := &managedClusterMock{}
+			resetConfirmFlag(t, managedCreateCmd)
+			resetManagedFlags(t)
+			t.Cleanup(func() { resetManagedFlags(t) })
+			output, runError := runWithInput(t, mock, "",
+				managedCreateArgs("--provider", "ankracloud_k8s", "--control-plane", controlPlane)...)
+			if runError != nil {
+				t.Fatalf("execute failed: %v\noutput: %s", runError, output)
+			}
+			options := mock.createRequests[0].AnkraCloudK8s
+			if options == nil || options.ControlPlane != controlPlane {
+				t.Fatalf("ankracloud_k8s options = %+v, want control_plane %s", options, controlPlane)
+			}
+			encoded, _ := json.Marshal(mock.createRequests[0])
+			if !strings.Contains(string(encoded), `"ankracloud_k8s":{"control_plane":"`+controlPlane+`"}`) {
+				t.Fatalf("body = %s, want only control_plane in the ankracloud_k8s block", encoded)
+			}
+		})
+	}
+}
+
+func TestManagedCreate_AnkraCloudK8sWithoutControlPlaneOmitsIt(t *testing.T) {
+	mock := &managedClusterMock{}
+	resetConfirmFlag(t, managedCreateCmd)
+	resetManagedFlags(t)
+	t.Cleanup(func() { resetManagedFlags(t) })
+	output, runError := runWithInput(t, mock, "",
+		managedCreateArgs("--provider", "ankracloud_k8s", "--network-cidr", "10.50.0.0/24")...)
+	if runError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", runError, output)
+	}
+	encoded, _ := json.Marshal(mock.createRequests[0])
+	if !strings.Contains(string(encoded), `"network_cidr":"10.50.0.0/24"`) {
+		t.Fatalf("body = %s, want the ankracloud_k8s block", encoded)
+	}
+	if strings.Contains(string(encoded), "control_plane") {
+		t.Fatalf("body = %s, want no control_plane so the platform default applies", encoded)
+	}
+}
+
+func TestManagedCreate_ControlPlaneRefusals(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		arguments []string
+		wantText  []string
+	}{
+		"an unknown tier":    {[]string{"--provider", "ankracloud_k8s", "--control-plane", "staging"}, []string{"staging", "development", "production"}},
+		"an empty tier":      {[]string{"--provider", "ankracloud_k8s", "--control-plane", ""}, []string{"development", "production"}},
+		"with a dev cluster": {[]string{"--provider", "ankracloud_k8s", "--dev-cluster", "--control-plane", "development"}, []string{"--dev-cluster", "--control-plane"}},
+		"another provider":   {[]string{"--provider", "doks", "--control-plane", "production"}, []string{"--control-plane", "ankracloud_k8s"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mock := &managedClusterMock{}
+			resetConfirmFlag(t, managedCreateCmd)
+			resetManagedFlags(t)
+			t.Cleanup(func() { resetManagedFlags(t) })
+			_, runError := runWithInput(t, mock, "", managedCreateArgs(testCase.arguments...)...)
+			if exitCodeFor(runError) != exitUsage {
+				t.Fatalf("error = %v, want a usage error", runError)
+			}
+			for _, text := range testCase.wantText {
+				if !strings.Contains(runError.Error(), text) {
+					t.Errorf("error should name %q, got: %v", text, runError)
+				}
+			}
+			if len(mock.createRequests) != 0 {
+				t.Errorf("expected no API call, got %d", len(mock.createRequests))
+			}
+		})
+	}
+}
+
 func TestManagedCreate_CredentialIsOptionalOnlyForAnkraCloud(t *testing.T) {
 	withoutCredential := func(arguments []string) []string {
 		kept := []string{}
