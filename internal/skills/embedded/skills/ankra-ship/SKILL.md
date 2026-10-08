@@ -468,7 +468,7 @@ writer yet. `egress-https` reaches **public addresses only**; name a private ran
 | Exit 79, "no QEMU emulation registered" | pinned `platforms` on an arm64 cluster | drop `build.platforms` |
 | `image_gate_blocked` | a finding at or above the gate | fix it, or a written disposition in `ankra-security` |
 | `no_scan_results` | scan report never uploaded | vault (above) or an older platform; do not treat as clean |
-| Step "running" for minutes with no output | pod Pending: CPU quota, no StorageClass, disk | `ankra cluster events -n ankra-ci --type Warning` |
+| Step "running" for minutes with no output | pod Pending: CPU quota, no StorageClass, disk | `ankra pipeline get <run-id>` Queueing says where the wait went ("Pending 5m in the cluster (scheduling 4m30s, volumes 8s, image pull 19s)"); then `ankra cluster events -n ankra-ci --type Warning` |
 | `publish` skipped on a rerun | `when.events` excludes `rerun` | push a commit |
 | Test or build times out reaching a private host | `egress-https` is public-only | `ankra org ci-settings set --egress-allowed-cidr 10.0.0.0/8` |
 | Two builds per commit | generated GitHub workflow still present | §3f `pipeline convert` |

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -87,6 +88,7 @@ func TestPipelineRunDetailPrintsTheInClusterPendingWait(t *testing.T) {
 	pullStartedAt := "2026-10-08T09:04:51.25Z"
 	pulledAt := "2026-10-08T09:05:10.5Z"
 	containerStartedAt := "2026-10-08T09:05:12Z"
+	stuckFinishedAt := "2026-10-08T09:15:03Z"
 	var output bytes.Buffer
 	printPipelineRunDetail(&output, client.PipelineRunDetail{
 		PipelineRun: client.PipelineRun{RunNumber: 9, ID: "run-9", Status: "concluded"},
@@ -96,7 +98,11 @@ func TestPipelineRunDetailPrintsTheInClusterPendingWait(t *testing.T) {
 				ContainerStartedAt: &containerStartedAt},
 			{StepKey: "cached", Status: "concluded", PodCreatedAt: &podCreatedAt, ImagePulledAt: &pulledAt,
 				ContainerStartedAt: &containerStartedAt},
-			{StepKey: "stuck", Status: "concluded", PodCreatedAt: &podCreatedAt, PodScheduledAt: &scheduledAt},
+			{StepKey: "stuck", Status: "concluded", Outcome: strPipelinePtr("timed_out"),
+				PodCreatedAt: &podCreatedAt, PodScheduledAt: &scheduledAt, FinishedAt: &stuckFinishedAt},
+			{StepKey: "lost", Status: "concluded", Outcome: strPipelinePtr("cancelled"), PodCreatedAt: &podCreatedAt},
+			{StepKey: "unseen", Status: "concluded", Outcome: strPipelinePtr("success"),
+				PodCreatedAt: &podCreatedAt, FinishedAt: &stuckFinishedAt},
 			{StepKey: "old", Status: "concluded"},
 			{StepKey: "live", Status: "running", PodCreatedAt: &podCreatedAt},
 		},
@@ -106,7 +112,8 @@ func TestPipelineRunDetailPrintsTheInClusterPendingWait(t *testing.T) {
 		"Queueing:",
 		"  test: Pending 5m9s in the cluster before it ran (scheduling 4m30s, volumes 8s, image pull 19s)",
 		"  cached: Pending 5m9s in the cluster before it ran (image already on the node)",
-		"  stuck: its pod never started its container",
+		"  stuck: Pending at least 15m0s in the cluster; its container was never seen to start",
+		"  lost: its container was never seen to start",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("output missing %q:\n%s", expected, rendered)
@@ -117,5 +124,58 @@ func TestPipelineRunDetailPrintsTheInClusterPendingWait(t *testing.T) {
 	}
 	if strings.Contains(rendered, "old:") {
 		t.Errorf("a step whose agent reported no pod says nothing about one:\n%s", rendered)
+	}
+	// A step that succeeded ran its container; a start the agent did not
+	// observe is not a container that never started.
+	if strings.Contains(rendered, "unseen:") {
+		t.Errorf("a successful step is not called a pod that never started:\n%s", rendered)
+	}
+}
+
+// A platform or an agent older than the pod timing sends none of the six
+// fields, and older agents send some as null: the run detail prints no pod
+// line, and -o json carries exactly what the platform sent.
+func TestPipelineStepPodTimingRoundTripsThroughJSON(t *testing.T) {
+	body := []byte(`{"id":"run-9","run_number":9,"status":"concluded","steps":[
+		{"step_key":"test","status":"concluded","pod_created_at":"2026-10-08T09:00:03Z",
+		 "pod_scheduled_at":"2026-10-08T09:04:33Z","workspace_attached_at":"2026-10-08T09:04:41Z",
+		 "image_pull_started_at":"2026-10-08T09:04:51.25Z","image_pulled_at":"2026-10-08T09:05:10.5Z",
+		 "container_started_at":"2026-10-08T09:05:12Z"},
+		{"step_key":"older","status":"concluded","pod_created_at":null,"pod_scheduled_at":null,
+		 "workspace_attached_at":null,"image_pull_started_at":null,"image_pulled_at":null,
+		 "container_started_at":null}]}`)
+	var detail client.PipelineRunDetail
+	if decodeError := json.Unmarshal(body, &detail); decodeError != nil {
+		t.Fatalf("decode: %v", decodeError)
+	}
+	var encoded bytes.Buffer
+	if encodeError := encodeStructured(&encoded, outputJSON, detail); encodeError != nil {
+		t.Fatalf("encode: %v", encodeError)
+	}
+	var steps struct {
+		Steps []map[string]any `json:"steps"`
+	}
+	if decodeError := json.Unmarshal(encoded.Bytes(), &steps); decodeError != nil {
+		t.Fatalf("re-decode: %v", decodeError)
+	}
+	for field, want := range map[string]string{
+		"pod_created_at":        "2026-10-08T09:00:03Z",
+		"pod_scheduled_at":      "2026-10-08T09:04:33Z",
+		"workspace_attached_at": "2026-10-08T09:04:41Z",
+		"image_pull_started_at": "2026-10-08T09:04:51.25Z",
+		"image_pulled_at":       "2026-10-08T09:05:10.5Z",
+		"container_started_at":  "2026-10-08T09:05:12Z",
+	} {
+		if got := steps.Steps[0][field]; got != want {
+			t.Errorf("-o json %s = %v, want %s", field, got, want)
+		}
+		if _, isPresent := steps.Steps[1][field]; isPresent {
+			t.Errorf("-o json invents %s for a step whose agent did not report it", field)
+		}
+	}
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, detail, client.PipelineSelector{})
+	if strings.Contains(output.String(), "older:") {
+		t.Errorf("a step with null pod timing prints no pod line:\n%s", output.String())
 	}
 }
