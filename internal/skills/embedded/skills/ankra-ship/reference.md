@@ -81,7 +81,7 @@ Kind blocks:
 | `build` | `dockerfile` (path from the repo root), `context`, `target`, `platforms` (do not pin), `build_args` (names, resolved from variables), `provenance`, `sbom`, `cache_to`. `dockerfile` and `context` resolve independently: `context: backend` + `dockerfile: Dockerfile` reads the **root** Dockerfile; write `dockerfile: backend/Dockerfile`. |
 | `scan` | `scanners` (`semgrep`, `checkov`, `trivy`), `fail_on` (scanner → its own severity word, folded into the gate tighten-only; a value outside that scanner's vocabulary — the generated `trivy: "app"`, `checkov: "none"` — carries no floor and leaves the organisation gate to decide), `with.semgrep_config` (space-separated packs; else `--config=auto`), `with.image_gate` (`app`/`all`/`off`, tighten-only) |
 | `gate` | `require_stages` (the scan stages whose findings it judges; a required scanner that recorded nothing fails it by name), `approval_roles` |
-| `publish` | `with.image` is accepted and **not read** — the target is the application's own registry, resolved like the build's push target. Needs a successful `gate` upstream; re-tags the judged digest as `sha-<7>`. |
+| `publish` | `with.image` is accepted and **not read** — the target is the application's own registry, resolved like the build's push target. Needs a successful `gate` upstream; re-tags the judged digest as `sha-<7>`. Outputs `image_ref` (`<repository>:sha-<7>`), `image_digest`, `image_tag`, `image_tags`: a later stage pins those, never a hand-built name or a copy to another registry. |
 
 What every step carries: the workspace at `/workspace`; `ANKRA_RUN_ID`, `ANKRA_STEP_ID`,
 `ANKRA_STEP_KEY`, `ANKRA_STEP_KIND`, `ANKRA_ORGANISATION_ID`, `ANKRA_CLUSTER_ID`, `ANKRA_REPOSITORY_ID`,
