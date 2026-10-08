@@ -615,7 +615,9 @@ func renderRegistryRetentionRuleSlots(out io.Writer, slots *client.RegistryReten
 	case slots.Used > slots.Limit:
 		_, _ = fmt.Fprintf(out, "  The registry runs at most %d, so the newest retention is NOT being applied until rules are reduced: "+
 			"remove rules, or give several the same --keep-days or --keep-latest.\n", slots.Limit)
-	case slots.Used >= slots.Limit-registryRetentionRuleSlotsWarnRemaining:
+	case slots.Used > 0 && slots.Used >= slots.Limit-registryRetentionRuleSlotsWarnRemaining:
+		// Used > 0: with a limit of 2 or fewer, an empty policy would
+		// otherwise read as nearly full.
 		_, _ = fmt.Fprintln(out, "  Nearly full: a new rule that reuses the --keep-days or --keep-latest of an existing rule takes no extra slot.")
 	}
 }

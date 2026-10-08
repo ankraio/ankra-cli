@@ -26,6 +26,8 @@ func TestRegistryRetentionShowsRuleSlots(t *testing.T) {
 			[]string{"NOT being applied"}},
 		{"full", &client.RegistryRetentionRuleSlots{Used: 15, Limit: 15},
 			[]string{"Rule slots: 15 of 15 used", "Nearly full"}, []string{"NOT being applied"}},
+		{"empty with a small limit", &client.RegistryRetentionRuleSlots{Used: 0, Limit: 2},
+			[]string{"Rule slots: 0 of 2 used"}, []string{"Nearly full", "NOT being applied"}},
 		{"over", &client.RegistryRetentionRuleSlots{Used: 17, Limit: 15},
 			[]string{"Rule slots: 17 of 15 used", "the newest retention is NOT being applied until rules are reduced"},
 			[]string{"Nearly full"}},
