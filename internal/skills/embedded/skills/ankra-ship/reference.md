@@ -62,7 +62,7 @@ warn at validation and are skipped by the planner (`kind_unavailable`).
 Common fields: `image` (required for `run`; ignored for `build` and `checkout`, whose images are
 Ankra's), `run`, `uses` (**fatal today**), `with`, `needs`, `if` (CEL), `when.branches|paths|events`,
 `matrix` (axes + `include`/`exclude`, ≤ 64 legs), `services`, `env` (names starting `ANKRA_`, `PATH`,
-`BUILDKIT*`, `DOCKER_CONFIG` refused), `secrets`, `cache` (`key`, `paths`, `size`, `restore_keys`),
+`BUILDKIT*`, `DOCKER_CONFIG` refused), `secrets`, `cache` (`key`, `paths` relative to the workspace root, `size`, `restore_keys`, `fallback` `volume`|`none`),
 `artifacts` (`name`, `paths`, `retention_days`), `test_results` (`junit`|`go-test`|`pytest`|`playwright`;
 carried, not ingested yet), `outputs`, `timeout` (default 30m, max 6h), `resources.cpu|memory|gpu`
 (500m/1Gi default; ≤ 8 cores, 32Gi, 4 GPUs; requests = limits), `runs_on.cluster|node_selector|
@@ -144,9 +144,10 @@ stages:
     network: egress-https
     secrets: [NPM_TOKEN]
     cache:
-      - { key: "pnpm-${{ hashFiles('pnpm-lock.yaml') }}", paths: [".pnpm-store"], restore_keys: ["pnpm-"] }
+      - { key: "pnpm-${{ hashFiles('pnpm-lock.yaml') }}", paths: [".ankra-node-cache/pnpm-store"], restore_keys: ["pnpm-"], fallback: none }
+    env: { COREPACK_HOME: "/workspace/.ankra-node-cache/corepack" }   # read-only root: no `corepack enable`
     run: |
-      corepack enable && pnpm install --frozen-lockfile
+      corepack pnpm install --frozen-lockfile --store-dir /workspace/.ankra-node-cache/pnpm-store
   - name: unit
     kind: run
     needs: [install]
@@ -304,7 +305,7 @@ human-only), `credentials.read|write|delete`.
 
 Step timeout 30m default, 6h max · one automatic retry for Ankra's own failure classes only ·
 matrix ≤ 64 legs (8 on a restricted fork) · step compute 500m/1Gi default, ≤ 8 cores, 32Gi, 4 GPUs
-(2 cores/4Gi on a fork) · caches 5Gi per path · artifacts 512 MiB per object, 2 GiB per run, 20
+(2 cores/4Gi on a fork) · caches 4 GiB per saved path, 10 GiB per repository (a 5Gi volume per path on an agent without cache archives) · artifacts 512 MiB per object, 2 GiB per run, 20
 uploads per step, links valid 5 minutes · parallelism 4 runs / 8 steps per organisation by default ·
 retention: artifacts and logs 30 days, caches 14, runs 90 · grants ≤ 32 per step, alive for the
 step's timeout plus 15 minutes · live log queues 1,024 lines and keeps the last 8 MiB on upload ·
