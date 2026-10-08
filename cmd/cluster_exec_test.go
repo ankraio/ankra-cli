@@ -173,3 +173,46 @@ func TestClusterExecForwardsStdinAndClosesIt(t *testing.T) {
 		t.Error("the end of the local input must close the command's stdin")
 	}
 }
+
+// TestClusterExecStdinFramesFitTheTerminalReadLimit pins ankra-b5c3as.22: a
+// large input arrives byte-exact, and no stdin frame, once base64-encoded in
+// its JSON envelope, exceeds the 32 KiB the platform's terminal websocket reads.
+func TestClusterExecStdinFramesFitTheTerminalReadLimit(t *testing.T) {
+	frames := make(chan client.PodTerminalFrame, 4)
+	terminal := &fakePodTerminal{frames: frames}
+	setMockClient(t, &terminalMock{terminal: terminal})
+	resetExecFlags(t)
+	writeSelectedClusterJSON(t)
+	input := strings.Repeat("0123456789abcdef", 200<<10/16)
+	rootCmd.SetIn(strings.NewReader(input))
+
+	go func() {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) && !terminal.isStdinClosed() {
+			time.Sleep(10 * time.Millisecond)
+		}
+		frames <- exitFrame(0)
+		close(frames)
+	}()
+
+	if _, runError := executeCommand("cluster", "exec", "db-0", "-n", "default", "-c", "db", "--stdin", "--", "wc", "-c"); runError != nil {
+		t.Fatalf("unexpected error: %v", runError)
+	}
+	if terminal.typed() != input {
+		t.Fatalf("forwarded %d bytes, want the %d sent", len(terminal.typed()), len(input))
+	}
+	terminal.inputLock.Lock()
+	defer terminal.inputLock.Unlock()
+	if len(terminal.inputs) < 2 {
+		t.Fatalf("a %d-byte input arrived in %d frame(s); it must be split", len(input), len(terminal.inputs))
+	}
+	for index, chunk := range terminal.inputs {
+		frame, marshalError := json.Marshal(map[string]any{"type": "stdin", "data": base64.StdEncoding.EncodeToString([]byte(chunk))})
+		if marshalError != nil {
+			t.Fatal(marshalError)
+		}
+		if len(frame) > 32<<10 {
+			t.Fatalf("stdin frame %d is %d bytes encoded; the terminal websocket reads at most %d", index, len(frame), 32<<10)
+		}
+	}
+}

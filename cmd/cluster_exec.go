@@ -212,10 +212,18 @@ func runPodExec(cmd *cobra.Command, clusterID string, request client.PodTerminal
 	return nil
 }
 
+// execInputChunkBytes caps one stdin frame. Each chunk travels base64 inside
+// a JSON frame (4/3 of its size plus the envelope), and the platform's
+// terminal websocket reads at most 32 KiB per message: a 32 KiB chunk became a
+// ~44 KiB frame and failed every input over ~24 KiB with "read limited at
+// 32769 bytes" (ankra-b5c3as.22). 16 KiB encodes to ~22 KiB, which fits every
+// deployed server.
+const execInputChunkBytes = 16 << 10
+
 // forwardExecInput sends the local input to the command and, once it ends,
 // tells the command so it sees end-of-file.
 func forwardExecInput(ctx context.Context, input io.Reader, session client.PodTerminal) {
-	buffer := make([]byte, 32*1024)
+	buffer := make([]byte, execInputChunkBytes)
 	for {
 		count, readError := input.Read(buffer)
 		if count > 0 {
