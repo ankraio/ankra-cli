@@ -583,6 +583,7 @@ func renderRegistryRetention(out io.Writer, retention *client.RegistryRetention)
 		_, _ = fmt.Fprintln(out, "Rules (each replaces the policy for the repositories it matches):")
 		renderRegistryRetentionRules(out, retention.Rules)
 	}
+	renderRegistryRetentionRuleSlots(out, retention.RuleSlots)
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintln(out, "Always kept:")
 	_, _ = fmt.Fprintln(out, "  - the newest image of every repository")
@@ -595,6 +596,29 @@ func renderRegistryRetention(out io.Writer, retention *client.RegistryRetention)
 	}
 	if retention.SpaceFreedAt != "" {
 		_, _ = fmt.Fprintf(out, "Deleted images free their space at the registry's garbage collection: %s.\n", retention.SpaceFreedAt)
+	}
+}
+
+// registryRetentionRuleSlotsWarnRemaining is how close to the limit the
+// slots line starts suggesting reuse of existing keep values.
+const registryRetentionRuleSlotsWarnRemaining = 2
+
+// renderRegistryRetentionRuleSlots says how many of the registry's retention
+// rule slots the policy takes. A platform that does not report them gets no
+// line.
+func renderRegistryRetentionRuleSlots(out io.Writer, slots *client.RegistryRetentionRuleSlots) {
+	if slots == nil || slots.Limit <= 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "Rule slots: %d of %d used (rules with the same keep values share a slot).\n", slots.Used, slots.Limit)
+	switch {
+	case slots.Used > slots.Limit:
+		_, _ = fmt.Fprintf(out, "  The registry runs at most %d, so the newest retention is NOT being applied until rules are reduced: "+
+			"remove rules, or give several the same --keep-days or --keep-latest.\n", slots.Limit)
+	case slots.Used > 0 && slots.Used >= slots.Limit-registryRetentionRuleSlotsWarnRemaining:
+		// Used > 0: with a limit of 2 or fewer, an empty policy would
+		// otherwise read as nearly full.
+		_, _ = fmt.Fprintln(out, "  Nearly full: a new rule that reuses the --keep-days or --keep-latest of an existing rule takes no extra slot.")
 	}
 }
 
