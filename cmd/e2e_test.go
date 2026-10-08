@@ -3199,7 +3199,7 @@ func (m baseMock) PutPipelineDefinition(ctx context.Context, selector client.Pip
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ValidatePipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineValidation, error) {
+func (m baseMock) ValidatePipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string, changedFiles []string) (*client.PipelineValidation, error) {
 	return nil, errors.New("not implemented")
 }
 
