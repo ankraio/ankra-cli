@@ -656,6 +656,25 @@ func TestUsageHumanQuantity(t *testing.T) {
 	}
 }
 
+func TestUsageOneDecimal(t *testing.T) {
+	cases := []struct {
+		value float64
+		want  string
+	}{
+		{8_760.04, "8,760.0"},
+		{1.25, "1.3"},
+		{0, "0.0"},
+		{-1.5, "-1.5"},
+		{-1_234.56, "-1,234.6"},
+		{-0.04, "0.0"},
+	}
+	for _, testCase := range cases {
+		if got := usageOneDecimal(testCase.value); got != testCase.want {
+			t.Errorf("usageOneDecimal(%v) = %q, want %q", testCase.value, got, testCase.want)
+		}
+	}
+}
+
 func TestUsagePriceLabel(t *testing.T) {
 	cases := []struct {
 		line client.UsageLine

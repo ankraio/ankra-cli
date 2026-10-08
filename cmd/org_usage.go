@@ -569,10 +569,19 @@ func usagePlural(count int64, noun string) string {
 }
 
 // usageOneDecimal writes a value with one decimal and thousands separators
-// in its whole part: 8760.04 reads 8,760.0.
+// in its whole part: 8760.04 reads 8,760.0. It rounds half away from zero
+// and keeps a negative value's sign in front (-1.5, never 1.-5); a value
+// that rounds to zero reads 0.0, not -0.0.
 func usageOneDecimal(value float64) string {
+	sign := ""
+	if value < 0 {
+		sign, value = "-", -value
+	}
 	tenths := int64(value*10 + 0.5)
-	return fmt.Sprintf("%s.%d", usageThousands(tenths/10), tenths%10)
+	if tenths == 0 {
+		sign = ""
+	}
+	return fmt.Sprintf("%s%s.%d", sign, usageThousands(tenths/10), tenths%10)
 }
 
 // usageScaledBytes scales a byte count to the largest decimal unit under
