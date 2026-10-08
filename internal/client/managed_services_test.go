@@ -83,7 +83,10 @@ func TestManagedServicesLaneParity(t *testing.T) {
 			_, err := client.ConfirmServiceReview(ctx, testServiceReviewID, "sha256:abc")
 			return err
 		},
-		func() error { _, err := client.ListServiceInstances(ctx, page); return err },
+		func() error {
+			_, err := client.ListServiceInstances(ctx, ServiceInstanceListOptions{ServicePageOptions: page})
+			return err
+		},
 		func() error { _, err := client.GetServiceInstance(ctx, testServiceInstanceID); return err },
 		func() error {
 			_, err := client.PrepareServiceRetirement(ctx, testServiceInstanceID, ServiceRetirementRequest{
@@ -189,7 +192,7 @@ func TestManagedServicesHonourOrganisationOverride(t *testing.T) {
 	t.Cleanup(server.Close)
 	client := New(testToken, server.URL)
 	client.SetOrganisationOverride("3b7dccca-0788-4470-9910-19478ae345ae")
-	if _, err := client.ListServiceInstances(context.Background(), ServicePageOptions{}); err != nil {
+	if _, err := client.ListServiceInstances(context.Background(), ServiceInstanceListOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.ListServicePackages(context.Background(), ServicePageOptions{}); err != nil {

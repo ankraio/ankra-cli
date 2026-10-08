@@ -5044,7 +5044,11 @@ func (m baseMock) ConfirmServiceReview(context.Context, string, string) (*client
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ListServiceInstances(context.Context, client.ServicePageOptions) (*client.ServiceInstancePage, error) {
+func (m baseMock) ListServiceInstances(context.Context, client.ServiceInstanceListOptions) (*client.ServiceInstancePage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetOrganisationUsage(context.Context, client.UsageOptions) (*client.UsageReport, error) {
 	return nil, errors.New("not implemented")
 }
 
