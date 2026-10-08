@@ -201,3 +201,40 @@ func TestApplicationRegistrySetParsesComponentRepositories(t *testing.T) {
 		t.Fatalf("a flag without '=' must be a usage error, got %v", malformedError)
 	}
 }
+
+// --project-public rides the declaration and needs the admin credential that
+// would create the project; the answer's project_created is said on stderr,
+// and so is a project left unchecked for want of an admin credential.
+func TestApplicationRegistrySetProjectCreation(t *testing.T) {
+	mockClient := &applicationRegistryMock{payload: json.RawMessage(`{"declared":true,"project_created":true}`)}
+	output, executeError := runApplicationCommand(t, mockClient,
+		"registry", "set", testApplicationID,
+		"--url", "oci://artifact.example.com/collector",
+		"--credential", "example-harbor-pull",
+		"--admin-credential", "example-harbor-admin",
+		"--project-public",
+	)
+	if executeError != nil {
+		t.Fatalf("registry set error = %v", executeError)
+	}
+	if !mockClient.updateRequest.ImageRegistry.ProjectPublic {
+		t.Fatal("--project-public must ride the declaration")
+	}
+	if !strings.Contains(output, "Created the project on the registry") || strings.Contains(output, "did not check") {
+		t.Fatalf("output = %q", output)
+	}
+
+	mockClient = &applicationRegistryMock{payload: json.RawMessage(`{"declared":true}`)}
+	output, executeError = runApplicationCommand(t, mockClient,
+		"registry", "set", testApplicationID, "--url", "oci://artifact.example.com/collector", "--credential", "example-harbor-pull")
+	if executeError != nil || !strings.Contains(output, "did not check that the project exists") {
+		t.Fatalf("without an admin credential: error=%v output=%q", executeError, output)
+	}
+
+	mockClient = &applicationRegistryMock{}
+	_, usageError := runApplicationCommand(t, mockClient,
+		"registry", "set", testApplicationID, "--url", "oci://artifact.example.com/collector", "--project-public")
+	if exitCodeFor(usageError) != exitUsage || mockClient.updateCalls != 0 {
+		t.Fatalf("--project-public without --admin-credential: error=%v calls=%d", usageError, mockClient.updateCalls)
+	}
+}
