@@ -229,20 +229,23 @@ func printPipelineValidation(command *cobra.Command, validation *client.Pipeline
 }
 
 // skipCell renders a skipped stage's table cell, naming the reason when the
-// platform gave one.
+// platform gave one. The reason is folded onto one line so a reason carrying
+// a line break cannot break the table.
 func skipCell(reason string) string {
-	if strings.TrimSpace(reason) == "" {
+	folded := strings.Join(strings.Fields(reason), " ")
+	if folded == "" {
 		return "skip"
 	}
-	return "skip: " + reason
+	return "skip: " + folded
 }
 
 // printPipelineEventTable renders the per-event plan as one row per stage and
-// one column per event probed: "run", "skip: <reason>", or "-" for an event
-// that would start no run at all. It answers "which of my stages run on a
-// pull request and which on a push" at a glance, which the per-event detail
-// above spreads over many lines. Stages are listed in the order the events
-// first name them.
+// one column per event probed: "run", "skip: <reason>", "-" for an event
+// that would start no run at all, or "not listed" for a stage the event's plan
+// does not name either way - absence is reported, never read as a skip. It
+// answers "which of my stages run on a pull request and which on a push" at a
+// glance, which the per-event detail above spreads over many lines. Stages
+// are listed in the order the events first name them.
 func printPipelineEventTable(out io.Writer, events []client.PipelineEventPlan) {
 	var stages []string
 	isListed := map[string]bool{}
@@ -284,7 +287,7 @@ func printPipelineEventTable(out io.Writer, events []client.PipelineEventPlan) {
 			case !event.Run:
 				cell = "-"
 			case !isPlanned:
-				cell = "skip"
+				cell = "not listed"
 			}
 			row = append(row, cell)
 		}

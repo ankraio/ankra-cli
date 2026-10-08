@@ -2222,4 +2222,7 @@ func TestSkipCellNeverLeavesADanglingLabel(t *testing.T) {
 	if cell := skipCell(" "); cell != "skip" {
 		t.Errorf("a skip with no reason renders as %q, want plain skip", cell)
 	}
+	if cell := skipCell("path\nfilter"); cell != "skip: path filter" {
+		t.Errorf("a reason with a line break renders as %q, want it on one line", cell)
+	}
 }
