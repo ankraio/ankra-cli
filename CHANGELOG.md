@@ -1,5 +1,21 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra cluster managed create --provider ankracloud_k8s --control-plane
+  development|production` chooses the control plane tier of an Ankra Cloud
+  managed cluster.** `development` runs one control plane replica and carries
+  no control plane fee, so you pay for the nodes only; an upgrade or the
+  failure of the machine it runs on interrupts the Kubernetes API, so it is
+  not for production. `production` runs three replicas and is what you get
+  when the flag is left out. The tier is chosen at create and stays for the
+  life of the cluster. The flag is refused with `--dev-cluster`, which is one
+  server with no managed control plane, and with every other provider. It
+  needs a platform that offers control plane tiers; one that does not yet
+  refuses the create with a message saying so.
+
 ## v0.25.1 — 2026-10-08
 
 ### Changed
