@@ -836,7 +836,9 @@ func pipelineStepQueueWait(step client.PipelineStep) (time.Duration, bool) {
 // It is the wait the CI slot line cannot show - the agent has already picked
 // the step up - and on a busy cluster it is the larger of the two.
 //
-// A pod whose container never started says so. Nothing is said for a step
+// A concluded step whose pod never started its container says so; a step
+// still in flight has not been settled yet and says nothing rather than
+// claim a pod that may still start never will. Nothing is said for a step
 // whose agent reported no pod at all, which is every step on an agent or a
 // platform older than the fields.
 func pipelineStepPodPendingLine(step client.PipelineStep) (string, bool) {
@@ -846,6 +848,9 @@ func pipelineStepPodPendingLine(step client.PipelineStep) (string, bool) {
 	}
 	containerStartedAt, isStartKnown := parsePipelineStepTime(step.ContainerStartedAt)
 	if !isStartKnown {
+		if step.Status != pipelineStepStatusConcluded {
+			return "", false
+		}
 		return fmt.Sprintf("  %s: its pod never started its container", step.StepKey), true
 	}
 	phases := []string{}

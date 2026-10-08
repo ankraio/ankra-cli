@@ -98,6 +98,7 @@ func TestPipelineRunDetailPrintsTheInClusterPendingWait(t *testing.T) {
 				ContainerStartedAt: &containerStartedAt},
 			{StepKey: "stuck", Status: "concluded", PodCreatedAt: &podCreatedAt, PodScheduledAt: &scheduledAt},
 			{StepKey: "old", Status: "concluded"},
+			{StepKey: "live", Status: "running", PodCreatedAt: &podCreatedAt},
 		},
 	}, client.PipelineSelector{})
 	rendered := output.String()
@@ -110,6 +111,9 @@ func TestPipelineRunDetailPrintsTheInClusterPendingWait(t *testing.T) {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("output missing %q:\n%s", expected, rendered)
 		}
+	}
+	if strings.Contains(rendered, "live:") {
+		t.Errorf("a step still in flight is not called a pod that never started:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "old:") {
 		t.Errorf("a step whose agent reported no pod says nothing about one:\n%s", rendered)
