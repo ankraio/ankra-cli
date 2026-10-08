@@ -293,14 +293,17 @@ func newApplicationPipelineValidateCommand() *cobra.Command {
 				return pathError
 			}
 			gitReference, _ := command.Flags().GetString("ref")
+			changedFiles, _ := command.Flags().GetStringArray("changed-file")
 			return runPipelineValidate(command, client.PipelineSelector{ApplicationID: applicationID},
-				filePath, strings.TrimSpace(gitReference))
+				filePath, strings.TrimSpace(gitReference), pipelineValidateChangedFiles(changedFiles))
 		},
 	}
 	validateCommand.Flags().String("spec-file", "",
 		"Validate this definition file, the same as passing it as the argument")
 	validateCommand.Flags().String("ref", "",
 		"Read the definition from this git reference in the current checkout (for example origin/my-branch) instead of the working tree")
+	validateCommand.Flags().StringArray("changed-file", nil,
+		"Plan as if this repository-relative path changed (repeatable), so path filters decide instead of passing")
 	registerStructuredOutputFlags(validateCommand)
 	return validateCommand
 }

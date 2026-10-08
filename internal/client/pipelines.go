@@ -1083,9 +1083,12 @@ func (c *Client) PutPipelineDefinition(ctx context.Context, selector PipelineSel
 
 // ValidatePipelineDefinition dry-runs a definition without writing anything
 // (POST …/pipeline/validate). An empty specYAML validates the stored
-// definition instead of one the caller supplies.
+// definition instead of one the caller supplies. changedFiles is an optional
+// dry-run diff: nil sends none, and the platform plans with no change list;
+// a list plans the push and the pull request as if those files changed, so
+// path filters decide.
 func (c *Client) ValidatePipelineDefinition(ctx context.Context, selector PipelineSelector,
-	specYAML string) (*PipelineValidation, error) {
+	specYAML string, changedFiles []string) (*PipelineValidation, error) {
 	base, selectorError := selector.basePath()
 	if selectorError != nil {
 		return nil, selectorError
@@ -1093,8 +1096,9 @@ func (c *Client) ValidatePipelineDefinition(ctx context.Context, selector Pipeli
 	var result PipelineValidation
 	if requestError := c.doPipelineRequest(ctx, http.MethodPost, c.BaseURL+base+"/pipeline/validate",
 		struct {
-			SpecYAML string `json:"spec_yaml"`
-		}{SpecYAML: specYAML}, &result); requestError != nil {
+			SpecYAML     string   `json:"spec_yaml"`
+			ChangedFiles []string `json:"changed_files,omitempty"`
+		}{SpecYAML: specYAML, ChangedFiles: changedFiles}, &result); requestError != nil {
 		return nil, requestError
 	}
 	return &result, nil
