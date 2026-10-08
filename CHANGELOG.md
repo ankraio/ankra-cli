@@ -1,5 +1,20 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Changed
+
+- **`ankra security dispositions` shows what each policy is pinned to, and
+  `--scope` documents `workload` and `image`.** A disposition can be pinned
+  to one workload on one cluster (`--scope workload`) or to one image digest
+  wherever it runs (`--scope image`), for a finding whose image no add-on
+  owns: operator-managed pods, plain manifests, control-plane pods. The list
+  (its Add-on column is now Pinned to), the preview and the recorded,
+  updated and revoked lines print `add-on <slug>`, `workload
+  <namespace>/<kind> <name> on cluster <id>` or `image <digest>`, where a
+  workload or image policy used to print an empty add-on. `-o json` and
+  `-o yaml` are unchanged.
+
 ## v0.27.0 — 2026-10-08
 
 ### Added

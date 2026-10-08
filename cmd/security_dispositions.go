@@ -237,7 +237,8 @@ var securityDispositionsCmd = &cobra.Command{
 	Long: `List the organisation's vulnerability-disposition policies. A disposition
 acknowledges a finding (it stays visible but leaves the actionable set) or
 accepts its risk, for every occurrence its selector matches - one CVE and
-package inside one add-on across the organisation.
+package inside one add-on across the organisation, or pinned to one workload
+or one image digest when no add-on owns the image.
 
 Each policy has a lifecycle status: active, expiring (the review deadline
 is near), fix_available (a fixed version exists, so the acceptance should be
@@ -283,7 +284,7 @@ func renderSecurityDispositions(cmd *cobra.Command, list *client.SecurityDisposi
 		return
 	}
 	writer := newSecurityTable(out)
-	writer.AppendHeader(table.Row{"Disposition", "Status", "CVE", "Package", "Add-on", "Active matches", "Fix available", "Expires", "Reason", "Policy ID"})
+	writer.AppendHeader(table.Row{"Disposition", "Status", "CVE", "Package", "Pinned to", "Active matches", "Fix available", "Expires", "Reason", "Policy ID"})
 	needsAttention := 0
 	for _, policy := range list.Result {
 		if securityDispositionNeedsAttention(policy.Status) {
@@ -294,7 +295,7 @@ func renderSecurityDispositions(cmd *cobra.Command, list *client.SecurityDisposi
 			securityDispositionStatusCell(policy.Status),
 			policy.Selector.CVEID,
 			policy.Selector.PackageName,
-			policy.Selector.AddonSlug,
+			securitySelectorTarget(policy.Selector),
 			fmt.Sprintf("%d of %d", policy.ActiveMatchCount, policy.MatchedOccurrenceCount),
 			policy.FixAvailableMatchCount,
 			securityDispositionExpiryText(policy),
@@ -380,8 +381,15 @@ Anchor a new policy on one occurrence with --occurrence (an id from
 'ankra security finding <id>'), or re-preview an existing policy with
 --policy.
 
-Example:
-  ankra security dispositions preview --occurrence 4f1c... --disposition accepted_risk --expires-at 2026-12-31`,
+--scope chooses what the policy is pinned to. organisation_addon (the
+default) covers the add-on that owns the occurrence, on every cluster.
+workload covers one workload on one cluster and image covers one image
+digest wherever it runs; use either when no add-on owns the image, such as
+operator-managed pods, plain manifests or control-plane pods.
+
+Examples:
+  ankra security dispositions preview --occurrence 4f1c... --disposition accepted_risk --expires-at 2026-12-31
+  ankra security dispositions preview --occurrence 4f1c... --scope workload --disposition acknowledged`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		request, err := securityDispositionPreviewRequestFromFlags(cmd)
@@ -468,10 +476,31 @@ func parseSecurityDeadline(raw string) (*time.Time, error) {
 	return nil, withExitCode(exitUsage, fmt.Errorf("--expires-at must be a date (2026-12-31) or an RFC3339 timestamp, got %q", raw))
 }
 
+// securitySelectorTarget names what a disposition policy is pinned to. A
+// workload or image policy carries no add-on, so printing the add-on slug
+// alone would leave those policies with nothing after the label.
+func securitySelectorTarget(selector client.SecurityDispositionSelector) string {
+	switch {
+	case selector.AddonSlug != "":
+		return "add-on " + selector.AddonSlug
+	case selector.WorkloadName != "":
+		workload := strings.TrimPrefix(selector.WorkloadNamespace+"/"+selector.WorkloadKind+" "+selector.WorkloadName, "/")
+		target := "workload " + strings.TrimSpace(workload)
+		if selector.ClusterID != "" {
+			target += " on cluster " + selector.ClusterID
+		}
+		return target
+	case selector.ImageDigest != "":
+		return "image " + selector.ImageDigest
+	default:
+		return "organisation"
+	}
+}
+
 func renderSecurityDispositionPreview(out io.Writer, preview *client.SecurityDispositionPreview) {
 	selector := preview.Selector
-	_, _ = fmt.Fprintf(out, "Selector: %s in %s (%s) · add-on %s\n",
-		selector.CVEID, selector.PackageName, selector.PackageType, selector.AddonSlug)
+	_, _ = fmt.Fprintf(out, "Selector: %s in %s (%s) · %s\n",
+		selector.CVEID, selector.PackageName, selector.PackageType, securitySelectorTarget(selector))
 	_, _ = fmt.Fprintf(out, "Would cover %d occurrences across %d findings, %d clusters and %d add-ons\n",
 		preview.AffectedOccurrences, preview.AffectedFindings, preview.AffectedClusters, preview.AffectedAddons)
 	_, _ = fmt.Fprintf(out, "Excluded: %d ambiguous · %d unattributed · %d with a fix available\n",
@@ -500,8 +529,13 @@ a review deadline; --expire-when-fix-available ends the disposition the
 moment a fixed version appears. --allow-unmatched stores a policy whose
 anchor no longer matches anything.
 
-Example:
-  ankra security dispositions create --occurrence 4f1c... --disposition acknowledged --reason "tracked in PLA-812" --expires-at 2026-10-31`,
+--scope chooses what the policy is pinned to: organisation_addon (the
+default) for the add-on that owns the occurrence, or workload or image when
+no add-on owns the image.
+
+Examples:
+  ankra security dispositions create --occurrence 4f1c... --disposition acknowledged --reason "tracked in PLA-812" --expires-at 2026-10-31
+  ankra security dispositions create --occurrence 4f1c... --scope workload --disposition accepted_risk --reason "operator-managed, not reachable from outside the cluster"`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		preview, err := securityDispositionPreviewRequestFromFlags(cmd)
@@ -556,9 +590,9 @@ Example:
 
 func renderSecurityDispositionMutation(out io.Writer, verb string, mutation *client.SecurityDispositionMutation) {
 	policy := mutation.Policy
-	_, _ = fmt.Fprintf(out, "%s %s policy %s (%s): %s in %s · add-on %s · %d active matches · expires %s\n",
+	_, _ = fmt.Fprintf(out, "%s %s policy %s (%s): %s in %s · %s · %d active matches · expires %s\n",
 		verb, policy.Disposition, policy.ID, policy.Status,
-		policy.Selector.CVEID, policy.Selector.PackageName, policy.Selector.AddonSlug,
+		policy.Selector.CVEID, policy.Selector.PackageName, securitySelectorTarget(policy.Selector),
 		policy.ActiveMatchCount, securityDispositionExpiryText(policy))
 }
 
@@ -694,7 +728,7 @@ func init() {
 
 	for _, command := range []*cobra.Command{securityDispositionsPreviewCmd, securityDispositionsCreateCmd} {
 		command.Flags().String("occurrence", "", "Occurrence id to anchor the disposition on (from 'ankra security finding <id>')")
-		command.Flags().String("scope", "organisation_addon", "Selector scope; organisation_addon is the only scope the platform accepts today")
+		command.Flags().String("scope", "organisation_addon", "Selector scope: organisation_addon, workload or image; use workload or image when no add-on owns the occurrence's image")
 		command.Flags().String("disposition", "", "acknowledged or accepted_risk")
 		command.Flags().String("expires-at", "", "Review deadline as a date (2026-12-31) or RFC3339 timestamp")
 		command.Flags().Bool("expire-when-fix-available", false, "End the disposition the moment a fixed version appears")
