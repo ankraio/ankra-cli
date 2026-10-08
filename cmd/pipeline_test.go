@@ -2183,8 +2183,9 @@ func TestPipelineValidatePrintsAPerEventPlanTable(t *testing.T) {
 				{StepKey: "backend", Stage: "backend", Kind: "run"},
 			}},
 			{Event: "pull_request", Run: true,
-				Steps:   []client.PipelinePlannedStep{{StepKey: "backend", Stage: "backend", Kind: "run"}},
-				Skipped: []client.PipelineSkippedStage{{Stage: "frontend", StepKey: "frontend", Reason: "path_filter"}}},
+				Steps: []client.PipelinePlannedStep{{StepKey: "backend", Stage: "backend", Kind: "run"}},
+				Skipped: []client.PipelineSkippedStage{{Stage: "frontend", StepKey: "frontend", Reason: "path_filter"},
+					{Stage: "docs", StepKey: "docs"}}},
 			{Event: "tag", Run: false, Reason: &noTagRun},
 		},
 	}}
@@ -2211,5 +2212,14 @@ func TestPipelineValidateSendsNoDiffWithoutChangedFile(t *testing.T) {
 	}
 	if mockClient.validateChangedFiles != nil {
 		t.Errorf("changed files = %#v, want nil so the platform plans with no change list", mockClient.validateChangedFiles)
+	}
+}
+
+func TestSkipCellNeverLeavesADanglingLabel(t *testing.T) {
+	if cell := skipCell("path_filter"); cell != "skip: path_filter" {
+		t.Errorf("skipCell(path_filter) = %q", cell)
+	}
+	if cell := skipCell(" "); cell != "skip" {
+		t.Errorf("a skip with no reason renders as %q, want plain skip", cell)
 	}
 }

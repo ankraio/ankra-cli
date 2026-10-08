@@ -228,6 +228,15 @@ func printPipelineValidation(command *cobra.Command, validation *client.Pipeline
 	printPipelineEventTable(out, validation.Events)
 }
 
+// skipCell renders a skipped stage's table cell, naming the reason when the
+// platform gave one.
+func skipCell(reason string) string {
+	if strings.TrimSpace(reason) == "" {
+		return "skip"
+	}
+	return "skip: " + reason
+}
+
 // printPipelineEventTable renders the per-event plan as one row per stage and
 // one column per event probed: "run", "skip: <reason>", or "-" for an event
 // that would start no run at all. It answers "which of my stages run on a
@@ -255,7 +264,7 @@ func printPipelineEventTable(out io.Writer, events []client.PipelineEventPlan) {
 				stages = append(stages, skipped.Stage)
 			}
 			if _, isRun := cells[eventIndex][skipped.Stage]; !isRun {
-				cells[eventIndex][skipped.Stage] = "skip: " + skipped.Reason
+				cells[eventIndex][skipped.Stage] = skipCell(skipped.Reason)
 			}
 		}
 	}
