@@ -92,12 +92,15 @@ type KapsuleClusterOptions struct {
 // the API endpoint takes a public IPv4 address (server default true).
 // DevCluster asks for a dev cluster instead: one Ankra Cloud server that is
 // the control plane, the only node, the load balancer and its own gateway,
-// sized by the single one-node pool.
+// sized by the single one-node pool. ControlPlane names the control plane
+// tier of a managed cluster, development or production; empty leaves the
+// platform default.
 type AnkraCloudK8sClusterOptions struct {
 	PrivateNetworkID *string `json:"private_network_id,omitempty"`
 	NetworkCIDR      *string `json:"network_cidr,omitempty"`
 	PublicIPv4       *bool   `json:"public_ipv4,omitempty"`
 	DevCluster       bool    `json:"dev_cluster,omitempty"`
+	ControlPlane     string  `json:"control_plane,omitempty"`
 }
 
 type CreateManagedClusterRequest struct {
