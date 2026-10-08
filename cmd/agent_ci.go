@@ -19,6 +19,8 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -85,7 +87,11 @@ whose step pods sit Pending needs more nodes.
 Both are stored on the platform, so every install or upgrade command Ankra
 generates for this cluster carries them - unlike a hand-run
 'helm upgrade --set ci_worker_count=...', which the next agent upgrade
-renders away again.`,
+renders away again.
+
+The placement says which nodes every pipeline pod runs on - step pods, their
+cache and artifact helpers, and image builds - so CI can live on a dedicated,
+tainted node group without editing any pipeline's runs_on.`,
 	}
 	ciCommand.AddCommand(newClusterAgentCIGetCommand(), newClusterAgentCISetCommand())
 	return ciCommand
@@ -95,9 +101,11 @@ func newClusterAgentCIGetCommand() *cobra.Command {
 	getCommand := &cobra.Command{
 		Use:   "get",
 		Short: "Show the cluster agent's pipeline-step CI settings",
-		Long: `Show the stored worker count and storage class, the agent version that has
-to honour them, whether that agent currently advertises it can run pipeline
-steps, and how the last write was applied.
+		Long: `Show the stored worker count, storage class and placement, the agent version
+that has to honour them, whether that agent currently advertises it can run
+pipeline steps, and how the last write was applied. The placement block names
+the node group, node selector, tolerations and mode, and how many Ready nodes
+it admits right now.
 
 An agent that has not yet re-rendered its release reports pipeline steps as
 not advertised even with a non-zero worker count stored: the capability is
@@ -147,8 +155,8 @@ func newClusterAgentCISetCommand() *cobra.Command {
 	setCommand := &cobra.Command{
 		Use:   "set",
 		Short: "Set the cluster agent's pipeline-step CI settings",
-		Long: `Store how many pipeline steps this cluster's agent runs at once, and
-optionally the storage class its step workspaces are carved from.
+		Long: `Store how many pipeline steps this cluster's agent runs at once, the storage
+class its step workspaces are carved from, and where its pipeline pods run.
 
 --workers 0 disables the agent's pipeline-step scheduler; the cluster keeps
 its agent and everything else it does. --storage-class is only sent when you
@@ -165,10 +173,27 @@ on the agent: an agent that supports live resize takes a new worker count on
 its next job pull without restarting, an online agent new enough to accept
 chart values re-renders its release immediately, an older one picks them up
 at its next upgrade, and an offline one when it reconnects. The command says
-which happened.`,
+which happened.
+
+Placement puts every pipeline pod of the cluster - step pods, their cache and
+artifact helpers, and image builds - on chosen nodes. --node-group names one
+of the cluster's Ankra node groups: the platform selects its nodes by the
+ankra.cloud/node-group label (or the labels the group declares) and tolerates
+every taint the group carries, so a dedicated, tainted pool needs nothing
+else. --node-selector and --toleration add to it, or stand alone on a cluster
+without Ankra node groups. --placement required (the default) keeps pods on
+those nodes; preferred favours them and lets pods run elsewhere when they have
+no room, and still carries the tolerations. The placement is replaced whole by
+any placement flag, applies to the next step dispatched with no agent restart,
+and is never held to the organisation's runs_on allow-lists. --clear-placement
+removes it. --workers is optional when only the storage class or the placement
+changes.`,
 		Example: `  ankra cluster agent ci set --workers 2
   ankra cluster agent ci set --workers 4 --storage-class proxmox-csi
-  ankra cluster agent ci set --workers 0 --cluster edge-01`,
+  ankra cluster agent ci set --workers 0 --cluster edge-01
+  ankra cluster agent ci set --node-group pipelines
+  ankra cluster agent ci set --node-selector pool=ci --toleration dedicated=ci:NoSchedule --placement preferred
+  ankra cluster agent ci set --clear-placement`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runClusterAgentCISet(command)
@@ -179,9 +204,106 @@ which happened.`,
 			"autoscaler); up to 128 on agents that support live resize, 32 otherwise; 0 disables the scheduler")
 	setCommand.Flags().String("storage-class", "",
 		"Storage class for pipeline step workspaces; pass empty to use the cluster default (omit the flag to keep the stored value)")
-	_ = setCommand.MarkFlagRequired("workers")
+	setCommand.Flags().String("node-group", "",
+		"Run every pipeline pod on this Ankra node group: selects its nodes and tolerates its taints")
+	setCommand.Flags().StringArray("node-selector", nil,
+		"Node label every pipeline pod selects, as key=value (repeatable)")
+	setCommand.Flags().StringArray("toleration", nil,
+		"Taint every pipeline pod tolerates, as key[=value]:Effect with Effect NoSchedule, PreferNoSchedule "+
+			"or NoExecute (repeatable)")
+	setCommand.Flags().String("placement", "",
+		"Placement mode: required (default) keeps pipeline pods on the selected nodes, preferred favours them")
+	setCommand.Flags().Bool("clear-placement", false, "Remove the cluster's CI placement")
 	registerStructuredOutputFlags(setCommand)
 	return setCommand
+}
+
+// agentCIPlacementFlags are the flags that write the placement block.
+var agentCIPlacementFlags = []string{"node-group", "node-selector", "toleration", "placement"}
+
+// agentCIPlacementFromFlags builds the placement a set names, nil when it
+// names no placement flag. It refuses malformed values as usage errors before
+// anything is sent; what the values mean - a node group the cluster has, a
+// label key Kubernetes accepts - is the platform's to judge.
+func agentCIPlacementFromFlags(command *cobra.Command) (*client.AgentCIPlacement, bool, error) {
+	isClearing := mustFlagBool(command, "clear-placement")
+	isNamed := false
+	for _, flagName := range agentCIPlacementFlags {
+		if command.Flags().Changed(flagName) {
+			isNamed = true
+		}
+	}
+	if isClearing && isNamed {
+		return nil, false, withExitCode(exitUsage, fmt.Errorf(
+			"--clear-placement removes the placement; it cannot be combined with --%s",
+			strings.Join(agentCIPlacementFlags, ", --")))
+	}
+	if !isNamed {
+		return nil, isClearing, nil
+	}
+	placement := &client.AgentCIPlacement{
+		NodeGroup: strings.TrimSpace(mustFlagString(command, "node-group")),
+		Mode:      strings.TrimSpace(mustFlagString(command, "placement")),
+	}
+	switch placement.Mode {
+	case "", client.AgentCIPlacementModeRequired, client.AgentCIPlacementModePreferred:
+	default:
+		return nil, false, withExitCode(exitUsage, fmt.Errorf(
+			"--placement must be %q or %q, got %q", client.AgentCIPlacementModeRequired,
+			client.AgentCIPlacementModePreferred, placement.Mode))
+	}
+	selectorValues, _ := command.Flags().GetStringArray("node-selector")
+	for _, selectorValue := range selectorValues {
+		key, value, hasValue := strings.Cut(selectorValue, "=")
+		key = strings.TrimSpace(key)
+		if !hasValue || key == "" {
+			return nil, false, withExitCode(exitUsage, fmt.Errorf(
+				"--node-selector takes key=value, got %q", selectorValue))
+		}
+		if placement.NodeSelector == nil {
+			placement.NodeSelector = map[string]string{}
+		}
+		placement.NodeSelector[key] = strings.TrimSpace(value)
+	}
+	tolerationValues, _ := command.Flags().GetStringArray("toleration")
+	for _, tolerationValue := range tolerationValues {
+		toleration, parseError := parseAgentCIToleration(tolerationValue)
+		if parseError != nil {
+			return nil, false, withExitCode(exitUsage, parseError)
+		}
+		placement.Tolerations = append(placement.Tolerations, toleration)
+	}
+	return placement, false, nil
+}
+
+// parseAgentCIToleration reads key[=value]:Effect. A toleration naming a
+// value matches that value (Equal); one without matches any value of the key
+// (Exists).
+func parseAgentCIToleration(text string) (client.AgentCIPlacementToleration, error) {
+	separator := strings.LastIndex(text, ":")
+	if separator <= 0 || separator == len(text)-1 {
+		return client.AgentCIPlacementToleration{}, fmt.Errorf(
+			"--toleration takes key[=value]:Effect, for example dedicated=ci:NoSchedule, got %q", text)
+	}
+	keyAndValue, effect := text[:separator], strings.TrimSpace(text[separator+1:])
+	key, value, hasValue := strings.Cut(keyAndValue, "=")
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return client.AgentCIPlacementToleration{}, fmt.Errorf(
+			"--toleration names no taint key, got %q", text)
+	}
+	switch effect {
+	case "NoSchedule", "PreferNoSchedule", "NoExecute":
+	default:
+		return client.AgentCIPlacementToleration{}, fmt.Errorf(
+			"--toleration effect must be NoSchedule, PreferNoSchedule or NoExecute, got %q in %q", effect, text)
+	}
+	toleration := client.AgentCIPlacementToleration{Key: key, Operator: "Exists", Effect: effect}
+	if hasValue {
+		toleration.Operator = "Equal"
+		toleration.Value = strings.TrimSpace(value)
+	}
+	return toleration, nil
 }
 
 func runClusterAgentCISet(command *cobra.Command) error {
@@ -194,12 +316,23 @@ func runClusterAgentCISet(command *cobra.Command) error {
 		return resolveError
 	}
 
-	// --workers is required, so it is always sent; --storage-class is only
-	// sent when named, which is what keeps a worker-count change from
-	// resetting a storage class someone set earlier.
+	// Each setting is only sent when its flag is named, which is what keeps a
+	// worker-count change from resetting a storage class or a placement
+	// someone set earlier.
+	placement, isClearingPlacement, placementError := agentCIPlacementFromFlags(command)
+	if placementError != nil {
+		return placementError
+	}
 	update := client.AgentCISettingsUpdate{
 		CIWorkerCount:  changedIntFlag(command, "workers"),
 		CIStorageClass: changedStringFlag(command, "storage-class"),
+		CIPlacement:    placement,
+		ClearPlacement: isClearingPlacement,
+	}
+	if update.CIWorkerCount == nil && update.CIStorageClass == nil && placement == nil && !isClearingPlacement {
+		return withExitCode(exitUsage, fmt.Errorf(`required flag(s) "workers" not set: pass --workers, `+
+			`--storage-class, or a placement flag (--node-group, --node-selector, --toleration, --placement, `+
+			`--clear-placement)`))
 	}
 
 	settings, updateError := apiClient.UpdateAgentCISettings(command.Context(), cluster.ID, update)
@@ -228,9 +361,67 @@ func printAgentCISettings(out io.Writer, settings *client.AgentCISettings) {
 	} else {
 		_, _ = fmt.Fprintln(out, "  Last changed:          never")
 	}
+	printAgentCIPlacement(out, settings)
 	if sentence := agentCIApplyStateSentence(settings); sentence != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", sentence)
 	}
+}
+
+// printAgentCIPlacement renders the placement block. A cluster with none
+// says so, because "any node" is an answer an operator is looking for.
+func printAgentCIPlacement(out io.Writer, settings *client.AgentCISettings) {
+	placement := settings.CIPlacement
+	if placement == nil {
+		_, _ = fmt.Fprintln(out, "  Placement:             none (pipeline pods run on any node)")
+		return
+	}
+	_, _ = fmt.Fprintln(out, "\n  Placement:")
+	nodeGroup := placement.NodeGroup
+	if nodeGroup == "" {
+		nodeGroup = "none"
+	}
+	mode := placement.Mode
+	if mode == "" {
+		mode = client.AgentCIPlacementModeRequired
+	}
+	_, _ = fmt.Fprintf(out, "    Node group:          %s\n", nodeGroup)
+	_, _ = fmt.Fprintf(out, "    Node selector:       %s\n", agentCISelectorLabel(placement.NodeSelector))
+	_, _ = fmt.Fprintf(out, "    Tolerations:         %s\n", agentCITolerationsLabel(placement.Tolerations))
+	_, _ = fmt.Fprintf(out, "    Mode:                %s\n", mode)
+	if settings.PlacementAdmittingNodes != nil {
+		_, _ = fmt.Fprintf(out, "    Admitting nodes:     %d Ready\n", *settings.PlacementAdmittingNodes)
+	}
+}
+
+func agentCISelectorLabel(selector map[string]string) string {
+	if len(selector) == 0 {
+		return "none"
+	}
+	keys := make([]string, 0, len(selector))
+	for key := range selector {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	pairs := make([]string, 0, len(keys))
+	for _, key := range keys {
+		pairs = append(pairs, key+"="+selector[key])
+	}
+	return strings.Join(pairs, ", ")
+}
+
+func agentCITolerationsLabel(tolerations []client.AgentCIPlacementToleration) string {
+	if len(tolerations) == 0 {
+		return "none"
+	}
+	rendered := make([]string, 0, len(tolerations))
+	for _, toleration := range tolerations {
+		taint := toleration.Key
+		if toleration.Operator != "Exists" && toleration.Value != "" {
+			taint += "=" + toleration.Value
+		}
+		rendered = append(rendered, taint+":"+toleration.Effect)
+	}
+	return strings.Join(rendered, ", ")
 }
 
 // agentCIStorageClassLabel says which class step workspaces land on. An

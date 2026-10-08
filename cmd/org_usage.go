@@ -151,6 +151,9 @@ func usageReadError(readError error) error {
 	if errors.As(readError, &refused) {
 		return withExitCode(exitUsage, usageRefusalError(refused))
 	}
+	// A 404 with a detail body ({"detail": "Not Found"}) and a bare one are
+	// both *client.UnexpectedResponseError: newBackendDetailError returns
+	// that type with Detail set.
 	var unexpected *client.UnexpectedResponseError
 	if errors.As(readError, &unexpected) && unexpected.StatusCode == http.StatusNotFound {
 		return withExitCode(exitError, errors.New(

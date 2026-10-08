@@ -395,11 +395,23 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 		if userDataError != nil {
 			return userDataError
 		}
+		labelsFlag, _ := cmd.Flags().GetString("labels")
+		labels, labelsError := parseLabelsFlag(labelsFlag)
+		if labelsError != nil {
+			return withExitCode(exitUsage, fmt.Errorf("invalid --labels: %w", labelsError))
+		}
+		taintsFlag, _ := cmd.Flags().GetString("taints")
+		taints, taintsError := parseTaintsFlag(taintsFlag)
+		if taintsError != nil {
+			return withExitCode(exitUsage, fmt.Errorf("invalid --taints: %w", taintsError))
+		}
 
 		req := client.AddNodeGroupRequest{
 			Name:             name,
 			InstanceType:     instanceType,
 			Count:            count,
+			Labels:           labels,
+			Taints:           taints,
 			AvailabilityZone: availabilityZone,
 			Zone:             zone,
 			UserData:         userData,
@@ -849,6 +861,12 @@ func init() {
 	clusterNodeGroupAddCmd.Flags().String("availability-zone", "", "Pin every node of the group to one availability zone, on OVH 3-AZ regions (e.g. eu-west-par-b). See 'ankra cluster ovh regions --with-zones'. Pin the group when it runs zonal storage: an OVH volume cannot attach from another zone. Omitted on a zone-spread cluster, each node takes the zone with the fewest instances cluster-wide, so a one-node group lands wherever the cluster is thinnest, not where its name suggests; on a cluster with no zone pool OVH chooses")
 	clusterNodeGroupAddCmd.Flags().String("zone", "", "Pin every node of the group to one zone of an UpCloud multi-zone cluster's pool (e.g. se-sto1). Pin the group when it runs zonal storage: an UpCloud volume cannot attach from another zone. Omitted spreads the group across the pool; refused on a single-zone cluster")
 	clusterNodeGroupAddCmd.Flags().String("user-data-file", "", "Path to a cloud-init user-data file for the group (OVH clusters only). Applied verbatim at first boot by every instance the group ever creates, replacements included; Ankra sends no cloud-init of its own, so the document is not merged with anything. Max 65535 bytes. Use for provision-time disk layouts, e.g. carving a partition for LUKS before growpart runs")
+	clusterNodeGroupAddCmd.Flags().String("labels", "",
+		"Comma-separated key=value labels every node of the group carries, from its first boot")
+	clusterNodeGroupAddCmd.Flags().String("taints", "",
+		"Comma-separated key=value:Effect taints every node of the group registers with (value optional, "+
+			"effect defaults to NoSchedule); a tainted group runs only pods that tolerate them, such as "+
+			"pipeline pods placed with 'ankra cluster agent ci set --node-group'")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("name")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("instance-type")
 

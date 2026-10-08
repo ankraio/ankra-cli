@@ -21,6 +21,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -65,6 +66,40 @@ type AgentCISettings struct {
 	ApplyState            string  `json:"apply_state" yaml:"apply_state"`
 	AppliesLive           *bool   `json:"applies_live,omitempty" yaml:"applies_live,omitempty"`
 	UpdatedAt             *string `json:"updated_at" yaml:"updated_at"`
+	// CIPlacement is where every pipeline pod of the cluster is placed, nil
+	// when the cluster sets no placement (or the platform predates it).
+	CIPlacement *AgentCIPlacement `json:"ci_placement" yaml:"ci_placement"`
+	// PlacementAdmittingNodes is how many Ready nodes the placement admits,
+	// nil when there is no placement or the platform could not count them.
+	PlacementAdmittingNodes *int `json:"placement_admitting_nodes,omitempty" yaml:"placement_admitting_nodes,omitempty"`
+}
+
+// The placement modes: required pins every pipeline pod to the selected
+// nodes, preferred favours them and lets pods run elsewhere when they have no
+// room. Both carry the tolerations.
+const (
+	AgentCIPlacementModeRequired  = "required"
+	AgentCIPlacementModePreferred = "preferred"
+)
+
+// AgentCIPlacement is the cluster-level CI placement every pipeline pod
+// carries - step pods, their cache and artifact helpers, and image builds.
+// NodeGroup is the node group it was set from, when one was named; the
+// platform resolves it into NodeSelector and Tolerations, which are what the
+// pods carry.
+type AgentCIPlacement struct {
+	NodeGroup    string                       `json:"node_group,omitempty" yaml:"node_group,omitempty"`
+	NodeSelector map[string]string            `json:"node_selector,omitempty" yaml:"node_selector,omitempty"`
+	Tolerations  []AgentCIPlacementToleration `json:"tolerations,omitempty" yaml:"tolerations,omitempty"`
+	Mode         string                       `json:"mode,omitempty" yaml:"mode,omitempty"`
+}
+
+// AgentCIPlacementToleration is one taint every pipeline pod tolerates.
+type AgentCIPlacementToleration struct {
+	Key      string `json:"key" yaml:"key"`
+	Operator string `json:"operator,omitempty" yaml:"operator,omitempty"`
+	Value    string `json:"value,omitempty" yaml:"value,omitempty"`
+	Effect   string `json:"effect" yaml:"effect"`
 }
 
 // AgentCISettingsUpdate is a partial write: a nil member is left out of the
@@ -76,9 +111,33 @@ type AgentCISettings struct {
 // scheduler and an empty storage class means "the cluster default" - and
 // `omitempty` on a pointer only drops a nil one, so a pointer to 0 or to ""
 // is still sent.
+//
+// The placement is written whole: CIPlacement replaces the stored one, and
+// ClearPlacement sends null, which removes it. Neither leaves it untouched.
 type AgentCISettingsUpdate struct {
-	CIWorkerCount  *int    `json:"ci_worker_count,omitempty"`
-	CIStorageClass *string `json:"ci_storage_class,omitempty"`
+	CIWorkerCount  *int
+	CIStorageClass *string
+	CIPlacement    *AgentCIPlacement
+	ClearPlacement bool
+}
+
+// MarshalJSON renders the partial body: only the named members, and
+// ci_placement as null when the write clears it - the one member whose null
+// means something, which a struct tag cannot express.
+func (update AgentCISettingsUpdate) MarshalJSON() ([]byte, error) {
+	body := map[string]any{}
+	if update.CIWorkerCount != nil {
+		body["ci_worker_count"] = *update.CIWorkerCount
+	}
+	if update.CIStorageClass != nil {
+		body["ci_storage_class"] = *update.CIStorageClass
+	}
+	if update.ClearPlacement {
+		body["ci_placement"] = nil
+	} else if update.CIPlacement != nil {
+		body["ci_placement"] = update.CIPlacement
+	}
+	return json.Marshal(body)
 }
 
 // agentCISettingsURL builds the settings URL for one cluster. The id is

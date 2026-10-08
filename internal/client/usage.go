@@ -186,6 +186,8 @@ func (c *Client) GetOrganisationUsage(ctx context.Context, options UsageOptions)
 		return nil, fmt.Errorf("create request: %w", requestError)
 	}
 	request.Header.Set("Authorization", "Bearer "+c.Token)
+	// The --org override header is not set here because c.HTTP sets it on
+	// every request (orgOverrideTransport, client.go), as for every read.
 	response, doError := c.HTTP.Do(request)
 	if doError != nil {
 		return nil, fmt.Errorf("request failed: %w", doError)
