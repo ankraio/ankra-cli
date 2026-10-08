@@ -470,6 +470,8 @@ writer yet. `egress-https` reaches **public addresses only**; name a private ran
 | `no_scan_results` | scan report never uploaded | vault (above) or an older platform; do not treat as clean |
 | Step "running" for minutes with no output | pod Pending: CPU quota, no StorageClass, disk | `ankra cluster events -n ankra-ci --type Warning` |
 | `publish` skipped on a rerun | `when.events` excludes `rerun` | push a commit |
+| A stage's log says `UNAUTHORIZED: project <name> not found` from a Harbor registry | the project does not exist; it is not a credential fault | a hand-written copy to a second registry: remove it and deploy `publish`'s `image_ref` (`ankra-cicd` §3), or declare the registry on the application |
+| Run green, release never arrived | a shipping stage failed under `allow_failure` | read each step's outcome with `ankra pipeline get <run-id> --application <application-id>`; drop the flag |
 | Test or build times out reaching a private host | `egress-https` is public-only | `ankra org ci-settings set --egress-allowed-cidr 10.0.0.0/8` |
 | Two builds per commit | generated GitHub workflow still present | §3f `pipeline convert` |
 | No "Ankra pipeline" check on the PR, only a comment | GitHub App lacks `checks:write` | grant it on the installation |
