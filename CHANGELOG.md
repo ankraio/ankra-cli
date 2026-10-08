@@ -1,5 +1,28 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra org ci-settings pool list|add|remove` spreads an organisation's
+  pipeline runs over more than one cluster.** The organisation's pipeline
+  cluster stays the primary member; `pool add <cluster> [--weight N]` lists
+  another (a cluster of the organisation whose agent runs pipeline steps), and
+  each run is then pinned, at its first step, to the least-loaded member,
+  preferring the one where the repository ran last so its caches are warm. A
+  run never moves between clusters, so `pool remove` stops new runs going to a
+  member while the ones already there finish. Weights run from 1 to 1000
+  (default 100): a member weighted 200 takes runs until it carries twice the
+  load of one weighted 100. `-o json` and `-o yaml` are supported, `remove`
+  asks first (`--yes` skips it), and a platform without CI pools says so and
+  exits 3. An organisation that lists no members runs exactly as before.
+- **`ankra pipeline repositories set-cluster <repository-id> --cluster <name>`
+  moves a repository's runs to another cluster without disconnecting it.**
+  Disconnecting was the only way before, and a repository with a live run
+  refuses to disconnect. `--cluster ""` clears the override so the repository
+  follows the organisation's CI settings again. Runs already queued or running
+  keep the cluster they started on.
+
 ## v0.27.0 — 2026-10-08
 
 ### Added

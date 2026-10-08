@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -125,6 +126,9 @@ func renderOrganisationCICapacity(cmd *cobra.Command, capacity *client.Organisat
 			capacity.StepsInFlightOnCluster, capacity.CIWorkerCount, clusterName)
 		_, _ = fmt.Fprintf(out, "  Live resize:             %s\n", liveResizeLabel(capacity.IsLiveResizeSupported))
 	}
+	if capacity.IsPooled {
+		renderOrganisationCIPoolCapacity(out, capacity.PoolMembers)
+	}
 	_, _ = fmt.Fprintf(out, "  Runs in flight:          %d of %d\n",
 		capacity.OrganisationRunsInFlight, capacity.MaxParallelRuns)
 	_, _ = fmt.Fprintf(out, "  Runs queued:             %d\n", capacity.OrganisationRunsQueued)
@@ -137,6 +141,27 @@ func renderOrganisationCICapacity(cmd *cobra.Command, capacity *client.Organisat
 		_, _ = fmt.Fprintf(out,
 			"Every slot is taken, so steps wait for one to free. To run more steps at once:\n"+
 				"  ankra cluster agent ci set --workers N --cluster %s\n", clusterName)
+	}
+}
+
+// renderOrganisationCIPoolCapacity prints one line per CI pool member: how
+// many of its slots are in use, and why it takes no runs when it cannot.
+func renderOrganisationCIPoolCapacity(out io.Writer, members []client.OrganisationCICapacityMember) {
+	_, _ = fmt.Fprintf(out, "  CI pool:                 %d clusters, runs go to the least loaded\n", len(members))
+	for _, member := range members {
+		state := ""
+		switch {
+		case !member.CanRunSteps:
+			state = " (takes no runs: its agent is offline or does not run pipeline steps)"
+		case member.IsFull:
+			state = " (full)"
+		}
+		role := ""
+		if member.IsPrimary {
+			role = ", primary"
+		}
+		_, _ = fmt.Fprintf(out, "    %-22s %d of %d in use, weight %d%s%s\n", member.ClusterName,
+			member.StepsInFlight, member.CIWorkerCount, member.Weight, role, state)
 	}
 }
 

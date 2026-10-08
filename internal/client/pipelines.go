@@ -1295,6 +1295,26 @@ func (c *Client) ConnectPipelineRepository(ctx context.Context,
 	return &result, nil
 }
 
+// SetPipelineRepositoryCluster changes a connected repository's CI cluster
+// override (PATCH /org/pipelines/repositories/{repository_id}), or clears it
+// when clusterID is empty, without disconnecting the repository. It changes
+// where the repository's next runs go; runs already queued or running keep
+// the cluster they were pinned to. The server refuses (422) a cluster outside
+// the organisation or one whose agent does not run pipeline steps.
+func (c *Client) SetPipelineRepositoryCluster(ctx context.Context, repositoryID string,
+	clusterID string) (*PipelineRepository, error) {
+	var result PipelineRepository
+	endpoint := fmt.Sprintf("%s%s/%s", c.BaseURL, pipelineRepositoriesBasePath, neturl.PathEscape(repositoryID))
+	request := map[string]any{"cluster_id": nil}
+	if clusterID != "" {
+		request["cluster_id"] = clusterID
+	}
+	if requestError := c.doPipelineRequest(ctx, http.MethodPatch, endpoint, request, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
+
 // DisconnectPipelineRepository disconnects a connected repository
 // (DELETE /org/pipelines/repositories/{repository_id}), answering 204 with no
 // body on success. Disconnecting is reversible by construction - connecting

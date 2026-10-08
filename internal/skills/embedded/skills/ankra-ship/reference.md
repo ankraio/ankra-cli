@@ -229,6 +229,14 @@ allowed), `--egress-allowed-cidr` (replaces the list, ≤ 32), `--max-parallel-r
 per organisation), `--max-parallel-steps` (default 8, ≤ 256, per organisation),
 `--run-retention-days` (90; 7–365), `--artifact-retention-days` (30), `--cache-retention-days` (14).
 
+CI cluster pool: `ankra org ci-settings pool list|add <cluster> [--weight N]|remove <cluster>` spreads
+runs over more clusters than `--cluster` (the primary, always a member). Each run is pinned at its
+first step to the least-loaded member whose agent runs steps (in-flight steps over workers, scaled by
+weight 1–1000, default 100), preferring the member where the repository ran last; a run never moves.
+No listed members = everything on `--cluster`, as before. Move one repository without
+disconnecting: `ankra pipeline repositories set-cluster <repository-id> --cluster <cluster>` (`""`
+clears); queued and running runs keep their cluster.
+
 Per cluster: `ankra cluster agent ci set --workers N --storage-class <sc> --cluster <cluster>`;
 `--workers 0` disables the scheduler. Stored on the platform and re-rendered into the agent's own
 release; an agent older than 2.1.1108 cannot take the values and 2.1.1115+ is the CI-lane floor.
@@ -251,6 +259,8 @@ All under `/api/v1/org/applications/{application_id}` with a bearer token (the s
 | Approve authority | `POST /api/v1/org/pipelines/definitions/{id}/approve` | no body; human actor with `pipelines.manage` |
 | Cluster CI workers | `PUT /api/v1/org/clusters/{cluster_id}/agent/ci-settings` | `{"ci_worker_count": 2}` |
 | Org CI settings | `GET` / `PUT /api/v1/org/ci-settings` | the `ci_*` fields above |
+| Org CI pool | `GET` / `PUT /api/v1/org/ci-settings/pool`, `PUT` / `DELETE …/pool/{cluster_id}` | `{"members": [{"cluster_id", "weight"}]}`; `{"weight": 150}`; admin |
+| Repository CI cluster | `PATCH /api/v1/org/pipelines/repositories/{repository_id}` | `{"cluster_id": "…"}` or `null` to clear; `pipelines.manage` |
 | Step log stream | `GET …/pipeline-runs/{run_id}/steps/{step_id}/logs` | SSE; frames are `{"stream","line"}` plus `seq`; `410` past 24 h — read the `step_log` artifact |
 
 ## Error classes and frozen sentences

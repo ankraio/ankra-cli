@@ -57,7 +57,9 @@ Three things must be true before the first run, and none of them errors when fal
 organisation names a CI cluster (`ankra org ci-settings set --cluster <cluster>`), that cluster's
 agent runs pipeline workers (`ankra cluster agent ci set --workers 2 --cluster <cluster>`), and the
 Git credential reaches the repository. A playground cluster has no StorageClass and cannot host CI
-steps. An `unknown command` is an old binary — `ankra upgrade`, never an absent feature.
+steps. More CI capacity than one cluster's quota: list more clusters in the organisation's CI pool
+(`ankra org ci-settings pool add <cluster>`); runs are spread to the least-loaded member and never
+move once started. An `unknown command` is an old binary — `ankra upgrade`, never an absent feature.
 
 ## 2. A bare repository: connect it
 

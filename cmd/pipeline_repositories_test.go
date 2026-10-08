@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -356,4 +357,81 @@ func TestPipelineRepositoriesDisconnectStructuredOutputStaysCleanOfThePrompt(t *
 	if mockClient.disconnectRepositoryCalls != 1 {
 		t.Errorf("DisconnectPipelineRepository calls = %d, want 1", mockClient.disconnectRepositoryCalls)
 	}
+}
+
+func TestPipelineRepositoriesSetClusterResolvesTheNameAndSendsIt(t *testing.T) {
+	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+	clusterID := "4b1f0f8e-9c1a-4c2f-9e6f-2a1d8b3c4d5e"
+	mockClient := &pipelineSetClusterMock{
+		clusters: []client.ClusterListItem{{ID: clusterID, Name: "ci-hel1-b"}},
+		result: &client.PipelineRepository{ID: repositoryID, Provider: "github", Owner: "acme", Name: "webapp",
+			DefaultBranch: "main", ClusterID: &clusterID},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "repositories", "set-cluster", repositoryID,
+		"--cluster", "ci-hel1-b")
+	if executeError != nil {
+		t.Fatalf("set-cluster error = %v", executeError)
+	}
+	if mockClient.repositoryID != repositoryID || mockClient.clusterID != clusterID {
+		t.Errorf("sent repository %q cluster %q", mockClient.repositoryID, mockClient.clusterID)
+	}
+	if !strings.Contains(output, clusterID) {
+		t.Errorf("output = %q, want the repository's new CI cluster", output)
+	}
+}
+
+// An empty --cluster clears the override: the client is asked for no cluster,
+// which it sends as an explicit null.
+func TestPipelineRepositoriesSetClusterWithAnEmptyValueClearsIt(t *testing.T) {
+	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+	mockClient := &pipelineSetClusterMock{result: &client.PipelineRepository{ID: repositoryID}}
+	if _, executeError := runPipelineCommand(t, mockClient, "repositories", "set-cluster", repositoryID,
+		"--cluster", ""); executeError != nil {
+		t.Fatalf("set-cluster error = %v", executeError)
+	}
+	if !mockClient.called || mockClient.clusterID != "" {
+		t.Errorf("expected a clearing call, got called=%v cluster=%q", mockClient.called, mockClient.clusterID)
+	}
+}
+
+func TestPipelineRepositoriesSetClusterRequiresTheFlagAndAUUID(t *testing.T) {
+	mockClient := &pipelineSetClusterMock{}
+	_, executeError := runPipelineCommand(t, mockClient, "repositories", "set-cluster",
+		"3fa85f64-5717-4562-b3fc-2c963f66afa6")
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("expected a usage error without --cluster, got %v", executeError)
+	}
+	_, executeError = runPipelineCommand(t, mockClient, "repositories", "set-cluster", "acme/webapp",
+		"--cluster", "x")
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("expected a usage error for a non-id repository, got %v", executeError)
+	}
+	if mockClient.called {
+		t.Error("nothing is sent for a refused invocation")
+	}
+}
+
+// pipelineSetClusterMock records the repository cluster change.
+type pipelineSetClusterMock struct {
+	baseMock
+
+	clusters     []client.ClusterListItem
+	result       *client.PipelineRepository
+	called       bool
+	repositoryID string
+	clusterID    string
+}
+
+func (m *pipelineSetClusterMock) SetPipelineRepositoryCluster(ctx context.Context, repositoryID string,
+	clusterID string) (*client.PipelineRepository, error) {
+	m.called = true
+	m.repositoryID = repositoryID
+	m.clusterID = clusterID
+	return m.result, nil
+}
+
+func (m *pipelineSetClusterMock) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
+	response := &client.ClusterListResponse{Result: m.clusters}
+	response.Pagination.TotalPages = 1
+	return response, nil
 }
