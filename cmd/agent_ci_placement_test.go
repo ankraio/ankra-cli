@@ -69,6 +69,7 @@ func TestClusterAgentCISetRefusesMalformedPlacementFlags(t *testing.T) {
 		"selector without value":    {"--node-selector", "pool"},
 		"toleration without effect": {"--toleration", "dedicated=ci"},
 		"toleration without key":    {"--toleration", "=ci:NoSchedule"},
+		"unknown toleration effect": {"--toleration", "dedicated=ci:Sometimes"},
 		"unknown mode":              {"--node-group", "pipelines", "--placement", "sometimes"},
 		"clear with a group":        {"--clear-placement", "--node-group", "pipelines"},
 	} {

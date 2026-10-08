@@ -292,6 +292,12 @@ func parseAgentCIToleration(text string) (client.AgentCIPlacementToleration, err
 		return client.AgentCIPlacementToleration{}, fmt.Errorf(
 			"--toleration names no taint key, got %q", text)
 	}
+	switch effect {
+	case "NoSchedule", "PreferNoSchedule", "NoExecute":
+	default:
+		return client.AgentCIPlacementToleration{}, fmt.Errorf(
+			"--toleration effect must be NoSchedule, PreferNoSchedule or NoExecute, got %q in %q", effect, text)
+	}
 	toleration := client.AgentCIPlacementToleration{Key: key, Operator: "Exists", Effect: effect}
 	if hasValue {
 		toleration.Operator = "Equal"
