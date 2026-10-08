@@ -198,3 +198,42 @@ func TestRegistryStorageEmptyBodyIsAnError(t *testing.T) {
 		t.Fatalf("an empty body must be an error, got %+v", retention)
 	}
 }
+
+// The retention version is read as an opaque string and sent back only as
+// expected_version; an empty one sends no check.
+func TestRegistryRetentionVersionRoundTrip(t *testing.T) {
+	var putBody map[string]any
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		switch request.Method {
+		case http.MethodGet:
+			jsonResponse(t, writer, http.StatusOK, map[string]any{"default": map[string]any{"keep_days": 30, "keep_latest": 3},
+				"rules": []any{}, "version": "opaque:7f3a"})
+		case http.MethodPut:
+			_ = json.NewDecoder(request.Body).Decode(&putBody)
+			jsonResponse(t, writer, http.StatusConflict, map[string]any{
+				"detail": "Retention changed since you read it. Reload it and make your change again."})
+		}
+	})
+	retention, getError := client.GetRegistryRetention(context.Background())
+	if getError != nil || retention.Version != "opaque:7f3a" {
+		t.Fatalf("get: %+v %v", retention, getError)
+	}
+	_, updateError := client.UpdateRegistryRetention(context.Background(),
+		RegistryRetentionUpdate{RulesSet: true, ExpectedVersion: retention.Version})
+	if putBody["expected_version"] != "opaque:7f3a" {
+		t.Fatalf("body = %v", putBody)
+	}
+	if !IsRegistryRetentionChanged(updateError) ||
+		updateError.Error() != "Retention changed since you read it. Reload it and make your change again." {
+		t.Fatalf("a 409 must be recognised and carry the platform's text: %v", updateError)
+	}
+	if IsRegistryRetentionChanged(errors.New("other")) || IsRegistryRetentionChanged(nil) {
+		t.Fatal("only a 409 answer is a retention change")
+	}
+
+	withVersion, _ := json.Marshal(RegistryRetentionUpdate{DefaultSet: true, ExpectedVersion: "v9"})
+	withoutVersion, _ := json.Marshal(RegistryRetentionUpdate{DefaultSet: true})
+	if string(withVersion) != `{"default":null,"expected_version":"v9"}` || string(withoutVersion) != `{"default":null}` {
+		t.Fatalf("bodies = %s / %s", withVersion, withoutVersion)
+	}
+}
