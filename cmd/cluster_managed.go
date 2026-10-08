@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"ankra/internal/client"
@@ -619,7 +620,11 @@ func parseManagedProviderFlag(cmd *cobra.Command) (client.ManagedK8sProvider, er
 
 // ankraCloudK8sOnlyFlags are the create flags that only Ankra Cloud
 // Kubernetes reads.
-var ankraCloudK8sOnlyFlags = []string{"network-cidr", "public-ipv4", "dev-cluster"}
+var ankraCloudK8sOnlyFlags = []string{"network-cidr", "public-ipv4", "dev-cluster", "control-plane"}
+
+// ankraCloudK8sControlPlanes are the control plane tiers --control-plane
+// accepts.
+var ankraCloudK8sControlPlanes = []string{"development", "production"}
 
 // devClusterPoolName is the one node pool an Ankra Cloud dev cluster has.
 const devClusterPoolName = "dev"
@@ -643,6 +648,9 @@ func applyDevClusterFlags(cmd *cobra.Command, request *client.CreateManagedClust
 	if cmd.Flags().Changed("autoscaling") {
 		return withExitCode(exitUsage, errors.New("--dev-cluster is one server and cannot autoscale: omit --autoscaling"))
 	}
+	if cmd.Flags().Changed("control-plane") {
+		return withExitCode(exitUsage, errors.New("--dev-cluster is one server with no managed control plane: omit --control-plane"))
+	}
 	pool := &request.NodePools[0]
 	pool.Count = 1
 	if !cmd.Flags().Changed("node-pool-name") {
@@ -653,8 +661,8 @@ func applyDevClusterFlags(cmd *cobra.Command, request *client.CreateManagedClust
 
 // applyManagedNetworkOptionFlags reads the provider-specific network flags
 // into the create request: Kapsule requires --private-network-id, Ankra Cloud
-// Kubernetes takes it optionally with --network-cidr and --public-ipv4, and
-// every other provider refuses all three.
+// Kubernetes takes it optionally with --network-cidr, --public-ipv4 and
+// --control-plane, and every other provider refuses all of them.
 func applyManagedNetworkOptionFlags(cmd *cobra.Command, provider client.ManagedK8sProvider, request *client.CreateManagedClusterRequest) error {
 	privateNetworkID, _ := cmd.Flags().GetString("private-network-id")
 	if provider != client.ManagedK8sProviderAnkraCloudK8s {
@@ -692,6 +700,14 @@ func applyManagedNetworkOptionFlags(cmd *cobra.Command, provider client.ManagedK
 		}
 		if devCluster, _ := cmd.Flags().GetBool("dev-cluster"); devCluster {
 			options.DevCluster = true
+			isSet = true
+		}
+		if cmd.Flags().Changed("control-plane") {
+			controlPlane, _ := cmd.Flags().GetString("control-plane")
+			if !slices.Contains(ankraCloudK8sControlPlanes, controlPlane) {
+				return withExitCode(exitUsage, fmt.Errorf("invalid --control-plane %q: must be development or production", controlPlane))
+			}
+			options.ControlPlane = controlPlane
 			isSet = true
 		}
 		if isSet {
@@ -887,6 +903,7 @@ func init() {
 	managedCreateCmd.Flags().String("network-cidr", "", "Ankra Cloud Kubernetes: CIDR of the network Ankra creates (server default 10.100.0.0/24)")
 	managedCreateCmd.Flags().Bool("public-ipv4", true, "Ankra Cloud Kubernetes: give the API endpoint a public IPv4 address")
 	managedCreateCmd.Flags().Bool("dev-cluster", false, "Ankra Cloud Kubernetes: create a dev cluster, one server that is control plane, node, load balancer and gateway, sized by --node-pool-size (development only, no control-plane fee)")
+	managedCreateCmd.Flags().String("control-plane", "", "Control plane tier for an Ankra Cloud managed cluster: development (one replica, no control plane fee, you pay for the nodes only, not for production) or production (three replicas, the default)")
 	managedCreateCmd.Flags().Bool("autoscaling", false, "Enable autoscaling for the initial node pool")
 	managedCreateCmd.Flags().Int("autoscaling-min", 0, "Minimum node count while autoscaling (requires --autoscaling)")
 	managedCreateCmd.Flags().Int("autoscaling-max", 0, "Maximum node count while autoscaling (requires --autoscaling)")

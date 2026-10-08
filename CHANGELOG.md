@@ -1,5 +1,46 @@
 # Ankra CLI Changelog
 
+## v0.26.0 — 2026-10-08
+
+### Added
+
+- **`ankra registry storage retention` shows how many of the registry's
+  retention rule slots are used**, for example "Rule slots: 7 of 15 used".
+  The registry runs at most 15 retention rules per project, and rules with
+  the same keep values share a slot. Near the limit the output suggests
+  reusing existing keep values. Past it, the output says plainly that the
+  newest retention is not being applied until rules are reduced. `-o json`
+  carries `rule_slots`. A platform that does not report them shows no line,
+  and a save that would need more slots is refused with the platform's own
+  message, as before.
+- **`ankra cluster managed create --provider ankracloud_k8s --control-plane
+  development|production` chooses the control plane tier of an Ankra Cloud
+  managed cluster.** `development` runs one control plane replica and carries
+  no control plane fee, so you pay for the nodes only; an upgrade or the
+  failure of the machine it runs on interrupts the Kubernetes API, so it is
+  not for production. `production` runs three replicas and is what you get
+  when the flag is left out. The tier is chosen at create and stays for the
+  life of the cluster. The flag is refused with `--dev-cluster`, which is one
+  server with no managed control plane, and with every other provider. It
+  needs a platform that offers control plane tiers; one that does not yet
+  refuses the create with a message saying so.
+
+## v0.25.1 — 2026-10-08
+
+### Changed
+
+- **`ankra registry storage retention set`, `rule add` and `rule remove` no
+  longer overwrite a change someone else made at the same time.** Each one
+  reads the retention, applies its own change, and writes it back carrying
+  the version it read. If the retention changed in between, the platform
+  refuses the write, and the command reads it again and applies the same
+  change to what is stored now, once. A rule added in the portal while you
+  remove another from the CLI is no longer lost. If it changes yet again, the
+  command stops with the platform's message and exit code 1, with nothing
+  written. `-o json` output of the retention now includes its `version`.
+  Against a platform that does not report a version yet, writes go through
+  as before.
+
 ## v0.25.0 — 2026-10-07
 
 ### Added
