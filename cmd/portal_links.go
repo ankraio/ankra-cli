@@ -21,31 +21,36 @@ const (
 	portalStackMemberAddon    = "addon"
 )
 
-// portalBaseURL is the portal the CLI is logged in to, without a trailing
-// slash. The portal and the API share one address.
+// portalBaseURL is the portal the CLI is logged in to: the scheme and host of
+// the API address, since the two share one origin. A path on the configured
+// address belongs to the API, so it is dropped rather than carried into every
+// link. An address that does not parse to a scheme and host falls back to the
+// default portal.
 func portalBaseURL() string {
-	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	if trimmed == "" {
+	parsed, parseError := url.Parse(strings.TrimSpace(baseURL))
+	if parseError != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return defaultBaseURL
 	}
-	return trimmed
+	return parsed.Scheme + "://" + parsed.Host
 }
 
 // portalURL joins escaped path segments under /organisation and appends the
-// query, with the owning organisation when it is known.
+// query, with the owning organisation when it is known. The caller's query
+// is copied, never changed.
 func portalURL(organisationID string, query url.Values, segments ...string) string {
 	escaped := make([]string, 0, len(segments))
 	for _, segment := range segments {
 		escaped = append(escaped, url.PathEscape(segment))
 	}
 	link := portalBaseURL() + "/organisation/" + strings.Join(escaped, "/")
-	if query == nil {
-		query = url.Values{}
+	linkQuery := url.Values{}
+	for key, values := range query {
+		linkQuery[key] = append([]string(nil), values...)
 	}
 	if organisationID != "" {
-		query.Set("org", organisationID)
+		linkQuery.Set("org", organisationID)
 	}
-	if encoded := query.Encode(); encoded != "" {
+	if encoded := linkQuery.Encode(); encoded != "" {
 		link += "?" + encoded
 	}
 	return link

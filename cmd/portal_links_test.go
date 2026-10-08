@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -99,9 +100,46 @@ func TestPortalURLBuilders(t *testing.T) {
 		}
 	}
 
-	baseURL = ""
-	if got := portalClusterURL(client.ClusterListItem{ID: "cluster-1"}); !strings.HasPrefix(got, defaultBaseURL+"/organisation/") {
-		t.Errorf("an unset base URL should fall back to %s, got %s", defaultBaseURL, got)
+}
+
+func TestPortalBaseURLIsSchemeAndHostOnly(t *testing.T) {
+	originalBaseURL := baseURL
+	t.Cleanup(func() { baseURL = originalBaseURL })
+
+	for configured, want := range map[string]string{
+		"https://portal.example.test":                "https://portal.example.test",
+		"https://portal.example.test/":               "https://portal.example.test",
+		"https://portal.example.test/api":            "https://portal.example.test",
+		"https://portal.example.test/prefix/api/v1/": "https://portal.example.test",
+		"http://localhost:8080/api?debug=1#fragment": "http://localhost:8080",
+		" https://portal.example.test/api ":          "https://portal.example.test",
+		"":                                           defaultBaseURL,
+		"portal.example.test/api":                    defaultBaseURL,
+		"://not a url":                               defaultBaseURL,
+	} {
+		baseURL = configured
+		if got := portalBaseURL(); got != want {
+			t.Errorf("portalBaseURL() with base %q = %q, want %q", configured, got, want)
+		}
+	}
+
+	baseURL = "https://portal.example.test/prefix/api"
+	want := "https://portal.example.test/organisation/clusters/cluster/imported/cluster-1/overview"
+	if got := portalClusterURL(client.ClusterListItem{ID: "cluster-1"}); got != want {
+		t.Errorf("a path on the API address leaked into the link:\n got  %s\n want %s", got, want)
+	}
+}
+
+func TestPortalURLLeavesTheCallersQueryAlone(t *testing.T) {
+	query := url.Values{"activeTab": {"manifest:rules"}}
+
+	link := portalURL("organisation-1", query, "clusters")
+
+	if !strings.Contains(link, "org=organisation-1") {
+		t.Fatalf("expected the organisation on the link, got %s", link)
+	}
+	if _, hasOrganisation := query["org"]; hasOrganisation || len(query) != 1 {
+		t.Errorf("the caller's query was changed: %v", query)
 	}
 }
 
