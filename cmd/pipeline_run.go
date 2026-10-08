@@ -680,6 +680,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, sele
 	}
 	writer.Render()
 	printPipelineStepQueueing(out, detail)
+	printPipelineStepResourceUse(out, detail)
 	printPipelinePlatformBuilderSteps(out, detail)
 	printPipelineSupersededAttempts(out, detail, selector)
 }
@@ -812,6 +813,71 @@ func printPipelineStepQueueing(out io.Writer, detail client.PipelineRunDetail) {
 	for _, line := range lines {
 		_, _ = fmt.Fprintln(out, line)
 	}
+}
+
+// printPipelineStepResourceUse says, under the table, what each step's
+// container used against what it asked its node for (ankra-q573dh.5): its
+// memory peak against its memory request, and the cores it used on average
+// against its CPU request. A request far above the use is capacity the step's
+// node held for nothing; a stage's suggested resources come from the API's
+// resource suggestions for the run.
+//
+// The memory peak counts page cache, so a peak equal to the request says the
+// step filled its room, not that it needed it, and the line says so. The CPU
+// average needs the script's run time, which older agents do not report; the
+// CPU half is left out then rather than guessed from the step's duration,
+// which includes its Pending wait. Nothing is printed when no step carries a
+// usage report, which is every run on a platform or agent older than it.
+func printPipelineStepResourceUse(out io.Writer, detail client.PipelineRunDetail) {
+	lines := []string{}
+	for _, step := range detail.Steps {
+		if line, isReported := pipelineStepResourceUseLine(step); isReported {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(out, "\nResources used:")
+	for _, line := range lines {
+		_, _ = fmt.Fprintln(out, line)
+	}
+}
+
+// pipelineStepResourceUseLine is one step's line of the resources section.
+func pipelineStepResourceUseLine(step client.PipelineStep) (string, bool) {
+	parts := []string{}
+	if step.MemoryPeakBytes != nil {
+		memory := "memory peak " + formatPipelineCacheBytes(*step.MemoryPeakBytes)
+		if step.MemoryRequestBytes != nil && *step.MemoryRequestBytes > 0 {
+			memory += fmt.Sprintf(" of %s requested (%d%%)", formatPipelineCacheBytes(*step.MemoryRequestBytes),
+				*step.MemoryPeakBytes*100 / *step.MemoryRequestBytes)
+			if *step.MemoryPeakBytes*100 >= *step.MemoryRequestBytes*95 {
+				memory += ", at its limit: page cache fills spare room, so this is not what it needed"
+			}
+		}
+		if step.MemoryOOMKills != nil && *step.MemoryOOMKills > 0 {
+			memory += fmt.Sprintf(", %d process(es) killed for memory", *step.MemoryOOMKills)
+		}
+		parts = append(parts, memory)
+	}
+	used := step.CPUUsageMicroseconds
+	elapsed := step.UsageElapsedMicroseconds
+	if used != nil && elapsed != nil && *elapsed >= 1_000_000 {
+		cpu := fmt.Sprintf("CPU %.2f cores on average", float64(*used)/float64(*elapsed))
+		if step.CPURequestMillicores != nil && *step.CPURequestMillicores > 0 {
+			cpu += fmt.Sprintf(" of %.2f requested", float64(*step.CPURequestMillicores)/1000)
+		}
+		if throttled := step.CPUThrottledMicroseconds; throttled != nil && *throttled > 0 {
+			cpu += fmt.Sprintf(", held at its CPU limit for %s",
+				(time.Duration(*throttled) * time.Microsecond).Round(time.Second))
+		}
+		parts = append(parts, cpu)
+	}
+	if len(parts) == 0 {
+		return "", false
+	}
+	return "  " + step.StepKey + ": " + strings.Join(parts, "; "), true
 }
 
 // pipelineStepQueueWait is the time between Ankra handing a step to the agent
