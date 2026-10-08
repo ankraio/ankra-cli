@@ -129,6 +129,18 @@ type RegistryRetention struct {
 	// it is only ever sent back as RegistryRetentionUpdate.ExpectedVersion,
 	// never parsed. Empty from a platform that predates it.
 	Version string `json:"version,omitempty" yaml:"version,omitempty"`
+	// RuleSlots is how many of the registry's retention rule slots the
+	// policy takes; nil from a platform that predates it.
+	RuleSlots *RegistryRetentionRuleSlots `json:"rule_slots,omitempty" yaml:"rule_slots,omitempty"`
+}
+
+// RegistryRetentionRuleSlots counts the registry's retention rules. The
+// registry runs at most Limit rules per project; rules with the same
+// keep_days, or the same keep_latest, share one. Past the limit the newest
+// retention is not applied until rules are reduced.
+type RegistryRetentionRuleSlots struct {
+	Used  int `json:"used" yaml:"used"`
+	Limit int `json:"limit" yaml:"limit"`
 }
 
 // RegistryRetentionChangedStatus is the status a retention write answers
