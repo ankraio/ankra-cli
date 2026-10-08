@@ -4,6 +4,15 @@
 
 ### Added
 
+- **`ankra registry storage retention` shows how many of the registry's
+  retention rule slots are used**, for example "Rule slots: 7 of 15 used".
+  The registry runs at most 15 retention rules per project, and rules with
+  the same keep values share a slot. Near the limit the output suggests
+  reusing existing keep values. Past it, the output says plainly that the
+  newest retention is not being applied until rules are reduced. `-o json`
+  carries `rule_slots`. A platform that does not report them shows no line,
+  and a save that would need more slots is refused with the platform's own
+  message, as before.
 - **`ankra cluster managed create --provider ankracloud_k8s --control-plane
   development|production` chooses the control plane tier of an Ankra Cloud
   managed cluster.** `development` runs one control plane replica and carries

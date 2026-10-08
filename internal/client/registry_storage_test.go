@@ -237,3 +237,24 @@ func TestRegistryRetentionVersionRoundTrip(t *testing.T) {
 		t.Fatalf("bodies = %s / %s", withVersion, withoutVersion)
 	}
 }
+
+// rule_slots decodes when the platform reports it and stays nil when not.
+func TestRegistryRetentionRuleSlotsDecode(t *testing.T) {
+	withSlots := true
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		body := map[string]any{"default": map[string]any{"keep_days": 30, "keep_latest": 3}, "rules": []any{}}
+		if withSlots {
+			body["rule_slots"] = map[string]any{"used": 7, "limit": 15}
+		}
+		jsonResponse(t, writer, http.StatusOK, body)
+	})
+	retention, getError := client.GetRegistryRetention(context.Background())
+	if getError != nil || retention.RuleSlots == nil || retention.RuleSlots.Used != 7 || retention.RuleSlots.Limit != 15 {
+		t.Fatalf("with slots: %+v %v", retention, getError)
+	}
+	withSlots = false
+	retention, getError = client.GetRegistryRetention(context.Background())
+	if getError != nil || retention.RuleSlots != nil {
+		t.Fatalf("without slots: %+v %v", retention, getError)
+	}
+}
