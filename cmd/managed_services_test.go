@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,6 +77,9 @@ type fakeServicesPlatform struct {
 	packageSecrets []any
 	// unbindInUse makes a binding removal answer that a service still uses it.
 	unbindInUse bool
+	// ignoreInstanceFilters answers the instance inventory unfiltered, as a
+	// platform from before cluster#4053 that ignores the filter keys would.
+	ignoreInstanceFilters bool
 }
 
 // fakeServiceOrphanConsumerID is a binding whose application was removed:
@@ -125,11 +129,13 @@ func fakeServiceJSON(t *testing.T, writer http.ResponseWriter, status int, body 
 func fakeServiceInstance() map[string]any {
 	return map[string]any{
 		"id": fakeServiceInstanceID, "package_version_id": fakeServicePackageID, "cluster_id": fakeServiceClusterID,
+		"cluster_name": "prod", "state": "serving",
 		"admission_operation_id": "e0000000-0000-4000-8000-000000000009", "name": "orders-db",
 		"region": "eu-north-1", "data_boundary": "eu", "generation": 2, "mode": "customer",
 		"requested_destinations": []any{map[string]any{"application_id": fakeServiceApplication, "cluster_id": fakeServiceClusterID, "namespace": "orders"}},
 		"consumers": []any{map[string]any{"id": fakeServiceConsumerID, "application_id": fakeServiceApplication,
-			"cluster_id": fakeServiceClusterID, "namespace": "orders"}},
+			"cluster_id": fakeServiceClusterID, "namespace": "orders", "application_name": "storefront", "cluster_name": "prod",
+			"environment": map[string]any{"id": "e1000000-0000-4000-8000-000000000020", "name": "production", "role": "production"}}},
 		"deployment_operation_id": "e0000000-0000-4000-8000-000000000010", "deployment_state": "verification_pending",
 		"readiness": "ready",
 		"readiness_check": map[string]any{"observed_at": "2026-10-02T10:00:00Z", "expires_at": "2026-10-02T10:15:00Z",
@@ -329,7 +335,24 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 			fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"items": []any{}, "next_cursor": "00000000-0000-4000-8000-0000000000ff"})
 			return
 		}
-		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"items": []any{fakeServiceInstance()}, "next_cursor": nil})
+		// The platform's own filters (cluster#4053): the one service serves
+		// fakeServiceApplication and runs on fakeServiceClusterID.
+		items := []any{fakeServiceInstance()}
+		query := request.URL.Query()
+		if !platform.ignoreInstanceFilters &&
+			((query.Has("application_id") && query.Get("application_id") != fakeServiceApplication) ||
+				(query.Has("cluster_id") && query.Get("cluster_id") != fakeServiceClusterID)) {
+			items = []any{}
+		}
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"items": items, "next_cursor": nil})
+	case request.Method == http.MethodGet && path == "/api/v1/org/applications":
+		// The application name lookup: a case-insensitive substring search.
+		var result []any
+		if search := strings.ToLower(request.URL.Query().Get("search")); strings.Contains("storefront", search) {
+			result = append(result, map[string]any{"id": fakeServiceApplication, "name": "storefront"})
+		}
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"result": result,
+			"pagination": map[string]any{"total_pages": 1, "page": 1, "page_size": 100, "total_count": len(result)}})
 	case request.Method == http.MethodGet && path == instancePath:
 		fakeServiceJSON(t, writer, http.StatusOK, fakeServiceInstance())
 	case request.Method == http.MethodPost && path == instancePath+"/retirements":
@@ -696,6 +719,152 @@ func TestServicesGetShowsConnectionButNeverSecretValues(t *testing.T) {
 	}
 }
 
+// list --application resolves a name the way every per-application command
+// does and hands the platform the id on every page of the walk: a filter on
+// the first page only would let the rest of the walk list the whole
+// organisation. The table says which of the application's environments each
+// service serves, and names the cluster from the instance read without a
+// cluster listing.
+func TestServicesListByApplicationFiltersOnThePlatform(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	stdout, stderr, runError := runServicesCommand(t, platform, "", "list", "--application", "storefront")
+	if runError != nil {
+		t.Fatalf("services list --application: %v\n%s", runError, stderr)
+	}
+	pages := platform.requests(http.MethodGet, "/service-admission/instances")
+	if len(pages) != 2 {
+		t.Fatalf("the walk must follow next_cursor past the empty first page, read %d pages", len(pages))
+	}
+	for _, page := range pages {
+		query, _ := url.ParseQuery(page.query)
+		if query.Get("application_id") != fakeServiceApplication {
+			t.Errorf("every page must carry the application filter, got %q", page.query)
+		}
+	}
+	output := stripANSICodes(stdout)
+	if header := strings.SplitN(output, "\n", 3)[1]; !strings.Contains(header, "USED BY") {
+		t.Errorf("--application adds a Used by column: %q", header)
+	}
+	row := ""
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "orders-db") {
+			row = line
+		}
+	}
+	for _, expected := range []string{"prod", "production", fakeServiceInstanceID} {
+		if !strings.Contains(row, expected) {
+			t.Errorf("the row should contain %q: %q", expected, row)
+		}
+	}
+	if strings.Contains(stderr, "cluster names could not be read") {
+		t.Errorf("the instance read names its cluster; no cluster listing is needed:\n%s", stderr)
+	}
+}
+
+// A service consumer whose application is not deployed in its namespace yet
+// has no environment: Used by names the namespace instead.
+func TestServiceUsedByNamesTheNamespaceWithoutAnEnvironment(t *testing.T) {
+	instance := client.ServiceInstance{Consumers: []client.ServiceInstanceConsumer{
+		{ApplicationID: fakeServiceApplication, Namespace: "orders",
+			Environment: &client.ServiceConsumerEnvironment{Name: "production", Role: "production"}},
+		{ApplicationID: fakeServiceApplication, Namespace: "orders-staging"},
+		{ApplicationID: "0a000000-0000-4000-8000-0000000000ff", Namespace: "other",
+			Environment: &client.ServiceConsumerEnvironment{Name: "elsewhere"}},
+	}}
+	if got := serviceUsedBy(instance, fakeServiceApplication); got != "production, namespace orders-staging" {
+		t.Errorf("serviceUsedBy = %q", got)
+	}
+	if got := serviceUsedBy(client.ServiceInstance{}, fakeServiceApplication); got != "-" {
+		t.Errorf("no consumer of the application reads -, got %q", got)
+	}
+}
+
+// An application no service serves answers an empty listing, which says so
+// and where to add one, and exits 0. -o json is an empty list.
+func TestServicesListByApplicationSaysWhenNoneServeIt(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	const otherApplication = "0a000000-0000-4000-8000-0000000000ff"
+	stdout, _, runError := runServicesCommand(t, platform, "", "list", "--application", otherApplication)
+	if runError != nil {
+		t.Fatalf("services list --application: %v", runError)
+	}
+	if !strings.Contains(stdout, "No managed services serve application "+otherApplication) ||
+		!strings.Contains(stdout, "ankra services setup") {
+		t.Errorf("an empty listing should say so and where to add one:\n%s", stdout)
+	}
+	stdout, _, runError = runServicesCommand(t, platform, "", "list", "--application", otherApplication, "-o", "json")
+	if runError != nil {
+		t.Fatalf("services list --application -o json: %v", runError)
+	}
+	if strings.TrimSpace(stdout) != "[]" {
+		t.Errorf("-o json of an empty listing is [], got %q", stdout)
+	}
+}
+
+// A platform that ignores the application filter answers every service;
+// the command keeps only those whose plan serves the application, rather
+// than listing the whole organisation as if it did.
+func TestServicesListByApplicationChecksTheFilterItself(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.ignoreInstanceFilters = true
+	const otherApplication = "0a000000-0000-4000-8000-0000000000ff"
+	stdout, _, runError := runServicesCommand(t, platform, "", "list", "--application", otherApplication)
+	if runError != nil {
+		t.Fatalf("services list --application: %v", runError)
+	}
+	if strings.Contains(stdout, "orders-db") || !strings.Contains(stdout, "No managed services serve application "+otherApplication) {
+		t.Errorf("a service that does not serve the application must not be listed:\n%s", stdout)
+	}
+	stdout, _, runError = runServicesCommand(t, platform, "", "list", "--application", fakeServiceApplication)
+	if runError != nil || !strings.Contains(stdout, "orders-db") {
+		t.Errorf("the service that serves the application stays listed: %v\n%s", runError, stdout)
+	}
+}
+
+// An application reference that names nothing is refused before the
+// inventory is read: an unknown name exits 3, an empty one exits 2.
+func TestServicesListByApplicationRefusesAnUnknownApplication(t *testing.T) {
+	cases := []struct {
+		reference string
+		wantExit  int
+		wantText  string
+	}{
+		{"checkout", exitNotFound, `no application named "checkout"`},
+		{"  ", exitUsage, "an application id or name is required"},
+	}
+	for _, testCase := range cases {
+		platform := newFakeServicesPlatform(t)
+		_, _, runError := runServicesCommand(t, platform, "", "list", "--application", testCase.reference)
+		if runError == nil {
+			t.Fatalf("--application %q: expected an error", testCase.reference)
+		}
+		if got := exitCodeFor(runError); got != testCase.wantExit || !strings.Contains(runError.Error(), testCase.wantText) {
+			t.Errorf("--application %q: exit %d %q, want exit %d with %q", testCase.reference, got, runError.Error(), testCase.wantExit, testCase.wantText)
+		}
+		if pages := platform.requests(http.MethodGet, "/service-admission/instances"); len(pages) != 0 {
+			t.Errorf("--application %q: the inventory must not be read", testCase.reference)
+		}
+	}
+}
+
+// --cluster travels to the platform as its cluster filter, on every page.
+func TestServicesListByClusterFiltersOnThePlatform(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	if _, _, runError := runServicesCommand(t, platform, "", "list", "--cluster", fakeServiceClusterID); runError != nil {
+		t.Fatalf("services list --cluster: %v", runError)
+	}
+	pages := platform.requests(http.MethodGet, "/service-admission/instances")
+	if len(pages) != 2 {
+		t.Fatalf("expected the two-page walk, read %d pages", len(pages))
+	}
+	for _, page := range pages {
+		query, _ := url.ParseQuery(page.query)
+		if query.Get("cluster_id") != fakeServiceClusterID || query.Has("application_id") {
+			t.Errorf("every page must carry the cluster filter and nothing else, got %q", page.query)
+		}
+	}
+}
+
 // Retiring deletes data: without --acknowledge-data-loss neither delete nor
 // retirements confirm prepares or confirms anything.
 func TestServicesRetirementRequiresTheAcknowledgement(t *testing.T) {
@@ -980,7 +1149,7 @@ type twinInstancesClient struct {
 	items []map[string]any
 }
 
-func (twins *twinInstancesClient) ListServiceInstances(_ context.Context, _ client.ServicePageOptions) (*client.ServiceInstancePage, error) {
+func (twins *twinInstancesClient) ListServiceInstances(_ context.Context, _ client.ServiceInstanceListOptions) (*client.ServiceInstancePage, error) {
 	encoded, _ := json.Marshal(map[string]any{"items": twins.items, "next_cursor": nil})
 	var page client.ServiceInstancePage
 	return &page, json.Unmarshal(encoded, &page)
