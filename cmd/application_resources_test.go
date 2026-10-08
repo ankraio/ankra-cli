@@ -114,7 +114,7 @@ func TestApplicationResourceCommandsRegistered(t *testing.T) {
 		registered[subcommand.Name()] = true
 	}
 	for _, expected := range []string{
-		"add", "get", "list", "jobs", "retry", "reconcile", "delete", "deploy",
+		"add", "get", "list", "jobs", "retry", "reconcile", "delete", "deploy", "remove",
 		"deployments", "installations", "chart-versions", "platform",
 		"workflow-runs", "workflow-run-jobs", "rerun-workflow",
 		"pull-request-reviews", "upgrade-workflow", "branches", "branch-files",

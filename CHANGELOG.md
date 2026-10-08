@@ -4,6 +4,22 @@
 
 ### Added
 
+- **`ankra application remove <application> --cluster <cluster>` takes an
+  application off one cluster and leaves it running everywhere else.** Until
+  now the only way to take an application off a cluster was `ankra application
+  delete`, which removes the application and every deployment it has. The new
+  command uninstalls its workloads in one cluster and namespace - and with them
+  any data in that deployment's database and volumes - while the application,
+  its settings, secrets, images, release history and its other deployments
+  stay, so you can deploy it there again. `--cluster` takes a name or an id;
+  `--namespace` is needed only when the application runs in more than one
+  namespace on that cluster, and the command says which ones. It asks first
+  (`--yes` skips the prompt; declining exits 4), says where the application
+  runs when it is not on that cluster (exit 3), and refuses a deployment that
+  is already being removed. The removal runs in the background: `ankra
+  application installations` shows it as `removing` until it is gone, or
+  `failed` with the reason.
+
 - **`ankra pipeline get` says what each step used against what it asked
   for.** A "Resources used" section adds a line such as "e2e: memory peak
   8.0 GiB of 14.0 GiB requested (57%); CPU 0.80 cores on average of 2.00

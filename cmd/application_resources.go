@@ -93,6 +93,7 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 		}),
 		newApplicationDeleteCommand(),
 		newApplicationDeployCommand(),
+		newApplicationRemoveCommand(),
 		newApplicationSubresourceCommand("deployments", "List an application's cluster deployments", func(command *cobra.Command, applicationID string) (json.RawMessage, error) {
 			return apiClient.GetApplicationDeployments(command.Context(), applicationID)
 		}),
