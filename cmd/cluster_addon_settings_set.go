@@ -28,7 +28,7 @@ Each flag is applied to the addon's stored settings; anything you do not pass
 is left as it is. To replace the whole document instead, use
 'ankra cluster addons update <addon> -f settings.json'.
 
-Backup settings (closed beta) override the add-on's stack backup policy for
+Backup settings override the add-on's stack backup policy for
 this add-on only - use them for the one add-on in a protected stack that
 should be captured differently:
 
