@@ -98,11 +98,11 @@ vault registering a bucket you created yourself - your bucket, your teardown.
 - **Read `Not carried` before you rely on a restore point.** Every listing and detail prints
   it; an omission nobody read is the same as an omission nobody was told about.
 
-## Restore points (closed beta)
+## Restore points
 
-Everything below is gated by the organisation's `backups` feature. While it is off every
-command answers `Backups are not enabled for this organisation.` - ask Ankra to switch it on
-rather than looking for a permission or a typo.
+Backups and restore points are available to every organisation (out of closed beta on
+2026-09-21), with nothing to request. An older platform that still answers
+`Backups are not enabled for this organisation.` predates that release.
 
 A **restore point** is an immutable copy of a stack's data in a vault, self-describing enough
 to be read without the cluster it came from. Backing up creates one; restoring applies one.
