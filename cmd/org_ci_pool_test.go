@@ -206,3 +206,61 @@ func TestRunOrgCISettingsGet_ShowsEveryPoolMembersLoad(t *testing.T) {
 		}
 	}
 }
+
+// A CI cluster that cannot add a node says why and what to do, the
+// 2026-10-08 Hetzner refusal shape (ankra-q573dh.15).
+func TestRunOrgCISettingsGet_ShowsWhatStopsAClusterGrowing(t *testing.T) {
+	clusterName := "ankra-ci"
+	clusterID := poolPrimaryID
+	waiting, idle := 6, 0
+	detail := "hetzner_create_server: Hetzner API 403 (resource_limit_exceeded): shared core limit exceeded"
+	stale := "The cluster's events have not synced recently, so Ankra cannot say whether anything is stopping it from adding nodes."
+	mock := &orgCIPoolMock{}
+	mock.settings = defaultCISettings()
+	mock.capacity = &client.OrganisationCICapacity{
+		ClusterID: &clusterID, ClusterName: &clusterName, CIWorkerCount: 4, StepsInFlightOnCluster: 4,
+		PoolMembers: []client.OrganisationCICapacityMember{
+			{ClusterID: poolPrimaryID, ClusterName: "ankra-ci", CIWorkerCount: 4, StepsInFlight: 4, CanRunSteps: true,
+				WaitingSteps: &waiting, ScaleUpBlockersState: "blocked",
+				ScaleUpBlockers: []client.OrganisationCICapacityBlocker{{
+					Code: "provider_quota_exceeded", Category: "waiting",
+					Title:    "The cloud provider refused a new node: a quota is reached",
+					NextStep: "Your Hetzner project's shared vCPU limit is reached, so no node can be added.",
+					Detail:   &detail, Source: "platform", WaitingSteps: 6,
+				}}},
+			{ClusterID: poolSecondID, ClusterName: "idle-ci", WaitingSteps: &idle, ScaleUpBlockersState: "unknown",
+				ScaleUpBlockersUnavailable: &stale},
+		},
+	}
+	output, executeError := runOrgCIPoolWith(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v", executeError)
+	}
+	for _, fragment := range []string{"Blocked:", "ankra-ci: The cloud provider refused a new node",
+		"[provider_quota_exceeded]", "Holds 6 waiting step(s).", "shared vCPU limit is reached",
+		"Reported: hetzner_create_server: Hetzner API 403"} {
+		if !strings.Contains(output, fragment) {
+			t.Errorf("expected %q in %s", fragment, output)
+		}
+	}
+	if strings.Contains(output, "idle-ci:") {
+		t.Errorf("a cluster with nothing waiting must not report its unread events: %s", output)
+	}
+}
+
+// A platform that predates blockers prints no Blocked block.
+func TestRunOrgCISettingsGet_AnOlderPlatformPrintsNoBlockers(t *testing.T) {
+	clusterName := "ci-hel1"
+	clusterID := poolPrimaryID
+	mock := &orgCIPoolMock{}
+	mock.settings = defaultCISettings()
+	mock.capacity = &client.OrganisationCICapacity{ClusterID: &clusterID, ClusterName: &clusterName,
+		PoolMembers: []client.OrganisationCICapacityMember{{ClusterID: poolPrimaryID, ClusterName: "ci-hel1"}}}
+	output, executeError := runOrgCIPoolWith(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v", executeError)
+	}
+	if strings.Contains(output, "Blocked:") {
+		t.Errorf("an older platform's capacity printed a Blocked block: %s", output)
+	}
+}

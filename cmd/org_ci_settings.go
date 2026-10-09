@@ -129,6 +129,7 @@ func renderOrganisationCICapacity(cmd *cobra.Command, capacity *client.Organisat
 	if capacity.IsPooled {
 		renderOrganisationCIPoolCapacity(out, capacity.PoolMembers)
 	}
+	renderOrganisationCIScaleUpBlockers(out, capacity.PoolMembers)
 	_, _ = fmt.Fprintf(out, "  Runs in flight:          %d of %d\n",
 		capacity.OrganisationRunsInFlight, capacity.MaxParallelRuns)
 	_, _ = fmt.Fprintf(out, "  Runs queued:             %d\n", capacity.OrganisationRunsQueued)
@@ -162,6 +163,40 @@ func renderOrganisationCIPoolCapacity(out io.Writer, members []client.Organisati
 		}
 		_, _ = fmt.Fprintf(out, "    %-22s %d of %d in use, weight %d%s%s\n", member.ClusterName,
 			member.StepsInFlight, member.CIWorkerCount, member.Weight, role, state)
+	}
+}
+
+// renderOrganisationCIScaleUpBlockers prints what is stopping each CI
+// cluster from running the organisation's waiting steps, with the next step
+// the platform gives for each (ankra-q573dh.15). A cluster whose events could
+// not be read says so when steps are waiting on it, because silence there
+// would read as "nothing is wrong". A platform that predates blockers prints
+// nothing here.
+func renderOrganisationCIScaleUpBlockers(out io.Writer, members []client.OrganisationCICapacityMember) {
+	isHeaderPrinted := false
+	header := func() {
+		if !isHeaderPrinted {
+			_, _ = fmt.Fprintln(out, "  Blocked:")
+			isHeaderPrinted = true
+		}
+	}
+	for _, member := range members {
+		for _, blocker := range member.ScaleUpBlockers {
+			header()
+			_, _ = fmt.Fprintf(out, "    %s: %s [%s]\n", member.ClusterName, blocker.Title, blocker.Code)
+			if blocker.WaitingSteps > 0 {
+				_, _ = fmt.Fprintf(out, "      Holds %d waiting step(s).\n", blocker.WaitingSteps)
+			}
+			_, _ = fmt.Fprintf(out, "      %s\n", blocker.NextStep)
+			if blocker.Detail != nil && *blocker.Detail != "" {
+				_, _ = fmt.Fprintf(out, "      Reported: %s\n", *blocker.Detail)
+			}
+		}
+		isWaiting := member.WaitingSteps != nil && *member.WaitingSteps > 0
+		if member.ScaleUpBlockersState == "unknown" && member.ScaleUpBlockersUnavailable != nil && isWaiting {
+			header()
+			_, _ = fmt.Fprintf(out, "    %s: %s\n", member.ClusterName, *member.ScaleUpBlockersUnavailable)
+		}
 	}
 }
 

@@ -153,3 +153,30 @@ func TestGetOrganisationCICapacityDecodesThePoolMembers(t *testing.T) {
 		t.Errorf("an older platform's capacity must not grow pool keys: %s", encoded)
 	}
 }
+
+func TestGetOrganisationCICapacityDecodesTheScaleUpBlockers(t *testing.T) {
+	testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte(`{"cluster_id":"c-1","cluster_name":"ankra-ci","ci_worker_count":4,` +
+			`"is_pooled":false,"pool_members":[{"cluster_id":"c-1","cluster_name":"ankra-ci","weight":100,` +
+			`"is_primary":true,"is_listed":false,"ci_worker_count":4,"steps_in_flight":4,"can_run_steps":true,` +
+			`"is_full":true,"waiting_steps":6,"scale_up_blockers":[{"code":"provider_quota_exceeded",` +
+			`"category":"waiting","title":"The cloud provider refused a new node: a quota is reached",` +
+			`"next_step":"Raise it.","detail":"Hetzner API 403","source":"platform",` +
+			`"observed_at":"2026-10-08T10:29:00Z","waiting_steps":6}],"scale_up_blockers_state":"blocked",` +
+			`"scale_up_blockers_unavailable":null}]}`))
+	})
+	capacity, getError := testClient.GetOrganisationCICapacity(context.Background())
+	if getError != nil {
+		t.Fatalf("get error = %v", getError)
+	}
+	member := capacity.PoolMembers[0]
+	if member.WaitingSteps == nil || *member.WaitingSteps != 6 || member.ScaleUpBlockersState != "blocked" ||
+		len(member.ScaleUpBlockers) != 1 || member.ScaleUpBlockers[0].Code != "provider_quota_exceeded" ||
+		member.ScaleUpBlockers[0].Detail == nil || member.ScaleUpBlockers[0].WaitingSteps != 6 {
+		t.Errorf("member = %+v", member)
+	}
+	encoded, _ := json.Marshal(OrganisationCICapacityMember{ClusterID: "c-1"})
+	if strings.Contains(string(encoded), "scale_up_blockers") || strings.Contains(string(encoded), "waiting_steps") {
+		t.Errorf("an older platform's member must not grow blocker keys: %s", encoded)
+	}
+}

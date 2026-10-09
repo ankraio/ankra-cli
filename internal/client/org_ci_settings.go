@@ -169,6 +169,36 @@ type OrganisationCICapacityMember struct {
 	StepsInFlight int    `json:"steps_in_flight" yaml:"steps_in_flight"`
 	CanRunSteps   bool   `json:"can_run_steps" yaml:"can_run_steps"`
 	IsFull        bool   `json:"is_full" yaml:"is_full"`
+	// WaitingSteps, ScaleUpBlockers, ScaleUpBlockersState and
+	// ScaleUpBlockersUnavailable say what is stopping the member from running
+	// the organisation's waiting steps (ankra-q573dh.15): steps whose pods
+	// have not started two minutes after the agent began them, and why - a
+	// node the cloud provider refused for a quota, a node group at its
+	// maximum, an image the registry refused - each with the one thing to do.
+	// The state is "blocked", "none_observed" or "unknown"; an empty list
+	// with "unknown" is not "nothing is wrong". All four are absent from a
+	// platform that predates them and stay out of structured output then.
+	WaitingSteps               *int                            `json:"waiting_steps,omitempty" yaml:"waiting_steps,omitempty"`
+	ScaleUpBlockers            []OrganisationCICapacityBlocker `json:"scale_up_blockers,omitempty" yaml:"scale_up_blockers,omitempty"`
+	ScaleUpBlockersState       string                          `json:"scale_up_blockers_state,omitempty" yaml:"scale_up_blockers_state,omitempty"`
+	ScaleUpBlockersUnavailable *string                         `json:"scale_up_blockers_unavailable,omitempty" yaml:"scale_up_blockers_unavailable,omitempty"`
+}
+
+// OrganisationCICapacityBlocker is one reason a CI pool member is not
+// running the organisation's waiting steps. Code is the platform's stable
+// vocabulary (the docs list every code); Title and NextStep are its
+// sentences. Detail is the cluster's or the provider's own words, already
+// cleaned and bounded by the platform, nil when there were none. WaitingSteps
+// is how many of the waiting steps it holds.
+type OrganisationCICapacityBlocker struct {
+	Code         string  `json:"code" yaml:"code"`
+	Category     string  `json:"category" yaml:"category"`
+	Title        string  `json:"title" yaml:"title"`
+	NextStep     string  `json:"next_step" yaml:"next_step"`
+	Detail       *string `json:"detail" yaml:"detail"`
+	Source       string  `json:"source" yaml:"source"`
+	ObservedAt   *string `json:"observed_at" yaml:"observed_at"`
+	WaitingSteps int     `json:"waiting_steps" yaml:"waiting_steps"`
 }
 
 // ErrCICapacityUnavailable is a platform that does not serve the capacity

@@ -4,6 +4,16 @@
 
 ### Added
 
+- **`ankra org ci-settings get` says what is stopping a CI cluster from running
+  your waiting steps.** Under the capacity numbers, a `Blocked:` block lists
+  each cluster's scale-up blockers with the platform's code and the one thing
+  to do, for example a node Hetzner refused because the project's shared vCPU
+  limit is reached, a node group at its maximum, or an image the registry
+  refused, and how many waiting steps each holds. A cluster with waiting steps
+  whose events could not be read says so rather than printing nothing.
+  `-o json` and `-o yaml` carry `waiting_steps`, `scale_up_blockers`,
+  `scale_up_blockers_state` and `scale_up_blockers_unavailable` per pool
+  member; a platform that predates them prints and outputs exactly as before.
 - **`ankra org ci-settings pool list|add|remove` spreads an organisation's
   pipeline runs over more than one cluster.** The organisation's pipeline
   cluster stays the primary member; `pool add <cluster> [--weight N]` lists
