@@ -219,6 +219,16 @@ ankra cluster kubeconfig add --use                        # short-lived credenti
 all work through the agent with no grant at all. Run `/ankra-harden` or read `ankra-security` once
 more than one person has access.
 
+The person who creates a cluster gets `cluster-admin` on it by default, unless the organisation
+access policy sets another creator role (`ankra org access-policy get` shows it). If yours gives
+creators `view` and you need `edit` for a first debugging session, ask an admin for a time-boxed
+grant, or run `elevate` yourself if you hold the break-glass permission `kube_access.elevate`:
+
+```bash
+ankra cluster access grant <email> --cluster prod --role edit --expires 4h --reason "first debugging session"
+ankra cluster access elevate --cluster prod --role edit --expires 4h --reason "first debugging session"
+```
+
 ## 9. Where to go next
 
 | Next | Skill |

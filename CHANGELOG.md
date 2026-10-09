@@ -115,6 +115,15 @@
 
 ### Changed
 
+- **The installed skills teach time-boxed cluster access.** `ankra-security`
+  and the `/ankra-harden` review now treat a standing `admin` or
+  `cluster-admin` grant as a finding, steer access above `view` to
+  `--expires` and `--reason` or to break-glass `ankra cluster access
+  elevate`, and check the organisation access policy with `ankra org
+  access-policy get`. `ankra-cli`, `ankra-getting-started` and
+  `ankra-platform-principles` list the new commands and the creator default.
+  Run `ankra skills install` again to refresh an existing install.
+
 - **The rules and skills `ankra skills install` writes no longer call read-only
   `kubectl` fine.** They tell an agent to use the `ankra` CLI for every
   interaction with a cluster, reads included (`ankra cluster get`, `describe`,

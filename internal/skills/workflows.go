@@ -221,8 +221,9 @@ This is a read-and-report pass: change nothing without asking.
 1. **Identity and tokens.** ` + "`ankra tokens list`" + ` — flag tokens with no expiry, tokens holding
    ` + "`mcp:write`" + ` that only need ` + "`mcp:read`" + `, and anything unused. ` + "`ankra org members`" + ` and
    ` + "`ankra org roles`" + ` for who holds what.
-2. **Cluster access.** ` + "`ankra cluster access list`" + ` per cluster — flag every ` + "`cluster-admin`" + ` and every
-   cluster-wide grant that could be namespace-scoped.
+2. **Cluster access.** ` + "`ankra cluster access list`" + ` per cluster: flag every standing ` + "`admin`" + ` or
+   ` + "`cluster-admin`" + ` grant (no Expires) and every cluster-wide grant that could be namespace-scoped.
+   ` + "`ankra org access-policy get`" + `: flag an organisation with no ceiling or no elevated lifetime.
 3. **Secrets.** Confirm nothing sensitive is committed in plaintext: every SOPS-encrypted value has
    its ` + "`encrypted_paths`" + ` declared (` + "`ankra cluster stacks list <stack> -o json`" + `), and
    ` + "`ankra cluster sops-config`" + ` shows the key in use. Check application environment secrets are set
