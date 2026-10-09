@@ -950,6 +950,22 @@ func (m baseMock) GetOrganisationCICapacity(ctx context.Context) (*client.Organi
 	return nil, client.ErrCICapacityUnavailable
 }
 
+// The CI pool reads answer as a platform that predates the pool routes, so a
+// test that does not stub them sees ErrCIPoolUnavailable.
+func (m baseMock) GetOrganisationCIPool(ctx context.Context) (*client.OrganisationCIPool, error) {
+	return nil, client.ErrCIPoolUnavailable
+}
+
+func (m baseMock) SetOrganisationCIPoolMember(ctx context.Context, clusterID string,
+	weight *int) (*client.OrganisationCIPool, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveOrganisationCIPoolMember(ctx context.Context,
+	clusterID string) (*client.OrganisationCIPool, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) MCPCatalog(ctx context.Context) (*client.MCPCatalogResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -3241,6 +3257,11 @@ func (m baseMock) ConnectPipelineRepository(ctx context.Context, request client.
 
 func (m baseMock) DisconnectPipelineRepository(ctx context.Context, repositoryID string) error {
 	return errors.New("not implemented")
+}
+
+func (m baseMock) SetPipelineRepositoryCluster(ctx context.Context, repositoryID string,
+	clusterID string) (*client.PipelineRepository, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) ListEnvironments(ctx context.Context) (*client.EnvironmentList, error) {

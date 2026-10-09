@@ -148,6 +148,57 @@ type OrganisationCICapacity struct {
 	OrganisationStepsWaitingOnSlots int     `json:"organisation_steps_waiting_on_slots" yaml:"organisation_steps_waiting_on_slots"`
 	MaxParallelRuns                 int     `json:"max_parallel_runs" yaml:"max_parallel_runs"`
 	MaxParallelSteps                int     `json:"max_parallel_steps" yaml:"max_parallel_steps"`
+	// IsPooled says the organisation lists CI pool members, so its runs are
+	// spread across PoolMembers and OrganisationStepsWaitingOnSlots is the
+	// pool's. PoolMembers is nil from a platform that predates pools, which
+	// keeps it out of structured output rather than reading as "no members".
+	IsPooled    bool                           `json:"is_pooled,omitempty" yaml:"is_pooled,omitempty"`
+	PoolMembers []OrganisationCICapacityMember `json:"pool_members,omitempty" yaml:"pool_members,omitempty"`
+}
+
+// OrganisationCICapacityMember is one CI pool member's slots and load.
+// CanRunSteps says its agent exists, runs pipeline steps and is checking in;
+// IsFull says every one of its workers is taken.
+type OrganisationCICapacityMember struct {
+	ClusterID     string `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName   string `json:"cluster_name" yaml:"cluster_name"`
+	Weight        int    `json:"weight" yaml:"weight"`
+	IsPrimary     bool   `json:"is_primary" yaml:"is_primary"`
+	IsListed      bool   `json:"is_listed" yaml:"is_listed"`
+	CIWorkerCount int    `json:"ci_worker_count" yaml:"ci_worker_count"`
+	StepsInFlight int    `json:"steps_in_flight" yaml:"steps_in_flight"`
+	CanRunSteps   bool   `json:"can_run_steps" yaml:"can_run_steps"`
+	IsFull        bool   `json:"is_full" yaml:"is_full"`
+	// WaitingSteps, ScaleUpBlockers, ScaleUpBlockersState and
+	// ScaleUpBlockersUnavailable say what is stopping the member from running
+	// the organisation's waiting steps (ankra-q573dh.15): steps whose pods
+	// have not started two minutes after the agent began them, and why - a
+	// node the cloud provider refused for a quota, a node group at its
+	// maximum, an image the registry refused - each with the one thing to do.
+	// The state is "blocked", "none_observed" or "unknown"; an empty list
+	// with "unknown" is not "nothing is wrong". All four are absent from a
+	// platform that predates them and stay out of structured output then.
+	WaitingSteps               *int                            `json:"waiting_steps,omitempty" yaml:"waiting_steps,omitempty"`
+	ScaleUpBlockers            []OrganisationCICapacityBlocker `json:"scale_up_blockers,omitempty" yaml:"scale_up_blockers,omitempty"`
+	ScaleUpBlockersState       string                          `json:"scale_up_blockers_state,omitempty" yaml:"scale_up_blockers_state,omitempty"`
+	ScaleUpBlockersUnavailable *string                         `json:"scale_up_blockers_unavailable,omitempty" yaml:"scale_up_blockers_unavailable,omitempty"`
+}
+
+// OrganisationCICapacityBlocker is one reason a CI pool member is not
+// running the organisation's waiting steps. Code is the platform's stable
+// vocabulary (the docs list every code); Title and NextStep are its
+// sentences. Detail is the cluster's or the provider's own words, already
+// cleaned and bounded by the platform, nil when there were none. WaitingSteps
+// is how many of the waiting steps it holds.
+type OrganisationCICapacityBlocker struct {
+	Code         string  `json:"code" yaml:"code"`
+	Category     string  `json:"category" yaml:"category"`
+	Title        string  `json:"title" yaml:"title"`
+	NextStep     string  `json:"next_step" yaml:"next_step"`
+	Detail       *string `json:"detail" yaml:"detail"`
+	Source       string  `json:"source" yaml:"source"`
+	ObservedAt   *string `json:"observed_at" yaml:"observed_at"`
+	WaitingSteps int     `json:"waiting_steps" yaml:"waiting_steps"`
 }
 
 // ErrCICapacityUnavailable is a platform that does not serve the capacity
@@ -222,8 +273,19 @@ func (c *Client) doCISettingsRequestAt(ctx context.Context, method string, path 
 	}
 
 	switch response.StatusCode {
-	case http.StatusOK:
+	case http.StatusOK, http.StatusCreated:
 		return responseBody, nil
+	case http.StatusNotFound:
+		// The pool member routes answer a not-found with the platform's own
+		// sentence ("Cluster not found in this organisation.", "This cluster
+		// is not listed in the organisation's CI pool."); relayed verbatim it
+		// exits 3. A bare router 404 carries no detail and keeps the
+		// unexpected-response shape callers already key on.
+		if detail := ciSettingsRefusalDetail(responseBody); detail != "" {
+			return nil, newBackendDetailError(response.StatusCode, detail)
+		}
+		return nil, newUnexpectedResponseError("ci settings request failed",
+			response.StatusCode, redactedBodyForError(responseBody, 500))
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	case http.StatusForbidden:

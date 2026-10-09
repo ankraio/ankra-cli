@@ -15,6 +15,45 @@
   `cpu_usage_usec`, `cpu_throttled_usec` and `usage_elapsed_usec` on each step
   when the platform sends them; older platforms print nothing new, and the CPU
   average needs an agent that reports the step's run time.
+- **`ankra cluster agent ci set --image-prepull on|off` keeps the platform's
+  own step images pulled on a CI cluster's nodes.** The checkout's git client,
+  the trivy, checkov and semgrep scanners and the rootless builder are pulled
+  on every node pipeline steps can land on as soon as it joins, so a step on a
+  node the autoscaler just added does not wait for them (semgrep took 21-23 s
+  and checkov up to 28 s cold on Ankra's own CI cluster). The images follow the
+  platform's pinned digests with every step dispatched; `off`, the default,
+  removes the pre-pull. `ankra cluster agent ci get` shows the mode and whether
+  the cluster's agent supports it. It needs a platform and an agent that carry
+  the setting; on an older platform the command says the mode was not stored.
+
+- **`ankra org ci-settings get` says what is stopping a CI cluster from running
+  your waiting steps.** Under the capacity numbers, a `Blocked:` block lists
+  each cluster's scale-up blockers with the platform's code and the one thing
+  to do, for example a node Hetzner refused because the project's shared vCPU
+  limit is reached, a node group at its maximum, or an image the registry
+  refused, and how many waiting steps each holds. A cluster with waiting steps
+  whose events could not be read says so rather than printing nothing.
+  `-o json` and `-o yaml` carry `waiting_steps`, `scale_up_blockers`,
+  `scale_up_blockers_state` and `scale_up_blockers_unavailable` per pool
+  member; a platform that predates them prints and outputs exactly as before.
+- **`ankra org ci-settings pool list|add|remove` spreads an organisation's
+  pipeline runs over more than one cluster.** The organisation's pipeline
+  cluster stays the primary member; `pool add <cluster> [--weight N]` lists
+  another (a cluster of the organisation whose agent runs pipeline steps), and
+  each run is then pinned, at its first step, to the least-loaded member,
+  preferring the one where the repository ran last so its caches are warm. A
+  run never moves between clusters, so `pool remove` stops new runs going to a
+  member while the ones already there finish. Weights run from 1 to 1000
+  (default 100): a member weighted 200 takes runs until it carries twice the
+  load of one weighted 100. `-o json` and `-o yaml` are supported, `remove`
+  asks first (`--yes` skips it), and a platform without CI pools says so and
+  exits 3. An organisation that lists no members runs exactly as before.
+- **`ankra pipeline repositories set-cluster <repository-id> --cluster <name>`
+  moves a repository's runs to another cluster without disconnecting it.**
+  Disconnecting was the only way before, and a repository with a live run
+  refuses to disconnect. `--cluster ""` clears the override so the repository
+  follows the organisation's CI settings again. Runs already queued or running
+  keep the cluster they started on.
 - **`ankra pipeline get` says how long each step's pod sat Pending in the
   cluster, and where the time went.** The Queueing section adds a line such
   as "test: Pending 5m9s in the cluster before it ran (scheduling 4m30s,
@@ -52,6 +91,19 @@
   list` links the add-on's own page. A manifest that belongs to no stack has no
   page and gets no `portal_url`. The link carries the owning organisation, so a
   member whose active organisation is a different one is offered the switch.
+
+### Changed
+
+- **`ankra security dispositions` shows what each policy is pinned to, and
+  `--scope` documents `workload` and `image`.** A disposition can be pinned
+  to one workload on one cluster (`--scope workload`) or to one image digest
+  wherever it runs (`--scope image`), for a finding whose image no add-on
+  owns: operator-managed pods, plain manifests, control-plane pods. The list
+  (its Add-on column is now Pinned to), the preview and the recorded,
+  updated and revoked lines print `add-on <slug>`, `workload
+  <namespace>/<kind> <name> on cluster <id>` or `image <digest>`, where a
+  workload or image policy used to print an empty add-on. `-o json` and
+  `-o yaml` are unchanged.
 
 ## v0.27.0 — 2026-10-08
 

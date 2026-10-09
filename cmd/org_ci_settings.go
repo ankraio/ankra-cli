@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -125,6 +126,10 @@ func renderOrganisationCICapacity(cmd *cobra.Command, capacity *client.Organisat
 			capacity.StepsInFlightOnCluster, capacity.CIWorkerCount, clusterName)
 		_, _ = fmt.Fprintf(out, "  Live resize:             %s\n", liveResizeLabel(capacity.IsLiveResizeSupported))
 	}
+	if capacity.IsPooled {
+		renderOrganisationCIPoolCapacity(out, capacity.PoolMembers)
+	}
+	renderOrganisationCIScaleUpBlockers(out, capacity.PoolMembers)
 	_, _ = fmt.Fprintf(out, "  Runs in flight:          %d of %d\n",
 		capacity.OrganisationRunsInFlight, capacity.MaxParallelRuns)
 	_, _ = fmt.Fprintf(out, "  Runs queued:             %d\n", capacity.OrganisationRunsQueued)
@@ -137,6 +142,70 @@ func renderOrganisationCICapacity(cmd *cobra.Command, capacity *client.Organisat
 		_, _ = fmt.Fprintf(out,
 			"Every slot is taken, so steps wait for one to free. To run more steps at once:\n"+
 				"  ankra cluster agent ci set --workers N --cluster %s\n", clusterName)
+	}
+}
+
+// renderOrganisationCIPoolCapacity prints one line per CI pool member: how
+// many of its slots are in use, and why it takes no runs when it cannot.
+func renderOrganisationCIPoolCapacity(out io.Writer, members []client.OrganisationCICapacityMember) {
+	_, _ = fmt.Fprintf(out, "  CI pool:                 %d clusters, runs go to the least loaded\n", len(members))
+	for _, member := range members {
+		state := ""
+		switch {
+		case !member.CanRunSteps:
+			state = " (takes no runs: its agent is offline or does not run pipeline steps)"
+		case member.IsFull:
+			state = " (full)"
+		}
+		role := ""
+		if member.IsPrimary {
+			role = ", primary"
+		}
+		_, _ = fmt.Fprintf(out, "    %-22s %d of %d in use, weight %d%s%s\n", member.ClusterName,
+			member.StepsInFlight, member.CIWorkerCount, member.Weight, role, state)
+	}
+}
+
+// scaleUpBlockersUnreadable is said for a cluster with waiting steps whose
+// blockers the platform could not read and gave no sentence for: silence
+// there would read as "nothing is stopping it".
+const scaleUpBlockersUnreadable = "Ankra could not read whether anything is stopping this cluster from adding nodes."
+
+// renderOrganisationCIScaleUpBlockers prints what is stopping each CI
+// cluster from running the organisation's waiting steps, with the next step
+// the platform gives for each (ankra-q573dh.15). A cluster whose events could
+// not be read says so when steps are waiting on it, because silence there
+// would read as "nothing is wrong". A platform that predates blockers prints
+// nothing here.
+func renderOrganisationCIScaleUpBlockers(out io.Writer, members []client.OrganisationCICapacityMember) {
+	isHeaderPrinted := false
+	header := func() {
+		if !isHeaderPrinted {
+			_, _ = fmt.Fprintln(out, "  Blocked:")
+			isHeaderPrinted = true
+		}
+	}
+	for _, member := range members {
+		for _, blocker := range member.ScaleUpBlockers {
+			header()
+			_, _ = fmt.Fprintf(out, "    %s: %s [%s]\n", member.ClusterName, blocker.Title, blocker.Code)
+			if blocker.WaitingSteps > 0 {
+				_, _ = fmt.Fprintf(out, "      Holds %d waiting step(s).\n", blocker.WaitingSteps)
+			}
+			_, _ = fmt.Fprintf(out, "      %s\n", blocker.NextStep)
+			if blocker.Detail != nil && *blocker.Detail != "" {
+				_, _ = fmt.Fprintf(out, "      Reported: %s\n", *blocker.Detail)
+			}
+		}
+		isWaiting := member.WaitingSteps != nil && *member.WaitingSteps > 0
+		if member.ScaleUpBlockersState == "unknown" && isWaiting {
+			header()
+			sentence := scaleUpBlockersUnreadable
+			if member.ScaleUpBlockersUnavailable != nil && *member.ScaleUpBlockersUnavailable != "" {
+				sentence = *member.ScaleUpBlockersUnavailable
+			}
+			_, _ = fmt.Fprintf(out, "    %s: %s\n", member.ClusterName, sentence)
+		}
 	}
 }
 

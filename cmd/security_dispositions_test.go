@@ -268,6 +268,98 @@ func TestSecurityDispositions_ListsPoliciesAndReviewCount(t *testing.T) {
 	}
 }
 
+func TestSecuritySelectorTarget_NamesWhatThePolicyIsPinnedTo(t *testing.T) {
+	cases := []struct {
+		name     string
+		selector client.SecurityDispositionSelector
+		expected string
+	}{
+		{"add-on", client.SecurityDispositionSelector{OrganisationID: "org", AddonSlug: "ingress-nginx"}, "add-on ingress-nginx"},
+		{"workload", client.SecurityDispositionSelector{OrganisationID: "org", ClusterID: "cluster-1", WorkloadKind: "StatefulSet", WorkloadNamespace: "database", WorkloadName: "postgres"}, "workload database/StatefulSet postgres on cluster cluster-1"},
+		{"cluster-scoped workload", client.SecurityDispositionSelector{OrganisationID: "org", ClusterID: "cluster-1", WorkloadKind: "Node", WorkloadName: "worker-1"}, "workload Node worker-1 on cluster cluster-1"},
+		{"image", client.SecurityDispositionSelector{OrganisationID: "org", ImageDigest: "sha256:abc123"}, "image sha256:abc123"},
+		{"organisation only", client.SecurityDispositionSelector{OrganisationID: "org"}, "organisation"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if target := securitySelectorTarget(testCase.selector); target != testCase.expected {
+				t.Errorf("expected %q, got %q", testCase.expected, target)
+			}
+		})
+	}
+}
+
+func TestSecurityDispositions_RendersWorkloadAndImageTargets(t *testing.T) {
+	workloadPolicy := sampleDisposition()
+	workloadPolicy.Selector = client.SecurityDispositionSelector{OrganisationID: "org", CVEID: "CVE-2025-24813", PackageName: "tomcat-embed-core", ClusterID: "cluster-1", WorkloadKind: "StatefulSet", WorkloadNamespace: "database", WorkloadName: "postgres"}
+	imagePolicy := sampleDisposition()
+	imagePolicy.Selector = client.SecurityDispositionSelector{OrganisationID: "org", CVEID: "CVE-2025-24813", PackageName: "tomcat-embed-core", ImageDigest: "sha256:abc123"}
+	mock := &securityDispositionsMock{dispositions: &client.SecurityDispositionList{
+		Result:     []client.SecurityDisposition{sampleDisposition(), workloadPolicy, imagePolicy},
+		Pagination: client.SecurityPagination{Page: 1, TotalPages: 1, TotalCount: 3},
+	}}
+	output, err := runSecurityCommand(t, mock, "security", "dispositions")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, fragment := range []string{"add-on ingress-nginx", "workload database/StatefulSet postgres on cluster cluster-1", "image sha256:abc123"} {
+		if !strings.Contains(output, fragment) {
+			t.Errorf("expected %q in output:\n%s", fragment, output)
+		}
+	}
+	if !strings.Contains(strings.ToLower(output), "pinned to") {
+		t.Errorf("expected the Pinned to column:\n%s", output)
+	}
+}
+
+func TestSecurityDispositionsPreview_RendersWorkloadTarget(t *testing.T) {
+	preview := sampleDispositionPreview()
+	preview.Selector = client.SecurityDispositionSelector{OrganisationID: "org", CVEID: "CVE-2025-24813", PackageType: "maven", PackageName: "tomcat-embed-core", ClusterID: "cluster-1", WorkloadKind: "StatefulSet", WorkloadNamespace: "database", WorkloadName: "postgres"}
+	mock := &securityDispositionsMock{preview: preview}
+	output, err := runSecurityCommand(t, mock, "security", "dispositions", "preview", "--occurrence", "occ-1", "--scope", "workload", "--disposition", "acknowledged")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "Selector: CVE-2025-24813 in tomcat-embed-core (maven) · workload database/StatefulSet postgres on cluster cluster-1\n"
+	if !strings.Contains(output, expected) {
+		t.Errorf("expected %q:\n%s", expected, output)
+	}
+	if mock.previewRequest == nil || mock.previewRequest.Scope != "workload" {
+		t.Fatalf("expected the workload scope forwarded, got %+v", mock.previewRequest)
+	}
+}
+
+func TestSecurityDispositionsPreview_RendersAddonTargetAsBefore(t *testing.T) {
+	mock := &securityDispositionsMock{preview: sampleDispositionPreview()}
+	output, err := runSecurityCommand(t, mock, "security", "dispositions", "preview", "--occurrence", "occ-1", "--disposition", "acknowledged")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "Selector: CVE-2025-24813 in tomcat-embed-core (maven) · add-on ingress-nginx\n"
+	if !strings.Contains(output, expected) {
+		t.Errorf("expected %q:\n%s", expected, output)
+	}
+}
+
+func TestSecurityDispositionsCreate_RendersImageTarget(t *testing.T) {
+	policy := sampleDisposition()
+	policy.Status = "active"
+	policy.Selector = client.SecurityDispositionSelector{OrganisationID: "org", CVEID: "CVE-2025-24813", PackageName: "tomcat-embed-core", ImageDigest: "sha256:abc123"}
+	preview := sampleDispositionPreview()
+	preview.Selector = policy.Selector
+	mock := &securityDispositionsMock{preview: preview, mutation: &client.SecurityDispositionMutation{Policy: policy, Preview: *preview}}
+	output, err := runSecurityCommand(t, mock, "security", "dispositions", "create", "--occurrence", "occ-1", "--scope", "image", "--disposition", "acknowledged", "--reason", "base image", "--yes")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(output, "CVE-2025-24813 in tomcat-embed-core · image sha256:abc123 · 3 active matches") {
+		t.Errorf("expected the image target on the recorded line:\n%s", output)
+	}
+	if mock.createRequest == nil || mock.createRequest.Scope != "image" {
+		t.Fatalf("expected the image scope forwarded, got %+v", mock.createRequest)
+	}
+}
+
 func TestSecurityDispositionsPreview_RequiresExactlyOneAnchor(t *testing.T) {
 	mock := &securityDispositionsMock{preview: sampleDispositionPreview()}
 	_, err := runSecurityCommand(t, mock, "security", "dispositions", "preview", "--disposition", "acknowledged")

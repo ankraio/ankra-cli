@@ -73,6 +73,7 @@ its own repository automatically.`,
 		newPipelineRepositoriesGetCommand(),
 		newPipelineRepositoriesConnectCommand(),
 		newPipelineRepositoriesDisconnectCommand(),
+		newPipelineRepositoriesSetClusterCommand(),
 	)
 	return repositoriesCommand
 }
@@ -354,5 +355,64 @@ func runPipelineRepositoriesDisconnect(command *cobra.Command, repositoryID stri
 		return encodeStructured(command.OutOrStdout(), format, map[string]any{"repository_id": repositoryID, "disconnected": true})
 	}
 	_, _ = fmt.Fprintf(command.OutOrStdout(), "Repository %s disconnected.\n", repositoryID)
+	return nil
+}
+
+func newPipelineRepositoriesSetClusterCommand() *cobra.Command {
+	setClusterCommand := &cobra.Command{
+		Use:   "set-cluster <repository-id>",
+		Short: "Change the cluster a repository's pipeline runs on",
+		Long: `Change a connected repository's CI cluster override without disconnecting it.
+
+  ankra pipeline repositories set-cluster <repository-id> --cluster build-cluster
+  ankra pipeline repositories set-cluster <repository-id> --cluster ""
+
+The cluster (name or id) must belong to the organisation and its agent must run
+pipeline steps. An empty --cluster clears the override, so the repository's
+runs follow the organisation's CI settings - its pipeline cluster, or its CI
+pool - again.
+
+It changes where the repository's next runs go; a run already queued or
+running keeps the cluster it was pinned to, because a run's steps never split
+across clusters. Requires the pipelines.manage permission.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			return runPipelineRepositoriesSetCluster(command, arguments[0])
+		},
+	}
+	setClusterCommand.Flags().String("cluster", "", "Cluster name or id the repository's runs go to; empty clears the override")
+	_ = setClusterCommand.MarkFlagRequired("cluster")
+	registerStructuredOutputFlags(setClusterCommand)
+	return setClusterCommand
+}
+
+func runPipelineRepositoriesSetCluster(command *cobra.Command, repositoryID string) error {
+	format, formatError := structuredFormatFromFlags(command)
+	if formatError != nil {
+		return formatError
+	}
+	repositoryID = strings.TrimSpace(repositoryID)
+	if !looksLikeUUID(repositoryID) {
+		return withExitCode(exitUsage, fmt.Errorf(
+			"%q is not a repository id - there is no lookup by owner/name yet, "+
+				"run 'ankra pipeline repositories list' to find it", repositoryID))
+	}
+	nameOrID, _ := command.Flags().GetString("cluster")
+	clusterID := ""
+	if trimmed := strings.TrimSpace(nameOrID); trimmed != "" {
+		resolved, resolveError := resolveClusterID(trimmed)
+		if resolveError != nil {
+			return resolveError
+		}
+		clusterID = resolved
+	}
+	repository, setError := apiClient.SetPipelineRepositoryCluster(command.Context(), repositoryID, clusterID)
+	if setError != nil {
+		return setError
+	}
+	if format != outputDefault {
+		return encodeStructured(command.OutOrStdout(), format, repository)
+	}
+	printPipelineRepository(command.OutOrStdout(), repository)
 	return nil
 }
