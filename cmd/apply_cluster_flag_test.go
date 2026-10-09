@@ -33,7 +33,7 @@ func (mock *applyOverrideMock) GetCluster(name string) (client.ClusterListItem, 
 	if name == "prod-eu" {
 		return client.ClusterListItem{ID: "11111111-1111-1111-1111-111111111111", Name: "prod-eu"}, nil
 	}
-	return client.ClusterListItem{}, os.ErrNotExist
+	return client.ClusterListItem{}, client.ErrClusterNotFound
 }
 
 func (mock *applyOverrideMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {

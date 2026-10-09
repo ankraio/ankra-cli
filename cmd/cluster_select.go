@@ -194,17 +194,29 @@ func clusterFlagOverride(cmd *cobra.Command) string {
 // lookupClusterByNameOrID resolves a cluster name or UUID to its full list
 // item. A value shaped like a UUID is looked up by ID first, then falls back to
 // a name lookup so a name that merely resembles a UUID still resolves.
+//
+// Only an answered lookup that did not contain the cluster is reported as
+// "not found", and that error names the organisation that was searched. A
+// lookup that failed (network, expired login, permission, server error) is
+// returned as that failure: reporting it as absence sent people checking
+// --org and --cluster for a cluster that was there all along.
 func lookupClusterByNameOrID(nameOrID string) (client.ClusterListItem, error) {
 	if isLikelyClusterID(nameOrID) {
-		if cluster, err := apiClient.GetClusterByID(nameOrID); err == nil {
+		if cluster, lookupError := apiClient.GetClusterByID(nameOrID); lookupError == nil {
 			return cluster, nil
 		}
 	}
-	cluster, err := apiClient.GetCluster(nameOrID)
-	if err != nil {
-		return client.ClusterListItem{}, fmt.Errorf("cluster %q not found", nameOrID)
+	cluster, lookupError := apiClient.GetCluster(nameOrID)
+	switch {
+	case lookupError == nil:
+		return cluster, nil
+	case errors.Is(lookupError, client.ErrClusterNotFound):
+		return client.ClusterListItem{}, withExitCode(exitNotFound, fmt.Errorf(
+			"cluster %q not found in %s (check the name with `ankra cluster list`, or pass --org for the organisation that owns it)",
+			nameOrID, scopedOrganisationPhrase(scopedOrganisationLabel())))
+	default:
+		return client.ClusterListItem{}, fmt.Errorf("looking up cluster %q: %w", nameOrID, lookupError)
 	}
-	return cluster, nil
 }
 
 func loadSelectedCluster() (client.ClusterListItem, error) {

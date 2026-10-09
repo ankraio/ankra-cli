@@ -143,6 +143,19 @@
   workload or image policy used to print an empty add-on. `-o json` and
   `-o yaml` are unchanged.
 
+### Fixed
+
+- **`--cluster <name>` no longer reports a cluster as missing when the lookup
+  itself failed.** `ankra cluster exec`, `get`, `logs`, `describe`, `info` and
+  every other `cluster` command that takes `--cluster` used to answer any
+  failed lookup (a dropped connection, an expired login, a server error) with
+  `cluster "<name>" not found`, which sent people checking `--org` and flag
+  order for a cluster that was there. A failed lookup now prints the actual
+  failure; a cluster that really is absent exits 3 and names the organisation
+  that was searched, with a pointer to `--org`. `--org` and `--cluster` work
+  the same before the command path (`ankra --org X --cluster Y cluster exec
+  ...`) as after it.
+
 ## v0.27.0 — 2026-10-08
 
 ### Added
