@@ -131,6 +131,14 @@ func (m baseMock) DeleteClusterAccessGrant(ctx context.Context, clusterID string
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ElevateClusterAccess(ctx context.Context, clusterID string, request client.ElevateClusterAccessRequest) (*client.CreateClusterAccessGrantResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListStackProfiles(page, pageSize int, search string, category string) (*client.StackProfileListResponse, error) {
 	return nil, errors.New("not implemented")
 }
