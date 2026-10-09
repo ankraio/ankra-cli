@@ -212,9 +212,28 @@ type PipelineStep struct {
 	ImagePullStartedAt  *string `json:"image_pull_started_at,omitempty"`
 	ImagePulledAt       *string `json:"image_pulled_at,omitempty"`
 	ContainerStartedAt  *string `json:"container_started_at,omitempty"`
-	FinishedAt          *string `json:"finished_at"`
-	CreatedAt           string  `json:"created_at"`
-	UpdatedAt           string  `json:"updated_at"`
+	// The request and limit fields are what the step's own container asked
+	// its node for (the stage's declared resources as the limits, the whole
+	// memory limit and half the CPU limit as the requests), and the usage
+	// fields what it used, read by the agent off its control group when the
+	// step's script exited: the memory peak (page cache included), how often
+	// it met its memory limit, OOM kills, CPU time, time throttled at its CPU
+	// limit, and how long the script ran. Each is nil when not recorded - an
+	// older platform or agent, a step the platform runs itself - which is not
+	// a step that used nothing.
+	CPURequestMillicores     *int64  `json:"cpu_request_millicores,omitempty"`
+	CPULimitMillicores       *int64  `json:"cpu_limit_millicores,omitempty"`
+	MemoryRequestBytes       *int64  `json:"memory_request_bytes,omitempty"`
+	MemoryLimitBytes         *int64  `json:"memory_limit_bytes,omitempty"`
+	MemoryPeakBytes          *int64  `json:"memory_peak_bytes,omitempty"`
+	MemoryLimitHits          *int64  `json:"memory_limit_hits,omitempty"`
+	MemoryOOMKills           *int64  `json:"memory_oom_kills,omitempty"`
+	CPUUsageMicroseconds     *int64  `json:"cpu_usage_usec,omitempty"`
+	CPUThrottledMicroseconds *int64  `json:"cpu_throttled_usec,omitempty"`
+	UsageElapsedMicroseconds *int64  `json:"usage_elapsed_usec,omitempty"`
+	FinishedAt               *string `json:"finished_at"`
+	CreatedAt                string  `json:"created_at"`
+	UpdatedAt                string  `json:"updated_at"`
 }
 
 // PipelineRunList is the GET …/pipeline-runs body.

@@ -4,6 +4,17 @@
 
 ### Added
 
+- **`ankra pipeline get` says what each step used against what it asked
+  for.** A "Resources used" section adds a line such as "e2e: memory peak
+  8.0 GiB of 14.0 GiB requested (57%); CPU 0.80 cores on average of 2.00
+  requested", so a padded stage shows on the run itself. A memory peak at the
+  request is called what it is - page cache fills spare room - rather than a
+  stage that needed all of it. `-o json` carries `cpu_request_millicores`,
+  `cpu_limit_millicores`, `memory_request_bytes`, `memory_limit_bytes`,
+  `memory_peak_bytes`, `memory_limit_hits`, `memory_oom_kills`,
+  `cpu_usage_usec`, `cpu_throttled_usec` and `usage_elapsed_usec` on each step
+  when the platform sends them; older platforms print nothing new, and the CPU
+  average needs an agent that reports the step's run time.
 - **`ankra cluster agent ci set --image-prepull on|off` keeps the platform's
   own step images pulled on a CI cluster's nodes.** The checkout's git client,
   the trivy, checkov and semgrep scanners and the rootless builder are pulled

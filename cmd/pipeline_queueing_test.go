@@ -183,3 +183,54 @@ func TestPipelineStepPodTimingRoundTripsThroughJSON(t *testing.T) {
 		t.Errorf("a step with null pod timing prints no pod line:\n%s", output.String())
 	}
 }
+
+// What each step used against what it asked for (ankra-q573dh.5): the memory
+// peak against its request, an at-limit peak called what it is, and the CPU
+// average only when the agent reported the script's run time.
+func TestPipelineRunDetailPrintsWhatEachStepUsedAgainstItsRequests(t *testing.T) {
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, client.PipelineRunDetail{
+		PipelineRun: client.PipelineRun{RunNumber: 9, ID: "run-9", Status: "concluded"},
+		Steps: []client.PipelineStep{
+			{StepKey: "e2e", Status: "concluded", MemoryRequestBytes: int64PipelinePtr(14 << 30),
+				MemoryPeakBytes: int64PipelinePtr(8 << 30), CPURequestMillicores: int64PipelinePtr(2000),
+				CPUUsageMicroseconds: int64PipelinePtr(480_000_000), UsageElapsedMicroseconds: int64PipelinePtr(600_000_000),
+				CPUThrottledMicroseconds: int64PipelinePtr(65_000_000)},
+			{StepKey: "build", Status: "concluded", MemoryRequestBytes: int64PipelinePtr(10 << 30),
+				MemoryPeakBytes: int64PipelinePtr(10 << 30), MemoryLimitHits: int64PipelinePtr(3),
+				CPUUsageMicroseconds: int64PipelinePtr(480_000_000)},
+			{StepKey: "old", Status: "concluded"},
+		},
+	}, client.PipelineSelector{})
+	rendered := output.String()
+	for _, expected := range []string{
+		"Resources used:",
+		"  e2e: memory peak 8.0 GiB of 14.0 GiB requested (57%); CPU 0.80 cores on average of 2.00 requested, " +
+			"held at its CPU limit for 1m5s",
+		"  build: memory peak 10.0 GiB of 10.0 GiB requested (100%), which is its whole request: page cache " +
+			"fills spare room, so this is not what it needed, met its memory limit 3 time(s)",
+	} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("output missing %q:\n%s", expected, rendered)
+		}
+	}
+	if strings.Contains(rendered, "met its memory limit 3 time(s); CPU") {
+		t.Errorf("a CPU total without the script's run time is not averaged:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "old:") {
+		t.Errorf("a step with no usage report says nothing:\n%s", rendered)
+	}
+}
+
+// A run whose steps carry no usage report - an older platform or agent -
+// prints no resources section at all.
+func TestPipelineRunDetailPrintsNoResourcesSectionWithoutUsage(t *testing.T) {
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, client.PipelineRunDetail{
+		PipelineRun: client.PipelineRun{RunNumber: 9, ID: "run-9", Status: "concluded"},
+		Steps:       []client.PipelineStep{{StepKey: "old", Status: "concluded"}},
+	}, client.PipelineSelector{})
+	if strings.Contains(output.String(), "Resources used:") {
+		t.Errorf("no usage, no section:\n%s", output.String())
+	}
+}
