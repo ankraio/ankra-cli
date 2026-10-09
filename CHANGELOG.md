@@ -83,6 +83,14 @@
 
 ### Changed
 
+- **The rules and skills `ankra skills install` writes no longer call read-only
+  `kubectl` fine.** They tell an agent to use the `ankra` CLI for every
+  interaction with a cluster, reads included (`ankra cluster get`, `describe`,
+  `events`, `logs`, `top`, `metrics query`, and `ankra cluster exec` for one
+  command in a container), and to report a missing command instead of falling
+  back to `kubectl`. Run `ankra skills install` again to refresh an existing
+  install.
+
 - **`ankra security dispositions` shows what each policy is pinned to, and
   `--scope` documents `workload` and `image`.** A disposition can be pinned
   to one workload on one cluster (`--scope workload`) or to one image digest
