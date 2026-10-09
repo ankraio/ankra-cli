@@ -34,6 +34,15 @@ type organisationScopedClusterMock struct {
 	lookups              []string
 	targetedClusterIDs   []string
 	lookupError          error
+	idLookupError        error
+}
+
+func (m *organisationScopedClusterMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
+	m.lookups = append(m.lookups, clusterID+"@"+m.organisationOverride)
+	if m.idLookupError != nil {
+		return client.ClusterListItem{}, m.idLookupError
+	}
+	return client.ClusterListItem{}, fmt.Errorf("no cluster found for id %q: %w", clusterID, client.ErrClusterNotFound)
 }
 
 func (m *organisationScopedClusterMock) SetOrganisationOverride(organisationID string) {
@@ -257,5 +266,30 @@ func TestClusterFlagLookupFailureIsNotReportedAsNotFound(t *testing.T) {
 	}
 	if code := exitCodeFor(runError); code == exitNotFound {
 		t.Errorf("exit code = %d, a failed lookup is not a not-found", code)
+	}
+}
+
+func TestClusterFlagIDLookupFailureIsNotReportedAsNotFound(t *testing.T) {
+	leaf, _, _ := rootCmd.Find([]string{"cluster", "get", "pods"})
+	resetFlagsToDefaults(leaf)
+	t.Cleanup(func() { resetFlagsToDefaults(leaf) })
+	mock := newOrganisationScopedClusterMock()
+	mock.idLookupError = errors.New("connection reset by peer")
+	setMockClient(t, mock)
+	writeSavedSelectionInAnotherOrganisation(t)
+
+	clusterID := "8d5e9e23-65da-4046-ad0a-94338c357016"
+	var runError error
+	captureStdout(t, func() {
+		_, runError = executeCommand("--cluster", clusterID, "cluster", "get", "pods", "-n", "payments")
+	})
+	if runError == nil {
+		t.Fatal("a failed lookup must fail the command")
+	}
+	if strings.Contains(runError.Error(), "not found") || !strings.Contains(runError.Error(), "connection reset by peer") {
+		t.Errorf("a failed ID lookup must surface its own error, got %v", runError)
+	}
+	if len(mock.lookups) != 1 {
+		t.Errorf("lookups = %v, want only the ID lookup (no fallback to a name lookup after a failure)", mock.lookups)
 	}
 }

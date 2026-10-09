@@ -40,7 +40,7 @@ func (mock *applyOverrideMock) GetClusterByID(clusterID string) (client.ClusterL
 	if clusterID == "11111111-1111-1111-1111-111111111111" {
 		return client.ClusterListItem{ID: clusterID, Name: "prod-eu"}, nil
 	}
-	return client.ClusterListItem{}, os.ErrNotExist
+	return client.ClusterListItem{}, client.ErrClusterNotFound
 }
 
 func (mock *applyOverrideMock) ApplyCluster(ctx context.Context, request client.CreateImportClusterRequest, wait bool) (*client.ImportResponse, bool, error) {

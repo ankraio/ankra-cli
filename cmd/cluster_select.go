@@ -202,8 +202,12 @@ func clusterFlagOverride(cmd *cobra.Command) string {
 // --org and --cluster for a cluster that was there all along.
 func lookupClusterByNameOrID(nameOrID string) (client.ClusterListItem, error) {
 	if isLikelyClusterID(nameOrID) {
-		if cluster, lookupError := apiClient.GetClusterByID(nameOrID); lookupError == nil {
+		cluster, lookupError := apiClient.GetClusterByID(nameOrID)
+		if lookupError == nil {
 			return cluster, nil
+		}
+		if !errors.Is(lookupError, client.ErrClusterNotFound) {
+			return client.ClusterListItem{}, fmt.Errorf("looking up cluster %q: %w", nameOrID, lookupError)
 		}
 	}
 	cluster, lookupError := apiClient.GetCluster(nameOrID)
