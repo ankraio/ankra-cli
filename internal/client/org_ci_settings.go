@@ -148,6 +148,27 @@ type OrganisationCICapacity struct {
 	OrganisationStepsWaitingOnSlots int     `json:"organisation_steps_waiting_on_slots" yaml:"organisation_steps_waiting_on_slots"`
 	MaxParallelRuns                 int     `json:"max_parallel_runs" yaml:"max_parallel_runs"`
 	MaxParallelSteps                int     `json:"max_parallel_steps" yaml:"max_parallel_steps"`
+	// IsPooled says the organisation lists CI pool members, so its runs are
+	// spread across PoolMembers and OrganisationStepsWaitingOnSlots is the
+	// pool's. PoolMembers is nil from a platform that predates pools, which
+	// keeps it out of structured output rather than reading as "no members".
+	IsPooled    bool                           `json:"is_pooled,omitempty" yaml:"is_pooled,omitempty"`
+	PoolMembers []OrganisationCICapacityMember `json:"pool_members,omitempty" yaml:"pool_members,omitempty"`
+}
+
+// OrganisationCICapacityMember is one CI pool member's slots and load.
+// CanRunSteps says its agent exists, runs pipeline steps and is checking in;
+// IsFull says every one of its workers is taken.
+type OrganisationCICapacityMember struct {
+	ClusterID     string `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName   string `json:"cluster_name" yaml:"cluster_name"`
+	Weight        int    `json:"weight" yaml:"weight"`
+	IsPrimary     bool   `json:"is_primary" yaml:"is_primary"`
+	IsListed      bool   `json:"is_listed" yaml:"is_listed"`
+	CIWorkerCount int    `json:"ci_worker_count" yaml:"ci_worker_count"`
+	StepsInFlight int    `json:"steps_in_flight" yaml:"steps_in_flight"`
+	CanRunSteps   bool   `json:"can_run_steps" yaml:"can_run_steps"`
+	IsFull        bool   `json:"is_full" yaml:"is_full"`
 }
 
 // ErrCICapacityUnavailable is a platform that does not serve the capacity
@@ -222,8 +243,19 @@ func (c *Client) doCISettingsRequestAt(ctx context.Context, method string, path 
 	}
 
 	switch response.StatusCode {
-	case http.StatusOK:
+	case http.StatusOK, http.StatusCreated:
 		return responseBody, nil
+	case http.StatusNotFound:
+		// The pool member routes answer a not-found with the platform's own
+		// sentence ("Cluster not found in this organisation.", "This cluster
+		// is not listed in the organisation's CI pool."); relayed verbatim it
+		// exits 3. A bare router 404 carries no detail and keeps the
+		// unexpected-response shape callers already key on.
+		if detail := ciSettingsRefusalDetail(responseBody); detail != "" {
+			return nil, newBackendDetailError(response.StatusCode, detail)
+		}
+		return nil, newUnexpectedResponseError("ci settings request failed",
+			response.StatusCode, redactedBodyForError(responseBody, 500))
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	case http.StatusForbidden:

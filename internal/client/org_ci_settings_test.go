@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -305,7 +306,7 @@ func TestGetOrganisationCICapacityDecodesEveryField(t *testing.T) {
 		t.Errorf("cluster = %v %v", capacity.ClusterID, capacity.ClusterName)
 	}
 	capacity.ClusterID, capacity.ClusterName = expected.ClusterID, expected.ClusterName
-	if *capacity != expected {
+	if !reflect.DeepEqual(*capacity, expected) {
 		t.Errorf("capacity = %+v, want %+v", *capacity, expected)
 	}
 }

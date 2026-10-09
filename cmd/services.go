@@ -216,6 +216,9 @@ type APIClient interface {
 	UpdateOrganisationCISettings(ctx context.Context,
 		changes map[string]any) (*client.OrganisationCISettings, error)
 	GetOrganisationCICapacity(ctx context.Context) (*client.OrganisationCICapacity, error)
+	GetOrganisationCIPool(ctx context.Context) (*client.OrganisationCIPool, error)
+	SetOrganisationCIPoolMember(ctx context.Context, clusterID string, weight *int) (*client.OrganisationCIPool, error)
+	RemoveOrganisationCIPoolMember(ctx context.Context, clusterID string) (*client.OrganisationCIPool, error)
 
 	MCPCatalog(ctx context.Context) (*client.MCPCatalogResult, error)
 	ListMCPServers(ctx context.Context) ([]client.MCPServerListItem, error)
@@ -949,6 +952,7 @@ type APIClient interface {
 	GetPipelineRepository(ctx context.Context, repositoryID string) (*client.PipelineRepository, error)
 	ConnectPipelineRepository(ctx context.Context, request client.ConnectPipelineRepositoryRequest) (*client.ConnectPipelineRepositoryResult, error)
 	DisconnectPipelineRepository(ctx context.Context, repositoryID string) error
+	SetPipelineRepositoryCluster(ctx context.Context, repositoryID string, clusterID string) (*client.PipelineRepository, error)
 
 	ListEnvironments(ctx context.Context) (*client.EnvironmentList, error)
 	CreateHostJoinToken(ctx context.Context, environmentName string, request client.CreateHostJoinTokenRequest) (*client.HostJoinToken, error)
