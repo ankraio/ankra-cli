@@ -115,6 +115,13 @@ workflows, the AI proposal and structural detection, and is the only way to remo
 block Ankra cannot honour is refused whole, reported as the `read_declared_components` setup task,
 and the recorded components are kept. Schema: https://docs.ankra.ai/reference/application-descriptor
 
+Components steer *which* app is built, not *whether* the repository is a service. When setup ends
+with "did not set this repository up as an always-on application" and no pull request, the
+analysis found no long-running process (typical for a server started through a CLI subcommand).
+Tell it how the app runs with a root `Procfile` line, `web: <start command> --port <n>` (also read
+from `fly.toml` / `render.yaml`), commit it, and run `ankra application reconcile <application-id>`
+(`retry` is for applications that are up). Ankra then generates the Dockerfile around that command.
+
 ## 3. Supply configuration and secrets
 
 The generated manifests declare which environment values they need. Fill them in — a missing one

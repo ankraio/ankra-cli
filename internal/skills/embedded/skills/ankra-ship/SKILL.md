@@ -497,6 +497,7 @@ writer yet. `egress-https` reaches **public addresses only**; name a private ran
 | Run green, release never arrived | a shipping stage failed under `allow_failure` | read each step's outcome with `ankra pipeline get <run-id> --application <application-id>`; drop the flag |
 | Test or build times out reaching a private host | `egress-https` is public-only | `ankra org ci-settings set --egress-allowed-cidr 10.0.0.0/8` |
 | Two builds per commit | generated GitHub workflow still present | §3f `pipeline convert` |
+| Setup refuses: "did not set this repository up as an always-on application" | analysis saw only a CLI or batch entrypoint (a server reached through a subcommand, e.g. `tool serve`, reads as a program that exits) | commit a root `Procfile` with `web: <start command> --port <n>` (a run fact Ankra reads), then `ankra application reconcile <id>`; a `components:` declaration does not override this, and do not hand-write a Dockerfile |
 | No "Ankra pipeline" check on the PR, only a comment | GitHub App lacks `checks:write` | grant it on the installation |
 | Setup PR 403 "Resource not accessible by integration" | repo not in the App installation | add it (owner-only) or choose "All repositories" |
 | Deploy healthy, URL does not load | preview/demo domain has no DNS, or probe paths | wildcard record; §7 curl ladder |
