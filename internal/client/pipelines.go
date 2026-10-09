@@ -198,9 +198,23 @@ type PipelineStep struct {
 	// handed to an agent, and on platforms older than the field.
 	DispatchedAt *string `json:"dispatched_at,omitempty"`
 	StartedAt    *string `json:"started_at"`
-	FinishedAt   *string `json:"finished_at"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
+	// The pod timestamps are the in-cluster half of a step's start, read by
+	// the agent off the step's pod: created, scheduled on a node, its
+	// workspace volume attached, its image pull started and finished (no
+	// pull start when the node already had the image), and the step's own
+	// container started. Between StartedAt and ContainerStartedAt the step
+	// was Pending in the cluster, not running. Each is nil when the agent did
+	// not observe it, and on platforms or agents older than the fields; they
+	// are the cluster's clock, not Ankra's.
+	PodCreatedAt        *string `json:"pod_created_at,omitempty"`
+	PodScheduledAt      *string `json:"pod_scheduled_at,omitempty"`
+	WorkspaceAttachedAt *string `json:"workspace_attached_at,omitempty"`
+	ImagePullStartedAt  *string `json:"image_pull_started_at,omitempty"`
+	ImagePulledAt       *string `json:"image_pulled_at,omitempty"`
+	ContainerStartedAt  *string `json:"container_started_at,omitempty"`
+	FinishedAt          *string `json:"finished_at"`
+	CreatedAt           string  `json:"created_at"`
+	UpdatedAt           string  `json:"updated_at"`
 }
 
 // PipelineRunList is the GET …/pipeline-runs body.

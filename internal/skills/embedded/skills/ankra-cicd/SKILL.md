@@ -136,7 +136,7 @@ stages:
     network: services                # none | egress-https | services — required to reach a sidecar
     env: { DATABASE_URL: "postgres://postgres:test@postgres:5432/app?sslmode=disable" }
     secrets: [database_url]          # must be declared above, else a fatal violation
-    cache: [{ key: "go-${{ hashFiles('go.sum') }}", paths: ["/root/.cache/go-build"], restore_keys: ["go-"] }]
+    cache: [{ key: "go-${{ hashFiles('go.sum') }}", paths: [".ankra-go/cache"], restore_keys: ["go-"], fallback: none }]  # workspace-relative; set GOCACHE=/workspace/.ankra-go/cache in env
     artifacts: [{ name: "coverage", paths: ["coverage.out"], retention_days: 7 }]
     test_results: [{ format: "go-test", path: "test-results.json" }]   # junit | go-test | pytest | playwright
     matrix: { go: ["1.25", "1.26"] }  # cross product of axes (+ include/exclude), GitHub Actions semantics, max 64 legs
@@ -355,7 +355,7 @@ with SOPS (`ankra-sops-secrets`).
 | `pipeline_source: generated_workflow` on `ankra application get` | legacy lane | `ankra application pipeline convert <application-id>` |
 | Two builds per commit | a workflow still runs beside the pipeline | delete/disable the workflow; for an application `pipeline convert` switched the generated one off — check for one the repository wrote itself |
 | `Stage "x" has kind "deploy", which has no executor on this build yet` | an unexecuted kind | it is skipped, not failed; do not make the check required; deploy through the application lanes |
-| Step "running" for minutes with no output | pod Pending: CPU quota, no StorageClass, disk | `ankra cluster events -n ankra-ci --type Warning --cluster <cluster>` |
+| Step "running" for minutes with no output | pod Pending: CPU quota, no StorageClass, disk | `ankra pipeline get <run-id>` Queueing says where the wait went ("Pending 5m in the cluster (scheduling 4m30s, volumes 8s, image pull 19s)"); then `ankra cluster events -n ankra-ci --type Warning --cluster <cluster>` |
 | Test cannot reach a private host | `egress-https` is public-only | `ankra org ci-settings set --egress-allowed-cidr <cidr>` |
 | `cargo`/`go mod`/`pnpm install` cannot fetch | `run` stages default to `network: none` | `defaults.network: egress-https` (not protected) |
 | Build exits ~30 s: `[rootlesskit:child] … failed to share mount point: /: permission denied` | the node runtime (containerd AppArmor, kubelet `seccompDefault`) confines the rootless builder | **do not widen the node**; `ankra org ci-settings set --build-fallback platform_builders` (needs `Platform builds enabled: yes` on `ci-settings get`, Ankra's grant) or build on a cluster that does not confine |

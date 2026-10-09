@@ -22,11 +22,33 @@
   refuses to disconnect. `--cluster ""` clears the override so the repository
   follows the organisation's CI settings again. Runs already queued or running
   keep the cluster they started on.
-
-## v0.27.0 — 2026-10-08
-
-### Added
-
+- **`ankra pipeline get` says how long each step's pod sat Pending in the
+  cluster, and where the time went.** The Queueing section adds a line such
+  as "test: Pending 5m9s in the cluster before it ran (scheduling 4m30s,
+  volumes 8s, image pull 19s)". A step that failed, timed out or was
+  cancelled without its container ever being seen to start says so, with how
+  long its pod sat Pending at least. That wait comes after the CI slot wait
+  and was invisible before: the step read as running. `-o json` carries `pod_created_at`, `pod_scheduled_at`,
+  `workspace_attached_at`, `image_pull_started_at`, `image_pulled_at` and
+  `container_started_at` on each step when the platform sends them. They need
+  a platform and a cluster agent that report them; older ones print nothing
+  new.
+- **`ankra cluster agent ci set --run-reservation off|shadow|on` sets whether
+  each run first reserves the room its later steps need on its node**, so
+  another run's pods cannot take it between two steps. `off` is every
+  cluster's default; `shadow` sizes and records each run's reservation
+  without holding anything, which is how to check the estimate first; `on`
+  holds it, which can add a node or keep one up between a run's steps. It
+  applies to the next step dispatched with no agent restart. `ankra cluster
+  agent ci get` shows the mode and whether the cluster's agent advertises run
+  reservation, and says so when the mode is `on` but the agent cannot hold
+  anything yet. A value outside the three modes is refused before anything is
+  sent (exit 2), and a platform that predates the setting makes the command
+  fail (exit 1) rather than report a mode it never stored.
+- **`ankra cluster agent ci set` with only placement or run reservation flags
+  no longer says the agent is re-rendering its release.** Those settings ride
+  the next step's payload and nothing is published to the agent, so the
+  command now says they apply to the next step dispatched, with no restart.
 - **`ankra cluster list`, `cluster info`, `cluster stacks list`, `cluster
   manifests list` and `cluster addons list` now carry a `portal_url`.** With
   `-o json` or `-o yaml` every cluster, stack, manifest and add-on has the
@@ -37,6 +59,11 @@
   list` links the add-on's own page. A manifest that belongs to no stack has no
   page and gets no `portal_url`. The link carries the owning organisation, so a
   member whose active organisation is a different one is offered the switch.
+
+## v0.27.0 — 2026-10-08
+
+### Added
+
 - **`ankra registry storage buy --blocks <n>` buys more registry storage
   yourself, billed monthly.** Storage comes in blocks (50 GiB for EUR 5 a
   month each) on top of the storage your organisation includes. Each block
