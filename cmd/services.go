@@ -309,6 +309,7 @@ type APIClient interface {
 	DeployApplication(requestContext context.Context, applicationID string, deployRequest client.DeployApplicationRequest) (json.RawMessage, error)
 	GetApplicationDeployments(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationInstallations(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	RemoveApplicationDeployment(requestContext context.Context, applicationID string, removeRequest client.RemoveApplicationDeploymentRequest) (*client.RemoveApplicationDeploymentResult, error)
 	GetApplicationChartVersions(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationExistingPlatform(requestContext context.Context, applicationID string, clusterID string) (json.RawMessage, error)
 	GetApplicationWorkflowRuns(requestContext context.Context, applicationID string, status string, page int, pageSize int) (json.RawMessage, error)

@@ -1,5 +1,27 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra application remove <application> --cluster <cluster>` takes an
+  application off one cluster and leaves it running everywhere else.** Until
+  now the only way to take an application off a cluster was `ankra application
+  delete`, which removes the application and every deployment it has. The new
+  command uninstalls its workloads in one cluster and namespace - and with them
+  any data in that deployment's database and volumes - while the application,
+  its settings, secrets, images, release history and its other deployments
+  stay, so you can deploy it there again. `--cluster` takes a name or an id;
+  `--namespace` is needed only when the application runs in more than one
+  namespace on that cluster, and the command says which ones. It asks first
+  (`--yes` skips the prompt; declining exits 4), says where the application
+  runs when it is not on that cluster (exit 3), and refuses a deployment that
+  is already being removed. The removal runs in the background: `ankra
+  application installations` shows it as `removing` until it is gone, or
+  `failed` with the reason. An application deployed with the deploy wizard
+  has no installation, so `--stack <name>` names the stack it runs as instead;
+  the other stacks that deploy created stay, and the command lists them.
+
 ## v0.28.0 — 2026-10-09
 
 ### Added
