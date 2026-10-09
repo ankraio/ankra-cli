@@ -1,6 +1,6 @@
 ---
 name: ankra-security
-description: Secure an Ankra organisation end to end - API tokens and their MCP scopes, organisation roles and membership, cluster access grants through the kube gateway, credential scope for Git/registry/cloud, secret handling with SOPS, application code and container scanning findings, the Security Center's fleet-wide CVE findings with CISA KEV and EPSS exploitation intelligence, and how much autonomy the AI agents and MCP tool servers are given. Use when the user asks about permissions, RBAC, who can access a cluster, token scopes, least privilege, a security review, hardening, handling secrets safely, vulnerabilities, a CVE, or what is exploited in the wild.
+description: Secure an Ankra organisation end to end - API tokens and their MCP scopes, organisation roles and membership, cluster access grants through the kube gateway (time-boxed grants, break-glass elevation and the organisation access policy), credential scope for Git/registry/cloud, secret handling with SOPS, application code and container scanning findings, the Security Center's fleet-wide CVE findings with CISA KEV and EPSS exploitation intelligence, and how much autonomy the AI agents and MCP tool servers are given. Use when the user asks about permissions, RBAC, who can access a cluster, break-glass access, token scopes, least privilege, a security review, hardening, handling secrets safely, vulnerabilities, a CVE, or what is exploited in the wild.
 ---
 
 # Ankra security
@@ -62,22 +62,76 @@ what gates MCP tool grants (below), so a wide role quietly widens agent capabili
 ## 3. Cluster access through the kube gateway
 
 ```bash
-ankra cluster access list --cluster prod
+ankra cluster access list --cluster prod          # each grant's Expires (or standing) and Reason
 ankra cluster access grant alice@example.com --cluster prod --role view
-ankra cluster access grant bob@example.com --cluster prod --role edit --namespace payments
-ankra cluster access revoke alice@example.com --cluster prod
+ankra cluster access grant bob@example.com --cluster prod --role edit --namespace payments \
+  --expires 4h --reason "INC-4711: restart the stuck rollout"
+ankra cluster access revoke alice@example.com --cluster prod   # or a grant id
+ankra org access-policy get                        # the limits every grant is held to
 ```
 
-Roles map to the standard Kubernetes ClusterRoles: `view`, `edit`, `admin`, `cluster-admin`. Grants
-are **cluster-wide by default** — pass `--namespace` to scope one.
+Roles bind to Ankra-managed ClusterRoles: `ankra:view`, `ankra:edit`, `ankra:admin` and
+`ankra:cluster-admin`. None of them carries `impersonate`, `escalate` or `bind`, and the gateway
+strips `Impersonate-*` headers, so a grant cannot be widened from inside the cluster. Grants are
+**cluster-wide by default**; pass `--namespace` to scope one. `--expires` takes a duration (`30m`,
+`4h`, `7d`) or an RFC 3339 time. Without it the grant is standing. Granting again re-times an
+existing grant in place.
 
 Two rules that carry most of the value here:
 
 - **`view` is enough for troubleshooting.** `ankra cluster logs --previous`, `describe`, `events`
   and `top` all work through the agent without a grant at all; a grant is only needed for direct
   `kubectl`. Reaching for `edit` to read a crash log is a common and unnecessary escalation.
-- **`cluster-admin` needs a named reason and a review date.** Treat every existing one as a finding
-  until someone justifies it.
+- **Standing `admin` and `cluster-admin` grants are a finding.** Access above `view` should be
+  time-boxed: grant it with `--expires` and `--reason`, or let the person who needs it take it
+  through break-glass. Replace every standing one with a time-boxed grant unless someone
+  justifies it.
+
+### Break-glass with `elevate`
+
+```bash
+ankra cluster access elevate --cluster prod --role edit --expires 4h --reason "INC-4711: restart the stuck rollout"
+ankra cluster access revoke <grant-id> --cluster prod    # end it early
+```
+
+The `kube_access.elevate` permission lets its holder give **itself** time-boxed access and nothing
+else. The grantee is always the caller, a person or a service account's token. It cannot grant
+others, create a standing grant, list grants, or change the policy. `--expires` and `--reason` are
+required, the expiry must fall within the policy's elevated lifetime (4 hours when the policy sets
+none), and the role never goes above the policy's ceiling. Run it again to extend.
+
+For automation that has to change a cluster now and then, use a service account with a custom
+role holding only `kube_access.elevate` and `kube_access.use`, and standing Kubernetes access of
+`view`. It reads all the time and elevates, with a reason, only when it has to write.
+
+### The organisation access policy
+
+The policy is opt-in. An organisation without one gives a cluster's creator `cluster-admin` and
+sets no ceiling.
+
+| Field | What it limits |
+|-------|----------------|
+| `creator_grant_role` | The role a cluster's creator gets |
+| `max_grant_role` | The ceiling for every grant, admins included. It also caps Kubernetes access bundled into custom roles |
+| `elevated_max_ttl_seconds` | Grants above `view` must expire within it |
+| `require_reason_from_role` | Grants from this role up need `--reason` |
+
+`ankra org access-policy get` reads it and needs `kube_access.manage`, `kube_access.policy` or
+`kube_access.elevate`. Changing it needs `kube_access.policy` (owners and admins) and a person
+signed in: API tokens cannot change it unless they are explicitly scoped for it, and the CLI has no
+command for it. An owner or admin changes it in the Ankra UI under Organisation settings, Roles,
+"Kubernetes access policy". Set a ceiling and an elevated lifetime in every organisation that runs
+production clusters.
+
+A grant the policy refuses fails with a 403 naming the limit: `cluster_access_policy_violation`,
+`cluster_access_grant_expiry_required`, `cluster_access_grant_lifetime_exceeded` or
+`cluster_access_grant_reason_required`. The CLI prints what to pass instead.
+
+Every grant is audited (`cluster_access_grant_created`, `cluster_access_grant_extended`,
+`cluster_access_grant_deleted`), and so is every policy change (`cluster_access_policy_updated`).
+An elevation sends a `cluster_access_elevated_grant` warning and a policy change sends
+`cluster_access_policy_changed` through the organisation's notification routes. Route both to a
+channel a human reads (see `ankra-alerts-webhooks`).
 
 ```bash
 ankra cluster kubeconfig add --use     # a kubeconfig context using ankra cluster kube-token
@@ -86,7 +140,9 @@ ankra cluster kubeconfig remove <context>
 ```
 
 The kubeconfig credential plugin mints short-lived credentials per call, so there is no long-lived
-kubeconfig to leak. Read-only kubectl through it is fine; mutations belong in the GitOps repo.
+kubeconfig to leak. That context is for the people and tools a grant was given to. An agent
+working a task does not use it: it reads through `ankra cluster get|describe|events|logs|top` and
+`ankra cluster exec`, which the platform checks and records, and makes changes in the GitOps repo.
 
 ## 4. Credentials: scope, and what they can really reach
 
@@ -256,7 +312,8 @@ See `ankra-ai-agents` for the full surface and `ankra-ai-gateway` for the Ask/Ag
 ```bash
 ankra tokens list                        # no-expiry tokens, over-scoped mcp:write
 ankra org members ; ankra org roles      # who holds what
-ankra cluster access list --cluster <c>  # cluster-admin, cluster-wide grants
+ankra cluster access list --cluster <c>  # standing admin/cluster-admin, no Expires or Reason
+ankra org access-policy get              # a ceiling and an elevated lifetime are set
 ankra credentials list                   # then `credentials repositories` on each Git credential
 ankra cluster sops-config                # secrets encrypted, paths declared
 ankra application container-security <a> # per application; and code-security, security-versions
@@ -278,6 +335,8 @@ closes it. Do not change anything in a review pass without asking, and never pri
   narrow a token.
 - **Expiry on every token.** Revoke, then delete.
 - **`view` before `edit`, `edit` before `admin`**, namespace-scoped before cluster-wide.
+- **Access above `view` is time-boxed** with `--expires` and `--reason`, or taken through
+  `elevate`. Standing `admin` and `cluster-admin` grants are findings.
 - **Plaintext secrets never reach Git**, and decrypted values never reach a transcript.
 - **Pin every artefact.** Unpinned images and charts make review meaningless.
 - **Ask mode by default**; promote a binding to Agent deliberately, per binding.

@@ -158,9 +158,12 @@ it looked at — verify the evidence rather than acting on the conclusion alone.
   chat. Report the key name and its state.
 - **Retry a transient failure, fix a deterministic one.** Repeatedly retrying a bad manifest just
   moves the failure later.
-- **Do not reach for `kubectl` to mutate.** Read-only kubectl against a context from
-  `ankra cluster kubeconfig add --use` is fine; mutations belong in the GitOps repo or
-  `ankra cluster apply`.
+- **Do not reach for `kubectl` or `helm`, for reads either.** Every read in this skill has an
+  `ankra cluster` command (`get`, `describe`, `events`, `logs`, `top`, `metrics query`,
+  `operations`), and `ankra cluster exec <pod> -n <namespace> -- <command>` runs one command in a
+  container, such as a `psql` query in a database pod. Changes belong in the GitOps repo or
+  `ankra cluster apply`. If no `ankra` command covers what you need, say so and stop rather than
+  suggesting `kubectl`.
 
 ## Related skills
 

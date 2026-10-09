@@ -22,6 +22,31 @@
   has no installation, so `--stack <name>` names the stack it runs as instead;
   the other stacks that deploy created stay, and the command lists them.
 
+## v0.28.0 — 2026-10-09
+
+### Added
+
+- **`ankra cluster access elevate` is break-glass you give yourself.** It grants
+  the identity the CLI runs as, you or a service account's token, time-boxed
+  access to a cluster within the organisation access policy: `--expires` (at
+  most the policy's limit, or 4 hours) and `--reason` are required, and the
+  role never goes above the policy's ceiling. It needs only the
+  `kube_access.elevate` permission, so automation can hold it without being
+  able to grant anyone else, keep standing access, or change the policy. Run
+  it again to extend; end it early with `ankra cluster access revoke <id>`.
+  Every elevation is audited and reaches the organisation's notification
+  routes.
+- **`ankra cluster access grant` takes `--expires` and `--reason`.** `--expires`
+  accepts a duration (`30m`, `4h`, `7d`) or an RFC 3339 time; a grant that
+  already exists is re-timed in place. `ankra cluster access list` shows each
+  grant's expiry (or `standing`) and reason.
+- **`ankra org access-policy get` shows the limits every kubectl access grant
+  is held to**: what a cluster's creator gets, the ceiling, how long access
+  above view may last, and from which role a grant needs a reason. A grant
+  the policy refuses now says which limit refused it and what to pass instead
+  of printing the raw response. Changing the policy needs an owner or admin
+  signed in (Organisation settings, Roles, Kubernetes access policy).
+
 - **`ankra pipeline get` says what each step used against what it asked
   for.** A "Resources used" section adds a line such as "e2e: memory peak
   8.0 GiB of 14.0 GiB requested (57%); CPU 0.80 cores on average of 2.00
@@ -111,6 +136,23 @@
   member whose active organisation is a different one is offered the switch.
 
 ### Changed
+
+- **The installed skills teach time-boxed cluster access.** `ankra-security`
+  and the `/ankra-harden` review now treat a standing `admin` or
+  `cluster-admin` grant as a finding, steer access above `view` to
+  `--expires` and `--reason` or to break-glass `ankra cluster access
+  elevate`, and check the organisation access policy with `ankra org
+  access-policy get`. `ankra-cli`, `ankra-getting-started` and
+  `ankra-platform-principles` list the new commands and the creator default.
+  Run `ankra skills install` again to refresh an existing install.
+
+- **The rules and skills `ankra skills install` writes no longer call read-only
+  `kubectl` fine.** They tell an agent to use the `ankra` CLI for every
+  interaction with a cluster, reads included (`ankra cluster get`, `describe`,
+  `events`, `logs`, `top`, `metrics query`, and `ankra cluster exec` for one
+  command in a container), and to report a missing command instead of falling
+  back to `kubectl`. Run `ankra skills install` again to refresh an existing
+  install.
 
 - **`ankra security dispositions` shows what each policy is pinned to, and
   `--scope` documents `workload` and `image`.** A disposition can be pinned

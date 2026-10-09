@@ -75,6 +75,8 @@ namespace manifest before anything inside it.
 - Keep API tokens in the secret store or the environment, never in the repo. Short-lived and
   scoped for automation, with an expiry set.
 - Never print a decrypted secret into a transcript, a pull request, an issue, or chat.
+- Cluster access grants start at `view`; anything above it is time-boxed with `--expires` and
+  `--reason` (or break-glass `elevate`) under an organisation access policy ceiling. See `ankra-security`.
 
 ## 6. Promote through environments
 
