@@ -81,6 +81,16 @@ type AgentCISettings struct {
 	// "not reported", never "off".
 	CIRunReservation       *string `json:"ci_run_reservation,omitempty" yaml:"ci_run_reservation,omitempty"`
 	SupportsRunReservation *bool   `json:"supports_run_reservation,omitempty" yaml:"supports_run_reservation,omitempty"`
+	// CIImagePrepull is the cluster's platform step image pre-pull mode (off
+	// or on): whether the cluster's agent keeps the images the platform's own
+	// steps run in (the checkout's git client, the scanners, the rootless
+	// builder) pulled on every node its pipeline steps can land on, so a node
+	// that just joined does not pull them while a step waits.
+	// SupportsImagePrepull says whether the cluster's agent advertises the
+	// capability; without it "on" pre-pulls nothing. Both are nil on a
+	// platform older than the setting, which is "not reported", never "off".
+	CIImagePrepull       *string `json:"ci_image_prepull,omitempty" yaml:"ci_image_prepull,omitempty"`
+	SupportsImagePrepull *bool   `json:"supports_image_prepull,omitempty" yaml:"supports_image_prepull,omitempty"`
 }
 
 // The run reservation modes. off computes nothing (every cluster's default),
@@ -97,6 +107,18 @@ const (
 var AgentCIRunReservationModes = []string{
 	AgentCIRunReservationOff, AgentCIRunReservationShadow, AgentCIRunReservationOn,
 }
+
+// The image pre-pull modes. off sends nothing and removes a pre-pull the
+// agent kept (every cluster's default); on asks the cluster's agent to keep
+// the platform's step images pulled.
+const (
+	AgentCIImagePrepullOff = "off"
+	AgentCIImagePrepullOn  = "on"
+)
+
+// AgentCIImagePrepullModes lists the modes in the order help text and
+// refusals name them.
+var AgentCIImagePrepullModes = []string{AgentCIImagePrepullOff, AgentCIImagePrepullOn}
 
 // The placement modes: required pins every pipeline pod to the selected
 // nodes, preferred favours them and lets pods run elsewhere when they have no
@@ -139,15 +161,16 @@ type AgentCIPlacementToleration struct {
 // The placement is written whole: CIPlacement replaces the stored one, and
 // ClearPlacement sends null, which removes it. Neither leaves it untouched.
 //
-// CIRunReservation is sent only when named. Like the placement it rides the
-// next step's payload rather than the agent's release, so a write naming
-// nothing else re-renders nothing.
+// CIRunReservation and CIImagePrepull are sent only when named. Like the
+// placement they ride the next step's payload rather than the agent's release,
+// so a write naming nothing else re-renders nothing.
 type AgentCISettingsUpdate struct {
 	CIWorkerCount    *int
 	CIStorageClass   *string
 	CIPlacement      *AgentCIPlacement
 	ClearPlacement   bool
 	CIRunReservation *string
+	CIImagePrepull   *string
 }
 
 // NamesChartSetting reports whether the write names a setting rendered into
@@ -177,6 +200,9 @@ func (update AgentCISettingsUpdate) MarshalJSON() ([]byte, error) {
 	}
 	if update.CIRunReservation != nil {
 		body["ci_run_reservation"] = *update.CIRunReservation
+	}
+	if update.CIImagePrepull != nil {
+		body["ci_image_prepull"] = *update.CIImagePrepull
 	}
 	return json.Marshal(body)
 }

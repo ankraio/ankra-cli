@@ -4,6 +4,17 @@
 
 ### Added
 
+- **`ankra cluster agent ci set --image-prepull on|off` keeps the platform's
+  own step images pulled on a CI cluster's nodes.** The checkout's git client,
+  the trivy, checkov and semgrep scanners and the rootless builder are pulled
+  on every node pipeline steps can land on as soon as it joins, so a step on a
+  node the autoscaler just added does not wait for them (semgrep took 21-23 s
+  and checkov up to 28 s cold on Ankra's own CI cluster). The images follow the
+  platform's pinned digests with every step dispatched; `off`, the default,
+  removes the pre-pull. `ankra cluster agent ci get` shows the mode and whether
+  the cluster's agent supports it. It needs a platform and an agent that carry
+  the setting; on an older platform the command says the mode was not stored.
+
 - **`ankra org ci-settings get` says what is stopping a CI cluster from running
   your waiting steps.** Under the capacity numbers, a `Blocked:` block lists
   each cluster's scale-up blockers with the platform's code and the one thing
