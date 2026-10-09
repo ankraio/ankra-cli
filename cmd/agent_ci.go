@@ -17,6 +17,7 @@ package cmd
 // status|upgrade` verbs, through the shared --cluster override.
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -95,7 +96,13 @@ tainted node group without editing any pipeline's runs_on.
 
 The run reservation decides whether a run first reserves the room its later
 steps need on its node, so another run's pods cannot take it between two
-steps: off (the default), shadow (sized and recorded, nothing held) or on.`,
+steps: off (the default), shadow (sized and recorded, nothing held) or on.
+
+The image pre-pull decides whether the agent keeps the images the platform's
+own steps run in - the checkout's git client, the scanners, the rootless
+builder - pulled on every node pipeline steps can land on, so a node that
+just joined pulls them as it joins rather than while a step waits: off (the
+default) or on.`,
 	}
 	ciCommand.AddCommand(newClusterAgentCIGetCommand(), newClusterAgentCISetCommand())
 	return ciCommand
@@ -109,8 +116,9 @@ func newClusterAgentCIGetCommand() *cobra.Command {
 that has to honour them, whether that agent currently advertises it can run
 pipeline steps, and how the last write was applied. The placement block names
 the node group, node selector, tolerations and mode, and how many Ready nodes
-it admits right now. The run reservation mode is shown with whether the
-agent advertises it; a platform that predates the setting shows neither.
+it admits right now. The run reservation and image pre-pull modes are shown
+with whether the agent advertises each; a platform that predates a setting
+shows neither of its lines.
 
 An agent that has not yet re-rendered its release reports pipeline steps as
 not advertised even with a non-zero worker count stored: the capability is
@@ -202,14 +210,26 @@ records it beside what its steps requested, and holds nothing: use it to check
 the estimate first. on holds it, which can add a node or keep one up while a
 run is between steps; it needs an agent that advertises run reservation, and
 until the agent does, on behaves as shadow. Like the placement it applies to
-the next step dispatched, with no agent restart, and off is the way back.`,
+the next step dispatched, with no agent restart, and off is the way back.
+
+--image-prepull off|on decides whether the agent keeps the platform's own
+step images (the checkout's git client, the trivy, checkov and semgrep
+scanners, the rootless builder) pulled on every node pipeline steps can land
+on, honouring the placement, with one DaemonSet in the agent's namespace. A
+node that just joined then pulls them as it joins instead of while a
+checkout, scan or build waits. The images are pinned by digest and follow
+the platform: a platform release that moves one moves the pre-pull with the
+next step dispatched. Each node keeps about 0.9 GB of images it would
+otherwise pull on demand. It needs an agent that advertises image pre-pull;
+off (the default) removes it with the next step dispatched.`,
 		Example: `  ankra cluster agent ci set --workers 2
   ankra cluster agent ci set --workers 4 --storage-class proxmox-csi
   ankra cluster agent ci set --workers 0 --cluster edge-01
   ankra cluster agent ci set --node-group pipelines
   ankra cluster agent ci set --node-selector pool=ci --toleration dedicated=ci:NoSchedule --placement preferred
   ankra cluster agent ci set --clear-placement
-  ankra cluster agent ci set --run-reservation shadow --cluster ci-01`,
+  ankra cluster agent ci set --run-reservation shadow --cluster ci-01
+  ankra cluster agent ci set --image-prepull on --cluster ci-01`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runClusterAgentCISet(command)
@@ -233,6 +253,9 @@ the next step dispatched, with no agent restart, and off is the way back.`,
 	setCommand.Flags().String("run-reservation", "",
 		"Run reservation: off (default) reserves nothing, shadow sizes and records each run's reservation "+
 			"without holding it, on holds a run's room on its node between its steps")
+	setCommand.Flags().String("image-prepull", "",
+		"Image pre-pull: off (default) pulls the platform's step images on demand, on keeps them pulled on "+
+			"every node pipeline steps can land on")
 	registerStructuredOutputFlags(setCommand)
 	return setCommand
 }
@@ -343,6 +366,23 @@ func agentCIRunReservationFromFlag(command *cobra.Command) (*string, error) {
 		strings.Join(client.AgentCIRunReservationModes, ", "), mustFlagString(command, "run-reservation")))
 }
 
+// agentCIImagePrepullFromFlag reads --image-prepull, nil when it is not named.
+// The vocabulary is closed, so a misspelling is refused here before anything
+// is sent; the platform validates it again.
+func agentCIImagePrepullFromFlag(command *cobra.Command) (*string, error) {
+	if !command.Flags().Changed("image-prepull") {
+		return nil, nil
+	}
+	mode := strings.ToLower(strings.TrimSpace(mustFlagString(command, "image-prepull")))
+	for _, known := range client.AgentCIImagePrepullModes {
+		if mode == known {
+			return &mode, nil
+		}
+	}
+	return nil, withExitCode(exitUsage, fmt.Errorf("--image-prepull must be %s, got %q",
+		strings.Join(client.AgentCIImagePrepullModes, ", "), mustFlagString(command, "image-prepull")))
+}
+
 func runClusterAgentCISet(command *cobra.Command) error {
 	format, formatError := structuredFormatFromFlags(command)
 	if formatError != nil {
@@ -364,17 +404,23 @@ func runClusterAgentCISet(command *cobra.Command) error {
 	if runReservationError != nil {
 		return runReservationError
 	}
+	imagePrepull, imagePrepullError := agentCIImagePrepullFromFlag(command)
+	if imagePrepullError != nil {
+		return imagePrepullError
+	}
 	update := client.AgentCISettingsUpdate{
 		CIWorkerCount:    changedIntFlag(command, "workers"),
 		CIStorageClass:   changedStringFlag(command, "storage-class"),
 		CIPlacement:      placement,
 		ClearPlacement:   isClearingPlacement,
 		CIRunReservation: runReservation,
+		CIImagePrepull:   imagePrepull,
 	}
-	if !update.NamesChartSetting() && placement == nil && !isClearingPlacement && runReservation == nil {
+	if !update.NamesChartSetting() && placement == nil && !isClearingPlacement && runReservation == nil &&
+		imagePrepull == nil {
 		return withExitCode(exitUsage, fmt.Errorf(`required flag(s) "workers" not set: pass --workers, `+
-			`--storage-class, --run-reservation, or a placement flag (--node-group, --node-selector, `+
-			`--toleration, --placement, --clear-placement)`))
+			`--storage-class, --run-reservation, --image-prepull, or a placement flag (--node-group, `+
+			`--node-selector, --toleration, --placement, --clear-placement)`))
 	}
 
 	settings, updateError := apiClient.UpdateAgentCISettings(command.Context(), cluster.ID, update)
@@ -388,7 +434,8 @@ func runClusterAgentCISet(command *cobra.Command) error {
 	// not know when another setting is named, stores the rest and answers
 	// without ci_run_reservation. Saying "updated" and exiting 0 would tell
 	// the caller a mode is in force that the platform never stored.
-	unstoredError := agentCIRunReservationNotStored(update, settings)
+	unstoredError := errors.Join(agentCIRunReservationNotStored(update, settings),
+		agentCIImagePrepullNotStored(update, settings))
 	if format != outputDefault {
 		if encodeError := encodeStructured(command.OutOrStdout(), format, settings); encodeError != nil {
 			return encodeError
@@ -412,9 +459,20 @@ func agentCIRunReservationNotStored(update client.AgentCISettingsUpdate, setting
 		"setting; the other settings shown were stored", *update.CIRunReservation)
 }
 
+// agentCIImagePrepullNotStored is the error for a write that named an image
+// pre-pull mode the platform's answer does not carry: the platform predates
+// the setting, so whatever else the write named is stored and the mode is not.
+func agentCIImagePrepullNotStored(update client.AgentCISettingsUpdate, settings *client.AgentCISettings) error {
+	if update.CIImagePrepull == nil || settings.CIImagePrepull != nil {
+		return nil
+	}
+	return fmt.Errorf("the platform did not store --image-prepull %s: it predates the image pre-pull "+
+		"setting; the other settings shown were stored", *update.CIImagePrepull)
+}
+
 // agentCIPayloadOnlySentence reports a write that named only settings the
 // platform carries on each step's payload (the placement, the run
-// reservation). Nothing was published to the agent, so the apply state, which
+// reservation, the image pre-pull). Nothing was published to the agent, so the apply state, which
 // describes the agent's release, would say "re-rendering" for a release
 // nobody touched.
 const agentCIPayloadOnlySentence = "Stored; it applies to the next pipeline step dispatched, " +
@@ -434,6 +492,7 @@ func printAgentCISettings(out io.Writer, settings *client.AgentCISettings, isPay
 		_, _ = fmt.Fprintln(out, "  Last changed:          never")
 	}
 	printAgentCIRunReservation(out, settings)
+	printAgentCIImagePrepull(out, settings)
 	printAgentCIPlacement(out, settings)
 	if isPayloadOnlyWrite {
 		_, _ = fmt.Fprintf(out, "\n%s\n", agentCIPayloadOnlySentence)
@@ -443,6 +502,37 @@ func printAgentCISettings(out io.Writer, settings *client.AgentCISettings, isPay
 	if note := agentCIRunReservationNote(settings); note != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", note)
 	}
+	if note := agentCIImagePrepullNote(settings); note != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", note)
+	}
+}
+
+// printAgentCIImagePrepull renders the mode and whether the agent can honour
+// it. A platform that predates the setting sends neither, and the lines are
+// left out rather than printed as "off": nobody chose off there.
+func printAgentCIImagePrepull(out io.Writer, settings *client.AgentCISettings) {
+	if settings.CIImagePrepull == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "  Image pre-pull:        %s\n", *settings.CIImagePrepull)
+	if settings.SupportsImagePrepull != nil {
+		_, _ = fmt.Fprintf(out, "  Pre-pull support:      %s\n",
+			agentCICapabilityLabel(*settings.SupportsImagePrepull))
+	}
+}
+
+// agentCIImagePrepullNote says what "on" means when the agent cannot do it:
+// with an agent that does not advertise image pre-pull nothing is pulled
+// ahead, and an operator reading "on" would otherwise believe it is.
+func agentCIImagePrepullNote(settings *client.AgentCISettings) string {
+	if settings.CIImagePrepull == nil || *settings.CIImagePrepull != client.AgentCIImagePrepullOn {
+		return ""
+	}
+	if settings.SupportsImagePrepull == nil || *settings.SupportsImagePrepull {
+		return ""
+	}
+	return "Image pre-pull is on, but this cluster's agent does not advertise it: steps pull the " +
+		"platform's images on demand, as under off, until the agent is upgraded."
 }
 
 // printAgentCIRunReservation renders the mode and whether the agent can honour

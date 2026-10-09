@@ -90,6 +90,7 @@ func TestClusterAgentCISetRefusesMalformedPlacementFlags(t *testing.T) {
 func TestAgentCISettingsUpdateEncodesOnlyNamedMembersAndNullForAClear(t *testing.T) {
 	workerCount := 2
 	runReservation := client.AgentCIRunReservationOn
+	imagePrepull := client.AgentCIImagePrepullOn
 	for name, testCase := range map[string]struct {
 		update client.AgentCISettingsUpdate
 		want   string
@@ -100,6 +101,8 @@ func TestAgentCISettingsUpdateEncodesOnlyNamedMembersAndNullForAClear(t *testing
 		"nothing named": {client.AgentCISettingsUpdate{}, `{}`},
 		"run reservation": {client.AgentCISettingsUpdate{CIRunReservation: &runReservation},
 			`{"ci_run_reservation":"on"}`},
+		"image pre-pull": {client.AgentCISettingsUpdate{CIImagePrepull: &imagePrepull},
+			`{"ci_image_prepull":"on"}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			encoded, encodeError := json.Marshal(testCase.update)
