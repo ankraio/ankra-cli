@@ -853,14 +853,19 @@ func pipelineStepResourceUseLine(step client.PipelineStep) (string, bool) {
 			memory += fmt.Sprintf(" of %s requested (%d%%)", formatPipelineCacheBytes(*step.MemoryRequestBytes),
 				*step.MemoryPeakBytes*100 / *step.MemoryRequestBytes)
 			if *step.MemoryPeakBytes*100 >= *step.MemoryRequestBytes*95 {
-				memory += ", at its limit: page cache fills spare room, so this is not what it needed"
+				memory += ", which is its whole request: page cache fills spare room, so this is not what it needed"
 			}
+		}
+		if step.MemoryLimitHits != nil && *step.MemoryLimitHits > 0 {
+			memory += fmt.Sprintf(", met its memory limit %d time(s)", *step.MemoryLimitHits)
 		}
 		if step.MemoryOOMKills != nil && *step.MemoryOOMKills > 0 {
 			memory += fmt.Sprintf(", %d process(es) killed for memory", *step.MemoryOOMKills)
 		}
 		parts = append(parts, memory)
 	}
+	// A run under a second is mostly its shell starting, so its average is
+	// not read - the same floor the platform's right-sizing applies.
 	used := step.CPUUsageMicroseconds
 	elapsed := step.UsageElapsedMicroseconds
 	if used != nil && elapsed != nil && *elapsed >= 1_000_000 {

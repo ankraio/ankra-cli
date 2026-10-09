@@ -197,7 +197,8 @@ func TestPipelineRunDetailPrintsWhatEachStepUsedAgainstItsRequests(t *testing.T)
 				CPUUsageMicroseconds: int64PipelinePtr(480_000_000), UsageElapsedMicroseconds: int64PipelinePtr(600_000_000),
 				CPUThrottledMicroseconds: int64PipelinePtr(65_000_000)},
 			{StepKey: "build", Status: "concluded", MemoryRequestBytes: int64PipelinePtr(10 << 30),
-				MemoryPeakBytes: int64PipelinePtr(10 << 30), CPUUsageMicroseconds: int64PipelinePtr(480_000_000)},
+				MemoryPeakBytes: int64PipelinePtr(10 << 30), MemoryLimitHits: int64PipelinePtr(3),
+				CPUUsageMicroseconds: int64PipelinePtr(480_000_000)},
 			{StepKey: "old", Status: "concluded"},
 		},
 	}, client.PipelineSelector{})
@@ -206,15 +207,14 @@ func TestPipelineRunDetailPrintsWhatEachStepUsedAgainstItsRequests(t *testing.T)
 		"Resources used:",
 		"  e2e: memory peak 8.0 GiB of 14.0 GiB requested (57%); CPU 0.80 cores on average of 2.00 requested, " +
 			"held at its CPU limit for 1m5s",
-		"  build: memory peak 10.0 GiB of 10.0 GiB requested (100%), at its limit: page cache fills spare room, " +
-			"so this is not what it needed",
+		"  build: memory peak 10.0 GiB of 10.0 GiB requested (100%), which is its whole request: page cache " +
+			"fills spare room, so this is not what it needed, met its memory limit 3 time(s)",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("output missing %q:\n%s", expected, rendered)
 		}
 	}
-	if strings.Contains(rendered, "build: memory peak 10.0 GiB of 10.0 GiB requested (100%), at its limit: page cache "+
-		"fills spare room, so this is not what it needed; CPU") {
+	if strings.Contains(rendered, "met its memory limit 3 time(s); CPU") {
 		t.Errorf("a CPU total without the script's run time is not averaged:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "old:") {
