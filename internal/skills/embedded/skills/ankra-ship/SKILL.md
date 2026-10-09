@@ -48,10 +48,20 @@ check and fix, in the repository, in one commit:
   already committed; do not just delete it from the next commit.
 - **A lockfile and a single test command.** `package-lock.json`/`pnpm-lock.yaml`, `go.sum`,
   `poetry.lock`/`requirements.txt`. The test command Ankra detects becomes the `test` stage.
-- **A `Dockerfile` if the framework is unusual.** Ankra generates one for Node (Next.js, React,
-  Express, NestJS), Python (FastAPI, Django, Flask), Go, Rust, Java, Ruby, PHP, Elixir and static
-  sites; anything it cannot classify needs yours.
-- **A `.dockerignore`**, and migrations that run on start or on one documented command (§8).
+- **Migrations** that run on start or on one documented command (§8).
+
+**Do not write the build or deploy files yourself.** No `Dockerfile`, `.dockerignore`,
+`.ankra/pipeline.yaml`, Helm chart, manifests or `.github/workflows` before registering: the
+application flow generates them from the repository (§3a, §3b), and that is what keeps the build,
+the scans, the gate and the registry auth on one contract. A hand-written Dockerfile committed
+first is adopted as "the repository's own" and silently replaces the one Ankra would have
+generated, so a mistake in it becomes the recipe of record. The source fixes above are code
+changes; the packaging is Ankra's. When the generated files are wrong (a monorepo whose
+deployable app lives in a subdirectory, an entrypoint the analysis missed, a framework it could
+not classify), correct them **in the setup pull request** with `ankra application files` or
+declare the component in `.ankra/ankra.yaml` (`ankra-applications` §2), so the fix is reviewed
+next to the rest of the generated contract. If setup fails, read the reason
+(`ankra application get <id>`) and `ankra application retry <id>`; do not pre-empt it.
 
 Run the tests locally once: a project that fails its own tests fails the `test` stage, and the
 first run is the one everyone watches.
@@ -494,6 +504,9 @@ writer yet. `egress-https` reaches **public addresses only**; name a private ran
 
 ## Rules
 
+- **Ankra generates the packaging.** Register the repository and let the application flow write
+  the Dockerfile, `.ankra/pipeline.yaml` and manifests; correct them in the setup pull request
+  (`ankra application files`), never by committing your own ahead of `application add`.
 - **Ankra Pipelines first, always.** For a registered application, zero runs is a one-command
   capacity or approval fix. A hand-rolled GitHub Actions workflow forks the contract away from the
   scans, the gate, the digest publish and the managed registry auth — permanently, and silently.

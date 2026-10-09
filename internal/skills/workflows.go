@@ -47,9 +47,9 @@ Work in this order and confirm the target with the user before anything mutating
    repo is already an application (` + "`ankra application list`" + `). Zero CI workers means zero runs and
    no error - fix it here (` + "`ankra cluster agent ci set --workers 2 --cluster <cluster>`" + `).
 2. **Make the source shippable.** One port from the environment, a health endpoint, config from
-   env vars only, no committed secrets, a lockfile and one test command, a Dockerfile if the
-   framework is unusual. Fix and commit before registering - the first run is the one everyone
-   watches.
+   env vars only, no committed secrets, a lockfile and one test command. Fix and commit before
+   registering - the first run is the one everyone watches. Do NOT write a Dockerfile, pipeline,
+   chart or manifests: the application flow generates them, and you correct them in step 4.
 3. **Ship.** ` + "`ankra application ship . --cluster <cluster>`" + ` (add ` + "`--name`" + ` in a monorepo,
    ` + "`--ankra-build`" + ` for an unattended first image, ` + "`--registry-url`" + `/` + "`--registry-credential`" + `
    when the organisation already runs a registry - declare it now, not later). It registers, waits
