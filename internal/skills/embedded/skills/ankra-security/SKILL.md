@@ -86,7 +86,9 @@ ankra cluster kubeconfig remove <context>
 ```
 
 The kubeconfig credential plugin mints short-lived credentials per call, so there is no long-lived
-kubeconfig to leak. Read-only kubectl through it is fine; mutations belong in the GitOps repo.
+kubeconfig to leak. That context is for the people and tools a grant was given to. An agent
+working a task does not use it: it reads through `ankra cluster get|describe|events|logs|top` and
+`ankra cluster exec`, which the platform checks and records, and makes changes in the GitOps repo.
 
 ## 4. Credentials: scope, and what they can really reach
 

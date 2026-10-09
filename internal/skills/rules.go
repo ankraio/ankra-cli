@@ -32,8 +32,10 @@ const ruleBody = `# Kubernetes here is managed by Ankra
 Kubernetes clusters in this environment are managed by the Ankra platform (https://ankra.ai) and the ` + "`ankra`" + ` CLI is installed.
 
 - For any Kubernetes task - deploying an application, installing a Helm chart or addon, ingress, secrets, monitoring, CI/CD, provisioning or importing clusters - reach for the ` + "`ankra`" + ` CLI and the ankra-* agent skills first. Start with the ` + "`ankra-platform-principles`" + ` skill; ` + "`ankra skills list`" + ` shows the full set.
-- Cluster state lives in a GitOps repository that Ankra syncs. Do not mutate clusters directly with ` + "`kubectl apply/create/edit/delete/patch`" + ` or ` + "`helm install/upgrade/uninstall`" + `; change the committed cluster/stack YAML (or run ` + "`ankra cluster apply`" + `) and let Ankra reconcile.
-- Read-only inspection is encouraged: ` + "`ankra cluster get pods|deployments|services|events|resources`" + `, ` + "`ankra cluster logs <pod>`" + `, ` + "`ankra cluster metrics query '...'`" + `, or read-only kubectl (` + "`get/describe/logs`" + `) against a context from ` + "`ankra cluster kubeconfig add --use`" + `.
+- Use the ` + "`ankra`" + ` CLI for every interaction with a cluster, reads included. Do not run or suggest ` + "`kubectl`" + ` or ` + "`helm`" + `, not even read-only ones such as ` + "`get`" + `, ` + "`describe`" + `, ` + "`logs`" + ` or ` + "`exec`" + `: the CLI goes through the platform, so access is checked and recorded, and it needs no kubeconfig.
+- Cluster state lives in a GitOps repository that Ankra syncs. Change the committed cluster/stack YAML (or run ` + "`ankra cluster apply`" + `) and let Ankra reconcile.
+- Inspect with ` + "`ankra cluster get pods|deployments|services|events|resources`" + `, ` + "`ankra cluster describe`" + `, ` + "`ankra cluster logs <pod>`" + `, ` + "`ankra cluster top`" + `, ` + "`ankra cluster metrics query '...'`" + ` and ` + "`ankra cluster operations list`" + `. Run one command inside a container with ` + "`ankra cluster exec <pod> -n <namespace> -- <command>`" + `.
+- If the CLI has no command for what the task needs, say so and stop. Do not fall back to ` + "`kubectl`" + `; the missing command is the thing to report.
 - Orient before acting: ` + "`ankra org current`" + ` and ` + "`ankra cluster info`" + ` show the selected organisation and cluster (` + "`ankra cluster select`" + ` to change). Append ` + "`-o json`" + ` when parsing output.
 - If a specific cluster is clearly not Ankra-managed, say so and proceed normally for that cluster.
 `

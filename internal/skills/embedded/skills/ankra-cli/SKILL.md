@@ -266,9 +266,11 @@ ankra cluster logs -l app=web -n prod --follow=false -o json | jq '.[].message'
 - **Prefer versioned YAML** (`ankra cluster apply -f`) over ad-hoc edits, so the change is
   reproducible and reviewable.
 - **Validate, then draft, then apply.** Each step is cheap; a wrong apply is not.
-- **Do not reach for `kubectl` to change things.** Read-only kubectl through
-  `ankra cluster kubeconfig add --use` is fine; mutations belong in the GitOps repo or
-  `ankra cluster apply`.
+- **Do not reach for `kubectl` or `helm`, for reads either.** Use `ankra cluster get`, `describe`,
+  `events`, `logs`, `top` and `metrics query` to look, and
+  `ankra cluster exec <pod> -n <namespace> -- <command>` to run one command in a container.
+  Changes belong in the GitOps repo or `ankra cluster apply`. If the CLI has no command for
+  something, report that gap and stop; do not suggest `kubectl` in its place.
 - **Never paste secrets** into a command line — use stdin, a prompt, `--set-file` or `--set-env`.
 
 ## Related skills
