@@ -166,6 +166,11 @@ func renderOrganisationCIPoolCapacity(out io.Writer, members []client.Organisati
 	}
 }
 
+// scaleUpBlockersUnreadable is said for a cluster with waiting steps whose
+// blockers the platform could not read and gave no sentence for: silence
+// there would read as "nothing is stopping it".
+const scaleUpBlockersUnreadable = "Ankra could not read whether anything is stopping this cluster from adding nodes."
+
 // renderOrganisationCIScaleUpBlockers prints what is stopping each CI
 // cluster from running the organisation's waiting steps, with the next step
 // the platform gives for each (ankra-q573dh.15). A cluster whose events could
@@ -193,9 +198,13 @@ func renderOrganisationCIScaleUpBlockers(out io.Writer, members []client.Organis
 			}
 		}
 		isWaiting := member.WaitingSteps != nil && *member.WaitingSteps > 0
-		if member.ScaleUpBlockersState == "unknown" && member.ScaleUpBlockersUnavailable != nil && isWaiting {
+		if member.ScaleUpBlockersState == "unknown" && isWaiting {
 			header()
-			_, _ = fmt.Fprintf(out, "    %s: %s\n", member.ClusterName, *member.ScaleUpBlockersUnavailable)
+			sentence := scaleUpBlockersUnreadable
+			if member.ScaleUpBlockersUnavailable != nil && *member.ScaleUpBlockersUnavailable != "" {
+				sentence = *member.ScaleUpBlockersUnavailable
+			}
+			_, _ = fmt.Fprintf(out, "    %s: %s\n", member.ClusterName, sentence)
 		}
 	}
 }

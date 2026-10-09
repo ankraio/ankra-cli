@@ -264,3 +264,23 @@ func TestRunOrgCISettingsGet_AnOlderPlatformPrintsNoBlockers(t *testing.T) {
 		t.Errorf("an older platform's capacity printed a Blocked block: %s", output)
 	}
 }
+
+// An unknown state with no sentence still says so when steps are waiting
+// (review on ankra-cli#463).
+func TestRunOrgCISettingsGet_AnUnknownStateWithoutASentenceStillSaysSo(t *testing.T) {
+	clusterName := "ankra-ci"
+	clusterID := poolPrimaryID
+	waiting := 2
+	mock := &orgCIPoolMock{}
+	mock.settings = defaultCISettings()
+	mock.capacity = &client.OrganisationCICapacity{ClusterID: &clusterID, ClusterName: &clusterName,
+		PoolMembers: []client.OrganisationCICapacityMember{{ClusterID: poolPrimaryID, ClusterName: "ankra-ci",
+			WaitingSteps: &waiting, ScaleUpBlockersState: "unknown"}}}
+	output, executeError := runOrgCIPoolWith(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v", executeError)
+	}
+	if !strings.Contains(output, "ankra-ci: "+scaleUpBlockersUnreadable) {
+		t.Errorf("expected the unreadable sentence in %s", output)
+	}
+}
