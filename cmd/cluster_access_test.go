@@ -12,7 +12,43 @@ type clusterAccessMock struct {
 	baseMock
 	grants          []client.ClusterAccessGrant
 	createdRequest  *client.CreateClusterAccessGrantRequest
+	elevateRequest  *client.ElevateClusterAccessRequest
 	deletedGrantIDs []string
+	policy          *client.ClusterAccessPolicy
+}
+
+func (m *clusterAccessMock) ElevateClusterAccess(ctx context.Context, clusterID string, request client.ElevateClusterAccessRequest) (*client.CreateClusterAccessGrantResponse, error) {
+	m.elevateRequest = &request
+	expires := "2026-10-09T20:00:00Z"
+	reason := request.Reason
+	return &client.CreateClusterAccessGrantResponse{Grant: client.ClusterAccessGrant{
+		ID:              "dddddddd-bbbb-cccc-dddd-eeeeeeeeeeee",
+		Scope:           request.Scope,
+		Namespace:       request.Namespace,
+		Role:            request.Role,
+		ReconcileStatus: "pending",
+		CreatedAt:       "2026-10-09T16:00:00Z",
+		ExpiresAt:       &expires,
+		Reason:          &reason,
+	}}, nil
+}
+
+func (m *clusterAccessMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicy, error) {
+	return m.policy, nil
+}
+
+// resetAccessFlags clears the package-level flag variables the access
+// commands share, so one test's --expires does not leak into the next.
+func resetAccessFlags(t *testing.T) {
+	t.Helper()
+	reset := func() {
+		accessClusterFlag, accessRoleFlag, accessNamespaceFlag = "", "view", ""
+		accessExpiresFlag, accessReasonFlag = "", ""
+		elevateClusterFlag, elevateRoleFlag, elevateNamespaceFlag = "", "edit", ""
+		elevateExpiresFlag, elevateReasonFlag = "", ""
+	}
+	reset()
+	t.Cleanup(reset)
 }
 
 func (m *clusterAccessMock) GetCluster(name string) (client.ClusterListItem, error) {
@@ -163,5 +199,171 @@ func TestClusterAccessRevokeByEmailCommand(t *testing.T) {
 		if deletedGrantID == "cccccccc-dddd-eeee-ffff-000000000000" {
 			t.Errorf("deleted a grant belonging to another user: %v", mock.deletedGrantIDs)
 		}
+	}
+}
+
+func TestClusterAccessGrantSendsExpiryAndReason(t *testing.T) {
+	resetAccessFlags(t)
+	mock := &clusterAccessMock{}
+	setMockClient(t, mock)
+
+	captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "access", "grant", "member@example.com", "--cluster", "my-cluster",
+			"--role", "admin", "--expires", "4h", "--reason", "maintenance window")
+	})
+	request := mock.createdRequest
+	if request == nil || request.ExpiresIn == nil || *request.ExpiresIn != "4h" || request.ExpiresAt != nil {
+		t.Fatalf("expected expires_in 4h, got: %+v", request)
+	}
+	if request.Reason == nil || *request.Reason != "maintenance window" {
+		t.Fatalf("expected the reason to be sent, got: %+v", request.Reason)
+	}
+}
+
+func TestParseAccessExpiryTellsAnAbsoluteTimeFromAWindow(t *testing.T) {
+	for _, testCase := range []struct {
+		value                string
+		wantIn, wantAt, fail bool
+	}{
+		{"", false, false, false},
+		{"30m", true, false, false},
+		{"1h30m", true, false, false},
+		{"7d", true, false, false},
+		{"2026-10-09T20:00:00Z", false, true, false},
+		{"tomorrow", false, false, true},
+		{"0d", false, false, true},
+		{"-1h", false, false, true},
+	} {
+		expiresIn, expiresAt, err := parseAccessExpiry(testCase.value)
+		if (err != nil) != testCase.fail || (expiresIn != nil) != testCase.wantIn || (expiresAt != nil) != testCase.wantAt {
+			t.Fatalf("parseAccessExpiry(%q) = %v, %v, %v", testCase.value, expiresIn, expiresAt, err)
+		}
+	}
+}
+
+func TestClusterAccessElevateGrantsTheCallerWithinBounds(t *testing.T) {
+	resetAccessFlags(t)
+	mock := &clusterAccessMock{}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "access", "elevate", "--cluster", "my-cluster",
+			"--role", "edit", "--expires", "4h", "--reason", "incident 4711")
+	})
+	request := mock.elevateRequest
+	if request == nil {
+		t.Fatal("expected an elevate request to be sent")
+	}
+	if request.Role != "edit" || request.Scope != "cluster" || request.ExpiresIn == nil || *request.ExpiresIn != "4h" ||
+		request.Reason != "incident 4711" {
+		t.Fatalf("unexpected elevate request: %+v", request)
+	}
+	if !strings.Contains(stdoutOutput, `Elevated to "edit"`) || !strings.Contains(stdoutOutput, "ankra cluster access revoke dddddddd") {
+		t.Errorf("expected the elevation and how to end it, got: %s", stdoutOutput)
+	}
+}
+
+func TestClusterAccessElevateRefusesWithoutExpiryOrReason(t *testing.T) {
+	for _, testCase := range []struct {
+		name, want string
+		args       []string
+	}{
+		{"no expiry", "--expires is required", []string{"--reason", "incident"}},
+		{"no reason", "--reason is required", []string{"--expires", "4h"}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			resetAccessFlags(t)
+			mock := &clusterAccessMock{}
+			setMockClient(t, mock)
+			_, err := executeCommand(append([]string{"cluster", "access", "elevate", "--cluster", "my-cluster"}, testCase.args...)...)
+			if err == nil || !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("expected %q, got: %v", testCase.want, err)
+			}
+			if mock.elevateRequest != nil {
+				t.Fatal("an elevation without its bounds must not reach the platform")
+			}
+		})
+	}
+}
+
+func TestClusterAccessListShowsExpiryAndReason(t *testing.T) {
+	resetAccessFlags(t)
+	expires := "2026-10-09T20:00:00Z"
+	reason := "incident 4711"
+	elevated := grantFixture("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "member@example.com", "edit")
+	elevated.ExpiresAt = &expires
+	elevated.Reason = &reason
+	mock := &clusterAccessMock{grants: []client.ClusterAccessGrant{
+		elevated,
+		grantFixture("bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "other@example.com", "view"),
+	}}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "access", "list", "--cluster", "my-cluster")
+	})
+	for _, want := range []string{"EXPIRES", "REASON", expires, reason, "standing"} {
+		if !strings.Contains(stdoutOutput, want) {
+			t.Errorf("expected %q in the grant table, got: %s", want, stdoutOutput)
+		}
+	}
+}
+
+func TestOrgAccessPolicyGetSaysWhatTheLimitsAre(t *testing.T) {
+	fourHours := int64(4 * 3600)
+	reasonFrom := "edit"
+	mock := &clusterAccessMock{policy: &client.ClusterAccessPolicy{
+		CreatorGrantRole: "view", MaxGrantRole: "edit", ElevatedMaxTTLSeconds: &fourHours,
+		RequireReasonFromRole: &reasonFrom, IsConfigured: true,
+	}}
+	setMockClient(t, mock)
+
+	var commandOutput string
+	stdoutOutput := captureStdout(t, func() {
+		commandOutput, _ = executeCommand("org", "access-policy", "get")
+	})
+	stdoutOutput += commandOutput
+	for _, want := range []string{"Creator role:       view", "Ceiling:            edit", "Elevated lifetime:  4h0m0s", "Reason required:    edit and above"} {
+		if !strings.Contains(stdoutOutput, want) {
+			t.Errorf("expected %q, got: %s", want, stdoutOutput)
+		}
+	}
+
+	mock.policy = &client.ClusterAccessPolicy{CreatorGrantRole: "cluster-admin", MaxGrantRole: "cluster-admin"}
+	var unsetOutput string
+	unset := captureStdout(t, func() {
+		unsetOutput, _ = executeCommand("org", "access-policy", "get")
+	})
+	unset += unsetOutput
+	if !strings.Contains(unset, "No policy is set") || !strings.Contains(unset, "no limit (break-glass: 4h)") {
+		t.Errorf("expected the unset policy to say so, got: %s", unset)
+	}
+}
+
+// TestGrantAndElevateRoleFlagsAreIndependent pins the defaults that matter:
+// grant defaults to view and elevate to edit, and setting one never moves
+// the other. Sharing one variable made elevate's later registration
+// overwrite grant's default, so a plain 'grant <email>' asked for edit.
+func TestGrantAndElevateRoleFlagsAreIndependent(t *testing.T) {
+	grantRole := clusterAccessGrantCmd.Flags().Lookup("role")
+	elevateRole := clusterAccessElevateCmd.Flags().Lookup("role")
+	if grantRole.DefValue != "view" || elevateRole.DefValue != "edit" {
+		t.Fatalf("defaults: grant %q, elevate %q", grantRole.DefValue, elevateRole.DefValue)
+	}
+	resetAccessFlags(t)
+	if err := clusterAccessElevateCmd.Flags().Set("role", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if grantRole.Value.String() != "view" {
+		t.Fatalf("setting elevate's --role moved grant's to %q", grantRole.Value.String())
+	}
+	mock := &clusterAccessMock{}
+	setMockClient(t, mock)
+	resetAccessFlags(t)
+	captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "access", "grant", "member@example.com", "--cluster", "my-cluster")
+	})
+	if mock.createdRequest == nil || mock.createdRequest.Role != "view" {
+		t.Fatalf("a grant without --role must ask for view, got: %+v", mock.createdRequest)
 	}
 }
