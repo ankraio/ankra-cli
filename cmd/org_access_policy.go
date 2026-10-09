@@ -57,11 +57,13 @@ var orgAccessPolicyGetCmd = &cobra.Command{
 
 // renderClusterAccessPolicy prints the policy in plain words.
 func renderClusterAccessPolicy(out io.Writer, policy *client.ClusterAccessPolicy) {
+	suffix := ""
 	if !policy.IsConfigured {
 		_, _ = fmt.Fprintln(out, "No policy is set: whoever creates or imports a cluster gets cluster-admin on it, and anyone can be given any access.")
+		suffix = " (default)"
 	}
-	_, _ = fmt.Fprintf(out, "Creator role:       %s\n", policy.CreatorGrantRole)
-	_, _ = fmt.Fprintf(out, "Ceiling:            %s\n", policy.MaxGrantRole)
+	_, _ = fmt.Fprintf(out, "Creator role:       %s%s\n", policy.CreatorGrantRole, suffix)
+	_, _ = fmt.Fprintf(out, "Ceiling:            %s%s\n", policy.MaxGrantRole, suffix)
 	elevated := "no limit (break-glass: 4h)"
 	if policy.ElevatedMaxTTLSeconds != nil {
 		elevated = (time.Duration(*policy.ElevatedMaxTTLSeconds) * time.Second).String()

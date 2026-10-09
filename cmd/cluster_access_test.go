@@ -44,6 +44,8 @@ func resetAccessFlags(t *testing.T) {
 	reset := func() {
 		accessClusterFlag, accessRoleFlag, accessNamespaceFlag = "", "view", ""
 		accessExpiresFlag, accessReasonFlag = "", ""
+		elevateClusterFlag, elevateRoleFlag, elevateNamespaceFlag = "", "edit", ""
+		elevateExpiresFlag, elevateReasonFlag = "", ""
 	}
 	reset()
 	t.Cleanup(reset)
@@ -335,5 +337,33 @@ func TestOrgAccessPolicyGetSaysWhatTheLimitsAre(t *testing.T) {
 	unset += unsetOutput
 	if !strings.Contains(unset, "No policy is set") || !strings.Contains(unset, "no limit (break-glass: 4h)") {
 		t.Errorf("expected the unset policy to say so, got: %s", unset)
+	}
+}
+
+// TestGrantAndElevateRoleFlagsAreIndependent pins the defaults that matter:
+// grant defaults to view and elevate to edit, and setting one never moves
+// the other. Sharing one variable made elevate's later registration
+// overwrite grant's default, so a plain 'grant <email>' asked for edit.
+func TestGrantAndElevateRoleFlagsAreIndependent(t *testing.T) {
+	grantRole := clusterAccessGrantCmd.Flags().Lookup("role")
+	elevateRole := clusterAccessElevateCmd.Flags().Lookup("role")
+	if grantRole.DefValue != "view" || elevateRole.DefValue != "edit" {
+		t.Fatalf("defaults: grant %q, elevate %q", grantRole.DefValue, elevateRole.DefValue)
+	}
+	resetAccessFlags(t)
+	if err := clusterAccessElevateCmd.Flags().Set("role", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if grantRole.Value.String() != "view" {
+		t.Fatalf("setting elevate's --role moved grant's to %q", grantRole.Value.String())
+	}
+	mock := &clusterAccessMock{}
+	setMockClient(t, mock)
+	resetAccessFlags(t)
+	captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "access", "grant", "member@example.com", "--cluster", "my-cluster")
+	})
+	if mock.createdRequest == nil || mock.createdRequest.Role != "view" {
+		t.Fatalf("a grant without --role must ask for view, got: %+v", mock.createdRequest)
 	}
 }

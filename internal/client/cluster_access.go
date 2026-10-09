@@ -244,7 +244,7 @@ func (c *Client) ElevateClusterAccess(ctx context.Context, clusterID string, req
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return nil, accessResponseError("elevate cluster access failed", resp.StatusCode, body)
 	}
 	var created CreateClusterAccessGrantResponse

@@ -22,6 +22,15 @@ var (
 	accessNamespaceFlag string
 	accessExpiresFlag   string
 	accessReasonFlag    string
+
+	// elevate has variables of its own: cobra writes a flag's default into
+	// its variable when the flag is registered, so sharing grant's would
+	// let elevate's "edit" default become grant's (whose default is view).
+	elevateClusterFlag   string
+	elevateRoleFlag      string
+	elevateNamespaceFlag string
+	elevateExpiresFlag   string
+	elevateReasonFlag    string
 )
 
 var accessRoles = []string{"view", "edit", "admin", "cluster-admin"}
@@ -165,32 +174,32 @@ notification routes.`,
   ankra cluster access elevate --cluster prod --role edit --namespace payments --expires 30m --reason "hotfix"`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := validateAccessRole(accessRoleFlag); err != nil {
+		if err := validateAccessRole(elevateRoleFlag); err != nil {
 			return err
 		}
-		if strings.TrimSpace(accessExpiresFlag) == "" {
+		if strings.TrimSpace(elevateExpiresFlag) == "" {
 			return errors.New("--expires is required: break-glass access must end (for example --expires 4h)")
 		}
-		if strings.TrimSpace(accessReasonFlag) == "" {
+		if strings.TrimSpace(elevateReasonFlag) == "" {
 			return errors.New("--reason is required: say why the access is needed")
 		}
-		expiresIn, expiresAt, err := parseAccessExpiry(accessExpiresFlag)
+		expiresIn, expiresAt, err := parseAccessExpiry(elevateExpiresFlag)
 		if err != nil {
 			return err
 		}
-		clusterID, _, err := resolveGatewayClusterID(accessClusterFlag, os.Stderr)
+		clusterID, _, err := resolveGatewayClusterID(elevateClusterFlag, os.Stderr)
 		if err != nil {
 			return err
 		}
 		request := client.ElevateClusterAccessRequest{
 			Scope:     "cluster",
-			Role:      accessRoleFlag,
+			Role:      elevateRoleFlag,
 			ExpiresIn: expiresIn,
 			ExpiresAt: expiresAt,
-			Reason:    accessReasonFlag,
+			Reason:    elevateReasonFlag,
 		}
-		if accessNamespaceFlag != "" {
-			namespace := accessNamespaceFlag
+		if elevateNamespaceFlag != "" {
+			namespace := elevateNamespaceFlag
 			request.Scope = "namespace"
 			request.Namespace = &namespace
 		}
@@ -210,7 +219,7 @@ notification routes.`,
 		}
 		fmt.Printf("Elevated to %q (%s scope) until %s.\n", grant.Role, grant.Scope, until)
 		fmt.Printf("  Grant ID: %s\n", grant.ID)
-		fmt.Printf("End it early with: ankra cluster access revoke %s --cluster %s\n", grant.ID, displayClusterReference())
+		fmt.Printf("End it early with: ankra cluster access revoke %s --cluster %s\n", grant.ID, elevateClusterReference())
 		return nil
 	},
 }
@@ -296,6 +305,19 @@ func validateAccessRole(role string) error {
 	return fmt.Errorf("invalid role %q; valid roles: %s", role, strings.Join(accessRoles, ", "))
 }
 
+// elevateClusterReference is displayClusterReference for elevate's own
+// --cluster flag.
+func elevateClusterReference() string {
+	if elevateClusterFlag != "" {
+		return elevateClusterFlag
+	}
+	selected, err := loadSelectedCluster()
+	if err == nil && selected.Name != "" {
+		return selected.Name
+	}
+	return "<cluster>"
+}
+
 func displayClusterReference() string {
 	if accessClusterFlag != "" {
 		return accessClusterFlag
@@ -370,11 +392,11 @@ func init() {
 	clusterAccessGrantCmd.Flags().StringVar(&accessExpiresFlag, "expires", "", "End the grant after a duration (30m, 4h, 7d) or at an RFC 3339 time (default: standing)")
 	clusterAccessGrantCmd.Flags().StringVar(&accessReasonFlag, "reason", "", "Why the access is granted; recorded with the grant and in the audit log")
 
-	clusterAccessElevateCmd.Flags().StringVar(&accessClusterFlag, "cluster", "", "Cluster name or ID (defaults to the selected cluster)")
-	clusterAccessElevateCmd.Flags().StringVar(&accessRoleFlag, "role", "edit", "Kubernetes role to elevate to: view, edit, admin, or cluster-admin")
-	clusterAccessElevateCmd.Flags().StringVar(&accessNamespaceFlag, "namespace", "", "Limit the elevation to one namespace (default: cluster-wide)")
-	clusterAccessElevateCmd.Flags().StringVar(&accessExpiresFlag, "expires", "", "When the access ends: a duration (30m, 4h) or an RFC 3339 time (required)")
-	clusterAccessElevateCmd.Flags().StringVar(&accessReasonFlag, "reason", "", "Why the access is needed (required)")
+	clusterAccessElevateCmd.Flags().StringVar(&elevateClusterFlag, "cluster", "", "Cluster name or ID (defaults to the selected cluster)")
+	clusterAccessElevateCmd.Flags().StringVar(&elevateRoleFlag, "role", "edit", "Kubernetes role to elevate to: view, edit, admin, or cluster-admin")
+	clusterAccessElevateCmd.Flags().StringVar(&elevateNamespaceFlag, "namespace", "", "Limit the elevation to one namespace (default: cluster-wide)")
+	clusterAccessElevateCmd.Flags().StringVar(&elevateExpiresFlag, "expires", "", "When the access ends: a duration (30m, 4h) or an RFC 3339 time (required)")
+	clusterAccessElevateCmd.Flags().StringVar(&elevateReasonFlag, "reason", "", "Why the access is needed (required)")
 
 	clusterAccessRevokeCmd.Flags().StringVar(&accessClusterFlag, "cluster", "", "Cluster name or ID (defaults to the selected cluster)")
 
