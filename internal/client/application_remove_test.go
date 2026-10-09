@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"testing"
 )
 
@@ -36,9 +37,48 @@ func TestRemoveApplicationDeploymentPostsTheDeploymentAndReadsTheAcceptance(t *t
 	if removeError != nil {
 		t.Fatalf("RemoveApplicationDeployment error = %v", removeError)
 	}
-	if *removed != (RemoveApplicationDeploymentResult{ClusterID: "c-1", Namespace: "shop", InstallationID: "i-1",
-		OperationID: "o-1", Status: "removing"}) {
+	if !reflect.DeepEqual(*removed, RemoveApplicationDeploymentResult{ClusterID: "c-1", Namespace: "shop",
+		InstallationID: "i-1", OperationID: "o-1", Status: "removing"}) {
 		t.Fatalf("removed = %+v", removed)
+	}
+}
+
+// A deploy-wizard deployment is named by its stack: the body carries exactly
+// the cluster and the stack (no empty namespace key, which the platform would
+// read as naming both lanes), and the acceptance names the stacks left standing.
+func TestRemoveApplicationDeploymentPostsTheStackAndReadsTheRetainedStacks(t *testing.T) {
+	testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		var body map[string]any
+		if decodeError := json.NewDecoder(request.Body).Decode(&body); decodeError != nil {
+			t.Fatalf("decode request: %v", decodeError)
+		}
+		if !reflect.DeepEqual(body, map[string]any{"cluster_id": "c-1", "stack_name": "shop-web"}) {
+			t.Fatalf("body = %v", body)
+		}
+		jsonResponse(t, writer, http.StatusAccepted, map[string]any{
+			"cluster_id": "c-1", "namespace": "", "stack_name": "shop-web",
+			"retained_stacks": []string{"shop-db"}, "operation_id": "o-2", "status": "removing",
+		})
+	})
+	removed, removeError := testClient.RemoveApplicationDeployment(context.Background(), "app-1",
+		RemoveApplicationDeploymentRequest{ClusterID: "c-1", StackName: "shop-web"})
+	if removeError != nil {
+		t.Fatalf("RemoveApplicationDeployment error = %v", removeError)
+	}
+	if !reflect.DeepEqual(*removed, RemoveApplicationDeploymentResult{ClusterID: "c-1", StackName: "shop-web",
+		RetainedStacks: []string{"shop-db"}, OperationID: "o-2", Status: "removing"}) {
+		t.Fatalf("removed = %+v", removed)
+	}
+	encoded, encodeError := json.Marshal(removed)
+	if encodeError != nil {
+		t.Fatalf("encode result: %v", encodeError)
+	}
+	var rendered map[string]any
+	if decodeError := json.Unmarshal(encoded, &rendered); decodeError != nil {
+		t.Fatalf("decode result: %v", decodeError)
+	}
+	if _, present := rendered["installation_id"]; present {
+		t.Fatalf("a stack removal rendered an installation_id: %s", encoded)
 	}
 }
 

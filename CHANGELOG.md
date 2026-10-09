@@ -18,7 +18,9 @@
   runs when it is not on that cluster (exit 3), and refuses a deployment that
   is already being removed. The removal runs in the background: `ankra
   application installations` shows it as `removing` until it is gone, or
-  `failed` with the reason.
+  `failed` with the reason. An application deployed with the deploy wizard
+  has no installation, so `--stack <name>` names the stack it runs as instead;
+  the other stacks that deploy created stay, and the command lists them.
 
 - **`ankra pipeline get` says what each step used against what it asked
   for.** A "Resources used" section adds a line such as "e2e: memory peak

@@ -142,10 +142,13 @@ ankra application deployments <application-id>        # where it is running
 ankra application installations <application-id>      # installation intents and their state
 ankra application jobs <application-id>               # the platform jobs behind those intents
 ankra application remove <application-id> --cluster <cluster>  # take it off ONE cluster; it stays elsewhere
+ankra application remove <application-id> --cluster <cluster> --stack <stack>  # a deploy-wizard deployment
 ```
 
 `remove` uninstalls the deployment on that cluster (and the data in its database and volumes) and
 keeps the application and its other deployments; `delete` removes the application everywhere.
+A deployment made with the deploy wizard has no installation: pass `--stack` with the stack it runs
+as (not together with `--namespace`). The other stacks that deploy created stay standing.
 Confirm with the person before either.
 
 `--mode quick` is the single-replica default; `--mode high_availability` asks for the resilient
