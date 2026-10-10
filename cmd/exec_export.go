@@ -307,7 +307,10 @@ func (runner *execRunner) checkRemotely(ctx context.Context, checkout workspaceC
 	if !isFound {
 		return 1, true
 	}
-	if _, listError := apiClient.ListWorkspaces(ctx, client.ListWorkspacesOptions{Kind: runner.kind}); listError != nil {
+	// The probe is for the workspaces.use permission, which is the same for
+	// every kind (any kind resolves to an image server-side), so it names no
+	// kind and the cached answer holds for all of them.
+	if _, listError := apiClient.ListWorkspaces(ctx, client.ListWorkspacesOptions{}); listError != nil {
 		return 1, isDefinitiveRefusal(listError)
 	}
 	return 0, true

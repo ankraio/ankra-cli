@@ -690,6 +690,11 @@ func (runner *execRunner) settle(ctx context.Context, runID string, hasOutput bo
 				reason: notStartedReason(code)}
 		}
 	}
+	if readError == nil && run.IsTerminal() && run.IsStarted() {
+		runner.say("lost the output stream (%s); run %s ended (%s) without a recorded exit code, "+
+			"some output may be missing", problem, runID, run.State)
+		return execAttempt{isStarted: true, ExitCode: 1, RunID: runID}
+	}
 	if readError == nil && run.IsStarted() {
 		hasOutput = true
 	}
