@@ -371,19 +371,22 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 	dataBoundary, _ := command.Flags().GetString("data-boundary")
 	region, dataBoundary = strings.TrimSpace(region), strings.TrimSpace(dataBoundary)
 	if region == "" || dataBoundary == "" {
+		// A placement policy is optional: a cluster that declares none takes the
+		// service in the platform's default location (cluster#4371). A platform
+		// from before that refuses the prepare with its own 409, said as is.
+		declaredRegion, declaredBoundary := servicesUndeclaredLocation, servicesUndeclaredLocation
 		policy, policyError := apiClient.GetServiceClusterPolicy(ctx, clusterID)
-		if policyError != nil {
-			if isServicePolicyMissing(policyError) {
-				return fmt.Errorf("cluster %s has no service placement policy, and setup needs one: declare it with "+
-					"'ankra services policy set --cluster %s --region <region> --data-boundary <boundary>'", clusterName, clusterName)
-			}
+		switch {
+		case policyError == nil:
+			declaredRegion, declaredBoundary = policy.Region, policy.DataBoundary
+		case !isServicePolicyMissing(policyError):
 			return policyError
 		}
 		if region == "" {
-			region = policy.Region
+			region = declaredRegion
 		}
 		if dataBoundary == "" {
-			dataBoundary = policy.DataBoundary
+			dataBoundary = declaredBoundary
 		}
 	}
 

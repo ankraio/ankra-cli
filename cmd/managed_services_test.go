@@ -616,7 +616,6 @@ func TestServicesSetupRefusesBeforePreparing(t *testing.T) {
 		{"undeclared secret input", []string{"--package", "postgresql", "--consumer", fakeServiceConsumerID,
 			"--secret-reference", "password=9e000000-0000-4000-8000-000000000017"}, true, exitUsage, "no secret input"},
 		{"unknown package", []string{"--package", "mysql", "--consumer", fakeServiceConsumerID}, true, exitNotFound, "no service package"},
-		{"no policy", []string{"--package", "postgresql", "--consumer", fakeServiceConsumerID}, false, exitError, "policy set"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -635,6 +634,41 @@ func TestServicesSetupRefusesBeforePreparing(t *testing.T) {
 			}
 			if prepares := platform.requests(http.MethodPost, "/reviews"); len(prepares) != 0 {
 				t.Errorf("a refused setup stored a review")
+			}
+		})
+	}
+}
+
+// A placement policy is optional: setup on a cluster that declares none
+// prepares the review in the platform's default location instead of refusing,
+// and explicit --region/--data-boundary still win.
+func TestServicesSetupWithoutAPolicyUsesTheDefaultLocation(t *testing.T) {
+	for _, testCase := range []struct {
+		name             string
+		flags            []string
+		region, boundary string
+	}{
+		{"default", nil, servicesUndeclaredLocation, servicesUndeclaredLocation},
+		{"explicit", []string{"--region", "eu-west-1", "--data-boundary", "eu"}, "eu-west-1", "eu"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			platform := newFakeServicesPlatform(t)
+			platform.policyMissing = true
+			arguments := append([]string{"setup", "orders-db", "--package", "postgresql", "--cluster", fakeServiceClusterID,
+				"--consumer", fakeServiceConsumerID, "--yes"}, testCase.flags...)
+			if _, _, runError := runServicesCommand(t, platform, "", arguments...); runError != nil {
+				t.Fatalf("setup on a cluster with no policy: %v", runError)
+			}
+			prepares := platform.requests(http.MethodPost, "/service-admission/reviews")
+			if len(prepares) != 1 {
+				t.Fatalf("expected one prepare, got %d", len(prepares))
+			}
+			var prepared map[string]any
+			if decodeError := json.Unmarshal([]byte(prepares[0].body), &prepared); decodeError != nil {
+				t.Fatal(decodeError)
+			}
+			if prepared["region"] != testCase.region || prepared["data_boundary"] != testCase.boundary {
+				t.Errorf("prepare placed it in %v/%v, want %s/%s", prepared["region"], prepared["data_boundary"], testCase.region, testCase.boundary)
 			}
 		})
 	}

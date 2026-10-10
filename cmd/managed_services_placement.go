@@ -238,7 +238,8 @@ func newServicesPolicyGetCommand() *cobra.Command {
 			policy, getError := apiClient.GetServiceClusterPolicy(command.Context(), clusterID)
 			if getError != nil {
 				if isServicePolicyMissing(getError) {
-					return withExitCode(exitNotFound, fmt.Errorf("cluster %s has no service placement policy: "+
+					return withExitCode(exitNotFound, fmt.Errorf("cluster %s declares no service placement policy. It is optional: "+
+						"services set up there use the platform's default location. To keep services within a data boundary, "+
 						"declare one with 'ankra services policy set --cluster %s --region <region> --data-boundary <boundary>'",
 						clusterName, clusterName))
 				}
@@ -255,6 +256,11 @@ func newServicesPolicyGetCommand() *cobra.Command {
 	registerStructuredOutputFlags(getCommand)
 	return getCommand
 }
+
+// servicesUndeclaredLocation is the region and data boundary the platform
+// places a service in on a cluster that declares no placement policy
+// (serviceadmission.UnspecifiedLocation). It cannot be declared by hand.
+const servicesUndeclaredLocation = "unspecified"
 
 // servicePolicyRequiredDetail is the platform's answer (409) for a cluster
 // that has no placement policy yet: "Configure the cluster data policy
