@@ -48,6 +48,12 @@ type fakeWorkspaceAPI struct {
 	listStatus      int
 	requests        int
 	deleted         []string
+	upRequests      []client.WorkspaceUpRequest
+	// profilesStatus and profilesBody answer the repository's workspace
+	// profiles read; profileReads counts it.
+	profilesStatus int
+	profilesBody   string
+	profileReads   int
 }
 
 func newFakeWorkspaceAPI(t *testing.T) *fakeWorkspaceAPI {
@@ -83,7 +89,10 @@ func (api *fakeWorkspaceAPI) serve(writer http.ResponseWriter, request *http.Req
 	writer.Header().Set("Content-Type", "application/json")
 	switch {
 	case route == "POST /api/v1/org/workspaces":
+		var upRequest client.WorkspaceUpRequest
+		_ = json.NewDecoder(request.Body).Decode(&upRequest)
 		api.mutex.Lock()
+		api.upRequests = append(api.upRequests, upRequest)
 		failing := api.upFailures > 0
 		if failing {
 			api.upFailures--
@@ -117,6 +126,19 @@ func (api *fakeWorkspaceAPI) serve(writer http.ResponseWriter, request *http.Req
 		api.deleted = append(api.deleted, "ws-1")
 		api.mutex.Unlock()
 		_, _ = io.WriteString(writer, api.workspaceJSON(client.WorkspaceStatusDestroyed))
+	case route == "GET /api/v1/org/pipeline-repositories/repo-1/workspace-profiles":
+		api.mutex.Lock()
+		api.profileReads++
+		status, body := api.profilesStatus, api.profilesBody
+		api.mutex.Unlock()
+		if status == 0 {
+			status = http.StatusOK
+		}
+		if body == "" {
+			body = `{"repository_id":"repo-1","profiles":{}}`
+		}
+		writer.WriteHeader(status)
+		_, _ = io.WriteString(writer, body)
 	case route == "GET /api/v1/org/pipelines/repositories":
 		encoded, _ := json.Marshal(client.PipelineRepositoryList{Repositories: api.repositories})
 		_, _ = writer.Write(encoded)

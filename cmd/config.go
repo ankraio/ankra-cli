@@ -14,6 +14,9 @@ import (
 // risks rewriting the saved token or base URL.
 type CLISettings struct {
 	BetaReleases bool `json:"beta_releases"`
+	// ExecMode is the default routing mode of the dev shims (auto, remote
+	// or local; `ankra dev mode`). Empty means it was never set.
+	ExecMode string `json:"exec_mode,omitempty"`
 }
 
 func cliSettingsFile() (string, error) {

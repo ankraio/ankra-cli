@@ -335,6 +335,13 @@ func isDefinitiveRefusal(err error) bool {
 // network call, so it keys on what was asked for (the base URL, the --org,
 // ANKRA_ORG and ANKRA_EXEC_ORG as given), not on what they resolve to.
 func execCheckCachePath(cmd *cobra.Command, remote repositoryRemote) string {
+	return execRepositoryCachePath(cmd, remote, "exec-check")
+}
+
+// execRepositoryCachePath is the file one kind of cached answer about a
+// repository lives in (under <user cache dir>/ankra/<family>), keyed like
+// execCheckCachePath.
+func execRepositoryCachePath(cmd *cobra.Command, remote repositoryRemote, family string) string {
 	cacheDirectory, cacheError := os.UserCacheDir()
 	if cacheError != nil {
 		return ""
@@ -349,7 +356,7 @@ func execCheckCachePath(cmd *cobra.Command, remote repositoryRemote) string {
 	key := strings.Join([]string{platform, orgFlag, os.Getenv(envAnkraOrg), os.Getenv("ANKRA_EXEC_ORG"),
 		remote.Provider, strings.ToLower(remote.Owner), strings.ToLower(remote.Name)}, "\x00")
 	digest := sha1.Sum([]byte(key)) //nolint:gosec // see the import
-	return filepath.Join(cacheDirectory, "ankra", "exec-check", hex.EncodeToString(digest[:]))
+	return filepath.Join(cacheDirectory, "ankra", family, hex.EncodeToString(digest[:]))
 }
 
 func readExecCheckCache(path string, now time.Time) (int, bool) {

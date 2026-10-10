@@ -3271,6 +3271,10 @@ func (m baseMock) DeleteWorkspace(ctx context.Context, workspaceID string) (*cli
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetWorkspaceProfiles(ctx context.Context, repositoryID string) (*client.WorkspaceProfiles, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateWorkspaceBundle(ctx context.Context, workspaceID string, sha256Hex string, sizeBytes int64) (*client.WorkspaceBundleUpload, error) {
 	return nil, errors.New("not implemented")
 }

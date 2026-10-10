@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra dev install` makes `go test`, `golangci-lint` and `pnpm typecheck`
+  run in your Ankra Workspace without anyone typing `ankra exec`.** It puts
+  small shims named `go`, `gofmt`, `golangci-lint`, `pnpm`, `npm` and `npx` in
+  `~/.ankra/dev/shims` and links them into `~/.local/bin` (or `--link-dir`), so
+  coding agents, git hooks and your own shell send the heavy, read-only
+  invocations (`go test|vet|build`, `golangci-lint run`, `pnpm test`, `lint`,
+  `typecheck`, `vitest run`, `tsc --noEmit`) to the workspace with the same
+  output and exit code. Writers such as `go generate`, `go mod tidy`, `gofmt
+  -w` and `golangci-lint run --fix` run there too and their changes are
+  applied to your worktree; Playwright runs bring `test-results` and the
+  reports back. Everything else, `go run`, dev servers, `pnpm install` and
+  anything interactive, runs on this machine as before, and so does any
+  command in a checkout without a workspace or while the platform is out of
+  reach, so a shim never stands between you and your tools. Go tools use the
+  repository's `go` workspace profile, Node tools its `node` profile and
+  Playwright its `e2e` profile when the repository defines them, and share
+  its default workspace otherwise, so no repository gets a pod per tool it
+  never asked for. Re-running is safe; a real binary or someone else's link
+  is never replaced, no shell profile is edited (the PATH line to add is
+  printed), and `--uninstall` removes only what the install created. `ankra
+  dev status` shows which tools resolve to a shim first on PATH, `ankra dev
+  mode auto|remote|local` sets the default (`ANKRA_EXEC=local` turns routing
+  off for one command), and `ANKRA_EXEC_EXPLAIN=1 go test ./...` prints where
+  a command would run. It replaces the shims of the claude-tools remote-exec
+  scripts, reads their `~/.config/ankra-exec/mode`, and takes over their
+  `~/.local/bin` links with `--replace-legacy`.
+
 ## v0.29.0 — 2026-10-10
 
 ### Added
