@@ -4,7 +4,6 @@
 
 ### Added
 
-<<<<<<< HEAD
 - **Restrict which addresses can SSH to a Hetzner, OVHcloud, UpCloud or
   DigitalOcean bastion.** `ankra cluster <provider> create
   --bastion-allowed-ips 203.0.113.7,198.51.100.0/24` creates the cluster with
@@ -18,7 +17,7 @@
   key-only and rate-limited, exactly as before. Needs a platform that serves
   `PUT /api/v1/clusters/<provider>/{cluster_id}/bastion/allowed-ips`; an older
   one answers 404 or 405, and ignores the create flag.
-=======
+
 - **`ankra pipeline tests <run>` shows what a run's tests did.** It lists the
   test reports the run's stages declared under `test_results` and what became
   of each (read, unreadable, or never uploaded and why), the run's counts by
@@ -56,7 +55,6 @@
   image that cannot be pulled, a pod no node can be added for) now fails
   within minutes with the container and the reason, and `ankra exec` prints
   that reason, rather than waiting out the platform's provisioning deadline.
->>>>>>> origin/master
 
 ## v0.30.0 — 2026-10-10
 
