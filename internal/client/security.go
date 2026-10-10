@@ -220,6 +220,59 @@ type SecurityClusterPosture struct {
 	FixableSevere  int                    `json:"fixable_severe" yaml:"fixable_severe"`
 	KnownExploited int                    `json:"known_exploited" yaml:"known_exploited"`
 	Severity       SecuritySeverityCounts `json:"severity" yaml:"severity"`
+	// AccessPosture is the cluster's Kubernetes access summary line. nil
+	// means the platform did not report it (it predates the field), which
+	// is not the same as a cluster with no grants.
+	AccessPosture *SecurityClusterAccessSummary `json:"access_posture,omitempty" yaml:"access_posture,omitempty"`
+}
+
+// SecurityClusterAccessSummary counts a cluster's live kube gateway grants.
+// OverPolicy is nil when the organisation's access policy could not be
+// read, and ImpersonateReachable is nil unless the impersonation probe has
+// a fresh, verified answer for every live grant: nil is unknown, never 0.
+type SecurityClusterAccessSummary struct {
+	GrantsTotal               int  `json:"grants_total" yaml:"grants_total"`
+	StandingElevated          int  `json:"standing_elevated" yaml:"standing_elevated"`
+	OverPolicy                *int `json:"over_policy" yaml:"over_policy"`
+	ImpersonateReachable      *int `json:"impersonate_reachable" yaml:"impersonate_reachable"`
+	ImpersonateVerifiedGrants int  `json:"impersonate_verified_grants" yaml:"impersonate_verified_grants"`
+}
+
+// SecurityClusterAccessFinding is one failed Kubernetes access check on one
+// grant. UserEmail is nil when the caller does not hold kube_access.manage
+// (or the user record is gone); the grantee is then its AnkraUserID.
+type SecurityClusterAccessFinding struct {
+	Check       string  `json:"check" yaml:"check"`
+	Severity    string  `json:"severity" yaml:"severity"`
+	Title       string  `json:"title" yaml:"title"`
+	GrantID     string  `json:"grant_id" yaml:"grant_id"`
+	AnkraUserID string  `json:"ankra_user_id" yaml:"ankra_user_id"`
+	UserEmail   *string `json:"user_email" yaml:"user_email"`
+	Role        string  `json:"role" yaml:"role"`
+	Scope       string  `json:"scope" yaml:"scope"`
+	Namespace   *string `json:"namespace" yaml:"namespace"`
+	Detail      string  `json:"detail" yaml:"detail"`
+	Remediation string  `json:"remediation" yaml:"remediation"`
+}
+
+// SecurityClusterAccessUnknown is a check that could not be evaluated, for
+// one grant or (GrantID nil) for every grant on the cluster.
+type SecurityClusterAccessUnknown struct {
+	Check   string  `json:"check" yaml:"check"`
+	GrantID *string `json:"grant_id" yaml:"grant_id"`
+	Reason  string  `json:"reason" yaml:"reason"`
+}
+
+// SecurityClusterAccessPosture is one cluster's Kubernetes access posture:
+// the summary line, every failed check with its remediation, and every
+// check that could not be evaluated. A check on a grant absent from both
+// Findings and Unknowns passed.
+type SecurityClusterAccessPosture struct {
+	ClusterID   string                         `json:"cluster_id" yaml:"cluster_id"`
+	EvaluatedAt string                         `json:"evaluated_at" yaml:"evaluated_at"`
+	Summary     SecurityClusterAccessSummary   `json:"summary" yaml:"summary"`
+	Findings    []SecurityClusterAccessFinding `json:"findings" yaml:"findings"`
+	Unknowns    []SecurityClusterAccessUnknown `json:"unknowns" yaml:"unknowns"`
 }
 
 // SecurityClusterList is the paginated fleet posture collection.
@@ -378,6 +431,23 @@ func (c *Client) ListSecurityClusters(options SecurityClustersOptions) (*Securit
 		list.Result = []SecurityClusterPosture{}
 	}
 	return &list, nil
+}
+
+// GetSecurityClusterAccessPosture reads one cluster's Kubernetes access
+// posture: the grant findings with their remediation and the unknowns.
+func (c *Client) GetSecurityClusterAccessPosture(clusterID string) (*SecurityClusterAccessPosture, error) {
+	var posture SecurityClusterAccessPosture
+	requestURL := securityURL(c.BaseURL, "/clusters/"+neturl.PathEscape(strings.TrimSpace(clusterID))+"/access-posture", neturl.Values{})
+	if err := c.getJSON(requestURL, &posture); err != nil {
+		return nil, fmt.Errorf("cluster access posture request failed: %w", err)
+	}
+	if posture.Findings == nil {
+		posture.Findings = []SecurityClusterAccessFinding{}
+	}
+	if posture.Unknowns == nil {
+		posture.Unknowns = []SecurityClusterAccessUnknown{}
+	}
+	return &posture, nil
 }
 
 // SecurityAdvisoryMetric is one CVSS assessment on the advisory (NVD's own

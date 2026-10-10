@@ -68,6 +68,7 @@ ankra cluster access grant bob@example.com --cluster prod --role edit --namespac
   --expires 4h --reason "INC-4711: restart the stuck rollout"
 ankra cluster access revoke alice@example.com --cluster prod   # or a grant id
 ankra org access-policy get                        # the limits every grant is held to
+ankra security access --cluster prod               # review: risky grants with their fix, and what could not be checked
 ```
 
 Roles bind to Ankra-managed ClusterRoles: `ankra:view`, `ankra:edit`, `ankra:admin` and
