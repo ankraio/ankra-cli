@@ -33,6 +33,14 @@
 
 ### Changed
 
+- **A cluster no longer needs a service placement policy before you set a
+  managed service up on it.** The policy is optional now: `ankra services
+  setup` on a cluster that declares none places the service in the platform's
+  default location instead of stopping with "setup needs one", and `ankra
+  services policy get` says the policy is optional. Declare one with `ankra
+  services policy set` only when services must keep data within a boundary.
+  Needs a platform with cluster#4371; an older one still refuses the setup.
+
 - **`ankra pipeline train` answers inside every connected repository, not only
   one with an application.** With neither `--application` nor `--repository`,
   the train commands still use the application bound to the checkout's
