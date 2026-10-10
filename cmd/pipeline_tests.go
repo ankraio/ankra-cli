@@ -25,6 +25,15 @@ import (
 // readable line; -o json carries the message in full.
 const pipelineTestMessageWidth = 80
 
+// The platform's bounds on the tests reads (enginekit/pipelinetests
+// MaxSlowestCases and MaxHistoryRuns). The server refuses a value outside
+// them with a 422; checking here turns that into a usage error before any
+// request.
+const (
+	pipelineTestsMaxSlowest = 50
+	pipelineTestsMaxRuns    = 100
+)
+
 func newPipelineTestsCommand() *cobra.Command {
 	testsCommand := &cobra.Command{
 		Use:   "tests <run>",
@@ -116,8 +125,8 @@ func runPipelineRunTests(command *cobra.Command, selector client.PipelineSelecto
 		return formatError
 	}
 	slowest, _ := command.Flags().GetInt("slowest")
-	if slowest < 0 {
-		return withExitCode(exitUsage, errors.New("--slowest must be 0 or more"))
+	if slowest < 0 || slowest > pipelineTestsMaxSlowest {
+		return withExitCode(exitUsage, fmt.Errorf("--slowest must be 0 to %d", pipelineTestsMaxSlowest))
 	}
 	summary, readError := apiClient.GetPipelineRunTests(command.Context(), selector, strings.TrimSpace(runID), slowest)
 	if readError != nil {
@@ -167,8 +176,8 @@ func runPipelineTestHistory(command *cobra.Command, selector client.PipelineSele
 		return withExitCode(exitUsage, errors.New("a test key is required"))
 	}
 	runs, _ := command.Flags().GetInt("runs")
-	if runs < 0 {
-		return withExitCode(exitUsage, errors.New("--runs must be 1 or more"))
+	if runsError := validatePipelineTestRuns(runs); runsError != nil {
+		return runsError
 	}
 	branch, _ := command.Flags().GetString("branch")
 	history, readError := apiClient.GetPipelineTestHistory(command.Context(), selector, testKey,
@@ -222,8 +231,8 @@ func runPipelineTestTimings(command *cobra.Command, selector client.PipelineSele
 			client.PipelineTestTimingsByFile, client.PipelineTestTimingsByTest))
 	}
 	runs, _ := command.Flags().GetInt("runs")
-	if runs < 0 {
-		return withExitCode(exitUsage, errors.New("--runs must be 1 or more"))
+	if runsError := validatePipelineTestRuns(runs); runsError != nil {
+		return runsError
 	}
 	branch, _ := command.Flags().GetString("branch")
 	timings, readError := apiClient.GetPipelineTestTimings(command.Context(), selector, stage,
@@ -263,6 +272,15 @@ func runPipelineTestTimings(command *cobra.Command, selector client.PipelineSele
 		entries.AppendRow(row)
 	}
 	entries.Render()
+	return nil
+}
+
+// validatePipelineTestRuns accepts zero (the server's default window) or a
+// window within the platform's bound.
+func validatePipelineTestRuns(runs int) error {
+	if runs < 0 || runs > pipelineTestsMaxRuns {
+		return withExitCode(exitUsage, fmt.Errorf("--runs must be 1 to %d", pipelineTestsMaxRuns))
+	}
 	return nil
 }
 

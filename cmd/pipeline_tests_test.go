@@ -139,15 +139,33 @@ func TestPipelineTestsStructuredOutputSkipsTheTable(t *testing.T) {
 	}
 }
 
-func TestPipelineTestsRefusesANegativeSlowest(t *testing.T) {
-	mockClient := &pipelineTestsMock{}
-	_, executeError := runPipelineCommand(t, mockClient, "tests", "run-1", "--application", testApplicationID,
-		"--slowest", "-1")
-	if exitCodeFor(executeError) != exitUsage {
-		t.Fatalf("error = %v (exit %d), want a usage error", executeError, exitCodeFor(executeError))
+func TestPipelineTestsRefusesASlowestOutsideTheBound(t *testing.T) {
+	for _, slowest := range []string{"-1", "51"} {
+		mockClient := &pipelineTestsMock{}
+		_, executeError := runPipelineCommand(t, mockClient, "tests", "run-1", "--application", testApplicationID,
+			"--slowest", slowest)
+		if exitCodeFor(executeError) != exitUsage {
+			t.Errorf("--slowest %s: error = %v (exit %d), want a usage error", slowest, executeError,
+				exitCodeFor(executeError))
+		}
+		if mockClient.runTestsRunID != "" {
+			t.Errorf("--slowest %s: the server was asked anyway", slowest)
+		}
 	}
-	if mockClient.runTestsRunID != "" {
-		t.Error("the server was asked anyway")
+}
+
+func TestPipelineTestsHistoryRefusesRunsOutsideTheBound(t *testing.T) {
+	for _, runs := range []string{"-1", "101"} {
+		mockClient := &pipelineTestsMock{}
+		_, executeError := runPipelineCommand(t, mockClient, "tests", "history", "go:x/y",
+			"--application", testApplicationID, "--runs", runs)
+		if exitCodeFor(executeError) != exitUsage {
+			t.Errorf("--runs %s: error = %v (exit %d), want a usage error", runs, executeError,
+				exitCodeFor(executeError))
+		}
+		if mockClient.historyTestKey != "" {
+			t.Errorf("--runs %s: the server was asked anyway", runs)
+		}
 	}
 }
 
@@ -240,6 +258,7 @@ func TestPipelineTestsTimingsRefusesBadFlags(t *testing.T) {
 		{"tests", "timings", "--application", testApplicationID},
 		{"tests", "timings", "--stage", "test", "--group-by", "suite", "--application", testApplicationID},
 		{"tests", "timings", "--stage", "test", "--runs", "-3", "--application", testApplicationID},
+		{"tests", "timings", "--stage", "test", "--runs", "101", "--application", testApplicationID},
 	} {
 		mockClient := &pipelineTestsMock{}
 		_, executeError := runPipelineCommand(t, mockClient, arguments...)
