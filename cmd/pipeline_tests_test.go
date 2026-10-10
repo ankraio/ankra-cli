@@ -279,17 +279,17 @@ func TestPipelineTestsStripsTerminalControlsFromServerText(t *testing.T) {
 		RunID: "run-1", HasReports: true,
 		Reports: []client.PipelineTestReport{{Stage: "test" + escape, Format: "junit", Status: "unreadable" + escape,
 			ErrorMessage: "bad xml" + escape}},
-		Failed: []client.PipelineTestCase{{Suite: "s" + escape, Name: "TestX" + escape, File: "x_test.go" + escape,
-			Stage: "test", FailureMessage: "boom" + escape}},
+		Failed: []client.PipelineTestCase{{Suite: "s" + escape, Name: "TestX\roverwritten" + escape,
+			File: "x_test.go" + escape, Stage: "test", FailureMessage: "boom" + escape}},
 	}}
 	output, executeError := runPipelineCommand(t, mockClient, "tests", "run-1", "--application", testApplicationID)
 	if executeError != nil {
 		t.Fatalf("tests error = %v", executeError)
 	}
-	if strings.ContainsAny(output, "\x1b\x07") {
+	if strings.ContainsAny(output, "\x1b\x07\r") {
 		t.Fatalf("output carries a terminal control: %q", output)
 	}
-	for _, expected := range []string{"bad xml", "boom", "TestX", "x_test.go"} {
+	for _, expected := range []string{"bad xml", "boom", "TestX overwritten", "x_test.go"} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("output lacks %q once cleaned: %q", expected, output)
 		}

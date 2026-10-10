@@ -248,7 +248,7 @@ func runPipelineTestTimings(command *cobra.Command, selector client.PipelineSele
 	output := command.OutOrStdout()
 	if timings.RunsSampled == 0 {
 		_, _ = fmt.Fprintf(output, "No timings recorded yet for stage %q on %s: split shards evenly until there are.\n",
-			timings.Stage, pipelineTestText(timings.Branch))
+			pipelineTestText(timings.Stage), pipelineTestText(timings.Branch))
 		return nil
 	}
 	partial := ""
@@ -256,7 +256,8 @@ func runPipelineTestTimings(command *cobra.Command, selector client.PipelineSele
 		partial = " (partial: not every sampled run recorded every test)"
 	}
 	_, _ = fmt.Fprintf(output, "Stage %q on %s, by %s, over %d runs%s\n",
-		timings.Stage, pipelineTestText(timings.Branch), timings.GroupBy, timings.RunsSampled, partial)
+		pipelineTestText(timings.Stage), pipelineTestText(timings.Branch), pipelineTestText(timings.GroupBy),
+		timings.RunsSampled, partial)
 	header := table.Row{"FILE", "MEAN", "SAMPLES"}
 	byTest := timings.GroupBy == client.PipelineTestTimingsByTest
 	if byTest {
@@ -280,7 +281,8 @@ func runPipelineTestTimings(command *cobra.Command, selector client.PipelineSele
 // window within the platform's bound.
 func validatePipelineTestRuns(runs int) error {
 	if runs < 0 || runs > pipelineTestsMaxRuns {
-		return withExitCode(exitUsage, fmt.Errorf("--runs must be 1 to %d", pipelineTestsMaxRuns))
+		return withExitCode(exitUsage, fmt.Errorf("--runs must be 1 to %d, or 0 for the server's default",
+			pipelineTestsMaxRuns))
 	}
 	return nil
 }
@@ -366,17 +368,25 @@ func pipelineTestName(suite string, name string, testKey string) string {
 // it is printed, and an empty value reads "-".
 func pipelineTestText(value string) string {
 	cleaned, _ := hiddenunicode.Strip(value)
-	return pipelineStringOrDash(cleaned)
+	return pipelineStringOrDash(strings.TrimSpace(pipelineTestLineBreaks.Replace(cleaned)))
 }
 
-// pipelineTestMessage is a failure message's first line, bounded for a table
-// cell and stripped of hidden characters (it is test output, not ours).
+// pipelineTestLineBreaks flattens the whitespace controls hiddenunicode keeps
+// (it is built for multi-line text) into spaces: a carriage return in a cell
+// would overwrite the row it is printed on, and a newline would break the
+// table.
+var pipelineTestLineBreaks = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", "\t", " ")
+
+// pipelineTestMessage is a failure message's first line, stripped of hidden
+// characters and terminal controls the way pipelineTestText is (it is test
+// output, not ours) and bounded for a table cell.
 func pipelineTestMessage(message string) string {
 	firstLine, _, _ := strings.Cut(strings.TrimSpace(message), "\n")
-	if firstLine == "" {
-		return "-"
+	cleaned := pipelineTestText(firstLine)
+	if cleaned == "-" {
+		return cleaned
 	}
-	return truncateCell(firstLine, pipelineTestMessageWidth)
+	return truncateCell(cleaned, pipelineTestMessageWidth)
 }
 
 // pipelineTestRate renders a rate the server could compute as a percentage
