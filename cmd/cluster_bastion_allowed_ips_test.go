@@ -64,10 +64,14 @@ func TestClusterBastionAllowedIPsSendsTheWholeList(t *testing.T) {
 	}}
 	setMockClient(t, mock)
 
+	var executeError error
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "hetzner", "bastion", "allowed-ips", testClusterID,
+		_, executeError = executeCommand("cluster", "hetzner", "bastion", "allowed-ips", testClusterID,
 			"203.0.113.7", "198.51.100.0/24,192.0.2.1")
 	})
+	if executeError != nil {
+		t.Fatalf("allowed-ips failed: %v", executeError)
+	}
 
 	want := []string{"203.0.113.7", "198.51.100.0/24", "192.0.2.1"}
 	if len(mock.lists) != 1 || !reflect.DeepEqual(mock.lists[0], want) || mock.clusterIDs[0] != testClusterID {
@@ -87,9 +91,13 @@ func TestClusterBastionAllowedIPsClearSendsAnEmptyList(t *testing.T) {
 	mock := &bastionAllowedIPsMock{result: &client.UpdateBastionAllowedIPsResult{Name: "gateway", BastionAllowedIPs: []string{}}}
 	setMockClient(t, mock)
 
+	var executeError error
 	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "ovh", "bastion", "allowed-ips", testClusterID, "--clear")
+		_, executeError = executeCommand("cluster", "ovh", "bastion", "allowed-ips", testClusterID, "--clear")
 	})
+	if executeError != nil {
+		t.Fatalf("allowed-ips --clear failed: %v", executeError)
+	}
 	if len(mock.lists) != 1 || mock.lists[0] == nil || len(mock.lists[0]) != 0 {
 		t.Fatalf("--clear must send one empty (not nil) list, got %#v", mock.lists)
 	}
@@ -120,6 +128,10 @@ func TestClusterBastionAllowedIPsRefusesAnAmbiguousRequest(t *testing.T) {
 
 func TestBastionAllowedIPsSubcommandExistsOnlyWhereThePlatformEnforcesIt(t *testing.T) {
 	for _, provider := range []string{"hetzner", "ovh", "upcloud", "digitalocean", "ankracloud", "aws", "scaleway", "proxmox", "morpheus"} {
+		bastionCommand, _, bastionFindError := rootCmd.Find([]string{"cluster", provider, "bastion"})
+		if bastionFindError != nil || bastionCommand == nil || bastionCommand.Name() != "bastion" {
+			t.Fatalf("%s has no bastion group (%v): the not-mounted assertion below would pass vacuously", provider, bastionFindError)
+		}
 		command, _, findError := rootCmd.Find([]string{"cluster", provider, "bastion", "allowed-ips"})
 		mounted := findError == nil && command != nil && command.Name() == "allowed-ips"
 		want := provider == "hetzner" || provider == "ovh" || provider == "upcloud" || provider == "digitalocean"
