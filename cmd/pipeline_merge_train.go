@@ -40,10 +40,11 @@ The train merges under the Ankra GitHub App's identity, so adding or removing
 a pull request needs pipelines.operate and, on top of it, one of: you are an
 organisation administrator, you opened the pull request, or you have write
 access to the repository on GitHub. Ankra reads the last two through the
-GitHub identity you linked with OAuth from the Ankra portal; without one only
-an administrator can add or remove. You can always remove an entry you added
-yourself. If GitHub cannot be asked, the request is refused and nothing
-changes.`,
+GitHub identity you linked with OAuth from the Ankra portal. One exception:
+with pipelines.operate you can always remove an entry you added yourself,
+with or without a linked identity. Otherwise, without a linked identity only
+an administrator can add or remove. If GitHub cannot be asked, the request is
+refused and nothing changes.`,
 	}
 	trainCommand.AddCommand(
 		newPipelineTrainListCommand(),
