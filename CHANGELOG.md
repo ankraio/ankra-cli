@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.29.0 — 2026-10-10
+
 ### Added
 
 - **`ankra exec` runs a heavy command for your checkout in its Ankra Workspace
