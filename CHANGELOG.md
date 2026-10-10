@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra pipeline train` answers inside every connected repository, not only
+  one with an application.** With neither `--application` nor `--repository`,
+  the train commands still use the application bound to the checkout's
+  `origin` first; when there is none (a bare pipeline repository such as
+  `ankraio/cluster`), they now look the repository itself up by the origin's
+  owner/name and say which one they chose. A repository that is not connected
+  answers not-found (exit 3), which means it has no train; a listing that
+  could not be read is reported as that error, never as "not connected".
+  Works against platforms that do not filter the listing by owner/name yet.
+  `pipeline repositories list -o json` carries `merge_train_enabled` and
+  `merge_train_max_cars` where the platform sends them.
+
 ## v0.30.0 — 2026-10-10
 
 ### Added
