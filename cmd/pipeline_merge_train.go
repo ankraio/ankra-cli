@@ -33,8 +33,17 @@ rebuilding it.
 
 The train is off by default: 'ankra pipeline train enable' switches it on
 (pipelines.manage). 'ankra pipeline train add <pull request>' puts a pull
-request at the end of it (pipelines.operate), 'list' shows it in order and
-'remove' takes one out. GitHub repositories only.`,
+request at the end of it, 'list' shows it in order and 'remove' takes one out.
+GitHub repositories only.
+
+The train merges under the Ankra GitHub App's identity, so adding or removing
+a pull request needs pipelines.operate and, on top of it, one of: you are an
+organisation administrator, you opened the pull request, or you have write
+access to the repository on GitHub. Ankra reads the last two through the
+GitHub identity you linked with OAuth from the Ankra portal; without one only
+an administrator can add or remove. You can always remove an entry you added
+yourself. If GitHub cannot be asked, the request is refused and nothing
+changes.`,
 	}
 	trainCommand.AddCommand(
 		newPipelineTrainListCommand(),
@@ -132,7 +141,11 @@ func newPipelineTrainAddCommand() *cobra.Command {
 The train tests the pull request's head as it is now: pass --head-sha to pin
 the commit you reviewed. A push to the pull request after it entered takes it
 out of the train again. A pull request already in the train is answered with
-its entry.`,
+its entry.
+
+You must be an organisation administrator, the pull request's author, or have
+write access to the repository on GitHub (through the GitHub identity you
+linked from the Ankra portal), as well as pipelines.operate.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -168,7 +181,13 @@ func newPipelineTrainRemoveCommand() *cobra.Command {
 		Use:     "remove <entry id>",
 		Aliases: []string{"rm"},
 		Short:   "Take a pull request out of the merge train",
-		Args:    cobra.ExactArgs(1),
+		Long: `Take a pull request out of the merge train.
+
+You can always remove an entry you added yourself. Removing anyone else's needs
+the authority adding it would: organisation administrator, the pull request's
+author, or write access to the repository on GitHub, as well as
+pipelines.operate.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
 			if selectorError != nil {
