@@ -84,7 +84,10 @@ account: use an organisation owner, or create the repository first and use `appl
 ## 2. Review what Ankra generated
 
 Ankra opens a **setup pull request** carrying the Dockerfile, the Helm chart, and
-`.ankra/pipeline.yaml`. Read it — this is the contract for everything that follows. The pipeline is
+`.ankra/pipeline.yaml`. Read it — this is the contract for everything that follows. These files are
+Ankra's to generate: never commit your own Dockerfile, chart or pipeline before `application add`
+(a pre-existing Dockerfile is adopted as the repository's own recipe and the generated one is
+never written). Correct the generated files here, with `ankra application files`. The pipeline is
 recorded as the definition of record before the PR opens, so Ankra Pipelines builds the next push
 whether or not the PR has merged; `ankra application get <application-id> -o json` shows
 `pipeline_source: ankra_pipeline`. A value of `generated_workflow` is an application from the legacy
@@ -111,6 +114,13 @@ optional `components:` block. When analysis reads a monorepo wrong (an API at th
 workflows, the AI proposal and structural detection, and is the only way to remove a component. A
 block Ankra cannot honour is refused whole, reported as the `read_declared_components` setup task,
 and the recorded components are kept. Schema: https://docs.ankra.ai/reference/application-descriptor
+
+Components steer *which* app is built, not *whether* the repository is a service. When setup ends
+with "did not set this repository up as an always-on application" and no pull request, the
+analysis found no long-running process (typical for a server started through a CLI subcommand).
+Tell it how the app runs with a root `Procfile` line, `web: <start command> --port <n>` (also read
+from `fly.toml` / `render.yaml`), commit it, and run `ankra application reconcile <application-id>`
+(`retry` is for applications that are up). Ankra then generates the Dockerfile around that command.
 
 ## 3. Supply configuration and secrets
 

@@ -103,9 +103,10 @@ ankra credentials list             # a GitHub credential must exist for the repo
 
 ### 1. Make the source deployable
 
-Before registering anything, the repository needs: a container build (a Dockerfile, or a stack
-Ankra can generate one for), one listening port, a health endpoint, and **all configuration read
-from the environment**. A service that reads a config file baked into the image cannot be promoted
+Before registering anything, the repository needs: one listening port, a health endpoint, and
+**all configuration read from the environment**. Do not write a Dockerfile, chart or pipeline for
+it: registration generates them, and you correct what it generated in the setup pull request
+(step 3). A service that reads a config file baked into the image cannot be promoted
 between environments without a rebuild, which defeats every step that follows.
 
 ### 2. Register
