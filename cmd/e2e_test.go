@@ -3255,6 +3255,22 @@ func (m baseMock) DeletePipelineSchedule(ctx context.Context, selector client.Pi
 	return errors.New("not implemented")
 }
 
+func (m baseMock) GetPipelineMergeTrain(ctx context.Context, selector client.PipelineSelector) (*client.PipelineMergeTrain, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetPipelineMergeTrainSettings(ctx context.Context, selector client.PipelineSelector, request client.SetPipelineMergeTrainSettingsRequest) (*client.PipelineMergeTrainSettings, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) EnqueuePipelineMergeTrain(ctx context.Context, selector client.PipelineSelector, request client.EnqueuePipelineMergeTrainRequest) (*client.PipelineMergeTrainEntry, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DequeuePipelineMergeTrain(ctx context.Context, selector client.PipelineSelector, entryID string) (*client.PipelineMergeTrainEntry, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) UpWorkspace(ctx context.Context, request client.WorkspaceUpRequest) (*client.Workspace, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
