@@ -7,6 +7,8 @@ package cmd
 // rebuilding it.
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -46,6 +48,108 @@ request at the end of it (pipelines.operate), 'list' shows it in order and
 	return trainCommand
 }
 
+// maxPipelineRepositoryLookupPages bounds the repository listing walk a train
+// command makes to find the checkout's repository. A platform that honours
+// the owner/name filter answers in one page; an older one answers the
+// unfiltered listing, and an organisation with more than this many pages of
+// repositories is told to pass --repository rather than walked forever.
+const maxPipelineRepositoryLookupPages = 20
+
+// resolvePipelineTrainSelector is resolvePipelineSelector for the merge train
+// commands, with one more way to answer from the checkout (ankra-q573dh.37).
+// A train belongs to a pipeline repository, and a connected repository need
+// not have an application bound to it (cluster and ankra-cli have none), so
+// when neither flag is given and no single application answers for the
+// checkout's origin, the repository itself is looked up by the origin's
+// owner/name. An application that does answer is still used first, exactly
+// as every other pipeline command resolves it.
+func resolvePipelineTrainSelector(command *cobra.Command) (client.PipelineSelector, error) {
+	applicationReference, _ := command.Flags().GetString("application")
+	repositoryReference, _ := command.Flags().GetString("repository")
+	if strings.TrimSpace(applicationReference) != "" || strings.TrimSpace(repositoryReference) != "" {
+		return resolvePipelineSelector(command)
+	}
+	selector, inferred, inferError := pipelineSelectorFromWorkingDirectory(command.Context())
+	if inferError == nil && inferred != "" {
+		reportInferredPipelineTarget(command, inferred)
+		return selector, nil
+	}
+	// Two applications bound to one repository is ambiguous for a run, but
+	// not for a train: both name the same repository, and so the same train.
+	// The repository lookup below answers it; inferError is kept for the one
+	// case the lookup cannot run at all.
+	owner, name, isCheckout := checkoutGitHubOrigin(command.Context())
+	if !isCheckout {
+		if inferError != nil {
+			return client.PipelineSelector{}, inferError
+		}
+		return client.PipelineSelector{}, withExitCode(exitUsage,
+			errors.New("one of --application or --repository is required"))
+	}
+	repository, lookupError := findPipelineRepositoryByIdentity(command.Context(), owner, name)
+	if lookupError != nil {
+		return client.PipelineSelector{}, lookupError
+	}
+	_, _ = fmt.Fprintf(command.ErrOrStderr(),
+		"Using the pipeline repository %s/%s (pass --repository to choose another).\n",
+		repository.Owner, repository.Name)
+	return client.PipelineSelector{RepositoryID: repository.ID}, nil
+}
+
+// checkoutGitHubOrigin answers the owner/name of the GitHub repository the
+// working directory's origin points at. isCheckout is false when there is no
+// such answer - not inside a checkout, no origin remote, or an origin that is
+// not a github.com repository - and the caller falls back to asking for a
+// flag, since the merge train serves GitHub repositories only.
+func checkoutGitHubOrigin(requestContext context.Context) (string, string, bool) {
+	remoteURL, remoteError := executeGit(requestContext, ".", "remote", "get-url", "origin")
+	if remoteError != nil {
+		return "", "", false
+	}
+	owner, name, parseError := parseGitHubRepositoryRemote(strings.TrimSpace(remoteURL))
+	if parseError != nil {
+		return "", "", false
+	}
+	return owner, name, true
+}
+
+// findPipelineRepositoryByIdentity looks a connected GitHub repository up by
+// owner/name through GET /org/pipelines/repositories. The filter is sent, but
+// every row is still matched here without case: a platform older than cluster
+// ankra-q573dh.37 ignores owner and name and answers the unfiltered listing.
+//
+// Three answers, never two: the repository; not connected (exitNotFound, a
+// listing read to its end that holds no such repository); or an error when
+// the listing could not be read or was longer than the walk reads, which says
+// nothing about whether the repository is connected.
+func findPipelineRepositoryByIdentity(requestContext context.Context, owner string,
+	name string) (client.PipelineRepository, error) {
+	options := client.ListPipelineRepositoriesOptions{Provider: "github", Owner: owner, Name: name, Limit: 100}
+	for page := 0; page < maxPipelineRepositoryLookupPages; page++ {
+		listing, listError := apiClient.ListPipelineRepositories(requestContext, options)
+		if listError != nil {
+			return client.PipelineRepository{}, fmt.Errorf(
+				"looking %s/%s up among the organisation's pipeline repositories: %w", owner, name, listError)
+		}
+		for _, repository := range listing.Repositories {
+			if strings.EqualFold(repository.Provider, "github") &&
+				strings.EqualFold(repository.Owner, owner) && strings.EqualFold(repository.Name, name) {
+				return repository, nil
+			}
+		}
+		if listing.NextCursor == nil || *listing.NextCursor == "" {
+			return client.PipelineRepository{}, withExitCode(exitNotFound, fmt.Errorf(
+				"%s/%s is not connected to Ankra Pipelines in this organisation and no application is bound to it, "+
+					"so it has no merge train; connect it with 'ankra pipeline repositories connect' "+
+					"or pass --application / --repository", owner, name))
+		}
+		options.Cursor = *listing.NextCursor
+	}
+	return client.PipelineRepository{}, fmt.Errorf(
+		"looked through %d pages of pipeline repositories without reaching %s/%s; pass --repository with its id",
+		maxPipelineRepositoryLookupPages, owner, name)
+}
+
 func newPipelineTrainListCommand() *cobra.Command {
 	listCommand := &cobra.Command{
 		Use:     "list",
@@ -53,7 +157,7 @@ func newPipelineTrainListCommand() *cobra.Command {
 		Short:   "Show the merge train in order, and what recently left it",
 		Args:    cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
-			selector, selectorError := resolvePipelineSelector(command)
+			selector, selectorError := resolvePipelineTrainSelector(command)
 			if selectorError != nil {
 				return selectorError
 			}
@@ -135,7 +239,7 @@ out of the train again. A pull request already in the train is answered with
 its entry.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
-			selector, selectorError := resolvePipelineSelector(command)
+			selector, selectorError := resolvePipelineTrainSelector(command)
 			if selectorError != nil {
 				return selectorError
 			}
@@ -170,7 +274,7 @@ func newPipelineTrainRemoveCommand() *cobra.Command {
 		Short:   "Take a pull request out of the merge train",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
-			selector, selectorError := resolvePipelineSelector(command)
+			selector, selectorError := resolvePipelineTrainSelector(command)
 			if selectorError != nil {
 				return selectorError
 			}
@@ -198,7 +302,7 @@ func newPipelineTrainSettingsCommand(use string, short string, isEnabled bool) *
 		Short: short,
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
-			selector, selectorError := resolvePipelineSelector(command)
+			selector, selectorError := resolvePipelineTrainSelector(command)
 			if selectorError != nil {
 				return selectorError
 			}
