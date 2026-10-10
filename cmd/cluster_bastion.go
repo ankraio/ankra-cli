@@ -29,41 +29,48 @@ type bastionOps struct {
 	resize   func(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error)
 	health   func(clusterID string) (*client.BastionHealthResult, error)
 	diagnose func(ctx context.Context, clusterID string) (*client.BastionDiagnoseResult, error)
+	// allowedIPs replaces the bastion SSH source allowlist; set only for
+	// the providers whose bastion lanes enforce it (newBastionAllowedIPsCmd).
+	allowedIPs func(ctx context.Context, clusterID string, allowedIPs []string) (*client.UpdateBastionAllowedIPsResult, error)
 }
 
 func hetznerBastionOps() bastionOps {
 	return bastionOps{
-		provider: "hetzner",
-		resize:   apiClient.UpdateHetznerBastionInstanceType,
-		health:   apiClient.GetHetznerBastionHealth,
-		diagnose: apiClient.DiagnoseHetznerBastion,
+		provider:   "hetzner",
+		resize:     apiClient.UpdateHetznerBastionInstanceType,
+		health:     apiClient.GetHetznerBastionHealth,
+		diagnose:   apiClient.DiagnoseHetznerBastion,
+		allowedIPs: apiClient.UpdateHetznerBastionAllowedIPs,
 	}
 }
 
 func ovhBastionOps() bastionOps {
 	return bastionOps{
-		provider: "ovh",
-		resize:   apiClient.UpdateOvhBastionInstanceType,
-		health:   apiClient.GetOvhBastionHealth,
-		diagnose: apiClient.DiagnoseOvhBastion,
+		provider:   "ovh",
+		resize:     apiClient.UpdateOvhBastionInstanceType,
+		health:     apiClient.GetOvhBastionHealth,
+		diagnose:   apiClient.DiagnoseOvhBastion,
+		allowedIPs: apiClient.UpdateOvhBastionAllowedIPs,
 	}
 }
 
 func upcloudBastionOps() bastionOps {
 	return bastionOps{
-		provider: "upcloud",
-		resize:   apiClient.UpdateUpcloudBastionInstanceType,
-		health:   apiClient.GetUpcloudBastionHealth,
-		diagnose: apiClient.DiagnoseUpcloudBastion,
+		provider:   "upcloud",
+		resize:     apiClient.UpdateUpcloudBastionInstanceType,
+		health:     apiClient.GetUpcloudBastionHealth,
+		diagnose:   apiClient.DiagnoseUpcloudBastion,
+		allowedIPs: apiClient.UpdateUpcloudBastionAllowedIPs,
 	}
 }
 
 func digitaloceanBastionOps() bastionOps {
 	return bastionOps{
-		provider: "digitalocean",
-		resize:   apiClient.UpdateDigitaloceanBastionInstanceType,
-		health:   apiClient.GetDigitaloceanBastionHealth,
-		diagnose: apiClient.DiagnoseDigitaloceanBastion,
+		provider:   "digitalocean",
+		resize:     apiClient.UpdateDigitaloceanBastionInstanceType,
+		health:     apiClient.GetDigitaloceanBastionHealth,
+		diagnose:   apiClient.DiagnoseDigitaloceanBastion,
+		allowedIPs: apiClient.UpdateDigitaloceanBastionAllowedIPs,
 	}
 }
 
@@ -401,10 +408,10 @@ back the operation id to poll with 'cluster operations list'.`,
 }
 
 func init() {
-	hetznerCmd.AddCommand(newBastionCmd(hetznerBastionOps, "Hetzner", true, true))
-	ovhCmd.AddCommand(newBastionCmd(ovhBastionOps, "OVH", true, true))
-	upcloudCmd.AddCommand(newBastionCmd(upcloudBastionOps, "UpCloud", true, true))
-	digitaloceanCmd.AddCommand(newBastionCmd(digitaloceanBastionOps, "DigitalOcean", true, true))
+	hetznerCmd.AddCommand(withBastionAllowedIPs(newBastionCmd(hetznerBastionOps, "Hetzner", true, true), hetznerBastionOps))
+	ovhCmd.AddCommand(withBastionAllowedIPs(newBastionCmd(ovhBastionOps, "OVH", true, true), ovhBastionOps))
+	upcloudCmd.AddCommand(withBastionAllowedIPs(newBastionCmd(upcloudBastionOps, "UpCloud", true, true), upcloudBastionOps))
+	digitaloceanCmd.AddCommand(withBastionAllowedIPs(newBastionCmd(digitaloceanBastionOps, "DigitalOcean", true, true), digitaloceanBastionOps))
 	ankraCloudCmd.AddCommand(newBastionCmd(ankraCloudBastionOps, "Ankra Cloud", true, true))
 	// The remaining three carry the bastion routes but not the resize client
 	// method, and Scaleway's managed Public Gateway has no diagnose job lane

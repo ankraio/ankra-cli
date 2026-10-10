@@ -45,15 +45,19 @@ type CreateNodeGroupRequest struct {
 }
 
 type CreateHetznerClusterRequest struct {
-	Name                   string                   `json:"name"`
-	Description            *string                  `json:"description,omitempty"`
-	CredentialID           string                   `json:"credential_id"`
-	SSHKeyCredentialID     string                   `json:"ssh_key_credential_id,omitempty"`
-	SSHKeyCredentialIDs    []string                 `json:"ssh_key_credential_ids,omitempty"`
-	Location               string                   `json:"location"`
-	NetworkIPRange         string                   `json:"network_ip_range"`
-	SubnetRange            string                   `json:"subnet_range"`
-	BastionServerType      string                   `json:"bastion_server_type,omitempty"`
+	Name                string   `json:"name"`
+	Description         *string  `json:"description,omitempty"`
+	CredentialID        string   `json:"credential_id"`
+	SSHKeyCredentialID  string   `json:"ssh_key_credential_id,omitempty"`
+	SSHKeyCredentialIDs []string `json:"ssh_key_credential_ids,omitempty"`
+	Location            string   `json:"location"`
+	NetworkIPRange      string   `json:"network_ip_range"`
+	SubnetRange         string   `json:"subnet_range"`
+	BastionServerType   string   `json:"bastion_server_type,omitempty"`
+	// BastionAllowedIPs narrows the bastion's SSH port to these IPv4
+	// addresses or CIDRs, plus the platform's own egress. Omitted (nil)
+	// keeps the bastion open, as on every platform before the field existed.
+	BastionAllowedIPs      []string                 `json:"bastion_allowed_ips,omitempty"`
 	ControlPlaneCount      int                      `json:"control_plane_count"`
 	ControlPlaneServerType string                   `json:"control_plane_server_type,omitempty"`
 	WorkerCount            int                      `json:"worker_count"`

@@ -1807,6 +1807,10 @@ func (m baseMock) UpdateHetznerBastionInstanceType(ctx context.Context, clusterI
 	return nil, false, errors.New("not implemented")
 }
 
+func (m baseMock) UpdateHetznerBastionAllowedIPs(ctx context.Context, clusterID string, allowedIPs []string) (*client.UpdateBastionAllowedIPsResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetHetznerBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -2039,6 +2043,10 @@ func (m baseMock) UpdateOvhBastionInstanceType(ctx context.Context, clusterID, i
 	return nil, false, errors.New("not implemented")
 }
 
+func (m baseMock) UpdateOvhBastionAllowedIPs(ctx context.Context, clusterID string, allowedIPs []string) (*client.UpdateBastionAllowedIPsResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetOvhBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -2141,6 +2149,10 @@ func (m baseMock) RestartUpcloudClusterNode(clusterID, nodeID string) (*client.R
 
 func (m baseMock) UpdateUpcloudBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
 	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateUpcloudBastionAllowedIPs(ctx context.Context, clusterID string, allowedIPs []string) (*client.UpdateBastionAllowedIPsResult, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) GetUpcloudBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
@@ -2253,6 +2265,10 @@ func (m baseMock) RestartDigitaloceanClusterNode(clusterID, nodeID string) (*cli
 
 func (m baseMock) UpdateDigitaloceanBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
 	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateDigitaloceanBastionAllowedIPs(ctx context.Context, clusterID string, allowedIPs []string) (*client.UpdateBastionAllowedIPsResult, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) GetDigitaloceanBastionHealth(clusterID string) (*client.BastionHealthResult, error) {

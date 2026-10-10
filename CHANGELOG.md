@@ -4,6 +4,20 @@
 
 ### Added
 
+- **Restrict which addresses can SSH to a Hetzner, OVHcloud, UpCloud or
+  DigitalOcean bastion.** `ankra cluster <provider> create
+  --bastion-allowed-ips 203.0.113.7,198.51.100.0/24` creates the cluster with
+  the bastion's SSH port open only to those IPv4 sources, and `ankra cluster
+  <provider> bastion allowed-ips <cluster> <ip-or-cidr ...>` replaces the list
+  on a running cluster (`--clear` removes it). The platform's own egress
+  addresses and private network sources always stay allowed, so the platform
+  can never be locked out; every other source is dropped on the bastion (and
+  at the DigitalOcean bastion firewall). IPv6 entries and `0.0.0.0/0` are
+  refused. Clusters that never set a list keep SSH reachable from anywhere,
+  key-only and rate-limited, exactly as before. Needs a platform that serves
+  `PUT /api/v1/clusters/<provider>/{cluster_id}/bastion/allowed-ips`; an older
+  one answers 404 or 405, and ignores the create flag.
+
 - **`ankra pipeline tests <run>` shows what a run's tests did.** It lists the
   test reports the run's stages declared under `test_results` and what became
   of each (read, unreadable, or never uploaded and why), the run's counts by
