@@ -640,55 +640,27 @@ func detectApplicationBranch(
 	return strings.TrimSpace(currentBranch), nil
 }
 
+// parseGitHubRepositoryRemote reads owner/name off a github.com remote, the
+// only provider applications are connected from. parseRepositoryRemote is the
+// provider-neutral reading it narrows.
 func parseGitHubRepositoryRemote(remoteURL string) (string, string, error) {
-	trimmedRemoteURL := strings.TrimSpace(remoteURL)
-	if trimmedRemoteURL == "" {
-		return "", "", errors.New("remote URL is empty")
+	host, _, splitError := splitRemoteURL(remoteURL)
+	switch {
+	case errors.Is(splitError, errRemoteURLEmpty):
+		return "", "", splitError
+	case errors.Is(splitError, errRemoteSchemeUnsupported):
+		return "", "", errors.New("remote uses an unsupported GitHub URL scheme")
+	case splitError != nil:
+		return "", "", errors.New("remote is not a github.com repository")
 	}
-
-	var repositoryPath string
-	if strings.Contains(trimmedRemoteURL, "://") {
-		parsedURL, parseError := url.Parse(trimmedRemoteURL)
-		if parseError != nil || !strings.EqualFold(parsedURL.Hostname(), "github.com") {
-			return "", "", errors.New("remote is not a github.com repository")
-		}
-		switch strings.ToLower(parsedURL.Scheme) {
-		case "git", "http", "https", "ssh":
-		default:
-			return "", "", errors.New("remote uses an unsupported GitHub URL scheme")
-		}
-		repositoryPath = parsedURL.EscapedPath()
-	} else {
-		separatorIndex := strings.Index(trimmedRemoteURL, ":")
-		if separatorIndex <= 0 {
-			return "", "", errors.New("remote is not a github.com repository")
-		}
-		hostPart := trimmedRemoteURL[:separatorIndex]
-		if userSeparatorIndex := strings.LastIndex(hostPart, "@"); userSeparatorIndex >= 0 {
-			hostPart = hostPart[userSeparatorIndex+1:]
-		}
-		if !strings.EqualFold(hostPart, "github.com") {
-			return "", "", errors.New("remote is not a github.com repository")
-		}
-		repositoryPath = trimmedRemoteURL[separatorIndex+1:]
+	if !strings.EqualFold(host, "github.com") {
+		return "", "", errors.New("remote is not a github.com repository")
 	}
-
-	decodedPath, decodeError := url.PathUnescape(repositoryPath)
-	if decodeError != nil {
-		return "", "", errors.New("remote repository path is invalid")
-	}
-	pathParts := strings.Split(strings.Trim(decodedPath, "/"), "/")
-	if len(pathParts) != 2 {
+	remote, parseError := parseRepositoryRemote(remoteURL)
+	if parseError != nil {
 		return "", "", errors.New("remote must identify a GitHub repository as owner/name")
 	}
-	repositoryOwner := strings.TrimSpace(pathParts[0])
-	repositoryName := strings.TrimSuffix(strings.TrimSpace(pathParts[1]), ".git")
-	if repositoryOwner == "" || repositoryName == "" ||
-		repositoryOwner == "." || repositoryOwner == ".." ||
-		repositoryName == "." || repositoryName == ".." {
-		return "", "", errors.New("remote must identify a GitHub repository as owner/name")
-	}
-	return repositoryOwner, repositoryName, nil
+	return remote.Owner, remote.Name, nil
 }
 
 func selectApplicationCredential(

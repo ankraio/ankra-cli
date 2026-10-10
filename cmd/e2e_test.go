@@ -3255,6 +3255,54 @@ func (m baseMock) DeletePipelineSchedule(ctx context.Context, selector client.Pi
 	return errors.New("not implemented")
 }
 
+func (m baseMock) UpWorkspace(ctx context.Context, request client.WorkspaceUpRequest) (*client.Workspace, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) ListWorkspaces(ctx context.Context, options client.ListWorkspacesOptions) (*client.WorkspaceList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetWorkspace(ctx context.Context, workspaceID string) (*client.Workspace, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteWorkspace(ctx context.Context, workspaceID string) (*client.Workspace, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateWorkspaceBundle(ctx context.Context, workspaceID string, sha256Hex string, sizeBytes int64) (*client.WorkspaceBundleUpload, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartWorkspaceRun(ctx context.Context, workspaceID string, request client.WorkspaceRunRequest) (*client.WorkspaceRunStarted, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetWorkspaceRun(ctx context.Context, workspaceID string, runID string) (*client.WorkspaceRun, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CancelWorkspaceRun(ctx context.Context, workspaceID string, runID string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) CreateWorkspaceRunExport(ctx context.Context, workspaceID string, runID string, request client.WorkspaceRunExportRequest) (*client.WorkspaceRunExport, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StreamWorkspaceRun(ctx context.Context, workspaceID string, runID string, offsets client.WorkspaceRunOffsets) (<-chan client.WorkspaceRunEvent, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UploadPresigned(ctx context.Context, uploadURL string, body io.Reader, size int64) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) DownloadPresigned(ctx context.Context, downloadURL string, writer io.Writer) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) ListPipelineRepositories(ctx context.Context, options client.ListPipelineRepositoriesOptions) (*client.PipelineRepositoryList, error) {
 	return nil, errors.New("not implemented")
 }

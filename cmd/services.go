@@ -957,6 +957,19 @@ type APIClient interface {
 	DisconnectPipelineRepository(ctx context.Context, repositoryID string) error
 	SetPipelineRepositoryCluster(ctx context.Context, repositoryID string, clusterID string) (*client.PipelineRepository, error)
 
+	UpWorkspace(ctx context.Context, request client.WorkspaceUpRequest) (*client.Workspace, bool, error)
+	ListWorkspaces(ctx context.Context, options client.ListWorkspacesOptions) (*client.WorkspaceList, error)
+	GetWorkspace(ctx context.Context, workspaceID string) (*client.Workspace, error)
+	DeleteWorkspace(ctx context.Context, workspaceID string) (*client.Workspace, error)
+	CreateWorkspaceBundle(ctx context.Context, workspaceID string, sha256Hex string, sizeBytes int64) (*client.WorkspaceBundleUpload, error)
+	StartWorkspaceRun(ctx context.Context, workspaceID string, request client.WorkspaceRunRequest) (*client.WorkspaceRunStarted, error)
+	GetWorkspaceRun(ctx context.Context, workspaceID string, runID string) (*client.WorkspaceRun, error)
+	CancelWorkspaceRun(ctx context.Context, workspaceID string, runID string) error
+	CreateWorkspaceRunExport(ctx context.Context, workspaceID string, runID string, request client.WorkspaceRunExportRequest) (*client.WorkspaceRunExport, error)
+	StreamWorkspaceRun(ctx context.Context, workspaceID string, runID string, offsets client.WorkspaceRunOffsets) (<-chan client.WorkspaceRunEvent, error)
+	UploadPresigned(ctx context.Context, uploadURL string, body io.Reader, size int64) error
+	DownloadPresigned(ctx context.Context, downloadURL string, writer io.Writer) error
+
 	ListEnvironments(ctx context.Context) (*client.EnvironmentList, error)
 	CreateHostJoinToken(ctx context.Context, environmentName string, request client.CreateHostJoinTokenRequest) (*client.HostJoinToken, error)
 	ListHostTargets(ctx context.Context, environmentName string) (*client.HostTargetList, error)
