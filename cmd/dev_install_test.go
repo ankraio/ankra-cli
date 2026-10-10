@@ -333,9 +333,24 @@ func TestDevShimScriptHandsOverToTheCLIOrFallsThrough(t *testing.T) {
 		t.Fatalf("fallthrough = %q (%v), want the real go", output, runError)
 	}
 
-	// Nothing real at all: 127.
+	// Nothing real at all: 127. The PATH holds only the utilities the shim
+	// itself calls, never a system directory that may carry a real go (a CI
+	// runner's /usr/bin does).
+	utilities := filepath.Join(root, "utilities")
+	if mkdirError := os.MkdirAll(utilities, 0o755); mkdirError != nil {
+		t.Fatal(mkdirError)
+	}
+	for _, utility := range []string{"head", "grep"} {
+		located, lookError := exec.LookPath(utility)
+		if lookError != nil {
+			t.Skipf("no %s on this machine", utility)
+		}
+		if linkError := os.Symlink(located, filepath.Join(utilities, utility)); linkError != nil {
+			t.Fatal(linkError)
+		}
+	}
 	command = exec.Command(noCLI, "version")
-	command.Env = []string{"PATH=" + strings.Join([]string{filepath.Dir(noCLI), otherShims, "/usr/bin", "/bin"},
+	command.Env = []string{"PATH=" + strings.Join([]string{filepath.Dir(noCLI), otherShims, utilities},
 		string(os.PathListSeparator))}
 	output, runError = command.CombinedOutput()
 	var exitError *exec.ExitError
