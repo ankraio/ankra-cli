@@ -965,6 +965,7 @@ type APIClient interface {
 	ListWorkspaces(ctx context.Context, options client.ListWorkspacesOptions) (*client.WorkspaceList, error)
 	GetWorkspace(ctx context.Context, workspaceID string) (*client.Workspace, error)
 	DeleteWorkspace(ctx context.Context, workspaceID string) (*client.Workspace, error)
+	GetWorkspaceProfiles(ctx context.Context, repositoryID string) (*client.WorkspaceProfiles, error)
 	CreateWorkspaceBundle(ctx context.Context, workspaceID string, sha256Hex string, sizeBytes int64) (*client.WorkspaceBundleUpload, error)
 	StartWorkspaceRun(ctx context.Context, workspaceID string, request client.WorkspaceRunRequest) (*client.WorkspaceRunStarted, error)
 	GetWorkspaceRun(ctx context.Context, workspaceID string, runID string) (*client.WorkspaceRun, error)

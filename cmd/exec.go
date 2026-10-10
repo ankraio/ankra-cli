@@ -199,6 +199,14 @@ type execRunner struct {
 	fetchDirectories []string
 	startedAt        time.Time
 
+	// isEmbedded is a run made for a routing shim inside this process
+	// (ankra dev shim): "not run" is then answered to the caller through
+	// didNotRun and notRunReason instead of the marker file and a message,
+	// since the caller decides what to say before it runs the tool here.
+	isEmbedded   bool
+	didNotRun    bool
+	notRunReason string
+
 	checkout     workspaceCheckout
 	workspace    *client.Workspace
 	snapshot     execSnapshot
@@ -214,6 +222,11 @@ func (runner *execRunner) say(format string, arguments ...any) {
 // notRun says why the command did not run remotely, creates the shims'
 // marker file and answers 196.
 func (runner *execRunner) notRun(reason string) int {
+	runner.didNotRun = true
+	runner.notRunReason = reason
+	if runner.isEmbedded {
+		return execExitNotRun
+	}
 	if markerPath := os.Getenv("ANKRA_EXEC_NOTRUN_FILE"); markerPath != "" {
 		if file, createError := os.Create(markerPath); createError == nil {
 			_ = file.Close()
