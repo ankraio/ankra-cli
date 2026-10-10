@@ -771,3 +771,25 @@ func TestExecFallsBackWhenNothingProvesTheRunStarted(t *testing.T) {
 			environment.api.cancels, stderr)
 	}
 }
+
+func TestExecFetchKeepsTheLocalDirectoryWhenTheArchiveIsBroken(t *testing.T) {
+	environment := newExecTestEnv(t)
+	top := environment.repository.top
+	writeTestFile(t, filepath.Join(top, "test-results", "previous.txt"), "keep me\n")
+	environment.api.exportBodies["dirs"] = []byte("not a gzip stream")
+	environment.api.addStreams(streamOutput("", "", exitCode(0), true))
+	_, stderr, code := runExecCommand(t, context.Background(), "--fetch", "test-results", "--", "pnpm", "test")
+	if code != 0 {
+		t.Fatalf("exit = %d; stderr:\n%s", code, stderr)
+	}
+	if contents, _ := os.ReadFile(filepath.Join(top, "test-results", "previous.txt")); string(contents) != "keep me\n" {
+		t.Fatalf("the local results were lost: %q; stderr:\n%s", contents, stderr)
+	}
+	if !strings.Contains(stderr, "the local ones are unchanged") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	leftovers, _ := filepath.Glob(filepath.Join(top, ".git", "ankra-exec-fetch-*"))
+	if len(leftovers) != 0 {
+		t.Fatalf("staging directories left behind: %v", leftovers)
+	}
+}

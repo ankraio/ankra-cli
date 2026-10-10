@@ -360,10 +360,13 @@ func (c *Client) StreamWorkspaceRun(ctx context.Context, workspaceID string, run
 
 	events := make(chan WorkspaceRunEvent, 64)
 	activity := make(chan struct{}, 1)
+	// Read once: the watchdog below never touches the package variable, so a
+	// test that shrinks it cannot race a connection still winding down.
+	idleTimeout := workspaceStreamIdleTimeout
 	go func() {
 		// The idle watchdog: a connection nothing arrives on is cancelled,
 		// which ends the read below with an error.
-		timer := time.NewTimer(workspaceStreamIdleTimeout)
+		timer := time.NewTimer(idleTimeout)
 		defer timer.Stop()
 		for {
 			select {
@@ -376,7 +379,7 @@ func (c *Client) StreamWorkspaceRun(ctx context.Context, workspaceID string, run
 					default:
 					}
 				}
-				timer.Reset(workspaceStreamIdleTimeout)
+				timer.Reset(idleTimeout)
 			case <-timer.C:
 				cancelConnection()
 				return

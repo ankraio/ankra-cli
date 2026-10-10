@@ -255,7 +255,9 @@ func reconcileShallowMarkers(ctx context.Context, snapshot execSnapshot, markerP
 		return listError
 	}
 	for _, name := range names {
-		if strings.Contains(name, execShallowTag) {
+		// Only the marker's own name carries the tag; the workspace id in the
+		// prefix is the platform's and could contain anything.
+		if strings.HasSuffix(strings.TrimPrefix(name, markerPrefix), execShallowTag) {
 			return dropExecMarkers(ctx, snapshot.Top, markerPrefix)
 		}
 	}

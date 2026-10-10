@@ -151,6 +151,27 @@ func (runner *execRunner) fetchBack(ctx context.Context, runID string) {
 		runner.say("could not copy back %s: %v", strings.Join(directories, " "), workingDirectoryError)
 		return
 	}
+	// Extract into a staging directory first and swap each directory in only
+	// once the whole archive extracted: a corrupt or truncated download keeps
+	// the local results. The staging directory sits in the git dir, on the
+	// worktree's filesystem (so the swap is a rename) and outside the tree.
+	stagingParent, gitDirectoryError := gitStdout(ctx, runner.snapshot.Top, nil, "rev-parse",
+		"--path-format=absolute", "--git-dir")
+	if gitDirectoryError != nil || stagingParent == "" {
+		stagingParent = workingDirectory
+	}
+	staging, stagingError := os.MkdirTemp(stagingParent, "ankra-exec-fetch-")
+	if stagingError != nil {
+		runner.say("could not copy back %s: %v", strings.Join(directories, " "), stagingError)
+		return
+	}
+	defer func() { _ = os.RemoveAll(staging) }()
+	skipped, extractError := extractExecArchive(archivePath, staging, directories)
+	if extractError != nil {
+		runner.say("could not copy back %s (the local ones are unchanged): %v", strings.Join(directories, " "),
+			extractError)
+		return
+	}
 	for _, directory := range directories {
 		target, resolveError := resolveSafePath(workingDirectory, directory)
 		if resolveError != nil {
@@ -159,12 +180,20 @@ func (runner *execRunner) fetchBack(ctx context.Context, runID string) {
 		}
 		if removeError := os.RemoveAll(target); removeError != nil {
 			runner.say("could not replace %s: %v", directory, removeError)
+			continue
 		}
-	}
-	skipped, extractError := extractExecArchive(archivePath, workingDirectory, directories)
-	if extractError != nil {
-		runner.say("could not copy back %s: %v", strings.Join(directories, " "), extractError)
-		return
+		staged := filepath.Join(staging, filepath.FromSlash(directory))
+		if _, statError := os.Lstat(staged); statError != nil {
+			// The workspace had none: the local one is replaced by nothing.
+			continue
+		}
+		if mkdirError := os.MkdirAll(filepath.Dir(target), 0o755); mkdirError != nil {
+			runner.say("could not replace %s: %v", directory, mkdirError)
+			continue
+		}
+		if renameError := os.Rename(staged, target); renameError != nil {
+			runner.say("could not replace %s: %v", directory, renameError)
+		}
 	}
 	if skipped > 0 {
 		runner.say("skipped %d archive entr(ies) that were links or outside %s", skipped, strings.Join(directories, " "))

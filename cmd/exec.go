@@ -440,6 +440,9 @@ func (runner *execRunner) run(parent context.Context) int {
 	}
 	runner.workspace = workspace
 
+	// The retry budget is the run's total, as in the bash client: a command
+	// that keeps failing to start falls back after ANKRA_EXEC_RETRIES tries,
+	// however far each one got.
 	retries := execRetries()
 	isThin := true
 	hasResentFull := false
@@ -694,7 +697,10 @@ func (runner *execRunner) settle(ctx context.Context, runID string, hasOutput bo
 		// Nothing proves the command started, so it may run elsewhere - once
 		// the workspace is told not to start it after all.
 		cancelContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		_ = apiClient.CancelWorkspaceRun(cancelContext, runner.workspace.ID, runID)
+		if cancelError := apiClient.CancelWorkspaceRun(cancelContext, runner.workspace.ID, runID); cancelError != nil {
+			runner.say("could not tell the workspace to drop run %s (%v); if it starts after all, "+
+				"it runs there as well as here", runID, cancelError)
+		}
 		cancel()
 		return execAttempt{reason: "lost the workspace before the command started: " + problem}
 	}
