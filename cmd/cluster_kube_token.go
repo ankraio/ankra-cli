@@ -49,6 +49,11 @@ works: a cluster ID the selected organisation does not have is looked up
 across the organisations you belong to, and the token is minted against the
 one that owns it. Your selected organisation is not changed.
 
+kubectl runs this on every command, so the token is cached on disk (readable
+only by you) and reused while it has more than two minutes left and was minted
+less than five minutes ago; logging in again starts over.
+ANKRA_KUBE_TOKEN_CACHE=off mints a fresh token every time.
+
 It prints JSON to stdout and never prompts; run 'ankra login' first.`,
 	Annotations: map[string]string{"group": "kubernetes"},
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -58,7 +63,7 @@ It prints JSON to stdout and never prompts; run 'ankra login' first.`,
 			return err
 		}
 
-		kubeToken, err := apiClient.GetClusterKubeToken(context.Background(), clusterID)
+		kubeToken, err := kubeTokenFor(context.Background(), clusterID)
 		if err != nil {
 			return decorateKubeTokenError(err, kubeTokenClusterReference(clusterFlag, clusterID), clusterID, organisationKnown)
 		}

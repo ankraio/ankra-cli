@@ -43,6 +43,17 @@
   has no installation, so `--stack <name>` names the stack it runs as instead;
   the other stacks that deploy created stay, and the command lists them.
 
+### Fixed
+
+- **kubectl through the Ankra gateway no longer trips the token rate limit.**
+  `ankra cluster kube-token`, which kubectl runs as its credential plugin on
+  every command, minted a new gateway token each time, so a script or a few
+  coding agents running kubectl in a loop got "Too many kube token requests"
+  and failed. The token is now cached on disk, readable only by you, and
+  reused while it has more than two minutes left and was minted less than
+  five minutes ago; a new login starts over. `ANKRA_KUBE_TOKEN_CACHE=off`
+  mints a fresh token every time.
+
 ## v0.28.0 — 2026-10-09
 
 ### Added
