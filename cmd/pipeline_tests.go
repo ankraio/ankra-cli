@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"ankra/internal/client"
+	"ankra/internal/hiddenunicode"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -151,9 +152,9 @@ func runPipelineRunTests(command *cobra.Command, selector client.PipelineSelecto
 	reports := newPipelineTestsTable(output, table.Row{"STAGE", "FORMAT", "STATUS", "TESTS", "NOTE"})
 	for _, report := range summary.Reports {
 		reports.AppendRow(table.Row{
-			pipelineStringOrDash(report.Stage),
-			pipelineStringOrDash(report.Format),
-			pipelineStringOrDash(report.Status),
+			pipelineTestText(report.Stage),
+			pipelineTestText(report.Format),
+			pipelineTestText(report.Status),
 			strconv.Itoa(report.Counts.Total),
 			pipelineTestReportNote(report),
 		})
@@ -191,7 +192,7 @@ func runPipelineTestHistory(command *cobra.Command, selector client.PipelineSele
 
 	output := command.OutOrStdout()
 	_, _ = fmt.Fprintf(output, "%s on %s\n", pipelineTestName(history.Suite, history.Name, history.TestKey),
-		pipelineStringOrDash(history.Branch))
+		pipelineTestText(history.Branch))
 	if history.Observed == 0 {
 		_, _ = fmt.Fprintln(output, "This test has not run on the branch in the runs looked at.")
 		return nil
@@ -204,10 +205,10 @@ func runPipelineTestHistory(command *cobra.Command, selector client.PipelineSele
 		entries.AppendRow(table.Row{
 			"#" + strconv.FormatInt(entry.RunNumber, 10),
 			shortSHA(entry.HeadSHA),
-			entry.Outcome,
+			pipelineTestText(entry.Outcome),
 			pipelineTestDuration(entry.DurationMS),
 			strconv.Itoa(entry.Attempts),
-			pipelineStringOrDash(entry.RecordedAt),
+			pipelineTestText(entry.RecordedAt),
 		})
 	}
 	entries.Render()
@@ -247,7 +248,7 @@ func runPipelineTestTimings(command *cobra.Command, selector client.PipelineSele
 	output := command.OutOrStdout()
 	if timings.RunsSampled == 0 {
 		_, _ = fmt.Fprintf(output, "No timings recorded yet for stage %q on %s: split shards evenly until there are.\n",
-			timings.Stage, pipelineStringOrDash(timings.Branch))
+			timings.Stage, pipelineTestText(timings.Branch))
 		return nil
 	}
 	partial := ""
@@ -255,7 +256,7 @@ func runPipelineTestTimings(command *cobra.Command, selector client.PipelineSele
 		partial = " (partial: not every sampled run recorded every test)"
 	}
 	_, _ = fmt.Fprintf(output, "Stage %q on %s, by %s, over %d runs%s\n",
-		timings.Stage, pipelineStringOrDash(timings.Branch), timings.GroupBy, timings.RunsSampled, partial)
+		timings.Stage, pipelineTestText(timings.Branch), timings.GroupBy, timings.RunsSampled, partial)
 	header := table.Row{"FILE", "MEAN", "SAMPLES"}
 	byTest := timings.GroupBy == client.PipelineTestTimingsByTest
 	if byTest {
@@ -263,7 +264,7 @@ func runPipelineTestTimings(command *cobra.Command, selector client.PipelineSele
 	}
 	entries := newPipelineTestsTable(output, header)
 	for _, entry := range timings.Entries {
-		row := table.Row{pipelineStringOrDash(entry.File)}
+		row := table.Row{pipelineTestText(entry.File)}
 		if byTest {
 			row = append(row, pipelineTestName(pipelineStringValue(entry.Suite), pipelineStringValue(entry.Name),
 				pipelineStringValue(entry.TestKey)))
@@ -307,8 +308,8 @@ func writePipelineTestCases(output io.Writer, heading string, cases []client.Pip
 	for _, testCase := range cases {
 		row := table.Row{
 			truncateCell(pipelineTestName(testCase.Suite, testCase.Name, testCase.TestKey), pipelineTestMessageWidth),
-			pipelineStringOrDash(testCase.File),
-			pipelineStringOrDash(testCase.Stage),
+			pipelineTestText(testCase.File),
+			pipelineTestText(testCase.Stage),
 			pipelineTestDuration(testCase.DurationMS),
 			strconv.Itoa(testCase.Attempts),
 		}
@@ -350,12 +351,22 @@ func pipelineTestReportNote(report client.PipelineTestReport) string {
 func pipelineTestName(suite string, name string, testKey string) string {
 	switch {
 	case suite != "" && name != "":
-		return suite + " > " + name
+		return pipelineTestText(suite + " > " + name)
 	case name != "":
-		return name
+		return pipelineTestText(name)
 	default:
-		return pipelineStringOrDash(testKey)
+		return pipelineTestText(testKey)
 	}
+}
+
+// pipelineTestText is a server-carried string made safe for a terminal: every
+// name, path, stage and status these tables print comes from a repository's
+// test output or pipeline definition, so hidden Unicode and C0/C1 controls (an
+// ANSI escape could repaint the screen around the table) are removed before
+// it is printed, and an empty value reads "-".
+func pipelineTestText(value string) string {
+	cleaned, _ := hiddenunicode.Strip(value)
+	return pipelineStringOrDash(cleaned)
 }
 
 // pipelineTestMessage is a failure message's first line, bounded for a table

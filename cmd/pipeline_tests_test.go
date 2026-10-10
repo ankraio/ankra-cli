@@ -270,3 +270,28 @@ func TestPipelineTestsTimingsRefusesBadFlags(t *testing.T) {
 		}
 	}
 }
+
+// Test names, files and failure messages are test output a repository
+// controls; none of it may reach the terminal carrying an escape sequence.
+func TestPipelineTestsStripsTerminalControlsFromServerText(t *testing.T) {
+	escape := "\x1b[2J\x1b]0;owned\x07"
+	mockClient := &pipelineTestsMock{runTestsResult: &client.PipelineRunTests{
+		RunID: "run-1", HasReports: true,
+		Reports: []client.PipelineTestReport{{Stage: "test" + escape, Format: "junit", Status: "unreadable" + escape,
+			ErrorMessage: "bad xml" + escape}},
+		Failed: []client.PipelineTestCase{{Suite: "s" + escape, Name: "TestX" + escape, File: "x_test.go" + escape,
+			Stage: "test", FailureMessage: "boom" + escape}},
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "tests", "run-1", "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("tests error = %v", executeError)
+	}
+	if strings.ContainsAny(output, "\x1b\x07") {
+		t.Fatalf("output carries a terminal control: %q", output)
+	}
+	for _, expected := range []string{"bad xml", "boom", "TestX", "x_test.go"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("output lacks %q once cleaned: %q", expected, output)
+		}
+	}
+}
