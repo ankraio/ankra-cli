@@ -640,35 +640,43 @@ func TestServicesSetupRefusesBeforePreparing(t *testing.T) {
 }
 
 // A placement policy is optional: setup on a cluster that declares none
-// prepares the review in the platform's default location instead of refusing,
-// and explicit --region/--data-boundary still win.
+// prepares the review in the platform's default location instead of refusing.
+// The platform admits no other location there, so a --region or
+// --data-boundary on such a cluster is refused before anything is prepared.
 func TestServicesSetupWithoutAPolicyUsesTheDefaultLocation(t *testing.T) {
-	for _, testCase := range []struct {
-		name             string
-		flags            []string
-		region, boundary string
-	}{
-		{"default", nil, servicesUndeclaredLocation, servicesUndeclaredLocation},
-		{"explicit", []string{"--region", "eu-west-1", "--data-boundary", "eu"}, "eu-west-1", "eu"},
+	platform := newFakeServicesPlatform(t)
+	platform.policyMissing = true
+	if _, _, runError := runServicesCommand(t, platform, "", "setup", "orders-db", "--package", "postgresql",
+		"--cluster", fakeServiceClusterID, "--consumer", fakeServiceConsumerID, "--yes"); runError != nil {
+		t.Fatalf("setup on a cluster with no policy: %v", runError)
+	}
+	prepares := platform.requests(http.MethodPost, "/service-admission/reviews")
+	if len(prepares) != 1 {
+		t.Fatalf("expected one prepare, got %d", len(prepares))
+	}
+	var prepared map[string]any
+	if decodeError := json.Unmarshal([]byte(prepares[0].body), &prepared); decodeError != nil {
+		t.Fatal(decodeError)
+	}
+	if prepared["region"] != servicesUndeclaredLocation || prepared["data_boundary"] != servicesUndeclaredLocation {
+		t.Errorf("prepare placed it in %v/%v, want the default location", prepared["region"], prepared["data_boundary"])
+	}
+	for _, flags := range [][]string{
+		{"--region", "eu-west-1"},
+		{"--data-boundary", "eu"},
+		{"--region", "eu-west-1", "--data-boundary", "eu"},
 	} {
-		t.Run(testCase.name, func(t *testing.T) {
+		t.Run(strings.Join(flags, " "), func(t *testing.T) {
 			platform := newFakeServicesPlatform(t)
 			platform.policyMissing = true
 			arguments := append([]string{"setup", "orders-db", "--package", "postgresql", "--cluster", fakeServiceClusterID,
-				"--consumer", fakeServiceConsumerID, "--yes"}, testCase.flags...)
-			if _, _, runError := runServicesCommand(t, platform, "", arguments...); runError != nil {
-				t.Fatalf("setup on a cluster with no policy: %v", runError)
+				"--consumer", fakeServiceConsumerID, "--yes"}, flags...)
+			_, _, runError := runServicesCommand(t, platform, "", arguments...)
+			if runError == nil || exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "declares no placement policy") {
+				t.Fatalf("expected a usage refusal, got %v (exit %d)", runError, exitCodeFor(runError))
 			}
-			prepares := platform.requests(http.MethodPost, "/service-admission/reviews")
-			if len(prepares) != 1 {
-				t.Fatalf("expected one prepare, got %d", len(prepares))
-			}
-			var prepared map[string]any
-			if decodeError := json.Unmarshal([]byte(prepares[0].body), &prepared); decodeError != nil {
-				t.Fatal(decodeError)
-			}
-			if prepared["region"] != testCase.region || prepared["data_boundary"] != testCase.boundary {
-				t.Errorf("prepare placed it in %v/%v, want %s/%s", prepared["region"], prepared["data_boundary"], testCase.region, testCase.boundary)
+			if prepares := platform.requests(http.MethodPost, "/reviews"); len(prepares) != 0 {
+				t.Errorf("a refused setup stored a review")
 			}
 		})
 	}

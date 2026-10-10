@@ -370,24 +370,28 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 	region, _ := command.Flags().GetString("region")
 	dataBoundary, _ := command.Flags().GetString("data-boundary")
 	region, dataBoundary = strings.TrimSpace(region), strings.TrimSpace(dataBoundary)
-	if region == "" || dataBoundary == "" {
-		// A placement policy is optional: a cluster that declares none takes the
-		// service in the platform's default location (cluster#4371). A platform
-		// from before that refuses the prepare with its own 409, said as is.
-		declaredRegion, declaredBoundary := servicesUndeclaredLocation, servicesUndeclaredLocation
-		policy, policyError := apiClient.GetServiceClusterPolicy(ctx, clusterID)
-		switch {
-		case policyError == nil:
-			declaredRegion, declaredBoundary = policy.Region, policy.DataBoundary
-		case !isServicePolicyMissing(policyError):
-			return policyError
-		}
+	// A placement policy is optional: a cluster that declares none takes the
+	// service in the platform's default location (cluster#4371), and the
+	// platform admits no other location there. A platform from before that
+	// refuses the prepare with its own 409, said as is.
+	policy, policyError := apiClient.GetServiceClusterPolicy(ctx, clusterID)
+	switch {
+	case policyError == nil:
 		if region == "" {
-			region = declaredRegion
+			region = policy.Region
 		}
 		if dataBoundary == "" {
-			dataBoundary = declaredBoundary
+			dataBoundary = policy.DataBoundary
 		}
+	case !isServicePolicyMissing(policyError):
+		return policyError
+	case (region != "" && region != servicesUndeclaredLocation) ||
+		(dataBoundary != "" && dataBoundary != servicesUndeclaredLocation):
+		return withExitCode(exitUsage, fmt.Errorf("cluster %s declares no placement policy, so a service there uses the "+
+			"platform's default location: drop --region and --data-boundary, or declare one first with "+
+			"'ankra services policy set --cluster %s --region <region> --data-boundary <boundary>'", clusterName, clusterName))
+	default:
+		region, dataBoundary = servicesUndeclaredLocation, servicesUndeclaredLocation
 	}
 
 	review, prepareError := apiClient.PrepareServiceReview(ctx, client.ServiceReviewRequest{
