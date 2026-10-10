@@ -3219,6 +3219,18 @@ func (m baseMock) ListPipelineFindings(ctx context.Context, selector client.Pipe
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetPipelineRunTests(ctx context.Context, selector client.PipelineSelector, runID string, slowest int) (*client.PipelineRunTests, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPipelineTestHistory(ctx context.Context, selector client.PipelineSelector, testKey string, options client.PipelineTestHistoryOptions) (*client.PipelineTestHistory, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPipelineTestTimings(ctx context.Context, selector client.PipelineSelector, stage string, options client.PipelineTestTimingsOptions) (*client.PipelineTestTimings, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetPipelineDefinition(ctx context.Context, selector client.PipelineSelector) (*client.PipelineDefinition, error) {
 	return nil, errors.New("not implemented")
 }
