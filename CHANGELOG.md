@@ -4,6 +4,21 @@
 
 ### Added
 
+- **`ankra security clusters` shows who can reach each cluster's Kubernetes
+  API, and `ankra security access --cluster <cluster>` says what to fix.** The
+  clusters table gains an Access column, for example `3 grants, 1 standing
+  elevated, 2 over policy, impersonate unknown (1 of 3 verified)`: live kube
+  gateway grants, standing grants above `view`, grants the organisation's
+  access policy would refuse today, and grants whose identity the cluster
+  verified can impersonate. A count the platform could not establish reads
+  `unknown`, never 0, and a platform that predates the access posture reads
+  `not reported`. The new `security access` view lists every failed check
+  most severe first, each with its grant id, grantee (email when you hold
+  `kube_access.manage`, the Ankra user id otherwise), role and scope, the
+  detail and the revoke or grant command that fixes it, then every check that
+  could not be evaluated, so a short list is never read as a clean one.
+  `-o json` prints the API document, nulls included.
+
 - **`ankra pipeline tests <run>` shows what a run's tests did.** It lists the
   test reports the run's stages declared under `test_results` and what became
   of each (read, unreadable, or never uploaded and why), the run's counts by
