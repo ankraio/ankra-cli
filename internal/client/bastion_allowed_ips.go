@@ -30,28 +30,29 @@ type UpdateBastionAllowedIPsResult struct {
 }
 
 func (c *Client) UpdateHetznerBastionAllowedIPs(ctx context.Context, clusterID string, allowedIPs []string) (*UpdateBastionAllowedIPsResult, error) {
-	return c.updateBastionAllowedIPs(ctx, "hetzner", clusterID, allowedIPs)
+	return c.updateBastionAllowedIPs(ctx, "/api/v1/clusters/hetzner/%s/bastion/allowed-ips", clusterID, allowedIPs)
 }
 
 func (c *Client) UpdateOvhBastionAllowedIPs(ctx context.Context, clusterID string, allowedIPs []string) (*UpdateBastionAllowedIPsResult, error) {
-	return c.updateBastionAllowedIPs(ctx, "ovh", clusterID, allowedIPs)
+	return c.updateBastionAllowedIPs(ctx, "/api/v1/clusters/ovh/%s/bastion/allowed-ips", clusterID, allowedIPs)
 }
 
 func (c *Client) UpdateUpcloudBastionAllowedIPs(ctx context.Context, clusterID string, allowedIPs []string) (*UpdateBastionAllowedIPsResult, error) {
-	return c.updateBastionAllowedIPs(ctx, "upcloud", clusterID, allowedIPs)
+	return c.updateBastionAllowedIPs(ctx, "/api/v1/clusters/upcloud/%s/bastion/allowed-ips", clusterID, allowedIPs)
 }
 
 func (c *Client) UpdateDigitaloceanBastionAllowedIPs(ctx context.Context, clusterID string, allowedIPs []string) (*UpdateBastionAllowedIPsResult, error) {
-	return c.updateBastionAllowedIPs(ctx, "digitalocean", clusterID, allowedIPs)
+	return c.updateBastionAllowedIPs(ctx, "/api/v1/clusters/digitalocean/%s/bastion/allowed-ips", clusterID, allowedIPs)
 }
 
-// updateBastionAllowedIPs PUTs the new list. The platform validates and
+// updateBastionAllowedIPs PUTs the new list to pathFormat (one literal path
+// per provider, with %s for the cluster id, so the route census check can
+// match each one against the cluster router). The platform validates and
 // normalises it (IPv4 only, no 0.0.0.0/0, at most 64 entries) and answers a
 // 422 naming the bad entry, which reaches the caller as the backend's detail.
 // A platform older than the endpoint answers 404 or 405.
-func (c *Client) updateBastionAllowedIPs(ctx context.Context, provider, clusterID string, allowedIPs []string) (*UpdateBastionAllowedIPsResult, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/bastion/allowed-ips",
-		c.BaseURL, provider, neturl.PathEscape(clusterID))
+func (c *Client) updateBastionAllowedIPs(ctx context.Context, pathFormat, clusterID string, allowedIPs []string) (*UpdateBastionAllowedIPsResult, error) {
+	endpoint := c.BaseURL + fmt.Sprintf(pathFormat, neturl.PathEscape(clusterID))
 	if allowedIPs == nil {
 		allowedIPs = []string{}
 	}
