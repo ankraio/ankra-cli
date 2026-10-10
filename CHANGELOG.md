@@ -4,6 +4,27 @@
 
 ### Added
 
+- **`ankra exec` runs a heavy command for your checkout in its Ankra Workspace
+  and streams the output back.** `ankra exec -- go test ./...` (or `pnpm
+  typecheck`, `golangci-lint run`, a Playwright suite) snapshots the worktree
+  as it is, tracked and untracked-but-not-ignored files alike, without touching
+  your branch or index, uploads only the history the workspace does not have
+  yet, runs the same command in the same directory there and exits with its
+  exit code. Output arrives live and resumes where it left off when the
+  connection drops; Ctrl-C stops the remote command. `--apply` brings back the
+  changes a writer such as `gofmt -w` made as a patch applied to your worktree,
+  `--fetch test-results` copies result directories back whatever the exit code,
+  `--kind` picks the repository's workspace profile, and `--check` answers
+  cheaply whether this checkout can use a workspace at all. When the command
+  could not run remotely it exits 196 and creates `$ANKRA_EXEC_NOTRUN_FILE`,
+  so the remote-dev routing shims fall back to running it locally exactly as
+  they do today. Needs the `workspaces.use` permission and a repository
+  connected to Ankra Pipelines.
+- **`ankra workspace up|status|down` manages that workspace.** `up` brings
+  your workspace for the checkout's repository up (`--wait` until its
+  preflight passes), `status` shows it, and `down` tears it down after asking.
+  The repository is read off the origin remote, which may now be a GitHub,
+  GitLab (including nested groups) or Bitbucket repository.
 - **`ankra application remove <application> --cluster <cluster>` takes an
   application off one cluster and leaves it running everywhere else.** Until
   now the only way to take an application off a cluster was `ankra application
