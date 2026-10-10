@@ -615,6 +615,12 @@ type PipelineRepository struct {
 	ClusterID      *string `json:"cluster_id"`
 	CreatedAt      string  `json:"created_at"`
 	UpdatedAt      string  `json:"updated_at"`
+	// MergeTrainEnabled and MergeTrainMaxCars are the repository's merge
+	// train settings. Both are nil when the platform predates them in the
+	// listing (cluster ankra-q573dh.37): unknown, not off - read the train
+	// itself (GetPipelineMergeTrain) for an answer.
+	MergeTrainEnabled *bool `json:"merge_train_enabled,omitempty"`
+	MergeTrainMaxCars *int  `json:"merge_train_max_cars,omitempty"`
 }
 
 // PipelineRepositoryDefinitionOutcome is what a connect did with the
@@ -673,8 +679,14 @@ type PipelineRepositoryList struct {
 type ListPipelineRepositoriesOptions struct {
 	// Provider filters to one provider; empty lists every provider.
 	Provider string
-	Cursor   string
-	Limit    int
+	// Owner and Name narrow the listing to one repository identity, compared
+	// without case. A platform older than cluster ankra-q573dh.37 ignores
+	// them and answers the unfiltered page, so a caller looking one
+	// repository up must still match the rows it gets back.
+	Owner  string
+	Name   string
+	Cursor string
+	Limit  int
 }
 
 // PipelineRepositoryAlreadyConnectedError is the 409
@@ -1275,6 +1287,12 @@ func pipelineRepositoriesEndpoint(base string, options ListPipelineRepositoriesO
 	query := neturl.Values{}
 	if options.Provider != "" {
 		query.Set("provider", options.Provider)
+	}
+	if options.Owner != "" {
+		query.Set("owner", options.Owner)
+	}
+	if options.Name != "" {
+		query.Set("name", options.Name)
 	}
 	if options.Cursor != "" {
 		query.Set("cursor", options.Cursor)
