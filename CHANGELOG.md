@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.30.0 — 2026-10-10
+
 ### Added
 
 - **`ankra dev install` makes `go test`, `golangci-lint` and `pnpm typecheck`
