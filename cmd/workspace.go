@@ -156,17 +156,44 @@ func workspaceAPIError(err error) error {
 	return err
 }
 
+// workspaceProgress remembers the last progress message a wait printed, so a
+// message is printed once each time it changes rather than on every read.
+type workspaceProgress struct {
+	last string
+}
+
+// next answers a provisioning workspace's progress message when it differs
+// from the last one answered; isNew is false when there is nothing new to
+// print.
+func (progress *workspaceProgress) next(workspace *client.Workspace) (string, bool) {
+	if workspace == nil || workspace.Status != client.WorkspaceStatusProvisioning ||
+		workspace.ProgressMessage == nil {
+		return "", false
+	}
+	message := strings.TrimSpace(*workspace.ProgressMessage)
+	if message == "" || message == progress.last {
+		return "", false
+	}
+	progress.last = message
+	return message, true
+}
+
 // waitForWorkspace reads the workspace until it is ready or failed, or the
-// timeout passes. Each read of a provisioning workspace runs its preflight.
+// timeout passes, printing what it waits on whenever that changes. Each read
+// of a provisioning workspace runs its preflight.
 func waitForWorkspace(ctx context.Context, workspace *client.Workspace, timeout time.Duration,
 	progress io.Writer) (*client.Workspace, error) {
 	deadline := time.Now().Add(timeout)
 	current := workspace
 	announced := false
+	reported := &workspaceProgress{}
 	for current.Status == client.WorkspaceStatusProvisioning {
 		if !announced && progress != nil {
 			_, _ = fmt.Fprintf(progress, "Waiting for workspace %s (%s) to be ready...\n", current.ID, current.Kind)
 			announced = true
+		}
+		if message, isNew := reported.next(current); isNew && progress != nil {
+			_, _ = fmt.Fprintf(progress, "  %s\n", message)
 		}
 		if time.Now().After(deadline) {
 			return current, withExitCode(exitWaitTimeout, fmt.Errorf(
@@ -310,6 +337,10 @@ func printWorkspace(out io.Writer, repository string, workspace *client.Workspac
 	if workspace.ExpiresAt != nil {
 		_, _ = fmt.Fprintf(out, "Expires:     %s (idle TTL %dh)\n", workspace.ExpiresAt.Local().Format(time.RFC3339),
 			workspace.IdleTTLHours)
+	}
+	if workspace.Status == client.WorkspaceStatusProvisioning && workspace.ProgressMessage != nil &&
+		strings.TrimSpace(*workspace.ProgressMessage) != "" {
+		_, _ = fmt.Fprintf(out, "Waiting on:  %s\n", strings.TrimSpace(*workspace.ProgressMessage))
 	}
 	if workspace.LastError != nil && strings.TrimSpace(*workspace.LastError) != "" {
 		_, _ = fmt.Fprintf(out, "Last error:  %s\n", strings.TrimSpace(*workspace.LastError))

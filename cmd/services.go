@@ -945,6 +945,9 @@ type APIClient interface {
 	ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string, options client.ListPipelineArtifactsOptions) (*client.PipelineArtifactList, error)
 	DownloadPipelineArtifact(ctx context.Context, selector client.PipelineSelector, artifactID string, destination io.Writer) error
 	ListPipelineFindings(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineFindingList, error)
+	GetPipelineRunTests(ctx context.Context, selector client.PipelineSelector, runID string, slowest int) (*client.PipelineRunTests, error)
+	GetPipelineTestHistory(ctx context.Context, selector client.PipelineSelector, testKey string, options client.PipelineTestHistoryOptions) (*client.PipelineTestHistory, error)
+	GetPipelineTestTimings(ctx context.Context, selector client.PipelineSelector, stage string, options client.PipelineTestTimingsOptions) (*client.PipelineTestTimings, error)
 	GetPipelineDefinition(ctx context.Context, selector client.PipelineSelector) (*client.PipelineDefinition, error)
 	PutPipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineDefinition, error)
 	ValidatePipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string, changedFiles []string) (*client.PipelineValidation, error)

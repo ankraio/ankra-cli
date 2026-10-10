@@ -359,7 +359,11 @@ func (runner *execRunner) upWorkspace(ctx context.Context) (*client.Workspace, s
 			runner.checkout.Remote.FullName())
 		deadline := execNow().Add(execWaitTimeout())
 		failures := 0
+		reported := &workspaceProgress{}
 		for workspace.Status == client.WorkspaceStatusProvisioning {
+			if message, isNew := reported.next(workspace); isNew {
+				runner.say("still provisioning: %s", message)
+			}
 			if execNow().After(deadline) {
 				return nil, fmt.Sprintf("the workspace %s was still provisioning after %s", workspace.ID, execWaitTimeout())
 			}

@@ -4,6 +4,7 @@
 
 ### Added
 
+<<<<<<< HEAD
 - **Restrict which addresses can SSH to a Hetzner, OVHcloud, UpCloud or
   DigitalOcean bastion.** `ankra cluster <provider> create
   --bastion-allowed-ips 203.0.113.7,198.51.100.0/24` creates the cluster with
@@ -17,6 +18,45 @@
   key-only and rate-limited, exactly as before. Needs a platform that serves
   `PUT /api/v1/clusters/<provider>/{cluster_id}/bastion/allowed-ips`; an older
   one answers 404 or 405, and ignores the create flag.
+=======
+- **`ankra pipeline tests <run>` shows what a run's tests did.** It lists the
+  test reports the run's stages declared under `test_results` and what became
+  of each (read, unreadable, or never uploaded and why), the run's counts by
+  outcome, and its failed, flaky and slowest tests with their first failure
+  line. A run that declared no reports says so instead of reading as a green
+  one. `ankra pipeline tests history <test key>` shows one test across the
+  newest runs of a branch with its flaky and failure rates (`n/a`, never 0%,
+  for a test that did not run there), and `ankra pipeline tests timings
+  --stage <stage> [--group-by file|test]` prints the mean durations a sharding
+  script balances by, saying so when nothing is recorded yet so you split
+  evenly. `-o json` prints the server's fields in full, including each test's
+  key for `history`.
+
+### Changed
+
+- **`ankra pipeline train` answers inside every connected repository, not only
+  one with an application.** With neither `--application` nor `--repository`,
+  the train commands still use the application bound to the checkout's
+  `origin` first; when there is none (a bare pipeline repository such as
+  `ankraio/cluster`), they now look the repository itself up by the origin's
+  owner/name and say which one they chose. A repository that is not connected
+  answers not-found (exit 3), which means it has no train; a listing that
+  could not be read is reported as that error, never as "not connected".
+  Works against platforms that do not filter the listing by owner/name yet.
+  `pipeline repositories list -o json` carries `merge_train_enabled` and
+  `merge_train_max_cars` where the platform sends them.
+
+- **`ankra exec` and `ankra workspace up --wait` say what a provisioning
+  workspace is waiting on.** Instead of only "first use takes a minute or
+  two", they now print the platform's progress message whenever it changes:
+  that no node has room for the pod yet (and whether the cluster autoscaler is
+  adding one), that a service container is restarting, or that the image is
+  being pulled. `ankra workspace status` shows the same line as `Waiting on:`.
+  A workspace whose pod cannot come up (a container that keeps crashing, an
+  image that cannot be pulled, a pod no node can be added for) now fails
+  within minutes with the container and the reason, and `ankra exec` prints
+  that reason, rather than waiting out the platform's provisioning deadline.
+>>>>>>> origin/master
 
 ## v0.30.0 — 2026-10-10
 
