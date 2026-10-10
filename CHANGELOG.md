@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra exec` and `ankra workspace up --wait` say what a provisioning
+  workspace is waiting on.** Instead of only "first use takes a minute or
+  two", they now print the platform's progress message whenever it changes:
+  that no node has room for the pod yet (and whether the cluster autoscaler is
+  adding one), that a service container is restarting, or that the image is
+  being pulled. `ankra workspace status` shows the same line as `Waiting on:`.
+  A workspace whose pod cannot come up (a container that keeps crashing, an
+  image that cannot be pulled, a pod no node can be added for) now fails
+  within minutes with the container and the reason, and `ankra exec` prints
+  that reason, rather than waiting out the platform's provisioning deadline.
+
 ## v0.30.0 — 2026-10-10
 
 ### Added
