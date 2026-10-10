@@ -29,9 +29,11 @@ type fakeWorkspaceAPI struct {
 	server *httptest.Server
 	client *client.Client
 
-	mutex           sync.Mutex
-	upStatus        string
-	getStatuses     []string
+	mutex       sync.Mutex
+	upStatus    string
+	getStatuses []string
+	// progressMessage is a provisioning workspace's progress_message.
+	progressMessage string
 	upFailures      int
 	bundleRequests  []map[string]any
 	uploads         map[string][]byte
@@ -74,10 +76,15 @@ func newFakeWorkspaceAPI(t *testing.T) *fakeWorkspaceAPI {
 }
 
 func (api *fakeWorkspaceAPI) workspaceJSON(status string) string {
+	progress := "null"
+	if status == client.WorkspaceStatusProvisioning && api.progressMessage != "" {
+		progress = fmt.Sprintf("%q", api.progressMessage)
+	}
 	return fmt.Sprintf(`{"id":"ws-1","organisation_id":"org-1","user_id":"user-1","repository_id":"repo-1",`+
 		`"kind":"default","status":%q,"idle_ttl_hours":24,"namespace":"ws-ns","pod_name":"workspace-0",`+
-		`"image":"golang:1.26","image_source":"pipeline_defaults","last_error":%s}`,
-		status, map[bool]string{true: `"preflight failed: no bash"`, false: "null"}[status == client.WorkspaceStatusFailed])
+		`"image":"golang:1.26","image_source":"pipeline_defaults","last_error":%s,"progress_message":%s}`,
+		status, map[bool]string{true: `"preflight failed: no bash"`, false: "null"}[status == client.WorkspaceStatusFailed],
+		progress)
 }
 
 func (api *fakeWorkspaceAPI) serve(writer http.ResponseWriter, request *http.Request) {
@@ -500,11 +507,17 @@ func TestExecIsNotRunOutsideAGitWorktree(t *testing.T) {
 func TestExecWaitsForAProvisioningWorkspace(t *testing.T) {
 	environment := newExecTestEnv(t)
 	environment.api.upStatus = client.WorkspaceStatusProvisioning
-	environment.api.getStatuses = []string{client.WorkspaceStatusProvisioning, client.WorkspaceStatusReady}
+	environment.api.getStatuses = []string{client.WorkspaceStatusProvisioning, client.WorkspaceStatusProvisioning,
+		client.WorkspaceStatusReady}
+	environment.api.progressMessage = "Waiting for a node: 0/1 nodes are available: 1 Insufficient memory."
 	environment.api.addStreams(streamOutput("", "", exitCode(0), true))
-	if _, stderr, code := runExecCommand(t, context.Background(), "go", "test"); code != 0 ||
-		!strings.Contains(stderr, "bringing up the default workspace") {
+	_, stderr, code := runExecCommand(t, context.Background(), "go", "test")
+	if code != 0 || !strings.Contains(stderr, "bringing up the default workspace") {
 		t.Fatalf("exit = %d; stderr:\n%s", code, stderr)
+	}
+	// The same message on three reads is printed once.
+	if strings.Count(stderr, "still provisioning: Waiting for a node: 0/1 nodes are available: 1 Insufficient memory.") != 1 {
+		t.Fatalf("the progress message was not printed exactly once; stderr:\n%s", stderr)
 	}
 }
 
@@ -714,11 +727,15 @@ func runWorkspaceCommand(t *testing.T, args ...string) (string, string, int) {
 func TestWorkspaceUpWaitsUntilReady(t *testing.T) {
 	environment := newExecTestEnv(t)
 	environment.api.upStatus = client.WorkspaceStatusProvisioning
-	environment.api.getStatuses = []string{client.WorkspaceStatusReady}
+	environment.api.getStatuses = []string{client.WorkspaceStatusProvisioning, client.WorkspaceStatusReady}
+	environment.api.progressMessage = `Pulling: Pulling image "golang:1.26"`
 	shrinkWorkspacePollInterval(t)
 	stdout, stderr, code := runWorkspaceCommand(t, "up", "--wait")
 	if code != 0 || !strings.Contains(stdout, "Status:      ready") || !strings.Contains(stderr, "was created") {
 		t.Fatalf("exit = %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	if strings.Count(stdout+stderr, `  Pulling: Pulling image "golang:1.26"`) != 1 {
+		t.Fatalf("the progress message was not printed exactly once\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
 	}
 }
 

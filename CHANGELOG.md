@@ -17,6 +17,31 @@
   evenly. `-o json` prints the server's fields in full, including each test's
   key for `history`.
 
+### Changed
+
+- **`ankra pipeline train` answers inside every connected repository, not only
+  one with an application.** With neither `--application` nor `--repository`,
+  the train commands still use the application bound to the checkout's
+  `origin` first; when there is none (a bare pipeline repository such as
+  `ankraio/cluster`), they now look the repository itself up by the origin's
+  owner/name and say which one they chose. A repository that is not connected
+  answers not-found (exit 3), which means it has no train; a listing that
+  could not be read is reported as that error, never as "not connected".
+  Works against platforms that do not filter the listing by owner/name yet.
+  `pipeline repositories list -o json` carries `merge_train_enabled` and
+  `merge_train_max_cars` where the platform sends them.
+
+- **`ankra exec` and `ankra workspace up --wait` say what a provisioning
+  workspace is waiting on.** Instead of only "first use takes a minute or
+  two", they now print the platform's progress message whenever it changes:
+  that no node has room for the pod yet (and whether the cluster autoscaler is
+  adding one), that a service container is restarting, or that the image is
+  being pulled. `ankra workspace status` shows the same line as `Waiting on:`.
+  A workspace whose pod cannot come up (a container that keeps crashing, an
+  image that cannot be pulled, a pod no node can be added for) now fails
+  within minutes with the container and the reason, and `ankra exec` prints
+  that reason, rather than waiting out the platform's provisioning deadline.
+
 ## v0.30.0 — 2026-10-10
 
 ### Added

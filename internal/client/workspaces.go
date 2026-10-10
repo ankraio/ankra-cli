@@ -38,7 +38,9 @@ const (
 	WorkspaceStatusDestroyed    = "destroyed"
 )
 
-// Workspace is one workspace as the API answers it.
+// Workspace is one workspace as the API answers it. ProgressMessage says
+// what a provisioning workspace is waiting on (no node can take its pod yet,
+// a container restarting, the preflight's last answer); it is nil otherwise.
 type Workspace struct {
 	ID                   string     `json:"id" yaml:"id"`
 	OrganisationID       string     `json:"organisation_id" yaml:"organisation_id"`
@@ -54,6 +56,7 @@ type Workspace struct {
 	SpecHash             *string    `json:"spec_hash" yaml:"spec_hash"`
 	Status               string     `json:"status" yaml:"status"`
 	LastError            *string    `json:"last_error" yaml:"last_error"`
+	ProgressMessage      *string    `json:"progress_message" yaml:"progress_message"`
 	IdleTTLHours         int        `json:"idle_ttl_hours" yaml:"idle_ttl_hours"`
 	LastUsedAt           time.Time  `json:"last_used_at" yaml:"last_used_at"`
 	ExpiresAt            *time.Time `json:"expires_at" yaml:"expires_at"`

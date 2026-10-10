@@ -607,6 +607,37 @@ func TestListPipelineRepositoriesHappyPath(t *testing.T) {
 	}
 }
 
+// TestListPipelineRepositoriesSendsTheIdentityFilterAndReadsTheTrain pins
+// the lookup a checkout makes from its origin (cluster ankra-q573dh.37): the
+// owner and name ride the query, and the merge train settings decode when
+// the platform sends them and stay nil (unknown) when it does not.
+func TestListPipelineRepositoriesSendsTheIdentityFilterAndReadsTheTrain(t *testing.T) {
+	var capturedQuery string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedQuery = r.URL.RawQuery
+		_, _ = fmt.Fprint(w, `{"repositories":[{"id":"repo-1","provider":"github","owner":"acme","name":"webapp",
+			"merge_train_enabled":true,"merge_train_max_cars":2},
+			{"id":"repo-2","provider":"github","owner":"acme","name":"legacy"}],"next_cursor":null}`)
+	})
+	list, err := testClient.ListPipelineRepositories(context.Background(),
+		ListPipelineRepositoriesOptions{Provider: "github", Owner: "acme", Name: "webapp"})
+	if err != nil {
+		t.Fatalf("ListPipelineRepositories error = %v", err)
+	}
+	if !strings.Contains(capturedQuery, "owner=acme") || !strings.Contains(capturedQuery, "name=webapp") {
+		t.Errorf("query = %q, want owner and name sent", capturedQuery)
+	}
+	withTrain, withoutTrain := list.Repositories[0], list.Repositories[1]
+	if withTrain.MergeTrainEnabled == nil || !*withTrain.MergeTrainEnabled ||
+		withTrain.MergeTrainMaxCars == nil || *withTrain.MergeTrainMaxCars != 2 {
+		t.Errorf("train settings = %v/%v, want on with 2 cars", withTrain.MergeTrainEnabled, withTrain.MergeTrainMaxCars)
+	}
+	if withoutTrain.MergeTrainEnabled != nil || withoutTrain.MergeTrainMaxCars != nil {
+		t.Errorf("an older platform's row must leave the train unknown, got %v/%v",
+			withoutTrain.MergeTrainEnabled, withoutTrain.MergeTrainMaxCars)
+	}
+}
+
 func TestListPipelineRepositoriesEmpty(t *testing.T) {
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, `{"repositories":[],"next_cursor":null}`)
