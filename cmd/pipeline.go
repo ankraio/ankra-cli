@@ -73,6 +73,7 @@ stored definition directly by its own id and take neither flag - see
 		newPipelineDefinitionsCommand(),
 		newPipelineSchedulesCommand(),
 		newPipelineRepositoriesCommand(),
+		newPipelineTrainCommand(),
 	)
 	return pipelineCommand
 }
