@@ -28,6 +28,7 @@ var digitaloceanCreateCmd = &cobra.Command{
 		region, _ := cmd.Flags().GetString("region")
 		networkIPRange, _ := cmd.Flags().GetString("network-ip-range")
 		bastionSize, _ := cmd.Flags().GetString("bastion-size")
+		bastionAllowedIPs, _ := cmd.Flags().GetStringSlice("bastion-allowed-ips")
 		cpCount, _ := cmd.Flags().GetInt("control-plane-count")
 		cpSize, _ := cmd.Flags().GetString("control-plane-size")
 		workerCount, _ := cmd.Flags().GetInt("worker-count")
@@ -53,6 +54,7 @@ var digitaloceanCreateCmd = &cobra.Command{
 			Region:                region,
 			NetworkIPRange:        networkIPRange,
 			BastionSize:           bastionSize,
+			BastionAllowedIPs:     bastionAllowedIPs,
 			ControlPlaneCount:     cpCount,
 			ControlPlaneSize:      cpSize,
 			WorkerCount:           workerCount,
@@ -639,6 +641,7 @@ func init() {
 	digitaloceanCreateCmd.Flags().String("region", "", "DigitalOcean region (required)")
 	digitaloceanCreateCmd.Flags().String("network-ip-range", "", "VPC IP range (optional). Left unset, the platform derives a /24 from the cluster id, so clusters in one account do not all ask for the same range; pass one only to pin it")
 	digitaloceanCreateCmd.Flags().String("bastion-size", "", "Bastion droplet size (server default: s-1vcpu-1gb)")
+	digitaloceanCreateCmd.Flags().StringSlice("bastion-allowed-ips", nil, bastionAllowedIPsFlagUsage)
 	digitaloceanCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
 	digitaloceanCreateCmd.Flags().String("control-plane-size", "", "Control plane droplet size (server default: s-2vcpu-4gb)")
 	digitaloceanCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")

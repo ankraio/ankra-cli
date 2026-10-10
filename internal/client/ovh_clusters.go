@@ -25,31 +25,35 @@ type OvhRegionDetail struct {
 }
 
 type CreateOvhClusterRequest struct {
-	Name                  string  `json:"name"`
-	Description           *string `json:"description,omitempty"`
-	CredentialID          string  `json:"credential_id"`
-	SSHKeyCredentialID    string  `json:"ssh_key_credential_id"`
-	Region                string  `json:"region"`
-	NetworkVlanID         int     `json:"network_vlan_id"`
-	SubnetCIDR            string  `json:"subnet_cidr"`
-	DHCPStart             string  `json:"dhcp_start"`
-	DHCPEnd               string  `json:"dhcp_end"`
-	GatewayFlavorID       string  `json:"gateway_flavor_id,omitempty"`
-	ControlPlaneCount     int     `json:"control_plane_count"`
-	ControlPlaneFlavorID  string  `json:"control_plane_flavor_id,omitempty"`
-	WorkerCount           int     `json:"worker_count"`
-	WorkerFlavorID        string  `json:"worker_flavor_id,omitempty"`
-	Distribution          string  `json:"distribution"`
-	KubernetesVersion     *string `json:"kubernetes_version,omitempty"`
-	EtcdTopology          string  `json:"etcd_topology,omitempty"`
-	EtcdNodeCount         int     `json:"etcd_node_count,omitempty"`
-	EtcdFlavorID          string  `json:"etcd_flavor_id,omitempty"`
-	ExternalCloudProvider bool    `json:"external_cloud_provider"`
-	IncludeNetworking     bool    `json:"include_networking"`
-	IncludeDNS            bool    `json:"include_dns"`
-	GitopsCredentialName  *string `json:"gitops_credential_name,omitempty"`
-	GitopsRepository      *string `json:"gitops_repository,omitempty"`
-	GitopsBranch          *string `json:"gitops_branch,omitempty"`
+	Name               string  `json:"name"`
+	Description        *string `json:"description,omitempty"`
+	CredentialID       string  `json:"credential_id"`
+	SSHKeyCredentialID string  `json:"ssh_key_credential_id"`
+	Region             string  `json:"region"`
+	NetworkVlanID      int     `json:"network_vlan_id"`
+	SubnetCIDR         string  `json:"subnet_cidr"`
+	DHCPStart          string  `json:"dhcp_start"`
+	DHCPEnd            string  `json:"dhcp_end"`
+	GatewayFlavorID    string  `json:"gateway_flavor_id,omitempty"`
+	// BastionAllowedIPs narrows the bastion's SSH port to these IPv4
+	// addresses or CIDRs, plus the platform's own egress. Omitted (nil)
+	// keeps the bastion open, as on every platform before the field existed.
+	BastionAllowedIPs     []string `json:"bastion_allowed_ips,omitempty"`
+	ControlPlaneCount     int      `json:"control_plane_count"`
+	ControlPlaneFlavorID  string   `json:"control_plane_flavor_id,omitempty"`
+	WorkerCount           int      `json:"worker_count"`
+	WorkerFlavorID        string   `json:"worker_flavor_id,omitempty"`
+	Distribution          string   `json:"distribution"`
+	KubernetesVersion     *string  `json:"kubernetes_version,omitempty"`
+	EtcdTopology          string   `json:"etcd_topology,omitempty"`
+	EtcdNodeCount         int      `json:"etcd_node_count,omitempty"`
+	EtcdFlavorID          string   `json:"etcd_flavor_id,omitempty"`
+	ExternalCloudProvider bool     `json:"external_cloud_provider"`
+	IncludeNetworking     bool     `json:"include_networking"`
+	IncludeDNS            bool     `json:"include_dns"`
+	GitopsCredentialName  *string  `json:"gitops_credential_name,omitempty"`
+	GitopsRepository      *string  `json:"gitops_repository,omitempty"`
+	GitopsBranch          *string  `json:"gitops_branch,omitempty"`
 
 	// AvailabilityZones spreads the cluster across the zones of a 3-AZ
 	// region. Omitted leaves placement to OVH, which puts every instance of
