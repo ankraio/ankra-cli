@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra pipeline tests <run>` shows what a run's tests did.** It lists the
+  test reports the run's stages declared under `test_results` and what became
+  of each (read, unreadable, or never uploaded and why), the run's counts by
+  outcome, and its failed, flaky and slowest tests with their first failure
+  line. A run that declared no reports says so instead of reading as a green
+  one. `ankra pipeline tests history <test key>` shows one test across the
+  newest runs of a branch with its flaky and failure rates (`n/a`, never 0%,
+  for a test that did not run there), and `ankra pipeline tests timings
+  --stage <stage> [--group-by file|test]` prints the mean durations a sharding
+  script balances by, saying so when nothing is recorded yet so you split
+  evenly. `-o json` prints the server's fields in full, including each test's
+  key for `history`.
+
 ### Changed
 
 - **`ankra pipeline train` answers inside every connected repository, not only

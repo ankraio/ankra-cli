@@ -68,6 +68,7 @@ stored definition directly by its own id and take neither flag - see
 		newPipelineLogsCommand(),
 		newPipelineArtifactsCommand(),
 		newPipelineFindingsCommand(),
+		newPipelineTestsCommand(),
 		newPipelineValidateCommand(),
 		newPipelineDefinitionCommand(),
 		newPipelineDefinitionsCommand(),
