@@ -29,8 +29,8 @@ list is never read as a clean one. A grant absent from both lists passed
 every check. Grantee emails appear only when you hold kube_access.manage;
 otherwise the grantee is shown by its Ankra user id.
 
-If the platform leaves the summary, the findings or the unknowns out of its
-answer, that part reads "not reported", whatever was reported is still
+If the platform leaves the summary (or one of its always-sent counts), the
+findings or the unknowns out of its answer, that part reads "not reported", whatever was reported is still
 printed, and the command exits 1: an incomplete answer is never a pass.
 -o json prints the document as sent, nulls included, and exits 0.
 
@@ -66,32 +66,49 @@ func securityAccessReadError(readError error) error {
 	return fmt.Errorf("reading cluster access posture: %w", readError)
 }
 
+// accessCountIsZero reports a count the platform sent as a real 0. A nil
+// count is unknown and is never zero.
+func accessCountIsZero(count *int) bool {
+	return count != nil && *count == 0
+}
+
 // accessPostureCell renders a cluster's access summary line. A nil summary
-// or grant total is a platform that did not report one, and a nil count is
-// a check the platform could not answer: both say so instead of reading as
-// zero. "no grants" needs a known 0 total and known nullable counts.
+// or grant total is a platform that did not report one, and any nil count
+// is one the platform could not answer or left out: each says so instead
+// of reading as zero. "no grants" is printed only when every count is a
+// known 0, so neither an unknown nor a contradictory answer hides behind
+// it, and "(N of M verified)" only when the verified count is known.
 func accessPostureCell(summary *client.SecurityClusterAccessSummary) string {
 	if summary == nil || summary.GrantsTotal == nil {
 		return "not reported"
 	}
 	total := *summary.GrantsTotal
-	if total == 0 && summary.OverPolicy != nil && summary.ImpersonateReachable != nil {
+	if total == 0 && accessCountIsZero(summary.StandingElevated) && accessCountIsZero(summary.OverPolicy) &&
+		accessCountIsZero(summary.ImpersonateReachable) && accessCountIsZero(summary.ImpersonateVerifiedGrants) {
 		return "no grants"
 	}
 	grants := fmt.Sprintf("%d grants", total)
 	if total == 1 {
 		grants = "1 grant"
 	}
-	parts := []string{grants, fmt.Sprintf("%d standing elevated", summary.StandingElevated)}
+	parts := []string{grants}
+	if summary.StandingElevated == nil {
+		parts = append(parts, "standing elevated unknown")
+	} else {
+		parts = append(parts, fmt.Sprintf("%d standing elevated", *summary.StandingElevated))
+	}
 	if summary.OverPolicy == nil {
 		parts = append(parts, "over policy unknown")
 	} else {
 		parts = append(parts, fmt.Sprintf("%d over policy", *summary.OverPolicy))
 	}
-	if summary.ImpersonateReachable == nil {
-		parts = append(parts, fmt.Sprintf("impersonate unknown (%d of %d verified)", summary.ImpersonateVerifiedGrants, total))
-	} else {
+	switch {
+	case summary.ImpersonateReachable != nil:
 		parts = append(parts, fmt.Sprintf("%d can impersonate", *summary.ImpersonateReachable))
+	case summary.ImpersonateVerifiedGrants != nil:
+		parts = append(parts, fmt.Sprintf("impersonate unknown (%d of %d verified)", *summary.ImpersonateVerifiedGrants, total))
+	default:
+		parts = append(parts, "impersonate unknown")
 	}
 	return strings.Join(parts, ", ")
 }
@@ -133,11 +150,19 @@ func renderSecurityAccessPosture(out io.Writer, clusterLabel string, posture *cl
 	}
 	var unreported []string
 	summaryLine := "the platform did not report access posture"
-	if posture.Summary != nil {
-		summaryLine = accessPostureCell(posture.Summary)
-	} else {
+	switch {
+	case posture.Summary == nil:
 		unreported = append(unreported, "summary")
+	case posture.Summary.GrantsTotal == nil || posture.Summary.StandingElevated == nil || posture.Summary.ImpersonateVerifiedGrants == nil:
+		// over_policy and impersonate_reachable are null by contract when
+		// unknown, and the unknowns list explains them; the other three
+		// are always sent, so one missing is an incomplete answer.
+		summaryLine = accessPostureCell(posture.Summary)
+		unreported = append(unreported, "summary counts")
+	default:
+		summaryLine = accessPostureCell(posture.Summary)
 	}
+	summaryComplete := len(unreported) == 0
 	_, _ = fmt.Fprintf(out, "Kubernetes access on %s: %s\n", clusterLabel, summaryLine)
 	if posture.EvaluatedAt != "" {
 		_, _ = fmt.Fprintf(out, "Evaluated %s\n", formatTimeAgo(posture.EvaluatedAt))
@@ -154,7 +179,7 @@ func renderSecurityAccessPosture(out io.Writer, clusterLabel string, posture *cl
 	case !findingsReported:
 		unreported = append(unreported, "findings")
 		_, _ = fmt.Fprintln(out, "Findings: not reported by the platform.")
-	case len(findings) == 0 && unknownsReported && len(posture.Unknowns) == 0 && posture.Summary != nil:
+	case len(findings) == 0 && unknownsReported && len(posture.Unknowns) == 0 && summaryComplete:
 		_, _ = fmt.Fprintln(out, text.FgGreen.Sprint("Every access check passed on every grant."))
 	case len(findings) == 0:
 		_, _ = fmt.Fprintln(out, "No failed access checks, but not every check was evaluated (below).")

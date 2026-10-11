@@ -219,8 +219,9 @@ func TestListSecurityClustersKeepsAccessPostureNullAndAbsentApartFromZero(t *tes
         {"cluster_id": "c3", "cluster_name": "old-platform", "severity": {}},
         {"cluster_id": "c4", "cluster_name": "no-total", "severity": {},
          "access_posture": {"standing_elevated": 0, "over_policy": 0, "impersonate_reachable": 0,
-            "impersonate_verified_grants": 0}}],
-        "pagination": {"page": 1, "page_size": 50, "total_pages": 1, "total_count": 4}}`, &captured)
+            "impersonate_verified_grants": 0}},
+        {"cluster_id": "c5", "cluster_name": "only-total", "severity": {}, "access_posture": {"grants_total": 2}}],
+        "pagination": {"page": 1, "page_size": 50, "total_pages": 1, "total_count": 5}}`, &captured)
 
 	list, listError := apiClient.ListSecurityClusters(SecurityClustersOptions{})
 	if listError != nil {
@@ -232,7 +233,8 @@ func TestListSecurityClustersKeepsAccessPostureNullAndAbsentApartFromZero(t *tes
 		t.Fatalf("a verified 0 must decode as a 0, got %+v", verified)
 	}
 	unknown := list.Result[1].AccessPosture
-	if unknown == nil || unknown.OverPolicy != nil || unknown.ImpersonateReachable != nil || unknown.ImpersonateVerifiedGrants != 1 {
+	if unknown == nil || unknown.OverPolicy != nil || unknown.ImpersonateReachable != nil || unknown.ImpersonateVerifiedGrants == nil ||
+		*unknown.ImpersonateVerifiedGrants != 1 || unknown.StandingElevated == nil || *unknown.StandingElevated != 1 {
 		t.Fatalf("a null count must decode as nil, never 0, got %+v", unknown)
 	}
 	if list.Result[2].AccessPosture != nil {
@@ -241,8 +243,18 @@ func TestListSecurityClustersKeepsAccessPostureNullAndAbsentApartFromZero(t *tes
 	if verified.GrantsTotal == nil || *verified.GrantsTotal != 3 {
 		t.Fatalf("grants_total not decoded: %+v", verified)
 	}
-	if noTotal := list.Result[3].AccessPosture; noTotal == nil || noTotal.GrantsTotal != nil {
+	noTotal := list.Result[3].AccessPosture
+	if noTotal == nil || noTotal.GrantsTotal != nil {
 		t.Fatalf("an omitted grants_total must decode as nil, never 0, got %+v", noTotal)
+	}
+	if noTotal.StandingElevated == nil || *noTotal.StandingElevated != 0 ||
+		noTotal.ImpersonateVerifiedGrants == nil || *noTotal.ImpersonateVerifiedGrants != 0 {
+		t.Fatalf("a sent 0 must decode as a known 0, got %+v", noTotal)
+	}
+	onlyTotal := list.Result[4].AccessPosture
+	if onlyTotal == nil || onlyTotal.StandingElevated != nil || onlyTotal.ImpersonateVerifiedGrants != nil ||
+		onlyTotal.OverPolicy != nil || onlyTotal.ImpersonateReachable != nil {
+		t.Fatalf("every omitted count must decode as nil, never 0, got %+v", onlyTotal)
 	}
 }
 

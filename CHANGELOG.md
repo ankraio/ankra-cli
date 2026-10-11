@@ -10,8 +10,9 @@
   elevated, 2 over policy, impersonate unknown (1 of 3 verified)`: live kube
   gateway grants, standing grants above `view`, grants the organisation's
   access policy would refuse today, and grants whose identity the cluster
-  verified can impersonate. A count the platform could not establish reads
-  `unknown`, never 0, and a platform that predates the access posture reads
+  verified can impersonate. A count the platform could not establish or left
+  out reads `unknown`, never 0, `no grants` appears only when every count is
+  a known 0, and a platform that predates the access posture reads
   `not reported`. The new `security access` view lists every failed check
   most severe first, each with its grant id, grantee (email when you hold
   `kube_access.manage`, the Ankra user id otherwise), role and scope, the

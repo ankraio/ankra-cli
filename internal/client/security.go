@@ -227,16 +227,18 @@ type SecurityClusterPosture struct {
 }
 
 // SecurityClusterAccessSummary counts a cluster's live kube gateway grants.
-// GrantsTotal is nil when the platform did not report it, OverPolicy is nil
+// Every count is a pointer so a field the platform omitted or sent as null
+// decodes as nil: nil is unknown, never 0. OverPolicy is null by contract
 // when the organisation's access policy could not be read, and
-// ImpersonateReachable is nil unless the impersonation probe has a fresh,
-// verified answer for every live grant: nil is unknown, never 0.
+// ImpersonateReachable unless the impersonation probe has a fresh, verified
+// answer for every live grant; the other three are nil only when the
+// platform left them out.
 type SecurityClusterAccessSummary struct {
 	GrantsTotal               *int `json:"grants_total" yaml:"grants_total"`
-	StandingElevated          int  `json:"standing_elevated" yaml:"standing_elevated"`
+	StandingElevated          *int `json:"standing_elevated" yaml:"standing_elevated"`
 	OverPolicy                *int `json:"over_policy" yaml:"over_policy"`
 	ImpersonateReachable      *int `json:"impersonate_reachable" yaml:"impersonate_reachable"`
-	ImpersonateVerifiedGrants int  `json:"impersonate_verified_grants" yaml:"impersonate_verified_grants"`
+	ImpersonateVerifiedGrants *int `json:"impersonate_verified_grants" yaml:"impersonate_verified_grants"`
 }
 
 // SecurityClusterAccessFinding is one failed Kubernetes access check on one
