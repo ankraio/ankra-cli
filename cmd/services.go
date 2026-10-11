@@ -524,6 +524,8 @@ type APIClient interface {
 	SetClusterAgentAutoUpgrade(ctx context.Context, clusterID string, enabled bool) (*client.AgentSettingsResult, error)
 	GetAgentCISettings(ctx context.Context, clusterID string) (*client.AgentCISettings, error)
 	UpdateAgentCISettings(ctx context.Context, clusterID string, update client.AgentCISettingsUpdate) (*client.AgentCISettings, error)
+	GetAgentResources(ctx context.Context, clusterID string) (*client.AgentResources, error)
+	UpdateAgentResources(ctx context.Context, clusterID string, update client.AgentResourcesUpdate) (*client.AgentResources, error)
 	GetClusterHostedLogs(ctx context.Context, clusterID string) (*client.ClusterHostedLogs, error)
 	SetClusterHostedLogShipping(ctx context.Context, clusterID string, enabled bool) (*client.ClusterHostedLogs, error)
 
