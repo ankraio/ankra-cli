@@ -968,6 +968,7 @@ type APIClient interface {
 	ConnectPipelineRepository(ctx context.Context, request client.ConnectPipelineRepositoryRequest) (*client.ConnectPipelineRepositoryResult, error)
 	DisconnectPipelineRepository(ctx context.Context, repositoryID string) error
 	SetPipelineRepositoryCluster(ctx context.Context, repositoryID string, clusterID string) (*client.PipelineRepository, error)
+	SetPipelineRepositoryWorkspacesOnly(ctx context.Context, repositoryID string, isWorkspacesOnly bool) (*client.PipelineRepository, error)
 
 	UpWorkspace(ctx context.Context, request client.WorkspaceUpRequest) (*client.Workspace, bool, error)
 	ListWorkspaces(ctx context.Context, options client.ListWorkspacesOptions) (*client.WorkspaceList, error)

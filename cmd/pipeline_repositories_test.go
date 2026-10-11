@@ -435,3 +435,153 @@ func (m *pipelineSetClusterMock) ListClusters(page int, pageSize int) (*client.C
 	response.Pagination.TotalPages = 1
 	return response, nil
 }
+
+// --workspaces-only reaches the wire, and the result says the repository is
+// connected for Workspaces alone.
+func TestPipelineRepositoriesConnectWorkspacesOnlySendsTheModeAndSaysSo(t *testing.T) {
+	isWorkspacesOnly := true
+	mockClient := &pipelineLaneMock{connectRepositoryResult: &client.ConnectPipelineRepositoryResult{
+		PipelineRepository: client.PipelineRepository{
+			ID: "repo-1", Provider: "github", Owner: "acme", Name: "agent", DefaultBranch: "main",
+			WorkspacesOnly: &isWorkspacesOnly,
+		},
+		Definition: client.PipelineRepositoryDefinitionOutcome{Status: "workspaces_only", Detail: "not read"},
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "repositories", "connect",
+		"--provider", "github", "--owner", "acme", "--name", "agent", "--credential", "github-app", "--workspaces-only")
+	if executeError != nil {
+		t.Fatalf("connect error = %v", executeError)
+	}
+	if !mockClient.connectRepositoryRequest.WorkspacesOnly {
+		t.Errorf("request = %+v, want workspaces_only", mockClient.connectRepositoryRequest)
+	}
+	if !strings.Contains(output, "workspaces only") || mockClient.disconnectRepositoryCalls != 0 {
+		t.Errorf("output = %q after %d disconnects, want the mode and no disconnect", output,
+			mockClient.disconnectRepositoryCalls)
+	}
+}
+
+// A connect without the flag never names the member, so the body is what it
+// always was.
+func TestConnectPipelineRepositoryRequestLeavesWorkspacesOnlyOutWhenFalse(t *testing.T) {
+	body, marshalError := json.Marshal(client.ConnectPipelineRepositoryRequest{Provider: "github", Owner: "a", Name: "b"})
+	if marshalError != nil || strings.Contains(string(body), "workspaces_only") {
+		t.Fatalf("body = %s (%v), want no workspaces_only member", body, marshalError)
+	}
+}
+
+// A platform that predates the mode ignores the member and connects an
+// ordinary pipeline repository; the CLI disconnects it again and fails rather
+// than leave a repository whose pushes start runs.
+func TestPipelineRepositoriesConnectWorkspacesOnlyUndoesAConnectThePlatformDidNotHonour(t *testing.T) {
+	for _, testCase := range []struct {
+		name           string
+		workspacesOnly *bool
+	}{
+		{name: "the platform predates the mode", workspacesOnly: nil},
+		{name: "the platform answered false", workspacesOnly: new(bool)},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			mockClient := &pipelineLaneMock{connectRepositoryResult: &client.ConnectPipelineRepositoryResult{
+				PipelineRepository: client.PipelineRepository{ID: "repo-1", Provider: "github", Owner: "acme",
+					Name: "agent", WorkspacesOnly: testCase.workspacesOnly},
+			}}
+			_, executeError := runPipelineCommand(t, mockClient, "repositories", "connect",
+				"--provider", "github", "--owner", "acme", "--name", "agent", "--workspaces-only")
+			if executeError == nil || !strings.Contains(executeError.Error(), "disconnected again") {
+				t.Errorf("error = %v, want the connect refused as disconnected again", executeError)
+			}
+			if mockClient.disconnectRepositoryCalls != 1 || mockClient.disconnectRepositoryID != "repo-1" {
+				t.Errorf("disconnects = %d of %q, want one of repo-1", mockClient.disconnectRepositoryCalls,
+					mockClient.disconnectRepositoryID)
+			}
+		})
+	}
+}
+
+// When the undo itself fails, the error names the repository to disconnect.
+func TestPipelineRepositoriesConnectWorkspacesOnlyNamesTheRepositoryWhenTheUndoFails(t *testing.T) {
+	mockClient := &pipelineLaneMock{
+		connectRepositoryResult: &client.ConnectPipelineRepositoryResult{
+			PipelineRepository: client.PipelineRepository{ID: "repo-1", Owner: "acme", Name: "agent"},
+		},
+		disconnectRepositoryError: errors.New("boom"),
+	}
+	_, executeError := runPipelineCommand(t, mockClient, "repositories", "connect",
+		"--provider", "github", "--owner", "acme", "--name", "agent", "--workspaces-only")
+	if executeError == nil || !strings.Contains(executeError.Error(), "ankra pipeline repositories disconnect repo-1") {
+		t.Errorf("error = %v, want the disconnect command for repo-1", executeError)
+	}
+}
+
+// pipelineSetModeMock records the repository mode change.
+type pipelineSetModeMock struct {
+	baseMock
+
+	called           bool
+	repositoryID     string
+	isWorkspacesOnly bool
+	answered         *bool
+	err              error
+}
+
+func (m *pipelineSetModeMock) SetPipelineRepositoryWorkspacesOnly(ctx context.Context, repositoryID string,
+	isWorkspacesOnly bool) (*client.PipelineRepository, error) {
+	m.called, m.repositoryID, m.isWorkspacesOnly = true, repositoryID, isWorkspacesOnly
+	if m.err != nil {
+		return nil, m.err
+	}
+	answered := m.answered
+	if answered == nil {
+		answered = &isWorkspacesOnly
+	}
+	return &client.PipelineRepository{ID: repositoryID, Owner: "acme", Name: "agent", WorkspacesOnly: answered}, nil
+}
+
+func TestPipelineRepositoriesSetModeSendsEachMode(t *testing.T) {
+	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+	for _, testCase := range []struct {
+		mode       string
+		want       bool
+		wantOutput string
+	}{
+		{mode: "workspaces-only", want: true, wantOutput: "workspaces only"},
+		{mode: "pipelines", want: false, wantOutput: "pipelines"},
+	} {
+		mockClient := &pipelineSetModeMock{}
+		output, executeError := runPipelineCommand(t, mockClient, "repositories", "set-mode", repositoryID, testCase.mode)
+		if executeError != nil {
+			t.Fatalf("set-mode %s error = %v", testCase.mode, executeError)
+		}
+		if !mockClient.called || mockClient.repositoryID != repositoryID || mockClient.isWorkspacesOnly != testCase.want {
+			t.Errorf("set-mode %s sent %+v", testCase.mode, mockClient)
+		}
+		if !strings.Contains(output, "Mode:           "+testCase.wantOutput) {
+			t.Errorf("set-mode %s output = %q", testCase.mode, output)
+		}
+	}
+}
+
+func TestPipelineRepositoriesSetModeRefusesAnUnknownModeOrAnID(t *testing.T) {
+	mockClient := &pipelineSetModeMock{}
+	_, executeError := runPipelineCommand(t, mockClient, "repositories", "set-mode",
+		"3fa85f64-5717-4562-b3fc-2c963f66afa6", "sometimes")
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("unknown mode: error = %v, want a usage error", executeError)
+	}
+	_, executeError = runPipelineCommand(t, mockClient, "repositories", "set-mode", "acme/agent", "pipelines")
+	if exitCodeFor(executeError) != exitUsage || mockClient.called {
+		t.Errorf("owner/name: error = %v called=%v, want a usage error and no call", executeError, mockClient.called)
+	}
+}
+
+// A platform that answers without the mode applied (one that predates it
+// would refuse the body; this guards a silent no-op) fails the command.
+func TestPipelineRepositoriesSetModeFailsWhenTheModeWasNotApplied(t *testing.T) {
+	mockClient := &pipelineSetModeMock{answered: new(bool)}
+	_, executeError := runPipelineCommand(t, mockClient, "repositories", "set-mode",
+		"3fa85f64-5717-4562-b3fc-2c963f66afa6", "workspaces-only")
+	if executeError == nil || !strings.Contains(executeError.Error(), "without applying the mode") {
+		t.Errorf("error = %v, want the unapplied mode reported", executeError)
+	}
+}
