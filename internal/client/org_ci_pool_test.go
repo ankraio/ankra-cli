@@ -180,3 +180,30 @@ func TestGetOrganisationCICapacityDecodesTheScaleUpBlockers(t *testing.T) {
 		t.Errorf("an older platform's member must not grow blocker keys: %s", encoded)
 	}
 }
+
+// Changing the Workspaces-only mode names only workspaces_only, so the CI
+// cluster override is left alone.
+func TestSetPipelineRepositoryWorkspacesOnlySendsOnlyTheMode(t *testing.T) {
+	for _, isWorkspacesOnly := range []bool{true, false} {
+		var seenMethod, seenPath string
+		var seenBody map[string]any
+		testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+			seenMethod, seenPath = request.Method, request.URL.Path
+			_ = json.NewDecoder(request.Body).Decode(&seenBody)
+			_, _ = writer.Write([]byte(`{"id":"repo-1","workspaces_only":` + map[bool]string{true: "true", false: "false"}[isWorkspacesOnly] + `}`))
+		})
+		repository, setError := testClient.SetPipelineRepositoryWorkspacesOnly(context.Background(), "repo-1", isWorkspacesOnly)
+		if setError != nil {
+			t.Fatalf("set error = %v", setError)
+		}
+		if seenMethod != http.MethodPatch || seenPath != "/api/v1/org/pipelines/repositories/repo-1" {
+			t.Errorf("request = %s %s", seenMethod, seenPath)
+		}
+		if len(seenBody) != 1 || seenBody["workspaces_only"] != isWorkspacesOnly {
+			t.Errorf("body = %v, want only workspaces_only=%v", seenBody, isWorkspacesOnly)
+		}
+		if repository.WorkspacesOnly == nil || *repository.WorkspacesOnly != isWorkspacesOnly {
+			t.Errorf("decoded workspaces_only = %v", repository.WorkspacesOnly)
+		}
+	}
+}

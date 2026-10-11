@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra pipeline repositories connect --workspaces-only` connects a
+  repository for Ankra Workspaces alone.** `ankra exec` and `ankra workspace`
+  work on it as usual, but its committed `.ankra/pipeline.yaml` is not read,
+  no push, pull request, tag, schedule or manual dispatch starts a run, and
+  no commit status or check run is posted. Use it for a repository whose
+  pipeline already runs somewhere else, so its pull requests do not get a
+  second, possibly red, check. `ankra pipeline repositories set-mode <id>
+  workspaces-only|pipelines` switches a repository that is already
+  connected, and `list` and `get` show each repository's mode. A platform
+  too old to know the mode would connect an ordinary pipeline repository
+  instead, so the CLI disconnects it again at once and says so.
+
 ### Changed
 
 - **`ankra exec` says why a run ended without an exit code when the platform

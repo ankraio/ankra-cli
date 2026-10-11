@@ -74,6 +74,7 @@ its own repository automatically.`,
 		newPipelineRepositoriesConnectCommand(),
 		newPipelineRepositoriesDisconnectCommand(),
 		newPipelineRepositoriesSetClusterCommand(),
+		newPipelineRepositoriesSetModeCommand(),
 	)
 	return repositoriesCommand
 }
@@ -132,13 +133,14 @@ func renderPipelineRepositoryTable(out io.Writer, repositories []client.Pipeline
 	writer := table.NewWriter()
 	writer.SetOutputMirror(out)
 	writer.SetStyle(table.StyleRounded)
-	writer.AppendHeader(table.Row{"ID", "PROVIDER", "REPOSITORY", "DEFAULT BRANCH", "APPLICATION", "CI CLUSTER", "CREATED"})
+	writer.AppendHeader(table.Row{"ID", "PROVIDER", "REPOSITORY", "DEFAULT BRANCH", "MODE", "APPLICATION", "CI CLUSTER", "CREATED"})
 	for _, repository := range repositories {
 		writer.AppendRow(table.Row{
 			repository.ID,
 			repository.Provider,
 			repository.Owner + "/" + repository.Name,
 			repository.DefaultBranch,
+			pipelineRepositoryMode(repository.WorkspacesOnly),
 			pipelineOptionalString(repository.ApplicationID),
 			pipelineOptionalString(repository.ClusterID),
 			formatTimeAgo(repository.CreatedAt),
@@ -196,10 +198,25 @@ func printPipelineRepository(out io.Writer, repository *client.PipelineRepositor
 	_, _ = fmt.Fprintf(out, "  Provider:       %s\n", repository.Provider)
 	_, _ = fmt.Fprintf(out, "  Credential:     %s\n", credentialName)
 	_, _ = fmt.Fprintf(out, "  Default branch: %s\n", repository.DefaultBranch)
+	_, _ = fmt.Fprintf(out, "  Mode:           %s\n", pipelineRepositoryMode(repository.WorkspacesOnly))
 	_, _ = fmt.Fprintf(out, "  Application:    %s\n", pipelineOptionalString(repository.ApplicationID))
 	_, _ = fmt.Fprintf(out, "  CI cluster:     %s\n", pipelineOptionalString(repository.ClusterID))
 	_, _ = fmt.Fprintf(out, "  Created:        %s\n", formatTimeAgo(repository.CreatedAt))
 	_, _ = fmt.Fprintf(out, "  Updated:        %s\n", formatTimeAgo(repository.UpdatedAt))
+}
+
+// pipelineRepositoryMode names a repository's connection mode: "pipelines"
+// for an ordinary pipeline repository, "workspaces only" for one connected
+// for Ankra Workspaces alone, and "-" when the platform predates the mode.
+func pipelineRepositoryMode(isWorkspacesOnly *bool) string {
+	switch {
+	case isWorkspacesOnly == nil:
+		return "-"
+	case *isWorkspacesOnly:
+		return "workspaces only"
+	default:
+		return "pipelines"
+	}
 }
 
 func newPipelineRepositoriesConnectCommand() *cobra.Command {
@@ -229,7 +246,14 @@ another provider, connects with no definition - store one with
 'ankra pipeline definition put --repository <id> <file>'. Running connect a
 second time will not pick up a file committed since, because an already-
 connected repository is refused rather than re-read (see above); disconnect
-the repository and connect it again to force a fresh read.`,
+the repository and connect it again to force a fresh read.
+
+--workspaces-only connects the repository for Ankra Workspaces alone
+('ankra exec', 'ankra workspace'): its committed pipeline file is not read,
+no definition is recorded, no push, pull request, tag, schedule or manual
+dispatch starts a run, and no commit status or check run is posted. Use it
+for a repository whose pipeline already runs somewhere else. Switch an
+already-connected repository with 'ankra pipeline repositories set-mode'.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runPipelineRepositoriesConnect(command)
@@ -243,6 +267,8 @@ the repository and connect it again to force a fresh read.`,
 	connectCommand.Flags().String("default-branch", "", "Branch the pipeline file is read from (default: main)")
 	connectCommand.Flags().String("application", "", "Application id to link this repository to (optional; must belong to this organisation)")
 	connectCommand.Flags().String("cluster", "", "Cluster id to run this repository's pipelines on, overriding the organisation default (optional; its agent must support pipeline steps)")
+	connectCommand.Flags().Bool("workspaces-only", false,
+		"Connect for Ankra Workspaces only: no pipeline runs, commit statuses or check runs, and the pipeline file is not read")
 	_ = connectCommand.MarkFlagRequired("provider")
 	_ = connectCommand.MarkFlagRequired("owner")
 	_ = connectCommand.MarkFlagRequired("name")
@@ -262,6 +288,7 @@ func runPipelineRepositoriesConnect(command *cobra.Command) error {
 	defaultBranch, _ := command.Flags().GetString("default-branch")
 	applicationID, _ := command.Flags().GetString("application")
 	clusterID, _ := command.Flags().GetString("cluster")
+	isWorkspacesOnly, _ := command.Flags().GetBool("workspaces-only")
 
 	result, connectError := apiClient.ConnectPipelineRepository(command.Context(), client.ConnectPipelineRepositoryRequest{
 		Provider:       normalisePipelineRepositoryProvider(strings.TrimSpace(provider)),
@@ -271,6 +298,7 @@ func runPipelineRepositoriesConnect(command *cobra.Command) error {
 		DefaultBranch:  strings.TrimSpace(defaultBranch),
 		ApplicationID:  strings.TrimSpace(applicationID),
 		ClusterID:      strings.TrimSpace(clusterID),
+		WorkspacesOnly: isWorkspacesOnly,
 	})
 	if connectError != nil {
 		var alreadyConnected *client.PipelineRepositoryAlreadyConnectedError
@@ -280,11 +308,18 @@ func runPipelineRepositoriesConnect(command *cobra.Command) error {
 		}
 		return connectError
 	}
+	if isWorkspacesOnly && (result.WorkspacesOnly == nil || !*result.WorkspacesOnly) {
+		return undoIgnoredWorkspacesOnlyConnect(command, result)
+	}
 	if format != outputDefault {
 		return encodeStructured(command.OutOrStdout(), format, result)
 	}
 	_, _ = fmt.Fprintf(command.OutOrStdout(), "Connected %s/%s as repository %s (provider: %s, default branch: %s)\n",
 		result.Owner, result.Name, result.ID, result.Provider, result.DefaultBranch)
+	if result.WorkspacesOnly != nil && *result.WorkspacesOnly {
+		_, _ = fmt.Fprintln(command.OutOrStdout(),
+			"Mode:        workspaces only (no pipeline runs, commit statuses or check runs)")
+	}
 	if result.ApplicationID != nil && *result.ApplicationID != "" {
 		_, _ = fmt.Fprintf(command.OutOrStdout(), "Application: %s\n", *result.ApplicationID)
 	}
@@ -302,6 +337,21 @@ func runPipelineRepositoriesConnect(command *cobra.Command) error {
 		}
 	}
 	return nil
+}
+
+// undoIgnoredWorkspacesOnlyConnect handles a platform that predates the
+// Workspaces-only mode: it ignored --workspaces-only and connected an ordinary
+// pipeline repository, which is exactly what the caller asked not to get. The
+// repository is disconnected again at once, so no push or pull request starts
+// a run on it, and the command fails saying so.
+func undoIgnoredWorkspacesOnlyConnect(command *cobra.Command, result *client.ConnectPipelineRepositoryResult) error {
+	ignored := fmt.Sprintf("the platform does not support --workspaces-only and connected %s/%s as an ordinary "+
+		"pipeline repository", result.Owner, result.Name)
+	if disconnectError := apiClient.DisconnectPipelineRepository(command.Context(), result.ID); disconnectError != nil {
+		return fmt.Errorf("%s, and disconnecting it again failed (%v): disconnect it with "+
+			"'ankra pipeline repositories disconnect %s'", ignored, disconnectError, result.ID)
+	}
+	return fmt.Errorf("%s, so it was disconnected again; connect it once the platform supports the mode", ignored)
 }
 
 func newPipelineRepositoriesDisconnectCommand() *cobra.Command {
@@ -409,6 +459,68 @@ func runPipelineRepositoriesSetCluster(command *cobra.Command, repositoryID stri
 	repository, setError := apiClient.SetPipelineRepositoryCluster(command.Context(), repositoryID, clusterID)
 	if setError != nil {
 		return setError
+	}
+	if format != outputDefault {
+		return encodeStructured(command.OutOrStdout(), format, repository)
+	}
+	printPipelineRepository(command.OutOrStdout(), repository)
+	return nil
+}
+
+func newPipelineRepositoriesSetModeCommand() *cobra.Command {
+	setModeCommand := &cobra.Command{
+		Use:   "set-mode <repository-id> <workspaces-only|pipelines>",
+		Short: "Switch a repository between Workspaces only and full pipelines",
+		Long: `Switch a connected repository's mode without disconnecting it.
+
+  ankra pipeline repositories set-mode <repository-id> workspaces-only
+  ankra pipeline repositories set-mode <repository-id> pipelines
+
+workspaces-only keeps Ankra Workspaces ('ankra exec', 'ankra workspace')
+working and stops everything else: no push, pull request, tag, schedule or
+manual dispatch starts a run, no commit status or check run is posted, and
+the committed pipeline file is not read. It is refused (409) while a pipeline
+run is queued or running; cancel it or wait for it to conclude first.
+
+pipelines makes it an ordinary pipeline repository again: its committed
+.ankra/pipeline.yaml is read on the next reconcile and its webhooks start runs.
+Requires the pipelines.manage permission.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			return runPipelineRepositoriesSetMode(command, arguments[0], arguments[1])
+		},
+	}
+	registerStructuredOutputFlags(setModeCommand)
+	return setModeCommand
+}
+
+func runPipelineRepositoriesSetMode(command *cobra.Command, repositoryID string, mode string) error {
+	format, formatError := structuredFormatFromFlags(command)
+	if formatError != nil {
+		return formatError
+	}
+	repositoryID = strings.TrimSpace(repositoryID)
+	if !looksLikeUUID(repositoryID) {
+		return withExitCode(exitUsage, fmt.Errorf(
+			"%q is not a repository id - there is no lookup by owner/name yet, "+
+				"run 'ankra pipeline repositories list' to find it", repositoryID))
+	}
+	var isWorkspacesOnly bool
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "workspaces-only", "workspaces_only", "workspaces":
+		isWorkspacesOnly = true
+	case "pipelines", "pipeline":
+		isWorkspacesOnly = false
+	default:
+		return withExitCode(exitUsage, fmt.Errorf("mode %q is not one of workspaces-only, pipelines", mode))
+	}
+	repository, setError := apiClient.SetPipelineRepositoryWorkspacesOnly(command.Context(), repositoryID, isWorkspacesOnly)
+	if setError != nil {
+		return setError
+	}
+	if repository.WorkspacesOnly == nil || *repository.WorkspacesOnly != isWorkspacesOnly {
+		return fmt.Errorf("the platform answered without applying the mode (it reads %s); it may predate "+
+			"Workspaces-only repositories", pipelineRepositoryMode(repository.WorkspacesOnly))
 	}
 	if format != outputDefault {
 		return encodeStructured(command.OutOrStdout(), format, repository)
