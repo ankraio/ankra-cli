@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.32.0 — 2026-10-11
+
 ### Added
 
 - **`ankra security clusters` shows who can reach each cluster's Kubernetes
