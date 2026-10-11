@@ -158,6 +158,18 @@ type PipelineRun struct {
 	FinishedAt            *string `json:"finished_at"`
 	CreatedAt             string  `json:"created_at"`
 	UpdatedAt             string  `json:"updated_at"`
+	// PromotionOutcome is what the platform decided about promoting a push
+	// run (ankra-q573dh.27): "promoted" - it published the image a pull
+	// request run already built and tested for exactly this tree - or the
+	// token naming why it built in full, with PromotionMessage the sentence
+	// for it. PromotedFromRunID is the run it published from, and
+	// HeadTreeSHA the git tree the decision compared. All are null for a run
+	// that never asked to be promoted and absent from servers older than the
+	// fields, which is "not reported", never "not promoted".
+	PromotionOutcome  *string `json:"promotion_outcome"`
+	PromotionMessage  *string `json:"promotion_message"`
+	PromotedFromRunID *string `json:"promoted_from_run_id"`
+	HeadTreeSHA       *string `json:"head_tree_sha"`
 }
 
 // PipelineStep is the wire shape of a `pipeline_run_steps` row.
@@ -247,6 +259,10 @@ type PipelineRunList struct {
 type PipelineRunDetail struct {
 	PipelineRun
 	Steps []PipelineStep `json:"steps"`
+	// PromotedFromRunNumber is the number of the run PromotedFromRunID
+	// names, null when the run was not promoted or the source is no longer
+	// held (ankra-q573dh.27).
+	PromotedFromRunNumber *int64 `json:"promoted_from_run_number"`
 	// ApproveDefinitionID is the definition an administrator can approve with
 	// ApprovePipelineDefinition for a run that is not approved: the
 	// repository's current default-branch definition. Null when there is

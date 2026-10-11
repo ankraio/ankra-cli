@@ -29,6 +29,7 @@ var upcloudCreateCmd = &cobra.Command{
 		networkMode, _ := cmd.Flags().GetString("network-mode")
 		networkIPRange, _ := cmd.Flags().GetString("network-ip-range")
 		bastionPlan, _ := cmd.Flags().GetString("bastion-plan")
+		bastionAllowedIPs, _ := cmd.Flags().GetStringSlice("bastion-allowed-ips")
 		cpCount, _ := cmd.Flags().GetInt("control-plane-count")
 		cpPlan, _ := cmd.Flags().GetString("control-plane-plan")
 		workerCount, _ := cmd.Flags().GetInt("worker-count")
@@ -57,6 +58,7 @@ var upcloudCreateCmd = &cobra.Command{
 			NetworkMode:           networkMode,
 			NetworkIPRange:        networkIPRange,
 			BastionPlan:           bastionPlan,
+			BastionAllowedIPs:     bastionAllowedIPs,
 			ControlPlaneCount:     cpCount,
 			ControlPlanePlan:      cpPlan,
 			WorkerCount:           workerCount,
@@ -644,6 +646,7 @@ func init() {
 	upcloudCreateCmd.Flags().String("network-mode", "", "Network mode: private_network or wireguard_mesh. Derived when omitted (wireguard_mesh for a multi-zone pool). Pass wireguard_mesh on a single-zone kubeadm cluster to make it mesh-capable so zones can be added later with 'ankra cluster upcloud zones'; a mesh cannot be retrofitted")
 	upcloudCreateCmd.Flags().String("network-ip-range", "", "Private network IP range (optional). Left unset, Ankra picks a range that is free in your UpCloud account; pass one only to pin it (a range overlapping an existing network in the zone is refused)")
 	upcloudCreateCmd.Flags().String("bastion-plan", "", "Bastion plan (server default: STARTER-1xCPU-1GB)")
+	upcloudCreateCmd.Flags().StringSlice("bastion-allowed-ips", nil, bastionAllowedIPsFlagUsage)
 	upcloudCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
 	upcloudCreateCmd.Flags().String("control-plane-plan", "", "Control plane plan (server default: PREMIUM-2xCPU-4GB)")
 	upcloudCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")

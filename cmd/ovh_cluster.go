@@ -32,6 +32,7 @@ var ovhCreateCmd = &cobra.Command{
 		dhcpStart, _ := cmd.Flags().GetString("dhcp-start")
 		dhcpEnd, _ := cmd.Flags().GetString("dhcp-end")
 		gatewayFlavorID, _ := cmd.Flags().GetString("gateway-flavor-id")
+		bastionAllowedIPs, _ := cmd.Flags().GetStringSlice("bastion-allowed-ips")
 		cpCount, _ := cmd.Flags().GetInt("control-plane-count")
 		cpFlavorID, _ := cmd.Flags().GetString("control-plane-flavor-id")
 		workerCount, _ := cmd.Flags().GetInt("worker-count")
@@ -61,6 +62,7 @@ var ovhCreateCmd = &cobra.Command{
 			DHCPStart:             dhcpStart,
 			DHCPEnd:               dhcpEnd,
 			GatewayFlavorID:       gatewayFlavorID,
+			BastionAllowedIPs:     bastionAllowedIPs,
 			ControlPlaneCount:     cpCount,
 			ControlPlaneFlavorID:  cpFlavorID,
 			WorkerCount:           workerCount,
@@ -969,6 +971,7 @@ func init() {
 	ovhCreateCmd.Flags().String("dhcp-start", "10.0.1.100", "DHCP range start")
 	ovhCreateCmd.Flags().String("dhcp-end", "10.0.1.200", "DHCP range end")
 	ovhCreateCmd.Flags().String("gateway-flavor-id", "", "Gateway instance flavor (server default: c3-4)")
+	ovhCreateCmd.Flags().StringSlice("bastion-allowed-ips", nil, bastionAllowedIPsFlagUsage)
 	ovhCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
 	ovhCreateCmd.Flags().String("control-plane-flavor-id", "", "Control plane instance flavor (server default: b3-16)")
 	ovhCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")

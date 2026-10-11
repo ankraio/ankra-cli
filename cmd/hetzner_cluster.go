@@ -29,6 +29,7 @@ var hetznerCreateCmd = &cobra.Command{
 		networkIPRange, _ := cmd.Flags().GetString("network-ip-range")
 		subnetRange, _ := cmd.Flags().GetString("subnet-range")
 		bastionServerType, _ := cmd.Flags().GetString("bastion-server-type")
+		bastionAllowedIPs, _ := cmd.Flags().GetStringSlice("bastion-allowed-ips")
 		cpCount, _ := cmd.Flags().GetInt("control-plane-count")
 		cpServerType, _ := cmd.Flags().GetString("control-plane-server-type")
 		workerCount, _ := cmd.Flags().GetInt("worker-count")
@@ -59,6 +60,7 @@ var hetznerCreateCmd = &cobra.Command{
 			NetworkIPRange:         networkIPRange,
 			SubnetRange:            subnetRange,
 			BastionServerType:      bastionServerType,
+			BastionAllowedIPs:      bastionAllowedIPs,
 			ControlPlaneCount:      cpCount,
 			ControlPlaneServerType: cpServerType,
 			WorkerCount:            workerCount,
@@ -662,6 +664,7 @@ func init() {
 	hetznerCreateCmd.Flags().String("network-ip-range", "10.0.0.0/16", "Network IP range")
 	hetznerCreateCmd.Flags().String("subnet-range", "10.0.1.0/24", "Subnet range")
 	hetznerCreateCmd.Flags().String("bastion-server-type", "", "Bastion server type (server default: the cheapest x86 type the location can provision with at least 2 vCPU and 4 GB; see 'ankra cluster hetzner server-types')")
+	hetznerCreateCmd.Flags().StringSlice("bastion-allowed-ips", nil, bastionAllowedIPsFlagUsage)
 	hetznerCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
 	hetznerCreateCmd.Flags().String("control-plane-server-type", "", "Control plane server type (server default: the cheapest x86 type the location can provision with at least 4 vCPU and 8 GB)")
 	hetznerCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")

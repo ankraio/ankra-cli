@@ -19,10 +19,14 @@ type CreateUpcloudClusterRequest struct {
 	// three control planes); NetworkMode is private_network or
 	// wireguard_mesh (derived when empty). Both need the organisation's
 	// network_overlay feature.
-	Zones                 []string `json:"zones,omitempty"`
-	NetworkMode           string   `json:"network_mode,omitempty"`
-	NetworkIPRange        string   `json:"network_ip_range,omitempty"`
-	BastionPlan           string   `json:"bastion_plan,omitempty"`
+	Zones          []string `json:"zones,omitempty"`
+	NetworkMode    string   `json:"network_mode,omitempty"`
+	NetworkIPRange string   `json:"network_ip_range,omitempty"`
+	BastionPlan    string   `json:"bastion_plan,omitempty"`
+	// BastionAllowedIPs narrows the bastion's SSH port to these IPv4
+	// addresses or CIDRs, plus the platform's own egress. Omitted (nil)
+	// keeps the bastion open, as on every platform before the field existed.
+	BastionAllowedIPs     []string `json:"bastion_allowed_ips,omitempty"`
 	ControlPlaneCount     int      `json:"control_plane_count"`
 	ControlPlanePlan      string   `json:"control_plane_plan,omitempty"`
 	WorkerCount           int      `json:"worker_count"`

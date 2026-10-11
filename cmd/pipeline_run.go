@@ -635,6 +635,27 @@ func printPipelineRunWaiting(out io.Writer, detail client.PipelineRunDetail) {
 	}
 }
 
+// printPipelineRunPromotion prints what a push run did about promotion
+// (ankra-q573dh.27): published a pull request run's tested image, naming that
+// run, or why it built in full. A run that never asked to be promoted, and
+// any run read from a server older than the fields, prints nothing.
+func printPipelineRunPromotion(out io.Writer, detail client.PipelineRunDetail) {
+	if detail.PromotionOutcome == nil || strings.TrimSpace(*detail.PromotionOutcome) == "" {
+		return
+	}
+	line := strings.TrimSpace(*detail.PromotionOutcome)
+	if detail.PromotionMessage != nil && strings.TrimSpace(*detail.PromotionMessage) != "" {
+		line = strings.TrimSpace(*detail.PromotionMessage)
+	}
+	switch {
+	case detail.PromotedFromRunNumber != nil:
+		line += fmt.Sprintf(" (from run #%d)", *detail.PromotedFromRunNumber)
+	case detail.PromotedFromRunID != nil && *detail.PromotedFromRunID != "":
+		line += fmt.Sprintf(" (from run %s)", *detail.PromotedFromRunID)
+	}
+	_, _ = fmt.Fprintf(out, "  Promotion: %s\n", line)
+}
+
 func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, selector client.PipelineSelector) {
 	_, _ = fmt.Fprintf(out, "Run #%d (%s)\n", detail.RunNumber, detail.ID)
 	_, _ = fmt.Fprintf(out, "  Status:    %s\n", renderPipelineRunState(detail.PipelineRun))
@@ -642,6 +663,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, sele
 	printPipelineRunCancellation(out, detail.PipelineRun)
 	_, _ = fmt.Fprintf(out, "  Trigger:   %s (%s)\n", detail.Trigger, detail.TriggerRef)
 	_, _ = fmt.Fprintf(out, "  Commit:    %s\n", detail.HeadSHA)
+	printPipelineRunPromotion(out, detail)
 	printPipelineRunAuthority(out, detail)
 	printPipelineRunFailure(out, detail.PipelineRun)
 	_, _ = fmt.Fprintf(out, "  Queued:    %s\n", formatTimeAgo(detail.QueuedAt))

@@ -10,28 +10,32 @@ import (
 )
 
 type CreateDigitaloceanClusterRequest struct {
-	Name                  string  `json:"name"`
-	Description           *string `json:"description,omitempty"`
-	CredentialID          string  `json:"credential_id"`
-	SSHKeyCredentialID    string  `json:"ssh_key_credential_id"`
-	Region                string  `json:"region"`
-	NetworkIPRange        string  `json:"network_ip_range,omitempty"`
-	BastionSize           string  `json:"bastion_size,omitempty"`
-	ControlPlaneCount     int     `json:"control_plane_count"`
-	ControlPlaneSize      string  `json:"control_plane_size,omitempty"`
-	WorkerCount           int     `json:"worker_count"`
-	WorkerSize            string  `json:"worker_size,omitempty"`
-	Distribution          string  `json:"distribution"`
-	KubernetesVersion     *string `json:"kubernetes_version,omitempty"`
-	EtcdTopology          string  `json:"etcd_topology,omitempty"`
-	EtcdNodeCount         int     `json:"etcd_node_count,omitempty"`
-	EtcdSize              string  `json:"etcd_size,omitempty"`
-	ExternalCloudProvider bool    `json:"external_cloud_provider"`
-	IncludeNetworking     bool    `json:"include_networking"`
-	IncludeDNS            bool    `json:"include_dns"`
-	GitopsCredentialName  *string `json:"gitops_credential_name,omitempty"`
-	GitopsRepository      *string `json:"gitops_repository,omitempty"`
-	GitopsBranch          *string `json:"gitops_branch,omitempty"`
+	Name               string  `json:"name"`
+	Description        *string `json:"description,omitempty"`
+	CredentialID       string  `json:"credential_id"`
+	SSHKeyCredentialID string  `json:"ssh_key_credential_id"`
+	Region             string  `json:"region"`
+	NetworkIPRange     string  `json:"network_ip_range,omitempty"`
+	BastionSize        string  `json:"bastion_size,omitempty"`
+	// BastionAllowedIPs narrows the bastion's SSH port to these IPv4
+	// addresses or CIDRs, plus the platform's own egress. Omitted (nil)
+	// keeps the bastion open, as on every platform before the field existed.
+	BastionAllowedIPs     []string `json:"bastion_allowed_ips,omitempty"`
+	ControlPlaneCount     int      `json:"control_plane_count"`
+	ControlPlaneSize      string   `json:"control_plane_size,omitempty"`
+	WorkerCount           int      `json:"worker_count"`
+	WorkerSize            string   `json:"worker_size,omitempty"`
+	Distribution          string   `json:"distribution"`
+	KubernetesVersion     *string  `json:"kubernetes_version,omitempty"`
+	EtcdTopology          string   `json:"etcd_topology,omitempty"`
+	EtcdNodeCount         int      `json:"etcd_node_count,omitempty"`
+	EtcdSize              string   `json:"etcd_size,omitempty"`
+	ExternalCloudProvider bool     `json:"external_cloud_provider"`
+	IncludeNetworking     bool     `json:"include_networking"`
+	IncludeDNS            bool     `json:"include_dns"`
+	GitopsCredentialName  *string  `json:"gitops_credential_name,omitempty"`
+	GitopsRepository      *string  `json:"gitops_repository,omitempty"`
+	GitopsBranch          *string  `json:"gitops_branch,omitempty"`
 }
 
 type CreateDigitaloceanClusterResponse struct {
