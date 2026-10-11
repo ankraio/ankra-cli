@@ -3376,6 +3376,11 @@ func (m baseMock) SetPipelineRepositoryCluster(ctx context.Context, repositoryID
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) SetPipelineRepositoryWorkspacesOnly(ctx context.Context, repositoryID string,
+	isWorkspacesOnly bool) (*client.PipelineRepository, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListEnvironments(ctx context.Context) (*client.EnvironmentList, error) {
 	return nil, errors.New("not implemented")
 }

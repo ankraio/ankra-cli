@@ -637,13 +637,22 @@ type PipelineRepository struct {
 	// itself (GetPipelineMergeTrain) for an answer.
 	MergeTrainEnabled *bool `json:"merge_train_enabled,omitempty"`
 	MergeTrainMaxCars *int  `json:"merge_train_max_cars,omitempty"`
+	// WorkspacesOnly reports a repository connected for Ankra Workspaces
+	// only (cluster ankra-b5c3as.31): no trigger starts a run for it, no
+	// commit status or check run is posted for it and its committed pipeline
+	// file is never recorded as a definition, while 'ankra exec' and
+	// 'ankra workspace' keep working. Nil when the platform predates the mode:
+	// unknown, which every such repository was in practice an ordinary
+	// pipeline repository.
+	WorkspacesOnly *bool `json:"workspaces_only,omitempty"`
 }
 
 // PipelineRepositoryDefinitionOutcome is what a connect did with the
 // repository's committed pipeline file (go/internal/pipelineapi/repositories.go
 // definitionBootstrapResponse): one of the pipelineonboard.Definition*
 // statuses ("recorded", "already_recorded", "absent", "unreadable",
-// "invalid", "unknown"), the sentence behind it, the definition of record
+// "invalid", "unknown", and "workspaces_only" for a repository connected for
+// Workspaces only, whose file is not read), the sentence behind it, the definition of record
 // when one was recorded, and - when the committed file could not be read -
 // why. A read failure never fails the connect itself: Status answers
 // "unreadable" or "unknown" instead, and ReadError names the cause.
@@ -667,6 +676,11 @@ type PipelineRepositoryDefinitionOutcome struct {
 // a cluster outside the organisation, or a cluster whose agent has not
 // advertised it can run pipeline steps
 // (go/internal/usecase/pipelines/repositories.go validateRepositoryLinks).
+// WorkspacesOnly connects the repository for Ankra Workspaces only; it is
+// left out of the body when false, so a connect that does not ask for it
+// sends exactly what it always sent. A platform that predates the mode
+// ignores the member and connects an ordinary pipeline repository: the
+// result's WorkspacesOnly is then nil, which is how a caller tells.
 type ConnectPipelineRepositoryRequest struct {
 	Provider       string `json:"provider"`
 	Owner          string `json:"owner"`
@@ -675,6 +689,7 @@ type ConnectPipelineRepositoryRequest struct {
 	DefaultBranch  string `json:"default_branch,omitempty"`
 	ApplicationID  string `json:"application_id,omitempty"`
 	ClusterID      string `json:"cluster_id,omitempty"`
+	WorkspacesOnly bool   `json:"workspaces_only,omitempty"`
 }
 
 // ConnectPipelineRepositoryResult is the 201 body: the connected repository
@@ -1376,6 +1391,24 @@ func (c *Client) SetPipelineRepositoryCluster(ctx context.Context, repositoryID 
 	if clusterID != "" {
 		request["cluster_id"] = clusterID
 	}
+	if requestError := c.doPipelineRequest(ctx, http.MethodPatch, endpoint, request, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}
+
+// SetPipelineRepositoryWorkspacesOnly turns a connected repository's
+// Workspaces-only mode on or off (PATCH
+// /org/pipelines/repositories/{repository_id} naming only workspaces_only),
+// leaving its CI cluster override alone. Turning it on while a pipeline run
+// is queued or running answers the server's 409 and changes nothing. A
+// platform that predates the mode answers 422 for the missing cluster_id,
+// because the body names nothing it knows.
+func (c *Client) SetPipelineRepositoryWorkspacesOnly(ctx context.Context, repositoryID string,
+	isWorkspacesOnly bool) (*PipelineRepository, error) {
+	var result PipelineRepository
+	endpoint := fmt.Sprintf("%s%s/%s", c.BaseURL, pipelineRepositoriesBasePath, neturl.PathEscape(repositoryID))
+	request := map[string]any{"workspaces_only": isWorkspacesOnly}
 	if requestError := c.doPipelineRequest(ctx, http.MethodPatch, endpoint, request, &result); requestError != nil {
 		return nil, requestError
 	}
