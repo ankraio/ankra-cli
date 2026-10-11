@@ -29,6 +29,11 @@ list is never read as a clean one. A grant absent from both lists passed
 every check. Grantee emails appear only when you hold kube_access.manage;
 otherwise the grantee is shown by its Ankra user id.
 
+If the platform leaves the summary, the findings or the unknowns out of its
+answer, that part reads "not reported", whatever was reported is still
+printed, and the command exits 1: an incomplete answer is never a pass.
+-o json prints the document as sent, nulls included, and exits 0.
+
 The same summary line is the Access column of 'ankra security clusters'.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -44,8 +49,7 @@ The same summary line is the Access column of 'ankra security clusters'.`,
 		if rendered, err := renderStructured(cmd, posture); rendered || err != nil {
 			return err
 		}
-		renderSecurityAccessPosture(cmd.OutOrStdout(), strings.TrimSpace(clusterFlag), posture)
-		return nil
+		return renderSecurityAccessPosture(cmd.OutOrStdout(), strings.TrimSpace(clusterFlag), posture)
 	},
 }
 
@@ -63,17 +67,19 @@ func securityAccessReadError(readError error) error {
 }
 
 // accessPostureCell renders a cluster's access summary line. A nil summary
-// is a platform that did not report one, and a nil count is a check the
-// platform could not answer: both say so instead of reading as zero.
+// or grant total is a platform that did not report one, and a nil count is
+// a check the platform could not answer: both say so instead of reading as
+// zero. "no grants" needs a known 0 total and known nullable counts.
 func accessPostureCell(summary *client.SecurityClusterAccessSummary) string {
-	if summary == nil {
+	if summary == nil || summary.GrantsTotal == nil {
 		return "not reported"
 	}
-	if summary.GrantsTotal == 0 {
+	total := *summary.GrantsTotal
+	if total == 0 && summary.OverPolicy != nil && summary.ImpersonateReachable != nil {
 		return "no grants"
 	}
-	grants := fmt.Sprintf("%d grants", summary.GrantsTotal)
-	if summary.GrantsTotal == 1 {
+	grants := fmt.Sprintf("%d grants", total)
+	if total == 1 {
 		grants = "1 grant"
 	}
 	parts := []string{grants, fmt.Sprintf("%d standing elevated", summary.StandingElevated)}
@@ -83,7 +89,7 @@ func accessPostureCell(summary *client.SecurityClusterAccessSummary) string {
 		parts = append(parts, fmt.Sprintf("%d over policy", *summary.OverPolicy))
 	}
 	if summary.ImpersonateReachable == nil {
-		parts = append(parts, fmt.Sprintf("impersonate unknown (%d of %d verified)", summary.ImpersonateVerifiedGrants, summary.GrantsTotal))
+		parts = append(parts, fmt.Sprintf("impersonate unknown (%d of %d verified)", summary.ImpersonateVerifiedGrants, total))
 	} else {
 		parts = append(parts, fmt.Sprintf("%d can impersonate", *summary.ImpersonateReachable))
 	}
@@ -117,25 +123,41 @@ func accessScopeText(scope string, namespace *string) string {
 	}
 }
 
-func renderSecurityAccessPosture(out io.Writer, clusterLabel string, posture *client.SecurityClusterAccessPosture) {
+// renderSecurityAccessPosture prints the human view and returns an error
+// when the platform left part of the document unreported (a null summary,
+// findings or unknowns list): whatever was reported is still printed, but
+// the read cannot be taken as passed, so the command exits non-zero.
+func renderSecurityAccessPosture(out io.Writer, clusterLabel string, posture *client.SecurityClusterAccessPosture) error {
 	if clusterLabel == "" {
 		clusterLabel = posture.ClusterID
 	}
-	_, _ = fmt.Fprintf(out, "Kubernetes access on %s: %s\n", clusterLabel, accessPostureCell(&posture.Summary))
+	var unreported []string
+	summaryLine := "the platform did not report access posture"
+	if posture.Summary != nil {
+		summaryLine = accessPostureCell(posture.Summary)
+	} else {
+		unreported = append(unreported, "summary")
+	}
+	_, _ = fmt.Fprintf(out, "Kubernetes access on %s: %s\n", clusterLabel, summaryLine)
 	if posture.EvaluatedAt != "" {
 		_, _ = fmt.Fprintf(out, "Evaluated %s\n", formatTimeAgo(posture.EvaluatedAt))
 	}
 	_, _ = fmt.Fprintln(out)
 
+	findingsReported := posture.Findings != nil
+	unknownsReported := posture.Unknowns != nil
 	findings := append([]client.SecurityClusterAccessFinding(nil), posture.Findings...)
 	sort.SliceStable(findings, func(left, right int) bool {
 		return accessSeverityOrder(findings[left].Severity) < accessSeverityOrder(findings[right].Severity)
 	})
 	switch {
-	case len(findings) == 0 && len(posture.Unknowns) == 0:
+	case !findingsReported:
+		unreported = append(unreported, "findings")
+		_, _ = fmt.Fprintln(out, "Findings: not reported by the platform.")
+	case len(findings) == 0 && unknownsReported && len(posture.Unknowns) == 0 && posture.Summary != nil:
 		_, _ = fmt.Fprintln(out, text.FgGreen.Sprint("Every access check passed on every grant."))
 	case len(findings) == 0:
-		_, _ = fmt.Fprintln(out, "No failed access checks, but some checks could not be evaluated (below).")
+		_, _ = fmt.Fprintln(out, "No failed access checks, but not every check was evaluated (below).")
 	default:
 		_, _ = fmt.Fprintf(out, "Findings (%d):\n", len(findings))
 		for _, finding := range findings {
@@ -154,18 +176,29 @@ func renderSecurityAccessPosture(out io.Writer, clusterLabel string, posture *cl
 		}
 	}
 
-	if len(posture.Unknowns) == 0 {
-		return
-	}
-	_, _ = fmt.Fprintln(out)
-	_, _ = fmt.Fprintf(out, "Not evaluated (%d), unknown rather than passed:\n", len(posture.Unknowns))
-	for _, unknown := range posture.Unknowns {
-		subject := "every grant"
-		if unknown.GrantID != nil && *unknown.GrantID != "" {
-			subject = "grant " + *unknown.GrantID
+	switch {
+	case !unknownsReported:
+		unreported = append(unreported, "unknowns")
+		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(out, "Not evaluated: not reported by the platform, so no check can be read as passed.")
+	case len(posture.Unknowns) > 0:
+		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintf(out, "Not evaluated (%d), unknown rather than passed:\n", len(posture.Unknowns))
+		for _, unknown := range posture.Unknowns {
+			subject := "every grant"
+			if unknown.GrantID != nil && *unknown.GrantID != "" {
+				subject = "grant " + *unknown.GrantID
+			}
+			_, _ = fmt.Fprintf(out, "  %s · %s: %s\n", unknown.Check, subject, unknown.Reason)
 		}
-		_, _ = fmt.Fprintf(out, "  %s · %s: %s\n", unknown.Check, subject, unknown.Reason)
 	}
+
+	if len(unreported) > 0 {
+		return withExitCode(exitError, fmt.Errorf(
+			"the platform's access posture for %s is incomplete (%s not reported); nothing above can be read as passed",
+			clusterLabel, strings.Join(unreported, ", ")))
+	}
+	return nil
 }
 
 func init() {

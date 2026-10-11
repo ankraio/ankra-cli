@@ -216,8 +216,11 @@ func TestListSecurityClustersKeepsAccessPostureNullAndAbsentApartFromZero(t *tes
         {"cluster_id": "c2", "cluster_name": "unknown", "severity": {},
          "access_posture": {"grants_total": 3, "standing_elevated": 1, "over_policy": null,
             "impersonate_reachable": null, "impersonate_verified_grants": 1}},
-        {"cluster_id": "c3", "cluster_name": "old-platform", "severity": {}}],
-        "pagination": {"page": 1, "page_size": 50, "total_pages": 1, "total_count": 3}}`, &captured)
+        {"cluster_id": "c3", "cluster_name": "old-platform", "severity": {}},
+        {"cluster_id": "c4", "cluster_name": "no-total", "severity": {},
+         "access_posture": {"standing_elevated": 0, "over_policy": 0, "impersonate_reachable": 0,
+            "impersonate_verified_grants": 0}}],
+        "pagination": {"page": 1, "page_size": 50, "total_pages": 1, "total_count": 4}}`, &captured)
 
 	list, listError := apiClient.ListSecurityClusters(SecurityClustersOptions{})
 	if listError != nil {
@@ -234,6 +237,12 @@ func TestListSecurityClustersKeepsAccessPostureNullAndAbsentApartFromZero(t *tes
 	}
 	if list.Result[2].AccessPosture != nil {
 		t.Fatalf("an absent access_posture must decode as nil, got %+v", list.Result[2].AccessPosture)
+	}
+	if verified.GrantsTotal == nil || *verified.GrantsTotal != 3 {
+		t.Fatalf("grants_total not decoded: %+v", verified)
+	}
+	if noTotal := list.Result[3].AccessPosture; noTotal == nil || noTotal.GrantsTotal != nil {
+		t.Fatalf("an omitted grants_total must decode as nil, never 0, got %+v", noTotal)
 	}
 }
 
@@ -255,7 +264,8 @@ func TestGetSecurityClusterAccessPostureDecodesFindingsAndUnknowns(t *testing.T)
 	if captured.URL.Path != "/api/v1/org/security/clusters/c1/access-posture" {
 		t.Fatalf("path = %q", captured.URL.Path)
 	}
-	if posture.Summary.ImpersonateReachable != nil || posture.Summary.OverPolicy == nil || *posture.Summary.OverPolicy != 1 {
+	if posture.Summary == nil || posture.Summary.GrantsTotal == nil || *posture.Summary.GrantsTotal != 2 ||
+		posture.Summary.ImpersonateReachable != nil || posture.Summary.OverPolicy == nil || *posture.Summary.OverPolicy != 1 {
 		t.Fatalf("summary not decoded: %+v", posture.Summary)
 	}
 	if len(posture.Findings) != 1 || posture.Findings[0].UserEmail != nil || posture.Findings[0].AnkraUserID != "u1" ||
@@ -266,11 +276,22 @@ func TestGetSecurityClusterAccessPostureDecodesFindingsAndUnknowns(t *testing.T)
 		t.Fatalf("unknowns not decoded: %+v", posture.Unknowns)
 	}
 
+	_, nullClient := newSecurityTestServer(t, `{"cluster_id": "c1", "evaluated_at": "2026-10-10T08:00:00Z",
+        "findings": null, "unknowns": null}`, &captured)
+	partial, readError := nullClient.GetSecurityClusterAccessPosture("c1")
+	if readError != nil {
+		t.Fatalf("GetSecurityClusterAccessPosture returned an error: %v", readError)
+	}
+	if partial.Summary != nil || partial.Findings != nil || partial.Unknowns != nil {
+		t.Fatalf("an omitted summary and null lists must stay nil, never zero or empty, got %+v", partial)
+	}
+
 	_, emptyClient := newSecurityTestServer(t, `{"cluster_id": "c1", "evaluated_at": "2026-10-10T08:00:00Z",
         "summary": {"grants_total": 0, "standing_elevated": 0, "over_policy": 0, "impersonate_reachable": 0,
-            "impersonate_verified_grants": 0}, "findings": null, "unknowns": null}`, &captured)
+            "impersonate_verified_grants": 0}, "findings": [], "unknowns": []}`, &captured)
 	empty, readError := emptyClient.GetSecurityClusterAccessPosture("c1")
-	if readError != nil || empty.Findings == nil || empty.Unknowns == nil {
-		t.Fatalf("null lists must decode as empty lists, got %+v (%v)", empty, readError)
+	if readError != nil || empty.Findings == nil || empty.Unknowns == nil || empty.Summary == nil ||
+		empty.Summary.GrantsTotal == nil || *empty.Summary.GrantsTotal != 0 {
+		t.Fatalf("empty lists and a verified 0 must decode as such, got %+v (%v)", empty, readError)
 	}
 }

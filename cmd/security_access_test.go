@@ -29,16 +29,20 @@ func accessPostureClusters() *client.SecurityClusterList {
 	return &client.SecurityClusterList{
 		Result: []client.SecurityClusterPosture{
 			{ClusterID: "c1", ClusterName: "prod", ScannerStatus: "fresh", PostureStatus: "clean",
-				AccessPosture: &client.SecurityClusterAccessSummary{GrantsTotal: 3, StandingElevated: 1,
+				AccessPosture: &client.SecurityClusterAccessSummary{GrantsTotal: intPointer(3), StandingElevated: 1,
 					OverPolicy: intPointer(2), ImpersonateReachable: intPointer(0), ImpersonateVerifiedGrants: 3}},
 			{ClusterID: "c2", ClusterName: "staging", ScannerStatus: "fresh", PostureStatus: "clean",
-				AccessPosture: &client.SecurityClusterAccessSummary{GrantsTotal: 3, StandingElevated: 1,
+				AccessPosture: &client.SecurityClusterAccessSummary{GrantsTotal: intPointer(3), StandingElevated: 1,
 					OverPolicy: nil, ImpersonateReachable: nil, ImpersonateVerifiedGrants: 1}},
 			{ClusterID: "c3", ClusterName: "legacy", ScannerStatus: "fresh", PostureStatus: "clean"},
 			{ClusterID: "c4", ClusterName: "empty", ScannerStatus: "fresh", PostureStatus: "clean",
-				AccessPosture: &client.SecurityClusterAccessSummary{OverPolicy: intPointer(0), ImpersonateReachable: intPointer(0)}},
+				AccessPosture: &client.SecurityClusterAccessSummary{GrantsTotal: intPointer(0), OverPolicy: intPointer(0), ImpersonateReachable: intPointer(0)}},
+			{ClusterID: "c5", ClusterName: "fresh-policy-down", ScannerStatus: "fresh", PostureStatus: "clean",
+				AccessPosture: &client.SecurityClusterAccessSummary{GrantsTotal: intPointer(0), OverPolicy: nil, ImpersonateReachable: nil}},
+			{ClusterID: "c6", ClusterName: "no-total", ScannerStatus: "fresh", PostureStatus: "clean",
+				AccessPosture: &client.SecurityClusterAccessSummary{StandingElevated: 0, OverPolicy: intPointer(0), ImpersonateReachable: intPointer(0)}},
 		},
-		Pagination: client.SecurityPagination{Page: 1, PageSize: 50, TotalPages: 1, TotalCount: 4},
+		Pagination: client.SecurityPagination{Page: 1, PageSize: 50, TotalPages: 1, TotalCount: 6},
 	}
 }
 
@@ -53,6 +57,7 @@ func TestSecurityClustersAccessColumnNeverReadsUnknownOrAbsentAsZero(t *testing.
 		"3 grants, 1 standing elevated, over policy unknown, impersonate unknown (1 of 3 verified)",
 		"not reported",
 		"no grants",
+		"0 grants, 0 standing elevated, over policy unknown, impersonate unknown (0 of 0 verified)",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output lacks %q:\n%s", expected, output)
@@ -61,6 +66,12 @@ func TestSecurityClustersAccessColumnNeverReadsUnknownOrAbsentAsZero(t *testing.
 	for _, line := range strings.Split(output, "\n") {
 		if strings.Contains(line, "legacy") && strings.Contains(line, "0 grants") {
 			t.Fatalf("a cluster the platform reported no access posture for must not read as zero grants:\n%s", line)
+		}
+		if strings.Contains(line, "fresh-policy-down") && strings.Contains(line, "no grants") {
+			t.Fatalf("zero grants with unknown counts must show the unknowns, not \"no grants\":\n%s", line)
+		}
+		if strings.Contains(line, "no-total") && !strings.Contains(line, "not reported") {
+			t.Fatalf("an omitted grants_total must read as not reported, never as zero grants:\n%s", line)
 		}
 		if strings.Contains(line, "staging") && (strings.Contains(line, "0 over policy") || strings.Contains(line, "can impersonate")) {
 			t.Fatalf("a null count must render as unknown, never a number:\n%s", line)
@@ -97,7 +108,7 @@ func accessPostureWithFindings() *client.SecurityClusterAccessPosture {
 	return &client.SecurityClusterAccessPosture{
 		ClusterID:   securityTestClusterID,
 		EvaluatedAt: "2026-10-10T08:00:00Z",
-		Summary: client.SecurityClusterAccessSummary{GrantsTotal: 3, StandingElevated: 1, OverPolicy: intPointer(2),
+		Summary: &client.SecurityClusterAccessSummary{GrantsTotal: intPointer(3), StandingElevated: 1, OverPolicy: intPointer(2),
 			ImpersonateReachable: nil, ImpersonateVerifiedGrants: 1},
 		Findings: []client.SecurityClusterAccessFinding{
 			{Check: "grant_over_policy", Severity: "HIGH", Title: "Grant exceeds the access policy",
@@ -156,7 +167,7 @@ func TestSecurityAccessWithOnlyUnknownsIsNotReadAsClean(t *testing.T) {
 	if executeError != nil {
 		t.Fatalf("security access failed: %v", executeError)
 	}
-	if strings.Contains(output, "Every access check passed") || !strings.Contains(output, "some checks could not be evaluated") {
+	if strings.Contains(output, "Every access check passed") || !strings.Contains(output, "not every check was evaluated") {
 		t.Fatalf("unknowns must not read as a clean cluster:\n%s", output)
 	}
 
@@ -202,5 +213,76 @@ func TestSecurityAccessRequiresCluster(t *testing.T) {
 	_, executeError := runSecurityCommand(t, &securityAccessMock{}, "security", "access")
 	if executeError == nil || exitCodeFor(executeError) != exitUsage {
 		t.Fatalf("expected a usage error without --cluster, got %v", executeError)
+	}
+}
+
+func TestSecurityAccessNullSummaryIsNotReportedAndExitsNonZero(t *testing.T) {
+	posture := accessPostureWithFindings()
+	posture.Summary = nil
+	posture.Findings = []client.SecurityClusterAccessFinding{}
+	posture.Unknowns = []client.SecurityClusterAccessUnknown{}
+	output, executeError := runSecurityCommand(t, &securityAccessMock{posture: posture}, "security", "access", "--cluster", securityTestClusterID)
+	if executeError == nil || exitCodeFor(executeError) != exitError || !strings.Contains(executeError.Error(), "summary not reported") {
+		t.Fatalf("a null summary must exit 1 naming the summary, got %v", executeError)
+	}
+	if !strings.Contains(output, "the platform did not report access posture") ||
+		strings.Contains(output, "no grants") || strings.Contains(output, "Every access check passed") {
+		t.Fatalf("a null summary must never read as no grants or passed:\n%s", output)
+	}
+}
+
+func TestSecurityAccessNullListsAreNotReportedNeverPassed(t *testing.T) {
+	posture := accessPostureWithFindings()
+	posture.Findings = []client.SecurityClusterAccessFinding{}
+	posture.Unknowns = nil
+	output, executeError := runSecurityCommand(t, &securityAccessMock{posture: posture}, "security", "access", "--cluster", securityTestClusterID)
+	if executeError == nil || exitCodeFor(executeError) != exitError || !strings.Contains(executeError.Error(), "unknowns not reported") {
+		t.Fatalf("a null unknowns list must exit 1 naming it, got %v", executeError)
+	}
+	if strings.Contains(output, "Every access check passed") || !strings.Contains(output, "Not evaluated: not reported by the platform") {
+		t.Fatalf("a null unknowns list must read as not reported, never as passed:\n%s", output)
+	}
+
+	posture = accessPostureWithFindings()
+	posture.Findings = nil
+	output, executeError = runSecurityCommand(t, &securityAccessMock{posture: posture}, "security", "access", "--cluster", securityTestClusterID)
+	if executeError == nil || exitCodeFor(executeError) != exitError || !strings.Contains(executeError.Error(), "findings not reported") {
+		t.Fatalf("a null findings list must exit 1 naming it, got %v", executeError)
+	}
+	if !strings.Contains(output, "Findings: not reported by the platform.") || !strings.Contains(output, "not probed yet") {
+		t.Fatalf("a null findings list must read as not reported and still print the unknowns:\n%s", output)
+	}
+}
+
+func TestSecurityAccessStructuredOutputPassesNullsThrough(t *testing.T) {
+	posture := &client.SecurityClusterAccessPosture{ClusterID: securityTestClusterID, EvaluatedAt: "2026-10-10T08:00:00Z"}
+	output, executeError := runSecurityCommand(t, &securityAccessMock{posture: posture},
+		"security", "access", "--cluster", securityTestClusterID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("-o json must pass the document through and exit 0, got %v", executeError)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+		t.Fatalf("output is not JSON: %v\n%s", decodeError, output)
+	}
+	for _, key := range []string{"summary", "findings", "unknowns"} {
+		if value, present := decoded[key]; !present || value != nil {
+			t.Fatalf("%s = %v (present %v), want null passed through:\n%s", key, value, present, output)
+		}
+	}
+
+	posture.Summary = &client.SecurityClusterAccessSummary{}
+	output, executeError = runSecurityCommand(t, &securityAccessMock{posture: posture},
+		"security", "access", "--cluster", securityTestClusterID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("-o json failed: %v", executeError)
+	}
+	decoded = map[string]any{}
+	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+		t.Fatalf("output is not JSON: %v\n%s", decodeError, output)
+	}
+	summary := decoded["summary"].(map[string]any)
+	if value, present := summary["grants_total"]; !present || value != nil {
+		t.Fatalf("grants_total = %v (present %v), want null passed through", value, present)
 	}
 }

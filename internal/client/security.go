@@ -227,11 +227,12 @@ type SecurityClusterPosture struct {
 }
 
 // SecurityClusterAccessSummary counts a cluster's live kube gateway grants.
-// OverPolicy is nil when the organisation's access policy could not be
-// read, and ImpersonateReachable is nil unless the impersonation probe has
-// a fresh, verified answer for every live grant: nil is unknown, never 0.
+// GrantsTotal is nil when the platform did not report it, OverPolicy is nil
+// when the organisation's access policy could not be read, and
+// ImpersonateReachable is nil unless the impersonation probe has a fresh,
+// verified answer for every live grant: nil is unknown, never 0.
 type SecurityClusterAccessSummary struct {
-	GrantsTotal               int  `json:"grants_total" yaml:"grants_total"`
+	GrantsTotal               *int `json:"grants_total" yaml:"grants_total"`
 	StandingElevated          int  `json:"standing_elevated" yaml:"standing_elevated"`
 	OverPolicy                *int `json:"over_policy" yaml:"over_policy"`
 	ImpersonateReachable      *int `json:"impersonate_reachable" yaml:"impersonate_reachable"`
@@ -266,11 +267,13 @@ type SecurityClusterAccessUnknown struct {
 // SecurityClusterAccessPosture is one cluster's Kubernetes access posture:
 // the summary line, every failed check with its remediation, and every
 // check that could not be evaluated. A check on a grant absent from both
-// Findings and Unknowns passed.
+// Findings and Unknowns passed. The client keeps the document as sent: a
+// nil Summary, Findings or Unknowns is a part the platform did not report,
+// which the renderer must never read as zero or as passed.
 type SecurityClusterAccessPosture struct {
 	ClusterID   string                         `json:"cluster_id" yaml:"cluster_id"`
 	EvaluatedAt string                         `json:"evaluated_at" yaml:"evaluated_at"`
-	Summary     SecurityClusterAccessSummary   `json:"summary" yaml:"summary"`
+	Summary     *SecurityClusterAccessSummary  `json:"summary" yaml:"summary"`
 	Findings    []SecurityClusterAccessFinding `json:"findings" yaml:"findings"`
 	Unknowns    []SecurityClusterAccessUnknown `json:"unknowns" yaml:"unknowns"`
 }
@@ -434,18 +437,13 @@ func (c *Client) ListSecurityClusters(options SecurityClustersOptions) (*Securit
 }
 
 // GetSecurityClusterAccessPosture reads one cluster's Kubernetes access
-// posture: the grant findings with their remediation and the unknowns.
+// posture: the grant findings with their remediation and the unknowns. Null
+// lists stay nil so -o json prints the document as the platform sent it.
 func (c *Client) GetSecurityClusterAccessPosture(clusterID string) (*SecurityClusterAccessPosture, error) {
 	var posture SecurityClusterAccessPosture
 	requestURL := securityURL(c.BaseURL, "/clusters/"+neturl.PathEscape(strings.TrimSpace(clusterID))+"/access-posture", neturl.Values{})
 	if err := c.getJSON(requestURL, &posture); err != nil {
 		return nil, fmt.Errorf("cluster access posture request failed: %w", err)
-	}
-	if posture.Findings == nil {
-		posture.Findings = []SecurityClusterAccessFinding{}
-	}
-	if posture.Unknowns == nil {
-		posture.Unknowns = []SecurityClusterAccessUnknown{}
 	}
 	return &posture, nil
 }

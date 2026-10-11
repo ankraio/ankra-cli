@@ -16,8 +16,11 @@
   most severe first, each with its grant id, grantee (email when you hold
   `kube_access.manage`, the Ankra user id otherwise), role and scope, the
   detail and the revoke or grant command that fixes it, then every check that
-  could not be evaluated, so a short list is never read as a clean one.
-  `-o json` prints the API document, nulls included.
+  could not be evaluated, so a short list is never read as a clean one. If
+  the platform leaves the summary, the findings or the unknowns out of its
+  answer, that part reads `not reported` and the command exits 1, since an
+  incomplete answer is never a pass. `-o json` prints the API document as
+  sent, nulls included.
 
 ## v0.31.0 — 2026-10-11
 
