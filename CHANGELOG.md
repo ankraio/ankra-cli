@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra security clusters` shows who can reach each cluster's Kubernetes
+  API, and `ankra security access --cluster <cluster>` says what to fix.** The
+  clusters table gains an Access column, for example `3 grants, 1 standing
+  elevated, 2 over policy, impersonate unknown (1 of 3 verified)`: live kube
+  gateway grants, standing grants above `view`, grants the organisation's
+  access policy would refuse today, and grants whose identity the cluster
+  verified can impersonate. A count the platform could not establish or left
+  out reads `unknown`, never 0, `no grants` appears only when every count is
+  a known 0, and a platform that predates the access posture reads
+  `not reported`. The new `security access` view lists every failed check
+  most severe first, each with its grant id, grantee (email when you hold
+  `kube_access.manage`, the Ankra user id otherwise), role and scope, the
+  detail and the revoke or grant command that fixes it, then every check that
+  could not be evaluated, so a short list is never read as a clean one. If
+  the platform leaves the summary, the findings or the unknowns out of its
+  answer, that part reads `not reported` and the command exits 1, since an
+  incomplete answer is never a pass. `-o json` prints the API document as
+  sent, nulls included.
+
 ## v0.31.0 — 2026-10-11
 
 ### Added

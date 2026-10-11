@@ -206,3 +206,104 @@ func TestListSecurityClustersEncodesControls(t *testing.T) {
 		t.Fatalf("clusters not decoded: %+v", list)
 	}
 }
+
+func TestListSecurityClustersKeepsAccessPostureNullAndAbsentApartFromZero(t *testing.T) {
+	var captured http.Request
+	_, apiClient := newSecurityTestServer(t, `{"result": [
+        {"cluster_id": "c1", "cluster_name": "verified", "severity": {},
+         "access_posture": {"grants_total": 3, "standing_elevated": 1, "over_policy": 0,
+            "impersonate_reachable": 0, "impersonate_verified_grants": 3}},
+        {"cluster_id": "c2", "cluster_name": "unknown", "severity": {},
+         "access_posture": {"grants_total": 3, "standing_elevated": 1, "over_policy": null,
+            "impersonate_reachable": null, "impersonate_verified_grants": 1}},
+        {"cluster_id": "c3", "cluster_name": "old-platform", "severity": {}},
+        {"cluster_id": "c4", "cluster_name": "no-total", "severity": {},
+         "access_posture": {"standing_elevated": 0, "over_policy": 0, "impersonate_reachable": 0,
+            "impersonate_verified_grants": 0}},
+        {"cluster_id": "c5", "cluster_name": "only-total", "severity": {}, "access_posture": {"grants_total": 2}}],
+        "pagination": {"page": 1, "page_size": 50, "total_pages": 1, "total_count": 5}}`, &captured)
+
+	list, listError := apiClient.ListSecurityClusters(SecurityClustersOptions{})
+	if listError != nil {
+		t.Fatalf("ListSecurityClusters returned an error: %v", listError)
+	}
+	verified := list.Result[0].AccessPosture
+	if verified == nil || verified.OverPolicy == nil || *verified.OverPolicy != 0 ||
+		verified.ImpersonateReachable == nil || *verified.ImpersonateReachable != 0 {
+		t.Fatalf("a verified 0 must decode as a 0, got %+v", verified)
+	}
+	unknown := list.Result[1].AccessPosture
+	if unknown == nil || unknown.OverPolicy != nil || unknown.ImpersonateReachable != nil || unknown.ImpersonateVerifiedGrants == nil ||
+		*unknown.ImpersonateVerifiedGrants != 1 || unknown.StandingElevated == nil || *unknown.StandingElevated != 1 {
+		t.Fatalf("a null count must decode as nil, never 0, got %+v", unknown)
+	}
+	if list.Result[2].AccessPosture != nil {
+		t.Fatalf("an absent access_posture must decode as nil, got %+v", list.Result[2].AccessPosture)
+	}
+	if verified.GrantsTotal == nil || *verified.GrantsTotal != 3 {
+		t.Fatalf("grants_total not decoded: %+v", verified)
+	}
+	noTotal := list.Result[3].AccessPosture
+	if noTotal == nil || noTotal.GrantsTotal != nil {
+		t.Fatalf("an omitted grants_total must decode as nil, never 0, got %+v", noTotal)
+	}
+	if noTotal.StandingElevated == nil || *noTotal.StandingElevated != 0 ||
+		noTotal.ImpersonateVerifiedGrants == nil || *noTotal.ImpersonateVerifiedGrants != 0 {
+		t.Fatalf("a sent 0 must decode as a known 0, got %+v", noTotal)
+	}
+	onlyTotal := list.Result[4].AccessPosture
+	if onlyTotal == nil || onlyTotal.StandingElevated != nil || onlyTotal.ImpersonateVerifiedGrants != nil ||
+		onlyTotal.OverPolicy != nil || onlyTotal.ImpersonateReachable != nil {
+		t.Fatalf("every omitted count must decode as nil, never 0, got %+v", onlyTotal)
+	}
+}
+
+func TestGetSecurityClusterAccessPostureDecodesFindingsAndUnknowns(t *testing.T) {
+	var captured http.Request
+	_, apiClient := newSecurityTestServer(t, `{"cluster_id": "c1", "evaluated_at": "2026-10-10T08:00:00Z",
+        "summary": {"grants_total": 2, "standing_elevated": 1, "over_policy": 1, "impersonate_reachable": null,
+            "impersonate_verified_grants": 1},
+        "findings": [{"check": "standing_cluster_admin_grant", "severity": "HIGH", "title": "Standing cluster-admin grant",
+            "grant_id": "g1", "ankra_user_id": "u1", "user_email": null, "role": "cluster-admin", "scope": "cluster",
+            "namespace": null, "detail": "No expiry.", "remediation": "ankra cluster access revoke g1 --cluster prod"}],
+        "unknowns": [{"check": "impersonate_reachable", "grant_id": "g2", "reason": "not probed yet"},
+            {"check": "grant_over_policy", "grant_id": null, "reason": "policy unreadable"}]}`, &captured)
+
+	posture, readError := apiClient.GetSecurityClusterAccessPosture(" c1 ")
+	if readError != nil {
+		t.Fatalf("GetSecurityClusterAccessPosture returned an error: %v", readError)
+	}
+	if captured.URL.Path != "/api/v1/org/security/clusters/c1/access-posture" {
+		t.Fatalf("path = %q", captured.URL.Path)
+	}
+	if posture.Summary == nil || posture.Summary.GrantsTotal == nil || *posture.Summary.GrantsTotal != 2 ||
+		posture.Summary.ImpersonateReachable != nil || posture.Summary.OverPolicy == nil || *posture.Summary.OverPolicy != 1 {
+		t.Fatalf("summary not decoded: %+v", posture.Summary)
+	}
+	if len(posture.Findings) != 1 || posture.Findings[0].UserEmail != nil || posture.Findings[0].AnkraUserID != "u1" ||
+		posture.Findings[0].Namespace != nil {
+		t.Fatalf("findings not decoded: %+v", posture.Findings)
+	}
+	if len(posture.Unknowns) != 2 || posture.Unknowns[0].GrantID == nil || posture.Unknowns[1].GrantID != nil {
+		t.Fatalf("unknowns not decoded: %+v", posture.Unknowns)
+	}
+
+	_, nullClient := newSecurityTestServer(t, `{"cluster_id": "c1", "evaluated_at": "2026-10-10T08:00:00Z",
+        "findings": null, "unknowns": null}`, &captured)
+	partial, readError := nullClient.GetSecurityClusterAccessPosture("c1")
+	if readError != nil {
+		t.Fatalf("GetSecurityClusterAccessPosture returned an error: %v", readError)
+	}
+	if partial.Summary != nil || partial.Findings != nil || partial.Unknowns != nil {
+		t.Fatalf("an omitted summary and null lists must stay nil, never zero or empty, got %+v", partial)
+	}
+
+	_, emptyClient := newSecurityTestServer(t, `{"cluster_id": "c1", "evaluated_at": "2026-10-10T08:00:00Z",
+        "summary": {"grants_total": 0, "standing_elevated": 0, "over_policy": 0, "impersonate_reachable": 0,
+            "impersonate_verified_grants": 0}, "findings": [], "unknowns": []}`, &captured)
+	empty, readError := emptyClient.GetSecurityClusterAccessPosture("c1")
+	if readError != nil || empty.Findings == nil || empty.Unknowns == nil || empty.Summary == nil ||
+		empty.Summary.GrantsTotal == nil || *empty.Summary.GrantsTotal != 0 {
+		t.Fatalf("empty lists and a verified 0 must decode as such, got %+v (%v)", empty, readError)
+	}
+}

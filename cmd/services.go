@@ -49,6 +49,7 @@ type APIClient interface {
 	GetSecurityFinding(findingID string) (*client.SecurityFindingDetail, error)
 	GetSecurityAdvisory(cveID string) (*client.SecurityAdvisory, error)
 	ListSecurityClusters(options client.SecurityClustersOptions) (*client.SecurityClusterList, error)
+	GetSecurityClusterAccessPosture(clusterID string) (*client.SecurityClusterAccessPosture, error)
 	ListSecurityNamespaces(options client.SecurityNamespacesOptions) (*client.SecurityNamespaceList, error)
 	ListSecurityPods(options client.SecurityPodsOptions) (*client.SecurityPodList, error)
 	ListClusterSecurityStacks(clusterID string) (*client.SecurityClusterStackList, error)

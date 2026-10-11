@@ -119,8 +119,19 @@ the paged occurrence listing.`,
 
 var securityClustersCmd = &cobra.Command{
 	Use:   "clusters",
-	Short: "Per-cluster security posture and scanner freshness",
-	Args:  cobra.NoArgs,
+	Short: "Per-cluster security posture, scanner freshness and Kubernetes access",
+	Long: `List every cluster's security posture: scanner freshness, actionable and
+known-exploited findings, and the Access line counting its kube gateway grants
+(live grants, standing grants above view, grants over the organisation's
+access policy, and grants whose identity the cluster verified can
+impersonate).
+
+A count the platform could not establish reads "unknown", never 0: over
+policy when the access policy could not be read, impersonate until every live
+grant has a verified probe answer. A platform that predates the access
+posture reads "not reported". Open one cluster's grant findings and their
+fixes with 'ankra security access --cluster <cluster>'.`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		page, _ := cmd.Flags().GetInt("page")
 		pageSize, _ := cmd.Flags().GetInt("page-size")
@@ -489,7 +500,7 @@ func renderSecurityClusters(cmd *cobra.Command, list *client.SecurityClusterList
 		return
 	}
 	writer := newSecurityTable(out)
-	writer.AppendHeader(table.Row{"Cluster", "Environment", "Scanner", "Posture", "Actionable", "Known exploited", "Critical", "High", "Fixable severe", "Latest report"})
+	writer.AppendHeader(table.Row{"Cluster", "Environment", "Scanner", "Posture", "Actionable", "Known exploited", "Critical", "High", "Fixable severe", "Latest report", "Access"})
 	for _, cluster := range list.Result {
 		knownExploited := fmt.Sprintf("%d", cluster.KnownExploited)
 		if cluster.KnownExploited > 0 {
@@ -506,6 +517,7 @@ func renderSecurityClusters(cmd *cobra.Command, list *client.SecurityClusterList
 			cluster.Severity.High,
 			cluster.FixableSevere,
 			optionalTimeAgo(cluster.LatestReportAt),
+			accessPostureCell(cluster.AccessPosture),
 		})
 	}
 	writer.Render()

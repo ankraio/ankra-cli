@@ -1238,6 +1238,10 @@ func (m baseMock) ListSecurityClusters(client.SecurityClustersOptions) (*client.
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetSecurityClusterAccessPosture(string) (*client.SecurityClusterAccessPosture, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListSecurityNamespaces(client.SecurityNamespacesOptions) (*client.SecurityNamespaceList, error) {
 	return nil, errors.New("not implemented")
 }
