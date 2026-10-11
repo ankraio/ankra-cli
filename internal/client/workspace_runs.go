@@ -101,6 +101,11 @@ type WorkspaceRun struct {
 	// platform cannot tell yet.
 	Started    *bool      `json:"started"`
 	FinishedAt *time.Time `json:"finished_at"`
+	// ErrorMessage says why a run that ended without an exit code ended, when
+	// the platform knows: for example that the command ran out of memory,
+	// with the workspace's limit and the profile field to raise. Empty when
+	// there is nothing to say, or the platform predates it.
+	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 // IsStarted reports whether the run's command is known to have started.

@@ -46,6 +46,7 @@ type fakeWorkspaceAPI struct {
 	exportRequests  []client.WorkspaceRunExportRequest
 	exportBodies    map[string][]byte
 	runStates       map[string]string
+	runMessages     map[string]string
 	repositories    []client.PipelineRepository
 	listStatus      int
 	requests        int
@@ -66,6 +67,7 @@ func newFakeWorkspaceAPI(t *testing.T) *fakeWorkspaceAPI {
 		uploads:      map[string][]byte{},
 		exportBodies: map[string][]byte{},
 		runStates:    map[string]string{},
+		runMessages:  map[string]string{},
 		listStatus:   http.StatusOK,
 		repositories: []client.PipelineRepository{{ID: "repo-1", Provider: "github", Owner: "acme", Name: "shop"}},
 	}
@@ -204,11 +206,20 @@ func (api *fakeWorkspaceAPI) serve(writer http.ResponseWriter, request *http.Req
 		runID := path[strings.LastIndex(path, "/")+1:]
 		api.mutex.Lock()
 		state := api.runStates[runID]
+		message := api.runMessages[runID]
 		api.mutex.Unlock()
 		if state == "" {
 			state = "running"
 		}
-		_, _ = io.WriteString(writer, `{"run_id":"`+runID+`","workspace_id":"ws-1","state":"`+state+`","exit_code":null}`)
+		// A run settled with a message is one whose command started and then
+		// died (the platform records why), so it answers started as well.
+		messageMember := ""
+		if message != "" {
+			encoded, _ := json.Marshal(message)
+			messageMember = `,"started":true,"error_message":` + string(encoded)
+		}
+		_, _ = io.WriteString(writer, `{"run_id":"`+runID+`","workspace_id":"ws-1","state":"`+state+`","exit_code":null`+
+			messageMember+`}`)
 	case request.Method == http.MethodPost && strings.HasSuffix(path, "/cancel"):
 		api.mutex.Lock()
 		api.cancels++
@@ -795,6 +806,23 @@ func TestExecSettlesARunThePlatformCannotFollow(t *testing.T) {
 	}
 	if len(environment.api.streamQueries) != 1 {
 		t.Fatalf("an error frame was retried: %q", environment.api.streamQueries)
+	}
+}
+
+// A run the platform settled without an exit code carries why when it knows
+// (an out-of-memory kill names the limit to raise); the client says it even
+// when it learned the end from the run's record rather than the stream.
+func TestExecSaysWhyARunEndedWithoutAnExitCode(t *testing.T) {
+	environment := newExecTestEnv(t)
+	environment.api.runStates["run-1"] = "lost"
+	environment.api.runMessages["run-1"] = "The command ran out of memory: the workspace's limit is 8Gi; raise resources.memory."
+	environment.api.addStreams(func(writer http.ResponseWriter, _ *http.Request) {
+		sseTestFrame(writer, "stdout", base64.StdEncoding.EncodeToString([]byte("partial\n")))
+		sseTestFrame(writer, "error", `{"message":"The run's files are no longer in the workspace.","state":"lost"}`)
+	})
+	_, stderr, code := runExecCommand(t, context.Background(), "go", "test")
+	if code != 1 || !strings.Contains(stderr, "ran out of memory: the workspace's limit is 8Gi") {
+		t.Fatalf("exit = %d; stderr:\n%s", code, stderr)
 	}
 }
 

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra exec` says why a run ended without an exit code when the platform
+  knows.** A command that ran the workspace out of memory now reads "ran out
+  of memory", with the workspace's limit and the profile field to raise
+  (`resources.memory`), even when the output stream was lost and the end was
+  read from the run's record, instead of a bare "ended without a recorded
+  exit code".
+
 ## v0.32.0 — 2026-10-11
 
 ### Added
