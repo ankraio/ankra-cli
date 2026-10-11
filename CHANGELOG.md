@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.31.0 — 2026-10-11
+
 ### Added
 
 - **Restrict which addresses can SSH to a Hetzner, OVHcloud, UpCloud or
