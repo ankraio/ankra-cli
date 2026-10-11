@@ -160,6 +160,20 @@ no write execution running; it knows nothing about your freeze windows, so disab
 one and enable it after. The MCP twins are `get_cluster_agent_status`, `set_cluster_agent_auto_upgrade`
 and `upgrade_cluster_agent`.
 
+## Agent sizing
+
+```bash
+ankra cluster agent resources get                          # memory/CPU limits and requests; "chart default" when unset
+ankra cluster agent resources set --memory-limit 2Gi       # only the flags passed are sent
+ankra cluster agent resources set --memory-limit ""        # clear one member back to the chart default
+```
+
+An agent being OOM-killed needs a bigger memory limit stored here, not a hand-run
+`helm upgrade --set resources.limits.memory=...`: the next agent upgrade renders the hand-set value
+away, while the stored one rides every install and upgrade Ankra generates. The command prints the
+platform's sentence saying whether the agent took the change now, at its next upgrade, or when it
+reconnects.
+
 ## Hosted logs
 
 ```bash

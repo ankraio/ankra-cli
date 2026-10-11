@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster agent resources get|set` sizes the cluster agent's own
+  pod.** `set --memory-limit 2Gi` (and `--memory-request`, `--cpu-limit`,
+  `--cpu-request`) stores the agent's memory and CPU limits and requests on
+  the platform, so every agent install or upgrade Ankra renders carries them,
+  instead of a hand-run `helm upgrade --set resources.limits.memory=...` that
+  the next agent upgrade quietly undid. Only the flags you pass are sent;
+  passing an empty value (`--memory-limit ""`) puts that member back on the
+  chart default. `get` shows the four values ("chart default" for one the
+  cluster does not set), when they last changed and how the platform applied
+  them, and both verbs print the platform's sentence saying whether the agent
+  took the change now, at its next upgrade or when it reconnects. `-o json`
+  keeps unset members as `null`.
+
 ## v0.33.0 — 2026-10-11
 
 ### Added

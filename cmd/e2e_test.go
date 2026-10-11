@@ -1675,6 +1675,15 @@ func (m baseMock) UpdateAgentCISettings(ctx context.Context, clusterID string,
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetAgentResources(ctx context.Context, clusterID string) (*client.AgentResources, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAgentResources(ctx context.Context, clusterID string,
+	update client.AgentResourcesUpdate) (*client.AgentResources, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetClusterHostedLogs(context.Context, string) (*client.ClusterHostedLogs, error) {
 	return nil, errors.New("not implemented")
 }
