@@ -201,6 +201,10 @@ type APIClient interface {
 	UpdateOrganisationDnsRecord(ctx context.Context, recordID, content string, ttl *int) (*client.DnsRecord, error)
 	DeleteOrganisationDnsRecord(ctx context.Context, recordID string) error
 
+	PublishCanvasPublication(ctx context.Context, request client.CanvasPublicationRequest) (*client.CanvasPublicationResult, error)
+	ListCanvasPublications(ctx context.Context, cursor string, limit int) (*client.CanvasPublicationsListResult, error)
+	UnpublishCanvasPublication(ctx context.Context, publicationID string) error
+
 	ListCloudflareCredentials(ctx context.Context) (*client.CloudflareCredentialsListResult, error)
 	VerifyCloudflareToken(ctx context.Context, apiToken, accountID string) (*client.CloudflareVerification, error)
 	ConnectCloudflareCredential(ctx context.Context, name, apiToken, accountID string) (*client.CloudflareVerification, error)
