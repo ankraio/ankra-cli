@@ -584,9 +584,15 @@ func printAgentCIBuildAppArmorProfile(out io.Writer, settings *client.AgentCISet
 		profile = "(runtime default)"
 	}
 	_, _ = fmt.Fprintf(out, "  Build AppArmor:        %s\n", profile)
-	if settings.SupportsBuildAppArmorProfile != nil {
+	switch {
+	case settings.SupportsBuildAppArmorProfile != nil:
 		_, _ = fmt.Fprintf(out, "  AppArmor support:      %s\n",
 			agentCICapabilityLabel(*settings.SupportsBuildAppArmorProfile))
+	case *settings.CIBuildAppArmorProfile != "":
+		// A named profile with no word on whether the agent renders it is
+		// neither in force nor known not to be; say so rather than print the
+		// name alone, which reads as a profile builds run under.
+		_, _ = fmt.Fprintln(out, "  AppArmor support:      not reported")
 	}
 }
 

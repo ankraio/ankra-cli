@@ -119,6 +119,16 @@ func TestClusterAgentCIGetPrintsTheBuildAppArmorProfile(t *testing.T) {
 			expected: []string{"AppArmor support:      not advertised",
 				"A build AppArmor profile is named, but this cluster's agent does not advertise it"},
 		},
+		"named with support not reported": {
+			settings: func() *client.AgentCISettings {
+				settings := newAgentCISettings()
+				profile := "ankra-rootless-buildkit"
+				settings.CIBuildAppArmorProfile = &profile
+				return settings
+			}(),
+			expected:  []string{"Build AppArmor:        ankra-rootless-buildkit", "AppArmor support:      not reported"},
+			forbidden: []string{"AppArmor support:      advertised", "AppArmor support:      not advertised"},
+		},
 		"none": {
 			settings:  agentCIBuildAppArmorSettings("", false),
 			expected:  []string{"Build AppArmor:        (runtime default)"},
