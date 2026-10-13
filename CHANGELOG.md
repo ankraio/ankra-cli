@@ -4,6 +4,13 @@
 
 ### Added
 
+- **`ankra cluster agent status` says when the agent needs a security
+  upgrade.** An agent that does not yet support the scoped NATS credentials
+  shows `Security upgrade: required` with the upgrade command, because it
+  stops connecting once the platform retires the wider credentials it holds
+  today. Nothing is shown when the agent is already on the scoped credentials,
+  or when the platform cannot tell, and `-o json` carries the platform's
+  `security_upgrade_required` value as it is.
 - **`ankra canvas publish|list|unpublish` shares an HTML, SVG or Markdown
   file as a static page at its own URL.** `publish report.html` prints the
   page URL as the last line of output (so `| tail -n 1` captures it), and

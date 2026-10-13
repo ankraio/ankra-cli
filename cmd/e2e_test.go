@@ -5238,3 +5238,49 @@ func (m baseMock) GetServiceRetirement(context.Context, string, string) (*client
 func (m baseMock) ConfirmServiceRetirement(context.Context, string, string, string) (*client.ServiceRetirement, error) {
 	return nil, errors.New("not implemented")
 }
+
+// TestClusterAgentStatusSecurityUpgradeNote pins the security-upgrade note: it
+// shows only when the platform says the upgrade is required. An agent already
+// on the scoped grant, and an answer the platform could not decide (nil), show
+// nothing - nil is not "no upgrade needed", but it is not "required" either.
+func TestClusterAgentStatusSecurityUpgradeNote(t *testing.T) {
+	text.DisableColors()
+
+	agentVersion := "2.1.1190"
+	online := true
+	required := true
+	notRequired := false
+
+	cases := []struct {
+		name       string
+		required   *bool
+		expectNote bool
+	}{
+		{name: "required", required: &required, expectNote: true},
+		{name: "not_required", required: &notRequired, expectNote: false},
+		{name: "undecided", required: nil, expectNote: false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			writeSelectedClusterJSON(t)
+			setMockClient(t, &clusterAgentStatusMock{agent: &client.AgentInfo{
+				AgentVersion:            &agentVersion,
+				CreatedAt:               "2024-01-10T00:00:00Z",
+				IsOnline:                &online,
+				SecurityUpgradeRequired: testCase.required,
+			}})
+
+			stdoutOutput := stripANSICodes(captureStdout(t, func() {
+				_, _ = executeCommand("cluster", "agent", "status")
+			}))
+
+			hasNote := strings.Contains(stdoutOutput, "Security upgrade: required")
+			if hasNote != testCase.expectNote {
+				t.Errorf("security upgrade note shown = %v, want %v; output: %s", hasNote, testCase.expectNote, stdoutOutput)
+			}
+			if testCase.expectNote && !strings.Contains(stdoutOutput, "ankra cluster agent upgrade") {
+				t.Errorf("expected the upgrade command beside the note, got: %s", stdoutOutput)
+			}
+		})
+	}
+}
