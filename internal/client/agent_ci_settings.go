@@ -91,6 +91,14 @@ type AgentCISettings struct {
 	// platform older than the setting, which is "not reported", never "off".
 	CIImagePrepull       *string `json:"ci_image_prepull,omitempty" yaml:"ci_image_prepull,omitempty"`
 	SupportsImagePrepull *bool   `json:"supports_image_prepull,omitempty" yaml:"supports_image_prepull,omitempty"`
+	// CIBuildAppArmorProfile is the node-installed AppArmor profile the
+	// cluster's rootless image builder runs under, as a Localhost profile, ""
+	// for none. SupportsBuildAppArmorProfile says whether the cluster's agent
+	// advertises the capability; without it a named profile renders nothing.
+	// Both are nil on a platform older than the setting, which is "not
+	// reported", never "none".
+	CIBuildAppArmorProfile       *string `json:"ci_build_apparmor_profile,omitempty" yaml:"ci_build_apparmor_profile,omitempty"`
+	SupportsBuildAppArmorProfile *bool   `json:"supports_build_apparmor_profile,omitempty" yaml:"supports_build_apparmor_profile,omitempty"`
 }
 
 // The run reservation modes. off computes nothing (every cluster's default),
@@ -161,7 +169,8 @@ type AgentCIPlacementToleration struct {
 // The placement is written whole: CIPlacement replaces the stored one, and
 // ClearPlacement sends null, which removes it. Neither leaves it untouched.
 //
-// CIRunReservation and CIImagePrepull are sent only when named. Like the
+// CIRunReservation, CIImagePrepull and CIBuildAppArmorProfile are sent only
+// when named; a pointer to "" clears the profile. Like the
 // placement they ride the next step's payload rather than the agent's release,
 // so a write naming nothing else re-renders nothing.
 type AgentCISettingsUpdate struct {
@@ -171,6 +180,8 @@ type AgentCISettingsUpdate struct {
 	ClearPlacement   bool
 	CIRunReservation *string
 	CIImagePrepull   *string
+	// CIBuildAppArmorProfile is documented on the type.
+	CIBuildAppArmorProfile *string
 }
 
 // NamesChartSetting reports whether the write names a setting rendered into
@@ -203,6 +214,9 @@ func (update AgentCISettingsUpdate) MarshalJSON() ([]byte, error) {
 	}
 	if update.CIImagePrepull != nil {
 		body["ci_image_prepull"] = *update.CIImagePrepull
+	}
+	if update.CIBuildAppArmorProfile != nil {
+		body["ci_build_apparmor_profile"] = *update.CIBuildAppArmorProfile
 	}
 	return json.Marshal(body)
 }

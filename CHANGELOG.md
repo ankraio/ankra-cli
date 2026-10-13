@@ -4,6 +4,15 @@
 
 ### Added
 
+- **`ankra cluster agent ci set --build-apparmor-profile <name>` runs the
+  rootless image builder under a Localhost AppArmor profile installed on the
+  cluster's nodes.** On nodes whose container runtime confines the builder
+  with its default AppArmor profile (containerd on Ubuntu denies it the mount
+  rootlesskit needs), builds otherwise fail in-cluster and fall back to Ankra's
+  builders; the build namespace's Pod Security Baseline admits a Localhost
+  profile, so nothing else is relaxed. An empty value clears it. `get` shows
+  `Build AppArmor` and whether the agent advertises it, and the command exits
+  non-zero when a platform predating the setting did not store it.
 - **`ankra cluster agent status` says when the agent needs a security
   upgrade.** An agent that does not yet support the scoped NATS credentials
   shows `Security upgrade: required` with the upgrade command, because it
