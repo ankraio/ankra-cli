@@ -57,18 +57,41 @@ type PipelineTestCase struct {
 	Stage          string  `json:"stage"`
 }
 
+// PipelineTestQuarantinedFailure is one quarantined test that failed in one
+// of a run's failing steps (ankra-q573dh.9.10). DidRescueStep is true when
+// the quarantine turned the step's failure into a success, false when the
+// step failed anyway because another test failed too. QuarantineID is nil
+// once the quarantine row is gone.
+type PipelineTestQuarantinedFailure struct {
+	TestKey        string  `json:"test_key"`
+	Suite          string  `json:"suite"`
+	Name           string  `json:"name"`
+	File           string  `json:"file"`
+	Stage          string  `json:"stage"`
+	StepKey        string  `json:"step_key"`
+	FailureMessage string  `json:"failure_message"`
+	DidRescueStep  bool    `json:"did_rescue_step"`
+	QuarantineID   *string `json:"quarantine_id"`
+}
+
 // PipelineRunTests is the GET …/pipeline-runs/{run_id}/tests body.
 // HasReports false is a run that declared no reports, not a green one.
+//
+// Quarantined lists every quarantined test that failed in a failing step,
+// whether or not the quarantine rescued the step; those tests are still in
+// Failed too. It is empty on a platform older than the quarantine, and left
+// out of -o json then, so an older platform's summary prints as it did.
 type PipelineRunTests struct {
-	RunID       string               `json:"run_id"`
-	HasReports  bool                 `json:"has_reports"`
-	Counts      PipelineTestCounts   `json:"counts"`
-	DurationMS  int64                `json:"duration_ms"`
-	IsTruncated bool                 `json:"is_truncated"`
-	Reports     []PipelineTestReport `json:"reports"`
-	Failed      []PipelineTestCase   `json:"failed"`
-	Flaky       []PipelineTestCase   `json:"flaky"`
-	Slowest     []PipelineTestCase   `json:"slowest"`
+	RunID       string                           `json:"run_id"`
+	HasReports  bool                             `json:"has_reports"`
+	Counts      PipelineTestCounts               `json:"counts"`
+	DurationMS  int64                            `json:"duration_ms"`
+	IsTruncated bool                             `json:"is_truncated"`
+	Reports     []PipelineTestReport             `json:"reports"`
+	Failed      []PipelineTestCase               `json:"failed"`
+	Flaky       []PipelineTestCase               `json:"flaky"`
+	Slowest     []PipelineTestCase               `json:"slowest"`
+	Quarantined []PipelineTestQuarantinedFailure `json:"quarantined,omitempty"`
 }
 
 // PipelineTestHistoryEntry is one run's outcome for a test.

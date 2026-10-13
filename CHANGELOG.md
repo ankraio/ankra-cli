@@ -4,6 +4,23 @@
 
 ### Added
 
+- **`ankra pipeline tests quarantine` keeps a known-flaky test from failing
+  your runs while someone fixes it.** The quarantine is off until `ankra
+  pipeline tests quarantine settings --enable` turns it on for the repository.
+  `quarantine candidates` lists the default branch's tests that qualify
+  (flaky in at least 10% of at least 20 runs over the last 30 days, both
+  adjustable with `--min-flaky-rate` and `--min-samples`), `quarantine add
+  <test key> --reason "..."` quarantines one, and `quarantine release <id or
+  test key>` ends it; a quarantine also ends itself after 10 passes in a row
+  on the default branch (`--release-after`). A quarantined test still runs and
+  is still reported: only a run step whose sole failed tests are quarantined
+  succeeds instead of failing. `ankra pipeline tests <run>` keeps every failed
+  test in its Failed list and adds a "Quarantined failures" section saying
+  whether each one's step was forgiven or failed anyway, and `ankra pipeline
+  get` names the steps the quarantine forgave. The platform's refusals (the
+  quarantine is off, the test is not flaky enough, it is already quarantined)
+  are printed as the platform words them, with exit 1. An older platform's
+  run summaries print exactly as before.
 - **`ankra cluster control-plane-heal get|set` shows and changes whether Ankra
   restarts a NotReady control plane.** When one control plane node has been
   NotReady for several minutes while the others are Ready and etcd keeps

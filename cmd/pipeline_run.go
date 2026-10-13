@@ -787,6 +787,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, sele
 	writer.Render()
 	printPipelineStepQueueing(out, detail)
 	printPipelineStepResourceUse(out, detail)
+	printPipelineStepQuarantinedTests(out, detail)
 	printPipelinePlatformBuilderSteps(out, detail)
 	printPipelineSupersededAttempts(out, detail, selector)
 }
@@ -948,6 +949,36 @@ func printPipelineStepResourceUse(out io.Writer, detail client.PipelineRunDetail
 	for _, line := range lines {
 		_, _ = fmt.Fprintln(out, line)
 	}
+}
+
+// printPipelineStepQuarantinedTests says, under the table, which steps read
+// success only because the repository's test quarantine forgave their failed
+// tests (ankra-q573dh.9.10): every test the step failed was quarantined. The
+// tests themselves are listed by 'ankra pipeline tests <run>'. Nothing is
+// printed when no step was forgiven, which is every run on a platform older
+// than the quarantine.
+func printPipelineStepQuarantinedTests(out io.Writer, detail client.PipelineRunDetail) {
+	lines := []string{}
+	for _, step := range detail.Steps {
+		if step.QuarantinedTestFailures == nil || *step.QuarantinedTestFailures <= 0 {
+			continue
+		}
+		count := *step.QuarantinedTestFailures
+		noun, pronoun := "tests", "them"
+		if count == 1 {
+			noun, pronoun = "test", "it"
+		}
+		lines = append(lines, fmt.Sprintf("  %s: %s (%d quarantined %s failed; the quarantine forgave %s)",
+			step.StepKey, pipelineOutcomeLabel(step.Status, step.Outcome), count, noun, pronoun))
+	}
+	if len(lines) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(out, "\nTest quarantine:")
+	for _, line := range lines {
+		_, _ = fmt.Fprintln(out, line)
+	}
+	_, _ = fmt.Fprintf(out, "  'ankra pipeline tests %s' lists the quarantined failures.\n", detail.ID)
 }
 
 // pipelineStepResourceUseLine is one step's line of the resources section.
