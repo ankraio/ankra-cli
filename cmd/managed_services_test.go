@@ -80,6 +80,12 @@ type fakeServicesPlatform struct {
 	// ignoreInstanceFilters answers the instance inventory unfiltered, as a
 	// platform from before cluster#4053 that ignores the filter keys would.
 	ignoreInstanceFilters bool
+	// olderPackageVersion adds postgresql 0.9.0 from the same publisher, so a
+	// bare "postgresql" matches two versions.
+	olderPackageVersion bool
+	// foreignPackagePublisher adds a postgresql package from another
+	// publisher, so a bare "postgresql" names two different packages.
+	foreignPackagePublisher bool
 }
 
 // fakeServiceOrphanConsumerID is a binding whose application was removed:
@@ -244,11 +250,24 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 	case request.Method == http.MethodGet && path == "/api/v1/org/organisation":
 		fakeServiceJSON(t, writer, http.StatusOK, []any{map[string]any{"organisation_id": fakeServiceOrganisation, "name": "Ankra AB"}})
 	case request.Method == http.MethodGet && path == "/api/v1/org/service-packages":
-		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"next_cursor": nil, "items": []any{
+		packages := []any{
 			map[string]any{"id": fakeServicePackageID, "publisher_id": "a11b7a00-0000-4000-a000-000000000001", "name": "postgresql",
 				"version": "1.0.0", "capability": "database", "digest": "sha256:" + strings.Repeat("c", 64), "first_party": true,
 				"created_at": "2026-09-30T14:56:09Z"},
-		}})
+		}
+		if platform.olderPackageVersion {
+			packages = append(packages, map[string]any{"id": "a5e62beb-0000-4000-8000-000000000090",
+				"publisher_id": "a11b7a00-0000-4000-a000-000000000001", "name": "postgresql", "version": "0.9.0",
+				"capability": "database", "digest": "sha256:" + strings.Repeat("d", 64), "first_party": true,
+				"created_at": "2026-09-01T10:00:00Z"})
+		}
+		if platform.foreignPackagePublisher {
+			packages = append(packages, map[string]any{"id": "a5e62beb-0000-4000-8000-000000000200",
+				"publisher_id": "b22c8b00-0000-4000-a000-000000000002", "name": "postgresql", "version": "2.0.0",
+				"capability": "database", "digest": "sha256:" + strings.Repeat("f", 64), "first_party": false,
+				"created_at": "2026-10-01T10:00:00Z"})
+		}
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"next_cursor": nil, "items": packages})
 	case request.Method == http.MethodGet && path == "/api/v1/org/service-packages/"+fakeServicePackageID:
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": fakeServicePackageID, "publisher_id": "a11b7a00-0000-4000-a000-000000000001",
 			"name": "postgresql", "version": "1.0.0", "capability": "database", "digest": "sha256:" + strings.Repeat("c", 64),
@@ -716,7 +735,8 @@ func TestServicesGetShowsConnectionButNeverSecretValues(t *testing.T) {
 	if runError != nil {
 		t.Fatal(runError)
 	}
-	for _, expected := range []string{"verification_pending", "Health:      serving", "Readiness:   ready - canary logged in",
+	for _, expected := range []string{"Deployment:  deployed - the deployment finished and a readiness check connected",
+		"Health:      serving", "Readiness:   ready - canary logged in", "application storefront, cluster prod, namespace orders",
 		"postgresql-rw.orders-db.svc:5432", "Secret:    postgresql-app (keys: username, password, fqdn-uri)",
 		"ankra cluster get secrets postgresql-app -n orders-db", fakeServiceConsumerID} {
 		if !strings.Contains(stdout, expected) {
@@ -1543,5 +1563,131 @@ func TestServicesSetupShowsTheCapacityVerdict(t *testing.T) {
 	printServiceReviewPlan(&out, &serviceNames{clustersLoaded: true, clusters: map[string]string{}}, "postgresql 1.1.0", review)
 	if strings.Contains(out.String(), "Capacity:") {
 		t.Errorf("a platform that sends no verdict must not be shown one:\n%s", out.String())
+	}
+}
+
+// The deployment column reads the way the portal reads it (ankra-frontend's
+// deploymentView): verification_pending is "deployed" once a readiness check
+// passed and "running" while the workload is observed serving and no check
+// found it failing or unreachable; anything else is the platform's own state.
+func TestServiceDeploymentViewMirrorsThePortal(t *testing.T) {
+	serving := &client.ServiceHealth{State: "serving"}
+	progressing := &client.ServiceHealth{State: "progressing"}
+	cases := []struct {
+		name      string
+		state     string
+		readiness string
+		health    *client.ServiceHealth
+		expected  string
+	}{
+		{"ready check passed", "verification_pending", "ready", progressing, "deployed"},
+		{"serving, no check covers it", "verification_pending", "unverified", serving, "running"},
+		{"serving, check still verifying", "verification_pending", "verifying", serving, "running"},
+		{"serving but the check failed", "verification_pending", "degraded", serving, "verification_pending"},
+		{"serving but the check is stale", "verification_pending", "stale", serving, "verification_pending"},
+		{"not serving yet", "verification_pending", "unverified", progressing, "verification_pending"},
+		{"health never observed", "verification_pending", "unverified", nil, "verification_pending"},
+		{"still deploying", "deploying", "verifying", serving, "deploying"},
+		{"failed", "deployment_failed", "unverified", serving, "deployment_failed"},
+	}
+	for _, testCase := range cases {
+		instance := client.ServiceInstance{DeploymentState: testCase.state, Readiness: testCase.readiness, Health: testCase.health}
+		if view := serviceDeploymentView(instance); view != testCase.expected {
+			t.Errorf("%s: view = %q, want %q", testCase.name, view, testCase.expected)
+		}
+	}
+}
+
+type serviceFailureStepsMock struct {
+	baseMock
+	steps     []client.ExecutionStep
+	stepsErr  error
+	requested string
+}
+
+func (m *serviceFailureStepsMock) ListExecutionSteps(executionID string) ([]client.ExecutionStep, error) {
+	m.requested = executionID
+	return m.steps, m.stepsErr
+}
+
+// A failed deployment says why and what to do next: the failing step's own
+// error, then the commands that show every step, retry, or retire. A step
+// listing that cannot be read is said to be unreadable, never left out.
+func TestServicesGetExplainsAFailedDeployment(t *testing.T) {
+	operationID := "e0000000-0000-4000-8000-000000000010"
+	excerpt := "Install Helm release opensearch: StatefulSet/audit-search/opensearch not ready:\n context deadline exceeded"
+	instance := client.ServiceInstance{Name: "audit-search", DeploymentState: "deployment_failed", DeploymentOperationID: &operationID}
+
+	mock := &serviceFailureStepsMock{steps: []client.ExecutionStep{
+		{Name: "render", Status: "completed"},
+		{Name: "install", Status: "failed", ErrorExcerpt: &excerpt},
+	}}
+	previousClient := apiClient
+	apiClient = mock
+	t.Cleanup(func() { apiClient = previousClient })
+
+	var out bytes.Buffer
+	printServiceDeploymentFailure(&out, instance)
+	if mock.requested != operationID {
+		t.Fatalf("read steps of %q, want the deployment operation %q", mock.requested, operationID)
+	}
+	for _, expected := range []string{
+		"Failure:     step install (failed): Install Helm release opensearch: StatefulSet/audit-search/opensearch not ready: context deadline exceeded",
+		"ankra cluster operations steps " + operationID,
+		"ankra cluster operations retry " + operationID,
+		"ankra services delete audit-search",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Errorf("failure output lacks %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "step render") {
+		t.Errorf("a step without an error must not be printed as a failure:\n%s", out.String())
+	}
+
+	mock.steps, mock.stepsErr = nil, errors.New("503 service unavailable")
+	out.Reset()
+	printServiceDeploymentFailure(&out, instance)
+	if !strings.Contains(out.String(), "the failing step could not be read (503 service unavailable)") ||
+		!strings.Contains(out.String(), "ankra cluster operations steps "+operationID) {
+		t.Errorf("an unreadable step listing must be named and still offer the next command:\n%s", out.String())
+	}
+}
+
+// A bare package name picks the newest version when one publisher publishes
+// it, and says so on stderr so -o output stays parseable; a name two
+// publishers share is still refused rather than guessed.
+func TestServicesPackageBareNameResolvesTheNewestVersion(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.olderPackageVersion = true
+	stdout, stderr, runError := runServicesCommand(t, platform, "", "packages", "get", "postgresql", "-o", "json")
+	if runError != nil {
+		t.Fatal(runError)
+	}
+	var detail client.ServicePackageDetail
+	if decodeError := json.Unmarshal([]byte(stdout), &detail); decodeError != nil || detail.Version != "1.0.0" {
+		t.Fatalf("packages get postgresql = %v %+v, want 1.0.0 as parseable JSON", decodeError, detail)
+	}
+	if !strings.Contains(stderr, "Using postgresql 1.0.0, the newest version") {
+		t.Errorf("the picked version must be named on stderr:\n%s", stderr)
+	}
+
+	platform.foreignPackagePublisher = true
+	_, _, runError = runServicesCommand(t, platform, "", "packages", "get", "postgresql")
+	if runError == nil || !strings.Contains(runError.Error(), "packages match") {
+		t.Fatalf("a name two publishers share must be refused, got %v", runError)
+	}
+}
+
+// The setup review names the consumer's application, not only its id.
+func TestServicesSetupReviewNamesTheApplication(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	stdout, _, runError := runServicesCommand(t, platform, "", "setup", "orders-db", "--package", "postgresql",
+		"--cluster", fakeServiceClusterID, "--consumer", fakeServiceConsumerID, "--review-only")
+	if runError != nil {
+		t.Fatal(runError)
+	}
+	if !strings.Contains(stdout, "application storefront") {
+		t.Errorf("the review must name the consumer's application:\n%s", stdout)
 	}
 }
