@@ -88,3 +88,21 @@ func TestPipelineRunReservationLine(t *testing.T) {
 		}
 	}
 }
+
+// A state this CLI does not know is named as the server sent it rather than
+// read as "waiting", and a reservation wait is printed even when the server
+// could not derive a queue reason.
+func TestPipelineRunDetailPrintsAnUnknownReservationWaitStateAsSent(t *testing.T) {
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, client.PipelineRunDetail{
+		PipelineRun:            client.PipelineRun{RunNumber: 12, ID: "run-12", Status: "running"},
+		QueueReasonUnavailable: "Why this run is queued could not be read.",
+		ReservationWait:        &client.PipelineRunReservationWait{State: "placing", WaitedSeconds: 30},
+	}, client.PipelineSelector{})
+	rendered := output.String()
+	for _, expected := range []string{"  Reserving: reservation wait \"placing\" for 30s", "could not be read"} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("output missing %q:\n%s", expected, rendered)
+		}
+	}
+}

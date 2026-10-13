@@ -636,17 +636,18 @@ func printPipelineRunWaiting(out io.Writer, detail client.PipelineRunDetail) {
 		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", message)
 		return
 	}
-	if unavailable := strings.TrimSpace(detail.QueueReasonUnavailable); unavailable != "" {
-		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", unavailable)
-		return
-	}
 	if wait := detail.ReservationWait; wait != nil {
 		if message := strings.TrimSpace(wait.Message); message != "" {
 			_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", message)
 		}
-		state := "waiting for a node with room for this run"
-		if wait.State == "returned_to_queue" {
+		var state string
+		switch wait.State {
+		case "waiting":
+			state = "waiting for a node with room for this run"
+		case "returned_to_queue":
 			state = fmt.Sprintf("returned to the queue %s while waiting for room", pluralTimes(int(wait.ReturnedToQueueCount)))
+		default:
+			state = fmt.Sprintf("reservation wait %q", wait.State)
 		}
 		line := fmt.Sprintf("%s for %s", state, time.Duration(wait.WaitedSeconds)*time.Second)
 		if room := describeReservationRoom(wait.CPUMillicores, wait.MemoryBytes); room != "" {
@@ -654,6 +655,9 @@ func printPipelineRunWaiting(out io.Writer, detail client.PipelineRunDetail) {
 		}
 		_, _ = fmt.Fprintf(out, "  Reserving: %s\n", line)
 		return
+	}
+	if unavailable := strings.TrimSpace(detail.QueueReasonUnavailable); unavailable != "" {
+		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", unavailable)
 	}
 	if unavailable := strings.TrimSpace(detail.ReservationWaitUnavailable); unavailable != "" {
 		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", unavailable)
