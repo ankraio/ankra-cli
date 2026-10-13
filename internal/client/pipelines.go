@@ -170,6 +170,11 @@ type PipelineRun struct {
 	PromotionMessage  *string `json:"promotion_message"`
 	PromotedFromRunID *string `json:"promoted_from_run_id"`
 	HeadTreeSHA       *string `json:"head_tree_sha"`
+	// Reservation is the run's capacity reservation (ankra-q573dh.3): the
+	// mode its cluster ran it under and the room estimated for it, beside the
+	// peak its steps were observed to use. Nil on a server older than the
+	// field and on a run its cluster never estimated.
+	Reservation *PipelineRunReservation `json:"reservation,omitempty"`
 }
 
 // PipelineStep is the wire shape of a `pipeline_run_steps` row.
@@ -282,6 +287,40 @@ type PipelineRunDetail struct {
 	// empty when it did. An empty QueueReason alone is not "nothing is
 	// blocking this run" while this is set.
 	QueueReasonUnavailable string `json:"queue_reason_unavailable"`
+	// ReservationWait says a RUNNING run's first step is waiting for a node
+	// with room for the run's reservation (ankra-q573dh.3.4), or was handed
+	// back to the queue while it waited. Nil when it is not waiting, and on
+	// servers older than the field.
+	ReservationWait *PipelineRunReservationWait `json:"reservation_wait,omitempty"`
+	// ReservationWaitUnavailable is why the server could not tell whether the
+	// run is waiting on its reservation. A nil ReservationWait is not "not
+	// waiting" while this is set.
+	ReservationWaitUnavailable string `json:"reservation_wait_unavailable,omitempty"`
+}
+
+// PipelineRunReservation is a run's capacity reservation: Mode is "off",
+// "shadow" (estimated and recorded, never held) or "on" (held on the run's
+// node), and each figure is nil when it is not known.
+type PipelineRunReservation struct {
+	Mode                  string `json:"mode"`
+	CPUMillicores         *int64 `json:"cpu_millicores"`
+	MemoryBytes           *int64 `json:"memory_bytes"`
+	ObservedCPUMillicores *int64 `json:"observed_cpu_millicores"`
+	ObservedMemoryBytes   *int64 `json:"observed_memory_bytes"`
+}
+
+// PipelineRunReservationWait is the run detail's account of a run whose
+// first step waits for a node with room for its reservation. State is
+// "waiting" or "returned_to_queue"; Message is the platform's sentence, shown
+// as written.
+type PipelineRunReservationWait struct {
+	State                string `json:"state"`
+	Since                string `json:"since"`
+	WaitedSeconds        int64  `json:"waited_seconds"`
+	CPUMillicores        *int64 `json:"cpu_millicores"`
+	MemoryBytes          *int64 `json:"memory_bytes"`
+	ReturnedToQueueCount int64  `json:"returned_to_queue_count"`
+	Message              string `json:"message"`
 }
 
 // ListPipelineRunsOptions is the GET …/pipeline-runs query.
