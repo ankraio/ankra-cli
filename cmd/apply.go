@@ -859,16 +859,14 @@ func buildApplication(applicationMap map[string]interface{}, baseDir string) (cl
 	}
 
 	encoded := ""
-	_, hasInline := applicationMap["manifest"]
-	_, hasFile := applicationMap["from_file"]
-	_, hasEncoded := applicationMap["manifest_base64"]
-	if hasInline || hasFile || hasEncoded {
-		content, err := buildManifest(map[string]interface{}{
-			"name":            name,
-			"manifest":        applicationMap["manifest"],
-			"from_file":       applicationMap["from_file"],
-			"manifest_base64": applicationMap["manifest_base64"],
-		}, baseDir)
+	manifestSource := map[string]interface{}{"name": name}
+	for _, key := range []string{"manifest", "from_file", "manifest_base64"} {
+		if value, isPresent := applicationMap[key]; isPresent && value != nil {
+			manifestSource[key] = value
+		}
+	}
+	if len(manifestSource) > 1 {
+		content, err := buildManifest(manifestSource, baseDir)
 		if err != nil {
 			return client.ImportApplication{}, err
 		}
@@ -894,11 +892,17 @@ func buildApplication(applicationMap map[string]interface{}, baseDir string) (cl
 	}
 
 	var encryptedPaths []string
-	if rawPaths, ok := applicationMap["encrypted_paths"].([]interface{}); ok {
-		for _, rawPath := range rawPaths {
-			if path, ok := rawPath.(string); ok {
-				encryptedPaths = append(encryptedPaths, path)
+	if rawPaths, isPresent := applicationMap["encrypted_paths"]; isPresent && rawPaths != nil {
+		pathList, isList := rawPaths.([]interface{})
+		if !isList {
+			return client.ImportApplication{}, fmt.Errorf("'encrypted_paths' must be a list of strings (got %T)", rawPaths)
+		}
+		for pathIndex, rawPath := range pathList {
+			path, isString := rawPath.(string)
+			if !isString {
+				return client.ImportApplication{}, fmt.Errorf("encrypted_paths entry %d must be a string (got %v of type %T)", pathIndex+1, rawPath, rawPath)
 			}
+			encryptedPaths = append(encryptedPaths, path)
 		}
 	}
 
