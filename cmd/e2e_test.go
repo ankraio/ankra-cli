@@ -1704,6 +1704,14 @@ func (m baseMock) SetClusterHostedLogShipping(context.Context, string, bool) (*c
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetControlPlaneHeal(context.Context, string) (*client.ControlPlaneHeal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetControlPlaneHeal(context.Context, string, bool) (*client.ControlPlaneHeal, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateHetznerCluster(req client.CreateHetznerClusterRequest) (*client.CreateHetznerClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
