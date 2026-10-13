@@ -40,6 +40,21 @@
   not roll the deployment. `ankra application pipeline rerun --help` shows
   the same text.
 
+### Fixed
+
+- **`ankra cluster apply` now applies a stack's `applications:`.** Until now
+  the block was read by nothing and dropped without a word: `--dry-run`
+  accepted the file, the platform stored the stack with no applications, and
+  a file that moved a manifest into an application removed the manifest and
+  never created the application, taking the workload down with it. Each
+  application takes `name`, `platform_application_id`,
+  `platform_application_version`, `namespace`, `parameters`, `parents`,
+  `encrypted_paths` and its manifest from `manifest`, `from_file` or
+  `manifest_base64` (or none, to let the platform render the Ankra
+  application's own manifests). Parents may name applications, and an
+  application may depend on manifests and add-ons, checked for undeclared
+  parents and cycles like every other member.
+
 ## v0.33.0 — 2026-10-11
 
 ### Added
