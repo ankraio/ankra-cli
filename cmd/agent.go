@@ -68,6 +68,12 @@ var clusterAgentStatusCmd = &cobra.Command{
 			fmt.Printf("  Auto-upgrade: %s\n", text.FgGreen.Sprint("enabled"))
 		}
 
+		if agent.SecurityUpgradeRequired != nil && *agent.SecurityUpgradeRequired {
+			fmt.Printf("\n  Security upgrade: %s\n", text.FgYellow.Sprint("required"))
+			fmt.Println("  This agent must be upgraded for a security update; it stops connecting once the platform retires its current credentials.")
+			fmt.Println("  Run 'ankra cluster agent upgrade' to upgrade it now.")
+		}
+
 		if agent.UpgradeAvailable {
 			fmt.Printf("\n  Upgrade Available: %s\n", text.FgYellow.Sprint("Yes"))
 			if agent.LatestAgentVersion != nil {

@@ -16,6 +16,11 @@ type AgentInfo struct {
 	LatestAgentVersion *string `json:"latest_agent_version,omitempty"`
 	DisableAutoUpgrade bool    `json:"disable_auto_upgrade"`
 	IsOnline           *bool   `json:"is_online,omitempty"`
+	// SecurityUpgradeRequired is true when the agent must be upgraded before
+	// the platform switches its legacy NATS grant off, false when it already
+	// holds the scoped grant, and nil when the platform cannot decide (or is
+	// too old to report it). Nil is not "no upgrade needed".
+	SecurityUpgradeRequired *bool `json:"security_upgrade_required,omitempty"`
 }
 
 type AgentToken struct {
