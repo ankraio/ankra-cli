@@ -72,6 +72,25 @@ func TestAgentCISettingsLaneParity(t *testing.T) {
 		},
 	})
 
+	defaultReservation := AgentCIRunReservationDefault
+	lanes = append(lanes, struct {
+		name       string
+		wantMethod string
+		wantBody   map[string]any
+		call       func(testClient *Client) error
+	}{
+		// "default" is write-only and travels as itself: the platform turns
+		// it into a cleared choice, and an older platform refuses it.
+		name:       "set sends the default as itself",
+		wantMethod: http.MethodPut,
+		wantBody:   map[string]any{"ci_run_reservation": "default"},
+		call: func(testClient *Client) error {
+			_, updateError := testClient.UpdateAgentCISettings(context.Background(), "cluster-1",
+				AgentCISettingsUpdate{CIRunReservation: &defaultReservation})
+			return updateError
+		},
+	})
+
 	for _, lane := range lanes {
 		t.Run(lane.name, func(t *testing.T) {
 			var seenMethod, seenPath string
@@ -171,11 +190,19 @@ func TestGetAgentCISettingsDecodesTheRunReservation(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		body          string
 		wantMode      *string
+		wantSource    *string
 		wantSupported *bool
 	}{
 		"current platform": {
 			body:          `{"ci_worker_count":2,"ci_run_reservation":"shadow","supports_run_reservation":true}`,
 			wantMode:      strPtr(AgentCIRunReservationShadow),
+			wantSupported: boolPtr(true),
+		},
+		"platform with the default": {
+			body: `{"ci_worker_count":2,"ci_run_reservation":"on","ci_run_reservation_source":"default",` +
+				`"supports_run_reservation":true}`,
+			wantMode:      strPtr(AgentCIRunReservationOn),
+			wantSource:    strPtr(AgentCIRunReservationSourceDefault),
 			wantSupported: boolPtr(true),
 		},
 		"older platform": {body: `{"ci_worker_count":2}`},
@@ -188,6 +215,10 @@ func TestGetAgentCISettingsDecodesTheRunReservation(t *testing.T) {
 			settings, getError := testClient.GetAgentCISettings(context.Background(), "cluster-1")
 			if getError != nil {
 				t.Fatalf("GetAgentCISettings error = %v", getError)
+			}
+			if (settings.CIRunReservationSource == nil) != (testCase.wantSource == nil) ||
+				(settings.CIRunReservationSource != nil && *settings.CIRunReservationSource != *testCase.wantSource) {
+				t.Errorf("ci_run_reservation_source = %v, want %v", settings.CIRunReservationSource, testCase.wantSource)
 			}
 			if (settings.CIRunReservation == nil) != (testCase.wantMode == nil) ||
 				(settings.CIRunReservation != nil && *settings.CIRunReservation != *testCase.wantMode) {
@@ -239,6 +270,22 @@ func TestAgentCISettingsRefusalsSurfaceVerbatim(t *testing.T) {
 		}
 		if unexpected.Error() != "cluster not found in this organisation" {
 			t.Errorf("message = %q, want the server's detail verbatim", unexpected.Error())
+		}
+	})
+
+	// A platform older than the run reservation default refuses "default"
+	// with its own sentence, which reaches the caller unchanged.
+	t.Run("an older platform's refusal of the default is its own", func(t *testing.T) {
+		refusal := "Run reservation must be 'off', 'shadow' or 'on'."
+		testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+			jsonResponse(t, writer, http.StatusUnprocessableEntity, map[string]any{"detail": refusal})
+		})
+
+		defaultReservation := AgentCIRunReservationDefault
+		_, updateError := testClient.UpdateAgentCISettings(context.Background(), "cluster-1",
+			AgentCISettingsUpdate{CIRunReservation: &defaultReservation})
+		if updateError == nil || updateError.Error() != refusal {
+			t.Fatalf("error = %v, want the server's detail verbatim", updateError)
 		}
 	})
 

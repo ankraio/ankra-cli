@@ -248,10 +248,13 @@ Per cluster: `ankra cluster agent ci set --workers N --storage-class <sc> --clus
 release; an agent older than 2.1.1108 cannot take the values and 2.1.1115+ is the CI-lane floor.
 `--node-group <group>` (or `--node-selector k=v`, `--toleration k[=v]:Effect`, `--placement
 required|preferred`, `--clear-placement`) puts every pipeline pod on chosen nodes, and
-`--run-reservation off|shadow|on` (default `off`) makes each run reserve the room its later steps
-need on its node first; `shadow` sizes and records the reservation without holding anything, so
-start there. `on` needs `Reservation support: advertised` on `ankra cluster agent ci get` and can
-add or hold a node. Both apply to the next dispatched step with no agent restart.
+`--run-reservation off|shadow|on|default` makes each run reserve the room its later steps need on
+its node first. A cluster that never chose follows the platform default: `on` where its agent
+advertises run reservation and it runs Kubernetes 1.33 or later, `off` elsewhere (`ankra cluster
+agent ci get` shows `on (platform default)` or `off (chosen)`). `off` opts the cluster out,
+`default` returns it to the default; `shadow` sizes and records the reservation without holding
+anything. `on` needs `Reservation support: advertised` and can add or hold a node. Both apply to
+the next dispatched step with no agent restart.
 
 ## Lanes that are API-only today
 

@@ -9,6 +9,8 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -183,6 +185,152 @@ func TestClusterAgentCIGetStructuredOutputCarriesTheRunReservation(t *testing.T)
 		t.Fatalf("stdout is not parseable JSON (%v):\n%s", decodeError, output)
 	}
 	if decoded["ci_run_reservation"] != "shadow" || decoded["supports_run_reservation"] != false {
+		t.Errorf("decoded = %v", decoded)
+	}
+}
+
+// agentCIRunReservationSourced is a settings answer from a platform that has
+// the run reservation default: the effective mode and where it came from.
+func agentCIRunReservationSourced(mode string, source string, isSupported bool) *client.AgentCISettings {
+	settings := agentCIRunReservationSettings(mode, isSupported)
+	settings.CIRunReservationSource = &source
+	return settings
+}
+
+// --run-reservation default returns the cluster to the platform default
+// (ankra-q573dh.3.5): it is sent as itself, normalised like the modes, and
+// the answer reads as the default's mode for this cluster.
+func TestClusterAgentCISetSendsTheRunReservationDefault(t *testing.T) {
+	for _, value := range []string{"default", " DEFAULT "} {
+		t.Run(value, func(t *testing.T) {
+			mock := &agentCIMock{settings: agentCIRunReservationSourced(client.AgentCIRunReservationOn,
+				client.AgentCIRunReservationSourceDefault, true)}
+			output, runError := runAgentCICommand(t, mock, "cluster", "agent", "ci", "set",
+				"--run-reservation", value)
+			if runError != nil {
+				t.Fatalf("set: %v", runError)
+			}
+			if mock.lastUpdate.CIRunReservation == nil ||
+				*mock.lastUpdate.CIRunReservation != client.AgentCIRunReservationDefault {
+				t.Fatalf("run reservation sent = %v, want default", mock.lastUpdate.CIRunReservation)
+			}
+			for _, expected := range []string{
+				"Run reservation:       on (platform default)",
+				agentCIPayloadOnlySentence,
+				agentCIRunReservationDefaultSentence,
+			} {
+				if !strings.Contains(output, expected) {
+					t.Errorf("output is missing %q:\n%s", expected, output)
+				}
+			}
+		})
+	}
+}
+
+// Opting out is a chosen off, and the answer says so; the default sentence
+// belongs only to a write that named default.
+func TestClusterAgentCISetPrintsAChosenOptOut(t *testing.T) {
+	mock := &agentCIMock{settings: agentCIRunReservationSourced(client.AgentCIRunReservationOff,
+		client.AgentCIRunReservationSourceChosen, true)}
+	output, runError := runAgentCICommand(t, mock, "cluster", "agent", "ci", "set", "--run-reservation", "off")
+	if runError != nil {
+		t.Fatalf("set: %v", runError)
+	}
+	if !strings.Contains(output, "Run reservation:       off (chosen)") {
+		t.Errorf("output is missing the chosen opt-out:\n%s", output)
+	}
+	if strings.Contains(output, agentCIRunReservationDefaultSentence) {
+		t.Errorf("a chosen mode is reported as the platform default:\n%s", output)
+	}
+}
+
+// A platform older than the default refuses "default" with its own
+// sentence: the command returns it as it came and prints no settings.
+func TestClusterAgentCISetReturnsAnOlderPlatformsRefusalOfTheDefault(t *testing.T) {
+	// The platform's sentence, as an older platform words it; wrapped
+	// through %s because it is a sentence, not a Go error string.
+	refusal := fmt.Errorf("%s", "Run reservation must be 'off', 'shadow' or 'on'.")
+	mock := &agentCIMock{updateError: refusal}
+	output, runError := runAgentCICommand(t, mock, "cluster", "agent", "ci", "set", "--run-reservation", "default")
+	if !errors.Is(runError, refusal) {
+		t.Fatalf("error = %v, want the platform's refusal as it came", runError)
+	}
+	if mock.updateCalls != 1 {
+		t.Errorf("default must reach the platform, which owns the refusal; sent %d", mock.updateCalls)
+	}
+	if strings.Contains(output, "Agent CI settings updated") {
+		t.Errorf("a refused write is reported as stored:\n%s", output)
+	}
+}
+
+func TestClusterAgentCISetRefusalNamesTheDefault(t *testing.T) {
+	mock := &agentCIMock{settings: newAgentCISettings()}
+	_, runError := runAgentCICommand(t, mock, "cluster", "agent", "ci", "set", "--run-reservation", "auto")
+	if runError == nil || exitCodeFor(runError) != exitUsage {
+		t.Fatalf("error = %v, want a usage error", runError)
+	}
+	if !strings.Contains(runError.Error(), "off, shadow, on, default") {
+		t.Errorf("the refusal names every value a write may send: %v", runError)
+	}
+}
+
+// The source decorates the mode only when the platform sends it; an older
+// platform's answer prints exactly as it did before.
+func TestClusterAgentCIGetPrintsTheRunReservationSource(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		settings *client.AgentCISettings
+		expected string
+	}{
+		"platform default on": {
+			settings: agentCIRunReservationSourced(client.AgentCIRunReservationOn,
+				client.AgentCIRunReservationSourceDefault, true),
+			expected: "  Run reservation:       on (platform default)\n",
+		},
+		"platform default off": {
+			settings: agentCIRunReservationSourced(client.AgentCIRunReservationOff,
+				client.AgentCIRunReservationSourceDefault, false),
+			expected: "  Run reservation:       off (platform default)\n",
+		},
+		"chosen off": {
+			settings: agentCIRunReservationSourced(client.AgentCIRunReservationOff,
+				client.AgentCIRunReservationSourceChosen, true),
+			expected: "  Run reservation:       off (chosen)\n",
+		},
+		"unknown source": {
+			settings: agentCIRunReservationSourced(client.AgentCIRunReservationShadow, "policy", true),
+			expected: "  Run reservation:       shadow (policy)\n",
+		},
+		"platform without a source": {
+			settings: agentCIRunReservationSettings(client.AgentCIRunReservationShadow, true),
+			expected: "  Run reservation:       shadow\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			output, runError := runAgentCICommand(t, &agentCIMock{settings: testCase.settings},
+				"cluster", "agent", "ci", "get")
+			if runError != nil {
+				t.Fatalf("get: %v", runError)
+			}
+			if !strings.Contains(output, testCase.expected) {
+				t.Errorf("output is missing %q:\n%s", testCase.expected, output)
+			}
+		})
+	}
+}
+
+func TestClusterAgentCIGetStructuredOutputCarriesTheRunReservationSource(t *testing.T) {
+	output, runError := runAgentCICommand(t,
+		&agentCIMock{settings: agentCIRunReservationSourced(client.AgentCIRunReservationOn,
+			client.AgentCIRunReservationSourceDefault, true)},
+		"cluster", "agent", "ci", "get", "-o", "json")
+	if runError != nil {
+		t.Fatalf("get: %v", runError)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+		t.Fatalf("stdout is not parseable JSON (%v):\n%s", decodeError, output)
+	}
+	if decoded["ci_run_reservation"] != "on" || decoded["ci_run_reservation_source"] != "default" {
 		t.Errorf("decoded = %v", decoded)
 	}
 }

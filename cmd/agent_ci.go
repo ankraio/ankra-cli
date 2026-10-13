@@ -96,7 +96,9 @@ tainted node group without editing any pipeline's runs_on.
 
 The run reservation decides whether a run first reserves the room its later
 steps need on its node, so another run's pods cannot take it between two
-steps: off (the default), shadow (sized and recorded, nothing held) or on.
+steps: off, shadow (sized and recorded, nothing held) or on. A cluster that
+never chose follows the platform default: on where its agent supports run
+reservation and it runs Kubernetes 1.33 or later, off everywhere else.
 
 The image pre-pull decides whether the agent keeps the images the platform's
 own steps run in - the checkout's git client, the scanners, the rootless
@@ -118,7 +120,9 @@ pipeline steps, and how the last write was applied. The placement block names
 the node group, node selector, tolerations and mode, and how many Ready nodes
 it admits right now. The run reservation and image pre-pull modes are shown
 with whether the agent advertises each; a platform that predates a setting
-shows neither of its lines.
+shows neither of its lines. The run reservation says where its mode comes
+from: "on (platform default)" for a cluster that never chose, "off (chosen)"
+for one somebody set.
 
 An agent that has not yet re-rendered its release reports pipeline steps as
 not advertised even with a non-zero worker count stored: the capability is
@@ -202,15 +206,20 @@ and is never held to the organisation's runs_on allow-lists. --clear-placement
 removes it. --workers is optional when only the storage class or the placement
 changes.
 
---run-reservation off|shadow|on decides whether each run first reserves, on
-its node, the room its later steps will need, held by one placeholder pod per
-run, so another run's pods cannot take that room between two steps. off (every
-cluster's default) reserves nothing. shadow sizes each run's reservation and
-records it beside what its steps requested, and holds nothing: use it to check
-the estimate first. on holds it, which can add a node or keep one up while a
-run is between steps; it needs an agent that advertises run reservation, and
-until the agent does, on behaves as shadow. Like the placement it applies to
-the next step dispatched, with no agent restart, and off is the way back.
+--run-reservation off|shadow|on|default decides whether each run first
+reserves, on its node, the room its later steps will need, held by one
+placeholder pod per run, so another run's pods cannot take that room between
+two steps. A cluster that never chose follows the platform default: on where
+its agent advertises run reservation and the cluster runs Kubernetes 1.33 or
+later, off everywhere else. off reserves nothing and is the per-cluster
+opt-out: a chosen off stays off whatever the default does. shadow sizes each
+run's reservation and records it beside what its steps requested, and holds
+nothing: use it to check the estimate first. on holds it, which can add a node
+or keep one up while a run is between steps; it needs an agent that
+advertises run reservation, and until the agent does, on behaves as shadow.
+default clears the choice and returns the cluster to the platform default.
+Like the placement it applies to the next step dispatched, with no agent
+restart.
 
 --image-prepull off|on decides whether the agent keeps the platform's own
 step images (the checkout's git client, the trivy, checkov and semgrep
@@ -229,6 +238,8 @@ off (the default) removes it with the next step dispatched.`,
   ankra cluster agent ci set --node-selector pool=ci --toleration dedicated=ci:NoSchedule --placement preferred
   ankra cluster agent ci set --clear-placement
   ankra cluster agent ci set --run-reservation shadow --cluster ci-01
+  ankra cluster agent ci set --run-reservation off --cluster ci-01
+  ankra cluster agent ci set --run-reservation default --cluster ci-01
   ankra cluster agent ci set --image-prepull on --cluster ci-01`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
@@ -251,8 +262,9 @@ off (the default) removes it with the next step dispatched.`,
 		"Placement mode: required (default) keeps pipeline pods on the selected nodes, preferred favours them")
 	setCommand.Flags().Bool("clear-placement", false, "Remove the cluster's CI placement")
 	setCommand.Flags().String("run-reservation", "",
-		"Run reservation: off (default) reserves nothing, shadow sizes and records each run's reservation "+
-			"without holding it, on holds a run's room on its node between its steps")
+		"Run reservation: off reserves nothing (the opt-out), shadow sizes and records each run's reservation "+
+			"without holding it, on holds a run's room on its node between its steps, default follows the "+
+			"platform default (on where the agent supports it on Kubernetes 1.33+, off elsewhere)")
 	setCommand.Flags().String("image-prepull", "",
 		"Image pre-pull: off (default) pulls the platform's step images on demand, on keeps them pulled on "+
 			"every node pipeline steps can land on")
@@ -351,19 +363,21 @@ func parseAgentCIToleration(text string) (client.AgentCIPlacementToleration, err
 // agentCIRunReservationFromFlag reads --run-reservation, nil when it is not
 // named. The value is checked here, before anything is sent, because the
 // vocabulary is closed and a misspelling should not cost a round trip; the
-// platform validates it again.
+// platform validates it again. "default" is sent as itself: a platform older
+// than the run reservation default refuses it with its own sentence, which is
+// returned as it came.
 func agentCIRunReservationFromFlag(command *cobra.Command) (*string, error) {
 	if !command.Flags().Changed("run-reservation") {
 		return nil, nil
 	}
 	mode := strings.ToLower(strings.TrimSpace(mustFlagString(command, "run-reservation")))
-	for _, known := range client.AgentCIRunReservationModes {
+	for _, known := range client.AgentCIRunReservationWriteValues {
 		if mode == known {
 			return &mode, nil
 		}
 	}
 	return nil, withExitCode(exitUsage, fmt.Errorf("--run-reservation must be %s, got %q",
-		strings.Join(client.AgentCIRunReservationModes, ", "), mustFlagString(command, "run-reservation")))
+		strings.Join(client.AgentCIRunReservationWriteValues, ", "), mustFlagString(command, "run-reservation")))
 }
 
 // agentCIImagePrepullFromFlag reads --image-prepull, nil when it is not named.
@@ -445,8 +459,19 @@ func runClusterAgentCISet(command *cobra.Command) error {
 	out := command.OutOrStdout()
 	_, _ = fmt.Fprintf(out, "Agent CI settings updated for cluster '%s'.\n\n", cluster.Name)
 	printAgentCISettings(out, settings, !update.NamesChartSetting())
+	if unstoredError == nil && update.CIRunReservation != nil &&
+		*update.CIRunReservation == client.AgentCIRunReservationDefault {
+		_, _ = fmt.Fprintf(out, "\n%s\n", agentCIRunReservationDefaultSentence)
+	}
 	return unstoredError
 }
+
+// agentCIRunReservationDefaultSentence follows a write that returned the
+// cluster to the platform default, so the mode printed above reads as the
+// default's answer for this cluster rather than as something that was chosen.
+const agentCIRunReservationDefaultSentence = "Run reservation follows the platform default again: on where " +
+	"the cluster's agent supports it and the cluster runs Kubernetes 1.33 or later, off elsewhere. " +
+	"--run-reservation off opts out."
 
 // agentCIRunReservationNotStored is the error for a write that named a run
 // reservation the platform's answer does not carry: the platform predates the
@@ -542,10 +567,30 @@ func printAgentCIRunReservation(out io.Writer, settings *client.AgentCISettings)
 	if settings.CIRunReservation == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(out, "  Run reservation:       %s\n", *settings.CIRunReservation)
+	_, _ = fmt.Fprintf(out, "  Run reservation:       %s\n", agentCIRunReservationLabel(settings))
 	if settings.SupportsRunReservation != nil {
 		_, _ = fmt.Fprintf(out, "  Reservation support:   %s\n",
 			agentCICapabilityLabel(*settings.SupportsRunReservation))
+	}
+}
+
+// agentCIRunReservationLabel renders the effective mode with where it comes
+// from: "on (platform default)" for a cluster that never chose, "off (chosen)"
+// for one somebody set. A platform older than the default sends no source and
+// the mode is printed alone, as it always was; a source this build does not
+// know is a newer platform's and is shown as itself.
+func agentCIRunReservationLabel(settings *client.AgentCISettings) string {
+	mode := *settings.CIRunReservation
+	if settings.CIRunReservationSource == nil || *settings.CIRunReservationSource == "" {
+		return mode
+	}
+	switch source := *settings.CIRunReservationSource; source {
+	case client.AgentCIRunReservationSourceDefault:
+		return mode + " (platform default)"
+	case client.AgentCIRunReservationSourceChosen:
+		return mode + " (chosen)"
+	default:
+		return fmt.Sprintf("%s (%s)", mode, source)
 	}
 }
 

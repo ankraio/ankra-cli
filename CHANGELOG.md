@@ -37,6 +37,16 @@
 
 ### Changed
 
+- **`ankra cluster agent ci set --run-reservation default` returns a cluster
+  to the platform's run reservation default**, which is now `on` where the
+  cluster's agent supports run reservation and the cluster runs Kubernetes
+  1.33 or later, and `off` everywhere else. A cluster that chose a mode keeps
+  it: `--run-reservation off` is the per-cluster opt-out and stays off
+  whatever the default does, and `default` clears that choice again. `ankra
+  cluster agent ci get` says where the mode comes from, as `on (platform
+  default)` or `off (chosen)`, and `-o json` carries the platform's
+  `ci_run_reservation_source`. A platform older than the default prints the
+  mode alone, as before, and refuses `default` with its own message (exit 1).
 - **`ankra pipeline rerun --help` describes how the platform plans a re-run
   now.** A re-run repeats the original event: a re-run of a push runs its
   push-only stages, a re-run of a pull request plans as a pull request, and a

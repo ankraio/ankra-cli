@@ -79,7 +79,14 @@ type AgentCISettings struct {
 	// "on" reserves nothing and the cluster's steps run exactly as under
 	// "shadow". Both are nil on a platform older than the setting, which is
 	// "not reported", never "off".
+	//
+	// A platform that has a run reservation default reports the EFFECTIVE
+	// mode here - what the cluster chose, or what the platform default
+	// resolves to for a cluster that never chose - and says which in
+	// CIRunReservationSource ("chosen" or "default"). The source is nil on a
+	// platform older than the default, where the mode is the stored one.
 	CIRunReservation       *string `json:"ci_run_reservation,omitempty" yaml:"ci_run_reservation,omitempty"`
+	CIRunReservationSource *string `json:"ci_run_reservation_source,omitempty" yaml:"ci_run_reservation_source,omitempty"`
 	SupportsRunReservation *bool   `json:"supports_run_reservation,omitempty" yaml:"supports_run_reservation,omitempty"`
 	// CIImagePrepull is the cluster's platform step image pre-pull mode (off
 	// or on): whether the cluster's agent keeps the images the platform's own
@@ -93,19 +100,45 @@ type AgentCISettings struct {
 	SupportsImagePrepull *bool   `json:"supports_image_prepull,omitempty" yaml:"supports_image_prepull,omitempty"`
 }
 
-// The run reservation modes. off computes nothing (every cluster's default),
-// shadow computes and records each run's reservation without holding any
-// capacity, and on asks the cluster's agent to hold it.
+// The run reservation modes. off computes nothing, shadow computes and
+// records each run's reservation without holding any capacity, and on asks
+// the cluster's agent to hold it. A cluster that never chose follows the
+// platform default: on where its agent advertises run reservation and it runs
+// Kubernetes 1.33 or later, off everywhere else.
 const (
 	AgentCIRunReservationOff    = "off"
 	AgentCIRunReservationShadow = "shadow"
 	AgentCIRunReservationOn     = "on"
 )
 
+// AgentCIRunReservationDefault is the write-only value that clears a
+// cluster's choice so it follows the platform default again. It is never
+// read back: a read answers the mode the default resolves to, with
+// CIRunReservationSource "default". A platform older than the default
+// refuses it with its own sentence.
+const AgentCIRunReservationDefault = "default"
+
+// The sources a platform reports beside the effective run reservation mode.
+const (
+	// AgentCIRunReservationSourceChosen is a mode a write named for the
+	// cluster, kept exactly whatever the default later becomes.
+	AgentCIRunReservationSourceChosen = "chosen"
+	// AgentCIRunReservationSourceDefault is the platform default for the
+	// cluster's agent and Kubernetes version: nobody chose.
+	AgentCIRunReservationSourceDefault = "default"
+)
+
 // AgentCIRunReservationModes lists the modes in the order help text and
 // refusals name them.
 var AgentCIRunReservationModes = []string{
 	AgentCIRunReservationOff, AgentCIRunReservationShadow, AgentCIRunReservationOn,
+}
+
+// AgentCIRunReservationWriteValues lists what a write may name: the modes
+// and the write-only AgentCIRunReservationDefault.
+var AgentCIRunReservationWriteValues = []string{
+	AgentCIRunReservationOff, AgentCIRunReservationShadow, AgentCIRunReservationOn,
+	AgentCIRunReservationDefault,
 }
 
 // The image pre-pull modes. off sends nothing and removes a pre-pull the
