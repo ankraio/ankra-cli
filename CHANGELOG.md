@@ -4,6 +4,18 @@
 
 ### Added
 
+- **`ankra cluster control-plane-heal get|set` shows and changes whether Ankra
+  restarts a NotReady control plane.** When one control plane node has been
+  NotReady for several minutes while the others are Ready and etcd keeps
+  quorum without it, Ankra can restart just that node through your cloud
+  provider. `get` shows the switch (on by default) and the latest episode:
+  which node, how it ended or why Ankra is not restarting it yet, and whether
+  the platform acted or only recorded what it would have done (shadow).
+  `set --enabled=false` turns the restart off for the cluster, `--enabled=true`
+  turns it back on; the flag is required so a change is always explicit, and
+  turning it off needs `clusters.write` and does not ask for confirmation. The
+  NotReady card stays visible either way, and `-o json` prints the platform's
+  answer as it is.
 - **`ankra cluster agent status` says when the agent needs a security
   upgrade.** An agent that does not yet support the scoped NATS credentials
   shows `Security upgrade: required` with the upgrade command, because it

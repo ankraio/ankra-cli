@@ -532,6 +532,8 @@ type APIClient interface {
 	UpdateAgentResources(ctx context.Context, clusterID string, update client.AgentResourcesUpdate) (*client.AgentResources, error)
 	GetClusterHostedLogs(ctx context.Context, clusterID string) (*client.ClusterHostedLogs, error)
 	SetClusterHostedLogShipping(ctx context.Context, clusterID string, enabled bool) (*client.ClusterHostedLogs, error)
+	GetControlPlaneHeal(ctx context.Context, clusterID string) (*client.ControlPlaneHeal, error)
+	SetControlPlaneHeal(ctx context.Context, clusterID string, enabled bool) (*client.ControlPlaneHeal, error)
 
 	CreateHetznerCluster(req client.CreateHetznerClusterRequest) (*client.CreateHetznerClusterResponse, error)
 	DeprovisionHetznerCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionHetznerClusterResponse, error)
