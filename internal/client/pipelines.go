@@ -233,19 +233,25 @@ type PipelineStep struct {
 	// limit, and how long the script ran. Each is nil when not recorded - an
 	// older platform or agent, a step the platform runs itself - which is not
 	// a step that used nothing.
-	CPURequestMillicores     *int64  `json:"cpu_request_millicores,omitempty"`
-	CPULimitMillicores       *int64  `json:"cpu_limit_millicores,omitempty"`
-	MemoryRequestBytes       *int64  `json:"memory_request_bytes,omitempty"`
-	MemoryLimitBytes         *int64  `json:"memory_limit_bytes,omitempty"`
-	MemoryPeakBytes          *int64  `json:"memory_peak_bytes,omitempty"`
-	MemoryLimitHits          *int64  `json:"memory_limit_hits,omitempty"`
-	MemoryOOMKills           *int64  `json:"memory_oom_kills,omitempty"`
-	CPUUsageMicroseconds     *int64  `json:"cpu_usage_usec,omitempty"`
-	CPUThrottledMicroseconds *int64  `json:"cpu_throttled_usec,omitempty"`
-	UsageElapsedMicroseconds *int64  `json:"usage_elapsed_usec,omitempty"`
-	FinishedAt               *string `json:"finished_at"`
-	CreatedAt                string  `json:"created_at"`
-	UpdatedAt                string  `json:"updated_at"`
+	CPURequestMillicores     *int64 `json:"cpu_request_millicores,omitempty"`
+	CPULimitMillicores       *int64 `json:"cpu_limit_millicores,omitempty"`
+	MemoryRequestBytes       *int64 `json:"memory_request_bytes,omitempty"`
+	MemoryLimitBytes         *int64 `json:"memory_limit_bytes,omitempty"`
+	MemoryPeakBytes          *int64 `json:"memory_peak_bytes,omitempty"`
+	MemoryLimitHits          *int64 `json:"memory_limit_hits,omitempty"`
+	MemoryOOMKills           *int64 `json:"memory_oom_kills,omitempty"`
+	CPUUsageMicroseconds     *int64 `json:"cpu_usage_usec,omitempty"`
+	CPUThrottledMicroseconds *int64 `json:"cpu_throttled_usec,omitempty"`
+	UsageElapsedMicroseconds *int64 `json:"usage_elapsed_usec,omitempty"`
+	// QuarantinedTestFailures is how many failed tests the repository's test
+	// quarantine forgave this step, which is why it reads success
+	// (ankra-q573dh.9.10). Nil for every step the quarantine did not rescue,
+	// and on platforms older than the quarantine; the run's test summary
+	// lists the tests.
+	QuarantinedTestFailures *int    `json:"quarantined_test_failures,omitempty"`
+	FinishedAt              *string `json:"finished_at"`
+	CreatedAt               string  `json:"created_at"`
+	UpdatedAt               string  `json:"updated_at"`
 }
 
 // PipelineRunList is the GET …/pipeline-runs body.

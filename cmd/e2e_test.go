@@ -3272,6 +3272,26 @@ func (m baseMock) GetPipelineTestTimings(ctx context.Context, selector client.Pi
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetPipelineTestQuarantine(ctx context.Context, selector client.PipelineSelector) (*client.PipelineTestQuarantineView, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetPipelineTestQuarantineSettings(ctx context.Context, selector client.PipelineSelector, update client.PipelineTestQuarantineSettingsUpdate) (*client.PipelineTestQuarantineSettings, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListPipelineTestQuarantineCandidates(ctx context.Context, selector client.PipelineSelector, limit int) (*client.PipelineTestQuarantineCandidates, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) QuarantinePipelineTest(ctx context.Context, selector client.PipelineSelector, request client.QuarantinePipelineTestRequest) (*client.PipelineTestQuarantine, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReleasePipelineTestQuarantine(ctx context.Context, selector client.PipelineSelector, quarantineID string, reason string) (*client.PipelineTestQuarantine, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetPipelineDefinition(ctx context.Context, selector client.PipelineSelector) (*client.PipelineDefinition, error) {
 	return nil, errors.New("not implemented")
 }
