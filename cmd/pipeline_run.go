@@ -1373,22 +1373,39 @@ func runPipelineCancel(command *cobra.Command, selector client.PipelineSelector,
 	return nil
 }
 
+// pipelineRerunLong is the help shared by `pipeline rerun` and
+// `application pipeline rerun`. It follows the platform's rerun planning
+// (cluster#4496): a re-run is planned as the event of the run it repeats.
+const pipelineRerunLong = `Open a new run from a run that already happened.
+
+The new run is a fresh run, not a retry of the old one: the old run's outcome
+stays the record of what happened. The new run is recorded with trigger
+'rerun', and 'rerun_of_run_id' ties the two together.
+
+A re-run repeats the original event. A re-run of a push run is planned as a
+push, so its push-only stages run. A re-run of a pull request run (or of a
+merge train car) is planned as a pull request, and a re-run of a schedule run
+as that schedule. A re-run of a tag run or of a manual or API dispatch is
+planned as a plain re-run, so stages limited to other events are skipped.
+
+A re-run's publish pushes the sha- image, but that image does not become the
+push-to-deploy candidate, so a re-run does not roll the deployment.
+
+--failed-only restricts the new run to the steps that failed, the steps that
+were skipped because of a failure, whatever depends on them, and the steps
+they build on. The new run starts from an empty workspace, so the checkout and
+every upstream step whose output a repeated step reads run again with it;
+steps that succeeded and that nothing repeated needs do not. A failed-only
+re-run that would still skip one of those steps (for example a tag-only
+release behind a failed build, on a re-run of a tag run) is refused with the
+reason rather than passing without it.`
+
 func newPipelineRerunCommand() *cobra.Command {
 	rerunCommand := &cobra.Command{
 		Use:   "rerun <run>",
 		Short: "Re-run a concluded pipeline run",
-		Long: `Open a new run from a run that already happened.
-
-The new run is a fresh run, not a retry of the old one: the old run's outcome
-stays the record of what happened, and 'rerun_of_run_id' ties the two together.
---failed-only restricts the new run to the steps that did not succeed,
-whatever depended on them, and the steps they build on. The new run starts
-from an empty workspace, so the checkout and every upstream step whose output
-a repeated step reads run again with it; steps that succeeded and that nothing
-repeated needs (a publish after the failure, say) do not. A failed-only re-run
-that could not run a step that failed - a push-only stage, which a re-run's
-trigger filters out - is refused with the reason rather than passing without it.`,
-		Args: cobra.ExactArgs(1),
+		Long:  pipelineRerunLong,
+		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
 			if selectorError != nil {

@@ -211,6 +211,7 @@ func newApplicationPipelineRerunCommand() *cobra.Command {
 	rerunCommand := &cobra.Command{
 		Use:   "rerun <application-id> <run>",
 		Short: "Re-run a concluded pipeline run",
+		Long:  pipelineRerunLong,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			applicationID, resolveError := resolveApplicationArgument(command, arguments)

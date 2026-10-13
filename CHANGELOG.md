@@ -28,6 +28,18 @@
   took the change now, at its next upgrade or when it reconnects. `-o json`
   keeps unset members as `null`.
 
+### Changed
+
+- **`ankra pipeline rerun --help` describes how the platform plans a re-run
+  now.** A re-run repeats the original event: a re-run of a push runs its
+  push-only stages, a re-run of a pull request plans as a pull request, and a
+  re-run of a schedule as that schedule, while a re-run of a tag or a manual
+  or API dispatch stays a plain re-run. The help no longer says a re-run's
+  trigger filters push-only stages out. It also says that `--failed-only`
+  re-checks steps skipped behind a failure, and that a re-run's publish does
+  not roll the deployment. `ankra application pipeline rerun --help` shows
+  the same text.
+
 ## v0.33.0 — 2026-10-11
 
 ### Added
