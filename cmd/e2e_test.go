@@ -893,6 +893,18 @@ func (m baseMock) DeleteOrganisationDnsRecord(ctx context.Context, recordID stri
 	return errors.New("not implemented")
 }
 
+func (m baseMock) PublishCanvasPublication(ctx context.Context, request client.CanvasPublicationRequest) (*client.CanvasPublicationResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListCanvasPublications(ctx context.Context, cursor string, limit int) (*client.CanvasPublicationsListResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UnpublishCanvasPublication(ctx context.Context, publicationID string) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) ListOrganisationClusterDnsZones(ctx context.Context) (*client.DnsClusterZonesListResult, error) {
 	return nil, errors.New("not implemented")
 }

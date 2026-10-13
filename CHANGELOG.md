@@ -4,6 +4,17 @@
 
 ### Added
 
+- **`ankra canvas publish|list|unpublish` shares an HTML, SVG or Markdown
+  file as a static page at its own URL.** `publish report.html` prints the
+  page URL as the last line of output (so `| tail -n 1` captures it), and
+  `-o json` prints the publication instead. Publishing the same file again
+  updates the same page and keeps the URL, because the page is identified by a
+  hash of the file's absolute path unless you pass `--conversation-id` and
+  `--artifact-id` yourself; moving the file publishes a new page. The language
+  comes from the extension (`--language` overrides it); any other language, or
+  a file over 200000 characters, is refused before anything is sent. `--title`
+  and `--ttl-hours` set the page title and how long it stays live. `list`
+  shows the organisation's pages and `unpublish <id>` takes one down.
 - **`ankra cluster agent resources get|set` sizes the cluster agent's own
   pod.** `set --memory-limit 2Gi` (and `--memory-request`, `--cpu-limit`,
   `--cpu-request`) stores the agent's memory and CPU limits and requests on
