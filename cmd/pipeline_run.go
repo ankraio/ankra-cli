@@ -632,6 +632,9 @@ func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, ru
 // reservation (ankra-q573dh.3.4) says so the same way: the platform's own
 // sentence, then the room it is holding out for and how long it has waited.
 func printPipelineRunWaiting(out io.Writer, detail client.PipelineRunDetail) {
+	// A queue reason is derived only for a queued run and a reservation wait
+	// only for a running one, so the two never describe the same run; the
+	// queue sentence is the whole answer whenever it is present.
 	if message := strings.TrimSpace(detail.QueueReasonMessage); message != "" {
 		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", message)
 		return
@@ -645,7 +648,10 @@ func printPipelineRunWaiting(out io.Writer, detail client.PipelineRunDetail) {
 		case "waiting":
 			state = "waiting for a node with room for this run"
 		case "returned_to_queue":
-			state = fmt.Sprintf("returned to the queue %s while waiting for room", pluralTimes(int(wait.ReturnedToQueueCount)))
+			state = "returned to the queue while waiting for room"
+			if wait.ReturnedToQueueCount > 0 {
+				state = fmt.Sprintf("returned to the queue %s while waiting for room", pluralTimes(int(wait.ReturnedToQueueCount)))
+			}
 		default:
 			state = fmt.Sprintf("reservation wait %q", wait.State)
 		}

@@ -119,3 +119,17 @@ func TestPipelineRunDetailNeverPrintsANegativeReservationWait(t *testing.T) {
 		t.Errorf("a negative wait must print as 0s:\n%s", rendered)
 	}
 }
+
+// A returned-to-queue wait whose count the server did not send says so
+// without a count rather than "0 times".
+func TestPipelineRunDetailPrintsAReturnedWaitWithNoCount(t *testing.T) {
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, client.PipelineRunDetail{
+		PipelineRun:     client.PipelineRun{RunNumber: 14, ID: "run-14", Status: "running"},
+		ReservationWait: &client.PipelineRunReservationWait{State: "returned_to_queue", WaitedSeconds: 60},
+	}, client.PipelineSelector{})
+	rendered := output.String()
+	if !strings.Contains(rendered, "returned to the queue while waiting for room for 1m0s") || strings.Contains(rendered, "0 times") {
+		t.Errorf("a returned wait with no count must not say 0 times:\n%s", rendered)
+	}
+}
