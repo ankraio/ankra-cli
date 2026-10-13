@@ -106,3 +106,16 @@ func TestPipelineRunDetailPrintsAnUnknownReservationWaitStateAsSent(t *testing.T
 		}
 	}
 }
+
+// A clock skew that puts the wait's start ahead of the server's now never
+// prints a negative wait.
+func TestPipelineRunDetailNeverPrintsANegativeReservationWait(t *testing.T) {
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, client.PipelineRunDetail{
+		PipelineRun:     client.PipelineRun{RunNumber: 13, ID: "run-13", Status: "running"},
+		ReservationWait: &client.PipelineRunReservationWait{State: "waiting", WaitedSeconds: -5},
+	}, client.PipelineSelector{})
+	if rendered := output.String(); !strings.Contains(rendered, "for 0s") || strings.Contains(rendered, "-5s") {
+		t.Errorf("a negative wait must print as 0s:\n%s", rendered)
+	}
+}

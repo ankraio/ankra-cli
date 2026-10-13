@@ -649,17 +649,15 @@ func printPipelineRunWaiting(out io.Writer, detail client.PipelineRunDetail) {
 		default:
 			state = fmt.Sprintf("reservation wait %q", wait.State)
 		}
-		line := fmt.Sprintf("%s for %s", state, time.Duration(wait.WaitedSeconds)*time.Second)
+		line := fmt.Sprintf("%s for %s", state, time.Duration(max(wait.WaitedSeconds, 0))*time.Second)
 		if room := describeReservationRoom(wait.CPUMillicores, wait.MemoryBytes); room != "" {
 			line += " (" + room + ")"
 		}
 		_, _ = fmt.Fprintf(out, "  Reserving: %s\n", line)
-		return
-	}
-	if unavailable := strings.TrimSpace(detail.QueueReasonUnavailable); unavailable != "" {
+	} else if unavailable := strings.TrimSpace(detail.ReservationWaitUnavailable); unavailable != "" {
 		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", unavailable)
 	}
-	if unavailable := strings.TrimSpace(detail.ReservationWaitUnavailable); unavailable != "" {
+	if unavailable := strings.TrimSpace(detail.QueueReasonUnavailable); unavailable != "" {
 		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", unavailable)
 	}
 }
