@@ -49,6 +49,26 @@
 
 ### Changed
 
+- **`ankra services list` and `get` say when a service is running.** A
+  service the platform still records as `verification_pending` now reads
+  `deployed` once a readiness check has connected to it, and `running` while
+  Ankra observes it serving with no failing check, the same words the portal
+  uses. Before, every engine read `verification_pending` for its whole life,
+  which reads as "not done". `-o json` keeps the platform's own value.
+- **A failed service setup says why.** `ankra services get` on a
+  `deployment_failed` service prints the failing step's error and the next
+  commands: `ankra cluster operations steps <id>` to see every step,
+  `ankra cluster operations retry <id>` to try again, or `ankra services
+  delete <name>` to retire it. Before, the reason was only in the operations
+  list.
+- **Service consumers are named by their application.** `setup`, the setup
+  review, `get` and `delete` print the application's name instead of its id.
+- **A bare package name picks the newest version.** `ankra services packages
+  get postgresql` and `ankra services setup --package postgresql` use the
+  newest version of the package and say which one on stderr, instead of
+  refusing because several versions exist. A name two publishers share is
+  still refused; pass `name@version` or the id.
+
 - **`ankra pipeline rerun --help` describes how the platform plans a re-run
   now.** A re-run repeats the original event: a re-run of a push runs its
   push-only stages, a re-run of a pull request plans as a pull request, and a
