@@ -4,6 +4,15 @@
 
 ### Added
 
+- **`ankra cluster agent ci set --build-apparmor-profile <name>` runs the
+  rootless image builder under a Localhost AppArmor profile installed on the
+  cluster's nodes.** On nodes whose container runtime confines the builder
+  with its default AppArmor profile (containerd on Ubuntu denies it the mount
+  rootlesskit needs), builds otherwise fail in-cluster and fall back to Ankra's
+  builders; the build namespace's Pod Security Baseline admits a Localhost
+  profile, so nothing else is relaxed. An empty value clears it. `get` shows
+  `Build AppArmor` and whether the agent advertises it, and the command exits
+  non-zero when a platform predating the setting did not store it.
 - **`ankra pipeline tests quarantine` keeps a known-flaky test from failing
   your runs while someone fixes it.** The quarantine is off until `ankra
   pipeline tests quarantine settings --enable` turns it on for the repository.

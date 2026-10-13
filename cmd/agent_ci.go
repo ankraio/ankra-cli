@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -221,7 +222,20 @@ checkout, scan or build waits. The images are pinned by digest and follow
 the platform: a platform release that moves one moves the pre-pull with the
 next step dispatched. Each node keeps about 0.9 GB of images it would
 otherwise pull on demand. It needs an agent that advertises image pre-pull;
-off (the default) removes it with the next step dispatched.`,
+off (the default) removes it with the next step dispatched.
+
+--build-apparmor-profile <name> runs the rootless image builder under a
+Localhost AppArmor profile installed on the cluster's nodes under that name.
+On nodes whose container runtime confines the builder with its default
+AppArmor profile (containerd on Ubuntu denies the builder its mount), builds
+otherwise fail in-cluster and fall back to Ankra's builders. The build
+namespace's Pod Security Baseline admits a Localhost profile, so nothing else
+is relaxed. Install the profile on every node builds can run on first: a node
+without it makes the build wait rather than run. The name is a DNS-1123
+subdomain other than unconfined; pass an empty value to go back to the
+runtime's default. It needs an agent that advertises the capability, applies
+to the next build dispatched with no agent restart, and the next build is
+probed in-cluster again even if the cluster was known to confine the builder.`,
 		Example: `  ankra cluster agent ci set --workers 2
   ankra cluster agent ci set --workers 4 --storage-class proxmox-csi
   ankra cluster agent ci set --workers 0 --cluster edge-01
@@ -229,7 +243,8 @@ off (the default) removes it with the next step dispatched.`,
   ankra cluster agent ci set --node-selector pool=ci --toleration dedicated=ci:NoSchedule --placement preferred
   ankra cluster agent ci set --clear-placement
   ankra cluster agent ci set --run-reservation shadow --cluster ci-01
-  ankra cluster agent ci set --image-prepull on --cluster ci-01`,
+  ankra cluster agent ci set --image-prepull on --cluster ci-01
+  ankra cluster agent ci set --build-apparmor-profile ankra-rootless-buildkit --cluster ci-01`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runClusterAgentCISet(command)
@@ -256,6 +271,9 @@ off (the default) removes it with the next step dispatched.`,
 	setCommand.Flags().String("image-prepull", "",
 		"Image pre-pull: off (default) pulls the platform's step images on demand, on keeps them pulled on "+
 			"every node pipeline steps can land on")
+	setCommand.Flags().String("build-apparmor-profile", "",
+		"Node-installed AppArmor profile the rootless image builder runs under (Localhost); pass empty to "+
+			"use the runtime's default (omit the flag to keep the stored value)")
 	registerStructuredOutputFlags(setCommand)
 	return setCommand
 }
@@ -383,6 +401,31 @@ func agentCIImagePrepullFromFlag(command *cobra.Command) (*string, error) {
 		strings.Join(client.AgentCIImagePrepullModes, ", "), mustFlagString(command, "image-prepull")))
 }
 
+// agentCIBuildAppArmorProfilePattern is the DNS-1123 subdomain grammar, label
+// by label, that the platform and the agent hold the profile name to.
+var agentCIBuildAppArmorProfilePattern = regexp.MustCompile(
+	`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+
+// agentCIBuildAppArmorProfileFromFlag reads --build-apparmor-profile, nil when
+// it is not named and a pointer to "" when it is named empty, which clears the
+// stored profile. A malformed name is refused here before anything is sent;
+// the platform validates it again.
+func agentCIBuildAppArmorProfileFromFlag(command *cobra.Command) (*string, error) {
+	if !command.Flags().Changed("build-apparmor-profile") {
+		return nil, nil
+	}
+	profile := strings.TrimSpace(mustFlagString(command, "build-apparmor-profile"))
+	if profile == "" {
+		return &profile, nil
+	}
+	if len(profile) > 253 || profile == "unconfined" || !agentCIBuildAppArmorProfilePattern.MatchString(profile) {
+		return nil, withExitCode(exitUsage, fmt.Errorf("--build-apparmor-profile must name a profile installed on "+
+			"the cluster's nodes: lower-case letters, digits, '-' and '.', each dot-separated part starting and "+
+			"ending with a letter or digit, at most 253 characters, and not unconfined; got %q", profile))
+	}
+	return &profile, nil
+}
+
 func runClusterAgentCISet(command *cobra.Command) error {
 	format, formatError := structuredFormatFromFlags(command)
 	if formatError != nil {
@@ -408,18 +451,23 @@ func runClusterAgentCISet(command *cobra.Command) error {
 	if imagePrepullError != nil {
 		return imagePrepullError
 	}
+	buildAppArmorProfile, buildAppArmorProfileError := agentCIBuildAppArmorProfileFromFlag(command)
+	if buildAppArmorProfileError != nil {
+		return buildAppArmorProfileError
+	}
 	update := client.AgentCISettingsUpdate{
-		CIWorkerCount:    changedIntFlag(command, "workers"),
-		CIStorageClass:   changedStringFlag(command, "storage-class"),
-		CIPlacement:      placement,
-		ClearPlacement:   isClearingPlacement,
-		CIRunReservation: runReservation,
-		CIImagePrepull:   imagePrepull,
+		CIWorkerCount:          changedIntFlag(command, "workers"),
+		CIStorageClass:         changedStringFlag(command, "storage-class"),
+		CIPlacement:            placement,
+		ClearPlacement:         isClearingPlacement,
+		CIRunReservation:       runReservation,
+		CIImagePrepull:         imagePrepull,
+		CIBuildAppArmorProfile: buildAppArmorProfile,
 	}
 	if !update.NamesChartSetting() && placement == nil && !isClearingPlacement && runReservation == nil &&
-		imagePrepull == nil {
+		imagePrepull == nil && buildAppArmorProfile == nil {
 		return withExitCode(exitUsage, fmt.Errorf(`required flag(s) "workers" not set: pass --workers, `+
-			`--storage-class, --run-reservation, --image-prepull, or a placement flag (--node-group, `+
+			`--storage-class, --run-reservation, --image-prepull, --build-apparmor-profile, or a placement flag (--node-group, `+
 			`--node-selector, --toleration, --placement, --clear-placement)`))
 	}
 
@@ -435,7 +483,7 @@ func runClusterAgentCISet(command *cobra.Command) error {
 	// without ci_run_reservation. Saying "updated" and exiting 0 would tell
 	// the caller a mode is in force that the platform never stored.
 	unstoredError := errors.Join(agentCIRunReservationNotStored(update, settings),
-		agentCIImagePrepullNotStored(update, settings))
+		agentCIImagePrepullNotStored(update, settings), agentCIBuildAppArmorProfileNotStored(update, settings))
 	if format != outputDefault {
 		if encodeError := encodeStructured(command.OutOrStdout(), format, settings); encodeError != nil {
 			return encodeError
@@ -470,9 +518,22 @@ func agentCIImagePrepullNotStored(update client.AgentCISettingsUpdate, settings 
 		"setting; the other settings shown were stored", *update.CIImagePrepull)
 }
 
+// agentCIBuildAppArmorProfileNotStored is the error for a write that named a
+// build AppArmor profile the platform's answer does not carry: the platform
+// predates the setting, so whatever else the write named is stored and the
+// profile is not.
+func agentCIBuildAppArmorProfileNotStored(update client.AgentCISettingsUpdate,
+	settings *client.AgentCISettings) error {
+	if update.CIBuildAppArmorProfile == nil || settings.CIBuildAppArmorProfile != nil {
+		return nil
+	}
+	return fmt.Errorf("the platform did not store --build-apparmor-profile %q: it predates the build AppArmor "+
+		"profile setting; the other settings shown were stored", *update.CIBuildAppArmorProfile)
+}
+
 // agentCIPayloadOnlySentence reports a write that named only settings the
 // platform carries on each step's payload (the placement, the run
-// reservation, the image pre-pull). Nothing was published to the agent, so the apply state, which
+// reservation, the image pre-pull, the build AppArmor profile). Nothing was published to the agent, so the apply state, which
 // describes the agent's release, would say "re-rendering" for a release
 // nobody touched.
 const agentCIPayloadOnlySentence = "Stored; it applies to the next pipeline step dispatched, " +
@@ -493,6 +554,7 @@ func printAgentCISettings(out io.Writer, settings *client.AgentCISettings, isPay
 	}
 	printAgentCIRunReservation(out, settings)
 	printAgentCIImagePrepull(out, settings)
+	printAgentCIBuildAppArmorProfile(out, settings)
 	printAgentCIPlacement(out, settings)
 	if isPayloadOnlyWrite {
 		_, _ = fmt.Fprintf(out, "\n%s\n", agentCIPayloadOnlySentence)
@@ -505,6 +567,48 @@ func printAgentCISettings(out io.Writer, settings *client.AgentCISettings, isPay
 	if note := agentCIImagePrepullNote(settings); note != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", note)
 	}
+	if note := agentCIBuildAppArmorProfileNote(settings); note != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", note)
+	}
+}
+
+// printAgentCIBuildAppArmorProfile renders the profile and whether the agent
+// can render it. A platform that predates the setting sends neither, and the
+// lines are left out rather than printed as "none": nobody chose none there.
+func printAgentCIBuildAppArmorProfile(out io.Writer, settings *client.AgentCISettings) {
+	if settings.CIBuildAppArmorProfile == nil {
+		return
+	}
+	profile := *settings.CIBuildAppArmorProfile
+	if profile == "" {
+		profile = "(runtime default)"
+	}
+	_, _ = fmt.Fprintf(out, "  Build AppArmor:        %s\n", profile)
+	switch {
+	case settings.SupportsBuildAppArmorProfile != nil:
+		_, _ = fmt.Fprintf(out, "  AppArmor support:      %s\n",
+			agentCICapabilityLabel(*settings.SupportsBuildAppArmorProfile))
+	case *settings.CIBuildAppArmorProfile != "":
+		// A named profile with no word on whether the agent renders it is
+		// neither in force nor known not to be; say so rather than print the
+		// name alone, which reads as a profile builds run under.
+		_, _ = fmt.Fprintln(out, "  AppArmor support:      not reported")
+	}
+}
+
+// agentCIBuildAppArmorProfileNote says what a named profile means when the
+// agent cannot render it: the builder still runs under the runtime's default
+// profile, and an operator reading the name would otherwise believe it does
+// not.
+func agentCIBuildAppArmorProfileNote(settings *client.AgentCISettings) string {
+	if settings.CIBuildAppArmorProfile == nil || *settings.CIBuildAppArmorProfile == "" {
+		return ""
+	}
+	if settings.SupportsBuildAppArmorProfile == nil || *settings.SupportsBuildAppArmorProfile {
+		return ""
+	}
+	return "A build AppArmor profile is named, but this cluster's agent does not advertise it: builds run " +
+		"under the runtime's default profile until the agent is upgraded."
 }
 
 // printAgentCIImagePrepull renders the mode and whether the agent can honour
