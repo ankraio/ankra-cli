@@ -80,6 +80,7 @@ func Execute() {
 	}
 	executedCommand, err := rootCmd.ExecuteC()
 	if err != nil {
+		printBillingRestrictedHint(os.Stderr, err)
 		printSupportHintForUnexpectedError(os.Stderr, executedCommand, err)
 		os.Exit(exitCodeFor(err))
 	}

@@ -48,12 +48,29 @@ type chatTurnOutcome struct {
 	response     string
 	proposals    []*client.ChatActionProposal
 	errorMessage string
+	// billingRestricted is set when the turn's error frame was the
+	// platform's billing refusal: errorMessage then holds its sentence, and
+	// the command fails with the typed error so the top-up hint follows it.
+	billingRestricted *client.BillingRestrictedError
 	// hiddenRemoved counts the invisible runes stripped from this turn's
 	// printed text, reported once when the turn ends.
 	hiddenRemoved int
 	// toolCalls are the tools the turn ran, in the order they started, as
 	// their tool_start and tool_result frames described them.
 	toolCalls []chatToolCall
+}
+
+// failure is the error a finished turn ends the command with: the typed
+// billing refusal when that is what stopped the turn, otherwise the first
+// error message, and nil for a turn that completed.
+func (outcome chatTurnOutcome) failure() error {
+	if outcome.billingRestricted != nil {
+		return outcome.billingRestricted
+	}
+	if outcome.errorMessage != "" {
+		return errors.New(outcome.errorMessage)
+	}
+	return nil
 }
 
 // chatToolCall is one tool the model ran during a turn, folded from its
@@ -417,6 +434,19 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 			_, _ = fmt.Fprintf(out, "  ankra chat actions confirm %s\n", proposal.ActionID)
 			_, _ = fmt.Fprintf(out, "  ankra chat actions reject %s\n\n", proposal.ActionID)
 		case "error":
+			// A billing refusal is a verdict with its own sentence, not a
+			// stream failure: it is shown as written, followed by where to
+			// top up, and the code is never appended as a debug suffix.
+			if restricted := client.BillingRestrictedFromStreamEvent(event); restricted != nil {
+				if outcome.errorMessage == "" {
+					outcome.errorMessage = restricted.Error()
+					outcome.billingRestricted = restricted
+				}
+				if collectProposals {
+					_, _ = fmt.Fprintf(errOut, "\nError: %s\n%s\n", restricted.Error(), billingRestrictedHint())
+				}
+				continue
+			}
 			message := chatErrorMessage(event)
 			if detail := chatErrorDetail(event); detail != "" {
 				message += " (" + detail + ")"

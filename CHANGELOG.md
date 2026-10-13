@@ -28,6 +28,23 @@
   took the change now, at its next upgrade or when it reconnects. `-o json`
   keeps unset members as `null`.
 
+### Changed
+
+- **The AI commands explain a billing pause instead of printing a raw
+  status.** When the organisation's billing standing pauses AI (prepaid
+  credit used up, an invoice overdue, a credit limit or the free tier
+  exceeded), `ankra chat` and `ankra chat health --ai` now print the
+  platform's own sentence - what is paused, that running clusters are
+  unaffected, and what resolves it - followed by one line pointing at the
+  portal's Billing page for the organisation, instead of `chat failed:
+  status 402, body: ...`. The refusal is read wherever it arrives: on the
+  request, or on the error frame of a streaming reply, where it used to end
+  as a generic stream error. `ankra chat -o json` prints its document with
+  `error_code` `BILLING_RESTRICTED` and the sentence in `detail`, even when
+  the pause stopped the question before a turn started, so a job can tell
+  it from a failed answer. The command exits 1, the generic refusal code: a
+  re-login or a role change does not resolve it.
+
 ## v0.33.0 — 2026-10-11
 
 ### Added
