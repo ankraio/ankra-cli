@@ -1704,6 +1704,14 @@ func (m baseMock) SetClusterHostedLogShipping(context.Context, string, bool) (*c
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetControlPlaneHeal(context.Context, string) (*client.ControlPlaneHeal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetControlPlaneHeal(context.Context, string, bool) (*client.ControlPlaneHeal, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateHetznerCluster(req client.CreateHetznerClusterRequest) (*client.CreateHetznerClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -3269,6 +3277,26 @@ func (m baseMock) GetPipelineTestHistory(ctx context.Context, selector client.Pi
 }
 
 func (m baseMock) GetPipelineTestTimings(ctx context.Context, selector client.PipelineSelector, stage string, options client.PipelineTestTimingsOptions) (*client.PipelineTestTimings, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPipelineTestQuarantine(ctx context.Context, selector client.PipelineSelector) (*client.PipelineTestQuarantineView, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetPipelineTestQuarantineSettings(ctx context.Context, selector client.PipelineSelector, update client.PipelineTestQuarantineSettingsUpdate) (*client.PipelineTestQuarantineSettings, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListPipelineTestQuarantineCandidates(ctx context.Context, selector client.PipelineSelector, limit int) (*client.PipelineTestQuarantineCandidates, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) QuarantinePipelineTest(ctx context.Context, selector client.PipelineSelector, request client.QuarantinePipelineTestRequest) (*client.PipelineTestQuarantine, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReleasePipelineTestQuarantine(ctx context.Context, selector client.PipelineSelector, quarantineID string, reason string) (*client.PipelineTestQuarantine, error) {
 	return nil, errors.New("not implemented")
 }
 

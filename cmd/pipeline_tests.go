@@ -50,9 +50,16 @@ declared no reports says so: that is not a passing run.
   ankra pipeline tests <run>                          one run's summary
   ankra pipeline tests history <test key>             one test across the branch's runs
   ankra pipeline tests timings --stage <stage>        mean durations, for sharding
+  ankra pipeline tests quarantine                     the repository's flaky test quarantine
 
 The test key is the one 'tests <run> -o json' prints for each test. -o
-json/yaml prints every field the server carries.`,
+json/yaml prints every field the server carries.
+
+A repository can quarantine a known-flaky test ('ankra pipeline tests
+quarantine --help'): a run step whose only failed tests are quarantined then
+succeeds. The run's summary still lists those tests under Failed, and lists
+them again in a "Quarantined failures" section that says whether each one's
+step was forgiven or failed anyway because another test failed too.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
@@ -65,7 +72,8 @@ json/yaml prints every field the server carries.`,
 	testsCommand.Flags().Int("slowest", 10, "How many of the slowest tests to list (0 to 50)")
 	registerPipelineSelectorFlags(testsCommand)
 	registerStructuredOutputFlags(testsCommand)
-	testsCommand.AddCommand(newPipelineTestsHistoryCommand(), newPipelineTestsTimingsCommand())
+	testsCommand.AddCommand(newPipelineTestsHistoryCommand(), newPipelineTestsTimingsCommand(),
+		newPipelineTestQuarantineCommand())
 	return testsCommand
 }
 
@@ -162,6 +170,7 @@ func runPipelineRunTests(command *cobra.Command, selector client.PipelineSelecto
 	reports.Render()
 
 	writePipelineTestCases(output, "Failed", summary.Failed, true)
+	writePipelineTestQuarantinedFailures(output, summary.Quarantined)
 	writePipelineTestCases(output, "Flaky", summary.Flaky, true)
 	writePipelineTestCases(output, "Slowest", summary.Slowest, false)
 	return nil

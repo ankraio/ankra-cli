@@ -182,6 +182,14 @@ ankra cluster logs-ship enable --yes             # opt in: ship every running co
 ankra cluster logs-ship disable                  # opt out; no confirmation needed
 ```
 
+Ankra restarts a NotReady control plane node through the cloud provider when the other control
+planes are Ready and etcd keeps quorum without it. The switch is per cluster and on by default:
+
+```bash
+ankra cluster control-plane-heal get                    # switch + latest NotReady episode (shadow = recorded only)
+ankra cluster control-plane-heal set --enabled=false    # stop the automatic restart (needs clusters.write)
+```
+
 Shipping logs to Ankra's hosted log store is opt-in per cluster and off by default; turning it on
 needs `clusters.write` and sends customer log content out of the cluster, so confirm with the user
 before passing `--yes`. `status` names an agent that does not follow the switch yet (too old: fix
