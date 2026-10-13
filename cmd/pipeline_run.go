@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -625,6 +627,10 @@ func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, ru
 // already see. A server that could not derive a reason says so rather than
 // printing nothing: no line at all reads as "nothing is blocking this run",
 // which is the answer a failed read must never give.
+//
+// A running run whose first step waits for a node with room for its
+// reservation (ankra-q573dh.3.4) says so the same way: the platform's own
+// sentence, then the room it is holding out for and how long it has waited.
 func printPipelineRunWaiting(out io.Writer, detail client.PipelineRunDetail) {
 	if message := strings.TrimSpace(detail.QueueReasonMessage); message != "" {
 		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", message)
@@ -632,7 +638,76 @@ func printPipelineRunWaiting(out io.Writer, detail client.PipelineRunDetail) {
 	}
 	if unavailable := strings.TrimSpace(detail.QueueReasonUnavailable); unavailable != "" {
 		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", unavailable)
+		return
 	}
+	if wait := detail.ReservationWait; wait != nil {
+		if message := strings.TrimSpace(wait.Message); message != "" {
+			_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", message)
+		}
+		state := "waiting for a node with room for this run"
+		if wait.State == "returned_to_queue" {
+			state = fmt.Sprintf("returned to the queue %s while waiting for room", pluralTimes(int(wait.ReturnedToQueueCount)))
+		}
+		line := fmt.Sprintf("%s for %s", state, time.Duration(wait.WaitedSeconds)*time.Second)
+		if room := describeReservationRoom(wait.CPUMillicores, wait.MemoryBytes); room != "" {
+			line += " (" + room + ")"
+		}
+		_, _ = fmt.Fprintf(out, "  Reserving: %s\n", line)
+		return
+	}
+	if unavailable := strings.TrimSpace(detail.ReservationWaitUnavailable); unavailable != "" {
+		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", unavailable)
+	}
+}
+
+// printPipelineRunReservation prints a run's capacity reservation: the mode
+// its cluster ran it under, the room estimated for it and the peak its steps
+// were observed to use, each only when known. A run its cluster ran with the
+// reservation off, or a server older than the field, prints nothing.
+func printPipelineRunReservation(out io.Writer, run client.PipelineRun) {
+	reservation := run.Reservation
+	if reservation == nil || reservation.Mode == "" || reservation.Mode == "off" {
+		return
+	}
+	mode := reservation.Mode
+	switch reservation.Mode {
+	case "on":
+		mode = "on (held on the run's node)"
+	case "shadow":
+		mode = "shadow (estimated, not held)"
+	}
+	line := mode
+	if estimated := describeReservationRoom(reservation.CPUMillicores, reservation.MemoryBytes); estimated != "" {
+		line += ", estimated " + estimated
+	}
+	if observed := describeReservationRoom(reservation.ObservedCPUMillicores, reservation.ObservedMemoryBytes); observed != "" {
+		line += ", observed peak " + observed
+	}
+	_, _ = fmt.Fprintf(out, "  Reservation: %s\n", line)
+}
+
+// describeReservationRoom states a reservation's room as "6.25 CPU and
+// 12.8Gi memory", naming only the axes that are known.
+func describeReservationRoom(cpuMillicores *int64, memoryBytes *int64) string {
+	var parts []string
+	if cpuMillicores != nil && *cpuMillicores > 0 {
+		parts = append(parts, strconv.FormatFloat(float64(*cpuMillicores)/1000, 'f', -1, 64)+" CPU")
+	}
+	if memoryBytes != nil && *memoryBytes > 0 {
+		parts = append(parts, describeReservationMemory(*memoryBytes)+" memory")
+	}
+	return strings.Join(parts, " and ")
+}
+
+// describeReservationMemory states bytes in Gi or Mi to at most one decimal,
+// the unit a step's memory request is written in.
+func describeReservationMemory(bytes int64) string {
+	const mebibyte = 1 << 20
+	const gibibyte = 1 << 30
+	if bytes >= gibibyte {
+		return strconv.FormatFloat(math.Round(float64(bytes)/gibibyte*10)/10, 'f', -1, 64) + "Gi"
+	}
+	return strconv.FormatFloat(math.Round(float64(bytes)/mebibyte*10)/10, 'f', -1, 64) + "Mi"
 }
 
 // printPipelineRunPromotion prints what a push run did about promotion
@@ -668,6 +743,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, sele
 	printPipelineRunFailure(out, detail.PipelineRun)
 	_, _ = fmt.Fprintf(out, "  Queued:    %s\n", formatTimeAgo(detail.QueuedAt))
 	printPipelineRunWaiting(out, detail)
+	printPipelineRunReservation(out, detail.PipelineRun)
 	if detail.StartedAt != nil {
 		_, _ = fmt.Fprintf(out, "  Started:   %s\n", formatTimeAgo(*detail.StartedAt))
 	}
