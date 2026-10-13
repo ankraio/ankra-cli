@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -1581,6 +1582,7 @@ func TestServiceDeploymentViewMirrorsThePortal(t *testing.T) {
 		expected  string
 	}{
 		{"ready check passed", "verification_pending", "ready", progressing, "deployed"},
+		{"ready check passed and serving", "verification_pending", "ready", serving, "deployed"},
 		{"serving, no check covers it", "verification_pending", "unverified", serving, "running"},
 		{"serving, check still verifying", "verification_pending", "verifying", serving, "running"},
 		{"serving but the check failed", "verification_pending", "degraded", serving, "verification_pending"},
@@ -1689,5 +1691,25 @@ func TestServicesSetupReviewNamesTheApplication(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "application storefront") {
 		t.Errorf("the review must name the consumer's application:\n%s", stdout)
+	}
+}
+
+// A long failure excerpt is cut on a character boundary, never inside a
+// multi-byte character.
+func TestServicesFailureExcerptKeepsValidUTF8(t *testing.T) {
+	operationID := "e0000000-0000-4000-8000-000000000011"
+	excerpt := strings.Repeat("é", serviceDeploymentFailureExcerptLimit+50)
+	instance := client.ServiceInstance{Name: "svc", DeploymentState: "deployment_failed", DeploymentOperationID: &operationID}
+	previousClient := apiClient
+	apiClient = &serviceFailureStepsMock{steps: []client.ExecutionStep{{Name: "install", Status: "failed", ErrorExcerpt: &excerpt}}}
+	t.Cleanup(func() { apiClient = previousClient })
+
+	var out bytes.Buffer
+	printServiceDeploymentFailure(&out, instance)
+	if !utf8.ValidString(out.String()) {
+		t.Fatalf("the truncated excerpt is not valid UTF-8:\n%q", out.String())
+	}
+	if !strings.Contains(out.String(), strings.Repeat("é", serviceDeploymentFailureExcerptLimit)+"...") {
+		t.Errorf("the excerpt must keep %d characters and mark the cut", serviceDeploymentFailureExcerptLimit)
 	}
 }

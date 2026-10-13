@@ -238,8 +238,8 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 // so an id shown for want of a name is not mistaken for a resource that is
 // gone.
 type serviceNames struct {
-	ctx            context.Context
-	notes          io.Writer
+	ctx                context.Context
+	notes              io.Writer
 	clusters           map[string]string
 	packages           map[string]string
 	applications       map[string]string
@@ -313,7 +313,10 @@ func (names *serviceNames) application(applicationID string) string {
 			for _, application := range listing.Result {
 				names.applications[application.ID] = application.Name
 			}
-			if listing.Pagination.TotalPages <= page || len(listing.Result) == 0 {
+			// A full page means there may be more even when the total is not
+			// reported; a short one is the end.
+			if len(listing.Result) < maxApplicationLookupPageSize ||
+				(listing.Pagination.TotalPages > 0 && listing.Pagination.TotalPages <= page) {
 				readAll = true
 				break
 			}
@@ -702,8 +705,8 @@ func serviceDeploymentViewReason(view string) string {
 	}
 }
 
-// serviceDeploymentFailureExcerptLimit bounds how much of a failing step's
-// error the summary prints; the full text is one command away.
+// serviceDeploymentFailureExcerptLimit bounds how many characters of a failing
+// step's error the summary prints; the full text is one command away.
 const serviceDeploymentFailureExcerptLimit = 400
 
 // printServiceDeploymentFailure prints why a deployment failed and what to do
@@ -726,8 +729,8 @@ func printServiceDeploymentFailure(out io.Writer, instance client.ServiceInstanc
 				continue
 			}
 			excerpt := strings.Join(strings.Fields(*step.ErrorExcerpt), " ")
-			if len(excerpt) > serviceDeploymentFailureExcerptLimit {
-				excerpt = excerpt[:serviceDeploymentFailureExcerptLimit] + "..."
+			if runes := []rune(excerpt); len(runes) > serviceDeploymentFailureExcerptLimit {
+				excerpt = string(runes[:serviceDeploymentFailureExcerptLimit]) + "..."
 			}
 			_, _ = fmt.Fprintf(out, "  Failure:     step %s (%s): %s\n", step.Name, step.Status, excerpt)
 			printed = true
