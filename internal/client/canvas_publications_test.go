@@ -58,6 +58,8 @@ func TestPublishCanvasPublication_Refusals(t *testing.T) {
 	}{
 		{"disabled detail string", http.StatusServiceUnavailable, `{"detail":"canvas_pages_disabled"}`, "canvas_pages_disabled"},
 		{"language code field", http.StatusBadRequest, `{"code":"unsupported_language","detail":"javascript is not supported"}`, "unsupported_language"},
+		{"problem json taken down", http.StatusForbidden, `{"type":"about:blank","title":"Forbidden","status":403,"detail":"publication_taken_down","reason":"publication_taken_down","code":"publication_taken_down"}`, "publication_taken_down"},
+		{"problem json reason only", http.StatusForbidden, `{"reason":"publication_owned_by_another_member"}`, "publication_owned_by_another_member"},
 		{"limit nested detail", http.StatusConflict, `{"detail":{"code":"publication_limit_reached","message":"limit"}}`, "publication_limit_reached"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

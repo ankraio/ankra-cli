@@ -165,6 +165,9 @@ func (c *Client) doCanvasPublicationRequest(ctx context.Context, method, target 
 		return nil, response.StatusCode, ErrCanvasPublicationNotFound
 	case http.StatusForbidden:
 		code, detail := canvasErrorFromBody(responseBody)
+		if code == "publication_taken_down" || code == "publication_owned_by_another_member" {
+			return nil, response.StatusCode, &CanvasPagesError{StatusCode: response.StatusCode, Code: code, Detail: detail}
+		}
 		if code == "permission_denied" || detail == "" {
 			return nil, response.StatusCode, &PermissionDeniedError{}
 		}
@@ -178,12 +181,14 @@ func (c *Client) doCanvasPublicationRequest(ctx context.Context, method, target 
 	return nil, response.StatusCode, newUnexpectedResponseError("canvas publication request failed", response.StatusCode, truncateForError(responseBody, 500))
 }
 
-// canvasErrorFromBody extracts the machine code and human sentence from the
+// canvasErrorFromBody extracts (RFC 7807 problem+json carries the machine code
+// in code, reason and detail alike)  the machine code and human sentence from the
 // error envelope. The platform writes either {"detail": "<code>"},
 // {"detail": {"code": "...", "message": "..."}} or {"code": "...", "detail": "..."}.
 func canvasErrorFromBody(body []byte) (string, string) {
 	var envelope struct {
 		Code    string          `json:"code"`
+		Reason  string          `json:"reason"`
 		Error   string          `json:"error"`
 		Message string          `json:"message"`
 		Detail  json.RawMessage `json:"detail"`
@@ -192,6 +197,9 @@ func canvasErrorFromBody(body []byte) (string, string) {
 		return "", ""
 	}
 	code := envelope.Code
+	if code == "" {
+		code = envelope.Reason
+	}
 	if code == "" {
 		code = envelope.Error
 	}

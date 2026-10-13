@@ -330,6 +330,10 @@ func canvasPagesError(action string, err error) error {
 			return withExitCode(exitUsage, fmt.Errorf("%s: the page is over the %d character limit", action, canvasMaximumCharacters))
 		case "invalid_ttl":
 			return withExitCode(exitUsage, fmt.Errorf("%s: --ttl-hours is outside the range this platform allows", action))
+		case "publication_taken_down":
+			return fmt.Errorf("%s: this page was taken down; it cannot be republished", action)
+		case "publication_owned_by_another_member":
+			return fmt.Errorf("%s: this page was published by another member; ask them or an organisation admin", action)
 		case "publication_limit_reached":
 			return fmt.Errorf("%s: your organisation has reached its limit of published pages; run 'ankra canvas unpublish <id>' on one you no longer need", action)
 		}

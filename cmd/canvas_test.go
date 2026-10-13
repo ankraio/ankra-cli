@@ -227,6 +227,8 @@ func TestCanvasPublish_PlatformErrors(t *testing.T) {
 		{"too large", &client.CanvasPagesError{StatusCode: 400, Code: "content_too_large"}, "character limit", exitUsage},
 		{"ttl", &client.CanvasPagesError{StatusCode: 400, Code: "invalid_ttl"}, "--ttl-hours", exitUsage},
 		{"other unavailable", &client.CanvasPagesError{StatusCode: 503, Code: "later"}, "unavailable", exitError},
+		{"taken down", &client.CanvasPagesError{StatusCode: 403, Code: "publication_taken_down"}, "taken down; it cannot be republished", exitError},
+		{"other owner", &client.CanvasPagesError{StatusCode: 403, Code: "publication_owned_by_another_member"}, "another member", exitError},
 		{"unauthorized", client.ErrUnauthorized, "unauthorized", exitAuth},
 		{"denied", &client.PermissionDeniedError{}, "permission denied", exitForbidden},
 	} {
