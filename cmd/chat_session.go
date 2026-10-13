@@ -436,12 +436,13 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 		case "error":
 			// A billing refusal is a verdict with its own sentence, not a
 			// stream failure: it is shown as written, followed by where to
-			// top up, and the code is never appended as a debug suffix.
+			// top up, and the code is never appended as a debug suffix. It
+			// is also the reason the turn ended, so it replaces any earlier
+			// error frame rather than deferring to it: the hint and the
+			// document's error_code follow the verdict, not the first symptom.
 			if restricted := client.BillingRestrictedFromStreamEvent(event); restricted != nil {
-				if outcome.errorMessage == "" {
-					outcome.errorMessage = restricted.Error()
-					outcome.billingRestricted = restricted
-				}
+				outcome.errorMessage = restricted.Error()
+				outcome.billingRestricted = restricted
 				if collectProposals {
 					_, _ = fmt.Fprintf(errOut, "\nError: %s\n%s\n", restricted.Error(), billingRestrictedHint())
 				}
@@ -451,7 +452,7 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 			if detail := chatErrorDetail(event); detail != "" {
 				message += " (" + detail + ")"
 			}
-			if outcome.errorMessage == "" {
+			if outcome.errorMessage == "" && outcome.billingRestricted == nil {
 				outcome.errorMessage = message
 			}
 			if collectProposals {

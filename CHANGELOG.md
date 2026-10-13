@@ -52,7 +52,9 @@
   `error_code` `BILLING_RESTRICTED` and the sentence in `detail`, even when
   the pause stopped the question before a turn started, so a job can tell
   it from a failed answer. The command exits 1, the generic refusal code: a
-  re-login or a role change does not resolve it.
+  re-login or a role change does not resolve it. The same pause also
+  refuses new clusters, with the same code, so the Billing hint follows
+  that refusal on any command that meets it, not only the AI ones.
 
 ## v0.33.0 — 2026-10-11
 

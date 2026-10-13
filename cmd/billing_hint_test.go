@@ -172,6 +172,23 @@ func TestChatOneShotJSON_BillingRefusalOnTheTurnCarriesTheCode(t *testing.T) {
 	}
 }
 
+func TestChatOneShotJSON_BillingRefusalAfterAnEarlierErrorFrameStillCarriesTheCode(t *testing.T) {
+	mock := &chatSessionMock{tails: [][]client.ChatStreamEvent{{
+		{Type: "error", Data: map[string]any{"message": "tool get_pods failed upstream"}, Sequence: 2},
+		{Type: "error", Data: map[string]any{"error_code": "BILLING_RESTRICTED", "message": testBillingDetail}, Sequence: 3},
+		{Type: "end", Data: map[string]any{"status": "failed"}, Done: true},
+	}}}
+	stdout, _, err := runChatStructured(t, mock, "chat", "-o", "json", "hello")
+	var restricted *client.BillingRestrictedError
+	if !errors.As(err, &restricted) {
+		t.Fatalf("err = %v (%T), want the billing verdict to win over the earlier frame", err, err)
+	}
+	document := decodeChatResult(t, stdout)
+	if document["error_code"] != client.BillingRestrictedErrorCode || document["error"] != testBillingDetail {
+		t.Errorf("document = %v, want the billing refusal as the turn's error and code", document)
+	}
+}
+
 func TestChatOneShotJSON_AnOrdinaryFailureCarriesNoCode(t *testing.T) {
 	mock := &chatSessionMock{tails: [][]client.ChatStreamEvent{{
 		{Type: "error", Data: map[string]any{"message": "You've sent too many messages this hour."}, Sequence: 2},
