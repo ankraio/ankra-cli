@@ -475,6 +475,11 @@ func validateResourceGraph(request client.CreateImportClusterRequest) error {
 				return err
 			}
 		}
+		for _, application := range stack.Applications {
+			if err := addResource("application", application.Name, stack.Name); err != nil {
+				return err
+			}
+		}
 	}
 
 	dependencyEdges := map[resourceNode][]resourceNode{}
@@ -483,8 +488,8 @@ func validateResourceGraph(request client.CreateImportClusterRequest) error {
 		label := resourceLabels[current]
 		for parentIndex, parent := range parents {
 			kind := strings.ToLower(strings.TrimSpace(string(parent.Kind)))
-			if kind != "manifest" && kind != "addon" {
-				return fmt.Errorf("%s: parent #%d has invalid kind %q (must be \"manifest\" or \"addon\")", label, parentIndex+1, parent.Kind)
+			if kind != "manifest" && kind != "addon" && kind != "application" {
+				return fmt.Errorf("%s: parent #%d has invalid kind %q (must be \"manifest\", \"addon\" or \"application\")", label, parentIndex+1, parent.Kind)
 			}
 			parentNode := resourceNode{kind: kind, name: parent.Name}
 			if !declaredResources[parentNode] {
@@ -503,6 +508,11 @@ func validateResourceGraph(request client.CreateImportClusterRequest) error {
 		}
 		for _, addon := range stack.Addons {
 			if err := collectParents(resourceNode{kind: "addon", name: addon.Name}, addon.Parents); err != nil {
+				return err
+			}
+		}
+		for _, application := range stack.Applications {
+			if err := collectParents(resourceNode{kind: "application", name: application.Name}, application.Parents); err != nil {
 				return err
 			}
 		}
@@ -624,6 +634,25 @@ func buildStack(sm map[string]interface{}, baseDir string) (client.Stack, error)
 		}
 	}
 
+	var applications []client.ImportApplication
+	if rawApplications, ok := sm["applications"].([]interface{}); ok {
+		for i, rawApplication := range rawApplications {
+			applicationLabel := fmt.Sprintf("application #%d", i+1)
+			applicationMap, ok := rawApplication.(map[string]interface{})
+			if !ok {
+				return client.Stack{}, fmt.Errorf("%s is not a valid object (expected fields such as 'name', 'platform_application_id' and 'from_file')", applicationLabel)
+			}
+			if applicationName, _ := applicationMap["name"].(string); applicationName != "" {
+				applicationLabel = fmt.Sprintf("application %q", applicationName)
+			}
+			application, err := buildApplication(applicationMap, baseDir)
+			if err != nil {
+				return client.Stack{}, fmt.Errorf("%s: %w", applicationLabel, err)
+			}
+			applications = append(applications, application)
+		}
+	}
+
 	deployWave, err := parseDeployWave(sm["deploy_wave"])
 	if err != nil {
 		return client.Stack{}, err
@@ -640,13 +669,14 @@ func buildStack(sm map[string]interface{}, baseDir string) (client.Stack, error)
 	}
 
 	return client.Stack{
-		Name:        name,
-		Description: desc,
-		Manifests:   manifests,
-		Addons:      addons,
-		DeployWave:  deployWave,
-		Variables:   variables,
-		Backup:      backup,
+		Name:         name,
+		Description:  desc,
+		Manifests:    manifests,
+		Addons:       addons,
+		Applications: applications,
+		DeployWave:   deployWave,
+		Variables:    variables,
+		Backup:       backup,
 	}, nil
 }
 
@@ -804,6 +834,84 @@ func parseBoolField(m map[string]interface{}, key string) (*bool, error) {
 		return nil, fmt.Errorf("'%s' must be true or false (got %v of type %T)", key, raw, raw)
 	}
 	return &value, nil
+}
+
+// buildApplication reads one application member. Its manifest comes from
+// 'manifest' (inline YAML), 'from_file' or 'manifest_base64', exactly like a
+// manifest's, and may be absent only when 'platform_application_id' names the
+// Ankra application whose manifests the platform renders instead.
+func buildApplication(applicationMap map[string]interface{}, baseDir string) (client.ImportApplication, error) {
+	name, _ := applicationMap["name"].(string)
+	if name == "" {
+		return client.ImportApplication{}, errors.New("every application needs a 'name'")
+	}
+	stringFields := map[string]string{}
+	for _, key := range []string{"platform_application_id", "platform_application_version", "namespace"} {
+		rawValue, isPresent := applicationMap[key]
+		if !isPresent || rawValue == nil {
+			continue
+		}
+		value, isString := rawValue.(string)
+		if !isString {
+			return client.ImportApplication{}, fmt.Errorf("'%s' must be a string (got %v of type %T)", key, rawValue, rawValue)
+		}
+		stringFields[key] = value
+	}
+
+	encoded := ""
+	_, hasInline := applicationMap["manifest"]
+	_, hasFile := applicationMap["from_file"]
+	_, hasEncoded := applicationMap["manifest_base64"]
+	if hasInline || hasFile || hasEncoded {
+		content, err := buildManifest(map[string]interface{}{
+			"name":            name,
+			"manifest":        applicationMap["manifest"],
+			"from_file":       applicationMap["from_file"],
+			"manifest_base64": applicationMap["manifest_base64"],
+		}, baseDir)
+		if err != nil {
+			return client.ImportApplication{}, err
+		}
+		encoded = content.ManifestBase64
+	} else if stringFields["platform_application_id"] == "" {
+		return client.ImportApplication{}, errors.New("an application must set 'manifest', 'from_file' or 'manifest_base64', or name the Ankra application whose manifests to render with 'platform_application_id'")
+	}
+
+	var parameters map[string]string
+	if rawParameters, isPresent := applicationMap["parameters"]; isPresent && rawParameters != nil {
+		parameterMap, isMap := rawParameters.(map[string]interface{})
+		if !isMap {
+			return client.ImportApplication{}, fmt.Errorf("'parameters' must be a map of strings (got %T)", rawParameters)
+		}
+		parameters = make(map[string]string, len(parameterMap))
+		for key, rawValue := range parameterMap {
+			value, isString := rawValue.(string)
+			if !isString {
+				return client.ImportApplication{}, fmt.Errorf("parameter %q must be a string (got %v of type %T)", key, rawValue, rawValue)
+			}
+			parameters[key] = value
+		}
+	}
+
+	var encryptedPaths []string
+	if rawPaths, ok := applicationMap["encrypted_paths"].([]interface{}); ok {
+		for _, rawPath := range rawPaths {
+			if path, ok := rawPath.(string); ok {
+				encryptedPaths = append(encryptedPaths, path)
+			}
+		}
+	}
+
+	return client.ImportApplication{
+		Name:                       name,
+		PlatformApplicationID:      stringFields["platform_application_id"],
+		PlatformApplicationVersion: stringFields["platform_application_version"],
+		Namespace:                  stringFields["namespace"],
+		ManifestBase64:             encoded,
+		Parameters:                 parameters,
+		Parents:                    parseParentList(applicationMap["parents"]),
+		EncryptedPaths:             encryptedPaths,
+	}, nil
 }
 
 func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, error) {

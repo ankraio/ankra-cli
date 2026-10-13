@@ -355,6 +355,28 @@ type Stack struct {
 	// - from silently unprotecting a stack. Removing protection is an
 	// explicit `backup: {enabled: false}`.
 	Backup *StackBackup `json:"backup,omitempty"`
+	// Applications are the stack's application members, in the dialect the
+	// platform's own IaC export writes. Apply dropped them until ankra-hpucfs:
+	// a file moving a manifest into an application removed the manifest and
+	// never created the application. Omitted when the file declares none, so
+	// every file without the key sends exactly what it sent before.
+	Applications []ImportApplication `json:"applications,omitempty"`
+}
+
+// ImportApplication is one application member of an applied stack: the
+// manifest it deploys (manifest_base64, empty for an application whose
+// manifests the platform renders from platform_application_id), the Ankra
+// application it belongs to, the namespace its documents default to, and
+// its parents.
+type ImportApplication struct {
+	Name                       string            `json:"name"`
+	PlatformApplicationID      string            `json:"platform_application_id,omitempty"`
+	PlatformApplicationVersion string            `json:"platform_application_version,omitempty"`
+	Namespace                  string            `json:"namespace,omitempty"`
+	ManifestBase64             string            `json:"manifest_base64,omitempty"`
+	Parameters                 map[string]string `json:"parameters,omitempty"`
+	Parents                    []Parent          `json:"parents"`
+	EncryptedPaths             []string          `json:"encrypted_paths,omitempty"`
 }
 
 // StackBackup is spec.stacks[].backup: the one switch that protects a stack.
