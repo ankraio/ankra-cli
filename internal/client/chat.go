@@ -185,6 +185,9 @@ func (c *Client) StreamChat(clusterID *string, chatReq ChatRequest) (<-chan Chat
 		if err != nil {
 			return nil, fmt.Errorf("read response: %w", err)
 		}
+		if restricted := BillingRestrictedFromResponse(body); restricted != nil {
+			return nil, restricted
+		}
 		return nil, newUnexpectedResponseError("chat failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 

@@ -40,6 +40,12 @@ type chatOneShotResult struct {
 	// Error is the turn's failure, if it failed; the command then exits
 	// non-zero after printing the document.
 	Error string `json:"error,omitempty" yaml:"error,omitempty"`
+	// ErrorCode is the platform's machine-readable class for a refusal it
+	// explained with one (BILLING_RESTRICTED when the organisation's billing
+	// standing pauses AI), and Detail its sentence for the user. Both are
+	// absent for a turn that completed or failed without a code.
+	ErrorCode string `json:"error_code,omitempty" yaml:"error_code,omitempty"`
+	Detail    string `json:"detail,omitempty" yaml:"detail,omitempty"`
 }
 
 // chatPendingAction is one proposed write in the document. It mirrors
@@ -102,6 +108,19 @@ func runChatMessageStructured(cmd *cobra.Command, scope chatScope, conversationI
 	req := client.ChatRequest{Query: query, InteractionMode: interactionMode}
 	events, session, scope, err := openChatTurn(scope, conversationID, req, interactionMode, errOut)
 	if err != nil {
+		// A billing pause is the one refusal a job needs to tell apart by
+		// code, and it arrives before any turn exists on the sessions lane:
+		// the document carries it, with no answer, so -o json readers see
+		// error_code either way.
+		var restricted *client.BillingRestrictedError
+		if errors.As(err, &restricted) {
+			outcome := chatTurnOutcome{errorMessage: restricted.Error(), billingRestricted: restricted}
+			result := newChatOneShotResult(conversationID, nil, scope, interactionMode, outcome)
+			if _, renderErr := renderStructured(cmd, result); renderErr != nil {
+				return renderErr
+			}
+			return restricted
+		}
 		// No turn exists to describe, so no document: the error (and its exit
 		// code - 6 for a rejected token, 3 for an unknown cluster) is the
 		// answer, on stderr like every other failure.
@@ -122,10 +141,7 @@ func runChatMessageStructured(cmd *cobra.Command, scope chatScope, conversationI
 	if _, renderErr := renderStructured(cmd, result); renderErr != nil {
 		return renderErr
 	}
-	if outcome.errorMessage != "" {
-		return errors.New(outcome.errorMessage)
-	}
-	return nil
+	return outcome.failure()
 }
 
 func newChatOneShotResult(conversationID string, session *client.ChatSession, scope chatScope,
@@ -139,6 +155,10 @@ func newChatOneShotResult(conversationID string, session *client.ChatSession, sc
 		ToolCalls:      outcome.toolCalls,
 		PendingActions: newChatPendingActions(outcome.proposals),
 		Error:          outcome.errorMessage,
+	}
+	if outcome.billingRestricted != nil {
+		result.ErrorCode = client.BillingRestrictedErrorCode
+		result.Detail = outcome.billingRestricted.Detail
 	}
 	if scope.clusterID != nil {
 		result.ClusterName = scope.clusterName
