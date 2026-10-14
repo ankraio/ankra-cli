@@ -43,11 +43,12 @@
   NotReady card stays visible either way, and `-o json` prints the platform's
   answer as it is.
 - **`ankra cluster agent status` says when the agent needs a security
-  upgrade.** An agent that does not yet support the scoped NATS credentials
-  shows `Security upgrade: required` with the upgrade command, because it
-  stops connecting once the platform retires the wider credentials it holds
-  today. Nothing is shown when the agent is already on the scoped credentials,
-  or when the platform cannot tell, and `-o json` carries the platform's
+  upgrade.** An agent that has not moved to the scoped NATS credentials yet
+  shows `Security upgrade: required`, because it stops connecting once the
+  platform retires the wider credentials it holds today. The upgrade command is
+  printed once, and not at all while an upgrade is already running. Nothing is
+  shown when the agent is already on the scoped credentials, or when the
+  platform cannot tell, and `-o json` carries the platform's
   `security_upgrade_required` value as it is.
 - **`ankra canvas publish|list|unpublish` shares an HTML, SVG or Markdown
   file as a static page at its own URL.** `publish report.html` prints the
@@ -75,6 +76,13 @@
 
 ### Changed
 
+- **A failed service setup only suggests a retry the platform accepts.**
+  `ankra services get` on a `deployment_failed` service suggests `ankra
+  cluster operations retry <id>` only for a failed, cancelled or critical
+  operation; a timed-out one is told to retire the service and set it up again,
+  since the platform refuses to retry it. When no step recorded an error, the
+  operation's own error is shown. `ankra cluster operations retry` now says
+  which states it retries.
 - **`ankra services list` and `get` say when a service is running.** A
   service the platform still records as `verification_pending` now reads
   `deployed` once a readiness check has connected to it, and `running` while
