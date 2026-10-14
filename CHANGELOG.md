@@ -4,6 +4,12 @@
 
 ### Added
 
+- **`ankra org dns add <name> AAAA <ipv6>` publishes an IPv6 record in the
+  organisation's zone.** The platform refused AAAA with "record_type must be
+  one of CNAME, A, or TXT", so no IPv6-only origin could be named under the
+  org's ankra.cc zone. The platform now accepts AAAA with an IPv6 address
+  (an IPv4 address is refused) for a zone on Ankra Cloud; the help and the
+  `--type` flag of `update`/`delete` list it.
 - **`ankra cluster ankracloud create` and `preflight` take `--network-mode
   ipv4_nat|ipv6_only`.** A zone with no public IPv4 left for the bastion
   used to be a dead end from the CLI: the preflight answered "create the
