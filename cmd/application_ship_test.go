@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -849,5 +850,205 @@ func TestDefaultShipNamespace(t *testing.T) {
 			t.Errorf("defaultShipNamespace(%q) = %q, want %q",
 				testCase.applicationName, derived, testCase.expected)
 		}
+	}
+}
+
+// shipListing renders an applications listing page for acme/shop with one
+// application per name=branch pair, ids derived from the position.
+func shipListing(namesToBranches ...[2]string) []byte {
+	rows := make([]string, 0, len(namesToBranches))
+	for index, pair := range namesToBranches {
+		rows = append(rows, fmt.Sprintf(
+			`{"id":"00000000-0000-4000-8000-%012d","name":%q,"state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":%q}`,
+			index+1, pair[0], pair[1]))
+	}
+	return []byte(`{"result":[` + strings.Join(rows, ",") + `],"pagination":{"total_pages":1}}`)
+}
+
+// The bake-off failure (ankra-ab5fog.30): the repository's only application
+// tracks another branch. Ship must refuse, naming that application and its
+// branch, instead of deploying the other branch's build.
+func TestApplicationShipRefusesTheRepositorysApplicationOnAnotherBranch(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{shipListing([2]string{"conductor-hub", "scenario-01"})}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient,
+		"--cluster", "production", "--branch", "main", "--namespace", "bakeoff-app")
+	if executeError == nil {
+		t.Fatalf("an application on another branch must not be shipped\nprogress: %s", progress)
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want %d (usage)", exitCodeFor(executeError), exitUsage)
+	}
+	for _, want := range []string{`"conductor-hub"`, `"scenario-01"`, `"main"`, "--name conductor-hub --branch scenario-01", "--name <new-name>"} {
+		if !strings.Contains(executeError.Error(), want) {
+			t.Errorf("the refusal must contain %s: %v", want, executeError)
+		}
+	}
+	if mockClient.createCalls != 0 || mockClient.deployCalls != 0 || mockClient.workflowRunsCalls != 0 {
+		t.Errorf("nothing may be registered, built or deployed on a refusal; create=%d workflow=%d deploy=%d",
+			mockClient.createCalls, mockClient.workflowRunsCalls, mockClient.deployCalls)
+	}
+	if strings.Contains(progress, "Using existing application") {
+		t.Errorf("the other branch's application must not be adopted: %s", progress)
+	}
+}
+
+// Several applications, none on the requested branch: the refusal lists
+// every one with its branch.
+func TestApplicationShipRefusesWhenNoApplicationTracksTheBranch(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{
+		shipListing([2]string{"shop-staging", "staging"}, [2]string{"shop-preview", "preview"}),
+	}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError == nil {
+		t.Fatalf("no application tracks main, so ship must refuse\nprogress: %s", progress)
+	}
+	for _, want := range []string{"shop-staging (branch staging)", "shop-preview (branch preview)", `none tracks branch "main"`} {
+		if !strings.Contains(executeError.Error(), want) {
+			t.Errorf("the refusal must contain %q: %v", want, executeError)
+		}
+	}
+	if mockClient.createCalls != 0 || mockClient.deployCalls != 0 {
+		t.Errorf("nothing may be registered or deployed on a refusal; create=%d deploy=%d",
+			mockClient.createCalls, mockClient.deployCalls)
+	}
+}
+
+// --name naming an application on another branch is refused too: the name
+// picks the application, it never retargets which branch is deployed.
+func TestApplicationShipRefusesANamedApplicationOnAnotherBranch(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{shipListing([2]string{"shop", "scenario-01"})}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient,
+		"--cluster", "production", "--name", "shop")
+	if executeError == nil {
+		t.Fatalf("a named application on another branch must not be shipped\nprogress: %s", progress)
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want %d (usage)", exitCodeFor(executeError), exitUsage)
+	}
+	if !strings.Contains(executeError.Error(), "--name shop --branch scenario-01") {
+		t.Errorf("the refusal must say how to target the application explicitly: %v", executeError)
+	}
+	if mockClient.createCalls != 0 || mockClient.deployCalls != 0 {
+		t.Errorf("create=%d deploy=%d, want 0 and 0", mockClient.createCalls, mockClient.deployCalls)
+	}
+}
+
+// Same repository, same branch: the application on the requested branch is
+// adopted even when the repository also has applications on other branches.
+func TestApplicationShipAdoptsTheApplicationOnTheRequestedBranch(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{
+		shipListing([2]string{"shop-preview", "scenario-01"}, [2]string{"shop", "main"}),
+	}
+	mockClient.applicationDetailPayloads = [][]byte{
+		[]byte(`{"id":"00000000-0000-4000-8000-000000000002","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main","pull_request_url":"https://github.com/acme/shop/pull/1","pull_request_merged_at":"2026-09-01T10:00:00Z"}`),
+	}
+	output, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, progress)
+	}
+	if mockClient.createCalls != 0 {
+		t.Errorf("the application on main must be adopted; create calls = %d", mockClient.createCalls)
+	}
+	if !strings.Contains(progress, `Using existing application "shop"`) {
+		t.Errorf("the main-branch application must be the one adopted: %s", progress)
+	}
+	if !strings.Contains(output, "Live:") {
+		t.Errorf("stdout = %q", output)
+	}
+}
+
+// Explicit targeting: --name with --branch equal to the application's
+// tracked branch ships exactly that application and that branch.
+func TestApplicationShipExplicitNameAndBranchShipsThatApplication(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{
+		shipListing([2]string{"shop", "scenario-01"}, [2]string{"shop-main", "main"}),
+	}
+	mockClient.applicationDetailPayloads = [][]byte{
+		[]byte(`{"id":"00000000-0000-4000-8000-000000000001","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"scenario-01","pull_request_url":"https://github.com/acme/shop/pull/1","pull_request_merged_at":"2026-09-01T10:00:00Z"}`),
+	}
+	mockClient.workflowRunsPayloads = [][]byte{
+		[]byte(`{"runs":[{"id":9,"status":"completed","conclusion":"success","branch":"scenario-01","html_url":"https://github.com/acme/shop/actions/runs/9"}]}`),
+	}
+	output, progress, executeError := runApplicationShipCommand(t, mockClient,
+		"--cluster", "production", "--name", "shop", "--branch", "scenario-01", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, progress)
+	}
+	if mockClient.createCalls != 0 {
+		t.Errorf("the named application must be adopted; create calls = %d", mockClient.createCalls)
+	}
+	var result shipResult
+	if unmarshalError := json.Unmarshal([]byte(output), &result); unmarshalError != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", unmarshalError, output)
+	}
+	if result.ApplicationName != "shop" || result.Branch != "scenario-01" {
+		t.Errorf("shipped %s@%s, want shop@scenario-01", result.ApplicationName, result.Branch)
+	}
+}
+
+// A different branch with a new --name registers a separate application
+// tracking the requested branch.
+func TestApplicationShipRegistersANewApplicationForAnotherBranch(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{shipListing([2]string{"conductor-hub", "scenario-01"})}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient,
+		"--cluster", "production", "--name", "shop", "--branch", "main")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, progress)
+	}
+	if mockClient.createCalls != 1 {
+		t.Fatalf("a new application must be registered; create calls = %d", mockClient.createCalls)
+	}
+	if mockClient.createRequest.Name != "shop" || mockClient.createRequest.RepositoryBranch != "main" {
+		t.Errorf("registered %s@%s, want shop@main",
+			mockClient.createRequest.Name, mockClient.createRequest.RepositoryBranch)
+	}
+}
+
+// The setup read is re-checked: an application whose listing row named no
+// branch but whose settled record tracks another one is still refused before
+// anything is built or deployed.
+func TestApplicationShipRechecksTheBranchAfterSetup(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{shipListing([2]string{"shop", ""})}
+	mockClient.applicationDetailPayloads = [][]byte{
+		[]byte(`{"id":"00000000-0000-4000-8000-000000000001","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"scenario-01","pull_request_url":"https://github.com/acme/shop/pull/1","pull_request_merged_at":"2026-09-01T10:00:00Z"}`),
+	}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError == nil {
+		t.Fatalf("the settled record tracks scenario-01, so ship must refuse\nprogress: %s", progress)
+	}
+	if !strings.Contains(executeError.Error(), `tracks branch "scenario-01", not "main"`) {
+		t.Errorf("refusal = %v", executeError)
+	}
+	if mockClient.workflowRunsCalls != 0 || mockClient.deployCalls != 0 {
+		t.Errorf("nothing may be built or deployed; workflow=%d deploy=%d",
+			mockClient.workflowRunsCalls, mockClient.deployCalls)
+	}
+}
+
+// Git branch names are case-sensitive: an application tracking "Main" is not
+// the "main" the caller asked for.
+func TestSelectShipApplicationComparesBranchesExactly(t *testing.T) {
+	repository := localApplicationRepository{Owner: "acme", Name: "shop", Branch: "main"}
+	matches := []shipApplicationView{{ID: "a", Name: "shop", AppRepoOwner: "acme", AppRepoName: "shop", AppRepoBranch: "Main"}}
+	selected, selectError := selectShipApplication(matches, repository, "")
+	if selectError == nil || selected != nil {
+		t.Fatalf("an application tracking Main must not be shipped for main; selected=%v error=%v", selected, selectError)
+	}
+	if !strings.Contains(selectError.Error(), `tracks branch "Main", not "main"`) {
+		t.Errorf("refusal = %v", selectError)
 	}
 }

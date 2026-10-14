@@ -115,6 +115,15 @@
 
 ### Fixed
 
+- **`ankra application ship` no longer deploys a branch you did not ask
+  for.** It reused any application already registered for the repository, so
+  `ship . --branch main` on a repository whose application tracked
+  `scenario-01` built and deployed `scenario-01` into the requested namespace
+  with only a note. An existing application is now reused only when it tracks
+  the requested branch (`--branch`, else the checkout's). Otherwise ship stops
+  and names the applications and their branches: pass `--name <app> --branch
+  <its branch>` to ship one of them, or `--name <new-name>` to register a
+  separate application for the branch.
 - **`ankra cluster apply` now applies a stack's `applications:`.** Until now
   the block was read by nothing and dropped without a word: `--dry-run`
   accepted the file, the platform stored the stack with no applications, and
