@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"ankra/internal/client"
@@ -125,6 +126,10 @@ func init() {
 // ankraCloudDistributions are the values --distribution accepts.
 var ankraCloudDistributions = []string{client.AnkraCloudDistributionKubeadm, client.AnkraCloudDistributionK3s}
 
+// ankraCloudNetworkModes are the values --network-mode accepts; empty leaves
+// the choice to the server.
+var ankraCloudNetworkModes = []string{client.AnkraCloudNetworkModeIPv4NAT, client.AnkraCloudNetworkModeIPv6Only}
+
 // ankraCloudCreateRequestFromFlags builds the create body shared by `create`
 // and `preflight`. Flags left at their zero value are omitted so the
 // server's documented defaults apply (template debian-13, one control plane,
@@ -139,6 +144,7 @@ func ankraCloudCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAnkraClo
 	template, _ := cmd.Flags().GetString("template")
 	privateNetworkID, _ := cmd.Flags().GetString("private-network-id")
 	networkIPRange, _ := cmd.Flags().GetString("network-ip-range")
+	networkMode, _ := cmd.Flags().GetString("network-mode")
 	bastionPlan, _ := cmd.Flags().GetString("bastion-plan")
 	bastionAllowedIPs, _ := cmd.Flags().GetStringSlice("bastion-allowed-ips")
 	controlPlaneCount, _ := cmd.Flags().GetInt("control-plane-count")
@@ -164,6 +170,11 @@ func ankraCloudCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAnkraClo
 		return client.CreateAnkraCloudClusterRequest{}, withExitCode(exitUsage,
 			errors.New("--network-ip-range sizes the network Ankra creates; omit it with --private-network-id"))
 	}
+	networkMode = strings.ToLower(strings.TrimSpace(networkMode))
+	if networkMode != "" && !slices.Contains(ankraCloudNetworkModes, networkMode) {
+		return client.CreateAnkraCloudClusterRequest{}, withExitCode(exitUsage,
+			fmt.Errorf("invalid --network-mode %q: must be one of %s (omit it for the server default)", networkMode, strings.Join(ankraCloudNetworkModes, ", ")))
+	}
 
 	request := client.CreateAnkraCloudClusterRequest{
 		Name:               name,
@@ -171,6 +182,7 @@ func ankraCloudCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAnkraClo
 		SSHKeyCredentialID: sshKeyCredentialID,
 		Zone:               zone,
 		Template:           template,
+		NetworkMode:        networkMode,
 		BastionPlan:        bastionPlan,
 		BastionAllowedIPs:  bastionAllowedIPs,
 		ControlPlaneCount:  controlPlaneCount,
@@ -231,6 +243,11 @@ one), a NAT router for the nodes' IPv4 egress, the per-server firewalls, a
 bastion with a public IPv4 address, and the control plane and worker servers.
 The kube-apiserver stays private and is reached through the bastion.
 
+That is the ipv4_nat network mode, the server default. A zone with no public
+IPv4 left takes --network-mode ipv6_only instead: no NAT router, the bastion
+is reached over IPv6 through the Cloud's port forward, and the nodes reach
+IPv4 through the zone's NAT64. The preflight names the mode a zone needs.
+
 Servers are sized by plan: list them with 'ankra cluster ankracloud plans'.
 Run 'preflight' first to check the zone, plans and network.
 
@@ -238,7 +255,8 @@ Examples:
   ankra cluster ankracloud create --name prod --credential-id <id> \
     --ssh-key-credential-id <id> --zone <zone> \
     --bastion-plan <plan> --control-plane-plan <plan> --worker-plan <plan>
-  ankra cluster ankracloud create --name edge --distribution k3s ...`,
+  ankra cluster ankracloud create --name edge --distribution k3s ...
+  ankra cluster ankracloud create --name fsn --zone de-fsn3 --network-mode ipv6_only ...`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Refuse a bad -o before the create: rejected after it, the error
 		// reads as a failed create and a retry builds a second cluster.
@@ -634,6 +652,7 @@ func registerAnkraCloudCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("template", "", "Server template (server default: debian-13; see 'ankracloud templates')")
 		command.Flags().String("private-network-id", "", "Adopt an existing private network instead of creating one")
 		command.Flags().String("network-ip-range", "", "RFC 1918 CIDR (/16 to /29) for the created private network (server default: a /24 derived from the cluster)")
+		command.Flags().String("network-mode", "", "Network mode: ipv4_nat (NAT router and a public-IPv4 bastion) or ipv6_only (for a zone without public IPv4: no router, bastion reached over IPv6 and the Cloud's port forward, IPv4 egress through NAT64). Server default: ipv4_nat")
 		command.Flags().String("bastion-plan", "", "Bastion server plan (required)")
 		command.Flags().StringSlice("bastion-allowed-ips", nil, "CIDRs allowed to reach the bastion over SSH (default: anywhere)")
 		command.Flags().Int("control-plane-count", 0, "Control plane node count (server default: 1)")

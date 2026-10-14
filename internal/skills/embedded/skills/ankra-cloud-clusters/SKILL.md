@@ -29,6 +29,9 @@ instance type: `--bastion-plan`, `--control-plane-plan`, `--worker-plan`, `--etc
 with `ankra cluster ankracloud zones|plans|templates|networks|pricing --credential-id <id>`
 (`plans --cluster <id>` for day-2 resizes). The credential is an Ankra Cloud API token:
 `ankra credentials ankracloud create --name <n> --token-stdin` (or `ANKRA_CLOUD_API_TOKEN`).
+`--network-mode ipv4_nat|ipv6_only` picks the network layout (omit it for the server default,
+`ipv4_nat`): a zone with no public IPv4 left needs `ipv6_only`, and the `preflight` says so — rerun
+`ankra cluster ankracloud preflight ... --network-mode ipv6_only`, then `create` with the same flag.
 
 For a control plane the *provider* runs — DOKS, UKS, GKE, OVH MKS, AKS, EKS, Kapsule — use
 `ankra cluster managed ...` and the `ankra-managed-kubernetes` skill instead. Rule of thumb: this
