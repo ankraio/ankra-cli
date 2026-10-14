@@ -132,11 +132,13 @@ if [ ! -x "$ANKRA_BIN" ]; then
 fi
 
 # Ankra-managed (self-managed VMs) providers. Set to "" to skip the family.
-ANKRA_SYSTEMTEST_PROVIDERS="${ANKRA_SYSTEMTEST_PROVIDERS-hetzner ovh upcloud digitalocean}"
+# upcloud and uks are opt-in only: UpCloud is too costly to test on routinely,
+# so neither runs unless a caller names it.
+ANKRA_SYSTEMTEST_PROVIDERS="${ANKRA_SYSTEMTEST_PROVIDERS-hetzner ovh digitalocean}"
 
 # Cloud-managed (provider-native managed Kubernetes) providers, driven through
 # `ankra cluster managed`. Set to "" to skip the family.
-ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="${ANKRA_SYSTEMTEST_MANAGED_PROVIDERS-doks uks gke ovh_mks aks eks}"
+ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="${ANKRA_SYSTEMTEST_MANAGED_PROVIDERS-doks gke ovh_mks aks eks}"
 
 # Kubernetes distributions to exercise per Ankra-managed provider. Each
 # (provider, distribution) pair becomes its own cluster with the distribution
