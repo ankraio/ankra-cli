@@ -1868,6 +1868,14 @@ func (m baseMock) CreateSSHKeyCredential(req client.CreateSSHKeyCredentialReques
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListOrgSSHKeyCredentials() ([]client.SSHKeyCredentialListItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateOrgSSHKeyCredential(request client.CreateSSHKeyCredentialRequest) (*client.CreatedSSHKeyCredential, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateOvhCluster(req client.CreateOvhClusterRequest) (*client.CreateOvhClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }

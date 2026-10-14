@@ -57,7 +57,7 @@ resource "ankra_hetzner_cluster" "dev" {
 ```
 
 - Each cloud keeps its own words for size and place: Hetzner `*_server_type` + `location`; DigitalOcean `*_size` + `region`; OVHcloud `*_flavor_id` + `region` (+ `gateway_flavor_id`, `availability_zones`); UpCloud `*_plan` + `zone`; Scaleway `*_type` + `region` + `zone` (+ `gateway_type`, `retention_policy`).
-- `credential_id` is the ID column of `ankra credentials list`. `ssh_key_credential_id` (required except on Hetzner) comes from `ankra credentials hetzner ssh-key list` (or the same command for the other provider).
+- `credential_id` is the ID column of `ankra credentials list`. `ssh_key_credential_id` (required except on Hetzner) comes from `ankra credentials ssh-key list`.
 - `distribution` defaults to `kubeadm` and `cni` to `cilium`. For k3s set `distribution = "k3s"` and `cni = "flannel"` or `"calico"`.
 - **Every provisioning argument forces replacement.** Changing a count or size in HCL destroys and recreates the cluster. Scale and resize existing clusters with the CLI (`ankra cluster scale`, `ankra cluster node-group`), and never present a Terraform edit as a resize.
 - Create waits for the cluster to reach `running` (default 60m, `timeouts { create = "90m" }`); `wait_for_ready = false` returns as soon as Ankra accepts it. Keep the wait when anything in the same plan uses the cluster.

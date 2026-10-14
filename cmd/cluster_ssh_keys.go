@@ -142,23 +142,41 @@ var clusterSSHKeysGetCmd = &cobra.Command{
 			return nil
 		}
 
-		if len(result.SSHKeyCredentialIDs) == 0 {
-			fmt.Println("Attached SSH keys: none")
-		} else {
-			fmt.Println("Attached SSH key credential IDs:")
-			for _, id := range result.SSHKeyCredentialIDs {
-				fmt.Printf("  %s\n", id)
-			}
-		}
-
-		if len(result.AvailableSSHKeys) > 0 {
-			fmt.Println("\nAvailable SSH key credentials:")
-			for _, key := range result.AvailableSSHKeys {
-				fmt.Printf("  %-38s  %s\n", key.CredentialID, key.Name)
-			}
-		}
+		printClusterSSHKeys(result)
 		return nil
 	},
+}
+
+// printClusterSSHKeys prints the attached SSH key credentials by id and
+// name, then every credential that can be attached. The response names only
+// the attached ids; their names come from the available list the same
+// response carries, so an id that list does not name says so instead of
+// printing a bare id as if nothing were missing.
+func printClusterSSHKeys(result *client.ClusterSSHKeysResult) {
+	namesByID := make(map[string]string, len(result.AvailableSSHKeys))
+	for _, key := range result.AvailableSSHKeys {
+		namesByID[key.CredentialID] = key.Name
+	}
+
+	if len(result.SSHKeyCredentialIDs) == 0 {
+		fmt.Println("Attached SSH keys: none")
+	} else {
+		fmt.Println("Attached SSH keys:")
+		for _, id := range result.SSHKeyCredentialIDs {
+			name, known := namesByID[id]
+			if !known || name == "" {
+				name = "(name unknown: not among the organisation's SSH key credentials)"
+			}
+			fmt.Printf("  %-38s  %s\n", id, name)
+		}
+	}
+
+	if len(result.AvailableSSHKeys) > 0 {
+		fmt.Println("\nAvailable SSH key credentials:")
+		for _, key := range result.AvailableSSHKeys {
+			fmt.Printf("  %-38s  %s\n", key.CredentialID, key.Name)
+		}
+	}
 }
 
 var clusterSSHKeysSetCmd = &cobra.Command{
