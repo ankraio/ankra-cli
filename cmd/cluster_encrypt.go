@@ -1160,11 +1160,18 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName string, leafKeys
 		return fmt.Errorf("fetch current manifest content: %w", err)
 	}
 
+	var previouslySealedKeys []string
 	if len(encryptSetEntries) > 0 {
 		assignments, assignErr := collectSetAssignments(encryptSetEntries, nil, nil)
 		if assignErr != nil {
 			return assignErr
 		}
+		unsealedB64, sealedKeys, unsealErr := unsealManifestForSet(encoded)
+		if unsealErr != nil {
+			return unsealErr
+		}
+		encoded = unsealedB64
+		previouslySealedKeys = sealedKeys
 		mutatedB64, setErr := applyManifestSet(encoded, assignments, "", "")
 		if setErr != nil {
 			return setErr
@@ -1190,6 +1197,7 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName string, leafKeys
 		}
 		leafKeys = plaintextKeys
 	}
+	leafKeys = unionEncryptedPaths(leafKeys, previouslySealedKeys)
 
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Encrypting %s in manifest %q (stack %q)...\n", describeEncryptKeys(leafKeys), manifestName, stack.Name)
 	pathsToSeal := pathsToSealWithDeclared(cmd.OutOrStdout(), leafKeys, manifest.EncryptedPaths)
@@ -1237,6 +1245,32 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName string, leafKeys
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Manifest %q encrypted in stack %q.\n", manifestName, stack.Name)
 	printGitPushDeferral(cmd.OutOrStdout(), res.GitPushDeferred, res.GitPushMessage)
 	return nil
+}
+
+// unsealManifestForSet decrypts an already sealed manifest in memory so --set
+// can replace a sealed value. Editing the sealed document directly leaves the
+// old sops metadata and MAC over a value that is now plaintext, which the
+// platform cannot decrypt to re-seal ("Failed to encrypt content"). The keys
+// the previous seal covered are returned so the caller seals them again; the
+// plaintext only travels to the platform's encrypt endpoint, never to Git.
+// A manifest with no sops metadata is returned unchanged.
+func unsealManifestForSet(manifestBase64 string) (unsealedBase64 string, sealedKeys []string, err error) {
+	rawManifest, err := base64.StdEncoding.DecodeString(manifestBase64)
+	if err != nil {
+		return "", nil, fmt.Errorf("base64-decode manifest content: %w", err)
+	}
+	sealedKeys, isSopsDocument, err := deriveSopsEncryptedPaths(rawManifest)
+	if err != nil {
+		return "", nil, err
+	}
+	if !isSopsDocument {
+		return manifestBase64, nil, nil
+	}
+	decrypted, err := apiClient.DecryptYAML(string(rawManifest))
+	if err != nil {
+		return "", nil, fmt.Errorf("decrypt sealed manifest before applying --set: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString([]byte(decrypted)), sealedKeys, nil
 }
 
 func runEncryptAddonCluster(cmd *cobra.Command, addonName string, leafKeys []string) error {
