@@ -116,7 +116,7 @@ func provenanceError(apiError error, operation string, writing bool) error {
 		}
 	}
 	if hasStatus && unexpected.StatusCode == http.StatusServiceUnavailable {
-		return fmt.Errorf("%s: the provenance keys could not be read right now, try again shortly: %w", operation, apiError)
+		return fmt.Errorf("%s: the platform could not answer right now, try again shortly: %w", operation, apiError)
 	}
 	return fmt.Errorf("%s: %w", operation, apiError)
 }

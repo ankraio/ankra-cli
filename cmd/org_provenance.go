@@ -64,7 +64,7 @@ func newOrgProvenanceGetCommand() *cobra.Command {
 
 func printOrganisationProvenancePolicy(out io.Writer, policy *client.OrganisationProvenancePolicy) {
 	_, _ = fmt.Fprintf(out, "  Organisation default: %s\n", provenanceModeLabel(policy.Mode,
-		"not set (applications use Ankra's default: off for applications created before 2026-10-14, warn since)"))
+		"not set (applications use Ankra's own default)"))
 	if policy.Mode != nil && *policy.Mode == client.ProvenanceModeEnforce {
 		provenanceEnforceCaveat(out, "ankra org provenance set --mode warn")
 	}
