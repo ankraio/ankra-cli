@@ -189,10 +189,13 @@ GITOPS_REPOSITORY="${GITOPS_REPOSITORY:-}"
 GITOPS_BRANCH="${GITOPS_BRANCH:-master}"
 
 # Regions / zones / locations.
-# fsn1, not nbg1: since 2026-10 Hetzner no longer offers cpx32 in nbg1, and
-# every create there was refused (ankra-ews9qk). fsn1 and hel1 still carry
-# cpx22 and cpx32 at the same price.
-HETZNER_LOCATION="${HETZNER_LOCATION:-fsn1}"
+# Hetzner's shared-vCPU stock moves by the minute: on 2026-10-14 cpx32 left
+# nbg1, then fsn1, then came back to nbg1 within the hour, and a create in a
+# location without it is refused (ankra-ews9qk). So the lane picks its
+# location at run time: the first of HETZNER_LOCATION_CANDIDATES that offers
+# every server type the lane uses right now. Setting HETZNER_LOCATION pins it.
+HETZNER_LOCATION="${HETZNER_LOCATION:-}"
+HETZNER_LOCATION_CANDIDATES="${HETZNER_LOCATION_CANDIDATES:-fsn1 nbg1 hel1}"
 OVH_REGION="${OVH_REGION:-GRA9}"
 UPCLOUD_ZONE="${UPCLOUD_ZONE:-de-fra1}"
 
@@ -431,6 +434,42 @@ ank_out() {
   else
     "$ANKRA_BIN" "$@" 2>/dev/null
   fi
+}
+
+# hetzner_available_types prints the server types Hetzner can provision in a
+# location right now, one per line, read from the CLI's server-types table
+# (NAME CORES MEMORY GB DISK GB ARCH PRICE AVAILABLE; the last column is yes).
+hetzner_available_types() {
+  ank_out cluster hetzner server-types --credential-id "$HETZNER_CREDENTIAL_ID" \
+    --location "$1" --available-only | hetzner_types_from_table
+}
+
+# hetzner_types_from_table reads a server-types table on stdin and prints the
+# names whose AVAILABLE column says yes.
+hetzner_types_from_table() {
+  awk 'NR > 2 && NF >= 9 && $NF == "yes" { print $1 }'
+}
+
+# pick_hetzner_location prints the first candidate location that offers every
+# type the lane uses, and fails when none does. It reads the types each
+# candidate offers through hetzner_available_types, so a test can stub it.
+pick_hetzner_location() {
+  local location needed available is_complete
+  for location in $HETZNER_LOCATION_CANDIDATES; do
+    available="$(hetzner_available_types "$location" || true)"
+    is_complete=1
+    for needed in "$HETZNER_CP_TYPE" "$HETZNER_WORKER_TYPE" "$HETZNER_BASTION_TYPE" "$HETZNER_BIGGER_TYPE"; do
+      if ! printf '%s\n' "$available" | grep -qx "$needed"; then
+        is_complete=0
+        break
+      fi
+    done
+    if [ "$is_complete" = 1 ]; then
+      echo "$location"
+      return 0
+    fi
+  done
+  return 1
 }
 
 # create_failure_reason says why a create printed no "Cluster ID:" line. The
@@ -1890,6 +1929,14 @@ run_provider() {
   local id target plan out
 
   section "$label :: $name"
+
+  if [ "$provider" = hetzner ] && [ -z "$HETZNER_LOCATION" ]; then
+    if ! HETZNER_LOCATION="$(pick_hetzner_location)"; then
+      fail "$label create (no Hetzner location in '$HETZNER_LOCATION_CANDIDATES' offers $HETZNER_CP_TYPE, $HETZNER_WORKER_TYPE, $HETZNER_BASTION_TYPE and $HETZNER_BIGGER_TYPE right now)"
+      return
+    fi
+    log "hetzner location: $HETZNER_LOCATION (offers every type this lane uses right now)"
+  fi
 
   # 1. Create (capture the printed "Cluster ID: <uuid>")
   log "creating $name (distribution=$distribution) ..."
