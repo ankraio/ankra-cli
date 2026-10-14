@@ -167,6 +167,9 @@ a file for 'cosign verify-attestation --key'.`,
 			}
 			out := command.OutOrStdout()
 			if onlyPEM, _ := command.Flags().GetBool("public-keys"); onlyPEM {
+				if len(keys.Keys) == 0 {
+					_, _ = fmt.Fprintln(command.ErrOrStderr(), "No provenance key exists yet. The first publish through a pipeline creates one.")
+				}
 				for _, key := range keys.Keys {
 					if key.Status != "revoked" {
 						_, _ = fmt.Fprint(out, strings.TrimRight(key.PublicKeyPEM, "\n")+"\n")
