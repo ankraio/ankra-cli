@@ -132,11 +132,13 @@ if [ ! -x "$ANKRA_BIN" ]; then
 fi
 
 # Ankra-managed (self-managed VMs) providers. Set to "" to skip the family.
-ANKRA_SYSTEMTEST_PROVIDERS="${ANKRA_SYSTEMTEST_PROVIDERS-hetzner ovh upcloud digitalocean}"
+# upcloud and uks are opt-in only: UpCloud is too costly to test on routinely,
+# so neither runs unless a caller names it.
+ANKRA_SYSTEMTEST_PROVIDERS="${ANKRA_SYSTEMTEST_PROVIDERS-hetzner ovh digitalocean}"
 
 # Cloud-managed (provider-native managed Kubernetes) providers, driven through
 # `ankra cluster managed`. Set to "" to skip the family.
-ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="${ANKRA_SYSTEMTEST_MANAGED_PROVIDERS-doks uks gke ovh_mks aks eks}"
+ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="${ANKRA_SYSTEMTEST_MANAGED_PROVIDERS-doks gke ovh_mks aks eks}"
 
 # Kubernetes distributions to exercise per Ankra-managed provider. Each
 # (provider, distribution) pair becomes its own cluster with the distribution
@@ -189,7 +191,13 @@ GITOPS_REPOSITORY="${GITOPS_REPOSITORY:-}"
 GITOPS_BRANCH="${GITOPS_BRANCH:-master}"
 
 # Regions / zones / locations.
-HETZNER_LOCATION="${HETZNER_LOCATION:-nbg1}"
+# Hetzner's shared-vCPU stock moves by the minute: on 2026-10-14 cpx32 left
+# nbg1, then fsn1, then came back to nbg1 within the hour, and a create in a
+# location without it is refused (ankra-ews9qk). So the lane picks its
+# location at run time: the first of HETZNER_LOCATION_CANDIDATES that offers
+# every server type the lane uses right now. Setting HETZNER_LOCATION pins it.
+HETZNER_LOCATION="${HETZNER_LOCATION:-}"
+HETZNER_LOCATION_CANDIDATES="${HETZNER_LOCATION_CANDIDATES:-fsn1 nbg1 hel1}"
 OVH_REGION="${OVH_REGION:-GRA9}"
 UPCLOUD_ZONE="${UPCLOUD_ZONE:-de-fra1}"
 
@@ -427,6 +435,92 @@ ank_out() {
     "$ANKRA_BIN" --config "$ANK_CONFIG" "$@" 2>/dev/null
   else
     "$ANKRA_BIN" "$@" 2>/dev/null
+  fi
+}
+
+# hetzner_available_types prints the server types Hetzner can provision in a
+# location right now, one per line, read from the CLI's server-types table
+# (NAME CORES MEMORY GB DISK GB ARCH PRICE AVAILABLE; the last column is yes).
+hetzner_available_types() {
+  local table
+  table="$(ank_out cluster hetzner server-types --credential-id "$HETZNER_CREDENTIAL_ID" \
+    --location "$1" --available-only)" || return 1
+  printf '%s\n' "$table" | hetzner_types_from_table
+}
+
+# hetzner_types_from_table reads a server-types table on stdin and prints the
+# names whose AVAILABLE column says yes. It matches the row's shape (a
+# type-like name first, "yes" last) rather than skipping a fixed number of
+# preamble lines, so a missing banner or an extra header cannot shift it.
+hetzner_types_from_table() {
+  awk '$1 ~ /^[a-z]+[0-9]+[a-z]*$/ && $NF == "yes" { print $1 }'
+}
+
+# pick_hetzner_location prints the first candidate location that offers every
+# type the lane uses and succeeds; otherwise it prints why and fails. A
+# location whose types could not be read (the CLI failed, or answered no rows)
+# is never read as a location that lacks them: the reason names it apart, and
+# when no candidate could be read at all it says so (a credential or API
+# problem, not Hetzner's stock). It reads each candidate through
+# hetzner_available_types, so a test can stub it.
+pick_hetzner_location() {
+  local location needed available is_complete
+  local unread="" lacking=""
+  for needed in "$HETZNER_CP_TYPE" "$HETZNER_WORKER_TYPE" "$HETZNER_BASTION_TYPE" "$HETZNER_BIGGER_TYPE"; do
+    if [ -z "$needed" ]; then
+      echo "configuration error: HETZNER_CP_TYPE, HETZNER_WORKER_TYPE, HETZNER_BASTION_TYPE and HETZNER_BIGGER_TYPE must all be set"
+      return 1
+    fi
+  done
+  for location in $HETZNER_LOCATION_CANDIDATES; do
+    if ! available="$(hetzner_available_types "$location")" || [ -z "$available" ]; then
+      unread="${unread:+$unread }$location"
+      continue
+    fi
+    is_complete=1
+    for needed in "$HETZNER_CP_TYPE" "$HETZNER_WORKER_TYPE" "$HETZNER_BASTION_TYPE" "$HETZNER_BIGGER_TYPE"; do
+      if ! printf '%s\n' "$available" | grep -qx "$needed"; then
+        is_complete=0
+        break
+      fi
+    done
+    if [ "$is_complete" = 1 ]; then
+      echo "$location"
+      return 0
+    fi
+    lacking="${lacking:+$lacking }$location"
+  done
+  if [ -z "$lacking" ]; then
+    echo "could not list Hetzner server types for any of '$HETZNER_LOCATION_CANDIDATES' (a credential or API problem, not Hetzner's stock)"
+  elif [ -n "$unread" ]; then
+    echo "no readable Hetzner location offers $HETZNER_CP_TYPE, $HETZNER_WORKER_TYPE, $HETZNER_BASTION_TYPE and $HETZNER_BIGGER_TYPE right now (lacking: $lacking; could not read: $unread)"
+  else
+    echo "no Hetzner location in '$HETZNER_LOCATION_CANDIDATES' offers $HETZNER_CP_TYPE, $HETZNER_WORKER_TYPE, $HETZNER_BASTION_TYPE and $HETZNER_BIGGER_TYPE right now"
+  fi
+  return 1
+}
+
+# create_failure_reason says why a create printed no "Cluster ID:" line. The
+# platform refuses a create it cannot run with a 400 whose "detail" names the
+# cause (a server type the location no longer offers, a provider account with
+# no credits); ank() merges that "Error:" line into the output, and reporting
+# it is the difference between a run that says what to fix and one that says
+# "could not resolve cluster id" (ankra-ews9qk). The detail is cut at 300
+# characters; the full line is in the log above the FAIL.
+create_failure_reason() {
+  local out="$1" error_line status detail
+  error_line="$(printf '%s\n' "$out" | grep -m1 -E '^Error: ' || true)"
+  if [ -z "$error_line" ]; then
+    echo "the create printed neither a Cluster ID nor an error"
+    return
+  fi
+  status="$(printf '%s' "$error_line" | grep -oE 'status [0-9]{3}' | head -1 || true)"
+  detail="$(printf '%s' "$error_line" | sed -nE 's/.*"detail":"(([^"\\]|\\.)*)".*/\1/p' | head -1)"
+  if [ -n "$detail" ]; then
+    echo "refused by the platform${status:+, $status}: ${detail:0:300}"
+  else
+    error_line="${error_line#Error: }"
+    echo "${error_line:0:300}"
   fi
 }
 
@@ -1128,7 +1222,7 @@ run_aws_provider() {
   out="$(ank cluster aws create "${create_args[@]}")"
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
-  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  if [ -z "$id" ]; then fail "$label create ($(create_failure_reason "$out"))"; return; fi
   register_cluster "$name" "$id"
   pass "$label create submitted (id=$id)"
 
@@ -1864,12 +1958,22 @@ run_provider() {
 
   section "$label :: $name"
 
+  if [ "$provider" = hetzner ] && [ -z "$HETZNER_LOCATION" ]; then
+    local picked
+    if ! picked="$(pick_hetzner_location)"; then
+      fail "$label create ($picked)"
+      return
+    fi
+    HETZNER_LOCATION="$picked"
+    log "hetzner location: $HETZNER_LOCATION (offers every type this lane uses right now)"
+  fi
+
   # 1. Create (capture the printed "Cluster ID: <uuid>")
   log "creating $name (distribution=$distribution) ..."
   out="$(create_cluster "$provider" "$name" "$distribution")"
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
-  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  if [ -z "$id" ]; then fail "$label create ($(create_failure_reason "$out"))"; return; fi
   register_cluster "$name" "$id"
   pass "$label create submitted (id=$id)"
 
@@ -1965,7 +2069,7 @@ run_managed_provider() {
     "${version_args[@]}" "${gitops_args[@]}")"
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
-  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  if [ -z "$id" ]; then fail "$label create ($(create_failure_reason "$out"))"; return; fi
   register_cluster "$name" "$id" "$provider"
   pass "$label create submitted (id=$id)"
 

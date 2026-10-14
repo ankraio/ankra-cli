@@ -230,8 +230,8 @@ Common optional (defaults in parentheses):
 
 | Variable | Default |
 |---|---|
-| `ANKRA_SYSTEMTEST_PROVIDERS` | `hetzner ovh upcloud digitalocean` (set to `""` to skip the Ankra-managed family; add `aws` for the opt-in AWS lane) |
-| `ANKRA_SYSTEMTEST_MANAGED_PROVIDERS` | `doks uks gke ovh_mks aks eks` (set to `""` to skip the cloud-managed family) |
+| `ANKRA_SYSTEMTEST_PROVIDERS` | `hetzner ovh digitalocean` (set to `""` to skip the Ankra-managed family; `upcloud` is opt-in only, as UpCloud is too costly to test on routinely; add `aws` for the opt-in AWS lane) |
+| `ANKRA_SYSTEMTEST_MANAGED_PROVIDERS` | `doks gke ovh_mks aks eks` (set to `""` to skip the cloud-managed family; `uks` is opt-in only, for the same cost reason as `upcloud`) |
 | `ANKRA_SYSTEMTEST_DISTRIBUTIONS` | `k3s` (Ankra-managed only; set `"k3s kubeadm"` to matrix-test both) |
 | `ANKRA_SYSTEMTEST_PARALLEL` | `1` (run selected targets concurrently; set `0` for one-at-a-time) |
 | `ANKRA_SYSTEMTEST_PLAN_ONLY` | `0` (`1`: print which lanes would run and what each skipped lane is missing, then stop; under GitHub Actions also writes the job summary and the `requested_lanes`/`skipped_lanes`/`runnable_lanes` step outputs) |

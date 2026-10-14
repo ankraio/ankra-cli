@@ -167,6 +167,9 @@ func (c *Client) StreamChatSessionEvents(sessionID string, since int64) (<-chan 
 		if resp.StatusCode == http.StatusUnauthorized {
 			return nil, ErrUnauthorized
 		}
+		if restricted := BillingRestrictedFromResponse(body); restricted != nil {
+			return nil, restricted
+		}
 		if detail := detailFromBody(body); detail != "" {
 			return nil, classifyChatSessionError(newBackendDetailError(resp.StatusCode, detail))
 		}

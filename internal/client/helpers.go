@@ -70,6 +70,9 @@ func (c *Client) getJSON(url string, target interface{}) error {
 		if denied := PermissionDeniedFromResponse(resp.StatusCode, body); denied != nil {
 			return denied
 		}
+		if restricted := BillingRestrictedFromResponse(body); restricted != nil {
+			return restricted
+		}
 		return newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("unexpected status: %s", resp.Status))
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodySize)).Decode(target)
@@ -124,6 +127,9 @@ func (c *Client) sendJSONContext(ctx context.Context, method string, url string,
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		if denied := PermissionDeniedFromResponse(response.StatusCode, body); denied != nil {
 			return denied
+		}
+		if restricted := BillingRestrictedFromResponse(body); restricted != nil {
+			return restricted
 		}
 		if detail := detailFromBody(body); detail != "" {
 			return newBackendDetailError(response.StatusCode, detail)

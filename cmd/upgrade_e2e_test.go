@@ -1685,7 +1685,7 @@ func TestRunEncryptManifest_ClusterModeSetDecryptFailureDoesNotPatch(t *testing.
 		"--cluster", fakeClusterUUID,
 	})
 	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), `decrypt manifest "demo-namespace" to apply --set`) {
+	if err == nil || !strings.Contains(err.Error(), "decrypt sealed manifest before applying --set") {
 		t.Fatalf("expected the decrypt failure to be named, got: %v", err)
 	}
 	if len(mock.encryptCalls) != 0 || len(mock.capturedRequests) != 0 {

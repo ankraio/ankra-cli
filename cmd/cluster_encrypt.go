@@ -1164,108 +1164,6 @@ func fetchClusterIaCDoc(ctx context.Context, clusterFlag string) (clusterID, clu
 	return clusterID, clusterName, doc, nil
 }
 
-// unsealManifestForSet returns the manifest --set should edit. A manifest
-// that carries SOPS metadata is decrypted in memory first: an edit to an
-// ENC[...] value otherwise leaves plaintext under a key the document's own
-// sops block marks as encrypted, and the platform's encrypt route, which
-// decrypts a sealed document before re-sealing it, refuses that with a bare
-// "Failed to encrypt content" (PLA-907). The plaintext goes only to the
-// platform's encrypt route, never to git. The keys that were encrypted and
-// the number of encrypted values are returned so the caller seals every one
-// of them again and can refuse an output that seals fewer.
-func unsealManifestForSet(out io.Writer, manifestName, manifestBase64 string) (plaintextBase64 string, sealedKeys []string, sealedValueCount int, err error) {
-	raw, err := base64.StdEncoding.DecodeString(manifestBase64)
-	if err != nil {
-		return "", nil, 0, fmt.Errorf("base64-decode manifest content: %w", err)
-	}
-	sealedKeys, isSopsDocument, err := deriveSopsEncryptedPaths(raw)
-	if err != nil {
-		return "", nil, 0, err
-	}
-	if !isSopsDocument {
-		return manifestBase64, nil, 0, nil
-	}
-	sealedValueCount, err = countEncryptedValues(raw)
-	if err != nil {
-		return "", nil, 0, err
-	}
-	decrypted, err := apiClient.DecryptYAML(string(raw))
-	if err != nil {
-		return "", nil, 0, fmt.Errorf("decrypt manifest %q to apply --set: %w", manifestName, err)
-	}
-	// Encrypting a document that still holds ciphertext would seal the
-	// ENC[...] strings themselves, so a decrypt that left any is refused.
-	leftoverKeys, stillSops, err := deriveSopsEncryptedPaths([]byte(decrypted))
-	if err != nil {
-		return "", nil, 0, fmt.Errorf("parse decrypted manifest %q: %w", manifestName, err)
-	}
-	if stillSops || len(leftoverKeys) > 0 {
-		return "", nil, 0, fmt.Errorf("decrypt manifest %q to apply --set: the platform returned content that is still encrypted", manifestName)
-	}
-	_, _ = fmt.Fprintf(out, "Manifest %q is encrypted; decrypted it in memory to apply --set. Every key that was encrypted is encrypted again in the same write.\n", manifestName)
-	return base64.StdEncoding.EncodeToString([]byte(decrypted)), sealedKeys, sealedValueCount, nil
-}
-
-// countEncryptedValues counts the ENC[...] scalars in rawYAML outside each
-// document's sops metadata.
-func countEncryptedValues(rawYAML []byte) (int, error) {
-	decoder := yaml.NewDecoder(bytes.NewReader(rawYAML))
-	count := 0
-	var walk func(node *yaml.Node, isDocumentRoot bool)
-	walk = func(node *yaml.Node, isDocumentRoot bool) {
-		switch node.Kind {
-		case yaml.ScalarNode:
-			if strings.HasPrefix(node.Value, sopsEncryptedValuePrefix) {
-				count++
-			}
-		case yaml.MappingNode:
-			for entryIndex := 0; entryIndex+1 < len(node.Content); entryIndex += 2 {
-				if isDocumentRoot && node.Content[entryIndex].Value == sopsMetadataKey {
-					continue
-				}
-				walk(node.Content[entryIndex+1], false)
-			}
-		case yaml.SequenceNode:
-			for _, itemNode := range node.Content {
-				walk(itemNode, false)
-			}
-		}
-	}
-	for {
-		var document yaml.Node
-		decodeErr := decoder.Decode(&document)
-		if errors.Is(decodeErr, io.EOF) {
-			return count, nil
-		}
-		if decodeErr != nil {
-			return 0, fmt.Errorf("parse manifest YAML: %w", decodeErr)
-		}
-		if document.Kind == yaml.DocumentNode && len(document.Content) > 0 {
-			walk(document.Content[0], true)
-		}
-	}
-}
-
-// verifyNoValueUnsealed refuses a re-sealed manifest that holds fewer
-// ENC[...] values than the stored one did. Every key that was encrypted is
-// verified by name already; this catches a value the key derivation did not
-// name, which would otherwise be pushed in plaintext.
-func verifyNoValueUnsealed(encryptedYAML string, sealedValueCount int) error {
-	if sealedValueCount == 0 {
-		return nil
-	}
-	resealedCount, err := countEncryptedValues([]byte(encryptedYAML))
-	if err != nil {
-		return err
-	}
-	if resealedCount < sealedValueCount {
-		return fmt.Errorf(
-			"the stored manifest held %d encrypted values and the re-encrypted one holds %d; refusing to write a manifest that would push a previously encrypted value in plaintext",
-			sealedValueCount, resealedCount)
-	}
-	return nil
-}
-
 func runEncryptManifestCluster(cmd *cobra.Command, manifestName string, leafKeys []string) error {
 	// The command ends in a partial-stack PATCH, which the backend serves
 	// synchronously (DB transaction + a full GitOps commit/push when the
@@ -1289,18 +1187,18 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName string, leafKeys
 		return fmt.Errorf("fetch current manifest content: %w", err)
 	}
 
-	var resealKeys []string
-	sealedValueCount := 0
+	var previouslySealedKeys []string
 	if len(encryptSetEntries) > 0 {
 		assignments, assignErr := collectSetAssignments(encryptSetEntries, nil, nil)
 		if assignErr != nil {
 			return assignErr
 		}
-		openedB64, sealedKeys, sealedCount, unsealErr := unsealManifestForSet(cmd.OutOrStdout(), manifestName, encoded)
+		unsealedB64, sealedKeys, unsealErr := unsealManifestForSet(encoded)
 		if unsealErr != nil {
 			return unsealErr
 		}
-		encoded, resealKeys, sealedValueCount = openedB64, sealedKeys, sealedCount
+		encoded = unsealedB64
+		previouslySealedKeys = sealedKeys
 		mutatedB64, setErr := applyManifestSet(encoded, assignments, "", "")
 		if setErr != nil {
 			return setErr
@@ -1326,27 +1224,27 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName string, leafKeys
 		}
 		leafKeys = plaintextKeys
 	}
+	stillPresentSealedKeys, presenceErr := keysPresentInManifest(decoded, previouslySealedKeys)
+	if presenceErr != nil {
+		return presenceErr
+	}
+	leafKeys = unionEncryptedPaths(leafKeys, stillPresentSealedKeys)
 
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Encrypting %s in manifest %q (stack %q)...\n", describeEncryptKeys(leafKeys), manifestName, stack.Name)
 	pathsToSeal := pathsToSealWithDeclared(cmd.OutOrStdout(), leafKeys, manifest.EncryptedPaths)
-	pathsToSeal = unionEncryptedPaths(pathsToSeal, resealKeys)
 	encryptedYAML, err := apiClient.EncryptYAML(string(decoded), pathsToSeal)
 	if err != nil {
 		return fmt.Errorf("encryption failed: %w", err)
 	}
 
-	sealedKeys := unionEncryptedPaths(leafKeys, resealKeys)
-	for _, leafKey := range sealedKeys {
+	for _, leafKey := range leafKeys {
 		if err := verifyKeyEncrypted(encryptedYAML, leafKey); err != nil {
 			return fmt.Errorf("encryption verification failed: %w", err)
 		}
 	}
-	if err := verifyNoValueUnsealed(encryptedYAML, sealedValueCount); err != nil {
-		return fmt.Errorf("encryption verification failed: %w", err)
-	}
 
 	newPaths := append([]string{}, manifest.EncryptedPaths...)
-	for _, leafKey := range sealedKeys {
+	for _, leafKey := range leafKeys {
 		if !containsEncryptedPath(newPaths, leafKey) {
 			newPaths = append(newPaths, encryptedPathEntry(newPaths, leafKey, ""))
 		}
@@ -1378,6 +1276,91 @@ func runEncryptManifestCluster(cmd *cobra.Command, manifestName string, leafKeys
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Manifest %q encrypted in stack %q.\n", manifestName, stack.Name)
 	printGitPushDeferral(cmd.OutOrStdout(), res.GitPushDeferred, res.GitPushMessage)
 	return nil
+}
+
+// unsealManifestForSet decrypts an already sealed manifest in memory so --set
+// can replace a sealed value. Editing the sealed document directly leaves the
+// old sops metadata and MAC over a value that is now plaintext, which the
+// platform cannot decrypt to re-seal ("Failed to encrypt content"). The keys
+// the previous seal covered are returned so the caller seals them again; the
+// plaintext only travels to the platform's encrypt endpoint, never to Git.
+// A manifest with no sops metadata is returned unchanged.
+func unsealManifestForSet(manifestBase64 string) (unsealedBase64 string, sealedKeys []string, err error) {
+	rawManifest, err := base64.StdEncoding.DecodeString(manifestBase64)
+	if err != nil {
+		return "", nil, fmt.Errorf("base64-decode manifest content: %w", err)
+	}
+	sealedKeys, isSopsDocument, err := deriveSopsEncryptedPaths(rawManifest)
+	if err != nil {
+		return "", nil, err
+	}
+	if !isSopsDocument {
+		return manifestBase64, nil, nil
+	}
+	decrypted, err := apiClient.DecryptYAML(string(rawManifest))
+	if err != nil {
+		return "", nil, fmt.Errorf("decrypt sealed manifest before applying --set: %w", err)
+	}
+	// Encrypting a document that still holds ciphertext would seal the
+	// ENC[...] strings themselves, so a decrypt that left any is refused.
+	leftoverKeys, stillSops, err := deriveSopsEncryptedPaths([]byte(decrypted))
+	if err != nil {
+		return "", nil, fmt.Errorf("parse decrypted manifest: %w", err)
+	}
+	if stillSops || len(leftoverKeys) > 0 {
+		return "", nil, fmt.Errorf("decrypt sealed manifest before applying --set: the platform returned content that is still encrypted")
+	}
+	return base64.StdEncoding.EncodeToString([]byte(decrypted)), sealedKeys, nil
+}
+
+// keysPresentInManifest keeps the keys that still name a scalar value, or a
+// list holding one, in the manifest, so a key the previous seal covered but a --set edit removed is not
+// handed to encrypt as a path to seal.
+func keysPresentInManifest(manifestYAML []byte, keys []string) ([]string, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	presentKeys := map[string]bool{}
+	decoder := yaml.NewDecoder(bytes.NewReader(manifestYAML))
+	for {
+		var document yaml.Node
+		decodeErr := decoder.Decode(&document)
+		if errors.Is(decodeErr, io.EOF) {
+			break
+		}
+		if decodeErr != nil {
+			return nil, fmt.Errorf("parse manifest YAML: %w", decodeErr)
+		}
+		collectScalarKeyNames(&document, presentKeys)
+	}
+	kept := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if presentKeys[key] {
+			kept = append(kept, key)
+		}
+	}
+	return kept, nil
+}
+
+func collectScalarKeyNames(node *yaml.Node, presentKeys map[string]bool) {
+	switch node.Kind {
+	case yaml.DocumentNode, yaml.SequenceNode:
+		for _, childNode := range node.Content {
+			collectScalarKeyNames(childNode, presentKeys)
+		}
+	case yaml.MappingNode:
+		for entryIndex := 0; entryIndex+1 < len(node.Content); entryIndex += 2 {
+			valueNode := node.Content[entryIndex+1]
+			if valueNode.Kind == yaml.ScalarNode {
+				presentKeys[node.Content[entryIndex].Value] = true
+				continue
+			}
+			if sequenceHoldsScalar(valueNode) {
+				presentKeys[node.Content[entryIndex].Value] = true
+			}
+			collectScalarKeyNames(valueNode, presentKeys)
+		}
+	}
 }
 
 func runEncryptAddonCluster(cmd *cobra.Command, addonName string, leafKeys []string) error {
@@ -1457,4 +1440,16 @@ func runEncryptAddonCluster(cmd *cobra.Command, addonName string, leafKeys []str
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Addon %q encrypted in stack %q.\n", addonName, stack.Name)
 	printGitPushDeferral(cmd.OutOrStdout(), res.GitPushDeferred, res.GitPushMessage)
 	return nil
+}
+
+func sequenceHoldsScalar(node *yaml.Node) bool {
+	if node.Kind != yaml.SequenceNode {
+		return false
+	}
+	for _, itemNode := range node.Content {
+		if itemNode.Kind == yaml.ScalarNode {
+			return true
+		}
+	}
+	return false
 }

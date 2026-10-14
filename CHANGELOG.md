@@ -117,6 +117,22 @@
   re-checks steps skipped behind a failure, and that a re-run's publish does
   not roll the deployment. `ankra application pipeline rerun --help` shows
   the same text.
+- **The AI commands explain a billing pause instead of printing a raw
+  status.** When the organisation's billing standing pauses AI (prepaid
+  credit used up, an invoice overdue, a credit limit or the free tier
+  exceeded), `ankra chat` and `ankra chat health --ai` now print the
+  platform's own sentence - what is paused, that running clusters are
+  unaffected, and what resolves it - followed by one line pointing at the
+  portal's Billing page for the organisation, instead of `chat failed:
+  status 402, body: ...`. The refusal is read wherever it arrives: on the
+  request, or on the error frame of a streaming reply, where it used to end
+  as a generic stream error. `ankra chat -o json` prints its document with
+  `error_code` `BILLING_RESTRICTED` and the sentence in `detail`, even when
+  the pause stopped the question before a turn started, so a job can tell
+  it from a failed answer. The command exits 1, the generic refusal code: a
+  re-login or a role change does not resolve it. The same pause also
+  refuses new clusters, with the same code, so the Billing hint follows
+  that refusal on any command that meets it, not only the AI ones.
 
 ### Fixed
 
@@ -141,6 +157,19 @@
   application's own manifests). Parents may name applications, and an
   application may depend on manifests and add-ons, checked for undeclared
   parents and cycles like every other member.
+
+## v0.33.1 — 2026-10-14
+
+### Fixed
+
+- **`ankra cluster encrypt manifest --set` can rotate a value that is
+  already sealed.** Setting a new value on a sealed key (for example a
+  registry robot's `.dockerconfigjson`) failed with `encryption failed:
+  Failed to encrypt content`, so the only way to rotate a secret was to
+  decrypt it into Git first or create a new manifest. The CLI now unseals
+  the manifest in memory, applies the `--set` edits, and seals the result
+  again, keeping every key the previous seal covered sealed. The plaintext
+  never reaches Git.
 
 ## v0.33.0 — 2026-10-11
 
