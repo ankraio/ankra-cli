@@ -21,7 +21,7 @@ list them with `ankra cluster aws vpcs|subnets|availability-zones --credential-i
 credential is the organisation's existing AWS credential - an assumable role connected with
 `ankra credentials aws onboarding --scope self_managed` then `create-role`, or an access key pair
 with `create-keys`; `ankra credentials aws list` shows the ids. A role onboarded with scope `cost`
-cannot build clusters. The SSH key credential comes from any provider's `ssh-key create`.
+cannot build clusters. The SSH key credential is organisation-wide: `ankra credentials ssh-key create`.
 
 `ankracloud` (alias `ankra-cloud`, behind the `ankra_cloud_provider` feature flag) builds kubeadm
 (default) or k3s (`--distribution k3s`) on Ankra Cloud servers. Servers are sized by **plan**, not
@@ -44,7 +44,7 @@ managed offering; `managed` when you want the provider to own the control plane'
 
 ```bash
 ankra credentials hetzner create --name hetzner-prod
-ankra credentials hetzner ssh-key create --name ops-key
+ankra credentials ssh-key create --name ops-key --public-key-file ~/.ssh/id_ed25519.pub   # org-wide, any provider
 ankra credentials ovh create --name ovh-prod
 ankra credentials upcloud create --name upcloud-prod
 ankra credentials digitalocean create --name do-prod
@@ -55,11 +55,12 @@ ankra credentials aws create-role --name aws-prod --role-arn <arn> --external-id
 ankra credentials aws create-keys --name aws-prod --access-key-id AKIA...   # prompts for the secret
 
 ankra credentials list                 # the IDs to pass to create
-ankra credentials get <name>
+ankra credentials get <name>           # an ssh-key credential shows its public key and SHA256 fingerprint
 ankra credentials validate <name>
+ankra credentials ssh-key list
 ```
 
-Every provider group has `create`, `list` and `ssh-key`. Scope the token at the provider to the
+Every provider group has `create` and `list`. An SSH key credential belongs to the organisation, not a provider: `ankra credentials ssh-key create --name <n> --public-key-file <path.pub>` (or `--public-key "<key>"`, or `--generate --private-key-file <path>`), and the platform refuses a key the organisation already holds, naming the credential that has it. Scope the token at the provider to the
 project Ankra manages — see `ankra-security`.
 
 ## 2. Choose the region and the instance family *before* you create
@@ -223,7 +224,7 @@ The provider is detected from the cluster, so these work everywhere:
 ```bash
 ankra cluster scale <cluster_id> 5                    # default worker pool
 ankra cluster upgrade <cluster_id> <target_version>   # kubeadm or k3s; --force to override a blocked drain
-ankra cluster ssh-keys get|set|resync <cluster_id>
+ankra cluster ssh-keys get|set|resync <cluster_id>   # get names each attached key; set REPLACES the attached set
 
 ankra cluster node-group list <cluster_id>
 ankra cluster node-group add <cluster_id> --name gpu --instance-type <type> --count 2 --wait

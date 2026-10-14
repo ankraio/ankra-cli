@@ -124,3 +124,50 @@ func TestSSHKeysSelectorsForKind(t *testing.T) {
 		}
 	}
 }
+
+func (m *clusterSSHKeysMock) GetHetznerClusterSSHKeys(clusterID string) (*client.ClusterSSHKeysResult, error) {
+	return &client.ClusterSSHKeysResult{
+		SSHKeyCredentialIDs: []string{
+			"d07ea4d0-5928-455b-87e3-e2fe8e6b50ac",
+			"c350ebd2-318a-44ec-8376-34356ead4c1a",
+			"99999999-9999-4999-8999-999999999999",
+		},
+		AvailableSSHKeys: []client.ClusterSSHKeyEntry{
+			{CredentialID: "66687213-9190-48d4-81d6-4748de371220", Name: "maas"},
+			{CredentialID: "d07ea4d0-5928-455b-87e3-e2fe8e6b50ac", Name: "mash"},
+			{CredentialID: "c350ebd2-318a-44ec-8376-34356ead4c1a", Name: "ssh-key-shiv"},
+		},
+	}, nil
+}
+
+// The attached keys used to print as bare ids while the names sat in the
+// same response's available list.
+func TestClusterSSHKeysGet_NamesTheAttachedKeys(t *testing.T) {
+	const clusterID = "62f4559a-a44d-46d7-aab3-a57c9dd6b4c6"
+	mock := &clusterSSHKeysMock{cluster: client.ClusterListItem{ID: clusterID, Name: "demo", Kind: "hetzner"}}
+	setMockClient(t, mock)
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"cluster", "ssh-keys", "get", clusterID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("execute failed: %v", err)
+		}
+	})
+
+	attachedSection, _, _ := strings.Cut(out, "Available SSH key credentials:")
+	for _, line := range []string{
+		"d07ea4d0-5928-455b-87e3-e2fe8e6b50ac    mash",
+		"c350ebd2-318a-44ec-8376-34356ead4c1a    ssh-key-shiv",
+		"99999999-9999-4999-8999-999999999999    (name unknown",
+	} {
+		if !strings.Contains(attachedSection, line) {
+			t.Errorf("attached section lacks %q:\n%s", line, out)
+		}
+	}
+	if strings.Contains(attachedSection, "maas") {
+		t.Errorf("unattached key listed as attached:\n%s", out)
+	}
+	if !strings.Contains(out, "66687213-9190-48d4-81d6-4748de371220    maas") {
+		t.Errorf("available list lost:\n%s", out)
+	}
+}

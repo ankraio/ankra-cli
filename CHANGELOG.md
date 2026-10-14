@@ -4,6 +4,25 @@
 
 ### Added
 
+- **`ankra credentials ssh-key create|list` manage the organisation's SSH key
+  credentials without picking a provider.** An SSH key credential belongs to
+  the whole organisation and attaches to any cloud cluster, but creating one
+  from the CLI meant going through a provider group (`credentials hetzner
+  ssh-key create`) or a raw API call. `create --name <n>` takes the key with
+  `--public-key "<key>"`, `--public-key-file ~/.ssh/id_ed25519.pub`, or
+  `--generate --private-key-file <path>`, which writes the platform-generated
+  private key there with mode 0600 (the file must not exist yet and is claimed
+  before the platform is asked, so the one-time key cannot be lost to an
+  unwritable path; it never appears in `-o json`). A private key passed by
+  mistake is refused before anything is sent. The platform's refusals print
+  as sentences, so a duplicate reads "ssh_public_key: An SSH key with the
+  same public key already exists ('maas')" instead of a JSON body. `list`
+  shows the credentials; it gains a Fingerprint column once the platform's
+  list returns one (it does not yet).
+- **`ankra credentials get` shows which key an SSH key credential holds**:
+  its type, SHA256 fingerprint (the same value `ssh-keygen -l` prints),
+  comment and the public key line, so you can tell which credential holds a
+  given key.
 - **`ankra cluster ankracloud create` and `preflight` take `--network-mode
   ipv4_nat|ipv6_only`.** A zone with no public IPv4 left for the bastion
   used to be a dead end from the CLI: the preflight answered "create the
@@ -83,6 +102,11 @@
 
 ### Changed
 
+- **`ankra cluster ssh-keys get` (and `cluster ovh ssh-keys get`) name the
+  attached keys.** The attached section printed bare credential ids while the
+  names sat in the same response; each attached id now prints with its name,
+  and an id the organisation's SSH key credentials do not name says so.
+  `-o json` is unchanged.
 - **A service whose cluster was deleted says so.** `ankra services list`
   and `get` mark its cluster `(deleted)`, and `get` names `ankra services
   delete <name>` as the way to release the name. The retirement review says

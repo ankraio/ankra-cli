@@ -571,6 +571,8 @@ type APIClient interface {
 	CreateHetznerCredential(req client.CreateHetznerCredentialRequest) (*client.CreateHetznerCredentialResponse, error)
 	ListSSHKeyCredentials() ([]client.HetznerCredentialListItem, error)
 	CreateSSHKeyCredential(req client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error)
+	ListOrgSSHKeyCredentials() ([]client.SSHKeyCredentialListItem, error)
+	CreateOrgSSHKeyCredential(request client.CreateSSHKeyCredentialRequest) (*client.CreatedSSHKeyCredential, error)
 
 	CreateOvhCluster(req client.CreateOvhClusterRequest) (*client.CreateOvhClusterResponse, error)
 	DeprovisionOvhCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionOvhClusterResponse, error)
