@@ -104,12 +104,32 @@ type provenanceKeyRevocation struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-func provenanceOrgURL(baseURL string, suffix string) string {
-	return baseURL + "/api/v1/org/provenance" + suffix
+// Each route is spelled out in full: the route check
+// (cluster_routes_test.go) reads /api/v1 literals, and a shared prefix plus a
+// suffix would hide the real path from it.
+
+func provenancePolicyURL(baseURL string) string {
+	return baseURL + "/api/v1/org/provenance/policy"
 }
 
-func provenanceApplicationURL(baseURL string, applicationID string, suffix string) string {
-	return fmt.Sprintf("%s/api/v1/org/applications/%s%s", baseURL, neturl.PathEscape(applicationID), suffix)
+func provenanceKeysURL(baseURL string) string {
+	return baseURL + "/api/v1/org/provenance/keys"
+}
+
+func provenanceKeysRotateURL(baseURL string) string {
+	return baseURL + "/api/v1/org/provenance/keys/rotate"
+}
+
+func provenanceKeysRevokeURL(baseURL string) string {
+	return baseURL + "/api/v1/org/provenance/keys/revoke"
+}
+
+func applicationProvenancePolicyURL(baseURL string, applicationID string) string {
+	return fmt.Sprintf("%s/api/v1/org/applications/%s/provenance-policy", baseURL, neturl.PathEscape(applicationID))
+}
+
+func applicationProvenanceVerifyURL(baseURL string, applicationID string) string {
+	return fmt.Sprintf("%s/api/v1/org/applications/%s/provenance/verify", baseURL, neturl.PathEscape(applicationID))
 }
 
 // GetOrganisationProvenancePolicy reads the organisation's default mode.
@@ -117,7 +137,7 @@ func provenanceApplicationURL(baseURL string, applicationID string, suffix strin
 func (c *Client) GetOrganisationProvenancePolicy(ctx context.Context) (*OrganisationProvenancePolicy, error) {
 	var policy OrganisationProvenancePolicy
 	if requestError := c.sendJSONContext(ctx, http.MethodGet,
-		provenanceOrgURL(c.BaseURL, "/policy"), nil, &policy); requestError != nil {
+		provenancePolicyURL(c.BaseURL), nil, &policy); requestError != nil {
 		return nil, requestError
 	}
 	return &policy, nil
@@ -129,7 +149,7 @@ func (c *Client) GetOrganisationProvenancePolicy(ctx context.Context) (*Organisa
 func (c *Client) SetOrganisationProvenancePolicy(ctx context.Context, mode *string) (*OrganisationProvenancePolicy, error) {
 	var policy OrganisationProvenancePolicy
 	if requestError := c.sendJSONContext(ctx, http.MethodPut,
-		provenanceOrgURL(c.BaseURL, "/policy"), provenanceModeUpdate{Mode: mode}, &policy); requestError != nil {
+		provenancePolicyURL(c.BaseURL), provenanceModeUpdate{Mode: mode}, &policy); requestError != nil {
 		return nil, requestError
 	}
 	return &policy, nil
@@ -140,7 +160,7 @@ func (c *Client) SetOrganisationProvenancePolicy(ctx context.Context, mode *stri
 func (c *Client) GetApplicationProvenancePolicy(ctx context.Context, applicationID string) (*ApplicationProvenancePolicy, error) {
 	var policy ApplicationProvenancePolicy
 	if requestError := c.sendJSONContext(ctx, http.MethodGet,
-		provenanceApplicationURL(c.BaseURL, applicationID, "/provenance-policy"), nil, &policy); requestError != nil {
+		applicationProvenancePolicyURL(c.BaseURL, applicationID), nil, &policy); requestError != nil {
 		return nil, requestError
 	}
 	return &policy, nil
@@ -152,7 +172,7 @@ func (c *Client) GetApplicationProvenancePolicy(ctx context.Context, application
 func (c *Client) SetApplicationProvenancePolicy(ctx context.Context, applicationID string, mode *string) (*ApplicationProvenancePolicy, error) {
 	var policy ApplicationProvenancePolicy
 	if requestError := c.sendJSONContext(ctx, http.MethodPut,
-		provenanceApplicationURL(c.BaseURL, applicationID, "/provenance-policy"),
+		applicationProvenancePolicyURL(c.BaseURL, applicationID),
 		provenanceModeUpdate{Mode: mode}, &policy); requestError != nil {
 		return nil, requestError
 	}
@@ -166,7 +186,7 @@ func (c *Client) SetApplicationProvenancePolicy(ctx context.Context, application
 func (c *Client) VerifyApplicationProvenance(ctx context.Context, applicationID string, images []string) (*ProvenanceVerification, error) {
 	var verification ProvenanceVerification
 	if requestError := c.sendJSONContext(ctx, http.MethodPost,
-		provenanceApplicationURL(c.BaseURL, applicationID, "/provenance/verify"),
+		applicationProvenanceVerifyURL(c.BaseURL, applicationID),
 		provenanceVerifyRequest{Images: images}, &verification); requestError != nil {
 		return nil, requestError
 	}
@@ -178,7 +198,7 @@ func (c *Client) VerifyApplicationProvenance(ctx context.Context, applicationID 
 func (c *Client) ListProvenanceKeys(ctx context.Context) (*ProvenanceSigningKeys, error) {
 	var keys ProvenanceSigningKeys
 	if requestError := c.sendJSONContext(ctx, http.MethodGet,
-		provenanceOrgURL(c.BaseURL, "/keys"), nil, &keys); requestError != nil {
+		provenanceKeysURL(c.BaseURL), nil, &keys); requestError != nil {
 		return nil, requestError
 	}
 	return &keys, nil
@@ -190,7 +210,7 @@ func (c *Client) ListProvenanceKeys(ctx context.Context) (*ProvenanceSigningKeys
 func (c *Client) RotateProvenanceKey(ctx context.Context) (*ProvenanceSigningKey, error) {
 	var key ProvenanceSigningKey
 	if requestError := c.sendJSONContext(ctx, http.MethodPost,
-		provenanceOrgURL(c.BaseURL, "/keys/rotate"), nil, &key); requestError != nil {
+		provenanceKeysRotateURL(c.BaseURL), nil, &key); requestError != nil {
 		return nil, requestError
 	}
 	return &key, nil
@@ -202,7 +222,7 @@ func (c *Client) RotateProvenanceKey(ctx context.Context) (*ProvenanceSigningKey
 func (c *Client) RevokeProvenanceKey(ctx context.Context, keyID string, reason string) (*ProvenanceSigningKey, error) {
 	var key ProvenanceSigningKey
 	if requestError := c.sendJSONContext(ctx, http.MethodPost,
-		provenanceOrgURL(c.BaseURL, "/keys/revoke"),
+		provenanceKeysRevokeURL(c.BaseURL),
 		provenanceKeyRevocation{KeyID: keyID, Reason: reason}, &key); requestError != nil {
 		return nil, requestError
 	}
