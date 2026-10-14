@@ -534,6 +534,25 @@ ready_nodes() { select_cluster "$1"; ank cluster get nodes | grep -cE "Ready"; }
 # Count of running cluster operations.
 running_ops() { select_cluster "$1"; ank cluster operations list | grep -cE "running"; }
 
+# The operations still running on a cluster, one per line, for the failure
+# message of a write that stayed refused: the step names what blocked it.
+busy_operations() { select_cluster "$1"; ank cluster operations list | grep -E "running" | head -5; }
+
+# write_refused_busy reports whether a day-2 write was refused because the
+# cluster is busy: the CLI exited non-zero AND said so, in the platform's own
+# words or as an HTTP 409 status. Matching a bare "409" anywhere in the output
+# read a cluster id such as 00a01a40-0124-4097-... as a refusal, so writes that
+# had succeeded were retried until the step failed (ankra-nz8f8: aws/k3s stop,
+# aws and hetzner k8s upgrade on 2026-10-14, ovh k8s upgrade on 2026-07-19).
+write_refused_busy() {
+  local rc="$1" out="$2"
+  [ "$rc" -ne 0 ] || return 1
+  printf '%s' "$out" | grep -qiE 'operations (are )?(still )?in progress|already in progress|is still running|not in a state|status 409([^0-9]|$)|\(409\)'
+}
+
+# The last non-empty line of a command's output, for a one-line log.
+last_line() { printf '%s\n' "$1" | grep -v '^[[:space:]]*$' | tail -1 | cut -c1-200; }
+
 # Whether a failed reconcile is retried (nudge_reconcile) or fails the wait at
 # once because the step was refused outright (a provider 4xx, a validation
 # error): retry_failed_reconcile and its classifier live in
@@ -655,19 +674,25 @@ wait_for_removed() {
 daytwo() {
   local desc="$1"; shift
   local name="$1"; shift
-  local attempt out
+  local attempt out rc
   wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy; attempting $desc anyway)"
   for attempt in $(seq 1 8); do
-    out="$(ank cluster "$@" 2>&1)"
-    if printf '%s' "$out" | grep -qiE "operations in progress|409|not in a state"; then
-      log "  $desc rejected (ops in progress), retry $attempt"
+    out="$(ank_rc cluster "$@")"; rc=$?
+    if write_refused_busy "$rc" "$out"; then
+      log "  $desc refused while busy, retry $attempt: $(last_line "$out")"
       sleep 20
       wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy before retry of $desc)"
       continue
     fi
     printf '%s\n' "$out" | tail -2
+    if [ "$rc" -ne 0 ]; then
+      log "  $desc failed (exit $rc): $(last_line "$out")"
+      return 1
+    fi
     return 0
   done
+  log "  $desc stayed refused after 8 attempts; still running on $name:"
+  busy_operations "$name" | while IFS= read -r operation; do log "    $operation"; done
   return 1
 }
 
@@ -1413,13 +1438,17 @@ as_write() {
     if [ "$remaining" -gt "$IDLE_TIMEOUT" ]; then remaining="$IDLE_TIMEOUT"; fi
     wait_idle "$name" "$remaining" || log "  ($name still busy; attempting $desc anyway)"
     out="$(ank_rc "$@")"; rc=$?
-    if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qiE "operations in progress|409|not in a state"; then
-      log "  $desc rejected (ops in progress), retry $attempt"
+    if write_refused_busy "$rc" "$out"; then
+      log "  $desc refused while busy, retry $attempt: $(last_line "$out")"
       sleep 20
       continue
     fi
     break
   done
+  if write_refused_busy "$rc" "$out"; then
+    log "  $desc stayed refused; still running on $name:"
+    busy_operations "$name" | while IFS= read -r operation; do log "    $operation"; done
+  fi
   printf '%s\n' "$out" | tail -n 4
   return "$rc"
 }
