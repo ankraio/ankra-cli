@@ -4,6 +4,13 @@
 
 ### Added
 
+- **`ankra cluster ankracloud create` and `preflight` take `--network-mode
+  ipv4_nat|ipv6_only`.** A zone with no public IPv4 left for the bastion
+  used to be a dead end from the CLI: the preflight answered "create the
+  cluster with network_mode ipv6_only" and no flag could pass it. The flag
+  now goes through on both commands; omit it for the server default
+  (`ipv4_nat`), and a value outside the two the platform knows is refused
+  before anything is sent.
 - **`ankra cluster agent ci set --build-apparmor-profile <name>` runs the
   rootless image builder under a Localhost AppArmor profile installed on the
   cluster's nodes.** On nodes whose container runtime confines the builder

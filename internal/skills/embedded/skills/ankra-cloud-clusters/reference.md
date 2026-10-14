@@ -101,6 +101,14 @@ Proxmox VE and Morpheus have their own placement flags (host node, storage, temp
 cloud, group, layout, plan) — run `ankra cluster proxmox create --help` and
 `ankra cluster morpheus create --help`; the discovery commands above list the valid values.
 
+Ankra Cloud (`ankra cluster ankracloud create`) uses `--zone`, the `*-plan` compute flags,
+`--network-ip-range` or `--private-network-id`, and `--network-mode ipv4_nat|ipv6_only`
+(omit it for the server default, `ipv4_nat`). `ipv6_only` is for a zone with no public IPv4:
+no NAT router, the bastion is reached over IPv6 through the Cloud's port forward, and the nodes
+reach IPv4 through the zone's NAT64. When `ankra cluster ankracloud preflight` answers that the
+zone has no public IPv4 left for the bastion, rerun it with `--network-mode ipv6_only` and create
+with the same flag; the flag is accepted by both commands.
+
 ## Cost, without surprises
 
 - **Right-size from measurement, not from the default.** Create, run the real workload, then read

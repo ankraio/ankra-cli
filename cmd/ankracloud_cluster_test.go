@@ -138,6 +138,9 @@ func TestAnkraCloudCreateDefaultsToKubeadm(t *testing.T) {
 	if request.WorkerCount != nil || request.IncludeDNS != nil || request.GitopsBranch != nil {
 		t.Errorf("request carries unset optional members: %+v", request)
 	}
+	if request.NetworkMode != "" {
+		t.Errorf("network mode = %q, want it empty so the server default applies", request.NetworkMode)
+	}
 	if !strings.Contains(output, "created successfully") || !strings.Contains(output, testClusterID) {
 		t.Errorf("output = %q, want the created cluster", output)
 	}
@@ -186,6 +189,48 @@ func TestAnkraCloudCreateRefusesUnknownDistribution(t *testing.T) {
 	}
 	if len(mock.createRequests) != 0 {
 		t.Errorf("create calls = %d, want 0", len(mock.createRequests))
+	}
+}
+
+// A zone without public IPv4 (the preflight answers "create the cluster with
+// network_mode ipv6_only") needs the mode passed through on both create and
+// preflight; the value is normalised so IPV6_ONLY is not refused.
+func TestAnkraCloudCreateAndPreflightSendNetworkMode(t *testing.T) {
+	for _, testCase := range []struct {
+		flagValue string
+		want      string
+	}{
+		{flagValue: "ipv6_only", want: client.AnkraCloudNetworkModeIPv6Only},
+		{flagValue: " IPv4_NAT ", want: client.AnkraCloudNetworkModeIPv4NAT},
+	} {
+		mock := &ankraCloudClusterMock{preflightResult: client.AnkraCloudPreflightResult{CanProceed: true}}
+		createArguments := append([]string{"create", "--network-mode", testCase.flagValue}, ankraCloudRequiredCreateArguments...)
+		if _, runError := runAnkraCloudCommand(t, mock, createArguments...); runError != nil {
+			t.Fatalf("create --network-mode %q: %v", testCase.flagValue, runError)
+		}
+		preflightArguments := append([]string{"preflight", "--network-mode", testCase.flagValue}, ankraCloudRequiredCreateArguments...)
+		if _, runError := runAnkraCloudCommand(t, mock, preflightArguments...); runError != nil {
+			t.Fatalf("preflight --network-mode %q: %v", testCase.flagValue, runError)
+		}
+		if len(mock.createRequests) != 1 || mock.createRequests[0].NetworkMode != testCase.want {
+			t.Errorf("create requests = %+v, want one with network mode %q", mock.createRequests, testCase.want)
+		}
+		if len(mock.preflightRequests) != 1 || mock.preflightRequests[0].NetworkMode != testCase.want {
+			t.Errorf("preflight requests = %+v, want one with network mode %q", mock.preflightRequests, testCase.want)
+		}
+	}
+}
+
+func TestAnkraCloudCreateAndPreflightRefuseUnknownNetworkMode(t *testing.T) {
+	mock := &ankraCloudClusterMock{}
+	for _, verb := range []string{"create", "preflight"} {
+		_, runError := runAnkraCloudCommand(t, mock, append([]string{verb, "--network-mode", "dual_stack"}, ankraCloudRequiredCreateArguments...)...)
+		if exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), `--network-mode "dual_stack"`) || !strings.Contains(runError.Error(), "ipv4_nat, ipv6_only") {
+			t.Fatalf("%s: error = %v, want a usage error naming the value and ipv4_nat, ipv6_only", verb, runError)
+		}
+	}
+	if len(mock.createRequests) != 0 || len(mock.preflightRequests) != 0 {
+		t.Errorf("requests sent with an invalid network mode: create %d, preflight %d", len(mock.createRequests), len(mock.preflightRequests))
 	}
 }
 

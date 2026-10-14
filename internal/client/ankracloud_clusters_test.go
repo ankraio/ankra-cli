@@ -66,7 +66,7 @@ func TestCreateAnkraCloudClusterSendsKubeadmBody(t *testing.T) {
 			t.Errorf("body[%s] = %v, want %v", key, receivedBody[key], value)
 		}
 	}
-	for _, omitted := range []string{"private_network_id", "template", "etcd_topology", "cni", "retention_policy", "gitops_repository"} {
+	for _, omitted := range []string{"private_network_id", "template", "network_mode", "etcd_topology", "cni", "retention_policy", "gitops_repository"} {
 		if _, present := receivedBody[omitted]; present {
 			t.Errorf("body carries %s = %v, want it omitted so the server default applies", omitted, receivedBody[omitted])
 		}
@@ -88,6 +88,7 @@ func TestCreateAnkraCloudClusterSendsK3sWithZeroWorkers(t *testing.T) {
 		SSHKeyCredentialID: "ssh-key-1",
 		Zone:               "fi-hel1",
 		PrivateNetworkID:   &privateNetworkID,
+		NetworkMode:        AnkraCloudNetworkModeIPv6Only,
 		BastionPlan:        "s-1",
 		ControlPlanePlan:   "s-2",
 		WorkerCount:        &workerCount,
@@ -97,6 +98,9 @@ func TestCreateAnkraCloudClusterSendsK3sWithZeroWorkers(t *testing.T) {
 	}
 	if receivedBody["distribution"] != "k3s" {
 		t.Errorf("distribution = %v, want k3s", receivedBody["distribution"])
+	}
+	if receivedBody["network_mode"] != "ipv6_only" {
+		t.Errorf("network_mode = %v, want ipv6_only", receivedBody["network_mode"])
 	}
 	if receivedBody["private_network_id"] != "network-1" {
 		t.Errorf("private_network_id = %v, want network-1", receivedBody["private_network_id"])
