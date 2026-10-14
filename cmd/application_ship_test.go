@@ -1038,3 +1038,17 @@ func TestApplicationShipRechecksTheBranchAfterSetup(t *testing.T) {
 			mockClient.workflowRunsCalls, mockClient.deployCalls)
 	}
 }
+
+// Git branch names are case-sensitive: an application tracking "Main" is not
+// the "main" the caller asked for.
+func TestSelectShipApplicationComparesBranchesExactly(t *testing.T) {
+	repository := localApplicationRepository{Owner: "acme", Name: "shop", Branch: "main"}
+	matches := []shipApplicationView{{ID: "a", Name: "shop", AppRepoOwner: "acme", AppRepoName: "shop", AppRepoBranch: "Main"}}
+	selected, selectError := selectShipApplication(matches, repository, "")
+	if selectError == nil || selected != nil {
+		t.Fatalf("an application tracking Main must not be shipped for main; selected=%v error=%v", selected, selectError)
+	}
+	if !strings.Contains(selectError.Error(), `tracks branch "Main", not "main"`) {
+		t.Errorf("refusal = %v", selectError)
+	}
+}

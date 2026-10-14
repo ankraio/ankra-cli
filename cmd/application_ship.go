@@ -453,9 +453,10 @@ func findApplicationsByRepository(
 // shipApplicationTracksBranch reports whether shipping this application
 // deploys the requested branch. An application that names no branch is
 // shipped on the requested one (the tracked-branch fallback in
-// runApplicationShip), so it matches.
+// runApplicationShip), so it matches. The comparison is exact: git branch
+// names are case-sensitive, so "Main" is not the "main" asked for.
 func shipApplicationTracksBranch(application shipApplicationView, branch string) bool {
-	return application.AppRepoBranch == "" || strings.EqualFold(application.AppRepoBranch, branch)
+	return application.AppRepoBranch == "" || application.AppRepoBranch == branch
 }
 
 // shipBranchMismatchError refuses to ship an application whose tracked
