@@ -22,6 +22,15 @@
   switch to `warn` and back. Turning `enforce` on asks first (`--yes` skips
   it), and so does revoking a key. Changing a mode or a key needs the
   `security.manage` permission (exit 7 without it).
+- **`ankra cluster agent ci set --build-apparmor-profile <name>` runs the
+  rootless image builder under a Localhost AppArmor profile installed on the
+  cluster's nodes.** On nodes whose container runtime confines the builder
+  with its default AppArmor profile (containerd on Ubuntu denies it the mount
+  rootlesskit needs), builds otherwise fail in-cluster and fall back to Ankra's
+  builders; the build namespace's Pod Security Baseline admits a Localhost
+  profile, so nothing else is relaxed. An empty value clears it. `get` shows
+  `Build AppArmor` and whether the agent advertises it, and the command exits
+  non-zero when a platform predating the setting did not store it.
 - **`ankra pipeline tests quarantine` keeps a known-flaky test from failing
   your runs while someone fixes it.** The quarantine is off until `ankra
   pipeline tests quarantine settings --enable` turns it on for the repository.
@@ -52,11 +61,12 @@
   NotReady card stays visible either way, and `-o json` prints the platform's
   answer as it is.
 - **`ankra cluster agent status` says when the agent needs a security
-  upgrade.** An agent that does not yet support the scoped NATS credentials
-  shows `Security upgrade: required` with the upgrade command, because it
-  stops connecting once the platform retires the wider credentials it holds
-  today. Nothing is shown when the agent is already on the scoped credentials,
-  or when the platform cannot tell, and `-o json` carries the platform's
+  upgrade.** An agent that has not moved to the scoped NATS credentials yet
+  shows `Security upgrade: required`, because it stops connecting once the
+  platform retires the wider credentials it holds today. The upgrade command is
+  printed once, and not at all while an upgrade is already running. Nothing is
+  shown when the agent is already on the scoped credentials, or when the
+  platform cannot tell, and `-o json` carries the platform's
   `security_upgrade_required` value as it is.
 - **`ankra canvas publish|list|unpublish` shares an HTML, SVG or Markdown
   file as a static page at its own URL.** `publish report.html` prints the
@@ -84,6 +94,18 @@
 
 ### Changed
 
+- **A service whose cluster was deleted says so.** `ankra services list`
+  and `get` mark its cluster `(deleted)`, and `get` names `ankra services
+  delete <name>` as the way to release the name. The retirement review says
+  it removes nothing because the cluster took the stack, namespace and data
+  with it, instead of printing an empty "Removes:" heading.
+- **A failed service setup only suggests a retry the platform accepts.**
+  `ankra services get` on a `deployment_failed` service suggests `ankra
+  cluster operations retry <id>` only for a failed, cancelled or critical
+  operation; a timed-out one is told to retire the service and set it up again,
+  since the platform refuses to retry it. When no step recorded an error, the
+  operation's own error is shown. `ankra cluster operations retry` now says
+  which states it retries.
 - **`ankra services list` and `get` say when a service is running.** A
   service the platform still records as `verification_pending` now reads
   `deployed` once a readiness check has connected to it, and `running` while
@@ -113,9 +135,34 @@
   re-checks steps skipped behind a failure, and that a re-run's publish does
   not roll the deployment. `ankra application pipeline rerun --help` shows
   the same text.
+- **The AI commands explain a billing pause instead of printing a raw
+  status.** When the organisation's billing standing pauses AI (prepaid
+  credit used up, an invoice overdue, a credit limit or the free tier
+  exceeded), `ankra chat` and `ankra chat health --ai` now print the
+  platform's own sentence - what is paused, that running clusters are
+  unaffected, and what resolves it - followed by one line pointing at the
+  portal's Billing page for the organisation, instead of `chat failed:
+  status 402, body: ...`. The refusal is read wherever it arrives: on the
+  request, or on the error frame of a streaming reply, where it used to end
+  as a generic stream error. `ankra chat -o json` prints its document with
+  `error_code` `BILLING_RESTRICTED` and the sentence in `detail`, even when
+  the pause stopped the question before a turn started, so a job can tell
+  it from a failed answer. The command exits 1, the generic refusal code: a
+  re-login or a role change does not resolve it. The same pause also
+  refuses new clusters, with the same code, so the Billing hint follows
+  that refusal on any command that meets it, not only the AI ones.
 
 ### Fixed
 
+- **`ankra application ship` no longer deploys a branch you did not ask
+  for.** It reused any application already registered for the repository, so
+  `ship . --branch main` on a repository whose application tracked
+  `scenario-01` built and deployed `scenario-01` into the requested namespace
+  with only a note. An existing application is now reused only when it tracks
+  the requested branch (`--branch`, else the checkout's). Otherwise ship stops
+  and names the applications and their branches: pass `--name <app> --branch
+  <its branch>` to ship one of them, or `--name <new-name>` to register a
+  separate application for the branch.
 - **`ankra cluster apply` now applies a stack's `applications:`.** Until now
   the block was read by nothing and dropped without a word: `--dry-run`
   accepted the file, the platform stored the stack with no applications, and

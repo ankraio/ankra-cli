@@ -105,6 +105,14 @@ image build of the tracked branch, deploys to the target cluster, and follows
 the installation until the workload is running - then prints the published
 URL when one exists.
 
+An existing application is reused only when it is registered for the same
+repository AND tracks the requested branch (--branch, else the checkout's
+branch); ship never builds or deploys a branch other than the one requested.
+When the repository's applications all track other branches, ship stops and
+names them: pass --name <app> --branch <its branch> to ship one of them, or
+--name <new-name> to register a separate application for the branch. --name
+selects among several applications on the same branch.
+
 The build it waits for is the one that actually builds the application:
   - Ankra Pipelines (the default for new applications): the pipeline run for
     the tracked branch's head commit, until its publish steps succeed. When no
@@ -224,6 +232,12 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 	application, setupError := waitForApplicationSetup(waitContext, progress, application.ID)
 	if setupError != nil {
 		return setupError
+	}
+	// The setup read is the application's settled record: re-check the branch
+	// on it, so nothing past this point builds or deploys a branch other than
+	// the one requested, whatever the listing said.
+	if !shipApplicationTracksBranch(application, repository.Branch) {
+		return shipBranchMismatchError(application, repository)
 	}
 	trackedBranch := application.AppRepoBranch
 	if trackedBranch == "" {
@@ -436,17 +450,47 @@ func findApplicationsByRepository(
 	return matches, nil
 }
 
+// shipApplicationTracksBranch reports whether shipping this application
+// deploys the requested branch. An application that names no branch is
+// shipped on the requested one (the tracked-branch fallback in
+// runApplicationShip), so it matches. The comparison is exact: git branch
+// names are case-sensitive, so "Main" is not the "main" asked for.
+func shipApplicationTracksBranch(application shipApplicationView, branch string) bool {
+	return application.AppRepoBranch == "" || application.AppRepoBranch == branch
+}
+
+// shipBranchMismatchError refuses to ship an application whose tracked
+// branch is not the one requested. Ship builds and deploys the application's
+// tracked branch, so adopting it would deploy a branch nobody asked for: the
+// bake-off run that asked for main got another application's scenario-01
+// build in a fresh namespace (ankra-ab5fog.30).
+func shipBranchMismatchError(application shipApplicationView, repository localApplicationRepository) error {
+	return withExitCode(exitUsage, fmt.Errorf(
+		"application %q (%s) for %s/%s tracks branch %q, not %q, and ship deploys only the branch you ask for; "+
+			"pass --name %s --branch %s to ship that application, or --name <new-name> to register a separate application for branch %q",
+		application.Name, application.ID, repository.Owner, repository.Name, application.AppRepoBranch, repository.Branch,
+		application.Name, application.AppRepoBranch, repository.Branch))
+}
+
 // selectShipApplication decides which of a repository's applications this
 // ship is about, or that a new one must be registered (nil).
+//
+// An application is the same one only when the repository AND the branch
+// match: ship deploys the application's tracked branch, so adopting an
+// application on another branch deploys a branch the caller did not ask for
+// (ankra-ab5fog.30). The requested branch is --branch, else the checkout's.
 //
 // One repository legitimately hosts several applications rooted at different
 // paths, so a match on the repository alone is not identity: the first live
 // monorepo run matched by repository only, adopted the OTHER application,
 // and redeployed it onto the caller's hostname. With --name the name is part
 // of the match - an existing application with a different name is somebody
-// else's, and the named one is registered fresh when absent. Without --name
-// a multi-application repository is refused with the names listed, because
-// picking one silently is exactly the hijack this prevents.
+// else's, and the named one is registered fresh when absent; a named one on
+// another branch is refused rather than shipped. Without --name a repository
+// with several applications on the requested branch is refused with the
+// names listed, because picking one silently is exactly the hijack this
+// prevents, and a repository whose applications all track other branches is
+// refused with each application's branch, so the caller picks explicitly.
 func selectShipApplication(
 	matches []shipApplicationView,
 	repository localApplicationRepository,
@@ -463,6 +507,9 @@ func selectShipApplication(
 		case 0:
 			return nil, nil
 		case 1:
+			if !shipApplicationTracksBranch(named[0], repository.Branch) {
+				return nil, shipBranchMismatchError(named[0], repository)
+			}
 			return &named[0], nil
 		default:
 			return nil, withExitCode(exitUsage, fmt.Errorf(
@@ -470,20 +517,41 @@ func selectShipApplication(
 				len(named), requestedName, repository.Owner, repository.Name))
 		}
 	}
-	switch len(matches) {
+	sameBranch := []shipApplicationView{}
+	for index := range matches {
+		if shipApplicationTracksBranch(matches[index], repository.Branch) {
+			sameBranch = append(sameBranch, matches[index])
+		}
+	}
+	switch len(sameBranch) {
 	case 0:
-		return nil, nil
-	case 1:
-		return &matches[0], nil
-	default:
-		names := make([]string, 0, len(matches))
+		if len(matches) == 0 {
+			return nil, nil
+		}
+		if len(matches) == 1 {
+			return nil, shipBranchMismatchError(matches[0], repository)
+		}
+		described := make([]string, 0, len(matches))
 		for _, match := range matches {
+			described = append(described, fmt.Sprintf("%s (branch %s)", match.Name, match.AppRepoBranch))
+		}
+		sort.Strings(described)
+		return nil, withExitCode(exitUsage, fmt.Errorf(
+			"%d applications are registered for %s/%s (%s) and none tracks branch %q, and ship deploys only the branch you ask for; "+
+				"pass --name <app> --branch <its branch> to ship one of them, or --name <new-name> to register a separate application for branch %q",
+			len(matches), repository.Owner, repository.Name, strings.Join(described, ", "),
+			repository.Branch, repository.Branch))
+	case 1:
+		return &sameBranch[0], nil
+	default:
+		names := make([]string, 0, len(sameBranch))
+		for _, match := range sameBranch {
 			names = append(names, match.Name)
 		}
 		sort.Strings(names)
 		return nil, withExitCode(exitUsage, fmt.Errorf(
-			"%d applications are registered for %s/%s (%s); pass --name to say which one to ship, or --name with a new name to register another",
-			len(matches), repository.Owner, repository.Name, strings.Join(names, ", ")))
+			"%d applications on branch %q are registered for %s/%s (%s); pass --name to say which one to ship, or --name with a new name to register another",
+			len(sameBranch), repository.Branch, repository.Owner, repository.Name, strings.Join(names, ", ")))
 	}
 }
 
@@ -510,11 +578,6 @@ func resolveOrRegisterApplication(
 		_, _ = fmt.Fprintf(progress, "Using existing application %q (%s) for %s/%s.\n",
 			existing.Name, existing.ID, repository.Owner, repository.Name)
 		warnIgnoredRegistrationFlags(command, progress)
-		if !strings.EqualFold(existing.AppRepoBranch, repository.Branch) && existing.AppRepoBranch != "" {
-			_, _ = fmt.Fprintf(progress,
-				"Note: the application tracks branch %q; the checkout's branch %q does not retarget it.\n",
-				existing.AppRepoBranch, repository.Branch)
-		}
 		return *existing, false, nil
 	}
 	if requestedName != "" && len(matches) > 0 {

@@ -1602,14 +1602,23 @@ func TestServiceDeploymentViewMirrorsThePortal(t *testing.T) {
 
 type serviceFailureStepsMock struct {
 	baseMock
-	steps     []client.ExecutionStep
-	stepsErr  error
-	requested string
+	status         string
+	executionError *string
+	steps          []client.ExecutionStep
+	stepsErr       error
+	requested      string
 }
 
-func (m *serviceFailureStepsMock) ListExecutionSteps(executionID string) ([]client.ExecutionStep, error) {
+func (m *serviceFailureStepsMock) GetExecution(executionID string) (client.ExecutionDetail, error) {
 	m.requested = executionID
-	return m.steps, m.stepsErr
+	status := m.status
+	if status == "" {
+		status = "failed"
+	}
+	return client.ExecutionDetail{
+		Execution: client.ExecutionSummary{ID: executionID, Status: status, ErrorExcerpt: m.executionError},
+		Steps:     m.steps,
+	}, m.stepsErr
 }
 
 // A failed deployment says why and what to do next: the failing step's own
@@ -1711,5 +1720,80 @@ func TestServicesFailureExcerptKeepsValidUTF8(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), strings.Repeat("é", serviceDeploymentFailureExcerptLimit)+"...") {
 		t.Errorf("the excerpt must keep %d characters and mark the cut", serviceDeploymentFailureExcerptLimit)
+	}
+}
+
+// A timed-out deployment is not retryable on the platform (only failed,
+// cancelled and critical executions are), so the CLI must not suggest a retry
+// that answers 409; it says to retire and set up again. With no step error,
+// the operation's own error is shown, and with no operation at all the next
+// step is still named.
+func TestServicesFailureSuggestsOnlyARetryThePlatformAccepts(t *testing.T) {
+	operationID := "e0000000-0000-4000-8000-000000000012"
+	executionError := "Execution timed out after 600s"
+	instance := client.ServiceInstance{Name: "audit-search", DeploymentState: "deployment_failed", DeploymentOperationID: &operationID}
+	mock := &serviceFailureStepsMock{status: "timeout", executionError: &executionError,
+		steps: []client.ExecutionStep{{Name: "install", Status: "timeout"}}}
+	previousClient := apiClient
+	apiClient = mock
+	t.Cleanup(func() { apiClient = previousClient })
+
+	var out bytes.Buffer
+	printServiceDeploymentFailure(&out, instance)
+	if strings.Contains(out.String(), "operations retry") {
+		t.Errorf("a timed-out operation must not be offered a retry the platform refuses:\n%s", out.String())
+	}
+	for _, expected := range []string{"Failure:     operation timeout: Execution timed out after 600s",
+		"a timeout operation cannot be retried", "ankra services delete audit-search"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Errorf("output lacks %q:\n%s", expected, out.String())
+		}
+	}
+
+	mock.status, mock.executionError = "cancelled", nil
+	out.Reset()
+	printServiceDeploymentFailure(&out, instance)
+	if !strings.Contains(out.String(), "the operation ended cancelled and recorded no error message") ||
+		!strings.Contains(out.String(), "ankra cluster operations retry "+operationID) {
+		t.Errorf("a cancelled operation with no error must say so and offer the retry:\n%s", out.String())
+	}
+
+	out.Reset()
+	printServiceDeploymentFailure(&out, client.ServiceInstance{Name: "orphan", DeploymentState: "deployment_failed"})
+	if !strings.Contains(out.String(), "recorded no deployment operation") || !strings.Contains(out.String(), "ankra services delete orphan") {
+		t.Errorf("a failure without an operation must still name the next step:\n%s", out.String())
+	}
+}
+
+// A retirement of a service whose cluster was deleted removes nothing: the
+// review says so in one line instead of an empty "Removes:" heading, and the
+// service read marks the cluster deleted and names the way out.
+func TestServicesOnADeletedClusterSayWhatRetirementDoes(t *testing.T) {
+	names := &serviceNames{clustersLoaded: true, clusters: map[string]string{}, packagesLoaded: true, packages: map[string]string{},
+		applicationsLoaded: true, applications: map[string]string{}}
+	var out bytes.Buffer
+	printServiceRetirementPlan(&out, names, client.ServiceRetirement{ID: "r1", State: "pending", ExpiresAt: "2026-10-14T08:00:00Z",
+		Plan: client.ServiceRetirementPlan{Name: "canary-pg", ClusterID: fakeServiceClusterID, Generation: 1, ClusterDeleted: true}})
+	if !strings.Contains(out.String(), "Removes:   nothing - the service cluster was deleted") {
+		t.Errorf("a deleted-cluster review must say it removes nothing:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "Removes:\n") {
+		t.Errorf("an empty Removes heading must never print:\n%s", out.String())
+	}
+
+	out.Reset()
+	printServiceInstance(&out, names, client.ServiceInstance{ID: fakeServiceInstanceID, Name: "canary-pg", ClusterID: fakeServiceClusterID,
+		ClusterDeleted: true, DeploymentState: "verification_pending", Readiness: "stale"})
+	if !strings.Contains(out.String(), fakeServiceClusterID+", deleted; retire the service with 'ankra services delete canary-pg'") {
+		t.Errorf("get must mark the cluster deleted and name the way out:\n%s", out.String())
+	}
+	if name := serviceClusterName(names, client.ServiceInstance{ClusterID: fakeServiceClusterID, ClusterName: "playground", ClusterDeleted: true}); name != "playground (deleted)" {
+		t.Errorf("list cluster column = %q, want %q", name, "playground (deleted)")
+	}
+	out.Reset()
+	printServiceInstance(&out, names, client.ServiceInstance{ID: fakeServiceInstanceID, Name: "canary-pg", ClusterID: fakeServiceClusterID,
+		ClusterName: "playground", ClusterDeleted: true, DeploymentState: "verification_pending", Readiness: "stale"})
+	if !strings.Contains(out.String(), "Cluster:     playground ("+fakeServiceClusterID+"), deleted;") {
+		t.Errorf("get must name a deleted cluster it still knows the name of:\n%s", out.String())
 	}
 }

@@ -376,10 +376,17 @@ func (names *serviceNames) packageVersion(versionID string) string {
 // serviceClusterName is the name of the cluster a service runs on: the one
 // the instance read carries, or the cluster listing's when it carries none.
 func serviceClusterName(names *serviceNames, instance client.ServiceInstance) string {
-	if instance.ClusterName != "" {
-		return instance.ClusterName
+	name := instance.ClusterName
+	if name == "" {
+		name = names.cluster(instance.ClusterID)
 	}
-	return names.cluster(instance.ClusterID)
+	if name == "" {
+		name = instance.ClusterID
+	}
+	if instance.ClusterDeleted {
+		name += " (deleted)"
+	}
+	return name
 }
 
 // serviceServes reports whether a service's reviewed plan names a consumer
@@ -583,7 +590,16 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 	_, _ = fmt.Fprintf(out, "Service %q\n", instance.Name)
 	_, _ = fmt.Fprintf(out, "  ID:          %s\n", instance.ID)
 	_, _ = fmt.Fprintf(out, "  Package:     %s\n", names.packageVersion(instance.PackageVersionID))
-	_, _ = fmt.Fprintf(out, "  Cluster:     %s\n", names.clusterWithID(instance.ClusterID))
+	if instance.ClusterDeleted {
+		deletedCluster := instance.ClusterID
+		if instance.ClusterName != "" {
+			deletedCluster = fmt.Sprintf("%s (%s)", instance.ClusterName, instance.ClusterID)
+		}
+		_, _ = fmt.Fprintf(out, "  Cluster:     %s, deleted; retire the service with 'ankra services delete %s' to release its name\n",
+			deletedCluster, instance.Name)
+	} else {
+		_, _ = fmt.Fprintf(out, "  Cluster:     %s\n", names.clusterWithID(instance.ClusterID))
+	}
 	_, _ = fmt.Fprintf(out, "  Mode:        %s\n", instance.Mode)
 	_, _ = fmt.Fprintf(out, "  Location:    region %s, data boundary %s\n", instance.Region, instance.DataBoundary)
 	_, _ = fmt.Fprintf(out, "  Generation:  %d\n", instance.Generation)
@@ -709,37 +725,63 @@ func serviceDeploymentViewReason(view string) string {
 // step's error the summary prints; the full text is one command away.
 const serviceDeploymentFailureExcerptLimit = 400
 
+// serviceRetryableOperationStatuses are the execution states the platform
+// retries (cluster usecase/executions retryableStatuses); any other state
+// answers 409, so the CLI does not suggest a retry for it.
+var serviceRetryableOperationStatuses = map[string]bool{"failed": true, "cancelled": true, "critical": true}
+
 // printServiceDeploymentFailure prints why a deployment failed and what to do
-// next: the error of each failed step of the deployment operation, then the
-// commands that show it in full, retry it, or retire the service. A failure
-// that cannot be read is said to be unreadable, never left out silently.
+// next: the error of each failed step of the deployment operation, or the
+// operation's own error when no step carries one, then the commands that show
+// every step, retry it when the platform can, and retire the service. A
+// failure that cannot be read is said to be unreadable, never left out.
 func printServiceDeploymentFailure(out io.Writer, instance client.ServiceInstance) {
 	if instance.DeploymentOperationID == nil || *instance.DeploymentOperationID == "" {
 		_, _ = fmt.Fprintln(out, "  Failure:     the platform recorded no deployment operation for this service")
+		_, _ = fmt.Fprintf(out, "  Next:        retire the service with 'ankra services delete %s' and set it up again\n", instance.Name)
 		return
 	}
 	operationID := *instance.DeploymentOperationID
-	steps, stepsError := apiClient.ListExecutionSteps(operationID)
-	if stepsError != nil {
-		_, _ = fmt.Fprintf(out, "  Failure:     the failing step could not be read (%s)\n", stepsError)
-	} else {
-		printed := false
-		for _, step := range steps {
-			if step.ErrorExcerpt == nil || strings.TrimSpace(*step.ErrorExcerpt) == "" {
-				continue
-			}
-			excerpt := strings.Join(strings.Fields(*step.ErrorExcerpt), " ")
-			if runes := []rune(excerpt); len(runes) > serviceDeploymentFailureExcerptLimit {
-				excerpt = string(runes[:serviceDeploymentFailureExcerptLimit]) + "..."
-			}
+	detail, readError := apiClient.GetExecution(operationID)
+	if readError != nil {
+		_, _ = fmt.Fprintf(out, "  Failure:     the failing step could not be read (%s)\n", readError)
+		_, _ = fmt.Fprintf(out, "  Next:        see every step with 'ankra cluster operations steps %s'\n", operationID)
+		_, _ = fmt.Fprintf(out, "               or retire the service with 'ankra services delete %s'\n", instance.Name)
+		return
+	}
+	printed := false
+	for _, step := range detail.Steps {
+		if excerpt := serviceFailureExcerpt(step.ErrorExcerpt); excerpt != "" {
 			_, _ = fmt.Fprintf(out, "  Failure:     step %s (%s): %s\n", step.Name, step.Status, excerpt)
 			printed = true
 		}
-		if !printed {
-			_, _ = fmt.Fprintln(out, "  Failure:     no step of the deployment operation reported an error")
+	}
+	if !printed {
+		if excerpt := serviceFailureExcerpt(detail.Execution.ErrorExcerpt); excerpt != "" {
+			_, _ = fmt.Fprintf(out, "  Failure:     operation %s: %s\n", detail.Execution.Status, excerpt)
+		} else {
+			_, _ = fmt.Fprintf(out, "  Failure:     the operation ended %s and recorded no error message\n", detail.Execution.Status)
 		}
 	}
 	_, _ = fmt.Fprintf(out, "  Next:        see every step with 'ankra cluster operations steps %s'\n", operationID)
-	_, _ = fmt.Fprintf(out, "               retry it with 'ankra cluster operations retry %s', or retire the service with 'ankra services delete %s'\n",
-		operationID, instance.Name)
+	if serviceRetryableOperationStatuses[detail.Execution.Status] {
+		_, _ = fmt.Fprintf(out, "               retry it with 'ankra cluster operations retry %s', or retire the service with 'ankra services delete %s'\n",
+			operationID, instance.Name)
+	} else {
+		_, _ = fmt.Fprintf(out, "               a %s operation cannot be retried: retire the service with 'ankra services delete %s' and set it up again\n",
+			detail.Execution.Status, instance.Name)
+	}
+}
+
+// serviceFailureExcerpt is an error excerpt on one line, cut on a character
+// boundary at serviceDeploymentFailureExcerptLimit; empty when there is none.
+func serviceFailureExcerpt(errorExcerpt *string) string {
+	if errorExcerpt == nil {
+		return ""
+	}
+	excerpt := strings.Join(strings.Fields(*errorExcerpt), " ")
+	if runes := []rune(excerpt); len(runes) > serviceDeploymentFailureExcerptLimit {
+		excerpt = string(runes[:serviceDeploymentFailureExcerptLimit]) + "..."
+	}
+	return excerpt
 }

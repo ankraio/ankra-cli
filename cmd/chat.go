@@ -74,8 +74,11 @@ cluster it was scoped to, the tools the model ran and any write left
 awaiting confirmation. A turn that starts and then fails still prints the
 document, with its "error" member set, and exits non-zero; a question the
 platform refuses to start (a rejected token, an unknown cluster) prints
-nothing on stdout and exits with that error's code. Interactive mode has no
-structured output.`,
+nothing on stdout and exits with that error's code. The one exception is
+AI paused by the organisation's billing standing: that refusal prints the
+document with "error_code" BILLING_RESTRICTED and the platform's sentence in
+"detail", whether it came before the turn or on it, so a job can tell it
+from a failed answer. Interactive mode has no structured output.`,
 	Example: `  # Ask once, scoped to a cluster
   ankra chat --cluster prod "why is the payments pod restarting?"
 
@@ -221,10 +224,7 @@ func runChatMessage(scope chatScope, conversationID string, query string, intera
 	} else if !startedConversation {
 		legacyLaneNotice(os.Stderr, conversationID, true)
 	}
-	if outcome.errorMessage != "" {
-		return errors.New(outcome.errorMessage)
-	}
-	return nil
+	return outcome.failure()
 }
 
 func runInteractiveChat(stdin io.Reader, scope chatScope, conversationID string, interactionMode string) error {
@@ -314,6 +314,7 @@ func runInteractiveChat(stdin io.Reader, scope chatScope, conversationID string,
 		events, session, nextScope, err := openChatTurn(scope, conversationID, req, interactionMode, os.Stderr)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
+			printBillingRestrictedHint(os.Stdout, err)
 			continue
 		}
 		onSessions := session != nil

@@ -71,7 +71,14 @@ var clusterAgentStatusCmd = &cobra.Command{
 		if agent.SecurityUpgradeRequired != nil && *agent.SecurityUpgradeRequired {
 			fmt.Printf("\n  Security upgrade: %s\n", text.FgYellow.Sprint("required"))
 			fmt.Println("  This agent must be upgraded for a security update; it stops connecting once the platform retires its current credentials.")
-			fmt.Println("  Run 'ankra cluster agent upgrade' to upgrade it now.")
+			switch {
+			case agent.Upgrading:
+				fmt.Println("  An upgrade is running now.")
+			case !agent.UpgradeAvailable:
+				// The upgrade block below prints the command when an upgrade is
+				// available; print it here only when that block does not.
+				fmt.Println("  Run 'ankra cluster agent upgrade' to upgrade it now.")
+			}
 		}
 
 		if agent.UpgradeAvailable {

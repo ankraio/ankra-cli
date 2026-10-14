@@ -5344,3 +5344,43 @@ func TestClusterAgentStatusSecurityUpgradeNote(t *testing.T) {
 		})
 	}
 }
+
+// The security note prints the upgrade command once: not when the upgrade
+// block below it already does, and not while an upgrade is running.
+func TestClusterAgentStatusSecurityNoteNeverRepeatsTheUpgradeCommand(t *testing.T) {
+	text.DisableColors()
+	agentVersion := "2.1.1190"
+	latest := "2.1.1229"
+	online := true
+	required := true
+	cases := []struct {
+		name             string
+		upgradeAvailable bool
+		upgrading        bool
+		wantCommands     int
+		wantRunning      bool
+	}{
+		{name: "upgrade_available", upgradeAvailable: true, wantCommands: 1},
+		{name: "no_upgrade_listed", upgradeAvailable: false, wantCommands: 1},
+		{name: "upgrading", upgradeAvailable: false, upgrading: true, wantCommands: 0, wantRunning: true},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			writeSelectedClusterJSON(t)
+			setMockClient(t, &clusterAgentStatusMock{agent: &client.AgentInfo{
+				AgentVersion: &agentVersion, LatestAgentVersion: &latest, CreatedAt: "2024-01-10T00:00:00Z",
+				IsOnline: &online, SecurityUpgradeRequired: &required,
+				UpgradeAvailable: testCase.upgradeAvailable, Upgrading: testCase.upgrading,
+			}})
+			stdoutOutput := stripANSICodes(captureStdout(t, func() {
+				_, _ = executeCommand("cluster", "agent", "status")
+			}))
+			if count := strings.Count(stdoutOutput, "ankra cluster agent upgrade"); count != testCase.wantCommands {
+				t.Errorf("upgrade command printed %d times, want %d:\n%s", count, testCase.wantCommands, stdoutOutput)
+			}
+			if testCase.wantRunning != strings.Contains(stdoutOutput, "An upgrade is running now.") {
+				t.Errorf("running note = %v, want %v:\n%s", !testCase.wantRunning, testCase.wantRunning, stdoutOutput)
+			}
+		})
+	}
+}

@@ -189,7 +189,13 @@ GITOPS_REPOSITORY="${GITOPS_REPOSITORY:-}"
 GITOPS_BRANCH="${GITOPS_BRANCH:-master}"
 
 # Regions / zones / locations.
-HETZNER_LOCATION="${HETZNER_LOCATION:-nbg1}"
+# Hetzner's shared-vCPU stock moves by the minute: on 2026-10-14 cpx32 left
+# nbg1, then fsn1, then came back to nbg1 within the hour, and a create in a
+# location without it is refused (ankra-ews9qk). So the lane picks its
+# location at run time: the first of HETZNER_LOCATION_CANDIDATES that offers
+# every server type the lane uses right now. Setting HETZNER_LOCATION pins it.
+HETZNER_LOCATION="${HETZNER_LOCATION:-}"
+HETZNER_LOCATION_CANDIDATES="${HETZNER_LOCATION_CANDIDATES:-fsn1 nbg1 hel1}"
 OVH_REGION="${OVH_REGION:-GRA9}"
 UPCLOUD_ZONE="${UPCLOUD_ZONE:-de-fra1}"
 
@@ -430,6 +436,92 @@ ank_out() {
   fi
 }
 
+# hetzner_available_types prints the server types Hetzner can provision in a
+# location right now, one per line, read from the CLI's server-types table
+# (NAME CORES MEMORY GB DISK GB ARCH PRICE AVAILABLE; the last column is yes).
+hetzner_available_types() {
+  local table
+  table="$(ank_out cluster hetzner server-types --credential-id "$HETZNER_CREDENTIAL_ID" \
+    --location "$1" --available-only)" || return 1
+  printf '%s\n' "$table" | hetzner_types_from_table
+}
+
+# hetzner_types_from_table reads a server-types table on stdin and prints the
+# names whose AVAILABLE column says yes. It matches the row's shape (a
+# type-like name first, "yes" last) rather than skipping a fixed number of
+# preamble lines, so a missing banner or an extra header cannot shift it.
+hetzner_types_from_table() {
+  awk '$1 ~ /^[a-z]+[0-9]+[a-z]*$/ && $NF == "yes" { print $1 }'
+}
+
+# pick_hetzner_location prints the first candidate location that offers every
+# type the lane uses and succeeds; otherwise it prints why and fails. A
+# location whose types could not be read (the CLI failed, or answered no rows)
+# is never read as a location that lacks them: the reason names it apart, and
+# when no candidate could be read at all it says so (a credential or API
+# problem, not Hetzner's stock). It reads each candidate through
+# hetzner_available_types, so a test can stub it.
+pick_hetzner_location() {
+  local location needed available is_complete
+  local unread="" lacking=""
+  for needed in "$HETZNER_CP_TYPE" "$HETZNER_WORKER_TYPE" "$HETZNER_BASTION_TYPE" "$HETZNER_BIGGER_TYPE"; do
+    if [ -z "$needed" ]; then
+      echo "configuration error: HETZNER_CP_TYPE, HETZNER_WORKER_TYPE, HETZNER_BASTION_TYPE and HETZNER_BIGGER_TYPE must all be set"
+      return 1
+    fi
+  done
+  for location in $HETZNER_LOCATION_CANDIDATES; do
+    if ! available="$(hetzner_available_types "$location")" || [ -z "$available" ]; then
+      unread="${unread:+$unread }$location"
+      continue
+    fi
+    is_complete=1
+    for needed in "$HETZNER_CP_TYPE" "$HETZNER_WORKER_TYPE" "$HETZNER_BASTION_TYPE" "$HETZNER_BIGGER_TYPE"; do
+      if ! printf '%s\n' "$available" | grep -qx "$needed"; then
+        is_complete=0
+        break
+      fi
+    done
+    if [ "$is_complete" = 1 ]; then
+      echo "$location"
+      return 0
+    fi
+    lacking="${lacking:+$lacking }$location"
+  done
+  if [ -z "$lacking" ]; then
+    echo "could not list Hetzner server types for any of '$HETZNER_LOCATION_CANDIDATES' (a credential or API problem, not Hetzner's stock)"
+  elif [ -n "$unread" ]; then
+    echo "no readable Hetzner location offers $HETZNER_CP_TYPE, $HETZNER_WORKER_TYPE, $HETZNER_BASTION_TYPE and $HETZNER_BIGGER_TYPE right now (lacking: $lacking; could not read: $unread)"
+  else
+    echo "no Hetzner location in '$HETZNER_LOCATION_CANDIDATES' offers $HETZNER_CP_TYPE, $HETZNER_WORKER_TYPE, $HETZNER_BASTION_TYPE and $HETZNER_BIGGER_TYPE right now"
+  fi
+  return 1
+}
+
+# create_failure_reason says why a create printed no "Cluster ID:" line. The
+# platform refuses a create it cannot run with a 400 whose "detail" names the
+# cause (a server type the location no longer offers, a provider account with
+# no credits); ank() merges that "Error:" line into the output, and reporting
+# it is the difference between a run that says what to fix and one that says
+# "could not resolve cluster id" (ankra-ews9qk). The detail is cut at 300
+# characters; the full line is in the log above the FAIL.
+create_failure_reason() {
+  local out="$1" error_line status detail
+  error_line="$(printf '%s\n' "$out" | grep -m1 -E '^Error: ' || true)"
+  if [ -z "$error_line" ]; then
+    echo "the create printed neither a Cluster ID nor an error"
+    return
+  fi
+  status="$(printf '%s' "$error_line" | grep -oE 'status [0-9]{3}' | head -1 || true)"
+  detail="$(printf '%s' "$error_line" | sed -nE 's/.*"detail":"(([^"\\]|\\.)*)".*/\1/p' | head -1)"
+  if [ -n "$detail" ]; then
+    echo "refused by the platform${status:+, $status}: ${detail:0:300}"
+  else
+    error_line="${error_line#Error: }"
+    echo "${error_line:0:300}"
+  fi
+}
+
 # Like ank() - stderr merged, login preamble filtered - but returning the
 # CLI's own exit status, so a refused write is a failure the caller sees.
 ank_rc() {
@@ -533,6 +625,25 @@ ready_nodes() { select_cluster "$1"; ank cluster get nodes | grep -cE "Ready"; }
 
 # Count of running cluster operations.
 running_ops() { select_cluster "$1"; ank cluster operations list | grep -cE "running"; }
+
+# The operations still running on a cluster, one per line, for the failure
+# message of a write that stayed refused: the step names what blocked it.
+busy_operations() { select_cluster "$1"; ank cluster operations list | grep -E "running" | head -5; }
+
+# write_refused_busy reports whether a day-2 write was refused because the
+# cluster is busy: the CLI exited non-zero AND said so, in the platform's own
+# words or as an HTTP 409 status. Matching a bare "409" anywhere in the output
+# read a cluster id such as 00a01a40-0124-4097-... as a refusal, so writes that
+# had succeeded were retried until the step failed (ankra-nz8f8: aws/k3s stop,
+# aws and hetzner k8s upgrade on 2026-10-14, ovh k8s upgrade on 2026-07-19).
+write_refused_busy() {
+  local rc="$1" out="$2"
+  [ "$rc" -ne 0 ] || return 1
+  printf '%s' "$out" | grep -qiE 'operations (are )?(still )?in progress|already in progress|is still running|not in a state|status 409([^0-9]|$)|\(409\)'
+}
+
+# The last non-empty line of a command's output, for a one-line log.
+last_line() { printf '%s\n' "$1" | grep -v '^[[:space:]]*$' | tail -1 | cut -c1-200; }
 
 # Whether a failed reconcile is retried (nudge_reconcile) or fails the wait at
 # once because the step was refused outright (a provider 4xx, a validation
@@ -655,19 +766,25 @@ wait_for_removed() {
 daytwo() {
   local desc="$1"; shift
   local name="$1"; shift
-  local attempt out
+  local attempt out rc
   wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy; attempting $desc anyway)"
   for attempt in $(seq 1 8); do
-    out="$(ank cluster "$@" 2>&1)"
-    if printf '%s' "$out" | grep -qiE "operations in progress|409|not in a state"; then
-      log "  $desc rejected (ops in progress), retry $attempt"
+    out="$(ank_rc cluster "$@")"; rc=$?
+    if write_refused_busy "$rc" "$out"; then
+      log "  $desc refused while busy, retry $attempt: $(last_line "$out")"
       sleep 20
       wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy before retry of $desc)"
       continue
     fi
     printf '%s\n' "$out" | tail -2
+    if [ "$rc" -ne 0 ]; then
+      log "  $desc failed (exit $rc): $(last_line "$out")"
+      return 1
+    fi
     return 0
   done
+  log "  $desc stayed refused after 8 attempts; still running on $name:"
+  busy_operations "$name" | while IFS= read -r operation; do log "    $operation"; done
   return 1
 }
 
@@ -1103,7 +1220,7 @@ run_aws_provider() {
   out="$(ank cluster aws create "${create_args[@]}")"
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
-  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  if [ -z "$id" ]; then fail "$label create ($(create_failure_reason "$out"))"; return; fi
   register_cluster "$name" "$id"
   pass "$label create submitted (id=$id)"
 
@@ -1413,13 +1530,17 @@ as_write() {
     if [ "$remaining" -gt "$IDLE_TIMEOUT" ]; then remaining="$IDLE_TIMEOUT"; fi
     wait_idle "$name" "$remaining" || log "  ($name still busy; attempting $desc anyway)"
     out="$(ank_rc "$@")"; rc=$?
-    if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qiE "operations in progress|409|not in a state"; then
-      log "  $desc rejected (ops in progress), retry $attempt"
+    if write_refused_busy "$rc" "$out"; then
+      log "  $desc refused while busy, retry $attempt: $(last_line "$out")"
       sleep 20
       continue
     fi
     break
   done
+  if write_refused_busy "$rc" "$out"; then
+    log "  $desc stayed refused; still running on $name:"
+    busy_operations "$name" | while IFS= read -r operation; do log "    $operation"; done
+  fi
   printf '%s\n' "$out" | tail -n 4
   return "$rc"
 }
@@ -1835,12 +1956,22 @@ run_provider() {
 
   section "$label :: $name"
 
+  if [ "$provider" = hetzner ] && [ -z "$HETZNER_LOCATION" ]; then
+    local picked
+    if ! picked="$(pick_hetzner_location)"; then
+      fail "$label create ($picked)"
+      return
+    fi
+    HETZNER_LOCATION="$picked"
+    log "hetzner location: $HETZNER_LOCATION (offers every type this lane uses right now)"
+  fi
+
   # 1. Create (capture the printed "Cluster ID: <uuid>")
   log "creating $name (distribution=$distribution) ..."
   out="$(create_cluster "$provider" "$name" "$distribution")"
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
-  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  if [ -z "$id" ]; then fail "$label create ($(create_failure_reason "$out"))"; return; fi
   register_cluster "$name" "$id"
   pass "$label create submitted (id=$id)"
 
@@ -1936,7 +2067,7 @@ run_managed_provider() {
     "${version_args[@]}" "${gitops_args[@]}")"
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
-  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  if [ -z "$id" ]; then fail "$label create ($(create_failure_reason "$out"))"; return; fi
   register_cluster "$name" "$id" "$provider"
   pass "$label create submitted (id=$id)"
 
