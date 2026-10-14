@@ -1784,10 +1784,16 @@ func TestServicesOnADeletedClusterSayWhatRetirementDoes(t *testing.T) {
 	out.Reset()
 	printServiceInstance(&out, names, client.ServiceInstance{ID: fakeServiceInstanceID, Name: "canary-pg", ClusterID: fakeServiceClusterID,
 		ClusterDeleted: true, DeploymentState: "verification_pending", Readiness: "stale"})
-	if !strings.Contains(out.String(), "(deleted; retire the service with 'ankra services delete canary-pg'") {
+	if !strings.Contains(out.String(), fakeServiceClusterID+", deleted; retire the service with 'ankra services delete canary-pg'") {
 		t.Errorf("get must mark the cluster deleted and name the way out:\n%s", out.String())
 	}
 	if name := serviceClusterName(names, client.ServiceInstance{ClusterID: fakeServiceClusterID, ClusterName: "playground", ClusterDeleted: true}); name != "playground (deleted)" {
 		t.Errorf("list cluster column = %q, want %q", name, "playground (deleted)")
+	}
+	out.Reset()
+	printServiceInstance(&out, names, client.ServiceInstance{ID: fakeServiceInstanceID, Name: "canary-pg", ClusterID: fakeServiceClusterID,
+		ClusterName: "playground", ClusterDeleted: true, DeploymentState: "verification_pending", Readiness: "stale"})
+	if !strings.Contains(out.String(), "Cluster:     playground ("+fakeServiceClusterID+"), deleted;") {
+		t.Errorf("get must name a deleted cluster it still knows the name of:\n%s", out.String())
 	}
 }

@@ -380,6 +380,9 @@ func serviceClusterName(names *serviceNames, instance client.ServiceInstance) st
 	if name == "" {
 		name = names.cluster(instance.ClusterID)
 	}
+	if name == "" {
+		name = instance.ClusterID
+	}
 	if instance.ClusterDeleted {
 		name += " (deleted)"
 	}
@@ -588,8 +591,12 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 	_, _ = fmt.Fprintf(out, "  ID:          %s\n", instance.ID)
 	_, _ = fmt.Fprintf(out, "  Package:     %s\n", names.packageVersion(instance.PackageVersionID))
 	if instance.ClusterDeleted {
-		_, _ = fmt.Fprintf(out, "  Cluster:     %s (deleted; retire the service with 'ankra services delete %s' to release its name)\n",
-			instance.ClusterID, instance.Name)
+		deletedCluster := instance.ClusterID
+		if instance.ClusterName != "" {
+			deletedCluster = fmt.Sprintf("%s (%s)", instance.ClusterName, instance.ClusterID)
+		}
+		_, _ = fmt.Fprintf(out, "  Cluster:     %s, deleted; retire the service with 'ankra services delete %s' to release its name\n",
+			deletedCluster, instance.Name)
 	} else {
 		_, _ = fmt.Fprintf(out, "  Cluster:     %s\n", names.clusterWithID(instance.ClusterID))
 	}
