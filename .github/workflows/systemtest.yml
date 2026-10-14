@@ -14,7 +14,9 @@
 #                        the platform and org the credential ids below live in)
 #   hetzner              secrets SYSTEMTEST_SSH_KEY_CREDENTIAL_ID + SYSTEMTEST_HETZNER_CREDENTIAL_ID
 #   ovh                  secrets SYSTEMTEST_SSH_KEY_CREDENTIAL_ID + SYSTEMTEST_OVH_CREDENTIAL_ID
-#   upcloud              secrets SYSTEMTEST_SSH_KEY_CREDENTIAL_ID + SYSTEMTEST_UPCLOUD_CREDENTIAL_ID
+#   upcloud (opt-in)     secrets SYSTEMTEST_SSH_KEY_CREDENTIAL_ID + SYSTEMTEST_UPCLOUD_CREDENTIAL_ID
+#                        (never scheduled: UpCloud is too costly to test on routinely, so
+#                        only a dispatch naming upcloud or uks runs either lane)
 #   digitalocean         secrets SYSTEMTEST_SSH_KEY_CREDENTIAL_ID + SYSTEMTEST_DIGITALOCEAN_CREDENTIAL_ID
 #   aws (opt-in)         see below
 #   doks / uks / ovh_mks secret SYSTEMTEST_DIGITALOCEAN / _UPCLOUD / _OVH_CREDENTIAL_ID
@@ -81,13 +83,13 @@ on:
   workflow_dispatch:
     inputs:
       providers:
-        description: 'Space-separated Ankra-managed providers to exercise (hetzner ovh upcloud digitalocean aws). Use "none" to skip the family. aws needs the SYSTEMTEST_AWS_* secrets and joins the scheduled default only when they exist.'
+        description: 'Space-separated Ankra-managed providers to exercise (hetzner ovh digitalocean upcloud aws). Use "none" to skip the family. upcloud is opt-in (never in the default: UpCloud is too costly to test on routinely). aws needs the SYSTEMTEST_AWS_* secrets and joins the scheduled default only when they exist.'
         required: false
-        default: 'hetzner ovh upcloud digitalocean'
+        default: 'hetzner ovh digitalocean'
       managed_providers:
-        description: 'Space-separated cloud-managed providers to exercise (doks uks gke ovh_mks aks eks). Use "none" to skip the family.'
+        description: 'Space-separated cloud-managed providers to exercise (doks gke ovh_mks aks eks uks). Use "none" to skip the family. uks is opt-in (never in the default: UpCloud is too costly to test on routinely).'
         required: false
-        default: 'doks uks gke ovh_mks aks eks'
+        default: 'doks gke ovh_mks aks eks'
       parallel:
         description: 'Run the selected targets concurrently (1) or one at a time (0).'
         required: false
@@ -113,8 +115,8 @@ jobs:
     timeout-minutes: 240
     env:
       ANKRA_SYSTEMTEST_CONFIRM: 'yes'
-      ANKRA_SYSTEMTEST_PROVIDERS: ${{ github.event.inputs.providers || 'hetzner ovh upcloud digitalocean' }}
-      ANKRA_SYSTEMTEST_MANAGED_PROVIDERS: ${{ github.event.inputs.managed_providers || 'doks uks gke ovh_mks aks eks' }}
+      ANKRA_SYSTEMTEST_PROVIDERS: ${{ github.event.inputs.providers || 'hetzner ovh digitalocean' }}
+      ANKRA_SYSTEMTEST_MANAGED_PROVIDERS: ${{ github.event.inputs.managed_providers || 'doks gke ovh_mks aks eks' }}
       ANKRA_SYSTEMTEST_PARALLEL: ${{ github.event.inputs.parallel || '1' }}
       # Opt-in autoscaling step (see the header comment). Only a manual
       # dispatch can turn it on: the schedule has no inputs, so it always

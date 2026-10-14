@@ -117,7 +117,11 @@ func TestLanePlan(t *testing.T) {
 		{
 			// The job summary CI shows: configured lanes run, the rest are
 			// counted and named by the repository secret they need.
-			name: "configured lanes run and the summary counts the skipped ones",
+			// The UpCloud credential is configured on purpose: UpCloud is
+			// too costly to test on routinely, so neither of its lanes is in
+			// the default set and a configured credential must not pull them
+			// back in.
+			name: "configured lanes run, the summary counts the skipped ones, and upcloud stays out of the default",
 			env: map[string]string{
 				"ANKRA_API_TOKEN":                "token",
 				"SSH_KEY_CREDENTIAL_ID":          "ssh",
@@ -130,15 +134,29 @@ func TestLanePlan(t *testing.T) {
 			wantOutput: []string{
 				"SKIP: ovh lane: missing SYSTEMTEST_OVH_CREDENTIAL_ID",
 				"SKIP: managed/doks lane: missing SYSTEMTEST_DIGITALOCEAN_CREDENTIAL_ID",
-				"::warning title=Lifecycle lanes skipped::7 of 10 provider lanes skipped",
-				"runnable: hetzner upcloud / managed: uks",
+				"::warning title=Lifecycle lanes skipped::7 of 8 provider lanes skipped",
+				"runnable: hetzner / managed: none",
 			},
+			rejectOutput: []string{"upcloud", "uks"},
 			wantSummary: []string{
-				"**7 of 10 provider lanes skipped: missing SYSTEMTEST_OVH_CREDENTIAL_ID, SYSTEMTEST_DIGITALOCEAN_CREDENTIAL_ID, SYSTEMTEST_GKE_CREDENTIAL_ID, SYSTEMTEST_AKS_CREDENTIAL_ID, SYSTEMTEST_EKS_CREDENTIAL_ID**",
+				"**7 of 8 provider lanes skipped: missing SYSTEMTEST_OVH_CREDENTIAL_ID, SYSTEMTEST_DIGITALOCEAN_CREDENTIAL_ID, SYSTEMTEST_GKE_CREDENTIAL_ID, SYSTEMTEST_AKS_CREDENTIAL_ID, SYSTEMTEST_EKS_CREDENTIAL_ID**",
 				"| `hetzner` | Ankra-managed | runs | |",
 				"| `managed/gke` | cloud-managed | **skipped** | SYSTEMTEST_GKE_CREDENTIAL_ID |",
 			},
-			wantOutputs: []string{"requested_lanes=10", "skipped_lanes=7", "runnable_lanes=3"},
+			wantOutputs: []string{"requested_lanes=8", "skipped_lanes=7", "runnable_lanes=1"},
+		},
+		{
+			name: "the upcloud lanes still run when a caller names them",
+			env: map[string]string{
+				"ANKRA_API_TOKEN":                    "token",
+				"SSH_KEY_CREDENTIAL_ID":              "ssh",
+				"UPCLOUD_CREDENTIAL_ID":              "upcloud-id",
+				"ANKRA_SYSTEMTEST_PROVIDERS":         "upcloud",
+				"ANKRA_SYSTEMTEST_MANAGED_PROVIDERS": "uks",
+			},
+			wantExit:     0,
+			wantOutput:   []string{"runnable: upcloud / managed: uks"},
+			rejectOutput: []string{"SKIP"},
 		},
 		{
 			name: "without an API token or a saved login every lane is skipped",
