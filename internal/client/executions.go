@@ -260,6 +260,12 @@ func doExecutionPostJSON[T any](c *Client, ctx context.Context, endpoint string,
 	if resp.StatusCode == http.StatusUnauthorized {
 		return nil, ErrUnauthorized
 	}
+	// An RBAC refusal (executions.operate at the execution's cluster, since
+	// cluster#4672) says which permission is missing, like every other
+	// client call, instead of the raw JSON body.
+	if denied := PermissionDeniedFromResponse(resp.StatusCode, body); denied != nil {
+		return nil, denied
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		trimmed := strings.TrimSpace(string(body))
 		return nil, newUnexpectedResponseErrorWithMessage(resp.StatusCode, fmt.Sprintf("execution endpoint returned status %d: %s", resp.StatusCode, redactedBodyForError([]byte(trimmed), 500)))
