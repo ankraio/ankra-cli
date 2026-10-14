@@ -75,6 +75,12 @@ type CredentialDetail struct {
 	// detail view could not say that a credential `credentials list` shows
 	// as down is unusable, let alone why.
 	Available bool `json:"available"`
+	// SSHPublicKey is answered for an ssh-key credential only: the public
+	// key line it holds, comment included.
+	SSHPublicKey *string `json:"ssh_public_key,omitempty"`
+	// Fingerprint is not sent by today's platform (ankra-xjadx1); it is read
+	// so the platform's own value wins the day it is.
+	Fingerprint *string `json:"fingerprint,omitempty"`
 }
 
 type DeleteCredentialResult struct {

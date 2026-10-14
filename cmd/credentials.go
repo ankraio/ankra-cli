@@ -266,9 +266,41 @@ var credentialsGetCmd = &cobra.Command{
 			fmt.Printf("  Repository: %s\n", *cred.Repository)
 		}
 		fmt.Printf("  Created:  %s\n", formatTimeAgo(cred.CreatedAt))
+		printCredentialSSHPublicKey(cred)
 		printCredentialHealth(cred)
 		return nil
 	},
+}
+
+// printCredentialSSHPublicKey shows which key an ssh-key credential holds:
+// its type, SHA256 fingerprint and comment, then the key line itself.
+//
+// The fingerprint is the platform's when it sends one. Today it does not
+// (ankra-xjadx1), so it is computed from the public key the platform just
+// returned, exactly as `ssh-keygen -l` would; a key line that cannot be
+// taken apart prints no fingerprint rather than a guessed one.
+func printCredentialSSHPublicKey(credential *client.CredentialDetail) {
+	if credential == nil || credential.SSHPublicKey == nil || strings.TrimSpace(*credential.SSHPublicKey) == "" {
+		return
+	}
+	publicKey := strings.TrimSpace(*credential.SSHPublicKey)
+	parsed, parsedOK := parseSSHPublicKey(publicKey)
+	fingerprint := ""
+	if credential.Fingerprint != nil && *credential.Fingerprint != "" {
+		fingerprint = *credential.Fingerprint
+	} else if parsedOK {
+		fingerprint = parsed.Fingerprint
+	}
+	if parsedOK {
+		fmt.Printf("  Key type: %s\n", parsed.KeyType)
+	}
+	if fingerprint != "" {
+		fmt.Printf("  Fingerprint: %s\n", fingerprint)
+	}
+	if parsedOK && parsed.Comment != "" {
+		fmt.Printf("  Comment:  %s\n", parsed.Comment)
+	}
+	fmt.Printf("  Public key: %s\n", publicKey)
 }
 
 // printCredentialHealth says whether Ankra can use this credential, and when

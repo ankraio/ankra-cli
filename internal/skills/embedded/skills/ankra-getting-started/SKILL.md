@@ -54,7 +54,7 @@ Store these before creating anything; several later steps take credential **IDs*
 ```bash
 ankra credentials list
 ankra credentials hetzner create --name hetzner-prod        # or ovh / upcloud / digitalocean / proxmox / morpheus
-ankra credentials hetzner ssh-key create --name ops-key
+ankra credentials ssh-key create --name ops-key --public-key-file ~/.ssh/id_ed25519.pub   # org-wide, works for every provider
 ankra credentials repositories <git-credential>             # what a Git credential can ACTUALLY reach
 ankra helm credentials list                                 # private chart registries
 ```
