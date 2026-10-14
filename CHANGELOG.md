@@ -136,6 +136,15 @@
 
 ### Fixed
 
+- **`ankra cluster encrypt manifest --set` can rotate a value that is
+  already sealed.** Setting a new value on a sealed key (for example a
+  registry robot's `.dockerconfigjson`) failed with `encryption failed:
+  Failed to encrypt content`, so the only way to rotate a secret was to
+  decrypt it into Git first or create a new manifest. The CLI now unseals
+  the manifest in memory, applies the `--set` edits, and seals the result
+  again, keeping every key the previous seal covered sealed. The plaintext
+  never reaches Git.
+
 - **`ankra application ship` no longer deploys a branch you did not ask
   for.** It reused any application already registered for the repository, so
   `ship . --branch main` on a repository whose application tracked
