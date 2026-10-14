@@ -535,6 +535,15 @@ type APIClient interface {
 	GetControlPlaneHeal(ctx context.Context, clusterID string) (*client.ControlPlaneHeal, error)
 	SetControlPlaneHeal(ctx context.Context, clusterID string, enabled bool) (*client.ControlPlaneHeal, error)
 
+	GetOrganisationProvenancePolicy(ctx context.Context) (*client.OrganisationProvenancePolicy, error)
+	SetOrganisationProvenancePolicy(ctx context.Context, mode *string) (*client.OrganisationProvenancePolicy, error)
+	GetApplicationProvenancePolicy(ctx context.Context, applicationID string) (*client.ApplicationProvenancePolicy, error)
+	SetApplicationProvenancePolicy(ctx context.Context, applicationID string, mode *string) (*client.ApplicationProvenancePolicy, error)
+	VerifyApplicationProvenance(ctx context.Context, applicationID string, images []string) (*client.ProvenanceVerification, error)
+	ListProvenanceKeys(ctx context.Context) (*client.ProvenanceSigningKeys, error)
+	RotateProvenanceKey(ctx context.Context) (*client.ProvenanceSigningKey, error)
+	RevokeProvenanceKey(ctx context.Context, keyID string, reason string) (*client.ProvenanceSigningKey, error)
+
 	CreateHetznerCluster(req client.CreateHetznerClusterRequest) (*client.CreateHetznerClusterResponse, error)
 	DeprovisionHetznerCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionHetznerClusterResponse, error)
 	StopHetznerCluster(clusterID string, options client.StopClusterOptions) (*client.ProviderStopClusterResponse, error)
