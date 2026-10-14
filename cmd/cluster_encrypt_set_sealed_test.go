@@ -123,3 +123,33 @@ func TestRunEncryptManifest_SetOnASealedManifestReportsADecryptFailure(t *testin
 		t.Errorf("nothing should be encrypted or pushed after a failed decrypt")
 	}
 }
+
+const sealedSecretWithDroppedPasswordYAML = `apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+  namespace: web
+type: Opaque
+data:
+  username: YWRtaW4=
+`
+
+func TestRunEncryptManifest_SetDoesNotSealAPreviouslySealedKeyTheEditRemoved(t *testing.T) {
+	mock := &upgradeMock{
+		iac:           sampleIaCYAMLForCmd,
+		manifestB64:   base64.StdEncoding.EncodeToString([]byte(encryptedSecretManifestYAML)),
+		decryptResult: sealedSecretWithDroppedPasswordYAML,
+		encryptResult: bothKeysEncryptedSecretManifestYAML,
+	}
+	output, executeError := runEncryptManifestOnSealedSecret(t, mock,
+		"--key", "username",
+		"--set", "data.username=cm9vdA==",
+	)
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	callPaths := mock.encryptCalls[0].EncryptedPaths
+	if containsEncryptedPath(callPaths, "password") {
+		t.Errorf("encrypted paths = %v, want password left out: the edited manifest no longer has it", callPaths)
+	}
+}
