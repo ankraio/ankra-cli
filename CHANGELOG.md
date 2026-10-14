@@ -76,6 +76,11 @@
 
 ### Changed
 
+- **A service whose cluster was deleted says so.** `ankra services list`
+  and `get` mark its cluster `(deleted)`, and `get` names `ankra services
+  delete <name>` as the way to release the name. The retirement review says
+  it removes nothing because the cluster took the stack, namespace and data
+  with it, instead of printing an empty "Removes:" heading.
 - **A failed service setup only suggests a retry the platform accepts.**
   `ankra services get` on a `deployment_failed` service suggests `ankra
   cluster operations retry <id>` only for a failed, cancelled or critical

@@ -94,9 +94,14 @@ func printServiceRetirementPlan(out io.Writer, names *serviceNames, retirement c
 	}
 	_, _ = fmt.Fprintf(out, "  State:     %s\n", state)
 
-	if plan.NothingDeployed {
+	switch {
+	case plan.ClusterDeleted:
+		_, _ = fmt.Fprintln(out, "  Removes:   nothing - the service cluster was deleted and took the stack, namespace and data with it; the name is released")
+	case plan.NothingDeployed:
 		_, _ = fmt.Fprintln(out, "  Removes:   nothing on the cluster - the service never deployed; its unfinished draft is discarded and the name released")
-	} else {
+	case plan.Stack == nil && plan.Namespace == nil:
+		_, _ = fmt.Fprintln(out, "  Removes:   nothing the platform could name on the cluster")
+	default:
 		_, _ = fmt.Fprintln(out, "  Removes:")
 		if plan.Stack != nil {
 			_, _ = fmt.Fprintf(out, "    Stack %s (%s, %s), with its members:\n", plan.Stack.Name, plan.Stack.ResourceID, plan.Stack.State)

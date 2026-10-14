@@ -376,10 +376,17 @@ func (names *serviceNames) packageVersion(versionID string) string {
 // serviceClusterName is the name of the cluster a service runs on: the one
 // the instance read carries, or the cluster listing's when it carries none.
 func serviceClusterName(names *serviceNames, instance client.ServiceInstance) string {
-	if instance.ClusterName != "" {
-		return instance.ClusterName
+	name := instance.ClusterName
+	if name == "" {
+		name = names.cluster(instance.ClusterID)
 	}
-	return names.cluster(instance.ClusterID)
+	if name == "" {
+		name = instance.ClusterID
+	}
+	if instance.ClusterDeleted {
+		name += " (deleted)"
+	}
+	return name
 }
 
 // serviceServes reports whether a service's reviewed plan names a consumer
@@ -583,7 +590,16 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 	_, _ = fmt.Fprintf(out, "Service %q\n", instance.Name)
 	_, _ = fmt.Fprintf(out, "  ID:          %s\n", instance.ID)
 	_, _ = fmt.Fprintf(out, "  Package:     %s\n", names.packageVersion(instance.PackageVersionID))
-	_, _ = fmt.Fprintf(out, "  Cluster:     %s\n", names.clusterWithID(instance.ClusterID))
+	if instance.ClusterDeleted {
+		deletedCluster := instance.ClusterID
+		if instance.ClusterName != "" {
+			deletedCluster = fmt.Sprintf("%s (%s)", instance.ClusterName, instance.ClusterID)
+		}
+		_, _ = fmt.Fprintf(out, "  Cluster:     %s, deleted; retire the service with 'ankra services delete %s' to release its name\n",
+			deletedCluster, instance.Name)
+	} else {
+		_, _ = fmt.Fprintf(out, "  Cluster:     %s\n", names.clusterWithID(instance.ClusterID))
+	}
 	_, _ = fmt.Fprintf(out, "  Mode:        %s\n", instance.Mode)
 	_, _ = fmt.Fprintf(out, "  Location:    region %s, data boundary %s\n", instance.Region, instance.DataBoundary)
 	_, _ = fmt.Fprintf(out, "  Generation:  %d\n", instance.Generation)
