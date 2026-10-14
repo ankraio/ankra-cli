@@ -97,36 +97,47 @@ func TestHetznerLanePicksALocationThatOffersItsTypesNow(t *testing.T) {
 	tableParser := extract("hetzner_types_from_table")
 	picker := extract("pick_hetzner_location")
 
-	table := "Server types for location fsn1:\n" +
-		"  NAME         CORES  MEMORY   DISK    ARCH   PRICE/MO   AVAILABLE\n" +
-		"  cax11        2      4     GB 40   GB arm    5.99       yes\n" +
+	rows := "  cax11        2      4     GB 40   GB arm    5.99       yes\n" +
 		"  cpx22        2      4     GB 80   GB x86    19.49      yes\n" +
 		"  cpx32        4      8     GB 160  GB x86    35.49      no\n"
-	parsed, parseError := exec.Command(bash, "-c", tableParser+"\nprintf '%s' \"$1\" | hetzner_types_from_table", "bash", table).Output()
-	if parseError != nil {
-		t.Fatal(parseError)
-	}
-	if got := strings.Fields(string(parsed)); strings.Join(got, " ") != "cax11 cpx22" {
-		t.Errorf("hetzner_types_from_table = %v, want [cax11 cpx22] (header skipped, unavailable rows dropped)", got)
+	header := "  NAME         CORES  MEMORY   DISK    ARCH   PRICE/MO   AVAILABLE\n"
+	for _, table := range []string{"Server types for location fsn1:\n" + header + rows, header + rows, rows} {
+		parsed, parseError := exec.Command(bash, "-c", tableParser+"\nprintf '%s' \"$1\" | hetzner_types_from_table", "bash", table).Output()
+		if parseError != nil {
+			t.Fatal(parseError)
+		}
+		if got := strings.Fields(string(parsed)); strings.Join(got, " ") != "cax11 cpx22" {
+			t.Errorf("hetzner_types_from_table = %v, want [cax11 cpx22] for a table with %d preamble lines", got, strings.Count(table, "\n")-3)
+		}
 	}
 
 	// The stub plays the minute the run began: fsn1 lacks cpx32, nbg1 has
 	// everything, hel1 would too.
-	stub := `hetzner_available_types() { case "$1" in fsn1) printf 'cpx22\ncpx12\n';; nbg1|hel1) printf 'cpx22\ncpx32\n';; esac; }`
+	stub := `hetzner_available_types() { case "$1" in fsn1) printf 'cpx22\ncpx12\n';; nbg1|hel1) printf 'cpx22\ncpx32\n';; broken) return 7;; empty) return 0;; esac; }`
 	types := "HETZNER_CP_TYPE=cpx32 HETZNER_WORKER_TYPE=cpx22 HETZNER_BASTION_TYPE=cpx22 HETZNER_BIGGER_TYPE=cpx32"
 	cases := []struct {
 		name       string
 		candidates string
+		types      string
 		want       string
 		wantFailed bool
 	}{
-		{"skips a location missing a type", "fsn1 nbg1 hel1", "nbg1", false},
-		{"keeps the candidate order", "hel1 nbg1", "hel1", false},
-		{"fails when no candidate offers every type", "fsn1", "", true},
+		{"skips a location missing a type", "fsn1 nbg1 hel1", types, "nbg1", false},
+		{"keeps the candidate order", "hel1 nbg1", types, "hel1", false},
+		{"skips a location it could not read", "broken nbg1", types, "nbg1", false},
+		{"no candidate offers every type", "fsn1", types,
+			"no Hetzner location in 'fsn1' offers cpx32, cpx22, cpx22 and cpx32 right now", true},
+		{"a location it could not read is never read as lacking", "fsn1 broken empty", types,
+			"no readable Hetzner location offers cpx32, cpx22, cpx22 and cpx32 right now (lacking: fsn1; could not read: broken empty)", true},
+		{"nothing could be read at all", "broken empty", types,
+			"could not list Hetzner server types for any of 'broken empty' (a credential or API problem, not Hetzner's stock)", true},
+		{"an empty type is a configuration error", "nbg1",
+			"HETZNER_CP_TYPE= HETZNER_WORKER_TYPE=cpx22 HETZNER_BASTION_TYPE=cpx22 HETZNER_BIGGER_TYPE=cpx32",
+			"configuration error: HETZNER_CP_TYPE, HETZNER_WORKER_TYPE, HETZNER_BASTION_TYPE and HETZNER_BIGGER_TYPE must all be set", true},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			program := "set -euo pipefail\n" + stub + "\n" + picker + "\n" + types +
+			program := "set -euo pipefail\n" + stub + "\n" + picker + "\n" + testCase.types +
 				"\nHETZNER_LOCATION_CANDIDATES=\"$1\"\npick_hetzner_location"
 			output, runError := exec.Command(bash, "-c", program, "bash", testCase.candidates).Output()
 			failed := runError != nil

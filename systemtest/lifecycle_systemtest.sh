@@ -440,23 +440,41 @@ ank_out() {
 # location right now, one per line, read from the CLI's server-types table
 # (NAME CORES MEMORY GB DISK GB ARCH PRICE AVAILABLE; the last column is yes).
 hetzner_available_types() {
-  ank_out cluster hetzner server-types --credential-id "$HETZNER_CREDENTIAL_ID" \
-    --location "$1" --available-only | hetzner_types_from_table
+  local table
+  table="$(ank_out cluster hetzner server-types --credential-id "$HETZNER_CREDENTIAL_ID" \
+    --location "$1" --available-only)" || return 1
+  printf '%s\n' "$table" | hetzner_types_from_table
 }
 
 # hetzner_types_from_table reads a server-types table on stdin and prints the
-# names whose AVAILABLE column says yes.
+# names whose AVAILABLE column says yes. It matches the row's shape (a
+# type-like name first, "yes" last) rather than skipping a fixed number of
+# preamble lines, so a missing banner or an extra header cannot shift it.
 hetzner_types_from_table() {
-  awk 'NR > 2 && NF >= 9 && $NF == "yes" { print $1 }'
+  awk '$1 ~ /^[a-z]+[0-9]+[a-z]*$/ && $NF == "yes" { print $1 }'
 }
 
 # pick_hetzner_location prints the first candidate location that offers every
-# type the lane uses, and fails when none does. It reads the types each
-# candidate offers through hetzner_available_types, so a test can stub it.
+# type the lane uses and succeeds; otherwise it prints why and fails. A
+# location whose types could not be read (the CLI failed, or answered no rows)
+# is never read as a location that lacks them: the reason names it apart, and
+# when no candidate could be read at all it says so (a credential or API
+# problem, not Hetzner's stock). It reads each candidate through
+# hetzner_available_types, so a test can stub it.
 pick_hetzner_location() {
   local location needed available is_complete
+  local unread="" lacking=""
+  for needed in "$HETZNER_CP_TYPE" "$HETZNER_WORKER_TYPE" "$HETZNER_BASTION_TYPE" "$HETZNER_BIGGER_TYPE"; do
+    if [ -z "$needed" ]; then
+      echo "configuration error: HETZNER_CP_TYPE, HETZNER_WORKER_TYPE, HETZNER_BASTION_TYPE and HETZNER_BIGGER_TYPE must all be set"
+      return 1
+    fi
+  done
   for location in $HETZNER_LOCATION_CANDIDATES; do
-    available="$(hetzner_available_types "$location" || true)"
+    if ! available="$(hetzner_available_types "$location")" || [ -z "$available" ]; then
+      unread="${unread:+$unread }$location"
+      continue
+    fi
     is_complete=1
     for needed in "$HETZNER_CP_TYPE" "$HETZNER_WORKER_TYPE" "$HETZNER_BASTION_TYPE" "$HETZNER_BIGGER_TYPE"; do
       if ! printf '%s\n' "$available" | grep -qx "$needed"; then
@@ -468,7 +486,15 @@ pick_hetzner_location() {
       echo "$location"
       return 0
     fi
+    lacking="${lacking:+$lacking }$location"
   done
+  if [ -z "$lacking" ]; then
+    echo "could not list Hetzner server types for any of '$HETZNER_LOCATION_CANDIDATES' (a credential or API problem, not Hetzner's stock)"
+  elif [ -n "$unread" ]; then
+    echo "no readable Hetzner location offers $HETZNER_CP_TYPE, $HETZNER_WORKER_TYPE, $HETZNER_BASTION_TYPE and $HETZNER_BIGGER_TYPE right now (lacking: $lacking; could not read: $unread)"
+  else
+    echo "no Hetzner location in '$HETZNER_LOCATION_CANDIDATES' offers $HETZNER_CP_TYPE, $HETZNER_WORKER_TYPE, $HETZNER_BASTION_TYPE and $HETZNER_BIGGER_TYPE right now"
+  fi
   return 1
 }
 
@@ -1931,10 +1957,12 @@ run_provider() {
   section "$label :: $name"
 
   if [ "$provider" = hetzner ] && [ -z "$HETZNER_LOCATION" ]; then
-    if ! HETZNER_LOCATION="$(pick_hetzner_location)"; then
-      fail "$label create (no Hetzner location in '$HETZNER_LOCATION_CANDIDATES' offers $HETZNER_CP_TYPE, $HETZNER_WORKER_TYPE, $HETZNER_BASTION_TYPE and $HETZNER_BIGGER_TYPE right now)"
+    local picked
+    if ! picked="$(pick_hetzner_location)"; then
+      fail "$label create ($picked)"
       return
     fi
+    HETZNER_LOCATION="$picked"
     log "hetzner location: $HETZNER_LOCATION (offers every type this lane uses right now)"
   fi
 
