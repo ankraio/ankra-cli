@@ -4,6 +4,12 @@
 
 ### Added
 
+- **`ankra org dns add <name> AAAA <ipv6>` publishes an IPv6 record in the
+  organisation's zone.** The platform refused AAAA with "record_type must be
+  one of CNAME, A, or TXT", so no IPv6-only origin could be named under the
+  org's ankra.cc zone. The platform now accepts AAAA with an IPv6 address
+  (an IPv4 address is refused) for a zone on Ankra Cloud; the help and the
+  `--type` flag of `update`/`delete` list it.
 - **`ankra credentials ssh-key create|list` manage the organisation's SSH key
   credentials without picking a provider.** An SSH key credential belongs to
   the whole organisation and attaches to any cloud cluster, but creating one

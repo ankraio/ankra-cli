@@ -19,7 +19,7 @@ import (
 var orgDnsCmd = &cobra.Command{
 	Use:   "dns",
 	Short: "Manage DNS records in the organisation's delegated zone",
-	Long: `Manage CNAME/A/TXT records under the organisation's own delegated DNS
+	Long: `Manage CNAME/A/AAAA/TXT records under the organisation's own delegated DNS
 zone (shown by 'ankra org dns zone'). Records are reconciled asynchronously:
 a new or edited record starts in state pending and turns active once it is
 published to the authoritative nameservers.
@@ -162,10 +162,12 @@ var orgDnsAddCmd = &cobra.Command{
 	Short: "Add a DNS record to the organisation's zone",
 	Long: `Add a record to the organisation's delegated zone. The name is the label
 inside the zone (the zone fqdn is appended server-side), the type is one of
-CNAME, A, or TXT, and the content is the record target.
+CNAME, A, AAAA, or TXT, and the content is the record target. An AAAA
+record takes an IPv6 address and needs the zone on Ankra Cloud.
 
   ankra org dns add chat CNAME lb-1234.example-lb.com --ttl 300
   ankra org dns add app A 203.0.113.10
+  ankra org dns add relay AAAA 2001:db8::10
   ankra org dns add eu TXT "v=spf1 ~all"`,
 	Args: cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -345,8 +347,8 @@ func init() {
 	registerStructuredOutputFlags(orgDnsZoneCmd, orgDnsZonesCmd, orgDnsListCmd)
 	orgDnsAddCmd.Flags().Int("ttl", 0, "TTL in seconds (30..86400); omitted means Auto")
 	orgDnsUpdateCmd.Flags().Int("ttl", 0, "TTL in seconds (30..86400); omitted keeps the record's current ttl")
-	orgDnsUpdateCmd.Flags().String("type", "", "Record type (CNAME, A, TXT) to disambiguate a name reference")
-	orgDnsDeleteCmd.Flags().String("type", "", "Record type (CNAME, A, TXT) to disambiguate a name reference")
+	orgDnsUpdateCmd.Flags().String("type", "", "Record type (CNAME, A, AAAA, TXT) to disambiguate a name reference")
+	orgDnsDeleteCmd.Flags().String("type", "", "Record type (CNAME, A, AAAA, TXT) to disambiguate a name reference")
 	orgDnsDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	orgDnsCmd.AddCommand(orgDnsZoneCmd)

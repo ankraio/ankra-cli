@@ -75,6 +75,7 @@ Reading requires membership; changing requires organisation admin.
 ankra org dns zone                                          # the delegated zone
 ankra org dns list
 ankra org dns add chat CNAME lb-1234.example-lb.com --ttl 300
+ankra org dns add relay AAAA 2001:db8::10                   # CNAME, A, AAAA or TXT
 ankra org dns update chat target.example.com
 ankra org dns delete chat
 ```
