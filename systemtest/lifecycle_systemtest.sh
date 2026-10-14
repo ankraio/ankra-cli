@@ -189,7 +189,10 @@ GITOPS_REPOSITORY="${GITOPS_REPOSITORY:-}"
 GITOPS_BRANCH="${GITOPS_BRANCH:-master}"
 
 # Regions / zones / locations.
-HETZNER_LOCATION="${HETZNER_LOCATION:-nbg1}"
+# fsn1, not nbg1: since 2026-10 Hetzner no longer offers cpx32 in nbg1, and
+# every create there was refused (ankra-ews9qk). fsn1 and hel1 still carry
+# cpx22 and cpx32 at the same price.
+HETZNER_LOCATION="${HETZNER_LOCATION:-fsn1}"
 OVH_REGION="${OVH_REGION:-GRA9}"
 UPCLOUD_ZONE="${UPCLOUD_ZONE:-de-fra1}"
 
@@ -427,6 +430,30 @@ ank_out() {
     "$ANKRA_BIN" --config "$ANK_CONFIG" "$@" 2>/dev/null
   else
     "$ANKRA_BIN" "$@" 2>/dev/null
+  fi
+}
+
+# create_failure_reason says why a create printed no "Cluster ID:" line. The
+# platform refuses a create it cannot run with a 400 whose "detail" names the
+# cause (a server type the location no longer offers, a provider account with
+# no credits); ank() merges that "Error:" line into the output, and reporting
+# it is the difference between a run that says what to fix and one that says
+# "could not resolve cluster id" (ankra-ews9qk). The detail is cut at 300
+# characters; the full line is in the log above the FAIL.
+create_failure_reason() {
+  local out="$1" error_line status detail
+  error_line="$(printf '%s\n' "$out" | grep -m1 -E '^Error: ' || true)"
+  if [ -z "$error_line" ]; then
+    echo "the create printed neither a Cluster ID nor an error"
+    return
+  fi
+  status="$(printf '%s' "$error_line" | grep -oE 'status [0-9]{3}' | head -1 || true)"
+  detail="$(printf '%s' "$error_line" | sed -nE 's/.*"detail":"(([^"\\]|\\.)*)".*/\1/p' | head -1)"
+  if [ -n "$detail" ]; then
+    echo "refused by the platform${status:+, $status}: ${detail:0:300}"
+  else
+    error_line="${error_line#Error: }"
+    echo "${error_line:0:300}"
   fi
 }
 
@@ -1128,7 +1155,7 @@ run_aws_provider() {
   out="$(ank cluster aws create "${create_args[@]}")"
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
-  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  if [ -z "$id" ]; then fail "$label create ($(create_failure_reason "$out"))"; return; fi
   register_cluster "$name" "$id"
   pass "$label create submitted (id=$id)"
 
@@ -1869,7 +1896,7 @@ run_provider() {
   out="$(create_cluster "$provider" "$name" "$distribution")"
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
-  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  if [ -z "$id" ]; then fail "$label create ($(create_failure_reason "$out"))"; return; fi
   register_cluster "$name" "$id"
   pass "$label create submitted (id=$id)"
 
@@ -1965,7 +1992,7 @@ run_managed_provider() {
     "${version_args[@]}" "${gitops_args[@]}")"
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
-  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  if [ -z "$id" ]; then fail "$label create ($(create_failure_reason "$out"))"; return; fi
   register_cluster "$name" "$id" "$provider"
   pass "$label create submitted (id=$id)"
 
