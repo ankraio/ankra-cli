@@ -136,6 +136,14 @@
 
 ### Fixed
 
+- **`ankra cluster operations cancel`, `cancel-step` and `retry` say which
+  permission is missing when the platform refuses them.** Since the platform
+  checks `executions.operate` at the execution's cluster, a token or role
+  without it was shown `execution endpoint returned status 403:` followed by
+  the raw JSON body. The refusal now reads like every other permission error
+  (`permission denied: this action requires the "executions.operate"
+  permission...`) and exits 7, so scripts can tell it from a failed request.
+
 - **`ankra application ship` no longer deploys a branch you did not ask
   for.** It reused any application already registered for the repository, so
   `ship . --branch main` on a repository whose application tracked
