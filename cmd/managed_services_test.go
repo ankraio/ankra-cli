@@ -1764,3 +1764,30 @@ func TestServicesFailureSuggestsOnlyARetryThePlatformAccepts(t *testing.T) {
 		t.Errorf("a failure without an operation must still name the next step:\n%s", out.String())
 	}
 }
+
+// A retirement of a service whose cluster was deleted removes nothing: the
+// review says so in one line instead of an empty "Removes:" heading, and the
+// service read marks the cluster deleted and names the way out.
+func TestServicesOnADeletedClusterSayWhatRetirementDoes(t *testing.T) {
+	names := &serviceNames{clustersLoaded: true, clusters: map[string]string{}, packagesLoaded: true, packages: map[string]string{},
+		applicationsLoaded: true, applications: map[string]string{}}
+	var out bytes.Buffer
+	printServiceRetirementPlan(&out, names, client.ServiceRetirement{ID: "r1", State: "pending", ExpiresAt: "2026-10-14T08:00:00Z",
+		Plan: client.ServiceRetirementPlan{Name: "canary-pg", ClusterID: fakeServiceClusterID, Generation: 1, ClusterDeleted: true}})
+	if !strings.Contains(out.String(), "Removes:   nothing - the service cluster was deleted") {
+		t.Errorf("a deleted-cluster review must say it removes nothing:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "Removes:\n") {
+		t.Errorf("an empty Removes heading must never print:\n%s", out.String())
+	}
+
+	out.Reset()
+	printServiceInstance(&out, names, client.ServiceInstance{ID: fakeServiceInstanceID, Name: "canary-pg", ClusterID: fakeServiceClusterID,
+		ClusterDeleted: true, DeploymentState: "verification_pending", Readiness: "stale"})
+	if !strings.Contains(out.String(), "(deleted; retire the service with 'ankra services delete canary-pg'") {
+		t.Errorf("get must mark the cluster deleted and name the way out:\n%s", out.String())
+	}
+	if name := serviceClusterName(names, client.ServiceInstance{ClusterID: fakeServiceClusterID, ClusterName: "playground", ClusterDeleted: true}); name != "playground (deleted)" {
+		t.Errorf("list cluster column = %q, want %q", name, "playground (deleted)")
+	}
+}

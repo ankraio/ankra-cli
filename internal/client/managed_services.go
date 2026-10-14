@@ -406,7 +406,10 @@ type ServiceInstance struct {
 	ClusterID        string `json:"cluster_id" yaml:"cluster_id"`
 	// ClusterName is the service cluster's name as it reads now, for
 	// display (cluster#4053); ClusterID is the identity.
-	ClusterName           string                     `json:"cluster_name,omitempty" yaml:"cluster_name,omitempty"`
+	ClusterName string `json:"cluster_name,omitempty" yaml:"cluster_name,omitempty"`
+	// ClusterDeleted is set when the platform recorded the service's cluster
+	// deleted; such a service can only be retired, which releases its name.
+	ClusterDeleted        bool                       `json:"cluster_deleted,omitempty" yaml:"cluster_deleted,omitempty"`
 	AdmissionOperationID  string                     `json:"admission_operation_id" yaml:"admission_operation_id"`
 	Name                  string                     `json:"name" yaml:"name"`
 	Region                string                     `json:"region" yaml:"region"`
@@ -519,17 +522,21 @@ type ServiceRetirementData struct {
 // ServiceRetirementPlan is what retiring the instance removes and keeps,
 // resolved by the platform; nothing in it is supplied by the client.
 type ServiceRetirementPlan struct {
-	SchemaVersion         int                       `json:"schema_version" yaml:"schema_version"`
-	InstanceID            string                    `json:"instance_id" yaml:"instance_id"`
-	OrganisationID        string                    `json:"organisation_id" yaml:"organisation_id"`
-	ActorID               string                    `json:"actor_id" yaml:"actor_id"`
-	Name                  string                    `json:"name" yaml:"name"`
-	ClusterID             string                    `json:"cluster_id" yaml:"cluster_id"`
-	Generation            int64                     `json:"generation" yaml:"generation"`
-	Namespace             *string                   `json:"namespace" yaml:"namespace"`
-	NamespaceContents     *ServiceNamespaceContents `json:"namespace_contents,omitempty" yaml:"namespace_contents,omitempty"`
-	Stack                 *ServiceRetirementStack   `json:"stack" yaml:"stack"`
-	NothingDeployed       bool                      `json:"nothing_deployed" yaml:"nothing_deployed"`
+	SchemaVersion     int                       `json:"schema_version" yaml:"schema_version"`
+	InstanceID        string                    `json:"instance_id" yaml:"instance_id"`
+	OrganisationID    string                    `json:"organisation_id" yaml:"organisation_id"`
+	ActorID           string                    `json:"actor_id" yaml:"actor_id"`
+	Name              string                    `json:"name" yaml:"name"`
+	ClusterID         string                    `json:"cluster_id" yaml:"cluster_id"`
+	Generation        int64                     `json:"generation" yaml:"generation"`
+	Namespace         *string                   `json:"namespace" yaml:"namespace"`
+	NamespaceContents *ServiceNamespaceContents `json:"namespace_contents,omitempty" yaml:"namespace_contents,omitempty"`
+	Stack             *ServiceRetirementStack   `json:"stack" yaml:"stack"`
+	NothingDeployed   bool                      `json:"nothing_deployed" yaml:"nothing_deployed"`
+	// ClusterDeleted is set when the platform recorded the service cluster
+	// deleted: the stack, namespace and data went with it, so the retirement
+	// removes nothing and only releases the name.
+	ClusterDeleted        bool                      `json:"cluster_deleted,omitempty" yaml:"cluster_deleted,omitempty"`
 	OwnedDraftID          *string                   `json:"owned_draft_id" yaml:"owned_draft_id"`
 	ConsumersToDisconnect []ServiceInstanceConsumer `json:"consumers_to_disconnect" yaml:"consumers_to_disconnect"`
 	SharedKept            []ServiceSharedStack      `json:"shared_kept" yaml:"shared_kept"`
