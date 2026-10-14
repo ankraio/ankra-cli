@@ -78,6 +78,7 @@ type upgradeMock struct {
 	encryptCalls  []encryptCall
 	encryptResult string
 	encryptErr    error
+	decryptCalls  []string
 	decryptResult string
 	decryptErr    error
 }
@@ -132,6 +133,7 @@ func (m *upgradeMock) EncryptYAML(yamlContent string, encryptedPaths []string) (
 }
 
 func (m *upgradeMock) DecryptYAML(encryptedYaml string) (string, error) {
+	m.decryptCalls = append(m.decryptCalls, encryptedYaml)
 	if m.decryptErr != nil {
 		return "", m.decryptErr
 	}
@@ -1407,6 +1409,9 @@ func TestRunEncryptManifest_ClusterModeSetAppliesBeforeEncrypt(t *testing.T) {
 	if strings.Contains(mock.encryptCalls[0].YamlContent, "aHVudGVyMg==") {
 		t.Errorf("old value must be replaced before encryption, got:\n%s", mock.encryptCalls[0].YamlContent)
 	}
+	if len(mock.decryptCalls) != 0 {
+		t.Errorf("a manifest without SOPS metadata must not be decrypted, got %d decrypt calls", len(mock.decryptCalls))
+	}
 
 	if len(mock.capturedRequests) != 1 {
 		t.Fatalf("expected exactly one PATCH (single commit), got %d", len(mock.capturedRequests))
@@ -1421,6 +1426,270 @@ func TestRunEncryptManifest_ClusterModeSetAppliesBeforeEncrypt(t *testing.T) {
 	}
 	if !strings.Contains(string(decoded), "ENC[AES256_GCM") {
 		t.Errorf("pushed content must be ciphertext, got:\n%s", decoded)
+	}
+}
+
+const sealedRegistryManifestYAML = `apiVersion: v1
+kind: Secret
+metadata:
+  name: registry
+  namespace: web
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: ENC[AES256_GCM,data:old,iv:def,tag:ghi,type:str]
+sops:
+  age:
+    - recipient: age1example
+  mac: ENC[AES256_GCM,data:mac]
+  encrypted_regex: ^(\.dockerconfigjson)$
+  mac_only_encrypted: true
+`
+
+const decryptedRegistryManifestYAML = `apiVersion: v1
+kind: Secret
+metadata:
+  name: registry
+  namespace: web
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: T0xELUxPR0lO
+`
+
+const resealedRegistryManifestYAML = `apiVersion: v1
+kind: Secret
+metadata:
+  name: registry
+  namespace: web
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: ENC[AES256_GCM,data:new,iv:def,tag:ghi,type:str]
+sops:
+  age:
+    - recipient: age1example
+  mac: ENC[AES256_GCM,data:mac2]
+  encrypted_regex: ^(\.dockerconfigjson)$
+  mac_only_encrypted: true
+`
+
+// PLA-907: --set on a value that is already ENC[...] used to hand the
+// platform a document whose sops block still marked the key encrypted while
+// the value under it was plaintext; the platform's decrypt-before-reseal
+// refused it with "Failed to encrypt content". The stored document is now
+// decrypted in memory and the edit applied to plaintext.
+func TestRunEncryptManifest_ClusterModeSetRotatesSealedValue(t *testing.T) {
+	for _, selector := range [][]string{{"--key", ".dockerconfigjson"}, {"--all-data"}} {
+		t.Run(selector[0], func(t *testing.T) {
+			mock := &upgradeMock{
+				iac:           sampleIaCYAMLForCmd,
+				manifestB64:   base64.StdEncoding.EncodeToString([]byte(sealedRegistryManifestYAML)),
+				decryptResult: decryptedRegistryManifestYAML,
+				encryptResult: resealedRegistryManifestYAML,
+			}
+			setMockClient(t, mock)
+			resetUpgradeCommandFlags(t)
+
+			cmd := rootCmd
+			out := new(bytes.Buffer)
+			cmd.SetOut(out)
+			cmd.SetErr(out)
+			args := append([]string{"cluster", "encrypt", "manifest", "demo-namespace"}, selector...)
+			cmd.SetArgs(append(args,
+				"--set", `data.\.dockerconfigjson=TkVXLUxPR0lO`,
+				"--cluster", fakeClusterUUID,
+			))
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+			}
+
+			if len(mock.decryptCalls) != 1 || mock.decryptCalls[0] != sealedRegistryManifestYAML {
+				t.Fatalf("expected the stored sealed manifest to be decrypted once, got %q", mock.decryptCalls)
+			}
+			if len(mock.encryptCalls) != 1 {
+				t.Fatalf("expected one EncryptYAML call, got %d", len(mock.encryptCalls))
+			}
+			sent := mock.encryptCalls[0].YamlContent
+			if !strings.Contains(sent, ".dockerconfigjson: TkVXLUxPR0lO") {
+				t.Errorf("EncryptYAML must receive the new value, got:\n%s", sent)
+			}
+			if strings.Contains(sent, "ENC[") || strings.Contains(sent, "sops:") {
+				t.Errorf("EncryptYAML must receive a plaintext document with no SOPS metadata, got:\n%s", sent)
+			}
+			if !containsEncryptedPath(mock.encryptCalls[0].EncryptedPaths, ".dockerconfigjson") {
+				t.Errorf("encrypted paths = %v, want .dockerconfigjson sealed", mock.encryptCalls[0].EncryptedPaths)
+			}
+
+			if len(mock.capturedRequests) != 1 {
+				t.Fatalf("expected exactly one PATCH (single commit), got %d", len(mock.capturedRequests))
+			}
+			manifest := mock.capturedRequests[0].Body.Spec.Stacks[0].Manifests[0]
+			if len(manifest.EncryptedPaths) != 1 || manifest.EncryptedPaths[0] != ".dockerconfigjson" {
+				t.Errorf("manifest.encrypted_paths = %v, want [.dockerconfigjson]", manifest.EncryptedPaths)
+			}
+			decoded, err := base64.StdEncoding.DecodeString(manifest.ManifestBase64)
+			if err != nil {
+				t.Fatalf("decode manifest_base64: %v", err)
+			}
+			if string(decoded) != resealedRegistryManifestYAML {
+				t.Errorf("pushed content must be the re-sealed manifest, got:\n%s", decoded)
+			}
+			for _, plaintext := range []string{"TkVXLUxPR0lO", "T0xELUxPR0lO"} {
+				if strings.Contains(out.String(), plaintext) {
+					t.Errorf("output must not print a secret value, got:\n%s", out.String())
+				}
+			}
+		})
+	}
+}
+
+const sealedTwoKeySecretManifestYAML = `apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+  namespace: web
+type: Opaque
+data:
+  username: YWRtaW4=
+  password: ENC[AES256_GCM,data:abc,iv:def,tag:ghi,type:str]
+  token: ENC[AES256_GCM,data:xyz,iv:def,tag:ghi,type:str]
+sops:
+  age:
+    - recipient: age1example
+  mac: ENC[AES256_GCM,data:mac]
+  encrypted_regex: ^(password|token)$
+  mac_only_encrypted: true
+`
+
+const decryptedTwoKeySecretManifestYAML = `apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+  namespace: web
+type: Opaque
+data:
+  username: YWRtaW4=
+  password: aHVudGVyMg==
+  token: dG9rZW4=
+`
+
+// Every key the stored document had encrypted is sealed again, not only the
+// --key being rotated: once decrypted, a key left out would be pushed in
+// plaintext.
+func TestRunEncryptManifest_ClusterModeSetResealsEveryEncryptedKey(t *testing.T) {
+	resealedBoth := strings.Replace(encryptedSecretManifestYAML, "username: YWRtaW4=", "username: YWRtaW4=\n  token: ENC[AES256_GCM,data:t2,iv:def,tag:ghi,type:str]", 1)
+	resealedOnlyPassword := strings.Replace(encryptedSecretManifestYAML, "username: YWRtaW4=", "username: YWRtaW4=\n  token: dG9rZW4=", 1)
+
+	t.Run("both keys sealed", func(t *testing.T) {
+		mock := &upgradeMock{
+			iac:           sampleIaCYAMLForCmd,
+			manifestB64:   base64.StdEncoding.EncodeToString([]byte(sealedTwoKeySecretManifestYAML)),
+			decryptResult: decryptedTwoKeySecretManifestYAML,
+			encryptResult: resealedBoth,
+		}
+		setMockClient(t, mock)
+		resetUpgradeCommandFlags(t)
+
+		cmd := rootCmd
+		out := new(bytes.Buffer)
+		cmd.SetOut(out)
+		cmd.SetErr(out)
+		cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "demo-namespace",
+			"--key", "password",
+			"--set", "data.password=bmV3LXNlY3JldA==",
+			"--cluster", fakeClusterUUID,
+		})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+		}
+		paths := mock.encryptCalls[0].EncryptedPaths
+		if !containsEncryptedPath(paths, "password") || !containsEncryptedPath(paths, "token") {
+			t.Errorf("encrypted paths = %v, want password and token", paths)
+		}
+		manifest := mock.capturedRequests[0].Body.Spec.Stacks[0].Manifests[0]
+		if len(manifest.EncryptedPaths) != 2 || manifest.EncryptedPaths[0] != "password" || manifest.EncryptedPaths[1] != "token" {
+			t.Errorf("manifest.encrypted_paths = %v, want [password token]", manifest.EncryptedPaths)
+		}
+	})
+
+	t.Run("a previously encrypted key left plaintext is refused", func(t *testing.T) {
+		mock := &upgradeMock{
+			iac:           sampleIaCYAMLForCmd,
+			manifestB64:   base64.StdEncoding.EncodeToString([]byte(sealedTwoKeySecretManifestYAML)),
+			decryptResult: decryptedTwoKeySecretManifestYAML,
+			encryptResult: resealedOnlyPassword,
+		}
+		setMockClient(t, mock)
+		resetUpgradeCommandFlags(t)
+
+		cmd := rootCmd
+		out := new(bytes.Buffer)
+		cmd.SetOut(out)
+		cmd.SetErr(out)
+		cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "demo-namespace",
+			"--key", "password",
+			"--set", "data.password=bmV3LXNlY3JldA==",
+			"--cluster", fakeClusterUUID,
+		})
+		err := cmd.Execute()
+		if err == nil || !strings.Contains(err.Error(), `"token" is still plaintext`) {
+			t.Fatalf("expected the unsealed token to be refused, got: %v", err)
+		}
+		if len(mock.capturedRequests) != 0 {
+			t.Errorf("must not PATCH unverified content, got %d", len(mock.capturedRequests))
+		}
+	})
+}
+
+func TestRunEncryptManifest_ClusterModeSetRefusesStillEncryptedDecrypt(t *testing.T) {
+	mock := &upgradeMock{
+		iac:           sampleIaCYAMLForCmd,
+		manifestB64:   base64.StdEncoding.EncodeToString([]byte(sealedRegistryManifestYAML)),
+		decryptResult: sealedRegistryManifestYAML,
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "demo-namespace",
+		"--key", ".dockerconfigjson",
+		"--set", `data.\.dockerconfigjson=TkVXLUxPR0lO`,
+		"--cluster", fakeClusterUUID,
+	})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "still encrypted") {
+		t.Fatalf("expected a refusal when the decrypt returns ciphertext, got: %v", err)
+	}
+	if len(mock.encryptCalls) != 0 || len(mock.capturedRequests) != 0 {
+		t.Errorf("must neither encrypt nor PATCH, got %d encrypt and %d PATCH calls", len(mock.encryptCalls), len(mock.capturedRequests))
+	}
+}
+
+func TestRunEncryptManifest_ClusterModeSetDecryptFailureDoesNotPatch(t *testing.T) {
+	mock := &upgradeMock{
+		iac:         sampleIaCYAMLForCmd,
+		manifestB64: base64.StdEncoding.EncodeToString([]byte(sealedRegistryManifestYAML)),
+		decryptErr:  errors.New("Failed to decrypt content"),
+	}
+	setMockClient(t, mock)
+	resetUpgradeCommandFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"cluster", "encrypt", "manifest", "demo-namespace",
+		"--key", ".dockerconfigjson",
+		"--set", `data.\.dockerconfigjson=TkVXLUxPR0lO`,
+		"--cluster", fakeClusterUUID,
+	})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `decrypt manifest "demo-namespace" to apply --set`) {
+		t.Fatalf("expected the decrypt failure to be named, got: %v", err)
+	}
+	if len(mock.encryptCalls) != 0 || len(mock.capturedRequests) != 0 {
+		t.Errorf("must neither encrypt nor PATCH, got %d encrypt and %d PATCH calls", len(mock.encryptCalls), len(mock.capturedRequests))
 	}
 }
 

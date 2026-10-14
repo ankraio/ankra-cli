@@ -441,11 +441,66 @@ sops:
 		}
 	})
 
+	t.Run("a sealed list is named by the key that holds it", func(t *testing.T) {
+		content := `stringData:
+  hosts:
+    - ENC[AES256_GCM,data:a]
+    - ENC[AES256_GCM,data:b]
+  users:
+    - name: admin
+      password: ENC[AES256_GCM,data:c]
+sops:
+  version: 3.13.3
+`
+		paths, isSops, err := deriveSopsEncryptedPaths([]byte(content))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !isSops {
+			t.Error("expected isSopsDocument=true")
+		}
+		if len(paths) != 2 || paths[0] != "hosts" || paths[1] != "password" {
+			t.Errorf("paths = %v, want [hosts password]", paths)
+		}
+	})
+
 	t.Run("invalid yaml errors", func(t *testing.T) {
 		if _, _, err := deriveSopsEncryptedPaths([]byte(":\n  - ][")); err == nil {
 			t.Error("expected a parse error")
 		}
 	})
+}
+
+func TestVerifyNoValueUnsealed(t *testing.T) {
+	stored := `data:
+  password: ENC[AES256_GCM,data:a]
+  hosts:
+    - ENC[AES256_GCM,data:b]
+sops:
+  mac: ENC[AES256_GCM,data:mac]
+---
+data:
+  token: ENC[AES256_GCM,data:c]
+sops:
+  mac: ENC[AES256_GCM,data:mac]
+`
+	storedCount, err := countEncryptedValues([]byte(stored))
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if storedCount != 3 {
+		t.Fatalf("countEncryptedValues = %d, want 3 (sops metadata excluded)", storedCount)
+	}
+	if err := verifyNoValueUnsealed(stored, storedCount); err != nil {
+		t.Errorf("an output sealing every value must pass, got: %v", err)
+	}
+	listLeftPlaintext := strings.Replace(stored, "- ENC[AES256_GCM,data:b]", "- db.internal", 1)
+	if err := verifyNoValueUnsealed(listLeftPlaintext, storedCount); err == nil {
+		t.Error("an output with fewer encrypted values must be refused")
+	}
+	if err := verifyNoValueUnsealed("data:\n  a: b\n", 0); err != nil {
+		t.Errorf("nothing was sealed, nothing to compare: %v", err)
+	}
 }
 
 func TestUnionEncryptedPaths(t *testing.T) {
