@@ -14,10 +14,12 @@ package cmd
 // "does not route".
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"ankra/internal/client"
 )
@@ -26,6 +28,26 @@ import (
 // failed (cluster usecase/kubeagent GetResourcesResponseItem): its empty item
 // list is not an empty namespace.
 const shipResourceReadFailed = "error"
+
+// Kubernetes updates EndpointSlices a moment after a pod turns Ready, so a
+// healthy deploy can read zero ready endpoints for a short while. Only that
+// condition is transient (a missing Service or port is not), so it is re-read
+// for up to shipEndpointSettleWindow before it is reported. Variables so tests
+// can inject the sleeper and finish instantly.
+var (
+	shipEndpointSettleWindow   = 30 * time.Second
+	shipEndpointSettleInterval = 2 * time.Second
+	shipEndpointSettleSleep    = func(waitContext context.Context, interval time.Duration) bool {
+		timer := time.NewTimer(interval)
+		defer timer.Stop()
+		select {
+		case <-waitContext.Done():
+			return false
+		case <-timer.C:
+			return true
+		}
+	}
+)
 
 // shipIngressBackend is one Service an Ingress rule for the host sends traffic
 // to, with the port it asks for by number or by name.
@@ -215,7 +237,7 @@ func shipBackendPort(backend shipIngressBackend) string {
 // verifyShipURLRoutes answers what stops the host from routing, or "" when
 // every backend the host's Ingress rules name resolves, or when that could not
 // be checked (the reason is printed to progress).
-func verifyShipURLRoutes(progress io.Writer, clusterID string, namespace string, host string) string {
+func verifyShipURLRoutes(waitContext context.Context, progress io.Writer, clusterID string, namespace string, host string) string {
 	ingresses, ingressReadProblem, ingressesRead := readShipNamespaceKind(clusterID, client.ResourceRequestItem{
 		Kind: "Ingress", Group: "networking.k8s.io", Version: "v1", Namespace: namespace,
 	})
@@ -282,10 +304,18 @@ func verifyShipURLRoutes(progress io.Writer, clusterID string, namespace string,
 		if strings.EqualFold(service.serviceType, "ExternalName") {
 			continue
 		}
-		slices, sliceReadProblem, slicesRead := readShipNamespaceKind(clusterID, client.ResourceRequestItem{
+		endpointRequest := client.ResourceRequestItem{
 			Kind: "EndpointSlice", Group: "discovery.k8s.io", Version: "v1", Namespace: namespace,
 			LabelSelector: "kubernetes.io/service-name=" + backend.serviceName,
-		})
+		}
+		slices, sliceReadProblem, slicesRead := readShipNamespaceKind(clusterID, endpointRequest)
+		for waited := time.Duration(0); slicesRead && shipReadyEndpointCount(slices) == 0 &&
+			waited < shipEndpointSettleWindow; waited += shipEndpointSettleInterval {
+			if !shipEndpointSettleSleep(waitContext, shipEndpointSettleInterval) {
+				break
+			}
+			slices, sliceReadProblem, slicesRead = readShipNamespaceKind(clusterID, endpointRequest)
+		}
 		if !slicesRead {
 			_, _ = fmt.Fprintf(progress,
 				"Could not read the endpoints of Service %q (%s); whether it has a ready pod behind it is unverified.\n",

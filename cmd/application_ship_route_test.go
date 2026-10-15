@@ -5,9 +5,11 @@ package cmd
 // did not exist.
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The bake-off shape: the Ingress for the host sends traffic to Service
@@ -102,6 +104,66 @@ func TestApplicationShipRefusesLiveWhenTheBackendHasNoReadyEndpoint(t *testing.T
 	}
 	if !found {
 		t.Error("the Service's EndpointSlices were never read")
+	}
+}
+
+// A pod that just turned Ready may not be in the EndpointSlices yet: the
+// second read sees it, so ship is healthy and prints Live.
+func TestApplicationShipSettlesWhenEndpointsAppearOnTheSecondRead(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.endpointSliceByRead = [][]interface{}{
+		{shipTestEndpointSlice("shop", false)},
+		{shipTestEndpointSlice("shop", true)},
+	}
+	slept := 0
+	shipEndpointSettleSleep = func(context.Context, time.Duration) bool { slept++; return true }
+
+	output, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError != nil {
+		t.Fatalf("endpoints that settle must not fail ship: %v\nprogress: %s", executeError, progress)
+	}
+	if !strings.Contains(output, "Live: https://shop.acme.ankra.cc") {
+		t.Errorf("stdout = %q", output)
+	}
+	if slept != 1 || mockClient.endpointSliceReads != 2 {
+		t.Errorf("slept %d times over %d reads, want 1 and 2", slept, mockClient.endpointSliceReads)
+	}
+}
+
+// Endpoints that never appear are reported unroutable, but only after the
+// whole window was spent re-reading (30 s in 2 s steps, so 15 waits).
+func TestApplicationShipReportsUnroutableOnlyAfterTheEndpointWindow(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.endpointSliceItems = []interface{}{shipTestEndpointSlice("shop", false)}
+	var waited time.Duration
+	shipEndpointSettleSleep = func(_ context.Context, interval time.Duration) bool { waited += interval; return true }
+
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError == nil {
+		t.Fatalf("endpoints that never appear must fail ship\nprogress: %s", progress)
+	}
+	if !strings.Contains(executeError.Error(), `Service "shop", which has no ready endpoints`) {
+		t.Errorf("the error must name the Service with no ready endpoints: %v", executeError)
+	}
+	if waited != 30*time.Second {
+		t.Errorf("waited %s, want the full 30s window", waited)
+	}
+}
+
+// A missing Service is deterministic: no waiting.
+func TestApplicationShipDoesNotWaitForAMissingService(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.serviceItems = []interface{}{}
+	shipEndpointSettleSleep = func(context.Context, time.Duration) bool {
+		t.Error("a missing Service must fail at once, not wait")
+		return true
+	}
+
+	if _, _, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production"); executeError == nil {
+		t.Fatal("a missing Service must fail ship")
 	}
 }
 

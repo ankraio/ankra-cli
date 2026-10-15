@@ -62,10 +62,14 @@ type applicationShipMock struct {
 
 	deploymentsPayload json.RawMessage
 
-	ingressItems           []interface{}
-	eventItems             []interface{}
-	serviceItems           []interface{}
-	endpointSliceItems     []interface{}
+	ingressItems       []interface{}
+	eventItems         []interface{}
+	serviceItems       []interface{}
+	endpointSliceItems []interface{}
+	// endpointSliceByRead, when set, scripts successive EndpointSlice reads
+	// (the last entry repeats); endpointSliceReads counts them.
+	endpointSliceByRead    [][]interface{}
+	endpointSliceReads     int
 	resourceKindsRequested []string
 	resourceRequests       []client.ResourceRequestItem
 	// failedResourceKinds answers a read of these kinds with the platform's
@@ -182,6 +186,14 @@ func (mock *applicationShipMock) GetResources(clusterID string,
 			items = mock.serviceItems
 		case "EndpointSlice":
 			items = mock.endpointSliceItems
+			if len(mock.endpointSliceByRead) > 0 {
+				index := mock.endpointSliceReads
+				if index >= len(mock.endpointSliceByRead) {
+					index = len(mock.endpointSliceByRead) - 1
+				}
+				items = mock.endpointSliceByRead[index]
+			}
+			mock.endpointSliceReads++
 		}
 	}
 	return &client.GetResourcesResponse{ResourceResponses: []client.ResourceResponseItem{{Status: "success", Items: items}}}, nil
@@ -299,7 +311,10 @@ func fastShipPolling(t *testing.T) {
 	shipPollInterval = time.Millisecond
 	shipMergePollInterval = time.Millisecond
 	buildPollInterval = time.Millisecond
+	previousSettleSleep := shipEndpointSettleSleep
+	shipEndpointSettleSleep = func(context.Context, time.Duration) bool { return true }
 	t.Cleanup(func() {
+		shipEndpointSettleSleep = previousSettleSleep
 		shipPollInterval = previousPoll
 		shipMergePollInterval = previousMerge
 		buildPollInterval = previousBuild
