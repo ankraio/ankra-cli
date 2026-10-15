@@ -586,3 +586,20 @@ func TestOrgAccessPolicyGetStatesConfiguredAndYAMLKeys(t *testing.T) {
 		t.Errorf("-o yaml must use the API's key names, got: %s", yamlOutput)
 	}
 }
+
+// TestClusterAccessRevokeOfAnUnknownGrantIDExitsNotFound pins the documented
+// exit 3 for the grant-ID path: the platform's 404 ("Access grant not found")
+// is classified by exitCodeFor, not by resolveGrantTargets.
+func TestClusterAccessRevokeOfAnUnknownGrantIDExitsNotFound(t *testing.T) {
+	resetAccessFlags(t)
+	mock := &clusterAccessMock{refusal: client.ClusterAccessResponseError("revoke access grant failed", 404,
+		[]byte(`{"detail":"Access grant not found"}`))}
+	setMockClient(t, mock)
+	var err error
+	captureStdout(t, func() {
+		_, err = executeCommand("cluster", "access", "revoke", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "--cluster", "my-cluster")
+	})
+	if err == nil || exitCodeFor(err) != exitNotFound || !strings.Contains(err.Error(), "Access grant not found") {
+		t.Fatalf("expected exit %d with the platform's sentence, got exit %d: %v", exitNotFound, exitCodeFor(err), err)
+	}
+}
