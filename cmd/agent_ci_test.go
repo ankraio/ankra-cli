@@ -260,6 +260,37 @@ func TestClusterAgentCISetWithoutWorkersIsAUsageError(t *testing.T) {
 	}
 }
 
+func TestClusterAgentCISetWithNoFlagsTurnsStepsOnWithFiftyWorkers(t *testing.T) {
+	settings := newAgentCISettings()
+	settings.CIWorkerCount = 0
+	mock := &agentCIMock{settings: settings}
+
+	if _, runError := runAgentCICommand(t, mock, "cluster", "agent", "ci", "set"); runError != nil {
+		t.Fatalf("expected success, got %v", runError)
+	}
+	if mock.updateCalls != 1 {
+		t.Fatalf("update calls = %d, want 1", mock.updateCalls)
+	}
+	if mock.lastUpdate.CIWorkerCount == nil || *mock.lastUpdate.CIWorkerCount != 50 {
+		t.Errorf("worker count sent = %v, want 50", mock.lastUpdate.CIWorkerCount)
+	}
+	if mock.lastUpdate.CIStorageClass != nil {
+		t.Errorf("storage class sent = %v, want it left alone", *mock.lastUpdate.CIStorageClass)
+	}
+}
+
+func TestClusterAgentCISetWithNoFlagsReportsAnUnreadableCluster(t *testing.T) {
+	mock := &agentCIMock{getError: errors.New("platform unavailable")}
+
+	_, runError := runAgentCICommand(t, mock, "cluster", "agent", "ci", "set")
+	if runError == nil || !strings.Contains(runError.Error(), "platform unavailable") {
+		t.Fatalf("expected the read error, got %v", runError)
+	}
+	if mock.updateCalls != 0 {
+		t.Errorf("expected no update when the current settings cannot be read, got %d", mock.updateCalls)
+	}
+}
+
 func TestClusterAgentCIRefusalsReachTheUserUnchanged(t *testing.T) {
 	t.Run("403 keeps the permission and exits 7", func(t *testing.T) {
 		mock := &agentCIMock{updateError: &client.PermissionDeniedError{Permission: "agents.manage"}}
