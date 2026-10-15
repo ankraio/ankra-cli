@@ -63,6 +63,85 @@ func TestAccessRefusalsSayWhatToChange(t *testing.T) {
 	}
 }
 
+// TestAccessRefusalsAreClassified pins what the exit-code classification
+// reads: a policy refusal is a ClusterAccessRefusalError that says so and
+// carries no RBAC denial; any other 403 carries a PermissionDeniedError
+// (exit 7, not the credential exit 6); other statuses carry neither.
+func TestAccessRefusalsAreClassified(t *testing.T) {
+	for _, testCase := range []struct {
+		status             int
+		body               string
+		policy, permission bool
+	}{
+		{403, `{"detail":"cluster_access_policy_violation","max_grant_role":"edit"}`, true, false},
+		{403, `{"detail":"cluster_access_grant_expiry_required","max_lifetime_seconds":14400}`, true, false},
+		{403, `{"detail":"cluster_access_grant_lifetime_exceeded","max_lifetime_seconds":3600}`, true, false},
+		{403, `{"detail":"cluster_access_grant_reason_required"}`, true, false},
+		{403, `{"detail":"permission_denied","permission":"kube_access.elevate"}`, false, true},
+		{403, `{"detail":"Only organisation admins can manage cluster access"}`, false, true},
+		{401, `{"detail":"Not authenticated"}`, false, false},
+		{409, `{"detail":"A matching access grant already exists"}`, false, false},
+		{502, `<html>bad gateway</html>`, false, false},
+	} {
+		refusal := accessResponseError("op", testCase.status, []byte(testCase.body))
+		var refused *ClusterAccessRefusalError
+		isPolicy := errors.As(refusal, &refused) && refused.PolicyRefusal()
+		var denied *PermissionDeniedError
+		isPermission := errors.As(refusal, &denied)
+		if isPolicy != testCase.policy || isPermission != testCase.permission {
+			t.Fatalf("%d %s: policy=%v permission=%v, want policy=%v permission=%v",
+				testCase.status, testCase.body, isPolicy, isPermission, testCase.policy, testCase.permission)
+		}
+	}
+	denied := &PermissionDeniedError{}
+	if !errors.As(accessResponseError("op", 403, []byte(`{"detail":"permission_denied","permission":"kube_access.elevate"}`)), &denied) ||
+		denied.Permission != "kube_access.elevate" {
+		t.Fatalf("the denied permission was lost: %+v", denied)
+	}
+}
+
+func TestListClusterAccessGrantsKeepsOverPolicyAndSource(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte(`{"result":[` +
+			`{"id":"g-1","role":"admin","scope":"cluster","over_policy":true,"source":"role"},` +
+			`{"id":"g-2","role":"view","scope":"cluster","over_policy":null,"source":null}]}`))
+	}))
+	defer server.Close()
+	apiClient := &Client{BaseURL: server.URL, Token: "t", HTTP: server.Client()}
+	grants, err := apiClient.ListClusterAccessGrants(context.Background(), "c-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, second := grants.Result[0], grants.Result[1]
+	if first.OverPolicy == nil || !*first.OverPolicy || first.Source == nil || *first.Source != ClusterAccessGrantSourceRole {
+		t.Fatalf("first grant lost over_policy or source: %+v", first)
+	}
+	if second.OverPolicy != nil || second.Source != nil {
+		t.Fatalf("a null over_policy or source must stay nil, never false or manual: %+v", second)
+	}
+	encoded, err := json.Marshal(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"over_policy":null`) || !strings.Contains(string(encoded), `"source":null`) {
+		t.Fatalf("null must stay null in JSON output, got %s", encoded)
+	}
+}
+
+func TestListClusterAccessGrantsRefusalIsAnRBACDenial(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusForbidden)
+		_, _ = writer.Write([]byte(`{"detail":"Only organisation admins can view cluster access"}`))
+	}))
+	defer server.Close()
+	apiClient := &Client{BaseURL: server.URL, Token: "t", HTTP: server.Client()}
+	_, err := apiClient.ListClusterAccessGrants(context.Background(), "c-1")
+	var denied *PermissionDeniedError
+	if !errors.As(err, &denied) || err.Error() != "Only organisation admins can view cluster access" {
+		t.Fatalf("expected the platform sentence as an RBAC denial, got %v", err)
+	}
+}
+
 func TestGetClusterAccessPolicyReadsThePolicy(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/api/v1/org/cluster-access-policy" {

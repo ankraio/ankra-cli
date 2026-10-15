@@ -31,6 +31,10 @@ to, an admin's included:
                      when the policy sets none)
   reason from        the lowest role whose grants need a reason
 
+The first line says whether the organisation has set a policy at all
+(Configured: yes or no); with none, the platform defaults apply. -o json
+and -o yaml carry it as is_configured.
+
 Reading requires managing kubectl access, the policy, or holding
 break-glass (kube_access.elevate). Changing the policy needs an owner or
 admin signed in: Organisation settings, Roles, Kubernetes access policy.`,
@@ -58,7 +62,10 @@ var orgAccessPolicyGetCmd = &cobra.Command{
 // renderClusterAccessPolicy prints the policy in plain words.
 func renderClusterAccessPolicy(out io.Writer, policy *client.ClusterAccessPolicy) {
 	suffix := ""
-	if !policy.IsConfigured {
+	if policy.IsConfigured {
+		_, _ = fmt.Fprintln(out, "Configured:         yes")
+	} else {
+		_, _ = fmt.Fprintln(out, "Configured:         no (the platform defaults below apply)")
 		_, _ = fmt.Fprintln(out, "No policy is set: whoever creates or imports a cluster gets cluster-admin on it, and anyone can be given any access.")
 		suffix = " (default)"
 	}

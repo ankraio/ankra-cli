@@ -65,6 +65,15 @@ func exitCodeFor(err error) int {
 	if errors.Is(err, client.ErrUnauthorized) {
 		return exitAuth
 	}
+	// A cluster access request the organisation access policy refused (a
+	// role above the ceiling, a missing or too long --expires, a missing
+	// --reason) is fixed by changing the invocation, not the caller's role:
+	// an owner gets the same refusal. It arrives as a 403, so it is matched
+	// before the RBAC and generic 403 cases below.
+	var accessRefusal *client.ClusterAccessRefusalError
+	if errors.As(err, &accessRefusal) && accessRefusal.PolicyRefusal() {
+		return exitUsage
+	}
 	// RBAC denials (403 permission_denied with a named permission) are a
 	// role problem, not a credential problem: re-authenticating won't help,
 	// so they get their own code.
