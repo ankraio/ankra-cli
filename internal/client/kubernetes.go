@@ -161,6 +161,10 @@ type ResourceResponseItem struct {
 	// SecretValues is the platform's secret_values marker for this item:
 	// one of the SecretValues* constants, or empty.
 	SecretValues string `json:"secret_values,omitempty"`
+	// ErrorResponse is the agent's error text for an item whose Status is
+	// "error" (lost RBAC, a downed apiserver), so a failed read is not taken
+	// for an empty list. Absent on items that did not fail.
+	ErrorResponse *string `json:"error_response,omitempty"`
 }
 
 type GetResourcesResponse struct {

@@ -173,6 +173,20 @@
 
 ### Fixed
 
+- **`ankra application ship` prints `Live:` only for a URL that routes to the
+  workload.** Ship took the first Ingress hostname as the live URL without
+  looking at where the Ingress sends traffic, so it printed
+  `Live: https://bakeoff-conductor-hub...` for an Ingress whose backend named
+  Service `bakeoff-conductor-hub` while the release's Service was
+  `conductor-hub`, and every request to it failed. Ship now reads the Ingress
+  rules for the host and checks each backend Service exists, exposes the
+  port the Ingress asks for and has a ready endpoint. When one does not, ship
+  exits non-zero and says exactly what is wrong (for example `Ingress
+  "bakeoff-conductor-hub" sends it to Service "bakeoff-conductor-hub", which
+  does not exist in namespace "shop" (the namespace has conductor-hub)`);
+  `-o json` reports `state: unroutable` with `url_problem` and leaves `url`
+  out. When the route cannot be read, ship keeps the URL and says it is
+  unverified.
 - **`ankra application ship` explains a pipeline run that was skipped
   instead of pointing at its logs.** On a freshly registered Ankra Pipelines
   application the branch's push run concludes skipped ("No trigger this
