@@ -4,6 +4,22 @@
 
 ### Added
 
+- **The CLI warns, once per run, when the API token it uses expires within
+  seven days.** On 2026-10-13 a CI deploy token reached the end of its 90-day
+  lifetime with nothing said beforehand, and every deploy after it failed on
+  `unauthorized`. The platform now says on every response when the token
+  expires, and the CLI prints one stderr line when that is a week or less
+  away: `Warning: the Ankra API token in use expires in 3 days (2026-10-18
+  13:00 UTC). Create a replacement ...`. It goes to stderr, so `-o json`
+  output stays parseable, and it never prints the token. A platform that does
+  not send the expiry yet produces no warning.
+- **`ankra tokens list` shows when each token expires and flags the ones
+  about to.** The Expires column reads the date and how far off it is
+  (`2026-10-18 (in 3 days)`, `(expired)`), where it used to show the raw
+  zone-less timestamp. A live token inside seven days reads `Expiring` in the
+  Status column, an expired one `Expired`, and a stderr hint says to create a
+  replacement before revoking the old one. `-o json` carries the platform's
+  `days_left`.
 - **`ankra org dns add <name> AAAA <ipv6>` publishes an IPv6 record in the
   organisation's zone.** The platform refused AAAA with "record_type must be
   one of CNAME, A, or TXT", so no IPv6-only origin could be named under the
