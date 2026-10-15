@@ -616,6 +616,102 @@ func TestServicesSetupStructuredOutputStaysParseable(t *testing.T) {
 	}
 }
 
+// runServicesThroughRoot runs `ankra services ...` through the real root
+// command - its persistent flags, its pre-run, and the setup command's flag
+// parsing as a person types it - with no terminal on stdin.
+func runServicesThroughRoot(t *testing.T, platform *fakeServicesPlatform, arguments ...string) (string, string, error) {
+	t.Helper()
+	withTempHome(t)
+	setMockClient(t, platform.client())
+	setupCommand, _, findError := rootCmd.Find([]string{"services", "setup"})
+	if findError != nil || setupCommand.Name() != "setup" {
+		t.Fatalf("services setup is not registered on the root command: %v", findError)
+	}
+	resetTreeFlags(t, setupCommand)
+	t.Cleanup(func() { resetTreeFlags(t, setupCommand) })
+	var stdout, stderr bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stderr)
+	rootCmd.SetIn(strings.NewReader(""))
+	rootCmd.SetArgs(append([]string{"services"}, arguments...))
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetIn(nil)
+		rootCmd.SetArgs(nil)
+	})
+	runError := rootCmd.Execute()
+	return stdout.String(), stderr.String(), runError
+}
+
+// ankra-hw4ccr: a live canary reported that `ankra services setup <name> ...
+// --yes -o json` (v0.33.0) prepared its review and left it pending, while the
+// same command without -o json confirmed. Every spelling of that invocation,
+// typed through the root command with no terminal attached, must confirm the
+// reviewed digest exactly once and print the confirmed review - and a
+// confirm the platform refuses must exit non-zero with nothing on stdout, so
+// a caller piping the JSON can never read an unconfirmed review as success.
+func TestServicesSetupYesWithJSONConfirmsThroughTheRootCommand(t *testing.T) {
+	base := []string{"setup", "orders-db", "--package", "postgresql", "--cluster", fakeServiceClusterID, "--consumer", fakeServiceConsumerID}
+	spellings := map[string][]string{
+		"--yes -o json":         {"--yes", "-o", "json"},
+		"-o json --yes":         {"-o", "json", "--yes"},
+		"-y --output=json":      {"-y", "--output=json"},
+		"-o=json -y":            {"-o=json", "-y"},
+		"--output yaml --yes":   {"--output", "yaml", "--yes"},
+		"--yes=true -ojson":     {"--yes=true", "-ojson"},
+		"flags before the name": nil,
+	}
+	for name, flags := range spellings {
+		t.Run(name, func(t *testing.T) {
+			platform := newFakeServicesPlatform(t)
+			arguments := append(append([]string{}, base...), flags...)
+			if flags == nil {
+				arguments = []string{"setup", "--yes", "-o", "json", "--package", "postgresql", "--cluster", fakeServiceClusterID,
+					"--consumer", fakeServiceConsumerID, "orders-db"}
+			}
+			stdout, stderr, runError := runServicesThroughRoot(t, platform, arguments...)
+			if runError != nil {
+				t.Fatalf("setup %v: %v\nstderr:\n%s", arguments, runError, stderr)
+			}
+			confirms := platform.requests(http.MethodPost, "/reviews/"+fakeServiceReviewID+"/confirm")
+			if len(confirms) != 1 || confirms[0].body != `{"digest":"`+fakeServiceReviewDigest+`"}` {
+				t.Fatalf("setup %v must confirm the reviewed digest exactly once, got %+v", arguments, confirms)
+			}
+			if strings.Contains(stderr, "[y/N]") {
+				t.Errorf("--yes must not prompt:\n%s", stderr)
+			}
+			if strings.Contains(stdout, "Setup review") || strings.Contains(stdout, "is being set up") {
+				t.Errorf("stdout must hold only the structured document:\n%s", stdout)
+			}
+			if !strings.Contains(stdout, "e0000000-0000-4000-8000-000000000012") {
+				t.Errorf("stdout must carry the confirmed review's execution id:\n%s", stdout)
+			}
+		})
+	}
+
+	t.Run("a refused confirm exits non-zero with nothing on stdout", func(t *testing.T) {
+		platform := newFakeServicesPlatform(t)
+		platform.reviewChanged = true
+		stdout, stderr, runError := runServicesThroughRoot(t, platform, append(append([]string{}, base...), "--yes", "-o", "json")...)
+		if runError == nil || exitCodeFor(runError) == 0 {
+			t.Fatalf("a refused confirm must fail the command, got %v", runError)
+		}
+		if !strings.Contains(runError.Error(), "nothing was set up") {
+			t.Errorf("the error must say nothing was set up, got %v", runError)
+		}
+		if confirms := platform.requests(http.MethodPost, "/confirm"); len(confirms) != 1 {
+			t.Errorf("expected the one confirm attempt, got %d", len(confirms))
+		}
+		if strings.TrimSpace(stdout) != "" {
+			t.Errorf("a refused confirm must print no document a pipe could read as the setup:\n%s", stdout)
+		}
+		if !strings.Contains(stderr, "Setup review "+fakeServiceReviewID) {
+			t.Errorf("the plan still goes to stderr:\n%s", stderr)
+		}
+	})
+}
+
 // Contract checks refuse before a review is stored, and a cluster without a
 // placement policy is named as such.
 func TestServicesSetupRefusesBeforePreparing(t *testing.T) {
