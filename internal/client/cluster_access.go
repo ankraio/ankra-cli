@@ -175,6 +175,7 @@ func accessResponseError(operation string, statusCode int, body []byte) error {
 	case ClusterAccessGrantReasonRequired:
 		message = "refused by the organisation access policy: this grant needs a reason; pass --reason"
 	case clusterAccessPermissionDeniedDetail:
+		message = "permission denied: your role does not allow this. Ask an organisation admin to change your role"
 		if refusal.Permission != "" {
 			message = fmt.Sprintf("permission denied: this needs %s", refusal.Permission)
 		}

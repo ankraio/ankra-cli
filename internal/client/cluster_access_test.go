@@ -50,6 +50,7 @@ func TestAccessRefusalsSayWhatToChange(t *testing.T) {
 		{403, `{"detail":"cluster_access_grant_reason_required","require_reason_from_role":"view"}`, "needs a reason; pass --reason"},
 		{403, `{"detail":"Break-glass elevation can only grant access to yourself"}`, "Break-glass elevation can only grant access to yourself"},
 		{403, `{"detail":"permission_denied","permission":"kube_access.elevate","scope_type":"organisation"}`, "this needs kube_access.elevate"},
+		{403, `{"detail":"permission_denied"}`, "permission denied: your role does not allow this"},
 		{502, `<html>bad gateway</html>`, "status 502"},
 	} {
 		refusal := accessResponseError("elevate cluster access failed", testCase.status, []byte(testCase.body))

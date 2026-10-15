@@ -74,9 +74,10 @@ func exitCodeFor(err error) int {
 	if errors.As(err, &accessRefusal) && accessRefusal.PolicyRefusal() {
 		return exitUsage
 	}
-	// RBAC denials (403 permission_denied with a named permission) are a
+	// RBAC denials (403 permission_denied, with or without a named
+	// permission, and the cluster access routes' admin-only sentences) are a
 	// role problem, not a credential problem: re-authenticating won't help,
-	// so they get their own code.
+	// so they get their own code. The match is on the error type alone.
 	var permissionDenied *client.PermissionDeniedError
 	if errors.As(err, &permissionDenied) {
 		return exitForbidden
