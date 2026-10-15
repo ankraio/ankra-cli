@@ -186,7 +186,11 @@
   does not exist in namespace "shop" (the namespace has conductor-hub)`);
   `-o json` reports `state: unroutable` with `url_problem` and leaves `url`
   out. When the route cannot be read, ship keeps the URL and says it is
-  unverified.
+  unverified. A backend with no ready endpoints is re-read for up to 30
+  seconds (every 2 s, within `--timeout`) before ship reports it, because
+  Kubernetes updates EndpointSlices a moment after a pod turns Ready and a
+  healthy deploy would otherwise fail; a missing Service or port still fails
+  at once.
 - **`ankra application ship` explains a pipeline run that was skipped
   instead of pointing at its logs.** On a freshly registered Ankra Pipelines
   application the branch's push run concludes skipped ("No trigger this

@@ -318,7 +318,7 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 	routeProblem := ""
 	unroutableURL := ""
 	if liveURL != "" {
-		routeProblem = verifyShipURLRoutes(progress, cluster.ID, namespace, strings.TrimPrefix(liveURL, "https://"))
+		routeProblem = verifyShipURLRoutes(waitContext, progress, cluster.ID, namespace, strings.TrimPrefix(liveURL, "https://"))
 		if routeProblem != "" {
 			unroutableURL = liveURL
 			liveURL = ""
