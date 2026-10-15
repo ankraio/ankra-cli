@@ -128,7 +128,10 @@ The build it waits for is the one that actually builds the application:
     for it, the run a push would have started, which publishes the image.
     That needs the applications.deploy permission. A push during the wait
     moves ship on to the new head commit. A run whose publish step is skipped
-    stops ship and asks for a push.
+    stops ship and asks for a push. A run the pipeline skipped outright - no
+    trigger it declares accepts the push, typically because the setup pull
+    request that adds .ankra/pipeline.yaml is not merged yet - stops ship
+    with the pull request to merge, or the trigger the branch needs.
   - The repository's own GitHub Actions workflow: its latest run on the
     tracked branch.
   - The workflow Ankra generated: its latest run on the tracked branch, once
@@ -264,7 +267,7 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		// Ankra Pipelines plans runs from the stored definition, so nothing
 		// here waits on the setup pull request (cluster
 		// enginekit/appworkflow.SetupPullRequestAwaitsMerge).
-		buildReference, buildError = waitForPipelineBuild(waitContext, progress, application.ID, trackedBranch)
+		buildReference, buildError = waitForPipelineBuild(waitContext, progress, application, trackedBranch)
 	case source == shipSourceNone:
 		buildError = fmt.Errorf(
 			"nothing builds application %s (its build source is 'none'), so there is no image to wait for - "+
