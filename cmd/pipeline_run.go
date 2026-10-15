@@ -469,11 +469,27 @@ Cancelled runs (-o json 'cancelled_by', 'cancel_reason', 'cancelled_at';
 the Cancelled line): who stopped a run, why and when. 'cancelled_by' is the actor
 in the same form 'requested_by' uses - "user:<id>" for a cancel pressed in
 the portal, the CLI or the API, "github:<login>" for the Cancel action on a
-pull request's check run, "concurrency:<run id>" for a supersession - and
-'cancel_reason' is one of "user_requested", "source_control", "superseded",
-"pull_request_closed" (the run's pull request merged or closed; no actor).
-All three are null for a run nobody cancelled and for one cancelled before
-Ankra recorded this, which is "not recorded", never "the platform did it".
+pull request's check run, "concurrency:<run id>" for a supersession,
+"merge_train:<entry id>" for the merge train - and 'cancel_reason' is one of:
+  user_requested       somebody cancelled it in the portal, the CLI or the API
+  source_control       the Cancel action on its check run
+  superseded           a newer run took its concurrency group
+  queued_replaced      a newer commit replaced it before it started
+  merge_train          the merge train no longer needed this change tested
+  pull_request_closed  its pull request merged or closed (no actor)
+  step_cancelled       nobody cancelled it: a step was stopped where it ran,
+                       for example when the cluster's agent shut down, and
+                       the Error line carries that step's sentence (no actor)
+superseded, queued_replaced and merge_train runs read 'superseded' (above).
+A reason this list does not name yet is printed as it is.
+All three fields are null for a run nobody cancelled and for one cancelled
+before Ankra recorded this, which is "not recorded", never "the platform
+did it".
+
+Steps that never started (error_class "never_scheduled"): a step whose time
+ran out while no node had room for what it requests concludes timed_out,
+and so does its run, but nothing ran. The Class line says so; free capacity
+on the cluster, add a node, or lower the stage's resources, then rerun.
 
 Authority (-o json 'authority_state', the Authority line): the protected
 authority the run executed under. 'approved' - the default branch's
@@ -1237,7 +1253,7 @@ func printPipelineSupersededAttempts(out io.Writer, detail client.PipelineRunDet
 		_, _ = fmt.Fprintf(out, "  %s attempt %d: %s\n", step.StepKey, step.Attempt,
 			renderPipelineState(step.Status, step.Outcome))
 		if errorClass := pipelineStepErrorClass(step); errorClass != "" {
-			_, _ = fmt.Fprintf(out, "    Class: %s\n", errorClass)
+			_, _ = fmt.Fprintf(out, "    Class: %s\n", pipelineErrorClassLine(errorClass))
 		}
 		if step.ErrorMessage != nil && strings.TrimSpace(*step.ErrorMessage) != "" {
 			_, _ = fmt.Fprintf(out, "    Error: %s\n", strings.TrimSpace(*step.ErrorMessage))
@@ -1337,6 +1353,8 @@ func printPipelineRunCancellation(out io.Writer, run client.PipelineRun) {
 		line = fmt.Sprintf("by %s (%s)", actor, reason)
 	case actor != "":
 		line = "by " + actor
+	case pipelineCancelReasonWithoutActor[reason] != "":
+		line = fmt.Sprintf("%s (%s)", pipelineCancelReasonWithoutActor[reason], reason)
 	default:
 		line = reason
 	}
@@ -1344,6 +1362,17 @@ func printPipelineRunCancellation(out io.Writer, run client.PipelineRun) {
 		line += " at " + cancelledAt
 	}
 	_, _ = fmt.Fprintf(out, "  Cancelled: %s\n", line)
+}
+
+// pipelineCancelReasonWithoutActor says what stopped a run for the cancel
+// reasons that name no actor, so the Cancelled line is not a bare token.
+// step_cancelled matters most: printed alone under a "cancelled" status it
+// read as somebody having cancelled the run, and nobody did (ankra-lzesf6).
+// The reason token stays on the line in parentheses, as it does after an
+// actor: it is what -o json and the API spell, so it is the search term.
+var pipelineCancelReasonWithoutActor = map[string]string{
+	"pull_request_closed": "its pull request merged or closed",
+	"step_cancelled":      "nobody, a step was stopped where it ran",
 }
 
 // optionalPipelineRunField is a nullable run string as a plain one: "" for a
@@ -1393,11 +1422,28 @@ func printPipelineRunFailure(out io.Writer, run client.PipelineRun) {
 		return
 	}
 	if errorClass := pipelineRunErrorClass(run); errorClass != "" {
-		_, _ = fmt.Fprintf(out, "  Class:     %s\n", errorClass)
+		_, _ = fmt.Fprintf(out, "  Class:     %s\n", pipelineErrorClassLine(errorClass))
 	}
 	if run.ErrorMessage != nil && *run.ErrorMessage != "" {
 		_, _ = fmt.Fprintf(out, "  Error:     %s\n", *run.ErrorMessage)
 	}
+}
+
+// pipelineErrorClassNeverScheduled is a step whose time ran out while no node
+// had room for what it requests (cluster ankra-lzesf6). It concludes
+// timed_out, and so does its run, but nothing ran.
+const pipelineErrorClassNeverScheduled = "never_scheduled"
+
+// pipelineErrorClassLine is the Class line's text: the class verbatim, and
+// for a class whose outcome word says something untrue, what it means beside
+// it. never_scheduled sits under a timed_out Status line that reads as the
+// work having run too long, when it never started. Every other class prints
+// alone, for the reasons printPipelineRunFailure gives.
+func pipelineErrorClassLine(errorClass string) string {
+	if errorClass == pipelineErrorClassNeverScheduled {
+		return errorClass + " (never started: no node had room for what the step requests)"
+	}
+	return errorClass
 }
 
 // pipelineRunErrorClass is the run's recorded error class, or "" when the

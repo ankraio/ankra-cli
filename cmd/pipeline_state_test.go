@@ -131,6 +131,10 @@ func TestPipelineGetHelpDocumentsStatusOutcomeAndAuthority(t *testing.T) {
 		"success", "failure", "cancelled", "timed_out", "skipped", "infra_error",
 		"status/conclusion",
 		"'authority_state'", "'approved'", "'unapproved'", "'changed_on_head'", "null - ",
+		// Every cancel reason the platform writes (ankra-76mvg6).
+		"user_requested", "source_control", "superseded", "queued_replaced", "merge_train",
+		"pull_request_closed", "step_cancelled", "\"merge_train:<entry id>\"",
+		"never_scheduled",
 	} {
 		if !strings.Contains(pipelineGetLongHelp, want) {
 			t.Errorf("pipeline get help lacks %q", want)

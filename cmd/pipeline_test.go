@@ -1213,6 +1213,31 @@ func TestPipelineRunConclusionErrorNamesAnAbsentOutcomeAsAbsent(t *testing.T) {
 	}
 }
 
+// TestPipelineRunDetailSaysANeverScheduledStepNeverStarted pins
+// ankra-76mvg6: a step whose time ran out while no node had room for it
+// concludes timed_out, and so does its run, so the Status line reads as work
+// that ran too long. The Class line keeps the token and says it never started.
+func TestPipelineRunDetailSaysANeverScheduledStepNeverStarted(t *testing.T) {
+	neverScheduled := "never_scheduled"
+	message := "This step's pod was never placed on a node before the step's time budget ran out, so the step never started."
+	outcome := "timed_out"
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, client.PipelineRunDetail{
+		PipelineRun: client.PipelineRun{
+			RunNumber: 24, ID: "run-24", Status: "concluded", Outcome: &outcome,
+			ErrorClass: &neverScheduled, ErrorMessage: &message,
+		},
+	}, client.PipelineSelector{})
+	rendered := output.String()
+	want := "Class:     never_scheduled (never started: no node had room for what the step requests)"
+	if !strings.Contains(rendered, want) {
+		t.Fatalf("want %q, got:\n%s", want, rendered)
+	}
+	if got := pipelineErrorClassLine("timeout"); got != "timeout" {
+		t.Fatalf("every other class prints verbatim, got %q", got)
+	}
+}
+
 // TestPipelineRunDetailPrintsTheRecordedErrorClass pins PLA-851's ask: a
 // failed run must name its error class where a caller reads the run, not only
 // under -o json. The push case is the reported one - Smartoptics read
@@ -1803,6 +1828,53 @@ func TestPipelineGetOfACancelledRunSaysNothingTheServerDidNotRecord(t *testing.T
 	}
 	if strings.Contains(output, "Cancelled:") {
 		t.Errorf("output = %q, want no Cancelled line for a run the server attributed to nobody", output)
+	}
+}
+
+// TestPipelineGetSaysNobodyCancelledARunAStepStopped pins ankra-76mvg6: a
+// run the platform concluded cancelled because a step was stopped where it ran
+// records cancel_reason step_cancelled and no actor. The bare token under a
+// "cancelled" status read as somebody having cancelled it, and nobody did.
+func TestPipelineGetSaysNobodyCancelledARunAStepStopped(t *testing.T) {
+	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-22", RunNumber: 22, Status: "concluded", Outcome: strPipelinePtr("cancelled"),
+		Trigger: "push", TriggerRef: "refs/heads/main", HeadSHA: strings.Repeat("c", 40),
+		QueuedAt:     "2026-10-13T00:00:00Z",
+		CancelReason: strPipelinePtr("step_cancelled"),
+		CancelledAt:  strPipelinePtr("2026-10-13T00:30:00Z"),
+		ErrorMessage: strPipelinePtr("The step was stopped because the agent shut down."),
+	}}}
+	output, executeError := runPipelineCommand(t, mockClient, "get", "run-22",
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("get error = %v", executeError)
+	}
+	want := "Cancelled: nobody, a step was stopped where it ran (step_cancelled) at 2026-10-13T00:30:00Z"
+	if !strings.Contains(output, want) {
+		t.Errorf("output = %q, want %q", output, want)
+	}
+	if !strings.Contains(output, "The step was stopped because the agent shut down.") {
+		t.Errorf("output = %q, want the step's own sentence on the Error line", output)
+	}
+}
+
+// TestPipelineGetCancelReasonsWithoutAnActor pins the Cancelled line for
+// every reason that names no actor: the known ones say what stopped the run
+// beside the token, and one this CLI has not been taught is printed as it is
+// rather than dropped.
+func TestPipelineGetCancelReasonsWithoutAnActor(t *testing.T) {
+	for reason, want := range map[string]string{
+		"pull_request_closed": "Cancelled: its pull request merged or closed (pull_request_closed)",
+		"step_cancelled":      "Cancelled: nobody, a step was stopped where it ran (step_cancelled)",
+		"a_reason_from_later": "Cancelled: a_reason_from_later",
+	} {
+		var output bytes.Buffer
+		printPipelineRunCancellation(&output, client.PipelineRun{
+			Status: "concluded", Outcome: strPipelinePtr("cancelled"), CancelReason: strPipelinePtr(reason),
+		})
+		if strings.TrimSpace(output.String()) != want {
+			t.Errorf("reason %q printed %q, want %q", reason, strings.TrimSpace(output.String()), want)
+		}
 	}
 }
 
