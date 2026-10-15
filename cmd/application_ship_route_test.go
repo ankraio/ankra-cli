@@ -61,6 +61,11 @@ func TestApplicationShipReportsAnUnroutableURLInJSON(t *testing.T) {
 	if executeError == nil {
 		t.Fatalf("an unroutable URL must fail ship\nprogress: %s", progress)
 	}
+	// The bare application command has no root to silence cobra's usage
+	// text, so cut the document at the first line cobra added after it.
+	if usage := strings.Index(output, "\nUsage:"); usage >= 0 {
+		output = output[:usage]
+	}
 	var result shipResult
 	if decodeError := json.Unmarshal([]byte(output), &result); decodeError != nil {
 		t.Fatalf("stdout is not one JSON document: %v\n%s", decodeError, output)
