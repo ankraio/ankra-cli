@@ -10,6 +10,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -71,6 +72,12 @@ const shipPipelineStepKindPublish = "publish"
 // except a superseded one: ship then follows the run that replaced it, and
 // when the replacement is for a newer push it moves to the branch's new head.
 //
+// A run the platform refused to plan - it concludes skipped with nothing to
+// run, because no trigger the pipeline declares accepts the push - can never
+// publish, and re-running it plans from the same pipeline. Ship stops on it
+// with what the branch is missing (ankra-kdfou7): usually the setup pull
+// request that adds .ankra/pipeline.yaml, which is not merged yet.
+//
 // Every poll re-reads the newest run for the commit rather than holding on to
 // one id, so a run that a later dispatch superseded is left for the one that
 // replaced it. A re-run of ship finds the run an earlier ship dispatched the
@@ -78,9 +85,10 @@ const shipPipelineStepKindPublish = "publish"
 func waitForPipelineBuild(
 	waitContext context.Context,
 	progress io.Writer,
-	applicationID string,
+	application shipApplicationView,
 	trackedBranch string,
 ) (string, error) {
+	applicationID := application.ID
 	headSHA, headError := shipTrackedBranchHead(waitContext, applicationID, trackedBranch)
 	if headError != nil {
 		return "", headError
@@ -186,6 +194,9 @@ func waitForPipelineBuild(
 					announcedState = ""
 				}
 			} else if detail.Status == pipelineRunStatusConcluded &&
+				pipelineOptionalString(detail.Outcome) == pipelineOutcomeSkipped {
+				return "", shipPipelineRunNotRunError(waitContext, detail, application, trackedBranch)
+			} else if detail.Status == pipelineRunStatusConcluded &&
 				pipelineOptionalString(detail.Outcome) != pipelineOutcomeSuccess {
 				return "", fmt.Errorf("%w - see why with 'ankra application pipeline logs %s %s', "+
 					"or re-run it with 'ankra application pipeline rerun %s %s'",
@@ -218,6 +229,56 @@ func waitForPipelineBuild(
 			return "", tickError
 		}
 	}
+}
+
+// shipPipelineRunNotRunError explains a run that concluded skipped: the
+// planner refused it - most often "No trigger this pipeline declares matches
+// this event" - so it ran nothing and will never publish an image. Pointing at
+// 'pipeline logs' or 'pipeline rerun' sends the caller to a run with no steps
+// and to a re-run planned from the same pipeline, so the error says instead
+// what the branch is missing and what to do about it (ankra-kdfou7).
+//
+// The bake-off shape is a freshly registered application whose setup pull
+// request - the one that adds .ankra/pipeline.yaml - is still open: the
+// branch's push is planned from a pipeline that does not build it. The
+// application is re-read so a pull request merged or closed during the wait
+// is described as it is now; a failed read keeps the state ship started with.
+func shipPipelineRunNotRunError(waitContext context.Context, detail *client.PipelineRunDetail,
+	application shipApplicationView, trackedBranch string) error {
+	if payload, readError := apiClient.GetApplicationRaw(waitContext, application.ID); readError == nil {
+		var current shipApplicationView
+		if json.Unmarshal(payload, &current) == nil && current.ID != "" {
+			application = current
+		}
+	}
+	reason := "the pipeline planned nothing for it"
+	if detail.ErrorMessage != nil && strings.TrimSpace(*detail.ErrorMessage) != "" {
+		reason = strings.TrimSuffix(strings.TrimSpace(*detail.ErrorMessage), ".")
+	}
+	notRun := fmt.Sprintf("pipeline run #%d of commit %s on branch %q was skipped without running anything (%s), "+
+		"so it will never publish an image", detail.RunNumber, shortShipSHA(detail.HeadSHA), trackedBranch, reason)
+	pullRequestURL := ""
+	if application.PullRequestURL != nil {
+		pullRequestURL = strings.TrimSpace(*application.PullRequestURL)
+	}
+	merged := application.PullRequestMergedAt != nil && *application.PullRequestMergedAt != ""
+	closed := application.PullRequestClosedAt != nil && *application.PullRequestClosedAt != ""
+	switch {
+	case pullRequestURL != "" && !merged && closed:
+		return fmt.Errorf("%s: the setup pull request that adds the pipeline (.ankra/pipeline.yaml) to %q was closed "+
+			"without merging (%s) - reopen and merge it, then run ship again, or re-run ship with --ankra-build "+
+			"to build on Ankra's builders", notRun, trackedBranch, pullRequestURL)
+	case pullRequestURL != "" && !merged:
+		return fmt.Errorf("%s: the setup pull request that adds the pipeline (.ankra/pipeline.yaml) to %q is not "+
+			"merged yet (%s) - merge it, which pushes %q with the pipeline's push trigger in place, then run ship "+
+			"again, or re-run ship with --ankra-build to build on Ankra's builders now",
+			notRun, trackedBranch, pullRequestURL, trackedBranch)
+	}
+	return fmt.Errorf("%s: a push to %q is built only when the pipeline declares a push trigger for that branch "+
+		"(on: push: branches: [%s]) whose path filters match the change - check them with "+
+		"'ankra application pipeline definition get %s', fix .ankra/pipeline.yaml on %q and push, "+
+		"or re-run ship with --ankra-build to build on Ankra's builders",
+		notRun, trackedBranch, trackedBranch, application.ID, trackedBranch)
 }
 
 // findShipPipelineRun answers the newest run of the head commit that was not

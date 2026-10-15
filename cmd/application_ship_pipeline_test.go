@@ -512,3 +512,103 @@ func (mock *shipPushRefusingMock) CreatePipelineRun(_ context.Context, _ client.
 	return nil, client.NewUnexpectedResponseError(422,
 		"The commit is not the current head of the tracked branch, so it cannot be run as the branch's push")
 }
+
+// A freshly registered application's setup pull request adds
+// .ankra/pipeline.yaml, and until it merges the branch's push is planned from
+// a pipeline whose triggers do not accept it: the run concludes skipped with
+// no steps. Ship must say the pull request has to merge (or --ankra-build),
+// not send the caller to the logs or a re-run of a run that planned nothing
+// (ankra-kdfou7, bake-off day 6 run #28).
+func TestApplicationShipExplainsARunSkippedBecauseTheSetupPullRequestIsOpen(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newShipPipelineMock("ankra_pipeline")
+	push := shipPipelineRun("run-push", 28, "push")
+	mockClient.runPages = [][]client.PipelineRun{{push}}
+	refused := shipRunDetail(push, "concluded", "skipped")
+	reason := "No trigger this pipeline declares matches this event, so there is nothing to run."
+	refused.ErrorMessage = &reason
+	mockClient.runDetails["run-push"] = []*client.PipelineRunDetail{refused}
+
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError == nil {
+		t.Fatalf("a run skipped without running anything must stop ship\nprogress: %s", progress)
+	}
+	message := executeError.Error()
+	for _, want := range []string{
+		"pipeline run #28 of commit 9f4a1c2",
+		"No trigger this pipeline declares matches this event",
+		"setup pull request",
+		"is not merged yet (https://github.com/acme/shop/pull/1)",
+		"--ankra-build",
+	} {
+		if !strings.Contains(message, want) {
+			t.Errorf("the error must contain %q: %v", want, message)
+		}
+	}
+	if strings.Contains(message, "pipeline rerun") || strings.Contains(message, "pipeline logs") {
+		t.Errorf("a run that planned nothing has no logs, and a re-run plans the same nothing: %v", message)
+	}
+	if mockClient.deployCalls != 0 {
+		t.Errorf("nothing may deploy without an image; calls = %d", mockClient.deployCalls)
+	}
+	if len(mockClient.dispatches) != 0 {
+		t.Errorf("a refused run must not be answered with a dispatch: %+v", mockClient.dispatches)
+	}
+}
+
+// With the setup pull request merged (or none at all) the pipeline itself
+// does not build the branch's push: the error names the trigger it needs and
+// where to read the pipeline, rather than a pull request.
+func TestApplicationShipNamesTheTriggerWhenARunIsSkippedWithTheSetupMerged(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newShipPipelineMock("ankra_pipeline")
+	mockClient.applicationDetailPayloads = [][]byte{
+		[]byte(`{"id":"` + testApplicationID + `","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main","pull_request_url":"https://github.com/acme/shop/pull/1","pull_request_merged_at":"2026-10-13T18:00:00Z","pipeline_source":"ankra_pipeline"}`),
+	}
+	push := shipPipelineRun("run-push", 9, "push")
+	mockClient.runPages = [][]client.PipelineRun{{push}}
+	mockClient.runDetails["run-push"] = []*client.PipelineRunDetail{shipRunDetail(push, "concluded", "skipped")}
+
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError == nil {
+		t.Fatalf("a skipped run must stop ship\nprogress: %s", progress)
+	}
+	message := executeError.Error()
+	for _, want := range []string{
+		"the pipeline planned nothing for it",
+		"on: push: branches: [main]",
+		"ankra application pipeline definition get " + testApplicationID,
+		"--ankra-build",
+	} {
+		if !strings.Contains(message, want) {
+			t.Errorf("the error must contain %q: %v", want, message)
+		}
+	}
+	if strings.Contains(message, "setup pull request") {
+		t.Errorf("a merged setup pull request is not what is missing: %v", message)
+	}
+}
+
+// A setup pull request closed without merging is named as closed: merging is
+// not possible until it is reopened.
+func TestApplicationShipSaysTheSetupPullRequestWasClosedWhenARunIsSkipped(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newShipPipelineMock("ankra_pipeline")
+	open := mockClient.applicationDetailPayloads[0]
+	closed := []byte(`{"id":"` + testApplicationID + `","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main","pull_request_url":"https://github.com/acme/shop/pull/1","pull_request_merged_at":null,"pull_request_closed_at":"2026-10-13T18:05:00Z","pipeline_source":"ankra_pipeline"}`)
+	// Open when ship starts, closed by the time the run is read: the error
+	// describes the pull request as it is now.
+	mockClient.applicationDetailPayloads = [][]byte{open, closed}
+	push := shipPipelineRun("run-push", 3, "push")
+	mockClient.runPages = [][]client.PipelineRun{{push}}
+	mockClient.runDetails["run-push"] = []*client.PipelineRunDetail{shipRunDetail(push, "concluded", "skipped")}
+
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError == nil {
+		t.Fatalf("a skipped run must stop ship\nprogress: %s", progress)
+	}
+	if !strings.Contains(executeError.Error(), "was closed without merging (https://github.com/acme/shop/pull/1)") ||
+		!strings.Contains(executeError.Error(), "reopen and merge it") {
+		t.Errorf("the error must say the setup pull request was closed: %v", executeError)
+	}
+}
