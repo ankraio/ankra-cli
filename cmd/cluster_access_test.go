@@ -603,3 +603,40 @@ func TestClusterAccessRevokeOfAnUnknownGrantIDExitsNotFound(t *testing.T) {
 		t.Fatalf("expected exit %d with the platform's sentence, got exit %d: %v", exitNotFound, exitCodeFor(err), err)
 	}
 }
+
+// TestClusterAccessElevateRetryHintOnlyWhilePending: a reconcile that
+// already failed, or a cluster that is offline, must not be told to retry
+// kubectl in 30 to 60 seconds.
+func TestClusterAccessElevateRetryHintOnlyWhilePending(t *testing.T) {
+	for _, testCase := range []struct{ status, want string }{
+		{"failed", "could not be applied"},
+		{"cluster_offline", "applied when it reconnects"},
+	} {
+		t.Run(testCase.status, func(t *testing.T) {
+			resetAccessFlags(t)
+			mock := &elevateStatusMock{status: testCase.status}
+			setMockClient(t, mock)
+			stdoutOutput := captureStdout(t, func() {
+				_, _ = executeCommand("cluster", "access", "elevate", "--cluster", "my-cluster",
+					"--expires", "4h", "--reason", "incident")
+			})
+			if !strings.Contains(stdoutOutput, testCase.want) || strings.Contains(stdoutOutput, "30 to 60 seconds") {
+				t.Errorf("status %s: expected %q and no retry hint, got: %s", testCase.status, testCase.want, stdoutOutput)
+			}
+		})
+	}
+}
+
+type elevateStatusMock struct {
+	clusterAccessMock
+	status string
+}
+
+func (m *elevateStatusMock) ElevateClusterAccess(ctx context.Context, clusterID string, request client.ElevateClusterAccessRequest) (*client.CreateClusterAccessGrantResponse, error) {
+	created, err := m.clusterAccessMock.ElevateClusterAccess(ctx, clusterID, request)
+	if err != nil {
+		return nil, err
+	}
+	created.Grant.ReconcileStatus = m.status
+	return created, nil
+}

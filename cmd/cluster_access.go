@@ -249,7 +249,13 @@ kube_access.elevate. See 'ankra cluster access --help' for every code.`,
 		if grant.ReconcileStatus != "" {
 			fmt.Printf("  Status:   %s\n", formatReconcileStatus(grant))
 		}
-		if grant.ReconcileStatus != "applied" {
+		switch grant.ReconcileStatus {
+		case "applied":
+		case "failed":
+			fmt.Println("The binding could not be applied to the cluster (see Status); retrying kubectl will not help until it is. Check with: ankra cluster access list")
+		case "cluster_offline":
+			fmt.Println("The cluster is offline: the binding is applied when it reconnects. Check with: ankra cluster access list")
+		default:
 			fmt.Println("The binding reaches the cluster within about 30 to 60 seconds. Until then kubectl may answer 403 Forbidden: retry it, or check with: ankra cluster access list")
 		}
 		fmt.Printf("End it early with: ankra cluster access revoke %s --cluster %s\n", grant.ID, elevateClusterReference())
