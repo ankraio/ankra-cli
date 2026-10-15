@@ -122,9 +122,12 @@ type PipelineRun struct {
 	// why (ankra-57z1w). CancelledBy is the actor in the same "<kind>:<id>"
 	// vocabulary RequestedBy uses - "user:<id>" for the cancel route,
 	// "github:<login>" for the Cancel action on a check run,
-	// "concurrency:<run id>" for a supersession - and CancelReason one of
-	// "user_requested", "source_control", "superseded", "pull_request_closed"
-	// (the run's pull request merged or closed, which names no actor).
+	// "concurrency:<run id>" for a supersession, "merge_train:<entry id>" for
+	// the merge train - and CancelReason one of "user_requested",
+	// "source_control", "superseded", "queued_replaced", "merge_train",
+	// "pull_request_closed" (the run's pull request merged or closed, which
+	// names no actor) or "step_cancelled" (nobody cancelled the run: a step
+	// was stopped where it ran, and it names no actor either).
 	//
 	// All three are null for a run that was not cancelled, for one cancelled
 	// before the platform recorded any of this, AND against a server too old
