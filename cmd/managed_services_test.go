@@ -618,7 +618,9 @@ func TestServicesSetupStructuredOutputStaysParseable(t *testing.T) {
 
 // runServicesThroughRoot runs `ankra services ...` through the real root
 // command - its persistent flags, its pre-run, and the setup command's flag
-// parsing as a person types it - with no terminal on stdin.
+// parsing as a person types it - with no terminal on stdin. It mutates the
+// package-global rootCmd (output, input, arguments and flag state), so a test
+// that uses it must not call t.Parallel().
 func runServicesThroughRoot(t *testing.T, platform *fakeServicesPlatform, arguments ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
@@ -700,7 +702,7 @@ func TestServicesSetupYesWithJSONConfirmsThroughTheRootCommand(t *testing.T) {
 		if !strings.Contains(runError.Error(), "nothing was set up") {
 			t.Errorf("the error must say nothing was set up, got %v", runError)
 		}
-		if confirms := platform.requests(http.MethodPost, "/confirm"); len(confirms) != 1 {
+		if confirms := platform.requests(http.MethodPost, "/reviews/"+fakeServiceReviewID+"/confirm"); len(confirms) != 1 {
 			t.Errorf("expected the one confirm attempt, got %d", len(confirms))
 		}
 		if strings.TrimSpace(stdout) != "" {
