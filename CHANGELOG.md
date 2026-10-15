@@ -173,6 +173,17 @@
 
 ### Fixed
 
+- **The lifecycle systemtest no longer passes with its autoscaler identity
+  check unmade.** With `ANKRA_SYSTEMTEST_AUTOSCALING=1`, the check that the
+  cluster autoscaler registers every worker (the only one covering
+  cluster#3557) used to be recorded as a SKIP on the first failed log read,
+  or when the log held no complete main loop, and a SKIP never changed the
+  exit code, so such a run read as all-PASS. A failed log read is now
+  retried within `AUTOSCALING_IDENTITY_GRACE`; a check still unmade at the
+  end of it is recorded as `UNASSERTED` with the reason, counted on the
+  summary line (`N passed, N failed, N not asserted, N skipped`), listed in
+  the job summary, and fails the run. Other SKIPs (an opt-in step left off,
+  a lane without its settings) still never fail it.
 - **`ankra application ship` prints `Live:` only for a URL that routes to the
   workload.** Ship took the first Ingress hostname as the live URL without
   looking at where the Ingress sends traffic, so it printed
