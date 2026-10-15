@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"ankra/internal/client"
 
@@ -30,6 +32,12 @@ var tokenSortFields = []sortField[client.APIToken]{
 var tokensListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all API tokens",
+	Long: `List your API tokens with when each one expires.
+
+A live token that expires within 7 days reads "Expiring" in the Status
+column and an expired one "Expired"; the Expires column shows the date and
+how many days are left. Replace an expiring token before it stops working:
+create a new one, put it where the old one is used, then revoke the old one.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sortTokens, err := resolveSort(cmd, tokenSortFields)
 		if err != nil {
@@ -53,6 +61,8 @@ var tokensListCmd = &cobra.Command{
 			return nil
 		}
 
+		now := time.Now()
+		expiringSoon := 0
 		t := table.NewWriter()
 		t.SetOutputMirror(os.Stdout)
 		t.SetStyle(table.StyleRounded)
@@ -67,9 +77,16 @@ var tokensListCmd = &cobra.Command{
 		})
 
 		for _, tok := range tokens {
+			expiry := describeTokenExpiry(tok, now)
 			status := text.FgGreen.Sprint("Active")
-			if tok.Revoked {
+			switch {
+			case tok.Revoked:
 				status = text.FgRed.Sprint("Revoked")
+			case expiry.isExpired:
+				status = text.FgRed.Sprint("Expired")
+			case expiry.isExpiringSoon:
+				status = text.FgYellow.Sprint("Expiring")
+				expiringSoon++
 			}
 
 			lastUsed := "Never"
@@ -82,11 +99,15 @@ var tokensListCmd = &cobra.Command{
 				tok.Name,
 				status,
 				formatTimeAgo(tok.CreatedAt),
-				formatTimeAgo(tok.ExpiresAt),
+				expiry.text,
 				lastUsed,
 			})
 		}
 		t.Render()
+		if expiringSoon > 0 {
+			fmt.Fprintf(os.Stderr, "%d token(s) expire within 7 days. Create a replacement with "+
+				"`ankra tokens create`, put it where the old one is used, then revoke the old one.\n", expiringSoon)
+		}
 		return nil
 	},
 }
@@ -172,6 +193,66 @@ var tokensDeleteCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// tokenExpiry is how `ankra tokens list` shows one token's expiry.
+type tokenExpiry struct {
+	text           string
+	isExpired      bool
+	isExpiringSoon bool
+}
+
+// describeTokenExpiry renders a token's expiry as its date plus how far off
+// it is, and flags a live token that expires within
+// client.TokenExpiryWarningWindow. It reads the platform's days_left when
+// the platform sends it, and computes the same reading from expires_at when
+// it does not. An expiry it cannot parse is shown as the platform sent it
+// and flags nothing: an unreadable date says nothing about the token.
+func describeTokenExpiry(token client.APIToken, now time.Time) tokenExpiry {
+	expiresAt, isParsed := parseTokenTimestamp(token.ExpiresAt)
+	if !isParsed {
+		return tokenExpiry{text: token.ExpiresAt}
+	}
+	remaining := expiresAt.Sub(now)
+	daysLeft := client.TokenDaysLeft(remaining)
+	if token.DaysLeft != nil {
+		daysLeft = *token.DaysLeft
+	}
+	expiry := tokenExpiry{
+		text:      expiresAt.UTC().Format("2006-01-02") + " (" + describeDaysLeft(daysLeft, remaining) + ")",
+		isExpired: remaining <= 0 || daysLeft < 0,
+	}
+	if !token.Revoked && !expiry.isExpired && remaining <= client.TokenExpiryWarningWindow {
+		expiry.isExpiringSoon = true
+	}
+	return expiry
+}
+
+// describeDaysLeft is the parenthesised half of the Expires column.
+func describeDaysLeft(daysLeft int, remaining time.Duration) string {
+	switch {
+	case remaining <= 0 || daysLeft < 0:
+		return "expired"
+	case daysLeft == 0:
+		return "within a day"
+	case daysLeft == 1:
+		return "in 1 day"
+	default:
+		return fmt.Sprintf("in %d days", daysLeft)
+	}
+}
+
+// parseTokenTimestamp reads a token timestamp: RFC 3339, or the zone-less
+// form the token listing answers, which the platform stores in UTC.
+func parseTokenTimestamp(raw string) (time.Time, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if parsed, parseError := time.Parse(time.RFC3339Nano, trimmed); parseError == nil {
+		return parsed, true
+	}
+	if parsed, parseError := time.Parse("2006-01-02T15:04:05.999999999", trimmed); parseError == nil {
+		return parsed.UTC(), true
+	}
+	return time.Time{}, false
 }
 
 func init() {
