@@ -173,6 +173,18 @@
 
 ### Fixed
 
+- **`ankra application ship` explains a pipeline run that was skipped
+  instead of pointing at its logs.** On a freshly registered Ankra Pipelines
+  application the branch's push run concludes skipped ("No trigger this
+  pipeline declares matches this event") while the setup pull request that
+  adds `.ankra/pipeline.yaml` is still open, and ship failed with "run #28
+  concluded skipped" plus a `pipeline logs` and `pipeline rerun` hint: a run
+  that planned nothing has no logs, and a re-run plans the same nothing. Ship
+  now says the run was skipped and will never publish an image, and what to
+  do: merge the setup pull request (its URL is in the message) and run ship
+  again, reopen it if it was closed, or re-run with `--ankra-build`. With the
+  setup merged it names the trigger the branch needs
+  (`on: push: branches: [<branch>]`) and how to read the pipeline.
 - **`ankra pipeline get` says when a run was stopped by nobody, and when a
   step never started.** The platform now records `cancel_reason`
   `step_cancelled` for a run no one cancelled (a step was stopped where it
