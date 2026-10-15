@@ -51,7 +51,10 @@ type shipResult struct {
 	Namespace        string `json:"namespace" yaml:"namespace"`
 	InstallationID   string `json:"installation_id,omitempty" yaml:"installation_id,omitempty"`
 	URL              string `json:"url,omitempty" yaml:"url,omitempty"`
-	State            string `json:"state" yaml:"state"`
+	// URLProblem says why the published hostname does not route, when ship
+	// proved it does not (State "unroutable"): the URL is then left out.
+	URLProblem string `json:"url_problem,omitempty" yaml:"url_problem,omitempty"`
+	State      string `json:"state" yaml:"state"`
 }
 
 // shipApplicationView is the slice of the application detail (and of each
@@ -103,7 +106,11 @@ an application when the organisation does not have it yet (with exactly the
 'application add' flags), waits for the setup analysis, waits for a green
 image build of the tracked branch, deploys to the target cluster, and follows
 the installation until the workload is running - then prints the published
-URL when one exists.
+URL when one exists. The URL is printed as Live only once the Ingress that
+carries it is shown to route: every backend Service it names exists, exposes
+the port asked for and has a ready endpoint. A backend that does not resolve
+fails ship with what is wrong (state "unroutable" in -o json, with
+url_problem); a route ship cannot read is reported and left unverified.
 
 An existing application is reused only when it is registered for the same
 repository AND tracks the requested branch (--branch, else the checkout's
@@ -302,9 +309,24 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 	if !parked {
 		liveURL = findPublishedApplicationURL(waitContext, progress, application.ID, cluster.ID, namespace)
 	}
+	// A hostname is not a working URL: the Ingress that carries it must send
+	// traffic to a Service that exists and has a ready pod behind it, or the
+	// Live line points at a page that fails (ankra-4wl92c).
+	routeProblem := ""
+	unroutableURL := ""
+	if liveURL != "" {
+		routeProblem = verifyShipURLRoutes(progress, cluster.ID, namespace, strings.TrimPrefix(liveURL, "https://"))
+		if routeProblem != "" {
+			unroutableURL = liveURL
+			liveURL = ""
+		}
+	}
 	shipState := "healthy"
-	if parked {
+	switch {
+	case parked:
 		shipState = "parked"
+	case routeProblem != "":
+		shipState = "unroutable"
 	}
 
 	result := shipResult{
@@ -321,6 +343,7 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		Namespace:        namespace,
 		InstallationID:   installationID,
 		URL:              liveURL,
+		URLProblem:       routeProblem,
 		State:            shipState,
 	}
 	if rendered, renderError := renderStructured(command, result); rendered || renderError != nil {
@@ -330,12 +353,18 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		if parked {
 			return parkedWorkloadError(runningReadyPods, totalPods, namespace)
 		}
+		if routeProblem != "" {
+			return unroutableURLError(unroutableURL, routeProblem, namespace)
+		}
 		return nil
 	}
 
 	output := command.OutOrStdout()
 	if parked {
 		return parkedWorkloadError(runningReadyPods, totalPods, namespace)
+	}
+	if routeProblem != "" {
+		return unroutableURLError(unroutableURL, routeProblem, namespace)
 	}
 	if liveURL != "" {
 		_, _ = fmt.Fprintf(output, "Live: %s\n", liveURL)
