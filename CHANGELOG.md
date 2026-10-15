@@ -1,8 +1,18 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.34.0 — 2026-10-15
 
 ### Added
+
+- **`ankra pipeline get` says when a run waits for room for its reservation,
+  and prints the reservation.** A running run whose first step is waiting
+  for a node with room for the run's capacity reservation now shows a
+  `Waiting` line with the platform's sentence and a `Reserving` line with
+  how long it has waited and the CPU and memory it is holding out for. Every
+  run also prints a `Reservation` line (mode, estimated room and observed
+  peak) when its cluster reserves capacity, and `-o json` carries the same
+  as `reservation` and `reservation_wait`. Runs on clusters with the
+  reservation off, and platforms older than the field, print nothing new.
 
 - **The CLI warns, once per run, when the API token it uses expires within
   seven days.** On 2026-10-13 a CI deploy token reached the end of its 90-day
