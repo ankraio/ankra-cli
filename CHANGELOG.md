@@ -173,7 +173,6 @@
 
 ### Fixed
 
-<<<<<<< HEAD
 - **`ankra application ship` explains a pipeline run that was skipped
   instead of pointing at its logs.** On a freshly registered Ankra Pipelines
   application the branch's push run concludes skipped ("No trigger this
@@ -186,7 +185,6 @@
   again, reopen it if it was closed, or re-run with `--ankra-build`. With the
   setup merged it names the trigger the branch needs
   (`on: push: branches: [<branch>]`) and how to read the pipeline.
-=======
 - **`ankra pipeline get` says when a run was stopped by nobody, and when a
   step never started.** The platform now records `cancel_reason`
   `step_cancelled` for a run no one cancelled (a step was stopped where it
@@ -200,7 +198,6 @@
   `queued_replaced`, `merge_train` and `step_cancelled`, and says what to do
   about a step no node had room for.
 
->>>>>>> origin/master
 - **`ankra cluster operations cancel`, `cancel-step` and `retry` say which
   permission is missing when the platform refuses them.** Since the platform
   checks `executions.operate` at the execution's cluster, a token or role
