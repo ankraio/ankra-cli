@@ -84,6 +84,7 @@ create a new one, put it where the old one is used, then revoke the old one.`,
 				status = text.FgRed.Sprint("Revoked")
 			case expiry.isExpired:
 				status = text.FgRed.Sprint("Expired")
+				expiringSoon++
 			case expiry.isExpiringSoon:
 				status = text.FgYellow.Sprint("Expiring")
 				expiringSoon++
@@ -105,7 +106,7 @@ create a new one, put it where the old one is used, then revoke the old one.`,
 		}
 		t.Render()
 		if expiringSoon > 0 {
-			fmt.Fprintf(os.Stderr, "%d token(s) expire within 7 days. Create a replacement with "+
+			fmt.Fprintf(os.Stderr, "%d token(s) expired or expire within 7 days. Create a replacement with "+
 				"`ankra tokens create`, put it where the old one is used, then revoke the old one.\n", expiringSoon)
 		}
 		return nil
@@ -210,28 +211,43 @@ type tokenExpiry struct {
 // and flags nothing: an unreadable date says nothing about the token.
 func describeTokenExpiry(token client.APIToken, now time.Time) tokenExpiry {
 	expiresAt, isParsed := parseTokenTimestamp(token.ExpiresAt)
-	if !isParsed {
+	if !isParsed && token.DaysLeft == nil {
 		return tokenExpiry{text: token.ExpiresAt}
 	}
-	remaining := expiresAt.Sub(now)
-	daysLeft := client.TokenDaysLeft(remaining)
+
+	// The platform's days_left is the one source when it sends it; expires_at
+	// is read only when it does not, so the text and the flags never come
+	// from different subjects.
+	var daysLeft int
+	var isExpired, isInsideWindow bool
 	if token.DaysLeft != nil {
 		daysLeft = *token.DaysLeft
+		isExpired = daysLeft < 0
+		isInsideWindow = daysLeft < int(client.TokenExpiryWarningWindow/(24*time.Hour))
+	} else {
+		remaining := expiresAt.Sub(now)
+		daysLeft = client.TokenDaysLeft(remaining)
+		isExpired = remaining <= 0
+		isInsideWindow = remaining <= client.TokenExpiryWarningWindow
 	}
-	expiry := tokenExpiry{
-		text:      expiresAt.UTC().Format("2006-01-02") + " (" + describeDaysLeft(daysLeft, remaining) + ")",
-		isExpired: remaining <= 0 || daysLeft < 0,
+
+	text := describeDaysLeft(daysLeft, isExpired)
+	if isParsed {
+		text = expiresAt.UTC().Format("2006-01-02") + " (" + text + ")"
+	} else {
+		text = token.ExpiresAt + " (" + text + ")"
 	}
-	if !token.Revoked && !expiry.isExpired && remaining <= client.TokenExpiryWarningWindow {
-		expiry.isExpiringSoon = true
+	return tokenExpiry{
+		text:           text,
+		isExpired:      isExpired,
+		isExpiringSoon: !token.Revoked && !isExpired && isInsideWindow,
 	}
-	return expiry
 }
 
 // describeDaysLeft is the parenthesised half of the Expires column.
-func describeDaysLeft(daysLeft int, remaining time.Duration) string {
+func describeDaysLeft(daysLeft int, isExpired bool) string {
 	switch {
-	case remaining <= 0 || daysLeft < 0:
+	case isExpired:
 		return "expired"
 	case daysLeft == 0:
 		return "within a day"

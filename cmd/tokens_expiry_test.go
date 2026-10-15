@@ -38,6 +38,12 @@ func TestDescribeTokenExpiryFlagsTokensExpiringWithinSevenDays(t *testing.T) {
 		{"revoked is not expiring",
 			client.APIToken{ExpiresAt: "2026-10-16T12:00:00", Revoked: true},
 			"2026-10-16 (in 1 day)", false, false},
+		{"platform days_left wins over a skewed expires_at",
+			client.APIToken{ExpiresAt: "2026-12-01T12:00:00", DaysLeft: &five},
+			"2026-12-01 (in 5 days)", true, false},
+		{"unreadable expires_at with platform days_left",
+			client.APIToken{ExpiresAt: "soon", DaysLeft: &five},
+			"soon (in 5 days)", true, false},
 		{"unreadable",
 			client.APIToken{ExpiresAt: "soon"},
 			"soon", false, false},
@@ -55,7 +61,7 @@ func TestDescribeTokenExpiryFlagsTokensExpiringWithinSevenDays(t *testing.T) {
 }
 
 // TestTokensListMarksAnExpiringToken pins the table: a token expiring within
-// seven days reads Expiring, and the stderr hint says what to do.
+// seven days reads Expiring in the table on stdout.
 func TestTokensListMarksAnExpiringToken(t *testing.T) {
 	soon := time.Now().UTC().Add(3 * 24 * time.Hour).Format(time.RFC3339)
 	mock := &tokensListMock{
