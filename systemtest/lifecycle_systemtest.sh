@@ -507,6 +507,24 @@ pick_hetzner_location() {
   return 1
 }
 
+# hetzner_resize_stock_gap re-reads a location's stock before the resize step
+# (pick_hetzner_location reads it only at create time, and cpx32 left fsn1
+# hours into a run on 2026-10-14, ankra-mw9qji). When the stock list was read
+# and no longer holds the type it prints why and succeeds: the resize would be
+# refused by the provider, which is a stock gap, not a platform failure. A
+# stock read that failed or came back empty is not a gap - it returns failure
+# so the step runs and a genuine refusal or timeout stays a FAIL.
+hetzner_resize_stock_gap() {
+  local type="$1" location="$2" available
+  if ! available="$(hetzner_available_types "$location")" || [ -z "$available" ]; then
+    return 1
+  fi
+  if printf '%s\n' "$available" | grep -qx "$type"; then
+    return 1
+  fi
+  echo "server type $type not available in $location right now"
+}
+
 # create_failure_reason says why a create printed no "Cluster ID:" line. The
 # platform refuses a create it cannot run with a 400 whose "detail" names the
 # cause (a server type the location no longer offers, a provider account with
@@ -2028,7 +2046,11 @@ run_provider() {
 
   # 7. Instance resize
   plan="$(bigger_plan "$provider")"
-  if daytwo "resize" "$name" node-group upgrade "$id" default "$plan" \
+  local reason=""
+  if [ "$provider" = hetzner ] && reason="$(hetzner_resize_stock_gap "$plan" "$HETZNER_LOCATION")"; then
+    # Stock left the location since create: a provider gap, not the platform's.
+    skip "$label instance resize default -> $plan (${reason}; a provider stock gap, not a platform failure)"
+  elif daytwo "resize" "$name" node-group upgrade "$id" default "$plan" \
      && wait_until_ng_plan "$name" "$id" default "$plan" "$DAYTWO_TIMEOUT"; then
     pass "$label instance resize default -> $plan"; else fail "$label instance resize"; fi
 
