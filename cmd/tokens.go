@@ -11,13 +11,14 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var tokensCmd = &cobra.Command{
 	Use:     "tokens",
 	Aliases: []string{"token"},
 	Short:   "Manage API tokens",
-	Long:    "Commands to list, create, revoke, and delete API tokens.",
+	Long:    "Commands to list, create, rotate, revoke, and delete API tokens.",
 }
 
 var tokenSortFields = []sortField[client.APIToken]{
@@ -36,8 +37,8 @@ var tokensListCmd = &cobra.Command{
 
 A live token that expires within 7 days reads "Expiring" in the Status
 column and an expired one "Expired"; the Expires column shows the date and
-how many days are left. Replace an expiring token before it stops working:
-create a new one, put it where the old one is used, then revoke the old one.`,
+how many days are left. Renew an expiring token before it stops working with
+"ankra tokens rotate <id>".`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sortTokens, err := resolveSort(cmd, tokenSortFields)
 		if err != nil {
@@ -106,8 +107,8 @@ create a new one, put it where the old one is used, then revoke the old one.`,
 		}
 		t.Render()
 		if expiringSoon > 0 {
-			fmt.Fprintf(os.Stderr, "%d token(s) expired or expire within 7 days. Create a replacement with "+
-				"`ankra tokens create`, put it where the old one is used, then revoke the old one.\n", expiringSoon)
+			fmt.Fprintf(os.Stderr, "%d token(s) expired or expire within 7 days. Renew one with "+
+				"`ankra tokens rotate <id>`; the old token keeps working for a day while you update where it is used.\n", expiringSoon)
 		}
 		return nil
 	},
@@ -196,6 +197,116 @@ var tokensDeleteCmd = &cobra.Command{
 	},
 }
 
+const (
+	rotateDefaultOverlapHours = 24
+	rotateMaxOverlapHours     = 168
+)
+
+// stdoutIsTerminal reports whether stdout is a terminal. It is a variable so
+// tests can pose as a terminal.
+var stdoutIsTerminal = func() bool { return term.IsTerminal(int(os.Stdout.Fd())) }
+
+var tokensRotateCmd = &cobra.Command{
+	Use:   "rotate <token_id>",
+	Short: "Renew an API token before it expires",
+	Long: `Issue a new token to replace one that is about to expire, with the same
+name and scopes. The old token keeps working for an overlap window so you can
+update every place it is used, then it stops by itself.
+
+The new token value is shown once. When stdout is not a terminal the command
+prints only the value on stdout, so this works in scripts:
+
+  TOKEN=$(ankra tokens rotate <token_id>)
+
+All other text goes to stderr. With -o json the whole response is printed.
+
+Use --service to rotate an organisation service token instead of a personal
+one. --overlap-hours sets how long the old token keeps working, from 0 (stops
+at once) to 168; the platform default is 24 hours.`,
+	Example: `  ankra tokens rotate 5b1c0d52-0000-0000-0000-000000000000
+  ankra tokens rotate <token_id> --overlap-hours 72
+  ankra tokens rotate <token_id> --service -o json`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var overlapHours *int
+		if cmd.Flags().Changed("overlap-hours") {
+			hours, _ := cmd.Flags().GetInt("overlap-hours")
+			if hours < 0 || hours > rotateMaxOverlapHours {
+				return withExitCode(exitUsage, fmt.Errorf(
+					"--overlap-hours must be between 0 and %d, got %d", rotateMaxOverlapHours, hours))
+			}
+			overlapHours = &hours
+		}
+
+		isService, _ := cmd.Flags().GetBool("service")
+		var rotated *client.RotateTokenResponse
+		var err error
+		if isService {
+			rotated, err = apiClient.RotateServiceToken(args[0], overlapHours)
+		} else {
+			rotated, err = apiClient.RotateAPIToken(args[0], overlapHours)
+		}
+		if err != nil {
+			return fmt.Errorf("rotating token: %w", err)
+		}
+
+		if rendered, err := renderStructured(cmd, rotated); rendered || err != nil {
+			return err
+		}
+		printRotatedToken(rotated, stdoutIsTerminal())
+		return nil
+	},
+}
+
+// printRotatedToken shows a rotated token. On a terminal it prints one block
+// to stdout. Otherwise stdout carries the bare token value and the
+// explanation goes to stderr, so command substitution captures only the value.
+func printRotatedToken(rotated *client.RotateTokenResponse, isTerminal bool) {
+	name := rotated.Name
+	if name == "" {
+		name = "the token"
+	}
+	renewed := fmt.Sprintf("Renewed %s.", name)
+	expires := ""
+	if rotated.ExpiresAt != "" {
+		expires = "Expires " + formatTokenDate(rotated.ExpiresAt) + "."
+	}
+	oldToken := "The old token keeps working until " + formatTokenDate(rotated.OldTokenValidUntil) +
+		". Update where it is used, then it stops by itself."
+	if rotated.OldTokenValidUntil == "" {
+		oldToken = ""
+	}
+
+	if isTerminal {
+		fmt.Printf("%s New token (shown once): %s\n", renewed, rotated.Token)
+		if expires != "" {
+			fmt.Println(expires)
+		}
+		if oldToken != "" {
+			fmt.Println(oldToken)
+		}
+		return
+	}
+	fmt.Println(rotated.Token)
+	fmt.Fprintln(os.Stderr, renewed+" The new token value is on stdout.")
+	if expires != "" {
+		fmt.Fprintln(os.Stderr, expires)
+	}
+	if oldToken != "" {
+		fmt.Fprintln(os.Stderr, oldToken)
+	}
+}
+
+// formatTokenDate renders a token timestamp as a UTC date and time, or as
+// the platform sent it when it cannot be read.
+func formatTokenDate(raw string) string {
+	parsed, ok := parseTokenTimestamp(raw)
+	if !ok {
+		return raw
+	}
+	return parsed.UTC().Format("2006-01-02 15:04 UTC")
+}
+
 // tokenExpiry is how `ankra tokens list` shows one token's expiry.
 type tokenExpiry struct {
 	text           string
@@ -276,11 +387,16 @@ func init() {
 	tokensCreateCmd.Flags().StringSlice("scopes", nil,
 		"MCP access scopes: mcp:read or mcp:read,mcp:write; omitted creates a REST-only token")
 
-	registerStructuredOutputFlags(tokensListCmd, tokensCreateCmd)
+	tokensRotateCmd.Flags().Bool("service", false, "Rotate an organisation service token instead of a personal token")
+	tokensRotateCmd.Flags().Int("overlap-hours", rotateDefaultOverlapHours,
+		"Hours the old token keeps working (0-168)")
+
+	registerStructuredOutputFlags(tokensListCmd, tokensCreateCmd, tokensRotateCmd)
 	registerSortFlags(tokensListCmd, tokenSortFields)
 
 	tokensCmd.AddCommand(tokensListCmd)
 	tokensCmd.AddCommand(tokensCreateCmd)
+	tokensCmd.AddCommand(tokensRotateCmd)
 	tokensCmd.AddCommand(tokensRevokeCmd)
 	tokensCmd.AddCommand(tokensDeleteCmd)
 
