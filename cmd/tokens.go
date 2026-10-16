@@ -249,6 +249,9 @@ at once) to 168; the platform default is 24 hours.`,
 		if err != nil {
 			return fmt.Errorf("rotating token: %w", err)
 		}
+		if err := requireRotatedTokenValue(rotated); err != nil {
+			return err
+		}
 
 		if rendered, err := renderStructured(cmd, rotated); rendered || err != nil {
 			return err
@@ -256,6 +259,22 @@ at once) to 168; the platform default is 24 hours.`,
 		printRotatedToken(rotated, stdoutIsTerminal())
 		return nil
 	},
+}
+
+// requireRotatedTokenValue refuses a rotate answer that carries no new token
+// value. Printing "Renewed" there would hide that nothing usable came back
+// while the old token's overlap is already counting down, so the error names
+// when the old token stops and how to recover.
+func requireRotatedTokenValue(rotated *client.RotateTokenResponse) error {
+	if rotated != nil && rotated.Token != "" {
+		return nil
+	}
+	validUntil := "the end of its overlap"
+	if rotated != nil && rotated.OldTokenValidUntil != "" {
+		validUntil = formatTokenDate(rotated.OldTokenValidUntil)
+	}
+	return fmt.Errorf("the platform answered the renewal without the new token value; the old token keeps "+
+		"working until %s. Run `ankra tokens list` and renew again, or create a new token", validUntil)
 }
 
 // printRotatedToken shows a rotated token. On a terminal it prints one block

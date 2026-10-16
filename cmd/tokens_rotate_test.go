@@ -179,3 +179,17 @@ func TestTokensRotateErrorsNameTheProblemAndNeverTheToken(t *testing.T) {
 		}
 	}
 }
+
+func TestRequireRotatedTokenValueRefusesAnAnswerWithoutTheToken(t *testing.T) {
+	if err := requireRotatedTokenValue(&client.RotateTokenResponse{Token: "ankra_new"}); err != nil {
+		t.Fatalf("a token value must pass, got %v", err)
+	}
+	for name, rotated := range map[string]*client.RotateTokenResponse{
+		"nil answer":  nil,
+		"empty token": {Name: "ci", OldTokenValidUntil: "2026-10-17T10:00:00Z"},
+	} {
+		if err := requireRotatedTokenValue(rotated); err == nil || !strings.Contains(err.Error(), "without the new token value") {
+			t.Errorf("%s: want a refusal naming the missing value, got %v", name, err)
+		}
+	}
+}
