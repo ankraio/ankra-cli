@@ -225,8 +225,10 @@ otherwise, `5` not concluded by `--timeout`, `3` no run matched. `status` is the
 (`queued` → `running` → `concluded`); `outcome` is the verdict (`success`, `failure`, `cancelled`,
 `timed_out`, `skipped`, `infra_error`). A failed run names its error class: `step_failed` is your
 build, `image_gate_blocked` is a finding, `registry_push_failed`, `build_runtime_confined` and
-`platform_build_infra` are placement or Ankra. `rerun` skips publish (`when.events` is push/manual)
-— push a commit to publish. `--failed-only` also re-runs the checkout and every step the failed ones
+`platform_build_infra` are placement or Ankra. A `rerun` is planned as the event it repeats: a
+re-run of a push publishes (and can deploy) like the push did, a re-run of a pull request does not,
+and a re-run of a tag, manual, API or agent run is planned as `rerun`, which a `when.events` list
+must name. `--failed-only` also re-runs the checkout and every step the failed ones
 build on (the new run's workspace starts empty), and is refused when a step that failed could not
 run in a re-run. Logs attach once a step has an execution; a concluded step replays for
 24 h and from the archived artifact after that.
@@ -304,6 +306,18 @@ appended to `$ANKRA_OUTPUT` become `${{ needs.test.outputs.<name> }}` downstream
 digest is what scan reads and gate judges. `build.dockerfile`, `context`, `target`, `build_args`
 (names resolved from variables), `provenance`, `sbom`, `cache_to`. Monorepos get one file with
 `build-<component>` / `scan-<component>` / `publish-<component>` stages filtered by `when.paths`.
+
+To skip what a change did not touch, pick the filter by what stands behind the stage:
+
+- A component's **tests** (nothing reads their outputs): stage `paths:`. Left out, the stage counts
+  as satisfied, so gate and publish still run. It applies on pushes too.
+- A component's **build/scan/publish chain**: `when.paths`. `paths:` is refused on a `build` another
+  stage needs, a scan a gate requires and a gate, and skipping the whole chain is what you want.
+- **"Pull requests check what they touch, pushes check everything"**: an event-scoped
+  `when: { pull_request: { paths: [...] }, push: {} }`, plus `skippable_needs` on what needs it.
+  **Not in a repository whose `publish` has `promote_from`**: a stage the pull request run skipped
+  is one the push needs and nobody passed, so the push builds in full (`source_not_green`). Use
+  `paths:` there; it skips on the push as well, so promotion still applies.
 
 If the build dies within ~30 s on `rootlesskit … failed to share mount point: /: permission denied`,
 the node's runtime confines the builder (containerd AppArmor, kubelet `seccompDefault`; DigitalOcean
@@ -455,14 +469,15 @@ the binding's identity and still arrives as a pull request.
 
 ## 10. What is not there yet
 
-Say this out loud rather than promising it. The spec accepts fifteen stage kinds; **six execute**:
-`checkout`, `run`, `build`, `scan`, `gate`, `publish`. `preview`, `verify`, `deploy`, `agent`,
+Say this out loud rather than promising it. The spec accepts fifteen stage kinds; **seven execute**:
+`checkout`, `run`, `build`, `scan`, `gate`, `publish`, `deploy`. `deploy` releases a signed bundle
+to host targets outside Kubernetes (`ankra targets`), never to a cluster. `preview`, `verify`, `agent`,
 `approval`, `webhook`, `automation`, `ankra` and `external` validate with a warning and are skipped
 as `kind_unavailable`; `uses:` is refused outright — write the step as `run:`; `on_failure:`,
 `finally:`, `retry:` and `test_results` ingestion are accepted but not yet honoured. So **an
 `approval` stage blocks nothing — everything downstream runs**, and a skipped stage is not a failed
 one: do not make the `Ankra pipeline` check *required* while the definition carries an unexecuted
-kind, or it goes green having done none of what that stage names. Previews, deploys, rollback and
+kind, or it goes green having done none of what that stage names. Previews, deploys to a cluster, rollback and
 promotion happen through the application lanes above, not inside a pipeline. GitLab and Bitbucket
 plan from the stored definition (the head-sha file is read on GitHub only) and have no setup-PR
 writer yet. `egress-https` reaches **public addresses only**; name a private range with
@@ -482,7 +497,7 @@ writer yet. `egress-https` reaches **public addresses only**; name a private ran
 | `image_gate_blocked` | a finding at or above the gate | fix it, or a written disposition in `ankra-security` |
 | `no_scan_results` | scan report never uploaded | vault (above) or an older platform; do not treat as clean |
 | Step "running" for minutes with no output | pod Pending: CPU quota, no StorageClass, disk | `ankra pipeline get <run-id>` Queueing says where the wait went ("Pending 5m in the cluster (scheduling 4m30s, volumes 8s, image pull 19s)"); then `ankra cluster events -n ankra-ci --type Warning` |
-| `publish` skipped on a rerun | `when.events` excludes `rerun` | push a commit |
+| `publish` skipped on a rerun | the rerun repeats a pull request run, or a tag, manual, API or agent run (planned as `rerun`, which `when.events` excludes) | push a commit, or `ankra pipeline run` |
 | A stage's log says `UNAUTHORIZED: project <name> not found` from a Harbor registry | the project does not exist; it is not a credential fault | a hand-written copy to a second registry: remove it and deploy `publish`'s `image_ref` (`ankra-cicd` §3), or declare the registry on the application |
 | Run green, release never arrived | a shipping stage failed under `allow_failure` | read each step's outcome with `ankra pipeline get <run-id> --application <application-id>`; drop the flag |
 | Test or build times out reaching a private host | `egress-https` is public-only | `ankra org ci-settings set --egress-allowed-cidr 10.0.0.0/8` |
@@ -508,7 +523,8 @@ writer yet. `egress-https` reaches **public addresses only**; name a private ran
 - **Confirm the organisation before writing** (`ankra org current`, `--org`); a wrong-org
   registration is a tear-down, not a rename.
 - **Re-run is the recovery, and §10 is the truth.** Every wait resumes from platform state; a
-  timeout is a pause. Do not emit `deploy`, `approval` or `agent` stages and call them wired.
+  timeout is a pause. Do not emit `approval` or `agent` stages and call them wired, and do not emit
+  `deploy` to reach a cluster: it releases only to host targets.
 
 ## Related skills
 

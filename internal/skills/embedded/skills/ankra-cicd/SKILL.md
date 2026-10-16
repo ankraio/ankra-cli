@@ -150,8 +150,10 @@ stages:
 ```
 
 Stage kinds (closed vocabulary; an unknown kind is fatal): `checkout`, `run`, `build`, `scan`,
-`gate`, `publish` **execute today**; `preview`, `verify`, `deploy`, `agent`, `approval`, `webhook`,
+`gate`, `publish`, `deploy` **execute today**; `preview`, `verify`, `agent`, `approval`, `webhook`,
 `automation`, `ankra`, `external` validate with a warning and are skipped as `kind_unavailable`.
+`deploy` releases a signed bundle to host targets outside Kubernetes (`ankra targets`), never to a
+cluster.
 `run` is the open kind — any image the organisation's policy permits, any script — so a kind is never
 needed to express custom work. `uses:` is refused; write the step as `run:`.
 
@@ -171,8 +173,10 @@ Facts that decide whether the first run works:
   `registry`, `credential`. `registry_auth` and `source_token` are reserved — Ankra adds them; never
   declare them. Never commit a value.
 - **Schedules** name the stage subset they run (`stages:`), so a nightly runs the expensive suite
-  without `if:` on every stage. `when.events` decides what runs on `push` vs `pull_request` vs
-  `rerun` (a `publish` that says `events: [push]` does not publish on a rerun).
+  without `if:` on every stage. `when.events` decides what runs on `push` vs `pull_request`. A
+  re-run is planned as the event it repeats, so a re-run of a push publishes again and a re-run
+  of a pull request does not; only a re-run of a tag, manual, API or agent run is planned as
+  `rerun`.
 - **Which component a build belongs to** (application-bound repositories). A `kind: build`
   stage belongs to the component its `build.component` names, else the one its `build-<component>`
   name carries, else a single-component application's one component. Declare `build.component`
@@ -312,7 +316,7 @@ ankra pipeline list --repository <repository-id> --latest-per-branch            
 Results reach GitHub as **one check run, `Ankra pipeline`** (commit status context `ankra/pipeline`),
 carrying the outcome and, on an unapproved run, the approve command. It is what branch protection
 requires — not per-job checks, which do not exist. Do not make it *required* while the definition
-carries an unexecuted kind (`approval`, `deploy`…): a skipped stage is not a failed one, and the
+carries an unexecuted kind (`approval`, `agent`…): a skipped stage is not a failed one, and the
 check goes green having done none of what that stage names.
 
 ## 7. Applications: what changes
@@ -330,7 +334,8 @@ generated `publish` runs only on `push`; a pull request builds, scans and report
 publishes. `ankra-ship` is the end-to-end path (registries, env-secrets, previews, rollback,
 promotion) and `ankra-applications` the registry matrix. The GitOps bump for a stack-managed
 deployment — CI commits the new tag into the GitOps repository and the Ankra engine syncs it — is
-[reference.md](reference.md) §C; it is what a `deploy` stage does *not* do today.
+[reference.md](reference.md) §C; a `deploy` stage does *not* do it, because it releases only to
+host targets outside Kubernetes.
 
 Rules that hold for every application: **immutable tags only** (`sha-<7>`, never `latest`); **CI
 updates Git, Ankra deploys** — no `kubectl apply`/`helm upgrade` from CI; **one image, many
@@ -354,7 +359,7 @@ with SOPS (`ankra-sops-secrets`).
 | Build step `step_refused` / `platform_build_unavailable`: "could not attribute build stage … records the components …" or "declares build.component … which is not a component" | the stage belongs to no component the application records | add `build.component: <name>` to the stage's `build:` block (or name it `build-<component>`); check `ankra application get` for the component names |
 | `pipeline_source: generated_workflow` on `ankra application get` | legacy lane | `ankra application pipeline convert <application-id>` |
 | Two builds per commit | a workflow still runs beside the pipeline | delete/disable the workflow; for an application `pipeline convert` switched the generated one off — check for one the repository wrote itself |
-| `Stage "x" has kind "deploy", which has no executor on this build yet` | an unexecuted kind | it is skipped, not failed; do not make the check required; deploy through the application lanes |
+| `Stage "x" has kind "approval", which has no executor on this build yet` | an unexecuted kind | it is skipped, not failed, so it blocks nothing; do not make the check required |
 | Step "running" for minutes with no output | pod Pending: CPU quota, no StorageClass, disk | `ankra pipeline get <run-id>` Queueing says where the wait went ("Pending 5m in the cluster (scheduling 4m30s, volumes 8s, image pull 19s)"); then `ankra cluster events -n ankra-ci --type Warning --cluster <cluster>` |
 | Test cannot reach a private host | `egress-https` is public-only | `ankra org ci-settings set --egress-allowed-cidr <cidr>` |
 | `cargo`/`go mod`/`pnpm install` cannot fetch | `run` stages default to `network: none` | `defaults.network: egress-https` (not protected) |
