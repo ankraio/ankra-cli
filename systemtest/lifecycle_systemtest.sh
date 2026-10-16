@@ -2164,7 +2164,26 @@ wait_until_ng_plan() {
     [ "$cur" = "$want" ] && return 0
     sleep "$POLL_INTERVAL"
   done
+  dump_node_group_state "$name" "$id" "$group"
   return 1
+}
+
+# dump_node_group_state logs what the platform recorded when a node-group plan
+# never changed: the node groups and the cluster's latest operations, failed
+# ones included. A resize the provider refused after the CLI's 202 shows as a
+# failed node_group_write operation with the provider's reason; a timeout with
+# neither a failed nor a running operation means the platform recorded nothing
+# (ankra-mw9qji: a cpx32 resize in fsn1 was accepted, refused for stock, and
+# the 15-minute poll showed no trace of why).
+dump_node_group_state() {
+  local name="$1" id="$2" group="$3"
+  log "  $name $group plan never changed; node groups:"
+  select_cluster "$name"
+  ank cluster node-group list "$id" 2>&1 | while IFS= read -r line; do log "    $line"; done
+  log "  $name latest operations (newest first):"
+  ank cluster operations list --limit 8 2>&1 | while IFS= read -r line; do log "    $line"; done
+  log "  $name failed operations:"
+  ank cluster operations list --failed --limit 5 2>&1 | while IFS= read -r line; do log "    $line"; done
 }
 
 # ---------------------------------------------------------------------------
