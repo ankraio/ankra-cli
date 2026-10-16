@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -58,5 +59,17 @@ func TestParseAsyncWriteResponseClassifiesRBACDenial(t *testing.T) {
 	var unexpected *UnexpectedResponseError
 	if !errors.As(err, &unexpected) || unexpected.StatusCode != http.StatusForbidden {
 		t.Fatalf("legacy 403 should stay *UnexpectedResponseError, got %T: %v", err, err)
+	}
+}
+
+// A refusal that lands late is answered as an error on the wait=true route:
+// the --wait path of a node-group write reports the provider's reason from
+// the response, so it never needs to poll the node group's plan.
+func TestParseAsyncWriteResponseWaitCarriesTheProviderReason(t *testing.T) {
+	body := []byte(`{"detail":"Server type 'cpx32' is not available in location 'fsn1'"}`)
+	response := &http.Response{StatusCode: http.StatusConflict}
+	_, err := parseAsyncWriteResponse(response, body, true, nil)
+	if err == nil || !strings.Contains(err.Error(), "cpx32") || !strings.Contains(err.Error(), "fsn1") {
+		t.Fatalf("error = %v, want the provider's reason verbatim", err)
 	}
 }
