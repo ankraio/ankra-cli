@@ -1,9 +1,90 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.36.0 — 2026-10-16
+
+### Changed
+
+- **`ankra exec` and the `ankra dev` shims forward `GOMEMLIMIT`.** A Go build
+  that CI holds to a soft memory ceiling (ankra-cli's own workflow sets
+  `GOMEMLIMIT=5GiB` for the 105k-line `ankra/cmd` compile) can now be held to
+  the same one in the Ankra Workspace: set it here and the remote command
+  sees it. Unset, the workspace's own default applies (five eighths of a run
+  slot, 5GiB in a workspace of 8 GiB or more). Platforms older than the
+  allowlist change refuse the variable with "This environment variable
+  cannot be forwarded"; unset it for one command to run there.
+- **A node-group write submitted without `--wait` now says where a late
+  refusal is recorded.** The platform can accept a node-group change (an
+  instance-type resize, scale, add, delete, labels, taints or autoscaling) and
+  then have the provider refuse it, for example when the requested server type
+  has no stock in the cluster's location. That refusal is recorded as a failed
+  `node_group_write` operation carrying the provider's reason, and the
+  "submitted" output (and the `hint` in `-o json`) now names
+  `ankra cluster operations list --failed --cluster <id>` to read it. With
+  `--wait` the refusal still fails the command with the provider's reason.
+- **`ankra org usage` says why a closed month's vCPU line has no amount.** A
+  closed month with no invoice reads "no invoice for this month, so unknown"
+  (never zero), a day or part of a closed month reads "priced on the whole
+  month's invoice; view by month", and an invoice that does not price the line
+  reads "invoice does not price it", instead of `unpriced (<basis>)`.
+
+## v0.35.0 — 2026-10-16
 
 ### Added
 
+- **`ankra login --github-oidc` signs a GitHub Actions job in to Ankra with no
+  stored token, and `ankra org oidc-trust create|list|delete` manage who may.**
+  Inside a job that has `permissions: id-token: write`, the command requests
+  the job's OIDC ID token for the Ankra audience, exchanges it at the platform
+  for a token that lasts 15 minutes by default (a policy may set 1 minute to 1
+  hour) and saves it for the rest of the job. Both tokens are masked in the
+  Actions log. An organisation admin creates a trust policy first, naming one
+  repository exactly (owner/name plus the numeric repository and owner ids,
+  so a renamed or re-created repository cannot inherit it) and optionally a
+  ref, an environment and a workflow. Pull request runs are refused unless the
+  policy opts in. It needs the organisation id (`--organisation-id`, or
+  `ANKRA_ORG` set to the id). Workflow snippet in `docs/github-actions-oidc.md`.
+- **`ankra tokens rotate <token_id>` renews a token before it expires.** It
+  issues a new token with the same name and scopes and keeps the old one
+  working for an overlap window (`--overlap-hours`, 0 to 168, default 24),
+  so you can update every place the old token is used before it stops by
+  itself. `--service` rotates an organisation service token. When stdout is
+  not a terminal the command prints only the new token value, so
+  `TOKEN=$(ankra tokens rotate <id>)` works; the explanation goes to stderr,
+  and `-o json` prints the whole response. It needs a platform that serves
+  the rotate endpoints.
+- **The token expiry warning now says how to fix it.** The stderr line points
+  at `ankra tokens rotate <id>` instead of asking for a new token by hand.
+
+## v0.34.0 — 2026-10-15
+
+### Added
+
+- **`ankra pipeline get` says when a run waits for room for its reservation,
+  and prints the reservation.** A running run whose first step is waiting
+  for a node with room for the run's capacity reservation now shows a
+  `Waiting` line with the platform's sentence and a `Reserving` line with
+  how long it has waited and the CPU and memory it is holding out for. Every
+  run also prints a `Reservation` line (mode, estimated room and observed
+  peak) when its cluster reserves capacity, and `-o json` carries the same
+  as `reservation` and `reservation_wait`. Runs on clusters with the
+  reservation off, and platforms older than the field, print nothing new.
+
+- **The CLI warns, once per run, when the API token it uses expires within
+  seven days.** On 2026-10-13 a CI deploy token reached the end of its 90-day
+  lifetime with nothing said beforehand, and every deploy after it failed on
+  `unauthorized`. The platform now says on every response when the token
+  expires, and the CLI prints one stderr line when that is a week or less
+  away: `Warning: the Ankra API token in use expires in 3 days (2026-10-18
+  13:00 UTC). Create a replacement ...`. It goes to stderr, so `-o json`
+  output stays parseable, and it never prints the token. A platform that does
+  not send the expiry yet produces no warning.
+- **`ankra tokens list` shows when each token expires and flags the ones
+  about to.** The Expires column reads the date and how far off it is
+  (`2026-10-18 (in 3 days)`, `(expired)`), where it used to show the raw
+  zone-less timestamp. A live token inside seven days reads `Expiring` in the
+  Status column, an expired one `Expired`, and a stderr hint says to create a
+  replacement before revoking the old one. `-o json` carries the platform's
+  `days_left`.
 - **`ankra org dns add <name> AAAA <ipv6>` publishes an IPv6 record in the
   organisation's zone.** The platform refused AAAA with "record_type must be
   one of CNAME, A, or TXT", so no IPv6-only origin could be named under the
@@ -203,6 +284,47 @@
   set a policy (`Configured: yes` or `no`), so support can tell you what to
   look for.
 
+- **The lifecycle systemtest no longer passes with its autoscaler identity
+  check unmade.** With `ANKRA_SYSTEMTEST_AUTOSCALING=1`, the check that the
+  cluster autoscaler registers every worker (the only one covering
+  cluster#3557) used to be recorded as a SKIP on the first failed log read,
+  or when the log held no complete main loop, and a SKIP never changed the
+  exit code, so such a run read as all-PASS. A failed log read is now
+  retried within `AUTOSCALING_IDENTITY_GRACE`; a check still unmade at the
+  end of it is recorded as `UNASSERTED` with the reason, counted on the
+  summary line (`N passed, N failed, N not asserted, N skipped`), listed in
+  the job summary, and fails the run. Other SKIPs (an opt-in step left off,
+  a lane without its settings) still never fail it.
+- **`ankra application ship` prints `Live:` only for a URL that routes to the
+  workload.** Ship took the first Ingress hostname as the live URL without
+  looking at where the Ingress sends traffic, so it printed
+  `Live: https://bakeoff-conductor-hub...` for an Ingress whose backend named
+  Service `bakeoff-conductor-hub` while the release's Service was
+  `conductor-hub`, and every request to it failed. Ship now reads the Ingress
+  rules for the host and checks each backend Service exists, exposes the
+  port the Ingress asks for and has a ready endpoint. When one does not, ship
+  exits non-zero and says exactly what is wrong (for example `Ingress
+  "bakeoff-conductor-hub" sends it to Service "bakeoff-conductor-hub", which
+  does not exist in namespace "shop" (the namespace has conductor-hub)`);
+  `-o json` reports `state: unroutable` with `url_problem` and leaves `url`
+  out. When the route cannot be read, ship keeps the URL and says it is
+  unverified. A backend with no ready endpoints is re-read for up to 30
+  seconds (every 2 s, within `--timeout`) before ship reports it, because
+  Kubernetes updates EndpointSlices a moment after a pod turns Ready and a
+  healthy deploy would otherwise fail; a missing Service or port still fails
+  at once.
+- **`ankra application ship` explains a pipeline run that was skipped
+  instead of pointing at its logs.** On a freshly registered Ankra Pipelines
+  application the branch's push run concludes skipped ("No trigger this
+  pipeline declares matches this event") while the setup pull request that
+  adds `.ankra/pipeline.yaml` is still open, and ship failed with "run #28
+  concluded skipped" plus a `pipeline logs` and `pipeline rerun` hint: a run
+  that planned nothing has no logs, and a re-run plans the same nothing. Ship
+  now says the run was skipped and will never publish an image, and what to
+  do: merge the setup pull request (its URL is in the message) and run ship
+  again, reopen it if it was closed, or re-run with `--ankra-build`. With the
+  setup merged it names the trigger the branch needs
+  (`on: push: branches: [<branch>]`) and how to read the pipeline.
 - **`ankra pipeline get` says when a run was stopped by nobody, and when a
   step never started.** The platform now records `cancel_reason`
   `step_cancelled` for a run no one cancelled (a step was stopped where it

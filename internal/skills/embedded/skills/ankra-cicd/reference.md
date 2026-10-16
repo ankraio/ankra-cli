@@ -244,8 +244,8 @@ stages:
 
 `registry_auth` and `source_token` are reserved bindings Ankra adds from the application's push
 robot — never declare them. `publish` copies the exact digest the gate judged into the application's
-registry as `sha-<7>`; push-to-deploy rolls that tag out (`ankra-ship` §7). A `rerun` does not
-publish (`when.events` excludes it) — push a commit.
+registry as `sha-<7>`; push-to-deploy rolls that tag out (`ankra-ship` §7). A re-run of a push
+publishes again; a re-run of a pull request does not.
 
 What the two stages hand downstream, as `${{ needs.<stage>.outputs.<key> }}`:
 
