@@ -48,19 +48,27 @@ source the logic came from.
 | `on.webhook` | none | declaration only; tokens not available yet |
 
 Run triggers on the wire: `push`, `pull_request`, `tag`, `schedule`, `manual`, `api`, `agent`,
-`rerun`. Dispatches (`manual`, `api`, `agent`, `rerun`) are never deduplicated; provider events are
+`rerun`, `merge_train`. A `rerun` is planned as the event the run it repeats was planned as: a
+re-run of a push plans the push's `publish` again, a re-run of a pull request or a merge train car
+plans as a pull request, a re-run of a schedule repeats that entry's `stages`, and it reuses the
+original's change list. A re-run of a tag, manual, API or agent run is planned as `rerun`. A
+`merge_train` car is planned as a pull request. Dispatches (`manual`, `api`, `agent`, `rerun`) are never deduplicated; provider events are
 (`already_queued`, `already_recorded`).
 
 ## Stages
 
 Every stage: `name` (`^[a-z0-9][a-z0-9_-]*$`, unique across `stages`/`on_failure`/`finally`) and a
-`kind` from the closed vocabulary. Six execute today — `checkout`, `run`, `build`, `scan`, `gate`,
-`publish`; `gate` and `publish` are settled by the platform, never a Job. The other nine
-(`preview`, `verify`, `deploy`, `agent`, `approval`, `webhook`, `automation`, `ankra`, `external`)
-warn at validation and are skipped by the planner (`kind_unavailable`).
+`kind` from the closed vocabulary. Seven execute today: `checkout`, `run`, `build`, `scan`, `gate`,
+`publish`, `deploy`; `gate`, `publish` and `deploy` are settled by the platform, never a Job. The
+other eight (`preview`, `verify`, `agent`, `approval`, `webhook`, `automation`, `ankra`,
+`external`) warn at validation and are skipped by the planner (`kind_unavailable`). `deploy` rolls a
+signed release bundle out to **host targets** (machines outside Kubernetes running
+`ankra-host-agent`, `ankra targets`), never to a cluster: an application's push-to-deploy does that.
 
 Common fields: `image` (required for `run`; ignored for `build` and `checkout`, whose images are
-Ankra's), `run`, `uses` (**fatal today**), `with`, `needs`, `if` (CEL), `when.branches|paths|events`,
+Ankra's), `run`, `uses` (**fatal today**), `with`, `needs`, `skippable_needs` (needs this stage still
+runs without when their own path filter left them out), `paths` (affected-only: below), `if` (CEL),
+`when.branches|paths|events`, `when.push|pull_request` (event-scoped `branches`/`paths`), `when.tag`,
 `matrix` (axes + `include`/`exclude`, ≤ 64 legs), `services`, `env` (names starting `ANKRA_`, `PATH`,
 `BUILDKIT*`, `DOCKER_CONFIG` refused), `secrets`, `cache` (`key`, `paths` relative to the workspace root, `size`, `restore_keys`, `fallback` `volume`|`none`),
 `artifacts` (`name`, `paths`, `retention_days`), `test_results` (`junit`|`go-test`|`pytest`|`playwright`;
@@ -68,6 +76,21 @@ carried, not ingested yet), `outputs`, `timeout` (default 30m, max 6h), `resourc
 (500m/1Gi default; ≤ 8 cores, 32Gi, 4 GPUs; requests = limits), `runs_on.cluster|node_selector|
 tolerations|runtime_class|arch` (all protected), `network`, `shm_size` (64Mi), `working_directory`,
 `allow_failure`, `continue_on_error`, `retry` (accepted, not applied), `environment`.
+
+Path filters, three shapes:
+
+- `paths:` makes a stage **affected-only**: it runs only when a changed file matches, and when it is
+  left out it **counts as satisfied**, so the stages behind it still run (gate and publish included).
+  It applies on every event. Refused (`pipeline_paths:`) on a stage whose outputs another reads, a
+  `build` another stage needs, a `checkout`, `gate` or `approval`, a scan a gate requires, and beside
+  a `when` path filter.
+- `when.paths` (or the event block's `paths`) leaves the stage out and **skips what needs it**
+  (`dependency_skipped`), unless the dependent lists it in `skippable_needs`.
+- A change list the planner could not read in full never leaves a stage out: a Bitbucket Cloud push
+  (it carries none), a list over 300 paths, a push that created its branch, or one that rewrote
+  history (`paths_unverified`: `unsupported_provider`, `truncated`, `branch_created`, `forced_push`,
+  `provider_error`). A GitHub push's list is the change since the branch's last successful push run,
+  so a cancelled or red push's files are not lost.
 
 Network tiers: `none` (default for `run` and every non-executing kind), `egress-https` (default for
 `checkout`, `build`, `scan`: DNS to cluster DNS, 443 to **public** addresses only; private ranges need
@@ -82,6 +105,7 @@ Kind blocks:
 | `scan` | `scanners` (`semgrep`, `checkov`, `trivy`), `fail_on` (scanner → its own severity word, folded into the gate tighten-only; a value outside that scanner's vocabulary — the generated `trivy: "app"`, `checkov: "none"` — carries no floor and leaves the organisation gate to decide), `with.semgrep_config` (space-separated packs; else `--config=auto`), `with.image_gate` (`app`/`all`/`off`, tighten-only) |
 | `gate` | `require_stages` (the scan stages whose findings it judges; a required scanner that recorded nothing fails it by name), `approval_roles` |
 | `publish` | `with.image` is accepted and **not read** — the target is the application's own registry, resolved like the build's push target. Needs a successful `gate` upstream; re-tags the judged digest as `sha-<7>`. Outputs `image_ref` (`<repository>:sha-<7>`), `image_digest`, `image_tag`, `image_tags`: a later stage pins those, never a hand-built name or a copy to another registry. |
+| `deploy` | `environment` (the stage's own field) plus `deploy.artifact` (the `publish` stage inside `needs`), `deploy.release` (`metadata.name` of the bundle's `ankra-release.yaml`), `deploy.targets.match_labels`. The artifact must be a signed release bundle (`build.bundle.path` + `build.bundle.manifest`) this run published. Protected. Skipped with no `deploy` block or an unknown environment; never runs for a pull request or fork. Outputs `deployment_id`, `digest`, `environment`, `targets_succeeded`, `targets_failed`. |
 
 What every step carries: the workspace at `/workspace`; `ANKRA_RUN_ID`, `ANKRA_STEP_ID`,
 `ANKRA_STEP_KEY`, `ANKRA_STEP_KIND`, `ANKRA_ORGANISATION_ID`, `ANKRA_CLUSTER_ID`, `ANKRA_REPOSITORY_ID`,
@@ -297,13 +321,16 @@ All under `/api/v1/org/applications/{application_id}` with a bearer token (the s
 | `publish_failed` | registry | re-tag refused: no gate, digest mismatch, host mismatch, cannot mount blobs |
 | `stranded` | Ankra | the executor was lost; never retried |
 | `kind_unavailable` | planner skip | the stage's kind has no executor on this build |
+| `deploy_untrusted_event` / `deploy_authority_unapproved` / `deploy_artifact_unpublished` / `deploy_artifact_not_release_bundle` / `deploy_artifact_unsigned` / `deploy_no_targets` | deploy | a `deploy` step refused: pull request or fork run, definition not approved, an artifact this run did not publish, not a release bundle, no signature, no matching host target |
 
 Other vocabulary: `pipeline_source` ∈ `ankra_pipeline` · `own_ci` · `generated_workflow` · `none`
 (the disposition ladder; a stored definition is first-rung evidence). Trigger answers:
 `enqueued`, `already_queued`, `already_recorded`, `skipped`, `refused`, `repository_not_onboarded`,
 `no_ci_cluster`, `no_definition`, `trigger_not_declared`. Planner skips: `event_filter`,
 `branch_filter`, `path_filter`, `schedule_subset`, `condition_false`, `condition_unreadable`,
-`fork_policy`, `dependency_skipped`, `kind_unavailable`. Notification kinds: `pipeline_run_failed`,
+`fork_policy`, `dependency_skipped`, `kind_unavailable`, `deploy_untrusted_event` (a `deploy` stage
+in a pull request or fork run), `promoted` (a push publishes the digest a pull request or merge train
+run already passed for the same tree, so the stages it needs are not run again). Notification kinds: `pipeline_run_failed`,
 `pipeline_run_succeeded`, `image_gate_blocked`, `preview_ready`, `preview_failed`. Comment markers:
 `<!-- ankra-ai:review -->` (sections pipeline · preview · review · promotion), fallback
 `<!-- ankra-ai:pipeline -->` when the GitHub App lacks `checks:write`; check run `Ankra pipeline`;
