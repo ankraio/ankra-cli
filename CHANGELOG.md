@@ -1,9 +1,17 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.36.0 — 2026-10-16
 
 ### Changed
 
+- **`ankra exec` and the `ankra dev` shims forward `GOMEMLIMIT`.** A Go build
+  that CI holds to a soft memory ceiling (ankra-cli's own workflow sets
+  `GOMEMLIMIT=5GiB` for the 105k-line `ankra/cmd` compile) can now be held to
+  the same one in the Ankra Workspace: set it here and the remote command
+  sees it. Unset, the workspace's own default applies (five eighths of a run
+  slot, 5GiB in a workspace of 8 GiB or more). Platforms older than the
+  allowlist change refuse the variable with "This environment variable
+  cannot be forwarded"; unset it for one command to run there.
 - **A node-group write submitted without `--wait` now says where a late
   refusal is recorded.** The platform can accept a node-group change (an
   instance-type resize, scale, add, delete, labels, taints or autoscaling) and
@@ -46,17 +54,6 @@
   the rotate endpoints.
 - **The token expiry warning now says how to fix it.** The stderr line points
   at `ankra tokens rotate <id>` instead of asking for a new token by hand.
-
-### Changed
-
-- **`ankra exec` and the `ankra dev` shims forward `GOMEMLIMIT`.** A Go build
-  that CI holds to a soft memory ceiling (ankra-cli's own workflow sets
-  `GOMEMLIMIT=5GiB` for the 105k-line `ankra/cmd` compile) can now be held to
-  the same one in the Ankra Workspace: set it here and the remote command
-  sees it. Unset, the workspace's own default applies (five eighths of a run
-  slot, 5GiB in a workspace of 8 GiB or more). Platforms older than the
-  allowlist change refuse the variable with "This environment variable
-  cannot be forwarded"; unset it for one command to run there.
 
 ## v0.34.0 — 2026-10-15
 
