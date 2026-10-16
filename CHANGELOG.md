@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra login --github-oidc` signs a GitHub Actions job in to Ankra with no
+  stored token, and `ankra org oidc-trust create|list|delete` manage who may.**
+  Inside a job that has `permissions: id-token: write`, the command requests
+  the job's OIDC ID token for the Ankra audience, exchanges it at the platform
+  for a token that lasts 15 minutes by default (a policy may set 1 minute to 1
+  hour) and saves it for the rest of the job. Both tokens are masked in the
+  Actions log. An organisation admin creates a trust policy first, naming one
+  repository exactly (owner/name plus the numeric repository and owner ids,
+  so a renamed or re-created repository cannot inherit it) and optionally a
+  ref, an environment and a workflow. Pull request runs are refused unless the
+  policy opts in. It needs the organisation id (`--organisation-id`, or
+  `ANKRA_ORG` set to the id). Workflow snippet in `docs/github-actions-oidc.md`.
+- **`ankra tokens rotate <token_id>` renews a token before it expires.** It
+  issues a new token with the same name and scopes and keeps the old one
+  working for an overlap window (`--overlap-hours`, 0 to 168, default 24),
+  so you can update every place the old token is used before it stops by
+  itself. `--service` rotates an organisation service token. When stdout is
+  not a terminal the command prints only the new token value, so
+  `TOKEN=$(ankra tokens rotate <id>)` works; the explanation goes to stderr,
+  and `-o json` prints the whole response. It needs a platform that serves
+  the rotate endpoints.
+- **The token expiry warning now says how to fix it.** The stderr line points
+  at `ankra tokens rotate <id>` instead of asking for a new token by hand.
+
 ### Changed
 
 - **`ankra exec` and the `ankra dev` shims forward `GOMEMLIMIT`.** A Go build
@@ -212,6 +238,17 @@
 
 ### Fixed
 
+- **The lifecycle systemtest no longer passes with its autoscaler identity
+  check unmade.** With `ANKRA_SYSTEMTEST_AUTOSCALING=1`, the check that the
+  cluster autoscaler registers every worker (the only one covering
+  cluster#3557) used to be recorded as a SKIP on the first failed log read,
+  or when the log held no complete main loop, and a SKIP never changed the
+  exit code, so such a run read as all-PASS. A failed log read is now
+  retried within `AUTOSCALING_IDENTITY_GRACE`; a check still unmade at the
+  end of it is recorded as `UNASSERTED` with the reason, counted on the
+  summary line (`N passed, N failed, N not asserted, N skipped`), listed in
+  the job summary, and fails the run. Other SKIPs (an opt-in step left off,
+  a lane without its settings) still never fail it.
 - **`ankra application ship` prints `Live:` only for a URL that routes to the
   workload.** Ship took the first Ingress hostname as the live URL without
   looking at where the Ingress sends traffic, so it printed

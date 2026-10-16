@@ -974,6 +974,18 @@ func (m baseMock) GetOrganisationCICapacity(ctx context.Context) (*client.Organi
 	return nil, client.ErrCICapacityUnavailable
 }
 
+func (m baseMock) ListOIDCTrustPolicies(context.Context) ([]client.OIDCTrustPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateOIDCTrustPolicy(context.Context, client.OIDCTrustPolicyRequest) (*client.OIDCTrustPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteOIDCTrustPolicy(context.Context, string) error {
+	return errors.New("not implemented")
+}
+
 // The CI pool reads answer as a platform that predates the pool routes, so a
 // test that does not stub them sees ErrCIPoolUnavailable.
 func (m baseMock) GetOrganisationCIPool(ctx context.Context) (*client.OrganisationCIPool, error) {
@@ -1411,6 +1423,14 @@ func (m baseMock) RevokeAPIToken(tokenID string) (*client.RevokeAPITokenResponse
 }
 
 func (m baseMock) DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RotateAPIToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RotateServiceToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
