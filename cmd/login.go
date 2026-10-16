@@ -76,6 +76,12 @@ Your credentials will be saved to ~/.ankra.yaml`,
 				"to check the current login, run 'ankra login status'", arguments[0]))
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if useOIDC, _ := cmd.Flags().GetBool("github-oidc"); useOIDC {
+			if err := runGitHubOIDCLogin(cmd); err != nil {
+				return fmt.Errorf("login failed: %w", err)
+			}
+			return nil
+		}
 		if err := runLogin(); err != nil {
 			return fmt.Errorf("login failed: %w", err)
 		}

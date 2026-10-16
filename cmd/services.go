@@ -224,6 +224,9 @@ type APIClient interface {
 		changes map[string]any) (*client.OrganisationCISettings, error)
 	GetOrganisationCICapacity(ctx context.Context) (*client.OrganisationCICapacity, error)
 	GetOrganisationCIPool(ctx context.Context) (*client.OrganisationCIPool, error)
+	ListOIDCTrustPolicies(ctx context.Context) ([]client.OIDCTrustPolicy, error)
+	CreateOIDCTrustPolicy(ctx context.Context, request client.OIDCTrustPolicyRequest) (*client.OIDCTrustPolicy, error)
+	DeleteOIDCTrustPolicy(ctx context.Context, policyID string) error
 	SetOrganisationCIPoolMember(ctx context.Context, clusterID string, weight *int) (*client.OrganisationCIPool, error)
 	RemoveOrganisationCIPoolMember(ctx context.Context, clusterID string) (*client.OrganisationCIPool, error)
 
