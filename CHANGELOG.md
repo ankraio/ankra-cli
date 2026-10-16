@@ -16,6 +16,32 @@
   ref, an environment and a workflow. Pull request runs are refused unless the
   policy opts in. It needs the organisation id (`--organisation-id`, or
   `ANKRA_ORG` set to the id). Workflow snippet in `docs/github-actions-oidc.md`.
+- **`ankra tokens rotate <token_id>` renews a token before it expires.** It
+  issues a new token with the same name and scopes and keeps the old one
+  working for an overlap window (`--overlap-hours`, 0 to 168, default 24),
+  so you can update every place the old token is used before it stops by
+  itself. `--service` rotates an organisation service token. When stdout is
+  not a terminal the command prints only the new token value, so
+  `TOKEN=$(ankra tokens rotate <id>)` works; the explanation goes to stderr,
+  and `-o json` prints the whole response. It needs a platform that serves
+  the rotate endpoints.
+- **The token expiry warning now says how to fix it.** The stderr line points
+  at `ankra tokens rotate <id>` instead of asking for a new token by hand.
+
+## v0.34.0 — 2026-10-15
+
+### Added
+
+- **`ankra pipeline get` says when a run waits for room for its reservation,
+  and prints the reservation.** A running run whose first step is waiting
+  for a node with room for the run's capacity reservation now shows a
+  `Waiting` line with the platform's sentence and a `Reserving` line with
+  how long it has waited and the CPU and memory it is holding out for. Every
+  run also prints a `Reservation` line (mode, estimated room and observed
+  peak) when its cluster reserves capacity, and `-o json` carries the same
+  as `reservation` and `reservation_wait`. Runs on clusters with the
+  reservation off, and platforms older than the field, print nothing new.
+
 - **The CLI warns, once per run, when the API token it uses expires within
   seven days.** On 2026-10-13 a CI deploy token reached the end of its 90-day
   lifetime with nothing said beforehand, and every deploy after it failed on
@@ -201,6 +227,17 @@
 
 ### Fixed
 
+- **The lifecycle systemtest no longer passes with its autoscaler identity
+  check unmade.** With `ANKRA_SYSTEMTEST_AUTOSCALING=1`, the check that the
+  cluster autoscaler registers every worker (the only one covering
+  cluster#3557) used to be recorded as a SKIP on the first failed log read,
+  or when the log held no complete main loop, and a SKIP never changed the
+  exit code, so such a run read as all-PASS. A failed log read is now
+  retried within `AUTOSCALING_IDENTITY_GRACE`; a check still unmade at the
+  end of it is recorded as `UNASSERTED` with the reason, counted on the
+  summary line (`N passed, N failed, N not asserted, N skipped`), listed in
+  the job summary, and fails the run. Other SKIPs (an opt-in step left off,
+  a lane without its settings) still never fail it.
 - **`ankra application ship` prints `Live:` only for a URL that routes to the
   workload.** Ship took the first Ingress hostname as the live URL without
   looking at where the Ingress sends traffic, so it printed
