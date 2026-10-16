@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -15,10 +16,15 @@ type clusterAccessMock struct {
 	elevateRequest  *client.ElevateClusterAccessRequest
 	deletedGrantIDs []string
 	policy          *client.ClusterAccessPolicy
+	// refusal, when set, is what every access call answers instead.
+	refusal error
 }
 
 func (m *clusterAccessMock) ElevateClusterAccess(ctx context.Context, clusterID string, request client.ElevateClusterAccessRequest) (*client.CreateClusterAccessGrantResponse, error) {
 	m.elevateRequest = &request
+	if m.refusal != nil {
+		return nil, m.refusal
+	}
 	expires := "2026-10-09T20:00:00Z"
 	reason := request.Reason
 	return &client.CreateClusterAccessGrantResponse{Grant: client.ClusterAccessGrant{
@@ -34,6 +40,9 @@ func (m *clusterAccessMock) ElevateClusterAccess(ctx context.Context, clusterID 
 }
 
 func (m *clusterAccessMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicy, error) {
+	if m.refusal != nil {
+		return nil, m.refusal
+	}
 	return m.policy, nil
 }
 
@@ -56,11 +65,17 @@ func (m *clusterAccessMock) GetCluster(name string) (client.ClusterListItem, err
 }
 
 func (m *clusterAccessMock) ListClusterAccessGrants(ctx context.Context, clusterID string) (*client.ListClusterAccessGrantsResponse, error) {
+	if m.refusal != nil {
+		return nil, m.refusal
+	}
 	return &client.ListClusterAccessGrantsResponse{Result: m.grants}, nil
 }
 
 func (m *clusterAccessMock) CreateClusterAccessGrant(ctx context.Context, clusterID string, request client.CreateClusterAccessGrantRequest) (*client.CreateClusterAccessGrantResponse, error) {
 	m.createdRequest = &request
+	if m.refusal != nil {
+		return nil, m.refusal
+	}
 	email := request.UserEmail
 	return &client.CreateClusterAccessGrantResponse{Grant: client.ClusterAccessGrant{
 		ID:              "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
@@ -75,6 +90,9 @@ func (m *clusterAccessMock) CreateClusterAccessGrant(ctx context.Context, cluste
 
 func (m *clusterAccessMock) DeleteClusterAccessGrant(ctx context.Context, clusterID string, grantID string) (*client.DeleteClusterAccessGrantResponse, error) {
 	m.deletedGrantIDs = append(m.deletedGrantIDs, grantID)
+	if m.refusal != nil {
+		return nil, m.refusal
+	}
 	return &client.DeleteClusterAccessGrantResponse{Deleted: true}, nil
 }
 
@@ -366,4 +384,259 @@ func TestGrantAndElevateRoleFlagsAreIndependent(t *testing.T) {
 	if mock.createdRequest == nil || mock.createdRequest.Role != "view" {
 		t.Fatalf("a grant without --role must ask for view, got: %+v", mock.createdRequest)
 	}
+}
+
+// TestClusterAccessRefusalsExitWithTheirClass pins the scripting contract
+// for the access commands: a policy refusal is fixed by changing the flags
+// (exit 2), an RBAC refusal needs another role (exit 7), and only a rejected
+// credential is exit 6. The readable sentence survives in every case.
+func TestClusterAccessRefusalsExitWithTheirClass(t *testing.T) {
+	invocations := map[string][]string{
+		"grant":   {"cluster", "access", "grant", "member@example.com", "--cluster", "my-cluster", "--role", "admin"},
+		"elevate": {"cluster", "access", "elevate", "--cluster", "my-cluster", "--expires", "4h", "--reason", "incident"},
+		"revoke":  {"cluster", "access", "revoke", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "--cluster", "my-cluster"},
+		"list":    {"cluster", "access", "list", "--cluster", "my-cluster"},
+		"policy":  {"org", "access-policy", "get"},
+	}
+	for _, testCase := range []struct {
+		name     string
+		status   int
+		body     string
+		wantCode int
+		wantText string
+	}{
+		{"ceiling", 403, `{"detail":"cluster_access_policy_violation","max_grant_role":"edit"}`, exitUsage, `the most access anyone can be given is "edit"`},
+		{"expiry required", 403, `{"detail":"cluster_access_grant_expiry_required","max_lifetime_seconds":14400}`, exitUsage, "pass --expires"},
+		{"lifetime exceeded", 403, `{"detail":"cluster_access_grant_lifetime_exceeded","max_lifetime_seconds":3600}`, exitUsage, "pass a shorter --expires"},
+		{"reason required", 403, `{"detail":"cluster_access_grant_reason_required"}`, exitUsage, "pass --reason"},
+		{"permission denied", 403, `{"detail":"permission_denied","permission":"kube_access.elevate"}`, exitForbidden, "this needs kube_access.elevate"},
+		{"admin only", 403, `{"detail":"Only organisation admins can manage cluster access"}`, exitForbidden, "Only organisation admins"},
+		{"credentials", 401, `{"detail":"Not authenticated"}`, exitAuth, "Not authenticated"},
+	} {
+		for command, args := range invocations {
+			t.Run(testCase.name+"/"+command, func(t *testing.T) {
+				resetAccessFlags(t)
+				mock := &clusterAccessMock{refusal: client.ClusterAccessResponseError("op", testCase.status, []byte(testCase.body))}
+				setMockClient(t, mock)
+				var err error
+				captureStdout(t, func() {
+					_, err = executeCommand(args...)
+				})
+				if err == nil || !strings.Contains(err.Error(), testCase.wantText) {
+					t.Fatalf("expected %q, got: %v", testCase.wantText, err)
+				}
+				if got := exitCodeFor(err); got != testCase.wantCode {
+					t.Fatalf("exit code %d, want %d (%v)", got, testCase.wantCode, err)
+				}
+			})
+		}
+	}
+}
+
+func TestClusterAccessInvalidFlagsExitUsage(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		args []string
+	}{
+		{"elevate without expiry", []string{"cluster", "access", "elevate", "--cluster", "my-cluster", "--reason", "incident"}},
+		{"elevate without reason", []string{"cluster", "access", "elevate", "--cluster", "my-cluster", "--expires", "4h"}},
+		{"elevate bad expiry", []string{"cluster", "access", "elevate", "--cluster", "my-cluster", "--expires", "tomorrow", "--reason", "x"}},
+		{"elevate bad role", []string{"cluster", "access", "elevate", "--cluster", "my-cluster", "--role", "root", "--expires", "4h", "--reason", "x"}},
+		{"grant bad role", []string{"cluster", "access", "grant", "member@example.com", "--cluster", "my-cluster", "--role", "root"}},
+		{"grant bad expiry", []string{"cluster", "access", "grant", "member@example.com", "--cluster", "my-cluster", "--expires", "soon"}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			resetAccessFlags(t)
+			mock := &clusterAccessMock{}
+			setMockClient(t, mock)
+			_, err := executeCommand(testCase.args...)
+			if err == nil || exitCodeFor(err) != exitUsage {
+				t.Fatalf("expected a usage error (exit %d), got exit %d: %v", exitUsage, exitCodeFor(err), err)
+			}
+			if mock.elevateRequest != nil || mock.createdRequest != nil {
+				t.Fatal("an invalid invocation must not reach the platform")
+			}
+		})
+	}
+}
+
+func TestClusterAccessListShowsSourceAndOverPolicy(t *testing.T) {
+	resetAccessFlags(t)
+	over, within := true, false
+	role, manual := "role", "manual"
+	fromRole := grantFixture("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "member@example.com", "admin")
+	fromRole.OverPolicy, fromRole.Source = &over, &role
+	given := grantFixture("bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "other@example.com", "view")
+	given.OverPolicy, given.Source = &within, &manual
+	unevaluated := grantFixture("cccccccc-dddd-eeee-ffff-000000000000", "third@example.com", "view")
+	mock := &clusterAccessMock{grants: []client.ClusterAccessGrant{fromRole, given, unevaluated}}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "access", "list", "--cluster", "my-cluster")
+	})
+	for _, want := range []string{"SOURCE", "OVER POLICY", "role", "manual", "unknown", "yes", "change the member's role"} {
+		if !strings.Contains(stdoutOutput, want) {
+			t.Errorf("expected %q in the grant table, got: %s", want, stdoutOutput)
+		}
+	}
+	var thirdRow string
+	for _, line := range strings.Split(stdoutOutput, "\n") {
+		if strings.Contains(line, "third@example.com") {
+			thirdRow = line
+		}
+	}
+	if strings.Count(thirdRow, "unknown") != 2 || strings.Contains(thirdRow, " no ") {
+		t.Errorf("an unevaluated grant must read unknown for both source and over policy, got: %q", thirdRow)
+	}
+}
+
+func TestClusterAccessListJSONKeepsNullOverPolicyAndSource(t *testing.T) {
+	resetAccessFlags(t)
+	mock := &clusterAccessMock{grants: []client.ClusterAccessGrant{
+		grantFixture("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "member@example.com", "view"),
+	}}
+	setMockClient(t, mock)
+	t.Cleanup(func() { _ = clusterAccessListCmd.Flags().Set("output", "") })
+
+	var commandOutput string
+	stdoutOutput := captureStdout(t, func() {
+		commandOutput, _ = executeCommand("cluster", "access", "list", "--cluster", "my-cluster", "-o", "json")
+	})
+	stdoutOutput += commandOutput
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdoutOutput)), &decoded); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, stdoutOutput)
+	}
+	for _, key := range []string{"over_policy", "source"} {
+		value, present := decoded[0][key]
+		if !present || value != nil {
+			t.Errorf("expected %s to be present and null, got %v (present %v)", key, value, present)
+		}
+	}
+}
+
+func TestClusterAccessRevokeOfARoleGrantSaysTheRoleSyncRestoresIt(t *testing.T) {
+	resetAccessFlags(t)
+	role := "role"
+	fromRole := grantFixture("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "member@example.com", "view")
+	fromRole.Source = &role
+	mock := &clusterAccessMock{grants: []client.ClusterAccessGrant{fromRole}}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "access", "revoke", "member@example.com", "--cluster", "my-cluster")
+	})
+	if !strings.Contains(stdoutOutput, "role sync re-creates it") {
+		t.Errorf("expected the role-sync hint, got: %s", stdoutOutput)
+	}
+}
+
+func TestClusterAccessElevateSaysWhenTheBindingLands(t *testing.T) {
+	resetAccessFlags(t)
+	mock := &clusterAccessMock{}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "access", "elevate", "--cluster", "my-cluster",
+			"--role", "edit", "--expires", "4h", "--reason", "incident 4711")
+	})
+	for _, want := range []string{"Status:", "Pending", "30 to 60 seconds", "403 Forbidden"} {
+		if !strings.Contains(stdoutOutput, want) {
+			t.Errorf("expected %q after an elevation, got: %s", want, stdoutOutput)
+		}
+	}
+}
+
+func TestOrgAccessPolicyGetStatesConfiguredAndYAMLKeys(t *testing.T) {
+	mock := &clusterAccessMock{policy: &client.ClusterAccessPolicy{
+		CreatorGrantRole: "view", MaxGrantRole: "edit", IsConfigured: true,
+	}}
+	setMockClient(t, mock)
+	t.Cleanup(func() { _ = orgAccessPolicyGetCmd.Flags().Set("output", "") })
+
+	var commandOutput string
+	table := captureStdout(t, func() {
+		commandOutput, _ = executeCommand("org", "access-policy", "get")
+	})
+	table += commandOutput
+	if !strings.Contains(table, "Configured:         yes") {
+		t.Errorf("expected the table to say the policy is configured, got: %s", table)
+	}
+
+	mock.policy = &client.ClusterAccessPolicy{CreatorGrantRole: "cluster-admin", MaxGrantRole: "cluster-admin"}
+	unset := captureStdout(t, func() {
+		commandOutput, _ = executeCommand("org", "access-policy", "get")
+	})
+	unset += commandOutput
+	if !strings.Contains(unset, "Configured:         no") {
+		t.Errorf("expected the table to say no policy is configured, got: %s", unset)
+	}
+
+	yamlOutput := captureStdout(t, func() {
+		commandOutput, _ = executeCommand("org", "access-policy", "get", "-o", "yaml")
+	})
+	yamlOutput += commandOutput
+	for _, want := range []string{"creator_grant_role: cluster-admin", "max_grant_role: cluster-admin", "is_configured: false", "elevated_max_ttl_seconds: null"} {
+		if !strings.Contains(yamlOutput, want) {
+			t.Errorf("expected %q in -o yaml, got: %s", want, yamlOutput)
+		}
+	}
+	if strings.Contains(yamlOutput, "creatorgrantrole") || strings.Contains(yamlOutput, "isconfigured") {
+		t.Errorf("-o yaml must use the API's key names, got: %s", yamlOutput)
+	}
+}
+
+// TestClusterAccessRevokeOfAnUnknownGrantIDExitsNotFound pins the documented
+// exit 3 for the grant-ID path: the platform's 404 ("Access grant not found")
+// is classified by exitCodeFor, not by resolveGrantTargets.
+func TestClusterAccessRevokeOfAnUnknownGrantIDExitsNotFound(t *testing.T) {
+	resetAccessFlags(t)
+	mock := &clusterAccessMock{refusal: client.ClusterAccessResponseError("revoke access grant failed", 404,
+		[]byte(`{"detail":"Access grant not found"}`))}
+	setMockClient(t, mock)
+	var err error
+	captureStdout(t, func() {
+		_, err = executeCommand("cluster", "access", "revoke", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "--cluster", "my-cluster")
+	})
+	if err == nil || exitCodeFor(err) != exitNotFound || !strings.Contains(err.Error(), "Access grant not found") {
+		t.Fatalf("expected exit %d with the platform's sentence, got exit %d: %v", exitNotFound, exitCodeFor(err), err)
+	}
+}
+
+// TestClusterAccessElevateRetryHintOnlyWhilePending: a reconcile that
+// already failed, or a cluster that is offline, must not be told to retry
+// kubectl in 30 to 60 seconds.
+func TestClusterAccessElevateRetryHintOnlyWhilePending(t *testing.T) {
+	for _, testCase := range []struct{ status, want string }{
+		{"failed", "could not be applied"},
+		{"cluster_offline", "applied when it reconnects"},
+	} {
+		t.Run(testCase.status, func(t *testing.T) {
+			resetAccessFlags(t)
+			mock := &elevateStatusMock{status: testCase.status}
+			setMockClient(t, mock)
+			stdoutOutput := captureStdout(t, func() {
+				_, _ = executeCommand("cluster", "access", "elevate", "--cluster", "my-cluster",
+					"--expires", "4h", "--reason", "incident")
+			})
+			if !strings.Contains(stdoutOutput, testCase.want) || strings.Contains(stdoutOutput, "30 to 60 seconds") {
+				t.Errorf("status %s: expected %q and no retry hint, got: %s", testCase.status, testCase.want, stdoutOutput)
+			}
+		})
+	}
+}
+
+type elevateStatusMock struct {
+	clusterAccessMock
+	status string
+}
+
+func (m *elevateStatusMock) ElevateClusterAccess(ctx context.Context, clusterID string, request client.ElevateClusterAccessRequest) (*client.CreateClusterAccessGrantResponse, error) {
+	created, err := m.clusterAccessMock.ElevateClusterAccess(ctx, clusterID, request)
+	if err != nil {
+		return nil, err
+	}
+	created.Grant.ReconcileStatus = m.status
+	return created, nil
 }
