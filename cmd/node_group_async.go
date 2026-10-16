@@ -33,11 +33,12 @@ func failedNodeGroupWriteCommand(clusterID string) string {
 func newNodeGroupSubmittedResult(operationLabel, clusterID string) asyncSubmittedResult {
 	result := newAsyncSubmittedResult(operationLabel)
 	result.Hint += "; if the platform refuses it after accepting it, '" + failedNodeGroupWriteCommand(clusterID) +
-		"' shows the failed node_group_write operation with the provider's reason"
+		"' shows the failed node_group_write operation with the provider's reason once it is decided; an empty listing right away does not mean the change was applied"
 	return result
 }
 
 func printNodeGroupWriteSubmitted(operationLabel, clusterID string) {
 	printAsyncWriteSubmitted(operationLabel)
 	fmt.Printf("If the platform refuses it after accepting it (for example the provider has no stock of the requested server type), the refusal is recorded as a failed node_group_write operation with the provider's reason:\n  %s\n", failedNodeGroupWriteCommand(clusterID))
+	fmt.Println("The record appears once the refusal is decided, so an empty listing right away does not mean the change was applied.")
 }
