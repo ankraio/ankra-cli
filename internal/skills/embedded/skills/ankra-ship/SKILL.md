@@ -475,8 +475,9 @@ to host targets outside Kubernetes (`ankra targets`), never to a cluster. `previ
 `approval`, `webhook`, `automation`, `ankra` and `external` validate with a warning and are skipped
 as `kind_unavailable`; `uses:` is refused outright (write the step as `run:`); `retry:` and
 `test_results` ingestion are accepted but not yet honoured. `on_failure:` stages run only after a
-main stage failed (after a green run they are skipped with that reason), and `finally:` stages run
-after everything else whatever the outcome, except on a run cancelled as a whole. So **an
+main stage failed, timed out or hit an infrastructure error (a skipped stage is not a failure; after
+a green run they are skipped with that reason), and `finally:` stages run after everything else
+whatever the outcome. A run cancelled as a whole runs neither. So **an
 `approval` stage blocks nothing — everything downstream runs**, and a skipped stage is not a failed
 one: do not make the `Ankra pipeline` check *required* while the definition carries an unexecuted
 kind, or it goes green having done none of what that stage names. Previews, deploys to a cluster, rollback and
