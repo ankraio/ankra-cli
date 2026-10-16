@@ -43,7 +43,13 @@ else
       .) tested+=(".") ;;
       *) tested+=("./$directory") ;;
     esac
-  done < <(printf '%s\n' "$changed_files" | grep -v '^$' | xargs -r -n1 dirname | sort -u)
+  done < <(printf '%s\n' "$changed_files" | while IFS= read -r file; do
+    case "$file" in
+      "") ;;
+      */*) printf '%s\n' "${file%/*}" ;;
+      *) printf '.\n' ;;
+    esac
+  done | sort -u)
   if [ "${#tested[@]}" -gt 0 ]; then
     echo "Running tests for the changed packages: ${tested[*]}"
     go test "${tested[@]}"
