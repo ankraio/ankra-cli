@@ -4,6 +4,18 @@
 
 ### Added
 
+- **`ankra login --github-oidc` signs a GitHub Actions job in to Ankra with no
+  stored token, and `ankra org oidc-trust create|list|delete` manage who may.**
+  Inside a job that has `permissions: id-token: write`, the command requests
+  the job's OIDC ID token for the Ankra audience, exchanges it at the platform
+  for a token that lasts 15 minutes by default (a policy may set 1 minute to 1
+  hour) and saves it for the rest of the job. Both tokens are masked in the
+  Actions log. An organisation admin creates a trust policy first, naming one
+  repository exactly (owner/name plus the numeric repository and owner ids,
+  so a renamed or re-created repository cannot inherit it) and optionally a
+  ref, an environment and a workflow. Pull request runs are refused unless the
+  policy opts in. It needs the organisation id (`--organisation-id`, or
+  `ANKRA_ORG` set to the id). Workflow snippet in `docs/github-actions-oidc.md`.
 - **The CLI warns, once per run, when the API token it uses expires within
   seven days.** On 2026-10-13 a CI deploy token reached the end of its 90-day
   lifetime with nothing said beforehand, and every deploy after it failed on
