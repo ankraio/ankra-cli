@@ -66,11 +66,14 @@ const (
 	execCheckNegativeTTL = 10 * time.Minute
 )
 
-// execForwardEnv is the bash client's FORWARD_ENV: the environment a remote
-// command sees from this machine, plus the names in ANKRA_EXEC_FORWARD_ENV.
+// execForwardEnv is the bash client's FORWARD_ENV, plus GOMEMLIMIT: the
+// environment a remote command sees from this machine, plus the names in
+// ANKRA_EXEC_FORWARD_ENV. GOMEMLIMIT lets a caller hold a Go build to the
+// soft memory ceiling its CI uses (ankra-cli's own lint-build.yml sets 5GiB);
+// unset, the workspace's own default applies.
 var execForwardEnv = []string{
 	"E2E_TARGET", "BASE_URL", "PLAYWRIGHT_BASE_URL", "GOFLAGS", "CGO_ENABLED", "GOEXPERIMENT", "GODEBUG",
-	"GOARCH", "GOOS", "GOMAXPROCS", "GORACE", "PARITY_DATABASE_URL", "QUEUE_PARITY_DATABASE_URL",
+	"GOARCH", "GOOS", "GOMAXPROCS", "GOMEMLIMIT", "GORACE", "PARITY_DATABASE_URL", "QUEUE_PARITY_DATABASE_URL",
 	"NODE_OPTIONS", "NODE_ENV", "TZ", "VITEST_MAX_THREADS", "VITEST_MIN_THREADS", "VITEST_POOL",
 	"VITEST_SHARD_COUNT", "ANKRA_SKIP_GO_CHECK",
 }
@@ -103,8 +106,8 @@ not ignored - as a snapshot commit built in a temporary index (the branch, the
 index and the working tree are untouched). Only what the workspace lacks is
 uploaded: which commits it holds is recorded under refs/ankra-exec/synced/.
 The command runs in the same relative directory, with only an allowlisted
-environment forwarded (GOFLAGS, NODE_OPTIONS, TZ, ... and the names in
-ANKRA_EXEC_FORWARD_ENV).
+environment forwarded (GOFLAGS, GOMEMLIMIT, NODE_OPTIONS, TZ, ... and the
+names in ANKRA_EXEC_FORWARD_ENV).
 
 The workspace is this checkout's (origin remote, a repository connected to
 Ankra Pipelines) of the --kind given, brought up on first use.
