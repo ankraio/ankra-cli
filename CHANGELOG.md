@@ -4,6 +4,15 @@
 
 ### Changed
 
+- **A node-group write submitted without `--wait` now says where a late
+  refusal is recorded.** The platform can accept a node-group change (an
+  instance-type resize, scale, add, delete, labels, taints or autoscaling) and
+  then have the provider refuse it, for example when the requested server type
+  has no stock in the cluster's location. That refusal is recorded as a failed
+  `node_group_write` operation carrying the provider's reason, and the
+  "submitted" output (and the `hint` in `-o json`) now names
+  `ankra cluster operations list --failed --cluster <id>` to read it. With
+  `--wait` the refusal still fails the command with the provider's reason.
 - **`ankra org usage` says why a closed month's vCPU line has no amount.** A
   closed month with no invoice reads "no invoice for this month, so unknown"
   (never zero), a day or part of a closed month reads "priced on the whole
