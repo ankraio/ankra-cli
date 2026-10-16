@@ -1,5 +1,21 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra tokens rotate <token_id>` renews a token before it expires.** It
+  issues a new token with the same name and scopes and keeps the old one
+  working for an overlap window (`--overlap-hours`, 0 to 168, default 24),
+  so you can update every place the old token is used before it stops by
+  itself. `--service` rotates an organisation service token. When stdout is
+  not a terminal the command prints only the new token value, so
+  `TOKEN=$(ankra tokens rotate <id>)` works; the explanation goes to stderr,
+  and `-o json` prints the whole response. It needs a platform that serves
+  the rotate endpoints.
+- **The token expiry warning now says how to fix it.** The stderr line points
+  at `ankra tokens rotate <id>` instead of asking for a new token by hand.
+
 ## v0.34.0 — 2026-10-15
 
 ### Added

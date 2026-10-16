@@ -414,6 +414,8 @@ type APIClient interface {
 	CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error)
 	RevokeAPIToken(tokenID string) (*client.RevokeAPITokenResponse, error)
 	DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error)
+	RotateAPIToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error)
+	RotateServiceToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error)
 
 	StreamChat(clusterID *string, chatReq client.ChatRequest) (<-chan client.ChatStreamEvent, error)
 	CreateChatSession(request client.CreateChatSessionRequest) (*client.ChatSession, error)

@@ -1414,6 +1414,14 @@ func (m baseMock) DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) RotateAPIToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RotateServiceToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) StreamChat(clusterID *string, chatReq client.ChatRequest) (<-chan client.ChatStreamEvent, error) {
 	return nil, errors.New("not implemented")
 }
