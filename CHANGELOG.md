@@ -1,5 +1,15 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Changed
+
+- **`ankra org usage` says why a closed month's vCPU line has no amount.** A
+  closed month with no invoice reads "no invoice for this month, so unknown"
+  (never zero), a day or part of a closed month reads "priced on the whole
+  month's invoice; view by month", and an invoice that does not price the line
+  reads "invoice does not price it", instead of `unpriced (<basis>)`.
+
 ## v0.35.0 — 2026-10-16
 
 ### Added

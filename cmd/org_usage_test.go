@@ -692,6 +692,10 @@ func TestUsagePriceLabel(t *testing.T) {
 		{client.UsageLine{PriceState: "unpriced", PriceBasis: "not_invoiced"}, "plan not invoiced"},
 		{client.UsageLine{PriceState: "unpriced", PriceBasis: "organisation_total"}, "priced on the organisation total"},
 		{client.UsageLine{PriceState: "unpriced", PriceBasis: "other_currency"}, "price not in EUR"},
+		{client.UsageLine{PriceState: "unpriced", PriceBasis: "invoice"}, "invoice does not price it"},
+		{client.UsageLine{PriceState: "unpriced", PriceBasis: "no_invoice"}, "no invoice for this month, so unknown"},
+		{client.UsageLine{PriceState: "unpriced", PriceBasis: "month_total"}, "priced on the whole month's invoice; view by month"},
+		{client.UsageLine{PriceState: "priced", PriceBasis: "invoice", AmountMinor: int64Pointer(4_320), Currency: stringPointer("EUR")}, "€43.20"},
 		{client.UsageLine{PriceState: "unpriced", PriceBasis: "something_new"}, "unpriced (something_new)"},
 		{client.UsageLine{PriceState: ""}, "price state not reported"},
 	}
