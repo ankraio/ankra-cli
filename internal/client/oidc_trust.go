@@ -193,10 +193,14 @@ func ExchangeGitHubOIDCToken(ctx context.Context, httpClient *http.Client, baseU
 		}
 		return &result, nil
 	case http.StatusUnauthorized:
-		return nil, fmt.Errorf("the platform refused the GitHub ID token: no trust policy in this organisation " +
-			"matches this repository, ref, environment and event (the organisation's audit log records the reason)")
+		return nil, fmt.Errorf("the platform refused the GitHub ID token: either no trust policy in this " +
+			"organisation matches this repository, ref, environment and event, or the ID token is invalid or " +
+			"expired (the organisation's audit log records which)")
 	case http.StatusTooManyRequests:
 		return nil, fmt.Errorf("the token exchange is rate limited; retry shortly")
+	case http.StatusServiceUnavailable:
+		return nil, fmt.Errorf("the token exchange is temporarily unavailable (GitHub's signing keys or the " +
+			"platform could not be reached); retry shortly")
 	default:
 		return nil, fmt.Errorf("token exchange failed with status %d", response.StatusCode)
 	}

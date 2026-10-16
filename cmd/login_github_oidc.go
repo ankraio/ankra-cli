@@ -51,7 +51,10 @@ func requestGitHubIDToken(ctx context.Context, httpClient *http.Client, requestU
 		return "", fmt.Errorf("request the GitHub ID token: %w", sendError)
 	}
 	defer func() { _ = response.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(response.Body, maxIDTokenResponseBytes))
+	body, readError := io.ReadAll(io.LimitReader(response.Body, maxIDTokenResponseBytes))
+	if readError != nil {
+		return "", fmt.Errorf("read the GitHub ID token response: %w", readError)
+	}
 	if response.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("GitHub refused the ID token request (status %d); does the job have 'permissions: id-token: write'?",
 			response.StatusCode)
@@ -144,9 +147,13 @@ func runGitHubOIDCLogin(cmd *cobra.Command) error {
 	if chmodError := os.Chmod(configPath, 0o600); chmodError != nil {
 		return fmt.Errorf("secure config file: %w", chmodError)
 	}
+	lifetime := "is short-lived"
+	if result.ExpiresIn > 0 {
+		lifetime = fmt.Sprintf("is valid for %d minutes", (result.ExpiresIn+59)/60)
+	}
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(),
-		"Logged in with the GitHub Actions identity of this job. The token is valid for %d minutes; nothing is stored beyond %s.\n",
-		(result.ExpiresIn+59)/60, configPath)
+		"Logged in with the GitHub Actions identity of this job. The token %s; nothing is stored beyond %s.\n",
+		lifetime, configPath)
 	return nil
 }
 
