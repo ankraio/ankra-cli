@@ -67,12 +67,9 @@ func TestNodeGroupSubmittedPointsAtTheFailedOperationRecord(t *testing.T) {
 }
 
 func TestNodeGroupSubmittedStructuredHintNamesTheFailedOperationListing(t *testing.T) {
-	var runError error
-	stdout := captureStdout(t, func() {
-		_, runError = runConfirmCommand(t, &nodeGroupSubmittedMock{}, "",
-			[]*cobra.Command{clusterNodeGroupUpgradeCmd},
-			"cluster", "node-group", "upgrade", testClusterID, "workers", "cpx32", "-o", "json")
-	})
+	stdout, runError := runConfirmCommand(t, &nodeGroupSubmittedMock{}, "",
+		[]*cobra.Command{clusterNodeGroupUpgradeCmd},
+		"cluster", "node-group", "upgrade", testClusterID, "workers", "cpx32", "-o", "json")
 	if runError != nil {
 		t.Fatalf("execute failed: %v", runError)
 	}
