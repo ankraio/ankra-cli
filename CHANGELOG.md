@@ -1,5 +1,39 @@
 # Ankra CLI Changelog
 
+## v0.37.0 — 2026-10-17
+
+### Fixed
+
+- **`ankra cluster access grant|elevate|revoke|list` exit with the code
+  that says what to do.** Every refusal from the platform exited 6, the
+  "run `ankra login`" code, though logging in again never helps. A refusal
+  by the organisation access policy (a role above the ceiling, a missing or
+  too long `--expires`, a missing `--reason`) now exits 2, because changing
+  the flags is the fix whatever your role; a refusal because your role lacks
+  the permission (`elevate` without `kube_access.elevate`, `grant` without
+  managing kubectl access) exits 7; only rejected credentials exit 6.
+  `elevate` without `--expires` or `--reason`, an unknown `--role` and an
+  unreadable `--expires` exit 2 instead of 1. The messages are unchanged and
+  `ankra cluster access --help` lists the codes.
+- **`ankra cluster access list` shows where each grant came from and whether
+  the policy would refuse it today.** The platform sends both, but the CLI
+  dropped them. A Source column reads manual, creator, role or elevated, and
+  an Over policy column reads yes or no; either reads unknown when the
+  platform could not tell, never "manual" or "no", and `-o json` keeps them
+  as `null`. A grant from the member's organisation role comes back after a
+  revoke (the role sync re-creates it), so the list and `revoke` now say to
+  change the member's role instead.
+- **`ankra cluster access elevate` says when the access works.** The binding
+  reaches the cluster within about 30 to 60 seconds, and kubectl answers 403
+  Forbidden until then; the success message now shows the grant's status and
+  says to retry kubectl until it is applied.
+- **`ankra org access-policy get -o yaml` uses the API's key names**
+  (`creator_grant_role`, `is_configured`, ...) instead of `creatorgrantrole`
+  and `isconfigured`, as `ankra cluster access list -o yaml` now does for
+  grants. The table's first line says plainly whether the organisation has
+  set a policy (`Configured: yes` or `no`), so support can tell you what to
+  look for.
+
 ## v0.36.0 — 2026-10-16
 
 ### Changed
@@ -253,36 +287,6 @@
   that refusal on any command that meets it, not only the AI ones.
 
 ### Fixed
-
-- **`ankra cluster access grant|elevate|revoke|list` exit with the code
-  that says what to do.** Every refusal from the platform exited 6, the
-  "run `ankra login`" code, though logging in again never helps. A refusal
-  by the organisation access policy (a role above the ceiling, a missing or
-  too long `--expires`, a missing `--reason`) now exits 2, because changing
-  the flags is the fix whatever your role; a refusal because your role lacks
-  the permission (`elevate` without `kube_access.elevate`, `grant` without
-  managing kubectl access) exits 7; only rejected credentials exit 6.
-  `elevate` without `--expires` or `--reason`, an unknown `--role` and an
-  unreadable `--expires` exit 2 instead of 1. The messages are unchanged and
-  `ankra cluster access --help` lists the codes.
-- **`ankra cluster access list` shows where each grant came from and whether
-  the policy would refuse it today.** The platform sends both, but the CLI
-  dropped them. A Source column reads manual, creator, role or elevated, and
-  an Over policy column reads yes or no; either reads unknown when the
-  platform could not tell, never "manual" or "no", and `-o json` keeps them
-  as `null`. A grant from the member's organisation role comes back after a
-  revoke (the role sync re-creates it), so the list and `revoke` now say to
-  change the member's role instead.
-- **`ankra cluster access elevate` says when the access works.** The binding
-  reaches the cluster within about 30 to 60 seconds, and kubectl answers 403
-  Forbidden until then; the success message now shows the grant's status and
-  says to retry kubectl until it is applied.
-- **`ankra org access-policy get -o yaml` uses the API's key names**
-  (`creator_grant_role`, `is_configured`, ...) instead of `creatorgrantrole`
-  and `isconfigured`, as `ankra cluster access list -o yaml` now does for
-  grants. The table's first line says plainly whether the organisation has
-  set a policy (`Configured: yes` or `no`), so support can tell you what to
-  look for.
 
 - **The lifecycle systemtest no longer passes with its autoscaler identity
   check unmade.** With `ANKRA_SYSTEMTEST_AUTOSCALING=1`, the check that the
