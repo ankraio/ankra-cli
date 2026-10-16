@@ -302,9 +302,12 @@ func newExecTestEnv(t *testing.T) *execTestEnv {
 	t.Setenv("ANKRA_EXEC_NOTRUN_FILE", environment.notRunPath)
 	t.Setenv("ANKRA_EXEC_RETRIES", "1")
 	t.Setenv("ANKRA_EXEC_FORWARD_ENV", "")
-	// CI's job sets GOMEMLIMIT, and so does an Ankra Workspace: a forwarded
-	// name set in the test's own environment would join every run's env.
-	unsetTestEnv(t, "GOMEMLIMIT")
+	// CI's job sets GOMEMLIMIT, and so does an Ankra Workspace: any forwarded
+	// name set in the test's own environment would join every run's env, so
+	// each test starts from none of them and sets only what it forwards.
+	for _, name := range execForwardEnv {
+		unsetTestEnv(t, name)
+	}
 	t.Setenv("ANKRA_EXEC_ORG", "")
 	t.Setenv("ANKRA_ORG", "")
 	originalSleep := execSleep
