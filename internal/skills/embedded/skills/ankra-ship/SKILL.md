@@ -227,7 +227,8 @@ otherwise, `5` not concluded by `--timeout`, `3` no run matched. `status` is the
 build, `image_gate_blocked` is a finding, `registry_push_failed`, `build_runtime_confined` and
 `platform_build_infra` are placement or Ankra. A `rerun` is planned as the event it repeats: a
 re-run of a push publishes (and can deploy) like the push did, a re-run of a pull request does not,
-and a re-run of a tag or manual run is planned as `rerun`, which a `when.events` list must name. `--failed-only` also re-runs the checkout and every step the failed ones
+and a re-run of a tag, manual, API or agent run is planned as `rerun`, which a `when.events` list
+must name. `--failed-only` also re-runs the checkout and every step the failed ones
 build on (the new run's workspace starts empty), and is refused when a step that failed could not
 run in a re-run. Logs attach once a step has an execution; a concluded step replays for
 24 h and from the archived artifact after that.
@@ -496,7 +497,7 @@ writer yet. `egress-https` reaches **public addresses only**; name a private ran
 | `image_gate_blocked` | a finding at or above the gate | fix it, or a written disposition in `ankra-security` |
 | `no_scan_results` | scan report never uploaded | vault (above) or an older platform; do not treat as clean |
 | Step "running" for minutes with no output | pod Pending: CPU quota, no StorageClass, disk | `ankra pipeline get <run-id>` Queueing says where the wait went ("Pending 5m in the cluster (scheduling 4m30s, volumes 8s, image pull 19s)"); then `ankra cluster events -n ankra-ci --type Warning` |
-| `publish` skipped on a rerun | the rerun repeats a pull request run, or a tag or manual run (planned as `rerun`, which `when.events` excludes) | push a commit, or `ankra pipeline run` |
+| `publish` skipped on a rerun | the rerun repeats a pull request run, or a tag, manual, API or agent run (planned as `rerun`, which `when.events` excludes) | push a commit, or `ankra pipeline run` |
 | A stage's log says `UNAUTHORIZED: project <name> not found` from a Harbor registry | the project does not exist; it is not a credential fault | a hand-written copy to a second registry: remove it and deploy `publish`'s `image_ref` (`ankra-cicd` §3), or declare the registry on the application |
 | Run green, release never arrived | a shipping stage failed under `allow_failure` | read each step's outcome with `ankra pipeline get <run-id> --application <application-id>`; drop the flag |
 | Test or build times out reaching a private host | `egress-https` is public-only | `ankra org ci-settings set --egress-allowed-cidr 10.0.0.0/8` |
@@ -523,7 +524,7 @@ writer yet. `egress-https` reaches **public addresses only**; name a private ran
   registration is a tear-down, not a rename.
 - **Re-run is the recovery, and §10 is the truth.** Every wait resumes from platform state; a
   timeout is a pause. Do not emit `approval` or `agent` stages and call them wired, and do not emit
-`deploy` to reach a cluster: it releases only to host targets.
+  `deploy` to reach a cluster: it releases only to host targets.
 
 ## Related skills
 

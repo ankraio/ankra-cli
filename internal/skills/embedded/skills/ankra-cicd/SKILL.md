@@ -175,7 +175,8 @@ Facts that decide whether the first run works:
 - **Schedules** name the stage subset they run (`stages:`), so a nightly runs the expensive suite
   without `if:` on every stage. `when.events` decides what runs on `push` vs `pull_request`. A
   re-run is planned as the event it repeats, so a re-run of a push publishes again and a re-run
-  of a pull request does not; only a re-run of a tag or manual run is planned as `rerun`.
+  of a pull request does not; only a re-run of a tag, manual, API or agent run is planned as
+  `rerun`.
 - **Which component a build belongs to** (application-bound repositories). A `kind: build`
   stage belongs to the component its `build.component` names, else the one its `build-<component>`
   name carries, else a single-component application's one component. Declare `build.component`
