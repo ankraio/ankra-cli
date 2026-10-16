@@ -97,7 +97,7 @@ func runGitHubOIDCLogin(cmd *cobra.Command) error {
 	}
 	baseURL := viper.GetString("base-url")
 	if baseURL == "" {
-		baseURL = "https://platform.ankra.app"
+		baseURL = defaultBaseURL
 	}
 	baseURL, normaliseError := client.NormalizeBaseURL(baseURL, os.Getenv(envAllowInsecureHTTP) == "1")
 	if normaliseError != nil {

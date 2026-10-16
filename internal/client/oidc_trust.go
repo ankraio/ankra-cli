@@ -77,9 +77,11 @@ func (c *Client) doOIDCTrustRequest(ctx context.Context, method string, path str
 	if readError != nil {
 		return nil, fmt.Errorf("read response: %w", readError)
 	}
-	switch response.StatusCode {
-	case http.StatusOK, http.StatusCreated:
+	// Any 2xx is success: a DELETE may answer 204 with no body.
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
 		return responseBody, nil
+	}
+	switch response.StatusCode {
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	case http.StatusForbidden:

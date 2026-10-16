@@ -81,3 +81,23 @@ func TestOrgOIDCTrustCreateRejectsABadRepository(t *testing.T) {
 		t.Fatalf("want a usage error, got %v", createError)
 	}
 }
+
+func TestOrgOIDCTrustCreateRejectsZeroIdsAndAnOutOfRangeTTL(t *testing.T) {
+	for name, arguments := range map[string][]string{
+		"zero repository id":  {"--repository-id", "0", "--repository-owner-id", "1"},
+		"zero owner id":       {"--repository-id", "1", "--repository-owner-id", "0"},
+		"ttl under a minute":  {"--repository-id", "1", "--repository-owner-id", "1", "--ttl", "30s"},
+		"ttl over an hour":    {"--repository-id", "1", "--repository-owner-id", "1", "--ttl", "2h"},
+		"sub-second ttl part": {"--repository-id", "1", "--repository-owner-id", "1", "--ttl", "90.5s"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			setMockClient(t, &oidcTrustMock{})
+			resetOIDCTrustFlags(t)
+			command := append([]string{"org", "oidc-trust", "create", "x", "--repository", "acme/deploy",
+				"--role", "viewer"}, arguments...)
+			if _, createError := executeCommand(command...); createError == nil || exitCodeFor(createError) != exitUsage {
+				t.Fatalf("want a usage error, got %v", createError)
+			}
+		})
+	}
+}

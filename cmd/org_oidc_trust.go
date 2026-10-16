@@ -18,6 +18,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// oidcTrustMinimumTTL and oidcTrustMaximumTTL mirror the platform's bounds on
+// a trust policy's minted-token lifetime, so a bad --ttl fails before the call.
+const (
+	oidcTrustMinimumTTL = time.Minute
+	oidcTrustMaximumTTL = time.Hour
+)
+
 var orgOIDCTrustCmd = &cobra.Command{
 	Use:   "oidc-trust",
 	Short: "Manage GitHub Actions OIDC trust policies (no stored CI token)",
@@ -110,8 +117,16 @@ reviewers in GitHub.`,
 		}
 		repositoryID, _ := cmd.Flags().GetInt64("repository-id")
 		ownerID, _ := cmd.Flags().GetInt64("repository-owner-id")
+		if repositoryID <= 0 || ownerID <= 0 {
+			return withExitCode(exitUsage, errors.New(
+				"--repository-id and --repository-owner-id must be the repository's and owner's numeric GitHub ids"))
+		}
 		role, _ := cmd.Flags().GetString("role")
 		ttl, _ := cmd.Flags().GetDuration("ttl")
+		if ttl < oidcTrustMinimumTTL || ttl > oidcTrustMaximumTTL || ttl%time.Second != 0 {
+			return withExitCode(exitUsage, fmt.Errorf(
+				"--ttl must be whole seconds from %s to %s, got %s", oidcTrustMinimumTTL, oidcTrustMaximumTTL, ttl))
+		}
 		allowPR, _ := cmd.Flags().GetBool("allow-pull-request")
 		scopes, _ := cmd.Flags().GetStringSlice("scope")
 		request := client.OIDCTrustPolicyRequest{
