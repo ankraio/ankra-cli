@@ -145,6 +145,7 @@ stages:
     timeout: "20m"
     resources: { cpu: "2", memory: "4Gi" }
     runs_on: { node_selector: { "kubernetes.io/arch": "amd64" } }     # placement: cluster, node_selector, tolerations, runtime_class, arch
+    affected: { go: ["./..."] }      # run only when a changed file is in this stage's import graph (Go packages or pnpm: ["@acme/web"]); skipped stages are satisfied for what needs them
     when: { events: ["push", "pull_request"], branches: ["main"] }    # first-class event filter
     if: "${{ !contains(ankra.ref, '-') }}"                            # expression filter
     allow_failure: false
