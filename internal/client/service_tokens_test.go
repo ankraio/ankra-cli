@@ -93,6 +93,13 @@ func TestDeleteClusterAccessGrantRoleGrantRefusalIsTyped(t *testing.T) {
 	if errors.As(err, &roleGrant) {
 		t.Fatalf("a 404 is not a role-grant refusal: %v", err)
 	}
+
+	// A 409 for another cause keeps the platform's words but is not read
+	// as "change the member's role".
+	err = revokeResponseError(http.StatusConflict, []byte(`{"detail":"The grant changed while it was being revoked"}`))
+	if errors.As(err, &roleGrant) || err.Error() != "The grant changed while it was being revoked" {
+		t.Fatalf("an unrelated 409 must stay a plain failure, got %T %v", err, err)
+	}
 }
 
 func TestListOrganisationUsersKeepsServicePrincipalFields(t *testing.T) {

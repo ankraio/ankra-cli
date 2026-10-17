@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -214,11 +215,18 @@ func (e *ClusterAccessRoleGrantError) Error() string { return e.response.Error()
 
 func (e *ClusterAccessRoleGrantError) Unwrap() error { return e.response }
 
-// revokeResponseError is accessResponseError for the revoke route, where a
-// 409 has exactly one cause: the grant comes from an organisation role.
+// roleGrantRefusalMarker is the part of the platform's 409 sentence
+// (clusteraccess.RoleGrantNotRevocableDetail) that names the cause.
+const roleGrantRefusalMarker = "organisation role"
+
+// revokeResponseError is accessResponseError for the revoke route. Today a
+// 409 there has one cause, the grant coming from an organisation role, but
+// the status alone is not trusted to mean it: a 409 whose sentence does not
+// name the role stays a plain failure (exit 1) with the platform's words,
+// rather than telling the caller to change a member's role.
 func revokeResponseError(statusCode int, body []byte) error {
 	refused := accessResponseError("revoke access grant failed", statusCode, body)
-	if statusCode == http.StatusConflict {
+	if statusCode == http.StatusConflict && strings.Contains(refused.Error(), roleGrantRefusalMarker) {
 		return &ClusterAccessRoleGrantError{response: refused}
 	}
 	return refused
