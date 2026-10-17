@@ -4,6 +4,18 @@
 
 ### Added
 
+- **`ankra pipeline validate --changed-file` reads the dependency graph for
+  `affected:` stages.** A stage that declares `affected:` (Go packages or pnpm
+  workspace packages) is decided at run time by the run's checkout, from the
+  dependency graph of the commit it checks out (ankraio/cluster#4866).
+  Inside a git checkout, `validate --changed-file` now runs the same analysis
+  against the working tree and shows, per stage, whether the change reaches it
+  (`graph: affected`) or not (`skip: not affected (graph)`, satisfied for the
+  stages that need it). `--no-local-graph` leaves them to the run. The CLI
+  carries its own copy of the analysis and says so when it differs from the
+  platform's; it never runs a script the API sends. Needs `sh`, `git` and
+  `awk` (not on Windows).
+
 - **`ankra ai memories list` and `ankra ai memories clear` show and delete
   what the assistant remembers about you.** Ankra's chat stores short facts
   from your conversations and recalls them into later ones; until now they

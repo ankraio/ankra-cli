@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"strings"
 
+	"ankra/internal/affected"
 	"ankra/internal/client"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -44,6 +45,14 @@ names a dry-run diff so they decide for real:
 
   ankra pipeline validate --repository <id> --changed-file frontend/app.ts
 
+A stage that declares affected: (Go packages or pnpm workspace packages) is
+decided at run time by the run's checkout, from the dependency graph of the
+commit it checks out. With --changed-file, inside a git checkout, the CLI runs
+the same analysis against the working tree and shows which of those stages
+the change reaches ("graph: affected") and which it does not ("graph: not
+affected", skipped and satisfied for the stages that need it).
+--no-local-graph skips that and shows them as decided at run time.
+
 --ref reads the definition from a git reference in the current checkout
 instead of the working tree, so a candidate on a branch can be checked
 before it is merged:
@@ -75,6 +84,8 @@ The reference is resolved locally, so a branch someone else pushed needs a
 		"Read the definition from this git reference in the current checkout (for example origin/my-branch) instead of the working tree")
 	validateCommand.Flags().StringArray("changed-file", nil,
 		"Plan as if this repository-relative path changed (repeatable), so path filters decide instead of passing")
+	validateCommand.Flags().Bool("no-local-graph", false,
+		"Do not read the dependency graph of the local checkout for affected: stages")
 	registerStructuredOutputFlags(validateCommand)
 	return validateCommand
 }
@@ -185,6 +196,9 @@ func runPipelineValidate(
 	if validateError != nil {
 		return validateError
 	}
+	if skipLocalGraph, _ := command.Flags().GetBool("no-local-graph"); !skipLocalGraph && changedFiles != nil {
+		annotateLocalAffected(command, validation)
+	}
 	if format != outputDefault {
 		return encodeStructured(command.OutOrStdout(), format, validation)
 	}
@@ -216,7 +230,7 @@ func printPipelineValidation(command *cobra.Command, validation *client.Pipeline
 		}
 		_, _ = fmt.Fprintln(out)
 		for _, step := range event.Steps {
-			_, _ = fmt.Fprintf(out, "    %s\n", plannedStepLine(step))
+			_, _ = fmt.Fprintf(out, "    %s%s\n", plannedStepLine(step), graphNote(event, step))
 		}
 		for _, skipped := range event.Skipped {
 			_, _ = fmt.Fprintf(out, "    %s skipped: %s\n", skipped.StepKey, skipped.Message)
@@ -259,7 +273,7 @@ func printPipelineEventTable(out io.Writer, events []client.PipelineEventPlan) {
 				isListed[step.Stage] = true
 				stages = append(stages, step.Stage)
 			}
-			cells[eventIndex][step.Stage] = "run"
+			cells[eventIndex][step.Stage] = graphCell(event, step)
 		}
 		for _, skipped := range event.Skipped {
 			if !isListed[skipped.Stage] {
@@ -294,6 +308,91 @@ func printPipelineEventTable(out io.Writer, events []client.PipelineEventPlan) {
 		writer.AppendRow(row)
 	}
 	writer.Render()
+}
+
+// annotateLocalAffected runs the dependency-graph analysis against the local
+// checkout for every event whose plan left stages to the run's checkout, and
+// records the answers on the event (LocalAffected). It never fails the
+// command: a dry run that cannot read the graph locally still shows what the
+// platform planned, and says on stderr why the graph was not read. Events
+// asking the same question share one analysis.
+func annotateLocalAffected(command *cobra.Command, validation *client.PipelineValidation) {
+	stderr := command.ErrOrStderr()
+	var root string
+	answered := map[string]map[string]bool{}
+	for index := range validation.Events {
+		analysis := validation.Events[index].AffectedAnalysis
+		if analysis == nil {
+			continue
+		}
+		if root == "" {
+			top, topError := executeGit(command.Context(), ".", "rev-parse", "--show-toplevel")
+			if topError != nil {
+				_, _ = fmt.Fprintln(stderr,
+					"note: not inside a git checkout, so the affected: stages are shown as decided at run time")
+				return
+			}
+			root = strings.TrimSpace(top)
+			if analysis.ProgramDigest != "" && analysis.ProgramDigest != affected.ProgramDigest() {
+				_, _ = fmt.Fprintln(stderr,
+					"note: this CLI's copy of the dependency-graph analysis differs from the platform's; update the CLI if an answer below looks wrong")
+			}
+		}
+		targets := make([]affected.Target, 0, len(analysis.Targets))
+		for _, target := range analysis.Targets {
+			targets = append(targets, affected.Target{Stage: target.Stage, Go: target.Go, Pnpm: target.Pnpm})
+		}
+		key := fmt.Sprintf("%q %q", analysis.ChangedFiles, targets)
+		answers, isAnswered := answered[key]
+		if !isAnswered {
+			var log string
+			var analyseError error
+			answers, log, analyseError = affected.Analyse(command.Context(), root, analysis.ChangedFiles, targets)
+			if analyseError != nil {
+				_, _ = fmt.Fprintf(stderr, "note: the dependency graph could not be read locally (%v); the affected: stages are shown as decided at run time\n", analyseError)
+				if strings.TrimSpace(log) != "" {
+					_, _ = fmt.Fprintln(stderr, strings.TrimSpace(log))
+				}
+				return
+			}
+			answered[key] = answers
+		}
+		validation.Events[index].LocalAffected = answers
+	}
+}
+
+// graphNote is what a dry-run step line adds for a step the dependency graph
+// decides: the local answer when there is one.
+func graphNote(event client.PipelineEventPlan, step client.PipelinePlannedStep) string {
+	if !step.AffectedByGraph {
+		return ""
+	}
+	isAffected, isAnswered := event.LocalAffected[step.Stage]
+	switch {
+	case !isAnswered:
+		return " [graph: decided by the run's checkout]"
+	case isAffected:
+		return " [graph: affected]"
+	default:
+		return " [graph: not affected, skipped; the stages that need it still run]"
+	}
+}
+
+// graphCell is a planned step's table cell: "run", or for a step the
+// dependency graph decides, its local answer.
+func graphCell(event client.PipelineEventPlan, step client.PipelinePlannedStep) string {
+	if !step.AffectedByGraph {
+		return "run"
+	}
+	isAffected, isAnswered := event.LocalAffected[step.Stage]
+	switch {
+	case !isAnswered:
+		return "graph: decided at run time"
+	case isAffected:
+		return "run (graph: affected)"
+	default:
+		return "skip: not affected (graph)"
+	}
 }
 
 // plannedStepLine describes one node of a dry-run DAG. The resolved egress
