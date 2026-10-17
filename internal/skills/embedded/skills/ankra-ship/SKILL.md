@@ -316,7 +316,10 @@ To skip what a change did not touch, pick the filter by what stands behind the s
   commit (cross-module `replace`, `workspace:` deps included) and the stage is skipped as
   `not_affected`, satisfied like `paths:`, only when no changed file reaches it. Put the files read
   at run time (migrations, fixtures opened by path, scripts) in `paths:` beside it; that is an OR.
-  `ankra pipeline validate --changed-file <f>` inside the checkout shows the graph's answer.
+  `ankra pipeline validate --changed-file <f>` inside the checkout shows the graph's answer. The
+  skip never waits for a CI slot. With `promote_from`, the push promotes past a stage the pull
+  request run skipped as `not_affected` when it changes no file that run's graph was not asked
+  about (same tree, same answer); otherwise it builds in full and reads the graph itself.
 - A component's **build/scan/publish chain**: `when.paths`. `paths:` is refused on a `build` another
   stage needs, a scan a gate requires and a gate, and skipping the whole chain is what you want.
 - **"Pull requests check what they touch, pushes check everything"**: an event-scoped
