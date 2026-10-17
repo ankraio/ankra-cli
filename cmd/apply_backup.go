@@ -3,10 +3,11 @@ package cmd
 // The stack backup block in the apply dialect (epic ankra-0xsdd, WS4).
 //
 // `ankra cluster apply` replaces a stack with what the file says, so a field
-// the dialect does not read is a field the apply silently clears. That is why
-// stack variables had to be added here after the fact (ankra-yxxa), and it is
-// exactly the hazard that made `backup` worth parsing carefully: the block
-// decides whether the stack is backed up at all.
+// the dialect does not read is a field the apply can silently clear. Stack
+// variables were added after the fact (ankra-yxxa), though the platform now
+// keeps a stack's stored variables when the request omits them (ankra-vvfcd).
+// That hazard is what made `backup` worth parsing carefully: the block decides
+// whether the stack is backed up at all.
 //
 // The platform preserves a stored policy when the request carries no block,
 // so a file written before this field existed cannot unprotect anything. This

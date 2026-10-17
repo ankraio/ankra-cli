@@ -342,10 +342,10 @@ type Stack struct {
 	// only after every stack in a lower wave finished. Nil = unordered.
 	DeployWave *int `json:"deploy_wave,omitempty"`
 	// Variables are the stack-scoped rendering variables, the same map the
-	// partial-stack PATCH carries as StackSpec.Variables. The backend replaces
-	// the stored map with whatever apply sends, so omitting it clears the
-	// stack's variables - which is what happened before the CLI read them
-	// (ankra-yxxa).
+	// partial-stack PATCH carries as StackSpec.Variables. A map that apply
+	// sends replaces the stored one; when the key is omitted the backend
+	// keeps the stack's stored variables (ankra-vvfcd). With omitempty an
+	// empty map is omitted too, so an apply cannot clear them by sending one.
 	Variables map[string]string `json:"variables,omitempty"`
 	// Backup is the stack's backup policy (epic ankra-0xsdd, WS4). Pointer
 	// semantics are load-bearing and the opposite of Variables': nil means
