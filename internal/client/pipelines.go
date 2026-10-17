@@ -605,6 +605,26 @@ type PipelinePlannedStep struct {
 	DependsOn      []string `json:"depends_on"`
 	RunCondition   string   `json:"run_condition"`
 	TimeoutSeconds int      `json:"timeout_seconds"`
+	// AffectedByGraph marks a step the run's checkout decides from the
+	// dependency graph (the stage declares affected:): planned, and skipped
+	// as not affected when no changed file reaches it.
+	AffectedByGraph bool `json:"affected_by_graph,omitempty"`
+}
+
+// PipelineAffectedAnalysis is the dependency-graph request the run's checkout
+// would answer for one event: the change, each affected: stage's resolved
+// targets, and the digest of the platform's analysis program.
+type PipelineAffectedAnalysis struct {
+	ChangedFiles  []string                 `json:"changed_files"`
+	Targets       []PipelineAffectedTarget `json:"targets"`
+	ProgramDigest string                   `json:"program_sha256"`
+}
+
+// PipelineAffectedTarget is one stage's resolved affected: targets.
+type PipelineAffectedTarget struct {
+	Stage string   `json:"stage"`
+	Go    []string `json:"go"`
+	Pnpm  []string `json:"pnpm"`
 }
 
 // PipelineSkippedStage is one stage a dry run would not execute.
@@ -625,6 +645,14 @@ type PipelineEventPlan struct {
 	Steps          []PipelinePlannedStep  `json:"steps"`
 	Skipped        []PipelineSkippedStage `json:"skipped"`
 	Diagnostics    []string               `json:"diagnostics"`
+	// AffectedAnalysis is the dependency-graph request, nil when no stage's
+	// answer is left to the run's checkout.
+	AffectedAnalysis *PipelineAffectedAnalysis `json:"affected_analysis,omitempty"`
+	// LocalAffected is filled by `ankra pipeline validate`, not the API: the
+	// answer the same analysis gave against the local checkout, per stage
+	// (true: a changed file reaches it). A stage it gave no answer for is
+	// absent, and the run's checkout decides it.
+	LocalAffected map[string]bool `json:"local_affected,omitempty"`
 }
 
 // PipelineValidation is the POST …/pipeline/validate body: a dry run that

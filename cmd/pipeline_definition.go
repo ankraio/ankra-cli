@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"path"
+	"path/filepath"
 	"strings"
 
+	"ankra/internal/affected"
 	"ankra/internal/client"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -44,6 +47,14 @@ names a dry-run diff so they decide for real:
 
   ankra pipeline validate --repository <id> --changed-file frontend/app.ts
 
+A stage that declares affected: (Go packages or pnpm workspace packages) is
+decided at run time by the run's checkout, from the dependency graph of the
+commit it checks out. With --changed-file, inside a git checkout, the CLI runs
+the same analysis against the working tree and shows which of those stages
+the change reaches ("graph: affected") and which it does not ("graph: not
+affected", skipped and satisfied for the stages that need it).
+--no-local-graph skips that and shows them as decided at run time.
+
 --ref reads the definition from a git reference in the current checkout
 instead of the working tree, so a candidate on a branch can be checked
 before it is merged:
@@ -63,9 +74,12 @@ The reference is resolved locally, so a branch someone else pushed needs a
 				return pathError
 			}
 			gitReference, _ := command.Flags().GetString("ref")
-			changedFiles, _ := command.Flags().GetStringArray("changed-file")
-			return runPipelineValidate(command, selector, filePath, strings.TrimSpace(gitReference),
-				pipelineValidateChangedFiles(changedFiles))
+			changedFileFlags, _ := command.Flags().GetStringArray("changed-file")
+			changedFiles, changedFilesError := pipelineValidateChangedFiles(changedFileFlags)
+			if changedFilesError != nil {
+				return changedFilesError
+			}
+			return runPipelineValidate(command, selector, filePath, strings.TrimSpace(gitReference), changedFiles)
 		},
 	}
 	registerPipelineSelectorFlags(validateCommand)
@@ -75,6 +89,8 @@ The reference is resolved locally, so a branch someone else pushed needs a
 		"Read the definition from this git reference in the current checkout (for example origin/my-branch) instead of the working tree")
 	validateCommand.Flags().StringArray("changed-file", nil,
 		"Plan as if this repository-relative path changed (repeatable), so path filters decide instead of passing")
+	validateCommand.Flags().Bool("no-local-graph", false,
+		"Do not read the dependency graph of the local checkout for affected: stages")
 	registerStructuredOutputFlags(validateCommand)
 	return validateCommand
 }
@@ -82,14 +98,27 @@ The reference is resolved locally, so a branch someone else pushed needs a
 // pipelineValidateChangedFiles answers the dry-run diff --changed-file names:
 // nil when the flag was not given, so the platform plans with no change list
 // rather than an empty one, which would exclude every path-filtered stage.
-func pipelineValidateChangedFiles(values []string) []string {
+//
+// Each name is cleaned into the repository-relative form a provider reports
+// ("./api/x.go" becomes "api/x.go"), and an absolute path or one above the
+// repository root is refused: neither can match a path filter or the
+// dependency graph, so planning with it would report every filtered stage as
+// left out for a change that was never measured.
+func pipelineValidateChangedFiles(values []string) ([]string, error) {
 	var changedFiles []string
 	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			changedFiles = append(changedFiles, trimmed)
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
 		}
+		cleaned := path.Clean(filepath.ToSlash(trimmed))
+		if path.IsAbs(cleaned) || cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+			return nil, withExitCode(exitUsage, fmt.Errorf(
+				"--changed-file %q is not a path inside the repository; name it relative to the repository root, for example api/main.go", value))
+		}
+		changedFiles = append(changedFiles, cleaned)
 	}
-	return changedFiles
+	return changedFiles, nil
 }
 
 // pipelineValidateFilePath answers which definition file `validate` reads.
@@ -185,6 +214,18 @@ func runPipelineValidate(
 	if validateError != nil {
 		return validateError
 	}
+	if skipLocalGraph, _ := command.Flags().GetBool("no-local-graph"); !skipLocalGraph && changedFiles != nil {
+		if gitReference != "" {
+			// The definition was read at a reference, and the graph would be
+			// read from the working tree: two different commits.
+			if hasAffectedAnalysis(validation) {
+				_, _ = fmt.Fprintln(command.ErrOrStderr(),
+					"note: --ref reads the definition at a reference and the local graph is the working tree's, so the affected: stages are shown as decided at run time; check the reference out to read its graph")
+			}
+		} else {
+			annotateLocalAffected(command, validation)
+		}
+	}
 	if format != outputDefault {
 		return encodeStructured(command.OutOrStdout(), format, validation)
 	}
@@ -217,7 +258,7 @@ func printPipelineValidation(command *cobra.Command, validation *client.Pipeline
 		}
 		_, _ = fmt.Fprintln(out)
 		for _, step := range event.Steps {
-			_, _ = fmt.Fprintf(out, "    %s\n", plannedStepLine(step))
+			_, _ = fmt.Fprintf(out, "    %s%s\n", plannedStepLine(step), graphNote(event, step))
 		}
 		for _, skipped := range event.Skipped {
 			_, _ = fmt.Fprintf(out, "    %s skipped: %s\n", skipped.StepKey, skipped.Message)
@@ -285,7 +326,7 @@ func printPipelineEventTable(out io.Writer, events []client.PipelineEventPlan) {
 				isListed[step.Stage] = true
 				stages = append(stages, step.Stage)
 			}
-			cells[eventIndex][step.Stage] = "run"
+			cells[eventIndex][step.Stage] = graphCell(event, step)
 		}
 		for _, skipped := range event.Skipped {
 			if !isListed[skipped.Stage] {
@@ -320,6 +361,103 @@ func printPipelineEventTable(out io.Writer, events []client.PipelineEventPlan) {
 		writer.AppendRow(row)
 	}
 	writer.Render()
+}
+
+// annotateLocalAffected runs the dependency-graph analysis against the local
+// checkout for every event whose plan left stages to the run's checkout, and
+// records the answers on the event (LocalAffected). It never fails the
+// command: a dry run that cannot read the graph locally still shows what the
+// platform planned, and says on stderr why the graph was not read. Events
+// asking the same question share one analysis.
+func annotateLocalAffected(command *cobra.Command, validation *client.PipelineValidation) {
+	stderr := command.ErrOrStderr()
+	var root string
+	isDigestNoted := false
+	answered := map[string]map[string]bool{}
+	for index := range validation.Events {
+		analysis := validation.Events[index].AffectedAnalysis
+		if analysis == nil {
+			continue
+		}
+		if root == "" {
+			top, topError := executeGit(command.Context(), ".", "rev-parse", "--show-toplevel")
+			if topError != nil {
+				_, _ = fmt.Fprintln(stderr,
+					"note: not inside a git checkout, so the affected: stages are shown as decided at run time")
+				return
+			}
+			root = strings.TrimSpace(top)
+		}
+		if !isDigestNoted && analysis.ProgramDigest != "" && analysis.ProgramDigest != affected.ProgramDigest() {
+			isDigestNoted = true
+			_, _ = fmt.Fprintln(stderr,
+				"note: this CLI's copy of the dependency-graph analysis differs from the platform's; update the CLI if an answer below looks wrong")
+		}
+		targets := make([]affected.Target, 0, len(analysis.Targets))
+		for _, target := range analysis.Targets {
+			targets = append(targets, affected.Target{Stage: target.Stage, Go: target.Go, Pnpm: target.Pnpm})
+		}
+		key := fmt.Sprintf("%q %q", analysis.ChangedFiles, targets)
+		answers, isAnswered := answered[key]
+		if !isAnswered {
+			var log string
+			var analyseError error
+			answers, log, analyseError = affected.Analyse(command.Context(), root, analysis.ChangedFiles, targets)
+			if analyseError != nil {
+				_, _ = fmt.Fprintf(stderr, "note: the dependency graph could not be read locally (%v); the affected: stages are shown as decided at run time\n", analyseError)
+				if strings.TrimSpace(log) != "" {
+					_, _ = fmt.Fprintln(stderr, strings.TrimSpace(log))
+				}
+				return
+			}
+			answered[key] = answers
+		}
+		validation.Events[index].LocalAffected = answers
+	}
+}
+
+// hasAffectedAnalysis reports whether any event left stages to the graph.
+func hasAffectedAnalysis(validation *client.PipelineValidation) bool {
+	for _, event := range validation.Events {
+		if event.AffectedAnalysis != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// graphNote is what a dry-run step line adds for a step the dependency graph
+// decides: the local answer when there is one.
+func graphNote(event client.PipelineEventPlan, step client.PipelinePlannedStep) string {
+	if !step.AffectedByGraph {
+		return ""
+	}
+	isAffected, isAnswered := event.LocalAffected[step.Stage]
+	switch {
+	case !isAnswered:
+		return " [graph: decided by the run's checkout]"
+	case isAffected:
+		return " [graph: affected]"
+	default:
+		return " [graph: not affected, skipped; the stages that need it still run]"
+	}
+}
+
+// graphCell is a planned step's table cell: "run", or for a step the
+// dependency graph decides, its local answer.
+func graphCell(event client.PipelineEventPlan, step client.PipelinePlannedStep) string {
+	if !step.AffectedByGraph {
+		return "run"
+	}
+	isAffected, isAnswered := event.LocalAffected[step.Stage]
+	switch {
+	case !isAnswered:
+		return "graph: decided at run time"
+	case isAffected:
+		return "run (graph: affected)"
+	default:
+		return "skip: not affected (graph)"
+	}
 }
 
 // plannedStepLine describes one node of a dry-run DAG. The resolved egress
